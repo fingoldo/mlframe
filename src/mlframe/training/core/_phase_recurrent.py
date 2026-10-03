@@ -662,6 +662,13 @@ def train_recurrent_models(
                     logger.info("Successfully trained %s for %s; entry appended to ensemble member list.", recurrent_model_name, cur_target_name)
 
     # Per-target single rerun of score_ensemble with the augmented member list.
+    _rescore_ensembles_with_recurrent(ctx, targets_with_recurrent)
+
+    return models
+
+
+def _rescore_ensembles_with_recurrent(ctx, targets_with_recurrent):
+    """Rescore the per-target ensembles with the recurrent members added."""
     if ctx is not None:
         for target_type, by_name in targets_with_recurrent.items():
             for cur_target_name, target_values in by_name.items():
@@ -671,8 +678,6 @@ def train_recurrent_models(
                     target_name=cur_target_name,
                     target_values=target_values,
                 )
-
-    return models
 
 
 def _apply_recurrent_timeout(_timeout, model_clone, verbose, recurrent_model_name):

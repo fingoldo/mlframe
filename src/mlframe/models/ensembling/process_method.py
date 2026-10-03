@@ -246,15 +246,7 @@ def _process_single_ensemble_method(
             _fallback_used.append(_idx)
         return _train
 
-    if not is_regression:
-        train_predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
-    elif _oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0) is not None:
-        # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
-        _fallback_used.clear()
-        train_predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i) for _i, el in enumerate(level_models_and_predictions)]
-        train_predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in train_predictions]  # preserve row axis for multi-target (see val-branch note)
-    else:
-        train_predictions = []
+    train_predictions = _collect_train_predictions(is_regression, level_models_and_predictions, _oof_or_train, _use_cal, _fallback_used)
 
     if _fallback_used:
         logger.warning(
@@ -386,23 +378,7 @@ def _process_single_ensemble_method(
     # Stash the per-member test-split predictions as an (n_rows, n_members) matrix so the suite finalize can render the
     # ensemble prediction-stability (member-disagreement) panel. Test arrays already materialised above; for
     # classification members carry probs (positive-class column), for regression the point preds.
-    try:
-        _cols = []
-        for _p in _test_preds:
-            if _p is None:
-                continue
-            _a = np.asarray(_p, dtype=np.float64)
-            if _a.ndim == 2 and _a.shape[1] == 2:
-                _a = _a[:, 1]
-            _cols.append(_a.ravel())
-        if len(_cols) >= 2:
-            _w = min(c.shape[0] for c in _cols)
-            # train_and_evaluate_model returns (entry_namespace, train_df, val_df, test_df); stamp the namespace.
-            _entry_ns = next_ens_results[0] if isinstance(next_ens_results, tuple) else next_ens_results
-            _entry_ns.member_test_preds = np.column_stack([c[:_w] for c in _cols])
-    except Exception as e:
-        logger.warning("swallowed exception in process_method.py: %s", e)
-        pass
+    _stack_member_predictions(_test_preds, next_ens_results)
 
     conf_results = None
     if uncertainty_quantile:
@@ -444,16 +420,7 @@ def _process_single_ensemble_method(
         # not on the prediction array.
         _cov_src = None
         _conf_target = None
-        for _label, _full, _conf, _full_target in (
-            ("VAL", val_ensembled_predictions, val_confident_indices, val_target),
-            ("TEST", test_ensembled_predictions, test_confident_indices, test_target),
-            ("TRAIN", train_ensembled_predictions, train_confident_indices, train_target),
-        ):
-            if _full is not None and _conf is not None and len(_full) > 0:
-                _cov_src = (_label, 100.0 * len(_conf) / len(_full))
-                if _full_target is not None and len(_full_target) == len(_full):
-                    _conf_target = _full_target[_conf]
-                break
+        _conf_target, _cov_src = _confident_coverage_source(val_ensembled_predictions, val_confident_indices, val_target, test_ensembled_predictions, test_confident_indices, test_target, train_ensembled_predictions, train_confident_indices, train_target, _conf_target, _cov_src)
 
         # Degenerate-class-balance check on the filtered target. A confidence
         # filter that "keeps the rows the ensemble agrees on" tends to keep
@@ -464,18 +431,7 @@ def _process_single_ensemble_method(
         # split. Marker is binary-classification only; regression has no
         # class balance to check.
         _degenerate_marker = ""
-        if flag_degenerate_conf_subset and not is_regression and _conf_target is not None and len(_conf_target) > 0:
-            _ct = np.asarray(_conf_target)
-            if _ct.ndim == 1:
-                # Count positives via boolean comparison so float / bool / int
-                # targets all behave the same. Ratio is min/max regardless of
-                # which class is the minority.
-                _n_pos = int((_ct == 1).sum())
-                _n_neg = int(_ct.shape[0] - _n_pos)
-                _hi = max(_n_pos, _n_neg)
-                _lo = min(_n_pos, _n_neg)
-                if _hi > 0 and (_lo / _hi) < degenerate_class_ratio:
-                    _degenerate_marker = "[DEGENERATE] "
+        _degenerate_marker = _flag_degenerate_confident_subset(flag_degenerate_conf_subset, is_regression, _conf_target, degenerate_class_ratio, _degenerate_marker)
 
         # Trailing space so the downstream concat ``f"...{ensemble_name}{_cov_tag}"``
         # doesn't slam the next token onto the closing bracket -- the 2026-04-24
@@ -523,3 +479,70 @@ def _process_single_ensemble_method(
         )
 
     return (internal_ensemble_method, next_ens_results, conf_results)
+
+
+def _collect_train_predictions(is_regression, level_models_and_predictions, _oof_or_train, _use_cal, _fallback_used):
+    """Collect the train-time predictions of the ensemble members."""
+    if not is_regression:
+        train_predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
+    elif _oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0) is not None:
+        # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
+        _fallback_used.clear()
+        train_predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i) for _i, el in enumerate(level_models_and_predictions)]
+        train_predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in train_predictions]  # preserve row axis for multi-target (see val-branch note)
+    else:
+        train_predictions = []
+    return train_predictions
+
+
+def _confident_coverage_source(val_ensembled_predictions, val_confident_indices, val_target, test_ensembled_predictions, test_confident_indices, test_target, train_ensembled_predictions, train_confident_indices, train_target, _conf_target, _cov_src):
+    """Find the first split with a non-empty confident subset and its coverage."""
+    for _label, _full, _conf, _full_target in (
+        ("VAL", val_ensembled_predictions, val_confident_indices, val_target),
+        ("TEST", test_ensembled_predictions, test_confident_indices, test_target),
+        ("TRAIN", train_ensembled_predictions, train_confident_indices, train_target),
+    ):
+        if _full is not None and _conf is not None and len(_full) > 0:
+            _cov_src = (_label, 100.0 * len(_conf) / len(_full))
+            if _full_target is not None and len(_full_target) == len(_full):
+                _conf_target = _full_target[_conf]
+            break
+    return _conf_target, _cov_src
+
+
+def _stack_member_predictions(_test_preds, next_ens_results):
+    """Stack the member predictions of the test split."""
+    try:
+        _cols = []
+        for _p in _test_preds:
+            if _p is None:
+                continue
+            _a = np.asarray(_p, dtype=np.float64)
+            if _a.ndim == 2 and _a.shape[1] == 2:
+                _a = _a[:, 1]
+            _cols.append(_a.ravel())
+        if len(_cols) >= 2:
+            _w = min(c.shape[0] for c in _cols)
+            # train_and_evaluate_model returns (entry_namespace, train_df, val_df, test_df); stamp the namespace.
+            _entry_ns = next_ens_results[0] if isinstance(next_ens_results, tuple) else next_ens_results
+            _entry_ns.member_test_preds = np.column_stack([c[:_w] for c in _cols])
+    except Exception as e:
+        logger.warning("swallowed exception in process_method.py: %s", e)
+        pass
+
+
+def _flag_degenerate_confident_subset(flag_degenerate_conf_subset, is_regression, _conf_target, degenerate_class_ratio, _degenerate_marker):
+    """Flag a confident subset whose target has a single class."""
+    if flag_degenerate_conf_subset and not is_regression and _conf_target is not None and len(_conf_target) > 0:
+        _ct = np.asarray(_conf_target)
+        if _ct.ndim == 1:
+            # Count positives via boolean comparison so float / bool / int
+            # targets all behave the same. Ratio is min/max regardless of
+            # which class is the minority.
+            _n_pos = int((_ct == 1).sum())
+            _n_neg = int(_ct.shape[0] - _n_pos)
+            _hi = max(_n_pos, _n_neg)
+            _lo = min(_n_pos, _n_neg)
+            if _hi > 0 and (_lo / _hi) < degenerate_class_ratio:
+                _degenerate_marker = "[DEGENERATE] "
+    return _degenerate_marker

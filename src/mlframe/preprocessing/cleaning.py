@@ -215,6 +215,12 @@ def is_variable_truly_continuous(
     Probably not: span will be very narrow (like, 1 or even 0).
     so probably, for vars with fractional digits, need to try iteratively with increasing max_fract_digits=(1,2,.) as long as unique_fracts keeps growing.
     """
+    # Bound inside the numeric / datetime branches below; the verbose log reads them under the same conditions.
+    cur_fract_digits: Any = None
+    prev_date_fract: Any = None
+    cont_ratio: Any = None
+    nexpected_unique_values: Any = None
+    n_outliers: Any = None
     if values is None:
         # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix under -O,
         # ``values = df[variable_name].values`` would AttributeError on
@@ -265,37 +271,7 @@ def is_variable_truly_continuous(
 
         n_unique_ints = _get_nunique(vals=int_part, skip_vals=(0.0,))
         n_unique_fracts = _get_nunique(vals=fract_part, skip_vals=(0.0, 1.0))
-        if n_unique_fracts == 0:
-            cur_fract_digits = 1
-        else:
-            # Sort the fractional part ONCE; the per-precision distinct-count below rounds inline over this single sorted array
-            # (round is monotone, so sort-then-round == round-then-sort), avoiding an O(n log n) re-sort + a rounded-copy alloc per precision.
-            # bench-attempt-rejected (2026-07): fusing all precisions into one kernel pass (running per-precision prev/count) was SLOWER at every
-            # max_fract_digits {5,8,12,16}: -6% .. -14% (n=100k continuous). The per-precision kernel wins via its simpler inner loop + early break on
-            # distinct-saturation; the fused pass recomputes np.rint for all precisions per element even after a precision saturates. See _benchmarks/bench_fused_precision_scan.py.
-            if fract_part.dtype.kind == "f":
-                _sorted_fract = np.sort(fract_part)
-                _count_rounded = _get_count_distinct_rounded_njit()
-            else:
-                _sorted_fract = None
-            for cur_fract_digits in range(1, max_fract_digits):
-
-                if _sorted_fract is not None:
-                    n_unique_fracts = _count_rounded(_sorted_fract, cur_fract_digits, 0.0, 1.0)
-                else:
-                    n_unique_fracts = _get_nunique(vals=np.asarray(np.round(fract_part, cur_fract_digits)), skip_vals=(0.0, 1.0))
-                if last_n_unique_fracts > 0:
-                    if (n_unique_fracts - last_n_unique_fracts) / last_n_unique_fracts < min_fract_level_increase_perecent or n_unique_fracts < 0.3 * (
-                        NDIGITS ** (cur_fract_digits)
-                    ) ** 0.95:  # <min_fract_fill_perecent * NDIGITS ** (cur_fract_digits)
-                        if n_unique_ints > 0 or nz_fract_digits > 0:
-                            break
-                last_n_unique_fracts = n_unique_fracts
-                if n_unique_fracts > 0:
-                    nz_fract_digits = cur_fract_digits
-            if cur_fract_digits == max_fract_digits - 1:
-                if nz_fract_digits == 0:
-                    cur_fract_digits = 1
+        cur_fract_digits = _count_unique_fractional_parts(n_unique_fracts, fract_part, max_fract_digits, last_n_unique_fracts, min_fract_level_increase_perecent, n_unique_ints, nz_fract_digits)
         cur_fract_digits = cur_fract_digits - 1
     elif var_is_datetime:
         # values is a tz-naive numpy datetime64 array (normalized above), so the rounding-resolution probe works uniformly across pandas eras.
@@ -320,22 +296,7 @@ def is_variable_truly_continuous(
     # "the truth value of an array with more than one element is ambiguous".
     if calculated_quantiles is not None or use_quantile:
 
-        if calculated_quantiles is None:
-            if use_quantile > 0.5:
-                use_quantile = 1 - use_quantile
-            # Wave 31 (2026-05-20): assert -> ValueError.
-            if not (0 < use_quantile < 1.0):
-                raise ValueError(f"use_quantile must be in (0, 1); got {use_quantile!r}.")
-
-            use_quantiles = (use_quantile, 1 - use_quantile)
-            calculated_quantiles = np.nanquantile(values, use_quantiles)
-            tukey_fences_multiplier = get_tukey_fences_multiplier_for_quantile(
-                quantile=use_quantile,
-            )  # !TODO add sigma, dist+kwargs fields
-        else:
-            # Wave 31 (2026-05-20): assert -> ValueError.
-            if tukey_fences_multiplier is None:
-                raise ValueError("When calculated_quantiles is provided, " "tukey_fences_multiplier MUST also be supplied.")
+        calculated_quantiles, tukey_fences_multiplier, use_quantiles = _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_fences_multiplier, use_quantiles)
 
         iqr = calculated_quantiles[1] - calculated_quantiles[0]
         q0 = calculated_quantiles[0]
@@ -405,6 +366,35 @@ def is_variable_truly_continuous(
     # report if needed
     # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
+    _log_continuity_verdict(verbose, var_is_numeric, cur_fract_digits, var_is_datetime, prev_date_fract, cont_ratio, use_quantiles, calculated_quantiles, sample_size, real_unique_values, nexpected_unique_values, max_scarceness, n_outliers, outliers_percent, variable_name)
+
+    return cont_ratio >= 1.0, outliers_percent
+
+
+def _count_unique_fractional_parts(n_unique_fracts, fract_part, max_fract_digits, last_n_unique_fracts, min_fract_level_increase_perecent, n_unique_ints, nz_fract_digits):
+    """Count the unique fractional parts at the current digit depth."""
+    if n_unique_fracts == 0:
+        cur_fract_digits = 1
+    else:
+        # Sort the fractional part ONCE; the per-precision distinct-count below rounds inline over this single sorted array
+        # (round is monotone, so sort-then-round == round-then-sort), avoiding an O(n log n) re-sort + a rounded-copy alloc per precision.
+        # bench-attempt-rejected (2026-07): fusing all precisions into one kernel pass (running per-precision prev/count) was SLOWER at every
+        # max_fract_digits {5,8,12,16}: -6% .. -14% (n=100k continuous). The per-precision kernel wins via its simpler inner loop + early break on
+        # distinct-saturation; the fused pass recomputes np.rint for all precisions per element even after a precision saturates. See _benchmarks/bench_fused_precision_scan.py.
+        if fract_part.dtype.kind == "f":
+            _sorted_fract = np.sort(fract_part)
+            _count_rounded = _get_count_distinct_rounded_njit()
+        else:
+            _sorted_fract = None
+        cur_fract_digits, nz_fract_digits = _probe_fractional_digits(max_fract_digits, _sorted_fract, _count_rounded, fract_part, last_n_unique_fracts, min_fract_level_increase_perecent, n_unique_ints, nz_fract_digits)
+        if cur_fract_digits == max_fract_digits - 1:
+            if nz_fract_digits == 0:
+                cur_fract_digits = 1
+    return cur_fract_digits
+
+
+def _log_continuity_verdict(verbose, var_is_numeric, cur_fract_digits, var_is_datetime, prev_date_fract, cont_ratio, use_quantiles, calculated_quantiles, sample_size, real_unique_values, nexpected_unique_values, max_scarceness, n_outliers, outliers_percent, variable_name):
+    """Log the continuity verdict of the variable."""
     if verbose:
         if var_is_numeric:
             freq = f"max_fract_digits={cur_fract_digits}"
@@ -422,7 +412,46 @@ def is_variable_truly_continuous(
             mes = f"{variable_name}: " + mes
         logger.info(mes)
 
-    return cont_ratio >= 1.0, outliers_percent
+
+def _probe_fractional_digits(max_fract_digits, _sorted_fract, _count_rounded, fract_part, last_n_unique_fracts, min_fract_level_increase_perecent, n_unique_ints, nz_fract_digits):
+    """Probe the number of fractional digits the values carry."""
+    for cur_fract_digits in range(1, max_fract_digits):
+
+        if _sorted_fract is not None:
+            n_unique_fracts = _count_rounded(_sorted_fract, cur_fract_digits, 0.0, 1.0)
+        else:
+            n_unique_fracts = _get_nunique(vals=np.asarray(np.round(fract_part, cur_fract_digits)), skip_vals=(0.0, 1.0))
+        if last_n_unique_fracts > 0:
+            if (n_unique_fracts - last_n_unique_fracts) / last_n_unique_fracts < min_fract_level_increase_perecent or n_unique_fracts < 0.3 * (
+                NDIGITS ** (cur_fract_digits)
+            ) ** 0.95:  # <min_fract_fill_perecent * NDIGITS ** (cur_fract_digits)
+                if n_unique_ints > 0 or nz_fract_digits > 0:
+                    break
+        last_n_unique_fracts = n_unique_fracts
+        if n_unique_fracts > 0:
+            nz_fract_digits = cur_fract_digits
+    return cur_fract_digits, nz_fract_digits
+
+
+def _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_fences_multiplier, use_quantiles):
+    """Resolve the quantile cutoffs, computing them when absent."""
+    if calculated_quantiles is None:
+        if use_quantile > 0.5:
+            use_quantile = 1 - use_quantile
+        # Wave 31 (2026-05-20): assert -> ValueError.
+        if not (0 < use_quantile < 1.0):
+            raise ValueError(f"use_quantile must be in (0, 1); got {use_quantile!r}.")
+
+        use_quantiles = (use_quantile, 1 - use_quantile)
+        calculated_quantiles = np.nanquantile(values, use_quantiles)
+        tukey_fences_multiplier = get_tukey_fences_multiplier_for_quantile(
+            quantile=use_quantile,
+        )  # !TODO add sigma, dist+kwargs fields
+    else:
+        # Wave 31 (2026-05-20): assert -> ValueError.
+        if tukey_fences_multiplier is None:
+            raise ValueError("When calculated_quantiles is provided, " "tukey_fences_multiplier MUST also be supplied.")
+    return calculated_quantiles, tukey_fences_multiplier, use_quantiles
 
 def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = None, use_quantile: float = 0.01):
     """Returns indices of 1d data array that are non-outlying"""

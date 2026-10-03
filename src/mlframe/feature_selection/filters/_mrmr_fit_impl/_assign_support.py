@@ -131,117 +131,7 @@ def _assign_support(
     # the complete feature set - skip the never-empty re-attach and let ``support_`` stay
     # empty (transform still emits the engineered columns). The re-attach remains active for
     # the genuine degenerate case (engineered-only with no redundancy verdict).
-    if (not selected_vars) and getattr(self, "_engineered_recipes_", None) and not getattr(self, "_redundancy_emptied_raw_", False):
-        try:
-            from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _NE_TOK_SPLIT
-            from ..info_theory import mi as _ne_mi
-            _raw_names_ne = set(self.feature_names_in_)
-            # Recipe -> column NAME. ``self._engineered_recipes_`` holds EngineeredRecipe
-            # OBJECTS whose ``str()``/``repr()`` is the full dataclass repr, NOT the column
-            # name - so ``str(r)`` neither matches ``cols`` nor is a clean token source.
-            # Resolve the name from ``.name`` (the column the recipe materialises), falling
-            # back to ``str(r)`` only for a legacy bare-string entry.
-            _ne_recipe_name = _engineered_recipe_name
-            # name -> index map built once (O(F)); reused below for ``_eng_survivor_cols`` too.
-            # ``cols`` is not mutated for the remainder of ``_fit_impl`` past this point.
-            _ne_cols_idx = {nm: i for i, nm in enumerate(cols)}
-            _operand_idxs: set = set()
-            for _r_obj in self._engineered_recipes_:
-                for _tok in _NE_TOK_SPLIT.split(_ne_recipe_name(_r_obj)):
-                    if not _tok:
-                        continue
-                    _base = _tok if _tok in _raw_names_ne else (_tok.split("__", 1)[0] if "__" in _tok else None)
-                    if _base in _raw_names_ne:
-                        _ne_ci = _ne_cols_idx.get(_base)
-                        if _ne_ci is not None:
-                            _operand_idxs.add(_ne_ci)
-            # CONDITIONAL-REDUNDANCY GUARD on the re-attach (BUG1). The
-            # operand picked below is the highest-MARGINAL-MI one, but a high marginal
-            # does NOT mean it carries signal the engineered child lacks: a dominant
-            # operand (``a`` in ``a**2/b``) has the largest marginal yet is FULLY
-            # subsumed by the ``a**2/b`` ratio inside the surviving composite. Re-
-            # attaching it re-introduces exactly the redundancy the campaign set out to
-            # remove (observed at n=100k on the user fixture: the single full-target
-            # composite ``add(mul(log(c),sin(d)),abs(div(sqr(a),abs(b))))`` rode as a
-            # recipe -> ``selected_vars`` empty -> this block re-attached raw ``a``,
-            # which the composite already captures). Restrict the candidate pool to
-            # operands that carry a SIGNIFICANT INDEPENDENT RESIDUAL given the engineered
-            # survivor(s), using the SAME n-invariant conditional-redundancy verdict as
-            # the main drop. Only operands NOT judged subsumed are eligible; if every
-            # operand is subsumed (the composite fully reconstructs y), leave the support
-            # engineered-only - the recipe IS the complete feature set.
-            _subsumed_verdict = _subsumed_operands_verdict(
-                self, data=data, cols=cols, cols_idx=_ne_cols_idx, operand_idxs=_operand_idxs, raw_names=_raw_names_ne,
-                recipe_name=_ne_recipe_name, classes_y=classes_y, y=y, engineered_continuous=_eng_continuous_snapshot, X=X,
-            )
-            _subsumed_operand_names: set = _subsumed_verdict or set()
-            # C2 ADDITIVE-FUSION EXCLUSION: never re-attach a raw operand the
-            # FE additive-fusion proposer already judged subsumed by the fused ``add(...)``
-            # compound (``_raw_redundancy_dropped_``). The fused compound carries its additive
-            # term, so resurrecting it as the never-empty stand-in re-injects the redundant
-            # single-group fragment the fusion removed (the FUSION-blocked goal's leftover raw).
-            _fused_dropped_ne = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
-            _eligible_idxs = _never_empty_eligible(_operand_idxs, cols, _subsumed_verdict, _fused_dropped_ne)
-            if _eligible_idxs:
-                _tgt_ne = np.asarray(target_indices, dtype=np.int64)
-                _fn_ne = np.asarray(nbins, dtype=np.int64)
-                _best_idx_ne, _best_rel_ne = -1, float("-inf")
-                from .._fallback_probe import call_or_default
-
-                for _oi in sorted(_eligible_idxs):
-                    # -inf, not 0.0: a failed probe must be excluded, not tie at MI's floor where iteration order would pick the winner.
-                    def _rel_probe(_oi: int = _oi) -> float:
-                        """Marginal MI of candidate column ``_oi`` against the target."""
-                        return float(_ne_mi(data, np.array([int(_oi)], dtype=np.int64), _tgt_ne, _fn_ne))
-
-                    _rel_ne = float(call_or_default(
-                        _rel_probe,
-                        float("-inf"), key="mrmr_never_empty_relevance_failed",
-                        message="mrmr: relevance probe failed for a never-empty raw stand-in candidate; it is excluded",
-                    ))
-                    if _rel_ne > _best_rel_ne:
-                        _best_rel_ne, _best_idx_ne = _rel_ne, int(_oi)
-                if _best_idx_ne >= 0:
-                    # ``_best_idx_ne`` is a COLS-space index (the augmented, categorize_dataset-reordered matrix that carries the injected target +
-                    # engineered columns). ``support_`` must index ``feature_names_in_`` (raw user columns only), so remap the chosen operand by NAME -
-                    # the same translation the main selection does at the ``selected_vars_names`` split. Assigning the raw cols-space index directly let an
-                    # out-of-range index (>= n_features_in_) reach ``support_`` and crashed ``transform`` with IndexError when feature_names_in_ was narrower.
-                    _operand_name_ne = cols[_best_idx_ne]
-                    selected_vars = [list(self.feature_names_in_).index(_operand_name_ne)]
-                    if verbose:
-                        logger.info(
-                            "MRMR never-empty raw representative: support_ would be empty (only engineered "
-                            "feature(s) selected); re-attached raw operand %r (marginal MI %.4f) as the raw "
-                            "stand-in (carries residual signal beyond the engineered child).",
-                            _operand_name_ne, _best_rel_ne,
-                        )
-            elif _operand_idxs and _subsumed_operand_names:
-                # EVERY engineered operand is conditionally subsumed by a surviving
-                # engineered child - the engineered recipe(s) ARE the complete feature
-                # set. Record the verdict so the DOWNSTREAM empty-raw rescue (the
-                # ``else`` branch that tops up the support to ``min_features_fallback``
-                # by marginal MI) does NOT resurrect a dropped operand. Without this the
-                # rescue re-adds the highest-marginal operand (``a`` in the user's
-                # ``a**2/b + log(c)sin(d)`` fixture, whose ``a**2/b`` is captured by the
-                # composite), the BUG1 spurious-raw-kept regression - because the raw
-                # operands were dropped by the EARLIER raw-retention pass, not the main
-                # ``drop_redundant_raw_operands`` sweep, so neither
-                # ``_raw_redundancy_dropped_`` nor ``_redundancy_emptied_raw_`` was set.
-                # The ``elif`` at the rescue site keys on ``_redundancy_emptied_raw_`` and
-                # the rescue / RFECV / augmentation pools all exclude
-                # ``_raw_redundancy_dropped_``; populate both here so the engineered-only
-                # support stands.
-                self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) | set(_subsumed_operand_names)
-                self._redundancy_emptied_raw_ = True
-                if verbose:
-                    logger.info(
-                        "MRMR never-empty raw representative: ALL %d engineered operand(s) are "
-                        "conditionally subsumed by the surviving engineered child; leaving support "
-                        "engineered-only (no spurious raw stand-in re-attached): %s",
-                        len(_operand_idxs), sorted(_subsumed_operand_names),
-                    )
-        except Exception as _ne_exc:
-            logger.warning("MRMR never-empty raw representative re-attach failed (%r); leaving support_ empty.", _ne_exc)
+    selected_vars = _recover_support_from_engineered_operands(self, selected_vars, cols, data, classes_y, y, _eng_continuous_snapshot, X, target_indices, nbins, verbose)
 
     # CLUSTER-AGGREGATE 'replace' FINAL EXCLUSION. Members folded into a denoised
     # MULTI-parent aggregate (``cluster_aggregate_mode='replace'`` -> ``_cluster_aggregate_removals_``,
@@ -296,64 +186,7 @@ def _assign_support(
             _a = str(_anchor)
             _mlist = [str(_m) for _m in (_members or [])] if isinstance(_members, (list, tuple, set)) else []
             _group = [_a, *_mlist]
-            if all(_nm in _raw_names_cmfinal for _nm in _group):
-                # pure raw cluster - keep the single strongest representative, strip the rest.
-                # KEEP-ONE-SELECTED-RAW: the cached-MI lookup the rep tiebreak relies
-                # on is often a miss for these members (``cached_MIs`` is keyed on the screening
-                # cols-space and a cluster member may never have been scored there), collapsing every
-                # member's relevance to 0.0 -> the rep degenerates to the LOWEST feature-index member.
-                # When that lowest-index member is NOT the one the greedy screen actually selected,
-                # the cluster's genuine selected representative (which IS in ``selected_vars``) gets
-                # stripped and the whole latent block vanishes from support_ (embedding cross-terms
-                # layer20: 12-member e1 cluster, only the high-MI anchor ``e1_17`` was selected, yet
-                # the rep collapsed to ``e1_1`` and e1 dropped entirely). PRINCIPLE: a member already
-                # chosen by the screen is the de-facto representative - prefer it. Restrict the rep
-                # candidate pool to the cluster members present in ``selected_vars`` when any are;
-                # only fall back to the MI/index tiebreak over the whole group when none was selected.
-                if len(_group) >= 2:
-                    _rep_pool = [_nm for _nm in _group if _nm in _sel_names_cm]
-                    if not _rep_pool:
-                        _rep_pool = _group
-                    _rep = min(_rep_pool, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
-                    _ca_final_excl.update(_nm for _nm in _group if _nm != _rep)
-                    # KEEP-ONE-RAW for pure-raw PRUNED clusters (no denoised aggregate): when a
-                    # within-pack SU cluster is merely pool-pruned (size below the swap threshold, so
-                    # no aggregate column is ever built) AND its screen-selected representative was
-                    # later dropped (e.g. a second screen pass re-prunes the pack and the anchor falls
-                    # out of selected_vars), NONE of the group survives - the latent vanishes from
-                    # support_ entirely and the RFECV rescue pool excludes every cluster member, so it
-                    # is unrecoverable (scenario-A sensor mesh: L1 pack pruned, AUC -0.08). Force-keep
-                    # the chosen representative exactly like the engineered-anchor branch below, so every
-                    # collapsed cluster retains >=1 raw column. No support growth: this re-adds the SINGLE
-                    # representative of a cluster that would otherwise contribute zero columns.
-                    if _rep not in _sel_names_cm:
-                        _ca_keep_raw.add(_rep)
-            elif _a not in _raw_names_cmfinal:
-                # engineered/aggregate anchor (DCD PC1/mean_z swap) - strip its (raw) members; the
-                # aggregate itself survives.
-                #
-                # KEEP-ONE-RAW-REPRESENTATIVE: a DCD denoised-aggregate swap collapses an
-                # entire raw cluster into a single engineered column and prunes every raw member. When
-                # the aggregate is the cluster's ONLY survivor, the latent block has no RAW column in
-                # ``support_`` at all - any downstream consumer that reads the raw support names (a
-                # linear model fed the raw matrix, a feature-importance report, the layer20 embedding
-                # cross-terms contract) sees the whole block as dropped even though it was merely
-                # denoised. PRINCIPLE: the engineered aggregate is a SUPPLEMENT, not a replacement for
-                # the cluster's presence - always leave at least one genuine raw representative of the
-                # cluster alive. Keep the strongest raw member (highest cached MI, lowest-index
-                # tiebreak) and strip the rest; the kept member is force-added to ``selected_vars``
-                # below so it survives even if no raw member reached the support chokepoint.
-                _raw_mem = [_m for _m in _mlist if _m in _raw_names_cmfinal]
-                if _raw_mem:
-                    _agg_rep = min(_raw_mem, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
-                    _ca_keep_raw.add(_agg_rep)
-                    _ca_final_excl.update(_m for _m in _mlist if _m != _agg_rep)
-                else:
-                    _ca_final_excl.update(_mlist)
-            else:
-                # raw anchor + engineered/pseudo member(s) - strip only the non-raw members (pseudo-remix
-                # protection below keeps a raw operand the cluster pairs with a pseudo-remix built from it).
-                _ca_final_excl.update(_m for _m in _mlist if _m not in _raw_names_cmfinal)
+            _keep_strongest_raw_per_cluster(_group, _raw_names_cmfinal, _sel_names_cm, _cm_mi, _name2inidx_cm, _ca_final_excl, _ca_keep_raw, _a, _mlist)
     # PSEUDO-REMIX SELF-SOURCE PROTECTION. A conditional-gate / binned-numeric-agg /
     # row-argmax anchor (``gate_mask__a__b`` / ``binagg_mean(d|qbin(a))`` / ``argmax__a__b``) is a
     # LOSSY threshold/binning RE-MIX of its raw source(s): it cannot carry a raw operand's private
@@ -369,27 +202,7 @@ def _assign_support(
     # (measured: a 5-class LogReg macro-F1 0.62 when x2 was stripped as such a cluster anchor vs >0.70
     # protected; and the test_private_raw_a_kept ``10*a`` case for direction A). Engineered members +
     # genuine (non-pseudo) aggregate members are untouched -> byte-identical when no such pairing exists.
-    if _ca_final_excl and isinstance(_cm_final, dict):
-        from .._fe_raw_redundancy_drop import _is_pseudo_remix_child, _PSEUDO_SRC_SPLIT
-        _raw_names_ca = set(self.feature_names_in_)
-        _protect_ca = set()
-        for _anchor, _members in _cm_final.items():
-            _a = str(_anchor)
-            _mlist = [str(_m) for _m in (_members or [])]
-            # (A) pseudo-remix anchor -> protect any raw member that is one of its sources.
-            if _is_pseudo_remix_child(_a):
-                _anchor_raw_srcs = {t for t in _PSEUDO_SRC_SPLIT.split(_a) if t in _raw_names_ca}
-                for _m in _mlist:
-                    if _m in _raw_names_ca and _m in _anchor_raw_srcs:
-                        _protect_ca.add(_m)
-            # (B) raw anchor -> protect it when a member is a pseudo-remix built from that raw.
-            if _a in _raw_names_ca:
-                for _m in _mlist:
-                    if _is_pseudo_remix_child(_m) and _a in set(_PSEUDO_SRC_SPLIT.split(_m)):
-                        _protect_ca.add(_a)
-                        break
-        if _protect_ca:
-            _ca_final_excl -= _protect_ca
+    _ca_final_excl = _strip_pseudo_remix_aggregate_members(self, _ca_final_excl, _cm_final)
     # KEEP-ONE-RAW-REPRESENTATIVE force-keep: the designated raw representative of each
     # DCD-aggregate-collapsed cluster must never be stripped, even if another cluster's strip set or
     # a redundancy pass nominated it. Remove it from the exclusion set first.
@@ -484,65 +297,7 @@ def _assign_support(
     # permutation-significance test, p<alpha): a SIGNAL operand of a selected engineered feature is kept (the linear-usability win), but a NOISE operand fused into a
     # composite (e.g. ``noise_3`` inside ``sub(...,prewarp(noise_3))``) does NOT clear its null and is NOT re-attached -> FS still rejects noise. Bounded to operands
     # of SELECTED engineered features, in feature_names_in_, not already selected, inside the pinned search space (``_allowed_raw_idx``).
-    if getattr(self, "redundancy_policy", "emit_both") != "drop" and selected_vars:
-        try:
-            from .._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _EB_TOK_SPLIT
-            from ..permutation import mi_direct as _eb_mi_direct
-            _eb_raw_names = set(self.feature_names_in_)
-            _eb_sel_set = set(int(v) for v in selected_vars)
-            _eb_name_to_in = {nm: i for i, nm in enumerate(self.feature_names_in_)}
-            _eb_cols_idx = {nm: i for i, nm in enumerate(cols)}
-            _eb_recipes = {getattr(_r, "name", None): _r for _r in (getattr(self, "_engineered_recipes_", None) or [])}
-            from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
-
-            _eb_alpha = mrmr_null_signif_alpha()
-            _eb_qdtype = getattr(self, "quantization_dtype", np.int32)
-            _eb_operands: list[str] = []
-            for _enm, _erec in _eb_recipes.items():
-                if _enm is None or _enm in _eb_raw_names or _enm not in _eb_cols_idx:
-                    continue
-                if _eb_cols_idx[_enm] not in _eb_sel_set:
-                    continue  # only SELECTED engineered features
-                _src = getattr(_erec, "src_names", None)
-                _eb_toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
-                for _t in _eb_toks:
-                    _base = _t if _t in _eb_raw_names else (_t.split("__", 1)[0] if "__" in _t else None)
-                    if _base is not None and _base in _eb_raw_names and _base not in _eb_operands:
-                        _eb_operands.append(_base)
-
-            def _eb_operand_is_signal(_cols_i):
-                """Permutation-significance test (32 permutations) for a raw operand of a selected engineered feature; True when it clears its own null (p<alpha) or the MI estimator errors, gating the emit-both re-attach so a noise operand fused into a composite is not resurrected."""
-                from .._fallback_probe import call_or_default
-
-                def _probe():
-                    """p-value of the operand's marginal MI against its 32-permutation null, below alpha."""
-                    _r = _eb_mi_direct(data, x=np.array([int(_cols_i)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
-                                       factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
-                                       return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
-                    return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
-
-                # An estimator error keeps the operand (never silently drop a possibly-genuine one), but it is then re-attached unverified.
-                return bool(call_or_default(
-                    _probe, True, key="mrmr_emit_both_operand_probe_failed",
-                    message="mrmr: marginal-MI significance probe failed; the operand is re-attached without verification",
-                ))
-            _eb_added = []
-            for _op in _eb_operands:
-                _idx = _eb_name_to_in.get(_op)
-                if _idx is None or int(_idx) in _eb_sel_set:
-                    continue
-                if _allowed_raw_idx is not None and int(_idx) not in _allowed_raw_idx:
-                    continue
-                _eb_ci = _eb_cols_idx.get(_op)
-                if _eb_ci is None or not _eb_operand_is_signal(_eb_ci):
-                    continue  # noise operand of a composite -> FS keeps rejecting it
-                selected_vars.append(int(_idx))
-                _eb_sel_set.add(int(_idx))
-                _eb_added.append(_op)
-            if _eb_added and verbose:
-                logger.info("MRMR emit_both operand re-attach: added %d signal raw operand(s) of selected engineered features: %s", len(_eb_added), _eb_added)
-        except Exception as _eb_exc:
-            logger.debug("MRMR emit_both operand re-attach skipped (%s: %s).", type(_eb_exc).__name__, _eb_exc)
+    _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target_indices, nbins, _allowed_raw_idx, verbose)
 
     # C2 ADDITIVE-FUSION FINAL RAW STRIP. Raw operands the FE additive-fusion
     # proposer verified the fused ``add(...)`` compound fully captures (``_fused_subsumed_raws_``,
@@ -554,43 +309,7 @@ def _assign_support(
     # recipe (so the additive term it carries is actually present); byte-identical (empty set) when
     # no fusion fired.
     _fused_subsumed = set(getattr(self, "_fused_subsumed_raws_", None) or set())
-    if _fused_subsumed:
-        # NOTE: ``self._engineered_recipes_`` is not populated until later in this function (the
-        # UAED-trim / group-drop reassignments below), so reading it here (as the block previously
-        # did) silently sees its initial ``[]`` default and the whole strip below no-ops, letting a
-        # provably-subsumed raw (``_fused_subsumed``) ride into ``support_`` beside the compound that
-        # captures it. ``selected_vars`` is not a reliable substitute either -- the fused compound can
-        # legitimately not have reached ``selected_vars`` yet at this exact point in a multi-step fit
-        # (it is registered in the recipe dict the moment the fusion is admitted, but folded into
-        # ``selected_vars`` on the SAME step's re-screen, which this final-assembly code can run ahead
-        # of on some step orderings). ``engineered_recipes`` (the local name -> recipe dict this
-        # function has threaded throughout) is updated the instant a fusion is admitted and is the
-        # authoritative "does this compound exist at all" source regardless of screen timing; a
-        # ``_fused_subsumed`` entry only exists when its compound's OWN admission already passed the
-        # production keep-probe, so trusting the recipe dict here (not gating on selection) does not
-        # widen the strip's blast radius beyond what ``_fused_subsumed`` already vetted.
-        _surv_eng = set(engineered_recipes.keys()) if isinstance(engineered_recipes, dict) else set()
-        # Only strip a raw when a SURVIVING engineered compound actually references it (carries its
-        # additive term) - otherwise leave it (the fusion that subsumed it did not survive).
-        import re as _re_fsr
-        _fsr_tok = _re_fsr.compile(r"[^A-Za-z0-9_]+")
-        _covered: set = set()
-        for _en in _surv_eng:
-            for _t in _fsr_tok.split(str(_en) or ""):
-                if not _t:
-                    continue
-                _base = _t if _t in set(self.feature_names_in_) else (
-                    _t.split("__", 1)[0] if "__" in _t and _t.split("__", 1)[0] in set(self.feature_names_in_) else None)
-                if _base is not None:
-                    _covered.add(_base)
-        _strip = _fused_subsumed & _covered
-        if _strip:
-            selected_vars = [v for v in selected_vars if not (0 <= int(v) < len(self.feature_names_in_) and self.feature_names_in_[int(v)] in _strip)]
-            if verbose:
-                logger.info(
-                    "MRMR C2 additive-fusion: stripped %d raw operand(s) the fused compound fully "
-                    "captures from the final raw support: %s", len(_strip), sorted(_strip),
-                )
+    selected_vars = _resolve_fused_subsumed(self, _fused_subsumed, engineered_recipes, selected_vars, verbose)
 
     self.support_ = np.array(selected_vars, dtype=np.int64)
 
@@ -749,3 +468,318 @@ def _assign_support(
         _allowed_raw_idx=_allowed_raw_idx,
         _retention_added_eng_names=_retention_added_eng_names,
     )
+
+
+def _recover_support_from_engineered_operands(self, selected_vars, cols, data, classes_y, y, _eng_continuous_snapshot, X, target_indices, nbins, verbose):
+    """Recover the support from the operands of the engineered recipes when nothing was selected."""
+    if (not selected_vars) and getattr(self, "_engineered_recipes_", None) and not getattr(self, "_redundancy_emptied_raw_", False):
+        try:
+            from mlframe.feature_selection.filters._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _NE_TOK_SPLIT
+            from mlframe.feature_selection.filters.info_theory import mi as _ne_mi
+            _raw_names_ne = set(self.feature_names_in_)
+            # Recipe -> column NAME. ``self._engineered_recipes_`` holds EngineeredRecipe
+            # OBJECTS whose ``str()``/``repr()`` is the full dataclass repr, NOT the column
+            # name - so ``str(r)`` neither matches ``cols`` nor is a clean token source.
+            # Resolve the name from ``.name`` (the column the recipe materialises), falling
+            # back to ``str(r)`` only for a legacy bare-string entry.
+            _ne_recipe_name = _engineered_recipe_name
+            # name -> index map built once (O(F)); reused below for ``_eng_survivor_cols`` too.
+            # ``cols`` is not mutated for the remainder of ``_fit_impl`` past this point.
+            _ne_cols_idx = {nm: i for i, nm in enumerate(cols)}
+            _operand_idxs: set = set()
+            for _r_obj in self._engineered_recipes_:
+                for _tok in _NE_TOK_SPLIT.split(_ne_recipe_name(_r_obj)):
+                    if not _tok:
+                        continue
+                    _base = _tok if _tok in _raw_names_ne else (_tok.split("__", 1)[0] if "__" in _tok else None)
+                    if _base in _raw_names_ne:
+                        _ne_ci = _ne_cols_idx.get(_base)
+                        if _ne_ci is not None:
+                            _operand_idxs.add(_ne_ci)
+            # CONDITIONAL-REDUNDANCY GUARD on the re-attach (BUG1). The
+            # operand picked below is the highest-MARGINAL-MI one, but a high marginal
+            # does NOT mean it carries signal the engineered child lacks: a dominant
+            # operand (``a`` in ``a**2/b``) has the largest marginal yet is FULLY
+            # subsumed by the ``a**2/b`` ratio inside the surviving composite. Re-
+            # attaching it re-introduces exactly the redundancy the campaign set out to
+            # remove (observed at n=100k on the user fixture: the single full-target
+            # composite ``add(mul(log(c),sin(d)),abs(div(sqr(a),abs(b))))`` rode as a
+            # recipe -> ``selected_vars`` empty -> this block re-attached raw ``a``,
+            # which the composite already captures). Restrict the candidate pool to
+            # operands that carry a SIGNIFICANT INDEPENDENT RESIDUAL given the engineered
+            # survivor(s), using the SAME n-invariant conditional-redundancy verdict as
+            # the main drop. Only operands NOT judged subsumed are eligible; if every
+            # operand is subsumed (the composite fully reconstructs y), leave the support
+            # engineered-only - the recipe IS the complete feature set.
+            _subsumed_verdict = _subsumed_operands_verdict(
+                self, data=data, cols=cols, cols_idx=_ne_cols_idx, operand_idxs=_operand_idxs, raw_names=_raw_names_ne,
+                recipe_name=_ne_recipe_name, classes_y=classes_y, y=y, engineered_continuous=_eng_continuous_snapshot, X=X,
+            )
+            _subsumed_operand_names: set = _subsumed_verdict or set()
+            # C2 ADDITIVE-FUSION EXCLUSION: never re-attach a raw operand the
+            # FE additive-fusion proposer already judged subsumed by the fused ``add(...)``
+            # compound (``_raw_redundancy_dropped_``). The fused compound carries its additive
+            # term, so resurrecting it as the never-empty stand-in re-injects the redundant
+            # single-group fragment the fusion removed (the FUSION-blocked goal's leftover raw).
+            _fused_dropped_ne = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
+            _eligible_idxs = _never_empty_eligible(_operand_idxs, cols, _subsumed_verdict, _fused_dropped_ne)
+            selected_vars = _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_mi, data, cols, verbose, _operand_idxs, _subsumed_operand_names, selected_vars)
+        except Exception as _ne_exc:
+            logger.warning("MRMR never-empty raw representative re-attach failed (%r); leaving support_ empty.", _ne_exc)
+    return selected_vars
+
+
+def _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_mi, data, cols, verbose, _operand_idxs, _subsumed_operand_names, selected_vars):
+    """Gate the eligible engineered features on their incremental information."""
+    if _eligible_idxs:
+        _tgt_ne = np.asarray(target_indices, dtype=np.int64)
+        _fn_ne = np.asarray(nbins, dtype=np.int64)
+        _best_idx_ne, _best_rel_ne = -1, float("-inf")
+        from mlframe.feature_selection.filters._fallback_probe import call_or_default
+
+        for _oi in sorted(_eligible_idxs):
+            # -inf, not 0.0: a failed probe must be excluded, not tie at MI's floor where iteration order would pick the winner.
+            def _rel_probe(_oi: int = _oi) -> float:
+                """Marginal MI of candidate column ``_oi`` against the target."""
+                return float(_ne_mi(data, np.array([int(_oi)], dtype=np.int64), _tgt_ne, _fn_ne))
+
+            _rel_ne = float(call_or_default(
+                _rel_probe,
+                float("-inf"), key="mrmr_never_empty_relevance_failed",
+                message="mrmr: relevance probe failed for a never-empty raw stand-in candidate; it is excluded",
+            ))
+            if _rel_ne > _best_rel_ne:
+                _best_rel_ne, _best_idx_ne = _rel_ne, int(_oi)
+        if _best_idx_ne >= 0:
+            # ``_best_idx_ne`` is a COLS-space index (the augmented, categorize_dataset-reordered matrix that carries the injected target +
+            # engineered columns). ``support_`` must index ``feature_names_in_`` (raw user columns only), so remap the chosen operand by NAME -
+            # the same translation the main selection does at the ``selected_vars_names`` split. Assigning the raw cols-space index directly let an
+            # out-of-range index (>= n_features_in_) reach ``support_`` and crashed ``transform`` with IndexError when feature_names_in_ was narrower.
+            _operand_name_ne = cols[_best_idx_ne]
+            selected_vars = [list(self.feature_names_in_).index(_operand_name_ne)]
+            if verbose:
+                logger.info(
+                    "MRMR never-empty raw representative: support_ would be empty (only engineered "
+                    "feature(s) selected); re-attached raw operand %r (marginal MI %.4f) as the raw "
+                    "stand-in (carries residual signal beyond the engineered child).",
+                    _operand_name_ne, _best_rel_ne,
+                )
+    elif _operand_idxs and _subsumed_operand_names:
+        # EVERY engineered operand is conditionally subsumed by a surviving
+        # engineered child - the engineered recipe(s) ARE the complete feature
+        # set. Record the verdict so the DOWNSTREAM empty-raw rescue (the
+        # ``else`` branch that tops up the support to ``min_features_fallback``
+        # by marginal MI) does NOT resurrect a dropped operand. Without this the
+        # rescue re-adds the highest-marginal operand (``a`` in the user's
+        # ``a**2/b + log(c)sin(d)`` fixture, whose ``a**2/b`` is captured by the
+        # composite), the BUG1 spurious-raw-kept regression - because the raw
+        # operands were dropped by the EARLIER raw-retention pass, not the main
+        # ``drop_redundant_raw_operands`` sweep, so neither
+        # ``_raw_redundancy_dropped_`` nor ``_redundancy_emptied_raw_`` was set.
+        # The ``elif`` at the rescue site keys on ``_redundancy_emptied_raw_`` and
+        # the rescue / RFECV / augmentation pools all exclude
+        # ``_raw_redundancy_dropped_``; populate both here so the engineered-only
+        # support stands.
+        self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) | set(_subsumed_operand_names)
+        self._redundancy_emptied_raw_ = True
+        if verbose:
+            logger.info(
+                "MRMR never-empty raw representative: ALL %d engineered operand(s) are "
+                "conditionally subsumed by the surviving engineered child; leaving support "
+                "engineered-only (no spurious raw stand-in re-attached): %s",
+                len(_operand_idxs), sorted(_subsumed_operand_names),
+            )
+    return selected_vars
+
+
+def _keep_strongest_raw_per_cluster(_group, _raw_names_cmfinal, _sel_names_cm, _cm_mi, _name2inidx_cm, _ca_final_excl, _ca_keep_raw, _a, _mlist):
+    """Keep the strongest raw representative of each pure raw cluster."""
+    if all(_nm in _raw_names_cmfinal for _nm in _group):
+        # pure raw cluster - keep the single strongest representative, strip the rest.
+        # KEEP-ONE-SELECTED-RAW: the cached-MI lookup the rep tiebreak relies
+        # on is often a miss for these members (``cached_MIs`` is keyed on the screening
+        # cols-space and a cluster member may never have been scored there), collapsing every
+        # member's relevance to 0.0 -> the rep degenerates to the LOWEST feature-index member.
+        # When that lowest-index member is NOT the one the greedy screen actually selected,
+        # the cluster's genuine selected representative (which IS in ``selected_vars``) gets
+        # stripped and the whole latent block vanishes from support_ (embedding cross-terms
+        # layer20: 12-member e1 cluster, only the high-MI anchor ``e1_17`` was selected, yet
+        # the rep collapsed to ``e1_1`` and e1 dropped entirely). PRINCIPLE: a member already
+        # chosen by the screen is the de-facto representative - prefer it. Restrict the rep
+        # candidate pool to the cluster members present in ``selected_vars`` when any are;
+        # only fall back to the MI/index tiebreak over the whole group when none was selected.
+        if len(_group) >= 2:
+            _rep_pool = [_nm for _nm in _group if _nm in _sel_names_cm]
+            if not _rep_pool:
+                _rep_pool = _group
+            _rep = min(_rep_pool, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
+            _ca_final_excl.update(_nm for _nm in _group if _nm != _rep)
+            # KEEP-ONE-RAW for pure-raw PRUNED clusters (no denoised aggregate): when a
+            # within-pack SU cluster is merely pool-pruned (size below the swap threshold, so
+            # no aggregate column is ever built) AND its screen-selected representative was
+            # later dropped (e.g. a second screen pass re-prunes the pack and the anchor falls
+            # out of selected_vars), NONE of the group survives - the latent vanishes from
+            # support_ entirely and the RFECV rescue pool excludes every cluster member, so it
+            # is unrecoverable (scenario-A sensor mesh: L1 pack pruned, AUC -0.08). Force-keep
+            # the chosen representative exactly like the engineered-anchor branch below, so every
+            # collapsed cluster retains >=1 raw column. No support growth: this re-adds the SINGLE
+            # representative of a cluster that would otherwise contribute zero columns.
+            if _rep not in _sel_names_cm:
+                _ca_keep_raw.add(_rep)
+    elif _a not in _raw_names_cmfinal:
+        # engineered/aggregate anchor (DCD PC1/mean_z swap) - strip its (raw) members; the
+        # aggregate itself survives.
+        #
+        # KEEP-ONE-RAW-REPRESENTATIVE: a DCD denoised-aggregate swap collapses an
+        # entire raw cluster into a single engineered column and prunes every raw member. When
+        # the aggregate is the cluster's ONLY survivor, the latent block has no RAW column in
+        # ``support_`` at all - any downstream consumer that reads the raw support names (a
+        # linear model fed the raw matrix, a feature-importance report, the layer20 embedding
+        # cross-terms contract) sees the whole block as dropped even though it was merely
+        # denoised. PRINCIPLE: the engineered aggregate is a SUPPLEMENT, not a replacement for
+        # the cluster's presence - always leave at least one genuine raw representative of the
+        # cluster alive. Keep the strongest raw member (highest cached MI, lowest-index
+        # tiebreak) and strip the rest; the kept member is force-added to ``selected_vars``
+        # below so it survives even if no raw member reached the support chokepoint.
+        _raw_mem = [_m for _m in _mlist if _m in _raw_names_cmfinal]
+        if _raw_mem:
+            _agg_rep = min(_raw_mem, key=lambda _nm: (-_cm_mi(_nm), _name2inidx_cm.get(_nm, 1 << 30)))
+            _ca_keep_raw.add(_agg_rep)
+            _ca_final_excl.update(_m for _m in _mlist if _m != _agg_rep)
+        else:
+            _ca_final_excl.update(_mlist)
+    else:
+        # raw anchor + engineered/pseudo member(s) - strip only the non-raw members (pseudo-remix
+        # protection below keeps a raw operand the cluster pairs with a pseudo-remix built from it).
+        _ca_final_excl.update(_m for _m in _mlist if _m not in _raw_names_cmfinal)
+
+
+def _strip_pseudo_remix_aggregate_members(self, _ca_final_excl, _cm_final):
+    """Strip pseudo-remix members of the final aggregate clusters."""
+    if _ca_final_excl and isinstance(_cm_final, dict):
+        from mlframe.feature_selection.filters._fe_raw_redundancy_drop import _is_pseudo_remix_child, _PSEUDO_SRC_SPLIT
+        _raw_names_ca = set(self.feature_names_in_)
+        _protect_ca = set()
+        for _anchor, _members in _cm_final.items():
+            _a = str(_anchor)
+            _mlist = [str(_m) for _m in (_members or [])]
+            # (A) pseudo-remix anchor -> protect any raw member that is one of its sources.
+            if _is_pseudo_remix_child(_a):
+                _anchor_raw_srcs = {t for t in _PSEUDO_SRC_SPLIT.split(_a) if t in _raw_names_ca}
+                for _m in _mlist:
+                    if _m in _raw_names_ca and _m in _anchor_raw_srcs:
+                        _protect_ca.add(_m)
+            # (B) raw anchor -> protect it when a member is a pseudo-remix built from that raw.
+            if _a in _raw_names_ca:
+                for _m in _mlist:
+                    if _is_pseudo_remix_child(_m) and _a in set(_PSEUDO_SRC_SPLIT.split(_m)):
+                        _protect_ca.add(_a)
+                        break
+        if _protect_ca:
+            _ca_final_excl -= _protect_ca
+    return _ca_final_excl
+
+
+def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target_indices, nbins, _allowed_raw_idx, verbose):
+    """Re-add selected engineered features dropped by the redundancy policy."""
+    if getattr(self, "redundancy_policy", "emit_both") != "drop" and selected_vars:
+        try:
+            from mlframe.feature_selection.filters._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _EB_TOK_SPLIT
+            from mlframe.feature_selection.filters.permutation import mi_direct as _eb_mi_direct
+            _eb_raw_names = set(self.feature_names_in_)
+            _eb_sel_set = set(int(v) for v in selected_vars)
+            _eb_name_to_in = {nm: i for i, nm in enumerate(self.feature_names_in_)}
+            _eb_cols_idx = {nm: i for i, nm in enumerate(cols)}
+            _eb_recipes = {getattr(_r, "name", None): _r for _r in (getattr(self, "_engineered_recipes_", None) or [])}
+            from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
+
+            _eb_alpha = mrmr_null_signif_alpha()
+            _eb_qdtype = getattr(self, "quantization_dtype", np.int32)
+            _eb_operands: list[str] = []
+            for _enm, _erec in _eb_recipes.items():
+                if _enm is None or _enm in _eb_raw_names or _enm not in _eb_cols_idx:
+                    continue
+                if _eb_cols_idx[_enm] not in _eb_sel_set:
+                    continue  # only SELECTED engineered features
+                _src = getattr(_erec, "src_names", None)
+                _eb_toks = list(_src) if _src else [t for t in _EB_TOK_SPLIT.split(str(_enm)) if t]
+                for _t in _eb_toks:
+                    _base = _t if _t in _eb_raw_names else (_t.split("__", 1)[0] if "__" in _t else None)
+                    if _base is not None and _base in _eb_raw_names and _base not in _eb_operands:
+                        _eb_operands.append(_base)
+
+            def _eb_operand_is_signal(_cols_i):
+                """Permutation-significance test (32 permutations) for a raw operand of a selected engineered feature; True when it clears its own null (p<alpha) or the MI estimator errors, gating the emit-both re-attach so a noise operand fused into a composite is not resurrected."""
+                from mlframe.feature_selection.filters._fallback_probe import call_or_default
+
+                def _probe():
+                    """p-value of the operand's marginal MI against its 32-permutation null, below alpha."""
+                    _r = _eb_mi_direct(data, x=np.array([int(_cols_i)], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]
+                                       factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
+                                       return_null_mean=True, parallelism="none", dtype=_eb_qdtype, prefer_gpu=False)
+                    return float(_r[3]) < _eb_alpha  # p-value below alpha -> genuine marginal signal
+
+                # An estimator error keeps the operand (never silently drop a possibly-genuine one), but it is then re-attached unverified.
+                return bool(call_or_default(
+                    _probe, True, key="mrmr_emit_both_operand_probe_failed",
+                    message="mrmr: marginal-MI significance probe failed; the operand is re-attached without verification",
+                ))
+            _eb_added = []
+            for _op in _eb_operands:
+                _idx = _eb_name_to_in.get(_op)
+                if _idx is None or int(_idx) in _eb_sel_set:
+                    continue
+                if _allowed_raw_idx is not None and int(_idx) not in _allowed_raw_idx:
+                    continue
+                _eb_ci = _eb_cols_idx.get(_op)
+                if _eb_ci is None or not _eb_operand_is_signal(_eb_ci):
+                    continue  # noise operand of a composite -> FS keeps rejecting it
+                selected_vars.append(int(_idx))
+                _eb_sel_set.add(int(_idx))
+                _eb_added.append(_op)
+            if _eb_added and verbose:
+                logger.info("MRMR emit_both operand re-attach: added %d signal raw operand(s) of selected engineered features: %s", len(_eb_added), _eb_added)
+        except Exception as _eb_exc:
+            logger.debug("MRMR emit_both operand re-attach skipped (%s: %s).", type(_eb_exc).__name__, _eb_exc)
+
+
+def _resolve_fused_subsumed(self, _fused_subsumed, engineered_recipes, selected_vars, verbose):
+    """Resolve the raw features subsumed by fused engineered ones."""
+    if _fused_subsumed:
+        # NOTE: ``self._engineered_recipes_`` is not populated until later in this function (the
+        # UAED-trim / group-drop reassignments below), so reading it here (as the block previously
+        # did) silently sees its initial ``[]`` default and the whole strip below no-ops, letting a
+        # provably-subsumed raw (``_fused_subsumed``) ride into ``support_`` beside the compound that
+        # captures it. ``selected_vars`` is not a reliable substitute either -- the fused compound can
+        # legitimately not have reached ``selected_vars`` yet at this exact point in a multi-step fit
+        # (it is registered in the recipe dict the moment the fusion is admitted, but folded into
+        # ``selected_vars`` on the SAME step's re-screen, which this final-assembly code can run ahead
+        # of on some step orderings). ``engineered_recipes`` (the local name -> recipe dict this
+        # function has threaded throughout) is updated the instant a fusion is admitted and is the
+        # authoritative "does this compound exist at all" source regardless of screen timing; a
+        # ``_fused_subsumed`` entry only exists when its compound's OWN admission already passed the
+        # production keep-probe, so trusting the recipe dict here (not gating on selection) does not
+        # widen the strip's blast radius beyond what ``_fused_subsumed`` already vetted.
+        _surv_eng = set(engineered_recipes.keys()) if isinstance(engineered_recipes, dict) else set()
+        # Only strip a raw when a SURVIVING engineered compound actually references it (carries its
+        # additive term) - otherwise leave it (the fusion that subsumed it did not survive).
+        import re as _re_fsr
+        _fsr_tok = _re_fsr.compile(r"[^A-Za-z0-9_]+")
+        _covered: set = set()
+        for _en in _surv_eng:
+            for _t in _fsr_tok.split(str(_en) or ""):
+                if not _t:
+                    continue
+                _base = _t if _t in set(self.feature_names_in_) else (
+                    _t.split("__", 1)[0] if "__" in _t and _t.split("__", 1)[0] in set(self.feature_names_in_) else None)
+                if _base is not None:
+                    _covered.add(_base)
+        _strip = _fused_subsumed & _covered
+        if _strip:
+            selected_vars = [v for v in selected_vars if not (0 <= int(v) < len(self.feature_names_in_) and self.feature_names_in_[int(v)] in _strip)]
+            if verbose:
+                logger.info(
+                    "MRMR C2 additive-fusion: stripped %d raw operand(s) the fused compound fully "
+                    "captures from the final raw support: %s", len(_strip), sorted(_strip),
+                )
+    return selected_vars

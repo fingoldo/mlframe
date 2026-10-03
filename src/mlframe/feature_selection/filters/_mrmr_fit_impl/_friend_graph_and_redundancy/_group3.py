@@ -45,102 +45,7 @@ def _friend_graph_and_redundancy_passes_group3(
 ):
     """Run the usability-aware-raw-readd, post-DCD-cluster-pruning pass(es) and return ``(selected_vars, cols, data, nbins)``.
     See the package docstring for the full section this carves out."""
-    if isinstance(X, pd.DataFrame) and len(selected_vars):
-        _cf_names: list = []
-        for _attr in ("kfold_te_features_", "count_encoding_features_", "frequency_encoding_features_", "cat_num_interaction_features_"):
-            _cf_names.extend(getattr(self, _attr, None) or [])
-        _cf_names = [n for n in dict.fromkeys(_cf_names)]  # dedup, preserve order
-        if _cf_names:
-            _cf_y = None
-            try:
-                _cf_yv = np.asarray(_y_np, dtype=np.float64).reshape(-1)
-                if _cf_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_cf_yv)):
-                    _cf_y = _cf_yv
-            except Exception as exc:
-                logger.debug("mrmr: y coercion for the cat-FE floor-drop protection probe failed; protection disabled: %r", exc, exc_info=True)
-                _cf_y = None
-            if _cf_y is not None:
-                _CF_PROTECT_MIN_INCR_R2 = 0.005  # genuine encoding lifts held-out R^2 >> 0.005; noise ~0 (same bar as raw protection)
-                _cf_n = _cf_y.shape[0]
-                # Seeded shuffle-then-stride (see the hinge-gate sibling comment above).
-                _cf_perm = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)).permutation(_cf_n)
-                _cf_va = np.zeros(_cf_n, dtype=bool)
-                _cf_va[_cf_perm[: _cf_n // 3]] = True
-                _cf_tr = ~_cf_va
-                _cf_cols_index = {c: i for i, c in enumerate(cols)}
-                _cf_sv_set = set(selected_vars)
-                _cf_sel_names = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
-                # Baseline design = intercept + continuous/binned values of the ALREADY-SELECTED columns, so a cat-FE column subsumed by a selected feature adds
-                # ~0 and is NOT re-added (no redundancy regression).
-                _cf_base = [np.ones(_cf_n)]
-                for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
-                    _cv = _eng_continuous_snapshot.get(_sn)
-                    if _cv is None and _sn in X.columns:
-                        try:
-                            _cv = X[_sn].to_numpy()
-                        except Exception as exc:
-                            logger.debug("mrmr: continuous-value lookup failed for this candidate; treating as unavailable: %r", exc, exc_info=True)
-                            _cv = None
-                    if _cv is None:
-                        _si = _cf_cols_index.get(_sn)
-                        if _si is not None:
-                            _cv = data[:, _si]
-                    if _cv is None:
-                        continue
-                    try:
-                        _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
-                    except (TypeError, ValueError):
-                        continue
-                    if _cv.shape[0] == _cf_n and np.all(np.isfinite(_cv)):
-                        _cf_base.append(_cv)
-
-                if int(_cf_tr.sum()) >= 32 and int(_cf_va.sum()) >= 16:
-                    # The base design is factorised once and each candidate costs one column insert, rather than a fresh column_stack of the full design plus an
-                    # SVD per candidate. Same helper the raw floor-drop protection uses; see ``heldout_r2_scorer``.
-                    _cf_r2 = heldout_r2_scorer(_cf_base, _cf_y, _cf_tr, _cf_va)
-                    _cf_r2_base = _cf_r2()
-                    _readd_cf = []
-                    for _cn in _cf_names:
-                        _cidx = _cf_cols_index.get(_cn)
-                        if _cidx is None or _cidx in _cf_sv_set or _cn in _cf_sel_names:
-                            continue
-                        # Prefer the full-precision continuous value (same source the baseline design above uses for already-selected columns) over the
-                        # nbins-quantized screening code: quantile bin-edge digitization is not exactly tie-invariant across a monotone rescale of a
-                        # duplicate-heavy column (e.g. a count encoding vs its count/n frequency twin can land in a different number of effective bins from
-                        # floating-point edge-coincidence ties), which made this R^2 probe - and hence the rescue - diverge between two info- equivalent
-                        # encodings. The raw column is still available in X at this point.
-                        _cvv_raw = _eng_continuous_snapshot.get(_cn)
-                        if _cvv_raw is None and _cn in X.columns:
-                            try:
-                                _cvv_raw = X[_cn].to_numpy()
-                            except Exception as exc:
-                                logger.debug("mrmr: raw continuous-value lookup failed for this candidate: %r", exc, exc_info=True)
-                                _cvv_raw = None
-                        if _cvv_raw is not None:
-                            try:
-                                _cvv = np.asarray(_cvv_raw, dtype=np.float64).reshape(-1)
-                            except (TypeError, ValueError):
-                                _cvv_raw = None
-                        if _cvv_raw is None:
-                            try:
-                                _cvv = np.asarray(data[:, _cidx], dtype=np.float64).reshape(-1)
-                            except (TypeError, ValueError, IndexError):
-                                continue
-                        if _cvv.shape[0] != _cf_n or not np.all(np.isfinite(_cvv)):
-                            continue
-                        if _cf_r2(_cvv) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
-                            continue  # no held-out linear usability over the selected design -> stays out
-                        _readd_cf.append(_cidx)
-                        _cf_sv_set.add(_cidx)
-                    if _readd_cf:
-                        selected_vars = list(selected_vars) + _readd_cf
-                        if verbose:
-                            logger.info(
-                                "MRMR cat-FE floor-drop protection: re-added %d held-out-validated categorical-FE "
-                                "encoding(s) the maxT relevance floor dropped (genuine linear usability, not "
-                                "sub-null noise): %s",
-                                len(_readd_cf), [cols[i] for i in _readd_cf],
-                            )
+    selected_vars = _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, verbose)
 
     # POST-SELECTION DCD CLUSTER DISCOVERY. DCD's in-screen hook (``screen_dcd_discover_and_swap``) anchors a cluster ONLY on a column the greedy screen actually SELECTED. On a duplicate-feature
     # fixture the greedy screen selects ONE representative (a strong column or an engineered composite) and gates the redundant duplicates out as mutually-redundant, so no duplicate is ever an
@@ -288,14 +193,140 @@ def _friend_graph_and_redundancy_passes_group3(
     # downstream raw-redundancy DROP sweep still runs after with the SAME pseudo-exclusion, so the two
     # passes agree. Byte-identical when no pseudo-remix child is selected (the candidate set is empty).
     # Off when the drop sweep is disabled (shares the ``fe_drop_redundant_raw_operands`` toggle).
+    selected_vars = _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_np, data, _eng_continuous_snapshot, target_indices, nbins, verbose)
+
+    # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP: the greedy MRMR order
+    # selects a raw operand on its high MARGINAL relevance BEFORE the engineered child built
+    # from it is in support, so the redundancy penalty never fires against it, and the
+    # retention / augmentation passes above then re-add it. The result is a subsumed operand
+    # admitted alongside the engineered feature that fully determines y from it (e.g. raw
+    # ``a, b`` beside ``div(neg(a),sqrt(b))`` for ``y=(a**2)/b``, since
+    # ``(a/sqrt(b))**2 = a**2/b``). This final sweep removes such operands using the SAME
+    # debiased excess-CMI idea the engineered-vs-engineered S5 gate validated, so the verdict
+    # is n-INVARIANT (identical at n=1000 and n=50000) and never drops a raw carrying genuine
+    # independent signal (a private additive term keeps a large excess and is KEPT). On by
+    # default; ``fe_drop_redundant_raw_operands=False`` restores the pre-fix behaviour.
+
+    return selected_vars, cols, data, nbins
+
+
+def _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, verbose):
+    """Gate the target, count and frequency encoded features on their held-out gain."""
+    if isinstance(X, pd.DataFrame) and len(selected_vars):
+        _cf_names: list = []
+        for _attr in ("kfold_te_features_", "count_encoding_features_", "frequency_encoding_features_", "cat_num_interaction_features_"):
+            _cf_names.extend(getattr(self, _attr, None) or [])
+        _cf_names = [n for n in dict.fromkeys(_cf_names)]  # dedup, preserve order
+        if _cf_names:
+            _cf_y = None
+            try:
+                _cf_yv = np.asarray(_y_np, dtype=np.float64).reshape(-1)
+                if _cf_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_cf_yv)):
+                    _cf_y = _cf_yv
+            except Exception as exc:
+                logger.debug("mrmr: y coercion for the cat-FE floor-drop protection probe failed; protection disabled: %r", exc, exc_info=True)
+                _cf_y = None
+            if _cf_y is not None:
+                _CF_PROTECT_MIN_INCR_R2 = 0.005  # genuine encoding lifts held-out R^2 >> 0.005; noise ~0 (same bar as raw protection)
+                _cf_n = _cf_y.shape[0]
+                # Seeded shuffle-then-stride (see the hinge-gate sibling comment above).
+                _cf_perm = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)).permutation(_cf_n)
+                _cf_va = np.zeros(_cf_n, dtype=bool)
+                _cf_va[_cf_perm[: _cf_n // 3]] = True
+                _cf_tr = ~_cf_va
+                _cf_cols_index = {c: i for i, c in enumerate(cols)}
+                _cf_sv_set = set(selected_vars)
+                _cf_sel_names = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
+                # Baseline design = intercept + continuous/binned values of the ALREADY-SELECTED columns, so a cat-FE column subsumed by a selected feature adds
+                # ~0 and is NOT re-added (no redundancy regression).
+                _cf_base = [np.ones(_cf_n)]
+                for _sn in dict.fromkeys(cols[i] for i in selected_vars if 0 <= i < len(cols)):
+                    _cv = _eng_continuous_snapshot.get(_sn)
+                    if _cv is None and _sn in X.columns:
+                        try:
+                            _cv = X[_sn].to_numpy()
+                        except Exception as exc:
+                            logger.debug("mrmr: continuous-value lookup failed for this candidate; treating as unavailable: %r", exc, exc_info=True)
+                            _cv = None
+                    if _cv is None:
+                        _si = _cf_cols_index.get(_sn)
+                        if _si is not None:
+                            _cv = data[:, _si]
+                    if _cv is None:
+                        continue
+                    try:
+                        _cv = np.asarray(_cv, dtype=np.float64).reshape(-1)
+                    except (TypeError, ValueError):
+                        continue
+                    if _cv.shape[0] == _cf_n and np.all(np.isfinite(_cv)):
+                        _cf_base.append(_cv)
+
+                selected_vars = _score_encoded_features_heldout(_cf_tr, _cf_va, _cf_base, _cf_y, _cf_names, _cf_cols_index, _cf_sv_set, _cf_sel_names, _eng_continuous_snapshot, X, data, _cf_n, _CF_PROTECT_MIN_INCR_R2, selected_vars, verbose, cols)
+    return selected_vars
+
+
+def _score_encoded_features_heldout(_cf_tr, _cf_va, _cf_base, _cf_y, _cf_names, _cf_cols_index, _cf_sv_set, _cf_sel_names, _eng_continuous_snapshot, X, data, _cf_n, _CF_PROTECT_MIN_INCR_R2, selected_vars, verbose, cols):
+    """Score the encoded features on the held-out split and drop those without gain."""
+    if int(_cf_tr.sum()) >= 32 and int(_cf_va.sum()) >= 16:
+        # The base design is factorised once and each candidate costs one column insert, rather than a fresh column_stack of the full design plus an
+        # SVD per candidate. Same helper the raw floor-drop protection uses; see ``heldout_r2_scorer``.
+        _cf_r2 = heldout_r2_scorer(_cf_base, _cf_y, _cf_tr, _cf_va)
+        _cf_r2_base = _cf_r2()
+        _readd_cf = []
+        for _cn in _cf_names:
+            _cidx = _cf_cols_index.get(_cn)
+            if _cidx is None or _cidx in _cf_sv_set or _cn in _cf_sel_names:
+                continue
+            # Prefer the full-precision continuous value (same source the baseline design above uses for already-selected columns) over the
+            # nbins-quantized screening code: quantile bin-edge digitization is not exactly tie-invariant across a monotone rescale of a
+            # duplicate-heavy column (e.g. a count encoding vs its count/n frequency twin can land in a different number of effective bins from
+            # floating-point edge-coincidence ties), which made this R^2 probe - and hence the rescue - diverge between two info- equivalent
+            # encodings. The raw column is still available in X at this point.
+            _cvv_raw = _eng_continuous_snapshot.get(_cn)
+            if _cvv_raw is None and _cn in X.columns:
+                try:
+                    _cvv_raw = X[_cn].to_numpy()
+                except Exception as exc:
+                    logger.debug("mrmr: raw continuous-value lookup failed for this candidate: %r", exc, exc_info=True)
+                    _cvv_raw = None
+            if _cvv_raw is not None:
+                try:
+                    _cvv = np.asarray(_cvv_raw, dtype=np.float64).reshape(-1)
+                except (TypeError, ValueError):
+                    _cvv_raw = None
+            if _cvv_raw is None:
+                try:
+                    _cvv = np.asarray(data[:, _cidx], dtype=np.float64).reshape(-1)
+                except (TypeError, ValueError, IndexError):
+                    continue
+            if _cvv.shape[0] != _cf_n or not np.all(np.isfinite(_cvv)):
+                continue
+            if _cf_r2(_cvv) - _cf_r2_base < _CF_PROTECT_MIN_INCR_R2:
+                continue  # no held-out linear usability over the selected design -> stays out
+            _readd_cf.append(_cidx)
+            _cf_sv_set.add(_cidx)
+        if _readd_cf:
+            selected_vars = list(selected_vars) + _readd_cf
+            if verbose:
+                logger.info(
+                    "MRMR cat-FE floor-drop protection: re-added %d held-out-validated categorical-FE "
+                    "encoding(s) the maxT relevance floor dropped (genuine linear usability, not "
+                    "sub-null noise): %s",
+                    len(_readd_cf), [cols[i] for i in _readd_cf],
+                )
+    return selected_vars
+
+
+def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_np, data, _eng_continuous_snapshot, target_indices, nbins, verbose):
+    """Sweep the selection for raw operands made redundant by selected engineered features."""
     if getattr(self, "fe_drop_redundant_raw_operands", True) and len(selected_vars) >= 1:
         try:
-            from ..._fe_raw_redundancy_drop import (
+            from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
                 _is_pseudo_remix_child as _pcr_is_pseudo,
                 _PSEUDO_SRC_SPLIT,
                 raw_retains_signal_given_genuine_children as _pcr_keep,
             )
-            from ..._mi_greedy_cmi_fe import _quantile_bin as _pcr_qbin
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin as _pcr_qbin
             _pcr_raw_set = set(self.feature_names_in_)
             _pcr_sel_set = set(selected_vars)
             _pcr_sel_names = {cols[i] for i in selected_vars}
@@ -327,7 +358,7 @@ def _friend_graph_and_redundancy_passes_group3(
                         type(e).__name__, e,
                     )
                 _pcr_eng_cont = _eng_continuous_snapshot
-                from ..._fe_raw_redundancy_drop import _TOKEN_SPLIT
+                from mlframe.feature_selection.filters._fe_raw_redundancy_drop import _TOKEN_SPLIT
                 # PERMUTATION-SIGNIFICANCE GATE on the masked-raw rescue (I4 noise
                 # admission). The keep-rule conditions on the GENUINE children only; when a raw's
                 # ONLY consumer is a pseudo binagg/gate/argmax re-mix the conditioning set is empty
@@ -340,7 +371,7 @@ def _friend_graph_and_redundancy_passes_group3(
                 # a genuinely masked raw (``a`` carrying ``3*a``) clears it. Best-effort: a kernel
                 # failure falls through to the permissive rescue (never drop on an estimator error).
                 try:
-                    from ...permutation import mi_direct as _pcr_mi_direct
+                    from mlframe.feature_selection.filters.permutation import mi_direct as _pcr_mi_direct
                 except Exception as exc:
                     logger.debug("mrmr: mi_direct import/binding failed for the post-cluster-rescue significance probe; probe disabled: %r", exc, exc_info=True)
                     _pcr_mi_direct = None  # type: ignore[assignment]
@@ -413,17 +444,4 @@ def _friend_graph_and_redundancy_passes_group3(
                         )
         except Exception as _exc_pcr:
             logger.warning("MRMR pseudo-child masked-raw rescue failed: %s; keeping support as-is.", _exc_pcr)
-
-    # RAW-VS-ENGINEERED CONDITIONAL-REDUNDANCY DROP: the greedy MRMR order
-    # selects a raw operand on its high MARGINAL relevance BEFORE the engineered child built
-    # from it is in support, so the redundancy penalty never fires against it, and the
-    # retention / augmentation passes above then re-add it. The result is a subsumed operand
-    # admitted alongside the engineered feature that fully determines y from it (e.g. raw
-    # ``a, b`` beside ``div(neg(a),sqrt(b))`` for ``y=(a**2)/b``, since
-    # ``(a/sqrt(b))**2 = a**2/b``). This final sweep removes such operands using the SAME
-    # debiased excess-CMI idea the engineered-vs-engineered S5 gate validated, so the verdict
-    # is n-INVARIANT (identical at n=1000 and n=50000) and never drops a raw carrying genuine
-    # independent signal (a private additive term keeps a large excess and is KEPT). On by
-    # default; ``fe_drop_redundant_raw_operands=False`` restores the pre-fix behaviour.
-
-    return selected_vars, cols, data, nbins
+    return selected_vars

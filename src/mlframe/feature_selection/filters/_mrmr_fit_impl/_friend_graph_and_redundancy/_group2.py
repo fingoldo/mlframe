@@ -9,6 +9,7 @@ section this fans out from and the ``(selected_vars, cols, data, nbins)`` thread
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 
@@ -142,6 +143,7 @@ def _friend_graph_and_redundancy_passes_group2(
     # below still runs ONLY when ``_hinge_feats`` is non-empty (see its own ``if _hinge_feats:`` guard).
     # The orth-basis protection below reuses the held-out gate defined inside this block; record whether it exists explicitly.
     _heldout_gate_ready = False
+    _heldout_incr_over_selected: Any = None
     if (_hinge_feats or getattr(self, "hybrid_orth_features_", None)) and len(selected_vars):
         _cols_index = {c: i for i, c in enumerate(cols)}
         _sv_set = set(selected_vars)
@@ -226,6 +228,45 @@ def _friend_graph_and_redundancy_passes_group2(
     # the hinge gate): for the basis the curve IS the win, so adding ``src^2`` would self-reject the very
     # quadratic basis we want. Reuses ``_heldout_incr_over_selected`` with ``_src_vals=None``.
     _orth_feats = getattr(self, "hybrid_orth_features_", None)
+    selected_vars = _orth_feature_heldout_gate_pass(_orth_feats, selected_vars, _heldout_gate_ready, cols, data, target_indices, nbins, _hybrid_orth_pre_recipes, _eng_continuous_snapshot, X, _heldout_incr_over_selected, verbose)
+
+    # RAW-FEATURE FLOOR-DROP PROTECTION (Fix-B). The Westfall-Young maxT relevance floor is computed
+    # over the FULL candidate pool; when the all-FE-on config widens that pool to hundreds of (already FE-stage-
+    # gated) engineered columns, the per-shuffle MAX corrected MI inflates and the acceptance bar rises ABOVE a
+    # genuine raw feature's true marginal MI - so a real linear signal (e.g. x1 ~ y at binned-MI 0.057, ~30x
+    # noise) is dropped from the screen entirely (confirmed root-cause of test_biz_value_mrmr_underselection).
+    # LOWERING the floor would surface x1 but ALSO admit high-cardinality raw NOISE (a 50-level pure-noise
+    # categorical whose finite-sample MI is inflated) - a regression. Instead, KEEP the floor (noise stays
+    # rejected) and re-add a raw feature the screen dropped IFF it lifts a HELD-OUT linear fit over the already-
+    # selected design - the SAME MI-vs-linear-usability protection the hinge / orth-basis blocks use. A genuine
+    # linear/monotone raw signal clears the lift; a high-card noise categorical (no held-out linear usability)
+    # does not, so it stays out. Conditioned on _y_for_hinge_gate (the held-out scorer); no-op when it is None.
+    # Self-contained held-out scorer (the hinge block's _y_for_hinge_gate / _heldout_incr_over_selected only
+    # exist when hinge legs were generated; this protection must run regardless). Baseline = intercept + the
+    # continuous values of the ALREADY-SELECTED columns (engineered from the snapshot, raw from X), so a raw
+    # feature SUBSUMED by a selected composite adds ~0 and is NOT re-added (no raw-redundancy regression).
+    selected_vars = _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, _effective_min_relevance_gain, cached_MIs, verbose)
+
+    # CAT-FE FLOOR-DROP PROTECTION (Fix-C). The Westfall-Young maxT relevance floor (computed over
+    # the FULL widened candidate pool when many FE families are on) routinely rises above the marginal binned-MI
+    # of a genuine categorical-FE encoding - a K-fold target encoding (``cat__te``), a count/frequency encoding,
+    # or a cat-num residual (``price__resid_by__cat_region``) - so the greedy screen drops it after 2 features
+    # EVEN THOUGH it carries strong LINEAR usability to y (the MI-vs-linear-usability gap, a recurring mlframe
+    # theme). The cat-num residual on the kitchen-sink frame has univariate corr ~0.27 / held-out R^2-incr ~0.06
+    # over the selected design yet is screened out, so downstream LogReg loses ~0.6% AUC. This is the SAME class
+    # of false-drop the raw-feature / orth-basis / hinge protections already correct - but those iterate only
+    # over raw ``feature_names_in_`` / single-source orth bases / hinge legs, so an engineered cat-FE column falls
+    # through every one of them. Mirror the raw protection here: KEEP the floor (sub-null noise stays rejected)
+    # and re-add a dropped cat-FE column IFF it lifts a HELD-OUT linear fit over the already-selected design by
+    # >= the same R^2 floor. The cat-FE columns live as quantized codes in ``data[:, idx]`` (the continuous
+    # snapshot is only populated by the fe_max_steps>0 path); the binned codes preserve the monotone/linear
+    # signal well enough for the usability test (a genuine encoding lifts R^2 >> floor; a noise encoding ~0).
+
+    return selected_vars, cols, data, nbins
+
+
+def _orth_feature_heldout_gate_pass(_orth_feats, selected_vars, _heldout_gate_ready, cols, data, target_indices, nbins, _hybrid_orth_pre_recipes, _eng_continuous_snapshot, X, _heldout_incr_over_selected, verbose):
+    """Gate the orthogonal features on their held-out incremental gain over the selection."""
     if _orth_feats and len(selected_vars) and _heldout_gate_ready:
         _cols_index_o = {c: i for i, c in enumerate(cols)}
         _sv_set_o = set(selected_vars)
@@ -246,7 +287,7 @@ def _friend_graph_and_redundancy_passes_group2(
             _src_idx = _cols_index_o.get(_src_name)
             if _src_idx is not None:
                 try:
-                    from ...permutation import mi_direct as _orth_mi_direct
+                    from mlframe.feature_selection.filters.permutation import mi_direct as _orth_mi_direct
 
                     # 2026-08-16: was briefly tightened to npermutations=200/alpha=0.02 (6.25x the EMIT-BOTH
                     # default 32/0.05) on the theory this probe's coarse resolution let noise sources through
@@ -321,22 +362,11 @@ def _friend_graph_and_redundancy_passes_group2(
                     "MI screen DPI-dropped (value is downstream linear usability over the raw source): %s",
                     len(_readd_orth), [cols[i] for i in _readd_orth],
                 )
+    return selected_vars
 
-    # RAW-FEATURE FLOOR-DROP PROTECTION (Fix-B). The Westfall-Young maxT relevance floor is computed
-    # over the FULL candidate pool; when the all-FE-on config widens that pool to hundreds of (already FE-stage-
-    # gated) engineered columns, the per-shuffle MAX corrected MI inflates and the acceptance bar rises ABOVE a
-    # genuine raw feature's true marginal MI - so a real linear signal (e.g. x1 ~ y at binned-MI 0.057, ~30x
-    # noise) is dropped from the screen entirely (confirmed root-cause of test_biz_value_mrmr_underselection).
-    # LOWERING the floor would surface x1 but ALSO admit high-cardinality raw NOISE (a 50-level pure-noise
-    # categorical whose finite-sample MI is inflated) - a regression. Instead, KEEP the floor (noise stays
-    # rejected) and re-add a raw feature the screen dropped IFF it lifts a HELD-OUT linear fit over the already-
-    # selected design - the SAME MI-vs-linear-usability protection the hinge / orth-basis blocks use. A genuine
-    # linear/monotone raw signal clears the lift; a high-card noise categorical (no held-out linear usability)
-    # does not, so it stays out. Conditioned on _y_for_hinge_gate (the held-out scorer); no-op when it is None.
-    # Self-contained held-out scorer (the hinge block's _y_for_hinge_gate / _heldout_incr_over_selected only
-    # exist when hinge legs were generated; this protection must run regardless). Baseline = intercept + the
-    # continuous values of the ALREADY-SELECTED columns (engineered from the snapshot, raw from X), so a raw
-    # feature SUBSUMED by a selected composite adds ~0 and is NOT re-added (no raw-redundancy regression).
+
+def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, _effective_min_relevance_gain, cached_MIs, verbose):
+    """Re-add the raw features not subsumed by a selected composite."""
     if isinstance(X, pd.DataFrame) and len(selected_vars):
         _rp_y = None
         try:
@@ -373,7 +403,7 @@ def _friend_graph_and_redundancy_passes_group2(
 
             # The base design is factorised once and extended by one column per candidate (measured 20x faster than a fresh lstsq per
             # candidate at production shape: p~120, n_tr~53k, 109 candidates, 91s -> 4.5s); see ``heldout_r2_scorer``.
-            from ._raw_protect_r2 import heldout_r2_scorer
+            from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._raw_protect_r2 import heldout_r2_scorer
 
             _rp_r2 = heldout_r2_scorer(_rp_base, _rp_y, _rp_tr, _rp_va)
             del _rp_base  # the scorer holds only the train/validation blocks
@@ -421,20 +451,4 @@ def _friend_graph_and_redundancy_passes_group2(
                             "high-card noise): %s",
                             len(_readd_raw), [cols[i] for i in _readd_raw],
                         )
-
-    # CAT-FE FLOOR-DROP PROTECTION (Fix-C). The Westfall-Young maxT relevance floor (computed over
-    # the FULL widened candidate pool when many FE families are on) routinely rises above the marginal binned-MI
-    # of a genuine categorical-FE encoding - a K-fold target encoding (``cat__te``), a count/frequency encoding,
-    # or a cat-num residual (``price__resid_by__cat_region``) - so the greedy screen drops it after 2 features
-    # EVEN THOUGH it carries strong LINEAR usability to y (the MI-vs-linear-usability gap, a recurring mlframe
-    # theme). The cat-num residual on the kitchen-sink frame has univariate corr ~0.27 / held-out R^2-incr ~0.06
-    # over the selected design yet is screened out, so downstream LogReg loses ~0.6% AUC. This is the SAME class
-    # of false-drop the raw-feature / orth-basis / hinge protections already correct - but those iterate only
-    # over raw ``feature_names_in_`` / single-source orth bases / hinge legs, so an engineered cat-FE column falls
-    # through every one of them. Mirror the raw protection here: KEEP the floor (sub-null noise stays rejected)
-    # and re-add a dropped cat-FE column IFF it lifts a HELD-OUT linear fit over the already-selected design by
-    # >= the same R^2 floor. The cat-FE columns live as quantized codes in ``data[:, idx]`` (the continuous
-    # snapshot is only populated by the fe_max_steps>0 path); the binned codes preserve the monotone/linear
-    # signal well enough for the usability test (a genuine encoding lifts R^2 >> floor; a noise encoding ~0).
-
-    return selected_vars, cols, data, nbins
+    return selected_vars

@@ -511,14 +511,7 @@ def process_model(
                 # unconditionally buys a pandas conversion on every VAL/TEST/ensemble call on a build that never needed one.
                 # No-op on non-CB models (the attribute is never read for them).
                 _model_cls_name = type(model_obj).__name__
-                if _model_cls_name.startswith("CatBoost") and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False):
-                    try:
-                        model_obj._mlframe_polars_fastpath_broken = catboost_polars_fastpath_broken()  # readers use getattr(..., False)
-                    except Exception as _e_flag:  # nosec B110 - non-trivial body
-                        # CB Python class is permissive about attributes,
-                        # but slot-restricted forks could refuse -- degrade
-                        # to "pay one extra retry" rather than fail.
-                        logger.debug("Could not set _mlframe_polars_fastpath_broken on %s (%s); will pay the retry each call", _model_cls_name, _e_flag)
+                _flag_catboost_polars_fastpath(_model_cls_name, model_obj)
     if not use_cached_model:
         if "model" not in model_params:
             raise KeyError(f"'model' key missing in model_params. Available keys: {list(model_params.keys())}")
@@ -591,6 +584,18 @@ def process_model(
     maybe_clean_ram_adaptive()
 
     return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
+
+
+def _flag_catboost_polars_fastpath(_model_cls_name, model_obj):
+    """Record on CatBoost models whether the polars fast path is broken."""
+    if _model_cls_name.startswith("CatBoost") and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False):
+        try:
+            model_obj._mlframe_polars_fastpath_broken = catboost_polars_fastpath_broken()  # readers use getattr(..., False)
+        except Exception as _e_flag:  # nosec B110 - non-trivial body
+            # CB Python class is permissive about attributes,
+            # but slot-restricted forks could refuse -- degrade
+            # to "pay one extra retry" rather than fail.
+            logger.debug("Could not set _mlframe_polars_fastpath_broken on %s (%s); will pay the retry each call", _model_cls_name, _e_flag)
 
 
 def _finish_model_timing(use_cached_model, verbose, start, fpath, fingerprint, model):

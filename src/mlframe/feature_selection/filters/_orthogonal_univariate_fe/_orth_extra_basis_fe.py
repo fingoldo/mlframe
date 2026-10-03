@@ -756,6 +756,12 @@ def _detect_fourier_freqs_for_col(
             sc = s - s.mean(); cc = c - c.mean()
             _coarse_basis.append((sc, float(sc @ sc), cc, float(cc @ cc)))
     out: list[float] = []
+    _greedy_fourier_frequency_search(max_freqs, y_tr, y_va, grid, _coarse_basis, z_tr, out, z_va, _core_span, _eff_min_val_corr)
+    return out
+
+
+def _greedy_fourier_frequency_search(max_freqs, y_tr, y_va, grid, _coarse_basis, z_tr, out, z_va, _core_span, _eff_min_val_corr):
+    """Greedily extract Fourier frequencies from the residual of the training split."""
     for _ in range(max(1, int(max_freqs))):
         if float(np.std(y_tr)) < 1e-9 or float(np.std(y_va)) < 1e-9:
             break
@@ -798,7 +804,6 @@ def _detect_fourier_freqs_for_col(
         # Deflate both slices so the next peak-pick sees the residual tones.
         y_tr = _deflate_sincos(z_tr, y_tr, refined_f)
         y_va = _deflate_sincos(z_va, y_va, refined_f)
-    return out
 
 
 # Auto-gate for the adaptive Fourier / chirp operators: a Fourier or chirp leg only helps where the RAW column is NOT already a strong smooth predictor of y. On a near-step / leak column (``leaky ~ y``) the cubic detrend leaves Gibbs ringing the periodogram mistakes for an oscillation; on a genuinely linear / monotone / heavy-tailed-monotone signal the raw column already carries the usability. In both cases a Fourier/chirp leg adds no generalisable signal - it only manufactures engineered columns that then evict the raw signal from ``support_``. So when the raw column's held-out cubic R^2 clears this cap, skip the adaptive operators for it; genuine oscillatory / chirp targets (raw cubic R^2 ~ 0) stay below the cap and keep firing.

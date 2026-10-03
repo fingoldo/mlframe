@@ -535,14 +535,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # require neither groups nor sample_weight, so the provisional fit
         # is the plain 2-arg form.
         _dcf = getattr(transform, "domain_check_fitted", None)
-        if _dcf is not None and bool(valid.any()):
-            _provisional_params = call_transform(transform, "fit", y_arr[valid], base_arr[valid])
-            if isinstance(_provisional_params, dict):
-                _valid_fitted = np.asarray(
-                    _dcf(y_arr, base_arr, _provisional_params), dtype=bool,
-                )
-                if _valid_fitted.shape == valid.shape:
-                    valid = valid & _valid_fitted
+        valid = self._narrow_valid_with_fitted_params(_dcf, valid, transform, y_arr, base_arr)
         n_invalid = int((~valid).sum())
         self._handle_invalid_rows(n_invalid, y_arr)
 
@@ -565,11 +558,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # FULL-length companion to groups_train, needed by the recurrent branch below (which runs forward()
         # over the full-length y_seq/base_seq, NOT the [valid]-compacted y_train/base_train).
         groups_full: np.ndarray | None = None
-        if transform.requires_groups:
-            if not self.group_column:
-                raise ValueError(f"CompositeTargetEstimator: transform '{self.transform_name}' " f"requires groups; configure ``group_column`` on the wrapper.")
-            groups_full = _extract_groups(X, self.group_column)
-            groups_train = groups_full[valid]
+        groups_full, groups_train = self._resolve_group_arrays(transform, X, valid, groups_full, groups_train)
         # The transform fit gets ``groups``, ``sample_weight`` and ``row_index`` exactly when it declares them (``call_transform`` gates on the
         # signature, so a TypeError deep inside a weight-aware fit propagates instead of reading as "no weight support"). ``row_index``: fit
         # always sees domain-filter-COMPACTED y_train/base_train (unlike forward(), which the recurrent branch below routes through the FULL
@@ -581,39 +570,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # Compute T on the valid rows. Grouped transforms need the
         # groups kwarg for forward as well.
         transform_forward_kwargs: dict[str, Any] = {"groups": groups_train} if groups_train is not None else {}
-        if getattr(transform, "recurrent", False) and not bool(valid.all()):
-            # Time-recurrent forward (ewma_residual / rolling_quantile_ratio /
-            # frac_diff): each output row depends on its NEIGHBOURS in the row
-            # sequence, so compacting away domain-violating rows before the forward
-            # shifts every later / windowed row's state and T near a filtered gap
-            # would differ from predict-time T (predict never compacts -- it routes
-            # violating rows to the fallback). We run the forward over the FULL
-            # sequence (positions preserved) and mask after. NON-FINITE recurrent
-            # inputs (NaN base / NaN y) are carry-forward-filled so a single NaN
-            # cannot poison neighbouring valid rows; FINITE entries dropped for an
-            # unrelated reason (e.g. NaN y at a finite-base row under ewma) are
-            # KEPT, because predict's forward also consumes the real value there --
-            # so we fill on FINITENESS, not on the valid mask. Bit-identical to the
-            # compacted path when no row is dropped, so we branch only when it is.
-            y_seq = _carry_forward_fill(y_arr, np.isfinite(y_arr))
-            if transform.requires_base:
-                if base_arr.ndim == 1:
-                    base_seq: Any = _carry_forward_fill(
-                        base_arr, np.isfinite(base_arr),
-                    )
-                else:
-                    base_seq = np.column_stack([_carry_forward_fill(base_arr[:, j], np.isfinite(base_arr[:, j])) for j in range(base_arr.shape[1])])
-            else:
-                base_seq = base_arr
-            # y_seq/base_seq are full-length (n rows), so `groups` for this forward() call must be too --
-            # the [valid]-sliced groups_train (length valid.sum()) would misalign every per-group index
-            # against the full-length sequence, scrambling row identity inside every *_grouped recurrent
-            # transform and leaving part of the output buffer uninitialized.
-            recurrent_forward_kwargs: dict[str, Any] = {"groups": groups_full} if groups_full is not None else {}
-            t_full = call_transform(transform, "forward", y_seq, base_seq, transform_params, **recurrent_forward_kwargs)
-            t_train = np.asarray(t_full, dtype=np.float64).reshape(-1)[valid]
-        else:
-            t_train = call_transform(transform, "forward", y_train, base_train, transform_params, **transform_forward_kwargs)
+        t_train = self._recurrent_forward_with_invalid_rows(transform, valid, y_arr, base_arr, groups_full, transform_params, y_train, base_train, transform_forward_kwargs)
 
         # Sanity: T must be finite or the inner estimator will choke.
         if not np.all(np.isfinite(t_train)):
@@ -784,6 +741,66 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             "t_clip_high_hits": 0,
         }
         return self
+
+    @staticmethod
+    def _narrow_valid_with_fitted_params(_dcf, valid, transform, y_arr, base_arr):
+        """Narrow the validity mask with a provisional fit of the transform."""
+        if _dcf is not None and bool(valid.any()):
+            _provisional_params = call_transform(transform, "fit", y_arr[valid], base_arr[valid])
+            if isinstance(_provisional_params, dict):
+                _valid_fitted = np.asarray(
+                    _dcf(y_arr, base_arr, _provisional_params), dtype=bool,
+                )
+                if _valid_fitted.shape == valid.shape:
+                    valid = valid & _valid_fitted
+        return valid
+
+    def _resolve_group_arrays(self, transform, X, valid, groups_full, groups_train):
+        """Resolve the group arrays the transform requires."""
+        if transform.requires_groups:
+            if not self.group_column:
+                raise ValueError(f"CompositeTargetEstimator: transform '{self.transform_name}' " f"requires groups; configure ``group_column`` on the wrapper.")
+            groups_full = _extract_groups(X, self.group_column)
+            groups_train = groups_full[valid]
+        return groups_full, groups_train
+
+    @staticmethod
+    def _recurrent_forward_with_invalid_rows(transform, valid, y_arr, base_arr, groups_full, transform_params, y_train, base_train, transform_forward_kwargs):
+        """Run the time-recurrent forward over the full-length arrays when rows were dropped."""
+        if getattr(transform, "recurrent", False) and not bool(valid.all()):
+            # Time-recurrent forward (ewma_residual / rolling_quantile_ratio /
+            # frac_diff): each output row depends on its NEIGHBOURS in the row
+            # sequence, so compacting away domain-violating rows before the forward
+            # shifts every later / windowed row's state and T near a filtered gap
+            # would differ from predict-time T (predict never compacts -- it routes
+            # violating rows to the fallback). We run the forward over the FULL
+            # sequence (positions preserved) and mask after. NON-FINITE recurrent
+            # inputs (NaN base / NaN y) are carry-forward-filled so a single NaN
+            # cannot poison neighbouring valid rows; FINITE entries dropped for an
+            # unrelated reason (e.g. NaN y at a finite-base row under ewma) are
+            # KEPT, because predict's forward also consumes the real value there --
+            # so we fill on FINITENESS, not on the valid mask. Bit-identical to the
+            # compacted path when no row is dropped, so we branch only when it is.
+            y_seq = _carry_forward_fill(y_arr, np.isfinite(y_arr))
+            if transform.requires_base:
+                if base_arr.ndim == 1:
+                    base_seq: Any = _carry_forward_fill(
+                        base_arr, np.isfinite(base_arr),
+                    )
+                else:
+                    base_seq = np.column_stack([_carry_forward_fill(base_arr[:, j], np.isfinite(base_arr[:, j])) for j in range(base_arr.shape[1])])
+            else:
+                base_seq = base_arr
+            # y_seq/base_seq are full-length (n rows), so `groups` for this forward() call must be too --
+            # the [valid]-sliced groups_train (length valid.sum()) would misalign every per-group index
+            # against the full-length sequence, scrambling row identity inside every *_grouped recurrent
+            # transform and leaving part of the output buffer uninitialized.
+            recurrent_forward_kwargs: dict[str, Any] = {"groups": groups_full} if groups_full is not None else {}
+            t_full = call_transform(transform, "forward", y_seq, base_seq, transform_params, **recurrent_forward_kwargs)
+            t_train = np.asarray(t_full, dtype=np.float64).reshape(-1)[valid]
+        else:
+            t_train = call_transform(transform, "forward", y_train, base_train, transform_params, **transform_forward_kwargs)
+        return t_train
 
     def _resolve_base_array(self, transform, y, base_columns, X):
         """Resolve the base array, feeding zeros for unary transforms."""

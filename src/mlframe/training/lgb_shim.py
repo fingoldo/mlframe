@@ -496,94 +496,7 @@ class _DatasetReuseMixin:
         # Raw first-eval-pair frame/labels retained for per-iteration metric capture (the binned Dataset cannot be re-predicted).
         _iter_metrics_Xval = None
         _iter_metrics_yval = None
-        if eval_set:
-            for i, pair in enumerate(eval_set):
-                assert isinstance(pair, tuple) and len(pair) in (2, 3), (
-                    f"lgb_shim: normalized eval_set item {i} is {type(pair).__name__} "
-                    f"len {len(pair) if hasattr(pair, '__len__') else '?'}; expected a 2/3-tuple."
-                )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
-                pair_seq = pair
-                X_val, y_val_raw = pair_seq[0], pair_seq[1]
-                # Same Arrow split-blocks bridge as train X: keeps Categorical dtype intact, avoids the ``__array__`` numpy fallthrough.
-                X_val = _maybe_bridge_polars_to_pandas(X_val)
-                # categorical_feature="auto" makes LightGBM re-detect categoricals from each frame's pandas dtypes
-                # independently, so a column that is category-dtype in train X but a different CategoricalDtype (or object)
-                # in X_val raises "train and valid dataset categorical_feature do not match". Align X_val's categorical
-                # columns to the train frame's exact CategoricalDtype. Only X_val (the small val frame) is rebuilt -- via
-                # assign for BlockManager reuse of un-cast columns -- the (potentially huge) train frame X is never touched.
-                X_val = self._realign_val_columns(X, X_val)
-                w_val_inline = pair_seq[2] if len(pair_seq) >= 3 else None
-                # Transform val labels through the encoder for classifier;
-                # regressor returns y unchanged.
-                y_val = self._transform_y_for_eval(y_val_raw)
-                w_val = w_val_inline if w_val_inline is not None else (eval_sample_weight[i] if eval_sample_weight and i < len(eval_sample_weight) else None)
-                init_val = eval_init_score[i] if eval_init_score and i < len(eval_init_score) else None
-                # Composite key (val content, train content) so we only reuse a val Dataset when
-                # BOTH match -- a val Dataset's bin mapping is baked in from whichever dtrain it
-                # was built with reference= against; reusing it under a DIFFERENT train Dataset
-                # would silently score against stale bins. Lookup chain mirrors train: instance
-                # dict slot (multi-eval-set safe, unlike the old single-pair slot that only ever
-                # cached the LAST eval-set entry -- see F2) -> module cache (cross-clone reuse,
-                # see F1) -> fresh build.
-                val_key = (_signature_of(X_val, categorical_feature), train_key)
-                dval = self._cached_val_datasets.get(val_key)
-                _val_source = "instance" if dval is not None else "miss"
-                if dval is None:
-                    dval = _lgb_cache_get(val_key)
-                    if dval is not None:
-                        _val_source = "module"
-                if dval is not None:
-                    dval.set_label(np.asarray(y_val))
-                    if w_val is not None:
-                        dval.set_weight(np.asarray(w_val))
-                    else:
-                        # Asymmetric with the train-Dataset cache-hit path above (which explicitly
-                        # resets to uniform ones when sample_weight is omitted): a later call that
-                        # omits the eval-set weight after an earlier call supplied one used to
-                        # silently keep the STALE weight on this cached val Dataset instead of
-                        # resetting to uniform. Mirror the train path's reset here too.
-                        _reset_weight_to_uniform(dval)
-                    self._cached_val_datasets[val_key] = dval
-                    self._cached_val_datasets.move_to_end(val_key)
-                    while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
-                        self._cached_val_datasets.popitem(last=False)
-                    logger.debug(
-                        "[lgb-shim] reused %s cached val Dataset (id=%d)",
-                        _val_source, id(dval),
-                    )
-                else:
-                    dval = _build_dataset(
-                        X_val, y_val, w_val,
-                        reference=dtrain,  # share bin mapping
-                        categorical_feature=categorical_feature,
-                        feature_name=feature_name,
-                        init_score=init_val,
-                    )
-                    self._cached_val_datasets[val_key] = dval
-                    self._cached_val_datasets.move_to_end(val_key)
-                    while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
-                        self._cached_val_datasets.popitem(last=False)
-                    _lgb_cache_put(val_key, dval)
-                    logger.debug(
-                        "[lgb-shim] built fresh val Dataset (id=%d); stored in module cache for cross-clone reuse",
-                        id(dval),
-                    )
-                valid_sets.append(dval)
-                if i == 0:
-                    _iter_metrics_Xval = X_val
-                    _iter_metrics_yval = y_val
-                if eval_names and i < len(eval_names):
-                    valid_names.append(eval_names[i])
-                else:
-                    # LGB's native convention for default eval-set name is
-                    # ``valid_{i}`` (matches LGBMClassifier.fit + lgb.train).
-                    # mlframe's LightGBMCallback defaults monitor_dataset to
-                    # ``"valid_0"`` so this lookup has to agree - previously
-                    # the shim used ``validation_{i}`` and the callback's
-                    # set_default_monitor_metric raised on every shim-routed
-                    # fit (test_tree_model_with_early_stopping[lgb], surfaced
-                    # by a tests/training run after the migration).
-                    valid_names.append(f"valid_{i}")
+        _iter_metrics_Xval, _iter_metrics_yval = self._build_eval_datasets(eval_set, X, eval_sample_weight, eval_init_score, categorical_feature, train_key, dtrain, feature_name, valid_sets, eval_names, valid_names, _iter_metrics_Xval, _iter_metrics_yval)
 
         # ---- Resolve params for lgb.train() --------------------------
         # ``_process_params("fit")`` strips sklearn-only fields
@@ -706,6 +619,98 @@ class _DatasetReuseMixin:
             self._class_weight = getattr(self, "class_weight", None)
 
         return self
+
+    def _build_eval_datasets(self, eval_set, X, eval_sample_weight, eval_init_score, categorical_feature, train_key, dtrain, feature_name, valid_sets, eval_names, valid_names, _iter_metrics_Xval, _iter_metrics_yval):
+        """Build the validation datasets of the eval set."""
+        if eval_set:
+            for i, pair in enumerate(eval_set):
+                assert isinstance(pair, tuple) and len(pair) in (2, 3), (
+                    f"lgb_shim: normalized eval_set item {i} is {type(pair).__name__} "
+                    f"len {len(pair) if hasattr(pair, '__len__') else '?'}; expected a 2/3-tuple."
+                )  # nosec B101 - internal invariant / dev-time sanity check, not a security gate
+                pair_seq = pair
+                X_val, y_val_raw = pair_seq[0], pair_seq[1]
+                # Same Arrow split-blocks bridge as train X: keeps Categorical dtype intact, avoids the ``__array__`` numpy fallthrough.
+                X_val = _maybe_bridge_polars_to_pandas(X_val)
+                # categorical_feature="auto" makes LightGBM re-detect categoricals from each frame's pandas dtypes
+                # independently, so a column that is category-dtype in train X but a different CategoricalDtype (or object)
+                # in X_val raises "train and valid dataset categorical_feature do not match". Align X_val's categorical
+                # columns to the train frame's exact CategoricalDtype. Only X_val (the small val frame) is rebuilt -- via
+                # assign for BlockManager reuse of un-cast columns -- the (potentially huge) train frame X is never touched.
+                X_val = self._realign_val_columns(X, X_val)
+                w_val_inline = pair_seq[2] if len(pair_seq) >= 3 else None
+                # Transform val labels through the encoder for classifier;
+                # regressor returns y unchanged.
+                y_val = self._transform_y_for_eval(y_val_raw)
+                w_val = w_val_inline if w_val_inline is not None else (eval_sample_weight[i] if eval_sample_weight and i < len(eval_sample_weight) else None)
+                init_val = eval_init_score[i] if eval_init_score and i < len(eval_init_score) else None
+                # Composite key (val content, train content) so we only reuse a val Dataset when
+                # BOTH match -- a val Dataset's bin mapping is baked in from whichever dtrain it
+                # was built with reference= against; reusing it under a DIFFERENT train Dataset
+                # would silently score against stale bins. Lookup chain mirrors train: instance
+                # dict slot (multi-eval-set safe, unlike the old single-pair slot that only ever
+                # cached the LAST eval-set entry -- see F2) -> module cache (cross-clone reuse,
+                # see F1) -> fresh build.
+                val_key = (_signature_of(X_val, categorical_feature), train_key)
+                dval = self._cached_val_datasets.get(val_key)
+                _val_source = "instance" if dval is not None else "miss"
+                if dval is None:
+                    dval = _lgb_cache_get(val_key)
+                    if dval is not None:
+                        _val_source = "module"
+                if dval is not None:
+                    dval.set_label(np.asarray(y_val))
+                    if w_val is not None:
+                        dval.set_weight(np.asarray(w_val))
+                    else:
+                        # Asymmetric with the train-Dataset cache-hit path above (which explicitly
+                        # resets to uniform ones when sample_weight is omitted): a later call that
+                        # omits the eval-set weight after an earlier call supplied one used to
+                        # silently keep the STALE weight on this cached val Dataset instead of
+                        # resetting to uniform. Mirror the train path's reset here too.
+                        _reset_weight_to_uniform(dval)
+                    self._cached_val_datasets[val_key] = dval
+                    self._cached_val_datasets.move_to_end(val_key)
+                    while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
+                        self._cached_val_datasets.popitem(last=False)
+                    logger.debug(
+                        "[lgb-shim] reused %s cached val Dataset (id=%d)",
+                        _val_source, id(dval),
+                    )
+                else:
+                    dval = _build_dataset(
+                        X_val, y_val, w_val,
+                        reference=dtrain,  # share bin mapping
+                        categorical_feature=categorical_feature,
+                        feature_name=feature_name,
+                        init_score=init_val,
+                    )
+                    self._cached_val_datasets[val_key] = dval
+                    self._cached_val_datasets.move_to_end(val_key)
+                    while len(self._cached_val_datasets) > self._VAL_DATASET_SLOTS_CAP:
+                        self._cached_val_datasets.popitem(last=False)
+                    _lgb_cache_put(val_key, dval)
+                    logger.debug(
+                        "[lgb-shim] built fresh val Dataset (id=%d); stored in module cache for cross-clone reuse",
+                        id(dval),
+                    )
+                valid_sets.append(dval)
+                if i == 0:
+                    _iter_metrics_Xval = X_val
+                    _iter_metrics_yval = y_val
+                if eval_names and i < len(eval_names):
+                    valid_names.append(eval_names[i])
+                else:
+                    # LGB's native convention for default eval-set name is
+                    # ``valid_{i}`` (matches LGBMClassifier.fit + lgb.train).
+                    # mlframe's LightGBMCallback defaults monitor_dataset to
+                    # ``"valid_0"`` so this lookup has to agree - previously
+                    # the shim used ``validation_{i}`` and the callback's
+                    # set_default_monitor_metric raised on every shim-routed
+                    # fit (test_tree_model_with_early_stopping[lgb], surfaced
+                    # by a tests/training run after the migration).
+                    valid_names.append(f"valid_{i}")
+        return _iter_metrics_Xval, _iter_metrics_yval
 
     @staticmethod
     def _realign_val_columns(X, X_val):

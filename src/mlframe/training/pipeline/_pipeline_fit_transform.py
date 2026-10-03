@@ -6,6 +6,8 @@ resolves transparently.
 """
 from __future__ import annotations
 
+from typing import Any
+
 # *****************************************************************************************************************************************************
 # IMPORTS
 # *****************************************************************************************************************************************************
@@ -62,11 +64,11 @@ def fit_and_transform_pipeline(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from . import _warn_on_schema_drift, create_polarsds_pipeline, prepare_dfs_for_catboost_joint
+    from . import prepare_dfs_for_catboost_joint
     # Columns that must be excluded from encoding (they're not categoricals)
     _exclude_from_encoding = set(text_features or []) | set(embedding_features or [])
     pipeline = None
-    cat_features = []
+    cat_features: list[Any] = []
 
     # Datetime column decomposition is performed in
     # ``train_mlframe_models_suite`` (core.py) BEFORE the pre-pipeline
@@ -76,79 +78,7 @@ def fit_and_transform_pipeline(
 
     # Handle Polars DataFrames with polars-ds
     _polarsds_fell_back_to_sklearn = False
-    if isinstance(train_df, pl.DataFrame) and config.prefer_polarsds:
-        # Detect cat_features from the ORIGINAL schema before the pipeline possibly
-        # ordinal/one-hot-encodes them to numeric (which would erase their categorical dtype).
-        _orig_cat_features = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
-        pipeline = create_polarsds_pipeline(
-            train_df, config, verbose=verbose,
-            exclude_from_encoding=_exclude_from_encoding,
-        )
-
-        # ``fallback_to_sklearn``: polars-ds returned no pipeline (unavailable / build failed).
-        # When enabled, convert the splits to pandas and route through the sklearn pandas branch
-        # below so scaling/encoding still happen instead of silently passing the frame through raw.
-        if pipeline is None and config.fallback_to_sklearn:
-            logger.warning("polars-ds pipeline unavailable; falling back to sklearn pandas backend (fallback_to_sklearn=True)")
-            train_df = train_df.to_pandas()
-            if val_df is not None and isinstance(val_df, pl.DataFrame):
-                val_df = val_df.to_pandas()
-            if test_df is not None and isinstance(test_df, pl.DataFrame):
-                test_df = test_df.to_pandas()
-            _polarsds_fell_back_to_sklearn = True
-
-        if _polarsds_fell_back_to_sklearn:
-            pass
-        elif pipeline is not None:
-            if verbose:
-                logger.info("Applying Polars-ds pipeline...")
-
-            # Capture train schema BEFORE the fit-time transform so we
-            # can compare val/test schemas against it below. Without
-            # this snapshot, pipeline.transform(val_df) was called
-            # without any schema validation; missing/extra cols or dtype
-            # mismatches silently propagated either to a downstream
-            # sklearn shape-error or garbage output.
-            _train_schema_snapshot = dict(train_df.schema)
-
-            t0_transform = timer()
-            # Transform all splits and ensure float32 dtypes
-            train_df = pipeline.transform(train_df)
-            if ensure_float32:
-                train_df = ensure_dataframe_float32_convertability(train_df)
-
-            if val_df is not None and len(val_df) > 0:
-                _warn_on_schema_drift(_train_schema_snapshot, val_df, "val")
-                val_df = pipeline.transform(val_df)
-                if ensure_float32:
-                    val_df = ensure_dataframe_float32_convertability(val_df)
-
-            if test_df is not None and len(test_df) > 0:
-                _warn_on_schema_drift(_train_schema_snapshot, test_df, "test")
-                test_df = pipeline.transform(test_df)
-                if ensure_float32:
-                    test_df = ensure_dataframe_float32_convertability(test_df)
-
-            if verbose:
-                transform_elapsed = timer() - t0_transform
-                logger.info("  Polars-ds transform done -- train: %s x%s, %.1fs", f"{train_df.shape[0]:_}", train_df.shape[1], transform_elapsed)
-                logger.info("  train_df dtypes after pipeline: %s", Counter(train_df.dtypes))
-
-        # Detect categorical features from schema (works whether pipeline succeeded or not)
-        # This ensures cat_features is populated even if polars-ds is not available.
-        # Prefer the ORIGINAL cat columns (captured before transform) -- after ordinal/onehot
-        # encoding they're no longer Categorical/Utf8 in the transformed frame.
-        # Skipped when we fell back to sklearn: ``train_df`` is now pandas and handled by the pandas branch below.
-        if not _polarsds_fell_back_to_sklearn:
-            post_cat = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
-            cat_features = _orig_cat_features if _orig_cat_features else post_cat
-
-    # Handle Polars DataFrames without polars-ds pipeline - just detect cat_features
-    elif isinstance(train_df, pl.DataFrame) and not config.prefer_polarsds:
-        # Detect categorical features from schema (no transformation, just detection)
-        cat_features = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
-        if verbose and cat_features:
-            logger.info("Detected %s categorical features from Polars schema: %s", len(cat_features), cat_features)
+    _polarsds_fell_back_to_sklearn, test_df, train_df, val_df, cat_features, pipeline = _fit_polarsds_branch(train_df, config, _exclude_from_encoding, verbose, val_df, test_df, ensure_float32, _polarsds_fell_back_to_sklearn, cat_features, pipeline)
 
     # Handle pandas DataFrames with sklearn-style pipeline (also the fallback target when polars-ds was unavailable).
     if isinstance(train_df, pd.DataFrame) and (not isinstance(train_df, pl.DataFrame)):
@@ -294,3 +224,91 @@ def fit_and_transform_pipeline(
         log_ram_usage()
 
     return train_df, val_df, test_df, pipeline, cat_features
+
+
+def _fit_polarsds_branch(train_df, config, _exclude_from_encoding, verbose, val_df, test_df, ensure_float32, _polarsds_fell_back_to_sklearn, cat_features, pipeline):
+    """Fit the polars-ds pipeline branch for a polars frame."""
+    from mlframe.training.pipeline import create_polarsds_pipeline
+
+    if isinstance(train_df, pl.DataFrame) and config.prefer_polarsds:
+        # Detect cat_features from the ORIGINAL schema before the pipeline possibly
+        # ordinal/one-hot-encodes them to numeric (which would erase their categorical dtype).
+        _orig_cat_features = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
+        pipeline = create_polarsds_pipeline(
+            train_df, config, verbose=verbose,
+            exclude_from_encoding=_exclude_from_encoding,
+        )
+
+        # ``fallback_to_sklearn``: polars-ds returned no pipeline (unavailable / build failed).
+        # When enabled, convert the splits to pandas and route through the sklearn pandas branch
+        # below so scaling/encoding still happen instead of silently passing the frame through raw.
+        if pipeline is None and config.fallback_to_sklearn:
+            logger.warning("polars-ds pipeline unavailable; falling back to sklearn pandas backend (fallback_to_sklearn=True)")
+            train_df = train_df.to_pandas()
+            if val_df is not None and isinstance(val_df, pl.DataFrame):
+                val_df = val_df.to_pandas()
+            if test_df is not None and isinstance(test_df, pl.DataFrame):
+                test_df = test_df.to_pandas()
+            _polarsds_fell_back_to_sklearn = True
+
+        test_df, train_df, val_df = _fit_transform_branch(_polarsds_fell_back_to_sklearn, pipeline, verbose, train_df, ensure_float32, val_df, test_df)
+
+        # Detect categorical features from schema (works whether pipeline succeeded or not)
+        # This ensures cat_features is populated even if polars-ds is not available.
+        # Prefer the ORIGINAL cat columns (captured before transform) -- after ordinal/onehot
+        # encoding they're no longer Categorical/Utf8 in the transformed frame.
+        # Skipped when we fell back to sklearn: ``train_df`` is now pandas and handled by the pandas branch below.
+        if not _polarsds_fell_back_to_sklearn:
+            post_cat = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
+            cat_features = _orig_cat_features if _orig_cat_features else post_cat
+
+    # Handle Polars DataFrames without polars-ds pipeline - just detect cat_features
+    elif isinstance(train_df, pl.DataFrame) and not config.prefer_polarsds:
+        # Detect categorical features from schema (no transformation, just detection)
+        cat_features = [c for c in get_polars_cat_columns(train_df) if c not in _exclude_from_encoding]
+        if verbose and cat_features:
+            logger.info("Detected %s categorical features from Polars schema: %s", len(cat_features), cat_features)
+    return _polarsds_fell_back_to_sklearn, test_df, train_df, val_df, cat_features, pipeline
+
+
+def _fit_transform_branch(_polarsds_fell_back_to_sklearn, pipeline, verbose, train_df, ensure_float32, val_df, test_df):
+    """Fit and transform the training frame through the selected pipeline branch."""
+    from mlframe.training.pipeline import _warn_on_schema_drift
+
+    if _polarsds_fell_back_to_sklearn:
+        pass
+    elif pipeline is not None:
+        if verbose:
+            logger.info("Applying Polars-ds pipeline...")
+
+        # Capture train schema BEFORE the fit-time transform so we
+        # can compare val/test schemas against it below. Without
+        # this snapshot, pipeline.transform(val_df) was called
+        # without any schema validation; missing/extra cols or dtype
+        # mismatches silently propagated either to a downstream
+        # sklearn shape-error or garbage output.
+        _train_schema_snapshot = dict(train_df.schema)
+
+        t0_transform = timer()
+        # Transform all splits and ensure float32 dtypes
+        train_df = pipeline.transform(train_df)
+        if ensure_float32:
+            train_df = ensure_dataframe_float32_convertability(train_df)
+
+        if val_df is not None and len(val_df) > 0:
+            _warn_on_schema_drift(_train_schema_snapshot, val_df, "val")
+            val_df = pipeline.transform(val_df)
+            if ensure_float32:
+                val_df = ensure_dataframe_float32_convertability(val_df)
+
+        if test_df is not None and len(test_df) > 0:
+            _warn_on_schema_drift(_train_schema_snapshot, test_df, "test")
+            test_df = pipeline.transform(test_df)
+            if ensure_float32:
+                test_df = ensure_dataframe_float32_convertability(test_df)
+
+        if verbose:
+            transform_elapsed = timer() - t0_transform
+            logger.info("  Polars-ds transform done -- train: %s x%s, %.1fs", f"{train_df.shape[0]:_}", train_df.shape[1], transform_elapsed)
+            logger.info("  train_df dtypes after pipeline: %s", Counter(train_df.dtypes))
+    return test_df, train_df, val_df

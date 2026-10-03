@@ -849,9 +849,15 @@ def mi_direct(
         return original_mi, confidence, null_mean, p_value
 
     confidence = 0.0
-    i = -1  # caller-side guard: if no inner branch runs, n_total stays 0.
     nfailed = 0
 
+    confidence, original_mi = _permutation_test_mi(original_mi, npermutations, max_failed, min_nonzero_confidence, parallelism, classes_x, freqs_x, classes_y_safe, classes_y, freqs_y, base_seed, dtype, _use_su, confidence)
+
+    return original_mi, confidence
+
+
+def _permutation_test_mi(original_mi, npermutations, max_failed, min_nonzero_confidence, parallelism, classes_x, freqs_x, classes_y_safe, classes_y, freqs_y, base_seed, dtype, _use_su, confidence):
+    """Run the permutation test of the original MI."""
     if original_mi > 0 and npermutations > 0:
         if max_failed is None or max_failed <= 0:  # a feature is rejected at nfailed >= max_failed, so 0 would reject every one
             max_failed = int(npermutations * (1 - min_nonzero_confidence))
@@ -985,5 +991,4 @@ def mi_direct(
         # reported confidence is full-budget-consistent (does not depend on where the break fired), and apply the add-one Monte-Carlo p-value estimator (P1).
         if i >= 0:
             confidence = 1.0 - _perm_pvalue(nfailed, i + 1, full_budget=npermutations)
-
-    return original_mi, confidence
+    return confidence, original_mi

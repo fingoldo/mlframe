@@ -198,23 +198,7 @@ def generate_adaptive_arity_cross_basis(
     leg_cache: dict[tuple[str, int], np.ndarray] = {}
     from ._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
-    for col in src:
-        x = np.asarray(X[col].to_numpy(), dtype=_dt)
-        finite_mask = np.isfinite(x)
-        if not finite_mask.all():
-            fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
-            x = np.where(finite_mask, x, fill)
-        chosen = basis_route_by_moments(x) if basis == "auto" else basis
-        if chosen not in _POLY_BASES:
-            log_throttle(
-                logger, "adaptive_arity_unknown_basis", logging.WARNING,
-                "generate_adaptive_arity_cross_basis: unknown basis %r for "
-                "column %r; skipping", chosen, col,
-            )
-            continue
-        basis_per_col[col] = chosen
-        for d in range(1, max_d + 1):
-            leg_cache[(col, d)] = _evaluate_basis_column(x, chosen, d)
+    _prepare_source_columns(src, X, _dt, basis, basis_per_col, max_d, leg_cache)
 
     valid_src = [c for c in src if c in basis_per_col]
     if len(valid_src) < 2:
@@ -308,6 +292,27 @@ def generate_adaptive_arity_cross_basis(
     # We process winners by MI descending so each high-MI cell eclipses
     # both directions before we evaluate lower-MI candidates.
     eclipsed: set[frozenset] = set()
+    _emit_arity_winners(winners, eclipsed)
+
+    # Emit kept winners.
+    _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols, rows)
+
+    eng_X = pd.DataFrame(out_cols, index=X.index)
+    score_df = pd.DataFrame(rows)
+    if not score_df.empty:
+        score_df = score_df.sort_values("uplift", ascending=False).reset_index(drop=True)
+    else:
+        score_df = pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
+    # Carry the per-column basis-routing decision already made above (line ~200) via .attrs (not a return-tuple
+    # change - keeps the public 2-tuple contract) so downstream callers (score_adaptive_arity_cross_basis ->
+    # hybrid_orth_mi_adaptive_arity_fe_with_recipes._route_basis) can reuse it instead of re-deriving
+    # basis_route_by_moments per LEG of every winning recipe.
+    eng_X.attrs["basis_per_col"] = basis_per_col
+    return eng_X, score_df
+
+
+def _emit_arity_winners(winners, eclipsed):
+    """Emit the arity winners ordered by size and MI."""
     for key, (k, mi_val, _degs, _name, _prod) in sorted(
         winners.items(), key=lambda kv: -kv[1][0],
     ):
@@ -329,7 +334,30 @@ def generate_adaptive_arity_cross_basis(
             if sup_k > k and key.issubset(sup_key) and sup_mi < mi_val:
                 eclipsed.add(sup_key)
 
-    # Emit kept winners.
+
+def _prepare_source_columns(src, X, _dt, basis, basis_per_col, max_d, leg_cache):
+    """Prepare the finite, standardised arrays of the source columns."""
+    for col in src:
+        x = np.asarray(X[col].to_numpy(), dtype=_dt)
+        finite_mask = np.isfinite(x)
+        if not finite_mask.all():
+            fill = float(np.nanmean(x[finite_mask])) if finite_mask.any() else 0.0
+            x = np.where(finite_mask, x, fill)
+        chosen = basis_route_by_moments(x) if basis == "auto" else basis
+        if chosen not in _POLY_BASES:
+            log_throttle(
+                logger, "adaptive_arity_unknown_basis", logging.WARNING,
+                "generate_adaptive_arity_cross_basis: unknown basis %r for "
+                "column %r; skipping", chosen, col,
+            )
+            continue
+        basis_per_col[col] = chosen
+        for d in range(1, max_d + 1):
+            leg_cache[(col, d)] = _evaluate_basis_column(x, chosen, d)
+
+
+def _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols, rows):
+    """Emit the kept arity winners that no other winner eclipses."""
     for key, (k, mi_val, _degs, name, prod) in winners.items():
         if key in eclipsed:
             continue
@@ -351,19 +379,6 @@ def generate_adaptive_arity_cross_basis(
             "engineered_mi": mi_val,
             "uplift": relative_uplift(mi_val, baseline_mi),
         })
-
-    eng_X = pd.DataFrame(out_cols, index=X.index)
-    score_df = pd.DataFrame(rows)
-    if not score_df.empty:
-        score_df = score_df.sort_values("uplift", ascending=False).reset_index(drop=True)
-    else:
-        score_df = pd.DataFrame(columns=_ADAPTIVE_SCORE_EMPTY_COLS)
-    # Carry the per-column basis-routing decision already made above (line ~200) via .attrs (not a return-tuple
-    # change - keeps the public 2-tuple contract) so downstream callers (score_adaptive_arity_cross_basis ->
-    # hybrid_orth_mi_adaptive_arity_fe_with_recipes._route_basis) can reuse it instead of re-deriving
-    # basis_route_by_moments per LEG of every winning recipe.
-    eng_X.attrs["basis_per_col"] = basis_per_col
-    return eng_X, score_df
 
 
 def _adaptive_device_col_specs(eng_columns, raw_cols):

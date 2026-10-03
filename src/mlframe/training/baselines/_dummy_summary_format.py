@@ -74,6 +74,25 @@ def format_suite_end_summary(
     n_total = 0
     n_healthy = 0
 
+    n_healthy, n_total = _summarise_target_reports(dummy_baselines_metadata, n_total, composite_to_raw_target_map, best_model_metrics_by_target, cross_target_ensemble_metrics, min_lift, n_healthy, warn_lines, lines)
+
+    # PARTIAL_FAILURE WARN -- emitted once per target with failures.
+    _format_partial_failures(failures_metadata, warn_lines)
+
+    lines.extend(warn_lines)
+    if best_model_metrics_by_target is not None:
+        # Say what the count MEANS: "0/1 targets" alone reads as total failure, when it can equally mean one
+        # target that beats its baseline by 1.34x against a 1.50x bar.
+        lines.append(
+            f"[DUMMY_BASELINES] HEALTH: {n_healthy}/{n_total} target(s) clear the {min_lift:.2f}x lift bar -- "
+            f"{'ALL_HEALTHY' if n_healthy == n_total else 'see WARN lines above for what each shortfall is'}"
+        )
+
+    return "\n".join(lines)
+
+
+def _summarise_target_reports(dummy_baselines_metadata, n_total, composite_to_raw_target_map, best_model_metrics_by_target, cross_target_ensemble_metrics, min_lift, n_healthy, warn_lines, lines):
+    """Format the summary lines of every target report."""
     for target_type, by_name in dummy_baselines_metadata.items():
         for target_name, rep_dict in by_name.items():
             n_total += 1
@@ -137,7 +156,7 @@ def format_suite_end_summary(
             # cleared the dummy floor.
             best_model_name, _val_selected = "-", False  # _val_selected: the shown CT-ensemble metric was chosen on this split
             model_val: float | None = None
-            from ..metrics_registry import metric_name_higher_is_better as _mhb_pick
+            from mlframe.training.metrics_registry import metric_name_higher_is_better as _mhb_pick
             _direction_pick = _mhb_pick(primary_metric)
             _is_min_for_pick = True if _direction_pick is None else (not _direction_pick)
             def _better(a: float | None, b: float | None, _is_min_for_pick: bool = _is_min_for_pick) -> bool:
@@ -170,7 +189,7 @@ def format_suite_end_summary(
             # val_perplexity -- all lower-is-better metrics whose lift
             # was silently computed as model_val/dummy_val (giving
             # "TASK_NON_TRIVIAL" verdict on degenerate models).
-            from ..metrics_registry import metric_name_higher_is_better as _mhb
+            from mlframe.training.metrics_registry import metric_name_higher_is_better as _mhb
             _direction = _mhb(primary_metric)
             # Unknown -> default to minimize (the prior heuristic-default).
             is_minimize = True if _direction is None else (not _direction)
@@ -230,20 +249,7 @@ def format_suite_end_summary(
                 f"{(primary_metric + '=' + (f'{model_val:.4f}' if model_val is not None else '-'))[:22]:<22} "
                 f"{lift_str:<8} {verdict}" + (" [val-selected: lift optimistic]" if _val_selected else "")
             )
-
-    # PARTIAL_FAILURE WARN -- emitted once per target with failures.
-    _format_partial_failures(failures_metadata, warn_lines)
-
-    lines.extend(warn_lines)
-    if best_model_metrics_by_target is not None:
-        # Say what the count MEANS: "0/1 targets" alone reads as total failure, when it can equally mean one
-        # target that beats its baseline by 1.34x against a 1.50x bar.
-        lines.append(
-            f"[DUMMY_BASELINES] HEALTH: {n_healthy}/{n_total} target(s) clear the {min_lift:.2f}x lift bar -- "
-            f"{'ALL_HEALTHY' if n_healthy == n_total else 'see WARN lines above for what each shortfall is'}"
-        )
-
-    return "\n".join(lines)
+    return n_healthy, n_total
 
 
 def _y_scale_strongest_metric(_used_raw_y_dummy, rep_dict, primary_metric, strongest, dummy_val):

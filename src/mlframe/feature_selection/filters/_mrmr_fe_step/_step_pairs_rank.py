@@ -697,48 +697,7 @@ def score_prospective_pairs(
                 # resulting fused features HELP or HURT downstream is being decided by RMSE,
                 # not assumed. ``fe_pair_perm_null_admission_enable`` (default False).
                 _admit_via_perm = False
-                if (not _passes_prevalence) and _passes_maxt and bool(getattr(self, "fe_pair_perm_null_admission_enable", False)):
-                    try:
-                        from .._fe_cmi_redundancy_gate import _conditional_perm_null
-                        from .._mi_greedy_cmi_fe import _cmi_from_binned
-                        _ia, _ib = int(raw_vars_pair[0]), int(raw_vars_pair[1])
-                        if cached_MIs[(_ia,)] >= cached_MIs[(_ib,)]:
-                            _anchor_i, _cand_i = _ia, _ib
-                        else:
-                            _anchor_i, _cand_i = _ib, _ia
-                        _anchor_mi = float(cached_MIs[(_anchor_i,)])
-                        _cand_codes = np.ascontiguousarray(data[:, _cand_i], dtype=np.int64)
-                        _anchor_codes = np.ascontiguousarray(data[:, _anchor_i], dtype=np.int64)
-                        _y_codes = np.ascontiguousarray(classes_y, dtype=np.int64)
-                        # Same scoring-subsample cap as the bootstrap block above: this data-driven prevalence
-                        # admission's observed CMI + permutation null are a wide-margin decision, subsample-safe.
-                        _pn_max2 = int(os.environ.get("MLFRAME_PAIR_NULL_MAX_ROWS", "250000"))
-                        _pn_n2 = int(_cand_codes.shape[0])
-                        if _pn_max2 > 0 and _pn_n2 > _pn_max2:
-                            _pn_st2 = int(_pn_n2 // _pn_max2)
-                            if _pn_st2 > 1:
-                                _cand_codes = np.ascontiguousarray(_cand_codes[::_pn_st2])
-                                _anchor_codes = np.ascontiguousarray(_anchor_codes[::_pn_st2])
-                                _y_codes = np.ascontiguousarray(_y_codes[::_pn_st2])
-                        # RESIDENT candidate (scored x) -> no re-upload; anchor stays host z.
-                        _cand_dev = _resident_cand(_cand_codes) if _pair_resident else _cand_codes
-                        _cmi_obs = float(_cmi_from_binned(_cand_dev, _y_codes, _anchor_codes))
-                        _floor, _null_mean = _conditional_perm_null(
-                            _cand_dev, _y_codes, _anchor_codes,
-                            seed=int(getattr(self, "random_seed", 0) or 0) + 7919 * _ia + _ib,
-                        )
-                        _excess_frac = float(getattr(self, "fe_pair_perm_null_excess_frac", 0.05))
-                        if _cmi_obs > _floor and (_cmi_obs - _null_mean) >= _excess_frac * max(_anchor_mi, 1e-9):
-                            _admit_via_perm = True
-                            if verbose >= 2:
-                                logger.info(
-                                    "Factors pair %s ADMITTED via conditional-permutation null "
-                                    "(CMI(%d|%d)=%.4f > floor %.4f, excess %.4f) -- data-driven prevalence.",
-                                    raw_vars_pair, _cand_i, _anchor_i, _cmi_obs, _floor, _cmi_obs - _null_mean,
-                                )
-                    except Exception as e:
-                        logger.debug("permutation-based admission check failed, not admitting via permutation: %s", e)
-                        _admit_via_perm = False
+                _admit_via_perm = _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_pair, cached_MIs, data, classes_y, _pair_resident, verbose, _admit_via_perm)
                 # bench-attempt-rejected : the cheap proxy below (2-operand joint OLS R^2 of the
                 # CONTINUOUS y on the BINNED operand codes) does NOT recover with_outliers at any threshold
                 # (0.05/0.15/0.3 all leave the selection byte-identical to OFF). The signal is too diluted:
@@ -857,3 +816,50 @@ def score_prospective_pairs(
                         )
 
     return prospective_pairs, _prevalence_failed_synergy
+
+
+def _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_pair, cached_MIs, data, classes_y, _pair_resident, verbose, _admit_via_perm):
+    """Admit pairs that fail prevalence but pass max-T through the permutation null."""
+    if (not _passes_prevalence) and _passes_maxt and bool(getattr(self, "fe_pair_perm_null_admission_enable", False)):
+        try:
+            from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import _conditional_perm_null
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned
+            _ia, _ib = int(raw_vars_pair[0]), int(raw_vars_pair[1])
+            if cached_MIs[(_ia,)] >= cached_MIs[(_ib,)]:
+                _anchor_i, _cand_i = _ia, _ib
+            else:
+                _anchor_i, _cand_i = _ib, _ia
+            _anchor_mi = float(cached_MIs[(_anchor_i,)])
+            _cand_codes = np.ascontiguousarray(data[:, _cand_i], dtype=np.int64)
+            _anchor_codes = np.ascontiguousarray(data[:, _anchor_i], dtype=np.int64)
+            _y_codes = np.ascontiguousarray(classes_y, dtype=np.int64)
+            # Same scoring-subsample cap as the bootstrap block above: this data-driven prevalence
+            # admission's observed CMI + permutation null are a wide-margin decision, subsample-safe.
+            _pn_max2 = int(os.environ.get("MLFRAME_PAIR_NULL_MAX_ROWS", "250000"))
+            _pn_n2 = int(_cand_codes.shape[0])
+            if _pn_max2 > 0 and _pn_n2 > _pn_max2:
+                _pn_st2 = int(_pn_n2 // _pn_max2)
+                if _pn_st2 > 1:
+                    _cand_codes = np.ascontiguousarray(_cand_codes[::_pn_st2])
+                    _anchor_codes = np.ascontiguousarray(_anchor_codes[::_pn_st2])
+                    _y_codes = np.ascontiguousarray(_y_codes[::_pn_st2])
+            # RESIDENT candidate (scored x) -> no re-upload; anchor stays host z.
+            _cand_dev = _resident_cand(_cand_codes) if _pair_resident else _cand_codes
+            _cmi_obs = float(_cmi_from_binned(_cand_dev, _y_codes, _anchor_codes))
+            _floor, _null_mean = _conditional_perm_null(
+                _cand_dev, _y_codes, _anchor_codes,
+                seed=int(getattr(self, "random_seed", 0) or 0) + 7919 * _ia + _ib,
+            )
+            _excess_frac = float(getattr(self, "fe_pair_perm_null_excess_frac", 0.05))
+            if _cmi_obs > _floor and (_cmi_obs - _null_mean) >= _excess_frac * max(_anchor_mi, 1e-9):
+                _admit_via_perm = True
+                if verbose >= 2:
+                    logger.info(
+                        "Factors pair %s ADMITTED via conditional-permutation null "
+                        "(CMI(%d|%d)=%.4f > floor %.4f, excess %.4f) -- data-driven prevalence.",
+                        raw_vars_pair, _cand_i, _anchor_i, _cmi_obs, _floor, _cmi_obs - _null_mean,
+                    )
+        except Exception as e:
+            logger.debug("permutation-based admission check failed, not admitting via permutation: %s", e)
+            _admit_via_perm = False
+    return _admit_via_perm

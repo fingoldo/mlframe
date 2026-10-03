@@ -109,24 +109,9 @@ def run_confidence_analysis(
     confidence_task_type = "GPU" if CUDA_IS_AVAILABLE else "CPU"
     confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=confidence_task_type, **confidence_model_kwargs)
 
-    fit_params_copy = {}
-    if fit_params:
-        fit_params_copy = copy.copy(fit_params)
-        if "eval_set" in fit_params_copy:
-            del fit_params_copy["eval_set"]
-        # The main model's callbacks (visualisers, early-stopping hooks bound to ITS eval set) do not belong to this
-        # regressor, and CatBoost refuses user callbacks outright on GPU ("User defined callbacks are not supported").
-        fit_params_copy.pop("callbacks", None)
-    if sample_weight is not None and "sample_weight" not in fit_params_copy:
-        _sw_arr = np.asarray(sample_weight)
-        if hasattr(test_df, "shape") and _sw_arr.shape[0] == test_df.shape[0]:
-            fit_params_copy["sample_weight"] = _sw_arr
-        else:
-            logger.debug(
-                "run_confidence_analysis: sample_weight length %s does not match test_df rows %s; fitting unweighted.",
-                _sw_arr.shape[0] if _sw_arr.ndim else "scalar",
-                getattr(test_df, "shape", (None,))[0],
-            )
+    fit_params_copy: dict[Any, Any] = {}
+    fit_params_copy = _copy_confidence_fit_params(fit_params, fit_params_copy)
+    _add_confidence_sample_weight(sample_weight, fit_params_copy, test_df)
 
     # Drop text / embedding columns from test_df upfront.
     # SHAP's TreeExplainer rebuilds a CatBoost Pool using ONLY
@@ -149,13 +134,7 @@ def run_confidence_analysis(
     if embedding_features:
         _drop_for_conf.extend([c for c in embedding_features if c in test_df.columns])
     _drop_columns_for_confidence_model(test_df, _drop_for_conf, cat_features)
-    if _drop_for_conf:
-        if isinstance(test_df, pd.DataFrame):
-            test_df = test_df.drop(columns=_drop_for_conf)
-        else:
-            test_df = test_df.drop([c for c in _drop_for_conf if c in test_df.columns])
-        if cat_features is not None:
-            cat_features = [c for c in cat_features if c not in _drop_for_conf]
+    cat_features, test_df = _drop_confidence_excluded_columns(_drop_for_conf, test_df, cat_features)
 
     # CatBoost's polars Pool path is fragile when a kept column is
     # pl.Categorical or pl.Enum AND has nulls (`null_fraction_cats > 0`)
@@ -188,11 +167,7 @@ def run_confidence_analysis(
         from .utils import get_pandas_view_of_polars_df
         test_df = get_pandas_view_of_polars_df(test_df)
 
-    if cat_features is not None:
-        fit_params_copy["cat_features"] = cat_features
-    elif "cat_features" not in fit_params_copy:
-        from ._nan_processing import get_categorical_columns  # lazy import: circular load with .utils
-        fit_params_copy["cat_features"] = get_categorical_columns(test_df, include_string=False)
+    _set_confidence_cat_features(cat_features, fit_params_copy, test_df)
 
     # CatBoost rejects NaN in cat_feature cells with
     # ``cat_features must be integer or string, real number values and
@@ -321,6 +296,60 @@ def run_confidence_analysis(
             raise
     _maybe_clean_ram()
 
+    _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cmap, alpha, ylabel, title, plot_file, figsize)
+
+    return confidence_model
+
+
+def _copy_confidence_fit_params(fit_params, fit_params_copy):
+    """Copy the caller fit parameters for the confidence-model fit."""
+    if fit_params:
+        fit_params_copy = copy.copy(fit_params)
+        if "eval_set" in fit_params_copy:
+            del fit_params_copy["eval_set"]
+        # The main model's callbacks (visualisers, early-stopping hooks bound to ITS eval set) do not belong to this
+        # regressor, and CatBoost refuses user callbacks outright on GPU ("User defined callbacks are not supported").
+        fit_params_copy.pop("callbacks", None)
+    return fit_params_copy
+
+
+def _add_confidence_sample_weight(sample_weight, fit_params_copy, test_df):
+    """Add the sample weights to the confidence-model fit parameters."""
+    if sample_weight is not None and "sample_weight" not in fit_params_copy:
+        _sw_arr = np.asarray(sample_weight)
+        if hasattr(test_df, "shape") and _sw_arr.shape[0] == test_df.shape[0]:
+            fit_params_copy["sample_weight"] = _sw_arr
+        else:
+            logger.debug(
+                "run_confidence_analysis: sample_weight length %s does not match test_df rows %s; fitting unweighted.",
+                _sw_arr.shape[0] if _sw_arr.ndim else "scalar",
+                getattr(test_df, "shape", (None,))[0],
+            )
+
+
+def _drop_confidence_excluded_columns(_drop_for_conf, test_df, cat_features):
+    """Drop the excluded columns from the confidence-analysis frame."""
+    if _drop_for_conf:
+        if isinstance(test_df, pd.DataFrame):
+            test_df = test_df.drop(columns=_drop_for_conf)
+        else:
+            test_df = test_df.drop([c for c in _drop_for_conf if c in test_df.columns])
+        if cat_features is not None:
+            cat_features = [c for c in cat_features if c not in _drop_for_conf]
+    return cat_features, test_df
+
+
+def _set_confidence_cat_features(cat_features, fit_params_copy, test_df):
+    """Pass the categorical features to the confidence-model fit."""
+    if cat_features is not None:
+        fit_params_copy["cat_features"] = cat_features
+    elif "cat_features" not in fit_params_copy:
+        from mlframe.training._nan_processing import get_categorical_columns  # lazy import: circular load with .utils
+        fit_params_copy["cat_features"] = get_categorical_columns(test_df, include_string=False)
+
+
+def _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cmap, alpha, ylabel, title, plot_file, figsize):
+    """Plot the SHAP summary of the confidence model."""
     if use_shap:
         try:
             import shap
@@ -338,7 +367,7 @@ def run_confidence_analysis(
         # Use the Arrow-backed split-blocks bridge: SHAP rejects polars frames and
         # the default .to_pandas() consolidates blocks (~32x slower on multi-million-row
         # frames). The view materialises lazily where SHAP indexes column-by-column.
-        from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+        from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pandas_view
         _test_df_for_shap = _get_pandas_view(test_df) if isinstance(test_df, pl.DataFrame) else test_df
         explainer = shap.TreeExplainer(confidence_model)
         shap_values = explainer(_test_df_for_shap)
@@ -377,7 +406,7 @@ def run_confidence_analysis(
         _close_unless_interactive(_new_figs or fig, was_shown=_was_shown)
     else:
         # Lazy import -- see comment near top of module about cycle.
-        from .evaluation import plot_model_feature_importances
+        from mlframe.training.evaluation import plot_model_feature_importances
 
         plot_model_feature_importances(
             model=confidence_model,
@@ -386,8 +415,6 @@ def run_confidence_analysis(
             num_factors=max_features,
             figsize=(int(figsize[0] * 0.7), int(figsize[1] / 2)),
         )
-
-    return confidence_model
 
 
 def _drop_columns_for_confidence_model(test_df, _drop_for_conf, cat_features):

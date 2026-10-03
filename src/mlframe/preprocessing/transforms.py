@@ -81,6 +81,13 @@ def prepare_df_for_catboost(
 
     cols_ordered, cols = list(df.columns), set(df.columns)  # iterate the ordered list: a set's order is per-process
 
+    df = _prepare_polars_for_catboost(is_polars, text_features, cols, df, pl, na_filler, cols_ordered, cat_features, verbose, ensure_categorical, skipped_columns)
+
+    return df
+
+
+def _prepare_polars_for_catboost(is_polars, text_features, cols, df, pl, na_filler, cols_ordered, cat_features, verbose, ensure_categorical, skipped_columns):
+    """Prepare a polars frame for CatBoost."""
     if is_polars:
         # Text features: fill nulls
         text_exprs = [
@@ -165,7 +172,6 @@ def prepare_df_for_catboost(
         # 2026-04-19 in the CB pandas fallback path.
         text_feature_set = set(text_features or [])
         _prepare_pandas_categoricals_for_catboost(cols_ordered, text_feature_set, df, na_filler, cat_features, verbose, ensure_categorical, skipped_columns)
-
     return df
 
 

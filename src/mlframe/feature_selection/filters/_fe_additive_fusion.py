@@ -212,19 +212,7 @@ def propose_additive_fusions(
     # in ONE batched_cmi_gpu workload (y_dense fixed, marginal) instead of a per-half _cmi_from_binned. Same
     # MM plug-in marginal MI -> selection-equivalent; the per-half permutation floor is unchanged.
     _pre: list[tuple] = []
-    for nm in newly_engineered_names:
-        rec = engineered_recipes.get(nm)
-        vals = engineered_continuous.get(nm)
-        if rec is None or vals is None:
-            continue
-        vals = np.asarray(vals, dtype=np.float64).ravel()
-        if vals.shape[0] != n_rows:
-            continue
-        toks = _bare_tokens(nm, raw_name_set)
-        if not toks:
-            continue
-        vb = _quantile_bin(vals, nbins=int(nbins))
-        _pre.append((nm, rec, vals, toks, vb))
+    _collect_engineered_candidates(newly_engineered_names, engineered_recipes, engineered_continuous, n_rows, raw_name_set, nbins, _pre)
     _mis = None
     try:
         if _cmi_gpu_enabled() and len(_pre) > 1:
@@ -370,46 +358,8 @@ def propose_additive_fusions(
             # the same n-invariant verdict the post-fit raw-redundancy sweep applies, realised
             # here (the sweep is gated on ``redundancy_policy='drop'``, but a fused-compound's
             # operand is unconditionally redundant once the compound replaces the fragments).
-            from ._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children
-            from ._fe_raw_redundancy_helpers import raw_is_tail_concentrated_subsumed
             _y_cont_for_tail = getattr(self, "_fe_prewarp_y_continuous_", None)
-            for _rn in ha["tokens"] | hb["tokens"]:
-                if _rn in subsumed_raws:
-                    continue
-                _rv = None
-                try:
-                    if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
-                        _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
-                except Exception as e:
-                    logger.debug("reading raw column %r for the fusion residual failed: %s", _rn, e)
-                    _rv = None
-                _rvb = _raw_bin_cache.get(_rn)
-                if _rvb is None:
-                    if _rv is None or _rv.shape[0] != n_rows:
-                        continue
-                    _rvb = _quantile_bin(np.nan_to_num(_rv, nan=0.0, posinf=0.0, neginf=0.0), nbins=int(nbins))
-                    _raw_bin_cache[_rn] = _rvb
-                _retains = raw_retains_signal_given_genuine_children(
-                    raw_bin=_rvb, y_bin=y_dense, genuine_child_bins=[fvb], seed=seed,
-                )
-                # TAIL-CONCENTRATION OVERRIDE. Same signature as the post-fit
-                # ``drop_redundant_raw_operands`` sweep (``_fe_raw_redundancy_drop.py``): under heavy
-                # outliers a fused-away operand's RANK association with y can collapse in the bulk while its
-                # LINEAR |corr| stays high, so the binned-CMI keep-probe above sees phantom private residual
-                # and wrongly KEEPS it even though the fused compound continuously subsumes it. This is the
-                # ONLY site that decides subsumption for a raw fused away AT FE-step time (the raw is
-                # re-attached as an operand of the surviving compound before the post-fit sweep ever runs, so
-                # that sweep's own tail-concentration leg never gets a chance to see it) - so the override
-                # must live here too, not just downstream.
-                if _retains and _y_cont_for_tail is not None and _rv is not None and _rv.shape[0] == n_rows:
-                    _tail_min_corr = float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85))
-                    _tail_rank_frac = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
-                    if raw_is_tail_concentrated_subsumed(
-                        _rv, _y_cont_for_tail, [fused_vals], min_corr=_tail_min_corr, rank_frac=_tail_rank_frac,
-                    ):
-                        _retains = False
-                if not _retains:
-                    subsumed_raws.add(_rn)
+            _subsumed_raw_operand_check(self, ha, hb, subsumed_raws, X, _raw_bin_cache, n_rows, nbins, y_dense, fvb, seed, _y_cont_for_tail, fused_vals)
             if verbose:
                 logger.info(
                     "MRMR FE additive-fusion: fused %r (mi=%.4f) + %r (mi=%.4f) -> %r "
@@ -419,3 +369,67 @@ def propose_additive_fusions(
             break  # ha consumed; move to the next un-used half
 
     return admitted, subsumed, subsumed_raws
+
+
+def _collect_engineered_candidates(newly_engineered_names, engineered_recipes, engineered_continuous, n_rows, raw_name_set, nbins, _pre):
+    """Collect the newly engineered columns with their recipes and values."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+
+    for nm in newly_engineered_names:
+        rec = engineered_recipes.get(nm)
+        vals = engineered_continuous.get(nm)
+        if rec is None or vals is None:
+            continue
+        vals = np.asarray(vals, dtype=np.float64).ravel()
+        if vals.shape[0] != n_rows:
+            continue
+        toks = _bare_tokens(nm, raw_name_set)
+        if not toks:
+            continue
+        vb = _quantile_bin(vals, nbins=int(nbins))
+        _pre.append((nm, rec, vals, toks, vb))
+
+
+def _subsumed_raw_operand_check(self, ha, hb, subsumed_raws, X, _raw_bin_cache, n_rows, nbins, y_dense, fvb, seed, _y_cont_for_tail, fused_vals):
+    """Check each candidate fusion operand against the raw columns the selection already subsumes."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children
+    from mlframe.feature_selection.filters._fe_raw_redundancy_helpers import raw_is_tail_concentrated_subsumed
+
+    for _rn in ha["tokens"] | hb["tokens"]:
+        if _rn in subsumed_raws:
+            continue
+        _rv = None
+        try:
+            if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
+                _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
+        except Exception as e:
+            logger.debug("reading raw column %r for the fusion residual failed: %s", _rn, e)
+            _rv = None
+        _rvb = _raw_bin_cache.get(_rn)
+        if _rvb is None:
+            if _rv is None or _rv.shape[0] != n_rows:
+                continue
+            _rvb = _quantile_bin(np.nan_to_num(_rv, nan=0.0, posinf=0.0, neginf=0.0), nbins=int(nbins))
+            _raw_bin_cache[_rn] = _rvb
+        _retains = raw_retains_signal_given_genuine_children(
+            raw_bin=_rvb, y_bin=y_dense, genuine_child_bins=[fvb], seed=seed,
+        )
+        # TAIL-CONCENTRATION OVERRIDE. Same signature as the post-fit
+        # ``drop_redundant_raw_operands`` sweep (``_fe_raw_redundancy_drop.py``): under heavy
+        # outliers a fused-away operand's RANK association with y can collapse in the bulk while its
+        # LINEAR |corr| stays high, so the binned-CMI keep-probe above sees phantom private residual
+        # and wrongly KEEPS it even though the fused compound continuously subsumes it. This is the
+        # ONLY site that decides subsumption for a raw fused away AT FE-step time (the raw is
+        # re-attached as an operand of the surviving compound before the post-fit sweep ever runs, so
+        # that sweep's own tail-concentration leg never gets a chance to see it) - so the override
+        # must live here too, not just downstream.
+        if _retains and _y_cont_for_tail is not None and _rv is not None and _rv.shape[0] == n_rows:
+            _tail_min_corr = float(getattr(self, "fe_raw_tail_subsume_min_corr", 0.85))
+            _tail_rank_frac = float(getattr(self, "fe_pair_usability_admission_rank_frac", 0.7))
+            if raw_is_tail_concentrated_subsumed(
+                _rv, _y_cont_for_tail, [fused_vals], min_corr=_tail_min_corr, rank_frac=_tail_rank_frac,
+            ):
+                _retains = False
+        if not _retains:
+            subsumed_raws.add(_rn)

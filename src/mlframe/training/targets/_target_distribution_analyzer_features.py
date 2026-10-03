@@ -369,6 +369,21 @@ def analyze_feature_distribution(
     _redundant_numeric_pairs(candidate_numeric, redundancy_max_numeric_features, diagnostics, df, redundant_corr_threshold, pathologies, _add_warning)
 
     # --- target leakage (only if y supplied) ---
+    _target_leakage_scan(y, candidate_numeric, n_samples, target_type, df, leakage_corr_threshold, leakage_candidates, _add_warning, diagnostics, pathologies)
+
+    return FeatureDistributionReport(
+        n_samples=n_samples, n_features=n_features,
+        pathologies=pathologies,
+        feature_warnings=feature_warnings,
+        drop_candidates=drop_candidates,
+        leakage_candidates=leakage_candidates,
+        diagnostics=diagnostics,
+        knob_overrides=knob_overrides,
+    )
+
+
+def _target_leakage_scan(y, candidate_numeric, n_samples, target_type, df, leakage_corr_threshold, leakage_candidates, _add_warning, diagnostics, pathologies):
+    """Scan the numeric candidates for target leakage."""
     if y is not None and len(candidate_numeric) > 0:
         y_arr = np.asarray(y).reshape(-1)
         if y_arr.size == n_samples and y_arr.dtype.kind in ("f", "i", "u", "b"):
@@ -443,16 +458,6 @@ def analyze_feature_distribution(
         if leakage_candidates:
             pathologies.append(f"suspected_target_leakage(n={len(leakage_candidates)})")
             diagnostics["leakage_candidates"] = list(leakage_candidates)
-
-    return FeatureDistributionReport(
-        n_samples=n_samples, n_features=n_features,
-        pathologies=pathologies,
-        feature_warnings=feature_warnings,
-        drop_candidates=drop_candidates,
-        leakage_candidates=leakage_candidates,
-        diagnostics=diagnostics,
-        knob_overrides=knob_overrides,
-    )
 
 
 def _high_cardinality_categoricals(categorical_cols, polars_cat_nunique, df, high_cardinality_max, high_card_features, _add_warning):

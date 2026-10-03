@@ -54,52 +54,7 @@ def _fe_stage_cascade_mid_b(
     # (group, num) emit the group-level z / KL / Wasserstein-1 distance from the
     # global distribution, broadcast to rows; each survivor MI-gated against the
     # source num_col marginal MI. Routing piggybacks on hybrid_orth_features_.
-    if _fe_family_on("fe_group_distance_enable", False):
-        if not isinstance(X, pd.DataFrame):
-            warnings.warn(
-                "MRMR: Layer 95 group_distance FE enabled but X is not a pandas "
-                "DataFrame; the features are skipped. Convert via "
-                "X.to_pandas() before fit() to apply them.",
-                UserWarning, stacklevel=3,
-            )
-        else:
-            try:
-                from .._group_distance_fe import hybrid_group_distance_fe
-
-                _y_for_gd = _y_np
-                _gd_groups = tuple(getattr(self, "fe_group_distance_group_cols", ()) or ())
-                _gd_groups = [c for c in _gd_groups if c in X.columns] or None  # type: ignore[assignment]
-                _gd_nums = tuple(getattr(self, "fe_group_distance_num_cols", ()) or ())
-                _gd_nums = [c for c in _gd_nums if c in X.columns] or None  # type: ignore[assignment]
-                _gd_top_k = int(getattr(self, "fe_group_distance_top_k", 6))
-                _X_before_gd_cols = list(X.columns)
-                X_gd, _gd_appended, _gd_recipes, _gd_scores = hybrid_group_distance_fe(
-                    X,
-                    _y_for_gd,
-                    group_cols=_gd_groups,
-                    num_cols=_gd_nums,
-                    top_k=_gd_top_k,
-                )
-                _gd_appended = [c for c in _gd_appended if c not in _X_before_gd_cols]
-                if _gd_appended:
-                    X = X_gd
-                    self.group_distance_features_ = list(_gd_appended)
-                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_gd_appended)
-                    for _r in _gd_recipes:
-                        if _r.name in _gd_appended:
-                            _group_distance_pre_recipes[_r.name] = _r
-                    if verbose:
-                        logger.info(
-                            "MRMR.fit group_distance: appended %d engineered " "column(s): %s",
-                            len(_gd_appended),
-                            _gd_appended[:8],
-                        )
-            except Exception as _gd_exc:
-                logger.warning(
-                    "MRMR.fit group_distance FE raised %s: %s; continuing " "without group-distance columns.",
-                    type(_gd_exc).__name__,
-                    _gd_exc,
-                )
+    X = _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_recipes, verbose)
 
     # Layer 104: THREE new recipe-based FE families.
     # Family D: conditional dispersion / 2nd-moment.
@@ -179,6 +134,146 @@ def _fe_stage_cascade_mid_b(
     # FAMILY B - NUM x NUM conditional residual x_i - E[x_i | bin(x_j)].
     # Cardinality-bounded by top raw-MI columns; MI-gated. Routing piggybacks on
     # hybrid_orth_features_.
+    X = _stage_conditional_residual(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_residual_pre_recipes, verbose)
+
+    # FAMILY D - NUM x NUM conditional DISPERSION / 2nd-moment.
+    # Bin x_j; per bin store conditional STD of x_i; emit |z| / z^2 (conditional
+    # dispersion anomaly). DEFAULT-ON: MI-gateable (|z| is a non-monotone fold ->
+    # genuine MI on heteroscedastic targets) + SELF-LIMITING (a dual-uplift gate
+    # admits a column only when its MI beats BOTH raw x_i AND the |mean-residual|
+    # Family-B sibling, so homoscedastic / canonical fixtures admit 0 and the
+    # operator does not perturb pair-FE recovery). Routing piggybacks on
+    # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
+    X = _stage_conditional_dispersion(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_dispersion_pre_recipes, verbose)
+
+    # CONDITIONAL QUANTILE-RANK: 4th member of the
+    # conditional-dispersion family. Bin x_j; emit q(row) = empirical_rank(x_i within bin(x_j)) -
+    # the row's TRUE within-bin percentile, not a z-score. MI-gated + self-limiting (a near-
+    # monotone reparametrization on homoscedastic/non-skewed data clears no uplift over raw x_i, so
+    # it does not perturb genuine-feature recovery on canonical fixtures). Routing piggybacks on
+    # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
+    X = _stage_conditional_quantile_rank(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_quantile_rank_pre_recipes, verbose)
+
+    # ORDINAL PATTERN (Bandt-Pompe) K-fold TARGET ENCODING.
+    # For each K-tuple of raw numeric columns, compute the row's rank-permutation id (0..K!-1) and
+    # K-fold-TE encode it - a fused single-hop recipe: the intermediate perm_id categorical is
+    # never exposed as its own column, avoiding a 2-deep nested-recipe replay the 1-deep convention
+    # here cannot order. Routing piggybacks on hybrid_orth_features_; recipe carries a frozen
+    # (fit-time) TE lookup, not y -> leak-safe replay.
+    X = _stage_ordinal_pattern(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ordinal_pattern_pre_recipes, verbose)
+
+    # RANDOM FOURIER FEATURES (random kitchen sinks) joint kernel-approximation block
+    # . Unlike every pair/triplet/quadruplet cross-basis
+    # family, this draws m random features that are jointly a smooth function of MANY (5+) raw
+    # columns simultaneously without combinatorial blow-up, approximating an RBF kernel over the
+    # bounded column pool. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen
+    # W-column/phase/bandwidth, never y -> leak-safe replay.
+    X = _stage_random_fourier(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _random_fourier_pre_recipes, verbose)
+
+    # SLICED INVERSE REGRESSION (SIR) oblique-direction projection (
+    # fe_expansion.md). Recovers a genuinely OBLIQUE (rotated) linear combination spread thinly
+    # across several correlated columns - where every individual weight is too small for that
+    # column's own marginal MI to clear the screening floor, and no pairwise/triplet/quadruplet
+    # product reconstructs the rotated hyperplane. Routing piggybacks on hybrid_orth_features_;
+    # recipe carries the frozen centering/direction, not y -> leak-safe replay.
+    X = _stage_sir_direction(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _sir_direction_pre_recipes, verbose)
+
+    # LOCAL OUTLIER FACTOR / k-NN local density-ratio.
+    # LOCAL and non-parametric (unlike a global Mahalanobis ellipsoid), catching a row anomalous
+    # for sitting in a locally-sparse gap between well-separated clusters even when its GLOBAL
+    # distance to the overall mean is unremarkable. Routing piggybacks on hybrid_orth_features_;
+    # recipe carries a bounded frozen reference sample (RAM discipline), never y or the whole fit
+    # frame -> leak-safe replay.
+    X = _stage_lof(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _lof_pre_recipes, verbose)
+
+    # MULTIVARIATE MAHALANOBIS / GAUSSIAN-COPULA JOINT DENSITY anomaly score (
+    # fe_expansion.md). Catches y depending on whether a row sits inside/outside an ELLIPSOIDAL
+    # level-set of a p=15-30-way joint distribution where no single column, pair, triplet, or even
+    # quadruplet cross-basis is individually extreme - the p-way generalization of the existing
+    # group_distance / conditional-dispersion families' one-column-conditioned-on-one-other-column
+    # scope. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen Ledoit-Wolf
+    # mu/Sigma_inv, never y -> leak-safe replay.
+    X = _stage_mahalanobis_density(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _mahalanobis_density_pre_recipes, verbose)
+
+    # HAAR WAVELET / localized multiresolution basis.
+    # A NEW operator for LOCALIZED bump / multiscale piecewise structure: y jumps
+    # only inside a narrow sub-window of x (Fourier Gibbs-rings it, spline's fixed
+    # quantile knots smooth it away). Emits a small held-out-scale-selected dyadic
+    # set of Haar indicators psi_{j,k} (+1 left / -1 right half of a dyadic
+    # interval). DEFAULT-ON + SELF-LIMITING: the noise-aware held-out MAD floor +
+    # max-legs cap bound the candidate explosion, and each leg is admitted on its
+    # held-out INCREMENTAL MI over raw x AND a complementarity guard (must beat a
+    # SMOOTH location-refinement of x) - so a localized step/bump admits legs, a
+    # SMOOTH (sin / monotone) column admits 0 (Fourier owns it, complementary),
+    # pure noise admits 0. The leg is NON-monotone -> MI-VISIBLE, so it routes
+    # through the MI-based gate (no deferred-materialise / re-add dance the
+    # MI-invariant hinge needs). Recipes (``orth_wavelet``) store (lo, span) +
+    # dyadic (j, k); replay is the closed-form indicator - no y, leak-safe.
+    # Routing piggybacks on hybrid_orth_features_ (like Family D dispersion).
+    X = _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols_pre_fe, _wavelet_pre_recipes, verbose)
+
+    # FAMILY C - RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
+    # MI-invariant by the data-processing inequality; the pool is bounded by raw
+    # marginal MI and the value is downstream (linear / NN). Routing piggybacks
+    # on hybrid_orth_features_.
+    X = _stage_rankgauss(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _rankgauss_pre_recipes, verbose)
+
+    return X
+
+
+def _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_recipes, verbose):
+    """Run the group-distance family when it is enabled."""
+    if _fe_family_on("fe_group_distance_enable", False):
+        if not isinstance(X, pd.DataFrame):
+            warnings.warn(
+                "MRMR: Layer 95 group_distance FE enabled but X is not a pandas "
+                "DataFrame; the features are skipped. Convert via "
+                "X.to_pandas() before fit() to apply them.",
+                UserWarning, stacklevel=3,
+            )
+        else:
+            try:
+                from mlframe.feature_selection.filters._group_distance_fe import hybrid_group_distance_fe
+
+                _y_for_gd = _y_np
+                _gd_groups = tuple(getattr(self, "fe_group_distance_group_cols", ()) or ())
+                _gd_groups = [c for c in _gd_groups if c in X.columns] or None  # type: ignore[assignment]
+                _gd_nums = tuple(getattr(self, "fe_group_distance_num_cols", ()) or ())
+                _gd_nums = [c for c in _gd_nums if c in X.columns] or None  # type: ignore[assignment]
+                _gd_top_k = int(getattr(self, "fe_group_distance_top_k", 6))
+                _X_before_gd_cols = list(X.columns)
+                X_gd, _gd_appended, _gd_recipes, _gd_scores = hybrid_group_distance_fe(
+                    X,
+                    _y_for_gd,
+                    group_cols=_gd_groups,
+                    num_cols=_gd_nums,
+                    top_k=_gd_top_k,
+                )
+                _gd_appended = [c for c in _gd_appended if c not in _X_before_gd_cols]
+                if _gd_appended:
+                    X = X_gd
+                    self.group_distance_features_ = list(_gd_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_gd_appended)
+                    for _r in _gd_recipes:
+                        if _r.name in _gd_appended:
+                            _group_distance_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info(
+                            "MRMR.fit group_distance: appended %d engineered " "column(s): %s",
+                            len(_gd_appended),
+                            _gd_appended[:8],
+                        )
+            except Exception as _gd_exc:
+                logger.warning(
+                    "MRMR.fit group_distance FE raised %s: %s; continuing " "without group-distance columns.",
+                    type(_gd_exc).__name__,
+                    _gd_exc,
+                )
+    return X
+
+
+def _stage_conditional_residual(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_residual_pre_recipes, verbose):
+    """Run the conditional residual family when it is enabled."""
     if _fe_family_on("fe_conditional_residual_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -189,8 +284,8 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._extra_fe_families import hybrid_conditional_residual_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                from mlframe.feature_selection.filters._extra_fe_families import hybrid_conditional_residual_fe
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
                 # W6 follow-up: conditional-residual family's unified local-MI
                 # abs-MAD floor kills (pure-record; selection byte-identical).
@@ -244,15 +339,11 @@ def _fe_stage_cascade_mid_b(
                     type(_cr_exc).__name__,
                     _cr_exc,
                 )
+    return X
 
-    # FAMILY D - NUM x NUM conditional DISPERSION / 2nd-moment.
-    # Bin x_j; per bin store conditional STD of x_i; emit |z| / z^2 (conditional
-    # dispersion anomaly). DEFAULT-ON: MI-gateable (|z| is a non-monotone fold ->
-    # genuine MI on heteroscedastic targets) + SELF-LIMITING (a dual-uplift gate
-    # admits a column only when its MI beats BOTH raw x_i AND the |mean-residual|
-    # Family-B sibling, so homoscedastic / canonical fixtures admit 0 and the
-    # operator does not perturb pair-FE recovery). Routing piggybacks on
-    # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
+
+def _stage_conditional_dispersion(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_dispersion_pre_recipes, verbose):
+    """Run the conditional dispersion family when it is enabled."""
     if _fe_family_on("fe_conditional_dispersion_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -263,8 +354,8 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._extra_fe_families import hybrid_conditional_dispersion_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                from mlframe.feature_selection.filters._extra_fe_families import hybrid_conditional_dispersion_fe
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
                 # W6 follow-up: conditional-dispersion family's unified local-MI
                 # abs-MAD floor kills (pure-record; selection byte-identical).
@@ -323,13 +414,11 @@ def _fe_stage_cascade_mid_b(
                     type(_cd_exc).__name__,
                     _cd_exc,
                 )
+    return X
 
-    # CONDITIONAL QUANTILE-RANK: 4th member of the
-    # conditional-dispersion family. Bin x_j; emit q(row) = empirical_rank(x_i within bin(x_j)) -
-    # the row's TRUE within-bin percentile, not a z-score. MI-gated + self-limiting (a near-
-    # monotone reparametrization on homoscedastic/non-skewed data clears no uplift over raw x_i, so
-    # it does not perturb genuine-feature recovery on canonical fixtures). Routing piggybacks on
-    # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
+
+def _stage_conditional_quantile_rank(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_quantile_rank_pre_recipes, verbose):
+    """Run the conditional quantile-rank family when it is enabled."""
     if _fe_family_on("fe_conditional_quantile_rank_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -340,8 +429,8 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._conditional_quantile_rank_fe import hybrid_conditional_quantile_rank_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                from mlframe.feature_selection.filters._conditional_quantile_rank_fe import hybrid_conditional_quantile_rank_fe
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
                 _cqr_step = int(getattr(self, "_fe_steps_executed_", -1))
 
@@ -391,13 +480,11 @@ def _fe_stage_cascade_mid_b(
                     type(_cqr_exc).__name__,
                     _cqr_exc,
                 )
+    return X
 
-    # ORDINAL PATTERN (Bandt-Pompe) K-fold TARGET ENCODING.
-    # For each K-tuple of raw numeric columns, compute the row's rank-permutation id (0..K!-1) and
-    # K-fold-TE encode it - a fused single-hop recipe: the intermediate perm_id categorical is
-    # never exposed as its own column, avoiding a 2-deep nested-recipe replay the 1-deep convention
-    # here cannot order. Routing piggybacks on hybrid_orth_features_; recipe carries a frozen
-    # (fit-time) TE lookup, not y -> leak-safe replay.
+
+def _stage_ordinal_pattern(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ordinal_pattern_pre_recipes, verbose):
+    """Run the ordinal-pattern family when it is enabled."""
     if _fe_family_on("fe_ordinal_pattern_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -408,8 +495,8 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._ordinal_pattern_fe import hybrid_ordinal_pattern_te_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                from mlframe.feature_selection.filters._ordinal_pattern_fe import hybrid_ordinal_pattern_te_fe
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
                 _opat_step = int(getattr(self, "_fe_steps_executed_", -1))
 
@@ -461,13 +548,11 @@ def _fe_stage_cascade_mid_b(
                     type(_opat_exc).__name__,
                     _opat_exc,
                 )
+    return X
 
-    # RANDOM FOURIER FEATURES (random kitchen sinks) joint kernel-approximation block
-    # . Unlike every pair/triplet/quadruplet cross-basis
-    # family, this draws m random features that are jointly a smooth function of MANY (5+) raw
-    # columns simultaneously without combinatorial blow-up, approximating an RBF kernel over the
-    # bounded column pool. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen
-    # W-column/phase/bandwidth, never y -> leak-safe replay.
+
+def _stage_random_fourier(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _random_fourier_pre_recipes, verbose):
+    """Run the random-Fourier-feature family when it is enabled."""
     if _fe_family_on("fe_random_fourier_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -478,8 +563,8 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._random_fourier_features_fe import hybrid_random_fourier_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                from mlframe.feature_selection.filters._random_fourier_features_fe import hybrid_random_fourier_fe
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
                 _rff_step = int(getattr(self, "_fe_steps_executed_", -1))
 
@@ -530,13 +615,11 @@ def _fe_stage_cascade_mid_b(
                     type(_rff_exc).__name__,
                     _rff_exc,
                 )
+    return X
 
-    # SLICED INVERSE REGRESSION (SIR) oblique-direction projection (
-    # fe_expansion.md). Recovers a genuinely OBLIQUE (rotated) linear combination spread thinly
-    # across several correlated columns - where every individual weight is too small for that
-    # column's own marginal MI to clear the screening floor, and no pairwise/triplet/quadruplet
-    # product reconstructs the rotated hyperplane. Routing piggybacks on hybrid_orth_features_;
-    # recipe carries the frozen centering/direction, not y -> leak-safe replay.
+
+def _stage_sir_direction(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _sir_direction_pre_recipes, verbose):
+    """Run the sliced-inverse-regression direction family when it is enabled."""
     if _fe_family_on("fe_sir_direction_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -547,8 +630,8 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._sliced_inverse_regression_fe import hybrid_sir_direction_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                from mlframe.feature_selection.filters._sliced_inverse_regression_fe import hybrid_sir_direction_fe
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
                 _sir_step = int(getattr(self, "_fe_steps_executed_", -1))
 
@@ -599,13 +682,11 @@ def _fe_stage_cascade_mid_b(
                     type(_sir_exc).__name__,
                     _sir_exc,
                 )
+    return X
 
-    # LOCAL OUTLIER FACTOR / k-NN local density-ratio.
-    # LOCAL and non-parametric (unlike a global Mahalanobis ellipsoid), catching a row anomalous
-    # for sitting in a locally-sparse gap between well-separated clusters even when its GLOBAL
-    # distance to the overall mean is unremarkable. Routing piggybacks on hybrid_orth_features_;
-    # recipe carries a bounded frozen reference sample (RAM discipline), never y or the whole fit
-    # frame -> leak-safe replay.
+
+def _stage_lof(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _lof_pre_recipes, verbose):
+    """Run the local-outlier-factor family when it is enabled."""
     if _fe_family_on("fe_lof_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -615,8 +696,8 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._lof_fe import hybrid_lof_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                from mlframe.feature_selection.filters._lof_fe import hybrid_lof_fe
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
                 _lof_step = int(getattr(self, "_fe_steps_executed_", -1))
 
@@ -667,14 +748,11 @@ def _fe_stage_cascade_mid_b(
                     type(_lof_exc).__name__,
                     _lof_exc,
                 )
+    return X
 
-    # MULTIVARIATE MAHALANOBIS / GAUSSIAN-COPULA JOINT DENSITY anomaly score (
-    # fe_expansion.md). Catches y depending on whether a row sits inside/outside an ELLIPSOIDAL
-    # level-set of a p=15-30-way joint distribution where no single column, pair, triplet, or even
-    # quadruplet cross-basis is individually extreme - the p-way generalization of the existing
-    # group_distance / conditional-dispersion families' one-column-conditioned-on-one-other-column
-    # scope. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen Ledoit-Wolf
-    # mu/Sigma_inv, never y -> leak-safe replay.
+
+def _stage_mahalanobis_density(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _mahalanobis_density_pre_recipes, verbose):
+    """Run the Mahalanobis density family when it is enabled."""
     if _fe_family_on("fe_mahalanobis_density_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -685,8 +763,8 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._mahalanobis_density_fe import hybrid_mahalanobis_density_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+                from mlframe.feature_selection.filters._mahalanobis_density_fe import hybrid_mahalanobis_density_fe
+                from mlframe.feature_selection.filters._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
                 _mahal_step = int(getattr(self, "_fe_steps_executed_", -1))
 
@@ -736,22 +814,11 @@ def _fe_stage_cascade_mid_b(
                     type(_mahal_exc).__name__,
                     _mahal_exc,
                 )
+    return X
 
-    # HAAR WAVELET / localized multiresolution basis.
-    # A NEW operator for LOCALIZED bump / multiscale piecewise structure: y jumps
-    # only inside a narrow sub-window of x (Fourier Gibbs-rings it, spline's fixed
-    # quantile knots smooth it away). Emits a small held-out-scale-selected dyadic
-    # set of Haar indicators psi_{j,k} (+1 left / -1 right half of a dyadic
-    # interval). DEFAULT-ON + SELF-LIMITING: the noise-aware held-out MAD floor +
-    # max-legs cap bound the candidate explosion, and each leg is admitted on its
-    # held-out INCREMENTAL MI over raw x AND a complementarity guard (must beat a
-    # SMOOTH location-refinement of x) - so a localized step/bump admits legs, a
-    # SMOOTH (sin / monotone) column admits 0 (Fourier owns it, complementary),
-    # pure noise admits 0. The leg is NON-monotone -> MI-VISIBLE, so it routes
-    # through the MI-based gate (no deferred-materialise / re-add dance the
-    # MI-invariant hinge needs). Recipes (``orth_wavelet``) store (lo, span) +
-    # dyadic (j, k); replay is the closed-form indicator - no y, leak-safe.
-    # Routing piggybacks on hybrid_orth_features_ (like Family D dispersion).
+
+def _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols_pre_fe, _wavelet_pre_recipes, verbose):
+    """Run the wavelet family when it is enabled and the budget allows."""
     if _fe_family_on("fe_wavelet_enable", False) and _fe_budget_ok():
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -762,7 +829,7 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._wavelet_basis_fe_recipes import hybrid_wavelet_fe_with_recipes
+                from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import hybrid_wavelet_fe_with_recipes
 
                 _y_for_wv = _y_np
                 _wv_cols = tuple(getattr(self, "fe_wavelet_cols", ()) or ())
@@ -814,11 +881,11 @@ def _fe_stage_cascade_mid_b(
                     type(_wv_exc).__name__,
                     _wv_exc,
                 )
+    return X
 
-    # FAMILY C - RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
-    # MI-invariant by the data-processing inequality; the pool is bounded by raw
-    # marginal MI and the value is downstream (linear / NN). Routing piggybacks
-    # on hybrid_orth_features_.
+
+def _stage_rankgauss(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _rankgauss_pre_recipes, verbose):
+    """Run the rank-gauss family when it is enabled."""
     if _fe_family_on("fe_rankgauss_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -829,7 +896,7 @@ def _fe_stage_cascade_mid_b(
             )
         else:
             try:
-                from .._extra_fe_families import hybrid_rankgauss_fe
+                from mlframe.feature_selection.filters._extra_fe_families import hybrid_rankgauss_fe
 
                 _y_for_rg = _y_np
                 _rg_cols = tuple(getattr(self, "fe_rankgauss_cols", ()) or ())
@@ -870,5 +937,4 @@ def _fe_stage_cascade_mid_b(
                     type(_rg_exc).__name__,
                     _rg_exc,
                 )
-
     return X

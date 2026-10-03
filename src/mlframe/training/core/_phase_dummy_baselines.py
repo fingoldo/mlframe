@@ -260,70 +260,7 @@ def run_dummy_baselines(
         _specs_for_tt = metadata.get("composite_target_specs", {}).get(str(target_type), {})
         _matching_spec = None
         _matching_spec = _find_target_spec(_specs_for_tt, cur_target_name, _matching_spec)
-        if _matching_spec is not None and _db_report.strongest is not None and _db_report.extras.get("strongest_val_preds") is not None:
-            try:
-                from ..composite import get_transform
-                _tf = get_transform(_matching_spec["transform_name"])
-                _fp = _matching_spec["fitted_params"]
-                _base_col = _matching_spec["base_column"]
-                # Multi-base specs (linear_residual_multi from forward-stepwise
-                # auto-promotion) store the extra base columns alongside the
-                # primary; transform.inverse needs the FULL (n, 1+K) matrix
-                # whose alpha count matches fitted_params['alphas']. Without
-                # this the inverse raises "base has 1 columns but fitted
-                # alphas has K entries" -- caught by the outer try/except as
-                # a WARNING, but the y-scale dummy metric is then missing
-                # from metadata. Reproduced with a legacy-mode, multi-base
-                # auto-promoted-to-linresM combo.
-                _extra_bases = tuple(_matching_spec.get("extra_base_columns") or ())
-                _raw_target_col, _raw_y_full = _resolve_spec_raw_target(
-                    _matching_spec, target_type, target_by_type, cur_target_name,
-                )
-                _y_scale_dummy_metrics: dict[str, dict[str, float]] = {}
-                for _split_name, _split_df, _split_idx, _T_preds_key in (
-                    ("val", filtered_val_df, filtered_val_idx, "strongest_val_preds"),
-                    ("test", test_df_pd, test_idx, "strongest_test_preds"),
-                ):
-                    _T_preds = _db_report.extras.get(_T_preds_key)
-                    if _T_preds is None or _split_df is None or _split_idx is None or _raw_y_full is None or _base_col not in _split_df.columns:
-                        continue
-                    # Skip cleanly when any extra base is missing from this
-                    # split (avoid a deep traceback inside the inverse).
-                    if any(_eb not in _split_df.columns for _eb in _extra_bases):
-                        continue
-                    if _extra_bases:
-                        _base_split = np.column_stack(
-                            [np.asarray(_split_df[_base_col], dtype=np.float64)] + [np.asarray(_split_df[_eb], dtype=np.float64) for _eb in _extra_bases]
-                        )
-                    else:
-                        _base_split = np.asarray(_split_df[_base_col], dtype=np.float64)
-                    _y_dummy_split = call_transform(_tf, "inverse", np.asarray(_T_preds, dtype=np.float64), _base_split, _fp)
-                    _y_true_split = np.asarray(_raw_y_full, dtype=np.float64)[_split_idx]
-                    _diff = _y_dummy_split.astype(np.float64) - _y_true_split
-                    _finite = np.isfinite(_diff)
-                    if _finite.sum() == 0:
-                        continue
-                    _y_scale_dummy_metrics[_split_name] = {
-                        "RMSE": float(np.sqrt(np.mean(_diff[_finite] * _diff[_finite]))),
-                        "MAE": float(np.mean(np.abs(_diff[_finite]))),
-                        "n_rows_finite": int(_finite.sum()),
-                    }
-                if _y_scale_dummy_metrics:
-                    metadata["dummy_baselines"][str(target_type)][cur_target_name]["y_scale_strongest_metrics"] = _y_scale_dummy_metrics
-                    _ys_log_parts = [f"{k.upper()}=RMSE_y:{v['RMSE']:.4g} MAE_y:{v['MAE']:.4g}" for k, v in _y_scale_dummy_metrics.items()]
-                    logger.info(
-                        "[DUMMY_BASELINES] composite='%s' strongest='%s' y-scale metrics " "(inverted from T via %s): %s",
-                        cur_target_name,
-                        _db_report.strongest,
-                        _matching_spec["transform_name"],
-                        " | ".join(_ys_log_parts),
-                    )
-            except Exception as _yscale_err:  # best-effort: T-scale metrics remain in metadata regardless
-                logger.warning(
-                    "[DUMMY_BASELINES] failed to compute y-scale dummy for composite '%s': %s. " "T-scale metrics remain in metadata.",
-                    cur_target_name,
-                    _yscale_err,
-                )
+        _emit_y_scale_dummy_strongest(_matching_spec, _db_report, target_type, target_by_type, cur_target_name, filtered_val_df, filtered_val_idx, test_df_pd, test_idx, metadata)
 
     except Exception as _db_err:  # best-effort: training continues without a baseline floor for this target
         logger.warning(
@@ -351,6 +288,74 @@ def run_dummy_baselines(
         })
 
     return metadata
+
+
+def _emit_y_scale_dummy_strongest(_matching_spec, _db_report, target_type, target_by_type, cur_target_name, filtered_val_df, filtered_val_idx, test_df_pd, test_idx, metadata):
+    """Emit the y-scale report of the strongest dummy baseline."""
+    if _matching_spec is not None and _db_report.strongest is not None and _db_report.extras.get("strongest_val_preds") is not None:
+        try:
+            from mlframe.training.composite import get_transform
+            _tf = get_transform(_matching_spec["transform_name"])
+            _fp = _matching_spec["fitted_params"]
+            _base_col = _matching_spec["base_column"]
+            # Multi-base specs (linear_residual_multi from forward-stepwise
+            # auto-promotion) store the extra base columns alongside the
+            # primary; transform.inverse needs the FULL (n, 1+K) matrix
+            # whose alpha count matches fitted_params['alphas']. Without
+            # this the inverse raises "base has 1 columns but fitted
+            # alphas has K entries" -- caught by the outer try/except as
+            # a WARNING, but the y-scale dummy metric is then missing
+            # from metadata. Reproduced with a legacy-mode, multi-base
+            # auto-promoted-to-linresM combo.
+            _extra_bases = tuple(_matching_spec.get("extra_base_columns") or ())
+            _raw_target_col, _raw_y_full = _resolve_spec_raw_target(
+                _matching_spec, target_type, target_by_type, cur_target_name,
+            )
+            _y_scale_dummy_metrics: dict[str, dict[str, float]] = {}
+            for _split_name, _split_df, _split_idx, _T_preds_key in (
+                ("val", filtered_val_df, filtered_val_idx, "strongest_val_preds"),
+                ("test", test_df_pd, test_idx, "strongest_test_preds"),
+            ):
+                _T_preds = _db_report.extras.get(_T_preds_key)
+                if _T_preds is None or _split_df is None or _split_idx is None or _raw_y_full is None or _base_col not in _split_df.columns:
+                    continue
+                # Skip cleanly when any extra base is missing from this
+                # split (avoid a deep traceback inside the inverse).
+                if any(_eb not in _split_df.columns for _eb in _extra_bases):
+                    continue
+                if _extra_bases:
+                    _base_split = np.column_stack(
+                        [np.asarray(_split_df[_base_col], dtype=np.float64)] + [np.asarray(_split_df[_eb], dtype=np.float64) for _eb in _extra_bases]
+                    )
+                else:
+                    _base_split = np.asarray(_split_df[_base_col], dtype=np.float64)
+                _y_dummy_split = call_transform(_tf, "inverse", np.asarray(_T_preds, dtype=np.float64), _base_split, _fp)
+                _y_true_split = np.asarray(_raw_y_full, dtype=np.float64)[_split_idx]
+                _diff = _y_dummy_split.astype(np.float64) - _y_true_split
+                _finite = np.isfinite(_diff)
+                if _finite.sum() == 0:
+                    continue
+                _y_scale_dummy_metrics[_split_name] = {
+                    "RMSE": float(np.sqrt(np.mean(_diff[_finite] * _diff[_finite]))),
+                    "MAE": float(np.mean(np.abs(_diff[_finite]))),
+                    "n_rows_finite": int(_finite.sum()),
+                }
+            if _y_scale_dummy_metrics:
+                metadata["dummy_baselines"][str(target_type)][cur_target_name]["y_scale_strongest_metrics"] = _y_scale_dummy_metrics
+                _ys_log_parts = [f"{k.upper()}=RMSE_y:{v['RMSE']:.4g} MAE_y:{v['MAE']:.4g}" for k, v in _y_scale_dummy_metrics.items()]
+                logger.info(
+                    "[DUMMY_BASELINES] composite='%s' strongest='%s' y-scale metrics " "(inverted from T via %s): %s",
+                    cur_target_name,
+                    _db_report.strongest,
+                    _matching_spec["transform_name"],
+                    " | ".join(_ys_log_parts),
+                )
+        except Exception as _yscale_err:  # best-effort: T-scale metrics remain in metadata regardless
+            logger.warning(
+                "[DUMMY_BASELINES] failed to compute y-scale dummy for composite '%s': %s. " "T-scale metrics remain in metadata.",
+                cur_target_name,
+                _yscale_err,
+            )
 
 
 def _emit_val_dummy_baselines(_emit_val, _strongest_val_raw, current_val_target, _split_preds_probs, target_type, _common, plot_file, _db_report):

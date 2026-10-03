@@ -304,39 +304,13 @@ def get_training_configs(
     from .configs import TargetTypes
 
     _resolved_tt = target_type if target_type is not None else TargetTypes.BINARY_CLASSIFICATION
-    if _resolved_tt.is_classification and not _resolved_tt.is_binary:
-        # Non-binary classification: inject native objective per library.
-        cb_obj = _classif_objective_kwargs("catboost", _resolved_tt, n_classes)
-        xgb_obj = _classif_objective_kwargs("xgboost", _resolved_tt, n_classes)
-        lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)
-        if cb_obj:
-            CB_CLASSIF.update(cb_obj)
-            # When loss_function=MultiLogloss (multilabel), CatBoost REJECTS
-            # eval_metric='AUC' with "metric AUC and loss MultiLogloss are
-            # incompatible". Override to HammingLoss for MultiLogloss,
-            # Accuracy for MultiClass. Caller can still override via cb_kwargs.
-            if cb_obj.get("loss_function") == "MultiLogloss":
-                CB_CLASSIF["eval_metric"] = "HammingLoss"
-            elif cb_obj.get("loss_function") == "MultiClass":
-                CB_CLASSIF["eval_metric"] = "Accuracy"
-        if xgb_obj:
-            # For multiclass, multi:softprob conflicts with binary metric.
-            # Strip the binary eval_metric — caller can re-set if needed.
-            XGB_GENERAL_CLASSIF.update(xgb_obj)
-            # XGB multiclass eval_metric: mlogloss aligns with multi:softprob.
-            # (binary binary_logloss / AUC don't apply.)
-            if xgb_obj.get("objective") == "multi:softprob":
-                XGB_GENERAL_CLASSIF["eval_metric"] = "mlogloss"
-        if lgb_obj:
-            # LGB_GENERAL_PARAMS gets the multiclass objective too — it has
-            # no separate _CLASSIF variant currently.
-            pass  # applied to LGB after LGB_GENERAL_PARAMS is built (below)
-        # NOTE: no _mlframe_target_type metadata tag is attached here.
-        # CatBoostClassifier init raises TypeError on unknown kwargs, which
-        # would block the entire multilabel path. Downstream observability
-        # (which lib + target_type) is covered by the per-model
-        # model_schemas metadata record populated in core.py around the
-        # fit call.
+    _inject_classification_objectives(_resolved_tt, n_classes, CB_CLASSIF, XGB_GENERAL_CLASSIF)
+    # NOTE: no _mlframe_target_type metadata tag is attached here.
+    # CatBoostClassifier init raises TypeError on unknown kwargs, which
+    # would block the entire multilabel path. Downstream observability
+    # (which lib + target_type) is covered by the per-model
+    # model_schemas metadata record populated in core.py around the
+    # fit call.
 
     # These were nested functions. A local function cannot be pickled, and they are attached to model params
     # (XGB eval_metric, CatBoost ICE, the LGBM adapter), so EVERY save_mlframe_model call fell back to dill --
@@ -442,19 +416,7 @@ def get_training_configs(
         }.get(def_regr_metric, def_regr_metric.lower())
         LGB_GENERAL_PARAMS.setdefault("metric", _LGB_METRIC_NAME)
     # Target-type-aware objective for LGB (no separate _CLASSIF variant).
-    if _resolved_tt.is_classification and not _resolved_tt.is_binary:
-        _lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)
-        if _lgb_obj:
-            LGB_GENERAL_PARAMS.update(_lgb_obj)
-            # Even though the regression-metric setdefault is now gated to
-            # the regression branch, callers can still pass an explicit
-            # regression-shaped metric in ``lgb_kwargs`` (legacy callers
-            # that hardcoded ``metric="l2"`` before the gate landed). Force
-            # a multiclass-compatible metric in the multiclass path so the
-            # objective <-> metric contract holds regardless of caller history.
-            if _lgb_obj.get("objective") == "multiclass":
-                LGB_GENERAL_PARAMS["metric"] = "multi_logloss"
-            LGB_GENERAL_PARAMS["_mlframe_target_type"] = str(_resolved_tt.value)
+    _inject_lgb_multiclass_objective(_resolved_tt, n_classes, LGB_GENERAL_PARAMS)
 
     NGB_GENERAL_PARAMS = dict(
         n_estimators=iterations,
@@ -482,6 +444,136 @@ def get_training_configs(
 
     _mlp_in_scope = enabled_models is None or any(_needs_mlp_config(m) for m in enabled_models)
 
+    MLP_GENERAL_PARAMS = _build_mlp_configs(_mlp_in_scope, mlp_kwargs, iterations, mlp_predict_batch_size, early_stopping_rounds)
+
+    if rfecv_kwargs is None:
+        rfecv_kwargs = {}
+    else:
+        rfecv_kwargs = rfecv_kwargs.copy()
+
+    cv = rfecv_kwargs.get("cv")
+    _cv_n_splits = rfecv_kwargs.get("cv_n_splits")
+    cv = _default_cv_splitter(cv, has_time, _cv_n_splits, rfecv_kwargs)
+
+    if "cv_n_splits" in rfecv_kwargs:
+        del rfecv_kwargs["cv_n_splits"]
+
+    COMMON_RFECV_PARAMS = dict(
+        early_stopping_rounds=early_stopping_rounds,
+        cv=cv,
+        cv_shuffle=not has_time,
+    )
+    COMMON_RFECV_PARAMS.update(rfecv_kwargs)
+
+    # If ES is disabled (early_stopping_rounds=None), strip the key from every per-model
+    # constructor-params dict so backends don't register an ES callback.
+    # - LGB: omitted from constructor → LightGBMSklearn skips ES on fit
+    # - XGB: omitted from constructor → no early_stopping_rounds passed
+    # - CB:  omitted → CatBoost runs full iterations (no od_type)
+    # - HGB: replace n_iter_no_change with iterations+1 so ES condition never trips
+    _disable_early_stopping_in_params(early_stopping_disabled, CB_GENERAL_PARAMS, CB_REGR, CB_CLASSIF, CB_CALIB_CLASSIF, LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS, XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF, MLP_GENERAL_PARAMS, COMMON_RFECV_PARAMS, HGB_GENERAL_PARAMS)
+
+    return SimpleNamespace(
+        integral_calibration_error=integral_calibration_error,
+        final_integral_calibration_error=final_integral_calibration_error,
+        lgbm_integral_calibration_error=lgbm_integral_calibration_error,
+        fs_and_hpt_integral_calibration_error=fs_and_hpt_integral_calibration_error,
+        CB_GENERAL_PARAMS=CB_GENERAL_PARAMS,
+        CB_REGR=CB_REGR,
+        CB_CLASSIF=CB_CLASSIF,
+        CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
+        HGB_GENERAL_PARAMS=HGB_GENERAL_PARAMS,
+        LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS,
+        XGB_GENERAL_PARAMS=XGB_GENERAL_PARAMS,
+        XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF,
+        XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF,
+        COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
+        MLP_GENERAL_PARAMS=MLP_GENERAL_PARAMS,
+        NGB_GENERAL_PARAMS=NGB_GENERAL_PARAMS,
+    )
+
+
+def _inject_lgb_multiclass_objective(_resolved_tt, n_classes, LGB_GENERAL_PARAMS):
+    """Inject the LightGBM multiclass objective."""
+    if _resolved_tt.is_classification and not _resolved_tt.is_binary:
+        _lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)
+        if _lgb_obj:
+            LGB_GENERAL_PARAMS.update(_lgb_obj)
+            # Even though the regression-metric setdefault is now gated to
+            # the regression branch, callers can still pass an explicit
+            # regression-shaped metric in ``lgb_kwargs`` (legacy callers
+            # that hardcoded ``metric="l2"`` before the gate landed). Force
+            # a multiclass-compatible metric in the multiclass path so the
+            # objective <-> metric contract holds regardless of caller history.
+            if _lgb_obj.get("objective") == "multiclass":
+                LGB_GENERAL_PARAMS["metric"] = "multi_logloss"
+            LGB_GENERAL_PARAMS["_mlframe_target_type"] = str(_resolved_tt.value)
+
+
+def _default_cv_splitter(cv, has_time, _cv_n_splits, rfecv_kwargs):
+    """Pick the default CV splitter when none was given."""
+    if not cv:
+        if has_time:
+            cv = TimeSeriesSplit(n_splits=_cv_n_splits if _cv_n_splits is not None else 3)
+            logger.info("Using TimeSeriesSplit for RFECV...")
+        elif _cv_n_splits is not None:
+            # A bare fold count, not a KFold instance: RFECV resolves an int itself, picking StratifiedKFold for a
+            # classifier, a group-aware splitter when fit gets groups, and a temporal one when it sees a time signal.
+            # A prebuilt KFold bypassed all three.
+            cv = int(_cv_n_splits)
+        else:
+            cv = None
+        rfecv_kwargs["cv"] = cv
+    return cv
+
+
+def _disable_early_stopping_in_params(early_stopping_disabled, CB_GENERAL_PARAMS, CB_REGR, CB_CLASSIF, CB_CALIB_CLASSIF, LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS, XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF, MLP_GENERAL_PARAMS, COMMON_RFECV_PARAMS, HGB_GENERAL_PARAMS):
+    """Disable early stopping in the library parameter dictionaries."""
+    if early_stopping_disabled:
+        for _params in (CB_GENERAL_PARAMS, CB_REGR, CB_CLASSIF, CB_CALIB_CLASSIF,
+                        LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS,
+                        XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF,
+                        MLP_GENERAL_PARAMS, COMMON_RFECV_PARAMS):
+            if _params is not None:  # MLP_GENERAL_PARAMS may be None when MLP not in scope
+                _params.pop("early_stopping_rounds", None)
+        # HGB uses early_stopping=True + n_iter_no_change; force ES off explicitly
+        HGB_GENERAL_PARAMS["early_stopping"] = False
+        HGB_GENERAL_PARAMS.pop("n_iter_no_change", None)
+
+
+def _inject_classification_objectives(_resolved_tt, n_classes, CB_CLASSIF, XGB_GENERAL_CLASSIF):
+    """Inject the native multiclass objectives of each library."""
+    if _resolved_tt.is_classification and not _resolved_tt.is_binary:
+        # Non-binary classification: inject native objective per library.
+        cb_obj = _classif_objective_kwargs("catboost", _resolved_tt, n_classes)
+        xgb_obj = _classif_objective_kwargs("xgboost", _resolved_tt, n_classes)
+        lgb_obj = _classif_objective_kwargs("lightgbm", _resolved_tt, n_classes)
+        if cb_obj:
+            CB_CLASSIF.update(cb_obj)
+            # When loss_function=MultiLogloss (multilabel), CatBoost REJECTS
+            # eval_metric='AUC' with "metric AUC and loss MultiLogloss are
+            # incompatible". Override to HammingLoss for MultiLogloss,
+            # Accuracy for MultiClass. Caller can still override via cb_kwargs.
+            if cb_obj.get("loss_function") == "MultiLogloss":
+                CB_CLASSIF["eval_metric"] = "HammingLoss"
+            elif cb_obj.get("loss_function") == "MultiClass":
+                CB_CLASSIF["eval_metric"] = "Accuracy"
+        if xgb_obj:
+            # For multiclass, multi:softprob conflicts with binary metric.
+            # Strip the binary eval_metric — caller can re-set if needed.
+            XGB_GENERAL_CLASSIF.update(xgb_obj)
+            # XGB multiclass eval_metric: mlogloss aligns with multi:softprob.
+            # (binary binary_logloss / AUC don't apply.)
+            if xgb_obj.get("objective") == "multi:softprob":
+                XGB_GENERAL_CLASSIF["eval_metric"] = "mlogloss"
+        if lgb_obj:
+            # LGB_GENERAL_PARAMS gets the multiclass objective too — it has
+            # no separate _CLASSIF variant currently.
+            pass  # applied to LGB after LGB_GENERAL_PARAMS is built (below)
+
+
+def _build_mlp_configs(_mlp_in_scope, mlp_kwargs, iterations, mlp_predict_batch_size, early_stopping_rounds):
+    """Build the MLP configuration when the MLP is in scope."""
     if not _mlp_in_scope:
         # Skip the heavy MLP path entirely. Downstream consumers must
         # not assume MLP_GENERAL_PARAMS is non-None when mlp isn't
@@ -503,7 +595,7 @@ def get_training_configs(
         # tabular MLPs. Falls back to "32-true" on older GPUs / CPU. The
         # user override under mlp_kwargs["trainer_params"]["precision"]
         # always wins.
-        from .mlp_runtime_defaults import resolve_mlp_precision_default
+        from mlframe.training.mlp_runtime_defaults import resolve_mlp_precision_default
 
         _user_precision = (mlp_kwargs or {}).get("trainer_params", {}).get("precision")
         _resolved_precision = resolve_mlp_precision_default(
@@ -600,7 +692,7 @@ def get_training_configs(
         # ON for CUDA hosts (no IPC landmine). User opts in to workers via
         # ``mlp_kwargs["dataloader_params"]["num_workers"]`` once their
         # specific dataset is verified to fit each worker's memory budget.
-        from .mlp_runtime_defaults import resolve_mlp_dataloader_defaults
+        from mlframe.training.mlp_runtime_defaults import resolve_mlp_dataloader_defaults
 
         _user_dataloader_overrides = (mlp_kwargs or {}).get("dataloader_params", {}) or {}
         _resolved_dataloader_extras = resolve_mlp_dataloader_defaults(
@@ -653,72 +745,7 @@ def get_training_configs(
             float32_matmul_precision=mlp_kwargs.get("float32_matmul_precision", None) if mlp_kwargs else None,
             early_stopping_rounds=early_stopping_rounds,
         )
-
-    if rfecv_kwargs is None:
-        rfecv_kwargs = {}
-    else:
-        rfecv_kwargs = rfecv_kwargs.copy()
-
-    cv = rfecv_kwargs.get("cv")
-    _cv_n_splits = rfecv_kwargs.get("cv_n_splits")
-    if not cv:
-        if has_time:
-            cv = TimeSeriesSplit(n_splits=_cv_n_splits if _cv_n_splits is not None else 3)
-            logger.info("Using TimeSeriesSplit for RFECV...")
-        elif _cv_n_splits is not None:
-            # A bare fold count, not a KFold instance: RFECV resolves an int itself, picking StratifiedKFold for a
-            # classifier, a group-aware splitter when fit gets groups, and a temporal one when it sees a time signal.
-            # A prebuilt KFold bypassed all three.
-            cv = int(_cv_n_splits)
-        else:
-            cv = None
-        rfecv_kwargs["cv"] = cv
-
-    if "cv_n_splits" in rfecv_kwargs:
-        del rfecv_kwargs["cv_n_splits"]
-
-    COMMON_RFECV_PARAMS = dict(
-        early_stopping_rounds=early_stopping_rounds,
-        cv=cv,
-        cv_shuffle=not has_time,
-    )
-    COMMON_RFECV_PARAMS.update(rfecv_kwargs)
-
-    # If ES is disabled (early_stopping_rounds=None), strip the key from every per-model
-    # constructor-params dict so backends don't register an ES callback.
-    # - LGB: omitted from constructor → LightGBMSklearn skips ES on fit
-    # - XGB: omitted from constructor → no early_stopping_rounds passed
-    # - CB:  omitted → CatBoost runs full iterations (no od_type)
-    # - HGB: replace n_iter_no_change with iterations+1 so ES condition never trips
-    if early_stopping_disabled:
-        for _params in (CB_GENERAL_PARAMS, CB_REGR, CB_CLASSIF, CB_CALIB_CLASSIF,
-                        LGB_GENERAL_PARAMS, XGB_GENERAL_PARAMS,
-                        XGB_GENERAL_CLASSIF, XGB_CALIB_CLASSIF,
-                        MLP_GENERAL_PARAMS, COMMON_RFECV_PARAMS):
-            if _params is not None:  # MLP_GENERAL_PARAMS may be None when MLP not in scope
-                _params.pop("early_stopping_rounds", None)
-        # HGB uses early_stopping=True + n_iter_no_change; force ES off explicitly
-        HGB_GENERAL_PARAMS["early_stopping"] = False
-        HGB_GENERAL_PARAMS.pop("n_iter_no_change", None)
-
-    return SimpleNamespace(
-        integral_calibration_error=integral_calibration_error,
-        final_integral_calibration_error=final_integral_calibration_error,
-        lgbm_integral_calibration_error=lgbm_integral_calibration_error,
-        fs_and_hpt_integral_calibration_error=fs_and_hpt_integral_calibration_error,
-        CB_GENERAL_PARAMS=CB_GENERAL_PARAMS,
-        CB_REGR=CB_REGR,
-        CB_CLASSIF=CB_CLASSIF,
-        CB_CALIB_CLASSIF=CB_CALIB_CLASSIF,
-        HGB_GENERAL_PARAMS=HGB_GENERAL_PARAMS,
-        LGB_GENERAL_PARAMS=LGB_GENERAL_PARAMS,
-        XGB_GENERAL_PARAMS=XGB_GENERAL_PARAMS,
-        XGB_GENERAL_CLASSIF=XGB_GENERAL_CLASSIF,
-        XGB_CALIB_CLASSIF=XGB_CALIB_CLASSIF,
-        COMMON_RFECV_PARAMS=COMMON_RFECV_PARAMS,
-        MLP_GENERAL_PARAMS=MLP_GENERAL_PARAMS,
-        NGB_GENERAL_PARAMS=NGB_GENERAL_PARAMS,
-    )
+    return MLP_GENERAL_PARAMS
 
 
 def disable_native_es_for_slice_stable(configs: Any) -> None:

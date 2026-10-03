@@ -18,7 +18,7 @@ state / RNG are byte-for-byte identical to the pre-carve in-function blocks.
 """
 from __future__ import annotations
 
-from typing import cast
+from typing import cast, Any
 
 import logging
 
@@ -338,8 +338,7 @@ def _build_operand_table(
     place) and build the ``{(var, unary): col}`` index; build the gated
     GPU-resident operand-table mirror. Returns ``vars_transformations``."""
     # Lazy import (parent-resident helper; only needed for the prewarp pseudo-unary column).
-    from ..hermite_fe import apply_operand_prewarp
-    vars_transformations = {}
+    vars_transformations: dict[Any, Any] = {}
     # GPU-RESIDENT OPERAND TABLE (phase 1, gated). Record each successfully-built operand column's
     # (col_idx, raw_vals, unary_name) so a GPU-resident mirror of ``transformed_vars`` can be produced ON
     # the device (the bulk plain-unary columns rebuilt via _unary_apply; prewarp/gate_med/poly copied from
@@ -361,6 +360,41 @@ def _build_operand_table(
         _resident_operands_on = False
     _operand_col_specs: list | None = [] if _resident_operands_on else None
     i = 0
+    _materialise_pair_operands(prospective_pairs, _extval_raw_col, _unary_names_eff, unary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, vars_transformations, transformed_vars, i, gpu_compatible_unary_names, logger, cols, _operand_col_specs)
+
+    # GPU-RESIDENT OPERAND TABLE (phase 1, gated): now that ``transformed_vars`` + ``vars_transformations``
+    # are fully built, produce a DEVICE mirror whose bulk plain-unary columns are rebuilt ON the GPU (from
+    # the resident raw inputs via _unary_apply) and the fitted/special columns copied from the host, then
+    # register it so ``_resident_operand_table`` returns the device array WITH NO H2D (the materialise
+    # consumes it transfer-free). The host ``transformed_vars`` is unchanged (the CPU pair-search / discretize
+    # readers still use it). Any failure -> skip (the materialise H2Ds the host table as before; never a
+    # correctness or availability regression). Any allocated tail columns past the used width (``i`` <
+    # n_operands when some (var,tr) raised + were skipped) have no spec -> the builder zero-fills them; the
+    # materialise never reads them (operand indices are always < the used width), so their content is moot.
+    if _operand_col_specs is not None and len(vars_transformations) > 0:
+        try:
+            from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+            # Build a FULL-WIDTH (n, n_operands) device mirror keyed on the SAME ``transformed_vars`` object
+            # the materialise / _resolve_col paths pass: GPU-build the plain-unary columns from col_specs,
+            # copy every other column (incl. any unused tail) from the host. Registered against the full
+            # array so ``_resident_operand_table`` matches it by identity + shape.
+            _dev_tv, _n_gpu, _n_cpu = build_resident_operand_table(transformed_vars, _operand_col_specs)
+            register_prebuilt_operand_table(transformed_vars, _dev_tv)
+            if verbose:
+                logger.info(
+                    "check_prospective_fe_pairs: GPU-resident operand table built " "(%d GPU-built columns, %d host-copied; materialise H2D skipped).",
+                    _n_gpu,
+                    _n_cpu,
+                )
+        except Exception:
+            logger.debug("GPU-resident operand-table build failed; falling back to host H2D.", exc_info=True)
+    return vars_transformations
+
+
+def _materialise_pair_operands(prospective_pairs, _extval_raw_col, _unary_names_eff, unary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, vars_transformations, transformed_vars, i, gpu_compatible_unary_names, logger, cols, _operand_col_specs):
+    """Materialise the unary-transformed operand arrays of the prospective pairs."""
+    from mlframe.feature_selection.filters.hermite_fe import apply_operand_prewarp
+
     for raw_vars_pair, _pair_mi in prospective_pairs.keys():
         for var in raw_vars_pair:
             # Q8: SHARED {var: raw-ndarray} memo. This main unary-materialise
@@ -424,13 +458,13 @@ def _build_operand_table(
                             _gpu_used = False
                             from pyutilz.performance.kernel_tuning import array_location
 
-                            from .._unary_elementwise_tuning import unary_elementwise_backend_choice
+                            from mlframe.feature_selection.filters._unary_elementwise_tuning import unary_elementwise_backend_choice
                             # residency-aware: VRAM-resident input skips H2D, which flips the
                             # numpy/cupy crossover (measured), so pass where ``vals`` lives.
                             _want_gpu = unary_elementwise_backend_choice(int(vals.size), array_location(vals)) == "cupy"
                             if _want_gpu and tr_name in gpu_compatible_unary_names():
                                 try:
-                                    from .._gpu_policy import cuda_available_for_run
+                                    from mlframe.feature_selection.filters._gpu_policy import cuda_available_for_run
                                     if cuda_available_for_run():
                                         import cupy as cp
                                         _cp_fn = getattr(cp, tr_name, None)
@@ -488,31 +522,3 @@ def _build_operand_table(
                                     _raw_for_spec = vals
                             _operand_col_specs.append((i, _raw_for_spec, tr_name, _payload))
                         i += 1
-
-    # GPU-RESIDENT OPERAND TABLE (phase 1, gated): now that ``transformed_vars`` + ``vars_transformations``
-    # are fully built, produce a DEVICE mirror whose bulk plain-unary columns are rebuilt ON the GPU (from
-    # the resident raw inputs via _unary_apply) and the fitted/special columns copied from the host, then
-    # register it so ``_resident_operand_table`` returns the device array WITH NO H2D (the materialise
-    # consumes it transfer-free). The host ``transformed_vars`` is unchanged (the CPU pair-search / discretize
-    # readers still use it). Any failure -> skip (the materialise H2Ds the host table as before; never a
-    # correctness or availability regression). Any allocated tail columns past the used width (``i`` <
-    # n_operands when some (var,tr) raised + were skipped) have no spec -> the builder zero-fills them; the
-    # materialise never reads them (operand indices are always < the used width), so their content is moot.
-    if _operand_col_specs is not None and len(vars_transformations) > 0:
-        try:
-            from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
-            # Build a FULL-WIDTH (n, n_operands) device mirror keyed on the SAME ``transformed_vars`` object
-            # the materialise / _resolve_col paths pass: GPU-build the plain-unary columns from col_specs,
-            # copy every other column (incl. any unused tail) from the host. Registered against the full
-            # array so ``_resident_operand_table`` matches it by identity + shape.
-            _dev_tv, _n_gpu, _n_cpu = build_resident_operand_table(transformed_vars, _operand_col_specs)
-            register_prebuilt_operand_table(transformed_vars, _dev_tv)
-            if verbose:
-                logger.info(
-                    "check_prospective_fe_pairs: GPU-resident operand table built " "(%d GPU-built columns, %d host-copied; materialise H2D skipped).",
-                    _n_gpu,
-                    _n_cpu,
-                )
-        except Exception:
-            logger.debug("GPU-resident operand-table build failed; falling back to host H2D.", exc_info=True)
-    return vars_transformations
