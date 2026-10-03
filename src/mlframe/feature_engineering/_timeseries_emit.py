@@ -14,7 +14,6 @@ prior inlined code.
 from __future__ import annotations
 
 import numpy as np
-import pywt
 
 from mlframe.core.ewma import ewma_numba
 from mlframe.feature_engineering.categorical import compute_countaggs
@@ -126,7 +125,13 @@ def _emit_wavelets(
     row_features, features_names, create_features_names,
 ):
     """Emit one numagg block per wavelet name in waveletnames, over the flattened
-    multi-level wavedec coefficients (approximation + all detail levels concatenated)."""
+    multi-level wavedec coefficients (approximation + all detail levels concatenated).
+
+    ``pywt`` (the optional ``signal`` extra) is imported here, not at module level: ``mlframe.feature_engineering`` is imported by the ensembling
+    and model packages, so a hard import made ``import mlframe.models`` fail wherever PyWavelets is not installed.
+    """
+    import pywt
+
     custom_numaggs_kwds_wave = numaggs_kwds.copy()
     custom_numaggs_kwds_wave.update(wavelets_correction_numaggs_kwds)
     for waveletname in waveletnames:
