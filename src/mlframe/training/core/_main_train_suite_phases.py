@@ -674,3 +674,27 @@ def begin_suite_process_state(verbose: int, suite_module: Any) -> None:
     # collides on a cached entry whose underlying state belongs to the prior suite. The reset gives each suite a fresh FH namespace.
     reset_fh_session()
     clear_sensor_trips()  # sensor trips are process-level, keyed by model name: else one suite's flags attach to the next's same-named models
+
+
+def _enter_render_scope(ctx: Any, verbose: Any) -> tuple[Any, Any]:
+    """Start the suite's background render queue and make it thread-local-active.
+
+    The save chokepoints defer to it only when called from this thread, and ``_exit_render_scope`` (run from the suite's ``finally``)
+    guarantees every queued artifact is finished before the call returns.
+    """
+    from mlframe.reporting.async_render_hooks import render_queue_scope, start_suite_render_queue
+
+    queue = start_suite_render_queue(ctx.reporting_config, save_charts=bool(ctx.save_charts), data_dir=ctx.data_dir, verbose=bool(verbose))
+    scope = render_queue_scope(queue)
+    scope.__enter__()
+    return queue, scope
+
+
+def _exit_render_scope(queue: Any, scope: Any, ctx: Any) -> None:
+    """Finish every queued chart (folding failures into ``ctx.metadata``), then leave the queue scope even if the join raises."""
+    from mlframe.reporting.async_render_hooks import join_suite_render_queue
+
+    try:
+        join_suite_render_queue(queue, getattr(ctx, "metadata", None), final=True)
+    finally:
+        scope.__exit__(None, None, None)
