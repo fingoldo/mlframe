@@ -60,6 +60,8 @@ import orjson
 import pytest
 from py_ci_shared.nondiscriminating_shapes import SHAPE_HELP, shape_reasons
 
+from tests.test_meta._shared_ast_cache import parsed_ast, walk_cached
+
 _TESTS_DIR = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_nondiscriminating_assert_baseline.json"
 
@@ -73,14 +75,23 @@ def _refresh_requested() -> bool:
     return "--refresh-nondiscriminating-assert-baseline" in sys.argv
 
 
-def _own_nodes(func: ast.AST):
-    """Walk ``func`` without descending into nested function definitions (a helper's asserts are its own)."""
+_OWN_NODES: dict[int, tuple[ast.AST, list[ast.AST]]] = {}
+
+
+def _own_nodes(func: ast.AST) -> list[ast.AST]:
+    """Nodes of ``func`` without descending into nested function definitions (a helper's asserts are its own); computed once per function."""
+    hit = _OWN_NODES.get(id(func))
+    if hit is not None and hit[0] is func:
+        return hit[1]
+    nodes: list[ast.AST] = []
     stack = list(ast.iter_child_nodes(func))
     while stack:
         node = stack.pop()
-        yield node
+        nodes.append(node)
         if not isinstance(node, _FUNC_NODES):
             stack.extend(ast.iter_child_nodes(node))
+    _OWN_NODES[id(func)] = (func, nodes)
+    return nodes
 
 
 def _has_any_check(func: ast.AST) -> bool:
@@ -207,12 +218,11 @@ def _build_offending_set() -> set:
     for py in _TESTS_DIR.rglob("test_*.py"):
         if "__pycache__" in py.parts:
             continue
-        try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
-        except (SyntaxError, OSError):
+        tree = parsed_ast(py)
+        if tree is None:
             continue
         rel = py.relative_to(_TESTS_DIR).as_posix()
-        for func in ast.walk(tree):
+        for func in walk_cached(tree):
             if not isinstance(func, _FUNC_NODES) or not func.name.startswith("test_"):
                 continue
             reasons = _reasons(func)

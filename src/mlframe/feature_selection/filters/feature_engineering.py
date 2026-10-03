@@ -119,7 +119,7 @@ def _rebuild_full_survivor_col(
 
     # Unguarded reciprocal/power unaries or an extreme binary combination can still overflow / hit
     # invalid ops (e.g. mul against a near-zero-floored reciproc); suppress the resulting numpy
-    # RuntimeWarnings (matching every sibling FE-materialise site, e.g. _pairs_score.py:636) since the
+    # RuntimeWarnings (matching every sibling FE-materialise site, e.g. ``_score_one_pair`` in _pairs_score.py) since the
     # nan_to_num scrub right below already sanitises the output regardless.
     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         param_a = _apply_unary(unary_a_name, var_a_idx, vals_a)

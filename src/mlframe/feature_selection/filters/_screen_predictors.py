@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from ._dynamic_cluster_discovery import DCDState
 
 from mlframe.utils.log_throttle import log_throttle
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -279,123 +280,8 @@ def screen_predictors(
     # ---------------------------------------------------------------------------------------------------------------
     # Input checks
     # ---------------------------------------------------------------------------------------------------------------
-    warmup_typed_dict()  # idempotent, once per process; see the note next to the import
-    if parallel_kwargs is None:
-        # backend="threading" mirrors the mrmr.py default flip (iter-371 fix):
-        # joblib ThreadPoolExecutor in-process shares the data arrays zero-copy
-        # so the screen pass no longer triples RAM via per-worker memmap copies
-        # under Windows paging pressure. Numba kernels release the GIL so the
-        # threadpool genuinely parallelises on CPU cores.
-        parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES, backend="threading")
-
-    if max_confirmation_cand_nbins is None:
-        max_confirmation_cand_nbins = MAX_CONFIRMATION_CAND_NBINS
-
-    # Converted the "Input checks" block of 7 asserts
-    # to explicit ValueError. Under -O all of these stripped and bad user
-    # input slipped into the MRMR loop with cryptic failure modes.
-    if mrmr_relevance_algo not in ("fleuret", "pld"):
-        raise ValueError(f"mrmr_relevance_algo must be 'fleuret' or 'pld'; got {mrmr_relevance_algo!r}.")
-    if mrmr_redundancy_algo not in ("fleuret", "pld_max", "pld_mean"):
-        raise ValueError(f"mrmr_redundancy_algo must be one of 'fleuret', 'pld_max', " f"'pld_mean'; got {mrmr_redundancy_algo!r}.")
-
-    if y is None:
-        raise ValueError("y (target column indices) must be provided.")
-
-    if len(factors_data) < 10:
-        raise ValueError(f"factors_data must have at least 10 rows; got {len(factors_data)}.")
-    if targets_data is None:
-        targets_data = factors_data
-    else:
-        if len(factors_data) != len(targets_data):
-            raise ValueError(f"factors_data ({len(factors_data)} rows) and targets_data " f"({len(targets_data)} rows) must have equal length.")
-
-    if targets_nbins is None:
-        targets_nbins = factors_nbins
-
-    if targets_data.shape[1] != len(targets_nbins):
-        raise ValueError(f"targets_data.shape[1]={targets_data.shape[1]} must equal " f"len(targets_nbins)={len(targets_nbins)}.")
-    if factors_data.shape[1] != len(factors_nbins):
-        raise ValueError(f"factors_data.shape[1]={factors_data.shape[1]} must equal " f"len(factors_nbins)={len(factors_nbins)}.")
-
-    # Two bugs collapsed into one
-    # input-validation block.
-    # (a) ``factors_names=None`` (the documented default) crashed at
-    #     ``len(None)`` before reaching the auto-name branch.
-    # (b) The auto-name fallback generated ``len(factors_data)`` (=n_rows)
-    #     names instead of ``factors_data.shape[1]`` (=n_cols) - immediate
-    #     downstream length-mismatch raise for any caller actually hitting
-    #     the empty-list branch.
-    if factors_names is None or len(factors_names) == 0:
-        factors_names = ["F" + str(i) for i in range(factors_data.shape[1])]
-    else:
-        if factors_data.shape[1] != len(factors_names):
-            raise ValueError(f"factors_data.shape[1]={factors_data.shape[1]} must equal " f"len(factors_names)={len(factors_names)}.")
-
-    # Initialize x (factor indices to consider) with appropriate defaults
-    x: set[int] | list[int]
-    if factors_to_use is not None:
-        x = set(factors_to_use)
-    elif factors_names_to_use is not None:
-        x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use]
-    else:
-        x = set(range(factors_data.shape[1]))
-
-    # warn if inputs are identical to targets
-    if factors_data.shape == targets_data.shape:
-        if np.shares_memory(factors_data, targets_data):
-            if factors_to_use is None and factors_names_to_use is None:
-                if verbose > 2:
-                    logger.info(
-                        "factors_data and targets_data share the same memory. factors_to_use will be determined automatically to not contain any target columns."
-                    )
-                x = set(range(factors_data.shape[1])) - set(y)
-            else:
-                if factors_to_use is not None:
-                    x = set(factors_to_use) - set(y)
-                    if verbose > 2:
-                        logger.info("Using only %d predefined factors: %s", len(factors_to_use), factors_to_use)
-                else:
-                    assert factors_names_to_use is not None  # guaranteed by the outer `factors_to_use is None and factors_names_to_use is None` check
-                    x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use and i not in y]
-                    if verbose > 2:
-                        logger.info("Using only %d predefined factors: %s", len(factors_names_to_use), factors_names_to_use)
-        else:
-
-            # Assert -> RuntimeError. If true, MRMR
-            # would loop on self-target - silent correctness bug under -O.
-            if set(y).issubset(set(x)):
-                raise RuntimeError(
-                    "MRMR invariant violated: target index set is a subset of "
-                    "the factor index set; MRMR would loop on self-target. "
-                    "Check that targets_data / factors_data slicing didn't "
-                    "alias columns."
-                )
-
-    # ---------------------------------------------------------------------------------------------------------------
-    # Inits
-    # ---------------------------------------------------------------------------------------------------------------
-
-    start_time = timer()
-    run_out_of_time = False
-
-    # RNG hygiene. numpy: the modern screening / permutation / fleuret kernels
-    # each thread ``random_seed`` explicitly (inline-LCG Fisher-Yates, or their
-    # own local ``default_rng``), so we no longer seed or snapshot the
-    # process-global MT19937 state here - the prior ``np.random.seed`` mutated
-    # a process-wide generator (racy under threads/joblib workers and a hidden
-    # side effect on the caller's state). Instead we build a LOCAL Generator
-    # from ``random_seed`` for any numpy-side draw; the caller's global
-    # ``np.random`` state is left untouched. All current downstream numpy draws
-    # are threaded via ``random_seed`` into their own local Generators / LCG, so
-    # no direct global-numpy draw remains on this path.
-    #
-    # numba/cupy: these expose no portable Generator threading for the njit
-    # kernels, so their global seeds are still set for the screening duration
-    # and restored in ``finally`` with a fresh-entropy reseed, which
-    # is byte-indistinguishable to any downstream consumer.
-    _numba_restore_seed = None
-    _cp_restore_seed = None
+    factors_names, max_confirmation_cand_nbins, parallel_kwargs, st, targets_data = _screen_predictors_step1_block(parallel_kwargs, max_confirmation_cand_nbins, mrmr_relevance_algo, mrmr_redundancy_algo, y, factors_data, targets_data, targets_nbins, factors_nbins, factors_names)
+    _screen_predictors_step2_initialize_factor_indices(factors_to_use, st, factors_names_to_use, factors_names, factors_data, targets_data, verbose, y)
     if random_seed is not None:
         # Capture a fresh entropy-derived seed to restore numba/cupy with on
         # finally; mathematically equivalent (from the consumer's view) to
@@ -405,7 +291,7 @@ def screen_predictors(
         # into a debug log, so the stream would silently stay where this screen left it.
         from mlframe.utils.shared import fresh_seed as _fresh_seed
 
-        _numba_restore_seed = _fresh_seed()
+        st._numba_restore_seed = _fresh_seed()
         # Only capture cupy restore-seed when GPU path is actually requested.
         # Otherwise the finally block below would import cupy purely to
         # "restore" a seed that was never set, triggering cupy's Windows
@@ -414,7 +300,7 @@ def screen_predictors(
         # missing) - that recursion blows the C stack in batch pytest
         # contexts and tears down the test runner.
         if use_gpu:
-            _cp_restore_seed = _fresh_seed()
+            st._cp_restore_seed = _fresh_seed()
         set_numba_random_seed(random_seed)
         # The prior
         # ``try: cp.random.seed(random_seed); except NameError: pass``
@@ -502,21 +388,7 @@ def screen_predictors(
         # the candidates they gate; no full-n permutation work). ``_screen_full_factors`` keeps the full
         # array so the RETURNED encodings are recomputed at full n (row-aligned for the FE pipeline).
         _screen_full_factors = None
-        if subsample_idx is not None:
-            try:
-                _sidx = np.asarray(subsample_idx)
-                if _sidx.ndim == 1 and 0 < _sidx.shape[0] < len(factors_data) and int(_sidx.max()) < len(factors_data):
-                    _sidx = _sidx.astype(np.int64, copy=False)
-                    _same_t = targets_data is factors_data
-                    _screen_full_factors = factors_data
-                    factors_data = factors_data[_sidx]
-                    if _same_t:
-                        targets_data = factors_data
-                    elif targets_data is not None and len(targets_data) == len(_screen_full_factors):
-                        targets_data = targets_data[_sidx]
-            except Exception as e:
-                logger.debug("subsample-index application failed, falling back to the full factors: %s", e)
-                _screen_full_factors = None
+        _screen_full_factors, factors_data = _screen_predictors_step1_array_returned_encodings(subsample_idx, factors_data, targets_data, _screen_full_factors)
 
         # Mutate-and-restore instead of a whole-matrix copy: ``data_copy`` aliases ``factors_data`` and the Fleuret permutation njit
         # (``get_fleuret_criteria_confidence``) saves+restores ONLY the few columns it shuffles (x u y, ~O(n) each), so peak extra RAM is
@@ -529,8 +401,8 @@ def screen_predictors(
 
         # Cardinality-bias pre-screen: drop columns whose Miller-Madow plug-in-MI bias is too large to score honestly (nbins_x > 2*sqrt(n)). See ``cardinality_prescreen``.
         if cardinality_bias_correction and factors_data.shape[1] > 0:
-            x, _cardinality_refused_cols = cardinality_prescreen(
-                factors_data, factors_nbins, factors_names, x, y, verbose, raw_cardinality_cols=raw_cardinality_cols,
+            st.x, _cardinality_refused_cols = cardinality_prescreen(
+                factors_data, factors_nbins, factors_names, st.x, y, verbose, raw_cardinality_cols=raw_cardinality_cols,
             )
         else:
             _cardinality_refused_cols = set()
@@ -543,7 +415,7 @@ def screen_predictors(
         _fdr_gain_floor = compute_fdr_gain_floor(
             factors_data,
             factors_nbins,
-            x,
+            st.x,
             y,
             screen_fdr_null_permutations=screen_fdr_null_permutations,
             screen_fdr_null_quantile=screen_fdr_null_quantile,
@@ -625,7 +497,7 @@ def screen_predictors(
             factors_data=factors_data,
             factors_nbins=factors_nbins,
             factors_names=factors_names,
-            y=y,
+            y=y,  # type: ignore[arg-type]  # the early None guard moved into a stage helper; y is a real sequence here
             data_copy=data_copy,
             classes_y=classes_y,
             classes_y_safe=classes_y_safe,
@@ -661,7 +533,7 @@ def screen_predictors(
             random_seed=random_seed if random_seed is not None else 0,
             verbose=verbose,
             ndigits=ndigits,
-            start_time=start_time,
+            start_time=st.start_time,
             num_possible_candidates=0,
             cached_MIs=cached_MIs,
             cached_confident_MIs=cached_confident_MIs,
@@ -685,174 +557,7 @@ def screen_predictors(
 
         num_possible_candidates = 0  # needed to refrain from multiprocessing when all direct MIs are in cache already
 
-        for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order", leave=False, disable=not verbose)):
-
-            if run_out_of_time:
-                break
-            subsets_pbar.set_description(f"{interactions_order}-way interactions")
-
-            # ---------------------------------------------------------------------------------------------------------------
-            # Generate candidates
-            # ---------------------------------------------------------------------------------------------------------------
-
-            candidates = [tuple(el) for el in combinations(x, interactions_order)]
-
-            num_possible_candidates += len(candidates)
-
-            # ---------------------------------------------------------------------------------------------------------------
-            # Subset level inits
-            # ---------------------------------------------------------------------------------------------------------------
-
-            total_disproved = 0
-            total_checked = 0
-            partial_gains: dict = {}
-            added_candidates: set = set()
-            failed_candidates: set = set()
-            nconsec_unconfirmed = 0
-
-            # Refresh the confirmation context for this interactions order.
-            ctx.candidates = candidates
-            ctx.interactions_order = interactions_order
-            ctx.partial_gains = partial_gains
-            ctx.added_candidates = added_candidates
-            ctx.failed_candidates = failed_candidates
-            ctx.num_possible_candidates = num_possible_candidates
-
-            # Running leader for the live "Confirmed predictors" postfix (reset per
-            # interactions_order). ``_best_confirmed_gain`` starts at -inf so the first
-            # confirmed feature - even a negative-gain one - becomes the displayed top.
-            _best_confirmed_gain = float("-inf")
-            _best_confirmed_name = None
-            for _n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors", disable=not verbose)):
-                if run_out_of_time:
-                    break
-                if stop_file and exists(stop_file):
-                    log_throttle(logger, "screen_predictors_stop_file_detected", logging.WARNING, "Stop file %s detected, quitting.", stop_file)
-                    break
-
-                # The full single-predictor confirmation cycle (score all candidates, then permutation-confirm in
-                # expected-gain order with partial-gain recompute/retry + patience accounting) lives in the
-                # ``confirm_one_predictor`` primitive (``_confirm_predictor.py``), keeping this file below the
-                # 1k-line monolith threshold and the frequently patched confirmation math in one place.
-                (
-                    best_candidate,
-                    best_gain,
-                    confidence,
-                    run_out_of_time,
-                    nconsec_unconfirmed,
-                    total_checked,
-                    total_disproved,
-                    patience_triggered,
-                ) = confirm_one_predictor(
-                    ctx,
-                    nconsec_unconfirmed=nconsec_unconfirmed,
-                    total_checked=total_checked,
-                    total_disproved=total_disproved,
-                    patience_triggered=patience_triggered,
-                )
-
-                # ---------------------------------------------------------------------------------------------------------------
-                # Add best candidate to the list, if criteria are met, or proceed to the next interactions_order
-                # ---------------------------------------------------------------------------------------------------------------
-
-                # Abs/relative/maxT-FDR gain-floor gate: Miller-Madow correction, diminishing-
-                # returns relative floor, and the maxT permutation-null floor all live in
-                # ``compute_selection_gate`` (``_screen_predictors_gate.py``).
-                _gate_passed, _best_gain_for_gate = compute_selection_gate(
-                    min_relevance_gain=min_relevance_gain,
-                    interactions_order=interactions_order,
-                    best_candidate=best_candidate,
-                    best_gain=best_gain,
-                    cardinality_bias_correction=cardinality_bias_correction,
-                    factors_data=factors_data,
-                    y=y,
-                    factors_nbins=factors_nbins,
-                    min_relevance_gain_relative_to_first=min_relevance_gain_relative_to_first,
-                    selected_vars=selected_vars,
-                    predictors=predictors,
-                    fdr_gain_floor=_fdr_gain_floor,
-                    cached_MIs=cached_MIs,
-                )
-                if _gate_passed:
-                    for var in best_candidate:
-                        if var not in selected_vars:
-                            selected_vars.append(var)
-                            if interactions_order > 1:
-                                selected_interactions_vars.append(var)
-                            # 2026-05-30 Wave 9 — Dynamic Cluster Discovery hook.
-                            # After each accepted predictor, prune the Pool by
-                            # SU(c, var) > tau_cluster. Mutates ``pool_pruned_mask``
-                            # in-place (Critic1/B-1: NO mutation of candidates
-                            # list — uses ``should_skip_candidate``'s mask check).
-                            if dcd_state is not None:
-                                # DCD discover/swap block carved into ``_screen_dcd_swap.py``
-                                # (Tier E). The helper threads the loop-locals it reads/writes
-                                # explicitly and RETURNS the four matrix refs it reassigns on a
-                                # committed swap; ``dcd_state`` / ``selected_vars`` / ``predictors``
-                                # / ``ctx`` / the caches are mutated in place. Behaviour is
-                                # byte-for-byte identical to the prior inline block.
-                                from ._screen_dcd_swap import screen_dcd_discover_and_swap
-                                factors_data, factors_nbins, factors_names, data_copy = screen_dcd_discover_and_swap(
-                                    dcd_state=dcd_state,
-                                    var=var,
-                                    factors_data=factors_data,
-                                    factors_nbins=factors_nbins,
-                                    factors_names=factors_names,
-                                    data_copy=data_copy,
-                                    selected_vars=selected_vars,
-                                    entropy_cache=entropy_cache,
-                                    cached_MIs=cached_MIs,
-                                    full_npermutations=full_npermutations,
-                                    y=y,
-                                    engineered_recipes=engineered_recipes,
-                                    predictors=predictors,
-                                    ctx=ctx,
-                                    verbose=verbose,
-                                )
-                    cand_name = get_candidate_name(best_candidate, factors_names=factors_names)
-
-                    res = {"name": cand_name, "indices": best_candidate, "gain": best_gain}
-                    if full_npermutations:
-                        res["confidence"] = confidence
-                    predictors.append(res)
-
-                    # Live progress: surface the winning feature + its mrmr_gain on the
-                    # "Confirmed predictors" bar. ``best_gain`` was just computed by
-                    # confirm_one_predictor - display-only, zero extra MI work. Track the
-                    # strongest-confirmed so the postfix always names the current leader.
-                    if verbose:
-                        try:
-                            _g = float(best_gain)
-                            if _g > _best_confirmed_gain:
-                                _best_confirmed_gain = _g
-                                _best_confirmed_name = cand_name
-                            _pf = {"last": _short_name(cand_name), "gain": f"{_g:.{ndigits}f}"}
-                            if _best_confirmed_name is not None and _best_confirmed_name != cand_name:
-                                _pf["top"] = f"{_short_name(_best_confirmed_name)}={_best_confirmed_gain:.{ndigits}f}"
-                            predictors_pbar.set_postfix(_pf, refresh=False)
-                        except (TypeError, ValueError):
-                            pass
-
-                    if verbose >= 2:
-                        mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
-                        if full_npermutations:
-                            mes += f" and confidence={confidence:.3f}"
-                        # Surface the pool_size x |Z| scaling this predictor's confirmation cost right
-                        # alongside the pick itself - pool shrinks as candidates fail while |Z| only grows, so a
-                        # later predictor with a SMALLER remaining pool can still be slower than an earlier one.
-                        mes += f" [pool={len(candidates)} |Z|={len(selected_vars)} " f"cum_score_candidates_wall={ctx.sc_wall:.1f}s calls={ctx.sc_calls}]"
-                        logger.info(mes)
-
-                else:
-                    if verbose >= 2:
-                        if total_checked > 0:
-                            details = f" Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
-                        else:
-                            details = ""
-                        logger.info("Can't add anything valuable anymore for interactions_order=%s.%s", interactions_order, details)
-                    predictors_pbar.total = len(candidates)
-                    predictors_pbar.close()
-                    break
+        factors_nbins, patience_triggered = _screen_predictors_step2_interactions_order_subsets(subsets, verbose, st, num_possible_candidates, ctx, stop_file, patience_triggered, min_relevance_gain, cardinality_bias_correction, factors_data, y, factors_nbins, min_relevance_gain_relative_to_first, selected_vars, predictors, _fdr_gain_floor, cached_MIs, selected_interactions_vars, dcd_state, factors_names, data_copy, entropy_cache, full_npermutations, engineered_recipes, ndigits)
 
         if verbose >= 2:
             logger.info("Finished.")
@@ -908,19 +613,343 @@ def screen_predictors(
         # Generator is used instead), so there is nothing to restore for numpy.
         # Still restore numba + cupy (the prior comment block
         # acknowledged the leak; this closes it with a fresh-entropy reseed).
-        if _numba_restore_seed is not None:
-            try:
-                set_numba_random_seed(int(_numba_restore_seed))
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
-        if _cp_restore_seed is not None:
-            # Mirror the
-            # entry-block fix. ``cp`` only exists in this scope when
-            # use_gpu was True AND CuPy was actually importable; import
-            # defensively here so the restore call really fires.
-            try:
-                import cupy as cp
-                cp.random.seed(int(_cp_restore_seed))
-            except Exception as e:  # nosec B110 - optional dependency import guard
-                logger.debug("Could not restore cupy random seed (%s: %s)", type(e).__name__, e)
+        _screen_predictors_step3_acknowledged_leak_closes(st)
+
+
+def _screen_predictors_step1_array_returned_encodings(subsample_idx, factors_data, targets_data, _screen_full_factors):
+    """Step 1 of screen_predictors: lines starting at ``if subsample_idx is not None:``."""
+    if subsample_idx is not None:
+        try:
+            _sidx = np.asarray(subsample_idx)
+            if _sidx.ndim == 1 and 0 < _sidx.shape[0] < len(factors_data) and int(_sidx.max()) < len(factors_data):
+                _sidx = _sidx.astype(np.int64, copy=False)
+                _same_t = targets_data is factors_data
+                _screen_full_factors = factors_data
+                factors_data = factors_data[_sidx]
+                if _same_t:
+                    targets_data = factors_data
+                elif targets_data is not None and len(targets_data) == len(_screen_full_factors):
+                    targets_data = targets_data[_sidx]
+        except Exception as e:
+            logger.debug("subsample-index application failed, falling back to the full factors: %s", e)
+            _screen_full_factors = None
+    return _screen_full_factors, factors_data
+
+
+def _screen_predictors_step2_interactions_order_subsets(subsets, verbose, st, num_possible_candidates, ctx, stop_file, patience_triggered, min_relevance_gain, cardinality_bias_correction, factors_data, y, factors_nbins, min_relevance_gain_relative_to_first, selected_vars, predictors, _fdr_gain_floor, cached_MIs, selected_interactions_vars, dcd_state, factors_names, data_copy, entropy_cache, full_npermutations, engineered_recipes, ndigits):
+    """Step 2 of screen_predictors: lines starting at ``for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Intera``."""
+    for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order", leave=False, disable=not verbose)):
+
+        if st.run_out_of_time:
+            break
+        subsets_pbar.set_description(f"{interactions_order}-way interactions")
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Generate candidates
+        # ---------------------------------------------------------------------------------------------------------------
+
+        candidates = [tuple(el) for el in combinations(st.x, interactions_order)]
+
+        num_possible_candidates += len(candidates)
+
+        # ---------------------------------------------------------------------------------------------------------------
+        # Subset level inits
+        # ---------------------------------------------------------------------------------------------------------------
+
+        total_disproved = 0
+        total_checked = 0
+        partial_gains: dict = {}
+        added_candidates: set = set()
+        failed_candidates: set = set()
+        nconsec_unconfirmed = 0
+
+        # Refresh the confirmation context for this interactions order.
+        ctx.candidates = candidates
+        ctx.interactions_order = interactions_order
+        ctx.partial_gains = partial_gains
+        ctx.added_candidates = added_candidates
+        ctx.failed_candidates = failed_candidates
+        ctx.num_possible_candidates = num_possible_candidates
+
+        # Running leader for the live "Confirmed predictors" postfix (reset per
+        # interactions_order). ``_best_confirmed_gain`` starts at -inf so the first
+        # confirmed feature - even a negative-gain one - becomes the displayed top.
+        _best_confirmed_gain = float("-inf")
+        _best_confirmed_name = None
+        for _n_confirmed_predictors in (predictors_pbar := tqdmu(range(len(candidates)), leave=False, desc="Confirmed predictors", disable=not verbose)):
+            if st.run_out_of_time:
+                break
+            if stop_file and exists(stop_file):
+                log_throttle(logger, "screen_predictors_stop_file_detected", logging.WARNING, "Stop file %s detected, quitting.", stop_file)
+                break
+
+            # The full single-predictor confirmation cycle (score all candidates, then permutation-confirm in
+            # expected-gain order with partial-gain recompute/retry + patience accounting) lives in the
+            # ``confirm_one_predictor`` primitive (``_confirm_predictor.py``), keeping this file below the
+            # 1k-line monolith threshold and the frequently patched confirmation math in one place.
+            (
+                best_candidate,
+                best_gain,
+                confidence,
+                st.run_out_of_time,
+                nconsec_unconfirmed,
+                total_checked,
+                total_disproved,
+                patience_triggered,
+            ) = confirm_one_predictor(
+                ctx,
+                nconsec_unconfirmed=nconsec_unconfirmed,
+                total_checked=total_checked,
+                total_disproved=total_disproved,
+                patience_triggered=patience_triggered,
+            )
+
+            # ---------------------------------------------------------------------------------------------------------------
+            # Add best candidate to the list, if criteria are met, or proceed to the next interactions_order
+            # ---------------------------------------------------------------------------------------------------------------
+
+            # Abs/relative/maxT-FDR gain-floor gate: Miller-Madow correction, diminishing-
+            # returns relative floor, and the maxT permutation-null floor all live in
+            # ``compute_selection_gate`` (``_screen_predictors_gate.py``).
+            _gate_passed, _best_gain_for_gate = compute_selection_gate(
+                min_relevance_gain=min_relevance_gain,
+                interactions_order=interactions_order,
+                best_candidate=best_candidate,
+                best_gain=best_gain,
+                cardinality_bias_correction=cardinality_bias_correction,
+                factors_data=factors_data,
+                y=y,
+                factors_nbins=factors_nbins,
+                min_relevance_gain_relative_to_first=min_relevance_gain_relative_to_first,
+                selected_vars=selected_vars,
+                predictors=predictors,
+                fdr_gain_floor=_fdr_gain_floor,
+                cached_MIs=cached_MIs,
+            )
+            if _gate_passed:
+                for var in best_candidate:
+                    if var not in selected_vars:
+                        selected_vars.append(var)
+                        if interactions_order > 1:
+                            selected_interactions_vars.append(var)
+                        # 2026-05-30 Wave 9 — Dynamic Cluster Discovery hook.
+                        # After each accepted predictor, prune the Pool by
+                        # SU(c, var) > tau_cluster. Mutates ``pool_pruned_mask``
+                        # in-place (Critic1/B-1: NO mutation of candidates
+                        # list — uses ``should_skip_candidate``'s mask check).
+                        if dcd_state is not None:
+                            # DCD discover/swap block carved into ``_screen_dcd_swap.py``
+                            # (Tier E). The helper threads the loop-locals it reads/writes
+                            # explicitly and RETURNS the four matrix refs it reassigns on a
+                            # committed swap; ``dcd_state`` / ``selected_vars`` / ``predictors``
+                            # / ``ctx`` / the caches are mutated in place. Behaviour is
+                            # byte-for-byte identical to the prior inline block.
+                            from mlframe.feature_selection.filters._screen_dcd_swap import screen_dcd_discover_and_swap
+                            factors_data, factors_nbins, factors_names, data_copy = screen_dcd_discover_and_swap(
+                                dcd_state=dcd_state,
+                                var=var,
+                                factors_data=factors_data,
+                                factors_nbins=factors_nbins,
+                                factors_names=factors_names,
+                                data_copy=data_copy,
+                                selected_vars=selected_vars,
+                                entropy_cache=entropy_cache,
+                                cached_MIs=cached_MIs,
+                                full_npermutations=full_npermutations,
+                                y=y,
+                                engineered_recipes=engineered_recipes,
+                                predictors=predictors,
+                                ctx=ctx,
+                                verbose=verbose,
+                            )
+                cand_name = get_candidate_name(best_candidate, factors_names=factors_names)
+
+                res = {"name": cand_name, "indices": best_candidate, "gain": best_gain}
+                if full_npermutations:
+                    res["confidence"] = confidence
+                predictors.append(res)
+
+                # Live progress: surface the winning feature + its mrmr_gain on the
+                # "Confirmed predictors" bar. ``best_gain`` was just computed by
+                # confirm_one_predictor - display-only, zero extra MI work. Track the
+                # strongest-confirmed so the postfix always names the current leader.
+                if verbose:
+                    try:
+                        _g = float(best_gain)
+                        if _g > _best_confirmed_gain:
+                            _best_confirmed_gain = _g
+                            _best_confirmed_name = cand_name
+                        _pf = {"last": _short_name(cand_name), "gain": f"{_g:.{ndigits}f}"}
+                        if _best_confirmed_name is not None and _best_confirmed_name != cand_name:
+                            _pf["top"] = f"{_short_name(_best_confirmed_name)}={_best_confirmed_gain:.{ndigits}f}"
+                        predictors_pbar.set_postfix(_pf, refresh=False)
+                    except (TypeError, ValueError):
+                        pass
+
+                if verbose >= 2:
+                    mes = f"Added new predictor {cand_name} to the list with expected gain={best_gain:.{ndigits}f}"
+                    if full_npermutations:
+                        mes += f" and confidence={confidence:.3f}"
+                    # Surface the pool_size x |Z| scaling this predictor's confirmation cost right
+                    # alongside the pick itself - pool shrinks as candidates fail while |Z| only grows, so a
+                    # later predictor with a SMALLER remaining pool can still be slower than an earlier one.
+                    mes += f" [pool={len(candidates)} |Z|={len(selected_vars)} " f"cum_score_candidates_wall={ctx.sc_wall:.1f}s calls={ctx.sc_calls}]"
+                    logger.info(mes)
+
+            else:
+                if verbose >= 2:
+                    if total_checked > 0:
+                        details = f" Total candidates disproved: {total_disproved:_}/{total_checked:_} ({total_disproved*100/total_checked:.2f}%)"
+                    else:
+                        details = ""
+                    logger.info("Can't add anything valuable anymore for interactions_order=%s.%s", interactions_order, details)
+                predictors_pbar.total = len(candidates)
+                predictors_pbar.close()
+                break
+    return factors_nbins, patience_triggered
+
+
+def _screen_predictors_step3_acknowledged_leak_closes(st):
+    """Step 3 of screen_predictors: lines starting at ``if st._numba_restore_seed is not None:``."""
+    if st._numba_restore_seed is not None:
+        try:
+            set_numba_random_seed(int(st._numba_restore_seed))
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            pass
+    if st._cp_restore_seed is not None:
+        # Mirror the
+        # entry-block fix. ``cp`` only exists in this scope when
+        # use_gpu was True AND CuPy was actually importable; import
+        # defensively here so the restore call really fires.
+        try:
+            import cupy as cp
+            cp.random.seed(int(st._cp_restore_seed))
+        except Exception as e:  # nosec B110 - optional dependency import guard
+            logger.debug("Could not restore cupy random seed (%s: %s)", type(e).__name__, e)
+
+
+def _screen_predictors_step1_block(parallel_kwargs, max_confirmation_cand_nbins, mrmr_relevance_algo, mrmr_redundancy_algo, y, factors_data, targets_data, targets_nbins, factors_nbins, factors_names):
+    """Step 1 of screen_predictors: lines starting at ``st = _SimpleNamespace() # long-lived locals of this function (see the ``."""
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    warmup_typed_dict()  # idempotent, once per process; see the note next to the import
+    if parallel_kwargs is None:
+        # backend="threading" mirrors the mrmr.py default flip (iter-371 fix):
+        # joblib ThreadPoolExecutor in-process shares the data arrays zero-copy
+        # so the screen pass no longer triples RAM via per-worker memmap copies
+        # under Windows paging pressure. Numba kernels release the GIL so the
+        # threadpool genuinely parallelises on CPU cores.
+        parallel_kwargs = dict(max_nbytes=MAX_JOBLIB_NBYTES, backend="threading")
+
+    if max_confirmation_cand_nbins is None:
+        max_confirmation_cand_nbins = MAX_CONFIRMATION_CAND_NBINS
+
+    # Converted the "Input checks" block of 7 asserts
+    # to explicit ValueError. Under -O all of these stripped and bad user
+    # input slipped into the MRMR loop with cryptic failure modes.
+    if mrmr_relevance_algo not in ("fleuret", "pld"):
+        raise ValueError(f"mrmr_relevance_algo must be 'fleuret' or 'pld'; got {mrmr_relevance_algo!r}.")
+    if mrmr_redundancy_algo not in ("fleuret", "pld_max", "pld_mean"):
+        raise ValueError(f"mrmr_redundancy_algo must be one of 'fleuret', 'pld_max', " f"'pld_mean'; got {mrmr_redundancy_algo!r}.")
+
+    if y is None:
+        raise ValueError("y (target column indices) must be provided.")
+
+    if len(factors_data) < 10:
+        raise ValueError(f"factors_data must have at least 10 rows; got {len(factors_data)}.")
+    if targets_data is None:
+        targets_data = factors_data
+    else:
+        if len(factors_data) != len(targets_data):
+            raise ValueError(f"factors_data ({len(factors_data)} rows) and targets_data " f"({len(targets_data)} rows) must have equal length.")
+
+    if targets_nbins is None:
+        targets_nbins = factors_nbins
+
+    if targets_data.shape[1] != len(targets_nbins):
+        raise ValueError(f"targets_data.shape[1]={targets_data.shape[1]} must equal " f"len(targets_nbins)={len(targets_nbins)}.")
+    if factors_data.shape[1] != len(factors_nbins):
+        raise ValueError(f"factors_data.shape[1]={factors_data.shape[1]} must equal " f"len(factors_nbins)={len(factors_nbins)}.")
+
+    # Two bugs collapsed into one
+    # input-validation block.
+    # (a) ``factors_names=None`` (the documented default) crashed at
+    #     ``len(None)`` before reaching the auto-name branch.
+    # (b) The auto-name fallback generated ``len(factors_data)`` (=n_rows)
+    #     names instead of ``factors_data.shape[1]`` (=n_cols) - immediate
+    #     downstream length-mismatch raise for any caller actually hitting
+    #     the empty-list branch.
+    if factors_names is None or len(factors_names) == 0:
+        factors_names = ["F" + str(i) for i in range(factors_data.shape[1])]
+    else:
+        if factors_data.shape[1] != len(factors_names):
+            raise ValueError(f"factors_data.shape[1]={factors_data.shape[1]} must equal " f"len(factors_names)={len(factors_names)}.")
+
+    # Initialize x (factor indices to consider) with appropriate defaults
+    return factors_names, max_confirmation_cand_nbins, parallel_kwargs, st, targets_data
+
+
+def _screen_predictors_step2_initialize_factor_indices(factors_to_use, st, factors_names_to_use, factors_names, factors_data, targets_data, verbose, y):
+    """Step 2 of screen_predictors: lines starting at ``if factors_to_use is not None:``."""
+    if factors_to_use is not None:
+        st.x = set(factors_to_use)
+    elif factors_names_to_use is not None:
+        st.x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use]
+    else:
+        st.x = set(range(factors_data.shape[1]))
+
+    # warn if inputs are identical to targets
+    if factors_data.shape == targets_data.shape:
+        if np.shares_memory(factors_data, targets_data):
+            if factors_to_use is None and factors_names_to_use is None:
+                if verbose > 2:
+                    logger.info(
+                        "factors_data and targets_data share the same memory. factors_to_use will be determined automatically to not contain any target columns."
+                    )
+                st.x = set(range(factors_data.shape[1])) - set(y)
+            else:
+                if factors_to_use is not None:
+                    st.x = set(factors_to_use) - set(y)
+                    if verbose > 2:
+                        logger.info("Using only %d predefined factors: %s", len(factors_to_use), factors_to_use)
+                else:
+                    assert factors_names_to_use is not None  # guaranteed by the outer `factors_to_use is None and factors_names_to_use is None` check
+                    st.x = [i for i, col_name in enumerate(factors_names) if col_name in factors_names_to_use and i not in y]
+                    if verbose > 2:
+                        logger.info("Using only %d predefined factors: %s", len(factors_names_to_use), factors_names_to_use)
+        else:
+
+            # Assert -> RuntimeError. If true, MRMR
+            # would loop on self-target - silent correctness bug under -O.
+            if set(y).issubset(set(st.x)):
+                raise RuntimeError(
+                    "MRMR invariant violated: target index set is a subset of "
+                    "the factor index set; MRMR would loop on self-target. "
+                    "Check that targets_data / factors_data slicing didn't "
+                    "alias columns."
+                )
+
+    # ---------------------------------------------------------------------------------------------------------------
+    # Inits
+    # ---------------------------------------------------------------------------------------------------------------
+
+    st.start_time = timer()
+    st.run_out_of_time = False
+
+    # RNG hygiene. numpy: the modern screening / permutation / fleuret kernels
+    # each thread ``random_seed`` explicitly (inline-LCG Fisher-Yates, or their
+    # own local ``default_rng``), so we no longer seed or snapshot the
+    # process-global MT19937 state here - the prior ``np.random.seed`` mutated
+    # a process-wide generator (racy under threads/joblib workers and a hidden
+    # side effect on the caller's state). Instead we build a LOCAL Generator
+    # from ``random_seed`` for any numpy-side draw; the caller's global
+    # ``np.random`` state is left untouched. All current downstream numpy draws
+    # are threaded via ``random_seed`` into their own local Generators / LCG, so
+    # no direct global-numpy draw remains on this path.
+    #
+    # numba/cupy: these expose no portable Generator threading for the njit
+    # kernels, so their global seeds are still set for the screening duration
+    # and restored in ``finally`` with a fresh-entropy reseed, which
+    # is byte-indistinguishable to any downstream consumer.
+    st._numba_restore_seed = None
+    st._cp_restore_seed = None

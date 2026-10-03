@@ -25,9 +25,10 @@ from __future__ import annotations
 import itertools
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 
 import numpy as np
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -163,10 +164,10 @@ def build_usability_candidate_pool(
     is already minimal - ~17k list-appends but <0.05s. No safe pure-overhead/vectorization win was found
     above the 0.5% ship floor that preserves the byte-identical retain/drop on this selection-critical path;
     the next real lever is the MI kernel / a JIT-warmth pre-touch, not this CPU dispatch glue."""
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     import pandas as pd
     from .feature_engineering import create_unary_transformations, create_binary_transformations
-    from .engineered_recipes import build_unary_binary_recipe, apply_recipe
-    from ._mi_greedy_cmi_fe import _quantile_bin, marginal_mi_binned_fixed_y, precompute_marginal_y_terms
+    from ._mi_greedy_cmi_fe import _quantile_bin, precompute_marginal_y_terms
     from ._fe_mi_contract import quantize_mi_tiebreak
 
     # SELECTION-EQUIVALENT retention key: snap the MI sort key to the shared grid ONLY under the resident
@@ -176,21 +177,21 @@ def build_usability_candidate_pool(
     # invariant). Stable sort: exact ties keep enumeration order either way; only sub-quantum near-ties differ.
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-        _seleq = bool(fe_gpu_strict_resident_enabled())
+        st._seleq = bool(fe_gpu_strict_resident_enabled())
     except Exception as e:
         logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-strict tiebreak: %s", e)
-        _seleq = False
-    _mi_key = (lambda m: quantize_mi_tiebreak(m)) if _seleq else (lambda m: m)
+        st._seleq = False
+    st._mi_key = (lambda m: quantize_mi_tiebreak(m)) if st._seleq else (lambda m: m)
 
     if not isinstance(X_df, pd.DataFrame):
         X_df = pd.DataFrame(np.asarray(X_df))
     y_cont = _scrub(y_cont)
-    y_codes = _quantile_bin(y_cont, quantization_nbins)
+    st.y_codes = _quantile_bin(y_cont, quantization_nbins)
     # y is fixed for the whole candidate enumeration -> hoist H(Y)/k_y once (reused by every marginal-MI eval).
-    y_terms = precompute_marginal_y_terms(y_codes)
+    st.y_terms = precompute_marginal_y_terms(st.y_codes)
 
-    unary = create_unary_transformations(preset=unary_preset)
-    binary = create_binary_transformations(preset=binary_preset)
+    st.unary = create_unary_transformations(preset=unary_preset)
+    st.binary = create_binary_transformations(preset=binary_preset)
     base_names = [b for b in base_names if b in X_df.columns]
 
     # Per-base-name RAW extraction + float64 scrub, computed ONCE and reused everywhere a base column
@@ -202,18 +203,87 @@ def build_usability_candidate_pool(
     # already-scrubbed float64 value can differ from scrubbing straight to the narrower dtype (a finite
     # float64 value that overflows to +/-inf in float32 must scrub to 0, which only holds when the
     # feature_dtype cast happens BEFORE the finite check).
-    raw_np = {nm: X_df[nm].to_numpy() for nm in base_names}
-    base_f64 = {nm: _scrub(raw_np[nm]) for nm in base_names}
+    st.raw_np = {nm: X_df[nm].to_numpy() for nm in base_names}
+    st.base_f64 = {nm: _scrub(st.raw_np[nm]) for nm in base_names}
 
-    pool: list[UsableCandidate] = []
+    st.pool = []
     # raw columns are always candidates (a linear model often wants a raw operand too).
     for nm in base_names:
-        col = _scrub(raw_np[nm], feature_dtype)
+        col = _scrub(st.raw_np[nm], feature_dtype)
         if float(np.std(col)) <= 1e-9:
             continue
-        pool.append(UsableCandidate(nm, col, _binned_mi(col, y_codes, quantization_nbins, y_terms), None, (nm,), ()))
+        st.pool.append(UsableCandidate(nm, col, _binned_mi(col, st.y_codes, quantization_nbins, st.y_terms), None, (nm,), ()))
 
-    pairs = list(itertools.combinations(base_names, 2))
+    st.pairs = list(itertools.combinations(base_names, 2))
+    st.pairs = _build_usability_cand_step1_rank_pairs_joint(rank_pairs_by_joint_mi, base_names, st.base_f64, quantization_nbins, st.y_terms, st._seleq, st.pairs, st.y_codes, st._mi_key, max_pairs)
+
+    # FUSED njit PER-PAIR ENUMERATION (retention path only). On the retention path
+    # (``rank_pairs_by_joint_mi=True``) the per-pair ``|unary|^2*|binary|`` value+quantile-bin+MI triple
+    # is Python-dispatched per combo (~3.5s/pair at n=10000, ~62s of a structured fit). When every
+    # preset op is njit-coded, score ALL combos for a pair in ONE njit(parallel) kernel
+    # (``score_pair_combos``) - bit-faithful to the Python MI (verified ~6e-15) - then recompute the
+    # numpy value only for the (bounded) combos clearing ``mi_floor`` so the diversity filter + recipe
+    # replay are UNCHANGED. The default (marginal-rank) path stays byte-identical (Python loop below).
+    st._ua_codes = st._ub_codes = st._bn_codes = None
+    if rank_pairs_by_joint_mi:
+        from ._usability_njit_pool import (
+            njit_unary_codes_or_none, njit_binary_codes_or_none,
+        )
+        _unary_names = list(st.unary.keys())
+        _binary_names = list(st.binary.keys())
+        _uc = njit_unary_codes_or_none(_unary_names)
+        _bc = njit_binary_codes_or_none(_binary_names)
+        if _uc is not None and _bc is not None:
+            st._ua_codes, st._ub_codes, st._bn_codes = _uc, _uc, _bc  # ua/ub share the unary code table
+
+    # REPLAY-VERIFICATION CACHE: the per-candidate ``apply_recipe`` replay + allclose was
+    # ~0.35s each and a large chunk of the pool build. The fused/Python value path already produces the
+    # candidate values bit-faithfully, and these are STANDARD ``build_unary_binary_recipe`` recipes whose
+    # replayABILITY is a property of the (unary_a, unary_b, binary) op-combo + the recipe machinery, not of
+    # the specific operand pair or the per-candidate edges (the only per-candidate state is the pinned
+    # quantile/uniform edge array, which never changes WHETHER a recipe replays, only its exact values -
+    # already covered by the recompute being bit-identical). So run the full apply_recipe + allclose check
+    # ONCE per distinct op-combo; for later candidates of a verified combo, trust the recipe (skip the
+    # expensive replay). A combo whose first verification FAILS is blacklisted -> all its candidates drop,
+    # and any recipe whose ``build_unary_binary_recipe``/``apply_recipe`` RAISES still drops individually.
+    # Contract preserved: every recipe that reaches the returned pool is replayable by ``transform()``.
+    st._combo_replay_ok = {}
+
+    # bench-attempt-rejected (iter17, 2026-06-23): GPU-RESIDENT batched pair-combo MI TABLE. The MI-table
+    # computation IS cleanly separable from this retention/diversity bookkeeping (the loop only reads
+    # ``mis[j]`` per pair), and a resident batched-across-pairs table was built + gated
+    # (``_usability_pool_resident.py`` + ``_usability_pool_resident_ktc.py``, kept for a capable card).
+    # NOT WIRED IN, for TWO independent reasons measured here: (1) it LOSES on the dev GTX 1050 Ti - n=100k
+    # npairs=4 nc=1734/pair CUDA-event A/B: 29.6s resident vs 14.7s CPU njit = 0.50x, because the bit-faithful
+    # ``_gpu_quantile_bin_codes``/``_gpu_marginal_mi`` do a per-row device->host scalar sync (~14k tiny syncs)
+    # the 6-SM card cannot hide (HW-bound regime). (2) MORE IMPORTANTLY it is NOT selection-equivalent: the
+    # table is bit-faithful to ~6e-15, but the downstream STABLE MI-sort + greedy ``_abscorr`` diversity
+    # filter is ULP-sensitive at MI ties - a 6e-15 reassociation flips the tie ORDER, changing which of two
+    # near-equal-MI combos is retained (verified: a 125-form structured pool had ~6 retained forms DIFFER,
+    # e.g. mul(invsquared(a),neg(b)) vs mul(invsquared(a),identity(b))). Selection must stay byte-identical on
+    # this path, so the resident MI is not fed in. NEEDS-X to ship: a BIT-EXACT (not just bit-faithful) GPU MI
+    # matching the njit reduction order, AND a row-vectorised sync-free bin+MI kernel, AND a card where it wins.
+    # RESIDENT PAIR-COMBO MI TABLE NOW WIRED: ``score_pair_combos_table_resident`` is fed into the
+    # retention loop under the resident GPU-strict flag (``_seleq``) only. The (3) blocker the iter17 note below
+    # records - the fused resident binning diverged from the njit on low-cardinality columns - was fixed in
+    # 71e31818 (the resident binner now matches the njit distinct-edge dedup), so the resident table is now
+    # SELECTION-EQUIVALENT to the njit per-pair ``score_pair_combos`` (parity test green:
+    # tests/feature_selection/gpu/test_usability_pool_resident_parity.py). The ULP-tie sensitivity is absorbed by
+    # the ``_mi_key`` grid-snap (already engaged under ``_seleq``). The DEFAULT (flag-off) path is BYTE-IDENTICAL
+    # - it never computes the resident table and uses the per-pair njit ``score_pair_combos`` exactly as before.
+    # If the resident table errors (no cupy / device fault) it returns None and we fall back per-pair. This is a
+    # residency win (the MI runs on-device under the flag), not necessarily a wall win at the FE-subsample n.
+    st._resident_table = None
+    st._resident_table = _build_usability_cand_step2_residency_win_mi(st._seleq, st._ua_codes, st._ub_codes, st._bn_codes, st.pairs, st.base_f64, st.y_codes, st.y_terms, quantization_nbins)
+    _build_usability_cand_step3_pidx_n1_n2(st.pairs, st.base_f64, st._ua_codes, st.unary, st.binary, st._resident_table, st.y_codes, st.y_terms, quantization_nbins, st._ub_codes, st._bn_codes, mi_floor, st._mi_key, max_per_pair, feature_dtype, diversity_corr, unary_preset, binary_preset, quantization_method, quantization_dtype, st._combo_replay_ok, X_df, st.pool)
+    return cast(list[UsableCandidate], st.pool)
+
+
+def _build_usability_cand_step1_rank_pairs_joint(rank_pairs_by_joint_mi, base_names, base_f64, quantization_nbins, y_terms, _seleq, pairs, y_codes, _mi_key, max_pairs):
+    """Step 1 of build_usability_candidate_pool: lines starting at ``if rank_pairs_by_joint_mi:``."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin, marginal_mi_binned_fixed_y
+    from mlframe.feature_selection.filters._fe_mi_contract import quantize_mi_tiebreak
+
     if rank_pairs_by_joint_mi:
         # SMART-SEARCH pair ranking: rank by binned JOINT MI (one eval/pair) and keep the top
         # ``max_pairs``, so the per-pair unary^2*binary enumeration (~100s core) runs on only the few
@@ -242,7 +312,7 @@ def build_usability_candidate_pool(
         if _seleq and pairs:
             try:
                 import cupy as _cp
-                from ._fe_batched_mi import binned_mi_from_codes_gpu
+                from mlframe.feature_selection.filters._fe_batched_mi import binned_mi_from_codes_gpu
                 _base_dev = {nm: _cp.asarray(_pj_codes[nm]) for nm in base_names}
                 _joint = _cp.stack([_base_dev[a] * _nb + _base_dev[b] for a, b in pairs], axis=1)
                 _ky = int(np.asarray(y_codes).max()) + 1
@@ -260,67 +330,15 @@ def build_usability_candidate_pool(
         marg = {nm: _binned_mi(base_f64[nm], y_codes, quantization_nbins, y_terms) for nm in base_names}
         pairs.sort(key=lambda p: marg[p[0]] + marg[p[1]], reverse=True)
         pairs = pairs[:max_pairs]
+    return pairs
 
-    # FUSED njit PER-PAIR ENUMERATION (retention path only). On the retention path
-    # (``rank_pairs_by_joint_mi=True``) the per-pair ``|unary|^2*|binary|`` value+quantile-bin+MI triple
-    # is Python-dispatched per combo (~3.5s/pair at n=10000, ~62s of a structured fit). When every
-    # preset op is njit-coded, score ALL combos for a pair in ONE njit(parallel) kernel
-    # (``score_pair_combos``) - bit-faithful to the Python MI (verified ~6e-15) - then recompute the
-    # numpy value only for the (bounded) combos clearing ``mi_floor`` so the diversity filter + recipe
-    # replay are UNCHANGED. The default (marginal-rank) path stays byte-identical (Python loop below).
-    _ua_codes = _ub_codes = _bn_codes = None
-    if rank_pairs_by_joint_mi:
-        from ._usability_njit_pool import (
-            njit_unary_codes_or_none, njit_binary_codes_or_none, score_pair_combos,
-        )
-        _unary_names = list(unary.keys())
-        _binary_names = list(binary.keys())
-        _uc = njit_unary_codes_or_none(_unary_names)
-        _bc = njit_binary_codes_or_none(_binary_names)
-        if _uc is not None and _bc is not None:
-            _ua_codes, _ub_codes, _bn_codes = _uc, _uc, _bc  # ua/ub share the unary code table
 
-    # REPLAY-VERIFICATION CACHE: the per-candidate ``apply_recipe`` replay + allclose was
-    # ~0.35s each and a large chunk of the pool build. The fused/Python value path already produces the
-    # candidate values bit-faithfully, and these are STANDARD ``build_unary_binary_recipe`` recipes whose
-    # replayABILITY is a property of the (unary_a, unary_b, binary) op-combo + the recipe machinery, not of
-    # the specific operand pair or the per-candidate edges (the only per-candidate state is the pinned
-    # quantile/uniform edge array, which never changes WHETHER a recipe replays, only its exact values -
-    # already covered by the recompute being bit-identical). So run the full apply_recipe + allclose check
-    # ONCE per distinct op-combo; for later candidates of a verified combo, trust the recipe (skip the
-    # expensive replay). A combo whose first verification FAILS is blacklisted -> all its candidates drop,
-    # and any recipe whose ``build_unary_binary_recipe``/``apply_recipe`` RAISES still drops individually.
-    # Contract preserved: every recipe that reaches the returned pool is replayable by ``transform()``.
-    _combo_replay_ok: dict[tuple, bool] = {}
-
-    # bench-attempt-rejected (iter17, 2026-06-23): GPU-RESIDENT batched pair-combo MI TABLE. The MI-table
-    # computation IS cleanly separable from this retention/diversity bookkeeping (the loop only reads
-    # ``mis[j]`` per pair), and a resident batched-across-pairs table was built + gated
-    # (``_usability_pool_resident.py`` + ``_usability_pool_resident_ktc.py``, kept for a capable card).
-    # NOT WIRED IN, for TWO independent reasons measured here: (1) it LOSES on the dev GTX 1050 Ti - n=100k
-    # npairs=4 nc=1734/pair CUDA-event A/B: 29.6s resident vs 14.7s CPU njit = 0.50x, because the bit-faithful
-    # ``_gpu_quantile_bin_codes``/``_gpu_marginal_mi`` do a per-row device->host scalar sync (~14k tiny syncs)
-    # the 6-SM card cannot hide (HW-bound regime). (2) MORE IMPORTANTLY it is NOT selection-equivalent: the
-    # table is bit-faithful to ~6e-15, but the downstream STABLE MI-sort + greedy ``_abscorr`` diversity
-    # filter is ULP-sensitive at MI ties - a 6e-15 reassociation flips the tie ORDER, changing which of two
-    # near-equal-MI combos is retained (verified: a 125-form structured pool had ~6 retained forms DIFFER,
-    # e.g. mul(invsquared(a),neg(b)) vs mul(invsquared(a),identity(b))). Selection must stay byte-identical on
-    # this path, so the resident MI is not fed in. NEEDS-X to ship: a BIT-EXACT (not just bit-faithful) GPU MI
-    # matching the njit reduction order, AND a row-vectorised sync-free bin+MI kernel, AND a card where it wins.
-    # RESIDENT PAIR-COMBO MI TABLE NOW WIRED: ``score_pair_combos_table_resident`` is fed into the
-    # retention loop under the resident GPU-strict flag (``_seleq``) only. The (3) blocker the iter17 note below
-    # records - the fused resident binning diverged from the njit on low-cardinality columns - was fixed in
-    # 71e31818 (the resident binner now matches the njit distinct-edge dedup), so the resident table is now
-    # SELECTION-EQUIVALENT to the njit per-pair ``score_pair_combos`` (parity test green:
-    # tests/feature_selection/gpu/test_usability_pool_resident_parity.py). The ULP-tie sensitivity is absorbed by
-    # the ``_mi_key`` grid-snap (already engaged under ``_seleq``). The DEFAULT (flag-off) path is BYTE-IDENTICAL
-    # - it never computes the resident table and uses the per-pair njit ``score_pair_combos`` exactly as before.
-    # If the resident table errors (no cupy / device fault) it returns None and we fall back per-pair. This is a
-    # residency win (the MI runs on-device under the flag), not necessarily a wall win at the FE-subsample n.
+def _build_usability_cand_step2_residency_win_mi(_seleq, _ua_codes, _ub_codes, _bn_codes, pairs, base_f64, y_codes, y_terms, quantization_nbins):
+    """Step 2 of build_usability_candidate_pool: lines starting at ``if _seleq and _ua_codes is not None:``."""
     _resident_table = None
     if _seleq and _ua_codes is not None:
         try:
-            from ._usability_pool_resident import score_pair_combos_table_resident
+            from mlframe.feature_selection.filters._usability_pool_resident import score_pair_combos_table_resident
 
             assert _ub_codes is not None and _bn_codes is not None  # ua/ub/bn are set together at the same tuple-unpack site
             _res_ops = [(base_f64[n1], base_f64[n2]) for n1, n2 in pairs]
@@ -330,162 +348,184 @@ def build_usability_candidate_pool(
         except Exception as e:
             logger.debug("GPU-resident candidate table build failed, falling back to the host path: %s", e)
             _resident_table = None
+    return _resident_table
+
+
+def _build_usability_cand_step3_pidx_n1_n2(pairs, base_f64, _ua_codes, unary, binary, _resident_table, y_codes, y_terms, quantization_nbins, _ub_codes, _bn_codes, mi_floor, _mi_key, max_per_pair, feature_dtype, diversity_corr, unary_preset, binary_preset, quantization_method, quantization_dtype, _combo_replay_ok, X_df, pool):
+    """Step 3 of build_usability_candidate_pool: lines starting at ``for _pidx, (n1, n2) in enumerate(pairs):``."""
+
     for _pidx, (n1, n2) in enumerate(pairs):
         x1 = base_f64[n1]
         x2 = base_f64[n2]
         cand_here: list[UsableCandidate] = []
-        if _ua_codes is not None:
-            # njit-scored retention path. The kernel enumerates ``for ua: for ub: for bn`` in the SAME
-            # order as the Python loop, so the flat combo index maps 1:1 to (ua, ub, bn) below.
-            _unary_names = list(unary.keys())
-            _binary_names = list(binary.keys())
-            if _resident_table is not None:
-                # resident GPU table row p == score_pair_combos for pair p (selection-equivalent after the
-                # distinct-edge dedup fix; ULP ties absorbed by ``_mi_key`` grid-snap engaged under ``_seleq``).
-                mis = _resident_table[_pidx]
-            else:
-                mis = score_pair_combos(
-                    x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
-                )
-            nu = len(_unary_names)
-            nb = len(_binary_names)
-            # LAZY-RECOMPUTE: the njit kernel already produced the MI of EVERY combo, and the
-            # only use of the recomputed numpy value is (a) the per-pair diversity filter that keeps the
-            # top ``max_per_pair`` MI-ranked DISTINCT forms and (b) the recipe replay for those few kept
-            # forms. The prior code materialised the float64 value + ``_scrub`` for EVERY mi_floor-clearing
-            # combo (~1700/pair here) only to discard all but 3 - ~17k full-n value+scrub builds/fit, the
-            # second-largest retention cost after the kernel. Instead, collect only the cheap combo METADATA
-            # (mi + op indices), sort by MI (STABLE -> identical tie order to the old append-order +
-            # ``cand_here.sort(key=mi, reverse=True)``), then recompute the numpy value LAZILY while building
-            # the diverse ``kept`` set, stopping at ``max_per_pair``. Selection-identical: the same MI order,
-            # the same diversity gate, the same kept forms - just ~10-15 value builds/pair instead of ~1700.
-            metas = []  # (mi, ia, ib, ibn) for floor-clearing combos, in enumeration order
-            j = 0
-            for ia in range(nu):
-                for ib in range(nu):
-                    for ibn in range(nb):
-                        m = float(mis[j]); j += 1
-                        if m < mi_floor:   # also rejects the -1.0 std<=1e-9 sentinel
-                            continue
-                        metas.append((m, ia, ib, ibn))
-            # stable sort by MI desc; under the resident path the key is grid-snapped (``_mi_key``) so a
-            # sub-quantum (~1e-15) CPU-vs-GPU MI difference can't flip the kept set. Default path: raw MI
-            # (byte-identical). Exact ties keep enumeration order; only within-quantum near-ties differ.
-            metas.sort(key=lambda t: _mi_key(t[0]), reverse=True)
-            _ta_cache: dict = {}  # unary(x1) by ua index - reused across combos sharing ua
-            _tb_cache: dict = {}  # unary(x2) by ub index
-            _njit_kept: list[UsableCandidate] = []
-            for m, ia, ib, ibn in metas:
-                if len(_njit_kept) >= max_per_pair:
-                    break
-                ua = _unary_names[ia]; ub = _unary_names[ib]; bn = _binary_names[ibn]
-                ta = _ta_cache.get(ia)
-                if ta is None:
-                    ta = unary[ua](x1); _ta_cache[ia] = ta
-                tb = _tb_cache.get(ib)
-                if tb is None:
-                    tb = unary[ub](x2); _tb_cache[ib] = tb
-                try:
-                    val = _scrub(binary[bn](ta, tb), feature_dtype)
-                except Exception as e:  # nosec B112 - best-effort path
-                    logger.debug("binary op %r on this candidate pair raised, skipping: %s", bn, e)
-                    continue
-                if any(_abscorr(val, k.values) > diversity_corr for k in _njit_kept):
-                    continue
-                name = f"{bn}({ua}({n1}),{ub}({n2}))"
-                _njit_kept.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
-            # already MI-sorted + diversity-filtered + capped -> feed straight to the recipe builder.
-            cand_here = _njit_kept
-        else:
-            # Default / fallback Python loop (``rank_pairs_by_joint_mi=False``, the shipped default).
-            #
-            # bench-attempt-rejected (2026-07-13, Wave 11 audit item M11): swapping this branch to the
-            # SAME ``score_pair_combos`` njit kernel the ``True`` branch uses is NOT a safe drop-in here,
-            # despite looking like one. ``score_pair_combos`` is documented "bit-faithful to the Python MI
-            # (verified ~6e-15)" - NOT bit-identical - and this function's own docstring states the
-            # DEFAULT (marginal-rank) path is "byte-identical" by design (the ``_mi_key`` grid-snap that
-            # absorbs sub-quantum ties is deliberately gated to the resident-GPU-strict path only, see
-            # ``_seleq`` above). The retention loop below is a STABLE sort by MI keeping only the top
-            # ``max_per_pair`` DISTINCT forms; a prior investigation into feeding njit-computed MI into this
-            # exact retention/diversity logic on the non-resident path (see the "RESIDENT PAIR-COMBO MI
-            # TABLE" bench-attempt-rejected note above, ~90 lines up) measured ~6e-15 reassociation flipping
-            # the retained SET on a real 125-form pool (~6 forms differed) - selection-altering, not a pure
-            # FP-reorder. Feeding ``score_pair_combos`` output into the default path's un-snapped ``_mi_key``
-            # would reproduce that exact regression for the SHIPPED DEFAULT config, not an opt-in one.
-            # A snap-then-batch variant (grid-snapping this path's MI too) would trade the "byte-identical
-            # default" contract for a "selection-equivalent-only" one - a real behavior-contract change,
-            # not a pure perf refactor, so it is out of scope for this pass; not applied.
-            ta_by_ua: dict = {}
-            for _ua in unary:
-                try:
-                    ta_by_ua[_ua] = unary[_ua](x1)
-                except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                    logger.debug("unary op %r on x1 raised, skipping: %s", _ua, e)
-            tb_by_ub: dict = {}
-            for _ub in unary:
-                try:
-                    tb_by_ub[_ub] = unary[_ub](x2)
-                except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                    logger.debug("unary op %r on x2 raised, skipping: %s", _ub, e)
-            for ua, ta in ta_by_ua.items():
-                for ub, tb in tb_by_ub.items():
-                    for bn, bf in binary.items():
-                        try:
-                            val = _scrub(bf(ta, tb), feature_dtype)
-                        except Exception as e:  # nosec B112 - best-effort path
-                            logger.debug("binary combine on this unary-pair raised, skipping: %s", e)
-                            continue
-                        if float(np.std(val)) <= 1e-9:
-                            continue
-                        m = _binned_mi(val, y_codes, quantization_nbins, y_terms)
-                        if m < mi_floor:
-                            continue
-                        name = f"{bn}({ua}({n1}),{ub}({n2}))"
-                        cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+        cand_here = _build_usability_cand_step1_ua_codes_none(_ua_codes, unary, binary, _resident_table, _pidx, x1, x2, y_codes, y_terms, quantization_nbins, _ub_codes, _bn_codes, mi_floor, _mi_key, max_per_pair, feature_dtype, diversity_corr, n1, n2, cand_here)
         # keep diverse top-MI forms for this pair. ``_mi_key`` grid-snaps under the resident path (invariant to
         # sub-quantum CPU-vs-GPU MI reassociation); raw MI on the default path (byte-identical). Stable sort.
-        cand_here.sort(key=lambda c: _mi_key(c.mi), reverse=True)
-        kept: list[UsableCandidate] = []
-        for c in cand_here:
-            if len(kept) >= max_per_pair:
+        _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair, diversity_corr, unary_preset, binary_preset, quantization_nbins, quantization_method, quantization_dtype, _combo_replay_ok, X_df, feature_dtype, pool)
+
+
+def _build_usability_cand_step1_ua_codes_none(_ua_codes, unary, binary, _resident_table, _pidx, x1, x2, y_codes, y_terms, quantization_nbins, _ub_codes, _bn_codes, mi_floor, _mi_key, max_per_pair, feature_dtype, diversity_corr, n1, n2, cand_here):
+    """Step 1 of _build_usability_cand_step3_pidx_n1_n2: lines starting at ``if _ua_codes is not None:``."""
+    from mlframe.feature_selection.filters._usability_njit_pool import (
+        score_pair_combos,
+    )
+
+    if _ua_codes is not None:
+        # njit-scored retention path. The kernel enumerates ``for ua: for ub: for bn`` in the SAME
+        # order as the Python loop, so the flat combo index maps 1:1 to (ua, ub, bn) below.
+        _unary_names = list(unary.keys())
+        _binary_names = list(binary.keys())
+        if _resident_table is not None:
+            # resident GPU table row p == score_pair_combos for pair p (selection-equivalent after the
+            # distinct-edge dedup fix; ULP ties absorbed by ``_mi_key`` grid-snap engaged under ``_seleq``).
+            mis = _resident_table[_pidx]
+        else:
+            mis = score_pair_combos(
+                x1, x2, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
+            )
+        nu = len(_unary_names)
+        nb = len(_binary_names)
+        # LAZY-RECOMPUTE: the njit kernel already produced the MI of EVERY combo, and the
+        # only use of the recomputed numpy value is (a) the per-pair diversity filter that keeps the
+        # top ``max_per_pair`` MI-ranked DISTINCT forms and (b) the recipe replay for those few kept
+        # forms. The prior code materialised the float64 value + ``_scrub`` for EVERY mi_floor-clearing
+        # combo (~1700/pair here) only to discard all but 3 - ~17k full-n value+scrub builds/fit, the
+        # second-largest retention cost after the kernel. Instead, collect only the cheap combo METADATA
+        # (mi + op indices), sort by MI (STABLE -> identical tie order to the old append-order +
+        # ``cand_here.sort(key=mi, reverse=True)``), then recompute the numpy value LAZILY while building
+        # the diverse ``kept`` set, stopping at ``max_per_pair``. Selection-identical: the same MI order,
+        # the same diversity gate, the same kept forms - just ~10-15 value builds/pair instead of ~1700.
+        metas = []  # (mi, ia, ib, ibn) for floor-clearing combos, in enumeration order
+        j = 0
+        for ia in range(nu):
+            for ib in range(nu):
+                for ibn in range(nb):
+                    m = float(mis[j]); j += 1
+                    if m < mi_floor:   # also rejects the -1.0 std<=1e-9 sentinel
+                        continue
+                    metas.append((m, ia, ib, ibn))
+        # stable sort by MI desc; under the resident path the key is grid-snapped (``_mi_key``) so a
+        # sub-quantum (~1e-15) CPU-vs-GPU MI difference can't flip the kept set. Default path: raw MI
+        # (byte-identical). Exact ties keep enumeration order; only within-quantum near-ties differ.
+        metas.sort(key=lambda t: _mi_key(t[0]), reverse=True)
+        _ta_cache: dict = {}  # unary(x1) by ua index - reused across combos sharing ua
+        _tb_cache: dict = {}  # unary(x2) by ub index
+        _njit_kept: list[UsableCandidate] = []
+        for m, ia, ib, ibn in metas:
+            if len(_njit_kept) >= max_per_pair:
                 break
-            if any(_abscorr(c.values, k.values) > diversity_corr for k in kept):
-                continue
-            kept.append(c)
-        # build replayable recipes only for the kept forms (cheap: bounded count). Use the stored
-        # (ua, ub, bn) ops directly - never re-parse the display name.
-        for c in kept:
-            ua, ub, bn = c.ops
-            combo = (ua, ub, bn)
+            ua = _unary_names[ia]; ub = _unary_names[ib]; bn = _binary_names[ibn]
+            ta = _ta_cache.get(ia)
+            if ta is None:
+                ta = unary[ua](x1); _ta_cache[ia] = ta
+            tb = _tb_cache.get(ib)
+            if tb is None:
+                tb = unary[ub](x2); _tb_cache[ib] = tb
             try:
-                recipe = build_unary_binary_recipe(
-                    name=c.name, src_a_name=c.src[0], src_b_name=c.src[1],
-                    unary_a_name=ua, unary_b_name=ub,
-                    binary_name=bn, unary_preset=unary_preset, binary_preset=binary_preset,
-                    quantization_nbins=quantization_nbins, quantization_method=quantization_method,
-                    quantization_dtype=quantization_dtype,
-                    fit_values_for_edges=_f64(c.values),  # edges need float64 precision
-                )
-            except Exception as e:  # nosec B112 - optional/best-effort path, rationale documented
-                logger.debug("recipe build failed, dropping this candidate as not replayable: %s", e)
-                continue  # recipe could not even be built -> not replayable, drop.
-            # Verify the replay ONCE per distinct op-combo (see cache note above); trust verified combos
-            # for later candidates. A recipe whose replay RAISES or MISMATCHES on its first sighting
-            # blacklists the combo (and drops). This keeps the "non-replayable recipe never reaches output"
-            # contract while paying the ~0.35s apply_recipe at most once per (ua, ub, bn).
-            ok = _combo_replay_ok.get(combo)
-            if ok is None:
-                try:
-                    replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
-                    ok = bool(replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
-                except Exception as e:
-                    logger.debug("recipe replay verification raised, treating this combo as unverified: %s", e)
-                    ok = False
-                _combo_replay_ok[combo] = ok
-            if ok:
-                c.recipe = recipe
-                pool.append(c)
-    return pool
+                val = _scrub(binary[bn](ta, tb), feature_dtype)
+            except Exception as e:  # nosec B112 - best-effort path
+                logger.debug("binary op %r on this candidate pair raised, skipping: %s", bn, e)
+                continue
+            if any(_abscorr(val, k.values) > diversity_corr for k in _njit_kept):
+                continue
+            name = f"{bn}({ua}({n1}),{ub}({n2}))"
+            _njit_kept.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+        # already MI-sorted + diversity-filtered + capped -> feed straight to the recipe builder.
+        cand_here = _njit_kept
+    else:
+        # Default / fallback Python loop (``rank_pairs_by_joint_mi=False``, the shipped default).
+        #
+        # bench-attempt-rejected (2026-07-13, Wave 11 audit item M11): swapping this branch to the
+        # SAME ``score_pair_combos`` njit kernel the ``True`` branch uses is NOT a safe drop-in here,
+        # despite looking like one. ``score_pair_combos`` is documented "bit-faithful to the Python MI
+        # (verified ~6e-15)" - NOT bit-identical - and this function's own docstring states the
+        # DEFAULT (marginal-rank) path is "byte-identical" by design (the ``_mi_key`` grid-snap that
+        # absorbs sub-quantum ties is deliberately gated to the resident-GPU-strict path only, see
+        # ``_seleq`` above). The retention loop below is a STABLE sort by MI keeping only the top
+        # ``max_per_pair`` DISTINCT forms; a prior investigation into feeding njit-computed MI into this
+        # exact retention/diversity logic on the non-resident path (see the "RESIDENT PAIR-COMBO MI
+        # TABLE" bench-attempt-rejected note above, ~90 lines up) measured ~6e-15 reassociation flipping
+        # the retained SET on a real 125-form pool (~6 forms differed) - selection-altering, not a pure
+        # FP-reorder. Feeding ``score_pair_combos`` output into the default path's un-snapped ``_mi_key``
+        # would reproduce that exact regression for the SHIPPED DEFAULT config, not an opt-in one.
+        # A snap-then-batch variant (grid-snapping this path's MI too) would trade the "byte-identical
+        # default" contract for a "selection-equivalent-only" one - a real behavior-contract change,
+        # not a pure perf refactor, so it is out of scope for this pass; not applied.
+        ta_by_ua: dict = {}
+        for _ua in unary:
+            try:
+                ta_by_ua[_ua] = unary[_ua](x1)
+            except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("unary op %r on x1 raised, skipping: %s", _ua, e)
+        tb_by_ub: dict = {}
+        for _ub in unary:
+            try:
+                tb_by_ub[_ub] = unary[_ub](x2)
+            except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                logger.debug("unary op %r on x2 raised, skipping: %s", _ub, e)
+        for ua, ta in ta_by_ua.items():
+            for ub, tb in tb_by_ub.items():
+                for bn, bf in binary.items():
+                    try:
+                        val = _scrub(bf(ta, tb), feature_dtype)
+                    except Exception as e:  # nosec B112 - best-effort path
+                        logger.debug("binary combine on this unary-pair raised, skipping: %s", e)
+                        continue
+                    if float(np.std(val)) <= 1e-9:
+                        continue
+                    m = _binned_mi(val, y_codes, quantization_nbins, y_terms)
+                    if m < mi_floor:
+                        continue
+                    name = f"{bn}({ua}({n1}),{ub}({n2}))"
+                    cand_here.append(UsableCandidate(name, val, m, None, (n1, n2), (ua, ub, bn)))
+    return cand_here
+
+
+def _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair, diversity_corr, unary_preset, binary_preset, quantization_nbins, quantization_method, quantization_dtype, _combo_replay_ok, X_df, feature_dtype, pool):
+    """Step 2 of _build_usability_cand_step3_pidx_n1_n2: lines starting at ``cand_here.sort(key=lambda c: _mi_key(c.mi), reverse=True)``."""
+    from mlframe.feature_selection.filters.engineered_recipes import build_unary_binary_recipe, apply_recipe
+
+    cand_here.sort(key=lambda c: _mi_key(c.mi), reverse=True)
+    kept: list[UsableCandidate] = []
+    for c in cand_here:
+        if len(kept) >= max_per_pair:
+            break
+        if any(_abscorr(c.values, k.values) > diversity_corr for k in kept):
+            continue
+        kept.append(c)
+    # build replayable recipes only for the kept forms (cheap: bounded count). Use the stored
+    # (ua, ub, bn) ops directly - never re-parse the display name.
+    for c in kept:
+        ua, ub, bn = c.ops
+        combo = (ua, ub, bn)
+        try:
+            recipe = build_unary_binary_recipe(
+                name=c.name, src_a_name=c.src[0], src_b_name=c.src[1],
+                unary_a_name=ua, unary_b_name=ub,
+                binary_name=bn, unary_preset=unary_preset, binary_preset=binary_preset,
+                quantization_nbins=quantization_nbins, quantization_method=quantization_method,
+                quantization_dtype=quantization_dtype,
+                fit_values_for_edges=_f64(c.values),  # edges need float64 precision
+            )
+        except Exception as e:  # nosec B112 - optional/best-effort path, rationale documented
+            logger.debug("recipe build failed, dropping this candidate as not replayable: %s", e)
+            continue  # recipe could not even be built -> not replayable, drop.
+        # Verify the replay ONCE per distinct op-combo (see cache note above); trust verified combos
+        # for later candidates. A recipe whose replay RAISES or MISMATCHES on its first sighting
+        # blacklists the combo (and drops). This keeps the "non-replayable recipe never reaches output"
+        # contract while paying the ~0.35s apply_recipe at most once per (ua, ub, bn).
+        ok = _combo_replay_ok.get(combo)
+        if ok is None:
+            try:
+                replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
+                ok = bool(replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
+            except Exception as e:
+                logger.debug("recipe replay verification raised, treating this combo as unverified: %s", e)
+                ok = False
+            _combo_replay_ok[combo] = ok
+        if ok:
+            c.recipe = recipe
+            pool.append(c)
 
 
 def usability_greedy(
@@ -535,6 +575,7 @@ def usability_greedy(
     It is SELECTION-EQUIVALENT (same algorithm; only float reduction order differs ~1e-12) and returns
     ``None`` -> the exact CPU body below for classification, a degenerate pool, a singular border, or any
     cupy/device error. The default (flag-off) path never imports it -> byte-identical."""
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     try:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         if fe_gpu_strict_resident_enabled():
@@ -557,6 +598,9 @@ def usability_greedy(
     # CROSS-VALIDATED LOGLOSS of a logistic model, not CV-MAE of a linear regression. Mirrors the
     # regression structure exactly (lower-is-better metric, majority-of-folds improvement gate); the
     # regression path (classification=False) is byte-identical.
+    _logloss: Any = None  # defined on the classification branch only; the CV helper reads it there
+    y_enc: Any = None
+    n_classes: Any = None
     if classification:
         y_enc = np.asarray(y_cont).ravel()
         # encode to dense 0..C-1 class codes
@@ -590,11 +634,11 @@ def usability_greedy(
     if not pool:
         return []
     if classification:
-        n = y_enc.shape[0]
+        st.n = y_enc.shape[0]
     else:
         y_cont = _scrub(y_cont)
-        n = y_cont.shape[0]
-    if n < 2:
+        st.n = y_cont.shape[0]
+    if st.n < 2:
         return []  # cannot cross-validate a usability greedy on < 2 rows
 
     # MEM-2 RAM GOVERNOR. The forward selection builds ``np.column_stack`` design
@@ -605,30 +649,16 @@ def usability_greedy(
     # largest width that fits (floored at 1) so the greedy still runs. This only triggers under
     # genuine memory pressure: on a normal-RAM host the (n, K<=8) design always fits and ``K`` is
     # unchanged, so selection is identical. Any psutil/import failure -> proceed with the full ``K``.
-    try:
-        from .feature_engineering import _can_hoist_shared_buffer, _fe_effective_buffer_budget_bytes
+    K, shortlist = _usability_greedy_step1_unchanged_selection_identical(K, pool, st, shortlist)
 
-        _k_eff = max(1, min(int(K), len(pool)))
-        _can, _need, _avail = _can_hoist_shared_buffer(n * _k_eff * 8, n_workers=1)
-        if (not _can) and _avail > 0:
-            # Cap K to the largest float64 (n, K) design that fits the SAME overhead-aware budget the
-            # gate used (not the raw available), flooring at 1 so the greedy always makes progress.
-            _budget = _fe_effective_buffer_budget_bytes(_avail, n_workers=1)
-            _k_fit = int(_budget // (n * 8)) if _budget > 0 else 1
-            if _k_fit < _k_eff:
-                K = max(1, _k_fit)
-                shortlist = min(int(shortlist), max(int(K), 1))
-    except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("shortlist auto-sizing failed, keeping the caller-provided shortlist: %s", e)
-
-    rng = np.random.default_rng(int(seed))
+    st.rng = np.random.default_rng(int(seed))
     # BALANCED PARTITION (audit fix): a random ``rng.integers(0, n_folds)`` multinomial
     # assignment can leave a fold EMPTY at small n / large n_folds -> an empty TRAIN fold crashes
     # ``fit`` and an empty TEST fold yields a NaN MAE that poisons the per-fold consistency gate. A
     # shuffled ``arange(n) % k`` partition guarantees every fold has floor/ceil(n/k) >= 1 rows.
-    n_folds = max(2, min(int(n_folds), n))
-    folds = np.arange(n) % n_folds
-    rng.shuffle(folds)
+    n_folds = max(2, min(int(n_folds), st.n))
+    folds = np.arange(st.n) % n_folds
+    st.rng.shuffle(folds)
     mi_max = max((c.mi for c in pool), default=1.0) or 1.0
 
     # INCREMENTAL CV (was a PERF TODO): the regression scorer no longer refits a
@@ -724,6 +754,45 @@ def usability_greedy(
                 out[i] = errs
         return out
 
+    _cv_per_fold = _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n_classes, _logloss, _pv, _mk, y_cont)
+
+    # cheap residual-aware pre-rank to a bounded shortlist (so per-step CV stays cheap).
+    _shortlist = _usability_greedy_step3_cheap_residual_aware(classification, n_classes, y_enc, _pv, folds, _mk, y_cont, pool, w, mi_max, shortlist_diversity_corr, shortlist)
+
+    import math
+    # a committed feature must improve a MAJORITY of folds (>=75%), not just the mean - a noise-
+    # contaminated feature lowers some folds by chance and raises others (net ~0); requiring
+    # consistency across folds rejects it and stops the greedy at the genuinely useful set.
+    st.min_improving_folds = max(1, math.ceil(0.75 * n_folds))
+    st.selected = []
+    st.folds_cur = _cv_per_fold(st.selected)
+    st.mae_cur = float(st.folds_cur.mean())
+    _usability_greedy_step4_consistency_across_folds(K, pool, _shortlist, st, classification, _cv_candidates_incremental, _cv_per_fold, mae_improve_rel)
+    return [pool[i] for i in st.selected]
+
+
+def _usability_greedy_step1_unchanged_selection_identical(K, pool, st, shortlist):
+    """Step 1 of usability_greedy: lines starting at ``try:``."""
+    try:
+        from mlframe.feature_selection.filters.feature_engineering import _can_hoist_shared_buffer, _fe_effective_buffer_budget_bytes
+
+        _k_eff = max(1, min(int(K), len(pool)))
+        _can, _need, _avail = _can_hoist_shared_buffer(st.n * _k_eff * 8, n_workers=1)
+        if (not _can) and _avail > 0:
+            # Cap K to the largest float64 (n, K) design that fits the SAME overhead-aware budget the
+            # gate used (not the raw available), flooring at 1 so the greedy always makes progress.
+            _budget = _fe_effective_buffer_budget_bytes(_avail, n_workers=1)
+            _k_fit = int(_budget // (st.n * 8)) if _budget > 0 else 1
+            if _k_fit < _k_eff:
+                K = max(1, _k_fit)
+                shortlist = min(int(shortlist), max(int(K), 1))
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("shortlist auto-sizing failed, keeping the caller-provided shortlist: %s", e)
+    return K, shortlist
+
+
+def _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n_classes, _logloss, _pv, _mk, y_cont):
+    """Step 2 of usability_greedy: lines starting at ``def _cv_per_fold(sel_idx) -> np.ndarray:``."""
     def _cv_per_fold(sel_idx) -> np.ndarray:
         """Exact (full-refit) K-fold CV score of the candidate set ``sel_idx``: per fold, fit ``_mk()`` on the
         train rows and score the held-out rows, returning one error value per fold (CV log loss when
@@ -764,8 +833,11 @@ def usability_greedy(
             m = _mk().fit(Xs[trm], y_cont[trm])
             errs.append(float(np.mean(np.abs(y_cont[vam] - m.predict(Xs[vam])))))
         return np.asarray(errs, dtype=np.float64)
+    return _cv_per_fold
 
-    # cheap residual-aware pre-rank to a bounded shortlist (so per-step CV stays cheap).
+
+def _usability_greedy_step3_cheap_residual_aware(classification, n_classes, y_enc, _pv, folds, _mk, y_cont, pool, w, mi_max, shortlist_diversity_corr, shortlist):
+    """Step 3 of usability_greedy: lines starting at ``def _shortlist(sel_idx) -> list[int]:``."""
     def _shortlist(sel_idx) -> list[int]:
         """Rank every not-yet-selected pool candidate by a cheap pre-rank score - ``(1-w) * (mi / mi_max) + w *
         |corr(candidate, held-out residual)|`` - and return the indices of the top ``shortlist`` (default 40)
@@ -827,7 +899,7 @@ def usability_greedy(
         uses = None
         if _GPU_USABILITY() and cand_ids:
             try:
-                from ._usability_gpu import gpu_abscorr_batch
+                from mlframe.feature_selection.filters._usability_gpu import gpu_abscorr_batch
                 cols = np.column_stack([_pv(i)[rows] for i in cand_ids])
                 uses = gpu_abscorr_batch(cols, _f64(np.asarray(resid)))
             except Exception as e:
@@ -859,35 +931,30 @@ def usability_greedy(
             if len(out) >= max(1, shortlist):
                 break
         return out
+    return _shortlist
 
-    import math
-    # a committed feature must improve a MAJORITY of folds (>=75%), not just the mean - a noise-
-    # contaminated feature lowers some folds by chance and raises others (net ~0); requiring
-    # consistency across folds rejects it and stops the greedy at the genuinely useful set.
-    min_improving_folds = max(1, math.ceil(0.75 * n_folds))
-    selected: list[int] = []
-    folds_cur = _cv_per_fold(selected)
-    mae_cur = float(folds_cur.mean())
+
+def _usability_greedy_step4_consistency_across_folds(K, pool, _shortlist, st, classification, _cv_candidates_incremental, _cv_per_fold, mae_improve_rel):
+    """Step 4 of usability_greedy: lines starting at ``for _ in range(min(K, len(pool))):``."""
     for _ in range(min(K, len(pool))):
-        cand_idx = _shortlist(selected)
-        best_i, best_mean, best_folds = -1, mae_cur, folds_cur
+        cand_idx = _shortlist(st.selected)
+        best_i, best_mean, best_folds = -1, st.mae_cur, st.folds_cur
         # regression: score the whole shortlist via the incremental bordered solve (one selected-set
         # Gram per fold, reused across candidates). classification stays on the per-candidate refit.
         # ``_USAB_FORCE_FULL_REFIT`` (test-only) bypasses the incremental solve to A/B the selection.
         import os as _os
         _force_full = bool(_os.environ.get("_USAB_FORCE_FULL_REFIT"))
-        _mf_by_i = None if (classification or _force_full) else _cv_candidates_incremental(selected, cand_idx)
+        _mf_by_i = None if (classification or _force_full) else _cv_candidates_incremental(st.selected, cand_idx)
         for i in cand_idx:
-            mf = _mf_by_i[i] if _mf_by_i is not None else _cv_per_fold([*selected, i])
-            if int(np.sum(mf < folds_cur)) < min_improving_folds:
+            mf = _mf_by_i[i] if _mf_by_i is not None else _cv_per_fold([*st.selected, i])
+            if int(np.sum(mf < st.folds_cur)) < st.min_improving_folds:
                 continue  # not a consistent improvement across folds
             if float(mf.mean()) < best_mean:
                 best_mean, best_i, best_folds = float(mf.mean()), i, mf
-        if best_i < 0 or best_mean >= mae_cur * (1.0 - mae_improve_rel):
+        if best_i < 0 or best_mean >= st.mae_cur * (1.0 - mae_improve_rel):
             break
-        selected.append(best_i)
-        folds_cur, mae_cur = best_folds, best_mean
-    return [pool[i] for i in selected]
+        st.selected.append(best_i)
+        st.folds_cur, st.mae_cur = best_folds, best_mean
 
 
 def select_usability_aware_features(

@@ -16,13 +16,14 @@ Selection is byte-for-byte identical to the pre-carve in-function block.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Any
 
 import numpy as np
 
 from pyutilz.pythonlib import sort_dict_by_value
 
 from ._pairs_gates import _PREWARP_UNARY, _select_single_best
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,350 @@ def _emit_pair_features(
     """Emit the survivor feature(s) for an ADMITTED pair. Returns the
     ``res[raw_vars_pair]`` tuple ``(this_pair_features, transformed_vals,
     new_cols, new_nbins, messages)``. Appends to ``messages`` (caller-owned)."""
-    _pair_res_entry = None
+    _cached_name, _name_cache, leading_features, st = _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols, _marginal_uplift_accept, _passes_joint_gate, _prewarp_accept, var_pairs_perf, best_mi, fe_good_to_best_feature_mi_threshold, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr)
+
+    # ABSOLUTE binned-MI tie band. Two FORMS of
+    # the same raw pair that are monotone re-expressions of one algebraic target have MI equal up to the
+    # plug-in bias scale; without a tie band an MI EPSILON (pure binning noise) crowns a form whose linear
+    # usability is far worse (mixed: additive ``add(log(a),invsqrt(b))`` MI 0.1180 > exact ratio
+    # ``div(sqr(a),b)`` 0.1167, yet |corr(y)| 0.25 vs 0.46 - the noise winner does not fuse cleanly and
+    # leaves the ratio form as a fragment). Snapping the primary MI key to this band inside
+    # ``_select_single_best`` lets the EXISTING linear-usability tie-break pick the linearly-usable form.
+    # ``_mi_band`` is the caller-hoisted, call-invariant tie band (a parameter - see the per-call hoist
+    # comment in ``check_prospective_fe_pairs``), not recomputed per admitted pair.
+
+    if len(leading_features) > 1:
+        if len(numeric_vars_to_consider) > 2:
+
+            _ev_configs, _ev_op_codes, _ext_factors_sorted, valid_pairs_perf = _emit_pair_features_step1_comment_check_prospective(verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr)
+            _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method, _narrow_code_dtype, quantization_nbins, quantization_dtype, _ev_op_codes, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels, serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct, valid_pairs_perf)
+
+            # ONE-BEST-PER-PAIR: the leading-features
+            # equivalence class holds many near-identical representations
+            # of the same algebraic target (a**2/b == div(sqr(a),b) ==
+            # mul(sqr(a),reciproc(b)) == div(a,sqrt(b)) ...). The
+            # pre-refactor code materialised EXACTLY ONE per raw pair;
+            # the refactor regressed to emitting the whole class (~15
+            # cols on the canonical fixture). Pick the single best by
+            # TARGET MI (``var_pairs_perf`` - the primary objective),
+            # using the external-validation MI (``valid_pairs_perf``)
+            # only as a tie-break among target-MI-equal leaders. (Prior
+            # bug: selected by external-validation MI alone, discarding
+            # the true max-target-MI form - e.g. picking add(log(c),1/d)
+            # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
+            _emit_pair_features_step3_mi_over_true(leading_features, var_pairs_perf, cols, valid_pairs_perf, st, _mi_band, _usability_primary, _name_cache, _cached_name, verbose, messages, best_mi, pair_mi, this_pair_features)
+        else:
+            # Can't narrow by external validation (only 2 vars total) -
+            # still emit ONE best representative (highest engineered MI,
+            # deterministic name tie-break) rather than the whole class.
+            _emit_pair_features_step4_deterministic_name_tie(leading_features, var_pairs_perf, cols, st, _mi_band, _usability_primary, _name_cache, verbose, messages, _cached_name, best_mi, pair_mi, this_pair_features)
+    else:
+        new_feature_name = _cached_name(best_config)
+        if verbose:
+            messages.append(
+                f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+            )
+        j = 0
+        this_pair_features.add((best_config, j))
+
+    # MULTI-CANDIDATE DIVERSE EMISSION: the blocks above emit the
+    # single MAX-MI engineered form. MI is rank-based and blind to LINEAR usability,
+    # so the MI-winner can be a tree-friendly monotone warp that a linear model
+    # cannot use, while a lower-MI form is the linearly-aligned one (F2:
+    # sub(exp(c),cbrt(d)) MI 0.288 vs the linearly-usable mul(log(c),sin(d)) MI 0.264).
+    # When ``fe_multi_emit_max_per_pair > 1`` additionally emit the next DISTINCT
+    # forms by target MI (skip any whose continuous values correlate above
+    # ``fe_multi_emit_diversity_corr`` with an already-emitted column, down to
+    # ``fe_multi_emit_mi_floor`` x best_mi) so both survive; the downstream MRMR
+    # redundancy gate prunes residual overlap. Purely additive: never emits FEWER
+    # than the single-best path, byte-identical when max_per_pair == 1.
+    _emit_pair_features_step2_than_single_best(fe_multi_emit_max_per_pair, final_transformed_vals, _this_chunk_deferred, this_pair_features, best_mi, fe_multi_emit_mi_floor, fe_multi_emit_diversity_corr, _cached_name, _resolve_col, var_pairs_perf, st, verbose, messages)
+
+    st.transformed_vals, st.new_cols, st.new_nbins = None, None, None
+
+    this_pair_features = _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe_max_steps, _use_subsample, _rebuild_full_survivor_col, _X_full, original_cols, unary_transformations, binary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, cols, engineered_operand_values, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, verbose, messages, _full_n_rows, quantization_nbins)
+
+    st._pair_res_entry = (this_pair_features, st.transformed_vals, st.new_cols, st.new_nbins, messages)
+    return st._pair_res_entry
+
+
+def _emit_pair_features_step1_comment_check_prospective(verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr):
+    """Step 1 of _emit_pair_features: lines starting at ``if verbose > 2:``."""
+    if verbose > 2:
+        logger.debug("Taking %d new features for a separate validation step!", len(leading_features))
+
+    # Test all candidates as-is against the rest of the approved factors (also as-is). Candidates significantly outstanding (in terms of MI with target)
+    # against any other approved factor are kept.
+    valid_pairs_perf: dict[Any, Any] = {}
+    # LAZY EXTERNAL VALIDATION: valid_pairs_perf feeds _select_single_best ONLY as the
+    # SECONDARY tie-break, decisive solely among leaders whose PRIMARY (target) MI is EXACTLY equal.
+    # The external loop below (all external_factors x binary_funcs x per-candidate discretize +
+    # mi_direct) was the single-threaded FE hotspot (py-spy). Run it ONLY for the leaders tied at the
+    # max primary MI; a unique top leader wins outright with no external work. Bit-identical: a
+    # lower-primary leader can never win the (primary, secondary, name) max key regardless of its
+    # (uncomputed) secondary.
+    _lead_primary = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
+    _max_primary = max(_lead_primary.values()) if _lead_primary else None
+    _ev_configs = [c for c, _m in _lead_primary.items() if _m == _max_primary] if _max_primary is not None else []
+    # Hoisted out of the per-config loop: depends only on ``raw_vars_pair`` (loop-invariant for the
+    # whole pair), so the set-difference + sort is recomputed once instead of once per tied leader.
+    # The RNG draw (``_rng_extval.choice`` below) stays per-config so its state consumption — and
+    # therefore every later pair's tie-break — is bit-identical.
+    _ext_factors_sorted = sorted(set(numeric_vars_to_consider) - set(raw_vars_pair))
+    # ``_op_code_arr`` (the op-code table) is call-invariant - resolved ONCE per
+    # ``check_prospective_fe_pairs`` call (see the per-call hoist comment there) - so it is
+    # read here once per pair rather than rebuilt on every tied-leader iteration below.
+    _ev_op_codes = _op_code_arr
+    return _ev_configs, _ev_op_codes, _ext_factors_sorted, valid_pairs_perf
+
+
+def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method, _narrow_code_dtype, quantization_nbins, quantization_dtype, _ev_op_codes, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels, serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct, valid_pairs_perf):
+    """Step 2 of _emit_pair_features: lines starting at ``for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_``."""
+    for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
+        if final_transformed_vals is not None:
+            param_a = final_transformed_vals[:, i]
+        elif _this_chunk_deferred:
+            # DEFERRED-float GPU path: re-materialise the survivor column on the GPU
+            # (bit-identical to the buffer -> the external-validation MI is unchanged).
+            param_a = _resolve_col(i)
+        else:
+            # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
+            # (a_key, b_key, bin_func_name) metadata. transformed_vars is small
+            # (deduped unary table); the bin_func call is cheap (one ufunc).
+            st._a_key, st._b_key, st._bin_name = _config_by_i[i]
+            st._pa = transformed_vars[:, vars_transformations[st._a_key]]
+            st._pb = transformed_vars[:, vars_transformations[st._b_key]]
+            param_a = binary_transformations[st._bin_name](st._pa, st._pb)
+            np.nan_to_num(param_a, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+        best_valid_mi = -1.0
+        config = (transformations_pair, bin_func_name, i)
+
+        # ``sorted`` first: a bare ``set`` difference iterates in hash order, which is
+        # PYTHONHASHSEED-randomised for str keys, so the candidate order (and hence the
+        # sampled subset) would differ across processes / fits. Sort to a stable order,
+        # then sample with the instance-seeded ``_rng_extval`` so the chosen validation
+        # factors are fully reproducible from the MRMR seed.
+        external_factors = _ext_factors_sorted  # hoisted above; deterministic, raw_vars_pair-invariant
+        if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
+            external_factors = _rng_extval.choice(external_factors, fe_max_external_validation_factors, replace=False)
+
+        # BATCHED EXTERNAL VALIDATION: the per-(external_factor x
+        # valid_bin_func) ``discretize_array`` + ``mi_direct`` double loop was the
+        # single dominant serial FE hotspot at wide p (call-site profile on scene
+        # 2407x299: 228k discretize_array + 228k mi_direct here, ~80% of fit wall;
+        # CPU near-idle => GIL-bound per-candidate dispatch). ``best_valid_mi`` is a
+        # pure ``max`` over an order-INDEPENDENT per-candidate MI, and every
+        # candidate is scored against the SAME y with the SAME estimator the per-pair
+        # sweep already batches, so we materialise ALL candidate columns into one
+        # buffer, run ONE ``discretize_2d_quantile_batch`` + ONE
+        # ``_dispatch_batch_mi_with_noise_gate`` (CPU njit / GPU by size), then take
+        # the max. BIT-IDENTICAL to the loop on the default FE path
+        # (``parallelism='outer'``, ``n_workers=1``, ``base_seed=0``,
+        # ``npermutations=fe_npermutations<32`` so no GPU permutation route) - the
+        # batch kernel shuffles y once per permutation and scores all columns against
+        # it, exactly matching the per-candidate ``mi_direct`` noise-gate. Only the
+        # ``quantile`` method is batched (matches ``discretize_2d_quantile_batch``'s
+        # bit-identity domain); any other method falls back to the per-candidate
+        # loop below.
+        _ev_param_bs = []
+        for external_factor in external_factors:
+            # Memoised raw-values extract (LEVER 1): one extraction
+            # per distinct external factor for the whole call, reused
+            # across every config + raw pair. ``None`` => factor not in
+            # ``original_cols`` -> skip (identical to the prior guard).
+            _pb_vals = _extval_raw_col(external_factor)
+            if _pb_vals is None:
+                continue
+            _ev_param_bs.append(_pb_vals)
+
+        # Memory guard: the batch buffer is (n_rows x ext_factors*n_binary)
+        # float64. On the common wide-but-shallow bed (e.g. scene 2407x299:
+        # ~1680 cols -> 32 MB) this is trivial, but an unbounded ext-factor set
+        # on a multi-million-row frame could OOM. Reuse the SAME available-RAM
+        # budget the shared-buffer hoist uses; if the batch buffer would not fit,
+        # fall back to the (bit-identical) per-candidate loop below.
+        _ev_n_bin = len(binary_transformations)
+        _ev_buf_bytes = len(X) * max(1, len(_ev_param_bs)) * _ev_n_bin * 8
+        # LARGE-N FIX: this float64 ext-val buffer coexists with the
+        # chunk/disc/MI buffers and is allocated per concurrent worker, so use the
+        # SAME overhead+worker-aware envelope as the candidate buffer above.
+        _ev_can_batch, _, _ = _can_hoist_shared_buffer(_ev_buf_bytes, n_workers=_n_workers)
+        if quantization_method == "quantile" and _ev_param_bs and _ev_can_batch:
+            _ev_bin_funcs = list(binary_transformations.values())
+            _ev_K = len(_ev_param_bs) * len(_ev_bin_funcs)
+            # float64 buffer: the per-candidate path discretises the RAW
+            # ``valid_bin_func(...)`` output (numpy bin_funcs return float64) with
+            # NO nan_to_num - ``discretize_array``/``discretize_2d_quantile_batch``
+            # both bin via ``np.nanpercentile`` (NaN-ignoring edges) + per-column
+            # ``searchsorted`` (NaN -> rightmost bin), identically. Writing into a
+            # float64 buffer (not float32) preserves the bin_func's native precision
+            # so the percentile edges match the 1-D path to the bit.
+            _ev_code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
+            _ev_col = _ev_K
+            _ev_disc = None
+            # DEVICE-BORN EXT-VAL CANDIDATES (Phase-1 residency, 2026-07-01). Build out[:, e*n_ops+o] =
+            # op(param_a, ext_e) RESIDENT in float64 + quantile-bin RESIDENT, so the (n, K) candidate
+            # matrix NEVER crosses H2D - only param_a + the external-factor columns upload (once, small),
+            # killing the ~46 MB gpu_discretize_codes_host bulk H2D at full n. Engaged only on the strict-
+            # resident path (no KTC crossover - residency contract, wall-loss accepted) AND when every op
+            # is registry-coded; any cupy fault returns None -> the exact host njit + upload path below.
+            # The device ops are the float64 numpy bin_func semantics op-for-op and NaN/inf are NOT
+            # scrubbed (routed to the rightmost bin by the same resident binner, as nanpercentile +
+            # searchsorted do on the host) -> codes selection-equivalent (see
+            # _gpu_resident_extval.gpu_materialise_extval_codes_host).
+            if _ev_op_codes is not None:
+                try:
+                    from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_on
+                    _ev_use_dev = bool(_ev_resident_on())
+                except Exception as e:
+                    logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+                    _ev_use_dev = False
+                if _ev_use_dev:
+                    from mlframe.feature_selection.filters._gpu_resident_extval import gpu_materialise_extval_codes_host
+                    _ev_disc = gpu_materialise_extval_codes_host(
+                        param_a, _ev_param_bs, _ev_op_codes, int(quantization_nbins), dtype=_ev_code_dtype,
+                    )
+            if _ev_disc is None:
+                # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
+                _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
+                if _ev_op_codes is not None:
+                    # NJIT materialise: ALL (ext x op) candidate columns in one nogil
+                    # kernel (bit-identical to the numpy bin_funcs; see
+                    # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
+                    # the numpy ``for ext: for bin_func`` order, so the discretise +
+                    # MI + max reduction below is unchanged. ``param_a`` may be a
+                    # float32 buffer slice; the kernel upcasts per-element to float64.
+                    # bench-attempt-rejected (2026-06-07): "drop the _ev_pb_mat repack"
+                    # (Q7). The external-factor columns are DISTINCT memoised arrays
+                    # (_extval_raw_col per var) so they genuinely must be assembled into
+                    # a 2-D matrix for the njit kernel; there is no view to substitute.
+                    _ev_pb_mat = np.empty((len(X), len(_ev_param_bs)), dtype=np.float64)
+                    for _ei, _pb_vals in enumerate(_ev_param_bs):
+                        _ev_pb_mat[:, _ei] = _pb_vals
+                    _materialise_extval_njit(
+                        np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
+                        _ev_buf[:, :_ev_K],
+                    )
+                    _ev_col = _ev_K
+                else:
+                    # NUMPY FALLBACK: a bin_func is not njit-coded (maximal-preset
+                    # special) -> materialise per-candidate with the exact numpy ufuncs.
+                    _ev_col = 0
+                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                        for _pb_vals in _ev_param_bs:
+                            for valid_bin_func in _ev_bin_funcs:
+                                _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
+                                _ev_col += 1
+                # GPU BINNING: the ext-val survivor binning (full n) gets the same
+                # dedicated binning crossover - bit-identical to the CPU njit binning (maxdiff 0)
+                # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
+                try:
+                    from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
+                    if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
+                        from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+                        # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
+                        # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
+                        # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
+                        # the resident gate is the consumer. Bit-identical (host buffer == device.get()).
+                        _ev_disc = gpu_discretize_codes_host(
+                            _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype,
+                            defer_host_fill=True,
+                        )
+                except Exception as e:
+                    logger.debug("resident discretization failed, falling back to the host path: %s", e)
+                    _ev_disc = None
+                if _ev_disc is None:
+                    _ev_disc = discretize_2d_quantile_batch(
+                        _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
+                        dtype=_ev_code_dtype,
+                        # OPT-A extension: the marginal-uplift gate's
+                        # discretise ran the SERIAL searchsorted kernel on the main
+                        # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
+                        # the other cores sat idle. ``check_prospective_fe_pairs`` carries
+                        # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
+                        # dispatch, so the same OPT-A predicate that already gates the
+                        # main chunk's discretise (line ~907) safely selects the
+                        # byte-identical column-prange twin here too (no joblib nest).
+                        parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
+                    )
+            _ev_mi = _dispatch_batch_mi_with_noise_gate(
+                disc_2d=_ev_disc,
+                quantization_nbins=quantization_nbins,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                npermutations=fe_npermutations,
+                min_nonzero_confidence=fe_min_nonzero_confidence,
+                use_su=use_su_normalization(),
+                batch_mi_kernel=batch_mi_with_noise_gate,
+                env_gate=_fe_env_gate,
+            )
+            if _ev_mi is not None and len(_ev_mi):
+                best_valid_mi = float(np.max(_ev_mi))
+        else:
+            for _pb_vals in _ev_param_bs:
+                param_b = _pb_vals
+                for valid_bin_func in binary_transformations.values():
+
+                    valid_vals = valid_bin_func(param_a, param_b)
+
+                    discretized_transformed_values = discretize_array(
+                        arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                    )
+                    fe_mi, _fe_conf = mi_direct(
+                        discretized_transformed_values.reshape(-1, 1),
+                        x=np.array([0], dtype=np.int64),
+                        y=None,
+                        factors_nbins=np.array([quantization_nbins], dtype=np.int64),
+                        classes_y=classes_y,
+                        classes_y_safe=classes_y_safe,
+                        freqs_y=freqs_y,
+                        min_nonzero_confidence=fe_min_nonzero_confidence,
+                        npermutations=fe_npermutations,
+                    )
+
+                    if fe_mi > best_valid_mi:
+                        best_valid_mi = fe_mi
+
+        valid_pairs_perf[config] = best_valid_mi
+
+
+def _emit_pair_features_step3_mi_over_true(leading_features, var_pairs_perf, cols, valid_pairs_perf, st, _mi_band, _usability_primary, _name_cache, _cached_name, verbose, messages, best_mi, pair_mi, this_pair_features):
+    """Step 3 of _emit_pair_features: lines starting at ``_primary_perf = {c: var_pairs_perf[c] for c in leading_features if c i``."""
+    _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
+    _winner = _select_single_best(
+        _primary_perf, cols, secondary=valid_pairs_perf, usability=st._leader_usability, mi_band=_mi_band,
+        usability_primary=_usability_primary, name_cache=_name_cache,
+    )
+    if _winner is not None:
+        new_feature_name = _cached_name(_winner)
+        if verbose:
+            messages.append(
+                f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+            )
+        this_pair_features.add((_winner, 0))
+
+
+def _emit_pair_features_step4_deterministic_name_tie(leading_features, var_pairs_perf, cols, st, _mi_band, _usability_primary, _name_cache, verbose, messages, _cached_name, best_mi, pair_mi, this_pair_features):
+    """Step 4 of _emit_pair_features: lines starting at ``_lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in v``."""
+    _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
+    _winner = _select_single_best(
+        _lead_perf, cols, usability=st._leader_usability, mi_band=_mi_band,
+        usability_primary=_usability_primary, name_cache=_name_cache,
+    )
+    if _winner is not None:
+        if verbose:
+            messages.append(
+                f"{_cached_name(_winner)} is recommended to use as a new feature! (best of {len(leading_features)} near-equivalent leaders) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
+            )
+        this_pair_features.add((_winner, 0))
+
+
+def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols, _marginal_uplift_accept, _passes_joint_gate, _prewarp_accept, var_pairs_perf, best_mi, fe_good_to_best_feature_mi_threshold, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr):
+    """Step 1 of _emit_pair_features: lines starting at ``st = _SimpleNamespace() # long-lived locals of this function (see the ``."""
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    st._pair_res_entry = None
 
     # ``get_new_feature_name(config)`` is pure over ``(config, cols)`` (both fixed for this
     # one admitted pair), but the same config's name is independently needed at several
@@ -144,11 +488,11 @@ def _emit_pair_features(
     # When the pair was admitted ONLY via the marginal-uplift path (the joint /
     # prewarp gates declined), the winner MUST be a non-prewarp form so the recipe
     # is replayable - restrict the leaders to elementary-library configs.
-    _restrict_to_nonprewarp = _marginal_uplift_accept and not (_passes_joint_gate or _prewarp_accept)
+    st._restrict_to_nonprewarp = _marginal_uplift_accept and not (_passes_joint_gate or _prewarp_accept)
     leading_features = []
     for next_config, next_mi in sort_dict_by_value(var_pairs_perf).items():
         if next_mi > best_mi * fe_good_to_best_feature_mi_threshold:
-            if _restrict_to_nonprewarp and (next_config[0][0][1] == _PREWARP_UNARY or next_config[0][1][1] == _PREWARP_UNARY):
+            if st._restrict_to_nonprewarp and (next_config[0][0][1] == _PREWARP_UNARY or next_config[0][1][1] == _PREWARP_UNARY):
                 continue
             leading_features.append(next_config)
 
@@ -165,7 +509,7 @@ def _emit_pair_features(
     # linearly-usable leg (the project's "prefer the linearly-usable member" rule).
     # Tie-break is gated on EQUAL MI inside _select_single_best, so it never overrides
     # a higher-MI form; trees are rank-indifferent so this cannot hurt the tree list.
-    _leader_usability: dict = {}
+    st._leader_usability = {}
     if len(leading_features) > 1 and _corr_y_cont is not None:
         for _lc in leading_features:
             try:
@@ -181,327 +525,24 @@ def _emit_pair_features(
                     # CONTINUOUS column from its (a_key, b_key, bin_func_name) metadata
                     # so the linear-usability tie-break is identical to the buffered path
                     # (the two paths MUST select the same survivor among MI-equal leaders).
-                    _a_key, _b_key, _bin_name = _config_by_i[_li]
-                    _pa = transformed_vars[:, vars_transformations[_a_key]]
-                    _pb = transformed_vars[:, vars_transformations[_b_key]]
+                    st._a_key, st._b_key, st._bin_name = _config_by_i[_li]
+                    st._pa = transformed_vars[:, vars_transformations[st._a_key]]
+                    st._pb = transformed_vars[:, vars_transformations[st._b_key]]
                     with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                        _lvals = binary_transformations[_bin_name](_pa, _pb)
+                        _lvals = binary_transformations[st._bin_name](st._pa, st._pb)
                     _lvals = np.nan_to_num(np.asarray(_lvals, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
                 else:
                     _lvals = None
                 if _lvals is not None:
-                    _leader_usability[_lc] = _safe_abs_corr(_lvals)
+                    st._leader_usability[_lc] = _safe_abs_corr(_lvals)
             except Exception as e:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                 logger.debug("leader usability computation for %r failed, skipping: %s", _lc, e)
                 continue
+    return _cached_name, _name_cache, leading_features, st
 
-    # ABSOLUTE binned-MI tie band. Two FORMS of
-    # the same raw pair that are monotone re-expressions of one algebraic target have MI equal up to the
-    # plug-in bias scale; without a tie band an MI EPSILON (pure binning noise) crowns a form whose linear
-    # usability is far worse (mixed: additive ``add(log(a),invsqrt(b))`` MI 0.1180 > exact ratio
-    # ``div(sqr(a),b)`` 0.1167, yet |corr(y)| 0.25 vs 0.46 - the noise winner does not fuse cleanly and
-    # leaves the ratio form as a fragment). Snapping the primary MI key to this band inside
-    # ``_select_single_best`` lets the EXISTING linear-usability tie-break pick the linearly-usable form.
-    # ``_mi_band`` is the caller-hoisted, call-invariant tie band (a parameter - see the per-call hoist
-    # comment in ``check_prospective_fe_pairs``), not recomputed per admitted pair.
 
-    if len(leading_features) > 1:
-        if len(numeric_vars_to_consider) > 2:
-
-            if verbose > 2:
-                logger.debug("Taking %d new features for a separate validation step!", len(leading_features))
-
-            # Test all candidates as-is against the rest of the approved factors (also as-is). Candidates significantly outstanding (in terms of MI with target)
-            # against any other approved factor are kept.
-            valid_pairs_perf = {}
-            # LAZY EXTERNAL VALIDATION: valid_pairs_perf feeds _select_single_best ONLY as the
-            # SECONDARY tie-break, decisive solely among leaders whose PRIMARY (target) MI is EXACTLY equal.
-            # The external loop below (all external_factors x binary_funcs x per-candidate discretize +
-            # mi_direct) was the single-threaded FE hotspot (py-spy). Run it ONLY for the leaders tied at the
-            # max primary MI; a unique top leader wins outright with no external work. Bit-identical: a
-            # lower-primary leader can never win the (primary, secondary, name) max key regardless of its
-            # (uncomputed) secondary.
-            _lead_primary = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-            _max_primary = max(_lead_primary.values()) if _lead_primary else None
-            _ev_configs = [c for c, _m in _lead_primary.items() if _m == _max_primary] if _max_primary is not None else []
-            # Hoisted out of the per-config loop: depends only on ``raw_vars_pair`` (loop-invariant for the
-            # whole pair), so the set-difference + sort is recomputed once instead of once per tied leader.
-            # The RNG draw (``_rng_extval.choice`` below) stays per-config so its state consumption — and
-            # therefore every later pair's tie-break — is bit-identical.
-            _ext_factors_sorted = sorted(set(numeric_vars_to_consider) - set(raw_vars_pair))
-            # ``_op_code_arr`` (the op-code table) is call-invariant - resolved ONCE per
-            # ``check_prospective_fe_pairs`` call (see the per-call hoist comment there) - so it is
-            # read here once per pair rather than rebuilt on every tied-leader iteration below.
-            _ev_op_codes = _op_code_arr
-            for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
-                if final_transformed_vals is not None:
-                    param_a = final_transformed_vals[:, i]
-                elif _this_chunk_deferred:
-                    # DEFERRED-float GPU path: re-materialise the survivor column on the GPU
-                    # (bit-identical to the buffer -> the external-validation MI is unchanged).
-                    param_a = _resolve_col(i)
-                else:
-                    # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
-                    # (a_key, b_key, bin_func_name) metadata. transformed_vars is small
-                    # (deduped unary table); the bin_func call is cheap (one ufunc).
-                    _a_key, _b_key, _bin_name = _config_by_i[i]
-                    _pa = transformed_vars[:, vars_transformations[_a_key]]
-                    _pb = transformed_vars[:, vars_transformations[_b_key]]
-                    param_a = binary_transformations[_bin_name](_pa, _pb)
-                    np.nan_to_num(param_a, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-
-                best_valid_mi = -1.0
-                config = (transformations_pair, bin_func_name, i)
-
-                # ``sorted`` first: a bare ``set`` difference iterates in hash order, which is
-                # PYTHONHASHSEED-randomised for str keys, so the candidate order (and hence the
-                # sampled subset) would differ across processes / fits. Sort to a stable order,
-                # then sample with the instance-seeded ``_rng_extval`` so the chosen validation
-                # factors are fully reproducible from the MRMR seed.
-                external_factors = _ext_factors_sorted  # hoisted above; deterministic, raw_vars_pair-invariant
-                if fe_max_external_validation_factors and len(external_factors) > fe_max_external_validation_factors:
-                    external_factors = _rng_extval.choice(external_factors, fe_max_external_validation_factors, replace=False)
-
-                # BATCHED EXTERNAL VALIDATION: the per-(external_factor x
-                # valid_bin_func) ``discretize_array`` + ``mi_direct`` double loop was the
-                # single dominant serial FE hotspot at wide p (call-site profile on scene
-                # 2407x299: 228k discretize_array + 228k mi_direct here, ~80% of fit wall;
-                # CPU near-idle => GIL-bound per-candidate dispatch). ``best_valid_mi`` is a
-                # pure ``max`` over an order-INDEPENDENT per-candidate MI, and every
-                # candidate is scored against the SAME y with the SAME estimator the per-pair
-                # sweep already batches, so we materialise ALL candidate columns into one
-                # buffer, run ONE ``discretize_2d_quantile_batch`` + ONE
-                # ``_dispatch_batch_mi_with_noise_gate`` (CPU njit / GPU by size), then take
-                # the max. BIT-IDENTICAL to the loop on the default FE path
-                # (``parallelism='outer'``, ``n_workers=1``, ``base_seed=0``,
-                # ``npermutations=fe_npermutations<32`` so no GPU permutation route) - the
-                # batch kernel shuffles y once per permutation and scores all columns against
-                # it, exactly matching the per-candidate ``mi_direct`` noise-gate. Only the
-                # ``quantile`` method is batched (matches ``discretize_2d_quantile_batch``'s
-                # bit-identity domain); any other method falls back to the per-candidate
-                # loop below.
-                _ev_param_bs = []
-                for external_factor in external_factors:
-                    # Memoised raw-values extract (LEVER 1): one extraction
-                    # per distinct external factor for the whole call, reused
-                    # across every config + raw pair. ``None`` => factor not in
-                    # ``original_cols`` -> skip (identical to the prior guard).
-                    _pb_vals = _extval_raw_col(external_factor)
-                    if _pb_vals is None:
-                        continue
-                    _ev_param_bs.append(_pb_vals)
-
-                # Memory guard: the batch buffer is (n_rows x ext_factors*n_binary)
-                # float64. On the common wide-but-shallow bed (e.g. scene 2407x299:
-                # ~1680 cols -> 32 MB) this is trivial, but an unbounded ext-factor set
-                # on a multi-million-row frame could OOM. Reuse the SAME available-RAM
-                # budget the shared-buffer hoist uses; if the batch buffer would not fit,
-                # fall back to the (bit-identical) per-candidate loop below.
-                _ev_n_bin = len(binary_transformations)
-                _ev_buf_bytes = len(X) * max(1, len(_ev_param_bs)) * _ev_n_bin * 8
-                # LARGE-N FIX: this float64 ext-val buffer coexists with the
-                # chunk/disc/MI buffers and is allocated per concurrent worker, so use the
-                # SAME overhead+worker-aware envelope as the candidate buffer above.
-                _ev_can_batch, _, _ = _can_hoist_shared_buffer(_ev_buf_bytes, n_workers=_n_workers)
-                if quantization_method == "quantile" and _ev_param_bs and _ev_can_batch:
-                    _ev_bin_funcs = list(binary_transformations.values())
-                    _ev_K = len(_ev_param_bs) * len(_ev_bin_funcs)
-                    # float64 buffer: the per-candidate path discretises the RAW
-                    # ``valid_bin_func(...)`` output (numpy bin_funcs return float64) with
-                    # NO nan_to_num - ``discretize_array``/``discretize_2d_quantile_batch``
-                    # both bin via ``np.nanpercentile`` (NaN-ignoring edges) + per-column
-                    # ``searchsorted`` (NaN -> rightmost bin), identically. Writing into a
-                    # float64 buffer (not float32) preserves the bin_func's native precision
-                    # so the percentile edges match the 1-D path to the bit.
-                    _ev_code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
-                    _ev_col = _ev_K
-                    _ev_disc = None
-                    # DEVICE-BORN EXT-VAL CANDIDATES (Phase-1 residency, 2026-07-01). Build out[:, e*n_ops+o] =
-                    # op(param_a, ext_e) RESIDENT in float64 + quantile-bin RESIDENT, so the (n, K) candidate
-                    # matrix NEVER crosses H2D - only param_a + the external-factor columns upload (once, small),
-                    # killing the ~46 MB gpu_discretize_codes_host bulk H2D at full n. Engaged only on the strict-
-                    # resident path (no KTC crossover - residency contract, wall-loss accepted) AND when every op
-                    # is registry-coded; any cupy fault returns None -> the exact host njit + upload path below.
-                    # The device ops are the float64 numpy bin_func semantics op-for-op and NaN/inf are NOT
-                    # scrubbed (routed to the rightmost bin by the same resident binner, as nanpercentile +
-                    # searchsorted do on the host) -> codes selection-equivalent (see
-                    # _gpu_resident_extval.gpu_materialise_extval_codes_host).
-                    if _ev_op_codes is not None:
-                        try:
-                            from .._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_on
-                            _ev_use_dev = bool(_ev_resident_on())
-                        except Exception as e:
-                            logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
-                            _ev_use_dev = False
-                        if _ev_use_dev:
-                            from .._gpu_resident_extval import gpu_materialise_extval_codes_host
-                            _ev_disc = gpu_materialise_extval_codes_host(
-                                param_a, _ev_param_bs, _ev_op_codes, int(quantization_nbins), dtype=_ev_code_dtype,
-                            )
-                    if _ev_disc is None:
-                        # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
-                        _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
-                        if _ev_op_codes is not None:
-                            # NJIT materialise: ALL (ext x op) candidate columns in one nogil
-                            # kernel (bit-identical to the numpy bin_funcs; see
-                            # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
-                            # the numpy ``for ext: for bin_func`` order, so the discretise +
-                            # MI + max reduction below is unchanged. ``param_a`` may be a
-                            # float32 buffer slice; the kernel upcasts per-element to float64.
-                            # bench-attempt-rejected (2026-06-07): "drop the _ev_pb_mat repack"
-                            # (Q7). The external-factor columns are DISTINCT memoised arrays
-                            # (_extval_raw_col per var) so they genuinely must be assembled into
-                            # a 2-D matrix for the njit kernel; there is no view to substitute.
-                            _ev_pb_mat = np.empty((len(X), len(_ev_param_bs)), dtype=np.float64)
-                            for _ei, _pb_vals in enumerate(_ev_param_bs):
-                                _ev_pb_mat[:, _ei] = _pb_vals
-                            _materialise_extval_njit(
-                                np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
-                                _ev_buf[:, :_ev_K],
-                            )
-                            _ev_col = _ev_K
-                        else:
-                            # NUMPY FALLBACK: a bin_func is not njit-coded (maximal-preset
-                            # special) -> materialise per-candidate with the exact numpy ufuncs.
-                            _ev_col = 0
-                            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                                for _pb_vals in _ev_param_bs:
-                                    for valid_bin_func in _ev_bin_funcs:
-                                        _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
-                                        _ev_col += 1
-                        # GPU BINNING: the ext-val survivor binning (full n) gets the same
-                        # dedicated binning crossover - bit-identical to the CPU njit binning (maxdiff 0)
-                        # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
-                        try:
-                            from ._pairs_core import _fe_gpu_binning_enabled
-                            if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
-                                from .._gpu_resident_fe import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
-                                # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
-                                # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
-                                # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
-                                # the resident gate is the consumer. Bit-identical (host buffer == device.get()).
-                                _ev_disc = gpu_discretize_codes_host(
-                                    _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype,
-                                    defer_host_fill=True,
-                                )
-                        except Exception as e:
-                            logger.debug("resident discretization failed, falling back to the host path: %s", e)
-                            _ev_disc = None
-                        if _ev_disc is None:
-                            _ev_disc = discretize_2d_quantile_batch(
-                                _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
-                                dtype=_ev_code_dtype,
-                                # OPT-A extension: the marginal-uplift gate's
-                                # discretise ran the SERIAL searchsorted kernel on the main
-                                # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
-                                # the other cores sat idle. ``check_prospective_fe_pairs`` carries
-                                # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
-                                # dispatch, so the same OPT-A predicate that already gates the
-                                # main chunk's discretise (line ~907) safely selects the
-                                # byte-identical column-prange twin here too (no joblib nest).
-                                parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
-                            )
-                    _ev_mi = _dispatch_batch_mi_with_noise_gate(
-                        disc_2d=_ev_disc,
-                        quantization_nbins=quantization_nbins,
-                        classes_y=classes_y,
-                        classes_y_safe=classes_y_safe,
-                        freqs_y=freqs_y,
-                        npermutations=fe_npermutations,
-                        min_nonzero_confidence=fe_min_nonzero_confidence,
-                        use_su=use_su_normalization(),
-                        batch_mi_kernel=batch_mi_with_noise_gate,
-                        env_gate=_fe_env_gate,
-                    )
-                    if _ev_mi is not None and len(_ev_mi):
-                        best_valid_mi = float(np.max(_ev_mi))
-                else:
-                    for _pb_vals in _ev_param_bs:
-                        param_b = _pb_vals
-                        for valid_bin_func in binary_transformations.values():
-
-                            valid_vals = valid_bin_func(param_a, param_b)
-
-                            discretized_transformed_values = discretize_array(
-                                arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
-                            )
-                            fe_mi, _fe_conf = mi_direct(
-                                discretized_transformed_values.reshape(-1, 1),
-                                x=np.array([0], dtype=np.int64),
-                                y=None,
-                                factors_nbins=np.array([quantization_nbins], dtype=np.int64),
-                                classes_y=classes_y,
-                                classes_y_safe=classes_y_safe,
-                                freqs_y=freqs_y,
-                                min_nonzero_confidence=fe_min_nonzero_confidence,
-                                npermutations=fe_npermutations,
-                            )
-
-                            if fe_mi > best_valid_mi:
-                                best_valid_mi = fe_mi
-
-                valid_pairs_perf[config] = best_valid_mi
-
-            # ONE-BEST-PER-PAIR: the leading-features
-            # equivalence class holds many near-identical representations
-            # of the same algebraic target (a**2/b == div(sqr(a),b) ==
-            # mul(sqr(a),reciproc(b)) == div(a,sqrt(b)) ...). The
-            # pre-refactor code materialised EXACTLY ONE per raw pair;
-            # the refactor regressed to emitting the whole class (~15
-            # cols on the canonical fixture). Pick the single best by
-            # TARGET MI (``var_pairs_perf`` - the primary objective),
-            # using the external-validation MI (``valid_pairs_perf``)
-            # only as a tie-break among target-MI-equal leaders. (Prior
-            # bug: selected by external-validation MI alone, discarding
-            # the true max-target-MI form - e.g. picking add(log(c),1/d)
-            # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
-            _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-            _winner = _select_single_best(
-                _primary_perf, cols, secondary=valid_pairs_perf, usability=_leader_usability, mi_band=_mi_band,
-                usability_primary=_usability_primary, name_cache=_name_cache,
-            )
-            if _winner is not None:
-                new_feature_name = _cached_name(_winner)
-                if verbose:
-                    messages.append(
-                        f"{new_feature_name} is recommended to use as a new feature! (won in validation with other factors) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                    )
-                this_pair_features.add((_winner, 0))
-        else:
-            # Can't narrow by external validation (only 2 vars total) -
-            # still emit ONE best representative (highest engineered MI,
-            # deterministic name tie-break) rather than the whole class.
-            _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
-            _winner = _select_single_best(
-                _lead_perf, cols, usability=_leader_usability, mi_band=_mi_band,
-                usability_primary=_usability_primary, name_cache=_name_cache,
-            )
-            if _winner is not None:
-                if verbose:
-                    messages.append(
-                        f"{_cached_name(_winner)} is recommended to use as a new feature! (best of {len(leading_features)} near-equivalent leaders) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-                    )
-                this_pair_features.add((_winner, 0))
-    else:
-        new_feature_name = _cached_name(best_config)
-        if verbose:
-            messages.append(
-                f"{new_feature_name} is recommended to use as a new feature! (clear winner) best_mi={best_mi:.4f}, pair_mi={pair_mi:.4f}, rat={best_mi/pair_mi:.4f}"
-            )
-        j = 0
-        this_pair_features.add((best_config, j))
-
-    # MULTI-CANDIDATE DIVERSE EMISSION: the blocks above emit the
-    # single MAX-MI engineered form. MI is rank-based and blind to LINEAR usability,
-    # so the MI-winner can be a tree-friendly monotone warp that a linear model
-    # cannot use, while a lower-MI form is the linearly-aligned one (F2:
-    # sub(exp(c),cbrt(d)) MI 0.288 vs the linearly-usable mul(log(c),sin(d)) MI 0.264).
-    # When ``fe_multi_emit_max_per_pair > 1`` additionally emit the next DISTINCT
-    # forms by target MI (skip any whose continuous values correlate above
-    # ``fe_multi_emit_diversity_corr`` with an already-emitted column, down to
-    # ``fe_multi_emit_mi_floor`` x best_mi) so both survive; the downstream MRMR
-    # redundancy gate prunes residual overlap. Purely additive: never emits FEWER
-    # than the single-best path, byte-identical when max_per_pair == 1.
+def _emit_pair_features_step2_than_single_best(fe_multi_emit_max_per_pair, final_transformed_vals, _this_chunk_deferred, this_pair_features, best_mi, fe_multi_emit_mi_floor, fe_multi_emit_diversity_corr, _cached_name, _resolve_col, var_pairs_perf, st, verbose, messages):
+    """Step 2 of _emit_pair_features: lines starting at ``if int(fe_multi_emit_max_per_pair) > 1 and (final_transformed_vals is ``."""
     if int(fe_multi_emit_max_per_pair) > 1 and (final_transformed_vals is not None or _this_chunk_deferred) and this_pair_features and best_mi > 0:
         _emit_floor = float(best_mi) * float(fe_multi_emit_mi_floor)
         _div_corr = float(fe_multi_emit_diversity_corr)
@@ -522,35 +563,36 @@ def _emit_pair_features(
             if _cfg in _already:
                 continue
             try:
-                _col = np.asarray(_resolve_col(_cfg[2]), dtype=np.float64)
+                st._col = np.asarray(_resolve_col(_cfg[2]), dtype=np.float64)
             except Exception as e:  # nosec B112 - best-effort path
                 logger.debug("resolving column %r failed, skipping: %s", _cfg, e)
                 continue
-            _col = np.nan_to_num(_col, nan=0.0, posinf=0.0, neginf=0.0)
-            if float(np.std(_col)) <= 1e-9:
+            st._col = np.nan_to_num(st._col, nan=0.0, posinf=0.0, neginf=0.0)
+            if float(np.std(st._col)) <= 1e-9:
                 continue
             # DIVERSITY: skip a near-duplicate of any already-emitted column.
             _dup = False
-            from ._pairs_core import _abs_corr_zerofill_njit
+            from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _abs_corr_zerofill_njit
             for _ec in _emitted_cols:
                 if float(np.std(_ec)) <= 1e-9:
                     continue
                 # One-pass njit correlation (bit-equivalent to the previous np.corrcoef on
                 # nan_to_num'd inputs - both _col and _ec are already finite by contract via
                 # _resolve_col; see _abs_corr_zerofill_njit's docstring) instead of a 2x2 corrcoef matrix.
-                if _abs_corr_zerofill_njit(_col, _ec) > _div_corr:
+                if _abs_corr_zerofill_njit(st._col, _ec) > _div_corr:
                     _dup = True
                     break
             if _dup:
                 continue
             this_pair_features.add((_cfg, 0))
             _already.add(_cfg)
-            _emitted_cols.append(_col)
+            _emitted_cols.append(st._col)
             if verbose:
                 messages.append(f"{_cached_name(_cfg)} also emitted " f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})")
 
-    transformed_vals, new_cols, new_nbins = None, None, None
 
+def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe_max_steps, _use_subsample, _rebuild_full_survivor_col, _X_full, original_cols, unary_transformations, binary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, cols, engineered_operand_values, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, verbose, messages, _full_n_rows, quantization_nbins):
+    """Step 3 of _emit_pair_features: lines starting at ``if this_pair_features:``."""
     if this_pair_features:
 
         # Bulk add the found & checked best features.
@@ -606,7 +648,7 @@ def _emit_pair_features(
         )
         for _idx, (config, j) in enumerate(_ordered_pair_features):
             new_feature_name = _cached_name(config)
-            transformations_pair, bin_func_name, i = config
+            _transformations_pair, _bin_func_name, i = config
 
             if fe_max_steps >= 1:
                 if _use_subsample:
@@ -637,12 +679,12 @@ def _emit_pair_features(
                     # the survivor column from its (a_key, b_key, bin_func_name)
                     # metadata via the cached unary table. transformed_vars is at
                     # full n in this path so the column lands at full n directly.
-                    _a_key, _b_key, _bin_name = _config_by_i[i]
-                    _pa = transformed_vars[:, vars_transformations[_a_key]]
-                    _pb = transformed_vars[:, vars_transformations[_b_key]]
-                    _col = binary_transformations[_bin_name](_pa, _pb)
-                    np.nan_to_num(_col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                    _col_full = _col
+                    st._a_key, st._b_key, st._bin_name = _config_by_i[i]
+                    st._pa = transformed_vars[:, vars_transformations[st._a_key]]
+                    st._pb = transformed_vars[:, vars_transformations[st._b_key]]
+                    st._col = binary_transformations[st._bin_name](st._pa, st._pb)
+                    np.nan_to_num(st._col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                    _col_full = st._col
 
                 # Keep the RAW (float) engineered values, scrubbed of
                 # nan/inf. CRITICAL: do NOT cast to the
@@ -673,16 +715,14 @@ def _emit_pair_features(
         # Rebuild the survivor set / buffers from ONLY the kept columns so
         # the recipe builder and the downstream dense consumer stay aligned.
         this_pair_features = set(_kept_configs)
-        new_cols = list(_kept_names)
+        st.new_cols = list(_kept_names)
         if fe_max_steps >= 1 and _kept_cols_vals:
             # float buffer: holds RAW engineered values (discretised to
             # codes downstream; see the non-constant-guard comment above).
-            transformed_vals = np.empty(shape=(_full_n_rows, len(_kept_cols_vals)), dtype=np.float64)
+            st.transformed_vals = np.empty(shape=(_full_n_rows, len(_kept_cols_vals)), dtype=np.float64)
             for _ci, _cv in enumerate(_kept_cols_vals):
-                transformed_vals[:, _ci] = _cv
-            new_nbins = [quantization_nbins] * len(_kept_cols_vals)
+                st.transformed_vals[:, _ci] = _cv
+            st.new_nbins = [quantization_nbins] * len(_kept_cols_vals)
         else:
-            transformed_vals, new_nbins = None, []
-
-    _pair_res_entry = (this_pair_features, transformed_vals, new_cols, new_nbins, messages)
-    return _pair_res_entry
+            st.transformed_vals, st.new_nbins = None, []
+    return this_pair_features

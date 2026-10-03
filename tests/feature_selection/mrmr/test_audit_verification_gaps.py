@@ -207,9 +207,9 @@ def test_step_score_safe_code_dtype_reserves_uniform_nan_slot():
     own call sites -- otherwise a uniform nbins==dtype.max+1 write wraps the NaN sentinel negative."""
     import inspect
 
-    from mlframe.feature_selection.filters._mrmr_fe_step import _step_score
+    from mlframe.feature_selection.filters._mrmr_fe_step import _step_score, _step_score_parts, _step_score_parts2
 
-    src = inspect.getsource(_step_score)
+    src = "".join(inspect.getsource(m) for m in (_step_score, _step_score_parts, _step_score_parts2))
     n_calls = src.count("_safe_code_dtype(self.quantization_nbins")
     n_guarded = src.count("reserve_nan_slot=(self.quantization_method ==")
     assert n_calls and n_guarded == n_calls, f"{n_calls - n_guarded} of {n_calls} call sites lack reserve_nan_slot"

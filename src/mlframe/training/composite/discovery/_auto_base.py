@@ -179,15 +179,7 @@ def _auto_base(
     _MIN_FRAC_FINITE = 0.10  # at least 10% non-NaN cells
     _col_finite_frac = np.isfinite(x_matrix).mean(axis=0)
     _keep_cols = _col_finite_frac >= _MIN_FRAC_FINITE
-    if not _keep_cols.all():
-        _dropped = [usable_features[i] for i, k in enumerate(_keep_cols.tolist()) if not k]
-        logger.info(
-            "[CompositeTargetDiscovery] auto-base: dropping %d feature(s) "
-            "with <%.0f%% finite cells in screening sample: %s",
-            len(_dropped), _MIN_FRAC_FINITE * 100, _dropped[:10],
-        )
-        x_matrix = x_matrix[:, _keep_cols]
-        usable_features = [f for f, k in zip(usable_features, _keep_cols.tolist()) if k]
+    usable_features, x_matrix = _auto_base_step1_mean_before_all(_keep_cols, usable_features, _MIN_FRAC_FINITE, x_matrix)
     # The MI RANKING must be estimated with
     # PER-PAIR (per-column) finite masking, NOT the global all-column
     # ``np.all(isfinite(x_matrix), axis=1)`` intersection. For mid-range-NaN
@@ -256,6 +248,90 @@ def _auto_base(
     # candidate columns, so re-quantiling it inside ``_mi_pair_bin``
     # is wasted work.  See ``_mi_per_feature_y_fixed`` docstring for
     # the 1.67x bit-exact benchmark.
+    mi_per_feature = _auto_base_step1_bit_exact_benchmark(self, use_per_pair, x_matrix_for_mi, y_screen, x_matrix, finite)
+    # Structural detectors for time-index
+    # and spatial-coordinate features. Cheap heuristics applied
+    # to the screening matrix; flagged features are demoted
+    # (large MI penalty) so they only win base selection when
+    # genuinely high-MI relative to alternatives.
+    demote_set: set = set()
+    _auto_base_step2_genuinely_high_mi(self, finite, hint_kept, usable_features, x_matrix, demote_set)
+    _auto_base_step2_getattr_self_config(self, usable_features, finite, x_matrix, hint_kept, demote_set)
+
+    # Permutation-MI null filter. Catches
+    # features whose MI(y, x) is non-trivial only because of a
+    # shared monotonic component (time/spatial trend), not
+    # structural information about y. Computes MI(y, shuffle(x))
+    # with block shuffles to preserve marginal autocorrelation,
+    # then requires MI(y, x) > mean_null + n_sigma * std_null.
+    n_perms = int(getattr(self.config, "auto_base_null_perms", 20) or 0)
+    mi_for_ranking = _auto_base_step1_requires_mi_mean(self, n_perms, finite, y_screen, x_matrix, use_per_pair, x_matrix_for_mi, mi_per_feature, usable_features)
+    # Structural-affinity boost. Surfaces OBVIOUS base columns from data
+    # shape / correlation that the MI ranking alone can miss when a noisier
+    # competitor's pairwise MI lands a hair higher: a near-affine predictor of
+    # y (prime ``linear_residual`` base), a low-cardinality integer grouping
+    # column (prime ``grouped`` base), a monotone/timestamp column (prime
+    # ``time`` base). The boost is a BOUNDED nudge scaled to the MI spread --
+    # it augments the MI ranking, never replaces it: a clearly larger MI gap
+    # still wins. Applied to non-hint candidates only (hints already lead the
+    # slots) and BEFORE the time/spatial demotion so a demoted column cannot
+    # be re-promoted by the time detector here. A monotone column the
+    # time-index demoter would sink is not boosted as a ``time`` base when the
+    # demoter is active, so the two stay consistent.
+    # Per-column |corr(col, y)| on the screen sample. Used to (a) gate the structural boost away from
+    # near-copies of y and (b) exclude near-copy bases after ranking (a base ~= y makes the residual
+    # inverse fragile under group shift). Computed once, vectorised.
+    _abs_corr_to_y, _boost_corr_gate = _auto_base_step3_inverse_fragile_under(self, x_matrix, finite, y_screen, usable_features)
+    _auto_base_step4_getattr_self_config(self, mi_for_ranking, x_matrix, finite, y_screen, usable_features, hint_kept, demote_set, _boost_corr_gate, _abs_corr_to_y)
+    # Apply demotion to time-index / spatial-
+    # coord candidates. Subtract a large penalty so they sort
+    # below all non-demoted features but stay reachable as a
+    # last resort.
+    _copy_thresh, ranked = _auto_base_step5_last_resort(self, demote_set, usable_features, mi_for_ranking, x_matrix, finite)
+    ranked = _auto_base_step6_log_loudly_hint(self, _copy_thresh, _abs_corr_to_y, usable_features, finite, x_matrix, y_screen, ranked, hint_kept)
+    # Cross-base correlation dedup. Two highly-correlated bases
+    # (typical: ``y_prev``, ``y_prev_lag2``, ``y_smooth_3``)
+    # produce near-identical composites that waste Phase B compute
+    # AND inflate ensemble correlation, hurting cross-target
+    # diversity. After ranking, drop a candidate if its absolute
+    # corr against any already-kept candidate exceeds
+    # ``auto_base_dedup_corr_threshold``. Skipped candidates are
+    # logged at INFO. Configurable via
+    # ``CompositeTargetDiscoveryConfig.auto_base_dedup_corr_threshold``;
+    # set to 1.0 to disable.
+    ranked = _auto_base_step7_set_disable(self, ranked, hint_kept, usable_features, x_matrix, finite)
+    # Combine hint (priority) + MI-ranked tail. Hint always wins
+    # the leading slots; MI fills up to auto_base_top_k.
+    if hint_kept:
+        mi_tail: list[str] = []
+        for _, c in ranked:
+            if c in hint_kept:
+                continue
+            mi_tail.append(c)
+            if len(hint_kept) + len(mi_tail) >= top_k:
+                break
+        top = hint_kept + mi_tail
+        top = top[:top_k]
+        mi_lookup = {c: mi for mi, c in ranked}
+        scores = ", ".join(f"{c}={mi_lookup.get(c, float('nan')):.4f}{'(hint)' if c in hint_kept else ''}" for c in top)
+        logger.info(
+            "[CompositeTargetDiscovery] auto-base top-%d (%d hint, %d MI): %s",
+            len(top), len(hint_kept), len(mi_tail), scores,
+        )
+        return top
+
+    top = [c for _, c in ranked[:top_k]]
+    if top:
+        scores = ", ".join(f"{c}={mi:.4f}" for mi, c in ranked[:top_k])
+        logger.info(
+            "[CompositeTargetDiscovery] auto-base top-%d by MI(y, x): %s",
+            len(top), scores,
+        )
+    return top
+
+
+def _auto_base_step1_bit_exact_benchmark(self, use_per_pair, x_matrix_for_mi, y_screen, x_matrix, finite):
+    """Step 1 of _auto_base: lines starting at ``if self.config.mi_estimator == "bin":``."""
     if self.config.mi_estimator == "bin":
         if use_per_pair:
             # Per-pair NaN masking; bit-identical to the global path
@@ -296,12 +372,11 @@ def _auto_base(
                 n_neighbors=self.config.mi_n_neighbors,
                 random_state=self.config.random_state,
             )
-    # Structural detectors for time-index
-    # and spatial-coordinate features. Cheap heuristics applied
-    # to the screening matrix; flagged features are demoted
-    # (large MI penalty) so they only win base selection when
-    # genuinely high-MI relative to alternatives.
-    demote_set: set = set()
+    return mi_per_feature
+
+
+def _auto_base_step2_genuinely_high_mi(self, finite, hint_kept, usable_features, x_matrix, demote_set):
+    """Step 2 of _auto_base: lines starting at ``if getattr(self.config, "auto_base_demote_time_index", True) and finit``."""
     if getattr(self.config, "auto_base_demote_time_index", True) and finite.sum() >= 50:
         # Spearman(rank(x), arange(n)) computed as |corr(rankdata(x), arange(n))|.
         # ``scipy.stats.rankdata`` uses fractional (average) ranks for ties; the prior
@@ -339,107 +414,10 @@ def _auto_base(
                 "|Spearman| > 0.95): %s. Demoted in MI ranking.",
                 len(demote_set), sorted(demote_set)[:5],
             )
-    if getattr(self.config, "auto_base_demote_spatial_coords", True) and len(usable_features) >= 3 and finite.sum() >= 50:
-        # Spatial-coord block detector tightened
-        # after a production geological-data run demoted 17
-        # features (entire feature set). Previously: ``>=2 cross-
-        # correlations |corr|>0.5`` -- fires on any moderately-
-        # correlated feature group.
-        #
-        # Tightened criteria for "spatial-coord block":
-        #   1. Block size 3 <= K <= 6 (X/Y/Z triplet up to a
-        #      5-coord positional spec; anything larger is a
-        #      feature GROUP, not spatial coords).
-        #   2. EVERY pair within the block has |corr| > 0.75
-        #      (not 0.5 -- geological features routinely correlate
-        #      at 0.5-0.7 from physics, not from being coords).
-        #   3. Mean within-block |corr| > 0.80 (catches X/Y/Z
-        #      typical corr range while rejecting lower-corr
-        #      industrial feature groups).
-        #   4. At least two members carry coordinate-like names (see
-        #      ``_coord_names``): correlation alone also matches synonym
-        #      groups such as text lengths or budget variants, which the
-        #      dedup step already reduces to one representative.
-        # All four must hold; otherwise the group is preserved.
-        X_screen = x_matrix[finite]
-        n_feats = X_screen.shape[1]
-        # Vectorised |corr|: centre each column, normalise to unit-L2, then take Gram matrix
-        # (~12x over the nested ``_safe_corr`` loop on 25 features x 50k rows). Constant
-        # columns (zero variance) map to all-zero correlations, matching ``_safe_corr``'s
-        # degenerate-input contract.
-        corr_matrix = np.zeros((n_feats, n_feats))
-        if n_feats >= 2 and X_screen.shape[0] >= 3:
-            Xc = X_screen - X_screen.mean(axis=0)
-            norms = np.sqrt((Xc**2).sum(axis=0))
-            live = norms > 1e-12
-            if live.sum() >= 2:
-                live_idx = np.where(live)[0]
-                Xn = Xc[:, live_idx] / norms[live_idx]
-                gram = np.abs(Xn.T @ Xn)
-                np.fill_diagonal(gram, 0.0)
-                corr_matrix[np.ix_(live_idx, live_idx)] = gram
-        spatial_demoted: list[str] = []
-        spatial_block_sizes: list[int] = []
-        seen_blocks: set[tuple[int, ...]] = set()
-        # For each feature j, find its "tight neighbourhood":
-        # features k where |corr(j, k)| > 0.75. If that
-        # neighbourhood (including j) is size 3-6 AND has mean
-        # within-pair corr > 0.80, demote ALL members.
-        for j, _col_name in enumerate(usable_features):
-            tight_neighbours = np.where(corr_matrix[j] > 0.75)[0]
-            if not (2 <= len(tight_neighbours) <= 5):
-                continue
-            block_idx = np.r_[j, tight_neighbours]
-            block_idx = np.unique(block_idx)
-            if not (3 <= len(block_idx) <= 6):
-                continue
-            # Mean within-block pairwise corr.
-            sub = corr_matrix[np.ix_(block_idx, block_idx)]
-            upper = sub[np.triu_indices_from(sub, k=1)]
-            if upper.size == 0:
-                continue
-            if float(upper.mean()) < 0.80:
-                continue
-            # Also require EVERY pair > 0.75 (no weak edge in the
-            # cluster).
-            if float(upper.min()) < 0.75:
-                continue
-            if sum(is_coordinate_like_name(usable_features[k]) for k in block_idx) < 2:
-                continue
-            block_key = tuple(int(k) for k in block_idx)
-            if block_key not in seen_blocks:
-                seen_blocks.add(block_key)
-                spatial_block_sizes.append(len(block_idx))
-            # Cluster qualifies -- demote every member EXCEPT
-            # those on the hint list (BD ablation already proved
-            # they predict y; demoting them silently is the same
-            # production bug pattern as the dedup-vs-hint race).
-            hint_protected = set(hint_kept) if hint_kept else set()
-            for k in block_idx:
-                name_k = usable_features[k]
-                if name_k in hint_protected:
-                    continue
-                if name_k not in demote_set:
-                    demote_set.add(name_k)
-                    spatial_demoted.append(name_k)
-        if spatial_demoted:
-            logger.info(
-                "[CompositeTargetDiscovery] auto-base detected %d spatial-coord block(s) of size(s) %s "
-                "(coordinate-like names, |pair-corr| > 0.75, mean > 0.80, 3-6 members each); demoted %d "
-                "feature(s) in MI ranking: %s",
-                len(spatial_block_sizes),
-                spatial_block_sizes,
-                len(spatial_demoted),
-                sorted(spatial_demoted)[:8],
-            )
 
-    # Permutation-MI null filter. Catches
-    # features whose MI(y, x) is non-trivial only because of a
-    # shared monotonic component (time/spatial trend), not
-    # structural information about y. Computes MI(y, shuffle(x))
-    # with block shuffles to preserve marginal autocorrelation,
-    # then requires MI(y, x) > mean_null + n_sigma * std_null.
-    n_perms = int(getattr(self.config, "auto_base_null_perms", 20) or 0)
+
+def _auto_base_step1_requires_mi_mean(self, n_perms, finite, y_screen, x_matrix, use_per_pair, x_matrix_for_mi, mi_per_feature, usable_features):
+    """Step 1 of _auto_base: lines starting at ``if n_perms > 0:``."""
     if n_perms > 0:
         n_sigma = float(getattr(
             self.config, "auto_base_null_z_threshold", 3.0,
@@ -568,21 +546,122 @@ def _auto_base(
         mi_for_ranking = np.where(passes_null, mi_per_feature, -np.inf)
     else:
         mi_for_ranking = mi_per_feature.copy()
-    # Structural-affinity boost. Surfaces OBVIOUS base columns from data
-    # shape / correlation that the MI ranking alone can miss when a noisier
-    # competitor's pairwise MI lands a hair higher: a near-affine predictor of
-    # y (prime ``linear_residual`` base), a low-cardinality integer grouping
-    # column (prime ``grouped`` base), a monotone/timestamp column (prime
-    # ``time`` base). The boost is a BOUNDED nudge scaled to the MI spread --
-    # it augments the MI ranking, never replaces it: a clearly larger MI gap
-    # still wins. Applied to non-hint candidates only (hints already lead the
-    # slots) and BEFORE the time/spatial demotion so a demoted column cannot
-    # be re-promoted by the time detector here. A monotone column the
-    # time-index demoter would sink is not boosted as a ``time`` base when the
-    # demoter is active, so the two stay consistent.
-    # Per-column |corr(col, y)| on the screen sample. Used to (a) gate the structural boost away from
-    # near-copies of y and (b) exclude near-copy bases after ranking (a base ~= y makes the residual
-    # inverse fragile under group shift). Computed once, vectorised.
+    return mi_for_ranking
+
+
+def _auto_base_step1_mean_before_all(_keep_cols, usable_features, _MIN_FRAC_FINITE, x_matrix):
+    """Step 1 of _auto_base: lines starting at ``if not _keep_cols.all():``."""
+    if not _keep_cols.all():
+        _dropped = [usable_features[i] for i, k in enumerate(_keep_cols.tolist()) if not k]
+        logger.info(
+            "[CompositeTargetDiscovery] auto-base: dropping %d feature(s) "
+            "with <%.0f%% finite cells in screening sample: %s",
+            len(_dropped), _MIN_FRAC_FINITE * 100, _dropped[:10],
+        )
+        x_matrix = x_matrix[:, _keep_cols]
+        usable_features = [f for f, k in zip(usable_features, _keep_cols.tolist()) if k]
+    return usable_features, x_matrix
+
+
+def _auto_base_step2_getattr_self_config(self, usable_features, finite, x_matrix, hint_kept, demote_set):
+    """Step 2 of _auto_base: lines starting at ``if getattr(self.config, "auto_base_demote_spatial_coords", True) and l``."""
+    if getattr(self.config, "auto_base_demote_spatial_coords", True) and len(usable_features) >= 3 and finite.sum() >= 50:
+        # Spatial-coord block detector tightened
+        # after a production geological-data run demoted 17
+        # features (entire feature set). Previously: ``>=2 cross-
+        # correlations |corr|>0.5`` -- fires on any moderately-
+        # correlated feature group.
+        #
+        # Tightened criteria for "spatial-coord block":
+        #   1. Block size 3 <= K <= 6 (X/Y/Z triplet up to a
+        #      5-coord positional spec; anything larger is a
+        #      feature GROUP, not spatial coords).
+        #   2. EVERY pair within the block has |corr| > 0.75
+        #      (not 0.5 -- geological features routinely correlate
+        #      at 0.5-0.7 from physics, not from being coords).
+        #   3. Mean within-block |corr| > 0.80 (catches X/Y/Z
+        #      typical corr range while rejecting lower-corr
+        #      industrial feature groups).
+        #   4. At least two members carry coordinate-like names (see
+        #      ``_coord_names``): correlation alone also matches synonym
+        #      groups such as text lengths or budget variants, which the
+        #      dedup step already reduces to one representative.
+        # All four must hold; otherwise the group is preserved.
+        X_screen = x_matrix[finite]
+        n_feats = X_screen.shape[1]
+        # Vectorised |corr|: centre each column, normalise to unit-L2, then take Gram matrix
+        # (~12x over the nested ``_safe_corr`` loop on 25 features x 50k rows). Constant
+        # columns (zero variance) map to all-zero correlations, matching ``_safe_corr``'s
+        # degenerate-input contract.
+        corr_matrix = np.zeros((n_feats, n_feats))
+        if n_feats >= 2 and X_screen.shape[0] >= 3:
+            Xc = X_screen - X_screen.mean(axis=0)
+            norms = np.sqrt((Xc**2).sum(axis=0))
+            live = norms > 1e-12
+            if live.sum() >= 2:
+                live_idx = np.where(live)[0]
+                Xn = Xc[:, live_idx] / norms[live_idx]
+                gram = np.abs(Xn.T @ Xn)
+                np.fill_diagonal(gram, 0.0)
+                corr_matrix[np.ix_(live_idx, live_idx)] = gram
+        spatial_demoted: list[str] = []
+        spatial_block_sizes: list[int] = []
+        seen_blocks: set[tuple[int, ...]] = set()
+        # For each feature j, find its "tight neighbourhood":
+        # features k where |corr(j, k)| > 0.75. If that
+        # neighbourhood (including j) is size 3-6 AND has mean
+        # within-pair corr > 0.80, demote ALL members.
+        for j, _col_name in enumerate(usable_features):
+            tight_neighbours = np.where(corr_matrix[j] > 0.75)[0]
+            if not (2 <= len(tight_neighbours) <= 5):
+                continue
+            block_idx = np.r_[j, tight_neighbours]
+            block_idx = np.unique(block_idx)
+            if not (3 <= len(block_idx) <= 6):
+                continue
+            # Mean within-block pairwise corr.
+            sub = corr_matrix[np.ix_(block_idx, block_idx)]
+            upper = sub[np.triu_indices_from(sub, k=1)]
+            if upper.size == 0:
+                continue
+            if float(upper.mean()) < 0.80:
+                continue
+            # Also require EVERY pair > 0.75 (no weak edge in the
+            # cluster).
+            if float(upper.min()) < 0.75:
+                continue
+            if sum(is_coordinate_like_name(usable_features[k]) for k in block_idx) < 2:
+                continue
+            block_key = tuple(int(k) for k in block_idx)
+            if block_key not in seen_blocks:
+                seen_blocks.add(block_key)
+                spatial_block_sizes.append(len(block_idx))
+            # Cluster qualifies -- demote every member EXCEPT
+            # those on the hint list (BD ablation already proved
+            # they predict y; demoting them silently is the same
+            # production bug pattern as the dedup-vs-hint race).
+            hint_protected = set(hint_kept) if hint_kept else set()
+            for k in block_idx:
+                name_k = usable_features[k]
+                if name_k in hint_protected:
+                    continue
+                if name_k not in demote_set:
+                    demote_set.add(name_k)
+                    spatial_demoted.append(name_k)
+        if spatial_demoted:
+            logger.info(
+                "[CompositeTargetDiscovery] auto-base detected %d spatial-coord block(s) of size(s) %s "
+                "(coordinate-like names, |pair-corr| > 0.75, mean > 0.80, 3-6 members each); demoted %d "
+                "feature(s) in MI ranking: %s",
+                len(spatial_block_sizes),
+                spatial_block_sizes,
+                len(spatial_demoted),
+                sorted(spatial_demoted)[:8],
+            )
+
+
+def _auto_base_step3_inverse_fragile_under(self, x_matrix, finite, y_screen, usable_features):
+    """Step 3 of _auto_base: lines starting at ``_abs_corr_to_y: dict[str, float] = {}``."""
     _abs_corr_to_y: dict[str, float] = {}
     try:
         _xm_c = np.asarray(x_matrix[finite], dtype=np.float64)
@@ -602,6 +681,11 @@ def _auto_base(
         _abs_corr_to_y = {}
 
     _boost_corr_gate = float(getattr(self.config, "auto_base_structural_boost_corr_gate", 0.98))
+    return _abs_corr_to_y, _boost_corr_gate
+
+
+def _auto_base_step4_getattr_self_config(self, mi_for_ranking, x_matrix, finite, y_screen, usable_features, hint_kept, demote_set, _boost_corr_gate, _abs_corr_to_y):
+    """Step 4 of _auto_base: lines starting at ``if getattr(self.config, "auto_base_structural_boost", True):``."""
     if getattr(self.config, "auto_base_structural_boost", True):
         finite_mi = [m for m in mi_for_ranking.tolist() if math.isfinite(m)]
         mi_spread = (max(finite_mi) - min(finite_mi)) if len(finite_mi) >= 2 else 0.0
@@ -644,10 +728,10 @@ def _auto_base(
                     "applied to %d candidate(s) (mi_spread=%.4g): %s",
                     len(applied), mi_spread, preview,
                 )
-    # Apply demotion to time-index / spatial-
-    # coord candidates. Subtract a large penalty so they sort
-    # below all non-demoted features but stay reachable as a
-    # last resort.
+
+
+def _auto_base_step5_last_resort(self, demote_set, usable_features, mi_for_ranking, x_matrix, finite):
+    """Step 5 of _auto_base: lines starting at ``if demote_set:``."""
     if demote_set:
         for j, col_name in enumerate(usable_features):
             if col_name in demote_set:
@@ -667,7 +751,7 @@ def _auto_base(
     # screening rows; relevance is the (post-demote/boost/null) MI. Default
     # "mi" leaves this path dormant and byte-identical to the legacy ranking.
     if getattr(self.config, "base_ranking_criterion", "mi") == "mrmr" and len(ranked) > 1:
-        from ._mrmr_base_rank import mrmr_rank_bases
+        from mlframe.training.composite.discovery._mrmr_base_rank import mrmr_rank_bases
         _mrmr_names = [c for _m, c in ranked]
         _mrmr_rel = [m for m, _c in ranked]
         _mrmr_col = {name: i for i, name in enumerate(usable_features)}
@@ -702,6 +786,11 @@ def _auto_base(
     # group/feature shift. Drop such bases (hint or not -- a literal copy is never a safe base), but
     # log loudly when a hint candidate is removed so the operator sees why the hint didn't lead.
     _copy_thresh = getattr(self.config, "base_max_abs_corr_with_y", 0.9995)
+    return _copy_thresh, ranked
+
+
+def _auto_base_step6_log_loudly_hint(self, _copy_thresh, _abs_corr_to_y, usable_features, finite, x_matrix, y_screen, ranked, hint_kept):
+    """Step 6 of _auto_base: lines starting at ``if _copy_thresh is not None and float(_copy_thresh) < 1.0 and _abs_cor``."""
     if _copy_thresh is not None and float(_copy_thresh) < 1.0 and _abs_corr_to_y:
         _ct = float(_copy_thresh)
         # Provenance exemption: a strictly-causal base (grouped-causal engineered ``__gcausal_*`` or a named ``{y}_prev``
@@ -778,16 +867,11 @@ def _auto_base(
                 ", ".join(f"{c}({_abs_corr_to_y.get(c, 0.0):.4f})" for _m, c in _excluded[:5]),
                 f" -- INCLUDING hint(s): {_hint_excl}" if _hint_excl else "",
             )
-    # Cross-base correlation dedup. Two highly-correlated bases
-    # (typical: ``y_prev``, ``y_prev_lag2``, ``y_smooth_3``)
-    # produce near-identical composites that waste Phase B compute
-    # AND inflate ensemble correlation, hurting cross-target
-    # diversity. After ranking, drop a candidate if its absolute
-    # corr against any already-kept candidate exceeds
-    # ``auto_base_dedup_corr_threshold``. Skipped candidates are
-    # logged at INFO. Configurable via
-    # ``CompositeTargetDiscoveryConfig.auto_base_dedup_corr_threshold``;
-    # set to 1.0 to disable.
+    return ranked
+
+
+def _auto_base_step7_set_disable(self, ranked, hint_kept, usable_features, x_matrix, finite):
+    """Step 7 of _auto_base: lines starting at ``dedup_threshold = float(getattr(``."""
     dedup_threshold = float(getattr(
         self.config, "auto_base_dedup_corr_threshold", 0.95,
     ))
@@ -834,31 +918,4 @@ def _auto_base(
                 len(dedup_dropped), dedup_threshold, preview,
             )
         ranked = kept_ranked
-    # Combine hint (priority) + MI-ranked tail. Hint always wins
-    # the leading slots; MI fills up to auto_base_top_k.
-    if hint_kept:
-        mi_tail: list[str] = []
-        for _, c in ranked:
-            if c in hint_kept:
-                continue
-            mi_tail.append(c)
-            if len(hint_kept) + len(mi_tail) >= top_k:
-                break
-        top = hint_kept + mi_tail
-        top = top[:top_k]
-        mi_lookup = {c: mi for mi, c in ranked}
-        scores = ", ".join(f"{c}={mi_lookup.get(c, float('nan')):.4f}{'(hint)' if c in hint_kept else ''}" for c in top)
-        logger.info(
-            "[CompositeTargetDiscovery] auto-base top-%d (%d hint, %d MI): %s",
-            len(top), len(hint_kept), len(mi_tail), scores,
-        )
-        return top
-
-    top = [c for _, c in ranked[:top_k]]
-    if top:
-        scores = ", ".join(f"{c}={mi:.4f}" for mi, c in ranked[:top_k])
-        logger.info(
-            "[CompositeTargetDiscovery] auto-base top-%d by MI(y, x): %s",
-            len(top), scores,
-        )
-    return top
+    return ranked

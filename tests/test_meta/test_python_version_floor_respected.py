@@ -18,9 +18,12 @@ documented way to reach a 3.11 stdlib module from 3.9, and the tree already does
 from __future__ import annotations
 
 import ast
+import functools
 import pathlib
 
 import pytest
+
+from tests.test_meta._shared_ast_cache import walk_cached
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCANNED_ROOTS = ("src/mlframe", "tests", "benchmarks")
@@ -42,24 +45,36 @@ def _python_floor() -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _iter_modules():
-    """Every Python file under the scanned roots, as (repo-relative path, parsed tree)."""
+@functools.cache
+def _load_modules() -> tuple[tuple[tuple[str, ast.Module], ...], tuple[str, ...]]:
+    """Parse every Python file under the scanned roots once for the whole module: ((repo-relative path, tree), ...) and the parse failures."""
+    modules: list[tuple[str, ast.Module]] = []
+    broken: list[str] = []
     for root in SCANNED_ROOTS:
         base = REPO_ROOT / root
         if not base.exists():
             continue
         for path in sorted(base.rglob("*.py")):
+            rel = path.relative_to(REPO_ROOT).as_posix()
             try:
                 tree = ast.parse(path.read_text(encoding="utf-8"))
-            except (SyntaxError, UnicodeDecodeError):
-                # Reported by its own test below, not swallowed here.
+            except SyntaxError as exc:
+                broken.append(f"{rel}:{exc.lineno}: {exc.msg}")
+                continue
+            except UnicodeDecodeError:
                 continue
             except FileNotFoundError:
                 # Gone between the glob and the read: test_progress_xdist_plugin_conflict writes and deletes a probe
                 # file in this directory, and under -n 4 this walk met it half-way. A file that no longer exists has
                 # no import to check.
                 continue
-            yield path.relative_to(REPO_ROOT).as_posix(), tree
+            modules.append((rel, tree))
+    return tuple(modules), tuple(broken)
+
+
+def _iter_modules():
+    """Every Python file under the scanned roots, as (repo-relative path, parsed tree)."""
+    yield from _load_modules()[0]
 
 
 def _guarded_import_lines(tree: ast.Module) -> set[int]:
@@ -72,7 +87,7 @@ def _guarded_import_lines(tree: ast.Module) -> set[int]:
     """
     guarded: set[int] = set()
 
-    for node in ast.walk(tree):
+    for node in walk_cached(tree):
         if isinstance(node, ast.If) and any(isinstance(n, ast.Attribute) and n.attr == "version_info" for n in ast.walk(node.test)):
             for branch in (node.body, node.orelse):
                 for stmt in branch:
@@ -80,7 +95,7 @@ def _guarded_import_lines(tree: ast.Module) -> set[int]:
                         if isinstance(inner, (ast.Import, ast.ImportFrom)):
                             guarded.add(inner.lineno)
 
-    for node in ast.walk(tree):
+    for node in walk_cached(tree):
         if not isinstance(node, ast.Try):
             continue
         handles_import_error = any(handler.type is None or any(isinstance(n, ast.Name) and n.id in {"ImportError", "ModuleNotFoundError"} for n in ast.walk(handler.type)) for handler in node.handlers)
@@ -99,16 +114,7 @@ def test_every_module_in_the_tree_parses():
     The slugify meta test AST-walks the tree and fails on anything it cannot read, so an unparseable module
     takes an unrelated test down with it rather than reporting itself.
     """
-    broken = []
-    for root in SCANNED_ROOTS:
-        base = REPO_ROOT / root
-        if not base.exists():
-            continue
-        for path in sorted(base.rglob("*.py")):
-            try:
-                ast.parse(path.read_text(encoding="utf-8"))
-            except SyntaxError as exc:
-                broken.append(f"{path.relative_to(REPO_ROOT).as_posix()}:{exc.lineno}: {exc.msg}")
+    broken = list(_load_modules()[1])
     assert not broken, "modules that do not parse:\n  " + "\n  ".join(broken)
 
 
@@ -119,7 +125,7 @@ def test_no_walrus_in_an_assignment_target_subscript():
     """
     offenders = []
     for rel, tree in _iter_modules():
-        for node in ast.walk(tree):
+        for node in walk_cached(tree):
             if not isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
                 continue
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
@@ -134,7 +140,7 @@ def test_no_match_statement_below_the_floor():
     """`match` is 3.10 syntax; below that floor it is a parse error for the whole module."""
     if _python_floor() >= (3, 10):
         pytest.skip("the declared floor is 3.10 or newer, so match statements are fine")
-    offenders = [f"{rel}:{node.lineno}" for rel, tree in _iter_modules() for node in ast.walk(tree) if node.__class__.__name__ == "Match"]
+    offenders = [f"{rel}:{node.lineno}" for rel, tree in _iter_modules() for node in walk_cached(tree) if node.__class__.__name__ == "Match"]
     assert not offenders, "match statements below the declared Python floor:\n  " + "\n  ".join(offenders)
 
 
@@ -144,7 +150,7 @@ def test_no_unguarded_import_of_a_newer_stdlib_module():
     offenders = []
     for rel, tree in _iter_modules():
         guarded = _guarded_import_lines(tree)
-        for node in ast.walk(tree):
+        for node in walk_cached(tree):
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else ([node.module] if isinstance(node, ast.ImportFrom) and node.module else [])
             for name in names:
                 root_name = (name or "").split(".")[0]
@@ -164,7 +170,7 @@ def test_no_call_keyword_newer_than_the_floor():
         pytest.skip("the declared floor is 3.10 or newer")
     offenders = []
     for rel, tree in _iter_modules():
-        for node in ast.walk(tree):
+        for node in walk_cached(tree):
             if not isinstance(node, ast.Call):
                 continue
             fname = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")

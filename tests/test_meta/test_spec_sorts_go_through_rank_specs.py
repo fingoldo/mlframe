@@ -20,7 +20,8 @@ _TRAINING = Path(mlframe.__file__).resolve().parent / "training"
 # (file, enclosing function) -> why the sort does not rank specs.
 ALLOWED = {
     ("__init__.py", "_rank_bases_by_mi_for_cap"): "base columns by MI(y, base), before any spec exists",
-    ("_auto_base.py", "_auto_base"): "base columns by their auto-base score, and a log preview of demotions",
+    ("_auto_base.py", "_auto_base_step4_getattr_self_config"): "base columns by their auto-base score (stage helper carved out of _auto_base)",
+    ("_auto_base.py", "_auto_base_step5_last_resort"): "base columns by their auto-base score (stage helper carved out of _auto_base)",
     ("_filter.py", "_filter_features"): "leak-dropped feature columns by |corr| for the log line",
     ("_grouped_causal_bases.py", "_segment_order"): "row order by (group, time) for causal bases",
     ("_interaction_bases.py", "score_interaction_pairs"): "feature-pair candidates by MI gain, before they become bases",

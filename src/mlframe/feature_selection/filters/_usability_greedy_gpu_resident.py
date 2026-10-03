@@ -163,212 +163,11 @@ def usability_greedy_gpu_resident(
         tr_masks = [cp.where(folds_dev != fo)[0] for fo in range(nf)]
         va_masks = [cp.where(folds_dev == fo)[0] for fo in range(nf)]
 
-        def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:
-            """|corr(candidate_j, resid)| for EVERY candidate over ``rows_mask`` rows, on device. Mirrors
-            the per-candidate ``_abscorr`` (centered dot / sqrt(ss), std<1e-12 -> 0) batched into one GEMV.
-            Returns a host (P,) float64 score vector (a per-ROUND result, not per-candidate value data)."""
-            if rows_mask is None:
-                M = Vdev
-                rv = resid_dev
-            else:
-                M = Vdev[rows_mask]  # (m, P) resident view-copy
-                rv = resid_dev
-            m = int(M.shape[0])
-            out = cp.zeros(P, dtype=cp.float64)
-            if m == 0:
-                return np.asarray(cp.asnumpy(out))
-            col_std = M.std(axis=0)  # (P,)
-            v_std = float(rv.std())
-            if v_std < 1e-12:
-                return np.asarray(cp.asnumpy(out))
-            vm = rv - rv.mean()
-            ssv = float(cp.dot(vm, vm))
-            if ssv <= 0.0:
-                return np.asarray(cp.asnumpy(out))
-            Mc = M - M.mean(axis=0, keepdims=True)
-            num = Mc.T @ vm  # (P,) centered dot
-            ssc = (Mc * Mc).sum(axis=0)  # (P,)
-            denom = cp.sqrt(ssc * ssv)
-            valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
-            r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
-            r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
-            return np.asarray(cp.asnumpy(r))
+        _abscorr_batch_resident = _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P)
 
-        def _shortlist(sel_idx) -> list:
-            """Rank unselected candidates by |corr| with the fold-0 held-out residual of the currently-selected set (leakage-safe: fit on fold-0 train rows only), then return the top-scored candidates for the greedy round; raises ``_ResidentFallbackError`` on a singular selected design so the caller falls back to the exact CPU path rather than risk a wrong selection."""
-            # HELD-OUT residual on fold-0 (mirrors the CPU path's leakage-safe design): fit the selected set
-            # on the ~fold-0 train rows, score the |corr| on the held-out fold-0 residual. No selection ->
-            # the mean residual over all rows (no fit -> no leakage).
-            if sel_idx:
-                ho = va_masks[0]
-                tr = tr_masks[0]
-                beta, ybar, mu = _fit_selected(sel_idx, tr)
-                if beta is None:
-                    # singular selected design on the train fold: fall back to the exact CPU shortlist for
-                    # this round (selection correctness never depends on the fast path).
-                    raise _ResidentFallbackError()
-                Sho = Vdev[ho][:, sel_idx]
-                pred = ybar + (Sho - mu) @ beta
-                resid = ydev[ho] - pred
-                uses = _abscorr_batch_resident(resid, ho)
-            else:
-                resid = ydev - ydev.mean()
-                uses = _abscorr_batch_resident(resid, None)
-            sel_set = set(sel_idx)
-            scored = []
-            mi_host = cp.asnumpy(mi_dev)
-            # `uses` is already a host numpy array here -
-            # _abscorr_batch_resident is type-hinted -> np.ndarray and returns np.asarray(cp.asnumpy(out))
-            # on every branch - so the `cp.asnumpy(uses) if hasattr(...) else ...` dead branch (left over
-            # from an earlier refactor where the function may have returned a device array) always took the
-            # no-op np.asarray(uses) path. Removed; uses is used directly.
-            uses_host = uses
-            for i in range(P):
-                if i in sel_set:
-                    continue
-                use = float(uses_host[i])
-                scored.append((i, (1.0 - w) * (mi_host[i] / mi_max) + w * use))
-            scored.sort(key=lambda t: t[1], reverse=True)
-            # Diversity filter (mirrors the CPU usability_greedy._shortlist): several top-scored
-            # candidates can be near-duplicate views of the SAME underlying signal and would
-            # otherwise occupy multiple shortlist slots, starving room for a genuinely different
-            # candidate. Reuses _abscorr_batch_resident (one GEMV per KEPT candidate, computing every
-            # remaining candidate's |corr| against it in one device pass) rather than a per-pair CPU
-            # loop, to stay resident. Bounded cost: at most `shortlist` GEMVs per greedy round.
-            out_idx: list[int] = []
-            corr_vs_kept: list[np.ndarray] = []
-            for i, _s in scored:
-                if any(float(cvk[i]) > shortlist_diversity_corr for cvk in corr_vs_kept):
-                    continue
-                out_idx.append(i)
-                if len(out_idx) >= max(1, shortlist):
-                    break
-                corr_vs_kept.append(_abscorr_batch_resident(Vdev[:, i], None))
-            return out_idx
+        _cv_baseline, _shortlist = _usability_greedy_gpu_step2_def_shortlist_sel(va_masks, tr_masks, Vdev, ydev, _abscorr_batch_resident, cp, mi_dev, P, w, mi_max, shortlist_diversity_corr, shortlist, nf)
 
-        def _fit_selected(sel_idx, tr_mask):
-            """Centered-OLS fit of the SELECTED set on ``tr_mask`` rows. Returns (beta (k,), ybar, mu (k,))
-            all resident, or (None, None, None) if the centered Gram is singular (caller falls back)."""
-            Str = Vdev[tr_mask][:, sel_idx]
-            ytr = ydev[tr_mask]
-            ybar = ytr.mean()
-            yc = ytr - ybar
-            mu = Str.mean(axis=0)
-            Sc = Str - mu
-            G = Sc.T @ Sc
-            b = Sc.T @ yc
-            try:
-                beta = cp.linalg.solve(G, b)
-            except Exception as e:
-                logger.debug("usability_greedy_gpu_resident._fit_selected: centered Gram is singular, caller falls back to the CPU refit: %s", e)
-                return None, None, None
-            return beta, ybar, mu
-
-        def _cv_baseline() -> np.ndarray:
-            """No-selection per-fold MAE: predict each val fold by its train-fold mean. Resident; returns a
-            host (nf,) vector (the SAME quantity the CPU ``_cv_per_fold([])`` computes)."""
-            errs = np.empty(nf, dtype=np.float64)
-            for fo in range(nf):
-                tr, va = tr_masks[fo], va_masks[fo]
-                m = ydev[tr].mean()
-                errs[fo] = float(cp.mean(cp.abs(ydev[va] - m)))
-            return errs
-
-        def _cv_candidates(sel_idx, cand_list) -> dict:
-            """{cand_i: per-fold MAE (nf,)} via the bordered normal equations, fully resident. Per fold the
-            selected-set centered Gram + rhs are built ONCE; each candidate is a rank-1 border solved as a
-            (k+1)x(k+1) system. A singular border for a candidate raises so the caller refits via the exact
-            CPU path for that candidate - correctness never depends on the fast path."""
-            # Precompute, ONCE per step per fold, the centered selected design pieces (resident).
-            per_fold = []
-            for fo in range(nf):
-                tr, va = tr_masks[fo], va_masks[fo]
-                ytr = ydev[tr]
-                ybar = ytr.mean()
-                yc = ytr - ybar
-                yva = ydev[va]  # fold-invariant across candidates; gather ONCE per fold
-                if sel_idx:
-                    Str = Vdev[tr][:, sel_idx]
-                    Sva = Vdev[va][:, sel_idx]
-                    mu = Str.mean(axis=0)
-                    Sc_tr = Str - mu
-                    Sc_va = Sva - mu
-                    Gs = Sc_tr.T @ Sc_tr
-                    bs = Sc_tr.T @ yc
-                else:
-                    Sc_tr = Sc_va = mu = Gs = bs = None
-                per_fold.append((tr, va, ybar, yc, yva, Sc_tr, Sc_va, Gs, bs))
-
-            # Accumulate EVERY candidate's per-fold MAE row resident, then do ONE D2H for the whole
-            # shortlist (a (n_cand, nf) stacked pull) instead of one .get() per candidate - the values
-            # are unchanged, just coalesced into a single device->host sync per round.
-            errs_rows = []  # resident (nf,) row per candidate, in cand_list order
-            cand_keys = []
-            # Round-1 (empty selection) singular-border guard, kept RESIDENT: the per-candidate-per-fold
-            # cc_tr.cc_tr was previously pulled back as a float() scalar PER CANDIDATE PER FOLD (a per-candidate
-            # scalar D2H that contradicts this round's "one coalesced D2H" contract). Instead accumulate each
-            # candidate's MINIMUM fold cc_tr.cc_tr resident and coalesce ALL of them into the SAME single D2H
-            # as the fold-MAE matrix below; the border is then checked host-side once per round. Same verdict:
-            # if any round-1 candidate-fold has cc_tr.cc_tr <= 1e-12 the round raises _ResidentFallbackError (the
-            # whole resident path then refits exactly on CPU), identical to the prior mid-loop break.
-            mind_rows = []  # resident scalar (min fold d) per candidate when Sc_tr is None; else None
-            for i in cand_list:
-                ci = Vdev[:, i]
-                errs_dev = cp.empty(nf, dtype=cp.float64)  # accumulate fold MAEs resident; ONE D2H/candidate
-                singular = False
-                cand_mind = None  # resident running-min cc_tr.cc_tr over folds (round-1 border)
-                for fo in range(nf):
-                    tr, va, ybar, yc, yva, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
-                    ctr = ci[tr]
-                    cva = ci[va]
-                    cmu = ctr.mean()
-                    cc_tr = ctr - cmu
-                    cc_va = cva - cmu
-                    if Sc_tr is None:
-                        d = cp.dot(cc_tr, cc_tr)  # resident; border checked in the coalesced D2H below
-                        cand_mind = d if cand_mind is None else cp.minimum(cand_mind, d)
-                        # cc_tr.cc_tr == 0 only on a constant train operand; the divide then yields inf/nan,
-                        # the fold MAE is nan, and the host-side border check below converts that to a fallback.
-                        beta = cp.dot(cc_tr, yc) / d
-                        pred = ybar + cc_va * beta
-                    else:
-                        g = Sc_tr.T @ cc_tr
-                        d = cp.dot(cc_tr, cc_tr)
-                        bnew = cp.dot(cc_tr, yc)
-                        k = int(Gs.shape[0])
-                        G = cp.empty((k + 1, k + 1), dtype=cp.float64)
-                        G[:k, :k] = Gs
-                        G[:k, k] = g
-                        G[k, :k] = g
-                        G[k, k] = d
-                        rhs = cp.empty(k + 1, dtype=cp.float64)
-                        rhs[:k] = bs
-                        rhs[k] = bnew
-                        try:
-                            beta = cp.linalg.solve(G, rhs)
-                        except Exception as e:
-                            logger.debug("cp.linalg.solve failed (likely a singular Gram matrix), stopping the greedy: %s", e)
-                            singular = True
-                            break
-                        pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]
-                    errs_dev[fo] = cp.mean(cp.abs(yva - pred))
-                if singular:
-                    raise _ResidentFallbackError()
-                errs_rows.append(errs_dev)
-                cand_keys.append(i)
-                mind_rows.append(cand_mind)
-            out: dict = {}
-            if errs_rows:
-                errs_host = cp.asnumpy(cp.stack(errs_rows, axis=0))  # ONE D2H for the whole shortlist
-                # Coalesced round-1 border check: pull the per-candidate min cc_tr.cc_tr back in the SAME
-                # round (one stacked D2H), then fall back exactly if any candidate sits on the singular border.
-                if any(m is not None for m in mind_rows):
-                    mind_host = cp.asnumpy(cp.stack([m for m in mind_rows if m is not None]))
-                    if float(mind_host.min()) <= 1e-12:
-                        raise _ResidentFallbackError()
-                for r, i in enumerate(cand_keys):
-                    out[i] = errs_host[r]
-            return out
+        _cv_candidates = _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, Vdev, cp)
 
         min_improving_folds = max(1, math.ceil(0.75 * nf))
         selected: list = []
@@ -382,6 +181,225 @@ def usability_greedy_gpu_resident(
     except Exception as e:
         logger.debug("usability_greedy_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
         return None
+
+
+def _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P):
+    """Step 1 of usability_greedy_gpu_resident: lines starting at ``def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:``."""
+    def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:
+        """|corr(candidate_j, resid)| for EVERY candidate over ``rows_mask`` rows, on device. Mirrors
+        the per-candidate ``_abscorr`` (centered dot / sqrt(ss), std<1e-12 -> 0) batched into one GEMV.
+        Returns a host (P,) float64 score vector (a per-ROUND result, not per-candidate value data)."""
+        if rows_mask is None:
+            M = Vdev
+            rv = resid_dev
+        else:
+            M = Vdev[rows_mask]  # (m, P) resident view-copy
+            rv = resid_dev
+        m = int(M.shape[0])
+        out = cp.zeros(P, dtype=cp.float64)
+        if m == 0:
+            return np.asarray(cp.asnumpy(out))
+        col_std = M.std(axis=0)  # (P,)
+        v_std = float(rv.std())
+        if v_std < 1e-12:
+            return np.asarray(cp.asnumpy(out))
+        vm = rv - rv.mean()
+        ssv = float(cp.dot(vm, vm))
+        if ssv <= 0.0:
+            return np.asarray(cp.asnumpy(out))
+        Mc = M - M.mean(axis=0, keepdims=True)
+        num = Mc.T @ vm  # (P,) centered dot
+        ssc = (Mc * Mc).sum(axis=0)  # (P,)
+        denom = cp.sqrt(ssc * ssv)
+        valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
+        r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
+        r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
+        return np.asarray(cp.asnumpy(r))
+    return _abscorr_batch_resident
+
+
+def _usability_greedy_gpu_step2_def_shortlist_sel(va_masks, tr_masks, Vdev, ydev, _abscorr_batch_resident, cp, mi_dev, P, w, mi_max, shortlist_diversity_corr, shortlist, nf):
+    """Step 2 of usability_greedy_gpu_resident: lines starting at ``def _shortlist(sel_idx) -> list:``."""
+    def _shortlist(sel_idx) -> list:
+        """Rank unselected candidates by |corr| with the fold-0 held-out residual of the currently-selected set (leakage-safe: fit on fold-0 train rows only), then return the top-scored candidates for the greedy round; raises ``_ResidentFallbackError`` on a singular selected design so the caller falls back to the exact CPU path rather than risk a wrong selection."""
+        # HELD-OUT residual on fold-0 (mirrors the CPU path's leakage-safe design): fit the selected set
+        # on the ~fold-0 train rows, score the |corr| on the held-out fold-0 residual. No selection ->
+        # the mean residual over all rows (no fit -> no leakage).
+        if sel_idx:
+            ho = va_masks[0]
+            tr = tr_masks[0]
+            beta, ybar, mu = _fit_selected(sel_idx, tr)
+            if beta is None:
+                # singular selected design on the train fold: fall back to the exact CPU shortlist for
+                # this round (selection correctness never depends on the fast path).
+                raise _ResidentFallbackError()
+            Sho = Vdev[ho][:, sel_idx]
+            pred = ybar + (Sho - mu) @ beta
+            resid = ydev[ho] - pred
+            uses = _abscorr_batch_resident(resid, ho)
+        else:
+            resid = ydev - ydev.mean()
+            uses = _abscorr_batch_resident(resid, None)
+        sel_set = set(sel_idx)
+        scored = []
+        mi_host = cp.asnumpy(mi_dev)
+        # `uses` is already a host numpy array here -
+        # _abscorr_batch_resident is type-hinted -> np.ndarray and returns np.asarray(cp.asnumpy(out))
+        # on every branch - so the `cp.asnumpy(uses) if hasattr(...) else ...` dead branch (left over
+        # from an earlier refactor where the function may have returned a device array) always took the
+        # no-op np.asarray(uses) path. Removed; uses is used directly.
+        uses_host = uses
+        for i in range(P):
+            if i in sel_set:
+                continue
+            use = float(uses_host[i])
+            scored.append((i, (1.0 - w) * (mi_host[i] / mi_max) + w * use))
+        scored.sort(key=lambda t: t[1], reverse=True)
+        # Diversity filter (mirrors the CPU usability_greedy._shortlist): several top-scored
+        # candidates can be near-duplicate views of the SAME underlying signal and would
+        # otherwise occupy multiple shortlist slots, starving room for a genuinely different
+        # candidate. Reuses _abscorr_batch_resident (one GEMV per KEPT candidate, computing every
+        # remaining candidate's |corr| against it in one device pass) rather than a per-pair CPU
+        # loop, to stay resident. Bounded cost: at most `shortlist` GEMVs per greedy round.
+        out_idx: list[int] = []
+        corr_vs_kept: list[np.ndarray] = []
+        for i, _s in scored:
+            if any(float(cvk[i]) > shortlist_diversity_corr for cvk in corr_vs_kept):
+                continue
+            out_idx.append(i)
+            if len(out_idx) >= max(1, shortlist):
+                break
+            corr_vs_kept.append(_abscorr_batch_resident(Vdev[:, i], None))
+        return out_idx
+
+    def _fit_selected(sel_idx, tr_mask):
+        """Centered-OLS fit of the SELECTED set on ``tr_mask`` rows. Returns (beta (k,), ybar, mu (k,))
+        all resident, or (None, None, None) if the centered Gram is singular (caller falls back)."""
+        Str = Vdev[tr_mask][:, sel_idx]
+        ytr = ydev[tr_mask]
+        ybar = ytr.mean()
+        yc = ytr - ybar
+        mu = Str.mean(axis=0)
+        Sc = Str - mu
+        G = Sc.T @ Sc
+        b = Sc.T @ yc
+        try:
+            beta = cp.linalg.solve(G, b)
+        except Exception as e:
+            logger.debug("usability_greedy_gpu_resident._fit_selected: centered Gram is singular, caller falls back to the CPU refit: %s", e)
+            return None, None, None
+        return beta, ybar, mu
+
+    def _cv_baseline() -> np.ndarray:
+        """No-selection per-fold MAE: predict each val fold by its train-fold mean. Resident; returns a
+        host (nf,) vector (the SAME quantity the CPU ``_cv_per_fold([])`` computes)."""
+        errs = np.empty(nf, dtype=np.float64)
+        for fo in range(nf):
+            tr, va = tr_masks[fo], va_masks[fo]
+            m = ydev[tr].mean()
+            errs[fo] = float(cp.mean(cp.abs(ydev[va] - m)))
+        return errs
+    return _cv_baseline, _shortlist
+
+
+def _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, Vdev, cp):
+    """Step 3 of usability_greedy_gpu_resident: lines starting at ``def _cv_candidates(sel_idx, cand_list) -> dict:``."""
+    def _cv_candidates(sel_idx, cand_list) -> dict:
+        """{cand_i: per-fold MAE (nf,)} via the bordered normal equations, fully resident. Per fold the
+        selected-set centered Gram + rhs are built ONCE; each candidate is a rank-1 border solved as a
+        (k+1)x(k+1) system. A singular border for a candidate raises so the caller refits via the exact
+        CPU path for that candidate - correctness never depends on the fast path."""
+        # Precompute, ONCE per step per fold, the centered selected design pieces (resident).
+        per_fold = []
+        for fo in range(nf):
+            tr, va = tr_masks[fo], va_masks[fo]
+            ytr = ydev[tr]
+            ybar = ytr.mean()
+            yc = ytr - ybar
+            yva = ydev[va]  # fold-invariant across candidates; gather ONCE per fold
+            if sel_idx:
+                Str = Vdev[tr][:, sel_idx]
+                Sva = Vdev[va][:, sel_idx]
+                mu = Str.mean(axis=0)
+                Sc_tr = Str - mu
+                Sc_va = Sva - mu
+                Gs = Sc_tr.T @ Sc_tr
+                bs = Sc_tr.T @ yc
+            else:
+                Sc_tr = Sc_va = mu = Gs = bs = None
+            per_fold.append((tr, va, ybar, yc, yva, Sc_tr, Sc_va, Gs, bs))
+
+        # Accumulate EVERY candidate's per-fold MAE row resident, then do ONE D2H for the whole
+        # shortlist (a (n_cand, nf) stacked pull) instead of one .get() per candidate - the values
+        # are unchanged, just coalesced into a single device->host sync per round.
+        errs_rows = []  # resident (nf,) row per candidate, in cand_list order
+        cand_keys = []
+        # Round-1 (empty selection) singular-border guard, kept RESIDENT: the per-candidate-per-fold
+        # cc_tr.cc_tr was previously pulled back as a float() scalar PER CANDIDATE PER FOLD (a per-candidate
+        # scalar D2H that contradicts this round's "one coalesced D2H" contract). Instead accumulate each
+        # candidate's MINIMUM fold cc_tr.cc_tr resident and coalesce ALL of them into the SAME single D2H
+        # as the fold-MAE matrix below; the border is then checked host-side once per round. Same verdict:
+        # if any round-1 candidate-fold has cc_tr.cc_tr <= 1e-12 the round raises _ResidentFallbackError (the
+        # whole resident path then refits exactly on CPU), identical to the prior mid-loop break.
+        mind_rows = []  # resident scalar (min fold d) per candidate when Sc_tr is None; else None
+        for i in cand_list:
+            ci = Vdev[:, i]
+            errs_dev = cp.empty(nf, dtype=cp.float64)  # accumulate fold MAEs resident; ONE D2H/candidate
+            singular = False
+            cand_mind = None  # resident running-min cc_tr.cc_tr over folds (round-1 border)
+            for fo in range(nf):
+                tr, va, ybar, yc, yva, Sc_tr, Sc_va, Gs, bs = per_fold[fo]
+                ctr = ci[tr]
+                cva = ci[va]
+                cmu = ctr.mean()
+                cc_tr = ctr - cmu
+                cc_va = cva - cmu
+                if Sc_tr is None:
+                    d = cp.dot(cc_tr, cc_tr)  # resident; border checked in the coalesced D2H below
+                    cand_mind = d if cand_mind is None else cp.minimum(cand_mind, d)
+                    # cc_tr.cc_tr == 0 only on a constant train operand; the divide then yields inf/nan,
+                    # the fold MAE is nan, and the host-side border check below converts that to a fallback.
+                    beta = cp.dot(cc_tr, yc) / d
+                    pred = ybar + cc_va * beta
+                else:
+                    g = Sc_tr.T @ cc_tr
+                    d = cp.dot(cc_tr, cc_tr)
+                    bnew = cp.dot(cc_tr, yc)
+                    k = int(Gs.shape[0])
+                    G = cp.empty((k + 1, k + 1), dtype=cp.float64)
+                    G[:k, :k] = Gs
+                    G[:k, k] = g
+                    G[k, :k] = g
+                    G[k, k] = d
+                    rhs = cp.empty(k + 1, dtype=cp.float64)
+                    rhs[:k] = bs
+                    rhs[k] = bnew
+                    try:
+                        beta = cp.linalg.solve(G, rhs)
+                    except Exception as e:
+                        logger.debug("cp.linalg.solve failed (likely a singular Gram matrix), stopping the greedy: %s", e)
+                        singular = True
+                        break
+                    pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]
+                errs_dev[fo] = cp.mean(cp.abs(yva - pred))
+            if singular:
+                raise _ResidentFallbackError()
+            errs_rows.append(errs_dev)
+            cand_keys.append(i)
+            mind_rows.append(cand_mind)
+        out: dict = {}
+        if errs_rows:
+            errs_host = cp.asnumpy(cp.stack(errs_rows, axis=0))  # ONE D2H for the whole shortlist
+            # Coalesced round-1 border check: pull the per-candidate min cc_tr.cc_tr back in the SAME
+            # round (one stacked D2H), then fall back exactly if any candidate sits on the singular border.
+            if any(m is not None for m in mind_rows):
+                mind_host = cp.asnumpy(cp.stack([m for m in mind_rows if m is not None]))
+                if float(mind_host.min()) <= 1e-12:
+                    raise _ResidentFallbackError()
+            for r, i in enumerate(cand_keys):
+                out[i] = errs_host[r]
+        return out
+    return _cv_candidates
 
 
 def _usability_greedy_g_range_min(K, P, _shortlist, selected, mae_cur, folds_cur, _cv_candidates, min_improving_folds, mae_improve_rel):

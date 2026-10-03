@@ -64,6 +64,10 @@ KNOWN_DUPLICATE_GROUPS = {
     # result into ITS OWN module's globals(), so a shared helper would need a table, a globals dict and an error-message module name
     # per caller and would read worse than the handful of lines it replaced.
     "__getattr__": "DELIBERATE: PEP 562 lazy-facade __getattr__; each resolves its own lazy table and caches into its own module globals",
+    # DELIBERATE -- command-line entry points. Each ``main`` parses its own tool's flags and calls that tool's own function; the
+    # shared shape is argparse boilerplate, and a common helper would have to take every flag definition as a parameter.
+    "main": "DELIBERATE: per-tool CLI entry points sharing only argparse boilerplate",
+    "render": "DELIBERATE: the calibration_params and fs_params generators each render their own table schema to its own module text",
 }
 
 #: Names whose detection depends on the interpreter, so they are reported on some CI shards and not others.

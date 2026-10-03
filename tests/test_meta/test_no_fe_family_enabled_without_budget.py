@@ -30,6 +30,8 @@ from pathlib import Path
 import orjson
 import pytest
 
+from tests.test_meta._shared_ast_cache import parsed_ast, source_text, walk_cached
+
 _TESTS_DIR = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_fe_budget_conflict_baseline.json"
 
@@ -98,10 +100,10 @@ def _zero_budget_preset_merged_with_a_call(tree: ast.Module) -> list[tuple[int, 
     already covered by the direct checks.
     """
     out: list[tuple[int, str]] = []
-    for fn in ast.walk(tree):
+    for fn in walk_cached(tree):
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        if not any(_pins_zero_budget(n) for n in ast.walk(fn)):
+        if not any(_pins_zero_budget(n) for n in walk_cached(fn)):
             continue
         for n in ast.walk(fn):
             if (
@@ -122,12 +124,15 @@ def _build_offending_set() -> set[str]:
     for py in _TESTS_DIR.rglob("*.py"):
         if "__pycache__" in py.parts:
             continue
-        try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
-        except (SyntaxError, OSError):
+        text = source_text(py)
+        # every finding needs a literal ``fe_max_steps`` pin (call keyword, dict key or preset), so other files cannot offend
+        if text is None or "fe_max_steps" not in text:
+            continue
+        tree = parsed_ast(py)
+        if tree is None:
             continue
         rel = py.relative_to(_TESTS_DIR).as_posix()
-        for node in ast.walk(tree):
+        for node in walk_cached(tree):
             flags: list[str] = []
             if isinstance(node, ast.Call):
                 flags = _conflicts_in_call(node)

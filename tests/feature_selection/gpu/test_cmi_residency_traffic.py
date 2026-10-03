@@ -418,3 +418,20 @@ def test_pair_search_residency_operand_table_uploaded_bounded(pair_search_audit)
         f"operand table uploaded per-pair ({cnt['operand_table_h2d']} H2D vs {cnt['stash']} pair dispatches) "
         f"-- it must be uploaded once per step and reused; counters={cnt}"
     )
+
+
+def test_audit_tag_and_exempt_route_transfers_away_from_the_bulk_tally():
+    """A tagged transfer lands in ``tagged`` only, an exempt one nowhere, an untagged one in ``d2h``."""
+    from mlframe.feature_selection.filters._gpu_strict_fe._audit import BULK_BYTES, audit_exempt, audit_tag, residency_audit
+
+    x = cp.zeros(BULK_BYTES, dtype=cp.float32)
+    with residency_audit() as rep:
+        cp.asnumpy(x)
+        with audit_tag("t"):
+            cp.asnumpy(x)
+            x.get()
+        with audit_exempt():
+            cp.asnumpy(x)
+        cp.asnumpy(x)
+    assert rep.d2h == [x.nbytes, x.nbytes], "cp.asnumpy calls ndarray.get itself; one copy must be tallied once"
+    assert rep.tagged == {"t": [x.nbytes, x.nbytes]}

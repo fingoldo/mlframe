@@ -79,19 +79,23 @@ def _run_unary_sweep() -> list:
     only when importable; float32 elementwise maps agree to a loosened tol."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
+    from mlframe.feature_selection.filters._gpu_strict_fe._audit import audit_exempt
+
     variants = {"numpy": _unary_numpy}
     if _HAS_CUPY:
         variants["cupy"] = _unary_cupy
-    return list(sweep_backend_grid(
-        variants,
-        {"n_samples": _UNARY_SWEEP_N},
-        _make_unary_inputs,
-        reference="numpy",
-        residencies=("host", "device") if _HAS_CUPY else ("host",),
-        repeats=5,
-        equiv_rtol=1e-4,
-        equiv_atol=1e-5,
-    ))
+    # the sweep pays the host<->device round trip on purpose; it is timing input, not residency traffic of the fit that triggered it
+    with audit_exempt():
+        return list(sweep_backend_grid(
+            variants,
+            {"n_samples": _UNARY_SWEEP_N},
+            _make_unary_inputs,
+            reference="numpy",
+            residencies=("host", "device") if _HAS_CUPY else ("host",),
+            repeats=5,
+            equiv_rtol=1e-4,
+            equiv_atol=1e-5,
+        ))
 
 
 def _unary_fallback_choice(n_samples: int, location: str) -> str:

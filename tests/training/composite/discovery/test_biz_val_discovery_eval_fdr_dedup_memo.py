@@ -299,7 +299,7 @@ def test_p18_memo_is_bit_identical_to_unmemoised_recompute() -> None:
 
     # Disabled-memo run: monkeypatch the context builder so contexts carry no
     # memo dict, forcing eval_one_transform down the recompute branch each call.
-    import mlframe.training.composite.discovery._fit as fit_mod
+    import mlframe.training.composite.discovery._fit_steps as fit_mod
 
     orig_lock_attr = "_mi_y_compare_memo"
     disc_nomemo = _StripMemoRunner(df, _make_config(), fit_mod, orig_lock_attr)
