@@ -72,7 +72,7 @@
   "src/mlframe/reporting/renderers/_matplotlib_scatter.py::_scatter": 28,
   "src/mlframe/reporting/renderers/_plotly_scatter.py::_scatter": 45,
   "src/mlframe/training/_confidence_analysis.py::run_confidence_analysis": 36,
-  "src/mlframe/training/_helpers_training_configs.py::get_training_configs": 44,
+  "src/mlframe/training/_helpers_training_configs.py::get_training_configs": 43,
   "src/mlframe/training/_io_save.py::save_mlframe_model": 34,
   "src/mlframe/training/_iterative_stratification_njit.py::_iterative_stratification_njit": 35,
   "src/mlframe/training/_trainer_configure.py::configure_training_params": 87,
