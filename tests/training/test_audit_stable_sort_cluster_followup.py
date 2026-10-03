@@ -101,9 +101,23 @@ def _read(rel: str) -> str:
 
 
 def test_hermite_history_uses_secondary_bf_idx() -> None:
-    """Hermite history uses secondary bf idx."""
-    src = _read("feature_selection/filters/hermite_fe.py")
-    assert "sorted(history, key=lambda r: (-r[0], r[2]))" in src
+    """Tied top scores in the Hermite history resolve to the lowest bf_idx whatever the iteration order.
+
+    Without the secondary key a stable sort keeps input order, so ``kept[0]`` follows the order the history
+    was accumulated in.
+    """
+    import numpy as np
+
+    from mlframe.feature_selection.filters._hermite_fe_diverse import _select_diverse_topm
+
+    def _entry(score, bf_idx, a, b):
+        """One (score, raw_mi, bf_idx, coef_a, coef_b) history tuple."""
+        return (score, score, bf_idx, np.array(a, dtype=np.float64), np.array(b, dtype=np.float64))
+
+    history = [_entry(0.5, 7, [1.0, 0.0], [0.0, 1.0]), _entry(0.5, 2, [0.0, 1.0], [1.0, 0.0]), _entry(0.5, 4, [1.0, 1.0], [0.0, 0.0]), _entry(0.1, 0, [0.3, 0.2], [0.1, 0.0])]
+    for order in (history, history[::-1], [history[2], history[0], history[3], history[1]]):
+        kept = _select_diverse_topm(list(order), top_m=1)
+        assert [e[2] for e in kept] == [2], f"tied top-score winner depends on history order: {[e[2] for e in order]}"
 
 
 def test_hermite_results_uses_secondary_keys() -> None:

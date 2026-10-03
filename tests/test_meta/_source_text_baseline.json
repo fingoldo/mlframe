@@ -512,10 +512,6 @@
       "count": 1,
       "note": ""
     },
-    "training/test_audit_stable_sort_cluster_followup.py::test_hermite_history_uses_secondary_bf_idx::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
     "training/test_audit_stable_sort_cluster_followup.py::test_hermite_results_uses_secondary_keys::text held in `src`": {
       "count": 1,
       "note": ""
@@ -598,10 +594,6 @@
     },
     "training/test_audit_wrong_exception_type.py::test_neural_flat_batch_format_is_typeerror::text held in `src`": {
       "count": 1,
-      "note": ""
-    },
-    "training/test_audit_wrong_exception_type.py::test_neural_flat_validation_uses_typeerror_and_valueerror::text held in `src`": {
-      "count": 2,
       "note": ""
     },
     "training/test_audit_wrong_exception_type.py::test_not_fitted_uses_notfittederror::text held in `line`": {

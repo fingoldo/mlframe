@@ -175,9 +175,8 @@ def test_median_safe_all_nan_fallback(caplog):
     [
         # training/core/predict.py - two argmax sites migrated:
         ("training/core/predict.py", "argmax_classes_safe"),
-        # training/reporting/_reporting_probabilistic.py - one site (moved out of _reporting.py
-        # during the probabilistic-report monolith split):
-        ("training/reporting/_reporting_probabilistic.py", "argmax_classes_safe"),
+        # The probabilistic-report site is pinned behaviourally by
+        # test_wave21_probabilistic_report_preds_are_nan_safe below.
         # evaluation/reports.py - one site:
         ("evaluation/reports.py", "argmax_classes_safe"),
         # reporting/charts/multiclass.py - two sites use replace_all:
@@ -232,3 +231,22 @@ def test_wave21_production_site_migrated(rel, must_contain):
         if _p.exists():
             src += "\n" + _p.read_text(encoding="utf-8")
     assert must_contain in src, f"Wave 21 P1/P2 regression: {rel} no longer contains {must_contain!r}. " f"Pre-fix raw np.argmax/np.quantile/np.median over potentially-NaN " f"input is the bug class."
+
+
+def test_wave21_probabilistic_report_preds_are_nan_safe():
+    """The probabilistic report derives multiclass preds with a NaN-safe argmax.
+
+    Raw ``np.argmax`` treats NaN as the maximum, so a row ``[0.1, nan, 0.9]`` was labelled class 1 (the NaN
+    column); the NaN-safe argmax picks the largest finite probability (class 2), and an all-NaN row gets the
+    fallback class rather than an arbitrary one.
+    """
+    from types import SimpleNamespace
+
+    from mlframe.training.reporting._reporting_probabilistic_helpers import _report_probabilist_preds_none
+
+    probs = np.array([[0.1, np.nan, 0.9], [0.7, 0.2, 0.1], [np.nan, np.nan, np.nan]])
+    targets = np.array([2, 0, 1])
+    model = SimpleNamespace(classes_=np.array([10, 20, 30]))
+    preds, out_probs = _report_probabilist_preds_none(None, targets, probs, None, model)
+    assert out_probs is probs
+    np.testing.assert_array_equal(preds, np.array([30, 10, 10]))

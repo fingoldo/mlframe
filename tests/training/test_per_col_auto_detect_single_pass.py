@@ -9,6 +9,7 @@ Tests cover both the polars branch and the pandas branch.
 
 from __future__ import annotations
 
+import statistics
 import time
 
 import numpy as np
@@ -151,7 +152,7 @@ def test_auto_detect_polars_single_collect_bounded():
 
 
 def test_biz_val_auto_detect_polars_speedup():
-    """biz_value: 60 cols x 200k rows must run at most 0.6x the legacy wall-time (bench-of-record: ~0.36x = 2.74x speedup)."""
+    """biz_value: 60 cols x 200k rows must run at most 0.85x the legacy wall-time (median of 7 interleaved repeats) (bench-of-record: ~0.36x = 2.74x speedup)."""
     n_rows = 200_000
     n_cols = 60
     df = _synth_polars(n_rows=n_rows, n_cols=n_cols, seed=13)
@@ -173,13 +174,21 @@ def test_biz_val_auto_detect_polars_speedup():
     # genuinely faster in real (wall-clock) time -- confirmed live: switching to process_time made
     # the ratio WORSE (1.14x) than the wall-clock CI failure (1.14x local vs the CI's own reading),
     # not better, because polars' internal parallelism is exactly the effect process_time hides.
-    t0 = time.perf_counter()
-    _vendored_legacy_polars(df, ftc, cat_features=[])
-    legacy_s = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    _auto_detect_feature_types(df, ftc, cat_features=[], verbose=False)
-    new_s = time.perf_counter() - t0
+    #
+    # Median of interleaved repeats, not one shot each: a single sample pair is at the mercy of one scheduler hiccup on a
+    # shared CI runner (a macOS shard read 0.88 once while this machine measures 0.15-0.20 per pair and the median of 7
+    # pairs never above 0.2). Interleaving legacy/new per repeat exposes both sides to the same contention window, and the
+    # median discards the outliers on either side; the threshold is unchanged.
+    legacy_times, new_times = [], []
+    for _ in range(7):
+        t0 = time.perf_counter()
+        _vendored_legacy_polars(df, ftc, cat_features=[])
+        legacy_times.append(time.perf_counter() - t0)
+        t0 = time.perf_counter()
+        _auto_detect_feature_types(df, ftc, cat_features=[], verbose=False)
+        new_times.append(time.perf_counter() - t0)
+    legacy_s = statistics.median(legacy_times)
+    new_s = statistics.median(new_times)
 
     ratio = new_s / max(legacy_s, 1e-9)
     # 0.6 -> 0.85 (2026-08-15): same class as the sibling drift-snapshot lazy-plan test -- still a real
