@@ -180,6 +180,12 @@ def evaluate_estimators(
     # Lazy: IPython transitively pulls in jedi's completion engine, one of the slowest imports in
     # the ecosystem -- module-level import here made every ``import mlframe.evaluation.reports``
     # (incl. kernel-tuning discovery's whole-package walk) pay that cost even outside a notebook.
+    target_names_to_use: Any = None
+    probs: Any = None
+    preds: Any = None
+    nclasses: Any = None
+    est_name: Any = None
+    est: Any = None
     from IPython.display import display, Markdown
 
     if competing_probs is None:
@@ -226,44 +232,7 @@ def evaluate_estimators(
             # Fit that estimator to the train set
             # ****************************************************************************************************************************
 
-            if val_size is not None and (("CatBoost" in type(est).__name__) or ('TransformedTargetRegressor' in type(est).__name__ and ("CatBoost" in type(est.regressor).__name__))):
-
-                # ----------------------------------------------------------------------------------------------------------------------------
-                # Just a classifier with early stopping... Need to get early stopping set for it...
-                # ----------------------------------------------------------------------------------------------------------------------------
-
-                if type(val_size) is float:
-                    X_test_test, X_test_val, y_test_test, y_test_val = train_test_split(X_test, y_test, test_size=val_size, shuffle=shuffle, stratify=stratify)
-                else:
-                    train_indices, test_indices = train_test_split_from_generator(gen=val_size, X=X_test, groups=groups)
-
-                    X_test_test = X_test.iloc[train_indices, :]
-                    X_test_val = X_test.iloc[test_indices, :]
-                    y_test_test = y_test.iloc[train_indices] if hasattr(y_test, "iloc") else y_test[train_indices]
-                    y_test_val = y_test.iloc[test_indices] if hasattr(y_test, "iloc") else y_test[test_indices]
-
-                if baseline_model is not None:
-                    eval_set = Pool(X_test_val, y_test_val)
-                    # CatBoost's set_baseline expects a raw-margin score per row, not necessarily an
-                    # integer -- `.astype(int)` used to TRUNCATE any continuous baseline (e.g. a
-                    # regressor/probability-emitting baseline_model) down to 0/1 instead of raising,
-                    # silently discarding the baseline's informativeness. A hard-label classifier's
-                    # predict() (already 0.0/1.0-valued) is unaffected by dropping the cast.
-                    eval_set.set_baseline(np.asarray(baseline_model.predict(X_test_val), dtype=np.float64))
-                else:
-                    eval_set = (X_test_val, y_test_val)
-
-                if type(X_train) in (Pool, str):
-                    pipe.fit(X_train, est__eval_set=eval_set, est__plot=plot, est__init_model=init_model)
-                else:
-                    pipe.fit(X_train, y_train, est__eval_set=eval_set, est__plot=plot, est__init_model=init_model)
-            else:
-                if type(X_train) in (Pool, str):
-                    pipe.fit(X_train)
-                else:
-                    pipe.fit(X_train, y_train)
-                X_test_test = X_test
-                y_test_test = y_test
+            X_test_test, y_test_test = _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, groups, baseline_model, X_train, pipe, plot, init_model, y_train)
 
             # ****************************************************************************************************************************
             # Get predictions for the test set
@@ -285,19 +254,7 @@ def evaluate_estimators(
                     probs = pipe.predict_proba(X_test_test)
                     nclasses = probs.shape[1]
 
-                    if nclasses == 2:
-                        if threshold is None:
-                            threshold = 1 / nclasses
-                        # Previous: `(probs > threshold).astype(int8)[:, pos_label]` returned a
-                        # 0/1 vector that was "1 iff prob of pos_label > threshold" — which is a
-                        # per-column thresholding semantic distinct from argmax. When pos_label=1
-                        # that collapses to the intended behavior; for pos_label=0 it silently
-                        # inverted the threshold's meaning. Use an explicit column threshold:
-                        preds = (probs[:, pos_label] > threshold).astype(np.int8)
-                    else:
-                        # Wave 21 P2: nan-safe argmax.
-                        from ..utils.nan_safe import argmax_classes_safe
-                        preds = argmax_classes_safe(probs, context="evaluation.reports")
+                    preds = _evaluate_estimator_nclasses(nclasses, threshold, probs, pos_label)
 
                     if nclasses == 2:
                         _bal_acc = balanced_accuracy_binary(y_test_test, preds)
@@ -352,48 +309,9 @@ def evaluate_estimators(
 
                     # Ordered target-name list for the fast report/plot (their kernels index by
                     # class 0..nclasses-1). target_names_to_use is a {label: display-name} dict.
-                    if isinstance(target_names_to_use, dict):
-                        _tn = [target_names_to_use.get(i, str(i)) for i in range(nclasses)]
-                    elif target_names_to_use is not None:
-                        _tn = list(target_names_to_use)
-                    else:
-                        _tn = None
+                    _tn = _evaluate_estimator_class_nclasses_target_names(target_names_to_use, nclasses)
 
-                    if show_classification_report:
-
-                        classification_report_text = format_classification_report(y_test_test, preds, nclasses=nclasses, target_names=_tn)
-                        logger.info("classification report:\n%s", classification_report_text)
-
-                        if results_log:
-                            _hits, _misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_avgs, weighted_avgs = (
-                                fast_classification_report(y_test_test, preds, nclasses=nclasses)
-                            )
-                            total_support = int(supports.sum())
-                            classification_report_dict = {
-                                str(_tn[i] if _tn else i): {
-                                    "precision": float(precisions[i]),
-                                    "recall": float(recalls[i]),
-                                    "f1-score": float(f1s[i]),
-                                    "support": int(supports[i]),
-                                }
-                                for i in range(nclasses)
-                            }
-                            classification_report_dict["accuracy"] = float(accuracy)
-                            # balanced_accuracy/macro_avgs/weighted_avgs were computed by fast_classification_report
-                            # but pre-fix silently dropped here (only accuracy + per-class rows reached the dict) --
-                            # mirror sklearn.metrics.classification_report's "macro avg"/"weighted avg" summary rows.
-                            classification_report_dict["balanced_accuracy"] = float(balanced_accuracy)
-                            classification_report_dict["macro avg"] = {
-                                "precision": float(macro_avgs[0]), "recall": float(macro_avgs[1]),
-                                "f1-score": float(macro_avgs[2]), "support": total_support,
-                            }
-                            classification_report_dict["weighted avg"] = {
-                                "precision": float(weighted_avgs[0]), "recall": float(weighted_avgs[1]),
-                                "f1-score": float(weighted_avgs[2]), "support": total_support,
-                            }
-
-                            log_result(results_log, "classification_report_dict", classification_report_dict)
-                            log_result(results_log, "classification_report_text", classification_report_text)
+                    classification_report_dict, classification_report_text = _evaluate_estimator_show_classification_report(show_classification_report, y_test_test, preds, nclasses, _tn, results_log, classification_report_dict, classification_report_text)
 
                     if show_confusion_matrix:
 
@@ -419,60 +337,177 @@ def evaluate_estimators(
                         # Library code must not leave figures open (memory leak under repeated evaluation) nor block on plt.show().
                         plt.close(fig_cm or plt.gcf())
 
-                    if show_calibration_plot:
-
-                        if use_sklearn_calibration:
-
-                            """Standard sklearn code"""
-
-                            # `_calib_class_label` (NOT `pos_label`) -- a plain `for` loop has no block
-                            # scope, so reusing the function's own `pos_label` parameter name here would
-                            # silently overwrite it (Python has no loop-local scoping); every later
-                            # estimator's `preds = (probs[:, pos_label] > threshold)...` above would then
-                            # see the LAST class index this loop reached instead of the caller's requested
-                            # `pos_label`, corrupting threshold predictions for every subsequent estimator.
-                            for _calib_class_label in range(nclasses):
-                                prob_pos = probs[:, _calib_class_label]
-                                prob_true, prob_pred = calibration_curve(y_test_test == _calib_class_label, prob_pos, n_bins=calibration_nbins)
-
-                                plt.figure(figsize=figsize)
-                                ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan=2)
-                                ax2 = plt.subplot2grid((3, 1), (2, 0))
-
-                                ax1.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
-
-                                ax1.plot(prob_pred, prob_true, "s-", label="%s" % (est_name,))
-
-                                ax2.hist(prob_pos, range=(0, 1), bins=10, label=est_name, histtype="step", lw=2)
-
-                                ax1.set_ylabel("Fraction of positives")
-                                ax1.set_ylim((-0.05, 1.05))
-                                ax1.legend(loc="lower right")
-                                ax1.set_title(f"Calibration plot for {display_labels[_calib_class_label]}")
-
-                                ax2.set_xlabel("Mean predicted value")
-                                ax2.set_ylabel("Count")
-                                ax2.legend(loc="upper center", ncol=2)
-
-                                plt.tight_layout()
-                                # Close instead of show: library code must not leak per-class figures nor block.
-                                plt.close()
-                        else:
-                            fig, _cal_metrics = make_custom_calibration_plot(
-                                y=y_test_test,
-                                probs=probs,
-                                nclasses=nclasses,
-                                nbins=calibration_nbins,
-                                display_labels=dict(enumerate(display_labels)) if display_labels is not None else None,
-                                figsize=figsize,
-                                competing_probs=competing_probs,
-                                X=X_test_test,
-                            )
-                            if fig is not None:
-                                # Close instead of show: library code must not leak the calibration figure nor block.
-                                plt.close(fig)
+                    _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklearn_calibration, nclasses, probs, y_test_test, calibration_nbins, figsize, est_name, display_labels, competing_probs, X_test_test)
 
     return pipe, classification_report_text, classification_report_dict, cm
+
+
+def _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, groups, baseline_model, X_train, pipe, plot, init_model, y_train):
+    """Block of evaluate_estimators starting at ``if val_size is not None and (("CatBoost" in type(est).__name__) or ('T``."""
+    if val_size is not None and (("CatBoost" in type(est).__name__) or ('TransformedTargetRegressor' in type(est).__name__ and ("CatBoost" in type(est.regressor).__name__))):
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Just a classifier with early stopping... Need to get early stopping set for it...
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if type(val_size) is float:
+            X_test_test, X_test_val, y_test_test, y_test_val = train_test_split(X_test, y_test, test_size=val_size, shuffle=shuffle, stratify=stratify)
+        else:
+            train_indices, test_indices = train_test_split_from_generator(gen=val_size, X=X_test, groups=groups)
+
+            X_test_test = X_test.iloc[train_indices, :]
+            X_test_val = X_test.iloc[test_indices, :]
+            y_test_test = y_test.iloc[train_indices] if hasattr(y_test, "iloc") else y_test[train_indices]
+            y_test_val = y_test.iloc[test_indices] if hasattr(y_test, "iloc") else y_test[test_indices]
+
+        if baseline_model is not None:
+            eval_set = Pool(X_test_val, y_test_val)
+            # CatBoost's set_baseline expects a raw-margin score per row, not necessarily an
+            # integer -- `.astype(int)` used to TRUNCATE any continuous baseline (e.g. a
+            # regressor/probability-emitting baseline_model) down to 0/1 instead of raising,
+            # silently discarding the baseline's informativeness. A hard-label classifier's
+            # predict() (already 0.0/1.0-valued) is unaffected by dropping the cast.
+            eval_set.set_baseline(np.asarray(baseline_model.predict(X_test_val), dtype=np.float64))
+        else:
+            eval_set = (X_test_val, y_test_val)
+
+        if type(X_train) in (Pool, str):
+            pipe.fit(X_train, est__eval_set=eval_set, est__plot=plot, est__init_model=init_model)
+        else:
+            pipe.fit(X_train, y_train, est__eval_set=eval_set, est__plot=plot, est__init_model=init_model)
+    else:
+        if type(X_train) in (Pool, str):
+            pipe.fit(X_train)
+        else:
+            pipe.fit(X_train, y_train)
+        X_test_test = X_test
+        y_test_test = y_test
+    return X_test_test, y_test_test
+
+
+def _evaluate_estimator_nclasses(nclasses, threshold, probs, pos_label):
+    """Block of evaluate_estimators starting at ``if nclasses == 2:``."""
+    if nclasses == 2:
+        if threshold is None:
+            threshold = 1 / nclasses
+        # Previous: `(probs > threshold).astype(int8)[:, pos_label]` returned a
+        # 0/1 vector that was "1 iff prob of pos_label > threshold" — which is a
+        # per-column thresholding semantic distinct from argmax. When pos_label=1
+        # that collapses to the intended behavior; for pos_label=0 it silently
+        # inverted the threshold's meaning. Use an explicit column threshold:
+        preds = (probs[:, pos_label] > threshold).astype(np.int8)
+    else:
+        # Wave 21 P2: nan-safe argmax.
+        from mlframe.utils.nan_safe import argmax_classes_safe
+        preds = argmax_classes_safe(probs, context="evaluation.reports")
+    return preds
+
+
+def _evaluate_estimator_class_nclasses_target_names(target_names_to_use, nclasses):
+    """Block of evaluate_estimators starting at ``if isinstance(target_names_to_use, dict):``."""
+    if isinstance(target_names_to_use, dict):
+        _tn = [target_names_to_use.get(i, str(i)) for i in range(nclasses)]
+    elif target_names_to_use is not None:
+        _tn = list(target_names_to_use)
+    else:
+        _tn = None
+    return _tn
+
+
+def _evaluate_estimator_show_classification_report(show_classification_report, y_test_test, preds, nclasses, _tn, results_log, classification_report_dict, classification_report_text):
+    """Block of evaluate_estimators starting at ``if show_classification_report:``."""
+    if show_classification_report:
+
+        classification_report_text = format_classification_report(y_test_test, preds, nclasses=nclasses, target_names=_tn)
+        logger.info("classification report:\n%s", classification_report_text)
+
+        if results_log:
+            _hits, _misses, accuracy, balanced_accuracy, supports, precisions, recalls, f1s, macro_avgs, weighted_avgs = fast_classification_report(
+                y_test_test, preds, nclasses=nclasses
+            )
+            total_support = int(supports.sum())
+            classification_report_dict = {
+                str(_tn[i] if _tn else i): {
+                    "precision": float(precisions[i]),
+                    "recall": float(recalls[i]),
+                    "f1-score": float(f1s[i]),
+                    "support": int(supports[i]),
+                }
+                for i in range(nclasses)
+            }
+            classification_report_dict["accuracy"] = float(accuracy)
+            # balanced_accuracy/macro_avgs/weighted_avgs were computed by fast_classification_report
+            # but pre-fix silently dropped here (only accuracy + per-class rows reached the dict) --
+            # mirror sklearn.metrics.classification_report's "macro avg"/"weighted avg" summary rows.
+            classification_report_dict["balanced_accuracy"] = float(balanced_accuracy)
+            classification_report_dict["macro avg"] = {
+                "precision": float(macro_avgs[0]), "recall": float(macro_avgs[1]),
+                "f1-score": float(macro_avgs[2]), "support": total_support,
+            }
+            classification_report_dict["weighted avg"] = {
+                "precision": float(weighted_avgs[0]), "recall": float(weighted_avgs[1]),
+                "f1-score": float(weighted_avgs[2]), "support": total_support,
+            }
+
+            log_result(results_log, "classification_report_dict", classification_report_dict)
+            log_result(results_log, "classification_report_text", classification_report_text)
+    return classification_report_dict, classification_report_text
+
+
+def _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklearn_calibration, nclasses, probs, y_test_test, calibration_nbins, figsize, est_name, display_labels, competing_probs, X_test_test):
+    """Block of evaluate_estimators starting at ``if show_calibration_plot:``."""
+    if show_calibration_plot:
+
+        if use_sklearn_calibration:
+
+            """Standard sklearn code"""
+
+            # `_calib_class_label` (NOT `pos_label`) -- a plain `for` loop has no block
+            # scope, so reusing the function's own `pos_label` parameter name here would
+            # silently overwrite it (Python has no loop-local scoping); every later
+            # estimator's `preds = (probs[:, pos_label] > threshold)...` above would then
+            # see the LAST class index this loop reached instead of the caller's requested
+            # `pos_label`, corrupting threshold predictions for every subsequent estimator.
+            for _calib_class_label in range(nclasses):
+                prob_pos = probs[:, _calib_class_label]
+                prob_true, prob_pred = calibration_curve(y_test_test == _calib_class_label, prob_pos, n_bins=calibration_nbins)
+
+                plt.figure(figsize=figsize)
+                ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan=2)
+                ax2 = plt.subplot2grid((3, 1), (2, 0))
+
+                ax1.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+
+                ax1.plot(prob_pred, prob_true, "s-", label="%s" % (est_name,))
+
+                ax2.hist(prob_pos, range=(0, 1), bins=10, label=est_name, histtype="step", lw=2)
+
+                ax1.set_ylabel("Fraction of positives")
+                ax1.set_ylim((-0.05, 1.05))
+                ax1.legend(loc="lower right")
+                ax1.set_title(f"Calibration plot for {display_labels[_calib_class_label]}")
+
+                ax2.set_xlabel("Mean predicted value")
+                ax2.set_ylabel("Count")
+                ax2.legend(loc="upper center", ncol=2)
+
+                plt.tight_layout()
+                # Close instead of show: library code must not leak per-class figures nor block.
+                plt.close()
+        else:
+            fig, _cal_metrics = make_custom_calibration_plot(
+                y=y_test_test,
+                probs=probs,
+                nclasses=nclasses,
+                nbins=calibration_nbins,
+                display_labels=dict(enumerate(display_labels)) if display_labels is not None else None,
+                figsize=figsize,
+                competing_probs=competing_probs,
+                X=X_test_test,
+            )
+            if fig is not None:
+                # Close instead of show: library code must not leak the calibration figure nor block.
+                plt.close(fig)
 
 
 def evaluate_grouped(

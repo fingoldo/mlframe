@@ -31,8 +31,11 @@ def test_kaleido_chart_save_sites_marked_best_effort():
 def test_training_loop_sites_marked_best_effort():
     """The multilabel-stack and post-hoc-calibration except handlers carry a marker."""
     import mlframe.training._training_loop as tl
+    import mlframe.training._training_loop_cb_utils as tl_cb_utils
+    import mlframe.training._training_loop_fallback_helpers as tl_fallback
 
-    src = inspect.getsource(tl)
+    # the facade's fallback body is split into helper modules; the markers live next to their handlers
+    src = "".join(inspect.getsource(m) for m in (tl, tl_cb_utils, tl_fallback))
     assert src.count("# best-effort:") == 2
 
 

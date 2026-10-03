@@ -8,7 +8,7 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from ..feature_handling.config import FeatureHandlingConfig
@@ -66,6 +66,8 @@ from ._main_train_suite_polars_gate import any_pipeline_stage_requested, needs_p
 from ._misc_helpers import _bulk_setattr_to_ctx, _split_preds_probs, _prep_polars_df, mirror_split_outputs_to_ctx  # noqa: F401
 from ._main_train_suite_defaults import _build_default_extractor, _infer_target_is_classification  # noqa: F401
 from ._main_train_suite_phases import (  # noqa: F401  (apply_module_global_patches re-exported for callers of this facade)
+    _enter_render_scope,
+    _exit_render_scope,
     apply_module_global_patches,
     begin_suite_process_state,
     apply_polars_cat_fixes_and_back_write_ctx,
@@ -88,30 +90,6 @@ from ._main_train_suite_phases import (  # noqa: F401  (apply_module_global_patc
 # Module-level binding lets tests monkeypatch them.
 apply_loky_cpu_count_override = None
 apply_third_party_patches_once = None
-
-
-def _enter_render_scope(ctx: Any, verbose: Any) -> tuple[Any, Any]:
-    """Start the suite's background render queue and make it thread-local-active.
-
-    The save chokepoints defer to it only when called from this thread, and ``_exit_render_scope`` (run from the suite's ``finally``)
-    guarantees every queued artifact is finished before the call returns.
-    """
-    from mlframe.reporting.async_render_hooks import render_queue_scope, start_suite_render_queue
-
-    queue = start_suite_render_queue(ctx.reporting_config, save_charts=bool(ctx.save_charts), data_dir=ctx.data_dir, verbose=bool(verbose))
-    scope = render_queue_scope(queue)
-    scope.__enter__()
-    return queue, scope
-
-
-def _exit_render_scope(queue: Any, scope: Any, ctx: Any) -> None:
-    """Finish every queued chart (folding failures into ``ctx.metadata``), then leave the queue scope even if the join raises."""
-    from mlframe.reporting.async_render_hooks import join_suite_render_queue
-
-    try:
-        join_suite_render_queue(queue, getattr(ctx, "metadata", None), final=True)
-    finally:
-        scope.__exit__(None, None, None)
 
 
 def train_mlframe_models_suite(

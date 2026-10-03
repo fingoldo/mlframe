@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import zlib
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Any
 
 import numpy as np
 
@@ -224,6 +224,8 @@ def evaluate_swap_candidate(
     decision (Critic1/B-2 pre-confirmation guarantee).
     """
     # ``SwapDecision`` lives in the DCD parent; lazy-import to avoid the parent<->swap import cycle.
+    rep_relevance: Any = None
+    rep_binned: Any = None
     from . import SwapDecision
     cluster = state.cluster_anchors.get(anchor, set())
     if len(cluster) < max(int(state.min_cluster_size), int(state.cluster_size_threshold)):
@@ -374,7 +376,6 @@ def evaluate_swap_candidate(
     # viable swap target on its own. The final branch is whichever of
     # ``aggregate`` / ``best_member`` has the higher CMI - both have to
     # individually beat the anchor by ``swap_gain_threshold``.
-    from ..info_theory import mi as _mi_func, conditional_mi as _cmi_func
     member_relevances: dict = {}
     best_member_idx = -1
     best_member_rel = float("-inf")
@@ -387,49 +388,7 @@ def evaluate_swap_candidate(
     # and why the one real call site's ``entropy_cache`` was never actually live to lose. Any failure
     # (shape mismatch, degenerate cardinality, ...) falls back to the exact original per-member loop with
     # its own per-member fail-to-0.0 semantics, unchanged.
-    try:
-        from ._dcd_member_rank_batch import batched_member_relevance
-        _rels = batched_member_relevance(
-            state.factors_data, np.asarray(_sorted_cluster, dtype=np.int64), target_arr,
-            list(S_minus_anchor), np.asarray(state.factors_nbins, dtype=np.int64),
-        )
-        for _k, m_idx in enumerate(_sorted_cluster):
-            m_rel = float(_rels[_k])
-            member_relevances[int(m_idx)] = m_rel
-            if m_rel > best_member_rel:
-                best_member_rel = m_rel
-                best_member_idx = int(m_idx)
-    except Exception as e:
-        logger.debug("member-relevance computation failed: %s", e)
-        member_relevances = {}
-        best_member_idx = -1
-        best_member_rel = float("-inf")
-        for m_idx in _sorted_cluster:
-            try:
-                if S_minus_anchor:
-                    m_rel = float(_cmi_func(
-                        factors_data=state.factors_data,
-                        x=np.array([int(m_idx)], dtype=np.int64),
-                        y=target_arr,
-                        z=np.array(S_minus_anchor, dtype=np.int64),
-                        var_is_nominal=None,
-                        factors_nbins=state.factors_nbins,
-                        entropy_cache=entropy_cache,
-                        can_use_x_cache=False, can_use_y_cache=True,
-                    ))
-                else:
-                    m_rel = float(_mi_func(
-                        state.factors_data,
-                        np.array([int(m_idx)], dtype=np.int64),
-                        target_arr, state.factors_nbins,
-                    ))
-            except Exception as e:
-                logger.debug("relevance computation failed for member %r, recording 0.0: %s", m_idx, e)
-                m_rel = 0.0
-            member_relevances[int(m_idx)] = m_rel
-            if m_rel > best_member_rel:
-                best_member_rel = m_rel
-                best_member_idx = int(m_idx)
+    best_member_idx, best_member_rel = _evaluate_swap_cand_its_own_per_member(state, _sorted_cluster, target_arr, S_minus_anchor, member_relevances, best_member_rel, entropy_cache, best_member_idx)
     gain_factor = 1.0 + float(state.swap_gain_threshold)
     # Cheap pre-filter ahead of the (potentially expensive) permutation null below. When a null
     # will actually run (``full_npermutations > 0``), soften this to plain dominance - the
@@ -467,17 +426,7 @@ def evaluate_swap_candidate(
     # ceil(1/swap_alpha) so 1/(B+1) < swap_alpha holds; otherwise the gate is
     # arithmetically un-passable (B=3 -> min-p 0.25 >> 0.05) and every swap is
     # silently rejected. Both the aggregate and member nulls use this B_eff.
-    if int(full_npermutations or 0) <= 0:
-        B_eff = 0
-    else:
-        B_eff = int(getattr(state, "swap_npermutations", 199) or 0)
-        if B_eff <= 0:
-            B_eff = int(full_npermutations)
-        _swap_alpha = float(state.swap_alpha)
-        if _swap_alpha > 0.0:
-            _min_B = int(np.ceil(1.0 / _swap_alpha))  # 1/(B_eff+1) < swap_alpha
-            if B_eff < _min_B:
-                B_eff = _min_B
+    B_eff = _evaluate_swap_cand_silently_rejected_both_aggregate(full_npermutations, state)
     # When the caller requested a permutation null (``full_npermutations > 0``), apply the SAME null to the member
     # candidate too. The point-CMI gate is upward-biased on small/noisy data; if the swap is firing on pure noise
     # the null catches it for the aggregate path - the member branch must not be a side door that bypasses it.
@@ -538,106 +487,7 @@ def evaluate_swap_candidate(
     # the upper tail of the shuffled-rep distribution.
     perm_p_value = 0.0
     B = B_eff
-    if B > 0:
-        try:
-            rng = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor))
-            # Persist rolling seed so successive swaps don't reuse the same null draws.
-            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B + 1
-            target_arr = np.asarray(target, dtype=np.int64)
-            n_exceed = 0
-            # Hoist permutation-invariant H(Z) + H(Y,Z) (only the appended rep
-            # column is shuffled, so y/z are fixed across draws). Bit-identical
-            # by construction; see _run_member_null + bench_dcd_swap_null_entropy_hoist.py.
-            # Also keeps the dense Z/YZ (or Y) CLASS LABEL arrays - not just their entropies - the
-            # batched-prange path below needs (previously discarded via ``_, _fz_a, _ = ...``).
-            _h_z_a = -1.0
-            _h_yz_a = -1.0
-            _h_x_a = -1.0
-            _h_y_a = -1.0
-            _z_classes_a = _z_nclasses_a = None
-            _yz_classes_a = _yz_nclasses_a = None
-            _y_classes_a = _y_nclasses_a = None
-            from ..info_theory import entropy as _entropy_a, merge_vars as _merge_a
-            if S_minus_anchor:
-                _z_arr_a = np.sort(np.array(S_minus_anchor, dtype=np.int64))
-                _z_classes_a, _fz_a, _z_nclasses_a = _merge_a(data_with_rep, _z_arr_a, None, np.asarray(nbins_with_rep, dtype=np.int64))
-                _h_z_a = float(_entropy_a(_fz_a))
-                _yz_arr_a = np.sort(np.concatenate([target_arr, _z_arr_a]))
-                _yz_classes_a, _fyz_a, _yz_nclasses_a = _merge_a(data_with_rep, _yz_arr_a, None, np.asarray(nbins_with_rep, dtype=np.int64))
-                _h_yz_a = float(_entropy_a(_fyz_a))
-            else:
-                # No-Z: I(rep; y). H(rep) is permutation-invariant (shuffle preserves the marginal) -> hoist it too.
-                _, _fx_a, _ = _merge_a(data_with_rep, np.array([new_col_idx], dtype=np.int64), None, np.asarray(nbins_with_rep, dtype=np.int64))
-                _h_x_a = float(_entropy_a(_fx_a))
-                _y_classes_a, _fy_a, _y_nclasses_a = _merge_a(data_with_rep, np.sort(target_arr), None, np.asarray(nbins_with_rep, dtype=np.int64))
-                _h_y_a = float(_entropy_a(_fy_a))
-
-            # BATCHED: the MEMBER branch's null (``_run_member_null`` ->
-            # ``_dcd_swap_null.run_member_null``) was already parallelised via ``prange`` over B
-            # pre-generated shuffles against precomputed Z/YZ class labelings; this AGGREGATE branch
-            # ran the equivalent B-loop serially, one ``conditional_mi``/``mi`` call per draw, because it
-            # discarded the class arrays those kernels need (see the hoist above). Reuse the SAME
-            # ``_dcd_swap_null`` kernels here instead of writing a new one. Tiny B keeps the exact serial
-            # mutate-free loop (prange spawn not worth it below ``_PARALLEL_MIN_B``, mirrors the member path).
-            from ._dcd_swap_null import _PARALLEL_MIN_B, _member_null_cmi_prange, _member_null_mi_prange
-            if B >= _PARALLEL_MIN_B:
-                # Pre-generate all B shuffles of the rep column SERIALLY with the SAME rng sequence the
-                # (still-present, tiny-B) serial path below uses - bit-identical permutation multiset -
-                # then ``prange`` the per-draw (C)MI over a thread-local shuffled column. No frame copy: Y/Z
-                # are read read-only from ``data_with_rep`` (already built once above), only the shuffled
-                # rep column is passed directly into the kernel.
-                n_rows = rep_binned.shape[0]
-                base_col = np.asarray(rep_binned, dtype=np.int64)
-                shuffles = np.empty((B, n_rows), dtype=np.int64)
-                for _b in range(B):
-                    s = base_col.copy()
-                    rng.shuffle(s)
-                    shuffles[_b] = s
-                nb_x = int(nbins_with_rep[new_col_idx])
-                if S_minus_anchor:
-                    # Statically guaranteed non-None here: the ``if S_minus_anchor:`` hoist branch above
-                    # (mirroring this same condition) always populates these before this point is reached.
-                    assert _z_classes_a is not None and _z_nclasses_a is not None
-                    assert _yz_classes_a is not None and _yz_nclasses_a is not None
-                    n_exceed = int(_member_null_cmi_prange(
-                        shuffles, nb_x, _z_classes_a.astype(np.int64), int(_z_nclasses_a),
-                        _yz_classes_a.astype(np.int64), int(_yz_nclasses_a), _h_z_a, _h_yz_a, float(rep_relevance),
-                    ))
-                else:
-                    assert _y_classes_a is not None and _y_nclasses_a is not None
-                    n_exceed = int(_member_null_mi_prange(
-                        shuffles, nb_x, _y_classes_a.astype(np.int64), int(_y_nclasses_a),
-                        _h_x_a, _h_y_a, float(rep_relevance),
-                    ))
-            else:
-                data_with_rep_perm = data_with_rep.copy()
-                for _ in range(B):
-                    rep_shuffled = rep_binned.copy()
-                    rng.shuffle(rep_shuffled)
-                    data_with_rep_perm[:, new_col_idx] = rep_shuffled
-                    if S_minus_anchor:
-                        null_rel = float(conditional_mi(
-                            factors_data=data_with_rep_perm,
-                            x=np.array([new_col_idx], dtype=np.int64),
-                            y=target_arr,
-                            z=np.array(S_minus_anchor, dtype=np.int64),
-                            var_is_nominal=None,
-                            factors_nbins=nbins_with_rep,
-                            entropy_z=_h_z_a, entropy_yz=_h_yz_a,
-                            entropy_cache=None,
-                            can_use_x_cache=False, can_use_y_cache=False,
-                        ))
-                    else:
-                        null_rel = float(mi(
-                            data_with_rep_perm, np.array([new_col_idx], dtype=np.int64),
-                            target_arr, nbins_with_rep,
-                        ))
-                    if null_rel >= rep_relevance:
-                        n_exceed += 1
-            perm_p_value = (n_exceed + 1) / (B + 1)
-        except Exception as exc:
-            logger.warning("DCD swap: permutation null failed (B=%s): %r", B, exc)
-            perm_p_value = 1.0  # conservative: fail closed
+    perm_p_value = _evaluate_swap_cand_upper_tail_shuffled_rep(B, state, anchor, target, S_minus_anchor, data_with_rep, nbins_with_rep, new_col_idx, rep_binned, rep_relevance, conditional_mi, mi, perm_p_value)
     accept = deterministic_gate and (B <= 0 or perm_p_value < float(state.swap_alpha))
     if not accept:
         # Layer 45: aggregate failed its permutation null. If the
@@ -713,6 +563,177 @@ def evaluate_swap_candidate(
         member_relevance=(best_member_rel if best_member_idx >= 0 else 0.0),
         rep_continuous=rep_continuous,
     )
+
+
+def _evaluate_swap_cand_its_own_per_member(state, _sorted_cluster, target_arr, S_minus_anchor, member_relevances, best_member_rel, entropy_cache, best_member_idx):
+    """Block of evaluate_swap_candidate starting at ``try:``."""
+    from mlframe.feature_selection.filters.info_theory import mi as _mi_func, conditional_mi as _cmi_func
+
+    try:
+        from mlframe.feature_selection.filters._dynamic_cluster_discovery._dcd_member_rank_batch import batched_member_relevance
+        _rels = batched_member_relevance(
+            state.factors_data, np.asarray(_sorted_cluster, dtype=np.int64), target_arr,
+            list(S_minus_anchor), np.asarray(state.factors_nbins, dtype=np.int64),
+        )
+        for _k, m_idx in enumerate(_sorted_cluster):
+            m_rel = float(_rels[_k])
+            member_relevances[int(m_idx)] = m_rel
+            if m_rel > best_member_rel:
+                best_member_rel = m_rel
+                best_member_idx = int(m_idx)
+    except Exception as e:
+        logger.debug("member-relevance computation failed: %s", e)
+        member_relevances = {}
+        best_member_idx = -1
+        best_member_rel = float("-inf")
+        for m_idx in _sorted_cluster:
+            try:
+                if S_minus_anchor:
+                    m_rel = float(_cmi_func(
+                        factors_data=state.factors_data,
+                        x=np.array([int(m_idx)], dtype=np.int64),
+                        y=target_arr,
+                        z=np.array(S_minus_anchor, dtype=np.int64),
+                        var_is_nominal=None,
+                        factors_nbins=state.factors_nbins,
+                        entropy_cache=entropy_cache,
+                        can_use_x_cache=False, can_use_y_cache=True,
+                    ))
+                else:
+                    m_rel = float(_mi_func(
+                        state.factors_data,
+                        np.array([int(m_idx)], dtype=np.int64),
+                        target_arr, state.factors_nbins,
+                    ))
+            except Exception as e:
+                logger.debug("relevance computation failed for member %r, recording 0.0: %s", m_idx, e)
+                m_rel = 0.0
+            member_relevances[int(m_idx)] = m_rel
+            if m_rel > best_member_rel:
+                best_member_rel = m_rel
+                best_member_idx = int(m_idx)
+    return best_member_idx, best_member_rel
+
+
+def _evaluate_swap_cand_silently_rejected_both_aggregate(full_npermutations, state):
+    """Block of evaluate_swap_candidate starting at ``if int(full_npermutations or 0) <= 0:``."""
+    if int(full_npermutations or 0) <= 0:
+        B_eff = 0
+    else:
+        B_eff = int(getattr(state, "swap_npermutations", 199) or 0)
+        if B_eff <= 0:
+            B_eff = int(full_npermutations)
+        _swap_alpha = float(state.swap_alpha)
+        if _swap_alpha > 0.0:
+            _min_B = int(np.ceil(1.0 / _swap_alpha))  # 1/(B_eff+1) < swap_alpha
+            if B_eff < _min_B:
+                B_eff = _min_B
+    return B_eff
+
+
+def _evaluate_swap_cand_upper_tail_shuffled_rep(B, state, anchor, target, S_minus_anchor, data_with_rep, nbins_with_rep, new_col_idx, rep_binned, rep_relevance, conditional_mi, mi, perm_p_value):
+    """Block of evaluate_swap_candidate starting at ``if B > 0:``."""
+    if B > 0:
+        try:
+            rng = np.random.default_rng(int(getattr(state, "_perm_seed", 0)) + int(anchor))
+            # Persist rolling seed so successive swaps don't reuse the same null draws.
+            state._perm_seed = int(getattr(state, "_perm_seed", 0)) + B + 1
+            target_arr = np.asarray(target, dtype=np.int64)
+            n_exceed = 0
+            # Hoist permutation-invariant H(Z) + H(Y,Z) (only the appended rep
+            # column is shuffled, so y/z are fixed across draws). Bit-identical
+            # by construction; see _run_member_null + bench_dcd_swap_null_entropy_hoist.py.
+            # Also keeps the dense Z/YZ (or Y) CLASS LABEL arrays - not just their entropies - the
+            # batched-prange path below needs (previously discarded via ``_, _fz_a, _ = ...``).
+            _h_z_a = -1.0
+            _h_yz_a = -1.0
+            _h_x_a = -1.0
+            _h_y_a = -1.0
+            _z_classes_a = _z_nclasses_a = None
+            _yz_classes_a = _yz_nclasses_a = None
+            _y_classes_a = _y_nclasses_a = None
+            from mlframe.feature_selection.filters.info_theory import entropy as _entropy_a, merge_vars as _merge_a
+            if S_minus_anchor:
+                _z_arr_a = np.sort(np.array(S_minus_anchor, dtype=np.int64))
+                _z_classes_a, _fz_a, _z_nclasses_a = _merge_a(data_with_rep, _z_arr_a, None, np.asarray(nbins_with_rep, dtype=np.int64))
+                _h_z_a = float(_entropy_a(_fz_a))
+                _yz_arr_a = np.sort(np.concatenate([target_arr, _z_arr_a]))
+                _yz_classes_a, _fyz_a, _yz_nclasses_a = _merge_a(data_with_rep, _yz_arr_a, None, np.asarray(nbins_with_rep, dtype=np.int64))
+                _h_yz_a = float(_entropy_a(_fyz_a))
+            else:
+                # No-Z: I(rep; y). H(rep) is permutation-invariant (shuffle preserves the marginal) -> hoist it too.
+                _, _fx_a, _ = _merge_a(data_with_rep, np.array([new_col_idx], dtype=np.int64), None, np.asarray(nbins_with_rep, dtype=np.int64))
+                _h_x_a = float(_entropy_a(_fx_a))
+                _y_classes_a, _fy_a, _y_nclasses_a = _merge_a(data_with_rep, np.sort(target_arr), None, np.asarray(nbins_with_rep, dtype=np.int64))
+                _h_y_a = float(_entropy_a(_fy_a))
+
+            # BATCHED: the MEMBER branch's null (``_run_member_null`` ->
+            # ``_dcd_swap_null.run_member_null``) was already parallelised via ``prange`` over B
+            # pre-generated shuffles against precomputed Z/YZ class labelings; this AGGREGATE branch
+            # ran the equivalent B-loop serially, one ``conditional_mi``/``mi`` call per draw, because it
+            # discarded the class arrays those kernels need (see the hoist above). Reuse the SAME
+            # ``_dcd_swap_null`` kernels here instead of writing a new one. Tiny B keeps the exact serial
+            # mutate-free loop (prange spawn not worth it below ``_PARALLEL_MIN_B``, mirrors the member path).
+            from mlframe.feature_selection.filters._dynamic_cluster_discovery._dcd_swap_null import _PARALLEL_MIN_B, _member_null_cmi_prange, _member_null_mi_prange
+            if B >= _PARALLEL_MIN_B:
+                # Pre-generate all B shuffles of the rep column SERIALLY with the SAME rng sequence the
+                # (still-present, tiny-B) serial path below uses - bit-identical permutation multiset -
+                # then ``prange`` the per-draw (C)MI over a thread-local shuffled column. No frame copy: Y/Z
+                # are read read-only from ``data_with_rep`` (already built once above), only the shuffled
+                # rep column is passed directly into the kernel.
+                n_rows = rep_binned.shape[0]
+                base_col = np.asarray(rep_binned, dtype=np.int64)
+                shuffles = np.empty((B, n_rows), dtype=np.int64)
+                for _b in range(B):
+                    s = base_col.copy()
+                    rng.shuffle(s)
+                    shuffles[_b] = s
+                nb_x = int(nbins_with_rep[new_col_idx])
+                if S_minus_anchor:
+                    # Statically guaranteed non-None here: the ``if S_minus_anchor:`` hoist branch above
+                    # (mirroring this same condition) always populates these before this point is reached.
+                    assert _z_classes_a is not None and _z_nclasses_a is not None
+                    assert _yz_classes_a is not None and _yz_nclasses_a is not None
+                    n_exceed = int(_member_null_cmi_prange(
+                        shuffles, nb_x, _z_classes_a.astype(np.int64), int(_z_nclasses_a),
+                        _yz_classes_a.astype(np.int64), int(_yz_nclasses_a), _h_z_a, _h_yz_a, float(rep_relevance),
+                    ))
+                else:
+                    assert _y_classes_a is not None and _y_nclasses_a is not None
+                    n_exceed = int(_member_null_mi_prange(
+                        shuffles, nb_x, _y_classes_a.astype(np.int64), int(_y_nclasses_a),
+                        _h_x_a, _h_y_a, float(rep_relevance),
+                    ))
+            else:
+                data_with_rep_perm = data_with_rep.copy()
+                for _ in range(B):
+                    rep_shuffled = rep_binned.copy()
+                    rng.shuffle(rep_shuffled)
+                    data_with_rep_perm[:, new_col_idx] = rep_shuffled
+                    if S_minus_anchor:
+                        null_rel = float(conditional_mi(
+                            factors_data=data_with_rep_perm,
+                            x=np.array([new_col_idx], dtype=np.int64),
+                            y=target_arr,
+                            z=np.array(S_minus_anchor, dtype=np.int64),
+                            var_is_nominal=None,
+                            factors_nbins=nbins_with_rep,
+                            entropy_z=_h_z_a, entropy_yz=_h_yz_a,
+                            entropy_cache=None,
+                            can_use_x_cache=False, can_use_y_cache=False,
+                        ))
+                    else:
+                        null_rel = float(mi(
+                            data_with_rep_perm, np.array([new_col_idx], dtype=np.int64),
+                            target_arr, nbins_with_rep,
+                        ))
+                    if null_rel >= rep_relevance:
+                        n_exceed += 1
+            perm_p_value = (n_exceed + 1) / (B + 1)
+        except Exception as exc:
+            logger.warning("DCD swap: permutation null failed (B=%s): %r", B, exc)
+            perm_p_value = 1.0  # conservative: fail closed
+    return perm_p_value
 
 def commit_swap(
     state: DCDState,

@@ -3423,12 +3423,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``.
         """
-        if not getattr(self, "_in_partial_fit_", False):
-            # An explicit fit() replaces the model, so a partial_fit stream restarts from its next batch; resuming the old buffer made partial_fit(A); fit(B);
-            # partial_fit(C) silently refit on A + C.
-            for _pf_attr in ("_partial_fit_X_buffer_", "_partial_fit_y_buffer_", "_partial_fit_batch_sizes_", "_partial_fit_n_seen_", "_partial_fit_n_since_refit_"):
-                if getattr(self, _pf_attr, None) is not None:
-                    setattr(self, _pf_attr, None)
+        _prior_y_sample: Any = None
+        self._fit_body_getattr_self_partial_fit()
         # Row-count guard, first thing: no length-validation existed anywhere before the MI/screening pipeline, so a mismatched (X, y) reached numba-njit
         # kernels (bounds checking compiled OUT for speed) with an out-of-bounds row index instead of a Python exception. Off the JIT-disabled fallback path
         # this happened to raise a clean pandas ValueError from an unrelated internal column assignment deep in the pipeline (accidental, not an intentional
@@ -3474,21 +3470,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         _fe_budget_setting = getattr(self, "fe_budget_learning", False)
         _fe_budget_learning_effective = bool(_fe_budget_setting)
         _fe_loaded_budgets: Optional[dict[str, float]] = None
-        if isinstance(_fe_budget_setting, str):
-            if _fe_budget_setting != "auto":
-                raise ValueError(f"fe_budget_learning must be True, False, or 'auto'; got {_fe_budget_setting!r}")
-            try:
-                from .._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
-
-                _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
-                self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
-                _fe_loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)
-                # "auto" fires ONLY when a previous explicit opt-in already persisted a budget for this
-                # exact dataset fingerprint - otherwise it is a strict no-op, identical to False.
-                _fe_budget_learning_effective = _fe_loaded_budgets is not None
-            except Exception as _fe_budget_probe_exc:
-                logger.warning("[MRMR] fe_budget_learning='auto': cache probe failed (%s); treating as disabled this fit.", _fe_budget_probe_exc)
-                _fe_budget_learning_effective = False
+        _fe_budget_learning_effective, _fe_loaded_budgets = self._fit_body_isinstance_fe_budget_setting(_fe_budget_setting, X, _fe_budget_learning_effective, _fe_loaded_budgets)
         if _fe_budget_learning_effective:
             apply_learned_fe_budgets(self, X, _fe_loaded_budgets, _fe_budget_quota_snapshot)
         self._check_groups_contract(groups)
@@ -3541,11 +3523,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # (categorical labels) where np.isnan would raise; numeric / float /
         # int paths get validated.
         _y_check = np.asarray(y)
-        if _y_check.dtype.kind in "fc":
-            _n_nan = int(np.isnan(_y_check).sum())
-            _n_inf = int(np.isinf(_y_check).sum())
-            if _n_nan or _n_inf:
-                raise ValueError(f"MRMR.fit: y contains {_n_nan} NaN and {_n_inf} +/-inf values. " f"MI estimation silently degrades on NaN; drop or impute these rows " f"before fitting.")
+        self._fit_body_int_paths_get_validated(_y_check)
 
         # Multi-output (2D y) opt-in. MRMR's merged-target greedy under-selects the 2nd genuine feature on a 2D y (the lazy confirmation step
         # drops it even though per-column MI is high), so fit one single-target selector per output column (the correct 1D path) and aggregate.
@@ -3605,17 +3583,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                 _ycorr_thr = float(getattr(self, "mrmr_identity_cache_ycorr_threshold", 0.0) or 0.0)
                 _ycorr_ok = True
                 _measured_corr = None
-                if _ycorr_thr > 0.0:
-                    if _prior_y_sample is not None:
-                        _measured_corr = _mrmr_y_corr(_mrmr_y_corr_sample(y), _prior_y_sample)
-                        # NaN corr (constant sample / mismatched length) is treated as "cannot confirm" -> refuse.
-                        _ycorr_ok = _measured_corr is not None and abs(_measured_corr) >= _ycorr_thr
-                    else:
-                        # The user asked for the y-correlation safety gate (thr > 0) but the cached entry is the
-                        # legacy bool format with no prior y-sample to check against - we cannot confirm the new
-                        # target matches the one that produced the cached identity selection. Refuse the shortcut
-                        # and run a full fit rather than emit a selection that never saw this y.
-                        _ycorr_ok = False
+                _measured_corr, _ycorr_ok = self._fit_body_ycorr_thr(_ycorr_thr, _prior_y_sample, y, _measured_corr, _ycorr_ok)
                 if _ycorr_ok:
                     logger.info(
                         "[MRMR] cross-target identity cache HIT for X fingerprint=%s (y-corr=%s, thr=%.3g) -- " "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
@@ -3684,23 +3652,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Subsetting X to survivor columns (pandas/polars/numpy) keeps the rest of fit unchanged; the screen
         # is best-effort - any failure falls through to the full path.
         _sis_input_space_info = None
-        try:
-            _sis_thr = int(getattr(self, "sis_screen_threshold", 0) or 0)
-            _p_in = int(X.shape[1]) if hasattr(X, "shape") and getattr(X, "ndim", 1) > 1 else 0
-            if _sis_thr and _p_in >= _sis_thr:
-                from .._mrmr_sis_apply import _sis_input_space
-
-                _sis_space = _sis_input_space(X)
-                X = self._apply_sis_screen(X, y)
-                _sis_input_space_info = _sis_space
-        except Exception as _sis_exc:
-            warnings.warn(
-                f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; falling back to the "
-                "full-width MRMR path (safe -- the screen is a fast-path optimisation, not a correctness "
-                "requirement; the fit still runs, just without the pre-screen speedup).",
-                UserWarning,
-                stacklevel=2,
-            )
+        X, _sis_input_space_info = self._fit_body_best_effort_any_failure(X, y, _sis_input_space_info)
 
         if isinstance(X, pd.DataFrame):
             X = X.copy(deep=False)
@@ -3712,44 +3664,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ORIGINAL values are captured here and restored in the finally block so
         # constructor-arg semantics stay stable across fits / pickling / clone.
         _fe_auto_restore: dict = {}
-        if bool(getattr(self, "fe_auto", False)):
-            try:
-                _rec_flags = recommend_fe_flags_by_rules(X, y)
-                for _flag, _on in _rec_flags.items():
-                    if _on and not bool(getattr(self, _flag, False)):
-                        _fe_auto_restore[_flag] = getattr(self, _flag, False)
-                        setattr(self, _flag, True)
-                # Persist the recommender's CHOSEN flags as a fit-only attribute so
-                # ``explain_selection()`` can narrate WHICH fe_* generators Layer-99 turned
-                # on for this fit. Pure metadata; the live flags are still restored in the
-                # finally block, so constructor-arg semantics stay stable.
-                self._fe_recommended_flags_ = dict(sorted(_rec_flags.items()))
-                if _fe_auto_restore:
-                    # 09_error_messages_ux.md: fe_auto=True is a behavior-ALTERING opt-in (it turns on FE
-                    # generators the caller didn't explicitly request) - logger.info alone is invisible
-                    # to a plain-script caller with default logging. Pair it with the same guaranteed-
-                    # visible warnings.warn channel the module already uses for "your setting was
-                    # silently overridden" situations (groups, group_aware_mi).
-                    logger.info(
-                        "[MRMR] fe_auto=True -> enabled FE generators for this fit: %s",
-                        sorted(_fe_auto_restore),
-                    )
-                    warnings.warn(
-                        f"MRMR.fit: fe_auto=True enabled these FE generator(s) for this fit: "
-                        f"{sorted(_fe_auto_restore)}. Pass fe_auto=False or set the fe_*_enable flags "
-                        "explicitly to silence this warning.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-            except Exception as _exc:
-                warnings.warn(
-                    f"MRMR fe_auto: rule recommender raised {type(_exc).__name__}: {_exc}. Proceeding "
-                    "with the explicitly-set fe_*_enable flags (safe -- fe_auto is a convenience "
-                    "recommender, not a correctness requirement).",
-                    UserWarning,
-                    stacklevel=2,
-                )
-                _fe_auto_restore = {}
+        _fe_auto_restore = self._fit_body_constructor_arg_semantics_stay(X, y, _fe_auto_restore)
 
         # activate thread-local SU normalization when mi_normalization='su'.
         # The toggle is read by evaluation.py / Fleuret loops at the scoring site so
@@ -3809,33 +3724,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # A typo (e.g. 'JMIM', 'jimm') would otherwise silently fall through to plain Fleuret with no signal
             # that the requested aggregator was ignored - fail loudly instead.
             _restore_toggles_snapshot_and_raise(ValueError(f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}."))
-        if _redundancy_agg == "auto":
-            # Data-dependent gate: run a cheap pre-fit synergy probe on (X, y). Route to JMIM only when the
-            # data is synergistic (XOR / sign-product pairs whose joint >> marginals); else stay plain
-            # Fleuret so the additive-regime over-selection that keeps 'jmim' opt-in cannot regress. The
-            # detector threshold is a multiple of a label-permuted null scale read from kernel_tuning_cache
-            # (data-derived, no hardcoded magic). Decision recorded on a fit-only attr for explain/logging.
-            _jmim_on = False
-            try:
-                _Xarr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
-                _yarr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
-                _jmim_on, _syn_info = detect_synergy(_Xarr, _yarr, random_seed=int(self._effective_random_seed() or 0))
-                self._synergy_auto_decision_ = {"jmim_engaged": bool(_jmim_on), "detector_failed": False, **_syn_info}
-                logger.info("[MRMR] redundancy_aggregator='auto' -> synergy detector: %s", self._synergy_auto_decision_)
-            except Exception as _exc:
-                warnings.warn(
-                    f"MRMR redundancy_aggregator='auto': synergy detector raised {type(_exc).__name__}: {_exc}. "
-                    "Falling back to plain Fleuret (safe -- the detector is a data-dependent gate, not a "
-                    "correctness requirement; set redundancy_aggregator='jmim' to force JMIM regardless).",
-                    UserWarning,
-                    stacklevel=2,
-                )
-                # ``detector_failed`` is the explicit, documented way to tell "detector crashed"
-                # apart from "detector ran and judged the data non-synergistic" - both otherwise
-                # look identical (jmim_engaged=False) to a caller who only checks that one key.
-                self._synergy_auto_decision_ = {"jmim_engaged": False, "detector_failed": True, "error": str(_exc)}
-        else:
-            _jmim_on = _redundancy_agg == "jmim"
+        _jmim_on = self._fit_body_requested_aggregator_was_ignored(_redundancy_agg, X, y)
         _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
         set_jmim_aggregator(_jmim_on)
         set_bur_lambda(_bur_lambda)
@@ -3920,28 +3809,14 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # can screen on ~30k rows at n=100k (168.8s -> ~75s, both compounds still recovered). Only knobs at
         # their package default are shrunk; restored in ``finally``. n below the screen size is a no-op.
         _default_screen_saved: dict = {}
-        try:
-            _n_rows_for_screen = int(X.shape[0]) if hasattr(X, "shape") else None
-            if _n_rows_for_screen is not None:
-                _default_screen_saved = self._apply_default_screen_subsample(_n_rows_for_screen)
-        except Exception as exc:
-            logger.debug("mrmr: default screen-subsample application failed; screening at full n: %r", exc, exc_info=True)
-            _default_screen_saved = {}
+        _default_screen_saved = self._fit_body_their_package_default_shrunk(X, _default_screen_saved)
         _fast_search_saved: dict = {}
         # Resolve the auto knobs first; an explicit True/False is never touched, and the fast-search pass below leaves
         # these alone because a resolved value no longer equals the None default it compares against.
         _fast_values = dict(self._FAST_SEARCH_OVERRIDES)
         _fast_on = bool(getattr(self, "fe_fast_search", False))
-        for _auto_attr, _pkg_value in self._AUTO_KNOB_DEFAULTS:
-            if getattr(self, _auto_attr, None) is None:
-                _fast_search_saved[_auto_attr] = None
-                setattr(self, _auto_attr, _fast_values[_auto_attr] if (_fast_on and _auto_attr in _fast_values) else _pkg_value)
-        if _fast_on:
-            try:
-                _fast_search_saved.update(self._apply_fast_search_profile())
-            except Exception as exc:
-                # No reset of the saved map: it already holds the auto-knob entries above, which still need restoring.
-                logger.debug("mrmr: fast-search profile application failed; using unmodified knobs: %r", exc, exc_info=True)
+        self._fit_body_these_alone_because_resolved(_fast_search_saved, _fast_on, _fast_values)
+        self._fit_body_fast(_fast_on, _fast_search_saved)
         # LAZY ctor-alias reconciliation (sklearn ``get_params`` stays byte-identical to what the user
         # passed). The constructor no longer promotes ``random_state`` -> ``random_seed``; that is
         # resolved HERE and the EFFECTIVE value is written onto the public attr for the fit duration so
@@ -3961,11 +3836,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # A freshly-constructed instance never has this attribute, so this is a no-op for it.
         _orig_skip_content = _UNSET
         _skip_shape = getattr(self, "skip_retraining_on_same_shape", None)
-        if _skip_shape is not None:
-            _eff_skip = bool(_skip_shape)
-            if _eff_skip != getattr(self, "skip_retraining_on_same_content", True):
-                _orig_skip_content = getattr(self, "skip_retraining_on_same_content", True)
-                self.skip_retraining_on_same_content = _eff_skip
+        _orig_skip_content = self._fit_body_freshly_constructed_instance_never(_skip_shape, _orig_skip_content)
         # _fit_impl's large-n regression adaptive-quantization
         # gate (adaptive_nbins_large_n_reg) permanently overwrote self.nbins_strategy/self.quantization_nbins
         # in place with no restore anywhere - breaking the sklearn clone()/get_params() round-trip contract
@@ -4040,27 +3911,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             except Exception as exc:
                 logger.debug("mrmr: provenance_ metadata build failed (diagnostic only): %r", exc, exc_info=True)
             # Stash X-fingerprint -> identity-bool in cross-target cache so a SUBSEQUENT fit (different y, same X) can early-skip the FE pipeline.
-            if _identity_skip and _x_fp is not None:
-                try:
-                    _is_id = getattr(self, "support_", None) is not None and len(self.support_) == X.shape[1] and len(getattr(self, "_engineered_features_", []) or []) == 0
-                    # Store (is_id, y_sample) so a later candidate hit can apply the y-correlation gate
-                    # (A1-06): the "prior identity implies new identity" assumption only holds for a target
-                    # correlated with the one that produced this entry. y_sample is a deterministic strided
-                    # numeric sample (cheap; never the full y). The value stays back-compatible: legacy bool
-                    # readers still see truthiness, and the read path below handles both bool and tuple.
-                    with _MRMR_IDENTITY_FP_LOCK:
-                        _cache_dict[_x_fp] = (bool(_is_id), _mrmr_y_corr_sample(y) if _is_id else None)
-                    if _is_id:
-                        # Remember which (X, y) fingerprint THIS instance's own real fit produced, so a
-                        # later self-refit on the identical pair defers to _fit_impl's precise same-instance
-                        # shortcuts instead of the coarse cross-target identity-shortcut above.
-                        self._own_last_identity_fp_ = _x_fp
-                        logger.info(
-                            "[MRMR] cross-target identity cache STORED for X fingerprint=%s " "(no features dropped, no engineered features); subsequent " "fits on this X will short-circuit.",
-                            _x_fp,
-                        )
-                except Exception as exc:
-                    logger.debug("mrmr: cross-target identity-cache store failed (optimisation only): %r", exc, exc_info=True)
+            self._fit_body_stash_fingerprint_identity_bool(_identity_skip, _x_fp, X, y, _cache_dict)
             # populate ``fe_provenance_`` from
             # the sibling module so users can audit which engineered
             # columns landed in support_, why (origin + mechanism
@@ -4138,38 +3989,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # restore the fast-search profile overrides (constructor-arg stability).
             # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
             # clone / pickle / repeated-fit see unchanged constructor-arg semantics.
-            if _default_screen_saved:
-
-                def _make_default_screen_restorer(_k: str, _v: Any) -> Callable[[], None]:
-                    """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
-                    return lambda: setattr(self, _k, _v)
-
-                for _k, _v in _default_screen_saved.items():
-                    _safe_restore(_make_default_screen_restorer(_k, _v), f"default-screen-subsample knob {_k!r}")
-            if _fast_search_saved:
-
-                def _restore_fast_search_knob(_k: str, _v: Any) -> None:
-                    """Restore one saved fast-search knob (plain attr, Fourier-detect cap, or an os.environ entry)."""
-                    if _k == "__fdcap__":
-                        if _v is None:
-                            clear_fourier_detect_cap()
-                        else:
-                            set_fourier_detect_cap(_v)
-                    elif _k.startswith("__env__"):
-                        _envk = _k[len("__env__") :]
-                        if _v is None:
-                            os.environ.pop(_envk, None)
-                        else:
-                            os.environ[_envk] = _v
-                    else:
-                        setattr(self, _k, _v)
-
-                def _make_fast_search_restorer(_k: str, _v: Any) -> Callable[[], None]:
-                    """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
-                    return lambda: _restore_fast_search_knob(_k, _v)
-
-                for _k, _v in _fast_search_saved.items():
-                    _safe_restore(_make_fast_search_restorer(_k, _v), f"fast-search knob {_k!r}")
+            self._fit_body_clone_pickle_repeated_fit(_default_screen_saved)
+            self._fit_body_fast_search_saved(_fast_search_saved)
 
             def _restore_fe_auto_flags() -> None:
                 """Restore every fe_*_enable flag fe_auto flipped ON back to its pre-fit value."""
@@ -4181,20 +4002,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             _safe_restore(_restore_fe_auto_flags, "fe_auto-flipped fe_*_enable flags")
             frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
             names = getattr(self, "_target_names_for_cleanup", None)
-            if frame is not None and names:
-                # Drop only columns that actually exist (success path already removed them).
-                present = [c for c in names if c in frame.columns]
-                if present:
-                    # Restore the caller's frame in place (it stored this exact object for cleanup); option_context
-                    # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
-                    def _drop_target_cleanup_columns() -> None:
-                        """Drop the temporary targ_* columns this fit injected into the caller's own frame."""
-                        with pd.option_context("mode.chained_assignment", None):
-                            # `inplace=True` is required here, not a habit: this must mutate the caller's stored frame OBJECT
-                            # by identity, and rebinding a local would silently not clean up the caller's actual frame.
-                            frame.drop(columns=present, inplace=True)  # noqa: PD002
-
-                    _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
+            self._fit_body_frame_none_names(frame, names)
             self._pandas_frame_for_target_cleanup = None
             self._target_names_for_cleanup = None
 
@@ -4216,6 +4024,269 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                 self.signature = (*_sig[:-1], _hashable_params_signature(self.get_params(deep=True)))
 
             _safe_restore(_refresh_signature_params_post_restore, "post-restore signature params refresh")
+
+    def _fit_body_clone_pickle_repeated_fit(self, _default_screen_saved):
+        """Block of _fit_body starting at ``if _default_screen_saved:``."""
+        if _default_screen_saved:
+
+            def _make_default_screen_restorer(_k: str, _v: Any) -> Callable[[], None]:
+                """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
+                return lambda: setattr(self, _k, _v)
+
+            for _k, _v in _default_screen_saved.items():
+                _safe_restore(_make_default_screen_restorer(_k, _v), f"default-screen-subsample knob {_k!r}")
+
+    def _fit_body_getattr_self_partial_fit(self):
+        """Block of _fit_body starting at ``if not getattr(self, "_in_partial_fit_", False):``."""
+        if not getattr(self, "_in_partial_fit_", False):
+            # An explicit fit() replaces the model, so a partial_fit stream restarts from its next batch; resuming the old buffer made partial_fit(A); fit(B);
+            # partial_fit(C) silently refit on A + C.
+            for _pf_attr in ("_partial_fit_X_buffer_", "_partial_fit_y_buffer_", "_partial_fit_batch_sizes_", "_partial_fit_n_seen_", "_partial_fit_n_since_refit_"):
+                if getattr(self, _pf_attr, None) is not None:
+                    setattr(self, _pf_attr, None)
+
+    def _fit_body_isinstance_fe_budget_setting(self, _fe_budget_setting, X, _fe_budget_learning_effective, _fe_loaded_budgets):
+        """Block of _fit_body starting at ``if isinstance(_fe_budget_setting, str):``."""
+        if isinstance(_fe_budget_setting, str):
+            if _fe_budget_setting != "auto":
+                raise ValueError(f"fe_budget_learning must be True, False, or 'auto'; got {_fe_budget_setting!r}")
+            try:
+                from mlframe.feature_selection.filters._fe_family_budget import dataset_fingerprint as _fe_budget_fp, load_budgets as _fe_load_budgets
+
+                _fe_budget_cols = list(X.columns) if hasattr(X, "columns") else [str(i) for i in range(np.asarray(X).shape[1])]
+                self._fe_budget_fingerprint_ = _fe_budget_fp(len(_fe_budget_cols), _fe_budget_cols)
+                _fe_loaded_budgets = _fe_load_budgets(fingerprint=self._fe_budget_fingerprint_)
+                # "auto" fires ONLY when a previous explicit opt-in already persisted a budget for this
+                # exact dataset fingerprint - otherwise it is a strict no-op, identical to False.
+                _fe_budget_learning_effective = _fe_loaded_budgets is not None
+            except Exception as _fe_budget_probe_exc:
+                logger.warning("[MRMR] fe_budget_learning='auto': cache probe failed (%s); treating as disabled this fit.", _fe_budget_probe_exc)
+                _fe_budget_learning_effective = False
+        return _fe_budget_learning_effective, _fe_loaded_budgets
+
+    @staticmethod
+    def _fit_body_int_paths_get_validated(_y_check):
+        """Block of _fit_body starting at ``if _y_check.dtype.kind in "fc":``."""
+        if _y_check.dtype.kind in "fc":
+            _n_nan = int(np.isnan(_y_check).sum())
+            _n_inf = int(np.isinf(_y_check).sum())
+            if _n_nan or _n_inf:
+                raise ValueError(f"MRMR.fit: y contains {_n_nan} NaN and {_n_inf} +/-inf values. " f"MI estimation silently degrades on NaN; drop or impute these rows " f"before fitting.")
+
+    @staticmethod
+    def _fit_body_ycorr_thr(_ycorr_thr, _prior_y_sample, y, _measured_corr, _ycorr_ok):
+        """Block of _fit_body starting at ``if _ycorr_thr > 0.0:``."""
+        if _ycorr_thr > 0.0:
+            if _prior_y_sample is not None:
+                _measured_corr = _mrmr_y_corr(_mrmr_y_corr_sample(y), _prior_y_sample)
+                # NaN corr (constant sample / mismatched length) is treated as "cannot confirm" -> refuse.
+                _ycorr_ok = _measured_corr is not None and abs(_measured_corr) >= _ycorr_thr
+            else:
+                # The user asked for the y-correlation safety gate (thr > 0) but the cached entry is the
+                # legacy bool format with no prior y-sample to check against - we cannot confirm the new
+                # target matches the one that produced the cached identity selection. Refuse the shortcut
+                # and run a full fit rather than emit a selection that never saw this y.
+                _ycorr_ok = False
+        return _measured_corr, _ycorr_ok
+
+    def _fit_body_best_effort_any_failure(self, X, y, _sis_input_space_info):
+        """Block of _fit_body starting at ``try:``."""
+        try:
+            _sis_thr = int(getattr(self, "sis_screen_threshold", 0) or 0)
+            _p_in = int(X.shape[1]) if hasattr(X, "shape") and getattr(X, "ndim", 1) > 1 else 0
+            if _sis_thr and _p_in >= _sis_thr:
+                from mlframe.feature_selection.filters._mrmr_sis_apply import _sis_input_space
+
+                _sis_space = _sis_input_space(X)
+                X = self._apply_sis_screen(X, y)
+                _sis_input_space_info = _sis_space
+        except Exception as _sis_exc:
+            warnings.warn(
+                f"MRMR SIS front gate raised {type(_sis_exc).__name__}: {_sis_exc}; falling back to the "
+                "full-width MRMR path (safe -- the screen is a fast-path optimisation, not a correctness "
+                "requirement; the fit still runs, just without the pre-screen speedup).",
+                UserWarning,
+                stacklevel=2,
+            )
+        return X, _sis_input_space_info
+
+    def _fit_body_constructor_arg_semantics_stay(self, X, y, _fe_auto_restore):
+        """Block of _fit_body starting at ``if bool(getattr(self, "fe_auto", False)):``."""
+        if bool(getattr(self, "fe_auto", False)):
+            try:
+                _rec_flags = recommend_fe_flags_by_rules(X, y)
+                for _flag, _on in _rec_flags.items():
+                    if _on and not bool(getattr(self, _flag, False)):
+                        _fe_auto_restore[_flag] = getattr(self, _flag, False)
+                        setattr(self, _flag, True)
+                # Persist the recommender's CHOSEN flags as a fit-only attribute so
+                # ``explain_selection()`` can narrate WHICH fe_* generators Layer-99 turned
+                # on for this fit. Pure metadata; the live flags are still restored in the
+                # finally block, so constructor-arg semantics stay stable.
+                self._fe_recommended_flags_ = dict(sorted(_rec_flags.items()))
+                if _fe_auto_restore:
+                    # 09_error_messages_ux.md: fe_auto=True is a behavior-ALTERING opt-in (it turns on FE
+                    # generators the caller didn't explicitly request) - logger.info alone is invisible
+                    # to a plain-script caller with default logging. Pair it with the same guaranteed-
+                    # visible warnings.warn channel the module already uses for "your setting was
+                    # silently overridden" situations (groups, group_aware_mi).
+                    logger.info(
+                        "[MRMR] fe_auto=True -> enabled FE generators for this fit: %s",
+                        sorted(_fe_auto_restore),
+                    )
+                    warnings.warn(
+                        f"MRMR.fit: fe_auto=True enabled these FE generator(s) for this fit: "
+                        f"{sorted(_fe_auto_restore)}. Pass fe_auto=False or set the fe_*_enable flags "
+                        "explicitly to silence this warning.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+            except Exception as _exc:
+                warnings.warn(
+                    f"MRMR fe_auto: rule recommender raised {type(_exc).__name__}: {_exc}. Proceeding "
+                    "with the explicitly-set fe_*_enable flags (safe -- fe_auto is a convenience "
+                    "recommender, not a correctness requirement).",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                _fe_auto_restore = {}
+        return _fe_auto_restore
+
+    def _fit_body_requested_aggregator_was_ignored(self, _redundancy_agg, X, y):
+        """Block of _fit_body starting at ``if _redundancy_agg == "auto":``."""
+        if _redundancy_agg == "auto":
+            # Data-dependent gate: run a cheap pre-fit synergy probe on (X, y). Route to JMIM only when the
+            # data is synergistic (XOR / sign-product pairs whose joint >> marginals); else stay plain
+            # Fleuret so the additive-regime over-selection that keeps 'jmim' opt-in cannot regress. The
+            # detector threshold is a multiple of a label-permuted null scale read from kernel_tuning_cache
+            # (data-derived, no hardcoded magic). Decision recorded on a fit-only attr for explain/logging.
+            _jmim_on = False
+            try:
+                _Xarr = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
+                _yarr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
+                _jmim_on, _syn_info = detect_synergy(_Xarr, _yarr, random_seed=int(self._effective_random_seed() or 0))
+                self._synergy_auto_decision_ = {"jmim_engaged": bool(_jmim_on), "detector_failed": False, **_syn_info}
+                logger.info("[MRMR] redundancy_aggregator='auto' -> synergy detector: %s", self._synergy_auto_decision_)
+            except Exception as _exc:
+                warnings.warn(
+                    f"MRMR redundancy_aggregator='auto': synergy detector raised {type(_exc).__name__}: {_exc}. "
+                    "Falling back to plain Fleuret (safe -- the detector is a data-dependent gate, not a "
+                    "correctness requirement; set redundancy_aggregator='jmim' to force JMIM regardless).",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                # ``detector_failed`` is the explicit, documented way to tell "detector crashed"
+                # apart from "detector ran and judged the data non-synergistic" - both otherwise
+                # look identical (jmim_engaged=False) to a caller who only checks that one key.
+                self._synergy_auto_decision_ = {"jmim_engaged": False, "detector_failed": True, "error": str(_exc)}
+        else:
+            _jmim_on = _redundancy_agg == "jmim"
+        return _jmim_on
+
+    def _fit_body_their_package_default_shrunk(self, X, _default_screen_saved):
+        """Block of _fit_body starting at ``try:``."""
+        try:
+            _n_rows_for_screen = int(X.shape[0]) if hasattr(X, "shape") else None
+            if _n_rows_for_screen is not None:
+                _default_screen_saved = self._apply_default_screen_subsample(_n_rows_for_screen)
+        except Exception as exc:
+            logger.debug("mrmr: default screen-subsample application failed; screening at full n: %r", exc, exc_info=True)
+            _default_screen_saved = {}
+        return _default_screen_saved
+
+    def _fit_body_these_alone_because_resolved(self, _fast_search_saved, _fast_on, _fast_values):
+        """Block of _fit_body starting at ``for _auto_attr, _pkg_value in self._AUTO_KNOB_DEFAULTS:``."""
+        for _auto_attr, _pkg_value in self._AUTO_KNOB_DEFAULTS:
+            if getattr(self, _auto_attr, None) is None:
+                _fast_search_saved[_auto_attr] = None
+                setattr(self, _auto_attr, _fast_values[_auto_attr] if (_fast_on and _auto_attr in _fast_values) else _pkg_value)
+
+    def _fit_body_fast(self, _fast_on, _fast_search_saved):
+        """Block of _fit_body starting at ``if _fast_on:``."""
+        if _fast_on:
+            try:
+                _fast_search_saved.update(self._apply_fast_search_profile())
+            except Exception as exc:
+                # No reset of the saved map: it already holds the auto-knob entries above, which still need restoring.
+                logger.debug("mrmr: fast-search profile application failed; using unmodified knobs: %r", exc, exc_info=True)
+
+    def _fit_body_freshly_constructed_instance_never(self, _skip_shape, _orig_skip_content):
+        """Block of _fit_body starting at ``if _skip_shape is not None:``."""
+        if _skip_shape is not None:
+            _eff_skip = bool(_skip_shape)
+            if _eff_skip != getattr(self, "skip_retraining_on_same_content", True):
+                _orig_skip_content = getattr(self, "skip_retraining_on_same_content", True)
+                self.skip_retraining_on_same_content = _eff_skip
+        return _orig_skip_content
+
+    def _fit_body_stash_fingerprint_identity_bool(self, _identity_skip, _x_fp, X, y, _cache_dict):
+        """Block of _fit_body starting at ``if _identity_skip and _x_fp is not None:``."""
+        if _identity_skip and _x_fp is not None:
+            try:
+                _is_id = getattr(self, "support_", None) is not None and len(self.support_) == X.shape[1] and len(getattr(self, "_engineered_features_", []) or []) == 0
+                # Store (is_id, y_sample) so a later candidate hit can apply the y-correlation gate
+                # (A1-06): the "prior identity implies new identity" assumption only holds for a target
+                # correlated with the one that produced this entry. y_sample is a deterministic strided
+                # numeric sample (cheap; never the full y). The value stays back-compatible: legacy bool
+                # readers still see truthiness, and the read path below handles both bool and tuple.
+                with _MRMR_IDENTITY_FP_LOCK:
+                    _cache_dict[_x_fp] = (bool(_is_id), _mrmr_y_corr_sample(y) if _is_id else None)
+                if _is_id:
+                    # Remember which (X, y) fingerprint THIS instance's own real fit produced, so a
+                    # later self-refit on the identical pair defers to _fit_impl's precise same-instance
+                    # shortcuts instead of the coarse cross-target identity-shortcut above.
+                    self._own_last_identity_fp_ = _x_fp
+                    logger.info(
+                        "[MRMR] cross-target identity cache STORED for X fingerprint=%s " "(no features dropped, no engineered features); subsequent " "fits on this X will short-circuit.",
+                        _x_fp,
+                    )
+            except Exception as exc:
+                logger.debug("mrmr: cross-target identity-cache store failed (optimisation only): %r", exc, exc_info=True)
+
+    def _fit_body_fast_search_saved(self, _fast_search_saved):
+        """Block of _fit_body starting at ``if _fast_search_saved:``."""
+        if _fast_search_saved:
+
+            def _restore_fast_search_knob(_k: str, _v: Any) -> None:
+                """Restore one saved fast-search knob (plain attr, Fourier-detect cap, or an os.environ entry)."""
+                if _k == "__fdcap__":
+                    if _v is None:
+                        clear_fourier_detect_cap()
+                    else:
+                        set_fourier_detect_cap(_v)
+                elif _k.startswith("__env__"):
+                    _envk = _k[len("__env__") :]
+                    if _v is None:
+                        os.environ.pop(_envk, None)
+                    else:
+                        os.environ[_envk] = _v
+                else:
+                    setattr(self, _k, _v)
+
+            def _make_fast_search_restorer(_k: str, _v: Any) -> Callable[[], None]:
+                """Bind (_k, _v) into a niladic restorer so the loop variables are captured by value, not by reference."""
+                return lambda: _restore_fast_search_knob(_k, _v)
+
+            for _k, _v in _fast_search_saved.items():
+                _safe_restore(_make_fast_search_restorer(_k, _v), f"fast-search knob {_k!r}")
+
+    @staticmethod
+    def _fit_body_frame_none_names(frame, names):
+        """Block of _fit_body starting at ``if frame is not None and names:``."""
+        if frame is not None and names:
+            # Drop only columns that actually exist (success path already removed them).
+            present = [c for c in names if c in frame.columns]
+            if present:
+                # Restore the caller's frame in place (it stored this exact object for cleanup); option_context
+                # silences the conservative SettingWithCopy heuristic on a possibly-viewed frame, no copy.
+                def _drop_target_cleanup_columns() -> None:
+                    """Drop the temporary targ_* columns this fit injected into the caller's own frame."""
+                    with pd.option_context("mode.chained_assignment", None):
+                        # `inplace=True` is required here, not a habit: this must mutate the caller's stored frame OBJECT
+                        # by identity, and rebinding a local would silently not clean up the caller's actual frame.
+                        frame.drop(columns=present, inplace=True)  # noqa: PD002
+
+                _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
 
     # ``_fit_impl`` is implemented in ``_mrmr_fit_impl.py`` and bound onto
     # this class at the bottom of this module.

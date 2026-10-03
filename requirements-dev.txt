@@ -57,5 +57,5 @@
 # Bumped 2026-09-22 from d619ced to b8aaa18: the runtime_registry_mutation and discarded_model_copy checks.
 # Bumped 2026-09-24 from a5f2154 to 6a8e382 (v1.17.0): one pin for this file, every workflow `uses:` ref, the reusable workflows'
 # py-ci-shared-ref input and the pre-commit rev; 1.17.0 fails a missing baseline, an unparsable file and an empty scan.
-# Bumped 2026-09-27 from 6a8e382 to f6aa24a (v1.18.0), same set of pins.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@f6aa24a3679d96ffb819615e4ac47494d7b9452b  # v1.18.0  # pragma: allowlist secret
+# Bumped 2026-10-03 from f6aa24a to 9779e9f (still v1.18.0: f6aa24a plus the black_filtered_apply --check speed-up that keeps the tests/ Black job under its 15-minute limit; the 1.19-1.20 gates are not adopted yet), same set of pins.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@9779e9f9b3fe366bbc96bf0624e0b353bf4678fb  # v1.18.0  # pragma: allowlist secret

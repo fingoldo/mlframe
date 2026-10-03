@@ -99,7 +99,7 @@ from __future__ import annotations
 import logging
 import threading
 import zlib
-from typing import Optional
+from typing import Optional, Any
 
 import numpy as np
 
@@ -264,6 +264,7 @@ def apply_cmi_redundancy_gate(
     unreliable) - ACCEPT every candidate on its marginal significance rather
     than rejecting everything.
     """
+    _yhit: Any = None
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, _renumber_joint
 
     names = list(candidates.keys())
@@ -302,17 +303,7 @@ def apply_cmi_redundancy_gate(
     except Exception as e:
         logger.debug("y-dense memo key computation failed, skipping the memo: %s", e)
         _yhit = None
-    if _yhit is not None:
-        y_dense = _yhit.copy()
-    else:
-        _, y_dense = np.unique(y_arr, return_inverse=True)
-        y_dense = y_dense.astype(np.int64)
-        if _yk is not None:
-            with _Y_DENSE_MEMO_LOCK:
-                if len(_Y_DENSE_MEMO) > 8:
-                    # evict-ok: memo; a miss recomputes the value
-                    _Y_DENSE_MEMO.pop(next(iter(_Y_DENSE_MEMO)))
-                _Y_DENSE_MEMO[_yk] = y_dense.copy()
+    y_dense = _apply_cmi_redundan_yhit_none(_yhit, y_arr, _yk)
     n_rows = int(y_dense.size)
 
     # Degenerate: nothing to condition on, or too few rows for a reliable
@@ -339,13 +330,7 @@ def apply_cmi_redundancy_gate(
     for nm in names:
         vals = np.asarray(candidates[nm][0], dtype=np.float64)
         _dev = None
-        if _gate_resident and np.isfinite(vals).all():
-            try:
-                from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
-                _dev = _quantile_bin_gpu_resident(vals, nbins)
-            except Exception as e:
-                logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
-                _dev = None
+        _dev = _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _dev)
         if _dev is not None:
             import cupy as _cp
             cand_bins_dev[nm] = _dev
@@ -371,33 +356,8 @@ def apply_cmi_redundancy_gate(
     # partition collapses to the same key.
     _partition_rep: dict = {}  # canonical partition key -> representative name
     _dups_collapsed: list[str] = []
-    for nm in sorted(names):  # deterministic iteration (name order)
-        _, inv = np.unique(cand_bins[nm], return_inverse=True)
-        key = inv.astype(np.int64).tobytes()
-        rep = _partition_rep.get(key)
-        if rep is None:
-            _partition_rep[key] = nm
-        else:
-            # keep the higher-marginal-MI rep; the loser is a collapsed duplicate
-            if marg[nm] > marg[rep] or (marg[nm] == marg[rep] and nm < rep):
-                _partition_rep[key] = nm
-                _dups_collapsed.append(rep)
-            else:
-                _dups_collapsed.append(nm)
-    if _dups_collapsed:
-        _keep = set(_partition_rep.values())
-        names = [nm for nm in names if nm in _keep]
-        for nm in _dups_collapsed:
-            diagnostics[nm] = dict(
-                accept=False, cmi=float(marg.get(nm, candidates[nm][1])),
-                cmi_excess=0.0, floor=0.0, null_mean=0.0, rel_bar=0.0,
-                reason="redundant_partition_duplicate",
-            )
-        if verbose:
-            logger.info(
-                "CMI-redundancy gate: collapsed %d exact-partition duplicate(s) " "(monotone/linear remaps of a kept feature) before the greedy.",
-                len(_dups_collapsed),
-            )
+    nm = _apply_cmi_redundan_partition_collapses_same_key(names, cand_bins, _partition_rep, marg, _dups_collapsed, nm)
+    names, nm = _apply_cmi_redundan_dups_collapsed(_dups_collapsed, _partition_rep, names, marg, candidates, diagnostics, verbose, nm)
 
     # COST GUARD: the greedy below is O(K^2) in the candidate count. When the pool
     # is STILL wide after partition dedup, PRE-RANK by marginal MI and keep only the
@@ -407,24 +367,7 @@ def apply_cmi_redundancy_gate(
     # candidates (which the greedy would reject anyway) never pay the per-round
     # permutation-null cost. ``max_candidates <= 0`` disables it.
     _dropped_for_cost: list[str] = []
-    if int(max_candidates) > 0 and len(names) > int(max_candidates):
-        names_by_marg = sorted(names, key=lambda nm: (float(candidates[nm][1]), nm), reverse=True)
-        _dropped_for_cost = names_by_marg[int(max_candidates) :]
-        names = names_by_marg[: int(max_candidates)]
-        for nm in _dropped_for_cost:
-            diagnostics[nm] = dict(
-                accept=False, cmi=float(candidates[nm][1]),
-                cmi_excess=0.0, floor=0.0, null_mean=0.0, rel_bar=0.0,
-                reason="dropped_cost_cap",
-            )
-        if verbose:
-            logger.info(
-                "CMI-redundancy gate: cost cap -- %d distinct-partition candidate(s) "
-                "exceed max_candidates=%d; kept the top %d by marginal MI, dropped %d "
-                "low-marginal-MI tail candidate(s) before the O(K^2) greedy.",
-                len(_dropped_for_cost) + int(max_candidates), int(max_candidates),
-                int(max_candidates), len(_dropped_for_cost),
-            )
+    names, nm = _apply_cmi_redundan_permutation_null_cost_max(max_candidates, names, candidates, diagnostics, verbose, nm)
 
     accepted: list[str] = []  # admitted candidate names, in selection order
     accepted_bins: list[np.ndarray] = []
@@ -509,21 +452,8 @@ def apply_cmi_redundancy_gate(
         _prev_z_support, _prev_z_card = _pending_z_support, _pending_z_card
         _pending_z_support, _pending_z_card = None, None
         z_support_dev = None
-        if _gate_resident and accepted_bins_dev and all(_b is not None for _b in accepted_bins_dev):
-            try:
-                from ._mi_greedy_cmi_fe import _renumber_joint_gpu
-                z_support_dev, _ = _renumber_joint_gpu(*accepted_bins_dev)
-            except Exception as e:
-                logger.debug("_renumber_joint_gpu failed, falling back to the host path: %s", e)
-                z_support_dev = None
-        if z_support_dev is None:
-            if _prev_z_support is not None:
-                z_support, _z_card = _prev_z_support, _prev_z_card
-            else:
-                z_support, _z_card = _renumber_joint(*accepted_bins)
-        else:
-            z_support = None  # host support built lazily only if a host consumer needs it this round
-            _z_card = None
+        z_support_dev = _apply_cmi_redundan_gate_resident_accepted_bins(_gate_resident, accepted_bins_dev, z_support_dev)
+        _z_card, z_support = _apply_cmi_redundan_support_dev_none(z_support_dev, _prev_z_support, _prev_z_card, accepted_bins, z_support)
         # z handed to the DEVICE scorers (round-batched CMI + per-candidate CMI): the resident support when
         # device-born, else the host support - both accepted by the cupy resident-input branches.
         _z_scored = z_support_dev if z_support_dev is not None else z_support
@@ -581,19 +511,7 @@ def apply_cmi_redundancy_gate(
                     _kxyz_a = np.asarray(_kxyz)
                     _round_cards = {_nm: (int(_kz), int(_kxz_a[_j]), int(_kyz), int(_kxyz_a[_j])) for _j, _nm in enumerate(_rem_list)}
                 # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
-                try:
-                    from ._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
-                    if _HAVE_CHI2 and analytic_null_enabled() and n_rows >= _cmi_analytic_null_min_n():
-                        _nf = float(max(1, n_rows)); _mincell = _min_expected_cell()
-                        for _j, _nm in enumerate(_rem_list):
-                            _df = int(_kxyz[_j]) + int(_kz) - int(_kxz[_j]) - int(_kyz)
-                            _cells = max(1, int(_kxyz[_j]))
-                            if _df > 0 and (_nf / float(_cells)) >= _mincell:
-                                _flr = float(_chi2.ppf(float(quantile), _df)) / (2.0 * _nf)
-                                _round_floor[_nm] = (_flr if _flr > 0.0 else 0.0, _df / (2.0 * _nf))
-                except Exception as e:
-                    logger.debug("per-name round-floor computation failed, using an empty round_floor: %s", e)
-                    _round_floor = {}
+                _round_floor = _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor, _j, _nm)
         except Exception as e:
             logger.debug("round CMI/floor computation failed, using empty dicts: %s", e)
             _round_cmi = {}
@@ -602,14 +520,7 @@ def apply_cmi_redundancy_gate(
         # to every per-candidate CMI fallback as kz - otherwise _cmi_from_binned_cupy re-reads int(dz.max()) per
         # candidate. Candidate codes are nbins-binned, so kx=nbins is a safe (empty-bin) upper bound with no read.
         _zcard = 0
-        if _z_card is not None:
-            _zcard = int(_z_card)
-        elif _z_scored is not None:
-            try:
-                _zcard = (int(_z_scored.max()) + 1) if getattr(_z_scored, "size", 0) else 0
-            except Exception as e:
-                logger.debug("_z_scored cardinality computation failed, using 0: %s", e)
-                _zcard = 0
+        _zcard = _apply_cmi_redundan_candidate_candidate_codes_nbins(_z_card, _z_scored, _zcard)
         for nm in _rem_list:
             # Prefer the RESIDENT candidate code for the per-candidate CMI + perm-null fallbacks (both dispatch
             # to the cupy resident-input branch: ``_cmi_from_binned`` -> ``_cmi_from_binned_cupy(isinstance
@@ -678,6 +589,158 @@ def apply_cmi_redundancy_gate(
         admitted_excess.append(best_excess)
         remaining.discard(best_name)
 
+    _apply_cmi_redundan_verbose(verbose, names, diagnostics)
+    return set(accepted), diagnostics
+
+
+def _apply_cmi_redundan_yhit_none(_yhit, y_arr, _yk):
+    """Block of apply_cmi_redundancy_gate starting at ``if _yhit is not None:``."""
+    if _yhit is not None:
+        y_dense = _yhit.copy()
+    else:
+        _, y_dense = np.unique(y_arr, return_inverse=True)
+        y_dense = y_dense.astype(np.int64)
+        if _yk is not None:
+            with _Y_DENSE_MEMO_LOCK:
+                if len(_Y_DENSE_MEMO) > 8:
+                    # evict-ok: memo; a miss recomputes the value
+                    _Y_DENSE_MEMO.pop(next(iter(_Y_DENSE_MEMO)))
+                _Y_DENSE_MEMO[_yk] = y_dense.copy()
+    return y_dense
+
+
+def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _dev):
+    """Block of apply_cmi_redundancy_gate starting at ``if _gate_resident and np.isfinite(vals).all():``."""
+    if _gate_resident and np.isfinite(vals).all():
+        try:
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
+            _dev = _quantile_bin_gpu_resident(vals, nbins)
+        except Exception as e:
+            logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
+            _dev = None
+    return _dev
+
+
+def _apply_cmi_redundan_partition_collapses_same_key(names, cand_bins, _partition_rep, marg, _dups_collapsed, nm):
+    """Block of apply_cmi_redundancy_gate starting at ``for nm in sorted(names): # deterministic iteration (name order)``."""
+    for nm in sorted(names):  # deterministic iteration (name order)
+        _, inv = np.unique(cand_bins[nm], return_inverse=True)
+        key = inv.astype(np.int64).tobytes()
+        rep = _partition_rep.get(key)
+        if rep is None:
+            _partition_rep[key] = nm
+        else:
+            # keep the higher-marginal-MI rep; the loser is a collapsed duplicate
+            if marg[nm] > marg[rep] or (marg[nm] == marg[rep] and nm < rep):
+                _partition_rep[key] = nm
+                _dups_collapsed.append(rep)
+            else:
+                _dups_collapsed.append(nm)
+    return nm
+
+
+def _apply_cmi_redundan_dups_collapsed(_dups_collapsed, _partition_rep, names, marg, candidates, diagnostics, verbose, nm):
+    """Block of apply_cmi_redundancy_gate starting at ``if _dups_collapsed:``."""
+    if _dups_collapsed:
+        _keep = set(_partition_rep.values())
+        names = [nm for nm in names if nm in _keep]
+        for nm in _dups_collapsed:
+            diagnostics[nm] = dict(
+                accept=False, cmi=float(marg.get(nm, candidates[nm][1])),
+                cmi_excess=0.0, floor=0.0, null_mean=0.0, rel_bar=0.0,
+                reason="redundant_partition_duplicate",
+            )
+        if verbose:
+            logger.info(
+                "CMI-redundancy gate: collapsed %d exact-partition duplicate(s) " "(monotone/linear remaps of a kept feature) before the greedy.",
+                len(_dups_collapsed),
+            )
+    return names, nm
+
+
+def _apply_cmi_redundan_permutation_null_cost_max(max_candidates, names, candidates, diagnostics, verbose, nm):
+    """Block of apply_cmi_redundancy_gate starting at ``if int(max_candidates) > 0 and len(names) > int(max_candidates):``."""
+    if int(max_candidates) > 0 and len(names) > int(max_candidates):
+        names_by_marg = sorted(names, key=lambda nm: (float(candidates[nm][1]), nm), reverse=True)
+        _dropped_for_cost = names_by_marg[int(max_candidates) :]
+        names = names_by_marg[: int(max_candidates)]
+        for nm in _dropped_for_cost:
+            diagnostics[nm] = dict(
+                accept=False, cmi=float(candidates[nm][1]),
+                cmi_excess=0.0, floor=0.0, null_mean=0.0, rel_bar=0.0,
+                reason="dropped_cost_cap",
+            )
+        if verbose:
+            logger.info(
+                "CMI-redundancy gate: cost cap -- %d distinct-partition candidate(s) "
+                "exceed max_candidates=%d; kept the top %d by marginal MI, dropped %d "
+                "low-marginal-MI tail candidate(s) before the O(K^2) greedy.",
+                len(_dropped_for_cost) + int(max_candidates), int(max_candidates),
+                int(max_candidates), len(_dropped_for_cost),
+            )
+    return names, nm
+
+
+def _apply_cmi_redundan_gate_resident_accepted_bins(_gate_resident, accepted_bins_dev, z_support_dev):
+    """Block of apply_cmi_redundancy_gate starting at ``if _gate_resident and accepted_bins_dev and all(_b is not None for _b ``."""
+    if _gate_resident and accepted_bins_dev and all(_b is not None for _b in accepted_bins_dev):
+        try:
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint_gpu
+            z_support_dev, _ = _renumber_joint_gpu(*accepted_bins_dev)
+        except Exception as e:
+            logger.debug("_renumber_joint_gpu failed, falling back to the host path: %s", e)
+            z_support_dev = None
+    return z_support_dev
+
+
+def _apply_cmi_redundan_support_dev_none(z_support_dev, _prev_z_support, _prev_z_card, accepted_bins, z_support):
+    """Block of apply_cmi_redundancy_gate starting at ``if z_support_dev is None:``."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint
+
+    if z_support_dev is None:
+        if _prev_z_support is not None:
+            z_support, _z_card = _prev_z_support, _prev_z_card
+        else:
+            z_support, _z_card = _renumber_joint(*accepted_bins)
+    else:
+        z_support = None  # host support built lazily only if a host consumer needs it this round
+        _z_card = None
+    return _z_card, z_support
+
+
+def _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor, _j, _nm):
+    """Block of apply_cmi_redundancy_gate starting at ``try:``."""
+    try:
+        from mlframe.feature_selection.filters._analytic_mi_null import _HAVE_CHI2, _chi2, _min_expected_cell, analytic_null_enabled
+        if _HAVE_CHI2 and analytic_null_enabled() and n_rows >= _cmi_analytic_null_min_n():
+            _nf = float(max(1, n_rows)); _mincell = _min_expected_cell()
+            for _j, _nm in enumerate(_rem_list):
+                _df = int(_kxyz[_j]) + int(_kz) - int(_kxz[_j]) - int(_kyz)
+                _cells = max(1, int(_kxyz[_j]))
+                if _df > 0 and (_nf / float(_cells)) >= _mincell:
+                    _flr = float(_chi2.ppf(float(quantile), _df)) / (2.0 * _nf)
+                    _round_floor[_nm] = (_flr if _flr > 0.0 else 0.0, _df / (2.0 * _nf))
+    except Exception as e:
+        logger.debug("per-name round-floor computation failed, using an empty round_floor: %s", e)
+        _round_floor = {}
+    return _round_floor
+
+
+def _apply_cmi_redundan_candidate_candidate_codes_nbins(_z_card, _z_scored, _zcard):
+    """Block of apply_cmi_redundancy_gate starting at ``if _z_card is not None:``."""
+    if _z_card is not None:
+        _zcard = int(_z_card)
+    elif _z_scored is not None:
+        try:
+            _zcard = (int(_z_scored.max()) + 1) if getattr(_z_scored, "size", 0) else 0
+        except Exception as e:
+            logger.debug("_z_scored cardinality computation failed, using 0: %s", e)
+            _zcard = 0
+    return _zcard
+
+
+def _apply_cmi_redundan_verbose(verbose, names, diagnostics):
+    """Block of apply_cmi_redundancy_gate starting at ``if verbose:``."""
     if verbose:
         for nm in names:
             d = diagnostics.get(nm, {})
@@ -688,7 +751,6 @@ def apply_cmi_redundancy_gate(
                 d.get("cmi_excess", float("nan")), d.get("floor", float("nan")),
                 d.get("rel_bar", float("nan")), d.get("reason", "-"),
             )
-    return set(accepted), diagnostics
 
 
 __all__ = ["apply_cmi_redundancy_gate", "DEFAULT_CMI_RETAIN_FRAC"]

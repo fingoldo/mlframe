@@ -317,15 +317,7 @@ def find_weak_slices(
     # Build the combination list with caps.
     combos: List[Tuple[int, ...]] = [(j,) for j in range(p)]
     pairs = list(itertools.combinations(range(p), 2))
-    if max_arity >= 2:
-        if len(combos) + len(pairs) > max_combos:
-            keep = max(0, max_combos - len(combos))
-            capped.append(
-                f"pair enumeration truncated: the {max_combos} combo budget minus {len(combos)} single-feature "
-                f"slices leaves room for {keep} of {len(pairs)} pairs"
-            )
-            pairs = pairs[:keep]
-        combos.extend(pairs)
+    _cap_combos_with_pairs(max_arity, combos, pairs, max_combos, capped)
     if max_arity >= 3 and p > 3:
         top = _top_split_features(mat, err, names, max_depth=3, n_features=min(three_way_top_features, p), seed=seed)
         if len(top) < p:
@@ -340,20 +332,7 @@ def find_weak_slices(
     # Batch the arity-2 pair aggregations (the dominant ~thousands of combos) into one prange-parallel pass; singles
     # and triples (far fewer) stay on the serial per-combo path. Bit-identical to the serial path by construction.
     _pair_agg: dict = {}
-    if _HAS_NUMBA_SLICE:
-        _pairs_only = [c for c in combos if len(c) == 2]
-        if _pairs_only and codes.nbytes <= _SLICE_TRANSPOSE_MAX_BYTES:
-            _f0 = np.array([c[0] for c in _pairs_only], dtype=np.int64)
-            _f1 = np.array([c[1] for c in _pairs_only], dtype=np.int64)
-            _s0 = np.array([nbins_per[c[1]] for c in _pairs_only], dtype=np.int64)
-            _ncells = np.array([nbins_per[c[0]] * nbins_per[c[1]] for c in _pairs_only], dtype=np.int64)
-            _max_cells = int(_ncells.max()) if _ncells.size else 1
-            _codes_t = np.ascontiguousarray(codes.T)
-            _bsums, _bcounts = _batched_pair_sum_count(_codes_t, err, _f0, _f1, _s0, _max_cells)
-            for _k2, _c in enumerate(_pairs_only):
-                _nc = int(_ncells[_k2])
-                _strides2 = np.array([int(_s0[_k2]), 1], dtype=np.int64)
-                _pair_agg[_c] = (_bsums[_k2, :_nc].copy(), _bcounts[_k2, :_nc].copy(), _strides2)
+    _score_pair_combos_numba(combos, codes, nbins_per, err, _pair_agg)
 
     # Aggregate every combo; collect slices above the support floor. Only the cheap numeric records (mean / support /
     # score) plus the minimal slice IDENTITY (the combo's feature indices + the decoded per-feature bin row) are kept
@@ -544,6 +523,37 @@ def find_weak_slices(
     top_row = table.iloc[0]
     worst_slice = (tuple(top_row["features"]), str(top_row["bounds"]), float(top_row["mean_error"]), int(top_row["support"]))
     return SliceFinderResult(fig, table, global_error, worst_slice, tuple(capped))
+
+
+def _cap_combos_with_pairs(max_arity, combos, pairs, max_combos, capped):
+    """Cap the combination list at max_combos when pairs are added."""
+    if max_arity >= 2:
+        if len(combos) + len(pairs) > max_combos:
+            keep = max(0, max_combos - len(combos))
+            capped.append(
+                f"pair enumeration truncated: the {max_combos} combo budget minus {len(combos)} single-feature "
+                f"slices leaves room for {keep} of {len(pairs)} pairs"
+            )
+            pairs = pairs[:keep]
+        combos.extend(pairs)
+
+
+def _score_pair_combos_numba(combos, codes, nbins_per, err, _pair_agg):
+    """Score the pair combinations through the numba batched path."""
+    if _HAS_NUMBA_SLICE:
+        _pairs_only = [c for c in combos if len(c) == 2]
+        if _pairs_only and codes.nbytes <= _SLICE_TRANSPOSE_MAX_BYTES:
+            _f0 = np.array([c[0] for c in _pairs_only], dtype=np.int64)
+            _f1 = np.array([c[1] for c in _pairs_only], dtype=np.int64)
+            _s0 = np.array([nbins_per[c[1]] for c in _pairs_only], dtype=np.int64)
+            _ncells = np.array([nbins_per[c[0]] * nbins_per[c[1]] for c in _pairs_only], dtype=np.int64)
+            _max_cells = int(_ncells.max()) if _ncells.size else 1
+            _codes_t = np.ascontiguousarray(codes.T)
+            _bsums, _bcounts = _batched_pair_sum_count(_codes_t, err, _f0, _f1, _s0, _max_cells)
+            for _k2, _c in enumerate(_pairs_only):
+                _nc = int(_ncells[_k2])
+                _strides2 = np.array([int(_s0[_k2]), 1], dtype=np.int64)
+                _pair_agg[_c] = (_bsums[_k2, :_nc].copy(), _bcounts[_k2, :_nc].copy(), _strides2)
 
 
 __all__ = [

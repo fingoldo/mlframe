@@ -310,16 +310,7 @@ def _render_post_fit_diagnostics(
     # is the COV=10% subset while ``df`` stayed the full split, which crashed the separability panel eight times
     # in one run and, worse, would let any diagnostic that does NOT length-check compute on mismatched rows
     # silently. Dropping the frame degrades those diagnostics to "skipped" instead, which is honest.
-    if df is not None and y_arr is not None and not _multilabel:
-        _n_df = getattr(df, "shape", (None,))[0]
-        if _n_df is not None and int(_n_df) != int(y_arr.shape[0]):
-            logger.warning(
-                "  [diagnostics] frame has %s rows but the target has %s -- the frame was not filtered alongside "
-                "the target (a confidence-coverage subset does this), so frame-paired diagnostics are skipped "
-                "rather than computed on mismatched rows.",
-                f"{int(_n_df):,}", f"{int(y_arr.shape[0]):,}",
-            )
-            df = None
+    df = _drop_frame_on_length_mismatch(df, y_arr, _multilabel)
 
     names, importances = _ranked_feature_names(metrics, model, columns)
 
@@ -342,9 +333,9 @@ def _render_post_fit_diagnostics(
 
     from mlframe.reporting.diagnostics_dispatch import (
         build_combined_html_report, render_category_discriminability_diagnostic, render_class_structure_diagnostic,
-        render_decile_table_diagnostic, render_decision_curve_diagnostic,
+        render_decision_curve_diagnostic,
         render_engineered_separability_diagnostic,
-        render_interaction_strength_diagnostic, render_model_card_diagnostic, render_pdp_2d_diagnostic,
+        render_interaction_strength_diagnostic, render_pdp_2d_diagnostic,
         render_pdp_ice_diagnostic, render_shap_diagnostic,
         render_shap_interactions_diagnostic, render_shap_per_instance_diagnostic,
         render_slice_finder_diagnostic,
@@ -444,6 +435,77 @@ def _render_post_fit_diagnostics(
                     y_true=y_arr, y_score=_score, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             ))
 
+    _render_decile_table(cfg, tt, y_arr, probs, _budget, plot_outputs, plot_file, metrics)
+
+    _render_risk_coverage(cfg, y_arr, _multilabel, tt, probs, _budget, plot_outputs, plot_file, metrics, target_type, task, y_pred)
+
+    _render_model_card(cfg, y_arr, task, tt, model, model_name, target_type, y_pred, _budget, plot_outputs, plot_file, metrics, _split, probs)
+
+    if getattr(cfg, "shap_panels", False) and model is not None and df is not None and not _collapsed:
+        _budget.run("shap", lambda: render_shap_diagnostic(
+                model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
+                metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000), plot_dpi=plot_dpi,
+                top_k=getattr(cfg, "shap_top_k", 6), allow_kernel=getattr(cfg, "shap_allow_kernel", False),
+        ))
+
+    if getattr(cfg, "shap_interactions", False) and model is not None and df is not None and not _collapsed:
+        _budget.run("shap_interactions", lambda: render_shap_interactions_diagnostic(
+                model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
+                metrics_dict=metrics, max_rows=getattr(cfg, "shap_interaction_max_rows", 2000),
+        ))
+
+    if getattr(cfg, "shap_per_instance", False) and model is not None and df is not None and y_arr is not None:
+        # Per-instance needs a 1-D score: binary positive-class prob, else the regression prediction.
+        _yscore = _binary_positive_score(probs) if tt == "binary_classification" else (y_pred if task == "regression" else None)
+        if _yscore is not None and len(_yscore) == len(y_arr):
+            _budget.run("shap_per_instance", lambda: render_shap_per_instance_diagnostic(
+                    model=model, df=df, y_true=y_arr, y_score=_yscore, feature_names=names,
+                    plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
+            ))
+
+    # The report title names the split ("TEST ", "VAL (DUMMY) ", ...); the curve is computed on that split's
+    # rows, so the panel has to say so rather than call them train and holdout.
+    _raw_split = report_title.strip().rstrip(":").lower() if report_title else ""
+    _split_label = _raw_split if _raw_split else "reported split"
+    lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics, source_split=_split_label)
+    _render_learning_curve_panel(lc_panel, plot_file, plot_outputs, metrics)
+
+    # Say what the budget dropped, BEFORE stitching the report. Without this call the promise the budget class
+    # documents -- that a shortened diagnostics block names what it left out -- was never kept, so a truncated
+    # report was indistinguishable from a complete one.
+    _budget.report()
+
+    # Combined single-page HTML index stitching every chart artifact recorded for this (model, split).
+    if getattr(cfg, "combined_html", True) and isinstance(metrics, dict):
+        paths = metrics.get("charts", {}).get("paths", [])
+        if paths:
+            build_combined_html_report(
+                base_path=plot_file, chart_paths=paths, plot_outputs=plot_outputs,
+                title=f"{model_name_for_title(target_type)} report".strip(), metrics_dict=metrics,
+            )
+
+
+def _drop_frame_on_length_mismatch(df, y_arr, _multilabel):
+    """Drop the frame when its length differs from the target length."""
+    if df is not None and y_arr is not None and not _multilabel:
+        _n_df = getattr(df, "shape", (None,))[0]
+        if _n_df is not None and int(_n_df) != int(y_arr.shape[0]):
+            logger.warning(
+                "  [diagnostics] frame has %s rows but the target has %s -- the frame was not filtered alongside "
+                "the target (a confidence-coverage subset does this), so frame-paired diagnostics are skipped "
+                "rather than computed on mismatched rows.",
+                f"{int(_n_df):,}", f"{int(y_arr.shape[0]):,}",
+            )
+            df = None
+    return df
+
+
+def _render_decile_table(cfg, tt, y_arr, probs, _budget, plot_outputs, plot_file, metrics):
+    """Render the decile table."""
+    from mlframe.reporting.diagnostics_dispatch import (
+        render_decile_table_diagnostic,
+    )
+
     if getattr(cfg, "decile_table", True) and tt == "binary_classification" and y_arr is not None:
         _bs = _binary_positive_score(probs)
         if _bs is not None and len(_bs) == len(y_arr):
@@ -454,6 +516,26 @@ def _render_post_fit_diagnostics(
                     y_true=y_arr, y_score=_score, plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
             ))
 
+
+def _render_learning_curve_panel(lc_panel, plot_file, plot_outputs, metrics):
+    """Render the learning-curve panel."""
+    if lc_panel is not None:
+        try:
+            from mlframe.reporting.output import parse_plot_output_dsl
+            from mlframe.reporting.renderers import render_and_save
+
+            base = plot_file + "_learning_curve"
+            render_and_save(lc_panel, parse_plot_output_dsl(plot_outputs), base)
+            if isinstance(metrics, dict):
+                _c = metrics.setdefault("charts", {"saved": [], "failed": []})
+                _c.setdefault("saved", []).append("learning_curve")
+                _c.setdefault("paths", []).append(base)
+        except Exception:  # best-effort: the learning-curve chart is optional diagnostic output
+            logger.exception("learning_curve render failed; continuing.")
+
+
+def _render_risk_coverage(cfg, y_arr, _multilabel, tt, probs, _budget, plot_outputs, plot_file, metrics, target_type, task, y_pred):
+    """Render the risk-coverage diagnostics."""
     if getattr(cfg, "risk_coverage_charts", False) and y_arr is not None and not _multilabel:
         from mlframe.reporting import render_risk_coverage_diagnostic
         if tt == "binary_classification":
@@ -479,6 +561,13 @@ def _render_post_fit_diagnostics(
                     confidence_source="proxy_distance_from_prediction_mean",
                 ),
             )
+
+
+def _render_model_card(cfg, y_arr, task, tt, model, model_name, target_type, y_pred, _budget, plot_outputs, plot_file, metrics, _split, probs):
+    """Render the model card."""
+    from mlframe.reporting.diagnostics_dispatch import (
+        render_model_card_diagnostic,
+    )
 
     if getattr(cfg, "model_card", False) and y_arr is not None:
         _mc_task = "regression" if task == "regression" else ("binary" if tt == "binary_classification" else "classification")
@@ -508,58 +597,3 @@ def _render_post_fit_diagnostics(
                         task="binary", y_true=y_arr, y_score=_bs, plot_outputs=plot_outputs,
                         base_path=plot_file, metrics_dict=metrics, model_name=_card_name, split=_split,
                 ))
-
-    if getattr(cfg, "shap_panels", False) and model is not None and df is not None and not _collapsed:
-        _budget.run("shap", lambda: render_shap_diagnostic(
-                model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
-                metrics_dict=metrics, max_rows=getattr(cfg, "shap_max_rows", 20000), plot_dpi=plot_dpi,
-                top_k=getattr(cfg, "shap_top_k", 6), allow_kernel=getattr(cfg, "shap_allow_kernel", False),
-        ))
-
-    if getattr(cfg, "shap_interactions", False) and model is not None and df is not None and not _collapsed:
-        _budget.run("shap_interactions", lambda: render_shap_interactions_diagnostic(
-                model=model, df=df, feature_names=names, plot_outputs=plot_outputs, base_path=plot_file,
-                metrics_dict=metrics, max_rows=getattr(cfg, "shap_interaction_max_rows", 2000),
-        ))
-
-    if getattr(cfg, "shap_per_instance", False) and model is not None and df is not None and y_arr is not None:
-        # Per-instance needs a 1-D score: binary positive-class prob, else the regression prediction.
-        _yscore = _binary_positive_score(probs) if tt == "binary_classification" else (y_pred if task == "regression" else None)
-        if _yscore is not None and len(_yscore) == len(y_arr):
-            _budget.run("shap_per_instance", lambda: render_shap_per_instance_diagnostic(
-                    model=model, df=df, y_true=y_arr, y_score=_yscore, feature_names=names,
-                    plot_outputs=plot_outputs, base_path=plot_file, metrics_dict=metrics,
-            ))
-
-    # The report title names the split ("TEST ", "VAL (DUMMY) ", ...); the curve is computed on that split's
-    # rows, so the panel has to say so rather than call them train and holdout.
-    _raw_split = report_title.strip().rstrip(":").lower() if report_title else ""
-    _split_label = _raw_split if _raw_split else "reported split"
-    lc_panel = _build_learning_curve(model, df, targets, columns, target_type, getattr(cfg, "learning_curve", None), metrics, source_split=_split_label)
-    if lc_panel is not None:
-        try:
-            from mlframe.reporting.output import parse_plot_output_dsl
-            from mlframe.reporting.renderers import render_and_save
-
-            base = plot_file + "_learning_curve"
-            render_and_save(lc_panel, parse_plot_output_dsl(plot_outputs), base)
-            if isinstance(metrics, dict):
-                _c = metrics.setdefault("charts", {"saved": [], "failed": []})
-                _c.setdefault("saved", []).append("learning_curve")
-                _c.setdefault("paths", []).append(base)
-        except Exception:  # best-effort: the learning-curve chart is optional diagnostic output
-            logger.exception("learning_curve render failed; continuing.")
-
-    # Say what the budget dropped, BEFORE stitching the report. Without this call the promise the budget class
-    # documents -- that a shortened diagnostics block names what it left out -- was never kept, so a truncated
-    # report was indistinguishable from a complete one.
-    _budget.report()
-
-    # Combined single-page HTML index stitching every chart artifact recorded for this (model, split).
-    if getattr(cfg, "combined_html", True) and isinstance(metrics, dict):
-        paths = metrics.get("charts", {}).get("paths", [])
-        if paths:
-            build_combined_html_report(
-                base_path=plot_file, chart_paths=paths, plot_outputs=plot_outputs,
-                title=f"{model_name_for_title(target_type)} report".strip(), metrics_dict=metrics,
-            )

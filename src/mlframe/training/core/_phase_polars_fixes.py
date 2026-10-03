@@ -176,6 +176,74 @@ def apply_polars_categorical_fixes(
     # Tracks the per-column train+val union built below; Step 4 below reuses these domains when
     # casting raw Utf8 columns to Enum so the cast does not poison the global string cache (P0-B2).
     _enum_domains_built: Dict[str, List[str]] = {}
+    test_df_polars, train_df_polars, val_df_polars = _apply_polars_categ_casting_raw_utf8_columns(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built)
+
+    # 3. Re-point pandas aliases to filled+aligned polars frames. With ``defer_pandas_conv=True``, train_df_pd / filtered_train_df were aliased to the ORIGINAL polars frames before fill_null / Enum-alignment.
+    if defer_pandas_conv and train_df_polars is not None:
+        train_df_pd = train_df_polars
+        filtered_train_df = train_df_polars
+        if val_df_polars is not None:
+            val_df_pd = val_df_polars
+            filtered_val_df = val_df_polars
+        if test_df_polars is not None:
+            test_df_pd = test_df_polars
+
+    # 4. Cast remaining Utf8/String cat_features so pandas conversion produces ``category`` dtype
+    # (XGBClassifier's sklearn wrapper rejects ``object``). Prefer pl.Enum keyed off the Step 2
+    # train+val union when available so we don't widen the global string cache (P0-B2 fix); fall
+    # back to pl.Categorical only when no domain was computed for the column (e.g. align_polars_
+    # categorical_dicts=False).
+    if was_polars_input and cat_features:
+        # Also expose any precomputed (pre-OD) unions: those rows reflect the broadest known
+        # category set for the column and are preferable when present.
+        _pre_unions = dict(precomputed_category_union or {})
+        _domains = dict(_pre_unions)
+        for _k, _v in _enum_domains_built.items():
+            _domains.setdefault(_k, _v)
+        train_df_polars = _cast_utf8_cats_to_categorical(train_df_polars, cat_features, _domains)
+        val_df_polars = _cast_utf8_cats_to_categorical(val_df_polars, cat_features, _domains)
+        test_df_polars = _cast_utf8_cats_to_categorical(test_df_polars, cat_features, _domains)
+        if defer_pandas_conv:
+            train_df_pd = train_df_polars if train_df_polars is not None else train_df_pd
+            filtered_train_df = train_df_polars if train_df_polars is not None else filtered_train_df
+            if val_df_polars is not None:
+                val_df_pd = val_df_polars
+                filtered_val_df = val_df_polars
+            if test_df_polars is not None:
+                test_df_pd = test_df_polars
+
+    # Merge precomputed unions over runtime-built ones so the returned snapshot reflects exactly the Enum domains the cast lands on (precomputed-OD path > train+val union path).
+    _exported_domains: Dict[str, List[str]] = {}
+    for _k, _v in _enum_domains_built.items():
+        _exported_domains[_k] = list(_v)
+    for _k, _v in (precomputed_category_union or {}).items():
+        try:
+            _exported_domains[_k] = sorted(set(_v), key=str)
+        except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug("could not sort category domain for %s, keeping insertion order: %s", _k, e)
+            _exported_domains[_k] = list(_v)
+
+    return PolarsCategoricalFixesResult(
+        train_df_polars=train_df_polars,
+        val_df_polars=val_df_polars,
+        test_df_polars=test_df_polars,
+        train_df_pd=train_df_pd,
+        val_df_pd=val_df_pd,
+        test_df_pd=test_df_pd,
+        filtered_train_df=filtered_train_df,
+        filtered_val_df=filtered_val_df,
+        enum_domains=_exported_domains,
+    )
+
+
+def _apply_polars_categ_casting_raw_utf8_columns(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built):
+    """Block of apply_polars_categorical_fixes starting at ``if train_df_polars is not None and cat_features and align_polars_categ``."""
+    test_df_polars, train_df_polars, val_df_polars = _apply_polars_categ_train_df_polars_none(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built)
+    return test_df_polars, train_df_polars, val_df_polars
+
+
+def _apply_polars_categ_train_df_polars_none(train_df_polars, cat_features, align_polars_categorical_dicts, precomputed_category_union, val_df_polars, verbose, test_df_polars, _filled_with_missing_sentinel, _enum_domains_built):
+    """Block of _apply_polars_categ_train_df_polars_none starting at ``if train_df_polars is not None and cat_features and align_polars_categ``."""
     if train_df_polars is not None and cat_features and align_polars_categorical_dicts:
         aligned_cols: list = []
         skipped_cols: list = []
@@ -324,60 +392,4 @@ def apply_polars_categorical_fixes(
                 "still at risk of XGB/CB val-DMatrix crash.",
                 len(skipped_cols), _DICT_ALIGN_SKIP_CARD, skipped_summary,
             )
-
-    # 3. Re-point pandas aliases to filled+aligned polars frames. With ``defer_pandas_conv=True``, train_df_pd / filtered_train_df were aliased to the ORIGINAL polars frames before fill_null / Enum-alignment.
-    if defer_pandas_conv and train_df_polars is not None:
-        train_df_pd = train_df_polars
-        filtered_train_df = train_df_polars
-        if val_df_polars is not None:
-            val_df_pd = val_df_polars
-            filtered_val_df = val_df_polars
-        if test_df_polars is not None:
-            test_df_pd = test_df_polars
-
-    # 4. Cast remaining Utf8/String cat_features so pandas conversion produces ``category`` dtype
-    # (XGBClassifier's sklearn wrapper rejects ``object``). Prefer pl.Enum keyed off the Step 2
-    # train+val union when available so we don't widen the global string cache (P0-B2 fix); fall
-    # back to pl.Categorical only when no domain was computed for the column (e.g. align_polars_
-    # categorical_dicts=False).
-    if was_polars_input and cat_features:
-        # Also expose any precomputed (pre-OD) unions: those rows reflect the broadest known
-        # category set for the column and are preferable when present.
-        _pre_unions = dict(precomputed_category_union or {})
-        _domains = dict(_pre_unions)
-        for _k, _v in _enum_domains_built.items():
-            _domains.setdefault(_k, _v)
-        train_df_polars = _cast_utf8_cats_to_categorical(train_df_polars, cat_features, _domains)
-        val_df_polars = _cast_utf8_cats_to_categorical(val_df_polars, cat_features, _domains)
-        test_df_polars = _cast_utf8_cats_to_categorical(test_df_polars, cat_features, _domains)
-        if defer_pandas_conv:
-            train_df_pd = train_df_polars if train_df_polars is not None else train_df_pd
-            filtered_train_df = train_df_polars if train_df_polars is not None else filtered_train_df
-            if val_df_polars is not None:
-                val_df_pd = val_df_polars
-                filtered_val_df = val_df_polars
-            if test_df_polars is not None:
-                test_df_pd = test_df_polars
-
-    # Merge precomputed unions over runtime-built ones so the returned snapshot reflects exactly the Enum domains the cast lands on (precomputed-OD path > train+val union path).
-    _exported_domains: Dict[str, List[str]] = {}
-    for _k, _v in _enum_domains_built.items():
-        _exported_domains[_k] = list(_v)
-    for _k, _v in (precomputed_category_union or {}).items():
-        try:
-            _exported_domains[_k] = sorted(set(_v), key=str)
-        except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.debug("could not sort category domain for %s, keeping insertion order: %s", _k, e)
-            _exported_domains[_k] = list(_v)
-
-    return PolarsCategoricalFixesResult(
-        train_df_polars=train_df_polars,
-        val_df_polars=val_df_polars,
-        test_df_polars=test_df_polars,
-        train_df_pd=train_df_pd,
-        val_df_pd=val_df_pd,
-        test_df_pd=test_df_pd,
-        filtered_train_df=filtered_train_df,
-        filtered_val_df=filtered_val_df,
-        enum_domains=_exported_domains,
-    )
+    return test_df_polars, train_df_polars, val_df_polars

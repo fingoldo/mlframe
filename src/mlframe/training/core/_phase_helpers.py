@@ -526,18 +526,7 @@ def _phase_pandas_conversion_and_cat_prep(
             logger.debug("_cat_heavy_size: categorical-fraction size estimate failed, using raw bytes: %s", exc)
             return raw_bytes
 
-    if was_polars_input:
-        try:
-            if isinstance(train_df, pl.DataFrame):
-                raw = float(train_df.estimated_size())
-                train_df_size_bytes_cached = _cat_heavy_size(train_df, raw)
-            if val_df is not None and isinstance(val_df, pl.DataFrame):
-                raw_v = float(val_df.estimated_size())
-                val_df_size_bytes_cached = _cat_heavy_size(val_df, raw_v)
-        except Exception as e:
-            logger.debug("cached df-size estimation failed: %s", e)
-            train_df_size_bytes_cached = None
-            val_df_size_bytes_cached = None
+    train_df_size_bytes_cached, val_df_size_bytes_cached = _polars_to_pandas_for_cat_prep(was_polars_input, train_df, _cat_heavy_size, val_df, train_df_size_bytes_cached, val_df_size_bytes_cached)
 
     if defer_pandas_conv:
         train_df_pd, val_df_pd, test_df_pd = train_df, val_df, test_df
@@ -621,6 +610,53 @@ def _phase_pandas_conversion_and_cat_prep(
     # sklearn linear pipelines that exceeds the prep cost. NET REGRESSION.
     # Keeping the always-on path; `_models_need_pandas_cat_prep` helper
     # stays as a tool for future targeted opts.
+    _prepare_catboost_categoricals(cat_features, defer_pandas_conv, verbose, train_df_pd, val_df_pd, test_df_pd)
+
+    # Post-pipeline Polars release: Arrow-backed pandas views retain their own buffers.
+    if was_polars_input and needs_polars_pre_clone:
+        train_df = val_df = test_df = None
+        baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-pipeline Polars release")
+        # Force a HARD gc.collect even when maybe_clean_ram_and_gpu short-circuited
+        # (its gate uses RSS growth, which on Windows hides commit-charge pressure --
+        # working-set pages can sit committed but never trip the RSS-based gate). The
+        # downstream composite-discovery step in particular has been measured to enter
+        # with a process commit charge > 80 GB on a 10 GB-input run, with USS<60 GB;
+        # the unbreakable gap is uncollected cycles + pyarrow / numba intermediate
+        # buffers. Two passes are required because the first collect can promote
+        # gen-2 candidates that the second pass actually reclaims.
+        _force_post_pipeline_gc(df_size_mb, verbose)
+
+    if verbose:
+        log_ram_usage()
+
+    return (
+        train_df_pd, val_df_pd, test_df_pd,
+        train_df_polars, val_df_polars, test_df_polars,
+        train_df, val_df, test_df,
+        train_df_size_bytes_cached, val_df_size_bytes_cached,
+        defer_pandas_conv, baseline_rss_mb,
+    )
+
+
+def _polars_to_pandas_for_cat_prep(was_polars_input, train_df, _cat_heavy_size, val_df, train_df_size_bytes_cached, val_df_size_bytes_cached):
+    """Convert the polars splits to pandas for the categorical preparation."""
+    if was_polars_input:
+        try:
+            if isinstance(train_df, pl.DataFrame):
+                raw = float(train_df.estimated_size())
+                train_df_size_bytes_cached = _cat_heavy_size(train_df, raw)
+            if val_df is not None and isinstance(val_df, pl.DataFrame):
+                raw_v = float(val_df.estimated_size())
+                val_df_size_bytes_cached = _cat_heavy_size(val_df, raw_v)
+        except Exception as e:
+            logger.debug("cached df-size estimation failed: %s", e)
+            train_df_size_bytes_cached = None
+            val_df_size_bytes_cached = None
+    return train_df_size_bytes_cached, val_df_size_bytes_cached
+
+
+def _prepare_catboost_categoricals(cat_features, defer_pandas_conv, verbose, train_df_pd, val_df_pd, test_df_pd):
+    """Prepare the categorical features for CatBoost."""
     if cat_features and not defer_pandas_conv:
         if verbose:
             logger.info("Preparing %d categorical features for CatBoost: %s", len(cat_features), cat_features)
@@ -646,40 +682,20 @@ def _phase_pandas_conversion_and_cat_prep(
             len(cat_features),
         )
 
-    # Post-pipeline Polars release: Arrow-backed pandas views retain their own buffers.
-    if was_polars_input and needs_polars_pre_clone:
-        train_df = val_df = test_df = None
-        baseline_rss_mb = maybe_clean_ram_and_gpu(baseline_rss_mb, df_size_mb, verbose=verbose, reason="post-pipeline Polars release")
-        # Force a HARD gc.collect even when maybe_clean_ram_and_gpu short-circuited
-        # (its gate uses RSS growth, which on Windows hides commit-charge pressure --
-        # working-set pages can sit committed but never trip the RSS-based gate). The
-        # downstream composite-discovery step in particular has been measured to enter
-        # with a process commit charge > 80 GB on a 10 GB-input run, with USS<60 GB;
-        # the unbreakable gap is uncollected cycles + pyarrow / numba intermediate
-        # buffers. Two passes are required because the first collect can promote
-        # gen-2 candidates that the second pass actually reclaims.
-        if _should_force_post_pipeline_gc(df_size_mb):
-            import gc as _gc
-            for _ in range(2):
-                _gc.collect()
-            if verbose:
-                logger.info("  Released post-pipeline Polars DFs (pandas views retained); forced 2x gc.collect()")
-        elif verbose:
-            logger.info(
-                "  Released post-pipeline Polars DFs (pandas views retained); skipped forced gc "
-                "(frame %.0f MB < %.0f MB gate)", df_size_mb or 0, _FORCED_GC_MIN_DF_MB,
-            )
 
-    if verbose:
-        log_ram_usage()
-
-    return (
-        train_df_pd, val_df_pd, test_df_pd,
-        train_df_polars, val_df_polars, test_df_polars,
-        train_df, val_df, test_df,
-        train_df_size_bytes_cached, val_df_size_bytes_cached,
-        defer_pandas_conv, baseline_rss_mb,
-    )
+def _force_post_pipeline_gc(df_size_mb, verbose):
+    """Run two garbage-collection passes after a large pipeline."""
+    if _should_force_post_pipeline_gc(df_size_mb):
+        import gc as _gc
+        for _ in range(2):
+            _gc.collect()
+        if verbose:
+            logger.info("  Released post-pipeline Polars DFs (pandas views retained); forced 2x gc.collect()")
+    elif verbose:
+        logger.info(
+            "  Released post-pipeline Polars DFs (pandas views retained); skipped forced gc "
+            "(frame %.0f MB < %.0f MB gate)", df_size_mb or 0, _FORCED_GC_MIN_DF_MB,
+        )
 
 
 # _phase_auto_detect_feature_types, _phase_fit_pipeline,

@@ -349,30 +349,7 @@ def pinned_train_val_test_split(
         if _notes:
             logger.warning("split_ids_path %s: %s.", _path, "; ".join(_notes))
 
-    for _s in ("test", "val"):
-        _lo, _hi = getattr(split_config, f"{_s}_start", None), getattr(split_config, f"{_s}_end", None)
-        if _lo is None and _hi is None:
-            continue
-        if _s in source:
-            raise ValueError(f"split {_s!r} is pinned both by split_ids_path and by a date window.")
-        if ts is None:
-            raise ValueError(f"{_s}_start/{_s}_end need timestamps, but the features/targets extractor produced none.")
-        if not _is_datetime(ts):
-            raise ValueError(f"{_s}_start/{_s}_end need datetime timestamps; got dtype {ts.dtype}.")
-        _lo, _hi = _align_bound(_lo, ts), _align_bound(_hi, ts)
-        _mask = ts.notna().to_numpy().copy()
-        if _lo is not None:
-            _mask &= (ts >= _lo).to_numpy()
-        if _hi is not None:
-            _mask &= (ts < _hi).to_numpy()
-        if not _mask.any():
-            raise ValueError(f"{_s} window [{_lo}, {_hi}) selects 0 rows (timestamps span {ts.min()} .. {ts.max()}).")
-        _clash = _mask & (labels != -1)
-        if _clash.any():
-            raise ValueError(f"{int(_clash.sum())} rows in the {_s} window are already pinned to another split by split_ids_path.")
-        labels[_mask] = SPLIT_CODES[_s]
-        source[_s] = "window"
-        starts[_s] = _lo if _lo is not None else ts[_mask].min()
+    _pinned_split_bounds(split_config, source, ts, labels, starts)
 
     unassigned = labels == -1
     _starts = [v for v in starts.values() if v is not None and not pd.isna(v)]
@@ -432,6 +409,48 @@ def pinned_train_val_test_split(
     if not details["train"] and ts is not None:
         details["train"] = _details(ts, idx["train"], "")
 
+    _warn_group_leakage_across_pinned_splits(groups, idx, source, info)
+
+    info["sources"] = dict(source)
+    logger.info(
+        "%d train rows %s, %d val rows %s, %d test rows %s%s (split pinned: %s).",
+        len(idx["train"]), details["train"], len(idx["val"]), details["val"], len(idx["test"]), details["test"],
+        f", {len(idx['calib'])} calib rows" if len(idx["calib"]) else "",
+        ", ".join(f"{k}={v}" for k, v in source.items()),
+    )
+    return (idx["train"], idx["val"], idx["test"], details["train"], details["val"], details["test"], idx["calib"], details["calib"], info)
+
+
+def _pinned_split_bounds(split_config, source, ts, labels, starts):
+    """Resolve the pinned boundaries of the test and val splits."""
+    for _s in ("test", "val"):
+        _lo, _hi = getattr(split_config, f"{_s}_start", None), getattr(split_config, f"{_s}_end", None)
+        if _lo is None and _hi is None:
+            continue
+        if _s in source:
+            raise ValueError(f"split {_s!r} is pinned both by split_ids_path and by a date window.")
+        if ts is None:
+            raise ValueError(f"{_s}_start/{_s}_end need timestamps, but the features/targets extractor produced none.")
+        if not _is_datetime(ts):
+            raise ValueError(f"{_s}_start/{_s}_end need datetime timestamps; got dtype {ts.dtype}.")
+        _lo, _hi = _align_bound(_lo, ts), _align_bound(_hi, ts)
+        _mask = ts.notna().to_numpy().copy()
+        if _lo is not None:
+            _mask &= (ts >= _lo).to_numpy()
+        if _hi is not None:
+            _mask &= (ts < _hi).to_numpy()
+        if not _mask.any():
+            raise ValueError(f"{_s} window [{_lo}, {_hi}) selects 0 rows (timestamps span {ts.min()} .. {ts.max()}).")
+        _clash = _mask & (labels != -1)
+        if _clash.any():
+            raise ValueError(f"{int(_clash.sum())} rows in the {_s} window are already pinned to another split by split_ids_path.")
+        labels[_mask] = SPLIT_CODES[_s]
+        source[_s] = "window"
+        starts[_s] = _lo if _lo is not None else ts[_mask].min()
+
+
+def _warn_group_leakage_across_pinned_splits(groups, idx, source, info):
+    """Warn when train/calib groups also have rows in the pinned val or test set."""
     if groups is not None:
         _g = np.asarray(groups)
         _tr_groups = np.unique(_g[np.concatenate([idx["train"], idx["calib"]])])
@@ -442,15 +461,6 @@ def pinned_train_val_test_split(
                     logger.warning("Pinned split: %d group(s) have rows in both train and the pinned %s set; rows were NOT moved "
                                    "(the pinned membership wins). Expect group leakage in %s metrics.", _n_span, _s, _s)
                 info.setdefault("groups_spanning", {})[_s] = _n_span
-
-    info["sources"] = dict(source)
-    logger.info(
-        "%d train rows %s, %d val rows %s, %d test rows %s%s (split pinned: %s).",
-        len(idx["train"]), details["train"], len(idx["val"]), details["val"], len(idx["test"]), details["test"],
-        f", {len(idx['calib'])} calib rows" if len(idx["calib"]) else "",
-        ", ".join(f"{k}={v}" for k, v in source.items()),
-    )
-    return (idx["train"], idx["val"], idx["test"], details["train"], details["val"], details["test"], idx["calib"], details["calib"], info)
 
 
 __all__ = [

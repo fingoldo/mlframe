@@ -69,7 +69,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     """Render a scatter panel: subsamples above ``_SCATTER_MAX_POINTS`` (preserving extremes, rasterized), then layers optional error bars, highlighted worst-K points, trend line, overlay band/line, y=x reference and inline labels/colorbar/legend on top."""
     # Lazy, function-local, matching the plotly sibling: the parent module imports this one at its own bottom,
     # so a module-level ``from .matplotlib import ...`` would be a hard cycle. By call time the parent is loaded.
-    from .matplotlib import _EDGE_LABEL_FLIP_FRACTION, _err_to_mpl, _set_panel_title
+    from .matplotlib import _err_to_mpl, _set_panel_title
 
     x = np.asarray(p.x)
     y = np.asarray(p.y)
@@ -124,6 +124,58 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     if p.legend_label:
         kw["label"] = p.legend_label
     kw["s"] = size_arr if size_arr is not None else float(p.point_size)
+    _scatter_color_arr_none(color_arr, kw, p)
+    # ``weak.any()`` alone, deliberately: the old guard also required at least one STRONG point, so a panel
+    # where EVERY bin rests on too little data fell through to the confident branch and rendered
+    # pixel-identical to one built on 300k-row bins -- the confidence signal vanished at the exact moment it
+    # mattered most, taking the "too few rows to read" legend entry with it. With the strong subset empty the
+    # trace below is simply empty, which both backends skip cleanly.
+    sc = _scatter_trace_below_simply_empty(weak, kw, x, ax, y, p)
+
+    # Emphasised subset (worst-K errors): drawn on top, larger + colored. Indices are positions into the
+    # ORIGINAL arrays, so resolve against the pre-subsample data (``p.x`` / ``p.y``), not the capped ``x``/``y``.
+    _scatter_original_arrays_resolve_against(p, size_arr, ax)
+
+    if p.trend_line is not None and n > 1:
+        from mlframe.reporting.renderers._trend import robust_fit_endpoints
+        ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
+        if ends is not None:
+            (tx0, ty0), (tx1, ty1) = ends
+            ax.plot([tx0, tx1], [ty0, ty1], color=TREND_LINE, linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
+
+    if p.overlay_band is not None:
+        bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
+        ax.fill_between(bx, blo, bhi, color=OVERLAY_LINE, alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
+
+    if p.overlay_line is not None:
+        ox_grid, oy_grid, olabel = p.overlay_line
+        ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color=OVERLAY_LINE, linestyle="-", linewidth=1.8, zorder=4, label=olabel)
+
+    _draw_perfect_fit_line(p, n, x, y, ax)
+    if p.xlim is not None:
+        ax.set_xlim(*p.xlim)
+    if p.ylim is not None:
+        ax.set_ylim(*p.ylim)
+
+    _draw_inline_labels(p, ax)
+
+    if p.colorbar_label and color_arr is not None:
+        _add_colorbar(fig, sc, ax, cbar_axes, p)
+
+    ax.set_xlabel(p.xlabel)
+    ax.set_ylabel(p.ylabel)
+    _set_panel_title(ax, p.title)
+    if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.overlay_band is not None or p.highlight_indices is not None:
+        if p.legend_outside:
+            ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8, framealpha=0.7, borderaxespad=0.0)
+        else:
+            ax.legend(loc=(p.legend_loc if p.legend_loc is not None else "best"), fontsize=8, framealpha=0.7)
+    if p.grid:
+        ax.grid(True, alpha=0.3)
+
+
+def _scatter_color_arr_none(color_arr, kw, p):
+    """Block of _scatter starting at ``if color_arr is not None:``."""
     if color_arr is not None:
         kw["c"] = color_arr
         kw["cmap"] = _resolve_discrete_cmap(p.colormap)
@@ -133,11 +185,10 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
             kw["vmax"] = p.color_vmax
     elif p.point_color is not None:
         kw["color"] = p.point_color
-    # ``weak.any()`` alone, deliberately: the old guard also required at least one STRONG point, so a panel
-    # where EVERY bin rests on too little data fell through to the confident branch and rendered
-    # pixel-identical to one built on 300k-row bins -- the confidence signal vanished at the exact moment it
-    # mattered most, taking the "too few rows to read" legend entry with it. With the strong subset empty the
-    # trace below is simply empty, which both backends skip cleanly.
+
+
+def _scatter_trace_below_simply_empty(weak, kw, x, ax, y, p):
+    """Block of _scatter starting at ``if weak.any():``."""
     if weak.any():
         # Two calls so the weak points can be hollow: matplotlib takes ``facecolors`` per call, not per point,
         # and the colorbar is built from the FILLED call so it still describes the observations.
@@ -158,9 +209,11 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
         ax.scatter(x[weak], y[weak], **_weak_kw)
     else:
         sc = ax.scatter(x, y, **kw)
+    return sc
 
-    # Emphasised subset (worst-K errors): drawn on top, larger + colored. Indices are positions into the
-    # ORIGINAL arrays, so resolve against the pre-subsample data (``p.x`` / ``p.y``), not the capped ``x``/``y``.
+
+def _scatter_original_arrays_resolve_against(p, size_arr, ax):
+    """Block of _scatter starting at ``if p.highlight_indices is not None:``."""
     if p.highlight_indices is not None:
         hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
         ox, oy = np.asarray(p.x), np.asarray(p.y)
@@ -169,21 +222,9 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
             base_s = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size)))
             ax.scatter(ox[hi_idx], oy[hi_idx], s=base_s * 4.0, facecolors="none", edgecolors=p.highlight_color, linewidths=1.5, zorder=5, label="worst-K")
 
-    if p.trend_line is not None and n > 1:
-        from mlframe.reporting.renderers._trend import robust_fit_endpoints
-        ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
-        if ends is not None:
-            (tx0, ty0), (tx1, ty1) = ends
-            ax.plot([tx0, tx1], [ty0, ty1], color=TREND_LINE, linestyle="-", linewidth=1.6, zorder=4, label=f"robust fit ({p.trend_line})")
 
-    if p.overlay_band is not None:
-        bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
-        ax.fill_between(bx, blo, bhi, color=OVERLAY_LINE, alpha=0.18, zorder=3, linewidth=0, label="curve 95% band")
-
-    if p.overlay_line is not None:
-        ox_grid, oy_grid, olabel = p.overlay_line
-        ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color=OVERLAY_LINE, linestyle="-", linewidth=1.8, zorder=4, label=olabel)
-
+def _draw_perfect_fit_line(p, n, x, y, ax):
+    """Draw the y=x perfect-fit line and square the panel."""
     if p.perfect_fit_line and n > 0:
         # Span y=x over the UNION of both axes (so it stays the diagonal even when prediction collapse makes
         # y constant) and square the panel so y=x is a true 45-degree line.
@@ -212,10 +253,11 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
         # The flag used to be read only inside the perfect-fit branch, so asking for a square panel
         # without that diagonal silently did nothing.
         ax.set_aspect("equal", "box")
-    if p.xlim is not None:
-        ax.set_xlim(*p.xlim)
-    if p.ylim is not None:
-        ax.set_ylim(*p.ylim)
+
+
+def _draw_inline_labels(p, ax):
+    """Draw the inline point labels."""
+    from mlframe.reporting.renderers.matplotlib import _EDGE_LABEL_FLIP_FRACTION
 
     if p.inline_labels:
         _lab_colors = p.inline_label_colors if p.inline_label_colors is not None else ()
@@ -254,20 +296,6 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
                 lx, ly, txt, fontsize=8, ha=_ha, va=_va, color=_colour, zorder=6,
                 path_effects=[_pe.withStroke(linewidth=1.6, foreground=("black" if _colour == "white" else "white"))],
             )
-
-    if p.colorbar_label and color_arr is not None:
-        _add_colorbar(fig, sc, ax, cbar_axes, p)
-
-    ax.set_xlabel(p.xlabel)
-    ax.set_ylabel(p.ylabel)
-    _set_panel_title(ax, p.title)
-    if p.legend_label or p.perfect_fit_line or p.trend_line or p.overlay_line is not None or p.overlay_band is not None or p.highlight_indices is not None:
-        if p.legend_outside:
-            ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), fontsize=8, framealpha=0.7, borderaxespad=0.0)
-        else:
-            ax.legend(loc=(p.legend_loc if p.legend_loc is not None else "best"), fontsize=8, framealpha=0.7)
-    if p.grid:
-        ax.grid(True, alpha=0.3)
 
 
 __all__ = ["_scatter"]

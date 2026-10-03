@@ -102,8 +102,6 @@ from ._conditional_gate_naming import (
 
 # Quantile grid for the tau scan: skip the extreme tails (a tau at q<=0.05 / q>=0.95 leaves one branch nearly empty, so the
 # gate degenerates to a single column already on the raw list). 17 interior quantiles is enough to land near a true tau.
-_TAU_QUANTILES = tuple(np.round(np.linspace(0.1, 0.9, 17), 4))
-
 # Margin the engineered column's MI must beat its operand baseline by (mirrors _pairwise_modular_fe._MIN_MARGIN). Below it the
 # selector can already recover the signal from a raw / cheap-op column, so the engineered column adds no genuine structure.
 _MIN_MARGIN = 0.02
@@ -118,6 +116,12 @@ _GATE_BUILD_NJIT_MIN_N = env_int("MLFRAME_GATE_BUILD_NJIT_MIN_N", 20000, minimum
 # Guards the cardinality-inflation false positive on a few-class y (a ~10-bin regression/quantized target), where a select/mask column's
 # plug-in MI can sit ~0.01 nats above a z=3 null on noise; a true regime/argmax hit clears the null by a wide margin.
 _MIN_NULL_MARGIN = 0.05
+
+
+from ._conditional_gate_fe_helpers import (  # noqa: F401  -- carved helpers
+    _TAU_QUANTILES,
+    _scan_gate_column,
+)
 
 
 def apply_row_argmax(X, cols: Sequence[str]) -> np.ndarray:
@@ -636,7 +640,7 @@ def cheap_conditional_gate_scan(
 
     ``_cols_prefiltered`` is internal-only: set by callers that already built ``cols`` via ``_is_argmax_eligible`` themselves
     (e.g. ``hybrid_conditional_gate_fe_with_recipes``), to skip the redundant re-check below. External callers must leave it False."""
-    import pandas as pd  # noqa: F401
+    import pandas as pd  # noqa: F401  (X may be pandas or polars; we pull ndarrays)
 
     if cols is None:
         cols = [c for c in X.columns if _is_argmax_eligible(np.asarray(X[c]))]
@@ -804,33 +808,6 @@ def cheap_conditional_gate_scan(
     # Canonical secondary key on (mode, operand names) so near-ties don't break by ranking/enumeration (column) order.
     hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.mode), tuple(str(c) for c in h.cols)))
     return hits
-
-
-def _scan_gate_column(gate_cols, arrs, operand_cols, _add):
-    """Score the conditional-gate candidates for one gate column."""
-    from mlframe.feature_selection.filters._fe_deadline import fe_deadline_passed
-
-    for cgate in gate_cols:
-        # Optional-enrichment wall-clock budget: stop the O(k_gate * k_operand^2) gate sweep once
-        # MRMR.fit's deadline passes; flush whatever candidates are already queued and return the hits
-        # found so far. No-op without a budget (mirrors the orth-univariate/pair-cross/extra-basis
-        # generators' internal deadline check).
-        if fe_deadline_passed():
-            break
-        cv = arrs[cgate]
-        taus = np.quantile(cv, _TAU_QUANTILES)
-        others = [cn for cn in operand_cols if cn != cgate]
-        # mask: one active column a (cols = (a, c)); baseline over {a, c}.
-        for a in others:
-            av = arrs[a]
-            _add("mask", (a, cgate), (cv, av), taus, (a, cgate))
-        # select: ordered (a, b), cols = (a, b, c); baseline over {a, b, c}.
-        for a in others:
-            for b in others:
-                if a == b:
-                    continue
-                av, bv = arrs[a], arrs[b]
-                _add("select", (a, b, cgate), (cv, av, bv), taus, (a, b, cgate))
 
 
 def detect_row_argmax(

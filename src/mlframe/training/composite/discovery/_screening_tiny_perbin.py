@@ -263,7 +263,7 @@ def _tiny_cv_rmse_y_scale(
     on the common (all-valid) path -- <0.1 ms at n=20k vs the ~26 ms fold fits, far
     under the actionable threshold; no further optimization needed.
     """
-    from sklearn.model_selection import GroupKFold, TimeSeriesSplit
+    x_clean: Any = None
     n = len(y_train)
     if n < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
@@ -319,55 +319,8 @@ def _tiny_cv_rmse_y_scale(
         _group_mask = valid if not _all_valid else None
 
     groups_clean = None
-    if groups is not None:
-        _g_arr = np.asarray(groups)
-        if _g_arr.shape[0] == len(y_train):
-            # Align groups to whichever population the split runs on -- the
-            # finite-y superset under fallback emulation, else the valid subset.
-            groups_clean = _g_arr[_group_mask] if _group_mask is not None else _g_arr
-            _n_groups = int(np.unique(groups_clean).size)
-            if _n_groups < cv_folds:
-                # Groups requested but too few distinct groups survive the
-                # domain mask -> silent downgrade to KFold (different fold
-                # population, no group separation). WARN so the operator sees
-                # why the group split did not apply.
-                _fallback_desc = "the caller-supplied cv_splitter" if cv_splitter is not None else ("TimeSeriesSplit" if time_aware else "shuffled KFold")
-                logger.warning(
-                    "_tiny_cv_rmse_y_scale: groups supplied but only %d distinct "
-                    "group(s) survive the domain mask (< cv_folds=%d); falling "
-                    "back to %s. Group separation is NOT enforced for this "
-                    "spec -- reduce cv_folds or supply more groups to keep the "
-                    "grouped fold contract.",
-                    _n_groups, cv_folds, _fallback_desc,
-                )
-                groups_clean = None  # fall back to KFold if not enough groups
-    if cv_splitter is not None:
-        # Escape hatch (parity with _tiny_cv_rmse_raw_y): a caller-supplied
-        # splitter wins over the groups/time_aware/KFold auto-pick.
-        kf = cv_splitter
-        splits = list(kf.split(x_clean, groups=groups_clean)) if groups_clean is not None else list(kf.split(x_clean))
-    elif groups_clean is not None:
-        if time_aware:
-            # Both group- and time-awareness were requested but the splitter
-            # can honour only one; GroupKFold wins and the temporal ordering is
-            # dropped (future->past leak risk on autoregressive bases). WARN once
-            # per call so the operator can supply a grouped forward-chaining
-            # cv_splitter if both must hold.
-            logger.warning(
-                "_tiny_cv_rmse_y_scale: both groups and time_aware were "
-                "requested; GroupKFold takes precedence and the temporal order "
-                "is NOT preserved (random group folds may leak future->past on "
-                "autoregressive bases). Pass a grouped forward-chaining "
-                "cv_splitter to honour both.",
-            )
-        kf = GroupKFold(n_splits=cv_folds)
-        splits = list(kf.split(x_clean, groups=groups_clean))
-    elif time_aware:
-        kf = TimeSeriesSplit(n_splits=cv_folds)
-        splits = list(kf.split(x_clean))
-    else:
-        # Hoisted split cache: identical (n,cv_folds,seed) across N_SPECS -> identical splits.
-        splits = _cached_kfold_splits(x_clean.shape[0], cv_folds, random_state)
+    groups_clean = _resolve_perbin_cv_groups(groups, y_train, _group_mask, cv_folds, cv_splitter, time_aware, groups_clean)
+    splits = _resolve_perbin_cv_splitter(cv_splitter, groups_clean, x_clean, time_aware, cv_folds, random_state)
 
     def _one_fold(
         train_fold: np.ndarray, val_fold: np.ndarray,
@@ -479,21 +432,7 @@ def _tiny_cv_rmse_y_scale(
             fold_results = []
             _sum_so_far = 0.0
             _n_finite_so_far = 0
-            for _fi, (tr, va) in enumerate(splits):
-                _rmse, _pb = _one_fold(tr, va)
-                fold_results.append((_rmse, _pb))
-                if math.isfinite(_rmse):
-                    _sum_so_far += _rmse
-                    _n_finite_so_far += 1
-                if (
-                    math.isfinite(early_stop_threshold)
-                    and _n_finite_so_far > 0
-                    and _fi < len(splits) - 1
-                    and _sum_so_far > early_stop_threshold * cv_folds
-                    and cv_selector_mode == "mean"  # partial-sum bound only guarantees the MEAN exceeds thr; median/quantile aggregates can stay below
-                ):
-                    # Final mean cannot reach <= threshold; abort remaining folds.
-                    break
+            _tiny_cv_y_sca_fi_tr_va_enumerate(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode)
 
     # NaN-fold aggregate WARN (twin of the y-scale branch).
     _nan_fold_count = sum(1 for r, _ in fold_results if not math.isfinite(r))
@@ -528,3 +467,83 @@ def _tiny_cv_rmse_y_scale(
     with np.errstate(invalid="ignore"):
         per_bin_mean = np.nanmean(per_bin_stack, axis=0)
     return mean_rmse, per_bin_mean
+
+
+def _tiny_cv_y_sca_fi_tr_va_enumerate(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode):
+    """Block of _tiny_cv_rmse_y_scale starting at ``for _fi, (tr, va) in enumerate(splits):``."""
+    for _fi, (tr, va) in enumerate(splits):
+        _rmse, _pb = _one_fold(tr, va)
+        fold_results.append((_rmse, _pb))
+        if math.isfinite(_rmse):
+            _sum_so_far += _rmse
+            _n_finite_so_far += 1
+        if (
+            math.isfinite(early_stop_threshold)
+            and _n_finite_so_far > 0
+            and _fi < len(splits) - 1
+            and _sum_so_far > early_stop_threshold * cv_folds
+            and cv_selector_mode == "mean"  # partial-sum bound only guarantees the MEAN exceeds thr; median/quantile aggregates can stay below
+        ):
+            # Final mean cannot reach <= threshold; abort remaining folds.
+            break
+
+
+def _resolve_perbin_cv_groups(groups, y_train, _group_mask, cv_folds, cv_splitter, time_aware, groups_clean):
+    """Resolve the group labels of the per-bin tiny screen."""
+    if groups is not None:
+        _g_arr = np.asarray(groups)
+        if _g_arr.shape[0] == len(y_train):
+            # Align groups to whichever population the split runs on -- the
+            # finite-y superset under fallback emulation, else the valid subset.
+            groups_clean = _g_arr[_group_mask] if _group_mask is not None else _g_arr
+            _n_groups = int(np.unique(groups_clean).size)
+            if _n_groups < cv_folds:
+                # Groups requested but too few distinct groups survive the
+                # domain mask -> silent downgrade to KFold (different fold
+                # population, no group separation). WARN so the operator sees
+                # why the group split did not apply.
+                _fallback_desc = "the caller-supplied cv_splitter" if cv_splitter is not None else ("TimeSeriesSplit" if time_aware else "shuffled KFold")
+                logger.warning(
+                    "_tiny_cv_rmse_y_scale: groups supplied but only %d distinct "
+                    "group(s) survive the domain mask (< cv_folds=%d); falling "
+                    "back to %s. Group separation is NOT enforced for this "
+                    "spec -- reduce cv_folds or supply more groups to keep the "
+                    "grouped fold contract.",
+                    _n_groups, cv_folds, _fallback_desc,
+                )
+                groups_clean = None  # fall back to KFold if not enough groups
+    return groups_clean
+
+
+def _resolve_perbin_cv_splitter(cv_splitter, groups_clean, x_clean, time_aware, cv_folds, random_state):
+    """Resolve the CV splitter of the per-bin tiny screen."""
+    from sklearn.model_selection import GroupKFold, TimeSeriesSplit
+
+    if cv_splitter is not None:
+        # Escape hatch (parity with _tiny_cv_rmse_raw_y): a caller-supplied
+        # splitter wins over the groups/time_aware/KFold auto-pick.
+        kf = cv_splitter
+        splits = list(kf.split(x_clean, groups=groups_clean)) if groups_clean is not None else list(kf.split(x_clean))
+    elif groups_clean is not None:
+        if time_aware:
+            # Both group- and time-awareness were requested but the splitter
+            # can honour only one; GroupKFold wins and the temporal ordering is
+            # dropped (future->past leak risk on autoregressive bases). WARN once
+            # per call so the operator can supply a grouped forward-chaining
+            # cv_splitter if both must hold.
+            logger.warning(
+                "_tiny_cv_rmse_y_scale: both groups and time_aware were "
+                "requested; GroupKFold takes precedence and the temporal order "
+                "is NOT preserved (random group folds may leak future->past on "
+                "autoregressive bases). Pass a grouped forward-chaining "
+                "cv_splitter to honour both.",
+            )
+        kf = GroupKFold(n_splits=cv_folds)
+        splits = list(kf.split(x_clean, groups=groups_clean))
+    elif time_aware:
+        kf = TimeSeriesSplit(n_splits=cv_folds)
+        splits = list(kf.split(x_clean))
+    else:
+        # Hoisted split cache: identical (n,cv_folds,seed) across N_SPECS -> identical splits.
+        splits = _cached_kfold_splits(x_clean.shape[0], cv_folds, random_state)
+    return splits

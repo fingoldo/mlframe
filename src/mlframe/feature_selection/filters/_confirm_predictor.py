@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
-from typing import Optional, cast
+from typing import Optional, cast, Any
 
 import os
 
@@ -671,6 +671,9 @@ def confirm_one_predictor(
     total_checked, total_disproved, patience_triggered)``.
     """
 
+    next_best_gain: Any = None
+    next_best_candidate_idx: Any = None
+    X: Any = None
     candidates = ctx.candidates
     min_relevance_gain = ctx.min_relevance_gain
     selected_vars = ctx.selected_vars
@@ -699,14 +702,7 @@ def confirm_one_predictor(
     # NAME, which is invariant under column reordering; rank gives a stable,
     # contiguous integer key for ``np.lexsort``.
     _rank_cache = cast(Optional[tuple[list, list[str], np.ndarray]], ctx._name_rank_cache)
-    if _rank_cache is not None and _rank_cache[0] is candidates:
-        _cand_names, _name_rank = _rank_cache[1], _rank_cache[2]
-    else:
-        _cand_names = [get_candidate_name(c, factors_names=factors_names) for c in candidates]
-        _name_rank = np.empty(len(candidates), dtype=np.int64)
-        for _rank, _pos in enumerate(sorted(range(len(_cand_names)), key=lambda i: _cand_names[i])):
-            _name_rank[_pos] = _rank
-        ctx._name_rank_cache = (candidates, _cand_names, _name_rank)
+    _name_rank = _confirm_one_predic_contiguous_integer_key_np(_rank_cache, candidates, factors_names, ctx)
 
     while True:  # confirmation loop (by random permutations)
 
@@ -796,10 +792,7 @@ def confirm_one_predictor(
                     # while the calibrated add-one confidence is still what gets STORED/reported. No-op when
                     # add-one is disabled (ceiling == 1.0) and on large budgets (ceiling -> 1.0).
                     _conf_for_gain = confidence
-                    if _addone_pvalue_enabled() and full_npermutations:
-                        _addone_ceiling = full_npermutations / (full_npermutations + 1.0)
-                        if _addone_ceiling > 0.0:
-                            _conf_for_gain = min(1.0, confidence / _addone_ceiling)
+                    _conf_for_gain = _confirm_one_predic_add_one_disabled_ceiling(full_npermutations, confidence, _conf_for_gain)
                     next_best_gain = next_best_gain * _conf_for_gain
                     expected_gains[next_best_candidate_idx] = next_best_gain
 
@@ -860,19 +853,7 @@ def confirm_one_predictor(
             # becomes redundant and is marked accepted so it is not reselected).
             _sub_idx, _sub_X, _sub_gain = next_best_candidate_idx, X, next_best_gain
             _child = _confirmable_engineered_child(ctx, X, next_best_candidate_idx, next_best_gain, expected_gains)
-            if _child is not None:
-                _child_idx, _child_X, _child_gain = _child
-                _child_boot, _child_conf = confirm_candidate(ctx, _child_X, _child_gain)
-                if _child_boot > 0:
-                    added_candidates.add(next_best_candidate_idx)  # raw parent now redundant
-                    _sub_idx, _sub_X, _sub_gain = _child_idx, _child_X, _child_gain * _child_conf
-                    if verbose >= 2:
-                        logger.info(
-                            "prefer-engineered substitution: %s -> %s (raw gain %.*f, transform gain %.*f)",
-                            get_candidate_name(X, factors_names=factors_names),
-                            get_candidate_name(_child_X, factors_names=factors_names),
-                            ndigits, next_best_gain, ndigits, _sub_gain,
-                        )
+            _sub_X, _sub_gain, _sub_idx = _confirm_one_predic_becomes_redundant_marked_accepted(_child, ctx, added_candidates, next_best_candidate_idx, verbose, X, factors_names, ndigits, next_best_gain, _sub_X, _sub_gain, _sub_idx)
             added_candidates.add(_sub_idx)  # so it won't be selected again
             best_candidate = _sub_X
             best_gain = _sub_gain
@@ -901,3 +882,43 @@ def confirm_one_predictor(
         total_disproved,
         patience_triggered,
     )
+
+
+def _confirm_one_predic_contiguous_integer_key_np(_rank_cache, candidates, factors_names, ctx):
+    """Block of confirm_one_predictor starting at ``if _rank_cache is not None and _rank_cache[0] is candidates:``."""
+    if _rank_cache is not None and _rank_cache[0] is candidates:
+        _cand_names, _name_rank = _rank_cache[1], _rank_cache[2]
+    else:
+        _cand_names = [get_candidate_name(c, factors_names=factors_names) for c in candidates]
+        _name_rank = np.empty(len(candidates), dtype=np.int64)
+        for _rank, _pos in enumerate(sorted(range(len(_cand_names)), key=lambda i: _cand_names[i])):
+            _name_rank[_pos] = _rank
+        ctx._name_rank_cache = (candidates, _cand_names, _name_rank)
+    return _name_rank
+
+
+def _confirm_one_predic_add_one_disabled_ceiling(full_npermutations, confidence, _conf_for_gain):
+    """Block of confirm_one_predictor starting at ``if _addone_pvalue_enabled() and full_npermutations:``."""
+    if _addone_pvalue_enabled() and full_npermutations:
+        _addone_ceiling = full_npermutations / (full_npermutations + 1.0)
+        if _addone_ceiling > 0.0:
+            _conf_for_gain = min(1.0, confidence / _addone_ceiling)
+    return _conf_for_gain
+
+
+def _confirm_one_predic_becomes_redundant_marked_accepted(_child, ctx, added_candidates, next_best_candidate_idx, verbose, X, factors_names, ndigits, next_best_gain, _sub_X, _sub_gain, _sub_idx):
+    """Block of confirm_one_predictor starting at ``if _child is not None:``."""
+    if _child is not None:
+        _child_idx, _child_X, _child_gain = _child
+        _child_boot, _child_conf = confirm_candidate(ctx, _child_X, _child_gain)
+        if _child_boot > 0:
+            added_candidates.add(next_best_candidate_idx)  # raw parent now redundant
+            _sub_idx, _sub_X, _sub_gain = _child_idx, _child_X, _child_gain * _child_conf
+            if verbose >= 2:
+                logger.info(
+                    "prefer-engineered substitution: %s -> %s (raw gain %.*f, transform gain %.*f)",
+                    get_candidate_name(X, factors_names=factors_names),
+                    get_candidate_name(_child_X, factors_names=factors_names),
+                    ndigits, next_best_gain, ndigits, _sub_gain,
+                )
+    return _sub_X, _sub_gain, _sub_idx

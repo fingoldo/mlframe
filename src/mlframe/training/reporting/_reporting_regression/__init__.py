@@ -152,6 +152,10 @@ def report_regression_model_perf(
     tuple
         (preds, None) - predictions and None (no probabilities for regression).
     """
+    RMSE: Any = None
+    R2: Any = None
+    MaxError: Any = None
+    MAE: Any = None
     if preds is None:
         # Wrap in _predict_with_fallback so CatBoost's Polars fastpath
         # dispatcher misses ("No matching signature found") trigger a
@@ -381,17 +385,7 @@ def report_regression_model_perf(
     _residual_audit = None
     from ...evaluation import _get_residual_audit_enabled  # lazy: breaks cycle with .evaluation
     _audit_log_enabled = bool(_get_residual_audit_enabled())
-    if not ((targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)):
-        try:
-            from ...targets import audit_residuals as _audit_residuals_fn
-            _residual_audit = _audit_residuals_fn(targets, preds)
-            if metrics is not None:
-                metrics["residual_audit"] = _residual_audit.to_dict()
-        except Exception as _audit_err:
-            logger.warning(
-                "residual_audit failed for '%s': %s. Continuing without diagnostics.",
-                model_name, _audit_err,
-            )
+    _residual_audit = _report_regression__targets_arr_ndim_targets(targets_arr, preds_arr, targets, preds, metrics, model_name, _residual_audit)
 
     # Short-circuit when there is NO consumer for the chart.
     # Same logic as ``mlframe.metrics.core.show_calibration_plot``: in a script /
@@ -400,14 +394,7 @@ def report_regression_model_perf(
     # nobody can see AND nothing is written to disk because ``plot_file``
     # is empty. The figure render is 100-200 ms / call and dominates
     # warm-state regression report wall.
-    if show_perf_chart and not plot_file:
-        try:
-            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
-        except NameError:
-            import sys as _sys
-            _is_interactive_session = hasattr(_sys, "ps1")
-        if not _is_interactive_session:
-            show_perf_chart = False  # disable for the guards below
+    show_perf_chart = _report_regression__warm_state_regression_report(show_perf_chart, plot_file)
 
     if show_perf_chart or plot_file:
         # Split the long title into three pieces.
@@ -490,17 +477,7 @@ def report_regression_model_perf(
             "RMSLE", "Spearman", "MBE",
         )
         _reg_tokens = DEFAULT_REGRESSION_TITLE_TOKENS
-        try:
-            _cfg_tokens = getattr(reporting_config, "regression_title_metrics_tokens", None)
-            if _cfg_tokens:
-                _reg_tokens = tuple(_cfg_tokens)
-        except (AttributeError, TypeError):
-            # reporting_config is now a real parameter (threaded through
-            # _trainer_train_and_evaluate -> _compute_split_metrics ->
-            # report_model_perf -> here). It may still be None when a caller
-            # constructs the regression reporter directly without the full
-            # suite context; the try/except keeps that path harmless.
-            pass
+        _reg_tokens = _report_regression__try(reporting_config, _reg_tokens)
 
         def _render_regression_token(token: str) -> str:
             """Formats one metric title token (e.g. "MAE", "RMSE") as its ``name=value`` chart-title fragment; "" if not finite/recognized."""
@@ -560,142 +537,201 @@ def report_regression_model_perf(
         # Skip the plot when targets are 2-D -- title metrics already
         # carry the per-output-aggregated MAE/RMSE/R2.
         _is_multioutput = (targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
-        if _is_multioutput:
-            if print_report:
-                logger.info(
-                    "  [multioutput regression: target shape=%s, " "skipping scatter plot -- per-output plotting would mix K clouds]",
-                    targets_arr.shape,
-                )
-        else:
-            from ...targets import (
-                plot_residual_diagnostics as _plot_residual_diagnostics,
-            )
-            _audit = _residual_audit  # reuse pre-computed audit
+        _report_regression__carry_per_output_aggregated(_is_multioutput, print_report, targets_arr, _residual_audit, plot_outputs, plot_file, reporting_config, targets, preds, header_str, metrics_str, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart)
 
-            # When ReportingConfig.plot_outputs is set
-            # (default ``"plotly[html,png]"``), bypass the inline
-            # matplotlib block and route through the FigureSpec / DSL
-            # pipeline so plotly + matplotlib emit per the user's
-            # config. The DSL builder lives at
-            # ``mlframe/reporting/charts/regression.py``. The audit-failure
-            # (``_audit is None``) case routes through the spec path too --
-            # the composer renders without an audit (the hist Normal overlay
-            # + hypothesis text are simply omitted), so a failed audit no
-            # longer downgrades the chart to the extension-less legacy save.
-            if plot_outputs and plot_file:
-                # G6: per-call regression panel template override from ReportingConfig (SCATTER / RESID_HIST /
-                # RESID_VS_PRED / ERR_BY_DECILE); None falls back to the composer default.
-                _regression_panels = getattr(reporting_config, "regression_panels", None)
-                _plot_residual_diagnostics(
-                    targets, preds, audit=_audit,
-                    plot_outputs=plot_outputs,
-                    base_path=plot_file,
-                    header_str=header_str,
-                    metrics_str=metrics_str,
-                    plot_sample_size=plot_sample_size,
-                    seed=DEFAULT_RANDOM_SEED,
-                    dpi=plot_dpi,
-                    panels_template=_regression_panels,
+    _report_regression__print_report(print_report, model_name, report_title, MAE, report_ndigits, RMSE, MaxError, R2, _residual_audit, _audit_log_enabled)
+
+    _report_regression__cleanly_under_one_record(subgroups, subset_index, targets, preds, print_report, metrics)
+
+    return preds, None
+
+
+def _report_regression__targets_arr_ndim_targets(targets_arr, preds_arr, targets, preds, metrics, model_name, _residual_audit):
+    """Block of report_regression_model_perf starting at ``if not ((targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_``."""
+    if not ((targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)):
+        try:
+            from mlframe.training.targets import audit_residuals as _audit_residuals_fn
+            _residual_audit = _audit_residuals_fn(targets, preds)
+            if metrics is not None:
+                metrics["residual_audit"] = _residual_audit.to_dict()
+        except Exception as _audit_err:
+            logger.warning(
+                "residual_audit failed for '%s': %s. Continuing without diagnostics.",
+                model_name, _audit_err,
+            )
+    return _residual_audit
+
+
+def _report_regression__warm_state_regression_report(show_perf_chart, plot_file):
+    """Block of report_regression_model_perf starting at ``if show_perf_chart and not plot_file:``."""
+    if show_perf_chart and not plot_file:
+        try:
+            _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
+        except NameError:
+            import sys as _sys
+            _is_interactive_session = hasattr(_sys, "ps1")
+        if not _is_interactive_session:
+            show_perf_chart = False  # disable for the guards below
+    return show_perf_chart
+
+
+def _report_regression__try(reporting_config, _reg_tokens):
+    """Block of report_regression_model_perf starting at ``try:``."""
+    try:
+        _cfg_tokens = getattr(reporting_config, "regression_title_metrics_tokens", None)
+        if _cfg_tokens:
+            _reg_tokens = tuple(_cfg_tokens)
+    except (AttributeError, TypeError):
+        # reporting_config is now a real parameter (threaded through
+        # _trainer_train_and_evaluate -> _compute_split_metrics ->
+        # report_model_perf -> here). It may still be None when a caller
+        # constructs the regression reporter directly without the full
+        # suite context; the try/except keeps that path harmless.
+        pass
+    return _reg_tokens
+
+
+def _report_regression__carry_per_output_aggregated(_is_multioutput, print_report, targets_arr, _residual_audit, plot_outputs, plot_file, reporting_config, targets, preds, header_str, metrics_str, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart):
+    """Block of report_regression_model_perf starting at ``if _is_multioutput:``."""
+    if _is_multioutput:
+        if print_report:
+            logger.info(
+                "  [multioutput regression: target shape=%s, " "skipping scatter plot -- per-output plotting would mix K clouds]",
+                targets_arr.shape,
+            )
+    else:
+        from mlframe.training.targets import (
+            plot_residual_diagnostics as _plot_residual_diagnostics,
+        )
+        _audit = _residual_audit  # reuse pre-computed audit
+
+        # When ReportingConfig.plot_outputs is set
+        # (default ``"plotly[html,png]"``), bypass the inline
+        # matplotlib block and route through the FigureSpec / DSL
+        # pipeline so plotly + matplotlib emit per the user's
+        # config. The DSL builder lives at
+        # ``mlframe/reporting/charts/regression.py``. The audit-failure
+        # (``_audit is None``) case routes through the spec path too --
+        # the composer renders without an audit (the hist Normal overlay
+        # + hypothesis text are simply omitted), so a failed audit no
+        # longer downgrades the chart to the extension-less legacy save.
+        if plot_outputs and plot_file:
+            # G6: per-call regression panel template override from ReportingConfig (SCATTER / RESID_HIST /
+            # RESID_VS_PRED / ERR_BY_DECILE); None falls back to the composer default.
+            _regression_panels = getattr(reporting_config, "regression_panels", None)
+            _plot_residual_diagnostics(
+                targets, preds, audit=_audit,
+                plot_outputs=plot_outputs,
+                base_path=plot_file,
+                header_str=header_str,
+                metrics_str=metrics_str,
+                plot_sample_size=plot_sample_size,
+                seed=DEFAULT_RANDOM_SEED,
+                dpi=plot_dpi,
+                panels_template=_regression_panels,
+            )
+        else:
+            # Legacy matplotlib-only path. Kept for callers that
+            # still want axes injection (e.g. notebooks composing
+            # the chart into a larger figure).
+            #
+            # Extremes-preserving subsample so the MaxError point quoted in the title (and the axis-anchoring
+            # range endpoints) are actually plotted; a uniform draw silently drops exactly those points.
+            _preds_arr = np.asarray(preds, dtype=np.float64).ravel()
+            _targ_arr = np.asarray(targets, dtype=np.float64).ravel()
+            if _preds_arr.size > plot_sample_size:
+                from mlframe.reporting.charts import subsample_preserving_extremes
+                _resid_for_extremes = _targ_arr - _preds_arr
+                idx = subsample_preserving_extremes(
+                    _preds_arr, _targ_arr, sample_size=plot_sample_size,
+                    extreme_values=_resid_for_extremes, rng=DEFAULT_RANDOM_SEED,
                 )
             else:
-                # Legacy matplotlib-only path. Kept for callers that
-                # still want axes injection (e.g. notebooks composing
-                # the chart into a larger figure).
-                #
-                # Extremes-preserving subsample so the MaxError point quoted in the title (and the axis-anchoring
-                # range endpoints) are actually plotted; a uniform draw silently drops exactly those points.
-                _preds_arr = np.asarray(preds, dtype=np.float64).ravel()
-                _targ_arr = np.asarray(targets, dtype=np.float64).ravel()
-                if _preds_arr.size > plot_sample_size:
-                    from mlframe.reporting.charts import subsample_preserving_extremes
-                    _resid_for_extremes = _targ_arr - _preds_arr
-                    idx = subsample_preserving_extremes(
-                        _preds_arr, _targ_arr, sample_size=plot_sample_size,
-                        extreme_values=_resid_for_extremes, rng=DEFAULT_RANDOM_SEED,
-                    )
-                else:
-                    idx = np.arange(_preds_arr.size)
-                idx = idx[np.argsort(_preds_arr[idx])]
+                idx = np.arange(_preds_arr.size)
+            idx = idx[np.argsort(_preds_arr[idx])]
 
-                # Two-panel figure: scatter | residuals histogram.
-                # 2026-05-22: removed the "Residuals vs predicted"
-                # panel; its heteroscedasticity diagnostic (spearman
-                # of |resid|, y_hat) now lands inside the scatter
-                # title. The remaining two panels each get ~50% wider
-                # at the same total figsize.
-                # constrained_layout cached solver state -- ~13s saved
-                # vs tight_layout per-chart on multi-chart reports.
-                # Honour plot_dpi when caller set it.
-                _reg_subplots_kwargs: dict[str, Any] = dict(
-                    figsize=(figsize[0] * 3 / 2, figsize[1]),
-                    layout="constrained",
+            # Two-panel figure: scatter | residuals histogram.
+            # 2026-05-22: removed the "Residuals vs predicted"
+            # panel; its heteroscedasticity diagnostic (spearman
+            # of |resid|, y_hat) now lands inside the scatter
+            # title. The remaining two panels each get ~50% wider
+            # at the same total figsize.
+            # constrained_layout cached solver state -- ~13s saved
+            # vs tight_layout per-chart on multi-chart reports.
+            # Honour plot_dpi when caller set it.
+            _reg_subplots_kwargs: dict[str, Any] = dict(
+                figsize=(figsize[0] * 3 / 2, figsize[1]),
+                layout="constrained",
+            )
+            if plot_dpi is not None:
+                _reg_subplots_kwargs["dpi"] = plot_dpi
+            fig, axes = plt.subplots(1, 2, **_reg_subplots_kwargs)
+            ax_scatter, ax_hist = axes
+
+            # y=1.02 puts the suptitle ABOVE the
+            # axes region so constrained_layout auto-extends the
+            # top margin. Previously y=0.995 placed the suptitle
+            # inside the axes row, causing collision with the
+            # multiline subplot titles (hist panel carries a
+            # 2-line title for hypothesis + suggested loss).
+            fig.suptitle(header_str, fontsize=11, y=1.02)
+
+            # Scatter title: metrics + Spearman/heteroscedasticity diagnostic
+            # (moved from the dropped 3rd panel so the signal stays visible).
+            _scatter_title = metrics_str
+            if _audit is not None:
+                _het_marker = "(!) heteroscedastic" if _audit.hetero_significant else "homoscedastic"
+                if np.isfinite(_audit.hetero_spearman):
+                    _scatter_title = f"{metrics_str}\nspearman(|resid|, y_hat) = " f"{_audit.hetero_spearman:+.3f} ({_het_marker})"
+
+            ax_scatter.scatter(
+                preds[idx], targets[idx], marker=plot_marker, alpha=0.3,
+            )
+            ax_scatter.plot(
+                preds[idx], preds[idx], linestyle="--", color="green",
+                label="Perfect fit",
+            )
+            ax_scatter.set_xlabel("Predictions")
+            ax_scatter.set_ylabel("True values")
+            ax_scatter.set_title(_scatter_title)
+            ax_scatter.grid(True, alpha=0.3)
+            ax_scatter.legend(loc="best", fontsize=8, framealpha=0.7)
+
+            if _audit is not None:
+                # The residual-diagnostics helper now needs ONLY the hist
+                # axis; passing ax_resid_vs_pred=None silences the legacy
+                # 3rd-panel render path.
+                _plot_residual_diagnostics(
+                    targets, preds, audit=_audit,
+                    ax_hist=ax_hist, ax_resid_vs_pred=None,
                 )
-                if plot_dpi is not None:
-                    _reg_subplots_kwargs["dpi"] = plot_dpi
-                fig, axes = plt.subplots(1, 2, **_reg_subplots_kwargs)
-                ax_scatter, ax_hist = axes
+            else:
+                ax_hist.set_visible(False)
 
-                # y=1.02 puts the suptitle ABOVE the
-                # axes region so constrained_layout auto-extends the
-                # top margin. Previously y=0.995 placed the suptitle
-                # inside the axes row, causing collision with the
-                # multiline subplot titles (hist panel carries a
-                # 2-line title for hypothesis + suggested loss).
-                fig.suptitle(header_str, fontsize=11, y=1.02)
+            if plot_file:
+                # Default the extension to .png when the caller passed an extension-less path -- savefig with no
+                # extension writes a file matplotlib can't infer a format for / opens as raw bytes downstream.
+                _save_path = plot_file
+                if os.path.splitext(plot_file)[1].lower() not in (
+                    ".png", ".pdf", ".svg", ".jpg", ".jpeg", ".tif", ".tiff", ".webp",
+                ):
+                    # Resolved, not concatenated: a flat name lands beside the png/ directory the rest of
+                    # the run writes into.
+                    from mlframe.reporting.renderers.save import resolve_output_path
 
-                # Scatter title: metrics + Spearman/heteroscedasticity diagnostic
-                # (moved from the dropped 3rd panel so the signal stays visible).
-                _scatter_title = metrics_str
-                if _audit is not None:
-                    _het_marker = "(!) heteroscedastic" if _audit.hetero_significant else "homoscedastic"
-                    if np.isfinite(_audit.hetero_spearman):
-                        _scatter_title = f"{metrics_str}\nspearman(|resid|, y_hat) = " f"{_audit.hetero_spearman:+.3f} ({_het_marker})"
+                    _save_path = resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
+                fig.savefig(ensure_parent_dir(_save_path))
 
-                ax_scatter.scatter(
-                    preds[idx], targets[idx], marker=plot_marker, alpha=0.3,
-                )
-                ax_scatter.plot(
-                    preds[idx], preds[idx], linestyle="--", color="green",
-                    label="Perfect fit",
-                )
-                ax_scatter.set_xlabel("Predictions")
-                ax_scatter.set_ylabel("True values")
-                ax_scatter.set_title(_scatter_title)
-                ax_scatter.grid(True, alpha=0.3)
-                ax_scatter.legend(loc="best", fontsize=8, framealpha=0.7)
+            if show_perf_chart:
+                # block=False (not plt.ion()) so the process-global interactive flag is not leaked into the user session.
+                plt.show(block=False)
+            # Leak fix: close unless interactive (Jupyter inline).
+            from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
+            _close_unless_interactive(fig, was_shown=show_perf_chart)
 
-                if _audit is not None:
-                    # The residual-diagnostics helper now needs ONLY the hist
-                    # axis; passing ax_resid_vs_pred=None silences the legacy
-                    # 3rd-panel render path.
-                    _plot_residual_diagnostics(
-                        targets, preds, audit=_audit,
-                        ax_hist=ax_hist, ax_resid_vs_pred=None,
-                    )
-                else:
-                    ax_hist.set_visible(False)
 
-                if plot_file:
-                    # Default the extension to .png when the caller passed an extension-less path -- savefig with no
-                    # extension writes a file matplotlib can't infer a format for / opens as raw bytes downstream.
-                    _save_path = plot_file
-                    if os.path.splitext(plot_file)[1].lower() not in (
-                        ".png", ".pdf", ".svg", ".jpg", ".jpeg", ".tif", ".tiff", ".webp",
-                    ):
-                        # Resolved, not concatenated: a flat name lands beside the png/ directory the rest of
-                        # the run writes into.
-                        from mlframe.reporting.renderers.save import resolve_output_path
-
-                        _save_path = resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
-                    fig.savefig(ensure_parent_dir(_save_path))
-
-                if show_perf_chart:
-                    # block=False (not plt.ion()) so the process-global interactive flag is not leaked into the user session.
-                    plt.show(block=False)
-                # Leak fix: close unless interactive (Jupyter inline).
-                from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
-                _close_unless_interactive(fig, was_shown=show_perf_chart)
-
+def _report_regression__print_report(print_report, model_name, report_title, MAE, report_ndigits, RMSE, MaxError, R2, _residual_audit, _audit_log_enabled):
+    """Block of report_regression_model_perf starting at ``if print_report:``."""
     if print_report:
         # Route through logger so file handlers (e.g.
         # pyutilz.logginglib.init_logging) capture the report block.
@@ -703,7 +739,7 @@ def report_regression_model_perf(
         # -> cell output ok but file handler not. Operators using
         # init_logging in jupyter notebooks lost the metric blocks
         # from on-disk logs.
-        from ..._format import format_metric as _fmt
+        from mlframe.training._format import format_metric as _fmt
         # Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
         # 2026-05-27 (user bug report): same fix as the chart-skip gate
         # above -- only ``MTRESID`` token marks a T-scale chart. The
@@ -750,7 +786,7 @@ def report_regression_model_perf(
         # ``behavior_config.report_residual_audit=False``. Also suppressed for
         # composite targets: the audit residuals are on the composite scale.
         if _residual_audit is not None and _audit_log_enabled and not _is_t_scale_composite:
-            from ...targets import (
+            from mlframe.training.targets import (
                 format_residual_audit_report as _fmt_residual_audit,
             )
             _report_lines.append(_fmt_residual_audit(_residual_audit))
@@ -760,10 +796,13 @@ def report_regression_model_perf(
         # cleanly under one record.
         logger.info("\n".join(_report_lines))
 
+
+def _report_regression__cleanly_under_one_record(subgroups, subset_index, targets, preds, print_report, metrics):
+    """Block of report_regression_model_perf starting at ``if subgroups:``."""
     if subgroups:
         fairness_report = compute_fairness_metrics(
             subgroups=subgroups,
-            subset_index=subset_index,  # type: ignore[arg-type]  # compute_fairness_metrics handles None internally (see its subset_index is None branch)
+            subset_index=subset_index,  # compute_fairness_metrics handles None internally (see its subset_index is None branch)
             y_true=targets,
             y_pred=preds,
             metrics={"MAE": fast_mean_absolute_error, "RMSE": fast_root_mean_squared_error},
@@ -774,5 +813,3 @@ def report_regression_model_perf(
                 _maybe_display(fairness_report)
             if metrics is not None:
                 metrics.update(dict(fairness_report=fairness_report))
-
-    return preds, None

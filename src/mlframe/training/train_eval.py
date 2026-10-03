@@ -511,14 +511,7 @@ def process_model(
                 # unconditionally buys a pandas conversion on every VAL/TEST/ensemble call on a build that never needed one.
                 # No-op on non-CB models (the attribute is never read for them).
                 _model_cls_name = type(model_obj).__name__
-                if _model_cls_name.startswith("CatBoost") and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False):
-                    try:
-                        model_obj._mlframe_polars_fastpath_broken = catboost_polars_fastpath_broken()  # readers use getattr(..., False)
-                    except Exception as _e_flag:  # nosec B110 - non-trivial body
-                        # CB Python class is permissive about attributes,
-                        # but slot-restricted forks could refuse -- degrade
-                        # to "pay one extra retry" rather than fail.
-                        logger.debug("Could not set _mlframe_polars_fastpath_broken on %s (%s); will pay the retry each call", _model_cls_name, _e_flag)
+                _flag_catboost_polars_fastpath(_model_cls_name, model_obj)
     if not use_cached_model:
         if "model" not in model_params:
             raise KeyError(f"'model' key missing in model_params. Available keys: {list(model_params.keys())}")
@@ -557,26 +550,7 @@ def process_model(
         logger.warning("Skipping failed model %s", model_name)
         return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
 
-    if not use_cached_model:
-        end = timer()
-        if verbose:
-            logger.info("Finished training, took %.1f min. RAM usage %.1fGBs...", (end - start) / 60, get_own_memory_usage())
-        if fpath:
-            # lean=True. The train-time save here is the inference-ready
-            # bundle the harness / serving stack reads back; train_preds + train_target
-            # (4M float32 each = ~32 MB on a large prod regression) + trainset_features_stats
-            # ballooned MLP dumps to 135 MB in a prod run. The sibling
-            # save at _phase_finalize.py:122 already used lean=True; this one missed it.
-            # In-memory ``model`` is unchanged (lean affects the on-disk copy only), so
-            # downstream in-process predict / metric computation continues to read the
-            # original preds. Operators who need the forensic snapshot can re-save with
-            # lean=False explicitly (rare; the metrics dict on the model object already
-            # carries every train/val/test scalar score).
-            try:
-                model.training_fingerprint_ = fingerprint
-            except AttributeError:
-                logger.debug("could not stamp training_fingerprint_ on %s", type(model).__name__)
-            save_mlframe_model(model, fpath, lean=True)
+    _finish_model_timing(use_cached_model, verbose, start, fpath, fingerprint, model)
 
     # Where this entry's dump lives, so composite post-processing can re-save it once it wraps the model.
     if fpath:
@@ -610,6 +584,42 @@ def process_model(
     maybe_clean_ram_adaptive()
 
     return trainset_features_stats, pre_pipeline, train_df_transformed, val_df_transformed, test_df_transformed
+
+
+def _flag_catboost_polars_fastpath(_model_cls_name, model_obj):
+    """Record on CatBoost models whether the polars fast path is broken."""
+    if _model_cls_name.startswith("CatBoost") and not getattr(model_obj, "_mlframe_polars_fastpath_broken", False):
+        try:
+            model_obj._mlframe_polars_fastpath_broken = catboost_polars_fastpath_broken()  # readers use getattr(..., False)
+        except Exception as _e_flag:  # nosec B110 - non-trivial body
+            # CB Python class is permissive about attributes,
+            # but slot-restricted forks could refuse -- degrade
+            # to "pay one extra retry" rather than fail.
+            logger.debug("Could not set _mlframe_polars_fastpath_broken on %s (%s); will pay the retry each call", _model_cls_name, _e_flag)
+
+
+def _finish_model_timing(use_cached_model, verbose, start, fpath, fingerprint, model):
+    """Log the timing of the finished model fit."""
+    if not use_cached_model:
+        end = timer()
+        if verbose:
+            logger.info("Finished training, took %.1f min. RAM usage %.1fGBs...", (end - start) / 60, get_own_memory_usage())
+        if fpath:
+            # lean=True. The train-time save here is the inference-ready
+            # bundle the harness / serving stack reads back; train_preds + train_target
+            # (4M float32 each = ~32 MB on a large prod regression) + trainset_features_stats
+            # ballooned MLP dumps to 135 MB in a prod run. The sibling
+            # save at _phase_finalize.py:122 already used lean=True; this one missed it.
+            # In-memory ``model`` is unchanged (lean affects the on-disk copy only), so
+            # downstream in-process predict / metric computation continues to read the
+            # original preds. Operators who need the forensic snapshot can re-save with
+            # lean=False explicitly (rare; the metrics dict on the model object already
+            # carries every train/val/test scalar score).
+            try:
+                model.training_fingerprint_ = fingerprint
+            except AttributeError:
+                logger.debug("could not stamp training_fingerprint_ on %s", type(model).__name__)
+            save_mlframe_model(model, fpath, lean=True)
 
 
 __all__ = [

@@ -634,9 +634,8 @@ def run_fe_auto_escalation(
     Returns a list of admitted candidate dicts ``{name, values, recipe, mi, kind,
     pair}`` for the caller to materialise; stamps ``self.fe_escalation_info_``
     provenance. Never raises (degrades to ``[]``)."""
-    from ._fe_cmi_redundancy_gate import _conditional_perm_null, apply_cmi_redundancy_gate
+    from ._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
-    from .engineered_recipes import build_unary_binary_recipe
 
     info: dict = {"eligible_pairs": [], "proposed": 0, "admitted": [], "rejected": {}, "pair_maxt_floor": float(pair_maxt_floor)}
     self.fe_escalation_info_ = info
@@ -738,12 +737,7 @@ def run_fe_auto_escalation(
     eligible: list = []
     _others: list = []
     _rescue_taken = 0
-    for _cand in eligible_all:
-        if tuple(_cand[0]) in _rescue and _rescue_taken < _rescue_cap:
-            eligible.append(_cand)
-            _rescue_taken += 1
-        else:
-            _others.append(_cand)
+    _split_rescue_eligible(eligible_all, _rescue, _rescue_taken, _rescue_cap, eligible, _others)
     eligible.extend(_others[: max_pairs - len(eligible)])
     eligible.sort(key=lambda e: (tuple(e[0]) in _rescue, e[1]), reverse=True)
     eligible = eligible[:max_pairs]
@@ -775,52 +769,15 @@ def run_fe_auto_escalation(
         # Zero-admission pairs (no capture) fit the full target as before.
         y_pair = y_f
         _cv = (capture_vals or {}).get(tuple(pair))
-        if _cv is not None:
-            try:
-                _A = np.asarray(_cv, dtype=np.float64).reshape(n_rows, -1)[:, :8]
-                _r = np.asarray(y_f, dtype=np.float64).copy()
-                _nb_res = int(min(32, max(8, n_rows // 64)))
-                for _j in range(_A.shape[1]):
-                    _cb = _quantile_bin(np.nan_to_num(_A[:, _j], nan=0.0, posinf=0.0, neginf=0.0), nbins=_nb_res).astype(np.int64)
-                    _cnt = np.maximum(np.bincount(_cb, minlength=int(_cb.max()) + 1), 1)
-                    _means = np.bincount(_cb, weights=_r, minlength=int(_cb.max()) + 1) / _cnt
-                    _r = _r - _means[_cb]
-                if float(np.std(_r)) > 1e-9:
-                    y_pair = _r
-            except Exception:
-                # No silent swallow: a failure here means we fall back to the FULL target instead of the
-                # residual, which defeats residualisation (the proposer re-proposes already-captured signal).
-                logger.debug("fe-escalation residualisation failed; using full target", exc_info=True)
+        y_pair = _pairwise_control_matrix(_cv, n_rows, y_f, y_pair)
         # 1) Signal-adaptive orth-poly ALS warp (higher degree + 4-basis routing).
         poly = _propose_poly(
             x_a, x_b, y_pair, degree=poly_degree, min_val_corr=min_val_corr,
             pairness_margin=float(getattr(self, "fe_escalation_pairness_margin", 1.15)),
         )
-        if poly is not None:
-            sa, sb, basis, vcorr = poly
-            vals = _candidate_values(x_a, sa, x_b, sb)
-            if vals is not None:
-                pair_cands.append({
-                    "name": f"esc_poly_{basis}_mul({na},{nb})",
-                    "values": vals, "spec_a": sa, "spec_b": sb,
-                    "src_a": na, "src_b": nb, "kind": f"poly_{basis}",
-                    "pair": (na, nb), "val_corr": float(vcorr),
-                })
+        _poly_candidate_values(poly, x_a, x_b, pair_cands, na, nb)
         # 2) Demodulated adaptive-frequency Fourier / chirp, both warp directions.
-        for x_w, x_m, nw, nm in ((x_a, x_b, na, nb), (x_b, x_a, nb, na)):
-            for prop in _propose_fourier(x_w, x_m, y_pair, min_val_corr=min_val_corr, max_freqs=max_freqs, chirp=True):
-                spec_m = _identity_prewarp_spec(x_m)
-                if spec_m is None:
-                    continue
-                vals = _candidate_values(x_w, prop["spec_w"], x_m, spec_m)
-                if vals is None:
-                    continue
-                pair_cands.append({
-                    "name": f"esc_{prop['kind']}_mul({nw},{nm})",
-                    "values": vals, "spec_a": prop["spec_w"], "spec_b": spec_m,
-                    "src_a": nw, "src_b": nm, "kind": prop["kind"],
-                    "pair": (na, nb), "freqs": prop["freqs"],
-                })
+        _propose_fourier_both_warps(x_a, x_b, na, nb, y_pair, min_val_corr, max_freqs, pair_cands)
         # Score by the SAME MM-debiased plug-in MI the gates use; cap per pair.
         for c in pair_cands:
             vb = _quantile_bin(np.asarray(c["values"], dtype=np.float64), nbins=nbins)
@@ -836,13 +793,7 @@ def run_fe_auto_escalation(
     # Deduplicate names defensively (two pairs sharing operands cannot collide on the
     # name template, but an operand name containing "," could).
     seen: set = set()
-    for c in candidates:
-        base = c["name"]
-        k = 2
-        while c["name"] in existing_names or c["name"] in seen:
-            c["name"] = f"{base}_{k}"
-            k += 1
-        seen.add(c["name"])
+    _uniquify_candidate_names(candidates, existing_names, seen)
 
     # GATE 2: order-2 maxT permutation floor (MM-debiased MI scale on BOTH sides -
     # the floor was computed with miller_madow=True, ``_cmi_from_binned`` debiases too).
@@ -850,15 +801,7 @@ def run_fe_auto_escalation(
     # uses) - protects the degenerate single-candidate path where the S5 gate would
     # otherwise admit on marginal significance alone.
     survivors: list[dict] = []
-    for c in candidates:
-        if pair_maxt_floor > 0.0 and c["mi"] < float(pair_maxt_floor):
-            info["rejected"][c["name"]] = f"below_maxt_floor (mi={c['mi']:.5f} < {pair_maxt_floor:.5f})"
-            continue
-        floor_m, _null_mean = _conditional_perm_null(c["_binned"], y_dense, None, seed=seed)
-        if c["mi"] <= floor_m:
-            info["rejected"][c["name"]] = f"below_marginal_perm_floor (mi={c['mi']:.5f} <= {floor_m:.5f})"
-            continue
-        survivors.append(c)
+    _apply_pair_maxt_floor(candidates, pair_maxt_floor, info, y_dense, seed, survivors)
     if not survivors:
         if verbose:
             logger.info(
@@ -881,6 +824,48 @@ def run_fe_auto_escalation(
         seed=seed, verbose=int(bool(verbose)),
     )
     admitted: list[dict] = []
+    _admit_cmi_survivors(self, survivors, accepted, info, admitted)
+    # FULL-n OUTPUT: when the DECISION ran on a subsample, the candidate ``values`` are
+    # subsample-length - rebuild each admitted candidate's column on the full X via its
+    # closed-form recipe so the caller materialises the full-n column (output equals a
+    # full-data fit given the same admitted set). A candidate whose full replay fails is
+    # dropped (it would otherwise inject a wrong-length column).
+    #
+    # SELECTION-EQUIVALENCE NOTE (P1-5/P1-6): the orth-poly proposers gate on subsample values computed via
+    # polyeval_dispatch at the SMALL subsample n (njit/Horner), while this replay rebuilds at full n where
+    # the dispatch may pick the CUDA recurrence - which differs from njit-Horner by ~1e-12 for cheb/leg/herme
+    # (see _gpu_resident_fe P2-2 note; laguerre is forward on both). So a near-FLOOR esc-poly admit decided on
+    # Horner values ships a column whose binned MI can differ by that ~1e-12. This is far below the gate's
+    # effective resolution (min_val_corr / pairness_margin), and escalation admits ~nothing at the canonical
+    # fit anyway (the interleaved A/B above records the same eligible pairs + 0 proposed); the decide->replay
+    # set is unchanged. Pinning one polyeval backend across decide+replay is a FUTURE change, unneeded here.
+    admitted = _rebuild_admitted_substitutes(_esc_do_sub, admitted, _X_full)
+    if verbose and (admitted or info["proposed"]):
+        logger.info(
+            "MRMR FE auto-escalation: %d pair(s) had 0 admitted engineered features after the "
+            "unary/binary search; proposed %d richer-basis candidate(s) (orth-poly ALS x4 bases "
+            "+ demodulated adaptive Fourier/chirp), gates admitted %d: %s",
+            len(eligible), info["proposed"], len(admitted),
+            [f"{c['name']} (mi={c['mi']:.4f})" for c in admitted],
+        )
+    return admitted
+
+
+def _uniquify_candidate_names(candidates, existing_names, seen):
+    """Rename the candidates so their names are unique."""
+    for c in candidates:
+        base = c["name"]
+        k = 2
+        while c["name"] in existing_names or c["name"] in seen:
+            c["name"] = f"{base}_{k}"
+            k += 1
+        seen.add(c["name"])
+
+
+def _admit_cmi_survivors(self, survivors, accepted, info, admitted):
+    """Build the recipes of the survivors the CMI gate accepted and admit them."""
+    from mlframe.feature_selection.filters.engineered_recipes import build_unary_binary_recipe
+
     for c in survivors:
         if c["name"] not in accepted:
             info["rejected"][c["name"]] = "redundant_under_cmi_gate"
@@ -902,22 +887,92 @@ def run_fe_auto_escalation(
         c["recipe"] = recipe
         admitted.append(c)
         info["admitted"].append(c["name"])
-    # FULL-n OUTPUT: when the DECISION ran on a subsample, the candidate ``values`` are
-    # subsample-length - rebuild each admitted candidate's column on the full X via its
-    # closed-form recipe so the caller materialises the full-n column (output equals a
-    # full-data fit given the same admitted set). A candidate whose full replay fails is
-    # dropped (it would otherwise inject a wrong-length column).
-    #
-    # SELECTION-EQUIVALENCE NOTE (P1-5/P1-6): the orth-poly proposers gate on subsample values computed via
-    # polyeval_dispatch at the SMALL subsample n (njit/Horner), while this replay rebuilds at full n where
-    # the dispatch may pick the CUDA recurrence - which differs from njit-Horner by ~1e-12 for cheb/leg/herme
-    # (see _gpu_resident_fe P2-2 note; laguerre is forward on both). So a near-FLOOR esc-poly admit decided on
-    # Horner values ships a column whose binned MI can differ by that ~1e-12. This is far below the gate's
-    # effective resolution (min_val_corr / pairness_margin), and escalation admits ~nothing at the canonical
-    # fit anyway (the interleaved A/B above records the same eligible pairs + 0 proposed); the decide->replay
-    # set is unchanged. Pinning one polyeval backend across decide+replay is a FUTURE change, unneeded here.
+
+
+def _split_rescue_eligible(eligible_all, _rescue, _rescue_taken, _rescue_cap, eligible, _others):
+    """Keep the rescued candidates within the rescue cap."""
+    for _cand in eligible_all:
+        if tuple(_cand[0]) in _rescue and _rescue_taken < _rescue_cap:
+            eligible.append(_cand)
+            _rescue_taken += 1
+        else:
+            _others.append(_cand)
+
+
+def _poly_candidate_values(poly, x_a, x_b, pair_cands, na, nb):
+    """Evaluate the polynomial candidate of a pair when one was proposed."""
+    if poly is not None:
+        sa, sb, basis, vcorr = poly
+        vals = _candidate_values(x_a, sa, x_b, sb)
+        if vals is not None:
+            pair_cands.append({
+                "name": f"esc_poly_{basis}_mul({na},{nb})",
+                "values": vals, "spec_a": sa, "spec_b": sb,
+                "src_a": na, "src_b": nb, "kind": f"poly_{basis}",
+                "pair": (na, nb), "val_corr": float(vcorr),
+            })
+
+
+def _pairwise_control_matrix(_cv, n_rows, y_f, y_pair):
+    """Build the low-dimensional control matrix from the conditioning values."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+
+    if _cv is not None:
+        try:
+            _A = np.asarray(_cv, dtype=np.float64).reshape(n_rows, -1)[:, :8]
+            _r = np.asarray(y_f, dtype=np.float64).copy()
+            _nb_res = int(min(32, max(8, n_rows // 64)))
+            for _j in range(_A.shape[1]):
+                _cb = _quantile_bin(np.nan_to_num(_A[:, _j], nan=0.0, posinf=0.0, neginf=0.0), nbins=_nb_res).astype(np.int64)
+                _cnt = np.maximum(np.bincount(_cb, minlength=int(_cb.max()) + 1), 1)
+                _means = np.bincount(_cb, weights=_r, minlength=int(_cb.max()) + 1) / _cnt
+                _r = _r - _means[_cb]
+            if float(np.std(_r)) > 1e-9:
+                y_pair = _r
+        except Exception:
+            # No silent swallow: a failure here means we fall back to the FULL target instead of the
+            # residual, which defeats residualisation (the proposer re-proposes already-captured signal).
+            logger.debug("fe-escalation residualisation failed; using full target", exc_info=True)
+    return y_pair
+
+
+def _propose_fourier_both_warps(x_a, x_b, na, nb, y_pair, min_val_corr, max_freqs, pair_cands):
+    """Propose demodulated Fourier / chirp candidates for both warp directions."""
+    for x_w, x_m, nw, nm in ((x_a, x_b, na, nb), (x_b, x_a, nb, na)):
+        for prop in _propose_fourier(x_w, x_m, y_pair, min_val_corr=min_val_corr, max_freqs=max_freqs, chirp=True):
+            spec_m = _identity_prewarp_spec(x_m)
+            if spec_m is None:
+                continue
+            vals = _candidate_values(x_w, prop["spec_w"], x_m, spec_m)
+            if vals is None:
+                continue
+            pair_cands.append({
+                "name": f"esc_{prop['kind']}_mul({nw},{nm})",
+                "values": vals, "spec_a": prop["spec_w"], "spec_b": spec_m,
+                "src_a": nw, "src_b": nm, "kind": prop["kind"],
+                "pair": (na, nb), "freqs": prop["freqs"],
+            })
+
+
+def _apply_pair_maxt_floor(candidates, pair_maxt_floor, info, y_dense, seed, survivors):
+    """Reject the candidates below the pair max-T floor."""
+    from mlframe.feature_selection.filters._fe_cmi_redundancy_gate import _conditional_perm_null
+
+    for c in candidates:
+        if pair_maxt_floor > 0.0 and c["mi"] < float(pair_maxt_floor):
+            info["rejected"][c["name"]] = f"below_maxt_floor (mi={c['mi']:.5f} < {pair_maxt_floor:.5f})"
+            continue
+        floor_m, _null_mean = _conditional_perm_null(c["_binned"], y_dense, None, seed=seed)
+        if c["mi"] <= floor_m:
+            info["rejected"][c["name"]] = f"below_marginal_perm_floor (mi={c['mi']:.5f} <= {floor_m:.5f})"
+            continue
+        survivors.append(c)
+
+
+def _rebuild_admitted_substitutes(_esc_do_sub, admitted, _X_full):
+    """Rebuild the admitted candidates through the recipe replay."""
     if _esc_do_sub and admitted:
-        from .engineered_recipes import apply_recipe
+        from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
         _rebuilt: list[dict] = []
         for c in admitted:
             try:
@@ -932,12 +987,4 @@ def run_fe_auto_escalation(
                     c.get("name"),
                 )
         admitted = _rebuilt
-    if verbose and (admitted or info["proposed"]):
-        logger.info(
-            "MRMR FE auto-escalation: %d pair(s) had 0 admitted engineered features after the "
-            "unary/binary search; proposed %d richer-basis candidate(s) (orth-poly ALS x4 bases "
-            "+ demodulated adaptive Fourier/chirp), gates admitted %d: %s",
-            len(eligible), info["proposed"], len(admitted),
-            [f"{c['name']} (mi={c['mi']:.4f})" for c in admitted],
-        )
     return admitted

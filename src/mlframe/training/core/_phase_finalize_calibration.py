@@ -17,6 +17,14 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _param_kwargs(params) -> dict:
+    """Arguments a calibration step is called with: the written fields of a strict parameter model, a plain mapping as is, ``{}`` for None."""
+    if params is None:
+        return {}
+    to_kwargs = getattr(params, "to_kwargs", None)
+    return dict(to_kwargs()) if callable(to_kwargs) else dict(params)
+
+
 def _arr(v):
     """Coerce a pandas Series/ndarray/None to a flat float64 array, or None if empty/missing."""
     import numpy as _np
@@ -76,7 +84,7 @@ def _isotonic_overfit_risk_check(ctx: "TrainingContext") -> None:
     _cfg = getattr(ctx, "behavior_config", None)
     if _cfg is None or not bool(getattr(_cfg, "check_isotonic_overfit_risk", False)):
         return
-    _kwargs = dict(getattr(_cfg, "isotonic_risk_kwargs", None) or {})
+    _kwargs = _param_kwargs(getattr(_cfg, "isotonic_risk_kwargs", None))
 
     out: dict = {}
     for _ttype, _by_name in (ctx.models or {}).items():
@@ -132,7 +140,7 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
     _cfg = getattr(ctx, "behavior_config", None)
     if _cfg is None or not bool(getattr(_cfg, "auto_optimize_threshold", False)):
         return
-    _kwargs = dict(getattr(_cfg, "threshold_optimizer_kwargs", None) or {})
+    _kwargs = _param_kwargs(getattr(_cfg, "threshold_optimizer_kwargs", None))
     _metric_fn = _kwargs.pop("metric_fn", None) or (lambda y_true, y_pred: float(balanced_accuracy_score(y_true, y_pred)))
 
     out: dict = {}
@@ -191,7 +199,7 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
     _cfg = ctx.regression_calibration_config
     if _cfg is None or not bool(getattr(_cfg, "apply_confidence_shrinkage", False)):
         return
-    _kwargs = dict(getattr(_cfg, "confidence_shrinkage_kwargs", None) or {})
+    _kwargs = _param_kwargs(_cfg.confidence_shrinkage_kwargs)
     _segment_ids = _kwargs.pop("segment_ids", None)
 
     entries_by_key: dict = {}

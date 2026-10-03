@@ -233,6 +233,18 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
 
     # Screening permutation kernels. ``mi_direct`` calls one of these per candidate during MRMR screening; first call on a fresh process eats the entire ~17s
     # JIT-compile budget. Prewarm both the prange variant AND the joblib-worker variant so neither caller path pays the cost during a real fit.
+    _prewarm_fs_numba_c_jit_compile_budget_prewarm(parallel_mi_prange, classes_pair, freqs_pair, classes_y, freqs_y, dtype, logger, parallel_mi, parallel_mi_prange_with_null, shuffle_arr, rng, n, discretize_2d_array, discretize_array)
+
+    # Layer-95 periodic/modular kernel (warm all three op codes).
+    _prewarm_fs_numba_c_layer_periodic_modular_kernel(logger)
+
+    _wall = time.perf_counter() - _t0
+    if verbose:
+        logger.info("prewarm_fs_numba_cache: warmed FS kernels in %.2fs", _wall)
+
+
+def _prewarm_fs_numba_c_jit_compile_budget_prewarm(parallel_mi_prange, classes_pair, freqs_pair, classes_y, freqs_y, dtype, logger, parallel_mi, parallel_mi_prange_with_null, shuffle_arr, rng, n, discretize_2d_array, discretize_array):
+    """Block of _prewarm_fs_numba_cache_impl starting at ``try:``."""
     try:
         _ = parallel_mi_prange(
             classes_x=classes_pair, freqs_x=freqs_pair,
@@ -246,7 +258,7 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     # Serial twin -- both are live dispatch targets of _mi_prange_dispatch (see permutation.py's
     # _MI_PRANGE_PARALLEL_MIN_WORK), the serial kernel is what small n*npermutations calls actually hit.
     try:
-        from .permutation import _parallel_mi_prange_serial
+        from mlframe.feature_selection.filters.permutation import _parallel_mi_prange_serial
         _ = _parallel_mi_prange_serial(
             classes_x=classes_pair, freqs_x=freqs_pair,
             classes_y=classes_y, freqs_y=freqs_y,
@@ -287,7 +299,7 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     # mi_direct's seq path now uses this instead of shuffle_arr for the 6x
     # speedup. Still prewarm the legacy shuffle_arr for any external caller.
     try:
-        from .permutation import shuffle_arr_lcg
+        from mlframe.feature_selection.filters.permutation import shuffle_arr_lcg
         _test_lcg = classes_y.copy()
         shuffle_arr_lcg(_test_lcg, np.uint64(42))
     except Exception as e:  # nosec B110 - optional dependency import guard
@@ -303,6 +315,60 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     cont_f = np.asfortranarray(cont)  # F-contiguous variant
     # int32 is MRMR's DEFAULT quantization_dtype (see ``MRMR.__init__: quantization_dtype: object = np.int32`` at mrmr.py:294) - prewarming only int8/int16
     # left the default-config code path paying ~8s of JIT compile per fresh process. int32 must be in the matrix.
+    _prewarm_fs_numba_c_left_default_config_code(cont, cont_f, discretize_2d_array, logger, discretize_array)
+    # Prewarm the inner-loop kernels directly. ``_discretize_array_impl``, ``quantize_search``, ``quantize_dig``, ``discretize_uniform`` each compile on first
+    # call from inside the prange body; prewarming the outer ``discretize_2d_array`` only triggers them via the parallel-fanout at runtime, which numba may not
+    # preserve in the disk cache cleanly.
+    _prewarm_fs_numba_c_preserve_disk_cache_cleanly(cont, logger)
+
+    # Layer-60 CMI-greedy plug-in entropy kernel. Called 1000+ times per MRMR
+    # fit from _cmi_from_binned; warm it here so the first-fit JIT compile
+    # (~0.3s) lands outside the timed screening path.
+    try:
+        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _entropy_from_classes_njit, _factorize_dense_njit
+        _warm_cls = np.array([0, 1, 1, 2, 0], dtype=np.int64)
+        _ = _entropy_from_classes_njit(_warm_cls)
+        _ = _factorize_dense_njit(_warm_cls)
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("_mi_greedy_cmi_fe entropy-kernel warmup failed, skipping: %s", e)
+
+    # _renumber_joint's 2-column dense fast path + the generic fold kernel + the fused joint-entropy
+    # kernel - these back _conditional_perm_null's host-fallback k_xz/k_yz/k_xyz card computation, one
+    # of the hottest CPU-orchestration callees in a real fit (6207+ calls/fit). Uncached compile of these
+    # three (~14s cumulative, measured via a saved cProfile .prof) previously landed INSIDE the timed fit
+    # the first time the host-renumber fallback engaged (analytic-null GPU path unavailable/OOM), since
+    # nothing warmed them before. Same pattern as the entropy kernel above.
+    try:
+        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _combine_factorize_njit, _joint_entropy_two_dense_njit, _renumber_two_dense_njit
+        _warm_a = np.array([0, 1, 1, 2, 0], dtype=np.int64)
+        _warm_b = np.array([1, 0, 1, 0, 2], dtype=np.int64)
+        _ = _renumber_two_dense_njit(_warm_a, _warm_b)
+        _ = _joint_entropy_two_dense_njit(_warm_a, _warm_b)
+        _joint_warm, _mult_warm = _factorize_dense_njit(_warm_a)
+        _ = _combine_factorize_njit(_joint_warm, _warm_b, _mult_warm)
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("_mi_greedy_cmi_fe renumber-joint kernel warmup failed, skipping: %s", e)
+
+    # Unary-transform registry (`create_unary_transformations`): the FE pair-search unary operand table
+    # (`_build_operand_table`) njit-wraps ~20-30 lambdas (identity/neg/abs/sqr/reciproc/sqrt/sin plus the
+    # medium/maximal tiers) via `njit_functions_dict`'s process-wide `_NJIT_DISPATCHER_CACHE`. Without a
+    # prewarm the FIRST FE round to touch this registry pays every lambda's cold JIT compile inline
+    # (~14s cumulative, measured via a saved cProfile .prof on the canonical 100k-row fit). Calling with
+    # preset="maximal" executes every preset tier's dict-literal block once, so every lambda's underlying
+    # code object (module-compile-time-fixed per source location, shared across presets) gets warmed
+    # regardless of which preset the caller actually selects at runtime.
+    _prewarm_fs_numba_c_regardless_which_preset_caller(logger)
+
+    # Layer-90 numeric-decompose digit-extract kernel.
+    try:
+        from mlframe.feature_selection.filters._numeric_decompose_fe import _digit_extract_njit
+        _ = _digit_extract_njit(np.array([1.23, -4.56, np.nan], dtype=np.float64), 100.0)
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("_numeric_decompose_fe digit-extract kernel warmup failed, skipping: %s", e)
+
+
+def _prewarm_fs_numba_c_left_default_config_code(cont, cont_f, discretize_2d_array, logger, discretize_array):
+    """Block of _prewarm_fs_numba_cache_impl starting at ``for _disc_dtype in (np.int8, np.int16, np.int32):``."""
     for _disc_dtype in (np.int8, np.int16, np.int32):
         for _arr in (cont, cont_f):
             try:
@@ -321,11 +387,12 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             pass
-    # Prewarm the inner-loop kernels directly. ``_discretize_array_impl``, ``quantize_search``, ``quantize_dig``, ``discretize_uniform`` each compile on first
-    # call from inside the prange body; prewarming the outer ``discretize_2d_array`` only triggers them via the parallel-fanout at runtime, which numba may not
-    # preserve in the disk cache cleanly.
+
+
+def _prewarm_fs_numba_c_preserve_disk_cache_cleanly(cont, logger):
+    """Block of _prewarm_fs_numba_cache_impl starting at ``try:``."""
     try:
-        from .discretization import quantize_search, quantize_dig, discretize_uniform, digitize, get_binning_edges
+        from mlframe.feature_selection.filters.discretization import quantize_search, quantize_dig, discretize_uniform, digitize, get_binning_edges
         from mlframe.feature_selection.filters.discretization.shared import discretize_array_impl as _discretize_array_impl
         _arr1d = cont[:, 0]
         for _disc_dtype in (np.int8, np.int16, np.int32):
@@ -374,44 +441,11 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     except ImportError:
         pass
 
-    # Layer-60 CMI-greedy plug-in entropy kernel. Called 1000+ times per MRMR
-    # fit from _cmi_from_binned; warm it here so the first-fit JIT compile
-    # (~0.3s) lands outside the timed screening path.
-    try:
-        from ._mi_greedy_cmi_fe import _entropy_from_classes_njit, _factorize_dense_njit
-        _warm_cls = np.array([0, 1, 1, 2, 0], dtype=np.int64)
-        _ = _entropy_from_classes_njit(_warm_cls)
-        _ = _factorize_dense_njit(_warm_cls)
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("_mi_greedy_cmi_fe entropy-kernel warmup failed, skipping: %s", e)
 
-    # _renumber_joint's 2-column dense fast path + the generic fold kernel + the fused joint-entropy
-    # kernel - these back _conditional_perm_null's host-fallback k_xz/k_yz/k_xyz card computation, one
-    # of the hottest CPU-orchestration callees in a real fit (6207+ calls/fit). Uncached compile of these
-    # three (~14s cumulative, measured via a saved cProfile .prof) previously landed INSIDE the timed fit
-    # the first time the host-renumber fallback engaged (analytic-null GPU path unavailable/OOM), since
-    # nothing warmed them before. Same pattern as the entropy kernel above.
+def _prewarm_fs_numba_c_regardless_which_preset_caller(logger):
+    """Block of _prewarm_fs_numba_cache_impl starting at ``try:``."""
     try:
-        from ._mi_greedy_cmi_fe import _combine_factorize_njit, _joint_entropy_two_dense_njit, _renumber_two_dense_njit
-        _warm_a = np.array([0, 1, 1, 2, 0], dtype=np.int64)
-        _warm_b = np.array([1, 0, 1, 0, 2], dtype=np.int64)
-        _ = _renumber_two_dense_njit(_warm_a, _warm_b)
-        _ = _joint_entropy_two_dense_njit(_warm_a, _warm_b)
-        _joint_warm, _mult_warm = _factorize_dense_njit(_warm_a)
-        _ = _combine_factorize_njit(_joint_warm, _warm_b, _mult_warm)
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("_mi_greedy_cmi_fe renumber-joint kernel warmup failed, skipping: %s", e)
-
-    # Unary-transform registry (`create_unary_transformations`): the FE pair-search unary operand table
-    # (`_build_operand_table`) njit-wraps ~20-30 lambdas (identity/neg/abs/sqr/reciproc/sqrt/sin plus the
-    # medium/maximal tiers) via `njit_functions_dict`'s process-wide `_NJIT_DISPATCHER_CACHE`. Without a
-    # prewarm the FIRST FE round to touch this registry pays every lambda's cold JIT compile inline
-    # (~14s cumulative, measured via a saved cProfile .prof on the canonical 100k-row fit). Calling with
-    # preset="maximal" executes every preset tier's dict-literal block once, so every lambda's underlying
-    # code object (module-compile-time-fixed per source location, shared across presets) gets warmed
-    # regardless of which preset the caller actually selects at runtime.
-    try:
-        from .feature_engineering import create_unary_transformations
+        from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
         _warm_x = np.array([1.0, -2.0, 0.5, 0.0, 3.0], dtype=np.float64)
         _unary_warm = create_unary_transformations(preset="maximal")
         # The warm-up DISCARDS every result -- it exists to trigger the JIT compile, not to compute anything.
@@ -424,21 +458,16 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
             for _fn in _unary_warm.values():
                 try:
                     _ = _fn(_warm_x)
-                except Exception as e:  # noqa: PERF203 - nosec B110 - per-transform fault isolation is intentional, not a hoisting candidate
+                except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.debug("unary transform %r warmup failed on the synthetic input, skipping: %s", _fn, e)
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("create_unary_transformations warmup failed, skipping: %s", e)
 
-    # Layer-90 numeric-decompose digit-extract kernel.
-    try:
-        from ._numeric_decompose_fe import _digit_extract_njit
-        _ = _digit_extract_njit(np.array([1.23, -4.56, np.nan], dtype=np.float64), 100.0)
-    except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("_numeric_decompose_fe digit-extract kernel warmup failed, skipping: %s", e)
 
-    # Layer-95 periodic/modular kernel (warm all three op codes).
+def _prewarm_fs_numba_c_layer_periodic_modular_kernel(logger):
+    """Block of _prewarm_fs_numba_cache_impl starting at ``try:``."""
     try:
-        from ._periodic_fe import _modular_njit, _modular_all_ops_njit
+        from mlframe.feature_selection.filters._periodic_fe import _modular_njit, _modular_all_ops_njit
         _warm_mod = np.array([1.5, -2.5, np.nan, np.inf], dtype=np.float64)
         for _oc in (0, 1, 2):
             _ = _modular_njit(_warm_mod, 7.0, _oc)
@@ -446,10 +475,6 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("suppressed: %s", e)
         pass
-
-    _wall = time.perf_counter() - _t0
-    if verbose:
-        logger.info("prewarm_fs_numba_cache: warmed FS kernels in %.2fs", _wall)
 
 
 def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:

@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import logging
 
-logger = logging.getLogger(__name__)
-
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -29,32 +27,22 @@ from typing import Any, Callable, Dict, Optional
 from gc import collect
 from collections import defaultdict
 
-import re
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_numeric_dtype, is_datetime64_any_dtype
 
-from pyutilz.pandaslib import classify_column_types
-from pyutilz.system import tqdmu, get_own_memory_usage  # lint: disable=ungrouped-imports,disable=wrong-import-order
+from pyutilz.system import get_own_memory_usage  # lint: disable=ungrouped-imports,disable=wrong-import-order
 
 
-from mlframe.core.stats import get_expected_unique_random_numbers_qty, get_tukey_fences_multiplier_for_quantile
-from mlframe.preprocessing.cleaning_helpers import map_elementwise_dedup
+from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # Config
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from mlframe.config import THOUSANDS_SEPARATOR
-from mlframe.utils.log_throttle import log_throttle
 
 # *****************************************************************************************************************************************************
 # INITS
 # *****************************************************************************************************************************************************
-
-NDIGITS = 10
-DATEFRACTS_CODES = "h m s ms us ns".split(" ")  # list('HTSLUN') for Pandas
-DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 
 # *****************************************************************************************************************************************************
 # CODE
@@ -65,364 +53,40 @@ DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+from ._cleaning_kernels import _get_count_distinct_rounded_njit  # noqa: F401  -- looked up here at call time by the cleaning helpers (monkeypatch-visible)
+from ._cleaning_kernels import _get_span_fence_njit
 from ._cleaning_kernels import (
-    _get_count_distinct_njit,
-    _get_count_distinct_rounded_njit,
     _get_outlier_mask_njit,
-    _get_span_fence_njit,
 )
-
-
-def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: Optional[tuple] = None) -> int:
-    """Count distinct values in ``vals``, optionally excluding NaN and up to two ``skip_vals``. Float arrays take a sort+njit-count fast path that avoids materializing the unique-value array; non-float/object arrays fall back to ``np.unique``."""
-    # Float fast path: the caller only ever uses the COUNT, never the unique values, so np.unique's
-    # unique-array materialization + the trailing ``unique_vals != val`` boolean-mask passes are pure waste.
-    # Sort once + count distinct in a single njit pass (skipping NaN + skip_vals inline). Bit-identical to the
-    # np.unique count for finite-or-NaN float input. Non-float / object paths keep the exact np.unique route.
-    if skip_nan and getattr(vals, "dtype", None) is not None and vals.dtype.kind == "f":
-        if skip_vals and len(skip_vals) > 2:
-            # The njit fast-path kernel takes exactly 2 skip sentinels; a 3rd+ element would be silently
-            # dropped (never excluded from the count) if we fell through anyway, diverging from the
-            # np.unique fallback path below (which supports arbitrary-length skip_vals). All current
-            # call sites pass at most 2 -- raise rather than silently miscounting if that ever changes.
-            raise ValueError(f"_get_nunique: the float fast path supports at most 2 skip_vals, got {len(skip_vals)}: {skip_vals!r}.")
-        sv = np.sort(vals)
-        if not skip_vals:
-            skip0 = np.nan
-            skip1 = np.nan
-        elif len(skip_vals) == 1:
-            skip0 = float(skip_vals[0])
-            skip1 = np.nan
-        else:
-            skip0 = float(skip_vals[0])
-            skip1 = float(skip_vals[1])
-        return int(_get_count_distinct_njit()(sv, skip0, skip1))
-
-    unique_vals = np.unique(vals)
-    if skip_nan:
-        # np.isnan raises TypeError on object/string arrays — use pd.isna which handles
-        # both numeric NaN and None/NaT uniformly.
-        if unique_vals.dtype.kind in ("f", "c"):
-            unique_vals = unique_vals[~np.isnan(unique_vals)]
-        else:
-            unique_vals = unique_vals[~pd.isna(unique_vals)]
-    if skip_vals:
-        for val in skip_vals:
-            unique_vals = unique_vals[unique_vals != val]
-    return len(unique_vals)
-
-
-def _update_sub_df_col(
-    df: pd.DataFrame, sub_df: pd.DataFrame, col: str, col_unique_values: pd.DataFrame, nunique: int, analyse_mask: Optional[np.ndarray] = None
-) -> tuple:
-    """Refresh ``col``'s value_counts (and nunique) for the analysed sub-frame, re-slicing ``df`` via ``analyse_mask`` first when provided. Called after a column has been narrowed to the analysis subset so the cardinality stats reflect that subset, not the full frame."""
-    if analyse_mask is not None:
-        # Compute value_counts directly from df.loc[analyse_mask, col] -- a fresh Series -- instead
-        # of copying (even shallowly) the full, potentially huge sub_df just to temporarily overwrite
-        # one column before immediately reading it back out.
-        col_unique_values = df.loc[analyse_mask, col].value_counts(dropna=False)
-    else:
-        col_unique_values = sub_df[col].value_counts(dropna=False)
-    nunique = len(col_unique_values)
-    collect()
-    return col_unique_values, nunique
-
-
-def _clean_cat_and_obj_columns(
-    df: pd.DataFrame,
-    cat_vars_clean_fcn: Optional[Callable] = None,
-    obj_vars_clean_fcn: Optional[Callable] = None,
-    cat_vars_replace: Optional[dict] = None,
-    obj_vars_replace: Optional[dict] = None,
-    head: Optional[pd.DataFrame] = None,
-    verbose: bool = True,
-):
-    """Apply cleaning functions and/or value-replacement maps to a dataframe's categorical and object/string columns in place, mutating ``df`` column-by-column. ``head`` (a small sample, typically ``df.head(1)``) is used only to discover which columns exist and their dtypes, avoiding a full-frame dtype scan on huge frames."""
-    if head is None:
-        head = df.head(1)
-
-    if cat_vars_clean_fcn:
-
-        if verbose:
-            logger.info("Cleaning categorical columns...")
-        for col in tqdmu(head.select_dtypes("category").columns):
-            # Apply the cleaning function once to the category *levels* and let pandas propagate
-            # via rename_categories — O(#levels) vs the old O(#rows) .apply() row-loop.
-            cat = df[col].cat
-            new_levels = [cat_vars_clean_fcn(v) for v in cat.categories]
-            df[col] = cat.rename_categories(new_levels)
-        collect()
-
-    if obj_vars_clean_fcn:
-
-        if verbose:
-            logger.info("Cleaning object columns...")
-        for col in tqdmu(head.select_dtypes(include=["object", "string"]).columns):
-            # Dedup-aware elementwise map: a low-cardinality object column (countries / statuses / codes repeated
-            # over millions of rows) gets the clean_fcn applied once per UNIQUE value, then reindexed — bit-identical
-            # for a pure elementwise fcn, gated so the all-distinct case never regresses (see cleaning_helpers).
-            # Include "string" so pandas 2.1+ StringDtype / pyarrow-backed string columns get the clean_fcn too.
-            df[col] = map_elementwise_dedup(df[col], obj_vars_clean_fcn)
-        collect()
-
-    if cat_vars_replace:
-
-        if verbose:
-            logger.info("Replacing vals in categorical columns: %s", cat_vars_replace)
-        for col in tqdmu(head.select_dtypes("category").columns):
-            df[col] = df[col].replace(cat_vars_replace).astype("category")
-            collect()
-
-    if obj_vars_replace:
-
-        if verbose:
-            logger.info("Replacing vals in object columns: %s", obj_vars_replace)
-        for col in tqdmu(head.select_dtypes(include=["object", "string"]).columns):
-            df[col] = df[col].replace(obj_vars_replace)
-            collect()
-
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 # CORE
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-def is_variable_truly_continuous(
-    df: Optional[pd.DataFrame] = None,
-    variable_name: str = "",
-    values: Any = None,  # np.ndarray, or a pandas datetime carrier (tz-aware Series / DatetimeArray) when var_is_datetime
-    calculated_quantiles: Optional[np.ndarray] = None,
-    use_quantile: float = 0.1,
-    max_scarceness: float = 10.0,
-    max_fract_digits: int = 10,
-    double_scarcenes_after: tuple = (1_000, 2_000, 5_000, 10_000),
-    log_scarceness_divisor: int = 500,
-    # min_fract_fill_perecent: float = 0.5,
-    min_fract_level_increase_perecent: float = 0.15,
-    tukey_fences_multiplier: Optional[float] = None,
-    var_is_datetime: Optional[bool] = None,
-    var_is_numeric: Optional[bool] = None,
-    verbose: bool = False,
-):
-    """Measures evidence that a variable with numeric type is continuous, given its span and number of unique values.
+from ._cleaning_helpers import (  # noqa: F401  -- carved helpers
+    logger,
+    NDIGITS,
+    DATEFRACTS_CODES,
+    DATEFRACTS_MULTIPLIERS,
+    _count_unique_fractional_parts,
+    _log_continuity_verdict,
+    _probe_fractional_digits,
+    _resolve_quantile_cutoffs,
+    _analyse_and_clean__manyvalued_features_set,
+    _analyse_and_clean__block,
+    _analyse_and_clean__category_option_name,
+    _analyse_and_clean__real_val_none,
+    _analyse_and_clean__vars_having_only_one,
+    _analyse_and_clean__constant_features,
+)
+from pandas.api.types import is_numeric_dtype
+from pandas.api.types import is_datetime64_any_dtype
+from pyutilz.system import tqdmu
+from mlframe.core.stats import get_expected_unique_random_numbers_qty
+from mlframe.preprocessing.cleaning_helpers import map_elementwise_dedup
+from ._cleaning_kernels import _get_count_distinct_njit
 
-    mb float32 vars without fractional part, with big span and nunique<1000 must be categorical (nominal or ordinal-remapped)?
-    kind of, it's unlikely if even an integer var ranging from -2 to +2 billions on 11M rows will have only 331 unique vals, right?
-    not speaking of truly floating, with fractional digits
-
-    what about var such as 10001.132456,10001.3464545,10001.26344432...?
-    it can be impactful and very well floating, but will it be distinguished as numeric or not with default max_fract_digits=1?
-    Probably not: span will be very narrow (like, 1 or even 0).
-    so probably, for vars with fractional digits, need to try iteratively with increasing max_fract_digits=(1,2,.) as long as unique_fracts keeps growing.
-    """
-    if values is None:
-        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix under -O,
-        # ``values = df[variable_name].values`` would AttributeError on
-        # None far from the root cause.
-        if df is None or not variable_name:
-            raise ValueError(
-                "is_variable_truly_continuous: when values is None, both "
-                f"df and variable_name must be provided; got df={df!r}, "
-                f"variable_name={variable_name!r}."
-            )
-        values = df[variable_name].to_numpy()
-
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    # what is the smallest rounding after which variable stops changing?
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-    if var_is_datetime is None:
-        var_is_datetime = is_datetime64_any_dtype(values)
-    if var_is_numeric is None:
-        var_is_numeric = is_numeric_dtype(values)
-
-    if not (var_is_numeric or var_is_datetime):
-        raise TypeError("is_variable_truly_continuous: values must be numeric or " "datetime-typed; got non-numeric non-datetime data.")
-
-    # Degenerate columns: an empty column divides by len(values)==0 below, and an all-NaN column makes np.nanmin/np.nanmax
-    # raise (empty-slice) or propagate NaN into a meaningless continuity decision. Short-circuit both to discrete + 0 outliers.
-    if len(values) == 0:
-        logger.warning("is_variable_truly_continuous: empty column%s; treating as discrete with 0 outliers.", f" {variable_name!r}" if variable_name else "")
-        return False, 0.0
-    if var_is_numeric and not np.isfinite(np.asarray(values, dtype=float)).any():
-        logger.warning("is_variable_truly_continuous: all-NaN/non-finite column%s; treating as discrete with 0 outliers.", f" {variable_name!r}" if variable_name else "")
-        return False, 0.0
-
-    if var_is_datetime:
-        # Normalize any pandas datetime carrier (tz-aware Series / DatetimeArray) to a tz-naive numpy datetime64 array up front.
-        # The resolution probe + quantile/span arithmetic below all assume numpy: np.nanquantile / the q-diff yield pandas
-        # Timestamp/Timedelta scalars on a DatetimeArray, which lack the .astype the span computation calls (and pandas >=2.0
-        # rejects casting a DatetimeArray straight to datetime64[h]). Callers passing numpy already (df[col].to_numpy()) are unaffected.
-        _tz = getattr(getattr(values, "dtype", None), "tz", None)
-        if _tz is not None:
-            values = values.tz_convert("UTC").tz_localize(None)
-        values = np.asarray(values, dtype="datetime64[ns]")
-
-    if var_is_numeric:
-        nz_fract_digits = 0
-        last_n_unique_fracts = 0
-        fract_part, int_part = np.modf(values)
-
-        n_unique_ints = _get_nunique(vals=int_part, skip_vals=(0.0,))
-        n_unique_fracts = _get_nunique(vals=fract_part, skip_vals=(0.0, 1.0))
-        if n_unique_fracts == 0:
-            cur_fract_digits = 1
-        else:
-            # Sort the fractional part ONCE; the per-precision distinct-count below rounds inline over this single sorted array
-            # (round is monotone, so sort-then-round == round-then-sort), avoiding an O(n log n) re-sort + a rounded-copy alloc per precision.
-            # bench-attempt-rejected (2026-07): fusing all precisions into one kernel pass (running per-precision prev/count) was SLOWER at every
-            # max_fract_digits {5,8,12,16}: -6% .. -14% (n=100k continuous). The per-precision kernel wins via its simpler inner loop + early break on
-            # distinct-saturation; the fused pass recomputes np.rint for all precisions per element even after a precision saturates. See _benchmarks/bench_fused_precision_scan.py.
-            if fract_part.dtype.kind == "f":
-                _sorted_fract = np.sort(fract_part)
-                _count_rounded = _get_count_distinct_rounded_njit()
-            else:
-                _sorted_fract = None
-            for cur_fract_digits in range(1, max_fract_digits):
-
-                if _sorted_fract is not None:
-                    n_unique_fracts = _count_rounded(_sorted_fract, cur_fract_digits, 0.0, 1.0)
-                else:
-                    n_unique_fracts = _get_nunique(vals=np.asarray(np.round(fract_part, cur_fract_digits)), skip_vals=(0.0, 1.0))
-                if last_n_unique_fracts > 0:
-                    if (n_unique_fracts - last_n_unique_fracts) / last_n_unique_fracts < min_fract_level_increase_perecent or n_unique_fracts < 0.3 * (
-                        NDIGITS ** (cur_fract_digits)
-                    ) ** 0.95:  # <min_fract_fill_perecent * NDIGITS ** (cur_fract_digits)
-                        if n_unique_ints > 0 or nz_fract_digits > 0:
-                            break
-                last_n_unique_fracts = n_unique_fracts
-                if n_unique_fracts > 0:
-                    nz_fract_digits = cur_fract_digits
-            if cur_fract_digits == max_fract_digits - 1:
-                if nz_fract_digits == 0:
-                    cur_fract_digits = 1
-        cur_fract_digits = cur_fract_digits - 1
-    elif var_is_datetime:
-        # values is a tz-naive numpy datetime64 array (normalized above), so the rounding-resolution probe works uniformly across pandas eras.
-        _vals_naive = values
-        full_multiplier = 1
-        prev_date_fract = "D"
-        for date_fract, multiplier in zip(DATEFRACTS_CODES, DATEFRACTS_MULTIPLIERS):
-            if np.all(_vals_naive.astype(f"datetime64[{date_fract}]") == _vals_naive):
-                break
-            else:
-                full_multiplier *= multiplier
-                prev_date_fract = date_fract
-
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    # get quantiles and count outliers
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-    use_quantiles = None
-
-    # `calculated_quantiles is not None`, not a truthiness check: a caller following the documented
-    # contract passes a 2-element np.ndarray, and `bool(<2-element ndarray>)` raises
-    # "the truth value of an array with more than one element is ambiguous".
-    if calculated_quantiles is not None or use_quantile:
-
-        if calculated_quantiles is None:
-            if use_quantile > 0.5:
-                use_quantile = 1 - use_quantile
-            # Wave 31 (2026-05-20): assert -> ValueError.
-            if not (0 < use_quantile < 1.0):
-                raise ValueError(f"use_quantile must be in (0, 1); got {use_quantile!r}.")
-
-            use_quantiles = (use_quantile, 1 - use_quantile)
-            calculated_quantiles = np.nanquantile(values, use_quantiles)
-            tukey_fences_multiplier = get_tukey_fences_multiplier_for_quantile(
-                quantile=use_quantile,
-            )  # !TODO add sigma, dist+kwargs fields
-        else:
-            # Wave 31 (2026-05-20): assert -> ValueError.
-            if tukey_fences_multiplier is None:
-                raise ValueError("When calculated_quantiles is provided, " "tukey_fences_multiplier MUST also be supplied.")
-
-        iqr = calculated_quantiles[1] - calculated_quantiles[0]
-        q0 = calculated_quantiles[0]
-        q1 = calculated_quantiles[1]
-        lo = q0 - tukey_fences_multiplier * iqr
-        hi = q1 + tukey_fences_multiplier * iqr
-
-        # Fuse the span-mask build and the two fence counts into a single pass (was: one boolean &-mask
-        # plus two separate .sum() scans). NaN compares False everywhere, so it stays out of the span and
-        # counts in neither fence — identical values_in_span and n_outliers. Float-1d only; else exact numpy.
-        if getattr(values, "dtype", None) is not None and values.dtype.kind == "f" and values.ndim == 1:
-            in_span_mask, n_below, n_above = _get_span_fence_njit()(values, q0, q1, lo, hi)
-            values_in_span = values[in_span_mask]
-            n_outliers = n_below + n_above
-        else:
-            values_in_span = values[(values >= q0) & (values <= q1)]
-            n_outliers = (values < lo).sum() + (values > hi).sum()
-
-    else:
-        calculated_quantiles = np.array([np.nanmin(values), np.nanmax(values)])
-        values_in_span = values
-        n_outliers = 0
-
-    outliers_percent = n_outliers / len(values)
-
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    # compute span size, cont_ratio
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-    sample_size = len(values_in_span)
-
-    if var_is_numeric:
-        span_size = int(n_unique_ints > 1) + (calculated_quantiles[1] - calculated_quantiles[0])
-
-        if cur_fract_digits > 0:
-            span_size = span_size * (NDIGITS**cur_fract_digits)
-    elif var_is_datetime:
-        span_size = (np.timedelta64(1, "D") + (calculated_quantiles[1] - calculated_quantiles[0])).astype("timedelta64[D]") / np.timedelta64(1, "D")
-        span_size = span_size * full_multiplier
-
-    if span_size > 0:
-        nexpected_unique_values = get_expected_unique_random_numbers_qty(span_size=span_size, sample_size=sample_size)
-    else:
-        nexpected_unique_values = 0
-
-    # bench-attempt-rejected (2026-06-23): CPX18 reuse _get_nunique fast path here to skip np.unique's
-    # unique-array materialization measured 0.76x@100k / 1.02x@1M (bench_cleaning_cpx18_cpx19.py). The
-    # count is sort-dominated; both np.unique and _get_nunique sort the full array, so dropping only the
-    # unique-array build is washed out by the extra njit pass. No win — keep the simple np.unique.
-    real_unique_values = len(np.unique(values_in_span))
-
-    if nexpected_unique_values > 0:
-        """
-        for max_nunique in double_scarcenes_after:
-            if real_unique_values > max_nunique:
-                max_scarceness *= 2
-        """
-        max_scarceness = np.round(max_scarceness * (1.0 + np.max([0.0, np.log(sample_size / log_scarceness_divisor)])), 2)
-        if real_unique_values <= 1:
-            cont_ratio = 0.0
-        else:
-            cont_ratio = real_unique_values / (nexpected_unique_values / max_scarceness)
-    else:
-        cont_ratio = 0.0
-
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-    # report if needed
-    # -----------------------------------------------------------------------------------------------------------------------------------------------------
-
-    if verbose:
-        if var_is_numeric:
-            freq = f"max_fract_digits={cur_fract_digits}"
-        elif var_is_datetime:
-            freq = f"min_freq={prev_date_fract}"
-        mes = (
-            f"{'Continuous' if cont_ratio >= 1.0 else 'Discrete'}"
-            f": for {use_quantiles} quantiles {calculated_quantiles[0]} - {calculated_quantiles[1]} (sample_size={sample_size:{THOUSANDS_SEPARATOR}.0f}), "
-            f"{real_unique_values:{THOUSANDS_SEPARATOR}.0f} unique values met, {nexpected_unique_values:{THOUSANDS_SEPARATOR}.0f} expected,"
-            f" {freq}, continuity_ratio={cont_ratio:{THOUSANDS_SEPARATOR}.4f} with max_scarceness={max_scarceness:{THOUSANDS_SEPARATOR}}, overall n_outliers="
-            f"{n_outliers:{THOUSANDS_SEPARATOR}}({outliers_percent*100:{THOUSANDS_SEPARATOR}.2f}%)."
-        )
-
-        if variable_name:
-            mes = f"{variable_name}: " + mes
-        logger.info(mes)
-
-    return cont_ratio >= 1.0, outliers_percent
 
 def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = None, use_quantile: float = 0.01):
     """Returns indices of 1d data array that are non-outlying"""
@@ -594,301 +258,14 @@ def analyse_and_clean_features(
     # a column the apply side then tries to cast back to int64. That is the default configuration.
     features_dtypes: Dict[str, str] = {}
 
-    potentially_categorical_features = set()  # all discrete+all fewly-valued (e.g.,<1/1000 population ration)
-    potentially_outlying_features = set()
+    potentially_categorical_features: set[Any] = set()  # all discrete+all fewly-valued (e.g.,<1/1000 population ration)
+    potentially_outlying_features: set[Any] = set()
 
-    features_unique_values = {}
-    features_ranges = {}
+    features_unique_values: dict[Any, Any] = {}
+    features_ranges: dict[Any, Any] = {}
 
-    fewlyvalued_features = set()
-    manyvalued_features = set()
-    constant_features = set()
-
-    continuous_features = set()
-    discrete_features = set()
-
-    head = df.head(1)
-
-    exclude_mask_regexp = None if not exclude_mask else re.compile(exclude_mask)
-
-    if update_data:
-        # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        # 1. Performs arbitrary values replacements in features of a dataframe (you'll know mistyped values after initial inspection via eda module).
-        # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        _clean_cat_and_obj_columns(
-            df=df,
-            cat_vars_clean_fcn=cat_vars_clean_fcn,
-            obj_vars_clean_fcn=obj_vars_clean_fcn,
-            cat_vars_replace=cat_vars_replace,
-            obj_vars_replace=obj_vars_replace,
-            head=head,
-            verbose=verbose,
-        )
-        collect()
-
-    iterable_columns = df.columns
-    if verbose:
-        mes = f"Analyzing {len(iterable_columns)} features..."
-        logger.info(mes)
-        iterable_columns = tqdmu(iterable_columns, desc=mes, leave=True)
-
-    if analyse_mask is None:
-        sub_df = df
-    else:
-        sub_df = df.loc[analyse_mask, :]
-
-    nrows = len(sub_df)
-
-    for col in iterable_columns:  # head.select_dtypes(include=["category", "object", "number", "boolean"])
-
-        col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
-
-        col_unique_values = sub_df[col].value_counts(dropna=False)
-        nunique = len(col_unique_values)
-
-        # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        # 2. Divides numeric and date(time) features into discrete and continuous.
-        # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        if col_is_numeric or col_is_datetime:
-            col_is_continuous, outliers_percent = is_variable_truly_continuous(
-                sub_df,
-                col,
-                verbose=verbose,
-                use_quantile=cont_use_quantile,
-                max_scarceness=cont_max_scarceness,
-                max_fract_digits=cont_max_fract_digits,
-                min_fract_level_increase_perecent=cont_min_fract_level_increase_perecent,
-                var_is_numeric=col_is_numeric,
-                var_is_datetime=col_is_datetime,
-            )
-            col_is_discrete = not col_is_continuous
-            if col_is_continuous:
-                continuous_features.add(col)
-                if outliers_percent > cont_max_allowed_outliers_percent:
-                    potentially_outlying_features.add(col)
-            else:
-                discrete_features.add(col)
-        else:
-            col_is_continuous = None
-            col_is_discrete = None
-            outliers_percent = 0.0
-
-        # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        # Decides if a col is fewly- or manyvalued.
-        # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        col_is_manyvalued = nrows < min_fewlyvalued_rows_per_value * nunique
-        if col_is_manyvalued:
-            manyvalued_features.add(col)
-        else:
-            fewlyvalued_features.add(col)
-            if col_is_object:
-                # ---------------------------------------------------------------------------------------------------------------------------------------------
-                # 3. Converts fewly-valued (ie sparse. say, >=100 rows per unique value on avg) object features into categorical, to save space &
-                # increase processing speed.
-                # ---------------------------------------------------------------------------------------------------------------------------------------------
-                df[col] = df[col].astype("category")
-                if verbose:
-                    logger.info("Feature  %s converted to category type.", col)
-                col_unique_values, nunique = _update_sub_df_col(
-                    df=df, sub_df=sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
-                )
-                col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
-
-        # 4. All discrete or fewly-valued (nrows/nunique_vals>=,say,100) features are potentially categorical.
-        if col_is_discrete or col_is_categorical or not col_is_manyvalued:
-            if not col_is_categorical:
-                potentially_categorical_features.add(col)
-            if (col in exclude_columns) or (exclude_mask_regexp and exclude_mask_regexp.search(col)):
-                continue
-            # 5. Optionally merges all under-presented categories into one RARE category (usually a NaN). Should this be a transformer suitable for a pipeline?
-            if (
-                ((clean_nonnumeric_rarevals and not col_is_numeric) and not (col_is_boolean or col_is_datetime))
-                or (
-                    clean_numeric_continuous_rarevals
-                    and col_is_numeric
-                    and col_is_continuous
-                    and (max_cont_col_nuniques_for_rarevals_cleaning <= 0 or max_cont_col_nuniques_for_rarevals_cleaning >= nunique)
-                )
-                or (
-                    clean_numeric_discrete_rarevals
-                    and col_is_numeric
-                    and col_is_discrete
-                    and (max_discrete_col_nuniques_for_rarevals_cleaning <= 0 or max_discrete_col_nuniques_for_rarevals_cleaning >= nunique)
-                )
-            ):
-                to_be_merged = col_unique_values[col_unique_values * nunique * max_rarevals_imbalance < nrows]
-                nan_vals_already_in_index = col_unique_values.index.isna().astype(int).sum()
-                nmerged = len(to_be_merged)
-                if nmerged >= (nunique - nan_vals_already_in_index):
-                    if verbose:
-                        logger.info(
-                            "Feature %s with %s unique vals is too scarcely populated: %s (head), so it will be removed.",
-                            col,
-                            nunique,
-                            col_unique_values.head(),
-                        )
-                    constant_features.add(col)
-                    continue  # next col
-                else:
-                    if nmerged > 0:
-                        # (if there is a nan cat already, or if there are more than 1 such rare cats)
-                        if nmerged > 1 or nan_vals_already_in_index > 0:
-                            if verbose:
-                                nrows_merged = to_be_merged.to_numpy().sum()
-                                logger.info(
-                                    "Merging %s values of feature %s into a single %s value due to being too rare (%s/%s [%s percent]): %s",
-                                    nmerged,
-                                    col,
-                                    default_na_val,
-                                    format(nrows_merged, THOUSANDS_SEPARATOR + "d"),
-                                    format(nrows, THOUSANDS_SEPARATOR + "d"),
-                                    round(nrows_merged / nrows * 100, 4),
-                                    to_be_merged.index.to_list(),
-                                )
-                            repl_instructions = {}
-                            for next_var in to_be_merged.index:
-                                if next_var in features_transforms[col]:
-                                    # Wave 63 (2026-05-20): collision-detection warning verified
-                                    # in production logs; keep as honest WARN, drop the "remove
-                                    # once checked" TODO.
-                                    log_throttle(
-                                        logger,
-                                        "cleaning_features_transforms_key_collision",
-                                        logging.WARNING,
-                                        "Key %s of feature %s already in features_transforms with value %s!",
-                                        next_var, col, features_transforms[col][next_var],
-                                    )
-                                repl_instructions[next_var] = default_na_val
-
-                            if col_is_numeric and pd.isnull(default_na_val):
-                                the_type = default_float_type  # to make sure ints are converted to float when NaNs are added
-                            else:
-                                # The CURRENT dtype, not `head`'s. `head = df.head(1)` was snapshotted before
-                                # step 3's `astype("category")` ran, so restoring from it silently converted a
-                                # just-categorised column back to object -- undoing the documented memory saving
-                                # and leaving a 10M-row, 40-distinct-value column at full string-per-row cost,
-                                # with `dtypes=df.dtypes` recording the regression as if intended.
-                                the_type = df[col].dtype.name
-
-                            features_transforms[col].update(repl_instructions)
-                            features_dtypes[col] = str(the_type if isinstance(the_type, str) else np.dtype(the_type).name)
-                            if update_data:
-                                if col_is_categorical:
-                                    df[col] = df[col].astype("object")
-                                # Every rare value maps to the SAME default_na_val, so a single vectorized isin+mask pass replaces them in O(n)
-                                # instead of pandas' per-cell dict lookup in .replace() which is O(n*k) for k rare keys (13.5x at n=10M, bit-identical).
-                                rare_mask = df[col].isin(list(repl_instructions.keys()))
-                                df[col] = df[col].mask(rare_mask, default_na_val).astype(the_type)
-                                col_unique_values, nunique = _update_sub_df_col(
-                                    df=df, sub_df=sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
-                                )
-                                col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
-                        else:
-                            # nmerged=1 and nan_vals_already_in_index=0. No point in merging just one category.
-                            pass
-            if nunique == 2 and not col_is_datetime:
-                # 6. Replaces nan with some other value when there is only one option except NAN. Like, for numerics, -real_val if real_val<>0, else real_val+1.
-                # For category, "NOT "+option_name.
-                real_val = None
-                na_val = True
-                for val in col_unique_values.index:
-                    if pd.isna(val):
-                        na_val = val
-                    else:
-                        real_val = val
-                if (real_val is not None) and (na_val is not True):
-                    if isinstance(real_val, str):
-                        repl_value: Any = "not " + real_val
-                    else:
-                        if col_is_numeric:
-                            if float(real_val) == 0.0:
-                                repl_value = 1.0
-                            else:
-                                repl_value = real_val * -1
-                        elif col_is_boolean:
-                            repl_value = not real_val
-                        else:
-                            # Neither str/numeric/boolean (e.g. decimal.Decimal, pd.Timestamp): negate
-                            # if the type supports arithmetic negation (covers Decimal), else fall back
-                            # to a distinguishing string sentinel (mirrors the str branch's "not X" naming).
-                            try:
-                                repl_value = -real_val
-                            except TypeError:
-                                repl_value = f"not {real_val}"
-
-                    if verbose:
-                        logger.info("feature %s: %s->%s in %s.", col, na_val, repl_value, col_unique_values)
-
-                    repl_instructions = {na_val: repl_value}
-
-                    features_transforms[col].update(repl_instructions)
-                    features_dtypes.setdefault(col, head[col].dtype.name)
-                    if update_data:
-                        if col_is_categorical:
-                            df[col] = df[col].astype("object")
-                        df[col] = df[col].replace(repl_instructions).astype(head[col].dtype.name)
-                        col_unique_values, nunique = _update_sub_df_col(
-                            df=df, sub_df=sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
-                        )
-                        col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
-                else:
-                    if real_val is None:
-                        if verbose:
-                            log_throttle(logger, "cleaning_no_nonnull_in_2valued_feature", logging.WARNING, "Non-null value not found in a 2-valued feature %s: %s.", col, col_unique_values)
-                        constant_features.add(col)
-            if nunique == 1:
-                # 7. Vars having only one unique value, after all, are constant and must be dropped.
-                constant_features.add(col)
-
-        if col not in constant_features:
-            # 8. Tracks unique values of each feature (or feature ranges, for continuous vars) for future novelty detection.
-            if (col not in manyvalued_features) or (not col_is_numeric):
-                features_unique_values[col] = set(col_unique_values.index.to_numpy())
-            else:
-                """
-                features_ranges[col]=df[col].describe().astype(np.float32).to_dict()
-                {'count': 11706156.0,
-                 'mean': 840.458984375,
-                 'std': 592.664794921875,
-                 'min': 0.0,
-                 '25%': 339.0,
-                 '50%': 741.0,
-                 '75%': 1260.0,
-                 'max': 2594.0}
-                """
-                # `col_unique_values` is a `value_counts` Series: its INDEX holds the distinct values and its
-                # VALUES hold the counts. min/max off the index are correct (the extremes are the same either
-                # way), but the median was taken over the distinct-value SET with the counts ignored entirely --
-                # for a monetary or count column concentrated near zero with a long sparse tail, that lands far
-                # out in the tail rather than near zero, and every consumer of `features_ranges` (novelty
-                # detection, range checks, imputation defaults) read a number labelled "median" that was nowhere
-                # near the column's median. Weighting by the counts recovers the real one from the same summary,
-                # with no extra pass over the column.
-                _vals = np.asarray(col_unique_values.index, dtype=np.float64)
-                _cnts = np.asarray(col_unique_values.to_numpy(), dtype=np.float64)
-                _ok = np.isfinite(_vals) & (_cnts > 0)
-                _median = float("nan")
-                if _ok.any():
-                    _o = np.argsort(_vals[_ok], kind="stable")
-                    _sv, _sc = _vals[_ok][_o], _cnts[_ok][_o]
-                    _cum = np.cumsum(_sc)
-                    _median = float(_sv[int(np.searchsorted(_cum, _cum[-1] / 2.0, side="left"))])
-                features_ranges[col] = dict(
-                    min=col_unique_values.index.min(),
-                    max=col_unique_values.index.max(),
-                    median=_median,
-                )
-
-        collect()
-
-    if constant_features:
-        logger.info("%s columns are constant: %s.", len(constant_features), constant_features)
-        if update_data:
-            df.drop(columns=constant_features, inplace=True)  # noqa: PD002 -- update_data=True is documented as "mutate the caller's frame in place (legacy behaviour)"
-            logger.info("Dropped %s columns.", len(constant_features))
-
-    if verbose:
-        logger.info("Analyzing & cleaning finished.")
+    fewlyvalued_features: set[Any] = set()
+    constant_features, continuous_features, discrete_features, manyvalued_features = _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, cat_vars_clean_fcn, obj_vars_clean_fcn, cat_vars_replace, obj_vars_replace, verbose, analyse_mask, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, cont_max_allowed_outliers_percent, potentially_outlying_features, min_fewlyvalued_rows_per_value, fewlyvalued_features, potentially_categorical_features, exclude_columns, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning, max_rarevals_imbalance, default_na_val, features_transforms, default_float_type, features_dtypes, features_unique_values, features_ranges)
 
     return dict(
         dtypes=df.dtypes,
@@ -954,7 +331,7 @@ def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_da
         for col, repl_instructions in transforms.items():
             df[col] = df[col].replace(repl_instructions).astype(_target_dtype(col))
         if constant_features:
-            df.drop(columns=constant_features, inplace=True)  # noqa: PD002 -- update_data=True is documented as mutating the caller's frame in place
+            df.drop(columns=constant_features, inplace=True)  # noqa: PD002 -- update_data=True is documented as "mutate the caller's frame in place (legacy behaviour)"
         return df
 
     # Non-mutating path: compose the replacements into a new frame without touching the caller's columns.
@@ -976,3 +353,296 @@ __all__ = [
     "analyse_and_clean_features",
     "apply_features_cleaning",
 ]
+
+
+def _get_nunique(vals: np.ndarray, skip_nan: bool = True, skip_vals: Optional[tuple] = None) -> int:
+    """Count distinct values in ``vals``, optionally excluding NaN and up to two ``skip_vals``. Float arrays take a sort+njit-count fast path that avoids materializing the unique-value array; non-float/object arrays fall back to ``np.unique``."""
+    # Float fast path: the caller only ever uses the COUNT, never the unique values, so np.unique's
+    # unique-array materialization + the trailing ``unique_vals != val`` boolean-mask passes are pure waste.
+    # Sort once + count distinct in a single njit pass (skipping NaN + skip_vals inline). Bit-identical to the
+    # np.unique count for finite-or-NaN float input. Non-float / object paths keep the exact np.unique route.
+    if skip_nan and getattr(vals, "dtype", None) is not None and vals.dtype.kind == "f":
+        if skip_vals and len(skip_vals) > 2:
+            # The njit fast-path kernel takes exactly 2 skip sentinels; a 3rd+ element would be silently
+            # dropped (never excluded from the count) if we fell through anyway, diverging from the
+            # np.unique fallback path below (which supports arbitrary-length skip_vals). All current
+            # call sites pass at most 2 -- raise rather than silently miscounting if that ever changes.
+            raise ValueError(f"_get_nunique: the float fast path supports at most 2 skip_vals, got {len(skip_vals)}: {skip_vals!r}.")
+        sv = np.sort(vals)
+        if not skip_vals:
+            skip0 = np.nan
+            skip1 = np.nan
+        elif len(skip_vals) == 1:
+            skip0 = float(skip_vals[0])
+            skip1 = np.nan
+        else:
+            skip0 = float(skip_vals[0])
+            skip1 = float(skip_vals[1])
+        return int(_get_count_distinct_njit()(sv, skip0, skip1))
+
+    unique_vals = np.unique(vals)
+    if skip_nan:
+        # np.isnan raises TypeError on object/string arrays — use pd.isna which handles
+        # both numeric NaN and None/NaT uniformly.
+        if unique_vals.dtype.kind in ("f", "c"):
+            unique_vals = unique_vals[~np.isnan(unique_vals)]
+        else:
+            unique_vals = unique_vals[~pd.isna(unique_vals)]
+    if skip_vals:
+        for val in skip_vals:
+            unique_vals = unique_vals[unique_vals != val]
+    return len(unique_vals)
+
+
+def _update_sub_df_col(
+    df: pd.DataFrame, sub_df: pd.DataFrame, col: str, col_unique_values: pd.DataFrame, nunique: int, analyse_mask: Optional[np.ndarray] = None
+) -> tuple:
+    """Refresh ``col``'s value_counts (and nunique) for the analysed sub-frame, re-slicing ``df`` via ``analyse_mask`` first when provided. Called after a column has been narrowed to the analysis subset so the cardinality stats reflect that subset, not the full frame."""
+    if analyse_mask is not None:
+        # Compute value_counts directly from df.loc[analyse_mask, col] -- a fresh Series -- instead
+        # of copying (even shallowly) the full, potentially huge sub_df just to temporarily overwrite
+        # one column before immediately reading it back out.
+        col_unique_values = df.loc[analyse_mask, col].value_counts(dropna=False)
+    else:
+        col_unique_values = sub_df[col].value_counts(dropna=False)
+    nunique = len(col_unique_values)
+    collect()
+    return col_unique_values, nunique
+
+
+def _clean_cat_and_obj_columns(
+    df: pd.DataFrame,
+    cat_vars_clean_fcn: Optional[Callable] = None,
+    obj_vars_clean_fcn: Optional[Callable] = None,
+    cat_vars_replace: Optional[dict] = None,
+    obj_vars_replace: Optional[dict] = None,
+    head: Optional[pd.DataFrame] = None,
+    verbose: bool = True,
+):
+    """Apply cleaning functions and/or value-replacement maps to a dataframe's categorical and object/string columns in place, mutating ``df`` column-by-column. ``head`` (a small sample, typically ``df.head(1)``) is used only to discover which columns exist and their dtypes, avoiding a full-frame dtype scan on huge frames."""
+    if head is None:
+        head = df.head(1)
+
+    if cat_vars_clean_fcn:
+
+        if verbose:
+            logger.info("Cleaning categorical columns...")
+        for col in tqdmu(head.select_dtypes("category").columns):
+            # Apply the cleaning function once to the category *levels* and let pandas propagate
+            # via rename_categories — O(#levels) vs the old O(#rows) .apply() row-loop.
+            cat = df[col].cat
+            new_levels = [cat_vars_clean_fcn(v) for v in cat.categories]
+            df[col] = cat.rename_categories(new_levels)
+        collect()
+
+    if obj_vars_clean_fcn:
+
+        if verbose:
+            logger.info("Cleaning object columns...")
+        for col in tqdmu(head.select_dtypes(include=["object", "string"]).columns):
+            # Dedup-aware elementwise map: a low-cardinality object column (countries / statuses / codes repeated
+            # over millions of rows) gets the clean_fcn applied once per UNIQUE value, then reindexed — bit-identical
+            # for a pure elementwise fcn, gated so the all-distinct case never regresses (see cleaning_helpers).
+            # Include "string" so pandas 2.1+ StringDtype / pyarrow-backed string columns get the clean_fcn too.
+            df[col] = map_elementwise_dedup(df[col], obj_vars_clean_fcn)
+        collect()
+
+    if cat_vars_replace:
+
+        if verbose:
+            logger.info("Replacing vals in categorical columns: %s", cat_vars_replace)
+        for col in tqdmu(head.select_dtypes("category").columns):
+            df[col] = df[col].replace(cat_vars_replace).astype("category")
+            collect()
+
+    if obj_vars_replace:
+
+        if verbose:
+            logger.info("Replacing vals in object columns: %s", obj_vars_replace)
+        for col in tqdmu(head.select_dtypes(include=["object", "string"]).columns):
+            df[col] = df[col].replace(obj_vars_replace)
+            collect()
+
+
+def is_variable_truly_continuous(
+    df: Optional[pd.DataFrame] = None,
+    variable_name: str = "",
+    values: Any = None,  # np.ndarray, or a pandas datetime carrier (tz-aware Series / DatetimeArray) when var_is_datetime
+    calculated_quantiles: Optional[np.ndarray] = None,
+    use_quantile: float = 0.1,
+    max_scarceness: float = 10.0,
+    max_fract_digits: int = 10,
+    double_scarcenes_after: tuple = (1_000, 2_000, 5_000, 10_000),
+    log_scarceness_divisor: int = 500,
+    # min_fract_fill_perecent: float = 0.5,
+    min_fract_level_increase_perecent: float = 0.15,
+    tukey_fences_multiplier: Optional[float] = None,
+    var_is_datetime: Optional[bool] = None,
+    var_is_numeric: Optional[bool] = None,
+    verbose: bool = False,
+):
+    """Measures evidence that a variable with numeric type is continuous, given its span and number of unique values.
+
+    mb float32 vars without fractional part, with big span and nunique<1000 must be categorical (nominal or ordinal-remapped)?
+    kind of, it's unlikely if even an integer var ranging from -2 to +2 billions on 11M rows will have only 331 unique vals, right?
+    not speaking of truly floating, with fractional digits
+
+    what about var such as 10001.132456,10001.3464545,10001.26344432...?
+    it can be impactful and very well floating, but will it be distinguished as numeric or not with default max_fract_digits=1?
+    Probably not: span will be very narrow (like, 1 or even 0).
+    so probably, for vars with fractional digits, need to try iteratively with increasing max_fract_digits=(1,2,.) as long as unique_fracts keeps growing.
+    """
+    # Bound inside the numeric / datetime branches below; the verbose log reads them under the same conditions.
+    cur_fract_digits: Any = None
+    prev_date_fract: Any = None
+    cont_ratio: Any = None
+    nexpected_unique_values: Any = None
+    n_outliers: Any = None
+    if values is None:
+        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix under -O,
+        # ``values = df[variable_name].values`` would AttributeError on
+        # None far from the root cause.
+        if df is None or not variable_name:
+            raise ValueError(
+                "is_variable_truly_continuous: when values is None, both "
+                f"df and variable_name must be provided; got df={df!r}, "
+                f"variable_name={variable_name!r}."
+            )
+        values = df[variable_name].to_numpy()
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # what is the smallest rounding after which variable stops changing?
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    if var_is_datetime is None:
+        var_is_datetime = is_datetime64_any_dtype(values)
+    if var_is_numeric is None:
+        var_is_numeric = is_numeric_dtype(values)
+
+    if not (var_is_numeric or var_is_datetime):
+        raise TypeError("is_variable_truly_continuous: values must be numeric or " "datetime-typed; got non-numeric non-datetime data.")
+
+    # Degenerate columns: an empty column divides by len(values)==0 below, and an all-NaN column makes np.nanmin/np.nanmax
+    # raise (empty-slice) or propagate NaN into a meaningless continuity decision. Short-circuit both to discrete + 0 outliers.
+    if len(values) == 0:
+        logger.warning("is_variable_truly_continuous: empty column%s; treating as discrete with 0 outliers.", f" {variable_name!r}" if variable_name else "")
+        return False, 0.0
+    if var_is_numeric and not np.isfinite(np.asarray(values, dtype=float)).any():
+        logger.warning("is_variable_truly_continuous: all-NaN/non-finite column%s; treating as discrete with 0 outliers.", f" {variable_name!r}" if variable_name else "")
+        return False, 0.0
+
+    if var_is_datetime:
+        # Normalize any pandas datetime carrier (tz-aware Series / DatetimeArray) to a tz-naive numpy datetime64 array up front.
+        # The resolution probe + quantile/span arithmetic below all assume numpy: np.nanquantile / the q-diff yield pandas
+        # Timestamp/Timedelta scalars on a DatetimeArray, which lack the .astype the span computation calls (and pandas >=2.0
+        # rejects casting a DatetimeArray straight to datetime64[h]). Callers passing numpy already (df[col].to_numpy()) are unaffected.
+        _tz = getattr(getattr(values, "dtype", None), "tz", None)
+        if _tz is not None:
+            values = values.tz_convert("UTC").tz_localize(None)
+        values = np.asarray(values, dtype="datetime64[ns]")
+
+    if var_is_numeric:
+        nz_fract_digits = 0
+        last_n_unique_fracts = 0
+        fract_part, int_part = np.modf(values)
+
+        n_unique_ints = _get_nunique(vals=int_part, skip_vals=(0.0,))
+        n_unique_fracts = _get_nunique(vals=fract_part, skip_vals=(0.0, 1.0))
+        cur_fract_digits = _count_unique_fractional_parts(n_unique_fracts, fract_part, max_fract_digits, last_n_unique_fracts, min_fract_level_increase_perecent, n_unique_ints, nz_fract_digits)
+        cur_fract_digits = cur_fract_digits - 1
+    elif var_is_datetime:
+        # values is a tz-naive numpy datetime64 array (normalized above), so the rounding-resolution probe works uniformly across pandas eras.
+        _vals_naive = values
+        full_multiplier = 1
+        prev_date_fract = "D"
+        for date_fract, multiplier in zip(DATEFRACTS_CODES, DATEFRACTS_MULTIPLIERS):
+            if np.all(_vals_naive.astype(f"datetime64[{date_fract}]") == _vals_naive):
+                break
+            else:
+                full_multiplier *= multiplier
+                prev_date_fract = date_fract
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # get quantiles and count outliers
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    use_quantiles = None
+
+    # `calculated_quantiles is not None`, not a truthiness check: a caller following the documented
+    # contract passes a 2-element np.ndarray, and `bool(<2-element ndarray>)` raises
+    # "the truth value of an array with more than one element is ambiguous".
+    if calculated_quantiles is not None or use_quantile:
+
+        calculated_quantiles, tukey_fences_multiplier, use_quantiles = _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_fences_multiplier, use_quantiles)
+
+        iqr = calculated_quantiles[1] - calculated_quantiles[0]
+        q0 = calculated_quantiles[0]
+        q1 = calculated_quantiles[1]
+        lo = q0 - tukey_fences_multiplier * iqr
+        hi = q1 + tukey_fences_multiplier * iqr
+
+        # Fuse the span-mask build and the two fence counts into a single pass (was: one boolean &-mask
+        # plus two separate .sum() scans). NaN compares False everywhere, so it stays out of the span and
+        # counts in neither fence — identical values_in_span and n_outliers. Float-1d only; else exact numpy.
+        if getattr(values, "dtype", None) is not None and values.dtype.kind == "f" and values.ndim == 1:
+            in_span_mask, n_below, n_above = _get_span_fence_njit()(values, q0, q1, lo, hi)
+            values_in_span = values[in_span_mask]
+            n_outliers = n_below + n_above
+        else:
+            values_in_span = values[(values >= q0) & (values <= q1)]
+            n_outliers = (values < lo).sum() + (values > hi).sum()
+
+    else:
+        calculated_quantiles = np.array([np.nanmin(values), np.nanmax(values)])
+        values_in_span = values
+        n_outliers = 0
+
+    outliers_percent = n_outliers / len(values)
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # compute span size, cont_ratio
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    sample_size = len(values_in_span)
+
+    if var_is_numeric:
+        span_size = int(n_unique_ints > 1) + (calculated_quantiles[1] - calculated_quantiles[0])
+
+        if cur_fract_digits > 0:
+            span_size = span_size * (NDIGITS**cur_fract_digits)
+    elif var_is_datetime:
+        span_size = (np.timedelta64(1, "D") + (calculated_quantiles[1] - calculated_quantiles[0])).astype("timedelta64[D]") / np.timedelta64(1, "D")
+        span_size = span_size * full_multiplier
+
+    if span_size > 0:
+        nexpected_unique_values = get_expected_unique_random_numbers_qty(span_size=span_size, sample_size=sample_size)
+    else:
+        nexpected_unique_values = 0
+
+    # bench-attempt-rejected (2026-06-23): CPX18 reuse _get_nunique fast path here to skip np.unique's
+    # unique-array materialization measured 0.76x@100k / 1.02x@1M (bench_cleaning_cpx18_cpx19.py). The
+    # count is sort-dominated; both np.unique and _get_nunique sort the full array, so dropping only the
+    # unique-array build is washed out by the extra njit pass. No win — keep the simple np.unique.
+    real_unique_values = len(np.unique(values_in_span))
+
+    if nexpected_unique_values > 0:
+        """
+        for max_nunique in double_scarcenes_after:
+            if real_unique_values > max_nunique:
+                max_scarceness *= 2
+        """
+        max_scarceness = np.round(max_scarceness * (1.0 + np.max([0.0, np.log(sample_size / log_scarceness_divisor)])), 2)
+        if real_unique_values <= 1:
+            cont_ratio = 0.0
+        else:
+            cont_ratio = real_unique_values / (nexpected_unique_values / max_scarceness)
+    else:
+        cont_ratio = 0.0
+
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+    # report if needed
+    # -----------------------------------------------------------------------------------------------------------------------------------------------------
+
+    _log_continuity_verdict(verbose, var_is_numeric, cur_fract_digits, var_is_datetime, prev_date_fract, cont_ratio, use_quantiles, calculated_quantiles, sample_size, real_unique_values, nexpected_unique_values, max_scarceness, n_outliers, outliers_percent, variable_name)
+
+    return cont_ratio >= 1.0, outliers_percent

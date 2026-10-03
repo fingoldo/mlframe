@@ -257,114 +257,7 @@ def _fe_stage_cascade_early_a(
         _extra_basis_scorer_ok = _default_scorer == "plug_in"
         if _univ_fourier_on and _univ_basis_on and _extra_basis_scorer_ok and "fourier" not in _eff_extra_bases:
             _eff_extra_bases = (*_eff_extra_bases, "fourier")
-        if _eff_extra_bases:
-            try:
-                from .._orthogonal_univariate_fe import (
-                    hybrid_orth_extra_basis_fe_with_recipes,
-                )
-
-                _fourier_freqs = tuple(float(f) for f in getattr(self, "fe_hybrid_orth_fourier_freqs", (1.0, 2.0)))
-                _spline_knots = int(getattr(self, "fe_hybrid_orth_spline_knots", 5))
-                _fourier_powers = tuple(int(p) for p in getattr(self, "fe_hybrid_orth_fourier_powers", (1, 2)))
-                _X_before_extra_cols = list(X.columns)
-                # Build the extra basis (Fourier/spline) on RAW columns only -
-                # EXCLUDE the already-appended poly-basis columns (``a__T2`` ...).
-                # Running Fourier on an engineered column would produce a NESTED
-                # recipe (``a__T2__sin1``) whose transform-replay needs ``a__T2``
-                # materialised first; the 1-deep replay path can't order that and
-                # raises KeyError('a__T2') at transform time. Keeping the source
-                # scope to raw columns keeps every extra-basis recipe 1-deep and
-                # replayable (and honours factors_names_to_use when set).
-                _already_eng_for_extra = set(self.hybrid_orth_features_ or [])
-                if getattr(self, "factors_names_to_use", None):
-                    _e_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _already_eng_for_extra]
-                else:
-                    _e_cols = [c for c in X.columns if c not in _already_eng_for_extra]
-                # ADAPTIVE-FREQUENCY Fourier: default ON. The
-                # fixed grid {1, 2} misses arbitrary-period oscillations
-                # (sin(3.7*x), sin(5.3*x)); the adaptive detector sweeps a
-                # coarse z-space grid + local-refines + held-out-validates
-                # the dominant frequency per column, n-gated at >= 800 rows
-                # (smaller n false-positives a chance frequency). The
-                # emitted adaptive sin/cos recipes are tagged adaptive=True
-                # and PROTECTED past screening below (a single leg has low
-                # marginal MI - phase - so the screen would drop the
-                # held-out-validated pair otherwise).
-                _fourier_adaptive = bool(getattr(self, "fe_univariate_fourier_adaptive", True))
-                _fourier_adaptive_mvc = float(
-                    getattr(
-                        self,
-                        "fe_univariate_fourier_adaptive_min_val_corr",
-                        0.15,
-                    )
-                )
-                # ADAPTIVE-CHIRP: second argument-warp path. Runs
-                # the same held-out detector on u = sign(z)*z**2 so a growing-
-                # frequency chirp (sin(2*pi*f*z**2)) the linear-argument
-                # Fourier cannot express is recovered. Emits __qsin/__qcos
-                # legs tagged adaptive=True -> captured below + protected past
-                # the screen + dedup-exempt exactly like the linear legs.
-                _fourier_chirp = bool(getattr(self, "fe_univariate_fourier_chirp", True))
-                _fourier_chirp_mvc = float(
-                    getattr(
-                        self,
-                        "fe_univariate_fourier_chirp_min_val_corr",
-                        0.15,
-                    )
-                )
-                # Detect frequencies + rank MI on the shared subsample (native gather, no whole-frame copy - the
-                # periodogram detector is the dominant orth-FE CPU cost); winners replay at full n via apply_recipe.
-                X_e, _e_scores, _e_recipes = fe_decide_on_subsample(
-                    hybrid_orth_extra_basis_fe_with_recipes,
-                    X, _y_for_extra,
-                    subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                    subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                    shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                    cols=_e_cols,
-                    extra_bases=_eff_extra_bases,
-                    fourier_freqs=_fourier_freqs,
-                    fourier_powers=_fourier_powers,
-                    spline_knots=_spline_knots,
-                    top_k=_top_k_for_extra,
-                    fourier_adaptive=_fourier_adaptive,
-                    fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
-                    fourier_chirp=_fourier_chirp,
-                    fourier_chirp_min_val_corr=_fourier_chirp_mvc,
-                    max_adaptive_cols=getattr(self, "fe_univariate_fourier_adaptive_max_cols", None),
-                )
-                _e_appended = [c for c in X_e.columns if c not in _X_before_extra_cols]
-                if _e_appended:
-                    X = fe_append_columns(X, fe_extract_columns(X_e, _e_appended))
-                    # Extend hybrid_orth_features_ with the extra-basis winners
-                    # so the downstream remap / transform pipeline handles them
-                    # exactly like the polynomial winners.
-                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_e_appended)
-                    for _r in _e_recipes:
-                        _hybrid_orth_pre_recipes[_r.name] = _r
-                    # Capture ADAPTIVE-tagged Fourier feature names so the
-                    # support-finalisation block can re-add any the MRMR
-                    # screen dropped (held-out-validated, must survive).
-                    _adaptive_names = [
-                        _r.name for _r in _e_recipes
-                        if getattr(_r, "kind", None) == "orth_fourier"
-                        and bool(dict(getattr(_r, "extra", {})).get("adaptive", False))
-                        and _r.name in set(_e_appended)
-                    ]
-                    if _adaptive_names:
-                        _prev_adaptive = list(getattr(self, "_adaptive_fourier_features_", None) or [])
-                        self._adaptive_fourier_features_ = _prev_adaptive + _adaptive_names
-                    if verbose:
-                        logger.info(
-                            "MRMR.fit hybrid_orth extra-basis: appended %d " "engineered column(s) (spline/fourier): %s",
-                            len(_e_appended),
-                            _e_appended[:8],
-                        )
-            except Exception as _e_exc:
-                logger.warning(
-                    "MRMR.fit hybrid_orth extra-basis FE raised %s: %s; " "continuing without extra-basis columns.",
-                    type(_e_exc).__name__,
-                    _e_exc,
-                )
+        X = _stage_extra_orthogonal_bases(self, _eff_extra_bases, X, _y_for_extra, _top_k_for_extra, _hybrid_orth_pre_recipes, verbose)
     # 2026-06-09 — HINGE / piecewise-linear change-point basis stage.
     # Independent opt-in via ``fe_hinge_enable`` (does NOT require
     # ``fe_hybrid_orth_enable``): captures a SLOPE CHANGE at a data-dependent
@@ -563,10 +456,130 @@ def _fe_stage_cascade_early_a(
     # transform-time replay are shared infrastructure. Seed pool excludes
     # both prior hybrid-orth and prior marginal-MI-greedy engineered cols
     # (same rationale: replay must not reference engineered sources).
+    X = _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, verbose)
+
+    return X, _raw_input_cols_pre_fe, _hinge_deferred_values, _hinge_deferred_recipes
+
+
+def _stage_extra_orthogonal_bases(self, _eff_extra_bases, X, _y_for_extra, _top_k_for_extra, _hybrid_orth_pre_recipes, verbose):
+    """Run the extra orthogonal univariate bases when any are effective."""
+    if _eff_extra_bases:
+        try:
+            from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
+                hybrid_orth_extra_basis_fe_with_recipes,
+            )
+
+            _fourier_freqs = tuple(float(f) for f in getattr(self, "fe_hybrid_orth_fourier_freqs", (1.0, 2.0)))
+            _spline_knots = int(getattr(self, "fe_hybrid_orth_spline_knots", 5))
+            _fourier_powers = tuple(int(p) for p in getattr(self, "fe_hybrid_orth_fourier_powers", (1, 2)))
+            _X_before_extra_cols = list(X.columns)
+            # Build the extra basis (Fourier/spline) on RAW columns only -
+            # EXCLUDE the already-appended poly-basis columns (``a__T2`` ...).
+            # Running Fourier on an engineered column would produce a NESTED
+            # recipe (``a__T2__sin1``) whose transform-replay needs ``a__T2``
+            # materialised first; the 1-deep replay path can't order that and
+            # raises KeyError('a__T2') at transform time. Keeping the source
+            # scope to raw columns keeps every extra-basis recipe 1-deep and
+            # replayable (and honours factors_names_to_use when set).
+            _already_eng_for_extra = set(self.hybrid_orth_features_ or [])
+            if getattr(self, "factors_names_to_use", None):
+                _e_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _already_eng_for_extra]
+            else:
+                _e_cols = [c for c in X.columns if c not in _already_eng_for_extra]
+            # ADAPTIVE-FREQUENCY Fourier: default ON. The
+            # fixed grid {1, 2} misses arbitrary-period oscillations
+            # (sin(3.7*x), sin(5.3*x)); the adaptive detector sweeps a
+            # coarse z-space grid + local-refines + held-out-validates
+            # the dominant frequency per column, n-gated at >= 800 rows
+            # (smaller n false-positives a chance frequency). The
+            # emitted adaptive sin/cos recipes are tagged adaptive=True
+            # and PROTECTED past screening below (a single leg has low
+            # marginal MI - phase - so the screen would drop the
+            # held-out-validated pair otherwise).
+            _fourier_adaptive = bool(getattr(self, "fe_univariate_fourier_adaptive", True))
+            _fourier_adaptive_mvc = float(
+                getattr(
+                    self,
+                    "fe_univariate_fourier_adaptive_min_val_corr",
+                    0.15,
+                )
+            )
+            # ADAPTIVE-CHIRP: second argument-warp path. Runs
+            # the same held-out detector on u = sign(z)*z**2 so a growing-
+            # frequency chirp (sin(2*pi*f*z**2)) the linear-argument
+            # Fourier cannot express is recovered. Emits __qsin/__qcos
+            # legs tagged adaptive=True -> captured below + protected past
+            # the screen + dedup-exempt exactly like the linear legs.
+            _fourier_chirp = bool(getattr(self, "fe_univariate_fourier_chirp", True))
+            _fourier_chirp_mvc = float(
+                getattr(
+                    self,
+                    "fe_univariate_fourier_chirp_min_val_corr",
+                    0.15,
+                )
+            )
+            # Detect frequencies + rank MI on the shared subsample (native gather, no whole-frame copy - the
+            # periodogram detector is the dominant orth-FE CPU cost); winners replay at full n via apply_recipe.
+            X_e, _e_scores, _e_recipes = fe_decide_on_subsample(
+                hybrid_orth_extra_basis_fe_with_recipes,
+                X, _y_for_extra,
+                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+                shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+                cols=_e_cols,
+                extra_bases=_eff_extra_bases,
+                fourier_freqs=_fourier_freqs,
+                fourier_powers=_fourier_powers,
+                spline_knots=_spline_knots,
+                top_k=_top_k_for_extra,
+                fourier_adaptive=_fourier_adaptive,
+                fourier_adaptive_min_val_corr=_fourier_adaptive_mvc,
+                fourier_chirp=_fourier_chirp,
+                fourier_chirp_min_val_corr=_fourier_chirp_mvc,
+                max_adaptive_cols=getattr(self, "fe_univariate_fourier_adaptive_max_cols", None),
+            )
+            _e_appended = [c for c in X_e.columns if c not in _X_before_extra_cols]
+            if _e_appended:
+                X = fe_append_columns(X, fe_extract_columns(X_e, _e_appended))
+                # Extend hybrid_orth_features_ with the extra-basis winners
+                # so the downstream remap / transform pipeline handles them
+                # exactly like the polynomial winners.
+                self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_e_appended)
+                for _r in _e_recipes:
+                    _hybrid_orth_pre_recipes[_r.name] = _r
+                # Capture ADAPTIVE-tagged Fourier feature names so the
+                # support-finalisation block can re-add any the MRMR
+                # screen dropped (held-out-validated, must survive).
+                _adaptive_names = [
+                    _r.name for _r in _e_recipes
+                    if getattr(_r, "kind", None) == "orth_fourier"
+                    and bool(dict(getattr(_r, "extra", {})).get("adaptive", False))
+                    and _r.name in set(_e_appended)
+                ]
+                if _adaptive_names:
+                    _prev_adaptive = list(getattr(self, "_adaptive_fourier_features_", None) or [])
+                    self._adaptive_fourier_features_ = _prev_adaptive + _adaptive_names
+                if verbose:
+                    logger.info(
+                        "MRMR.fit hybrid_orth extra-basis: appended %d " "engineered column(s) (spline/fourier): %s",
+                        len(_e_appended),
+                        _e_appended[:8],
+                    )
+        except Exception as _e_exc:
+            logger.warning(
+                "MRMR.fit hybrid_orth extra-basis FE raised %s: %s; " "continuing without extra-basis columns.",
+                type(_e_exc).__name__,
+                _e_exc,
+            )
+    return X
+
+
+def _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, verbose):
+    """Run the greedy CMI feature-engineering family when it is enabled."""
     if _fe_family_on("fe_mi_greedy_cmi_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
-            from .._mi_greedy_cmi_fe import greedy_cmi_fe_construct_with_recipes
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import greedy_cmi_fe_construct_with_recipes
 
             _y_for_cmi = _y_np
             _y_for_cmi = encode_y_for_classif_mi(_y_for_cmi)
@@ -622,5 +635,4 @@ def _fe_stage_cascade_early_a(
                 type(_cmi_exc).__name__,
                 _cmi_exc,
             )
-
-    return X, _raw_input_cols_pre_fe, _hinge_deferred_values, _hinge_deferred_recipes
+    return X

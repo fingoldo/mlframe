@@ -4,14 +4,7 @@ import warnings
 
 import pytest
 
-from mlframe.training.configs import FairnessConfig, LinearModelConfig, MLPConfig, NGBConfig, TreeModelConfig
-
-
-@pytest.mark.parametrize("cls", [TreeModelConfig, MLPConfig, NGBConfig])
-def test_unconsumed_class_warns_on_construction(cls):
-    """Unconsumed class warns on construction."""
-    with pytest.warns(FutureWarning, match="not read by the training suite"):
-        cls()
+from mlframe.training.configs import FairnessConfig, LinearModelConfig
 
 
 def test_consumed_class_does_not_warn():

@@ -507,18 +507,7 @@ def train_recurrent_models(
                 model_clone = clone(recurrent_model)
 
                 _timeout = _compute_neural_max_time(_non_neural_train_times)
-                if _timeout is not None:
-                    _max_time_dict, _p95_r, _n = _timeout
-                    _r_inner = getattr(model_clone, "regressor", model_clone)
-                    if hasattr(_r_inner, "trainer_params"):
-                        _r_inner.trainer_params["max_time"] = _max_time_dict
-                        if verbose:
-                            logger.info(
-                                "  [NeuralTimeout] %s max_time=%dh%02dm%02ds " "(P95 of %d prior non-neural train times: %.0fs)",
-                                recurrent_model_name,
-                                _max_time_dict["hours"], _max_time_dict["minutes"], _max_time_dict["seconds"],
-                                _n, _p95_r,
-                            )
+                _apply_recurrent_timeout(_timeout, model_clone, verbose, recurrent_model_name)
 
                 # Build the eval_set tuple the wrapper actually accepts. Pre-fix this passed val_sequences=,
                 # val_features=, val_labels= as kwargs - none of which exist on RecurrentRegressorWrapper.fit
@@ -526,11 +515,7 @@ def train_recurrent_models(
                 # smoke test only survived via except-skip. The wrapper's _create_eval_dataset accepts a
                 # 2-tuple (features, labels) or 3-tuple (sequences, features, labels).
                 eval_set: tuple | None = None
-                if val_target is not None:
-                    if val_sequences is not None:
-                        eval_set = (val_sequences, val_df_pd if val_df_pd is not None else None, val_target)
-                    elif val_df_pd is not None:
-                        eval_set = (val_df_pd, val_target)
+                eval_set = _build_recurrent_eval_set(val_target, val_sequences, val_df_pd, eval_set)
 
                 # Thread per-target sample_weight from ctx so the recurrent model
                 # trains on the same weighted loss surface every other suite member
@@ -677,6 +662,13 @@ def train_recurrent_models(
                     logger.info("Successfully trained %s for %s; entry appended to ensemble member list.", recurrent_model_name, cur_target_name)
 
     # Per-target single rerun of score_ensemble with the augmented member list.
+    _rescore_ensembles_with_recurrent(ctx, targets_with_recurrent)
+
+    return models
+
+
+def _rescore_ensembles_with_recurrent(ctx, targets_with_recurrent):
+    """Rescore the per-target ensembles with the recurrent members added."""
     if ctx is not None:
         for target_type, by_name in targets_with_recurrent.items():
             for cur_target_name, target_values in by_name.items():
@@ -687,4 +679,28 @@ def train_recurrent_models(
                     target_values=target_values,
                 )
 
-    return models
+
+def _apply_recurrent_timeout(_timeout, model_clone, verbose, recurrent_model_name):
+    """Apply the training time budget to the recurrent model trainer."""
+    if _timeout is not None:
+        _max_time_dict, _p95_r, _n = _timeout
+        _r_inner = getattr(model_clone, "regressor", model_clone)
+        if hasattr(_r_inner, "trainer_params"):
+            _r_inner.trainer_params["max_time"] = _max_time_dict
+            if verbose:
+                logger.info(
+                    "  [NeuralTimeout] %s max_time=%dh%02dm%02ds " "(P95 of %d prior non-neural train times: %.0fs)",
+                    recurrent_model_name,
+                    _max_time_dict["hours"], _max_time_dict["minutes"], _max_time_dict["seconds"],
+                    _n, _p95_r,
+                )
+
+
+def _build_recurrent_eval_set(val_target, val_sequences, val_df_pd, eval_set):
+    """Build the eval set for the recurrent model."""
+    if val_target is not None:
+        if val_sequences is not None:
+            eval_set = (val_sequences, val_df_pd if val_df_pd is not None else None, val_target)
+        elif val_df_pd is not None:
+            eval_set = (val_df_pd, val_target)
+    return eval_set

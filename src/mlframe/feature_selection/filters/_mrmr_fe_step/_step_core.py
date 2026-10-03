@@ -25,21 +25,31 @@ permutation-null + cupy-host-transfer path (already GPU-routed; iter9/11b/15).
 """
 from __future__ import annotations
 
-import logging
+from typing import Any
+
 
 import numpy as np
 from joblib import delayed
-
-logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from .._mrmr_fe_step_helpers import (
     apply_interaction_information_routing,
     log_fe_summary,
     run_cluster_aggregate_emission,
 )
-from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 from ._helpers import _synergy_bootstrap_can_supply_pool
 from ._step_pair_order import order_prospective_pairs
+
+
+from ._step_core_helpers import (
+    logger,
+    _run_fe_step_impl_full_key_raw_vars,
+    _run_fe_step_impl_below_fe_rung_min,
+    _run_fe_step_impl_pure_noise_risk,
+    _run_fe_step_impl_handles_any_internal_subsample,
+    _run_fe_step_impl_key_value_prospective_pairs,
+    _run_fe_step_impl_accumulators_during_merge_loop,
+    _run_fe_step_impl_joblib_branch_already_drained,
+)
 
 
 def _should_serialize_fe_pair_check(n_prospective_pairs: int, gpu_fe_active: bool, serial_min_pairs_per_worker: int) -> bool:
@@ -455,22 +465,7 @@ def _run_fe_step_impl(
     # pairs before the expensive per-pair search, so a noise-heavy frame cannot
     # flood ``check_prospective_fe_pairs``. Selected-selected pairs are kept in
     # full. ``key`` is ``(raw_vars_pair, pair_mi)``; rank synergy pairs by pair_mi.
-    if _synergy_added_idx:
-        _synergy_budget = int(getattr(self, "fe_synergy_max_pairs", 16) or 0)
-        _synergy_keys = [k for k in prospective_pairs if (k[0][0] in _synergy_added_idx or k[0][1] in _synergy_added_idx)]
-        if _synergy_budget >= 0 and len(_synergy_keys) > _synergy_budget:
-            _keep_synergy = set(sorted(_synergy_keys, key=lambda k: k[1], reverse=True)[:_synergy_budget])
-            _dropped = 0
-            for k in _synergy_keys:
-                if k not in _keep_synergy:
-                    del prospective_pairs[k]
-                    _dropped += 1
-            if verbose and _dropped:
-                logger.info(
-                    "MRMR FE synergy bootstrap: kept top %d synergy pairs by joint MI, "
-                    "dropped %d below budget (fe_synergy_max_pairs) to bound FE search cost.",
-                    min(_synergy_budget, len(_synergy_keys)), _dropped,
-                )
+    _run_fe_step_impl_full_key_raw_vars(self, _synergy_added_idx, prospective_pairs, verbose)
 
     # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
@@ -490,24 +485,7 @@ def _run_fe_step_impl(
     # the whole pool). Measured 1.7-2.2x at keep_frac=0.5 with NO genuine signal pair
     # dropped (n=5000/p=40 canonical fixture + noise, 5 seeds). Self-gates to a no-op
     # below ``fe_rung_min_pairs`` pairs / all-zero pair_mi (byte-identical flat sweep).
-    if bool(getattr(self, "fe_rung_schedule_enable", True)) and len(prospective_pairs) >= int(getattr(self, "fe_rung_min_pairs", 6)):
-        from .._fe_rung_schedule import apply_rung_schedule
-        _rung_n_rows = int(data.shape[0]) if hasattr(data, "shape") else 0
-        prospective_pairs, _rung_info = apply_rung_schedule(
-            prospective_pairs,
-            n_rows=_rung_n_rows,
-            keep_frac=getattr(self, "fe_rung_keep_frac", None),
-            rel_floor=float(getattr(self, "fe_rung_rel_floor", 0.40)),
-            min_pairs=int(getattr(self, "fe_rung_min_pairs", 6)),
-            verbose=verbose,
-        )
-        # apply_rung_schedule's own docstring documents ``info`` as "for logging / tests" -
-        # it was computed and silently discarded here with no consumer. Surface it at verbose>=1.
-        if verbose and _rung_info.get("applied"):
-            logger.info(
-                "mrmr: rung-0 pair screen kept %d/%d prospective pairs (keep_frac=%.2f, rel_floor=%.2f).",
-                _rung_info.get("n_kept"), _rung_info.get("n_in"), _rung_info.get("keep_frac", 0.0), _rung_info.get("rel_floor", 0.0),
-            )
+    prospective_pairs = _run_fe_step_impl_below_fe_rung_min(self, prospective_pairs, data, verbose)
 
     # cols-space indices of polynom-pair engineered columns appended by the
     # ``run_polynom_pair_fe`` block below; promoted into ``selected_vars``
@@ -545,19 +523,7 @@ def _run_fe_step_impl(
         # case keep the pairs: they ARE the signal, and the synergy max-pairs cap
         # + the downstream pair-MI / engineered-MI / uplift gates already bound
         # the pure-noise risk.
-        if _synergy_added_idx and not _screening_returned_empty:
-            _filtered_for_polynom = {k: v for k, v in prospective_pairs.items() if not (k[0][0] in _synergy_added_idx or k[0][1] in _synergy_added_idx)}
-            # (see default_filtering.py:165): apply the
-            # speculative-synergy exclusion ONLY if it leaves a non-empty pool.
-            # When the selected pool is too small to form any NON-synergy pair
-            # (screening kept 0-1 features on an interaction-only target, so
-            # every surviving pair has a synergy-added operand), excluding them
-            # would withhold EVERY pair and silently disable the polynom search
-            # - yet those pairs ARE the signal. Keep them in that case; the
-            # synergy max-pairs cap + the downstream pair-MI / engineered-MI /
-            # uplift gates already bound the pure-noise risk.
-            if _filtered_for_polynom:
-                _prospective_for_polynom = _filtered_for_polynom
+        _prospective_for_polynom = _run_fe_step_impl_pure_noise_risk(_synergy_added_idx, _screening_returned_empty, prospective_pairs, _prospective_for_polynom)
         # None / 0 / negative all map to "no subsample" (use full data).
         _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
         _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0
@@ -658,10 +624,7 @@ def _run_fe_step_impl(
     # Aligned to the FE-step row count (full-n; ``check_prospective_fe_pairs``
     # handles any internal subsample). None -> ALS falls back to ``classes_y``.
     _prewarp_y_cont = None
-    if _prewarp_enable:
-        _pwc = getattr(self, "_fe_prewarp_y_continuous_", None)
-        if _pwc is not None and len(_pwc) == len(classes_y):
-            _prewarp_y_cont = _pwc
+    _prewarp_y_cont = _run_fe_step_impl_handles_any_internal_subsample(self, _prewarp_enable, classes_y, _prewarp_y_cont)
     # LINEAR-USABILITY GUARD TARGET: the leader tie-break + noise-wrap |corr|
     # guard must score against CONTINUOUS y regardless of prewarp - the binned ``classes_y``
     # fallback INVERTS linear usability on heavy-tailed targets (picks ``a/sqrt(b)`` over
@@ -846,17 +809,11 @@ def _run_fe_step_impl(
         prospective_additions = {}
         desired_nitems = max(1, len(prospective_pairs) // (n_jobs * prefetch_factor))
 
-        jobs_list = []
+        jobs_list: list[Any] = []
 
         nitems = 0
-        cur_dict = {}
-        for key, value in prospective_pairs.items():
-            nitems += 1
-            cur_dict[key] = value
-            if nitems >= desired_nitems:
-                jobs_list.append(cur_dict)
-                nitems = 0
-                cur_dict = {}
+        cur_dict: dict[Any, Any] = {}
+        cur_dict = _run_fe_step_impl_key_value_prospective_pairs(prospective_pairs, nitems, cur_dict, desired_nitems, jobs_list)
         if cur_dict:
             jobs_list.append(cur_dict)
 
@@ -959,26 +916,7 @@ def _run_fe_step_impl(
         # dropped). Fix: MERGE each chunk's reserved spec payload into the
         # accumulators DURING the merge loop, before ``update`` overwrites the key.
         from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
-        for next_dict in dicts:
-            _pw_chunk = next_dict.pop(_PREWARP_SPECS_RESULT_KEY, None)
-            if _pw_chunk:
-                _prewarp_specs.update(_pw_chunk)
-            _gm_chunk = next_dict.pop(_GATE_MED_SPECS_RESULT_KEY, None)
-            if _gm_chunk:
-                _gate_med_specs.update(_gm_chunk)
-            # REJECTION LEDGER (additive): drain each chunk's per-pair-gate drops.
-            _rej_chunk = next_dict.pop(_FE_REJECTION_RESULT_KEY, None)
-            if _rej_chunk:
-                for _rr in _rej_chunk:
-                    _record_fe_rejection(
-                        self, gate=_rr.get("gate", "engineered_mi_prevalence"),
-                        candidate=_rr.get("candidate"), operands=_rr.get("operands"),
-                        operator=_rr.get("operator"),
-                        observed=_rr.get("observed", float("nan")),
-                        threshold=_rr.get("threshold", float("nan")),
-                        reason=_rr.get("reason", ""), step=int(num_fs_steps),
-                    )
-            prospective_additions.update(next_dict)
+        _run_fe_step_impl_accumulators_during_merge_loop(self, dicts, _prewarp_specs, _gate_med_specs, num_fs_steps, prospective_additions)
 
     # Extract any reserved pre-warp / gate-med spec entry the SERIAL path may have
     # left in ``prospective_additions`` (the serial branch returns a single dict that
@@ -996,16 +934,7 @@ def _run_fe_step_impl(
     # REJECTION LEDGER (additive): drain the SERIAL path's per-pair-gate drops (the
     # joblib branch already drained per-chunk above, so this pop is then a no-op).
     _rej_from_res = prospective_additions.pop(_FE_REJECTION_RESULT_KEY, None)
-    if _rej_from_res:
-        for _rr in _rej_from_res:
-            _record_fe_rejection(
-                self, gate=_rr.get("gate", "engineered_mi_prevalence"),
-                candidate=_rr.get("candidate"), operands=_rr.get("operands"),
-                operator=_rr.get("operator"),
-                observed=_rr.get("observed", float("nan")),
-                threshold=_rr.get("threshold", float("nan")),
-                reason=_rr.get("reason", ""), step=int(num_fs_steps),
-            )
+    _run_fe_step_impl_joblib_branch_already_drained(self, _rej_from_res, num_fs_steps)
 
     # Per-candidate scoring / quantile-discretization materialise stage (carved to
     # _step_score.py to bring _step_core.py under the 1k-LOC ceiling). Threads the loop locals

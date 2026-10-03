@@ -122,78 +122,9 @@ def _paired_bootstrap_vs_runner_up(
     # log-loss (no numba kernel -- cost > value at the n<2000 gate), and
     # when numba unavailable.
     deltas = None
-    if _NUMBA_AVAILABLE:
-        try:
-            if "RMSE" in primary_metric:
-                y_arr = np.ascontiguousarray(y_ref, dtype=np.float64)
-                p1_arr = np.ascontiguousarray(p1, dtype=np.float64)
-                p2_arr = np.ascontiguousarray(p2, dtype=np.float64)
-                deltas = _numba_paired_bootstrap_rmse(
-                    y_arr, p1_arr, p2_arr, int(n_resamples), int(seed),
-                )
-                if not minimize:
-                    deltas = -deltas
-            elif "MAE" in primary_metric:
-                y_arr = np.ascontiguousarray(y_ref, dtype=np.float64)
-                p1_arr = np.ascontiguousarray(p1, dtype=np.float64)
-                p2_arr = np.ascontiguousarray(p2, dtype=np.float64)
-                deltas = _numba_paired_bootstrap_mae(
-                    y_arr, p1_arr, p2_arr, int(n_resamples), int(seed),
-                )
-                if not minimize:
-                    deltas = -deltas
-            elif "log_loss" in primary_metric and "macro" not in primary_metric:
-                # Binary-only log-loss kernel: requires 1D y in {0,1} and
-                # 1D probs in [0,1]. For 2D-prob multiclass the predictions
-                # are (N, K) softmax, not directly compatible with the
-                # binary kernel -- fall through to sklearn for those cases.
-                y_arr_1d = np.ascontiguousarray(y_ref).ravel()
-                p1_arr = np.asarray(p1)
-                p2_arr = np.asarray(p2)
-                # Detect binary 1D case: targets in {0, 1} and probs are 1D
-                if p1_arr.ndim == 1 and p2_arr.ndim == 1 and y_arr_1d.dtype.kind in "iu" and len(np.unique(y_arr_1d)) <= 2:
-                    y_int = np.ascontiguousarray(y_arr_1d, dtype=np.int64)
-                    p1_f = np.ascontiguousarray(p1_arr, dtype=np.float64)
-                    p2_f = np.ascontiguousarray(p2_arr, dtype=np.float64)
-                    deltas = _numba_paired_bootstrap_logloss_binary(
-                        y_int, p1_f, p2_f, int(n_resamples), int(seed),
-                    )
-                    if not minimize:
-                        deltas = -deltas
-        except Exception as _numba_err:
-            # Numba fast-path can fail on dtype edges / contiguity / shape mismatches.
-            # The sklearn loop fallback below is ~60x slower; an operator who doesn't
-            # see this WARN re-benches "bootstrap CI got slow" without realising the
-            # numba path silently fell back. Emit the type+message so they can grep.
-            logger.warning(
-                "dummy_baselines: numba paired-bootstrap-logloss fast-path failed "
-                "(%s: %s); falling back to sklearn loop (~60x slower). n_resamples=%d, "
-                "y_ref.shape=%s, p1.shape=%s.",
-                type(_numba_err).__name__, _numba_err, n_resamples,
-                getattr(y_ref, "shape", None),
-                getattr(p1, "shape", None),
-            )
-            deltas = None  # fall through to sklearn loop
+    deltas = _numba_paired_bootstrap_deltas(primary_metric, y_ref, p1, p2, n_resamples, seed, minimize, deltas)
 
-    if deltas is None:
-        # Vectorised numpy path for paired log_loss bootstrap. Calls
-        # _vectorized_bootstrap_logloss_samples twice with the SAME seed so
-        # the index matrices match and deltas line up element-wise. Same
-        # rng-seeded path matches the legacy sklearn-per-call loop's
-        # statistical contract (same idx every iter for both p1 and p2) but
-        # ~60x faster on log_loss metrics at n=600 / 1000 resamples. Skips
-        # to the legacy sklearn loop for RMSE / MAE (already covered by the
-        # numba kernel above) and for "log_loss_macro" (returns None per
-        # the legacy gate -- multi-output paired CI considered too cheap-
-        # value to compute).
-        if "log_loss" in primary_metric and "macro" not in primary_metric:
-            s1 = _vectorized_bootstrap_logloss_samples(y_ref, p1, int(n_resamples), int(seed))
-            s2 = _vectorized_bootstrap_logloss_samples(y_ref, p2, int(n_resamples), int(seed))
-            if s1 is not None and s2 is not None and s1.shape == s2.shape:
-                finite_mask = np.isfinite(s1) & np.isfinite(s2)
-                if finite_mask.sum() >= max(1, n_resamples // 4):
-                    raw = s1[finite_mask] - s2[finite_mask]
-                    deltas = raw if minimize else -raw
+    deltas = _numpy_logloss_bootstrap_deltas(deltas, primary_metric, y_ref, p1, n_resamples, seed, p2, minimize)
 
     if deltas is None:
         # Final fallback: sklearn metric loop. Used for log_loss_macro (skipped
@@ -274,6 +205,87 @@ def _paired_bootstrap_vs_runner_up(
         "p_strongest_beats": p_strongest_beats,
         "split_used": "val" if use_val else "test",
     }
+
+
+def _numba_paired_bootstrap_deltas(primary_metric, y_ref, p1, p2, n_resamples, seed, minimize, deltas):
+    """Compute the paired bootstrap deltas through the numba kernels when available."""
+    if _NUMBA_AVAILABLE:
+        try:
+            if "RMSE" in primary_metric:
+                y_arr = np.ascontiguousarray(y_ref, dtype=np.float64)
+                p1_arr = np.ascontiguousarray(p1, dtype=np.float64)
+                p2_arr = np.ascontiguousarray(p2, dtype=np.float64)
+                deltas = _numba_paired_bootstrap_rmse(
+                    y_arr, p1_arr, p2_arr, int(n_resamples), int(seed),
+                )
+                if not minimize:
+                    deltas = -deltas
+            elif "MAE" in primary_metric:
+                y_arr = np.ascontiguousarray(y_ref, dtype=np.float64)
+                p1_arr = np.ascontiguousarray(p1, dtype=np.float64)
+                p2_arr = np.ascontiguousarray(p2, dtype=np.float64)
+                deltas = _numba_paired_bootstrap_mae(
+                    y_arr, p1_arr, p2_arr, int(n_resamples), int(seed),
+                )
+                if not minimize:
+                    deltas = -deltas
+            elif "log_loss" in primary_metric and "macro" not in primary_metric:
+                # Binary-only log-loss kernel: requires 1D y in {0,1} and
+                # 1D probs in [0,1]. For 2D-prob multiclass the predictions
+                # are (N, K) softmax, not directly compatible with the
+                # binary kernel -- fall through to sklearn for those cases.
+                y_arr_1d = np.ascontiguousarray(y_ref).ravel()
+                p1_arr = np.asarray(p1)
+                p2_arr = np.asarray(p2)
+                # Detect binary 1D case: targets in {0, 1} and probs are 1D
+                if p1_arr.ndim == 1 and p2_arr.ndim == 1 and y_arr_1d.dtype.kind in "iu" and len(np.unique(y_arr_1d)) <= 2:
+                    y_int = np.ascontiguousarray(y_arr_1d, dtype=np.int64)
+                    p1_f = np.ascontiguousarray(p1_arr, dtype=np.float64)
+                    p2_f = np.ascontiguousarray(p2_arr, dtype=np.float64)
+                    deltas = _numba_paired_bootstrap_logloss_binary(
+                        y_int, p1_f, p2_f, int(n_resamples), int(seed),
+                    )
+                    if not minimize:
+                        deltas = -deltas
+        except Exception as _numba_err:
+            # Numba fast-path can fail on dtype edges / contiguity / shape mismatches.
+            # The sklearn loop fallback below is ~60x slower; an operator who doesn't
+            # see this WARN re-benches "bootstrap CI got slow" without realising the
+            # numba path silently fell back. Emit the type+message so they can grep.
+            logger.warning(
+                "dummy_baselines: numba paired-bootstrap-logloss fast-path failed "
+                "(%s: %s); falling back to sklearn loop (~60x slower). n_resamples=%d, "
+                "y_ref.shape=%s, p1.shape=%s.",
+                type(_numba_err).__name__, _numba_err, n_resamples,
+                getattr(y_ref, "shape", None),
+                getattr(p1, "shape", None),
+            )
+            deltas = None  # fall through to sklearn loop
+    return deltas
+
+
+def _numpy_logloss_bootstrap_deltas(deltas, primary_metric, y_ref, p1, n_resamples, seed, p2, minimize):
+    """Compute the paired log-loss bootstrap deltas through the vectorised numpy path."""
+    if deltas is None:
+        # Vectorised numpy path for paired log_loss bootstrap. Calls
+        # _vectorized_bootstrap_logloss_samples twice with the SAME seed so
+        # the index matrices match and deltas line up element-wise. Same
+        # rng-seeded path matches the legacy sklearn-per-call loop's
+        # statistical contract (same idx every iter for both p1 and p2) but
+        # ~60x faster on log_loss metrics at n=600 / 1000 resamples. Skips
+        # to the legacy sklearn loop for RMSE / MAE (already covered by the
+        # numba kernel above) and for "log_loss_macro" (returns None per
+        # the legacy gate -- multi-output paired CI considered too cheap-
+        # value to compute).
+        if "log_loss" in primary_metric and "macro" not in primary_metric:
+            s1 = _vectorized_bootstrap_logloss_samples(y_ref, p1, int(n_resamples), int(seed))
+            s2 = _vectorized_bootstrap_logloss_samples(y_ref, p2, int(n_resamples), int(seed))
+            if s1 is not None and s2 is not None and s1.shape == s2.shape:
+                finite_mask = np.isfinite(s1) & np.isfinite(s2)
+                if finite_mask.sum() >= max(1, n_resamples // 4):
+                    raw = s1[finite_mask] - s2[finite_mask]
+                    deltas = raw if minimize else -raw
+    return deltas
 
 
 def _vectorized_bootstrap_logloss_samples(

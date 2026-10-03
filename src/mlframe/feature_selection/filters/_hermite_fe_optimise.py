@@ -19,6 +19,11 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
 
+from ._hermite_fe_optimise_helpers import (
+    _compact_finite_candidate_rows,
+)
+
+
 def detect_pair_symmetry(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray, *, discrete_target: bool = True, mi_estimator: str = "plugin", plugin_n_bins: int = 20
 ) -> float:
@@ -360,17 +365,6 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
             best_raws[p] = raw
             best_idxs[p] = k
     return best_scores, best_raws, best_idxs
-
-
-def _compact_finite_candidate_rows(P, KBF, finite, nc, X_batch, col_meta):
-    """Move the finite candidate rows of X_batch to the front, recording each one's (pair, basis-function) index; returns the new row count."""
-    for r_row in range(P * KBF):
-        if finite[r_row]:
-            if r_row != nc:
-                X_batch[nc] = X_batch[r_row]
-            col_meta.append((r_row // KBF, r_row % KBF))
-            nc += 1
-    return nc
 
 
 def _run_cma_search_batch(*, ca_size, cb_size, coef_range, n_trials, seed,

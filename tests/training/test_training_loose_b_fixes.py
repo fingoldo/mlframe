@@ -454,6 +454,10 @@ def test_f10_metrics_import_failure_sets_per_metric_skip_not_whole_block_status(
     """F10: metrics import failure sets per metric skip not whole block status."""
     from mlframe.training import honest_diagnostics
 
+    # import the evaluation package (it imports metrics.core itself) BEFORE the hook is installed, so the simulated failure
+    # hits only the explicit metrics.core import inside _bootstrap_block, whatever test ran before this one
+    import mlframe.evaluation  # noqa: F401
+
     rng = np.random.default_rng(0)
     n = 500
     y_true = rng.integers(0, 2, size=n)

@@ -387,7 +387,7 @@ class PreprocessingBackendConfig(InertFieldsWarningMixin, BaseConfig):
         and string columns are imputed by the categorical encoding step,
         not here. Pass None to skip the imputer entirely.
     categorical_encoding : str, optional
-        Encoding for categorical features: "ordinal", "onehot", "target" (default: "ordinal").
+        Encoding for categorical features: "ordinal", "onehot", or "none" / None for no encoding step (default: "ordinal").
         Pass None to skip categorical encoding.
     skip_categorical_encoding : bool
         If True, skip categorical encoding even when ``categorical_encoding`` is set.
@@ -409,7 +409,7 @@ class PreprocessingBackendConfig(InertFieldsWarningMixin, BaseConfig):
     fallback_to_sklearn: bool = True
     scaler_name: Optional[str] = "standard"
     imputer_strategy: Optional[str] = "mean"
-    categorical_encoding: Optional[str] = "ordinal"
+    categorical_encoding: Optional[Literal["ordinal", "onehot", "none"]] = "ordinal"
     skip_categorical_encoding: bool = False
     robust_q_low: float = 0.01
     robust_q_high: float = 0.99

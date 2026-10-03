@@ -338,7 +338,6 @@ def _tiny_cv_rmse_raw_y(
     the (bin_var-independent) raw-y model per base. Bit-identical to calling
     this function per base with ``bin_var=`` set.
     """
-    from sklearn.model_selection import GroupKFold, TimeSeriesSplit
     n = len(y_train)
     if n < cv_folds * 10:
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
@@ -354,42 +353,8 @@ def _tiny_cv_rmse_raw_y(
         return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
 
     groups_clean = None
-    if groups is not None:
-        _g = np.asarray(groups)
-        if _g.shape[0] == len(y_train):
-            groups_clean = _g[finite_mask] if finite_mask is not None else _g
-            _n_groups = int(np.unique(groups_clean).size)
-            if _n_groups < cv_folds:
-                # Silent GroupKFold->KFold downgrade -> WARN (see y-scale twin).
-                logger.warning(
-                    "_tiny_cv_rmse_raw_y: groups supplied but only %d distinct "
-                    "group(s) survive the finite mask (< cv_folds=%d); falling "
-                    "back to %s split. Group separation is NOT enforced for the "
-                    "raw-y baseline -- reduce cv_folds or supply more groups.",
-                    _n_groups,
-                    cv_folds,
-                    "TimeSeriesSplit" if (cv_splitter is None and time_aware) else "shuffled KFold",
-                )
-                groups_clean = None
-    if cv_splitter is not None:
-        kf = cv_splitter
-        _precomputed_splits = None
-    elif groups_clean is not None:
-        if time_aware:
-            # Groups win over time_aware; temporal order dropped. WARN once.
-            logger.warning(
-                "_tiny_cv_rmse_raw_y: both groups and time_aware requested; "
-                "GroupKFold takes precedence and temporal order is NOT preserved. "
-                "Pass a grouped forward-chaining cv_splitter to honour both.",
-            )
-        kf = GroupKFold(n_splits=cv_folds)
-        _precomputed_splits = list(kf.split(x_clean, groups=groups_clean))
-    elif time_aware:
-        kf = TimeSeriesSplit(n_splits=cv_folds)
-        _precomputed_splits = None
-    else:
-        kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]
-        _precomputed_splits = None
+    groups_clean = _resolve_tiny_cv_groups(groups, y_train, finite_mask, cv_folds, cv_splitter, time_aware, groups_clean)
+    _precomputed_splits, kf = _resolve_tiny_cv_splitter(cv_splitter, groups_clean, time_aware, cv_folds, x_clean, random_state)
 
     # bin_var aligns to the masked y_clean / x_clean. If caller
     # passed it, mask it the same way.
@@ -521,6 +486,54 @@ def _tiny_cv_rmse_raw_y(
     if return_fold_preds:
         return mean_rmse, per_bin_mean, fold_preds
     return mean_rmse, per_bin_mean
+
+
+def _resolve_tiny_cv_groups(groups, y_train, finite_mask, cv_folds, cv_splitter, time_aware, groups_clean):
+    """Resolve the group labels of the tiny screen."""
+    if groups is not None:
+        _g = np.asarray(groups)
+        if _g.shape[0] == len(y_train):
+            groups_clean = _g[finite_mask] if finite_mask is not None else _g
+            _n_groups = int(np.unique(groups_clean).size)
+            if _n_groups < cv_folds:
+                # Silent GroupKFold->KFold downgrade -> WARN (see y-scale twin).
+                logger.warning(
+                    "_tiny_cv_rmse_raw_y: groups supplied but only %d distinct "
+                    "group(s) survive the finite mask (< cv_folds=%d); falling "
+                    "back to %s split. Group separation is NOT enforced for the "
+                    "raw-y baseline -- reduce cv_folds or supply more groups.",
+                    _n_groups,
+                    cv_folds,
+                    "TimeSeriesSplit" if (cv_splitter is None and time_aware) else "shuffled KFold",
+                )
+                groups_clean = None
+    return groups_clean
+
+
+def _resolve_tiny_cv_splitter(cv_splitter, groups_clean, time_aware, cv_folds, x_clean, random_state):
+    """Resolve the CV splitter of the tiny screen."""
+    from sklearn.model_selection import GroupKFold, TimeSeriesSplit
+
+    if cv_splitter is not None:
+        kf = cv_splitter
+        _precomputed_splits = None
+    elif groups_clean is not None:
+        if time_aware:
+            # Groups win over time_aware; temporal order dropped. WARN once.
+            logger.warning(
+                "_tiny_cv_rmse_raw_y: both groups and time_aware requested; "
+                "GroupKFold takes precedence and temporal order is NOT preserved. "
+                "Pass a grouped forward-chaining cv_splitter to honour both.",
+            )
+        kf = GroupKFold(n_splits=cv_folds)
+        _precomputed_splits = list(kf.split(x_clean, groups=groups_clean))
+    elif time_aware:
+        kf = TimeSeriesSplit(n_splits=cv_folds)
+        _precomputed_splits = None
+    else:
+        kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]
+        _precomputed_splits = None
+    return _precomputed_splits, kf
 
 
 def _seed_median_lower_bound(observed_finite: list[float], n_remaining: int) -> float:

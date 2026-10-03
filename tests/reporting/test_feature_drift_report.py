@@ -113,7 +113,7 @@ class TestFeatureDriftSensor:
         """When weighted_drift_score crosses WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD
         (3.0) AND the bench has populated ROBUST_MLP_OVERRIDES_UNDER_DRIFT, the
         report must surface that override dict so the per-target model-selection
-        can merge it into MLPConfig.
+        can merge it into mlp_kwargs.
 
         Skip-neural is too blunt (loses stacking diversity). The empirical
         approach: change the MLP HPT under drift, don't drop the model."""

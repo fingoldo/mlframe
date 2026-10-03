@@ -277,20 +277,7 @@ def generate_modelling_data(
     # linearly from 0.5x (start) to 1.5x (end), so the correlation strength is not stationary.
     time_drift = 1.0 + (np.linspace(0.0, 1.0, n_samples, dtype=np.float32) - 0.5) if timeseries else None
 
-    if n_singly_correlated > 0:
-        # dependent on a single (randomly chosen) predictor. cont.
-
-        for j in tqdmu(range(n_singly_correlated), desc=rpad("singly_correlated")):
-            dist_name, X[:, idx + j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
-
-            k = generator.choice(range(n_informative))
-            X[:, idx + j] *= X[:, k]
-            if time_drift is not None:
-                X[:, idx + j] *= time_drift
-            if feature_noise:
-                X[:, idx + j] += generator.normal(0.0, feature_noise * (np.std(X[:, idx + j]) or 1.0), size=n_samples).astype(np.float32)
-
-            fnames.append(f"sc_{dist_name}_{k}")
+    _add_singly_correlated_features(n_singly_correlated, n_samples, shift, scale, include_distributions, generator, X, idx, n_informative, time_drift, feature_noise, fnames)
     idx += n_singly_correlated
 
     if n_mutually_correlated > 0:
@@ -322,35 +309,11 @@ def generate_modelling_data(
     # Create unrelated features
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    if n_unrelated_single > 0:
-        # features not dependent on any true predictor. cat or cont.
-        for j in tqdmu(range(n_unrelated_single), desc=rpad("unrelated_single")):
-            dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
-            if max_cardinality is not None:
-                # Discretize into a random cardinality within [min_cardinality, max_cardinality] so callers
-                # exercising cat-feature-cardinality-sensitive code paths (e.g. target/frequency encoders)
-                # get controllable categorical arity instead of the raw continuous/discrete draw's natural cardinality.
-                n_bins = generator.randint(min_cardinality, max_cardinality + 1)
-                X[:, idx + j] = pd.qcut(X[:, idx + j], q=n_bins, labels=False, duplicates="drop").astype(np.float32)
-            fnames.append(f"unr_{dist_name}")
+    _add_unrelated_single_features(n_unrelated_single, n_samples, shift, scale, include_distributions, generator, X, idx, max_cardinality, min_cardinality, fnames)
 
     idx += n_unrelated_single
 
-    if n_unrelated_intercorrelated > 0:
-        # features not dependent on any true predictor, but interdependent on themselves. cat or cont.
-        for j in tqdmu(range(n_unrelated_intercorrelated), desc=rpad("unrelated_intercorrelated")):
-            combs = list(combinations(range(n_unrelated_single), generator.choice(range(2, n_unrelated_single + 1))))
-            current_combination = combs[generator.choice(len(combs))]
-
-            dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
-
-            for k in current_combination:
-                # `idx - n_unrelated_single + k` reaches back into the block of
-                # unrelated-single features created in the previous section so
-                # the new intercorrelated feature depends on a combination of them.
-                X[:, idx + j] *= X[:, idx - n_unrelated_single + k]
-
-            fnames.append(f"unrintrc_{dist_name}_{'-'.join(map(str,current_combination))}")
+    _add_unrelated_intercorrelated_features(n_unrelated_intercorrelated, n_unrelated_single, generator, n_samples, shift, scale, include_distributions, X, idx, fnames)
 
     idx += n_unrelated_intercorrelated
 
@@ -387,3 +350,55 @@ def generate_modelling_data(
     if return_dataframe:
         X = pd.DataFrame(data=X, columns=fnames)
     return X, y, fnames
+
+
+def _add_singly_correlated_features(n_singly_correlated, n_samples, shift, scale, include_distributions, generator, X, idx, n_informative, time_drift, feature_noise, fnames):
+    """Add the features that depend on one randomly chosen predictor."""
+    if n_singly_correlated > 0:
+        # dependent on a single (randomly chosen) predictor. cont.
+
+        for j in tqdmu(range(n_singly_correlated), desc=rpad("singly_correlated")):
+            dist_name, X[:, idx + j] = sample_random_variable(kind="cont", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
+
+            k = generator.choice(range(n_informative))
+            X[:, idx + j] *= X[:, k]
+            if time_drift is not None:
+                X[:, idx + j] *= time_drift
+            if feature_noise:
+                X[:, idx + j] += generator.normal(0.0, feature_noise * (np.std(X[:, idx + j]) or 1.0), size=n_samples).astype(np.float32)
+
+            fnames.append(f"sc_{dist_name}_{k}")
+
+
+def _add_unrelated_single_features(n_unrelated_single, n_samples, shift, scale, include_distributions, generator, X, idx, max_cardinality, min_cardinality, fnames):
+    """Add the features that depend on no true predictor."""
+    if n_unrelated_single > 0:
+        # features not dependent on any true predictor. cat or cont.
+        for j in tqdmu(range(n_unrelated_single), desc=rpad("unrelated_single")):
+            dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
+            if max_cardinality is not None:
+                # Discretize into a random cardinality within [min_cardinality, max_cardinality] so callers
+                # exercising cat-feature-cardinality-sensitive code paths (e.g. target/frequency encoders)
+                # get controllable categorical arity instead of the raw continuous/discrete draw's natural cardinality.
+                n_bins = generator.randint(min_cardinality, max_cardinality + 1)
+                X[:, idx + j] = pd.qcut(X[:, idx + j], q=n_bins, labels=False, duplicates="drop").astype(np.float32)
+            fnames.append(f"unr_{dist_name}")
+
+
+def _add_unrelated_intercorrelated_features(n_unrelated_intercorrelated, n_unrelated_single, generator, n_samples, shift, scale, include_distributions, X, idx, fnames):
+    """Add the features that depend on no true predictor but on each other."""
+    if n_unrelated_intercorrelated > 0:
+        # features not dependent on any true predictor, but interdependent on themselves. cat or cont.
+        for j in tqdmu(range(n_unrelated_intercorrelated), desc=rpad("unrelated_intercorrelated")):
+            combs = list(combinations(range(n_unrelated_single), generator.choice(range(2, n_unrelated_single + 1))))
+            current_combination = combs[generator.choice(len(combs))]
+
+            dist_name, X[:, idx + j] = sample_random_variable(kind="mixed", size=n_samples, shift=shift, scale=scale, include=include_distributions, random_state=generator)
+
+            for k in current_combination:
+                # `idx - n_unrelated_single + k` reaches back into the block of
+                # unrelated-single features created in the previous section so
+                # the new intercorrelated feature depends on a combination of them.
+                X[:, idx + j] *= X[:, idx - n_unrelated_single + k]
+
+            fnames.append(f"unrintrc_{dist_name}_{'-'.join(map(str,current_combination))}")

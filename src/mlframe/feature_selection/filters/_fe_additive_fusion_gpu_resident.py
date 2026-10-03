@@ -365,44 +365,7 @@ def propose_additive_fusions_gpu(
             # on the device. The keep-probe (``raw_retains_signal_given_genuine_children``) is a CPU-interface
             # helper (GPU-routed internally), so its raw bin codes are pulled back ONCE - a bounded probe-input
             # D2H, not a binning D2H. ``fvb`` (the fused codes) is the genuine child.
-            from ._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children
-            for _rn in (ha["tokens"] | hb["tokens"]):
-                if _rn in subsumed_raws:
-                    continue
-                _rv = None
-                try:
-                    if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
-                        _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
-                except Exception as e:
-                    logger.debug("reading raw column %r failed: %s", _rn, e)
-                    _rv = None
-                if _rv is None or _rv.shape[0] != n_rows:
-                    continue
-                _cached = _raw_bin_cache.get(_rn)
-                if _cached is not None:
-                    _rvb_dev, _rvb = _cached
-                else:
-                    # Subsample the raw operand onto the SAME scoring rows as the fused child codes (``fvb`` is
-                    # the subsampled fused sum) so the keep-probe's raw / child / y all share the strided sample
-                    # - the subsumption verdict is a wide-margin decision, selection-equivalent to the full-n probe.
-                    _rv_sc = _rv[::_stride] if _stride > 1 else _rv
-                    # The same raw token column recurs across accepted fusions -> content-keyed resident cache so it
-                    # uploads once (H2D audit: 4x re-uploads). Read-only (binned below) -> selection-equivalent.
-                    from ._fe_resident_operands import resident_operand
-
-                    _rv_dev = resident_operand(np.nan_to_num(_rv_sc, nan=0.0, posinf=0.0, neginf=0.0), ("addfusion_rawprobe", _rn))  # 1 col, cached once
-                    _rvb_dev_full, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)  # resident bin codes
-                    _rvb_dev = _rvb_dev_full[0]
-                    _rvb = cp.asnumpy(_rvb_dev)  # probe-input D2H
-                    _raw_bin_cache[_rn] = (_rvb_dev, _rvb)
-                # Hand the probe the RESIDENT raw candidate + fused-child codes so its conditioning support is
-                # built DEVICE-BORN (no cmi_z / order/z_rank H2D); the host copies stay the fallback.
-                _retains = raw_retains_signal_given_genuine_children(
-                    raw_bin=_rvb, y_bin=y_dense_sc, genuine_child_bins=[fvb], seed=seed,
-                    raw_bin_dev=_rvb_dev, genuine_child_bins_dev=[fvb_dev],
-                )
-                if not _retains:
-                    subsumed_raws.add(_rn)
+            _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_cache, _stride, qs, y_dense_sc, fvb, seed, fvb_dev)
             if verbose:
                 logger.info(
                     "MRMR FE additive-fusion [GPU-resident]: fused %r (mi=%.4f) + %r (mi=%.4f) -> %r "
@@ -412,3 +375,48 @@ def propose_additive_fusions_gpu(
             break  # ha consumed; move to the next un-used half
 
     return admitted, subsumed, subsumed_raws
+
+
+def _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_cache, _stride, qs, y_dense_sc, fvb, seed, fvb_dev):
+    """Check each candidate fusion operand against the raw columns the selection already subsumes."""
+    from mlframe.feature_selection.filters._usability_njit_pool import _gpu_quantile_bin_codes
+    import cupy as cp
+    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children
+
+    for _rn in ha["tokens"] | hb["tokens"]:
+        if _rn in subsumed_raws:
+            continue
+        _rv = None
+        try:
+            if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
+                _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
+        except Exception as e:
+            logger.debug("reading raw column %r failed: %s", _rn, e)
+            _rv = None
+        if _rv is None or _rv.shape[0] != n_rows:
+            continue
+        _cached = _raw_bin_cache.get(_rn)
+        if _cached is not None:
+            _rvb_dev, _rvb = _cached
+        else:
+            # Subsample the raw operand onto the SAME scoring rows as the fused child codes (``fvb`` is
+            # the subsampled fused sum) so the keep-probe's raw / child / y all share the strided sample
+            # - the subsumption verdict is a wide-margin decision, selection-equivalent to the full-n probe.
+            _rv_sc = _rv[::_stride] if _stride > 1 else _rv
+            # The same raw token column recurs across accepted fusions -> content-keyed resident cache so it
+            # uploads once (H2D audit: 4x re-uploads). Read-only (binned below) -> selection-equivalent.
+            from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
+
+            _rv_dev = resident_operand(np.nan_to_num(_rv_sc, nan=0.0, posinf=0.0, neginf=0.0), ("addfusion_rawprobe", _rn))  # 1 col, cached once
+            _rvb_dev_full, _kxr = _gpu_quantile_bin_codes(_rv_dev[None, :], qs)  # resident bin codes
+            _rvb_dev = _rvb_dev_full[0]
+            _rvb = cp.asnumpy(_rvb_dev)  # probe-input D2H
+            _raw_bin_cache[_rn] = (_rvb_dev, _rvb)
+        # Hand the probe the RESIDENT raw candidate + fused-child codes so its conditioning support is
+        # built DEVICE-BORN (no cmi_z / order/z_rank H2D); the host copies stay the fallback.
+        _retains = raw_retains_signal_given_genuine_children(
+            raw_bin=_rvb, y_bin=y_dense_sc, genuine_child_bins=[fvb], seed=seed,
+            raw_bin_dev=_rvb_dev, genuine_child_bins_dev=[fvb_dev],
+        )
+        if not _retains:
+            subsumed_raws.add(_rn)

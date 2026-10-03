@@ -264,27 +264,7 @@ def generate_conditional_basis_routing_features(
             x_raw = np.where(finite_mask, x_raw, fill)
         # Pre-transform cache for this column.
         pt_cache: dict[str, np.ndarray] = {}
-        for pt in transform_variants:
-            try:
-                xt = apply_pre_transform(x_raw, pt)
-            except Exception as exc:
-                log_throttle(
-                    logger, "routing_fe_pre_transform_raised", logging.WARNING,
-                    "generate_conditional_basis_routing_features: pre_transform=%r "
-                    "on col=%r raised %r; skipping.", pt, col, exc,
-                )
-                continue
-            # Guard non-finite outputs (e.g. log(0)).
-            finite2 = np.isfinite(xt)
-            if not finite2.all():
-                fill2 = float(np.nanmean(xt[finite2])) if finite2.any() else 0.0
-                xt = np.where(finite2, xt, fill2)
-            if float(np.std(xt)) <= 1e-12:
-                # Constant pre-transform output - every basis_d(z) is zero
-                # variance; skip the entire pre_transform * basis * degree
-                # sub-tree for this column.
-                continue
-            pt_cache[pt] = xt
+        _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache)
         for pt, xt in pt_cache.items():
             for basis_name in candidate_bases:
                 for d in degrees:
@@ -410,18 +390,7 @@ def generate_conditional_basis_routing_features(
         eng_noise_floor = 0.0
     abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
     survivors: list[dict] = []
-    for src, info in best_per_source.items():
-        baseline = float(raw_mi_map.get(src, 0.0))
-        emi = float(info["engineered_mi"])
-        uplift = relative_uplift(emi, baseline)
-        if uplift < min_uplift_f:
-            continue
-        if emi < abs_floor:
-            continue
-        info_copy = dict(info)
-        info_copy["uplift"] = float(uplift)
-        info_copy["baseline_mi"] = float(baseline)
-        survivors.append(info_copy)
+    _routing_gain_over_raw_mi(best_per_source, raw_mi_map, min_uplift_f, abs_floor, survivors)
     survivors.sort(key=lambda d: d["uplift"], reverse=True)
     winners = survivors[: int(top_k)]
 
@@ -441,6 +410,47 @@ def generate_conditional_basis_routing_features(
             "baseline_mi": float(info["baseline_mi"]),
         }
     return pd.DataFrame(out_cols, index=X.index), meta
+
+
+def _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache):
+    """Evaluate the pre-transform variants of one source column."""
+    for pt in transform_variants:
+        try:
+            xt = apply_pre_transform(x_raw, pt)
+        except Exception as exc:
+            log_throttle(
+                logger, "routing_fe_pre_transform_raised", logging.WARNING,
+                "generate_conditional_basis_routing_features: pre_transform=%r "
+                "on col=%r raised %r; skipping.", pt, col, exc,
+            )
+            continue
+        # Guard non-finite outputs (e.g. log(0)).
+        finite2 = np.isfinite(xt)
+        if not finite2.all():
+            fill2 = float(np.nanmean(xt[finite2])) if finite2.any() else 0.0
+            xt = np.where(finite2, xt, fill2)
+        if float(np.std(xt)) <= 1e-12:
+            # Constant pre-transform output - every basis_d(z) is zero
+            # variance; skip the entire pre_transform * basis * degree
+            # sub-tree for this column.
+            continue
+        pt_cache[pt] = xt
+
+
+def _routing_gain_over_raw_mi(best_per_source, raw_mi_map, min_uplift_f, abs_floor, survivors):
+    """Compare each source engineered MI with its raw MI baseline."""
+    for src, info in best_per_source.items():
+        baseline = float(raw_mi_map.get(src, 0.0))
+        emi = float(info["engineered_mi"])
+        uplift = relative_uplift(emi, baseline)
+        if uplift < min_uplift_f:
+            continue
+        if emi < abs_floor:
+            continue
+        info_copy = dict(info)
+        info_copy["uplift"] = float(uplift)
+        info_copy["baseline_mi"] = float(baseline)
+        survivors.append(info_copy)
 
 
 def hybrid_orth_mi_conditional_routing_fe(

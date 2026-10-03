@@ -48,7 +48,6 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
     """Render a scatter panel: downsamples above ``_SCATTER_MAX_POINTS`` (extremes-preserving), converts mpl marker-area sizing to plotly pixel-diameter, switches to WebGL above ``_SCATTER_WEBGL_THRESHOLD`` points (unless error bars are present, which Scattergl doesn't support), and layers optional highlight points, trend line, uncertainty band, overlay line, and a perfect-fit y=x diagonal on top."""
     # Lazy, function-local, matching ``_plotly_network``: the parent module imports this one at its own bottom,
     # so a module-level ``from .plotly import ...`` would be a hard cycle. By call time the parent is loaded.
-    from .matplotlib import _EDGE_LABEL_FLIP_FRACTION  # the flip fraction is shared so both backends turn a label at the same place
     from .plotly import _SCATTER_WEBGL_THRESHOLD, _err_to_plotly, _go, _warn_scatter_downsample
 
     go = _go()
@@ -80,20 +79,7 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         marker["size"] = np.sqrt(np.maximum(np.asarray(size_arr, dtype=float), 0.0)) * 1.33
     else:
         marker["size"] = float(math.sqrt(max(float(p.point_size), 0.0)) * 1.33)
-    if color_arr is not None:
-        marker["color"] = np.asarray(color_arr)
-        marker["colorscale"] = _mpl_to_plotly_cmap(p.colormap)
-        # A diverging map autoscaled to the data puts its neutral midpoint at the middle of the observed
-        # range instead of at zero, which silently changes what every colour means.
-        if p.color_vmin is not None:
-            marker["cmin"] = p.color_vmin
-        if p.color_vmax is not None:
-            marker["cmax"] = p.color_vmax
-        marker["showscale"] = bool(p.colorbar_label)
-        if p.colorbar_label:
-            marker["colorbar"] = _colorbar_dict(p)
-    elif p.point_color is not None:
-        marker["color"] = p.point_color
+    _scatter_color_arr_none(color_arr, marker, p)
 
     # inline_labels are (x, y, text) triples placed AT THOSE COORDINATES on matplotlib. Using them as
     # per-point marker text put them on the wrong points, and the len == n gate silently dropped a shorter
@@ -109,68 +95,7 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         """Label font, taking the builder's per-label colour when it supplied one (a label sitting on its own marker)."""
         return dict(size=8, color=_lab_colors[i]) if i < len(_lab_colors) else dict(size=8)
 
-    if _labels:
-        # Both of the matplotlib twin's protections, which this branch had neither of.
-        #
-        # A CONTRAST HALO. ``auto_text_color`` deliberately picks white for a label sitting on a dark bubble;
-        # with no halo and a fixed upward shift, that white text lands on the white panel and disappears
-        # entirely -- the exact failure auto_text_color exists to prevent, defeated by the missing outline.
-        # plotly has no text stroke, so the halo is a tight opaque box in the opposite tone: it keeps the
-        # label legible wherever it lands without hiding the marker underneath.
-        #
-        # EDGE FLIPPING. A fixed anchor puts the text on one side of its point always, so a point in the
-        # busy bottom-left of a reliability diagram had its label clipped by the axis. The anchors flip
-        # against the panel's own range, using the same fraction matplotlib uses.
-        _xs = [float(lx) for lx, _, _ in _labels]
-        _ys = [float(ly) for _, ly, _ in _labels]
-        _xlo, _xhi = min(_xs), max(_xs)
-        _ylo, _yhi = min(_ys), max(_ys)
-        # A zero span is a collapsed axis, not a missing measurement; 1.0 keeps the ratio finite so every
-        # label lands on the "not near an edge" side instead of dividing by zero. Written as an explicit
-        # comparison rather than ``span or 1.0`` so it reads as the degenerate-axis guard it is.
-        _raw_xspan, _raw_yspan = _xhi - _xlo, _yhi - _ylo
-        _xspan = 1.0 if _raw_xspan == 0 else _raw_xspan
-        _yspan = 1.0 if _raw_yspan == 0 else _raw_yspan
-
-        def _anchors(lx: float, ly: float) -> dict:
-            """Anchor a label away from whichever panel edge it sits against."""
-            near_left = (float(lx) - _xlo) / _xspan < _EDGE_LABEL_FLIP_FRACTION
-            near_top = (_yhi - float(ly)) / _yspan < _EDGE_LABEL_FLIP_FRACTION
-            return {
-                "xanchor": "left" if near_left else "right",
-                "yanchor": "top" if near_top else "bottom",
-                "yshift": -8 if near_top else 8,
-            }
-
-        def _halo(idx: int) -> dict:
-            """Opaque backing in the tone opposite the text, standing in for matplotlib's path-effect stroke."""
-            colour = _lab_colors[idx] if idx < len(_lab_colors) else "black"
-            backing = "rgba(0,0,0,0.55)" if str(colour).lower() == "white" else "rgba(255,255,255,0.75)"
-            return {"bgcolor": backing, "borderpad": 1}
-
-        # MUTUAL DE-COLLISION, the third protection neither backend had. Anchor flipping keeps a label off
-        # the axis; it does nothing about two labels landing on each other, which is what happens when the
-        # low-probability bins of a reliability diagram crowd into one corner. Keep the ones whose boxes
-        # clear each other -- a point that loses its label keeps its marker.
-        _keep = non_colliding_label_indices(
-            _xs, _ys, [str(t) for _, _, t in _labels], fontsize=8,
-            x_span=_xspan, y_span=_yspan,
-            width_in=_figure_extent_in(fig.layout.width, _FALLBACK_FIGURE_W_PX), height_in=_figure_extent_in(fig.layout.height, _FALLBACK_FIGURE_H_PX),
-        )
-        if _keep:
-            _first = _keep[0]
-            _lx, _ly, _ltext = _labels[_first]
-            fig.add_annotation(x=_lx, y=_ly, text=str(_ltext), showarrow=False, font=_lab_font(_first), row=row, col=col, **_anchors(_lx, _ly), **_halo(_first))
-            if len(_keep) > 1:
-                _ref = fig.layout.annotations[-1]
-                _rest = tuple(
-                    go.layout.Annotation(
-                        x=_labels[_i][0], y=_labels[_i][1], text=str(_labels[_i][2]), showarrow=False, font=_lab_font(_i),
-                        xref=_ref.xref, yref=_ref.yref, **_anchors(_labels[_i][0], _labels[_i][1]), **_halo(_i),
-                    )
-                    for _i in _keep[1:]
-                )
-                fig.layout.annotations = fig.layout.annotations + _rest
+    _scatter_labels(_labels, _lab_colors, fig, _lab_font, row, col, go)
 
     # Per-point error bars (e.g. Wilson CIs on reliability bins). CI panels carry n=bin-count points (no
     # downsample reorder), so the error arrays align with x/y as-passed; only attach when not downsampled.
@@ -281,35 +206,9 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
         )
 
     # Emphasised subset (worst-K errors): resolve indices against the ORIGINAL arrays (pre-downsample).
-    if p.highlight_indices is not None:
-        hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
-        ox, oy = np.asarray(p.x), np.asarray(p.y)
-        hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
-        if hi_idx.size:
-            # matplotlib rings at 4x the point's own AREA. A constant 12 px diameter is smaller than the
-            # point it highlights on any panel with large bubbles, so the ring disappears inside it. Same
-            # area-to-diameter mapping the marker sizing above uses.
-            _base_area = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size, dtype=float)))
-            _ring_px = math.sqrt(max(_base_area, 0.0) * 4.0) * 1.33
-            fig.add_trace(
-                go.Scatter(x=ox[hi_idx], y=oy[hi_idx], mode="markers",
-                           marker=dict(symbol="circle-open", size=max(_ring_px, 8.0),
-                                       line=dict(color=p.highlight_color, width=2)),
-                           name="worst-K", showlegend=True),
-                row=row, col=col,
-            )
+    _scatter_emphasised_subset_worst_errors(p, size_arr, fig, go, row, col)
 
-    if p.trend_line is not None and n > 1:
-        from mlframe.reporting.renderers._trend import robust_fit_endpoints
-        ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
-        if ends is not None:
-            (tx0, ty0), (tx1, ty1) = ends
-            fig.add_trace(
-                go.Scatter(x=[tx0, tx1], y=[ty0, ty1], mode="lines",
-                           line=dict(color=TREND_LINE, width=2),
-                           name=f"robust fit ({p.trend_line})", showlegend=True),
-                row=row, col=col,
-            )
+    _scatter_trend_line_none(p, n, fig, go, row, col)
 
     if p.overlay_band is not None:
         bx, blo, bhi = (np.asarray(a) for a in p.overlay_band)
@@ -333,6 +232,136 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
             col=col,
         )
 
+    _scatter_perfect_fit_line(p, n, x, y, fig, go, row, col)
+
+    fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
+    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
+
+
+def _scatter_color_arr_none(color_arr, marker, p):
+    """Block of _scatter starting at ``if color_arr is not None:``."""
+    if color_arr is not None:
+        marker["color"] = np.asarray(color_arr)
+        marker["colorscale"] = _mpl_to_plotly_cmap(p.colormap)
+        # A diverging map autoscaled to the data puts its neutral midpoint at the middle of the observed
+        # range instead of at zero, which silently changes what every colour means.
+        if p.color_vmin is not None:
+            marker["cmin"] = p.color_vmin
+        if p.color_vmax is not None:
+            marker["cmax"] = p.color_vmax
+        marker["showscale"] = bool(p.colorbar_label)
+        if p.colorbar_label:
+            marker["colorbar"] = _colorbar_dict(p)
+    elif p.point_color is not None:
+        marker["color"] = p.point_color
+
+
+def _scatter_labels(_labels, _lab_colors, fig, _lab_font, row, col, go):
+    """Block of _scatter starting at ``if _labels:``."""
+    from mlframe.reporting.renderers.matplotlib import _EDGE_LABEL_FLIP_FRACTION
+
+    if _labels:
+        # Both of the matplotlib twin's protections, which this branch had neither of.
+        #
+        # A CONTRAST HALO. ``auto_text_color`` deliberately picks white for a label sitting on a dark bubble;
+        # with no halo and a fixed upward shift, that white text lands on the white panel and disappears
+        # entirely -- the exact failure auto_text_color exists to prevent, defeated by the missing outline.
+        # plotly has no text stroke, so the halo is a tight opaque box in the opposite tone: it keeps the
+        # label legible wherever it lands without hiding the marker underneath.
+        #
+        # EDGE FLIPPING. A fixed anchor puts the text on one side of its point always, so a point in the
+        # busy bottom-left of a reliability diagram had its label clipped by the axis. The anchors flip
+        # against the panel's own range, using the same fraction matplotlib uses.
+        _xs = [float(lx) for lx, _, _ in _labels]
+        _ys = [float(ly) for _, ly, _ in _labels]
+        _xlo, _xhi = min(_xs), max(_xs)
+        _ylo, _yhi = min(_ys), max(_ys)
+        # A zero span is a collapsed axis, not a missing measurement; 1.0 keeps the ratio finite so every
+        # label lands on the "not near an edge" side instead of dividing by zero. Written as an explicit
+        # comparison rather than ``span or 1.0`` so it reads as the degenerate-axis guard it is.
+        _raw_xspan, _raw_yspan = _xhi - _xlo, _yhi - _ylo
+        _xspan = 1.0 if _raw_xspan == 0 else _raw_xspan
+        _yspan = 1.0 if _raw_yspan == 0 else _raw_yspan
+
+        def _anchors(lx: float, ly: float) -> dict:
+            """Anchor a label away from whichever panel edge it sits against."""
+            near_left = (float(lx) - _xlo) / _xspan < _EDGE_LABEL_FLIP_FRACTION
+            near_top = (_yhi - float(ly)) / _yspan < _EDGE_LABEL_FLIP_FRACTION
+            return {
+                "xanchor": "left" if near_left else "right",
+                "yanchor": "top" if near_top else "bottom",
+                "yshift": -8 if near_top else 8,
+            }
+
+        def _halo(idx: int) -> dict:
+            """Opaque backing in the tone opposite the text, standing in for matplotlib's path-effect stroke."""
+            colour = _lab_colors[idx] if idx < len(_lab_colors) else "black"
+            backing = "rgba(0,0,0,0.55)" if str(colour).lower() == "white" else "rgba(255,255,255,0.75)"
+            return {"bgcolor": backing, "borderpad": 1}
+
+        # MUTUAL DE-COLLISION, the third protection neither backend had. Anchor flipping keeps a label off
+        # the axis; it does nothing about two labels landing on each other, which is what happens when the
+        # low-probability bins of a reliability diagram crowd into one corner. Keep the ones whose boxes
+        # clear each other -- a point that loses its label keeps its marker.
+        _keep = non_colliding_label_indices(
+            _xs, _ys, [str(t) for _, _, t in _labels], fontsize=8,
+            x_span=_xspan, y_span=_yspan,
+            width_in=_figure_extent_in(fig.layout.width, _FALLBACK_FIGURE_W_PX), height_in=_figure_extent_in(fig.layout.height, _FALLBACK_FIGURE_H_PX),
+        )
+        if _keep:
+            _first = _keep[0]
+            _lx, _ly, _ltext = _labels[_first]
+            fig.add_annotation(x=_lx, y=_ly, text=str(_ltext), showarrow=False, font=_lab_font(_first), row=row, col=col, **_anchors(_lx, _ly), **_halo(_first))
+            if len(_keep) > 1:
+                _ref = fig.layout.annotations[-1]
+                _rest = tuple(
+                    go.layout.Annotation(
+                        x=_labels[_i][0], y=_labels[_i][1], text=str(_labels[_i][2]), showarrow=False, font=_lab_font(_i),
+                        xref=_ref.xref, yref=_ref.yref, **_anchors(_labels[_i][0], _labels[_i][1]), **_halo(_i),
+                    )
+                    for _i in _keep[1:]
+                )
+                fig.layout.annotations = fig.layout.annotations + _rest
+
+
+def _scatter_emphasised_subset_worst_errors(p, size_arr, fig, go, row, col):
+    """Block of _scatter starting at ``if p.highlight_indices is not None:``."""
+    if p.highlight_indices is not None:
+        hi_idx = np.asarray(p.highlight_indices, dtype=np.int64)
+        ox, oy = np.asarray(p.x), np.asarray(p.y)
+        hi_idx = hi_idx[(hi_idx >= 0) & (hi_idx < len(ox))]
+        if hi_idx.size:
+            # matplotlib rings at 4x the point's own AREA. A constant 12 px diameter is smaller than the
+            # point it highlights on any panel with large bubbles, so the ring disappears inside it. Same
+            # area-to-diameter mapping the marker sizing above uses.
+            _base_area = float(p.point_size) if size_arr is None else float(np.median(np.asarray(p.point_size, dtype=float)))
+            _ring_px = math.sqrt(max(_base_area, 0.0) * 4.0) * 1.33
+            fig.add_trace(
+                go.Scatter(x=ox[hi_idx], y=oy[hi_idx], mode="markers",
+                           marker=dict(symbol="circle-open", size=max(_ring_px, 8.0),
+                                       line=dict(color=p.highlight_color, width=2)),
+                           name="worst-K", showlegend=True),
+                row=row, col=col,
+            )
+
+
+def _scatter_trend_line_none(p, n, fig, go, row, col):
+    """Block of _scatter starting at ``if p.trend_line is not None and n > 1:``."""
+    if p.trend_line is not None and n > 1:
+        from mlframe.reporting.renderers._trend import robust_fit_endpoints
+        ends = robust_fit_endpoints(np.asarray(p.x), np.asarray(p.y), p.trend_line)
+        if ends is not None:
+            (tx0, ty0), (tx1, ty1) = ends
+            fig.add_trace(
+                go.Scatter(x=[tx0, tx1], y=[ty0, ty1], mode="lines",
+                           line=dict(color=TREND_LINE, width=2),
+                           name=f"robust fit ({p.trend_line})", showlegend=True),
+                row=row, col=col,
+            )
+
+
+def _scatter_perfect_fit_line(p, n, x, y, fig, go, row, col):
+    """Block of _scatter starting at ``if p.perfect_fit_line and n > 0:``."""
     if p.perfect_fit_line and n > 0:
         # Span the y=x line over the UNION of both axes so it stays the true diagonal even when prediction
         # collapse (constant y) makes the y-range a single point; scaleanchor squares the panel so y=x is 45deg.
@@ -370,9 +399,6 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
             fig.update_xaxes(range=list(p.xlim), row=row, col=col)
         if p.ylim is not None:
             fig.update_yaxes(range=list(p.ylim), row=row, col=col)
-
-    fig.update_xaxes(title_text=p.xlabel, row=row, col=col, showgrid=p.grid)
-    fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
 
 
 __all__ = ["_scatter"]

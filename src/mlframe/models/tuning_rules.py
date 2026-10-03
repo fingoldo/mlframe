@@ -16,7 +16,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from typing import Optional, Union
+from typing import Optional, Union, Any
 from scipy.stats import randint
 
 from scipy.stats._distn_infrastructure import rv_continuous_frozen, rv_discrete_frozen
@@ -102,27 +102,13 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
     Returns False as soon as any veto rule rejects the candidate; True if the candidate survives all rules
     (params may still have been mutated by the drop rules along the way).
     """
-    if drop_if_rules:
-        for rule in drop_if_rules:
-            for condition in rule.get("conditions", []):
-                if check_condition(condition, params):
-                    for field in rule.get("fields"):
-                        if field in params:
-                            del params[field]
-    if drop_if_not_rules:
-        for rule in drop_if_not_rules:
-            for condition in rule.get("conditions", []):
-                if not check_condition(condition, params):
-                    for field in rule.get("fields"):
-                        if field in params:
-                            del params[field]
+    conditions: Any = None
+    _check_rules_drop_rules(drop_if_rules, params)
+    _apply_drop_if_not_rules(drop_if_not_rules, params)
     if skip_if_values_or:
         for conditions, fields in skip_if_values_or.items():
             skip = False
-            for condition in conditions:
-                if not check_condition(condition, params):
-                    skip = True
-                    break
+            skip = _check_rules_condition_conditions(conditions, params, skip)
             if not skip:
                 for field_cond in fields:
                     if check_condition(field_cond, params):
@@ -166,6 +152,37 @@ def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_valu
                 # {"model_shrink_mode": "Constant"},  # Posterior Sampling requires Сonstant Model Shrink Mode
                 # {"langevin": True},  # Posterior Sampling requires Langevin boosting],
     return True
+
+
+def _check_rules_drop_rules(drop_if_rules, params):
+    """Block of check_rules starting at ``if drop_if_rules:``."""
+    if drop_if_rules:
+        for rule in drop_if_rules:
+            for condition in rule.get("conditions", []):
+                if check_condition(condition, params):
+                    for field in rule.get("fields"):
+                        if field in params:
+                            del params[field]
+
+
+def _check_rules_condition_conditions(conditions, params, skip):
+    """Block of check_rules starting at ``for condition in conditions:``."""
+    for condition in conditions:
+        if not check_condition(condition, params):
+            skip = True
+            break
+    return skip
+
+
+def _apply_drop_if_not_rules(drop_if_not_rules, params):
+    """Apply the drop-if-not rules to the candidate parameters."""
+    if drop_if_not_rules:
+        for rule in drop_if_not_rules:
+            for condition in rule.get("conditions", []):
+                if not check_condition(condition, params):
+                    for field in rule.get("fields"):
+                        if field in params:
+                            del params[field]
 
 
 def double_check_dist_params(cand: dict, rng: Optional[np.random.Generator] = None) -> dict:

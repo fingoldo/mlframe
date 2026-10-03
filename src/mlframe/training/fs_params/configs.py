@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Dict, Literal, Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .._sparse_params import SparseParamsModel
 from .ace import ACEParams
 from .boruta_shap import BorutaShapParams
 from .cascade_select import CascadeSelectParams
@@ -68,33 +69,7 @@ class ClusterReduceConfig(_Strict):
         }
 
 
-class _SelectorMixin(BaseModel):
-    """Base of the selector configs: ``to_kwargs`` and a sparse ``model_dump``.
-
-    "Set" matters here: a field the caller did not write keeps the suite's own default (for instance the shallow-merged MRMR defaults) instead
-    of the constructor's. ``model_dump`` therefore emits only the fields that were set, so ``Config(**config.model_dump())`` rebuilds an equal
-    config with the same set fields (a full dump would mark every field as written).
-    """
-
-    model_config = _STRICT
-
-    #: Fields that configure the suite's wiring, not the selector constructor.
-    SUITE_ONLY: ClassVar[Tuple[str, ...]] = ()
-
-    @model_serializer(mode="wrap")
-    def _dump_only_set_fields(self, handler: Any) -> Dict[str, Any]:
-        """Serialize only the explicitly set fields."""
-        data = handler(self)
-        explicit = self.model_fields_set
-        return {k: v for k, v in data.items() if k in explicit}
-
-    def to_kwargs(self) -> Dict[str, Any]:
-        """Explicitly set constructor arguments, in declaration order."""
-        explicit = self.model_fields_set
-        return {name: getattr(self, name) for name in type(self).model_fields if name in explicit and name not in self.SUITE_ONLY}
-
-
-class RFECVConfig(_SelectorMixin, RFECVParams):
+class RFECVConfig(SparseParamsModel, RFECVParams):
     """RFECV selectors the suite builds (``models``), the cluster-medoid wrap, and every ``RFECV.__init__`` parameter as a typed field.
 
     ``leakage_corr_threshold`` and ``mbh_adaptive_threshold`` keep the suite's historical values (0.95 / 30), not the constructor's, and
@@ -145,7 +120,7 @@ class RFECVConfig(_SelectorMixin, RFECVParams):
         return {"leakage_corr_threshold": self.leakage_corr_threshold, "mbh_adaptive_threshold": self.mbh_adaptive_threshold}
 
 
-class MRMRConfig(_SelectorMixin, MRMRParams):
+class MRMRConfig(SparseParamsModel, MRMRParams):
     """MRMR constructor parameters as typed fields, plus the scope of the cross-target identity cache.
 
     ``identity_cache_scope``: ``"ctx"`` (default, safe) keeps the cache on the suite's TrainingContext so sibling suites cannot poison each
@@ -165,7 +140,7 @@ class MRMRConfig(_SelectorMixin, MRMRParams):
         return self
 
 
-class BorutaShapConfig(_SelectorMixin, BorutaShapParams):
+class BorutaShapConfig(SparseParamsModel, BorutaShapParams):
     """BorutaShap constructor parameters plus the cluster-medoid wrap (default on, via ``registry._instantiate_boruta_shap``)."""
 
     SUITE_ONLY: ClassVar[Tuple[str, ...]] = ("cluster",)
@@ -177,25 +152,25 @@ class BorutaShapConfig(_SelectorMixin, BorutaShapParams):
         return {**super().to_kwargs(), **self.cluster.registry_kwargs()}
 
 
-class ShapProxiedFSConfig(_SelectorMixin, ShapProxiedFSParams):
+class ShapProxiedFSConfig(SparseParamsModel, ShapProxiedFSParams):
     """ShapProxiedFS constructor parameters (it clusters correlated features itself, so it has no cluster wrap)."""
 
 
-class ACEConfig(_SelectorMixin, ACEParams):
+class ACEConfig(SparseParamsModel, ACEParams):
     """ACESelector constructor parameters."""
 
 
-class ForwardSelectConfig(_SelectorMixin, ForwardSelectParams):
+class ForwardSelectConfig(SparseParamsModel, ForwardSelectParams):
     """ForwardSelectSelector constructor parameters."""
 
 
-class GreedyBackwardEliminationConfig(_SelectorMixin, GreedyBackwardEliminationParams):
+class GreedyBackwardEliminationConfig(SparseParamsModel, GreedyBackwardEliminationParams):
     """GreedyBackwardEliminationSelector constructor parameters."""
 
 
-class ZeroImportancePruningConfig(_SelectorMixin, ZeroImportancePruningParams):
+class ZeroImportancePruningConfig(SparseParamsModel, ZeroImportancePruningParams):
     """ZeroImportancePruningSelector constructor parameters."""
 
 
-class CascadeSelectConfig(_SelectorMixin, CascadeSelectParams):
+class CascadeSelectConfig(SparseParamsModel, CascadeSelectParams):
     """CascadeSelectSelector constructor parameters."""

@@ -65,11 +65,12 @@ def test_catboost_devices_map_to_the_first_device(devices, expected):
 
 def _configure(monkeypatch, snapshot):
     """configure_training_params on a GPU-capable host whose card looks like ``snapshot`` right now."""
-    from mlframe.training import _gpu_state_probe, _trainer_configure
+    from mlframe.training import _gpu_state_probe, _trainer_configure_helpers
     from mlframe.training._trainer_configure import configure_training_params
 
-    monkeypatch.setattr(_trainer_configure, "_cached_gpu_info", lambda: [{"index": 0}])
-    monkeypatch.setattr(_trainer_configure, "compute_total_gpus_ram", lambda gpus: {"gpu_max_ram_total": 8.0, "gpus_ram_total": 8.0})
+    # the GPU-limits step of configure_training_params lives in _trainer_configure_helpers, which looks these names up there
+    monkeypatch.setattr(_trainer_configure_helpers, "_cached_gpu_info", lambda: [{"index": 0}])
+    monkeypatch.setattr(_trainer_configure_helpers, "compute_total_gpus_ram", lambda gpus: {"gpu_max_ram_total": 8.0, "gpus_ram_total": 8.0})
     monkeypatch.setattr(_gpu_state_probe, "gpu_snapshot", lambda: snapshot)
     rng = np.random.default_rng(0)
     n = 60

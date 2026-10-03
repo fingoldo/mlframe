@@ -653,43 +653,7 @@ def get_pandas_view_of_polars_df(
         for name, dt in df.schema.items():
             if isinstance(dt, _NESTED_PL_DTYPES):
                 nested_cols.append((name, str(dt)))
-        if nested_cols:
-            key = tuple(nested_cols)
-            if key not in _NESTED_DTYPE_WARN_SEEN:
-                _NESTED_DTYPE_WARN_SEEN.add(key)
-                # Trim the displayed list: at most 3 columns, and each
-                # column's dtype repr is collapsed if it exceeds 80 chars
-                # (a single ``pl.Enum`` over 87 ontology categories serializes
-                # to a multi-KB string and floods the log -- one user's run
-                # showed "Enum(categories=['3D Modeling & CAD', 'AI & Machine
-                # Learning', 'Accounting & Bookkeeping', ...])" running for
-                # hundreds of category names per column). The full list is
-                # still recoverable from ``df.schema`` if an operator wants
-                # to inspect it; this warning is a hint, not a manifest.
-                _MAX_DTYPE_REPR = 80
-                _MAX_COLS_SHOWN = 3
-                def _truncate_dtype(s: str) -> str:
-                    """Cap a dtype repr at ``_MAX_DTYPE_REPR`` chars so a large ``pl.Enum`` category list doesn't flood the log."""
-                    if len(s) <= _MAX_DTYPE_REPR:
-                        return s
-                    return s[:_MAX_DTYPE_REPR - 5] + "...)"
-                shown = [(n, _truncate_dtype(t)) for n, t in nested_cols[:_MAX_COLS_SHOWN]]
-                if len(nested_cols) > _MAX_COLS_SHOWN:
-                    shown_repr = "%s (+%d more)" % (shown, len(nested_cols) - _MAX_COLS_SHOWN)
-                else:
-                    shown_repr = repr(shown)
-                logger.warning(
-                    "get_pandas_view_of_polars_df: %d column(s) have nested "
-                    "Polars dtypes that pyarrow materializes as pandas object "
-                    "dtype with Python list/dict elements: %s. Downstream "
-                    "numeric consumers (CatBoost embedding_features fastpath, "
-                    "sklearn estimators) may reject these with opaque errors. "
-                    "If these columns are embedding_features, keep them as "
-                    "pl.List in the Polars fastpath; if they need to hit the "
-                    "pandas path, pre-cast to fixed-width numpy arrays. "
-                    "(This warning fires at most once per unique schema.)",
-                    len(nested_cols), shown_repr,
-                )
+        _warn_nested_dtype_once(nested_cols)
 
     # Remap pl.Categorical -> pl.Enum keyed on the column's own unique
     # values BEFORE the Arrow bridge. polars 1.x's global string-cache
@@ -704,37 +668,7 @@ def get_pandas_view_of_polars_df(
     # (single .unique() pass) on first access. Verified against the
     # ``tests/training/test_utils.py::TestGetPandasViewOfPolarsDF`` cluster
     # which fails under xdist when sibling tests pollute the cache.
-    if pl is not None and isinstance(df, pl.DataFrame):
-        _cat_remaps = []
-        for _name, _dt in df.schema.items():
-            if _dt == pl.Categorical:
-                _cat_remaps.append(_name)
-        if _cat_remaps:
-            # Each Enum domain is the column's OWN unique values; drop_nulls so
-            # the domain doesn't carry a sentinel (nulls round-trip through Arrow
-            # as null codes regardless).
-            #
-            # With >= 3 Categorical columns, compute every column's uniques in a
-            # SINGLE polars collect rather than one collect per column. The
-            # per-column ``drop_nulls().unique().to_list()`` loop issued ~2
-            # PyLazyFrame.collect calls per column, and on categorical-heavy
-            # frames collect dominated this bridge's self-time (sub-profile,
-            # 1M rows x 8 cat cols: collect 0.90s = 74%). A single
-            # ``select(... .implode())`` collect runs the unique passes in
-            # parallel: 1M-row bench 56.0->46.0ms (1.22x) at ncat=3,
-            # 182->149ms (1.22x) at ncat=16, bit-identical category sets +
-            # string values. The per-column path is kept for 1-2 columns where
-            # the single-collect setup is a wash (ncat=1 0.93x, ncat=2 0.99x).
-            if len(_cat_remaps) >= 3:
-                _uniq_row = df.lazy().select([pl.col(_name).drop_nulls().unique().implode().alias(_name) for _name in _cat_remaps]).collect()
-                _exprs = [pl.col(_name).cast(pl.Enum(_uniq_row.get_column(_name)[0].to_list())) for _name in _cat_remaps]
-            else:
-                _exprs = []
-                for _name in _cat_remaps:
-                    _ser = df.get_column(_name)
-                    _uniques = _ser.drop_nulls().unique().to_list()
-                    _exprs.append(pl.col(_name).cast(pl.Enum(_uniques)))
-            df = df.with_columns(_exprs)
+    df = _remap_polars_categoricals(df)
     tbl = df.to_arrow()
 
     # Note: short-circuit on "no dictionary columns" was benchmarked 2026-04-14 and
@@ -895,6 +829,83 @@ def get_pandas_view_of_polars_df(
             logger.debug("get_pandas_view_of_polars_df: single-entry memo population failed, skipping cache: %s", exc)
 
     return pandas_df
+
+
+def _warn_nested_dtype_once(nested_cols):
+    """Warn once per nested column set about the nested dtypes."""
+    if nested_cols:
+        key = tuple(nested_cols)
+        if key not in _NESTED_DTYPE_WARN_SEEN:
+            _NESTED_DTYPE_WARN_SEEN.add(key)
+            # Trim the displayed list: at most 3 columns, and each
+            # column's dtype repr is collapsed if it exceeds 80 chars
+            # (a single ``pl.Enum`` over 87 ontology categories serializes
+            # to a multi-KB string and floods the log -- one user's run
+            # showed "Enum(categories=['3D Modeling & CAD', 'AI & Machine
+            # Learning', 'Accounting & Bookkeeping', ...])" running for
+            # hundreds of category names per column). The full list is
+            # still recoverable from ``df.schema`` if an operator wants
+            # to inspect it; this warning is a hint, not a manifest.
+            _MAX_DTYPE_REPR = 80
+            _MAX_COLS_SHOWN = 3
+            def _truncate_dtype(s: str) -> str:
+                """Cap a dtype repr at ``_MAX_DTYPE_REPR`` chars so a large ``pl.Enum`` category list doesn't flood the log."""
+                if len(s) <= _MAX_DTYPE_REPR:
+                    return s
+                return s[:_MAX_DTYPE_REPR - 5] + "...)"
+            shown = [(n, _truncate_dtype(t)) for n, t in nested_cols[:_MAX_COLS_SHOWN]]
+            if len(nested_cols) > _MAX_COLS_SHOWN:
+                shown_repr = "%s (+%d more)" % (shown, len(nested_cols) - _MAX_COLS_SHOWN)
+            else:
+                shown_repr = repr(shown)
+            logger.warning(
+                "get_pandas_view_of_polars_df: %d column(s) have nested "
+                "Polars dtypes that pyarrow materializes as pandas object "
+                "dtype with Python list/dict elements: %s. Downstream "
+                "numeric consumers (CatBoost embedding_features fastpath, "
+                "sklearn estimators) may reject these with opaque errors. "
+                "If these columns are embedding_features, keep them as "
+                "pl.List in the Polars fastpath; if they need to hit the "
+                "pandas path, pre-cast to fixed-width numpy arrays. "
+                "(This warning fires at most once per unique schema.)",
+                len(nested_cols), shown_repr,
+            )
+
+
+def _remap_polars_categoricals(df):
+    """Remap the polars categorical columns before the pandas bridge."""
+    if pl is not None and isinstance(df, pl.DataFrame):
+        _cat_remaps = []
+        for _name, _dt in df.schema.items():
+            if _dt == pl.Categorical:
+                _cat_remaps.append(_name)
+        if _cat_remaps:
+            # Each Enum domain is the column's OWN unique values; drop_nulls so
+            # the domain doesn't carry a sentinel (nulls round-trip through Arrow
+            # as null codes regardless).
+            #
+            # With >= 3 Categorical columns, compute every column's uniques in a
+            # SINGLE polars collect rather than one collect per column. The
+            # per-column ``drop_nulls().unique().to_list()`` loop issued ~2
+            # PyLazyFrame.collect calls per column, and on categorical-heavy
+            # frames collect dominated this bridge's self-time (sub-profile,
+            # 1M rows x 8 cat cols: collect 0.90s = 74%). A single
+            # ``select(... .implode())`` collect runs the unique passes in
+            # parallel: 1M-row bench 56.0->46.0ms (1.22x) at ncat=3,
+            # 182->149ms (1.22x) at ncat=16, bit-identical category sets +
+            # string values. The per-column path is kept for 1-2 columns where
+            # the single-collect setup is a wash (ncat=1 0.93x, ncat=2 0.99x).
+            if len(_cat_remaps) >= 3:
+                _uniq_row = df.lazy().select([pl.col(_name).drop_nulls().unique().implode().alias(_name) for _name in _cat_remaps]).collect()
+                _exprs = [pl.col(_name).cast(pl.Enum(_uniq_row.get_column(_name)[0].to_list())) for _name in _cat_remaps]
+            else:
+                _exprs = []
+                for _name in _cat_remaps:
+                    _ser = df.get_column(_name)
+                    _uniques = _ser.drop_nulls().unique().to_list()
+                    _exprs.append(pl.col(_name).cast(pl.Enum(_uniques)))
+            df = df.with_columns(_exprs)
+    return df
 
 
 def save_series_or_df(

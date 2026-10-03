@@ -20,7 +20,7 @@ All configuration uses Pydantic models but supports dict-like instantiation:
 - `TrainingSplitConfig`: Train/val/test splitting settings
 - `PreprocessingBackendConfig`: Polars-ds pipeline settings
 - `LinearModelConfig`: Linear model hyperparameters
-- `TreeModelConfig`, `MLPConfig`: deprecated, not read by the suite (use `ModelHyperparamsConfig`)
+- `MLPConfig`: strict validator of the nested `ModelHyperparamsConfig.mlp_kwargs` sections
 - `AutoMLConfig`: AutoML settings
 - `TrainingConfig`: Aggregated configuration
 
@@ -134,9 +134,7 @@ _LAZY_IMPORTS = {
     "FeatureSelectionConfig": (".configs", "FeatureSelectionConfig"),
     "FeatureTypesConfig": (".configs", "FeatureTypesConfig"),
     "LinearModelConfig": (".configs", "LinearModelConfig"),
-    "TreeModelConfig": (".configs", "TreeModelConfig"),
     "MLPConfig": (".configs", "MLPConfig"),
-    "NGBConfig": (".configs", "NGBConfig"),
     "AutoMLConfig": (".configs", "AutoMLConfig"),
     "ModelHyperparamsConfig": (".configs", "ModelHyperparamsConfig"),
     "TrainingBehaviorConfig": (".configs", "TrainingBehaviorConfig"),
@@ -335,9 +333,7 @@ __all__ = [
     "FeatureSelectionConfig",
     "FeatureTypesConfig",
     "LinearModelConfig",
-    "TreeModelConfig",
     "MLPConfig",
-    "NGBConfig",
     "AutoMLConfig",
     "ModelHyperparamsConfig",
     "TrainingBehaviorConfig",

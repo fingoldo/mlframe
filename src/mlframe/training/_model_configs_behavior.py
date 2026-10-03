@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Union
 from typing import ClassVar
 from pydantic import Field, model_validator
 from ._inert_fields import InertFieldsWarningMixin
+from .calibration_params.configs import IsotonicRiskConfig, ThresholdOptimizerConfig
 
 from ._configs_base import (
     DEFAULT_CALIBRATION_BINS,
@@ -144,7 +145,7 @@ class TrainingBehaviorConfig(BaseConfig):
     # Tri-state: "auto" (default) tunes only when the val target is imbalanced (minority fraction < DECISION_THRESHOLD_IMBALANCE_FRACTION) and leaves 0.5 on balanced targets where val-tuning only adds variance; True always tunes; False forces 0.5. bool kept for back-compat.
     tune_decision_threshold: Union[bool, str] = "auto"
     # "balanced_accuracy" (default) recovers the Bayes-optimal operating point ~10x closer than "f1" and wins test balanced-accuracy in 29/30 imbalance x seed cells (bench_threshold_objective.py); F1 chases precision/recall trade and drifts the threshold high under imbalance.
-    tune_decision_threshold_metric: str = "balanced_accuracy"  # "f1" or "balanced_accuracy"
+    tune_decision_threshold_metric: Literal["f1", "balanced_accuracy", "mcc", "youden", "accuracy", "cost"] = "balanced_accuracy"  # mirrors THRESHOLD_METRICS
     # Default ON: when a binary model's threshold was tuned, log a second classification report per split at that threshold next to the 0.5 one printed at train time (val is labelled optimistic, test honest). Reporting only; set False to keep the 0.5 block alone.
     report_at_tuned_threshold: bool = True
 
@@ -156,8 +157,8 @@ class TrainingBehaviorConfig(BaseConfig):
     # (per-cohort thresholds via ``groups=``, cv stability via ``cv=``), a superset that ships enabled so every
     # binary-classification suite run gets the richer threshold report without an explicit opt-in.
     auto_optimize_threshold: bool = True
-    # Extra kwargs forwarded to ``optimize_decision_threshold`` (e.g. ``metric_fn``, ``groups``, ``min_group_size``, ``cv``).
-    threshold_optimizer_kwargs: Optional[Dict[str, Any]] = None
+    # Arguments of ``optimize_decision_threshold`` (``metric_fn``, ``groups``, ``min_group_size``, ``cv``, ...): a ``ThresholdOptimizerConfig`` or a dict of its fields; an unknown name raises here.
+    threshold_optimizer_kwargs: Optional[ThresholdOptimizerConfig] = None
 
     # Default ON (2026-07-12): after ``calibrate_namespace_model`` fits a binary isotonic post-hoc calibrator on
     # the calib slice, run ``mlframe.calibration.isotonic_risk.isotonic_overfit_risk`` on the same (calib_p,
@@ -167,8 +168,8 @@ class TrainingBehaviorConfig(BaseConfig):
     # by default costs one extra cheap pass over already-computed calib probabilities with no behavior change
     # to the shipped predictions.
     check_isotonic_overfit_risk: bool = True
-    # Extra kwargs forwarded to ``isotonic_overfit_risk`` (e.g. ``segment_ratio_threshold``, ``remediate``, ``density_window``).
-    isotonic_risk_kwargs: Optional[Dict[str, Any]] = None
+    # Arguments of ``isotonic_overfit_risk`` (``segment_ratio_threshold``, ``remediate``, ``density_window``): an ``IsotonicRiskConfig`` or a dict of its fields; an unknown name raises here.
+    isotonic_risk_kwargs: Optional[IsotonicRiskConfig] = None
 
     # Canonical monotonic strict-decline overfitting-stop knob. Threads through to the lgb / xgb
     # shims' ``.fit(monotonic_decline_patience=...)`` and the CatBoost ``callback_params`` so a single value
@@ -329,6 +330,9 @@ class TrainingBehaviorConfig(BaseConfig):
 
     target_temporal_audit_save_plot: bool = True
     """Save the time-series chart to the per-target charts folder."""
+
+    precomputed_fairness_subgroups: Optional[Dict[str, Any]] = Field(default=None, exclude=True, repr=False)
+    """Runtime hand-off, not a user knob: the suite stores the per-target fairness subgroups on a copy of the config for ``select_target``; never serialized."""
 
     target_temporal_audit_unit: Optional[str] = None
     """Epoch unit of an INTEGER timestamp column: ``"s"``, ``"ms"``, ``"us"`` or ``"ns"``.
@@ -519,10 +523,10 @@ class MultilabelDispatchConfig(InertFieldsWarningMixin, BaseConfig):
         "cv": "the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised",
     }
 
-    strategy: str = "auto"  # Literal["auto","wrapper","chain","native"]
+    strategy: Literal["auto", "wrapper", "chain", "native"] = "auto"
     # n_chains>=1: 0 builds an empty _ChainEnsemble that averages nothing.
     n_chains: int = Field(default=3, ge=1)
-    chain_order_strategy: str = "random"  # Literal["random","by_frequency","user"]
+    chain_order_strategy: Literal["random", "by_frequency", "user"] = "random"
     chain_order_user: Optional[List[List[int]]] = None  # one ordering per chain
     chain_seeds: Optional[List[int]] = None
     # None = no cross-val of chain features; when set sklearn needs cv>=2.
@@ -543,20 +547,7 @@ class MultilabelDispatchConfig(InertFieldsWarningMixin, BaseConfig):
 
     @model_validator(mode="after")
     def _check_chain_strategy_invariants(self):
-        """Validate strategy choice + chain_order_user shape.
-
-        Pre-2026-05-20 a typo ``strategy="wrappr"`` was silently accepted (no
-        Literal validation on the string), and ``chain_order_strategy="user"``
-        with missing chain_order_user was accepted as well -- ClassifierChain
-        silently fell back to a default ordering, the operator's hand-crafted
-        order was ignored with no log line.
-        """
-        _STRATEGY = {"auto", "wrapper", "chain", "native"}
-        _ORDER = {"random", "by_frequency", "user"}
-        if self.strategy not in _STRATEGY:
-            raise ValueError(f"MultilabelDispatchConfig.strategy={self.strategy!r} not in {sorted(_STRATEGY)}")
-        if self.chain_order_strategy not in _ORDER:
-            raise ValueError(f"MultilabelDispatchConfig.chain_order_strategy={self.chain_order_strategy!r} " f"not in {sorted(_ORDER)}")
+        """``chain_order_strategy="user"`` needs ``chain_order_user``: without it ClassifierChain silently fell back to a default ordering and the hand-crafted order was ignored."""
         if self.chain_order_strategy == "user":
             if self.chain_order_user is None:
                 raise ValueError(

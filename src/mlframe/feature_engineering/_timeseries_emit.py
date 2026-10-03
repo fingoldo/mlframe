@@ -125,8 +125,11 @@ def _emit_wavelets(
     row_features, features_names, create_features_names,
 ):
     """Emit one numagg block per wavelet name in waveletnames, over the flattened
-    multi-level wavedec coefficients (approximation + all detail levels concatenated)."""
-    # Imported here: pywavelets lives in the optional ``signal`` extra, and a module-level import broke ``import mlframe`` without it.
+    multi-level wavedec coefficients (approximation + all detail levels concatenated).
+
+    ``pywt`` (the optional ``signal`` extra) is imported here, not at module level: ``mlframe.feature_engineering`` is imported by the ensembling
+    and model packages, so a hard import made ``import mlframe.models`` fail wherever PyWavelets is not installed.
+    """
     import pywt
 
     custom_numaggs_kwds_wave = numaggs_kwds.copy()

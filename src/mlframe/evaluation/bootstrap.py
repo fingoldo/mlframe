@@ -490,12 +490,7 @@ def bootstrap_metrics(
         samples_lists: dict[str, list] = {name: [] for name in _all_active}
         failures = {name: 0 for name in _all_active}
         first_err: Dict[str, Optional[str]] = {name: None for name in _all_active}
-        for _ls, _fl, _fe in _parts:
-            for name in _all_active:
-                samples_lists[name].extend(_ls[name])
-                failures[name] += _fl[name]
-                if first_err[name] is None:
-                    first_err[name] = _fe[name]
+        _merge_parallel_chunks(_parts, _all_active, samples_lists, failures, first_err, name)
         samples = {name: np.asarray(samples_lists[name], dtype=np.float64) for name in _all_active}
         valid = {name: samples[name].shape[0] for name in _all_active}
     else:
@@ -516,40 +511,31 @@ def bootstrap_metrics(
                 idx = _idx_buf  # type: ignore[assignment]  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
             # Slice ONCE; every non-idx-aware metric reads the same resampled views.
             # Skipped entirely when all active metrics are idx-aware (re-gather internally).
+            yt = yp = None
             if _need_slice:
                 yt = y_true[idx]
                 yp = y_pred[idx]
-            for name in active:
-                try:
-                    v = float(metric_fns[name](yt, yp))
-                except Exception as exc:
-                    failures[name] += 1
-                    if first_err[name] is None:
-                        first_err[name] = f"{type(exc).__name__}: {exc}"
-                    logger.debug("bootstrap_metrics[%s] resample failed: %r", name, exc, exc_info=True)
-                    continue
-                if not _isfinite(v):
-                    failures[name] += 1
-                    continue
-                samples[name][valid[name]] = v
-                valid[name] += 1
+            _point_estimates(active, metric_fns, yt, yp, failures, first_err, samples, valid)
             # Index-aware metrics: pass raw idx so they can reuse a precomputed
             # base structure (e.g. pre-sorted AUC) instead of re-deriving it.
-            for name in active_idx:
-                try:
-                    v = float(metric_fns_idx[name](np.asarray(idx)))
-                except Exception as exc:
-                    failures[name] += 1
-                    if first_err[name] is None:
-                        first_err[name] = f"{type(exc).__name__}: {exc}"
-                    logger.debug("bootstrap_metrics[%s] idx-resample failed: %r", name, exc, exc_info=True)
-                    continue
-                if not _isfinite(v):
-                    failures[name] += 1
-                    continue
-                samples[name][valid[name]] = v
-                valid[name] += 1
+            _point_estimates_by_index(active_idx, metric_fns_idx, idx, failures, first_err, samples, valid)
 
+    _confidence_intervals_per_metric(_all_active, valid, n_bootstrap, first_err, results, samples, failures, method, jackknife_fns, y_true, y_pred, active, per_row_fns, metric_fns, n, metric_fns_idx, points, alpha)
+    return results
+
+
+def _merge_parallel_chunks(_parts, _all_active, samples_lists, failures, first_err, name):
+    """Merge the sample lists of the parallel bootstrap chunks."""
+    for _ls, _fl, _fe in _parts:
+        for name in _all_active:
+            samples_lists[name].extend(_ls[name])
+            failures[name] += _fl[name]
+            if first_err[name] is None:
+                first_err[name] = _fe[name]
+
+
+def _confidence_intervals_per_metric(_all_active, valid, n_bootstrap, first_err, results, samples, failures, method, jackknife_fns, y_true, y_pred, active, per_row_fns, metric_fns, n, metric_fns_idx, points, alpha):
+    """Compute the confidence interval of every active metric from its bootstrap samples."""
     for name in _all_active:
         v_n = valid[name]
         if v_n == 0:
@@ -565,34 +551,75 @@ def bootstrap_metrics(
                 name, failures[name], n_bootstrap, first_err[name], v_n,
             )
         jackknife = None
-        if method == "bca":
-            # Fast exact O(n)/O(n log n) jackknife where a decomposition is registered: per_row_fns for
-            # reduce_fn(mean(per_row)) metrics (log-loss / Brier / RMSE, 517x) and jackknife_fns for custom closed-form
-            # jackknives (ROC-AUC via placement values, 159x). Both are bit-identical (AUC) / ~1e-13-CI-equivalent
-            # (mean metrics) to the generic gather path, and fall back to it (via None) on any degeneracy.
-            _custom_jk = (jackknife_fns or {}).get(name)
-            if _custom_jk is not None:
-                try:
-                    jackknife = _custom_jk(y_true, y_pred)
-                except Exception as _jk_exc:
-                    logger.debug("bootstrap_metrics[%s] custom jackknife failed (%r); using gather.", name, _jk_exc)
-            _pr = (per_row_fns or {}).get(name) if name in active else None
-            if jackknife is None and _pr is not None:
-                _prf, _both, _reduce = _pr
-                try:
-                    jackknife = _jackknife_mean_metric(
-                        y_true, _prf(y_true, y_pred), requires_both_classes=_both, reduce_fn=_reduce,
-                    )
-                except Exception as _jk_exc:
-                    logger.debug("bootstrap_metrics[%s] fast jackknife failed (%r); using gather.", name, _jk_exc)
-            if jackknife is None:
-                if name in active:
-                    jackknife = _jackknife_metric(y_true, y_pred, metric_fns[name])
-                else:
-                    jackknife = _jackknife_metric_idx(n, metric_fns_idx[name])
+        jackknife = _bca_confidence_intervals(method, jackknife_fns, name, y_true, y_pred, active, per_row_fns, metric_fns, n, metric_fns_idx, jackknife)
         lo, hi = _ci_from_samples(s, points[name], alpha, method, jackknife)
         results[name] = {"point": points[name], "lo": lo, "hi": hi, "samples": s}
-    return results
+
+
+def _point_estimates(active, metric_fns, yt, yp, failures, first_err, samples, valid):
+    """Compute the point estimates of the metric functions."""
+    for name in active:
+        try:
+            v = float(metric_fns[name](yt, yp))
+        except Exception as exc:
+            failures[name] += 1
+            if first_err[name] is None:
+                first_err[name] = f"{type(exc).__name__}: {exc}"
+            logger.debug("bootstrap_metrics[%s] resample failed: %r", name, exc, exc_info=True)
+            continue
+        if not _isfinite(v):
+            failures[name] += 1
+            continue
+        samples[name][valid[name]] = v
+        valid[name] += 1
+
+
+def _point_estimates_by_index(active_idx, metric_fns_idx, idx, failures, first_err, samples, valid):
+    """Compute the point estimates of the index-based metric functions."""
+    for name in active_idx:
+        try:
+            v = float(metric_fns_idx[name](np.asarray(idx)))
+        except Exception as exc:
+            failures[name] += 1
+            if first_err[name] is None:
+                first_err[name] = f"{type(exc).__name__}: {exc}"
+            logger.debug("bootstrap_metrics[%s] idx-resample failed: %r", name, exc, exc_info=True)
+            continue
+        if not _isfinite(v):
+            failures[name] += 1
+            continue
+        samples[name][valid[name]] = v
+        valid[name] += 1
+
+
+def _bca_confidence_intervals(method, jackknife_fns, name, y_true, y_pred, active, per_row_fns, metric_fns, n, metric_fns_idx, jackknife):
+    """Compute the BCa confidence intervals, through the exact jackknife where one is registered."""
+    if method == "bca":
+        # Fast exact O(n)/O(n log n) jackknife where a decomposition is registered: per_row_fns for
+        # reduce_fn(mean(per_row)) metrics (log-loss / Brier / RMSE, 517x) and jackknife_fns for custom closed-form
+        # jackknives (ROC-AUC via placement values, 159x). Both are bit-identical (AUC) / ~1e-13-CI-equivalent
+        # (mean metrics) to the generic gather path, and fall back to it (via None) on any degeneracy.
+        _custom_jk = (jackknife_fns or {}).get(name)
+        if _custom_jk is not None:
+            try:
+                jackknife = _custom_jk(y_true, y_pred)
+            except Exception as _jk_exc:
+                logger.debug("bootstrap_metrics[%s] custom jackknife failed (%r); using gather.", name, _jk_exc)
+        _pr = (per_row_fns or {}).get(name) if name in active else None
+        if jackknife is None and _pr is not None:
+            _prf, _both, _reduce = _pr
+            try:
+                jackknife = _jackknife_mean_metric(
+                    y_true, _prf(y_true, y_pred), requires_both_classes=_both, reduce_fn=_reduce,
+                )
+            except Exception as _jk_exc:
+                logger.debug("bootstrap_metrics[%s] fast jackknife failed (%r); using gather.", name, _jk_exc)
+        if jackknife is None:
+            if name in active:
+                jackknife = _jackknife_metric(y_true, y_pred, metric_fns[name])
+            else:
+                jackknife = _jackknife_metric_idx(n, metric_fns_idx[name])
+    return jackknife
 
 
 def _auc_structural_components(

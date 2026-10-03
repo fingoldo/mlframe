@@ -323,19 +323,7 @@ def compute_label_distribution_drift(
             splits[name] = _multilabel_split_summary(arr) if arr is not None else None
         # Per-label drift in pp
         train_rates = splits["train"]["p_positive_per_label"]
-        for split_name in ("val", "test"):
-            if splits.get(split_name) is None:
-                continue
-            split_rates = splits[split_name]["p_positive_per_label"]
-            deltas = [(s - t) * 100 for s, t in zip(split_rates, train_rates)]
-            drifts[f"{split_name}_minus_train_pp_per_label"] = deltas
-            for k, d in enumerate(deltas):
-                if abs(d) > multi_warn_threshold_pp:
-                    warnings.append(
-                        f"{split_name.upper()} P(y_{k}=1)={split_rates[k]:.3f} vs "
-                        f"train {train_rates[k]:.3f} (Δ={d:+.1f}pp); "
-                        f"label-shift suspected on label {k}."
-                    )
+        _multilabel_prior_drift(splits, train_rates, drifts, multi_warn_threshold_pp, warnings)
 
     elif is_regression:
         for name, arr in (("train", train), ("val", val), ("test", test)):
@@ -364,19 +352,7 @@ def compute_label_distribution_drift(
         for name, arr in (("train", train), ("val", val), ("test", test)):
             splits[name] = _multiclass_split_summary(arr, classes) if arr is not None else None
         train_rates = splits["train"]["rates"]
-        for split_name in ("val", "test"):
-            if splits.get(split_name) is None:
-                continue
-            split_rates = splits[split_name]["rates"]
-            per_class_pp = {c: (split_rates[c] - train_rates[c]) * 100 for c in classes}
-            drifts[f"{split_name}_minus_train_pp_per_class"] = per_class_pp
-            for c, d in per_class_pp.items():
-                if abs(d) > multi_warn_threshold_pp:
-                    warnings.append(
-                        f"{split_name.upper()} P(y={c})={split_rates[c]:.3f} vs "
-                        f"train {train_rates[c]:.3f} (Δ={d:+.1f}pp); "
-                        f"class-prior shift suspected for class {c}."
-                    )
+        _multiclass_prior_drift(splits, classes, train_rates, drifts, multi_warn_threshold_pp, warnings)
 
     else:
         # Binary classification (default).
@@ -419,6 +395,40 @@ def compute_label_distribution_drift(
         "warnings": warnings,
         "warn_threshold_pp": warn_threshold_pp,
     }
+
+
+def _multilabel_prior_drift(splits, train_rates, drifts, multi_warn_threshold_pp, warnings):
+    """Record the per-label positive-rate drift of each split against train and warn past the threshold."""
+    for split_name in ("val", "test"):
+        if splits.get(split_name) is None:
+            continue
+        split_rates = splits[split_name]["p_positive_per_label"]
+        deltas = [(s - t) * 100 for s, t in zip(split_rates, train_rates)]
+        drifts[f"{split_name}_minus_train_pp_per_label"] = deltas
+        for k, d in enumerate(deltas):
+            if abs(d) > multi_warn_threshold_pp:
+                warnings.append(
+                    f"{split_name.upper()} P(y_{k}=1)={split_rates[k]:.3f} vs "
+                    f"train {train_rates[k]:.3f} (Δ={d:+.1f}pp); "
+                    f"label-shift suspected on label {k}."
+                )
+
+
+def _multiclass_prior_drift(splits, classes, train_rates, drifts, multi_warn_threshold_pp, warnings):
+    """Record the per-class prior drift of each split against train and warn past the threshold."""
+    for split_name in ("val", "test"):
+        if splits.get(split_name) is None:
+            continue
+        split_rates = splits[split_name]["rates"]
+        per_class_pp = {c: (split_rates[c] - train_rates[c]) * 100 for c in classes}
+        drifts[f"{split_name}_minus_train_pp_per_class"] = per_class_pp
+        for c, d in per_class_pp.items():
+            if abs(d) > multi_warn_threshold_pp:
+                warnings.append(
+                    f"{split_name.upper()} P(y={c})={split_rates[c]:.3f} vs "
+                    f"train {train_rates[c]:.3f} (Δ={d:+.1f}pp); "
+                    f"class-prior shift suspected for class {c}."
+                )
 
 
 def format_drift_report(report: dict[str, Any], target_name: str = "") -> str:

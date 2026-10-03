@@ -27,6 +27,11 @@ def test_the_generated_model_has_no_drift_against_the_constructor(spec):
     assert signature_models.signature_drift(model, spec.target(), exclude=spec.exclude, check_annotations=False) == []
 
 
+def test_the_generator_check_passes():
+    """``python -m mlframe.training.fs_params._generate --check`` finds every committed module equal to a fresh render."""
+    assert _generate.main(["--check"]) == 0
+
+
 @pytest.mark.parametrize("spec", SPECS, ids=[s.key for s in SPECS])
 def test_a_fresh_render_defines_the_same_model_as_the_committed_module(spec, tmp_path, monkeypatch):
     """Executing a fresh render gives the model the committed module defines: same fields, annotations and defaults (a hand edit or a stale module fails)."""

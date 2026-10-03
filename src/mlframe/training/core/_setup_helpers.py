@@ -243,27 +243,12 @@ def _ensure_config(
 ) -> ConfigT:
     """Convert dict/None to Pydantic config object.
 
-    Dict path is STRICT: a user-supplied config dict that carries a key which
-    is neither a declared field nor a whitelisted ``_known_extras`` pass-through
-    raises ``ValueError`` so typos (``iterations=100``) fail loud instead of
-    being silently absorbed by ``extra="allow"``. The None path keeps filtering
-    the ambient kwargs to declared fields (those kwargs are the suite's own
-    superset, not a user-typed dict, so unknown ones are expected and dropped).
+    Dict path is STRICT: a key that is not a declared field raises (``extra="forbid"``), so a misspelled field name (a dropped letter in ``iterations``, say) fails loud. The None
+    path keeps filtering the ambient kwargs to declared fields (those kwargs are the suite's own superset, not a user-typed dict, so unknown
+    ones are expected and dropped).
     """
     if isinstance(config, dict):
-        obj = config_class(**config)
-        extras = getattr(obj, "model_extra", None) or {}
-        if extras:
-            known: frozenset = getattr(config_class, "_known_extras", frozenset()) or frozenset()
-            unknown = sorted(k for k in extras if k not in known)
-            if unknown:
-                raise ValueError(
-                    f"{config_class.__name__} received unknown config key(s) {unknown}. "
-                    f"These are not declared fields and not whitelisted pass-through extras "
-                    f"({sorted(known) or '(none)'}). Likely a typo -- fix the key or add it "
-                    f"to the model. Declared fields: {sorted(config_class.model_fields)}."
-                )
-        return obj
+        return config_class(**config)
     elif config is None:
         return config_class(**{k: v for k, v in kwargs.items() if k in config_class.model_fields})
     return config
@@ -318,7 +303,7 @@ def _build_common_params_for_target(
 ) -> tuple[dict[str, Any], TrainingBehaviorConfig]:
     """Build common_params and behavior_config for select_target call."""
     if fairness_subgroups is not None:
-        current_behavior_config = behavior_config.model_copy(update={"_precomputed_fairness_subgroups": fairness_subgroups})
+        current_behavior_config = behavior_config.model_copy(update={"precomputed_fairness_subgroups": fairness_subgroups})
     else:
         current_behavior_config = behavior_config
 

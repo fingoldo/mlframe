@@ -246,7 +246,6 @@ def categorize_dataset(
     from . import (
         _handle_missing,
         _maybe_collect_lazy,
-        _multi_col_factorize_native,
         discretize_2d_array,
     )
 
@@ -254,7 +253,6 @@ def categorize_dataset(
 
     data = None
     numerical_cols = []
-    categorical_factors = []
 
     try:
         import polars as pl
@@ -437,6 +435,30 @@ def categorize_dataset(
         _rows, _c = np.where(_nan_mask)
         data[_rows, _c] = nan_codes_per_col[_c].astype(data.dtype)
 
+    categorical_cols, new_vals = _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality)
+    data, dtype = _encode_categorical_block(categorical_cols, new_vals, missing_strategy, dtype, data)
+
+    # ``data.max(axis=0)`` raises on an empty reduction axis (0 columns OR 0 rows): return a typed empty result so callers
+    # get a consistent ``(data, cols, nbins)`` triple instead of an opaque reduction ValueError.
+    if data is None or data.size == 0:
+        n_rows = data.shape[0] if data is not None else 0
+        n_cols = len(numerical_cols) + len(categorical_cols)
+        empty = data if data is not None else np.empty((n_rows, n_cols), dtype=dtype)
+        _log_numeric_code_cache_occupancy()
+        return empty, numerical_cols + categorical_cols, np.zeros(n_cols, dtype=np.int64)
+
+    nbins = data.max(axis=0).astype(np.int64) + 1
+
+    _log_numeric_code_cache_occupancy()
+    return data, numerical_cols + categorical_cols, nbins
+
+
+def _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality):
+    """Factorize the categorical columns (polars-detected or pandas-selected) into integer codes."""
+    from mlframe.feature_selection.filters.discretization import (
+        _multi_col_factorize_native,
+    )
+
     if _is_polars:
         if categorical_cols_detected:
             cast_exprs = []
@@ -454,7 +476,7 @@ def categorize_dataset(
             if max_categorical_cardinality is not None and max_categorical_cardinality != 0:
                 # Fold the rare-category tail so the polars path honors the cap exactly like the pandas branch below;
                 # cap_categorical_cardinality needs float64 to write the remapped codes (physical codes are unsigned).
-                from . import cap_categorical_cardinality
+                from mlframe.feature_selection.filters.discretization import cap_categorical_cardinality
                 new_vals = cap_categorical_cardinality(new_vals.astype(np.float64, copy=False), int(max_categorical_cardinality))
         else:
             categorical_cols = []
@@ -466,10 +488,15 @@ def categorize_dataset(
             categorical_cols = categorical_factors.columns.values.tolist()
             new_vals = _multi_col_factorize_native(categorical_factors)
             if max_categorical_cardinality is not None and max_categorical_cardinality != 0:
-                from . import cap_categorical_cardinality
+                from mlframe.feature_selection.filters.discretization import cap_categorical_cardinality
                 new_vals = cap_categorical_cardinality(new_vals, int(max_categorical_cardinality))
         else:
             new_vals = None
+    return categorical_cols, new_vals
+
+
+def _encode_categorical_block(categorical_cols, new_vals, missing_strategy, dtype, data):
+    """Encode the categorical block of the dataset."""
     if categorical_cols and new_vals is not None:
         # The categorical block
         # bypassed ``missing_strategy`` entirely. ``_multi_col_factorize_native``
@@ -532,17 +559,4 @@ def categorize_dataset(
             # write is a wash (identical alloc+copies); the only real win is an out=-slice discretiser writing
             # the numeric block straight into the combined buffer, deferred (touches the cached discretiser).
             data = np.concatenate([data, new_vals], axis=1)
-
-    # ``data.max(axis=0)`` raises on an empty reduction axis (0 columns OR 0 rows): return a typed empty result so callers
-    # get a consistent ``(data, cols, nbins)`` triple instead of an opaque reduction ValueError.
-    if data is None or data.size == 0:
-        n_rows = data.shape[0] if data is not None else 0
-        n_cols = len(numerical_cols) + len(categorical_cols)
-        empty = data if data is not None else np.empty((n_rows, n_cols), dtype=dtype)
-        _log_numeric_code_cache_occupancy()
-        return empty, numerical_cols + categorical_cols, np.zeros(n_cols, dtype=np.int64)
-
-    nbins = data.max(axis=0).astype(np.int64) + 1
-
-    _log_numeric_code_cache_occupancy()
-    return data, numerical_cols + categorical_cols, nbins
+    return data, dtype

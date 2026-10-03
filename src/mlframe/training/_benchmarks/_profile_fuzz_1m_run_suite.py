@@ -29,15 +29,15 @@ def _run_suite_profiled(
     save_charts: bool = False,
     profile_predict: bool = True,
     profile_save: bool = True,
-) -> tuple[float, bool, str, str, float, str]:
+) -> tuple[Any, ...]:
     """Returns ``(train_wall, ok, status, train_profile, predict_wall, predict_profile)``.
 
     ``predict_wall`` is 0.0 and ``predict_profile`` is "" when training did
     not return usable models (training crash, empty model dict, or
     ``profile_predict=False``).
     """
+    fte_kwargs: Any = None
     from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.training.core.predict import predict_from_models
     from mlframe.training.configs import (
         TargetTypes, BaselineDiagnosticsConfig, DummyBaselinesConfig,
         OutputConfig, ReportingConfig, FeatureSelectionConfig, OutlierDetectionConfig,
@@ -181,55 +181,21 @@ def _run_suite_profiled(
     # Build sibling-target / weight-schema injections that the synthetic frame builder
     # downstream will pick up (frame is rebuilt below with these knobs threaded through).
     _frame_extra_targets: list[tuple[str, str]] = []  # [(col_name, kind=reg|bin)]
-    if _n_targets == 2:
-        # Sibling of the SAME or DIFFERENT type, depending on _mix_target_types.
-        if _mix_target_types:
-            # Pair a regression with a binary or vice versa, so target_by_type has 2 keys.
-            if target_type == "regression":
-                _frame_extra_targets.append(("y2", "bin"))
-            elif target_type == "binary_classification":
-                _frame_extra_targets.append(("y2", "reg"))
-            elif target_type == "multiclass_classification":
-                _frame_extra_targets.append(("y2", "reg"))
-            else:
-                _frame_extra_targets.append(("y2", "reg"))
-        else:
-            # Same-type sibling (most common multi-target setup).
-            _frame_extra_targets.append(("y2", "reg" if target_type == "regression" else "bin"))
+    _run_suite_profiled_downstream_will_pick_up(_n_targets, _mix_target_types, target_type, _frame_extra_targets)
     _frame_add_ts = bool(_weight_schema != "uniform_only")
     # Re-build the frame WITH the extra-target / ts knobs at the EFFECTIVE row count
     # (post heavy-axis row cap above). The first build above used full ``n_rows`` and
     # gets replaced when extras are needed; otherwise we slice the pre-built frame.
-    if _frame_extra_targets or _frame_add_ts:
-        df = _make_synthetic_frame(
-            target_type, _effective_n_rows, seed=seed,
-            extra_targets=_frame_extra_targets, add_ts=_frame_add_ts,
-        )
-        print(f"  rebuilt frame with extras: targets={[t[0] for t in _frame_extra_targets]} add_ts={_frame_add_ts}")
-    elif _effective_n_rows < len(df):
-        # No extras to add, just trim. ``head`` works for both pandas + polars and is O(1)
-        # (zero-copy view; the un-referenced lower portion is GC'd on the next collection).
-        df = df.head(_effective_n_rows)
-        print(f"  trimmed frame to {_effective_n_rows:_} rows for heavy-axis cap")
+    df = _run_suite_profiled_gets_replaced_extras_needed(_frame_extra_targets, _frame_add_ts, target_type, _effective_n_rows, seed, df)
 
     # FTE kwargs: list the requested targets per type. The legacy single-target path is
     # preserved when _n_targets=1 and _weight_schema=uniform_only (no ts).
     _reg_targets: list[str] = []
     _cls_targets: list[str] = []
     _cls_exact: dict[str, Any] = {}
-    if target_type == "regression":
-        _reg_targets.append("y")
-    elif target_type in ("binary_classification", "multiclass_classification"):
-        _cls_targets.append("y")
-        if target_type == "binary_classification":
-            _cls_exact["y"] = 1
+    _run_suite_profiled_target_type_regression(target_type, _reg_targets, _cls_targets, _cls_exact)
     # Append sibling targets to the right lists.
-    for _name, _kind in _frame_extra_targets:
-        if _kind == "reg":
-            _reg_targets.append(_name)
-        else:
-            _cls_targets.append(_name)
-            _cls_exact[_name] = 1
+    _run_suite_profiled_append_sibling_targets_right(_frame_extra_targets, _reg_targets, _cls_targets, _cls_exact)
 
     if target_type == "regression":
         target_col = "y"
@@ -270,14 +236,7 @@ def _run_suite_profiled(
     # subset of {"uniform", "recency"} controlled by use_uniform_weighting / use_recency_weighting.
     # Recency requires ``ts_field`` so the FTE can read timestamps off the frame. When the
     # ``_frame_add_ts`` knob fired, ``_make_synthetic_frame`` injected a monotonic ``ts`` column.
-    if _weight_schema == "recency_only":
-        fte_kwargs["use_uniform_weighting"] = False
-        fte_kwargs["use_recency_weighting"] = True
-        fte_kwargs["ts_field"] = "ts"
-    elif _weight_schema == "both":
-        fte_kwargs["use_uniform_weighting"] = True
-        fte_kwargs["use_recency_weighting"] = True
-        fte_kwargs["ts_field"] = "ts"
+    _run_suite_profiled_frame_add_ts_knob(_weight_schema, fte_kwargs)
     # else uniform_only: leave defaults (use_uniform_weighting=True, use_recency_weighting=True
     # but no ts_field so recency degrades to no-op).
     fte = SimpleFeaturesAndTargetsExtractor(**fte_kwargs)
@@ -298,24 +257,7 @@ def _run_suite_profiled(
         # axes drawn above. When ntop=0 the FE-pollination step is
         # short-circuited inside MRMR (same as the unaxed legacy default).
         _mrmr_kwargs_extra: dict = {}
-        if _use_mrmr_fs:
-            if _mrmr_cat_fe_include_numeric:
-                from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
-                _mrmr_kwargs_extra["cat_fe_config"] = CatFEConfig(
-                    enable=True, include_numeric=True,
-                )
-            _mrmr_kwargs_extra.update(
-                {
-                    "fe_ntop_features": _mrmr_fe_ntop,
-                    "fe_npermutations": _mrmr_fe_npermutations,
-                    "fe_unary_preset": _mrmr_fe_unary_preset,
-                    "fe_binary_preset": _mrmr_fe_binary_preset,
-                    "fe_smart_polynom_iters": _mrmr_fe_smart_polynom_iters,
-                    "fe_smart_polynom_optimization_steps": (10 if _mrmr_fe_smart_polynom_iters > 0 else 1000),
-                    "fe_min_polynom_degree": 3,
-                    "fe_max_polynom_degree": 5 if _mrmr_fe_smart_polynom_iters > 0 else 3,
-                }
-            )
+        _run_suite_profiled_short_circuited_inside_mrmr(_use_mrmr_fs, _mrmr_cat_fe_include_numeric, _mrmr_kwargs_extra, _mrmr_fe_ntop, _mrmr_fe_npermutations, _mrmr_fe_unary_preset, _mrmr_fe_binary_preset, _mrmr_fe_smart_polynom_iters)
         _fs_cfg = FeatureSelectionConfig(
             mrmr=(
                 {
@@ -348,25 +290,7 @@ def _run_suite_profiled(
                 } if _use_boruta_shap else None),
             )
         _od_detector = None
-        if _outlier_method == "isolation_forest":
-            from sklearn.ensemble import IsolationForest
-            # n_estimators=10 (default 100, was 20 in earlier harness), max_samples=256
-            # (sklearn 'auto' default already does min(256, n_samples); pinning it explicit
-            # makes the cap visible and unaffected by future sklearn-default changes).
-            # n_jobs=1 prevents joblib spawning multiple worker processes on a single-suite
-            # fuzz iteration where the model itself is small.
-            _od_detector = IsolationForest(
-                contamination=0.05, random_state=int(seed) & 0xFFFFFFFF,
-                n_estimators=10, max_samples=256, n_jobs=1,
-            )
-        elif _outlier_method == "lof":
-            from sklearn.neighbors import LocalOutlierFactor
-            # LOF k-d tree at 250k rows (post heavy-axis cap above) + n_neighbors=20 fits
-            # in ~150 MB; algorithm='kd_tree' is the explicit fast path (auto picks ball_tree
-            # past a high-dim threshold). n_jobs=1 mirrors the IF rationale.
-            _od_detector = LocalOutlierFactor(
-                novelty=True, n_neighbors=20, algorithm="kd_tree", n_jobs=1,
-            )
+        _od_detector = _run_suite_profiled_outlier_method_isolation_forest(_outlier_method, seed, _od_detector)
         _od_cfg = OutlierDetectionConfig(detector=_od_detector)
         _pp_cfg = PreprocessingBackendConfig(
             categorical_encoding=_categorical_encoding,
@@ -458,60 +382,7 @@ def _run_suite_profiled(
         predict_profiler = cProfile.Profile()
         p0 = time.perf_counter()
         predict_profiler.enable()
-        try:
-            _predict_kwargs: dict = dict(
-                df=df,
-                models=trained_models,
-                metadata=trained_metadata,
-                features_and_targets_extractor=predict_fte,
-                return_probabilities=(target_type != "regression"),
-                verbose=0,
-            )
-            # predict_batch_rows is a 390-finding-audit addition that chunks the predict
-            # path through bounded RSS. 0 = single-pass (legacy); >0 routes via the
-            # chunked entry. The harness samples per-iteration to exercise both code paths.
-            if _predict_batch_rows > 0:
-                _predict_kwargs["predict_batch_rows"] = _predict_batch_rows
-            _predict_results = predict_from_models(**_predict_kwargs)
-            # Shape / dimensionality validation -- surfaces silent failures where
-            # predict_from_models returns an empty/None/wrong-shape result while the
-            # broad except-Exception block above would otherwise let the iteration
-            # appear "OK". A model can fail at the per-model loop (logged + skipped
-            # via _phase_helpers's continue) leaving results["predictions"] empty
-            # without raising; we want THAT to surface as PREDICT:EMPTY here.
-            _n_input = len(df)
-            _preds_map = (_predict_results or {}).get("predictions") or {}
-            _probs_map = (_predict_results or {}).get("probabilities") or {}
-            _per_target_probs = (_predict_results or {}).get("per_target_probabilities") or {}
-            if not _preds_map and not _probs_map:
-                raise RuntimeError(
-                    f"predict_from_models returned empty predictions+probabilities "
-                    f"(models trained: {sum(len(v) for tt in trained_models.values() for v in tt.values())}; "
-                    f"per_target_probs keys: {list(_per_target_probs)})"
-                )
-            for _mn, _p in _preds_map.items():
-                _arr = np.asarray(_p) if _p is not None else None
-                if _arr is None or _arr.shape[0] != _n_input:
-                    raise RuntimeError(
-                        f"predict_from_models[{_mn}] prediction len mismatch: "
-                        f"got shape={None if _arr is None else _arr.shape}, expected first-dim={_n_input}"
-                    )
-            for _mn, _p in _probs_map.items():
-                if _mn in ("ensemble",):
-                    # The ensemble key is a 2-D aggregate; checked separately if present.
-                    continue
-                _arr = np.asarray(_p) if _p is not None else None
-                if _arr is None or _arr.shape[0] != _n_input:
-                    raise RuntimeError(
-                        f"predict_from_models[{_mn}] probability shape mismatch: "
-                        f"got shape={None if _arr is None else _arr.shape}, expected first-dim={_n_input}"
-                    )
-        except Exception as e:
-            # Don't clobber the training status; surface predict-only failure separately.
-            logger.debug("predict-only failure: %s: %s", type(e).__name__, e)
-            status = f"{status} | PREDICT:{type(e).__name__}: {e}"[:200]
-        finally:
-            predict_profiler.disable()
+        _predict_results, status = _run_suite_profiled_try_2(df, trained_models, trained_metadata, predict_fte, target_type, _predict_batch_rows, status, predict_profiler, _predict_results)
         predict_wall = time.perf_counter() - p0
         sp = io.StringIO()
         psp = pstats.Stats(predict_profiler, stream=sp).sort_stats("cumulative")
@@ -542,10 +413,6 @@ def _run_suite_profiled(
     _save_root: Optional[Path] = None
     if profile_save and status.startswith("OK") and trained_models is not None and any(trained_models.values()):
         import tempfile
-        import pickle as _pickle  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
-        import zstandard as _zstd
-        from pyutilz.strings import slugify as _slugify
-        from mlframe.training.io import save_mlframe_model
 
         save_profiler = cProfile.Profile()
         s0 = time.perf_counter()
@@ -569,97 +436,12 @@ def _run_suite_profiled(
             #   preds_missing_after_load=['regression__CT_ENSEMBLE__y']
             #   preds_extra_after_load=['regression_CT_ENSEMBLE__y']
             _meta_for_save = dict(trained_metadata) if isinstance(trained_metadata, dict) else trained_metadata
-            try:
-                _sttn = dict(_meta_for_save.get("slug_to_original_target_name") or {})
-                for _tt_key, _by_name in (trained_models or {}).items():
-                    if not isinstance(_by_name, dict):
-                        continue
-                    for _tname in _by_name.keys():
-                        if not isinstance(_tname, str):
-                            continue
-                        if _tname.startswith("_CT_ENSEMBLE__"):
-                            _sttn[_tname] = _tname
-                            _sttn[_slugify(_tname)] = _tname
-                _meta_for_save["slug_to_original_target_name"] = _sttn
-                # Also stamp slug_to_original_target_type defensively.
-                _sttt = dict(_meta_for_save.get("slug_to_original_target_type") or {})
-                for _tt_key in (trained_models or {}).keys():
-                    if isinstance(_tt_key, str):
-                        _sttt[_slugify(str(_tt_key).lower())] = _tt_key
-                _meta_for_save["slug_to_original_target_type"] = _sttt
-            except Exception as e:  # nosec B110 - non-trivial body
-                logger.debug("slug_to_original_target_type build failed: %s", e)
-                # Best-effort -- if metadata is non-dict for some exotic
-                # reason, fall through and save as-is.
-                pass
+            _run_suite_profiled_preds_extra_after_load(_meta_for_save, trained_models)
             # Suite-level metadata. load_mlframe_suite reads metadata.pkl.zst
             # first; zstd-compressed pickle for compatibility with the loader.
-            try:
-                # Wrap polars-ds Pipeline so pickle goes via to_json/from_json
-                # rather than per-PyExpr Rust deserialization (avoided the
-                # 100-200ms per expr observed at seed=20260522 / 100k binary;
-                # see _setup_helpers._PolarsDsPipelineJsonProxy docstring).
-                # Validate roundtrip BEFORE wrapping -- some step types
-                # raise ComputeError on from_json (encoder variants in
-                # particular). Fall back to plain pickle if so.
-                try:
-                    from mlframe.training.core._setup_helpers import _PolarsDsPipelineJsonProxy
-                    from polars_ds.pipeline import Pipeline as _PdsPipeline
-                    _pl_pipeline = _meta_for_save.get("pipeline")
-                    if _pl_pipeline is not None and isinstance(_pl_pipeline, _PdsPipeline):
-                        try:
-                            _PdsPipeline.from_json(_pl_pipeline.to_json())
-                            _meta_for_save = dict(_meta_for_save)
-                            _meta_for_save["pipeline"] = _PolarsDsPipelineJsonProxy(_pl_pipeline)
-                        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-                            logger.debug("polars-pipeline JSON roundtrip failed, shipping as plain pickle: %s", e)
-                except ImportError:
-                    pass  # polars-ds unavailable; nothing to wrap
-                _meta_path = _save_root / "metadata.pkl.zst"
-                _cctx = _zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1)
-                with open(_meta_path, "wb") as _mf:
-                    _mf.write(_cctx.compress(_pickle.dumps(_meta_for_save)))
-                if _meta_path.exists():
-                    save_total_bytes += _meta_path.stat().st_size
-            except Exception as _meta_err:
-                logger.debug("metadata save failed: %s: %s", type(_meta_err).__name__, _meta_err)
-                status = f"{status} | SAVE_META:{type(_meta_err).__name__}: {_meta_err}"[:200]
+            save_total_bytes, status = _run_suite_profiled_first_zstd_compressed_pickle(_meta_for_save, _save_root, save_total_bytes, status)
             # Per-model dump files under <tt_slug>/<name_slug>/<idx>.dump
-            for _tt_key, _by_name in trained_models.items():
-                if not isinstance(_by_name, dict):
-                    continue
-                _tt_slug = _slugify(str(_tt_key))
-                for _model_name, _entries in _by_name.items():
-                    if not isinstance(_entries, list):
-                        continue
-                    _name_slug = _slugify(str(_model_name))
-                    _dir = _save_root / _tt_slug / _name_slug
-                    _dir.mkdir(parents=True, exist_ok=True)
-                    for _idx, _entry in enumerate(_entries):
-                        _path = _dir / f"{_idx}.dump"
-                        try:
-                            # durable default is False (2026-05-20); harness keeps the
-                            # explicit pass for clarity (bench writes to a tempdir that
-                            # gets removed afterwards -- never needed durability).
-                            #
-                            # 2026-05-20: ONLY increment save_n_models when the call
-                            # returns truthy AND the file actually landed on disk.
-                            # save_mlframe_model returns False (logs error) on internal
-                            # failures like zstd Allocation error / dill TypeError; the
-                            # prior code blindly incremented save_n_models which then
-                            # said "1 saved" but glob found 0 .dump files at load time,
-                            # creating a confusing "save=1m/load=0m" report. With the
-                            # check the report honestly shows 0 saved on memory-pressure
-                            # combos and the load=0m result becomes consistent.
-                            _save_ok = save_mlframe_model(_entry, str(_path), verbose=0, lean=True, durable=False)
-                            if _save_ok and _path.exists():
-                                save_n_models += 1
-                                save_total_bytes += _path.stat().st_size
-                            else:
-                                status = f"{status} | SAVE_ONE_FAIL:returned={_save_ok!r} file_exists={_path.exists()}"[:200]
-                        except Exception as _save_one_err:
-                            logger.debug("save-one failed: %s: %s", type(_save_one_err).__name__, _save_one_err)
-                            status = f"{status} | SAVE_ONE:{type(_save_one_err).__name__}: {_save_one_err}"[:200]
+            save_n_models, save_total_bytes, status = _run_suite_profiled_per_model_dump_files(trained_models, _save_root, save_n_models, save_total_bytes, status)
         except Exception as e:
             logger.debug("save failed: %s: %s", type(e).__name__, e)
             status = f"{status} | SAVE:{type(e).__name__}: {e}"[:200]
@@ -710,28 +492,10 @@ def _run_suite_profiled(
     # check below.
     _predict_loaded_results = None
     if loaded_models is not None and loaded_metadata is not None and any(loaded_models.values()):
-        from mlframe.training.core.predict import predict_from_models as _predict_from_models_loaded
         predict_loaded_profiler = cProfile.Profile()
         lp0 = time.perf_counter()
         predict_loaded_profiler.enable()
-        try:
-            predict_loaded_fte = SimpleFeaturesAndTargetsExtractor(**fte_kwargs)
-            _pl_kwargs: dict = dict(
-                df=df,
-                models=loaded_models,
-                metadata=loaded_metadata,
-                features_and_targets_extractor=predict_loaded_fte,
-                return_probabilities=(target_type != "regression"),
-                verbose=0,
-            )
-            if _predict_batch_rows > 0:
-                _pl_kwargs["predict_batch_rows"] = _predict_batch_rows
-            _predict_loaded_results = _predict_from_models_loaded(**_pl_kwargs)
-        except Exception as e:
-            logger.debug("predict-loaded failed: %s: %s", type(e).__name__, e)
-            status = f"{status} | PREDICT_LOADED:{type(e).__name__}: {e}"[:200]
-        finally:
-            predict_loaded_profiler.disable()
+        _predict_loaded_results, status = _run_suite_profiled_try(fte_kwargs, df, loaded_models, loaded_metadata, target_type, _predict_batch_rows, status, predict_loaded_profiler, _predict_loaded_results)
         predict_loaded_wall = time.perf_counter() - lp0
         plps = io.StringIO()
         ppls = pstats.Stats(predict_loaded_profiler, stream=plps).sort_stats("cumulative")
@@ -749,6 +513,347 @@ def _run_suite_profiled(
     # ``skip`` (insufficient data either side). Missing-key surface
     # (pre-only / post-only) is also reported as a diff -- a model key
     # disappearing on reload is a real bug class.
+    parity_status = _run_suite_profiled_disappearing_reload_real_bug(_predict_results, _predict_loaded_results, parity_status)
+
+    # Best-effort cleanup of the save tempdir now that LOAD + PARITY are done.
+    _run_suite_profiled_best_effort_cleanup_save(_save_tmpdir_obj)
+
+    return (
+        train_wall, status.startswith("OK"), status, train_profile_text,
+        predict_wall, predict_profile_text,
+        save_wall, save_profile_text, save_n_models, save_total_bytes,
+        load_wall, load_profile_text, load_n_models,
+        predict_loaded_wall, predict_loaded_profile_text,
+        parity_status,
+    )
+
+
+def _run_suite_profiled_preds_extra_after_load(_meta_for_save, trained_models):
+    """Block of _run_suite_profiled starting at ``try:``."""
+    _by_name: Any = None
+    try:
+        _sttn = dict(_meta_for_save.get("slug_to_original_target_name") or {})
+        for _tt_key, _by_name in (trained_models or {}).items():
+            if not isinstance(_by_name, dict):
+                continue
+            _run_suite_profiled_tname_name_keys(_by_name, _sttn)
+        _meta_for_save["slug_to_original_target_name"] = _sttn
+        # Also stamp slug_to_original_target_type defensively.
+        _sttt = dict(_meta_for_save.get("slug_to_original_target_type") or {})
+        _run_suite_profiled_also_stamp_slug_original(trained_models, _sttt)
+        _meta_for_save["slug_to_original_target_type"] = _sttt
+    except Exception as e:  # nosec B110 - non-trivial body
+        logger.debug("slug_to_original_target_type build failed: %s", e)
+        # Best-effort -- if metadata is non-dict for some exotic
+        # reason, fall through and save as-is.
+        pass
+
+
+def _run_suite_profiled_downstream_will_pick_up(_n_targets, _mix_target_types, target_type, _frame_extra_targets):
+    """Block of _run_suite_profiled starting at ``if _n_targets == 2:``."""
+    if _n_targets == 2:
+        # Sibling of the SAME or DIFFERENT type, depending on _mix_target_types.
+        if _mix_target_types:
+            # Pair a regression with a binary or vice versa, so target_by_type has 2 keys.
+            if target_type == "regression":
+                _frame_extra_targets.append(("y2", "bin"))
+            elif target_type == "binary_classification":
+                _frame_extra_targets.append(("y2", "reg"))
+            elif target_type == "multiclass_classification":
+                _frame_extra_targets.append(("y2", "reg"))
+            else:
+                _frame_extra_targets.append(("y2", "reg"))
+        else:
+            # Same-type sibling (most common multi-target setup).
+            _frame_extra_targets.append(("y2", "reg" if target_type == "regression" else "bin"))
+
+
+def _run_suite_profiled_gets_replaced_extras_needed(_frame_extra_targets, _frame_add_ts, target_type, _effective_n_rows, seed, df):
+    """Block of _run_suite_profiled starting at ``if _frame_extra_targets or _frame_add_ts:``."""
+    from mlframe.training._benchmarks._profile_fuzz_1m import _make_synthetic_frame
+
+    if _frame_extra_targets or _frame_add_ts:
+        df = _make_synthetic_frame(
+            target_type, _effective_n_rows, seed=seed,
+            extra_targets=_frame_extra_targets, add_ts=_frame_add_ts,
+        )
+        print(f"  rebuilt frame with extras: targets={[t[0] for t in _frame_extra_targets]} add_ts={_frame_add_ts}")
+    elif _effective_n_rows < len(df):
+        # No extras to add, just trim. ``head`` works for both pandas + polars and is O(1)
+        # (zero-copy view; the un-referenced lower portion is GC'd on the next collection).
+        df = df.head(_effective_n_rows)
+        print(f"  trimmed frame to {_effective_n_rows:_} rows for heavy-axis cap")
+    return df
+
+
+def _run_suite_profiled_target_type_regression(target_type, _reg_targets, _cls_targets, _cls_exact):
+    """Block of _run_suite_profiled starting at ``if target_type == "regression":``."""
+    if target_type == "regression":
+        _reg_targets.append("y")
+    elif target_type in ("binary_classification", "multiclass_classification"):
+        _cls_targets.append("y")
+        if target_type == "binary_classification":
+            _cls_exact["y"] = 1
+
+
+def _run_suite_profiled_append_sibling_targets_right(_frame_extra_targets, _reg_targets, _cls_targets, _cls_exact):
+    """Block of _run_suite_profiled starting at ``for _name, _kind in _frame_extra_targets:``."""
+    for _name, _kind in _frame_extra_targets:
+        if _kind == "reg":
+            _reg_targets.append(_name)
+        else:
+            _cls_targets.append(_name)
+            _cls_exact[_name] = 1
+
+
+def _run_suite_profiled_frame_add_ts_knob(_weight_schema, fte_kwargs):
+    """Block of _run_suite_profiled starting at ``if _weight_schema == "recency_only":``."""
+    if _weight_schema == "recency_only":
+        fte_kwargs["use_uniform_weighting"] = False
+        fte_kwargs["use_recency_weighting"] = True
+        fte_kwargs["ts_field"] = "ts"
+    elif _weight_schema == "both":
+        fte_kwargs["use_uniform_weighting"] = True
+        fte_kwargs["use_recency_weighting"] = True
+        fte_kwargs["ts_field"] = "ts"
+
+
+def _run_suite_profiled_short_circuited_inside_mrmr(_use_mrmr_fs, _mrmr_cat_fe_include_numeric, _mrmr_kwargs_extra, _mrmr_fe_ntop, _mrmr_fe_npermutations, _mrmr_fe_unary_preset, _mrmr_fe_binary_preset, _mrmr_fe_smart_polynom_iters):
+    """Block of _run_suite_profiled starting at ``if _use_mrmr_fs:``."""
+    if _use_mrmr_fs:
+        if _mrmr_cat_fe_include_numeric:
+            from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+            _mrmr_kwargs_extra["cat_fe_config"] = CatFEConfig(
+                enable=True, include_numeric=True,
+            )
+        _mrmr_kwargs_extra.update(
+            {
+                "fe_ntop_features": _mrmr_fe_ntop,
+                "fe_npermutations": _mrmr_fe_npermutations,
+                "fe_unary_preset": _mrmr_fe_unary_preset,
+                "fe_binary_preset": _mrmr_fe_binary_preset,
+                "fe_smart_polynom_iters": _mrmr_fe_smart_polynom_iters,
+                "fe_smart_polynom_optimization_steps": (10 if _mrmr_fe_smart_polynom_iters > 0 else 1000),
+                "fe_min_polynom_degree": 3,
+                "fe_max_polynom_degree": 5 if _mrmr_fe_smart_polynom_iters > 0 else 3,
+            }
+        )
+
+
+def _run_suite_profiled_outlier_method_isolation_forest(_outlier_method, seed, _od_detector):
+    """Block of _run_suite_profiled starting at ``if _outlier_method == "isolation_forest":``."""
+    if _outlier_method == "isolation_forest":
+        from sklearn.ensemble import IsolationForest
+        # n_estimators=10 (default 100, was 20 in earlier harness), max_samples=256
+        # (sklearn 'auto' default already does min(256, n_samples); pinning it explicit
+        # makes the cap visible and unaffected by future sklearn-default changes).
+        # n_jobs=1 prevents joblib spawning multiple worker processes on a single-suite
+        # fuzz iteration where the model itself is small.
+        _od_detector = IsolationForest(
+            contamination=0.05, random_state=int(seed) & 0xFFFFFFFF,
+            n_estimators=10, max_samples=256, n_jobs=1,
+        )
+    elif _outlier_method == "lof":
+        from sklearn.neighbors import LocalOutlierFactor
+        # LOF k-d tree at 250k rows (post heavy-axis cap above) + n_neighbors=20 fits
+        # in ~150 MB; algorithm='kd_tree' is the explicit fast path (auto picks ball_tree
+        # past a high-dim threshold). n_jobs=1 mirrors the IF rationale.
+        _od_detector = LocalOutlierFactor(
+            novelty=True, n_neighbors=20, algorithm="kd_tree", n_jobs=1,
+        )
+    return _od_detector
+
+
+def _run_suite_profiled_try_2(df, trained_models, trained_metadata, predict_fte, target_type, _predict_batch_rows, status, predict_profiler, _predict_results):
+    """Block of _run_suite_profiled starting at ``try:``."""
+    from mlframe.training.core.predict import predict_from_models
+
+    try:
+        _predict_kwargs: dict = dict(
+            df=df,
+            models=trained_models,
+            metadata=trained_metadata,
+            features_and_targets_extractor=predict_fte,
+            return_probabilities=(target_type != "regression"),
+            verbose=0,
+        )
+        # predict_batch_rows is a 390-finding-audit addition that chunks the predict
+        # path through bounded RSS. 0 = single-pass (legacy); >0 routes via the
+        # chunked entry. The harness samples per-iteration to exercise both code paths.
+        if _predict_batch_rows > 0:
+            _predict_kwargs["predict_batch_rows"] = _predict_batch_rows
+        _predict_results = predict_from_models(**_predict_kwargs)
+        # Shape / dimensionality validation -- surfaces silent failures where
+        # predict_from_models returns an empty/None/wrong-shape result while the
+        # broad except-Exception block above would otherwise let the iteration
+        # appear "OK". A model can fail at the per-model loop (logged + skipped
+        # via _phase_helpers's continue) leaving results["predictions"] empty
+        # without raising; we want THAT to surface as PREDICT:EMPTY here.
+        _n_input = len(df)
+        _preds_map = (_predict_results or {}).get("predictions") or {}
+        _probs_map = (_predict_results or {}).get("probabilities") or {}
+        _per_target_probs = (_predict_results or {}).get("per_target_probabilities") or {}
+        if not _preds_map and not _probs_map:
+            raise RuntimeError(
+                f"predict_from_models returned empty predictions+probabilities "
+                f"(models trained: {sum(len(v) for tt in trained_models.values() for v in tt.values())}; "
+                f"per_target_probs keys: {list(_per_target_probs)})"
+            )
+        for _mn, _p in _preds_map.items():
+            _arr = np.asarray(_p) if _p is not None else None
+            if _arr is None or _arr.shape[0] != _n_input:
+                raise RuntimeError(
+                    f"predict_from_models[{_mn}] prediction len mismatch: " f"got shape={None if _arr is None else _arr.shape}, expected first-dim={_n_input}"
+                )
+        for _mn, _p in _probs_map.items():
+            if _mn in ("ensemble",):
+                # The ensemble key is a 2-D aggregate; checked separately if present.
+                continue
+            _arr = np.asarray(_p) if _p is not None else None
+            if _arr is None or _arr.shape[0] != _n_input:
+                raise RuntimeError(
+                    f"predict_from_models[{_mn}] probability shape mismatch: "
+                    f"got shape={None if _arr is None else _arr.shape}, expected first-dim={_n_input}"
+                )
+    except Exception as e:
+        # Don't clobber the training status; surface predict-only failure separately.
+        logger.debug("predict-only failure: %s: %s", type(e).__name__, e)
+        status = f"{status} | PREDICT:{type(e).__name__}: {e}"[:200]
+    finally:
+        predict_profiler.disable()
+    return _predict_results, status
+
+
+def _run_suite_profiled_tname_name_keys(_by_name, _sttn):
+    """Block of _run_suite_profiled starting at ``for _tname in _by_name.keys():``."""
+    from pyutilz.strings import slugify as _slugify
+
+    for _tname in _by_name.keys():
+        if not isinstance(_tname, str):
+            continue
+        if _tname.startswith("_CT_ENSEMBLE__"):
+            _sttn[_tname] = _tname
+            _sttn[_slugify(_tname)] = _tname
+
+
+def _run_suite_profiled_also_stamp_slug_original(trained_models, _sttt):
+    """Block of _run_suite_profiled starting at ``for _tt_key in (trained_models or {}).keys():``."""
+    from pyutilz.strings import slugify as _slugify
+
+    for _tt_key in (trained_models or {}).keys():
+        if isinstance(_tt_key, str):
+            _sttt[_slugify(str(_tt_key).lower())] = _tt_key
+
+
+def _run_suite_profiled_first_zstd_compressed_pickle(_meta_for_save, _save_root, save_total_bytes, status):
+    """Block of _run_suite_profiled starting at ``try:``."""
+    import zstandard as _zstd
+    import pickle as _pickle
+
+    try:
+        # Wrap polars-ds Pipeline so pickle goes via to_json/from_json
+        # rather than per-PyExpr Rust deserialization (avoided the
+        # 100-200ms per expr observed at seed=20260522 / 100k binary;
+        # see _setup_helpers._PolarsDsPipelineJsonProxy docstring).
+        # Validate roundtrip BEFORE wrapping -- some step types
+        # raise ComputeError on from_json (encoder variants in
+        # particular). Fall back to plain pickle if so.
+        try:
+            from mlframe.training.core._setup_helpers import _PolarsDsPipelineJsonProxy
+            from polars_ds.pipeline import Pipeline as _PdsPipeline
+            _pl_pipeline = _meta_for_save.get("pipeline")
+            if _pl_pipeline is not None and isinstance(_pl_pipeline, _PdsPipeline):
+                try:
+                    _PdsPipeline.from_json(_pl_pipeline.to_json())
+                    _meta_for_save = dict(_meta_for_save)
+                    _meta_for_save["pipeline"] = _PolarsDsPipelineJsonProxy(_pl_pipeline)
+                except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+                    logger.debug("polars-pipeline JSON roundtrip failed, shipping as plain pickle: %s", e)
+        except ImportError:
+            pass  # polars-ds unavailable; nothing to wrap
+        _meta_path = _save_root / "metadata.pkl.zst"
+        _cctx = _zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1)
+        with open(_meta_path, "wb") as _mf:
+            _mf.write(_cctx.compress(_pickle.dumps(_meta_for_save)))
+        if _meta_path.exists():
+            save_total_bytes += _meta_path.stat().st_size
+    except Exception as _meta_err:
+        logger.debug("metadata save failed: %s: %s", type(_meta_err).__name__, _meta_err)
+        status = f"{status} | SAVE_META:{type(_meta_err).__name__}: {_meta_err}"[:200]
+    return save_total_bytes, status
+
+
+def _run_suite_profiled_per_model_dump_files(trained_models, _save_root, save_n_models, save_total_bytes, status):
+    """Block of _run_suite_profiled starting at ``for _tt_key, _by_name in trained_models.items():``."""
+    from pyutilz.strings import slugify as _slugify
+    from mlframe.training.io import save_mlframe_model
+
+    for _tt_key, _by_name in trained_models.items():
+        if not isinstance(_by_name, dict):
+            continue
+        _tt_slug = _slugify(str(_tt_key))
+        for _model_name, _entries in _by_name.items():
+            if not isinstance(_entries, list):
+                continue
+            _name_slug = _slugify(str(_model_name))
+            _dir = _save_root / _tt_slug / _name_slug
+            _dir.mkdir(parents=True, exist_ok=True)
+            for _idx, _entry in enumerate(_entries):
+                _path = _dir / f"{_idx}.dump"
+                try:
+                    # durable default is False (2026-05-20); harness keeps the
+                    # explicit pass for clarity (bench writes to a tempdir that
+                    # gets removed afterwards -- never needed durability).
+                    #
+                    # 2026-05-20: ONLY increment save_n_models when the call
+                    # returns truthy AND the file actually landed on disk.
+                    # save_mlframe_model returns False (logs error) on internal
+                    # failures like zstd Allocation error / dill TypeError; the
+                    # prior code blindly incremented save_n_models which then
+                    # said "1 saved" but glob found 0 .dump files at load time,
+                    # creating a confusing "save=1m/load=0m" report. With the
+                    # check the report honestly shows 0 saved on memory-pressure
+                    # combos and the load=0m result becomes consistent.
+                    _save_ok = save_mlframe_model(_entry, str(_path), verbose=0, lean=True, durable=False)
+                    if _save_ok and _path.exists():
+                        save_n_models += 1
+                        save_total_bytes += _path.stat().st_size
+                    else:
+                        status = f"{status} | SAVE_ONE_FAIL:returned={_save_ok!r} file_exists={_path.exists()}"[:200]
+                except Exception as _save_one_err:
+                    logger.debug("save-one failed: %s: %s", type(_save_one_err).__name__, _save_one_err)
+                    status = f"{status} | SAVE_ONE:{type(_save_one_err).__name__}: {_save_one_err}"[:200]
+    return save_n_models, save_total_bytes, status
+
+
+def _run_suite_profiled_try(fte_kwargs, df, loaded_models, loaded_metadata, target_type, _predict_batch_rows, status, predict_loaded_profiler, _predict_loaded_results):
+    """Block of _run_suite_profiled starting at ``try:``."""
+    from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
+    from mlframe.training.core.predict import predict_from_models as _predict_from_models_loaded
+
+    try:
+        predict_loaded_fte = SimpleFeaturesAndTargetsExtractor(**fte_kwargs)
+        _pl_kwargs: dict = dict(
+            df=df,
+            models=loaded_models,
+            metadata=loaded_metadata,
+            features_and_targets_extractor=predict_loaded_fte,
+            return_probabilities=(target_type != "regression"),
+            verbose=0,
+        )
+        if _predict_batch_rows > 0:
+            _pl_kwargs["predict_batch_rows"] = _predict_batch_rows
+        _predict_loaded_results = _predict_from_models_loaded(**_pl_kwargs)
+    except Exception as e:
+        logger.debug("predict-loaded failed: %s: %s", type(e).__name__, e)
+        status = f"{status} | PREDICT_LOADED:{type(e).__name__}: {e}"[:200]
+    finally:
+        predict_loaded_profiler.disable()
+    return _predict_loaded_results, status
+
+
+def _run_suite_profiled_disappearing_reload_real_bug(_predict_results, _predict_loaded_results, parity_status):
+    """Block of _run_suite_profiled starting at ``if _predict_results is not None and _predict_loaded_results is not Non``."""
     if _predict_results is not None and _predict_loaded_results is not None:
         _diffs: list[str] = []
 
@@ -835,20 +940,14 @@ def _run_suite_profiled(
             parity_status = "diff:" + "; ".join(_diffs[:8])
         elif _any_shared:
             parity_status = "ok"
+    return parity_status
 
-    # Best-effort cleanup of the save tempdir now that LOAD + PARITY are done.
+
+def _run_suite_profiled_best_effort_cleanup_save(_save_tmpdir_obj):
+    """Block of _run_suite_profiled starting at ``if _save_tmpdir_obj is not None:``."""
     if _save_tmpdir_obj is not None:
         try:
             import shutil as _shutil
             _shutil.rmtree(_save_tmpdir_obj, ignore_errors=True)
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("tmpdir cleanup failed: %s", e)
-
-    return (
-        train_wall, status.startswith("OK"), status, train_profile_text,
-        predict_wall, predict_profile_text,
-        save_wall, save_profile_text, save_n_models, save_total_bytes,
-        load_wall, load_profile_text, load_n_models,
-        predict_loaded_wall, predict_loaded_profile_text,
-        parity_status,
-    )

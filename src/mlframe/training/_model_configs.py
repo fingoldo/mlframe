@@ -7,27 +7,25 @@ threshold. Behaviour preserved bit-for-bit; every class is re-exported from
 
 What lives here:
   - ``ModelConfig`` (base) and subclasses: ``LinearModelConfig``,
-    ``TreeModelConfig``, ``MLPConfig``, ``NGBConfig`` (the last three deprecated: the suite reads ModelHyperparamsConfig).
+    ``MLPConfig`` (the strict validator of ``ModelHyperparamsConfig.mlp_kwargs``).
   - ``AutoMLConfig``, ``ModelHyperparamsConfig``, ``TrainingBehaviorConfig``.
   - ``MultilabelDispatchConfig``, ``LearningToRankConfig``,
     ``QuantileRegressionConfig``, ``EnsemblingConfig``.
 """
 from __future__ import annotations
 
-from typing import Any, ClassVar, Dict, FrozenSet, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
+
 from ._inert_fields import InertFieldsWarningMixin
-
 from ._configs_base import (
     DEFAULT_RANDOM_SEED,
     DEFAULT_RFECV_CV_SPLITS,
     DEFAULT_RFECV_MAX_NOIMPROVING_ITERS,
     DEFAULT_RFECV_MAX_RUNTIME_MINS,
-    DEFAULT_TREE_ITERATIONS,
     VALID_LINEAR_MODEL_TYPES,
     VALID_MATMUL_PRECISIONS,
-    VALID_TASK_TYPES,
     BaseConfig,
 )
 
@@ -115,6 +113,10 @@ class LinearModelConfig(ModelConfig):
     penalty: str = "l2"
     max_iter: int = 1000
     tol: float = 1e-3
+    # sklearn SGD early stopping: hold out ``validation_fraction`` of the training rows and stop after ``n_iter_no_change`` epochs without improvement.
+    early_stopping: bool = False
+    validation_fraction: float = Field(default=0.1, gt=0.0, lt=1.0)
+    n_iter_no_change: int = Field(default=5, ge=1)
     learning_rate: str = "invscaling"
     eta0: float = 0.01
 
@@ -148,162 +150,68 @@ class LinearModelConfig(ModelConfig):
         return v_lower
 
 
-class TreeModelConfig(InertFieldsWarningMixin, ModelConfig):
-    """Configuration for tree-based models (CatBoost, LightGBM, XGBoost, etc.).
+class MLPConfig(BaseConfig):
+    """The sections the suite reads from ``ModelHyperparamsConfig.mlp_kwargs`` on its regular (non-LTR) path, validated strictly.
 
-    Controls hyperparameters for gradient boosting models including
-    iterations, learning rate, tree depth, and GPU settings.
-
-    Parameters
-    ----------
-    iterations : int
-        Number of boosting iterations (default: 5000).
-    learning_rate : float
-        Step size for gradient descent (default: 0.1).
-    max_depth : int, optional
-        Maximum tree depth (None for unlimited).
-    early_stopping_rounds : int or None
-        Rounds without improvement before stopping. 0 = auto (iterations // 3); ``ModelHyperparamsConfig``, the
-        config the suite reads, has no auto value and rejects 0.
-        None disables early stopping entirely.
-    task_type : str
-        Computation device: "CPU" or "GPU". Case-insensitive, normalized to uppercase.
-    devices : str, optional
-        GPU device specification (e.g., "0", "0-3").
-    cb_kwargs : dict, optional
-        CatBoost-specific parameters. Keys: cat_features, od_type, od_wait, etc.
-    lgb_kwargs : dict, optional
-        LightGBM-specific parameters. Keys: num_leaves, min_child_samples, etc.
-    xgb_kwargs : dict, optional
-        XGBoost-specific parameters. Keys: tree_method, grow_policy, etc.
-    hgb_kwargs : dict, optional
-        HistGradientBoosting-specific parameters.
-    """
-
-    UNCONSUMED_CLASS_HINT: ClassVar[Optional[str]] = "set tree hyperparameters through ModelHyperparamsConfig (iterations, learning_rate, ...) and its cb_kwargs / lgb_kwargs / xgb_kwargs / hgb_kwargs"
-
-    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
-    INERT_FIELDS: ClassVar[dict[str, str]] = {
-        "hgb_kwargs": "ModelHyperparamsConfig.hgb_kwargs is the one that reaches the model",
-        "lgb_kwargs": "ModelHyperparamsConfig.lgb_kwargs is the one that reaches the model",
-        "xgb_kwargs": "ModelHyperparamsConfig.xgb_kwargs is the one that reaches the model",
-    }
-
-    # Range guards mirror ModelHyperparamsConfig: iterations=0 trains zero trees
-    # (LightGBM/XGB silently predict the init constant -- a degenerate, no-error
-    # run); a negative / >1 learning_rate propagates straight to the booster.
-    iterations: int = Field(default=DEFAULT_TREE_ITERATIONS, ge=1)
-    learning_rate: float = Field(default=0.1, gt=0.0, le=1.0)
-    # None = unlimited; when set must be >=1 (max_depth=0 is a degenerate stump).
-    max_depth: Optional[int] = Field(default=None, ge=1)
-    # 0 = auto (iterations // 3); None = disabled; a negative value is nonsense.
-    early_stopping_rounds: Optional[int] = Field(default=0, ge=0)
-
-    # GPU settings
-    task_type: str = "CPU"
-    devices: Optional[str] = None
-
-    # Model-specific kwargs
-    cb_kwargs: Optional[Dict[str, Any]] = None  # keys: cat_features, od_type, od_wait, border_count
-    lgb_kwargs: Optional[Dict[str, Any]] = None  # keys: num_leaves, min_child_samples, feature_fraction
-    xgb_kwargs: Optional[Dict[str, Any]] = None  # keys: tree_method, grow_policy, max_bin
-    hgb_kwargs: Optional[Dict[str, Any]] = None  # keys: max_leaf_nodes, min_samples_leaf
-
-    @field_validator("task_type", mode="before")
-    @classmethod
-    def normalize_task_type(cls, v: str) -> str:
-        """Normalize task_type to uppercase and validate."""
-        v_upper = v.upper()
-        if v_upper not in VALID_TASK_TYPES:
-            raise ValueError(f"task_type must be one of {VALID_TASK_TYPES}, got '{v}'")
-        return v_upper
-
-
-class MLPConfig(InertFieldsWarningMixin, ModelConfig):
-    """Configuration for Multi-Layer Perceptron (PyTorch Lightning).
-
-    Controls neural network architecture, training, and optimization settings.
+    ``mlp_kwargs`` is a nested dict; a misspelled section name (``trainer_param``) used to be ignored silently. ``validate_nested_mlp_kwargs``
+    builds this model from it, so an unknown top-level key, a section that is not a dict, or an unsupported ``float32_matmul_precision`` raises
+    before any model is built. The sections themselves stay plain dicts: Lightning, the DataLoader and the SWA callback own their parameters.
+    Every default is what the suite does when the key is absent (``use_swa`` off, no explicit matmul precision).
 
     Parameters
     ----------
     model_params : dict, optional
-        Model initialization parameters. Keys: hidden_dims, activation, dropout.
+        Overrides of the MLP module's initialization parameters (hidden sizes, optimizer, learning rate, ...).
     network_params : dict, optional
-        Network architecture parameters. Keys: layers, batch_norm.
+        Overrides of the network architecture (``nlayers``, neuron sizes, layer norm, ...).
     trainer_params : dict, optional
-        PyTorch Lightning Trainer parameters. Keys: max_epochs, accelerator.
+        PyTorch Lightning ``Trainer`` parameters (``max_epochs``, ``precision``, ``max_time``, ...).
     dataloader_params : dict, optional
-        DataLoader parameters. Keys: batch_size, num_workers.
+        DataLoader parameters (``batch_size``, ``num_workers``, ...).
     datamodule_params : dict, optional
-        DataModule parameters. Keys: train_split, val_split.
+        DataModule parameters.
     use_swa : bool
-        Whether to use Stochastic Weight Averaging (default: True).
+        Stochastic Weight Averaging (default: off).
     swa_params : dict, optional
-        SWA callback parameters. Keys: swa_lrs, swa_epoch_start.
+        SWA callback parameters (``swa_lrs``, ``swa_epoch_start``, ``annealing_epochs``).
     tune_params : bool
-        Whether to tune hyperparameters (default: False).
-    float32_matmul_precision : str
-        PyTorch matmul precision: "high", "medium", "highest". Case-insensitive.
+        Tune hyperparameters before fitting (default: off).
+    float32_matmul_precision : str, optional
+        ``"high"``, ``"medium"`` or ``"highest"`` (case-insensitive); ``None`` leaves the torch default.
     """
 
-    UNCONSUMED_CLASS_HINT: ClassVar[Optional[str]] = "set MLP hyperparameters through ModelHyperparamsConfig.mlp_kwargs"
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
-    model_params: Optional[Dict[str, Any]] = None  # keys: hidden_dims, activation, dropout
-    network_params: Optional[Dict[str, Any]] = None  # keys: layers, batch_norm
-    trainer_params: Optional[Dict[str, Any]] = None  # keys: max_epochs, accelerator, devices
-    dataloader_params: Optional[Dict[str, Any]] = None  # keys: batch_size, num_workers
-    datamodule_params: Optional[Dict[str, Any]] = None  # keys: train_split, val_split
+    model_params: Optional[Dict[str, Any]] = None
+    network_params: Optional[Dict[str, Any]] = None
+    trainer_params: Optional[Dict[str, Any]] = None
+    dataloader_params: Optional[Dict[str, Any]] = None
+    datamodule_params: Optional[Dict[str, Any]] = None
 
-    use_swa: bool = True
-    swa_params: Optional[Dict[str, Any]] = None  # keys: swa_lrs, swa_epoch_start
+    use_swa: bool = False
+    swa_params: Optional[Dict[str, Any]] = None
     tune_params: bool = False
-    float32_matmul_precision: str = "medium"
+    float32_matmul_precision: Optional[str] = None
 
     @field_validator("float32_matmul_precision", mode="before")
     @classmethod
-    def normalize_precision(cls, v: str) -> str:
-        """Normalize float32_matmul_precision to lowercase and validate."""
-        v_lower = v.lower()
+    def normalize_precision(cls, v: Any) -> Any:
+        """Normalize float32_matmul_precision to lowercase and validate (``None`` passes through)."""
+        if v is None:
+            return None
+        v_lower = str(v).lower()
         if v_lower not in VALID_MATMUL_PRECISIONS:
             raise ValueError(f"float32_matmul_precision must be one of {VALID_MATMUL_PRECISIONS}, got '{v}'")
         return v_lower
 
 
-class NGBConfig(InertFieldsWarningMixin, ModelConfig):
-    """Configuration for NGBoost probabilistic regression/classification.
+def validate_nested_mlp_kwargs(mlp_kwargs: Optional[Dict[str, Any]]) -> None:
+    """Raise when ``mlp_kwargs`` (the nested form the regular suite reads) has an unknown section or a malformed value; ``None`` / ``{}`` pass.
 
-    NGBoost outputs full probability distributions rather than point predictions.
-
-    Parameters
-    ----------
-    n_estimators : int
-        Number of boosting stages (default: 500).
-    learning_rate : float
-        Boosting learning rate (default: 0.01).
-    minibatch_frac : float
-        Fraction of data per boosting iteration (default: 1.0).
-    Dist : Any, optional
-        NGBoost distribution class (e.g., ngboost.distns.Normal, Bernoulli).
-    Score : Any, optional
-        NGBoost scoring rule class (e.g., ngboost.scores.LogScore, CRPS).
+    Not applied to the learning-to-rank path, where the same field is a flat set of ``MLPRanker`` constructor arguments.
     """
-
-    UNCONSUMED_CLASS_HINT: ClassVar[Optional[str]] = "set NGBoost hyperparameters through ModelHyperparamsConfig.ngb_kwargs"
-
-    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
-    INERT_FIELDS: ClassVar[dict[str, str]] = {
-        "minibatch_frac": "NGB is configured through the ngb_kwargs dict; this class is never instantiated",
-        "Dist": "NGB is configured through the ngb_kwargs dict; this class is never instantiated",
-    }
-
-    # Range guards: n_estimators=0 yields a no-stage NGBoost (degenerate);
-    # minibatch_frac must be a (0,1] fraction (NGBoost subsamples that share
-    # of rows per stage -- 0 / >1 / negative all misbehave silently).
-    n_estimators: int = Field(default=500, ge=1)
-    learning_rate: float = Field(default=0.01, gt=0.0, le=1.0)
-    minibatch_frac: float = Field(default=1.0, gt=0.0, le=1.0)
-    Dist: Optional[Any] = None  # ngboost.distns distribution class (Normal, Bernoulli, etc.)
-    Score: Optional[Any] = None  # ngboost.scores scoring rule (LogScore, CRPS, etc.)
+    if mlp_kwargs:
+        MLPConfig(**mlp_kwargs)
 
 
 class AutoMLConfig(InertFieldsWarningMixin, BaseConfig):
@@ -373,8 +281,8 @@ class ModelHyperparamsConfig(BaseConfig):
     iterations : int
         Number of boosting iterations.
     early_stopping_rounds : int or None
-        Patience for early stopping, >= 1. None disables early stopping entirely. Unlike the deprecated
-        ``TreeModelConfig``, 0 is rejected rather than meaning "auto": give the patience explicitly.
+        Patience for early stopping, >= 1. None disables early stopping entirely. 0 is rejected rather than meaning
+        "auto": give the patience explicitly.
     catboost_custom_classif_metrics : list of str, optional
         Custom CatBoost classification metrics.
     rfecv_kwargs : dict, optional
@@ -393,27 +301,30 @@ class ModelHyperparamsConfig(BaseConfig):
         Extra NGBoost constructor kwargs.
     """
 
-    # Legitimate pass-through extras consumed by ``get_training_configs``
-    # via ``**config_params``. Adding a name here silences the
-    # "unknown field" warning from BaseConfig when users pass it through
-    # ``hyperparams_config={"mae_weight": 2.0, ...}``.
-    _known_extras: ClassVar[FrozenSet[str]] = frozenset({
-        # ICE-metric weights (see metrics.integral_calibration_error_from_metrics)
-        "mae_weight", "std_weight", "roc_auc_weight", "pr_auc_weight",
-        "brier_loss_weight", "min_roc_auc", "roc_auc_penalty", "coverage_weight",
-        # Robustness / integral-error bin config
-        "robustness_num_ts_splits", "robustness_std_coeff",
-        "robustness_greater_is_better",
-        "nbins", "cont_nbins", "method", "use_weighted_calibration",
-        "weight_by_class_npositives",
-        # Scoring + metric defaults
-        "def_classif_metric", "def_regr_metric",
-        # Training infra knobs
-        "validation_fraction", "use_explicit_early_stopping",
-        "random_seed", "verbose",
-        # Non-classif extras
-        "catboost_custom_regr_metrics",
-    })
+    # Knobs forwarded to ``get_training_configs`` that used to be accepted as undeclared extras. ``None`` means "not set": the suite drops
+    # None-valued fields (``model_dump(exclude_none=True)``), so ``get_training_configs`` keeps its own default; a test pins the two together.
+    # Integral-calibration-error weights of the early-stopping metric (see metrics.integral_calibration_error_from_metrics):
+    method: Optional[str] = None
+    mae_weight: Optional[float] = None
+    std_weight: Optional[float] = None
+    roc_auc_weight: Optional[float] = None
+    pr_auc_weight: Optional[float] = None
+    brier_loss_weight: Optional[float] = None
+    min_roc_auc: Optional[float] = None
+    roc_auc_penalty: Optional[float] = None
+    use_weighted_calibration: Optional[bool] = None
+    weight_by_class_npositives: Optional[bool] = None
+    nbins: Optional[int] = Field(default=None, ge=1)
+    # Robustness term of the early-stopping metric (0 time splits = disabled):
+    robustness_num_ts_splits: Optional[int] = Field(default=None, ge=0)
+    robustness_std_coeff: Optional[float] = None
+    robustness_greater_is_better: Optional[bool] = None
+    # Early-stopping infrastructure and run-level knobs:
+    validation_fraction: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
+    use_explicit_early_stopping: Optional[bool] = None
+    random_seed: Optional[int] = None
+    verbose: Optional[int] = None
+    catboost_custom_regr_metrics: Optional[List[str]] = None
 
     has_time: bool = False
     # Range validators catch garbage (learning_rate=-0.1, iterations=0, etc.) at construction; otherwise they propagate silently to the tree backends and surface as confusing errors much later.

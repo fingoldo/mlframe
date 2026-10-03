@@ -510,30 +510,9 @@ class RFECV(TransformerMixin, BaseEstimator):
         if isinstance(cv, int) and cv < 2:
             raise ValueError(f"cv must be >= 2 (or a CV splitter object); got cv={cv}. " f"k-fold CV requires at least 2 splits.")
 
-        if stability_selection:
-            if not (0.0 < stability_threshold <= 1.0):
-                raise ValueError(f"stability_threshold must be in (0, 1]; got {stability_threshold}.")
-            if stability_n_bootstrap < 10 and verbose:
-                logger.warning(
-                    "RFECV: stability_n_bootstrap=%d is below the recommended "
-                    "minimum of 10. Bootstrap voting is statistically meaningful "
-                    "only with B >= 10; expect noisy / unstable selection.",
-                    stability_n_bootstrap,
-                )
-            if stability_n_bootstrap < 1:
-                raise ValueError(f"stability_n_bootstrap must be >= 1; got {stability_n_bootstrap}.")
+        self._check_stability_selection_params(stability_selection, stability_threshold, stability_n_bootstrap, verbose)
 
-        if feature_groups:
-            for _gname, _gmembers in feature_groups.items():
-                if not _gmembers:
-                    if verbose:
-                        log_throttle(
-                            logger,
-                            "rfecv_feature_group_empty",
-                            logging.WARNING,
-                            "RFECV: feature_groups[%r] is empty; this group " "will have no effect on selection.",
-                            _gname,
-                        )
+        self._check_feature_groups_nonempty(feature_groups, verbose)
 
         if nan_in_X_policy not in ("impute", "raise"):
             raise ValueError(f"nan_in_X_policy must be 'impute' or 'raise'; got {nan_in_X_policy!r}.")
@@ -612,20 +591,7 @@ class RFECV(TransformerMixin, BaseEstimator):
 
         # E3: feature_groups overlap is silently expanded into a contradictory all-or-nothing rule that grows
         # the support_ by every group member of every overlapping group whenever ANY shared member is picked. Reject upfront.
-        if feature_groups:
-            _seen: dict = {}
-            for _gname, _gmembers in feature_groups.items():
-                for _m in _gmembers or []:
-                    if _m in _seen:
-                        raise ValueError(
-                            f"feature_groups: column {_m!r} appears in BOTH "
-                            f"group {_seen[_m]!r} and group {_gname!r}. Groups "
-                            f"must be disjoint - the all-or-nothing rule "
-                            f"otherwise expands to the union of every "
-                            f"overlapping group when any shared member is "
-                            f"picked, producing a wider support_ than asked."
-                        )
-                    _seen[_m] = _gname
+        self._check_feature_groups_disjoint(feature_groups)
 
         params = get_parent_func_args()
         # grouped-config merge. When a SearchConfig / FIConfig /
@@ -641,6 +607,55 @@ class RFECV(TransformerMixin, BaseEstimator):
         # changed to "_param_" without every caller being updated.
         store_params_in_object(obj=self, params=params, postfix="")
         self.signature = None
+
+    @staticmethod
+    def _check_stability_selection_params(stability_selection, stability_threshold, stability_n_bootstrap, verbose):
+        """Validate the stability-selection parameters."""
+        if stability_selection:
+            if not (0.0 < stability_threshold <= 1.0):
+                raise ValueError(f"stability_threshold must be in (0, 1]; got {stability_threshold}.")
+            if stability_n_bootstrap < 10 and verbose:
+                logger.warning(
+                    "RFECV: stability_n_bootstrap=%d is below the recommended "
+                    "minimum of 10. Bootstrap voting is statistically meaningful "
+                    "only with B >= 10; expect noisy / unstable selection.",
+                    stability_n_bootstrap,
+                )
+            if stability_n_bootstrap < 1:
+                raise ValueError(f"stability_n_bootstrap must be >= 1; got {stability_n_bootstrap}.")
+
+    @staticmethod
+    def _check_feature_groups_nonempty(feature_groups, verbose):
+        """Reject empty feature groups."""
+        if feature_groups:
+            for _gname, _gmembers in feature_groups.items():
+                if not _gmembers:
+                    if verbose:
+                        log_throttle(
+                            logger,
+                            "rfecv_feature_group_empty",
+                            logging.WARNING,
+                            "RFECV: feature_groups[%r] is empty; this group " "will have no effect on selection.",
+                            _gname,
+                        )
+
+    @staticmethod
+    def _check_feature_groups_disjoint(feature_groups):
+        """Reject overlapping feature groups up front."""
+        if feature_groups:
+            _seen: dict = {}
+            for _gname, _gmembers in feature_groups.items():
+                for _m in _gmembers or []:
+                    if _m in _seen:
+                        raise ValueError(
+                            f"feature_groups: column {_m!r} appears in BOTH "
+                            f"group {_seen[_m]!r} and group {_gname!r}. Groups "
+                            f"must be disjoint - the all-or-nothing rule "
+                            f"otherwise expands to the union of every "
+                            f"overlapping group when any shared member is "
+                            f"picked, producing a wider support_ than asked."
+                        )
+                    _seen[_m] = _gname
 
     def __sklearn_tags__(self):
         tags = super().__sklearn_tags__()

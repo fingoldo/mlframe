@@ -263,177 +263,187 @@ def generate_extra_basis_features(
                 )
         # Skip Fourier on integer-valued low-cardinality categorical group keys: sin/cos of an arbitrary label code (region 0..9)
         # is spurious periodicity that floods the support and displaces the genuinely useful grouped aggregates of that key.
-        if "fourier" in extra_bases and not _is_int_as_cat_axis(x):
-            try:
-                # POWER-ARGUMENT Fourier: build the Fourier on x**p for
-                # p in fourier_powers, as a SELF-CONTAINED replayable recipe (raw x ->
-                # x**p -> Fourier; 1-deep, no nesting). p=2 captures even-argument
-                # CHIRPS like ``sin(a**2)`` (freq~1 on the a**2 argument reproduces it
-                # exactly) that a Fourier on the linear argument cannot. p=1 keeps the
-                # original ``{col}__sin{freq}`` name (back-compat with prior recipes).
-                for pwr in fourier_powers:
-                    _p = int(pwr)
-                    _xp = x if _p == 1 else np.power(x, _p)
-                    if not np.all(np.isfinite(_xp)) or float(np.std(_xp)) <= 1e-12:
-                        continue
-                    lo_f, span_f = _fit_fourier_for_col(_xp)
-                    z = (_xp - lo_f) / max(span_f, 1e-12)
-                    _pfx = "" if _p == 1 else f"p{_p}"
-                    # ADAPTIVE-FREQUENCY: for the linear argument
-                    # (power==1) detect the column's dominant z-space frequency
-                    # from a coarse sweep + local refine, held-out validated.
-                    # The detected freq is ADDED to this column's freq set and
-                    # its sin/cos meta is tagged adaptive=True so MRMR protects
-                    # it past screening. Disjoint-by-detection from the fixed
-                    # grid: a fixed freq that already recovers the signal makes
-                    # the periodogram peak land near it, so the detector's
-                    # held-out gate is satisfied by the fixed twin too - but
-                    # we still tag/add the refined freq because the fixed grid
-                    # cannot express a non-integer period.
-                    _adaptive_freqs: list[float] = []
-                    if _p == 1 and _y_adapt is not None and _adaptive_fe_ok:
-                        # max_freqs=6: a multitone superposition (3-4 genuine
-                        # tones) needs enough sin/cos pairs to SPAN the signal
-                        # subspace after the per-iteration deflation leaves a
-                        # residual - 4 pairs recovered the 3-tone gate-A signal
-                        # at OOS R^2 ~0.95 but 6 pairs lift it to ~0.985, a far
-                        # safer margin above the 0.9 bar. Each extra freq still
-                        # passes the held-out 0.30 floor, so noise never inflates
-                        # the count (a pure-noise column stops at the first peak).
-                        _adaptive_freqs = _detect_fourier_freqs_for_col(
-                            z, _y_adapt,
-                            f_grid=_adaptive_f_grid,
-                            min_val_corr=float(fourier_adaptive_min_val_corr),
-                            min_rows=800,
-                            max_freqs=6,
-                        )
-                    _freqs_for_col = list(fourier_freqs)
-                    _adaptive_set: set[float] = set()
-                    for _af in _adaptive_freqs:
-                        if not any(abs(_af - f) < 1e-9 for f in _freqs_for_col):
-                            _freqs_for_col.append(_af)
-                            _adaptive_set.add(_af)
-                    for freq in _freqs_for_col:
-                        _is_adaptive = freq in _adaptive_set
-                        ang = 2.0 * np.pi * freq * z
-                        s_vals = np.sin(ang)
-                        c_vals = np.cos(ang)
-                        if float(np.std(s_vals)) > 1e-12:
-                            name_s = f"{col}__{_pfx}sin{freq:g}"
-                            out_cols[name_s] = s_vals
-                            meta[name_s] = {
-                                "basis": "fourier", "src": col,
-                                "kind": "sin", "freq": float(freq),
-                                "lo": float(lo_f), "span": float(span_f),
-                                "power": _p, "adaptive": _is_adaptive,
-                            }
-                        if float(np.std(c_vals)) > 1e-12:
-                            name_c = f"{col}__{_pfx}cos{freq:g}"
-                            out_cols[name_c] = c_vals
-                            meta[name_c] = {
-                                "basis": "fourier", "src": col,
-                                "kind": "cos", "freq": float(freq),
-                                "lo": float(lo_f), "span": float(span_f),
-                                "power": _p, "adaptive": _is_adaptive,
-                            }
-                # ADAPTIVE-CHIRP: a SECOND argument-warp alongside
-                # the linear-adaptive path above. The chirp axis u = sign(z)*z**2
-                # (z standardised on the column) makes a growing-frequency
-                # oscillation ``y ~ sin(2*pi*f*z**2)`` STATIONARY in u, so the
-                # SAME held-out-validated multitone detector locks its frequency
-                # and the emitted sin/cos on u reconstruct it - which a Fourier
-                # on the linear argument cannot (Phase-0: linear R^2 0.07-0.53 vs
-                # chirp 0.88 on a fast chirp). Emitted legs carry arg="quadratic"
-                # (the warp the recipe replays) + adaptive=True (so MRMR protects
-                # them past the screen, exactly like the linear adaptive legs).
-                # Disjoint by name (``__qsin``/``__qcos``) from the linear legs;
-                # additive (on a plain linear target the chirp legs are harmless,
-                # Ridge regularises them to ~0). N-gated identically (>= 800 rows
-                # inside the detector); a pure-noise column admits none.
-                if fourier_chirp and _y_adapt is not None and _adaptive_fe_ok:
-                    _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
-                    if _c_span > 1e-12 and _c_std > 1e-12:
-                        u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
-                        if np.all(np.isfinite(u_axis)) and float(np.std(u_axis)) > 1e-12:
-                            _chirp_freqs = _detect_fourier_freqs_for_col(
-                                u_axis, _y_adapt,
-                                f_grid=_chirp_f_grid,
-                                min_val_corr=float(fourier_chirp_min_val_corr),
-                                min_rows=800,
-                                max_freqs=6,
-                            )
-                            for _cf in _chirp_freqs:
-                                ang_c = 2.0 * np.pi * _cf * u_axis
-                                sc_vals = np.sin(ang_c)
-                                cc_vals = np.cos(ang_c)
-                                if float(np.std(sc_vals)) > 1e-12:
-                                    name_qs = f"{col}__qsin{_cf:g}"
-                                    out_cols[name_qs] = sc_vals
-                                    meta[name_qs] = {
-                                        "basis": "fourier", "src": col,
-                                        "kind": "sin", "freq": float(_cf),
-                                        "arg": "quadratic",
-                                        "mean": float(_c_mean), "std": float(_c_std),
-                                        "lo": float(_c_lo), "span": float(_c_span),
-                                        "power": 1, "adaptive": True,
-                                    }
-                                if float(np.std(cc_vals)) > 1e-12:
-                                    name_qc = f"{col}__qcos{_cf:g}"
-                                    out_cols[name_qc] = cc_vals
-                                    meta[name_qc] = {
-                                        "basis": "fourier", "src": col,
-                                        "kind": "cos", "freq": float(_cf),
-                                        "arg": "quadratic",
-                                        "mean": float(_c_mean), "std": float(_c_std),
-                                        "lo": float(_c_lo), "span": float(_c_span),
-                                        "power": 1, "adaptive": True,
-                                    }
-            except Exception as exc:
-                log_throttle(
-                    logger, "extra_basis_fourier_raised", logging.WARNING,
-                    "generate_extra_basis_features: fourier on col=%r raised " "%r; skipping fourier for that column.",
-                    col,
-                    exc,
-                )
+        _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr)
         # Backlog #13: Haar wavelet / localized multiresolution
         # legs. The per-column held-out scale-selection lives in the standalone
         # ``_wavelet_basis_fe`` module (candidate-count control via the noise-aware
         # held-out MAD floor + max_legs cap); here we only emit the selected legs
         # so the extra-basis MI-uplift gate can screen them like spline/Fourier.
-        if "wavelet" in extra_bases and y is not None:
-            try:
-                from .._wavelet_basis_fe import (
-                    _dyadic_haar_leg,
-                    _select_wavelet_legs,
-                )
-                _yv = np.asarray(y).ravel()
-                if _yv.size == x.size:
-                    xf = x[np.isfinite(x)]
-                    _w_lo = float(xf.min())
-                    _w_hi = float(xf.max())
-                    _w_span = max(_w_hi - _w_lo, 1e-12)
-                    _w_legs = _select_wavelet_legs(x, _yv, _w_lo, _w_span)
-                    if _w_legs:
-                        _w_z = np.clip((x - _w_lo) / _w_span, 0.0, 1.0)
-                        for _wj, _wk in _w_legs:
-                            _w_leg = _dyadic_haar_leg(_w_z, _wj, _wk)
-                            if float(np.std(_w_leg)) <= 1e-12:
-                                continue
-                            name = f"{col}__haar_j{_wj}k{_wk}"
-                            out_cols[name] = _w_leg
-                            meta[name] = {
-                                "basis": "wavelet", "src": col,
-                                "j": int(_wj), "k": int(_wk),
-                                "lo": float(_w_lo), "span": float(_w_span),
-                            }
-            except Exception as exc:
-                log_throttle(
-                    logger, "extra_basis_wavelet_raised", logging.WARNING,
-                    "generate_extra_basis_features: wavelet on col=%r raised " "%r; skipping wavelet for that column.",
-                    col,
-                    exc,
-                )
+        _wavelet_extra_basis(extra_bases, y, x, col, out_cols, meta)
     return pd.DataFrame(out_cols, index=X.index), meta
+
+
+def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr):
+    """Build the Fourier extra-basis candidates of one column."""
+    if "fourier" in extra_bases and not _is_int_as_cat_axis(x):
+        try:
+            # POWER-ARGUMENT Fourier: build the Fourier on x**p for
+            # p in fourier_powers, as a SELF-CONTAINED replayable recipe (raw x ->
+            # x**p -> Fourier; 1-deep, no nesting). p=2 captures even-argument
+            # CHIRPS like ``sin(a**2)`` (freq~1 on the a**2 argument reproduces it
+            # exactly) that a Fourier on the linear argument cannot. p=1 keeps the
+            # original ``{col}__sin{freq}`` name (back-compat with prior recipes).
+            for pwr in fourier_powers:
+                _p = int(pwr)
+                _xp = x if _p == 1 else np.power(x, _p)
+                if not np.all(np.isfinite(_xp)) or float(np.std(_xp)) <= 1e-12:
+                    continue
+                lo_f, span_f = _fit_fourier_for_col(_xp)
+                z = (_xp - lo_f) / max(span_f, 1e-12)
+                _pfx = "" if _p == 1 else f"p{_p}"
+                # ADAPTIVE-FREQUENCY: for the linear argument
+                # (power==1) detect the column's dominant z-space frequency
+                # from a coarse sweep + local refine, held-out validated.
+                # The detected freq is ADDED to this column's freq set and
+                # its sin/cos meta is tagged adaptive=True so MRMR protects
+                # it past screening. Disjoint-by-detection from the fixed
+                # grid: a fixed freq that already recovers the signal makes
+                # the periodogram peak land near it, so the detector's
+                # held-out gate is satisfied by the fixed twin too - but
+                # we still tag/add the refined freq because the fixed grid
+                # cannot express a non-integer period.
+                _adaptive_freqs: list[float] = []
+                if _p == 1 and _y_adapt is not None and _adaptive_fe_ok:
+                    # max_freqs=6: a multitone superposition (3-4 genuine
+                    # tones) needs enough sin/cos pairs to SPAN the signal
+                    # subspace after the per-iteration deflation leaves a
+                    # residual - 4 pairs recovered the 3-tone gate-A signal
+                    # at OOS R^2 ~0.95 but 6 pairs lift it to ~0.985, a far
+                    # safer margin above the 0.9 bar. Each extra freq still
+                    # passes the held-out 0.30 floor, so noise never inflates
+                    # the count (a pure-noise column stops at the first peak).
+                    _adaptive_freqs = _detect_fourier_freqs_for_col(
+                        z, _y_adapt,
+                        f_grid=_adaptive_f_grid,
+                        min_val_corr=float(fourier_adaptive_min_val_corr),
+                        min_rows=800,
+                        max_freqs=6,
+                    )
+                _freqs_for_col = list(fourier_freqs)
+                _adaptive_set: set[float] = set()
+                for _af in _adaptive_freqs:
+                    if not any(abs(_af - f) < 1e-9 for f in _freqs_for_col):
+                        _freqs_for_col.append(_af)
+                        _adaptive_set.add(_af)
+                for freq in _freqs_for_col:
+                    _is_adaptive = freq in _adaptive_set
+                    ang = 2.0 * np.pi * freq * z
+                    s_vals = np.sin(ang)
+                    c_vals = np.cos(ang)
+                    if float(np.std(s_vals)) > 1e-12:
+                        name_s = f"{col}__{_pfx}sin{freq:g}"
+                        out_cols[name_s] = s_vals
+                        meta[name_s] = {
+                            "basis": "fourier", "src": col,
+                            "kind": "sin", "freq": float(freq),
+                            "lo": float(lo_f), "span": float(span_f),
+                            "power": _p, "adaptive": _is_adaptive,
+                        }
+                    if float(np.std(c_vals)) > 1e-12:
+                        name_c = f"{col}__{_pfx}cos{freq:g}"
+                        out_cols[name_c] = c_vals
+                        meta[name_c] = {
+                            "basis": "fourier", "src": col,
+                            "kind": "cos", "freq": float(freq),
+                            "lo": float(lo_f), "span": float(span_f),
+                            "power": _p, "adaptive": _is_adaptive,
+                        }
+            # ADAPTIVE-CHIRP: a SECOND argument-warp alongside
+            # the linear-adaptive path above. The chirp axis u = sign(z)*z**2
+            # (z standardised on the column) makes a growing-frequency
+            # oscillation ``y ~ sin(2*pi*f*z**2)`` STATIONARY in u, so the
+            # SAME held-out-validated multitone detector locks its frequency
+            # and the emitted sin/cos on u reconstruct it - which a Fourier
+            # on the linear argument cannot (Phase-0: linear R^2 0.07-0.53 vs
+            # chirp 0.88 on a fast chirp). Emitted legs carry arg="quadratic"
+            # (the warp the recipe replays) + adaptive=True (so MRMR protects
+            # them past the screen, exactly like the linear adaptive legs).
+            # Disjoint by name (``__qsin``/``__qcos``) from the linear legs;
+            # additive (on a plain linear target the chirp legs are harmless,
+            # Ridge regularises them to ~0). N-gated identically (>= 800 rows
+            # inside the detector); a pure-noise column admits none.
+            if fourier_chirp and _y_adapt is not None and _adaptive_fe_ok:
+                _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
+                if _c_span > 1e-12 and _c_std > 1e-12:
+                    u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
+                    if np.all(np.isfinite(u_axis)) and float(np.std(u_axis)) > 1e-12:
+                        _chirp_freqs = _detect_fourier_freqs_for_col(
+                            u_axis, _y_adapt,
+                            f_grid=_chirp_f_grid,
+                            min_val_corr=float(fourier_chirp_min_val_corr),
+                            min_rows=800,
+                            max_freqs=6,
+                        )
+                        for _cf in _chirp_freqs:
+                            ang_c = 2.0 * np.pi * _cf * u_axis
+                            sc_vals = np.sin(ang_c)
+                            cc_vals = np.cos(ang_c)
+                            if float(np.std(sc_vals)) > 1e-12:
+                                name_qs = f"{col}__qsin{_cf:g}"
+                                out_cols[name_qs] = sc_vals
+                                meta[name_qs] = {
+                                    "basis": "fourier", "src": col,
+                                    "kind": "sin", "freq": float(_cf),
+                                    "arg": "quadratic",
+                                    "mean": float(_c_mean), "std": float(_c_std),
+                                    "lo": float(_c_lo), "span": float(_c_span),
+                                    "power": 1, "adaptive": True,
+                                }
+                            if float(np.std(cc_vals)) > 1e-12:
+                                name_qc = f"{col}__qcos{_cf:g}"
+                                out_cols[name_qc] = cc_vals
+                                meta[name_qc] = {
+                                    "basis": "fourier", "src": col,
+                                    "kind": "cos", "freq": float(_cf),
+                                    "arg": "quadratic",
+                                    "mean": float(_c_mean), "std": float(_c_std),
+                                    "lo": float(_c_lo), "span": float(_c_span),
+                                    "power": 1, "adaptive": True,
+                                }
+        except Exception as exc:
+            log_throttle(
+                logger, "extra_basis_fourier_raised", logging.WARNING,
+                "generate_extra_basis_features: fourier on col=%r raised " "%r; skipping fourier for that column.",
+                col,
+                exc,
+            )
+
+
+def _wavelet_extra_basis(extra_bases, y, x, col, out_cols, meta):
+    """Build the wavelet extra-basis candidates when requested."""
+    if "wavelet" in extra_bases and y is not None:
+        try:
+            from mlframe.feature_selection.filters._wavelet_basis_fe import (
+                _dyadic_haar_leg,
+                _select_wavelet_legs,
+            )
+            _yv = np.asarray(y).ravel()
+            if _yv.size == x.size:
+                xf = x[np.isfinite(x)]
+                _w_lo = float(xf.min())
+                _w_hi = float(xf.max())
+                _w_span = max(_w_hi - _w_lo, 1e-12)
+                _w_legs = _select_wavelet_legs(x, _yv, _w_lo, _w_span)
+                if _w_legs:
+                    _w_z = np.clip((x - _w_lo) / _w_span, 0.0, 1.0)
+                    for _wj, _wk in _w_legs:
+                        _w_leg = _dyadic_haar_leg(_w_z, _wj, _wk)
+                        if float(np.std(_w_leg)) <= 1e-12:
+                            continue
+                        name = f"{col}__haar_j{_wj}k{_wk}"
+                        out_cols[name] = _w_leg
+                        meta[name] = {
+                            "basis": "wavelet", "src": col,
+                            "j": int(_wj), "k": int(_wk),
+                            "lo": float(_w_lo), "span": float(_w_span),
+                        }
+        except Exception as exc:
+            log_throttle(
+                logger, "extra_basis_wavelet_raised", logging.WARNING,
+                "generate_extra_basis_features: wavelet on col=%r raised " "%r; skipping wavelet for that column.",
+                col,
+                exc,
+            )
 
 
 def _build_recipe_from_meta(name: str, meta_entry: dict):

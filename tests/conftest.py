@@ -4,6 +4,7 @@ Root pytest fixtures shared across all test modules.
 
 import gc
 import os
+import sys
 import time
 import warnings
 
@@ -393,6 +394,21 @@ def _reset_kernel_tuning_singleton():
             _ktc._DEFAULT_INSTANCE = None
         except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
+
+
+@pytest.fixture(autouse=True)
+def _clear_pre_pipeline_cache():
+    """Start every test with an empty process-wide pre-pipeline LRU.
+
+    ``_apply_pre_pipeline_transforms`` reuses an already fitted pipeline for identical (train frame, pipeline structure, target) inputs, and
+    that cache outlives the suite call. A test that asserts a selector IS fitted therefore passed or failed depending on whether an earlier
+    test had fitted the same pipeline on the same synthetic frame (``test_selector_model_is_loaded_not_retrained_on_rerun`` after
+    ``test_changed_input_columns_still_invalidate_selector_model``). Only touched when the module is already imported, so light tests pay nothing.
+    """
+    module = sys.modules.get("mlframe.training.pipeline._pipeline_cache")
+    if module is not None:
+        module._pre_pipeline_cache_clear()
+    yield
 
 
 @pytest.fixture(autouse=True)

@@ -496,6 +496,132 @@ class _DatasetReuseMixin:
         # Raw first-eval-pair frame/labels retained for per-iteration metric capture (the binned Dataset cannot be re-predicted).
         _iter_metrics_Xval = None
         _iter_metrics_yval = None
+        _iter_metrics_Xval, _iter_metrics_yval = self._build_eval_datasets(eval_set, X, eval_sample_weight, eval_init_score, categorical_feature, train_key, dtrain, feature_name, valid_sets, eval_names, valid_names, _iter_metrics_Xval, _iter_metrics_yval)
+
+        # ---- Resolve params for lgb.train() --------------------------
+        # ``_process_params("fit")`` strips sklearn-only fields
+        # (n_estimators, importance_type, class_weight) and resolves
+        # ``objective`` based on _n_classes. It also sets
+        # ``self._objective`` if it was None -- our pre-fit hook left
+        # it None for that resolution path.
+        #
+        # Pre-fill ``n_jobs`` so LightGBM's _process_n_jobs() doesn't
+        # shell out via joblib -> loky -> wmic to count physical cores
+        # (~1.5s on Windows, per cProfile against
+        # _count_physical_cores_win32). LightGBM only probes when n_jobs
+        # is None; setting it here to os.cpu_count() short-circuits the
+        # subprocess. Honour an explicit user choice if already set.
+        if getattr(self, "n_jobs", None) is None:
+            self.n_jobs = lgb_default_n_jobs(None)
+        params: dict = self._process_params("fit")  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
+        # Same shape as xgb_shim --
+        # pre-fix `or 100` silently rewrote n_estimators=0 to 100. lightgbm
+        # accepts n_estimators=0 (means untrained booster); the shim
+        # silently overrode that.
+        _n_est_raw = self.get_params().get("n_estimators", 100)  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
+        n_estimators = 100 if _n_est_raw is None else _n_est_raw
+
+        # Translate eval_metric -> params["metric"] / feval. String /
+        # list-of-strings go into params; callables go to feval. Mirrors
+        # LGBMModel.fit's handling.
+        feval = None
+        feval = self._split_eval_metrics(eval_metric, params, feval)
+
+        # ---- Native lgb.train() --------------------------------------
+        evals_result: dict = {}
+        train_callbacks = list(callbacks) if callbacks else []
+        if valid_sets:
+            train_callbacks.append(lgb.record_evaluation(evals_result))
+            # Default-on monotonic strict-decline overfitting stop, COMPLEMENTARY to native
+            # early_stopping_rounds: stop once the first val set's metric strictly worsens for
+            # ``monotonic_decline_patience`` consecutive rounds since the best. Skipped when the
+            # caller already supplied one, or when disabled (None). The native best-iteration
+            # rollback (EarlyStopException) keeps the global-best booster.
+            from .callbacks.monotonic_decline import LGBMonotonicDeclineStop
+
+            if monotonic_decline_patience is not None and not any(isinstance(cb, LGBMonotonicDeclineStop) for cb in train_callbacks):
+                train_callbacks.append(LGBMonotonicDeclineStop(patience=monotonic_decline_patience))
+            # Kept for the post-fit stop-reason log below: the ONLY way to tell "the monotonic-decline
+            # detector stopped this fit" apart from "native early_stopping_round did" from the outside,
+            # since both roll the booster back to the same best_iteration and neither is otherwise
+            # distinguishable from iteration count alone.
+            _mono_cb_ref = next((cb for cb in train_callbacks if isinstance(cb, LGBMonotonicDeclineStop)), None)
+        else:
+            _mono_cb_ref = None
+
+        # Per-iteration full-metric-suite capture (meta-learning / HPO-from-early-observation). lgb's binned val
+        # Dataset cannot be re-predicted, so the raw first eval pair (_iter_metrics_Xval/_iter_metrics_yval, captured
+        # in the eval_set loop above) is scored via env.model.predict(X_val, num_iteration=round) each stride round.
+        _iter_metrics_cb = None
+        if capture_iteration_metrics and valid_sets and _iter_metrics_Xval is not None:
+            from .callbacks.iteration_metrics import LGBIterationMetricsCallback
+            from sklearn.base import is_classifier as _sk_is_classifier
+            _ncls = getattr(self, "_n_classes", None)
+            if not _sk_is_classifier(self):
+                _tt = "regression"
+            elif _ncls is not None and _ncls > 2:
+                _tt = "multiclass_classification"
+            else:
+                _tt = "binary_classification"
+            _iter_metrics_cb = LGBIterationMetricsCallback(_iter_metrics_Xval, _iter_metrics_yval, _tt, stride=int(iteration_metrics_stride), n_classes=_ncls)
+            train_callbacks.append(_iter_metrics_cb)
+
+        booster = lgb.train(
+            params=params,
+            train_set=dtrain,
+            num_boost_round=int(n_estimators),
+            valid_sets=valid_sets or None,
+            valid_names=valid_names or None,
+            feval=feval,
+            callbacks=train_callbacks or None,
+            init_model=init_model,
+        )
+
+        # ---- Attach Booster + sklearn-convention metadata ------------
+        # LGBMModel exposes ``booster_`` as a property returning
+        # ``self._Booster``; ``predict`` / ``predict_proba`` route
+        # through ``self._Booster.predict()``. The bookkeeping attrs
+        # below mirror what ``LGBMModel.fit`` sets after its native
+        # train() call so the inherited methods see the same shape of
+        # state.
+        self._Booster = booster
+        self._n_features = booster.num_feature()
+        self._n_features_in = self._n_features
+        self._evals_result = evals_result
+        self._best_iteration = booster.best_iteration
+        self._best_score = booster.best_score
+        # Which of the two independent stop mechanisms actually ended this fit -- the monotonic-decline
+        # detector already logs its own firing (above), so this only adds the case that had NO log line at
+        # all: LightGBM's native early_stopping_round (silent unless verbosity is turned up), and the
+        # trivial "ran to the full budget" case. Read from valid_sets so a train-only fit (no eval data,
+        # nothing CAN have stopped it early) stays silent instead of stating a reason for a fit that had
+        # neither ES mechanism wired at all.
+        if valid_sets and booster.best_iteration and int(booster.best_iteration) < int(n_estimators) - 1:
+            if _mono_cb_ref is not None and getattr(_mono_cb_ref, "fired", False):
+                pass  # already logged inline by LGBMonotonicDeclineStop itself
+            else:
+                logger.info(
+                    "[lgb] stopped at iteration %d of %d requested: native early_stopping_round fired "
+                    "(monotonic-decline patience=%s did not trigger first).",
+                    booster.best_iteration, n_estimators, monotonic_decline_patience,
+                )
+        if _iter_metrics_cb is not None:
+            self.iteration_metrics_ = _iter_metrics_cb.iteration_metrics_
+        # ``fitted_`` is the flag ``__sklearn_is_fitted__`` checks --
+        # without it predict raises NotFittedError even though _Booster
+        # is set. Mirror of LGBMModel.fit's final state-flip line.
+        self.fitted_ = True
+
+        # ``_class_weight`` is consumed by predict_proba (multiclass
+        # path) and by some sample weighting helpers; set it to a safe
+        # default if pre_fit_bookkeeping didn't already.
+        if not hasattr(self, "_class_weight"):
+            self._class_weight = getattr(self, "class_weight", None)
+
+        return self
+
+    def _build_eval_datasets(self, eval_set, X, eval_sample_weight, eval_init_score, categorical_feature, train_key, dtrain, feature_name, valid_sets, eval_names, valid_names, _iter_metrics_Xval, _iter_metrics_yval):
+        """Build the validation datasets of the eval set."""
         if eval_set:
             for i, pair in enumerate(eval_set):
                 assert isinstance(pair, tuple) and len(pair) in (2, 3), (
@@ -511,20 +637,7 @@ class _DatasetReuseMixin:
                 # in X_val raises "train and valid dataset categorical_feature do not match". Align X_val's categorical
                 # columns to the train frame's exact CategoricalDtype. Only X_val (the small val frame) is rebuilt -- via
                 # assign for BlockManager reuse of un-cast columns -- the (potentially huge) train frame X is never touched.
-                if hasattr(X, "columns") and hasattr(X_val, "columns"):
-                    _val_cols = set(X_val.columns)
-                    _realign: dict = {}
-                    for _c, _dt in X.dtypes.items():
-                        if str(_dt) != "category" or _c not in _val_cols or _c in _realign:
-                            continue
-                        try:
-                            if X_val[_c].dtype != _dt:
-                                _realign[_c] = X_val[_c].astype(_dt)
-                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed: %s", e)
-                            pass
-                    if _realign:
-                        X_val = X_val.assign(**_realign)
+                X_val = self._realign_val_columns(X, X_val)
                 w_val_inline = pair_seq[2] if len(pair_seq) >= 3 else None
                 # Transform val labels through the encoder for classifier;
                 # regressor returns y unchanged.
@@ -597,34 +710,30 @@ class _DatasetReuseMixin:
                     # fit (test_tree_model_with_early_stopping[lgb], surfaced
                     # by a tests/training run after the migration).
                     valid_names.append(f"valid_{i}")
+        return _iter_metrics_Xval, _iter_metrics_yval
 
-        # ---- Resolve params for lgb.train() --------------------------
-        # ``_process_params("fit")`` strips sklearn-only fields
-        # (n_estimators, importance_type, class_weight) and resolves
-        # ``objective`` based on _n_classes. It also sets
-        # ``self._objective`` if it was None -- our pre-fit hook left
-        # it None for that resolution path.
-        #
-        # Pre-fill ``n_jobs`` so LightGBM's _process_n_jobs() doesn't
-        # shell out via joblib -> loky -> wmic to count physical cores
-        # (~1.5s on Windows, per cProfile against
-        # _count_physical_cores_win32). LightGBM only probes when n_jobs
-        # is None; setting it here to os.cpu_count() short-circuits the
-        # subprocess. Honour an explicit user choice if already set.
-        if getattr(self, "n_jobs", None) is None:
-            self.n_jobs = lgb_default_n_jobs(None)
-        params: dict = self._process_params("fit")  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
-        # Same shape as xgb_shim --
-        # pre-fix `or 100` silently rewrote n_estimators=0 to 100. lightgbm
-        # accepts n_estimators=0 (means untrained booster); the shim
-        # silently overrode that.
-        _n_est_raw = self.get_params().get("n_estimators", 100)  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
-        n_estimators = 100 if _n_est_raw is None else _n_est_raw
+    @staticmethod
+    def _realign_val_columns(X, X_val):
+        """Realign the validation frame columns with the train frame."""
+        if hasattr(X, "columns") and hasattr(X_val, "columns"):
+            _val_cols = set(X_val.columns)
+            _realign: dict = {}
+            for _c, _dt in X.dtypes.items():
+                if str(_dt) != "category" or _c not in _val_cols or _c in _realign:
+                    continue
+                try:
+                    if X_val[_c].dtype != _dt:
+                        _realign[_c] = X_val[_c].astype(_dt)
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
+            if _realign:
+                X_val = X_val.assign(**_realign)
+        return X_val
 
-        # Translate eval_metric -> params["metric"] / feval. String /
-        # list-of-strings go into params; callables go to feval. Mirrors
-        # LGBMModel.fit's handling.
-        feval = None
+    @staticmethod
+    def _split_eval_metrics(eval_metric, params, feval):
+        """Split the eval metrics into builtin metric names and callables."""
         if eval_metric is not None:
             metric_strs: list[str] = []
             feval_callables: list[Any] = []
@@ -653,99 +762,7 @@ class _DatasetReuseMixin:
                 # of LGBMModel.fit's eval-metric wiring.
                 wrapped = [_EvalFunctionWrapper(f) for f in feval_callables]
                 feval = wrapped if len(wrapped) > 1 else wrapped[0]
-
-        # ---- Native lgb.train() --------------------------------------
-        evals_result: dict = {}
-        train_callbacks = list(callbacks) if callbacks else []
-        if valid_sets:
-            train_callbacks.append(lgb.record_evaluation(evals_result))
-            # Default-on monotonic strict-decline overfitting stop, COMPLEMENTARY to native
-            # early_stopping_rounds: stop once the first val set's metric strictly worsens for
-            # ``monotonic_decline_patience`` consecutive rounds since the best. Skipped when the
-            # caller already supplied one, or when disabled (None). The native best-iteration
-            # rollback (EarlyStopException) keeps the global-best booster.
-            from .callbacks.monotonic_decline import LGBMonotonicDeclineStop
-
-            if monotonic_decline_patience is not None and not any(isinstance(cb, LGBMonotonicDeclineStop) for cb in train_callbacks):
-                train_callbacks.append(LGBMonotonicDeclineStop(patience=monotonic_decline_patience))
-            # Kept for the post-fit stop-reason log below: the ONLY way to tell "the monotonic-decline
-            # detector stopped this fit" apart from "native early_stopping_round did" from the outside,
-            # since both roll the booster back to the same best_iteration and neither is otherwise
-            # distinguishable from iteration count alone.
-            _mono_cb_ref = next((cb for cb in train_callbacks if isinstance(cb, LGBMonotonicDeclineStop)), None)
-        else:
-            _mono_cb_ref = None
-
-        # Per-iteration full-metric-suite capture (meta-learning / HPO-from-early-observation). lgb's binned val
-        # Dataset cannot be re-predicted, so the raw first eval pair (_iter_metrics_Xval/_iter_metrics_yval, captured
-        # in the eval_set loop above) is scored via env.model.predict(X_val, num_iteration=round) each stride round.
-        _iter_metrics_cb = None
-        if capture_iteration_metrics and valid_sets and _iter_metrics_Xval is not None:
-            from .callbacks.iteration_metrics import LGBIterationMetricsCallback
-            from sklearn.base import is_classifier as _sk_is_classifier
-            _ncls = getattr(self, "_n_classes", None)
-            if not _sk_is_classifier(self):
-                _tt = "regression"
-            elif _ncls is not None and _ncls > 2:
-                _tt = "multiclass_classification"
-            else:
-                _tt = "binary_classification"
-            _iter_metrics_cb = LGBIterationMetricsCallback(_iter_metrics_Xval, _iter_metrics_yval, _tt, stride=int(iteration_metrics_stride), n_classes=_ncls)
-            train_callbacks.append(_iter_metrics_cb)
-
-        booster = lgb.train(
-            params=params,
-            train_set=dtrain,
-            num_boost_round=int(n_estimators),
-            valid_sets=valid_sets or None,
-            valid_names=valid_names or None,
-            feval=feval,  # type: ignore[arg-type]  # _EvalFunctionWrapper is runtime-callable-compatible; lightgbm stubs don't model wrapper classes
-            callbacks=train_callbacks or None,
-            init_model=init_model,
-        )
-
-        # ---- Attach Booster + sklearn-convention metadata ------------
-        # LGBMModel exposes ``booster_`` as a property returning
-        # ``self._Booster``; ``predict`` / ``predict_proba`` route
-        # through ``self._Booster.predict()``. The bookkeeping attrs
-        # below mirror what ``LGBMModel.fit`` sets after its native
-        # train() call so the inherited methods see the same shape of
-        # state.
-        self._Booster = booster
-        self._n_features = booster.num_feature()
-        self._n_features_in = self._n_features
-        self._evals_result = evals_result
-        self._best_iteration = booster.best_iteration
-        self._best_score = booster.best_score
-        # Which of the two independent stop mechanisms actually ended this fit -- the monotonic-decline
-        # detector already logs its own firing (above), so this only adds the case that had NO log line at
-        # all: LightGBM's native early_stopping_round (silent unless verbosity is turned up), and the
-        # trivial "ran to the full budget" case. Read from valid_sets so a train-only fit (no eval data,
-        # nothing CAN have stopped it early) stays silent instead of stating a reason for a fit that had
-        # neither ES mechanism wired at all.
-        if valid_sets and booster.best_iteration and int(booster.best_iteration) < int(n_estimators) - 1:
-            if _mono_cb_ref is not None and getattr(_mono_cb_ref, "fired", False):
-                pass  # already logged inline by LGBMonotonicDeclineStop itself
-            else:
-                logger.info(
-                    "[lgb] stopped at iteration %d of %d requested: native early_stopping_round fired "
-                    "(monotonic-decline patience=%s did not trigger first).",
-                    booster.best_iteration, n_estimators, monotonic_decline_patience,
-                )
-        if _iter_metrics_cb is not None:
-            self.iteration_metrics_ = _iter_metrics_cb.iteration_metrics_
-        # ``fitted_`` is the flag ``__sklearn_is_fitted__`` checks --
-        # without it predict raises NotFittedError even though _Booster
-        # is set. Mirror of LGBMModel.fit's final state-flip line.
-        self.fitted_ = True
-
-        # ``_class_weight`` is consumed by predict_proba (multiclass
-        # path) and by some sample weighting helpers; set it to a safe
-        # default if pre_fit_bookkeeping didn't already.
-        if not hasattr(self, "_class_weight"):
-            self._class_weight = getattr(self, "class_weight", None)
-
-        return self
+        return feval
 
     # ------------------------------------------------------------------
     # Subclass hooks

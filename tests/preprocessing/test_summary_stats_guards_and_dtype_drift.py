@@ -101,8 +101,14 @@ def test_the_category_conversion_is_not_undone_by_a_stale_snapshot():
     # Structural: `head` and `df` carry the SAME dtype until step 3 converts the column, so the two forms are
     # indistinguishable on any frame that does not go through that conversion -- and after it, the difference
     # is memory (object at full string-per-row cost) rather than a value anything asserts on.
+    from mlframe.preprocessing import _cleaning_helpers as helpers
+
+    # the cleaning loop's dtype restore lives in the helper module the facade imports
     reads = [
-        node for node in ast.walk(module_ast(m)) if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "the_type" for t in node.targets)
+        node
+        for mod in (m, helpers)
+        for node in ast.walk(module_ast(mod))
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "the_type" for t in node.targets)
     ]
     assert reads, "`the_type` is no longer assigned; this test needs updating if the restore was restructured"
     receivers = {sub.value.id for node in reads for sub in ast.walk(node.value) if isinstance(sub, ast.Subscript) and isinstance(sub.value, ast.Name)}

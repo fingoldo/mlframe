@@ -1162,13 +1162,7 @@ def test_strict_configs_reject_unknown_fields():
     silent-absorption bug where ``iterations=100`` (typo) slipped
     through as an unused extra.
 
-    mlframe has TWO strict configs (explicit ``extra='forbid'`` at
-    class level): ``PreprocessingConfig`` and ``FeatureTypesConfig``.
-    The rest inherit ``BaseConfig``'s ``extra='allow'`` to preserve
-    pass-through kwargs (e.g. ``hyperparams_config={'mae_weight': 1.0}``
-    flows through to downstream callees). The permissive configs
-    still emit a WARNING via ``_warn_on_unknown_extras`` validator —
-    tested separately.
+    Every training config is strict: ``BaseConfig`` is ``extra='forbid'``.
     """
     from pydantic import ValidationError
 
@@ -1181,23 +1175,12 @@ def test_strict_configs_reject_unknown_fields():
         FeatureTypesConfig(use_text_feats=True)  # typo: feats → features
 
 
-def test_permissive_configs_warn_on_unknown_fields(caplog):
-    """Permissive configs (extra='allow') must WARN on unknown fields
-    — silent absorption is the real prod-risk (``iterations=100``
-    typo slipping through unused). ``PreprocessingBackendConfig`` and
-    ``TrainingBehaviorConfig`` are permissive; typos must still
-    produce a visible WARNING via ``_warn_on_unknown_extras``.
-    """
-    import logging
+def test_backend_config_rejects_unknown_fields():
+    """``PreprocessingBackendConfig`` rejects a typo (it used to absorb it and only warn)."""
+    from pydantic import ValidationError
 
-    caplog.set_level(logging.WARNING, logger="mlframe.training.configs")
-
-    # Should NOT raise (extra='allow'), but must emit a WARNING.
-    cfg = PreprocessingBackendConfig(use_polrsds_pipeline=True)  # typo: missing 'a'
-    assert cfg is not None
-
-    log_text = caplog.text.lower()
-    assert "unknown field" in log_text, "PreprocessingBackendConfig did not warn on unknown field — silent-absorption bug returned. Log: " + log_text[-300:]
+    with pytest.raises(ValidationError, match="use_polrsds_pipeline"):
+        PreprocessingBackendConfig(use_polrsds_pipeline=True)  # typo: missing 'a'  # codespell:ignore
 
 
 # #20 Metadata schema contents — load-bearing fields must be populated

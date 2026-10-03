@@ -28,6 +28,7 @@ from ._training_runtime_configs import FeatureImportanceConfig
 # opt-in learning-curve config here introduces no cycle.
 from .diagnostics import LearningCurveConfig
 from ._inert_fields import InertFieldsWarningMixin
+from .calibration_params.configs import ConfidenceShrinkageConfig
 
 # Title-metrics token grammar - mirrors metrics.TITLE_METRIC_TOKENS but kept
 # duplicated here to avoid importing from metrics.py at config-class
@@ -603,8 +604,8 @@ class RegressionCalibrationConfig(BaseConfig):
     # closer to neutral, never degrades a genuinely discriminative one), so it is enabled unconditionally
     # rather than requiring every caller to opt in explicitly.
     apply_confidence_shrinkage: bool = True
-    # Extra kwargs forwarded to ``compute_oof_confidence``/``apply_confidence_shrinkage`` (e.g. ``neutral_value``, ``min_confidence``, ``max_confidence``, ``segment_ids``).
-    confidence_shrinkage_kwargs: Optional[Dict[str, Any]] = None
+    # Arguments of ``compute_oof_confidence`` / ``apply_confidence_shrinkage`` (``neutral_value``, ``min_confidence``, ``max_confidence``, ``segment_ids``, ...): a ``ConfidenceShrinkageConfig`` or a dict of its fields; an unknown name raises here.
+    confidence_shrinkage_kwargs: Optional[ConfidenceShrinkageConfig] = None
 
 
 class NamingConfig(BaseConfig):

@@ -57,7 +57,7 @@ from ._feature_selection_config import FeatureSelectionConfig
 # ``from mlframe.training.configs import ModelConfig`` (and the other moved
 # names) imports continue to resolve. See sibling for SSOT.
 from ._model_configs import (
-    ModelConfig, LinearModelConfig, TreeModelConfig, MLPConfig, NGBConfig,
+    ModelConfig, LinearModelConfig, MLPConfig,
     AutoMLConfig, ModelHyperparamsConfig, TrainingBehaviorConfig,
     MultilabelDispatchConfig, LearningToRankConfig, QuantileRegressionConfig,
     EnsemblingConfig,
@@ -339,9 +339,7 @@ __all__ = [
     "FeatureSelectionConfig",
     "ModelConfig",
     "LinearModelConfig",
-    "TreeModelConfig",
     "MLPConfig",
-    "NGBConfig",
     "AutoMLConfig",
     "ModelHyperparamsConfig",
     "TrainingBehaviorConfig",

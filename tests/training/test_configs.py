@@ -408,58 +408,37 @@ class TestTrainingSplitAgingValidator:
         assert cfg.trainset_aging_limit is None
 
 
-class TestTypoWarningOnUnknownExtras:
-    """``extra='allow'`` is kept for legitimate pass-through kwargs
-    (ICE-metric weights, scoring configs, etc.). Typos like
-    ``iterations=100`` used to be silently swallowed; the new
-    ``_warn_on_unknown_extras`` validator emits a WARNING so a typo
-    is at least visible in the log.
-    """
+class TestEveryConfigRejectsUnknownFields:
+    """``BaseConfig`` is ``extra='forbid'``: a typo raises at construction instead of being absorbed and having no effect."""
 
-    def test_typo_on_behavior_config_warns(self, caplog):
-        """Typo on behavior config warns."""
-        import logging
+    def test_typo_on_behavior_config_raises(self):
+        """A field of another config (``iterations``) is not accepted by ``TrainingBehaviorConfig``."""
+        import pydantic
 
-        with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
-            from mlframe.training.configs import TrainingBehaviorConfig
+        from mlframe.training.configs import TrainingBehaviorConfig
 
-            TrainingBehaviorConfig(iterations=100)  # typo: iterations
-        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert any("iterations" in r.message for r in warnings), "typo 'iterations' must produce a WARNING about unknown field"
+        with pytest.raises(pydantic.ValidationError, match="iterations"):
+            TrainingBehaviorConfig(iterations=100)
 
-    def test_known_extras_dont_warn(self, caplog):
-        """``ModelHyperparamsConfig`` accepts ICE-metric weights as
-        legitimate pass-through; they must NOT trigger the warning."""
-        import logging
+    def test_ice_metric_weights_are_declared_fields(self):
+        """The ICE-metric weights are real ``ModelHyperparamsConfig`` fields, so they validate and come back as set."""
+        cfg = ModelHyperparamsConfig(mae_weight=2.0, std_weight=0.5, brier_loss_weight=1.0)
+        assert (cfg.mae_weight, cfg.std_weight, cfg.brier_loss_weight) == (2.0, 0.5, 1.0)
+        assert cfg.model_dump(exclude_none=True)["mae_weight"] == 2.0
 
-        with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
-            ModelHyperparamsConfig(mae_weight=2.0, std_weight=0.5, brier_loss_weight=1.0)
-        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert not warnings, f"known ICE-weight extras must not warn, got: {[r.message for r in warnings]}"
+    def test_unset_weights_are_dropped_from_the_suite_dump(self):
+        """Unset (``None``) knobs do not reach ``get_training_configs``, which keeps its own defaults."""
+        dumped = ModelHyperparamsConfig().model_dump(exclude_none=True)
+        assert "mae_weight" not in dumped and "nbins" not in dumped
 
-    def test_mixed_known_and_typo(self, caplog):
-        """If user passes one valid extra + one typo, the warning must
-        list the typo as unknown but NOT the valid extra. The warning
-        message format is:
-            "... received unknown field(s) ['mea_weight'] -- these are ..."
-        We check that ``mea_weight`` appears in the unknown-list
-        portion (before the ``--`` separator) and ``mae_weight`` does
-        not. Splitter switched em-dash -> ``--`` in the codebase encoding
-        cleanup.
-        """
-        import logging
+    def test_mixed_known_and_typo_names_only_the_typo(self):
+        """One valid knob plus a typo raises, and the message names the typo."""
+        import pydantic
 
-        with caplog.at_level(logging.WARNING, logger="mlframe.training.configs"):
+        with pytest.raises(pydantic.ValidationError) as err:
             ModelHyperparamsConfig(mae_weight=2.0, mea_weight=3.0)
-        warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-        assert warnings, "typo must produce a warning"
-
-        for w in warnings:
-            # The part before "--" is the "unknown field(s) [...]" list;
-            # everything after lists the *known* extras.
-            unknown_portion = w.message.split(" -- ")[0]
-            assert "mea_weight" in unknown_portion, f"typo 'mea_weight' must appear in the unknown-field list. Unknown portion: {unknown_portion!r}"
-            assert "mae_weight" not in unknown_portion, f"known 'mae_weight' must NOT appear in the unknown-field list. Unknown portion: {unknown_portion!r}"
+        assert "mea_weight" in str(err.value)
+        assert "mae_weight" not in str(err.value).replace("mea_weight", "")
 
 
 class TestStrictConfigsRejectUnknownFields:
@@ -467,9 +446,7 @@ class TestStrictConfigsRejectUnknownFields:
     surface use ``extra='forbid'``, so a typo at construction raises loud
     instead of emitting a warning that could get buried in logs.
 
-    Still-permissive configs (TrainingBehaviorConfig, ModelHyperparamsConfig)
-    keep ``extra='allow'`` with the _warn_on_unknown_extras path because they
-    legitimately forward kwargs to deeper callees.
+    ``TrainingBehaviorConfig`` and ``ModelHyperparamsConfig`` are strict too: every knob they forward is a declared field.
     """
 
     def test_preprocessing_config_typo_raises(self):

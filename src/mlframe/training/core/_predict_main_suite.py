@@ -36,6 +36,9 @@ from ._predict_composite_routing import composite_predict, is_composite_wrapper,
 logger = logging.getLogger("mlframe.training.core.predict")
 
 
+from ._predict_main_from_models import _apply_extensions_pipeline_if_any
+
+
 def _resolve_float_ensemble_flavour(metadata: Any) -> str:
     """Flavour for the float (regression / quantile) member aggregation. Defaults to ``"mean"`` (legacy raw
     average -- optimal when folds are clean). ``"robust"`` (MAD-gated mean) is available via a stamped
@@ -155,7 +158,7 @@ def predict_mlframe_models_suite(
     """
     # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .predict import _apply_extensions_pipeline, _apply_pre_pipeline_with_passthrough, _apply_row_wise_extensions, _combine_probs, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model, _replay_suite_datetime_decomposition, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas, _run_batched
+    from .predict import _apply_row_wise_extensions, _replay_suite_datetime_decomposition, _run_batched
     from mlframe.training.pipeline.shared import replay_categorical_composite_fe
     from mlframe.training.pipeline.shared import replay_entity_time_composite_fe
     from mlframe.training.pipeline.shared import replay_cross_sectional_composite_fe
@@ -229,13 +232,7 @@ def predict_mlframe_models_suite(
     _model_files_for_native_probe = _resolve_model_files(models_path, model_names)
     _loaded_models_cache: dict[str, Any] = {}
     _all_polars_native = False
-    if _input_is_polars and _model_files_for_native_probe:
-        _probe_results = []
-        for _model_file in _model_files_for_native_probe:
-            _mo = load_mlframe_model(_model_file)
-            _loaded_models_cache[_model_file] = _mo
-            _probe_results.append(_is_polars_native_model(_mo))
-        _all_polars_native = bool(_probe_results) and all(_probe_results)
+    _all_polars_native = _predict_mlframe_mo_input_polars_model_files(_input_is_polars, _model_files_for_native_probe, _loaded_models_cache, _all_polars_native)
     _pandas_view_cache: dict[int, pd.DataFrame] = {}
 
     if not _all_polars_native and isinstance(df, pl.DataFrame):
@@ -259,11 +256,7 @@ def predict_mlframe_models_suite(
     # polars-fastpath models trained on the raw frame. Mirrors predict_from_models.
     df_pre_pipeline = df
 
-    if pipeline is not None:
-        if verbose:
-            logger.info("Applying pipeline transformation...")
-        df = pipeline.transform(df)
-        df = _sanitize_after_pipeline(df)
+    df = _predict_mlframe_mo_polars_fastpath_models_trained(pipeline, verbose, df)
 
     # Row-wise extension columns (row_summary_*/row_extreme_*, default ON) are stateless per-row functions with no fitted object to persist -- recompute them
     # directly from the frame's own numeric columns. MUST run BEFORE the sklearn-bridge ``extensions_pipeline`` below: fit time applies them as "step 1.5" in
@@ -279,10 +272,7 @@ def predict_mlframe_models_suite(
     # main pipeline (same order as training in ``_phase_fit_pipeline`` -> ``apply_preprocessing_extensions``)
     # and BEFORE the per-model column subset, otherwise models trained with ``preprocessing_extensions`` see
     # raw columns at predict and produce garbage.
-    if extensions_pipeline is not None:
-        if verbose:
-            logger.info("Applying extensions pipeline transformation...")
-        df = _apply_extensions_pipeline(df, extensions_pipeline, verbose=verbose)
+    df = _apply_extensions_pipeline_if_any(extensions_pipeline, verbose, df)
 
     # Storing the post-extensions frame in the returned dict pins a multi-GB frame in caller's reference graph
     # even when they don't read it. The legacy callers that DO read it relied on the key existing, so we keep
@@ -299,8 +289,8 @@ def predict_mlframe_models_suite(
         logger.warning("No model files found in %s", models_path)
         return results
 
-    all_probs = []
-    all_preds = []
+    all_probs: list[Any] = []
+    all_preds: list[Any] = []
     # Per-target accumulator so Fix 3 can replay the chosen flavour separately for each (target_type, target_name).
     per_target_probs: dict[tuple[Any, Any], list[np.ndarray]] = {}
     per_target_member_names: dict[tuple[Any, Any], list[str]] = {}
@@ -308,6 +298,17 @@ def predict_mlframe_models_suite(
     # One disk-loaded model per target, so the ensemble replay can introspect the inner estimator for
     # quantile alphas (parity with the in-memory predict_from_models path) -- without it, disk-loaded
     # quantile bundles skipped fix_quantile_crossing and emitted crossed quantiles.
+    _predict_mlframe_mo_quantile_bundles_skipped_fix(metadata, model_files, models_path, verbose, _loaded_models_cache, df, df_pre_pipeline, _pandas_view_cache, results, all_preds, per_target_preds, pipeline, return_probabilities, all_probs, per_target_probs, per_target_member_names)
+
+    return results
+
+
+def _predict_mlframe_mo_quantile_bundles_skipped_fix(metadata, model_files, models_path, verbose, _loaded_models_cache, df, df_pre_pipeline, _pandas_view_cache, results, all_preds, per_target_preds, pipeline, return_probabilities, all_probs, per_target_probs, per_target_member_names):
+    """Block of predict_mlframe_models_suite starting at ``per_target_sample_model: dict[tuple[Any, Any], Any] = {}``."""
+    probs: Any = None
+    preds: Any = None
+    from mlframe.training.core.predict import _apply_pre_pipeline_with_passthrough, _ensure_pandas_view, _is_polars_native_model, _is_post_hoc_calibrated_model
+
     per_target_sample_model: dict[tuple[Any, Any], Any] = {}
     # Arch-4: per-member calibration flags so _combine_probs can WARN on mixed ensembles. One bool
     # per probability array, aligned with the prob accumulators above.
@@ -337,27 +338,7 @@ def predict_mlframe_models_suite(
         # raw tuple); we surface a WARN when the slug map is incomplete so the leak is visible.
         _rel = os.path.relpath(model_file, models_path)
         _parts = _rel.split(os.sep)
-        if len(_parts) >= 3:
-            _tt_slug, _tn_slug = _parts[0], _parts[1]
-            _tt = _slug_to_tt.get(_tt_slug)
-            _tn = _slug_to_tn.get(_tn_slug)
-            if _tt is None:
-                log_throttle(
-                    logger, "predict_suite_missing_tt_slug", logging.WARNING,
-                    "predict_mlframe_models_suite: slug_to_original_target_type missing entry for %r; "
-                    "result keys for this model will use the slug verbatim, diverging from predict_from_models. "
-                    "Re-save the suite with the current mlframe version to refresh the slug map.", _tt_slug,
-                )
-                _tt = _tt_slug
-            if _tn is None:
-                log_throttle(
-                    logger, "predict_suite_missing_tn_slug", logging.WARNING,
-                    "predict_mlframe_models_suite: slug_to_original_target_name missing entry for %r; "
-                    "result keys for this model will use the slug verbatim, diverging from predict_from_models.", _tn_slug,
-                )
-                _tn = _tn_slug
-        else:
-            _tt, _tn = "unknown", "unknown"
+        _tn, _tt = _predict_mlframe_mo_raw_tuple_surface_warn(_parts, _slug_to_tt, _slug_to_tn)
 
         if verbose:
             logger.info("Loading model: %s", model_name)
@@ -419,21 +400,10 @@ def predict_mlframe_models_suite(
                 _expected = getattr(model, "feature_names_in_", None)
             if _expected is None:
                 _expected = getattr(model, "feature_names_", None)
-            if _expected is not None and hasattr(input_for_model, "columns"):
-                _expected_list = [str(c) for c in _expected]
-                _have = {str(c) for c in input_for_model.columns}
-                _missing = [c for c in _expected_list if c not in _have]
-                if not _missing:
-                    _drop_extra = [c for c in input_for_model.columns if str(c) not in _expected_list]
-                    _cols_str = [str(c) for c in input_for_model.columns]
-                    if _drop_extra or _cols_str != _expected_list:
-                        if isinstance(input_for_model, pl.DataFrame):
-                            input_for_model = input_for_model.select(_expected_list)
-                        else:
-                            input_for_model = input_for_model.loc[:, _expected_list]
-                # A genuine schema mismatch (expected column absent entirely) is left for the
-                # model's own predict call to raise on -- this step only removes/reorders EXTRA
-                # columns, it never invents a missing one.
+            input_for_model = _predict_mlframe_mo_expected_none_hasattr_input(_expected, input_for_model)
+            # A genuine schema mismatch (expected column absent entirely) is left for the
+            # model's own predict call to raise on -- this step only removes/reorders EXTRA
+            # columns, it never invents a missing one.
 
             _primary_for_model = input_for_model
 
@@ -468,36 +438,12 @@ def predict_mlframe_models_suite(
                 # Binary threshold is the per-target tuned value stamped into metadata (val/OOF-tuned,
                 # never test); falls back to 0.5 when no tuned threshold is present.
                 _bin_thr = member_decision_threshold(metadata, _tt, _tn, getattr(model_obj, "model_name", None) or model_name)
-                if probs.ndim == 2:
-                    if probs.shape[1] == 2:
-                        preds = (probs[:, 1] >= _bin_thr).astype(int)
-                    else:
-                        # nan-safe argmax. Pre-fix np.argmax
-                        # on a NaN-bearing proba row silently classified
-                        # as class 0 -> confusion matrix + per-class
-                        # P/R/F1 wrong with no upstream signal.
-                        from ...utils.nan_safe import argmax_classes_safe
-                        preds = argmax_classes_safe(
-                            probs, context=f"predict.{model_name}",
-                        )
-                else:
-                    preds = (probs >= _bin_thr).astype(int)
+                preds = _predict_mlframe_mo_never_test_falls_back(probs, _bin_thr, model_name)
                 results["predictions"][model_name] = preds
                 all_preds.append(preds)
                 per_target_preds.setdefault((_tt, _tn), []).append(preds)
             else:
-                try:
-                    preds = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict", verbose=bool(verbose)))
-                except (TypeError, ValueError, AttributeError) as _polars_exc:
-                    if isinstance(_primary_for_model, pl.DataFrame):
-                        log_throttle(
-                            logger, "predict_suite_predict_polars_failed", logging.WARNING,
-                            "predict on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160],
-                        )
-                        _primary_for_model = _ensure_pandas_view(_primary_for_model, _pandas_view_cache)
-                        preds = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict", verbose=bool(verbose)))
-                    else:
-                        raise
+                preds = _predict_mlframe_mo_try(model, _primary_for_model, verbose, _pandas_view_cache, preds)
                 results["predictions"][model_name] = preds
                 all_preds.append(preds)
                 per_target_preds.setdefault((_tt, _tn), []).append(preds)
@@ -516,6 +462,129 @@ def predict_mlframe_models_suite(
             )
             _predict_errors.append((model_name, f"{type(e).__name__}: {e}"))
             continue
+
+    _predict_mlframe_mo_len_all_probs(all_probs, verbose, results, per_target_probs, metadata, per_target_sample_model, per_target_member_names, per_target_calib_flags, all_calib_flags, all_preds, per_target_preds)
+
+    if verbose:
+        logger.info("Generated predictions for %d models", len(results["predictions"]))
+
+    _raise_if_every_model_failed(results, len(model_files), _predict_errors, models_path)
+
+    # A predict served on RAW columns under MLFRAME_EXTENSIONS_SOFT_FAIL leaves the taint in the result, so a consumer
+    # of these numbers can see it without reading the process log.
+    _soft_fail = take_extensions_soft_fail_taint()
+    if _soft_fail:
+        results["extensions_soft_fail"] = _soft_fail
+
+
+def _predict_mlframe_mo_input_polars_model_files(_input_is_polars, _model_files_for_native_probe, _loaded_models_cache, _all_polars_native):
+    """Block of predict_mlframe_models_suite starting at ``if _input_is_polars and _model_files_for_native_probe:``."""
+    from mlframe.training.core.predict import _is_polars_native_model
+
+    if _input_is_polars and _model_files_for_native_probe:
+        _probe_results = []
+        for _model_file in _model_files_for_native_probe:
+            _mo = load_mlframe_model(_model_file)
+            _loaded_models_cache[_model_file] = _mo
+            _probe_results.append(_is_polars_native_model(_mo))
+        _all_polars_native = bool(_probe_results) and all(_probe_results)
+    return _all_polars_native
+
+
+def _predict_mlframe_mo_polars_fastpath_models_trained(pipeline, verbose, df):
+    """Block of predict_mlframe_models_suite starting at ``if pipeline is not None:``."""
+    if pipeline is not None:
+        if verbose:
+            logger.info("Applying pipeline transformation...")
+        df = pipeline.transform(df)
+        df = _sanitize_after_pipeline(df)
+    return df
+
+
+def _predict_mlframe_mo_raw_tuple_surface_warn(_parts, _slug_to_tt, _slug_to_tn):
+    """Block of predict_mlframe_models_suite starting at ``if len(_parts) >= 3:``."""
+    if len(_parts) >= 3:
+        _tt_slug, _tn_slug = _parts[0], _parts[1]
+        _tt = _slug_to_tt.get(_tt_slug)
+        _tn = _slug_to_tn.get(_tn_slug)
+        if _tt is None:
+            log_throttle(
+                logger, "predict_suite_missing_tt_slug", logging.WARNING,
+                "predict_mlframe_models_suite: slug_to_original_target_type missing entry for %r; "
+                "result keys for this model will use the slug verbatim, diverging from predict_from_models. "
+                "Re-save the suite with the current mlframe version to refresh the slug map.", _tt_slug,
+            )
+            _tt = _tt_slug
+        if _tn is None:
+            log_throttle(
+                logger, "predict_suite_missing_tn_slug", logging.WARNING,
+                "predict_mlframe_models_suite: slug_to_original_target_name missing entry for %r; "
+                "result keys for this model will use the slug verbatim, diverging from predict_from_models.", _tn_slug,
+            )
+            _tn = _tn_slug
+    else:
+        _tt, _tn = "unknown", "unknown"
+    return _tn, _tt
+
+
+def _predict_mlframe_mo_expected_none_hasattr_input(_expected, input_for_model):
+    """Block of predict_mlframe_models_suite starting at ``if _expected is not None and hasattr(input_for_model, "columns"):``."""
+    if _expected is not None and hasattr(input_for_model, "columns"):
+        _expected_list = [str(c) for c in _expected]
+        _have = {str(c) for c in input_for_model.columns}
+        _missing = [c for c in _expected_list if c not in _have]
+        if not _missing:
+            _drop_extra = [c for c in input_for_model.columns if str(c) not in _expected_list]
+            _cols_str = [str(c) for c in input_for_model.columns]
+            if _drop_extra or _cols_str != _expected_list:
+                if isinstance(input_for_model, pl.DataFrame):
+                    input_for_model = input_for_model.select(_expected_list)
+                else:
+                    input_for_model = input_for_model.loc[:, _expected_list]
+    return input_for_model
+
+
+def _predict_mlframe_mo_never_test_falls_back(probs, _bin_thr, model_name):
+    """Block of predict_mlframe_models_suite starting at ``if probs.ndim == 2:``."""
+    if probs.ndim == 2:
+        if probs.shape[1] == 2:
+            preds = (probs[:, 1] >= _bin_thr).astype(int)
+        else:
+            # nan-safe argmax. Pre-fix np.argmax
+            # on a NaN-bearing proba row silently classified
+            # as class 0 -> confusion matrix + per-class
+            # P/R/F1 wrong with no upstream signal.
+            from mlframe.utils.nan_safe import argmax_classes_safe
+            preds = argmax_classes_safe(
+                probs, context=f"predict.{model_name}",
+            )
+    else:
+        preds = (probs >= _bin_thr).astype(int)
+    return preds
+
+
+def _predict_mlframe_mo_try(model, _primary_for_model, verbose, _pandas_view_cache, preds):
+    """Block of predict_mlframe_models_suite starting at ``try:``."""
+    from mlframe.training.core.predict import _ensure_pandas_view
+
+    try:
+        preds = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict", verbose=bool(verbose)))
+    except (TypeError, ValueError, AttributeError) as _polars_exc:
+        if isinstance(_primary_for_model, pl.DataFrame):
+            log_throttle(
+                logger, "predict_suite_predict_polars_failed", logging.WARNING,
+                "predict on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160],
+            )
+            _primary_for_model = _ensure_pandas_view(_primary_for_model, _pandas_view_cache)
+            preds = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict", verbose=bool(verbose)))
+        else:
+            raise
+    return preds
+
+
+def _predict_mlframe_mo_len_all_probs(all_probs, verbose, results, per_target_probs, metadata, per_target_sample_model, per_target_member_names, per_target_calib_flags, all_calib_flags, all_preds, per_target_preds):
+    """Block of predict_mlframe_models_suite starting at ``if len(all_probs) > 1:``."""
+    from mlframe.training.core.predict import _combine_probs, _resolve_chosen_ensemble_params, _resolve_chosen_flavour, _select_trained_members, suite_binary_threshold, _resolve_quantile_alphas
 
     if len(all_probs) > 1:
         if verbose:
@@ -550,7 +619,7 @@ def predict_mlframe_models_suite(
                 _combined = _probs_list[0]
                 if _q_alphas is not None and _combined.ndim == 2 and _combined.shape[1] == len(_q_alphas):
                     try:
-                        from ..quantile_postproc import fix_quantile_crossing
+                        from mlframe.training.quantile_postproc import fix_quantile_crossing
                         _combined = fix_quantile_crossing(_combined, _q_alphas, mode="sort")
                     except Exception as _qe:
                         log_throttle(logger, "predict_suite_fix_quantile_crossing_failed", logging.WARNING, "predict_mlframe_models_suite: fix_quantile_crossing failed: %s", _qe)
@@ -563,7 +632,7 @@ def predict_mlframe_models_suite(
                     # NaN-safe argmax: _combine_probs (RRF / geomean / harmonic) can emit
                     # NaN when a member row was NaN; plain np.argmax silently routes the
                     # row to class 0 and poisons the downstream confusion matrix.
-                    from ...utils.nan_safe import argmax_classes_safe
+                    from mlframe.utils.nan_safe import argmax_classes_safe
                     _t_preds = argmax_classes_safe(
                         _combined, context=f"predict_mlframe_models_suite.per_target.{_key}",
                     )
@@ -596,7 +665,7 @@ def predict_mlframe_models_suite(
             else:
                 # NaN-safe argmax for the suite-wide ensemble row: same reasoning as the
                 # per-target site above; plain np.argmax sent NaN rows to class 0.
-                from ...utils.nan_safe import argmax_classes_safe
+                from mlframe.utils.nan_safe import argmax_classes_safe
                 ensemble_preds = argmax_classes_safe(
                     avg_probs, context="predict_mlframe_models_suite.suite_ensemble",
                 )
@@ -620,7 +689,7 @@ def predict_mlframe_models_suite(
         _stacked = np.stack(all_preds)
         if np.issubdtype(_stacked.dtype, np.floating):
             from mlframe.models.ensembling import combine_float_predictions
-            from ._predict_composite_routing import per_original_target_float_ensembles
+            from mlframe.training.core._predict_composite_routing import per_original_target_float_ensembles
 
             # Per original target: raw, composite-target and CT-ensemble members predict the same y, other targets do not.
             results["per_target_predictions"] = per_original_target_float_ensembles(
@@ -637,19 +706,6 @@ def predict_mlframe_models_suite(
         results["ensemble_predictions"] = all_preds[0]
         if all_probs:
             results["ensemble_probabilities"] = all_probs[0]
-
-    if verbose:
-        logger.info("Generated predictions for %d models", len(results["predictions"]))
-
-    _raise_if_every_model_failed(results, len(model_files), _predict_errors, models_path)
-
-    # A predict served on RAW columns under MLFRAME_EXTENSIONS_SOFT_FAIL leaves the taint in the result, so a consumer
-    # of these numbers can see it without reading the process log.
-    _soft_fail = take_extensions_soft_fail_taint()
-    if _soft_fail:
-        results["extensions_soft_fail"] = _soft_fail
-
-    return results
 
 
 def _resolve_model_files(models_path: str, model_names) -> list:

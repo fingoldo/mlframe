@@ -149,42 +149,7 @@ def run_outer_loop_iteration(
         state.ram_baseline_mb, state.ram_df_size_mb, verbose=False, reason=f"RFECV iter {state.nsteps}",
     )
 
-    if self.special_feature_indices is not None and len(self.special_feature_indices) > 0:
-        current_features = self.special_feature_indices
-    else:
-        # F6: coerce votes_aggregation to Borda when multi-estimator + AM/GM and not allow_unsafe.
-        _vam = votes_aggregation_method
-        # fi_run_order is consumed by get_next_features_subset only under fi_decay_rate>0 (age-weighted voting); materialising list(...keys()) every outer iter on the growing feature_importances dict is O(steps^2) over the run, so skip it when decay is off.
-        _fi_decay_rate = float(getattr(self, "fi_decay_rate", 0.0))
-        _fi_run_order = list(state.feature_importances.keys()) if _fi_decay_rate > 0.0 else None
-        if estimators_list and len(estimators_list) > 1 and not getattr(self, "allow_unsafe_aggregation", False):
-            if _vam in (VotesAggregation.AM, VotesAggregation.GM):
-                _vam = VotesAggregation.Borda
-        current_features = get_next_features_subset(
-            nsteps=state.nsteps,
-            original_features=original_features,
-            feature_importances=state.feature_importances,
-            evaluated_scores_mean=state.evaluated_scores_mean,
-            evaluated_scores_std=state.evaluated_scores_std,
-            use_all_fi_runs=use_all_fi_runs,
-            use_last_fi_run_only=use_last_fi_run_only,
-            use_one_freshest_fi_run=use_one_freshest_fi_run,
-            use_fi_ranking=use_fi_ranking,
-            top_predictors_search_method=top_predictors_search_method,
-            votes_aggregation_method=_vam,
-            Optimizer=state.Optimizer,
-            fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
-            dichotomic_epsilon=float(getattr(self, "dichotomic_epsilon", 0.0)),
-            dichotomic_step=str(getattr(self, "dichotomic_step", "midpoint")),
-            rng=getattr(self, "_rng", None),
-            fi_decay_rate=_fi_decay_rate,
-            fi_run_order=_fi_run_order,
-            importance_agg=getattr(self, "importance_agg", "legacy"),
-            fi_family=getattr(self, "_fi_family", None),
-            signed_importances=getattr(self, "_signed_importances", None),
-            importance_agg_k_cv=float(getattr(self, "importance_agg_k_cv", 1.0)),
-            elimination_rule=getattr(self, "elimination_rule", "importance"),
-        )
+    current_features = _select_candidate_features(self, votes_aggregation_method, state, estimators_list, original_features, use_all_fi_runs, use_last_fi_run_only, use_one_freshest_fi_run, use_fi_ranking, top_predictors_search_method)
 
     if current_features is None or len(current_features) == 0:
         state.stop_reason = "the search proposed no further candidate subset"
@@ -266,38 +231,9 @@ def run_outer_loop_iteration(
     else:
         _fold_runner = _eval_fold
 
-    if n_jobs_effective > 1 and len(_fold_args) > 1:
-        from joblib import Parallel, delayed
-        # prefer="threads": sklearn / CB / LGB / XGB all release GIL during fit, so threads give true parallelism without the serialisation cost of multiprocessing. require="sharedmem" HARDENS the design - under loky the closure-state mutations would happen in worker process copies and the main-process state silently stays empty -> ``final_score = nan`` with no exception; require= makes joblib RAISE if it can't satisfy threading, surfacing the misconfiguration loud.
-        Parallel(n_jobs=n_jobs_effective, prefer="threads", require="sharedmem")(delayed(_fold_runner)(*a) for a in _fold_args)
-    else:
-        if verbose:
-            from pyutilz.system import tqdmu
-            _iter = tqdmu(_fold_args, desc="CV folds", leave=False, total=len(_fold_args))
-        else:
-            _iter = _fold_args
-        for a in _iter:
-            _fold_runner(*a)
+    _run_folds_parallel(n_jobs_effective, _fold_args, _fold_runner, verbose)
 
-    if 0 not in state.evaluated_scores_mean:
-        scores_mean, scores_std, final_score, _ = store_averaged_cv_scores(
-            pos=0, scores=state.dummy_scores, evaluated_scores_mean=state.evaluated_scores_mean, evaluated_scores_std=state.evaluated_scores_std, self=self,
-        )
-        state.nofeatures_score = final_score
-        if verbose:
-            logger.info(
-                "Baseline with 0 features, score=%s +/- %s ~ %s",
-                f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
-            )
-        # C2: NEW default does NOT submit the N=0 dummy
-        # to the MBH surrogate. On imbalanced accuracy/F1 the prior-strategy
-        # DummyClassifier scores close to the model and the surrogate's
-        # score-vs-N curve gets anchored at the steep (0, dummy) point,
-        # steering the optimizer toward small N. The dummy stays in
-        # cv_results_ for reporting but does NOT influence acquisition.
-        # Opt-in old behaviour via self.submit_dummy_to_optimizer=True.
-        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic and getattr(self, "submit_dummy_to_optimizer", False):
-            state.Optimizer.submit_evaluations(candidates=[0], evaluations=[final_score], durations=[None])
+    _store_dummy_baseline_scores(self, state, verbose, ndigits, top_predictors_search_method)
 
     scores_mean, scores_std, final_score, was_stored = store_averaged_cv_scores(
         pos=len(current_features),
@@ -307,47 +243,9 @@ def run_outer_loop_iteration(
         self=self,
     )
     # Only commit selected_features when this run actually won at its N.
-    if was_stored:
-        state.selected_features_per_nfeatures[len(current_features)] = current_features
-        # Per-fold scores for cv_results_["splitK_test_score"] schema.
-        state.per_fold_scores[len(current_features)] = list(scores)
-    else:
-        # F9 rollback: this iter's FI got added to state.feature_importances inside
-        # _eval_fold_body; if the subset lost the gate it must not poison voting.
-        if not getattr(self, "keep_loser_subset_fi", False):
-            _new_fi_keys = set(state.feature_importances.keys()) - _fi_keys_before
-            for _k in _new_fi_keys:
-                state.feature_importances.pop(_k, None)
+    _commit_winning_subset(self, was_stored, current_features, state, scores, _fi_keys_before)
 
-    if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
-        # S8: align optimizer target with the 1-SE
-        # rule semantics in select_optimal_nfeatures_, which threshold on
-        # RAW cv_mean_perf. The optimizer used to maximise
-        # final_score = mean*w_mean - std*w_std - feature_cost*N
-        # (a UCB-of-noise scalar). Post-processing then picked 1-SE on
-        # the raw mean -> two criteria that can disagree, especially when
-        # the user keeps default std_perf_weight=0.1 and feature_cost=0.0
-        # but switches the rule.
-        # Default: optimizer maximises ``scores_mean`` (consistent with
-        # both 'argmax' (after multiplying by mean_perf_weight=1 default)
-        # and 'one_se_*' (raw mean threshold)). Opt-out via
-        # ``optimizer_target='final_score'`` (legacy).
-        _target_name = getattr(self, "optimizer_target", "mean")
-        if _target_name == "mean":
-            _target_value = scores_mean
-        elif _target_name == "final_score":
-            _target_value = final_score
-        else:
-            raise ValueError(f"optimizer_target must be 'mean' or 'final_score'; got {_target_name!r}")
-        state.Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[_target_value], durations=[None])
-
-        if verbose:
-            logger.info(
-                "Tried %s features (%s), score=%s +/- %s ~ %s",
-                f"{len(current_features):_}",
-                textwrap.shorten(', '.join(map(str, current_features[:40])), 150),
-                f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
-            )
+    _align_mbh_optimizer_target(self, top_predictors_search_method, scores_mean, final_score, state, current_features, verbose, ndigits, scores_std)
 
     record_evaluation(state, len(current_features), scores)
     state.prev_nfeatures, state.prev_score = len(current_features), final_score
@@ -416,6 +314,34 @@ def run_outer_loop_iteration(
                 return IterationOutcome.BREAK
 
     # Abort early if every iter so far produced a NaN final_score. The most common cause is a custom scorer returning NaN on every fold (e.g. ROC AUC on single-class CV folds). Without this, the noimproving counter would consume max_noimproving_iters worth of useless CV fits. Detect 5 consecutive NaN iters and bail.
+    _abort_on_consecutive_nan_scores(self, final_score)
+
+    if self.special_feature_indices is not None:
+        if verbose:
+            logger.info("Quitting as special_feature_indices were checked.")
+        state.stop_reason = "special_feature_indices evaluated"
+        return IterationOutcome.BREAK
+
+    return IterationOutcome.CONTINUE
+
+
+def _commit_winning_subset(self, was_stored, current_features, state, scores, _fi_keys_before):
+    """Commit the selected features when this run won at its feature count."""
+    if was_stored:
+        state.selected_features_per_nfeatures[len(current_features)] = current_features
+        # Per-fold scores for cv_results_["splitK_test_score"] schema.
+        state.per_fold_scores[len(current_features)] = list(scores)
+    else:
+        # F9 rollback: this iter's FI got added to state.feature_importances inside
+        # _eval_fold_body; if the subset lost the gate it must not poison voting.
+        if not getattr(self, "keep_loser_subset_fi", False):
+            _new_fi_keys = set(state.feature_importances.keys()) - _fi_keys_before
+            for _k in _new_fi_keys:
+                state.feature_importances.pop(_k, None)
+
+
+def _abort_on_consecutive_nan_scores(self, final_score):
+    """Abort the search after consecutive NaN final scores."""
     if np.isnan(final_score):
         if not hasattr(self, "_consecutive_nan_iters"):
             self._consecutive_nan_iters = 0
@@ -430,13 +356,118 @@ def run_outer_loop_iteration(
     else:
         self._consecutive_nan_iters = 0
 
-    if self.special_feature_indices is not None:
-        if verbose:
-            logger.info("Quitting as special_feature_indices were checked.")
-        state.stop_reason = "special_feature_indices evaluated"
-        return IterationOutcome.BREAK
 
-    return IterationOutcome.CONTINUE
+def _select_candidate_features(self, votes_aggregation_method, state, estimators_list, original_features, use_all_fi_runs, use_last_fi_run_only, use_one_freshest_fi_run, use_fi_ranking, top_predictors_search_method):
+    """Select the feature set evaluated in this iteration."""
+    if self.special_feature_indices is not None and len(self.special_feature_indices) > 0:
+        current_features = self.special_feature_indices
+    else:
+        # F6: coerce votes_aggregation to Borda when multi-estimator + AM/GM and not allow_unsafe.
+        _vam = votes_aggregation_method
+        # fi_run_order is consumed by get_next_features_subset only under fi_decay_rate>0 (age-weighted voting); materialising list(...keys()) every outer iter on the growing feature_importances dict is O(steps^2) over the run, so skip it when decay is off.
+        _fi_decay_rate = float(getattr(self, "fi_decay_rate", 0.0))
+        _fi_run_order = list(state.feature_importances.keys()) if _fi_decay_rate > 0.0 else None
+        if estimators_list and len(estimators_list) > 1 and not getattr(self, "allow_unsafe_aggregation", False):
+            if _vam in (VotesAggregation.AM, VotesAggregation.GM):
+                _vam = VotesAggregation.Borda
+        current_features = get_next_features_subset(
+            nsteps=state.nsteps,
+            original_features=original_features,
+            feature_importances=state.feature_importances,
+            evaluated_scores_mean=state.evaluated_scores_mean,
+            evaluated_scores_std=state.evaluated_scores_std,
+            use_all_fi_runs=use_all_fi_runs,
+            use_last_fi_run_only=use_last_fi_run_only,
+            use_one_freshest_fi_run=use_one_freshest_fi_run,
+            use_fi_ranking=use_fi_ranking,
+            top_predictors_search_method=top_predictors_search_method,
+            votes_aggregation_method=_vam,
+            Optimizer=state.Optimizer,
+            fi_missing_policy=getattr(self, "fi_missing_policy", "worst"),
+            dichotomic_epsilon=float(getattr(self, "dichotomic_epsilon", 0.0)),
+            dichotomic_step=str(getattr(self, "dichotomic_step", "midpoint")),
+            rng=getattr(self, "_rng", None),
+            fi_decay_rate=_fi_decay_rate,
+            fi_run_order=_fi_run_order,
+            importance_agg=getattr(self, "importance_agg", "legacy"),
+            fi_family=getattr(self, "_fi_family", None),
+            signed_importances=getattr(self, "_signed_importances", None),
+            importance_agg_k_cv=float(getattr(self, "importance_agg_k_cv", 1.0)),
+            elimination_rule=getattr(self, "elimination_rule", "importance"),
+        )
+    return current_features
+
+
+def _run_folds_parallel(n_jobs_effective, _fold_args, _fold_runner, verbose):
+    """Run the folds in parallel threads when more than one job is effective."""
+    if n_jobs_effective > 1 and len(_fold_args) > 1:
+        from joblib import Parallel, delayed
+        # prefer="threads": sklearn / CB / LGB / XGB all release GIL during fit, so threads give true parallelism without the serialisation cost of multiprocessing. require="sharedmem" HARDENS the design - under loky the closure-state mutations would happen in worker process copies and the main-process state silently stays empty -> ``final_score = nan`` with no exception; require= makes joblib RAISE if it can't satisfy threading, surfacing the misconfiguration loud.
+        Parallel(n_jobs=n_jobs_effective, prefer="threads", require="sharedmem")(delayed(_fold_runner)(*a) for a in _fold_args)
+    else:
+        if verbose:
+            from pyutilz.system import tqdmu
+            _iter = tqdmu(_fold_args, desc="CV folds", leave=False, total=len(_fold_args))
+        else:
+            _iter = _fold_args
+        for a in _iter:
+            _fold_runner(*a)
+
+
+def _store_dummy_baseline_scores(self, state, verbose, ndigits, top_predictors_search_method):
+    """Store the dummy baseline scores at position zero when absent."""
+    if 0 not in state.evaluated_scores_mean:
+        scores_mean, scores_std, final_score, _ = store_averaged_cv_scores(
+            pos=0, scores=state.dummy_scores, evaluated_scores_mean=state.evaluated_scores_mean, evaluated_scores_std=state.evaluated_scores_std, self=self,
+        )
+        state.nofeatures_score = final_score
+        if verbose:
+            logger.info(
+                "Baseline with 0 features, score=%s +/- %s ~ %s",
+                f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
+            )
+        # C2: NEW default does NOT submit the N=0 dummy
+        # to the MBH surrogate. On imbalanced accuracy/F1 the prior-strategy
+        # DummyClassifier scores close to the model and the surrogate's
+        # score-vs-N curve gets anchored at the steep (0, dummy) point,
+        # steering the optimizer toward small N. The dummy stays in
+        # cv_results_ for reporting but does NOT influence acquisition.
+        # Opt-in old behaviour via self.submit_dummy_to_optimizer=True.
+        if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic and getattr(self, "submit_dummy_to_optimizer", False):
+            state.Optimizer.submit_evaluations(candidates=[0], evaluations=[final_score], durations=[None])
+
+
+def _align_mbh_optimizer_target(self, top_predictors_search_method, scores_mean, final_score, state, current_features, verbose, ndigits, scores_std):
+    """Align the model-based-heuristic optimizer target with the one-SE rule."""
+    if top_predictors_search_method == OptimumSearch.ModelBasedHeuristic:
+        # S8: align optimizer target with the 1-SE
+        # rule semantics in select_optimal_nfeatures_, which threshold on
+        # RAW cv_mean_perf. The optimizer used to maximise
+        # final_score = mean*w_mean - std*w_std - feature_cost*N
+        # (a UCB-of-noise scalar). Post-processing then picked 1-SE on
+        # the raw mean -> two criteria that can disagree, especially when
+        # the user keeps default std_perf_weight=0.1 and feature_cost=0.0
+        # but switches the rule.
+        # Default: optimizer maximises ``scores_mean`` (consistent with
+        # both 'argmax' (after multiplying by mean_perf_weight=1 default)
+        # and 'one_se_*' (raw mean threshold)). Opt-out via
+        # ``optimizer_target='final_score'`` (legacy).
+        _target_name = getattr(self, "optimizer_target", "mean")
+        if _target_name == "mean":
+            _target_value = scores_mean
+        elif _target_name == "final_score":
+            _target_value = final_score
+        else:
+            raise ValueError(f"optimizer_target must be 'mean' or 'final_score'; got {_target_name!r}")
+        state.Optimizer.submit_evaluations(candidates=[len(current_features)], evaluations=[_target_value], durations=[None])
+
+        if verbose:
+            logger.info(
+                "Tried %s features (%s), score=%s +/- %s ~ %s",
+                f"{len(current_features):_}",
+                textwrap.shorten(', '.join(map(str, current_features[:40])), 150),
+                f"{scores_mean:.{ndigits}f}", f"{scores_std:.{ndigits}f}", f"{final_score:.{ndigits}f}",
+            )
 
 
 def _save_outer_loop_checkpoint(self, signature, state, verbose):

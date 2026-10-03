@@ -140,8 +140,6 @@
     "kind": "class",
     "module": "mlframe.training._model_configs",
     "mro": [
-      "mlframe.training._inert_fields.InertFieldsWarningMixin",
-      "mlframe.training._model_configs.ModelConfig",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -170,17 +168,6 @@
     "module": "mlframe.training._model_configs_behavior",
     "mro": [
       "mlframe.training._inert_fields.InertFieldsWarningMixin",
-      "mlframe.training._configs_base.BaseConfig",
-      "pydantic.main.BaseModel",
-      "builtins.object"
-    ]
-  },
-  "NGBConfig": {
-    "kind": "class",
-    "module": "mlframe.training._model_configs",
-    "mro": [
-      "mlframe.training._inert_fields.InertFieldsWarningMixin",
-      "mlframe.training._model_configs.ModelConfig",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"
@@ -368,17 +355,6 @@
     "kind": "class",
     "module": "mlframe.training._preprocessing_configs",
     "mro": [
-      "mlframe.training._configs_base.BaseConfig",
-      "pydantic.main.BaseModel",
-      "builtins.object"
-    ]
-  },
-  "TreeModelConfig": {
-    "kind": "class",
-    "module": "mlframe.training._model_configs",
-    "mro": [
-      "mlframe.training._inert_fields.InertFieldsWarningMixin",
-      "mlframe.training._model_configs.ModelConfig",
       "mlframe.training._configs_base.BaseConfig",
       "pydantic.main.BaseModel",
       "builtins.object"

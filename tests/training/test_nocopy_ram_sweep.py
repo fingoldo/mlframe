@@ -49,8 +49,8 @@ def test_numeric_only_transformer_does_not_deep_copy_passthrough():
     # caller frame untouched (num_a still original values)
     assert X["num_a"].tolist() == np.arange(len(X), dtype="float64").tolist()
     # passthrough cat column must SHARE memory with the caller frame (no deep copy)
-    assert out["cat"].cat.codes is not None
-    assert np.shares_memory(out["cat"].cat.codes.to_numpy(), cat_buf.cat.codes.to_numpy())
+    # ``Series.cat.codes`` builds a new Series (a copy under pandas 3 copy-on-write), so compare the Categorical's own code arrays.
+    assert np.shares_memory(out["cat"].array.codes, cat_buf.array.codes)
 
 
 def test_preprocess_dataframe_stringdtype_normalise_no_deep_copy():

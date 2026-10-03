@@ -546,6 +546,33 @@ def select_optimal_nfeatures_(
             raise ValueError(f"n_features_selection_rule={rule!r} not supported. " f"Use 'auto', 'argmax', 'one_se_max', 'one_se_min', 'one_se_max_foldstd', 'one_se_min_foldstd', or 'plateau'.")
     best_top_n = int(nfeatures_arr[best_idx])
 
+    _plot_cv_performance(show_plot, plot_file, font_size, figsize, checked_nfeatures, cv_mean_perf, cv_std_perf, ultimate_perf, best_idx, base_perf)
+
+    self.n_features_ = best_top_n
+    _finalise_support_for_best_top_n(self, best_top_n, use_all_fi_runs, use_last_fi_run_only, use_one_freshest_fi_run, use_fi_ranking, votes_aggregation_method)
+
+    # Derived ONCE, after every branch, rather than beside each `support_` assignment: there are eight of
+    # those and only two ever set a ranking, which is how the consensus NAME list escaped under this
+    # attribute and broke `np.asarray(ranking_, dtype=float)` for every sklearn-shaped caller. A branch
+    # added later inherits the contract instead of having to remember it.
+    if getattr(self, "support_", None) is not None and len(np.asarray(self.support_)) == len(self.feature_names_in_):
+        self.ranking_ = _sklearn_ranking_vector(self.feature_names_in_, getattr(self, "consensus_ranking_", None), self.support_)
+
+    if verbose:
+        # base_perf[0]/[-1] are the smallest/largest EVALUATED N on the curve, not necessarily N=0 (dummy) or N=full;
+        # report the gain against those actual curve endpoints so the figure is honest when neither extreme was probed.
+        _nf = np.asarray(checked_nfeatures)
+        min_n, max_n = int(_nf[0]), int(_nf[-1])
+        low_gain = (base_perf[0] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
+        high_gain = (base_perf[-1] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
+        logger.info(
+            "%d predictive factors selected out of %d during %d rounds. Gain vs smallest evaluated N=%d: %.1f%%, gain vs largest evaluated N=%d: %.1f%%",
+            self.n_features_, self.n_features_in_, len(self.selected_features_), min_n, low_gain * 100, max_n, high_gain * 100,
+        )
+
+
+def _plot_cv_performance(show_plot, plot_file, font_size, figsize, checked_nfeatures, cv_mean_perf, cv_std_perf, ultimate_perf, best_idx, base_perf):
+    """Plot the cross-validated performance curve when requested."""
     if show_plot or plot_file:
         import matplotlib.pyplot as plt  # deferred: matplotlib import costs ~0.15s and is only needed when plotting
 
@@ -577,7 +604,9 @@ def select_optimal_nfeatures_(
                 logger.debug("suppressed: %s", e)
                 pass
 
-    self.n_features_ = best_top_n
+
+def _finalise_support_for_best_top_n(self, best_top_n, use_all_fi_runs, use_last_fi_run_only, use_one_freshest_fi_run, use_fi_ranking, votes_aggregation_method):
+    """Set the support from the best top-n choice."""
     if best_top_n == 0:
         self.support_ = np.array([])
     else:
@@ -610,22 +639,3 @@ def select_optimal_nfeatures_(
                 or []
             )
             self.support_ = np.array([(i in self.consensus_ranking_[:best_top_n]) for i in self.feature_names_in_])
-
-    # Derived ONCE, after every branch, rather than beside each `support_` assignment: there are eight of
-    # those and only two ever set a ranking, which is how the consensus NAME list escaped under this
-    # attribute and broke `np.asarray(ranking_, dtype=float)` for every sklearn-shaped caller. A branch
-    # added later inherits the contract instead of having to remember it.
-    if getattr(self, "support_", None) is not None and len(np.asarray(self.support_)) == len(self.feature_names_in_):
-        self.ranking_ = _sklearn_ranking_vector(self.feature_names_in_, getattr(self, "consensus_ranking_", None), self.support_)
-
-    if verbose:
-        # base_perf[0]/[-1] are the smallest/largest EVALUATED N on the curve, not necessarily N=0 (dummy) or N=full;
-        # report the gain against those actual curve endpoints so the figure is honest when neither extreme was probed.
-        _nf = np.asarray(checked_nfeatures)
-        min_n, max_n = int(_nf[0]), int(_nf[-1])
-        low_gain = (base_perf[0] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
-        high_gain = (base_perf[-1] / base_perf[best_idx] - 1) if base_perf[best_idx] != 0 else np.inf
-        logger.info(
-            "%d predictive factors selected out of %d during %d rounds. Gain vs smallest evaluated N=%d: %.1f%%, gain vs largest evaluated N=%d: %.1f%%",
-            self.n_features_, self.n_features_in_, len(self.selected_features_), min_n, low_gain * 100, max_n, high_gain * 100,
-        )

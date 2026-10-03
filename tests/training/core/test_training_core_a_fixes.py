@@ -184,7 +184,7 @@ def test_f3_a_second_call_adds_nothing_and_leaves_foreign_handlers_alone():
 # ---------------------------------------------------------------------------
 
 
-def test_f4_oversized_xt_ensemble_file_is_a_documented_exempt():
+def test_f4_xt_ensemble_file_no_longer_needs_a_loc_exemption():
     """F4: oversized xt ensemble file is a documented exempt.
 
     The file-size gate's exemption mechanism moved from a hand-maintained ``LOC_BUDGET_EXEMPT`` set
@@ -196,8 +196,10 @@ def test_f4_oversized_xt_ensemble_file_is_a_documented_exempt():
 
     from tests.test_meta.test_no_file_over_1k_loc import BASELINE
 
+    rel = "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py"
     baseline = orjson.loads(BASELINE.read_bytes())
-    assert "src/mlframe/training/core/_phase_composite_post_xt_ensemble/__init__.py" in baseline
+    # the per-target body was carved into a sibling module, so the facade fits the budget and needs no exemption any more
+    assert rel not in baseline, f"{rel} fits the 1k budget again; its baseline entry is stale"
 
 
 # ---------------------------------------------------------------------------

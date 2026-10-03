@@ -7,6 +7,8 @@ re-exports every name so historical ``from ._misc_helpers import _auto_detect_fe
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 
 import polars as pl
@@ -81,6 +83,13 @@ def _auto_detect_feature_types(
 
     Returns: ``(text_features, embedding_features, auto_detected_high_card_to_drop)``.
     """
+    threshold: Any = None
+    _meta_non_string_cat: Any = None
+    _meta_non_null: Any = None
+    _meta_n_unique: Any = None
+    _meta_embed_obj: Any = None
+    _dtypes: Any = None
+    _columns: Any = None
     import polars as pl
 
     _ftc = feature_types_config
@@ -184,28 +193,7 @@ def _auto_detect_feature_types(
             if is_text_like:
                 text_like_cols.append(name)
 
-        if text_like_cols:
-            # Index-based aliases (__autodetect_nu_{i}__ / __autodetect_cnt_{i}__) are collision-proof: even a user
-            # column literally named "__autodetect_nu_0__" cannot collide because we only read the aggregation
-            # output, not the input frame's columns.
-            _aggs = [pl.col(c).n_unique().alias(f"__autodetect_nu_{i}__") for i, c in enumerate(text_like_cols)] + [
-                pl.col(c).count().alias(f"__autodetect_cnt_{i}__") for i, c in enumerate(text_like_cols)
-            ]
-            _agg_row = df.lazy().select(_aggs).collect()
-            for i, name in enumerate(text_like_cols):
-                n_unique = int(_agg_row[f"__autodetect_nu_{i}__"][0])
-                non_null = int(_agg_row[f"__autodetect_cnt_{i}__"][0])
-                if _promotes_to_text(n_unique, non_null, threshold, abs_threshold):
-                    if non_null < min_non_null_abs:
-                        skipped_low_non_null.append((name, n_unique, non_null))
-                        continue
-                    cardinalities[name] = n_unique
-                    if promote_text:
-                        text_features.append(name)
-                        if name in cat_features:
-                            promoted.append(name)
-                    else:
-                        auto_detected_high_card_to_drop.append(name)
+        _auto_detect_featur_text_like_cols(text_like_cols, df, threshold, abs_threshold, min_non_null_abs, skipped_low_non_null, cardinalities, promote_text, text_features, cat_features, promoted, auto_detected_high_card_to_drop)
     else:
         # pandas path: prefer the mutation-immune ``pandas_meta`` dict snapshot when supplied (built by
         # ``_phase_fit_pipeline`` before the pipeline mutates dtypes / column set). Both branches share
@@ -251,85 +239,9 @@ def _auto_detect_feature_types(
             _meta_non_string_cat = set(pandas_meta.get("non_string_category_cols", []))
         else:
             _meta_non_string_cat = None
-        for col in _columns:
-            if col in user_assigned:
-                continue
-            dtype_name = _dtypes[col]
-            if honor_user_dtype and dtype_name == "category":
-                honored_user_dtype_cols.append(col)
-                continue
-            _dtype_lc = dtype_name.lower().lstrip("<")
-            _is_string_like = any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens) or "stringdtype" in _dtype_lc
-            # A pandas 'category' dtype's categories can be ANY value type (bool/int/float), not just strings --
-            # unlike polars Categorical/Enum, which are always string-backed. A non-string-categories column
-            # promoted to text_features leaks its raw category value (e.g. a literal ``True``/``1``) into
-            # CatBoost's text-feature Pool construction, which rejects it: "text_features must have string type"
-            # (caught live via a fuzz combo with a non-string-categories 'category' column). Treat it like an
-            # honored user dtype: never text-auto-promoted, regardless of cardinality.
-            if _is_string_like and dtype_name.startswith("category"):
-                if _meta_non_string_cat is not None:
-                    _is_non_string_cat = col in _meta_non_string_cat
-                else:
-                    _cats_dtype = getattr(df[col].dtype, "categories", None)
-                    _is_non_string_cat = _cats_dtype is not None and _cats_dtype.dtype.kind not in "OU"
-                if _is_non_string_cat:
-                    honored_user_dtype_cols.append(col)
-                    continue
-            if _is_string_like:
-                # Skip object columns whose cells are ndarray / list (embedding vectors). nunique() hashes
-                # the cells via PyObjectHashTable which raises ``TypeError: unhashable type: 'numpy.ndarray'``.
-                # Treat them as embeddings: route to embedding_features and skip the cardinality check
-                # (iter#44 fuzz finding). With the metadata dict the sniff was done at snapshot time so we
-                # only consult the precomputed list; the legacy fallback path still probes the live series.
-                if dtype_name.startswith("object"):
-                    if use_meta:
-                        _is_embedding = _meta_embed_obj is not None and col in _meta_embed_obj
-                    else:
-                        _series = df[col]
-                        try:
-                            _first = next((v for v in _series.head(8) if v is not None), None)
-                        except Exception:
-                            logger.debug("failed probing object column %r for embedding detection; treating as non-embedding", col, exc_info=True)
-                            _first = None
-                        _is_embedding = _first is not None and (
-                            hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))
-                        )
-                    if _is_embedding:
-                        embedding_features.append(col)
-                        if col in cat_features:
-                            promoted.append(col)
-                        continue
-                nunique_cols.append(col)
+        _auto_detect_featur_col_columns(_columns, user_assigned, _dtypes, honor_user_dtype, honored_user_dtype_cols, _string_like_dtype_tokens, _meta_non_string_cat, df, use_meta, _meta_embed_obj, embedding_features, cat_features, promoted, nunique_cols)
 
-        if nunique_cols:
-            if use_meta:
-                # n_unique / non_null are precomputed in the metadata snapshot for every text-candidate
-                # column (string / object / category / bool). No frame is touched here -- the dict is the
-                # sole source of truth, immune to any in-place mutation on the source train_df.
-                _stats = [(col, int(_meta_n_unique[col]), int(_meta_non_null[col])) for col in nunique_cols]
-            else:
-                # Legacy fallback: ``df[cols].agg(["nunique","count"])`` returns a 2 x len(cols) frame
-                # where row 0 is nunique and row 1 is count. pandas dispatches both reductions via its
-                # block manager which is materially cheaper than the legacy N x (nunique + notna().sum())
-                # per-column Python -> C round-trip.
-                # PANDAS-AT-IN-AUDIT: one .loc(...).to_dict() per row beats N ``_agg.at`` lookups; .at is
-                # a single-cell scalar accessor and pays a row-level reindex on each call.
-                _agg = df[nunique_cols].agg(["nunique", "count"])
-                _nunique_map = _agg.loc["nunique"].to_dict()
-                _count_map = _agg.loc["count"].to_dict()
-                _stats = [(col, int(_nunique_map[col]), int(_count_map[col])) for col in nunique_cols]
-            for col, n_unique, non_null in _stats:
-                if _promotes_to_text(n_unique, non_null, threshold, abs_threshold):
-                    if non_null < min_non_null_abs:
-                        skipped_low_non_null.append((col, n_unique, non_null))
-                        continue
-                    cardinalities[col] = n_unique
-                    if promote_text:
-                        text_features.append(col)
-                        if col in cat_features:
-                            promoted.append(col)
-                    else:
-                        auto_detected_high_card_to_drop.append(col)
+        _auto_detect_featur_nunique_cols(nunique_cols, use_meta, _meta_n_unique, _meta_non_null, df, threshold, abs_threshold, min_non_null_abs, skipped_low_non_null, cardinalities, promote_text, text_features, cat_features, promoted, auto_detected_high_card_to_drop)
 
     def _fmt_with_cardinality(names):
         """Format each name as ``name:n_unique`` (thousands-separated) when a cardinality was recorded, else the bare name, for log messages."""
@@ -339,18 +251,7 @@ def _auto_detect_feature_types(
             parts.append(f"{n}:{nu:_}" if nu is not None else n)
         return "[" + ", ".join(parts) + "]"
 
-    if verbose and (text_features or embedding_features or promoted):
-        if promoted:
-            logger.info(
-                "  Promoted %d high-cardinality column(s) from cat_features to text_features "
-                "(threshold>%s): %s",
-                len(promoted), threshold, _fmt_with_cardinality(promoted),
-            )
-        logger.info(
-            "  Auto-detected feature types -- text: %s, embedding: %s",
-            _fmt_with_cardinality(text_features) if text_features else "(none)",
-            embedding_features or "(none)",
-        )
+    _auto_detect_featur_verbose_text_features_embedding(verbose, text_features, embedding_features, promoted, threshold, _fmt_with_cardinality)
 
     # Load-bearing: log drop-list regardless of verbose so operators see auto-dropped columns and why (silent drop bites).
     if auto_detected_high_card_to_drop:
@@ -388,6 +289,140 @@ def _auto_detect_feature_types(
         )
 
     return text_features, embedding_features, auto_detected_high_card_to_drop
+
+
+def _auto_detect_featur_text_like_cols(text_like_cols, df, threshold, abs_threshold, min_non_null_abs, skipped_low_non_null, cardinalities, promote_text, text_features, cat_features, promoted, auto_detected_high_card_to_drop):
+    """Block of _auto_detect_feature_types starting at ``if text_like_cols:``."""
+    name: Any = None
+    import polars as pl
+
+    if text_like_cols:
+        # Index-based aliases (__autodetect_nu_{i}__ / __autodetect_cnt_{i}__) are collision-proof: even a user
+        # column literally named "__autodetect_nu_0__" cannot collide because we only read the aggregation
+        # output, not the input frame's columns.
+        _aggs = [pl.col(c).n_unique().alias(f"__autodetect_nu_{i}__") for i, c in enumerate(text_like_cols)] + [
+            pl.col(c).count().alias(f"__autodetect_cnt_{i}__") for i, c in enumerate(text_like_cols)
+        ]
+        _agg_row = df.lazy().select(_aggs).collect()
+        for i, name in enumerate(text_like_cols):
+            n_unique = int(_agg_row[f"__autodetect_nu_{i}__"][0])
+            non_null = int(_agg_row[f"__autodetect_cnt_{i}__"][0])
+            if _promotes_to_text(n_unique, non_null, threshold, abs_threshold):
+                if non_null < min_non_null_abs:
+                    skipped_low_non_null.append((name, n_unique, non_null))
+                    continue
+                cardinalities[name] = n_unique
+                _auto_detect_featur_promote_text(promote_text, text_features, name, cat_features, promoted, auto_detected_high_card_to_drop)
+
+
+def _auto_detect_featur_promote_text(promote_text, text_features, name, cat_features, promoted, auto_detected_high_card_to_drop):
+    """Block of _auto_detect_feature_types starting at ``if promote_text:``."""
+    if promote_text:
+        text_features.append(name)
+        if name in cat_features:
+            promoted.append(name)
+    else:
+        auto_detected_high_card_to_drop.append(name)
+
+
+def _auto_detect_featur_col_columns(_columns, user_assigned, _dtypes, honor_user_dtype, honored_user_dtype_cols, _string_like_dtype_tokens, _meta_non_string_cat, df, use_meta, _meta_embed_obj, embedding_features, cat_features, promoted, nunique_cols):
+    """Block of _auto_detect_feature_types starting at ``for col in _columns:``."""
+    for col in _columns:
+        if col in user_assigned:
+            continue
+        dtype_name = _dtypes[col]
+        if honor_user_dtype and dtype_name == "category":
+            honored_user_dtype_cols.append(col)
+            continue
+        _dtype_lc = dtype_name.lower().lstrip("<")
+        _is_string_like = any(_dtype_lc.startswith(tok) for tok in _string_like_dtype_tokens) or "stringdtype" in _dtype_lc
+        # A pandas 'category' dtype's categories can be ANY value type (bool/int/float), not just strings --
+        # unlike polars Categorical/Enum, which are always string-backed. A non-string-categories column
+        # promoted to text_features leaks its raw category value (e.g. a literal ``True``/``1``) into
+        # CatBoost's text-feature Pool construction, which rejects it: "text_features must have string type"
+        # (caught live via a fuzz combo with a non-string-categories 'category' column). Treat it like an
+        # honored user dtype: never text-auto-promoted, regardless of cardinality.
+        if _is_string_like and dtype_name.startswith("category"):
+            if _meta_non_string_cat is not None:
+                _is_non_string_cat = col in _meta_non_string_cat
+            else:
+                _cats_dtype = getattr(df[col].dtype, "categories", None)
+                _is_non_string_cat = _cats_dtype is not None and _cats_dtype.dtype.kind not in "OU"
+            if _is_non_string_cat:
+                honored_user_dtype_cols.append(col)
+                continue
+        if _is_string_like:
+            # Skip object columns whose cells are ndarray / list (embedding vectors). nunique() hashes
+            # the cells via PyObjectHashTable which raises ``TypeError: unhashable type: 'numpy.ndarray'``.
+            # Treat them as embeddings: route to embedding_features and skip the cardinality check
+            # (iter#44 fuzz finding). With the metadata dict the sniff was done at snapshot time so we
+            # only consult the precomputed list; the legacy fallback path still probes the live series.
+            if dtype_name.startswith("object"):
+                if use_meta:
+                    _is_embedding = _meta_embed_obj is not None and col in _meta_embed_obj
+                else:
+                    _series = df[col]
+                    try:
+                        _first = next((v for v in _series.head(8) if v is not None), None)
+                    except Exception:
+                        logger.debug("failed probing object column %r for embedding detection; treating as non-embedding", col, exc_info=True)
+                        _first = None
+                    _is_embedding = _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))))
+                if _is_embedding:
+                    embedding_features.append(col)
+                    if col in cat_features:
+                        promoted.append(col)
+                    continue
+            nunique_cols.append(col)
+
+
+def _auto_detect_featur_nunique_cols(nunique_cols, use_meta, _meta_n_unique, _meta_non_null, df, threshold, abs_threshold, min_non_null_abs, skipped_low_non_null, cardinalities, promote_text, text_features, cat_features, promoted, auto_detected_high_card_to_drop):
+    """Block of _auto_detect_feature_types starting at ``if nunique_cols:``."""
+    if nunique_cols:
+        if use_meta:
+            # n_unique / non_null are precomputed in the metadata snapshot for every text-candidate
+            # column (string / object / category / bool). No frame is touched here -- the dict is the
+            # sole source of truth, immune to any in-place mutation on the source train_df.
+            _stats = [(col, int(_meta_n_unique[col]), int(_meta_non_null[col])) for col in nunique_cols]
+        else:
+            # Legacy fallback: ``df[cols].agg(["nunique","count"])`` returns a 2 x len(cols) frame
+            # where row 0 is nunique and row 1 is count. pandas dispatches both reductions via its
+            # block manager which is materially cheaper than the legacy N x (nunique + notna().sum())
+            # per-column Python -> C round-trip.
+            # PANDAS-AT-IN-AUDIT: one .loc(...).to_dict() per row beats N ``_agg.at`` lookups; .at is
+            # a single-cell scalar accessor and pays a row-level reindex on each call.
+            _agg = df[nunique_cols].agg(["nunique", "count"])
+            _nunique_map = _agg.loc["nunique"].to_dict()
+            _count_map = _agg.loc["count"].to_dict()
+            _stats = [(col, int(_nunique_map[col]), int(_count_map[col])) for col in nunique_cols]
+        for col, n_unique, non_null in _stats:
+            if _promotes_to_text(n_unique, non_null, threshold, abs_threshold):
+                if non_null < min_non_null_abs:
+                    skipped_low_non_null.append((col, n_unique, non_null))
+                    continue
+                cardinalities[col] = n_unique
+                if promote_text:
+                    text_features.append(col)
+                    if col in cat_features:
+                        promoted.append(col)
+                else:
+                    auto_detected_high_card_to_drop.append(col)
+
+
+def _auto_detect_featur_verbose_text_features_embedding(verbose, text_features, embedding_features, promoted, threshold, _fmt_with_cardinality):
+    """Block of _auto_detect_feature_types starting at ``if verbose and (text_features or embedding_features or promoted):``."""
+    if verbose and (text_features or embedding_features or promoted):
+        if promoted:
+            logger.info(
+                "  Promoted %d high-cardinality column(s) from cat_features to text_features "
+                "(threshold>%s): %s",
+                len(promoted), threshold, _fmt_with_cardinality(promoted),
+            )
+        logger.info(
+            "  Auto-detected feature types -- text: %s, embedding: %s",
+            _fmt_with_cardinality(text_features) if text_features else "(none)",
+            embedding_features or "(none)",
+        )
 
 
 def _validate_feature_type_exclusivity(

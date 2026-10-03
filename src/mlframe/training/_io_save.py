@@ -58,14 +58,14 @@ def _describe_unpicklable(payload, error) -> str:
             for name, value in state.items():
                 try:
                     _pk.dumps(value, protocol=_pk.HIGHEST_PROTOCOL)
-                except Exception as exc:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.debug("attribute %r is unpicklable (%s: %s)", name, type(exc).__name__, exc)
                     culprits.append(name)
         elif isinstance(payload, dict):
             for name, value in payload.items():
                 try:
                     _pk.dumps(value, protocol=_pk.HIGHEST_PROTOCOL)
-                except Exception as exc:  # noqa: PERF203 -- per-attribute isolation IS the diagnostic; this runs once, on an error path
+                except Exception as exc:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                     logger.debug("key %r is unpicklable (%s: %s)", name, type(exc).__name__, exc)
                     culprits.append(str(name))
     except Exception as exc:
@@ -216,32 +216,7 @@ def save_mlframe_model(
     # pickle.dumps + zstd. No optimization warranted. NOTE asizeof grossly under-estimates Cython/numpy-buffer-backed
     # models (RF: est 0.4 MB vs 155 MB serialized), so it is correctly used ONLY for the SimpleNamespace eager/lean
     # flip and must NOT be swapped for a "cheaper" estimate that would change the gate decision.
-    if not lean and auto_lean_retry and auto_lean_pre_check_mb > 0.0 and isinstance(model, SimpleNamespace):
-        try:
-            from pympler import asizeof as _pa
-            _est_bytes = _pa.asizeof(model)
-            _est_mb = _est_bytes / (1024 * 1024)
-            if _est_mb > auto_lean_pre_check_mb:
-                if verbose > 0:
-                    logger.warning(
-                        "[save-size-precheck] %s: in-memory payload ~%.1f MB "
-                        "(> %.0f MB threshold) -- flipping lean=True BEFORE the "
-                        "fat pickle to skip the auto-retry double-dump. Pass "
-                        "``auto_lean_pre_check_mb=0`` to disable this pre-flip.",
-                        file, _est_mb, auto_lean_pre_check_mb,
-                    )
-                lean = True
-        except ImportError:
-            # pympler is a hard dep per pyproject.toml; if it's somehow not
-            # importable here we fall through to the post-save sensor retry.
-            pass
-        except Exception as _pa_err:
-            # ``asizeof`` can stack-overflow on deeply-recursive objects with
-            # ill-defined __dict__ traversal; never let it block a save.
-            logger.debug(
-                "[save-size-precheck] pympler.asizeof raised %s; falling through " "to post-save sensor retry.",
-                _pa_err,
-            )
+    lean = _save_mlframe_model_flip_must_swapped_cheaper(lean, auto_lean_retry, auto_lean_pre_check_mb, model, verbose, file)
     if lean and isinstance(model, SimpleNamespace):
         _lean = SimpleNamespace(**{k: v for k, v in vars(model).items() if k not in _LEAN_STRIP_FIELDS})
         _payload: object = _lean
@@ -474,13 +449,7 @@ def save_mlframe_model(
         # Restore torch.compile wrappers on the caller's payload so subsequent
         # predict / fit reuses keep the optimized graph rather than the unwrapped
         # eager fallback.
-        for _parent, _k, _orig_v in _compile_swaps:
-            try:
-                _parent.__dict__[_k] = _orig_v
-            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                # If something mutated the parent during dump (rare), there's
-                # nothing useful to restore - log at debug only.
-                logger.debug("save_mlframe_model: could not restore compile-wrapped attr %r", _k)
+        _save_mlframe_model_eager_fallback(_compile_swaps)
         # Restore Lightning bloat-strip attrs (``_trainer`` /
         # ``prediction_datamodule``) on the caller's payload. The save
         # path nulled them on the IN-MEMORY object during pickle to
@@ -488,14 +457,61 @@ def save_mlframe_model(
         # DataLoader refs to the training dataset); restore so the
         # caller can still e.g. predict / continue training without
         # re-fitting.
-        for _parent, _k, _orig_v in _bloat_strips:
-            try:
-                _parent.__dict__[_k] = _orig_v
-            except Exception:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug(
-                    "save_mlframe_model: could not restore Lightning bloat attr %r", _k,
-                )
+        _save_mlframe_model_re_fitting(_bloat_strips)
         # Release LAST, after every restore above has run -- see _SAVE_MUTATION_LOCK's docstring.
         # The recursive auto_lean_retry call (if any) already ran and returned by this point (its own
         # RLock acquire/release happened entirely within this call's held lock), so releasing here is safe.
         _SAVE_MUTATION_LOCK.release()
+
+
+def _save_mlframe_model_eager_fallback(_compile_swaps):
+    """Block of save_mlframe_model starting at ``for _parent, _k, _orig_v in _compile_swaps:``."""
+    for _parent, _k, _orig_v in _compile_swaps:
+        try:
+            _parent.__dict__[_k] = _orig_v
+        except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            # If something mutated the parent during dump (rare), there's
+            # nothing useful to restore - log at debug only.
+            logger.debug("save_mlframe_model: could not restore compile-wrapped attr %r", _k)
+
+
+def _save_mlframe_model_flip_must_swapped_cheaper(lean, auto_lean_retry, auto_lean_pre_check_mb, model, verbose, file):
+    """Block of save_mlframe_model starting at ``if not lean and auto_lean_retry and auto_lean_pre_check_mb > 0.0 and i``."""
+    if not lean and auto_lean_retry and auto_lean_pre_check_mb > 0.0 and isinstance(model, SimpleNamespace):
+        try:
+            from pympler import asizeof as _pa
+            _est_bytes = _pa.asizeof(model)
+            _est_mb = _est_bytes / (1024 * 1024)
+            if _est_mb > auto_lean_pre_check_mb:
+                if verbose > 0:
+                    logger.warning(
+                        "[save-size-precheck] %s: in-memory payload ~%.1f MB "
+                        "(> %.0f MB threshold) -- flipping lean=True BEFORE the "
+                        "fat pickle to skip the auto-retry double-dump. Pass "
+                        "``auto_lean_pre_check_mb=0`` to disable this pre-flip.",
+                        file, _est_mb, auto_lean_pre_check_mb,
+                    )
+                lean = True
+        except ImportError:
+            # pympler is a hard dep per pyproject.toml; if it's somehow not
+            # importable here we fall through to the post-save sensor retry.
+            pass
+        except Exception as _pa_err:
+            # ``asizeof`` can stack-overflow on deeply-recursive objects with
+            # ill-defined __dict__ traversal; never let it block a save.
+            logger.debug(
+                "[save-size-precheck] pympler.asizeof raised %s; falling through " "to post-save sensor retry.",
+                _pa_err,
+            )
+    return lean
+
+
+def _save_mlframe_model_re_fitting(_bloat_strips):
+    """Block of save_mlframe_model starting at ``for _parent, _k, _orig_v in _bloat_strips:``."""
+    for _parent, _k, _orig_v in _bloat_strips:
+        try:
+            _parent.__dict__[_k] = _orig_v
+        except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            logger.debug(
+                "save_mlframe_model: could not restore Lightning bloat attr %r", _k,
+            )

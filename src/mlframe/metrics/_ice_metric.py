@@ -235,16 +235,7 @@ def compute_probabilistic_multiclass_error(
     if labels is not None and hasattr(labels, "to_numpy"):
         labels = labels.to_numpy()
 
-    if isinstance(y_score, Sequence):
-        probs = y_score
-    else:
-        if len(y_score.shape) == 1:
-            # ``[1 - y_score, y_score]`` directly: the prior ``vstack(...).T`` then re-sliced both columns out, allocating a
-            # transposed (n, 2) copy purely to undo it. Same two 1-D views, no transposed intermediate. (The binary path skips
-            # class 0 downstream, but the column is kept so ``len(probs)==2`` and the multilabel/non-binary contracts are unchanged.)
-            probs = [1 - y_score, y_score]
-        else:
-            probs = [y_score[:, i] for i in range(y_score.shape[1])]
+    probs = _probs_from_score(y_score)
 
     # Auto-detect multilabel from shape: a 2D y_true with width matching probs count is
     # an indicator matrix; caller can also set ``multilabel=True`` explicitly.
@@ -254,22 +245,7 @@ def compute_probabilistic_multiclass_error(
     # fuzz c0000 / c0008 (cb / multilabel target) - without the stack, the
     # ``y_true == class_id`` fall-through raised ``truth value of array
     # ambiguous`` on the cell-array comparison.
-    if isinstance(y_true, np.ndarray) and y_true.dtype == object and y_true.ndim == 1 and y_true.shape[0] > 0:
-        _first = y_true[0]
-        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
-            try:
-                y_true = np.stack([np.asarray(c) for c in y_true], axis=0)
-            except Exception as _e_stack:
-                # Silent pass was the prior behaviour: stack failure left
-                # y_true as object-of-arrays, then the multilabel auto-detect
-                # branch below couldn't pick it up and the metric routed
-                # through the wrong code path silently. DEBUG-log (not WARN,
-                # the multilabel detection is best-effort) so the trail
-                # exists for triage.
-                logger.debug(
-                    "compute_probabilistic_multiclass_error: y_true stack " "failed (%s); multilabel auto-detect may misroute.",
-                    _e_stack,
-                )
+    y_true = _unwrap_object_array_y_true(y_true)
     if not multilabel and isinstance(y_true, np.ndarray) and y_true.ndim == 2 and y_true.shape[1] == len(probs):
         multilabel = True
         logger.debug("compute_probabilistic_multiclass_error: detected multilabel y_true shape, enabling multilabel mode.")
@@ -278,27 +254,7 @@ def compute_probabilistic_multiclass_error(
     # as ``y_true == column_index``, which silently mismatches when the labels are not exactly 0..K-1 (e.g. [1,2,3] or
     # [10,20,30]): column 0 compares against 0, finds nothing, and the ICE collapses to a no-skill value. Identity for
     # already-0..K-1 targets, so the common path stays bit-identical; only the shifted/non-contiguous case is corrected.
-    if (
-        labels is None
-        and not multilabel
-        and len(probs) > 2
-        and isinstance(y_true, np.ndarray)
-        and y_true.ndim == 1
-        and y_true.dtype.kind in ("i", "u")
-        # Cheap min/max pre-gate so the full O(n log n) ``np.unique`` is skipped on the common already-0..K-1 path. When
-        # ``min==0 and max==K-1`` the remap branch below provably cannot fire: any sorted-unique that spans [0, K-1] either
-        # has size==K (then it equals ``arange(K)`` so the ``!= arange`` test is False) or size<K (then the ``size==K`` test
-        # is False). Either way no remap -- skipping ``unique`` is bit-identical. Only out-of-range integer labels need the unique scan.
-        and not (y_true.size > 0 and y_true.min() == 0 and y_true.max() == len(probs) - 1)
-    ):
-        _uniq = np.unique(y_true)
-        if _uniq.size == len(probs) and not np.array_equal(_uniq, np.arange(len(probs))):
-            labels = _uniq
-            logger.warning(
-                "compute_probabilistic_multiclass_error: y_true carries %d non-0-indexed integer labels %r but %d proba "
-                "columns; auto-mapping column j -> label sorted_unique[j]. Pass labels= explicitly to silence this.",
-                _uniq.size, _uniq.tolist(), len(probs),
-            )
+    labels = _infer_multilabel_from_labels(labels, multilabel, probs, y_true)
 
     total_error = 0.0
     weights_sum = 0
@@ -434,6 +390,68 @@ def compute_probabilistic_multiclass_error(
         # per-class recompute rather than indexing a missing entry.
         return total_error, {}
     return total_error
+
+
+def _infer_multilabel_from_labels(labels, multilabel, probs, y_true):
+    """Detect multilabel input from the shape of y_true and the probabilities."""
+    if (
+        labels is None
+        and not multilabel
+        and len(probs) > 2
+        and isinstance(y_true, np.ndarray)
+        and y_true.ndim == 1
+        and y_true.dtype.kind in ("i", "u")
+        # Cheap min/max pre-gate so the full O(n log n) ``np.unique`` is skipped on the common already-0..K-1 path. When
+        # ``min==0 and max==K-1`` the remap branch below provably cannot fire: any sorted-unique that spans [0, K-1] either
+        # has size==K (then it equals ``arange(K)`` so the ``!= arange`` test is False) or size<K (then the ``size==K`` test
+        # is False). Either way no remap -- skipping ``unique`` is bit-identical. Only out-of-range integer labels need the unique scan.
+        and not (y_true.size > 0 and y_true.min() == 0 and y_true.max() == len(probs) - 1)
+    ):
+        _uniq = np.unique(y_true)
+        if _uniq.size == len(probs) and not np.array_equal(_uniq, np.arange(len(probs))):
+            labels = _uniq
+            logger.warning(
+                "compute_probabilistic_multiclass_error: y_true carries %d non-0-indexed integer labels %r but %d proba "
+                "columns; auto-mapping column j -> label sorted_unique[j]. Pass labels= explicitly to silence this.",
+                _uniq.size, _uniq.tolist(), len(probs),
+            )
+    return labels
+
+
+def _probs_from_score(y_score):
+    """Convert the score input into a probability array."""
+    if isinstance(y_score, Sequence):
+        probs = y_score
+    else:
+        if len(y_score.shape) == 1:
+            # ``[1 - y_score, y_score]`` directly: the prior ``vstack(...).T`` then re-sliced both columns out, allocating a
+            # transposed (n, 2) copy purely to undo it. Same two 1-D views, no transposed intermediate. (The binary path skips
+            # class 0 downstream, but the column is kept so ``len(probs)==2`` and the multilabel/non-binary contracts are unchanged.)
+            probs = [1 - y_score, y_score]
+        else:
+            probs = [y_score[:, i] for i in range(y_score.shape[1])]
+    return probs
+
+
+def _unwrap_object_array_y_true(y_true):
+    """Unwrap an object-dtype y_true holding per-row arrays into a regular array."""
+    if isinstance(y_true, np.ndarray) and y_true.dtype == object and y_true.ndim == 1 and y_true.shape[0] > 0:
+        _first = y_true[0]
+        if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
+            try:
+                y_true = np.stack([np.asarray(c) for c in y_true], axis=0)
+            except Exception as _e_stack:
+                # Silent pass was the prior behaviour: stack failure left
+                # y_true as object-of-arrays, then the multilabel auto-detect
+                # branch below couldn't pick it up and the metric routed
+                # through the wrong code path silently. DEBUG-log (not WARN,
+                # the multilabel detection is best-effort) so the trail
+                # exists for triage.
+                logger.debug(
+                    "compute_probabilistic_multiclass_error: y_true stack " "failed (%s); multilabel auto-detect may misroute.",
+                    _e_stack,
+                )
+    return y_true
 
 
 def _accepts_sample_weight(metric: Callable) -> bool:

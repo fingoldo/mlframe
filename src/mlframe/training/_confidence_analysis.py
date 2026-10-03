@@ -109,24 +109,9 @@ def run_confidence_analysis(
     confidence_task_type = "GPU" if CUDA_IS_AVAILABLE else "CPU"
     confidence_model = CatBoostRegressor(verbose=0, eval_fraction=0.1, task_type=confidence_task_type, **confidence_model_kwargs)
 
-    fit_params_copy = {}
-    if fit_params:
-        fit_params_copy = copy.copy(fit_params)
-        if "eval_set" in fit_params_copy:
-            del fit_params_copy["eval_set"]
-        # The main model's callbacks (visualisers, early-stopping hooks bound to ITS eval set) do not belong to this
-        # regressor, and CatBoost refuses user callbacks outright on GPU ("User defined callbacks are not supported").
-        fit_params_copy.pop("callbacks", None)
-    if sample_weight is not None and "sample_weight" not in fit_params_copy:
-        _sw_arr = np.asarray(sample_weight)
-        if hasattr(test_df, "shape") and _sw_arr.shape[0] == test_df.shape[0]:
-            fit_params_copy["sample_weight"] = _sw_arr
-        else:
-            logger.debug(
-                "run_confidence_analysis: sample_weight length %s does not match test_df rows %s; fitting unweighted.",
-                _sw_arr.shape[0] if _sw_arr.ndim else "scalar",
-                getattr(test_df, "shape", (None,))[0],
-            )
+    fit_params_copy: dict[Any, Any] = {}
+    fit_params_copy = _copy_confidence_fit_params(fit_params, fit_params_copy)
+    _add_confidence_sample_weight(sample_weight, fit_params_copy, test_df)
 
     # Drop text / embedding columns from test_df upfront.
     # SHAP's TreeExplainer rebuilds a CatBoost Pool using ONLY
@@ -148,87 +133,8 @@ def run_confidence_analysis(
         _drop_for_conf.extend([c for c in text_features if c in test_df.columns])
     if embedding_features:
         _drop_for_conf.extend([c for c in embedding_features if c in test_df.columns])
-    if isinstance(test_df, pd.DataFrame):
-        for _c in test_df.columns:
-            if _c in _drop_for_conf:
-                continue
-            if cat_features and _c in cat_features:
-                continue
-            try:
-                _dt = test_df[_c].dtype
-            except Exception as _e_dt:
-                # Pre-fix `continue` silent. Pandas dtype access shouldn't
-                # raise on a column known to be in ``test_df.columns``, so
-                # this branch firing is itself a signal of upstream
-                # corruption (custom Series subclass with broken __dtype__,
-                # or column became inaccessible mid-iteration). DEBUG log
-                # so operators see the trail when CB Pool later crashes
-                # because this col wasn't added to _drop_for_conf.
-                import logging as _logging
-                _logging.getLogger(__name__).debug(
-                    "_eval_helpers: pandas dtype access failed for col=%r (%s); "
-                    "col will NOT be auto-dropped from confidence analysis. "
-                    "If CB Pool crashes downstream, this skipped col may be "
-                    "the cause.", _c, _e_dt,
-                )
-                continue
-            # ``_dt is object`` is wrong: np.dtype('O') is NOT the Python
-            # type ``object`` (it's a numpy dtype wrapper). Identity check
-            # always returned False; the regression test
-            # ``test_confidence_analysis_pandas_object_dtype_still_dropped``
-            # surfaced this by feeding an explicit object-dtype
-            # text column - it bypassed the drop and reached CatBoost Pool
-            # which crashed on 'Cannot convert s_0 to float'. Use the dtype
-            # kind code instead (``"O"`` for object, ``"U"`` for unicode str).
-            if getattr(_dt, "kind", None) in ("O", "U") or str(_dt) in ("object", "string", "string[python]", "string[pyarrow]"):
-                _drop_for_conf.append(_c)
-    elif isinstance(test_df, pl.DataFrame):
-        # Polars-side auto-detect. The
-        # earlier pandas-only branch missed:
-        #   - pl.Utf8 / pl.String text columns
-        #     (CB Pool crashes on text-typed numerics like ``text_0``)
-        #   - pl.List / pl.Array embedding columns (e.g. ``emb_0``
-        #     surfaces here when fit_params['embedding_features'] is
-        #     None because the trailing model is HGB/XGB which doesn't
-        #     accept the kwarg -> the explicit-drop list is empty)
-        #   - pl.Struct nested types (rare but break CB Pool numerics)
-        # All these break CB Pool numeric-feature construction. Drop
-        # them unless explicitly listed as cat_features.
-        for _c in test_df.columns:
-            if _c in _drop_for_conf:
-                continue
-            if cat_features and _c in cat_features:
-                continue
-            try:
-                _dt = test_df.schema[_c]
-            except Exception as _e_dt:
-                # Same shape as the pandas branch above: schema lookup
-                # shouldn't raise on a known column; DEBUG-log so the
-                # trail exists when CB Pool crashes later.
-                import logging as _logging
-                _logging.getLogger(__name__).debug(
-                    "_eval_helpers: polars schema lookup failed for col=%r " "(%s); col will NOT be auto-dropped from confidence " "analysis.",
-                    _c,
-                    _e_dt,
-                )
-                continue
-            _dt_name = str(_dt)
-            _is_string = _dt in (pl.Utf8, pl.Object) or _dt_name in ("Utf8", "String", "Object")
-            _is_collection = (
-                _dt_name.startswith("List(")
-                or _dt_name.startswith("Array(")
-                or _dt_name.startswith("Struct(")
-                or (hasattr(pl, "List") and isinstance(_dt, type(pl.List(pl.Int8))))
-            )
-            if _is_string or _is_collection:
-                _drop_for_conf.append(_c)
-    if _drop_for_conf:
-        if isinstance(test_df, pd.DataFrame):
-            test_df = test_df.drop(columns=_drop_for_conf)
-        else:
-            test_df = test_df.drop([c for c in _drop_for_conf if c in test_df.columns])
-        if cat_features is not None:
-            cat_features = [c for c in cat_features if c not in _drop_for_conf]
+    _drop_columns_for_confidence_model(test_df, _drop_for_conf, cat_features)
+    cat_features, test_df = _drop_confidence_excluded_columns(_drop_for_conf, test_df, cat_features)
 
     # CatBoost's polars Pool path is fragile when a kept column is
     # pl.Categorical or pl.Enum AND has nulls (`null_fraction_cats > 0`)
@@ -261,11 +167,7 @@ def run_confidence_analysis(
         from .utils import get_pandas_view_of_polars_df
         test_df = get_pandas_view_of_polars_df(test_df)
 
-    if cat_features is not None:
-        fit_params_copy["cat_features"] = cat_features
-    elif "cat_features" not in fit_params_copy:
-        from ._nan_processing import get_categorical_columns  # lazy import: circular load with .utils
-        fit_params_copy["cat_features"] = get_categorical_columns(test_df, include_string=False)
+    _set_confidence_cat_features(cat_features, fit_params_copy, test_df)
 
     # CatBoost rejects NaN in cat_feature cells with
     # ``cat_features must be integer or string, real number values and
@@ -281,20 +183,7 @@ def run_confidence_analysis(
     # cases) so HGB-side calls (which pass cat_features=None and rely
     # on the auto-detect block above) are not skipped.
     _resolved_cat_features = fit_params_copy.get("cat_features")
-    if _resolved_cat_features and isinstance(test_df, pd.DataFrame):
-        _cat_in_df = [c for c in _resolved_cat_features if c in test_df.columns]
-        if _cat_in_df:
-            # Shallow copy: only cat columns carrying NaN are reassigned below; deep-copying a 100+ GB test frame to fill a few cat columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
-            test_df = test_df.copy(deep=False)
-            for _c in _cat_in_df:
-                _col = test_df[_c]
-                if _col.isna().any():
-                    if isinstance(_col.dtype, pd.CategoricalDtype):
-                        if "_NULL_" not in _col.cat.categories:
-                            _col = _col.cat.add_categories(["_NULL_"])
-                        test_df[_c] = _col.fillna("_NULL_")
-                    else:
-                        test_df[_c] = _col.fillna("_NULL_").astype(str)
+    test_df = _cast_resolved_cat_features(_resolved_cat_features, test_df)
 
     fit_params_copy["plot"] = False
 
@@ -407,6 +296,60 @@ def run_confidence_analysis(
             raise
     _maybe_clean_ram()
 
+    _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cmap, alpha, ylabel, title, plot_file, figsize)
+
+    return confidence_model
+
+
+def _copy_confidence_fit_params(fit_params, fit_params_copy):
+    """Copy the caller fit parameters for the confidence-model fit."""
+    if fit_params:
+        fit_params_copy = copy.copy(fit_params)
+        if "eval_set" in fit_params_copy:
+            del fit_params_copy["eval_set"]
+        # The main model's callbacks (visualisers, early-stopping hooks bound to ITS eval set) do not belong to this
+        # regressor, and CatBoost refuses user callbacks outright on GPU ("User defined callbacks are not supported").
+        fit_params_copy.pop("callbacks", None)
+    return fit_params_copy
+
+
+def _add_confidence_sample_weight(sample_weight, fit_params_copy, test_df):
+    """Add the sample weights to the confidence-model fit parameters."""
+    if sample_weight is not None and "sample_weight" not in fit_params_copy:
+        _sw_arr = np.asarray(sample_weight)
+        if hasattr(test_df, "shape") and _sw_arr.shape[0] == test_df.shape[0]:
+            fit_params_copy["sample_weight"] = _sw_arr
+        else:
+            logger.debug(
+                "run_confidence_analysis: sample_weight length %s does not match test_df rows %s; fitting unweighted.",
+                _sw_arr.shape[0] if _sw_arr.ndim else "scalar",
+                getattr(test_df, "shape", (None,))[0],
+            )
+
+
+def _drop_confidence_excluded_columns(_drop_for_conf, test_df, cat_features):
+    """Drop the excluded columns from the confidence-analysis frame."""
+    if _drop_for_conf:
+        if isinstance(test_df, pd.DataFrame):
+            test_df = test_df.drop(columns=_drop_for_conf)
+        else:
+            test_df = test_df.drop([c for c in _drop_for_conf if c in test_df.columns])
+        if cat_features is not None:
+            cat_features = [c for c in cat_features if c not in _drop_for_conf]
+    return cat_features, test_df
+
+
+def _set_confidence_cat_features(cat_features, fit_params_copy, test_df):
+    """Pass the categorical features to the confidence-model fit."""
+    if cat_features is not None:
+        fit_params_copy["cat_features"] = cat_features
+    elif "cat_features" not in fit_params_copy:
+        from mlframe.training._nan_processing import get_categorical_columns  # lazy import: circular load with .utils
+        fit_params_copy["cat_features"] = get_categorical_columns(test_df, include_string=False)
+
+
+def _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cmap, alpha, ylabel, title, plot_file, figsize):
+    """Plot the SHAP summary of the confidence model."""
     if use_shap:
         try:
             import shap
@@ -424,7 +367,7 @@ def run_confidence_analysis(
         # Use the Arrow-backed split-blocks bridge: SHAP rejects polars frames and
         # the default .to_pandas() consolidates blocks (~32x slower on multi-million-row
         # frames). The view materialises lazily where SHAP indexes column-by-column.
-        from .utils import get_pandas_view_of_polars_df as _get_pandas_view
+        from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pandas_view
         _test_df_for_shap = _get_pandas_view(test_df) if isinstance(test_df, pl.DataFrame) else test_df
         explainer = shap.TreeExplainer(confidence_model)
         shap_values = explainer(_test_df_for_shap)
@@ -463,7 +406,7 @@ def run_confidence_analysis(
         _close_unless_interactive(_new_figs or fig, was_shown=_was_shown)
     else:
         # Lazy import -- see comment near top of module about cycle.
-        from .evaluation import plot_model_feature_importances
+        from mlframe.training.evaluation import plot_model_feature_importances
 
         plot_model_feature_importances(
             model=confidence_model,
@@ -473,4 +416,99 @@ def run_confidence_analysis(
             figsize=(int(figsize[0] * 0.7), int(figsize[1] / 2)),
         )
 
-    return confidence_model
+
+def _drop_columns_for_confidence_model(test_df, _drop_for_conf, cat_features):
+    """Drop the excluded columns from the confidence-analysis frame."""
+    if isinstance(test_df, pd.DataFrame):
+        for _c in test_df.columns:
+            if _c in _drop_for_conf:
+                continue
+            if cat_features and _c in cat_features:
+                continue
+            try:
+                _dt = test_df[_c].dtype
+            except Exception as _e_dt:
+                # Pre-fix `continue` silent. Pandas dtype access shouldn't
+                # raise on a column known to be in ``test_df.columns``, so
+                # this branch firing is itself a signal of upstream
+                # corruption (custom Series subclass with broken __dtype__,
+                # or column became inaccessible mid-iteration). DEBUG log
+                # so operators see the trail when CB Pool later crashes
+                # because this col wasn't added to _drop_for_conf.
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "_eval_helpers: pandas dtype access failed for col=%r (%s); "
+                    "col will NOT be auto-dropped from confidence analysis. "
+                    "If CB Pool crashes downstream, this skipped col may be "
+                    "the cause.", _c, _e_dt,
+                )
+                continue
+            # ``_dt is object`` is wrong: np.dtype('O') is NOT the Python
+            # type ``object`` (it's a numpy dtype wrapper). Identity check
+            # always returned False; the regression test
+            # ``test_confidence_analysis_pandas_object_dtype_still_dropped``
+            # surfaced this by feeding an explicit object-dtype
+            # text column - it bypassed the drop and reached CatBoost Pool
+            # which crashed on 'Cannot convert s_0 to float'. Use the dtype
+            # kind code instead (``"O"`` for object, ``"U"`` for unicode str).
+            if getattr(_dt, "kind", None) in ("O", "U") or str(_dt) in ("object", "string", "string[python]", "string[pyarrow]"):
+                _drop_for_conf.append(_c)
+    elif isinstance(test_df, pl.DataFrame):
+        # Polars-side auto-detect. The
+        # earlier pandas-only branch missed:
+        #   - pl.Utf8 / pl.String text columns
+        #     (CB Pool crashes on text-typed numerics like ``text_0``)
+        #   - pl.List / pl.Array embedding columns (e.g. ``emb_0``
+        #     surfaces here when fit_params['embedding_features'] is
+        #     None because the trailing model is HGB/XGB which doesn't
+        #     accept the kwarg -> the explicit-drop list is empty)
+        #   - pl.Struct nested types (rare but break CB Pool numerics)
+        # All these break CB Pool numeric-feature construction. Drop
+        # them unless explicitly listed as cat_features.
+        for _c in test_df.columns:
+            if _c in _drop_for_conf:
+                continue
+            if cat_features and _c in cat_features:
+                continue
+            try:
+                _dt = test_df.schema[_c]
+            except Exception as _e_dt:
+                # Same shape as the pandas branch above: schema lookup
+                # shouldn't raise on a known column; DEBUG-log so the
+                # trail exists when CB Pool crashes later.
+                import logging as _logging
+                _logging.getLogger(__name__).debug(
+                    "_eval_helpers: polars schema lookup failed for col=%r " "(%s); col will NOT be auto-dropped from confidence " "analysis.",
+                    _c,
+                    _e_dt,
+                )
+                continue
+            _dt_name = str(_dt)
+            _is_string = _dt in (pl.Utf8, pl.Object) or _dt_name in ("Utf8", "String", "Object")
+            _is_collection = (
+                _dt_name.startswith("List(")
+                or _dt_name.startswith("Array(")
+                or _dt_name.startswith("Struct(")
+                or (hasattr(pl, "List") and isinstance(_dt, type(pl.List(pl.Int8))))
+            )
+            if _is_string or _is_collection:
+                _drop_for_conf.append(_c)
+
+
+def _cast_resolved_cat_features(_resolved_cat_features, test_df):
+    """Cast the resolved categorical features of the frame."""
+    if _resolved_cat_features and isinstance(test_df, pd.DataFrame):
+        _cat_in_df = [c for c in _resolved_cat_features if c in test_df.columns]
+        if _cat_in_df:
+            # Shallow copy: only cat columns carrying NaN are reassigned below; deep-copying a 100+ GB test frame to fill a few cat columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+            test_df = test_df.copy(deep=False)
+            for _c in _cat_in_df:
+                _col = test_df[_c]
+                if _col.isna().any():
+                    if isinstance(_col.dtype, pd.CategoricalDtype):
+                        if "_NULL_" not in _col.cat.categories:
+                            _col = _col.cat.add_categories(["_NULL_"])
+                        test_df[_c] = _col.fillna("_NULL_")
+                    else:
+                        test_df[_c] = _col.fillna("_NULL_").astype(str)
+    return test_df

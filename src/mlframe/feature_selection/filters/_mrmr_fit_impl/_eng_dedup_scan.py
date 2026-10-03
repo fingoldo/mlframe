@@ -197,26 +197,10 @@ def scan_engineered_duplicates(
         # per this loop's own comment) fall through to the unchanged per-pair path below, unaffected.
         _fast_kept_set: set = set()
         if _eng_fully_finite[_c] and _arr_c.shape[0] >= 8 and _rank_rows.used > 0 and _rank_rows.matrix is not None:
-            from ._eng_dedup_batch_corr import one_vs_many_abs_corr_masked
             _active_mask = np.zeros(_rank_rows.used, dtype=np.bool_)
             _row_to_kc: dict[int, str] = {}
-            for _kc in _eng_keep:
-                _r = _eng_row_of.get(_kc)
-                if _r is not None:
-                    _active_mask[_r] = True
-                    _row_to_kc[_r] = _kc
-            if _active_mask.any():
-                _fast_corrs = one_vs_many_abs_corr_masked(
-                    _ranks_c,
-                    _rank_rows.matrix[: _rank_rows.used],
-                    _active_mask,
-                    np.asarray(_rank_rows.means[: _rank_rows.used], dtype=np.float64),
-                    np.asarray(_rank_rows.ss[: _rank_rows.used], dtype=np.float64),
-                )
-                for _r, _kc in _row_to_kc.items():
-                    _fast_kept_set.add(_kc)
-                    if _fast_corrs[_r] >= 0.99:
-                        _colliding_kept.append(_kc)
+            _collect_kept_engineered_rows(_eng_keep, _eng_row_of, _active_mask, _row_to_kc)
+            _masked_corr_prefilter(_active_mask, _ranks_c, _rank_rows, _row_to_kc, _fast_kept_set, _colliding_kept)
         for _kept_col in _eng_keep:
             if _kept_col in _fast_kept_set:
                 continue
@@ -269,3 +253,30 @@ def scan_engineered_duplicates(
                 if _row_c is not None:
                     _eng_row_of[_c] = _row_c
     return _eng_keep, _eng_drop, _eng_arrs, _eng_ranks
+
+
+def _collect_kept_engineered_rows(_eng_keep, _eng_row_of, _active_mask, _row_to_kc):
+    """Collect the rank-matrix rows of the engineered columns that are kept."""
+    for _kc in _eng_keep:
+        _r = _eng_row_of.get(_kc)
+        if _r is not None:
+            _active_mask[_r] = True
+            _row_to_kc[_r] = _kc
+
+
+def _masked_corr_prefilter(_active_mask, _ranks_c, _rank_rows, _row_to_kc, _fast_kept_set, _colliding_kept):
+    """Pre-filter engineered-duplicate candidates by masked one-vs-many absolute rank correlation."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._eng_dedup_batch_corr import one_vs_many_abs_corr_masked
+
+    if _active_mask.any():
+        _fast_corrs = one_vs_many_abs_corr_masked(
+            _ranks_c,
+            _rank_rows.matrix[: _rank_rows.used],
+            _active_mask,
+            np.asarray(_rank_rows.means[: _rank_rows.used], dtype=np.float64),
+            np.asarray(_rank_rows.ss[: _rank_rows.used], dtype=np.float64),
+        )
+        for _r, _kc in _row_to_kc.items():
+            _fast_kept_set.add(_kc)
+            if _fast_corrs[_r] >= 0.99:
+                _colliding_kept.append(_kc)

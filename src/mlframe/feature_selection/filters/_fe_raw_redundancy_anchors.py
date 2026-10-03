@@ -58,6 +58,7 @@ def build_raw_redundancy_anchors(
     (no engineered or raw survivors, no replayable anchor, no consumer map) - the caller must check it first and
     return immediately when non-``None``. Otherwise every field the per-raw loop needs is populated.
     """
+    ei: Any = None
     _gate_resident = gate_resident
 
     def _dev_from_cont(_vals, _eng_card_local: int) -> Any:
@@ -117,17 +118,7 @@ def build_raw_redundancy_anchors(
     # raw_name -> list of engineered survivor column indices that consume it.
     eng_consumers: dict[str, list[int]] = {}
     _eng_base_sets: dict[int, set[str]] = {}
-    for ei in eng_idx:
-        toks = [t for t in _TOKEN_SPLIT.split(cols[ei]) if t]
-        bases = set()
-        for t in toks:
-            if t in raw_name_set:
-                bases.add(t)
-            elif "__" in t and t.split("__", 1)[0] in raw_name_set:
-                bases.add(t.split("__", 1)[0])
-        _eng_base_sets[ei] = bases
-        for base in bases:
-            eng_consumers.setdefault(base, []).append(ei)
+    _build_raw_redundan_raw_name_list_engineered(eng_idx, cols, raw_name_set, _eng_base_sets, eng_consumers)
 
     if not eng_consumers:
         return SimpleNamespace(early_return=(sel, []))
@@ -137,15 +128,7 @@ def build_raw_redundancy_anchors(
     if not np.issubdtype(y_arr.dtype, np.integer):
         y_arr = y_arr.astype(np.int64)
     _target_card = int(np.unique(y_arr).size)
-    if y_continuous is not None:
-        from ._mi_greedy_cmi_fe import _quantile_bin
-
-        _yc = np.asarray(y_continuous).reshape(-1)
-        if _yc.shape[0] == n_rows and np.issubdtype(_yc.dtype, np.number):
-            if int(np.unique(_yc).size) > max(2 * _BINS, 2 * _target_card):
-                _nb = int(min(max(_BINS, _target_card), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
-                y_arr = np.ascontiguousarray(_quantile_bin(_yc.astype(np.float64), nbins=_nb)).astype(np.int64)
-                _target_card = int(np.unique(y_arr).size)
+    y_arr = _build_raw_redundan_continuous_none(y_continuous, n_rows, _target_card, y_arr)
 
     _eng_card = int(min(max(_BINS, int(np.unique(y_arr).size)), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
     _eng_cont = engineered_continuous or {}
@@ -203,17 +186,7 @@ def build_raw_redundancy_anchors(
         _ename = cols[ei]
         _cont = _eng_cont.get(_ename)
         _eb_dev = None
-        if _cont is not None and np.asarray(_cont).shape[0] == n_rows:
-            _cvals = np.asarray(_cont, dtype=np.float64)
-            _eb_dev = _dev_from_cont(_cvals, _eng_card)
-            if _eb_dev is not None:
-                import cupy as _cp
-                eb = _cp.asnumpy(_eb_dev).astype(np.int64)
-            else:
-                eb = _quantile_bin(_cvals, nbins=_eng_card)
-        else:
-            eb = np.asarray(data[:, ei]).astype(np.int64).ravel()
-            _eb_dev = _dev_from_codes(eb)
+        _eb_dev, eb = _build_raw_redundan_cont_none_np_asarray(_cont, n_rows, _dev_from_cont, _eng_card, data, ei, _dev_from_codes, _eb_dev)
         eng_bin[ei] = eb
         eng_bin_dev[ei] = _eb_dev
         _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed, kx=(int(eb.max()) + 1 if getattr(eb, "size", 0) else 1))
@@ -243,6 +216,104 @@ def build_raw_redundancy_anchors(
         return bool(_mcmi > _mfloor and _mexc > 0.0)
 
     _eng_signal_parents: dict[int, set[str]] = {}
+    _build_raw_redundan_ei_eng_idx(eng_idx, _eng_base_sets, cols, raw_name_set, _raw_is_signal_bearing, _eng_signal_parents)
+
+    # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1, 2026-06-12); see the parent module docstring.
+    _recipes = recipes or {}
+    _clean_subexpr_bin: dict[tuple, np.ndarray] = {}
+    _clean_subexpr_bin_dev: dict = {}
+    _clean_subexpr_leaf_pair: dict[tuple, bool] = {}
+    _build_raw_redundan_recipes_raw_none(_recipes, raw_X, eng_idx, cols, raw_name_set, _raw_is_signal_bearing, _eng_signal_parents, n_rows, _dev_from_cont, _eng_card, _clean_subexpr_bin, _clean_subexpr_bin_dev, _clean_subexpr_leaf_pair, verbose)
+
+    def _join_dev(*dev_codes):
+        """DEVICE-BORN conditioning-support join of the resident conditioning codes (``_renumber_joint_gpu``),
+        so the support never crosses H2D. ``None`` when any code lacks a resident twin or on any cupy fault."""
+        if not dev_codes or any(_d is None for _d in dev_codes):
+            return None
+        try:
+            from ._mi_greedy_cmi_fe import _renumber_joint_gpu
+            return _renumber_joint_gpu(*dev_codes)[0]
+        except Exception as exc:
+            # Hot per-candidate path: debug-only. Caller falls back to host-side join.
+            logger.debug("device-resident conditioning-support join failed, falling back to host join: %s", exc)
+            return None
+
+    return SimpleNamespace(
+        early_return=None,
+        sel_names=sel_names,
+        eng_idx=eng_idx,
+        raw_sel_idx=raw_sel_idx,
+        eng_consumers=eng_consumers,
+        y_arr=y_arr,
+        eng_bin=eng_bin,
+        eng_bin_dev=eng_bin_dev,
+        eng_anchor_excess=eng_anchor_excess,
+        eng_signal_parents=_eng_signal_parents,
+        clean_subexpr_bin=_clean_subexpr_bin,
+        clean_subexpr_bin_dev=_clean_subexpr_bin_dev,
+        clean_subexpr_leaf_pair=_clean_subexpr_leaf_pair,
+        raw_marginal=_raw_marginal,
+        raw_is_signal_bearing=_raw_is_signal_bearing,
+        raw_codes=_raw_codes,
+        raw_dev=_raw_dev,
+        join_dev=_join_dev,
+    )
+
+
+def _build_raw_redundan_raw_name_list_engineered(eng_idx, cols, raw_name_set, _eng_base_sets, eng_consumers):
+    """Block of build_raw_redundancy_anchors starting at ``for ei in eng_idx:``."""
+    for ei in eng_idx:
+        toks = [t for t in _TOKEN_SPLIT.split(cols[ei]) if t]
+        bases: set[Any] = set()
+        _build_raw_redundan_toks(toks, raw_name_set, bases)
+        _eng_base_sets[ei] = bases
+        for base in bases:
+            eng_consumers.setdefault(base, []).append(ei)
+
+
+def _build_raw_redundan_toks(toks, raw_name_set, bases):
+    """Block of build_raw_redundancy_anchors starting at ``for t in toks:``."""
+    for t in toks:
+        if t in raw_name_set:
+            bases.add(t)
+        elif "__" in t and t.split("__", 1)[0] in raw_name_set:
+            bases.add(t.split("__", 1)[0])
+
+
+def _build_raw_redundan_continuous_none(y_continuous, n_rows, _target_card, y_arr):
+    """Block of build_raw_redundancy_anchors starting at ``if y_continuous is not None:``."""
+    if y_continuous is not None:
+        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+
+        _yc = np.asarray(y_continuous).reshape(-1)
+        if _yc.shape[0] == n_rows and np.issubdtype(_yc.dtype, np.number):
+            if int(np.unique(_yc).size) > max(2 * _BINS, 2 * _target_card):
+                _nb = int(min(max(_BINS, _target_card), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
+                y_arr = np.ascontiguousarray(_quantile_bin(_yc.astype(np.float64), nbins=_nb)).astype(np.int64)
+                _target_card = int(np.unique(y_arr).size)
+    return y_arr
+
+
+def _build_raw_redundan_cont_none_np_asarray(_cont, n_rows, _dev_from_cont, _eng_card, data, ei, _dev_from_codes, _eb_dev):
+    """Block of build_raw_redundancy_anchors starting at ``if _cont is not None and np.asarray(_cont).shape[0] == n_rows:``."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+
+    if _cont is not None and np.asarray(_cont).shape[0] == n_rows:
+        _cvals = np.asarray(_cont, dtype=np.float64)
+        _eb_dev = _dev_from_cont(_cvals, _eng_card)
+        if _eb_dev is not None:
+            import cupy as _cp
+            eb = _cp.asnumpy(_eb_dev).astype(np.int64)
+        else:
+            eb = _quantile_bin(_cvals, nbins=_eng_card)
+    else:
+        eb = np.asarray(data[:, ei]).astype(np.int64).ravel()
+        _eb_dev = _dev_from_codes(eb)
+    return _eb_dev, eb
+
+
+def _build_raw_redundan_ei_eng_idx(eng_idx, _eng_base_sets, cols, raw_name_set, _raw_is_signal_bearing, _eng_signal_parents):
+    """Block of build_raw_redundancy_anchors starting at ``for ei in eng_idx:``."""
     for ei in eng_idx:
         _parents = _eng_base_sets.get(ei)
         if _parents is None:
@@ -253,11 +324,11 @@ def build_raw_redundancy_anchors(
                     _parents.add(base)
         _eng_signal_parents[ei] = {p for p in _parents if _raw_is_signal_bearing(p)}
 
-    # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1, 2026-06-12); see the parent module docstring.
-    _recipes = recipes or {}
-    _clean_subexpr_bin: dict[tuple, np.ndarray] = {}
-    _clean_subexpr_bin_dev: dict = {}
-    _clean_subexpr_leaf_pair: dict[tuple, bool] = {}
+
+def _build_raw_redundan_recipes_raw_none(_recipes, raw_X, eng_idx, cols, raw_name_set, _raw_is_signal_bearing, _eng_signal_parents, n_rows, _dev_from_cont, _eng_card, _clean_subexpr_bin, _clean_subexpr_bin_dev, _clean_subexpr_leaf_pair, verbose):
+    """Block of build_raw_redundancy_anchors starting at ``if _recipes and raw_X is not None:``."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+
     if _recipes and raw_X is not None:
         _consumer_subtrees: dict[int, dict] = {}
         for ei in eng_idx:
@@ -329,37 +400,3 @@ def build_raw_redundancy_anchors(
                         "%s (isolated from fused composite %s) instead of the whole composite.",
                         _rn, _best_name, cols[ei],
                     )
-
-    def _join_dev(*dev_codes):
-        """DEVICE-BORN conditioning-support join of the resident conditioning codes (``_renumber_joint_gpu``),
-        so the support never crosses H2D. ``None`` when any code lacks a resident twin or on any cupy fault."""
-        if not dev_codes or any(_d is None for _d in dev_codes):
-            return None
-        try:
-            from ._mi_greedy_cmi_fe import _renumber_joint_gpu
-            return _renumber_joint_gpu(*dev_codes)[0]
-        except Exception as exc:
-            # Hot per-candidate path: debug-only. Caller falls back to host-side join.
-            logger.debug("device-resident conditioning-support join failed, falling back to host join: %s", exc)
-            return None
-
-    return SimpleNamespace(
-        early_return=None,
-        sel_names=sel_names,
-        eng_idx=eng_idx,
-        raw_sel_idx=raw_sel_idx,
-        eng_consumers=eng_consumers,
-        y_arr=y_arr,
-        eng_bin=eng_bin,
-        eng_bin_dev=eng_bin_dev,
-        eng_anchor_excess=eng_anchor_excess,
-        eng_signal_parents=_eng_signal_parents,
-        clean_subexpr_bin=_clean_subexpr_bin,
-        clean_subexpr_bin_dev=_clean_subexpr_bin_dev,
-        clean_subexpr_leaf_pair=_clean_subexpr_leaf_pair,
-        raw_marginal=_raw_marginal,
-        raw_is_signal_bearing=_raw_is_signal_bearing,
-        raw_codes=_raw_codes,
-        raw_dev=_raw_dev,
-        join_dev=_join_dev,
-    )

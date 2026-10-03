@@ -395,23 +395,7 @@ def build_friend_graph(
     # fallback default); "cpu" -> force the legacy CPU pass; "cupy"/"cuda" -> force GPU.
     # Skipped when the edge pass is skipped (max_nodes guard) - no O(k^2) cost to offload.
     gpu_stats = None
-    if not edges_skipped and gpu_backend != "cpu":
-        try:
-            from .friend_graph_gpu import dispatch_friend_graph_stats
-
-            gpu_stats = dispatch_friend_graph_stats(
-                sel, factors_data, factors_nbins, target,
-                dtype=dtype, force_backend=gpu_backend,
-            )
-        except (ImportError, ModuleNotFoundError) as _exc:
-            # The expected "no GPU here" outcome: cupy / the GPU twin module is absent. Quietly fall back to the bit-identical CPU edge pass.
-            logger.debug("friend_graph GPU dispatch unavailable (%s); using CPU edge pass", _exc)
-            gpu_stats = None
-        except Exception as _exc:
-            # A real error from the GPU path (shape mismatch, bad dtype, CUDA OOM) - distinct from "GPU absent". WARN so a genuine kernel bug is not silently
-            # indistinguishable from a missing device, then still fall back to CPU so the diagnostic graph is produced.
-            logger.warning("friend_graph GPU dispatch raised %s: %s; falling back to CPU edge pass", type(_exc).__name__, _exc, exc_info=True)
-            gpu_stats = None
+    gpu_stats = _dispatch_gpu_friend_stats(edges_skipped, gpu_backend, sel, factors_data, factors_nbins, target, dtype, gpu_stats)
 
     # Per-node entropy + target relevance (from GPU stats when present, else CPU
     # primitives). GPU H/rel are bit-identical to ``_node_entropy`` / ``node_relevance``.
@@ -558,6 +542,28 @@ def build_friend_graph(
     if compute_layout:
         graph.pos = _layout(sel, edges, seed)
     return graph
+
+
+def _dispatch_gpu_friend_stats(edges_skipped, gpu_backend, sel, factors_data, factors_nbins, target, dtype, gpu_stats):
+    """Offload the friend-graph statistics to the GPU backend when one is selected."""
+    if not edges_skipped and gpu_backend != "cpu":
+        try:
+            from mlframe.feature_selection.filters.friend_graph_gpu import dispatch_friend_graph_stats
+
+            gpu_stats = dispatch_friend_graph_stats(
+                sel, factors_data, factors_nbins, target,
+                dtype=dtype, force_backend=gpu_backend,
+            )
+        except (ImportError, ModuleNotFoundError) as _exc:
+            # The expected "no GPU here" outcome: cupy / the GPU twin module is absent. Quietly fall back to the bit-identical CPU edge pass.
+            logger.debug("friend_graph GPU dispatch unavailable (%s); using CPU edge pass", _exc)
+            gpu_stats = None
+        except Exception as _exc:
+            # A real error from the GPU path (shape mismatch, bad dtype, CUDA OOM) - distinct from "GPU absent". WARN so a genuine kernel bug is not silently
+            # indistinguishable from a missing device, then still fall back to CPU so the diagnostic graph is produced.
+            logger.warning("friend_graph GPU dispatch raised %s: %s; falling back to CPU edge pass", type(_exc).__name__, _exc, exc_info=True)
+            gpu_stats = None
+    return gpu_stats
 
 
 def prune_by_friend_graph(graph: FriendGraph, selected_vars: Sequence[int], protect_indices: Sequence[int] = ()) -> Tuple[List[int], Dict[str, str]]:

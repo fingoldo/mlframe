@@ -122,18 +122,7 @@ def _run_one_weight_iteration(
     current_common_params = common_params.copy()
     current_common_params["sample_weight"] = weight_values
 
-    if polars_fastpath_active:
-        current_common_params["train_df"] = prepared_train
-        if prepared_val is not None:
-            current_common_params["val_df"] = prepared_val
-        if prepared_test is not None:
-            current_common_params["test_df"] = prepared_test
-    else:
-        current_common_params["train_df"] = tier_pandas["train_df"]
-        if tier_pandas.get("val_df") is not None:
-            current_common_params["val_df"] = tier_pandas["val_df"]
-        if tier_pandas.get("test_df") is not None:
-            current_common_params["test_df"] = tier_pandas["test_df"]
+    _apply_polars_fastpath_frames(polars_fastpath_active, prepared_train, current_common_params, prepared_val, prepared_test, tier_pandas)
 
     # Drop per-group aggregate columns from the MLP's view of X.
     # Pattern matches ``group_*_(mean|std|min|max)`` by default.
@@ -320,29 +309,7 @@ def _run_one_weight_iteration(
 
     _is_neural = is_neural_model(mlframe_model_name)
     _timeout = _compute_neural_max_time(_non_neural_train_times) if _is_neural else None
-    if _timeout is not None:
-        _max_time_dict, _p95, _n = _timeout
-        # Reach into Pipeline(StandardScaler, TTR(PytorchLightningRegressor(...))) to find trainer_params.
-        _neural_model = current_model_params.get("model")
-        if _neural_model is not None:
-            _inner = getattr(_neural_model, "regressor", None)
-            if _inner is None and hasattr(_neural_model, "named_steps"):
-                for _step in _neural_model.named_steps.values():
-                    if hasattr(_step, "regressor"):
-                        _inner = _step.regressor
-                        break
-            if _inner is not None and hasattr(_inner, "trainer_params"):
-                _inner.trainer_params["max_time"] = _max_time_dict
-                if verbose:
-                    logger.info(
-                        "  [NeuralTimeout] %s max_time=%dh%02dm%02ds " "(P95 of %d prior non-neural train times: %.0fs)",
-                        mlframe_model_name,
-                        _max_time_dict["hours"],
-                        _max_time_dict["minutes"],
-                        _max_time_dict["seconds"],
-                        _n,
-                        _p95,
-                    )
+    _apply_mlp_trainer_timeout(_timeout, current_model_params, verbose, mlframe_model_name)
 
     t0_model = timer()
     try:
@@ -474,3 +441,46 @@ def _run_one_weight_iteration(
         "skip": False,
         "_ngb_fallback_snapshot": _ngb_fallback_snapshot,
     }
+
+
+def _apply_polars_fastpath_frames(polars_fastpath_active, prepared_train, current_common_params, prepared_val, prepared_test, tier_pandas):
+    """Point the common params at the prepared polars fast-path frames."""
+    if polars_fastpath_active:
+        current_common_params["train_df"] = prepared_train
+        if prepared_val is not None:
+            current_common_params["val_df"] = prepared_val
+        if prepared_test is not None:
+            current_common_params["test_df"] = prepared_test
+    else:
+        current_common_params["train_df"] = tier_pandas["train_df"]
+        if tier_pandas.get("val_df") is not None:
+            current_common_params["val_df"] = tier_pandas["val_df"]
+        if tier_pandas.get("test_df") is not None:
+            current_common_params["test_df"] = tier_pandas["test_df"]
+
+
+def _apply_mlp_trainer_timeout(_timeout, current_model_params, verbose, mlframe_model_name):
+    """Apply the training time budget to the MLP trainer."""
+    if _timeout is not None:
+        _max_time_dict, _p95, _n = _timeout
+        # Reach into Pipeline(StandardScaler, TTR(PytorchLightningRegressor(...))) to find trainer_params.
+        _neural_model = current_model_params.get("model")
+        if _neural_model is not None:
+            _inner = getattr(_neural_model, "regressor", None)
+            if _inner is None and hasattr(_neural_model, "named_steps"):
+                for _step in _neural_model.named_steps.values():
+                    if hasattr(_step, "regressor"):
+                        _inner = _step.regressor
+                        break
+            if _inner is not None and hasattr(_inner, "trainer_params"):
+                _inner.trainer_params["max_time"] = _max_time_dict
+                if verbose:
+                    logger.info(
+                        "  [NeuralTimeout] %s max_time=%dh%02dm%02ds " "(P95 of %d prior non-neural train times: %.0fs)",
+                        mlframe_model_name,
+                        _max_time_dict["hours"],
+                        _max_time_dict["minutes"],
+                        _max_time_dict["seconds"],
+                        _n,
+                        _p95,
+                    )

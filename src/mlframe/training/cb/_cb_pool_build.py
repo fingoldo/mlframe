@@ -119,47 +119,12 @@ def _maybe_get_or_build_cb_pool(
     # Pool builder rejects category-dtype columns missing from ``cat_features`` with "has dtype 'category' but is not in cat_features
     # list". The skip_categorical_encoding auto-flip path leaves cat_features narrow while the pre-pipeline converts upstream string
     # cols to category for joint train+val codebooks; this guard reconciles the two views.
-    try:
-        if isinstance(train_df, pd.DataFrame):
-            _cat_dtype_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if isinstance(dt, pd.CategoricalDtype)]
-            # Any category-dtype column NOT already routed via text_features / embedding_features must appear in cat_features -
-            # otherwise CB Pool rejects it. Text/embedding columns are CB-supported via their own parameters, so no widening there.
-            _missing = [c for c in _cat_dtype_cols if c not in cat_features and c not in text_features and c not in embedding_features]
-            if _missing:
-                logger.info(
-                    "[cb-pool-reuse] auto-widening cat_features with %d category-dtype " "column(s) missing from explicit list: %s",
-                    len(_missing),
-                    _missing,
-                )
-                cat_features = tuple(sorted(set(cat_features) | set(_missing)))
-                fit_params["cat_features"] = list(cat_features)
-            # Category-dtype columns that ARE routed to text_features must be cast back to string/object before Pool: CB's Pool builder
-            # validates dtype-vs-feature-list consistency BEFORE consulting the text_features arg, so a "category" column claimed as
-            # text still trips the cat_features mismatch.
-            _cat_dt_routed_as_text = [c for c in _cat_dtype_cols if c in text_features]
-            if _cat_dt_routed_as_text:
-                logger.info(
-                    "[cb-pool-reuse] decategorising %d text-feature column(s) " "(category dtype -> object) before Pool: %s",
-                    len(_cat_dt_routed_as_text),
-                    _cat_dt_routed_as_text,
-                )
-                # Shallow copy: only the text-routed columns are cast below; deep-copying a 100+ GB train frame to recast a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
-                train_df = train_df.copy(deep=False)
-                for _c in _cat_dt_routed_as_text:
-                    train_df[_c] = train_df[_c].astype(object)
-    except Exception as _exc:
-        logger.debug("cat_features auto-widen failed: %r", _exc)
+    cat_features, train_df = _reconcile_cat_dtypes(train_df, cat_features, text_features, embedding_features, fit_params)
     # Update fit_params in place so the fallback sklearn path (when reuse
     # is disabled or Pool construction fails) also sees the filtered
     # lists. Callers may rely on the same fit_params dict downstream; we
     # only narrow, never widen.
-    if _df_cols is not None:
-        if fit_params.get("cat_features"):
-            fit_params["cat_features"] = list(cat_features)
-        if fit_params.get("text_features"):
-            fit_params["text_features"] = list(text_features)
-        if fit_params.get("embedding_features"):
-            fit_params["embedding_features"] = list(embedding_features)
+    _narrow_cat_features_to_columns(_df_cols, fit_params, cat_features, text_features, embedding_features)
 
     if not _cb_reuse_capable():
         return None
@@ -354,3 +319,49 @@ def _maybe_get_or_build_cb_pool(
             len(_CB_POOL_CACHE),
         )
     return pool
+
+
+def _reconcile_cat_dtypes(train_df, cat_features, text_features, embedding_features, fit_params):
+    """Reconcile the categorical dtypes of the train and validation frames."""
+    try:
+        if isinstance(train_df, pd.DataFrame):
+            _cat_dtype_cols = [c for c, dt in zip(train_df.columns, train_df.dtypes) if isinstance(dt, pd.CategoricalDtype)]
+            # Any category-dtype column NOT already routed via text_features / embedding_features must appear in cat_features -
+            # otherwise CB Pool rejects it. Text/embedding columns are CB-supported via their own parameters, so no widening there.
+            _missing = [c for c in _cat_dtype_cols if c not in cat_features and c not in text_features and c not in embedding_features]
+            if _missing:
+                logger.info(
+                    "[cb-pool-reuse] auto-widening cat_features with %d category-dtype " "column(s) missing from explicit list: %s",
+                    len(_missing),
+                    _missing,
+                )
+                cat_features = tuple(sorted(set(cat_features) | set(_missing)))
+                fit_params["cat_features"] = list(cat_features)
+            # Category-dtype columns that ARE routed to text_features must be cast back to string/object before Pool: CB's Pool builder
+            # validates dtype-vs-feature-list consistency BEFORE consulting the text_features arg, so a "category" column claimed as
+            # text still trips the cat_features mismatch.
+            _cat_dt_routed_as_text = [c for c in _cat_dtype_cols if c in text_features]
+            if _cat_dt_routed_as_text:
+                logger.info(
+                    "[cb-pool-reuse] decategorising %d text-feature column(s) " "(category dtype -> object) before Pool: %s",
+                    len(_cat_dt_routed_as_text),
+                    _cat_dt_routed_as_text,
+                )
+                # Shallow copy: only the text-routed columns are cast below; deep-copying a 100+ GB train frame to recast a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+                train_df = train_df.copy(deep=False)
+                for _c in _cat_dt_routed_as_text:
+                    train_df[_c] = train_df[_c].astype(object)
+    except Exception as _exc:
+        logger.debug("cat_features auto-widen failed: %r", _exc)
+    return cat_features, train_df
+
+
+def _narrow_cat_features_to_columns(_df_cols, fit_params, cat_features, text_features, embedding_features):
+    """Narrow the cat_features to the columns present in the frame."""
+    if _df_cols is not None:
+        if fit_params.get("cat_features"):
+            fit_params["cat_features"] = list(cat_features)
+        if fit_params.get("text_features"):
+            fit_params["text_features"] = list(text_features)
+        if fit_params.get("embedding_features"):
+            fit_params["embedding_features"] = list(embedding_features)

@@ -25,9 +25,23 @@ from ._prescreen import (
 from .._prediction_memo import memo_predict
 from mlframe.utils.log_throttle import log_throttle
 
-logger = logging.getLogger("mlframe.training.core._phase_composite_post")
-
-_DEFAULT_OOF_RANDOM_STATE = 42
+from ._xt_ensemble_helpers import (
+    logger,
+    _DEFAULT_OOF_RANDOM_STATE,
+    _build_cross_target_entry_enumerate_orig_entries,
+    _build_cross_target_unmatched_oof_refit_path,
+    _build_cross_target_train_fold_oof_stack,
+    _build_cross_target_inject_lag_predict_dummy,
+    _build_cross_target_per_spec_base_matrix,
+    _build_cross_target_component_no_spec_entry,
+    _build_cross_target_thread_ctx_timestamps_per,
+    _build_cross_target_isinstance_ctx_sw_dict,
+    _build_cross_target_ctx_groups_none,
+    _build_cross_target_speed_up_only_correctness,
+    _build_cross_target_do_calib,
+    _build_cross_target_rather_than_each_fallback,
+    _build_cross_target_split_name_report_title,
+)
 
 
 def _oof_subsample_positions(n: int, groups, cap: int, seed: int):
@@ -77,6 +91,7 @@ def _inject_lag_predict(components: list, component_names: list, metadata: dict,
     trained model on RMSE; the honest-OOF gate selects it when it dominates. No trainable parameters beyond the train
     median that fills a missing lag.
     """
+    _lag_model: Any = None
     try:
         _dbl_for_target = metadata.get("dummy_baselines", {}).get(str(tt_e), {}).get(str(orig_tname), {})
         _dbl_extras = _dbl_for_target.get("extras", {})
@@ -92,7 +107,7 @@ def _inject_lag_predict(components: list, component_names: list, metadata: dict,
             _lag_col = _lag_meta.get("feature_used")
             if _lag_col:
                 _fresh_lag_model = _LagPredictDeployableModel(_lag_col)
-                _lag_model: Optional[_LagPredictDeployableModel] = _fresh_lag_model
+                _lag_model = _fresh_lag_model
                 try:
                     # Fitted on the train rows so a missing lag at predict gets the train median, not the median of its own batch.
                     _fresh_lag_model.fit(filtered_train_df)
@@ -152,6 +167,8 @@ def _build_cross_target_ensemble_for_target(
     time-aware, weighted, group-aware honest OOF split when present.
     """
     # Build-scoped train-prediction cache. The shared ``_train_pred_cache`` carries wrap-pass entries keyed by ``(id(inner_model),) + frame_key``; ``id()``-based keys are only meaningful while the underlying objects are alive, so we never let a builder-computed prediction leak to a sibling build. Reads consult the build-local dict first (this build's own writes), then the shared wrap-pass cache for this exact live frame; all writes go to the build-local dict, discarded when this call returns. This makes a stale cross-build hit impossible without hashing the (potentially TB-scale) frame.
+    _oof_sw: Any = None
+    _ensemble: Any = None
     _build_pred_cache: dict[tuple, np.ndarray] = {}
 
     def _get_train_pred(_comp, _frame_key):
@@ -182,52 +199,7 @@ def _build_cross_target_ensemble_for_target(
         # train-K-fold OOF stack on the TRAIN rows and inject them. Falls back to equal-mean if OOF fails.
         _fit_y_full = (target_by_type or {}).get(_tt_e, {}).get(_orig_tname)
         _oof_weights = None
-        if filtered_train_df is not None and _fit_y_full is not None and filtered_train_idx is not None:
-            try:
-                _y_arr_mtr = np.asarray(_fit_y_full)[filtered_train_idx]
-                # Build the same component shims the equal-mean path uses, then OOF-fit NNLS over them.
-                _mtr_entries = (models or {}).get(_tt_e, {}).get(_orig_tname, []) or []
-                _mtr_components: list[Any] = []
-                for _mi, _mentry in enumerate(_mtr_entries):
-                    _minner = getattr(_mentry, "model", None) or _mentry
-                    if not hasattr(_minner, "predict"):
-                        continue
-                    _mpp = getattr(_mentry, "pre_pipeline", None)
-                    _mtr_components.append(PrePipelinePredictShim(_minner, _mpp, f"raw#{_mi}"))
-                if len(_mtr_components) >= 2:
-                    from ._phase_composite_post_xt_mtr_oof import compute_mtr_oof_nnls_weights
-                    _oof_random_state = int(getattr(
-                        composite_target_discovery_config,
-                        "oof_random_state", _DEFAULT_OOF_RANDOM_STATE,
-                    ))
-                    _oof_kfold_mtr = int(getattr(
-                        composite_target_discovery_config, "oof_kfold", 5,
-                    ))
-                    # Same ctx.sample_weights[target] -> filtered_train_idx slicing the general (non-MTR)
-                    # path below uses for `_sw_for_oof` -- computed independently here since this MTR
-                    # branch runs BEFORE that later block. Without it, the honest-OOF NNLS weights were
-                    # silently fit as if every row were equally important on a weighted suite.
-                    _ctx_sw_dict_mtr = getattr(ctx, "sample_weights", None) if ctx is not None else None
-                    _sw_for_mtr_oof = None
-                    if isinstance(_ctx_sw_dict_mtr, dict) and _ctx_sw_dict_mtr:
-                        _sw_raw_mtr = _ctx_sw_dict_mtr.get(_orig_tname)
-                        if _sw_raw_mtr is not None:
-                            try:
-                                _sw_for_mtr_oof = np.asarray(_sw_raw_mtr)[filtered_train_idx]
-                            except (TypeError, IndexError):
-                                _sw_for_mtr_oof = None
-                    _oof_weights = compute_mtr_oof_nnls_weights(
-                        _mtr_components, filtered_train_df, _y_arr_mtr,
-                        kfold=_oof_kfold_mtr, random_state=_oof_random_state,
-                        sample_weight=_sw_for_mtr_oof,
-                    )
-            except Exception as _mtr_oof_err:
-                logger.warning(
-                    "[MTR CT_ENSEMBLE] target='%s': honest-OOF NNLS weighting failed (%s); forfeiting the "
-                    "benched ~9%% NNLS win and falling back to equal-mean.",
-                    _orig_tname, _mtr_oof_err,
-                )
-                _oof_weights = None
+        _oof_weights = _build_cross_target_train_fold_oof_stack(filtered_train_df, _fit_y_full, filtered_train_idx, models, _tt_e, _orig_tname, composite_target_discovery_config, ctx, _oof_weights)
         _build_mtr_per_column_ensemble(
             _tt_e=_tt_e,
             _orig_tname=_orig_tname,
@@ -242,27 +214,10 @@ def _build_cross_target_ensemble_for_target(
     _components: list[Any] = []
     _component_names: list[str] = []
     _orig_entries = (models or {}).get(_tt_e, {}).get(_orig_tname, []) or []
-    for _i, _entry in enumerate(_orig_entries):
-        _inner = getattr(_entry, "model", None) or _entry
-        if not hasattr(_inner, "predict"):
-            continue
-        _pp = getattr(_entry, "pre_pipeline", None)
-        _name = f"raw#{_i}"
-        _components.append(PrePipelinePredictShim(_inner, _pp, _name))
-        _component_names.append(_name)
+    _build_cross_target_entry_enumerate_orig_entries(_orig_entries, _components, _component_names)
     # Inject lag_predict dummy baseline as a free component for the cross-target ensemble pool. On strongly auto-regressive targets (lag1_corr ~0.999 within groups) the dumbest ``y_hat = lag_target_value`` baseline often beats every trained model on RMSE; honest-OOF gate naturally selects it when it dominates. NO trainable parameters; cost is one column read.
     _inject_lag_predict(_components, _component_names, metadata, _tt_e, _orig_tname, filtered_train_df)
-    for _spec in _spec_list:
-        _composite_entries = (models or {}).get(_tt_e, {}).get(_spec["name"], []) or []
-        for _i, _entry in enumerate(_composite_entries):
-            _inner = getattr(_entry, "model", None) or _entry
-            if not hasattr(_inner, "predict"):
-                continue
-            # CTE wrappers handle the transform; pre_pipeline (if any) is outer frame-prep applied via the same shim.
-            _pp = getattr(_entry, "pre_pipeline", None)
-            _name = f"{_spec['name']}#{_i}"
-            _components.append(PrePipelinePredictShim(_inner, _pp, _name))
-            _component_names.append(_name)
+    _build_cross_target_inject_lag_predict_dummy(_spec_list, models, _tt_e, _components, _component_names)
     # Synthesize an ad-hoc spec for any CompositeTargetEstimator-wrapped component whose transform
     # is not already covered by ``_spec_list``. This happens for "PR5 wrapping": once composite
     # discovery finds a winning (transform, base_column) for this ORIGINAL target, it wraps that
@@ -273,26 +228,7 @@ def _build_cross_target_ensemble_for_target(
     # (transform_name / base_column / base_columns / fitted_params_) rather than leaving it
     # unmatched -- the OOF refit path needs a spec to re-derive the transform per fold.
     _known_spec_keys = {(s.get("transform_name"), s.get("base_column")) for s in _spec_list}
-    for _comp, _name in zip(_components, _component_names):
-        _inner_for_adhoc = getattr(_comp, "model", _comp)
-        if not isinstance(_inner_for_adhoc, CompositeTargetEstimator):
-            continue
-        _tn_adhoc = getattr(_inner_for_adhoc, "transform_name", None)
-        _bc_adhoc = getattr(_inner_for_adhoc, "base_column", None)
-        if _tn_adhoc is None or _bc_adhoc is None or (_tn_adhoc, _bc_adhoc) in _known_spec_keys:
-            continue
-        _base_cols_adhoc = getattr(_inner_for_adhoc, "base_columns", None) or ()
-        _spec_list = [
-            *_spec_list,
-            {
-                "name": f"__adhoc__{_tn_adhoc}__{_bc_adhoc}",
-                "transform_name": _tn_adhoc,
-                "base_column": _bc_adhoc,
-                "extra_base_columns": tuple(_base_cols_adhoc[1:]) if len(_base_cols_adhoc) > 1 else (),
-                "fitted_params": getattr(_inner_for_adhoc, "fitted_params_", None),
-            },
-        ]
-        _known_spec_keys.add((_tn_adhoc, _bc_adhoc))
+    _spec_list = _build_cross_target_unmatched_oof_refit_path(_components, _component_names, _known_spec_keys, _spec_list)
     if len(_components) < 2:
         logger.info(
             "[CompositeCrossTargetEnsemble] target='%s': only %d " "component(s); ensemble skipped.",
@@ -392,90 +328,21 @@ def _build_cross_target_ensemble_for_target(
         # Per-spec base matrix on filtered_train_df rows for transform.forward inside the OOF helper. Multi-base specs (linear_residual_multi from forward-stepwise auto-promotion) need the FULL (n, 1+K) matrix whose column count matches the fitted alphas.
         _base_full_per_spec: dict[str, np.ndarray] = {}
         _base_val_per_spec: dict[str, np.ndarray] = {}
-        for _spec_for_oof in _spec_list:
-            _b_primary = _build_full_column_from_splits(
-                _spec_for_oof["base_column"],
-                train_df_pd, val_df_pd, test_df_pd,
-                train_idx, val_idx, test_idx,
-                n_total=len(_oof_y_full),
-            )
-            _extra_for_oof = tuple(_spec_for_oof.get("extra_base_columns") or ())
-            if _extra_for_oof:
-                _b_cols = [_b_primary]
-                _b_cols.extend(
-                    _build_full_column_from_splits(
-                        _eb_oof,
-                        train_df_pd, val_df_pd, test_df_pd,
-                        train_idx, val_idx, test_idx,
-                        n_total=len(_oof_y_full),
-                    )
-                    for _eb_oof in _extra_for_oof
-                )
-                _b_stack_full = np.column_stack(_b_cols)
-                _b_filtered = _b_stack_full[filtered_train_idx]
-                try:
-                    _b_val = _b_stack_full[filtered_val_idx]
-                except Exception as e:
-                    logger.debug("indexing _b_stack_full by filtered_val_idx failed: %s", e)
-                    _b_val = None
-            else:
-                _b_filtered = _b_primary[filtered_train_idx]
-                try:
-                    _b_val = _b_primary[filtered_val_idx]
-                except Exception as e:
-                    logger.debug("indexing _b_primary by filtered_val_idx failed: %s", e)
-                    _b_val = None
-            # Key by the UNIQUE spec name, not base_column. A multi-base
-            # spec and a single-base spec sharing the same PRIMARY base column
-            # otherwise collide (last writer wins), so the other spec's OOF
-            # refit raises a base-width mismatch and is silently excluded.
-            _base_full_per_spec[_spec_for_oof["name"]] = _b_filtered
-            if _b_val is not None:
-                _base_val_per_spec[_spec_for_oof["name"]] = _b_val
+        _build_cross_target_per_spec_base_matrix(_spec_list, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, _oof_y_full, filtered_train_idx, filtered_val_idx, _base_full_per_spec, _base_val_per_spec)
         # Build the spec-or-None list parallel to components. Naming ("raw#N" vs "<spec-name>#N") is
         # only a hint, not proof: the original target's own models[..][orig_tname] slot can itself hold
         # a promoted CompositeTargetEstimator (e.g. a composite candidate that also won the raw-target
         # slot), so a name-based "raw# -> no spec" assumption crashes the OOF refit with "composite
         # component with no spec" for that entry. Check the actual inner type instead.
         _component_specs: list[dict[str, Any] | None] = []
-        for _name, _comp in zip(_component_names, _components):
-            _inner_for_spec = getattr(_comp, "model", _comp)
-            if not isinstance(_inner_for_spec, CompositeTargetEstimator):
-                _component_specs.append(None)
-                continue
-            _comp_name = _name.split("#", 1)[0]
-            _matching = next(
-                (s for s in _spec_list if s["name"] == _comp_name),
-                None,
-            )
-            if _matching is None:
-                # The name didn't resolve to a spec (e.g. this is the "raw#N" slot) -- fall back to
-                # matching by the wrapper's own (transform_name, base_column), which is stable regardless
-                # of which models[..] bucket the entry ended up in.
-                _tn = getattr(_inner_for_spec, "transform_name", None)
-                _bc = getattr(_inner_for_spec, "base_column", None)
-                _matching = next(
-                    (s for s in _spec_list if s.get("transform_name") == _tn and s.get("base_column") == _bc),
-                    None,
-                )
-            _component_specs.append(_matching)
+        _build_cross_target_component_no_spec_entry(_component_names, _components, _component_specs, _spec_list)
         # Thread ctx.timestamps + per-target sample_weight + group_ids (full-data-indexed) so the honest OOF split becomes time-aware / weighted / group-aware. All three are subset by filtered_train_idx to the train rows the components were fitted on.
         _ctx_ts_full = getattr(ctx, "timestamps", None) if ctx is not None else None
         _time_ordering = None
-        if _ctx_ts_full is not None:
-            try:
-                _time_ordering = np.asarray(_ctx_ts_full)[filtered_train_idx]
-            except (TypeError, IndexError):
-                _time_ordering = None
+        _time_ordering = _build_cross_target_thread_ctx_timestamps_per(_ctx_ts_full, filtered_train_idx, _time_ordering)
         _ctx_sw_dict = getattr(ctx, "sample_weights", None) if ctx is not None else None
         _sw_for_oof = None
-        if isinstance(_ctx_sw_dict, dict) and _ctx_sw_dict:
-            _sw_raw = _ctx_sw_dict.get(_orig_tname)
-            if _sw_raw is not None:
-                try:
-                    _sw_for_oof = np.asarray(_sw_raw)[filtered_train_idx]
-                except (TypeError, IndexError):
-                    _sw_for_oof = None
+        _sw_for_oof = _build_cross_target_isinstance_ctx_sw_dict(_ctx_sw_dict, _orig_tname, filtered_train_idx, _sw_for_oof)
         # Resolve the OOF holdout source. Default ``kfold`` computes a true train-K-fold OOF surface that never
         # reuses the early-stopping (val) split for weighting; ``external_val`` predicts on the suite's val frame
         # (cheaper but the early-stopped components saw that surface, so it biases weights optimistic -> WARN);
@@ -525,11 +392,7 @@ def _build_cross_target_ensemble_for_target(
                 )
         _group_ids_for_oof = None
         _ctx_groups = getattr(ctx, "group_ids", None) if ctx is not None else None
-        if _ctx_groups is not None:
-            try:
-                _group_ids_for_oof = np.asarray(_ctx_groups)[filtered_train_idx]
-            except (TypeError, IndexError):
-                _group_ids_for_oof = None
+        _group_ids_for_oof = _build_cross_target_ctx_groups_none(_ctx_groups, filtered_train_idx, _group_ids_for_oof)
 
         # OOF pre-screen optimisation: the dummy-floor gate
         # at the BOTTOM of this function frequently drops 60-70% of
@@ -545,34 +408,7 @@ def _build_cross_target_ensemble_for_target(
         # runs after OOF on the honest refit RMSE, so this is a
         # speed-up only; correctness contract unchanged.
         _prescreen_X, _prescreen_y = prescreen_frame(_ext_X, _ext_y, filtered_val_df, _oof_y_full, filtered_val_idx)
-        if _prescreen_X is not None and len(_components) >= 4:
-            try:
-                _dummy_floor_for_prescreen = dummy_floor_from_metadata(metadata, _tt_e, _orig_tname)
-                if _dummy_floor_for_prescreen is not None:
-                    _keep_mask, _dropped_pre = leaky_rmse_keep_mask(
-                        _components, _component_names, _prescreen_X, _prescreen_y, _dummy_floor_for_prescreen,
-                    )
-                    if _dropped_pre and sum(_keep_mask) >= 2:
-                        _kept = [i for i, k in enumerate(_keep_mask) if k]
-                        logger.warning(
-                            "[CompositeCrossTargetEnsemble] target='%s' "
-                            "OOF pre-screen (leaky val-RMSE speed gate) dropped %d/%d component(s) "
-                            "whose leaky val_RMSE / %.1f > dummy floor "
-                            "%.4g. Dropped: %s. Saves ~%d minute(s) of "
-                            "refit time.",
-                            _orig_tname, len(_dropped_pre),
-                            len(_components), PRESCREEN_SAFETY,
-                            _dummy_floor_for_prescreen, _dropped_pre,
-                            len(_dropped_pre) * 5,  # ~5 min/component
-                        )
-                        _components = [_components[i] for i in _kept]
-                        _component_names = [_component_names[i] for i in _kept]
-                        _component_specs = [_component_specs[i] for i in _kept]
-            except Exception as _prescreen_err:
-                logger.warning(
-                    "[CompositeCrossTargetEnsemble] OOF pre-screen " "failed (non-fatal): %s. Continuing with full OOF " "refit.",
-                    _prescreen_err,
-                )
+        _component_names, _component_specs, _components = _build_cross_target_speed_up_only_correctness(_prescreen_X, _components, metadata, _tt_e, _orig_tname, _component_names, _prescreen_y, _component_specs)
 
         # Bound the OOF weight-estimation refits to a train subsample (group-aware: keep whole groups).
         # The NNLS / dummy-floor blend weights saturate far below millions of rows, so this turns the
@@ -890,33 +726,7 @@ def _build_cross_target_ensemble_for_target(
             composite_target_discovery_config,
             "calibrate_cross_target_output", False,
         ))
-        if (_do_calib
-                and isinstance(_ensemble, _CrossEns)
-                and _oof_pred_matrix is not None
-                and _oof_pred_matrix.shape[1] == len(_ensemble.component_models)
-                and _oof_y_holdout is not None
-                and _oof_pred_matrix.shape[0] >= 3):
-            try:
-                _calib_method = str(getattr(
-                    composite_target_discovery_config,
-                    "cross_target_calibration_method", "isotonic",
-                ))
-                _ensemble.fit_output_calibrator(
-                    _oof_pred_matrix, np.asarray(_oof_y_holdout, dtype=np.float64),
-                    method=_calib_method, sample_weight=_oof_sw,
-                )
-                logger.info(
-                    "[CompositeCrossTargetEnsemble] target='%s' fitted output calibrator " "(method=%s, attached=%s) on %d OOF rows.",
-                    _orig_tname,
-                    _calib_method,
-                    getattr(_ensemble, "_output_calibrator", None) is not None,
-                    int(_oof_pred_matrix.shape[0]),
-                )
-            except Exception as _calib_err:  # best-effort: calibration is an optional enhancement, never worth failing the ensemble build over
-                logger.warning(
-                    "[CompositeCrossTargetEnsemble] target='%s' output calibration failed "
-                    "(%s); ensemble retained uncalibrated.", _orig_tname, _calib_err,
-                )
+        _build_cross_target_do_calib(_do_calib, _ensemble, _oof_pred_matrix, _oof_y_holdout, composite_target_discovery_config, _oof_sw, _orig_tname)
     except Exception as _ens_err:  # best-effort: falling back to skipping this target's ensemble, caller handles the missing entry
         logger.warning(
             "[CompositeCrossTargetEnsemble] target='%s' build failed: "
@@ -969,14 +779,7 @@ def _build_cross_target_ensemble_for_target(
             # share the same TRAIN-bound prediction clip (k=3 sigma)
             # rather than each fallback-deriving a different eval bound.
             _ens_train_envelope = None
-            try:
-                _ens_y_train = _ens_y_arr[filtered_train_idx] if filtered_train_idx is not None else None
-                if _ens_y_train is not None and len(_ens_y_train) > 0:
-                    from ..._prediction_envelope_clip import compute_train_envelope_stats
-                    _ens_train_envelope = compute_train_envelope_stats(_ens_y_train)
-            except Exception as e:
-                logger.debug("compute_train_envelope_stats failed, leaving the train envelope unset: %s", e)
-                _ens_train_envelope = None
+            _ens_train_envelope = _build_cross_target_rather_than_each_fallback(filtered_train_idx, _ens_y_arr, _ens_train_envelope)
             _ens_common: dict[str, Any] = dict(
                 columns=_ens_columns,
                 df=None, model=None,
@@ -994,53 +797,7 @@ def _build_cross_target_ensemble_for_target(
                 _split_plan.append(("val", "VAL (CT_ENSEMBLE) ", filtered_val_idx, filtered_val_df))
             if _emit_test_ens:
                 _split_plan.append(("test", "TEST (CT_ENSEMBLE) ", test_idx, test_df_pd))
-            for _split_name, _report_title, _split_idx, _split_df in _split_plan:
-                if _split_idx is None or _split_df is None:
-                    continue
-                try:
-                    _y_split = _ens_y_arr[_split_idx]
-                    _ens_preds = memo_predict(_ensemble, _split_df)
-                    # Stamp val/test scalar metrics for this ensemble into metadata so the
-                    # suite-end verdict block can compare CT_ENSEMBLE against the dummy floor.
-                    # Without this the verdict only sees the SINGLE best model and falsely
-                    # flags BEST_MODEL_BELOW_DUMMY when the ensemble (stacked on lag_predict)
-                    # is the actual winner on strong-AR targets.
-                    try:
-                        from mlframe.metrics.core import fast_mean_absolute_error, fast_root_mean_squared_error
-                        _y_arr = np.asarray(_y_split, dtype=np.float64).reshape(-1)
-                        _ens_arr = _ens_preds.reshape(-1)
-                        _ens_scalar_metrics = {
-                            f"{_split_name}_RMSE": float(fast_root_mean_squared_error(_y_arr, _ens_arr)),
-                            f"{_split_name}_MAE": float(fast_mean_absolute_error(_y_arr, _ens_arr)),
-                            "model_name": f"CT_ENSEMBLE[{_ce_strategy}]",
-                        }
-                        metadata.setdefault("cross_target_ensemble_metrics", {}).setdefault(str(_tt_e), {}).setdefault(_orig_tname, {}).update(
-                            _ens_scalar_metrics
-                        )
-                    except Exception as _metric_err:
-                        logger.debug(
-                            "Could not stamp CT_ENSEMBLE %s metrics for target='%s': %s",
-                            _split_name, _orig_tname, _metric_err,
-                        )
-                    _common_split = dict(_ens_common)
-                    if plot_file:
-                        _common_split["plot_file"] = f"{plot_file}_ct_ensemble_{_orig_tname}_{_split_name}"
-                    report_model_perf(
-                        targets=_y_split,
-                        preds=_ens_preds, probs=None,
-                        report_title=_report_title,
-                        **_common_split,
-                    )
-                except Exception as _split_err:
-                    log_throttle(
-                        logger,
-                        "xt_ensemble_report_model_perf_failed",
-                        logging.WARNING,
-                        "[CompositeCrossTargetEnsemble] target='%s' "
-                        "split='%s' report_model_perf failed: %s. "
-                        "Continuing without ensemble chart for this split.",
-                        _orig_tname, _split_name, _split_err,
-                    )
+            _build_cross_target_split_name_report_title(_split_plan, _ens_y_arr, _ensemble, _ce_strategy, metadata, _tt_e, _orig_tname, _ens_common, plot_file, report_model_perf)
     except Exception as _ens_report_err:  # best-effort: charting failure never invalidates the already-stored ensemble entry
         logger.warning(
             "[CompositeCrossTargetEnsemble] target='%s' could not emit "

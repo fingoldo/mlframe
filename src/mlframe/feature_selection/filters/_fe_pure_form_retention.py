@@ -157,6 +157,7 @@ def retain_usable_pure_forms(
         # gates below switch to a class-indicator (point-biserial) relevance test + a CV-logloss greedy;
         # the regression path stays byte-identical (is_clf=False).
         is_clf = bool(infer_classification(y_cont))
+        _y_codes: Any = None
         if is_clf:
             _clf_classes, _y_codes = np.unique(y_cont, return_inverse=True)
             if _clf_classes.size < 2:
@@ -196,14 +197,8 @@ def retain_usable_pure_forms(
                 logger.debug("_clf_form_relevant: recipe replay/corr failed for %r, treating as not class-relevant (pair stays recoverable): %s", recipe, e)
                 return False
 
-        covered_pairs = set()
-        for r in existing:
-            src = tuple(getattr(r, "src_names", ()) or ())
-            uniq = frozenset(src)
-            if 1 <= len(uniq) <= 2:
-                if is_clf and not _clf_form_relevant(r):
-                    continue  # lossy existing form -> pair stays trapped/recoverable
-                covered_pairs.add(uniq)
+        covered_pairs: set[Any] = set()
+        _retain_usable_pure_existing(existing, is_clf, _clf_form_relevant, covered_pairs)
 
         # Base operands: numeric raw columns only (the usability pool builds pair forms over these).
         # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
@@ -245,16 +240,7 @@ def retain_usable_pure_forms(
 
         has_cross_mix = False
         has_pure_pair = False
-        for r in existing:
-            ops_set = _raw_operands(r)
-            if len(ops_set) > 2:
-                has_cross_mix = True
-            elif len(ops_set) == 2:
-                # For classification, a LOSSY existing pure pair form does NOT count as covering the pair
-                # (it cannot serve the logistic downstream) - the pair stays trapped and recoverable.
-                if is_clf and not _clf_form_relevant(r):
-                    continue
-                has_pure_pair = True
+        has_cross_mix, has_pure_pair = _retain_usable_pure_existing_2(existing, _raw_operands, is_clf, _clf_form_relevant, has_cross_mix, has_pure_pair)
         # (b) NO pure (<=2-operand) pair engineered form already survives, yet >=2 raw numeric bases exist.
         # The MI greedy then either picked raw operands instead of the pure pair form (single-step
         # ``y = 5*a*b`` MS_three_tier case) OR - on a MULTI-step fit - built a higher-order composite that
@@ -324,28 +310,7 @@ def retain_usable_pure_forms(
         # retention does not blow the per-fit budget at large n. Shared with ``retain_usable_raw_columns``
         # via ``_prep`` (same seed -> same draw) when the call site precomputes it; falls back to the
         # identical inline computation for a standalone call (e.g. unit tests).
-        if _prep is not None:
-            base_names = _prep["base_names_trimmed"]
-            X_fit, y_fit = _prep["X_fit"], _prep["y_fit"]
-        else:
-            if len(base_names) > max_base_features:
-                stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
-                base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
-
-            X_fit, y_fit = X, y_cont
-            n_rows = len(X)
-            if n_rows > max_rows:
-                _rng = np.random.default_rng(int(seed))
-                # R1: stratify the pool/CV row subsample on the target when the MRMR knob resolves ON
-                # (per-class for classification, y-quantile for regression) so a rare class / target tail
-                # is not dropped from the linear-usability recovery. Default-OFF path is byte-identical.
-                from ._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
-                if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=is_clf):
-                    _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=is_clf)
-                else:
-                    _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
-                X_fit = X.iloc[_idx]
-                y_fit = y_cont[_idx]
+        X_fit, base_names, y_fit = _retain_usable_pure_identical_inline_computation_standalone(_prep, max_base_features, X, y_cont, max_rows, seed, mrmr, is_clf, base_names)
 
         from ._usability_aware_selection import (
             build_usability_candidate_pool, usability_greedy, _f64, _scrub,
@@ -358,15 +323,7 @@ def retain_usable_pure_forms(
         # uses the {0,1} positive-class indicator; a multiclass y uses the one-vs-rest indicator of its
         # majority class. ``_abscorr(resid, _rel_y)`` then measures whether the form's joint nonlinearity is
         # RELEVANT to class membership.
-        if is_clf:
-            _codes_fit = np.unique(_yv, return_inverse=True)[1]
-            if np.unique(_codes_fit).size == 2:
-                _rel_y = (_codes_fit == 1).astype(np.float64)
-            else:
-                _maj_fit = int(np.argmax(np.bincount(_codes_fit)))
-                _rel_y = (_codes_fit == _maj_fit).astype(np.float64)
-        else:
-            _rel_y = _yv
+        _rel_y = _retain_usable_pure_relevant_class_membership(is_clf, _yv)
         # NONLINEAR-RESIDUAL-VS-Y GATE. The CV-MAE greedy alone over-fires (adversarial-found 2026-06-17):
         # it admits a linear SUM like add(x1,x2) - a linear model ALREADY builds it from the raw operands -
         # and CROSS-PAIR / noise-operand forms that lower MAE on a fold by chance. The retention's whole
@@ -495,10 +452,7 @@ def retain_usable_pure_forms(
         # The default relative mode keeps the pool's own 0.02 floor (retention exists to rescue forms the
         # relative screen under-ranks).
         _pool_mi_floor = 0.02
-        if getattr(mrmr, "min_relevance_gain_mode", None) == "absolute":
-            _abs_floor = getattr(mrmr, "_effective_min_relevance_gain_", None)
-            if _abs_floor is not None and np.isfinite(_abs_floor):
-                _pool_mi_floor = max(_pool_mi_floor, float(_abs_floor))
+        _pool_mi_floor = _retain_usable_pure_relative_screen_under_ranks(mrmr, _pool_mi_floor)
         pool = build_usability_candidate_pool(
             X_fit, _yv, base_names, max_pairs=10, max_per_pair=_max_per_pair, rank_pairs_by_joint_mi=True, mi_floor=_pool_mi_floor,
         )
@@ -511,75 +465,173 @@ def retain_usable_pure_forms(
         # any cupy/device/import error or flag-off -> ``_resid_verdicts`` stays None and the loop runs the
         # exact per-candidate CPU/sklearn ``_adds_nonlinear_value`` (default byte-identical).
         _resid_verdicts = None
-        if not is_clf:
-            try:
-                from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled
-            except ImportError:
-                try:
-                    from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-                except ImportError:
-                    fe_gpu_strict_resident_enabled = None  # type: ignore[assignment]
-            if fe_gpu_strict_resident_enabled is not None and fe_gpu_strict_resident_enabled():
-                try:
-                    from ._fe_pure_form_retention_gpu_resident import adds_nonlinear_value_batch_gpu_resident
+        _resid_verdicts = _retain_usable_pure_exact_per_candidate_cpu(is_clf, pool, base_names, _scrub, X_fit, _rel_y, min_resid_frac, min_resid_corr, _resid_verdicts)
 
-                    _pair_cands = [c for c in pool if getattr(c, "recipe", None) is not None and len(set(getattr(c, "src", ()) or ())) == 2]
-                    if _pair_cands:
-                        _form_vals = [getattr(c, "values", None) for c in _pair_cands]
-                        _src_pairs = [tuple(getattr(c, "src", ()) or ()) for c in _pair_cands]
-                        _base_cols = [_scrub(X_fit[nm].to_numpy()) for nm in base_names]
-                        _verdicts = adds_nonlinear_value_batch_gpu_resident(
-                            _form_vals, _src_pairs, base_names, _base_cols, _rel_y,
-                            min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr,
-                        )
-                        if _verdicts is not None and len(_verdicts) == len(_pair_cands):
-                            _resid_verdicts = {id(c): bool(v) for c, v in zip(_pair_cands, _verdicts)}
-                except Exception as e:
-                    logger.debug("resident-batch verdict computation failed, falling back to the per-candidate CPU path: %s", e)
-                    _resid_verdicts = None  # any failure -> exact per-candidate CPU path below
-
-        filtered = []
-        for cand in pool:
-            recipe = getattr(cand, "recipe", None)
-            if recipe is None:
-                filtered.append(cand)  # raw passthrough: the linear baseline the greedy builds on
-                continue
-            src = tuple(getattr(cand, "src", ()) or ())
-            if len(set(src)) != 2:
-                continue
-            if _resid_verdicts is not None:
-                if _resid_verdicts.get(id(cand), False):
-                    filtered.append(cand)
-            elif _adds_nonlinear_value(getattr(cand, "values", None), src[0], src[1]):
-                filtered.append(cand)
+        filtered: list[Any] = []
+        _retain_usable_pure_cand_pool(pool, filtered, _resid_verdicts, _adds_nonlinear_value)
         usable = usability_greedy(
             filtered, _yv, w=w, K=K, seed=int(seed), n_folds=3, shortlist=15, classification=is_clf,
         )
 
         existing_names = set(getattr(mrmr, "_engineered_features_", []) or [])
-        out = []
-        for cand in usable:
-            recipe = getattr(cand, "recipe", None)
-            if recipe is None:
-                continue  # raw passthrough - raw retention handles those
-            src = tuple(getattr(cand, "src", ()) or ())
-            pair = frozenset(src)
-            if len(pair) != 2:
-                continue  # only genuine single-PAIR forms
-            if pair in covered_pairs:
-                continue  # a pure form for this pair already survives
-            name = getattr(cand, "name", None) or getattr(recipe, "name", None)
-            if name is None or name in existing_names:
-                continue
-            out.append((recipe, name))
-            covered_pairs.add(pair)
-            existing_names.add(name)
-            if len(out) >= max_added:
-                break
+        out: list[Any] = []
+        _retain_usable_pure_cand_usable(usable, covered_pairs, existing_names, out, max_added)
         return out
     except Exception as e:
         logger.debug("retain_usable_pure_forms: pure-form recovery pass failed, retaining nothing (default selection unaffected): %s", e)
         return []
+
+
+def _retain_usable_pure_existing(existing, is_clf, _clf_form_relevant, covered_pairs):
+    """Block of retain_usable_pure_forms starting at ``for r in existing:``."""
+    for r in existing:
+        src = tuple(getattr(r, "src_names", ()) or ())
+        uniq = frozenset(src)
+        if 1 <= len(uniq) <= 2:
+            if is_clf and not _clf_form_relevant(r):
+                continue  # lossy existing form -> pair stays trapped/recoverable
+            covered_pairs.add(uniq)
+
+
+def _retain_usable_pure_cand_pool(pool, filtered, _resid_verdicts, _adds_nonlinear_value):
+    """Block of retain_usable_pure_forms starting at ``for cand in pool:``."""
+    cand: Any = None
+    for cand in pool:
+        recipe = getattr(cand, "recipe", None)
+        if recipe is None:
+            filtered.append(cand)  # raw passthrough: the linear baseline the greedy builds on
+            continue
+        src = tuple(getattr(cand, "src", ()) or ())
+        if len(set(src)) != 2:
+            continue
+        _retain_usable_pure_resid_verdicts_none(_resid_verdicts, cand, filtered, _adds_nonlinear_value, src)
+
+
+def _retain_usable_pure_existing_2(existing, _raw_operands, is_clf, _clf_form_relevant, has_cross_mix, has_pure_pair):
+    """Block of retain_usable_pure_forms starting at ``for r in existing:``."""
+    for r in existing:
+        ops_set = _raw_operands(r)
+        if len(ops_set) > 2:
+            has_cross_mix = True
+        elif len(ops_set) == 2:
+            # For classification, a LOSSY existing pure pair form does NOT count as covering the pair
+            # (it cannot serve the logistic downstream) - the pair stays trapped and recoverable.
+            if is_clf and not _clf_form_relevant(r):
+                continue
+            has_pure_pair = True
+    return has_cross_mix, has_pure_pair
+
+
+def _retain_usable_pure_identical_inline_computation_standalone(_prep, max_base_features, X, y_cont, max_rows, seed, mrmr, is_clf, base_names):
+    """Block of retain_usable_pure_forms starting at ``if _prep is not None:``."""
+    if _prep is not None:
+        base_names = _prep["base_names_trimmed"]
+        X_fit, y_fit = _prep["X_fit"], _prep["y_fit"]
+    else:
+        if len(base_names) > max_base_features:
+            stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
+            base_names = sorted(base_names, key=lambda nm: -stds.get(nm, 0.0))[:max_base_features]
+
+        X_fit, y_fit = X, y_cont
+        n_rows = len(X)
+        if n_rows > max_rows:
+            _rng = np.random.default_rng(int(seed))
+            # R1: stratify the pool/CV row subsample on the target when the MRMR knob resolves ON
+            # (per-class for classification, y-quantile for regression) so a rare class / target tail
+            # is not dropped from the linear-usability recovery. Default-OFF path is byte-identical.
+            from mlframe.feature_selection.filters._fe_subsample import _resolve_fe_subsample_stratify, stratified_subsample_idx
+            if _resolve_fe_subsample_stratify(getattr(mrmr, "fe_subsample_stratify", None), y_cont, is_clf=is_clf):
+                _idx = stratified_subsample_idx(_rng, y_cont, int(max_rows), is_clf=is_clf)
+            else:
+                _idx = np.sort(_rng.choice(n_rows, size=max_rows, replace=False))
+            X_fit = X.iloc[_idx]
+            y_fit = y_cont[_idx]
+    return X_fit, base_names, y_fit
+
+
+def _retain_usable_pure_relevant_class_membership(is_clf, _yv):
+    """Block of retain_usable_pure_forms starting at ``if is_clf:``."""
+    if is_clf:
+        _codes_fit = np.unique(_yv, return_inverse=True)[1]
+        if np.unique(_codes_fit).size == 2:
+            _rel_y = (_codes_fit == 1).astype(np.float64)
+        else:
+            _maj_fit = int(np.argmax(np.bincount(_codes_fit)))
+            _rel_y = (_codes_fit == _maj_fit).astype(np.float64)
+    else:
+        _rel_y = _yv
+    return _rel_y
+
+
+def _retain_usable_pure_relative_screen_under_ranks(mrmr, _pool_mi_floor):
+    """Block of retain_usable_pure_forms starting at ``if getattr(mrmr, "min_relevance_gain_mode", None) == "absolute":``."""
+    if getattr(mrmr, "min_relevance_gain_mode", None) == "absolute":
+        _abs_floor = getattr(mrmr, "_effective_min_relevance_gain_", None)
+        if _abs_floor is not None and np.isfinite(_abs_floor):
+            _pool_mi_floor = max(_pool_mi_floor, float(_abs_floor))
+    return _pool_mi_floor
+
+
+def _retain_usable_pure_exact_per_candidate_cpu(is_clf, pool, base_names, _scrub, X_fit, _rel_y, min_resid_frac, min_resid_corr, _resid_verdicts):
+    """Block of retain_usable_pure_forms starting at ``if not is_clf:``."""
+    if not is_clf:
+        try:
+            from mlframe.feature_selection.filters._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled
+        except ImportError:
+            try:
+                from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled
+            except ImportError:
+                fe_gpu_strict_resident_enabled = None  # type: ignore[assignment]
+        if fe_gpu_strict_resident_enabled is not None and fe_gpu_strict_resident_enabled():
+            try:
+                from mlframe.feature_selection.filters._fe_pure_form_retention_gpu_resident import adds_nonlinear_value_batch_gpu_resident
+
+                _pair_cands = [c for c in pool if getattr(c, "recipe", None) is not None and len(set(getattr(c, "src", ()) or ())) == 2]
+                if _pair_cands:
+                    _form_vals = [getattr(c, "values", None) for c in _pair_cands]
+                    _src_pairs = [tuple(getattr(c, "src", ()) or ()) for c in _pair_cands]
+                    _base_cols = [_scrub(X_fit[nm].to_numpy()) for nm in base_names]
+                    _verdicts = adds_nonlinear_value_batch_gpu_resident(
+                        _form_vals, _src_pairs, base_names, _base_cols, _rel_y,
+                        min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr,
+                    )
+                    if _verdicts is not None and len(_verdicts) == len(_pair_cands):
+                        _resid_verdicts = {id(c): bool(v) for c, v in zip(_pair_cands, _verdicts)}
+            except Exception as e:
+                logger.debug("resident-batch verdict computation failed, falling back to the per-candidate CPU path: %s", e)
+                _resid_verdicts = None  # any failure -> exact per-candidate CPU path below
+    return _resid_verdicts
+
+
+def _retain_usable_pure_resid_verdicts_none(_resid_verdicts, cand, filtered, _adds_nonlinear_value, src):
+    """Block of retain_usable_pure_forms starting at ``if _resid_verdicts is not None:``."""
+    if _resid_verdicts is not None:
+        if _resid_verdicts.get(id(cand), False):
+            filtered.append(cand)
+    elif _adds_nonlinear_value(getattr(cand, "values", None), src[0], src[1]):
+        filtered.append(cand)
+
+
+def _retain_usable_pure_cand_usable(usable, covered_pairs, existing_names, out, max_added):
+    """Block of retain_usable_pure_forms starting at ``for cand in usable:``."""
+    for cand in usable:
+        recipe = getattr(cand, "recipe", None)
+        if recipe is None:
+            continue  # raw passthrough - raw retention handles those
+        src = tuple(getattr(cand, "src", ()) or ())
+        pair = frozenset(src)
+        if len(pair) != 2:
+            continue  # only genuine single-PAIR forms
+        if pair in covered_pairs:
+            continue  # a pure form for this pair already survives
+        name = getattr(cand, "name", None) or getattr(recipe, "name", None)
+        if name is None or name in existing_names:
+            continue
+        out.append((recipe, name))
+        covered_pairs.add(pair)
+        existing_names.add(name)
+        if len(out) >= max_added:
+            break
 
 
 def retain_usable_raw_columns(
