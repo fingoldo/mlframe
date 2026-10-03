@@ -75,10 +75,10 @@ def compute_jackknife_endpoint_stability_features(
                 m_dn = lgb.LGBMRegressor(n_estimators=30, max_depth=3, learning_rate=0.1, objective="quantile", alpha=0.1, random_state=int(fold_seed) + k + 100, verbose=-1, n_jobs=-1).fit(X_sub, y_sub)
                 upper_preds[k] = np.asarray(m_up.predict(Xq_s)).astype(np.float32)
                 lower_preds[k] = np.asarray(m_dn.predict(Xq_s)).astype(np.float32)
-        upper_std = upper_preds.std(axis=0).astype(np.float32) + 1e-9
-        lower_std = lower_preds.std(axis=0).astype(np.float32) + 1e-9
-        upper_mean = upper_preds.mean(axis=0).astype(np.float32)
-        lower_mean = lower_preds.mean(axis=0).astype(np.float32)
+        upper_std = upper_preds.std(axis=0, dtype=np.float64).astype(np.float32) + 1e-9
+        lower_std = lower_preds.std(axis=0, dtype=np.float64).astype(np.float32) + 1e-9
+        upper_mean = upper_preds.mean(axis=0, dtype=np.float64).astype(np.float32)
+        lower_mean = lower_preds.mean(axis=0, dtype=np.float64).astype(np.float32)
         interval_width = (upper_mean - lower_mean).astype(np.float32)
         return np.column_stack([upper_std, lower_std, upper_mean, lower_mean, interval_width])
 

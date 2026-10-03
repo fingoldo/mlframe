@@ -63,6 +63,31 @@ if TYPE_CHECKING:
 _E5_FAMILY_MARKERS = ("-e5-", "/e5-", "_e5_")
 
 
+# Commit SHAs of the models mlframe ships as defaults; applied when ``pinned_revision`` is on and the caller gave no explicit ``revision``.
+PINNED_REVISIONS: dict[str, str] = {
+    "intfloat/multilingual-e5-small": "614241f622f53c4eeff9890bdc4f31cfecc418b3",  # pragma: allowlist secret
+    "BAAI/bge-small-en-v1.5": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",  # pragma: allowlist secret
+    "prajjwal1/bert-tiny": "6f75de8b60a9f8a2fdf7b69cbd86d9e64bcb3837",  # pragma: allowlist secret
+}
+
+
+def resolve_revision(model_name: str, explicit: Optional[str], pinned_revision: bool) -> Optional[str]:
+    """Revision to load: the caller's explicit one, else the shipped pin for ``model_name`` when ``pinned_revision`` is on, else None (hub ``main``).
+    An unlisted model without an explicit revision warns because a moved or compromised repo would then change the embeddings silently."""
+    if explicit:
+        return str(explicit)
+    if not pinned_revision:
+        return None
+    pinned = PINNED_REVISIONS.get(model_name)
+    if pinned is None:
+        warnings.warn(
+            f"HuggingFaceProvider: no pinned revision for {model_name!r}; loading hub 'main'. Pass params={{'revision': <commit sha>}} to pin it.",
+            UserWarning,
+            stacklevel=3,
+        )
+    return pinned
+
+
 def _needs_e5_prefix(model_name: str) -> bool:
     """Detect whether ``model_name`` belongs to the E5 embedding family, which requires a ``"passage: "``/``"query: "`` instruction prefix for good embedding quality."""
     name = model_name.lower()
@@ -123,10 +148,12 @@ class HuggingFaceProvider:
     def __init__(
         self,
         embedding_provider: EmbeddingProvider,
+        pinned_revision: bool = True,
     ):
         if embedding_provider.kind != "huggingface":
             raise ValueError(f"HuggingFaceProvider expects kind='huggingface', got " f"{embedding_provider.kind!r}")
         self._cfg = embedding_provider
+        self._pinned_revision = bool(pinned_revision)
         self._model: Optional[Any] = None
         self._tokenizer: Optional[Any] = None
         self._device: Optional[str] = None
@@ -182,11 +209,7 @@ class HuggingFaceProvider:
                 stacklevel=2,
             )
 
-        # bandit B615 (unpinned from_pretrained revision): `revision` is a caller-supplied
-        # param on this general-purpose provider, not a hardcoded model reference -- callers
-        # who need supply-chain pinning pass an explicit commit SHA via params["revision"].
-        # None resolving to HF's "main" is the documented, expected default for this API.
-        revision = params.get("revision")  # nosec B615
+        revision = resolve_revision(model_name, params.get("revision"), self._pinned_revision)  # nosec B615 - pinned from PINNED_REVISIONS or a caller-supplied sha
         device = _resolve_device(params.get("device", "auto"))
         dtype_str = params.get("dtype", "fp16")
         torch_dtype = torch.float16 if dtype_str == "fp16" else torch.float32
@@ -443,13 +466,13 @@ class HuggingFaceProvider:
 # ---------------------------------------------------------------------
 
 
-def build_provider(embedding_provider: EmbeddingProvider) -> HuggingFaceProvider:
+def build_provider(embedding_provider: EmbeddingProvider, pinned_revision: bool = True) -> HuggingFaceProvider:
     """Construct the concrete provider instance for an
     :class:`EmbeddingProvider` config. Phase B handles only ``huggingface``;
     phase J adds the rest (sentence-transformers / openai / ...).
     """
     if embedding_provider.kind == "huggingface":
-        return HuggingFaceProvider(embedding_provider)
+        return HuggingFaceProvider(embedding_provider, pinned_revision=pinned_revision)
     raise NotImplementedError(
         f"provider kind {embedding_provider.kind!r} not implemented yet "
         f"(phase J: openai/cohere/jina/voyage/onnx/fasttext/tfhub/sentence-transformers/custom). "

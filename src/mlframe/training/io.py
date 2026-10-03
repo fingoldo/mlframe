@@ -37,6 +37,18 @@ import zstandard as zstd
 from joblib.numpy_pickle import NumpyUnpickler as _JoblibNumpyUnpickler
 from joblib.numpy_pickle import _validate_fileobject_and_memmap as _joblib_validate_fileobject_and_memmap
 
+from mlframe.training._bounded_zstd import BoundedReader, max_decompressed_bytes
+from mlframe.training._unpickle_policy import (
+    _DENIED_MODULE_PREFIXES,
+    _DENIED_NAMES,
+    _DENIED_SPECIFIC,
+    _DENIED_TYPES_NAMES,
+    _UNSAFE_BUILTINS,
+    _safe_getattr,
+    _safe_setattr,
+    resolve_restricted_class as _resolve_restricted_class,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -183,157 +195,7 @@ def atomic_write_bytes(target_path: str, writer_fn: Callable[[Any], None], *, fs
         raise
 
 
-# Allowlist of module prefixes for safe unpickling.
-_SAFE_MODULE_PREFIXES: tuple = (
-    "numpy",
-    "pandas",
-    "polars",
-    "sklearn",
-    "pytorch_lightning",
-    # 2026-05-30 (F-22 audit): modern Lightning installs expose the
-    # umbrella ``lightning.*`` namespace (e.g. ``lightning.fabric.utilities.data.AttributeDict``
-    # used by Lightning's hparams machinery) alongside the standalone
-    # ``lightning_fabric.*`` package. Without these prefixes a fitted
-    # PytorchLightningEstimator round-tripped through save_mlframe_model
-    # / load_mlframe_model raises ``Unsafe class blocked by _SafeUnpickler``
-    # for AttributeDict and load returns None. Both Lightning packages
-    # are first-party (Lightning AI / pytorch-lightning project), safe
-    # to allow alongside the original ``pytorch_lightning`` entry.
-    "lightning",
-    "lightning_fabric",
-    "torch",
-    "catboost",
-    "lightgbm",
-    "xgboost",
-    "builtins",
-    "collections",
-    "datetime",
-    "dataclasses",
-    "types",
-    "dill",
-    "scipy",
-    # Fitted model state routinely carries functools.partial (neural weights_init_fcn, a parametrized
-    # metric slot). Without this prefix such a bundle saves fine but safe-load blocks functools.partial
-    # and returns None SILENTLY. Safe: a partial only STORES its func+args; the wrapped func is
-    # re-resolved through find_class on unpickle and stays blocked if dangerous.
-    "functools",
-    "_functools",
-    # Fix date 2026-04-15 (bug A): persisted CatBoost models reference assorted
-    # mlframe.* helpers (metrics.ICE, training.helpers.*, etc.) inside their pickled
-    # state; without this the cb model is silently dropped at load time.
-    "mlframe",
-    # Fix date 2026-04-22 (fuzz): Linear pre_pipelines include CatBoostEncoder /
-    # OrdinalEncoder / OneHotEncoder from the category_encoders package. Blocking
-    # them forced every cached-linear reload to fall back to retraining — the
-    # "Unsafe class blocked by _SafeUnpickler allowlist:
-    # category_encoders.cat_boost.CatBoostEncoder" WARN was noisy and defeated
-    # the schema-hash caching mechanism for any suite that includes linear
-    # models. Package is a widely-used sklearn-family transformer, safe to allow.
-    "category_encoders",
-    # Fix date 2026-05-20: recent pandas builds (>=2.0 with the pyarrow extension
-    # backend, or 2.2+ where pyarrow is preferred for object-dtype Series)
-    # pickle DataFrames through pyarrow.lib._restore_array. Without this entry
-    # round-tripping any DataFrame through save_mlframe_model + load_mlframe_model
-    # fails with "Unsafe class blocked by _SafeUnpickler allowlist:
-    # pyarrow.lib._restore_array" and load_mlframe_model returns None
-    # (observed 2026-05-20 in test_roundtrip_complex_nested_object on S:).
-    # pyarrow is a first-party Apache project, safe to allow.
-    "pyarrow",
-    # joblib's own NumpyArrayWrapper persists large ndarrays out-of-band inside a joblib.dump pickle
-    # stream; needed for safe_joblib_load (inference/predict.py's restricted joblib.load replacement)
-    # to reconstruct arrays, and harmless for dill bundles too since it carries no code-execution surface.
-    "joblib",
-)
-
-# Specific safe names. `typing.TypeAlias` lands in pickled MLPRegressor
-# attribute graphs since pytorch-lightning 2.x (its train/val dataloaders
-# carry typing-annotated dataclasses); it's a no-op marker symbol with no
-# code-execution surface.
-_SAFE_SPECIFIC: frozenset = frozenset({
-    ("types", "SimpleNamespace"),
-    ("typing", "TypeAlias"),
-    ("typing", "Any"),
-    ("typing", "Optional"),
-    ("typing", "Union"),
-    ("typing", "List"),
-    ("typing", "Dict"),
-    ("typing", "Tuple"),
-    ("typing", "Sequence"),
-    ("typing", "Callable"),
-    ("typing", "ClassVar"),
-})
-
-
-# Code-execution primitives that live in the (allowlisted) ``builtins`` module. The prefix allow
-# is needed for data containers (dict/list/set/tuple/bytes/...), but these names are a direct RCE
-# gadget -- a legit model bundle never references them, an attacker payload uses exactly these
-# (``(eval, ("__import__('os').system(...)",))``). Denied even though their module is allowlisted.
-# ``__builtin__`` is the Python-2 / dill spelling of the same module.
-_UNSAFE_BUILTINS: frozenset = frozenset({
-    "eval", "exec", "execfile", "compile", "__import__", "import_module",
-    "delattr", "globals", "locals", "vars",
-    "open", "input", "breakpoint", "memoryview", "help",
-})
-
-# ``getattr`` is NOT in the blanket denylist: legitimate model bundles need it -- CatBoost's own
-# ``__reduce__`` reconstructs via ``getattr(<catboost module>, "_setattr")``, so a blanket block makes
-# the framework unable to load its OWN CatBoost dumps. Its operand is always an object that already
-# passed ``find_class`` (the module/class allowlist), so the classic ``getattr(os, "system")`` gadget is
-# unreachable -- ``os`` never lands on the stack. The residual risk is introspection escalation through
-# dunder/code attributes (``__globals__`` -> module dict -> arbitrary callable); those attribute NAMES
-# are denied below while ordinary attribute access (incl. underscore-prefixed helpers like ``_setattr``)
-# is permitted via the restricted reconstructor.
-_DANGEROUS_GETATTR_ATTRS: frozenset = frozenset({
-    "__globals__", "__code__", "__closure__", "__func__", "__builtins__",
-    "__subclasses__", "__bases__", "__mro__", "__dict__", "__getattribute__",
-    "__reduce__", "__reduce_ex__", "__class__", "func_globals", "gi_frame",
-    "cr_frame", "f_globals", "f_locals", "f_builtins",
-})
-
-
-def _safe_getattr(obj, name, *default):
-    """Restricted ``getattr`` reconstructor for ``_SafeUnpickler``: refuses introspection-escalation
-    attribute names (``__globals__`` / ``__code__`` / ``__subclasses__`` / ...) that could walk from an
-    allowlisted object to an arbitrary callable. Plain attribute access (including underscore-prefixed
-    library helpers) is allowed because the operand itself already passed the module/class allowlist."""
-    if not isinstance(name, str) or name in _DANGEROUS_GETATTR_ATTRS:
-        raise dill.UnpicklingError(f"Unsafe getattr blocked by _SafeUnpickler allowlist: getattr({type(obj).__name__}, {name!r})")
-    return getattr(obj, name, *default)
-
-
-def _safe_setattr(obj, name, value):
-    """Restricted ``setattr`` reconstructor for ``_SafeUnpickler``. CatBoost's ``__reduce__`` restores
-    estimator state via ``builtins.setattr``; like ``getattr`` its target object already passed the
-    allowlist, so the only residual risk is type-confusion through dunder attributes (``__class__`` /
-    ``__dict__`` / ``__bases__`` / ...). Those names are refused; ordinary attribute restoration is allowed."""
-    if not isinstance(name, str) or name in _DANGEROUS_GETATTR_ATTRS:
-        raise dill.UnpicklingError(f"Unsafe setattr blocked by _SafeUnpickler allowlist: setattr({type(obj).__name__}, {name!r})")
-    setattr(obj, name, value)
-
-
-def _resolve_restricted_class(module: str, name: str, real_find_class: Callable) -> Any:
-    """Shared allowlist logic behind both :class:`_SafeUnpickler` (dill) and :class:`_SafeJoblibUnpickler`
-    (joblib/numpy_pickle) -- resolves a pickled (module, name) reference only if it is on the allowlist
-    (exact pair, allowed module prefix, or the restricted ``getattr``/``setattr`` reconstructors);
-    raises ``UnpicklingError`` for anything else, including code-exec builtins. ``real_find_class`` is the
-    underlying unpickler's own ``find_class`` (bound method), used once a pair/prefix is allowed."""
-    # Block code-exec builtins even though ``builtins`` is allowlisted for data containers.
-    if module in ("builtins", "__builtin__") and name in _UNSAFE_BUILTINS:
-        raise dill.UnpicklingError(f"Unsafe builtin blocked by allowlist: {module}.{name}")
-    # ``getattr`` / ``setattr`` are allowed but via restricted reconstructors (dangerous attr names denied).
-    if module in ("builtins", "__builtin__") and name == "getattr":
-        return _safe_getattr
-    if module in ("builtins", "__builtin__") and name == "setattr":
-        return _safe_setattr
-    # Allow exact specific pairs.
-    if (module, name) in _SAFE_SPECIFIC:
-        return real_find_class(module, name)
-    # Allow by module prefix (module == prefix or module startswith prefix + ".").
-    for prefix in _SAFE_MODULE_PREFIXES:
-        if module == prefix or module.startswith(prefix + "."):
-            return real_find_class(module, name)
-    raise dill.UnpicklingError(f"Unsafe class blocked by _SafeUnpickler allowlist: {module}.{name}")
-
+# Allowlist policy lives in the sibling module; re-exported so existing imports keep working.
 
 class _SafeUnpickler(dill.Unpickler):
     """Restricted unpickler that only allows a conservative allowlist of modules."""
@@ -352,7 +214,9 @@ class _SafeUnpickler(dill.Unpickler):
 _DENYLISTED_MODULE_PREFIXES: frozenset = frozenset({
     "os", "posix", "nt", "subprocess", "sys", "shutil", "socket", "ctypes", "importlib", "runpy",
     "code", "pty", "multiprocessing", "webbrowser", "signal", "pdb", "pickle", "dill", "shelve",
-    "marshal", "pip", "setuptools", "distutils",
+    "marshal", "pip", "setuptools", "distutils", "io", "_io", "_posixsubprocess", "_winapi", "_thread", "threading", "asyncio", "cloudpickle", "_pickle",
+    "copyreg", "tempfile", "urllib", "http", "ftplib", "smtplib", "glob", "zipimport", "pkgutil", "inspect", "ast", "codecs", "msvcrt", "winreg",
+    "torch.hub", "torch.jit", "joblib.externals",
 })
 
 
@@ -367,7 +231,11 @@ def _resolve_denylisted_class(module: str, name: str, real_find_class: Callable)
         return _safe_getattr
     if module in ("builtins", "__builtin__") and name == "setattr":
         return _safe_setattr
-    for prefix in _DENYLISTED_MODULE_PREFIXES:
+    if module == "types" and name in _DENIED_TYPES_NAMES:
+        raise dill.UnpicklingError(f"Unsafe types constructor blocked by denylist: {module}.{name}")
+    if (module, name) in _DENIED_SPECIFIC or any(part in _DENIED_NAMES for part in name.split(".")):
+        raise dill.UnpicklingError(f"Unsafe reference blocked by denylist: {module}.{name}")
+    for prefix in (*_DENYLISTED_MODULE_PREFIXES, *_DENIED_MODULE_PREFIXES):
         if module == prefix or module.startswith(prefix + "."):
             raise dill.UnpicklingError(f"Unsafe module blocked by denylist: {module}.{name}")
     return real_find_class(module, name)
@@ -728,7 +596,8 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
     try:
         with open(file, "rb") as f:
             decompressor = zstd.ZstdDecompressor()
-            with decompressor.stream_reader(f) as zf:
+            with decompressor.stream_reader(f) as _zraw:
+                zf = BoundedReader(_zraw, max_decompressed_bytes())
                 if safe:
                     model = _SafeUnpickler(zf).load()
                 else:

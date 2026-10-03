@@ -50,7 +50,7 @@ RESULTS = r"D:\Temp\mdlp_diag_results.md"
 
 
 def ckpt(msg: str):
-    with open(PROGRESS, "a") as f:
+    with open(PROGRESS, "a", encoding="utf-8") as f:
         f.write(time.strftime("%H:%M:%S ") + msg.rstrip() + "\n")
     print("CKPT " + msg, flush=True)
 
@@ -124,7 +124,7 @@ def run_named_bed(bedname, X, y, groups, lines):
 
 
 def main():
-    with open(PROGRESS, "w"):
+    with open(PROGRESS, "w", encoding="utf-8"):
         pass
     lines = ["# MDLP-1-bin-collapse diagnostic (round-4, READ-ONLY)\n"]
     lines.append("bins = inner_edges + 1. 1 bin == collapsed-to-constant (joint MI destroyed).")
@@ -222,7 +222,7 @@ def main():
     else:
         lines.append(f"\n## madelon UNAVAILABLE (got {rname if Xr is not None else 'load-fail'}); " f"skipping real-data layer")
 
-    with open(RESULTS, "w") as f:
+    with open(RESULTS, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     ckpt("DONE wrote results")
     print("\n=== wrote " + RESULTS + " ===", flush=True)

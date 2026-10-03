@@ -90,7 +90,7 @@ if _NUMBA_AVAILABLE:
                         dx = pos[j] - xm
                         num += dx * (val[j] - ym)
                         den += dx * dx
-                    slope = num / (den + 1e-12)
+                    slope = num / den if den > 0.0 else 0.0
                     pred = val[n_anch - 1] + slope * (i - pos[n_anch - 1])
                     e_j = label[i] - pred
                     res[n_res] = e_j
@@ -559,7 +559,7 @@ def anchor_residual_rmse_features(
                     ym = ys.mean()
                     num = ((xs - xm) * (ys - ym)).sum()
                     den = ((xs - xm) ** 2).sum()
-                    slope = num / (den + 1e-12)
+                    slope = float(num / den) if den > 0.0 else 0.0
                     last_v = ys[-1]
                     last_r = xs[-1]
                     pred = last_v + slope * (i - last_r)

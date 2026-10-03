@@ -147,7 +147,7 @@ def main():
     avg_cg_n = np.mean([r["condgap_norm"] for r in het])
     print(f"avg conditional-coverage gap (het): abs={avg_cg_a:.4f} norm={avg_cg_n:.4f}")
     out = os.path.join(os.path.dirname(__file__), "_results", "conformal_normalized_vs_absolute.json")
-    with open(out, "w") as f:
+    with open(out, "w", encoding="utf-8") as f:
         json.dump(dict(rows=rows, het_wins=het_wins, het_total=len(het),
                        avg_condgap_abs=float(avg_cg_a),
                        avg_condgap_norm=float(avg_cg_n)), f, indent=2, sort_keys=True)

@@ -94,7 +94,7 @@ def run_baseline() -> float:
           f"n_clusters={fp['n_clusters']} members={ {k: len(v) for k, v in fp['member_selections'].items()} }", flush=True)
     os.makedirs(os.path.dirname(GOLDEN), exist_ok=True)
     payload = dict(wall=dt, n_rows=N_ROWS, seed=SEED, shape=list(X.shape), **fp)
-    with open(GOLDEN, "w") as f:
+    with open(GOLDEN, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
     print(f"[golden written -> {GOLDEN}]", flush=True)
     print(f"selected_set_ordered = {fp['selected_set_ordered']}", flush=True)
@@ -105,7 +105,7 @@ def run_verify() -> float:
     """Re-fit and assert the selected set + combined ranking + member selections are BIT-IDENTICAL to the golden."""
     if not os.path.exists(GOLDEN):
         raise SystemExit("no golden; run MODE=baseline first")
-    with open(GOLDEN) as f:
+    with open(GOLDEN, encoding="utf-8") as f:
         g = json.load(f)
     X, y = load_data()
     h = make_hybrid()

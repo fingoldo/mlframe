@@ -64,8 +64,8 @@ def log(msg):
 
 
 def main():
-    open(RES, "w").close()
-    open(PROG, "w").close()
+    open(RES, "w", encoding="utf-8").close()
+    open(PROG, "w", encoding="utf-8").close()
     from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
 
     cells = [(sc, sd, ig) for sc in SCENARIOS for sd in SEEDS for ig in IMPORTANCE]

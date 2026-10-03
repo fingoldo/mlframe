@@ -46,7 +46,7 @@ FULL_CACHE = "D:/Temp/rfecv_madelon_full.pkl"  # full curve + per-N feature list
 
 
 def checkpoint(msg: str):
-    with open(PROGRESS, "a") as fh:
+    with open(PROGRESS, "a", encoding="utf-8") as fh:
         fh.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
     print(f"  ## {msg}", flush=True)
 
@@ -351,7 +351,7 @@ def main():
     lines.append("```\n" + sy["curve"].to_string(index=False) + "\n```\n\n")
     lines.append("```\n" + pd.DataFrame(sy["rows"]).sort_values("auc_mean", ascending=False).to_string(index=False) + "\n```\n")
 
-    with open("D:/Temp/rfecv_floor_results.md", "w") as fh:
+    with open("D:/Temp/rfecv_floor_results.md", "w", encoding="utf-8") as fh:
         fh.writelines(lines)
 
     # ---- verdict ----

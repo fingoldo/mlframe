@@ -263,7 +263,7 @@ def main() -> None:
     ap.add_argument("--summarize", type=str, default=None)
     a = ap.parse_args()
     if a.summarize:
-        rows = [r for f in a.summarize.split(",") for r in json.loads(Path(f).read_text())]
+        rows = [r for f in a.summarize.split(",") for r in json.loads(Path(f).read_text(encoding="utf-8"))]
         print(summarize(rows))
         return
     from joblib import Parallel, delayed

@@ -117,7 +117,7 @@ def run_cell(worker_path, width, cond_name, n_red, rho, stratified, out_root):
                         stratified=bool(stratified), error=f"rc={proc.returncode}",
                         elapsed_outer=elapsed, stderr_tail=(proc.stderr or "")[-1000:])
         if os.path.exists(fit_out):
-            with open(fit_out) as f:
+            with open(fit_out, encoding="utf-8") as f:
                 r = json.load(f)
             r["cond"] = cond_name
             r["elapsed_outer"] = elapsed
@@ -142,7 +142,7 @@ def main():
             for strat in MODES:
                 r = run_cell(worker_path, w, cond_name, n_red, rho, strat, out_root)
                 results.append(r)
-                with open(os.path.join(out_root, "iter100_calib_results.json"), "w") as f:
+                with open(os.path.join(out_root, "iter100_calib_results.json"), "w", encoding="utf-8") as f:
                     json.dump(dict(
                         meta=dict(n_rows=N_ROWS, n_inf=N_INF, snr=SNR, seed=SEED,
                                   widths=list(WIDTHS), cond=list(COND), modes=list(MODES)),

@@ -156,15 +156,15 @@ def _plugin_mi_classif_batch_rows_njit(X_rows: np.ndarray, y: np.ndarray, n_bins
 
 def _quantile_bin_numpy(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Pure-numpy quantile binning. ~1.6x faster than the numba version
-    at n=1500 because numpy's ``np.argsort`` dispatches to a SIMD-optimised
-    C sort that numba's argsort wrapper does not match.
+    at n=1500 on continuous data because numpy's ``np.argsort`` dispatches to a SIMD-optimised
+    C sort that numba's argsort wrapper does not match. The sort is stable so ties bin exactly like ``_quantile_bin_njit``.
 
     Used by the hot CMA-ES inner loop in :func:`optimise_hermite_pair`
     via :func:`plugin_mi_classif_fast` / :func:`plugin_mi_classif_batch_fast`
     which split the argsort (numpy) from the histogram math (njit).
     """
     n = x.shape[0]
-    sort_idx = np.argsort(x)
+    sort_idx = np.argsort(x, kind="stable")
     out = np.empty(n, dtype=np.int32)
     base = n // n_bins
     rem = n % n_bins

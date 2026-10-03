@@ -228,6 +228,9 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
 
         try:
             atomic_write_bytes(metadata_file, _writer)
+            from mlframe.utils.safe_pickle import write_sidecar as _write_sidecar
+
+            _write_sidecar(metadata_file)
             if _verbose:
                 logger.info("Saved metadata to %s", metadata_file)
         except OSError as e:

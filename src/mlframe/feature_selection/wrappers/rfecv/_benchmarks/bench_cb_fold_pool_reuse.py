@@ -59,7 +59,7 @@ def main(n: int = 100_000, p: int = 30, its: int = 60) -> None:
         full.quantize()
         full.save_quantization_borders(full_path)
         remap = {old: new for new, old in enumerate(keep)}
-        with open(full_path) as src, open(sub_path, "w") as dst:
+        with open(full_path, encoding="utf-8") as src, open(sub_path, "w", encoding="utf-8") as dst:
             for line in src:
                 parts = line.rstrip("\n").split("\t")
                 if int(parts[0]) in remap:

@@ -65,7 +65,10 @@ def instantiate_recommended_estimator(recommendation: Optional[dict[str, Any]], 
         return None
     import importlib
 
-    mod = importlib.import_module(recommendation["module"])
+    module_name = str(recommendation["module"])
+    if module_name != "mlframe" and not module_name.startswith("mlframe."):
+        raise ValueError(f"instantiate_recommended_estimator: refusing to import {module_name!r}; recommendations must name an mlframe module")
+    mod = importlib.import_module(module_name)
     cls = getattr(mod, recommendation["estimator"])
     return cls(**kwargs)
 

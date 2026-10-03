@@ -14,7 +14,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def load_config(config_path):
     """Load the model/training YAML config used to reconstruct the InfoNet architecture at load time."""
-    with open(config_path, "r") as file:
+    with open(config_path, "r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
     return config
 

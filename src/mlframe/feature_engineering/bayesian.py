@@ -217,7 +217,7 @@ if _NUMBA_AVAILABLE:
             if np.isfinite(observations[t]):
                 innovation = observations[t] - mean_pred
                 innovation_var = var_pred + R
-                K = var_pred / (innovation_var + 1e-12)
+                K = var_pred / innovation_var if innovation_var > 0.0 else 0.0
                 mean = mean_pred + K * innovation
                 var = (1.0 - K) * var_pred
                 log_lik = -0.5 * (math.log(2.0 * math.pi * innovation_var) + (innovation * innovation) / innovation_var)
@@ -484,7 +484,7 @@ def _kf_single_segment(
         if np.isfinite(observations[t]):
             innovation = float(observations[t] - mean_pred)
             innovation_var = var_pred + R
-            K = var_pred / (innovation_var + 1e-12)
+            K = var_pred / innovation_var if innovation_var > 0.0 else 0.0
             mean = mean_pred + K * innovation
             var = (1.0 - K) * var_pred
             # log p(y_t | y_{1..t-1}) under N(mean_pred, innovation_var)
@@ -642,7 +642,7 @@ def kalman_smoother_posterior_1d(
             p_var[t] = var_pred
             if np.isfinite(seg_obs[t]):
                 inv = var_pred + R
-                K = var_pred / (inv + 1e-12)
+                K = var_pred / inv if inv > 0.0 else 0.0
                 mean = mean_pred + K * (seg_obs[t] - mean_pred)
                 var = (1.0 - K) * var_pred
             else:
@@ -655,7 +655,7 @@ def kalman_smoother_posterior_1d(
         s_var = f_var.copy()
         for t in range(T - 2, -1, -1):
             # smoother gain
-            G = f_var[t] / (p_var[t + 1] + 1e-12)
+            G = f_var[t] / p_var[t + 1] if p_var[t + 1] > 0.0 else 0.0
             s_mean[t] = f_mean[t] + G * (s_mean[t + 1] - p_mean[t + 1])
             s_var[t] = f_var[t] + G * G * (s_var[t + 1] - p_var[t + 1])
         out_mean[idx_seg] = s_mean

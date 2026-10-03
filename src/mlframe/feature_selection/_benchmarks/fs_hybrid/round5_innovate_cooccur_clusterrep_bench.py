@@ -149,7 +149,7 @@ def run():
               f"-> {'FLIP to '+sub[0]['new'] if flip else 'KEEP '+sub[0]['old']}", flush=True)
 
     os.makedirs(os.path.dirname(RESULTS), exist_ok=True)
-    with open(RESULTS, "w") as f:
+    with open(RESULTS, "w", encoding="utf-8") as f:
         json.dump(dict(rows=rows, decision=decision, n=n, seeds=SEEDS), f, indent=2, sort_keys=True)
     print(f"[written -> {RESULTS}]", flush=True)
     return decision

@@ -96,14 +96,14 @@ def compute_robustness_budget_features(
                 preds_stack[i] = model.predict_proba(Xq_perturbed)[:, 1].astype(np.float32)
             else:
                 preds_stack[i] = model.predict(Xq_perturbed).astype(np.float32)
-        pred_mean = preds_stack.mean(axis=0).astype(np.float32)
-        pred_std = preds_stack.std(axis=0).astype(np.float32) + 1e-9
+        pred_mean = preds_stack.mean(axis=0, dtype=np.float64).astype(np.float32)
+        pred_std = preds_stack.std(axis=0, dtype=np.float64).astype(np.float32) + 1e-9
         pred_range = (preds_stack.max(axis=0) - preds_stack.min(axis=0)).astype(np.float32)
         if is_binary:
             # Flip rate: fraction of perturbations where pred crosses 0.5 relative to original.
             orig_class = (pred_orig > 0.5).astype(np.float32)
             perturbed_class = (preds_stack > 0.5).astype(np.float32)
-            flip_rate = (perturbed_class != orig_class[None, :]).mean(axis=0).astype(np.float32)
+            flip_rate = (perturbed_class != orig_class[None, :]).mean(axis=0, dtype=np.float64).astype(np.float32)
         else:
             flip_rate = np.zeros(n_q, dtype=np.float32)
         return np.column_stack([pred_orig, pred_mean, pred_std, pred_range, flip_rate])

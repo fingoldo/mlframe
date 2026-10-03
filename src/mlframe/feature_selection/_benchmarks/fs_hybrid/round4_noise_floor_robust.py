@@ -18,13 +18,13 @@ OUT = "D:/Temp/rfecv_floor_robust.txt"
 
 
 def log(msg):
-    with open(OUT, "a") as fh:
+    with open(OUT, "a", encoding="utf-8") as fh:
         fh.write(msg + "\n")
     print(msg, flush=True)
 
 
 def main():
-    with open(OUT, "w"):
+    with open(OUT, "w", encoding="utf-8"):
         pass
     X, y, name = load_real()
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=0, stratify=y)

@@ -150,7 +150,7 @@ def main() -> None:
     pr.enable()
     time_one(n=10_000, n_cat=50)
     pr.disable()
-    with open(profile_path, "w") as f:
+    with open(profile_path, "w", encoding="utf-8") as f:
         stats = pstats.Stats(pr, stream=f).sort_stats("cumulative")
         stats.print_stats(40)  # top 40 by cumulative time
 
@@ -174,7 +174,7 @@ def main() -> None:
         ),
         "results": results,
     }
-    with open(json_path, "w") as f:
+    with open(json_path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
     print(f"\nJSON results -> {json_path}")
     print(f"cProfile dump -> {profile_path}")

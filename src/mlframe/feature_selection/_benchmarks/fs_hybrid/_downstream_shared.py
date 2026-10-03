@@ -93,7 +93,7 @@ def checkpoint_at(progress_path: str, msg: str) -> None:
     """Append a ``HH:MM:SS``-timestamped ``msg`` to ``progress_path`` and echo it to stdout: the
     checkpoint helper shared by the round4 fe_accept/fe_accept_frugal bench pair (both use the same
     ``D:/Temp/fe_accept_progress.txt`` path)."""
-    with open(progress_path, "a") as f:
+    with open(progress_path, "a", encoding="utf-8") as f:
         f.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
     print(f"  [ckpt] {msg}", flush=True)
 
@@ -101,7 +101,7 @@ def checkpoint_at(progress_path: str, msg: str) -> None:
 def checkpoint(msg: str) -> None:
     """Append ``msg`` to the shared fe_richops progress log and echo it to stdout -- the checkpoint
     helper duplicated across the fe_richops control/main bench pair."""
-    with open(r"D:/Temp/fe_ops_progress.txt", "a") as f:
+    with open(r"D:/Temp/fe_ops_progress.txt", "a", encoding="utf-8") as f:
         f.write(msg + "\n")
     print(msg, flush=True)
 
@@ -130,7 +130,7 @@ def make_ckpt_writer(path):
     """Build a ``ck(m)`` checkpoint-line appender: each call opens ``path`` in append mode and writes one line."""
 
     def ck(m):
-        with open(path, "a") as f:
+        with open(path, "a", encoding="utf-8") as f:
             f.write(m + "\n")
 
     return ck

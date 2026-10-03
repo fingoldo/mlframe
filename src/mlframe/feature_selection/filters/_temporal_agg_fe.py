@@ -51,6 +51,8 @@ import numba
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_engineering._welford_njit import welford_push, welford_std
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -198,7 +200,8 @@ def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups
     out = np.full(n, np.nan, dtype=np.float64)
     n_seen = np.zeros(n_groups, dtype=np.int64)
     run_sum = np.zeros(n_groups, dtype=np.float64)
-    run_sumsq = np.zeros(n_groups, dtype=np.float64)
+    run_mean = np.zeros(n_groups, dtype=np.float64)
+    run_m2 = np.zeros(n_groups, dtype=np.float64)
     run_min = np.full(n_groups, np.inf, dtype=np.float64)
     run_max = np.full(n_groups, -np.inf, dtype=np.float64)
     for i in range(n):
@@ -210,12 +213,7 @@ def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups
             elif stat_code == 1:
                 out[i] = run_sum[g] / cnt
             elif stat_code == 2:
-                if cnt > 1:
-                    mean = run_sum[g] / cnt
-                    var = (run_sumsq[g] - cnt * mean * mean) / (cnt - 1)
-                    out[i] = np.sqrt(var) if var > 0.0 else 0.0
-                else:
-                    out[i] = 0.0
+                out[i] = welford_std(run_m2[g], cnt, 1)
             elif stat_code == 3:
                 out[i] = run_min[g]
             elif stat_code == 4:
@@ -224,7 +222,7 @@ def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups
         if np.isfinite(v):
             n_seen[g] = cnt + 1
             run_sum[g] += v
-            run_sumsq[g] += v * v
+            run_mean[g], run_m2[g] = welford_push(cnt, run_mean[g], run_m2[g], v)
             if v < run_min[g]:
                 run_min[g] = v
             if v > run_max[g]:

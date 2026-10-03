@@ -49,7 +49,7 @@ N_JOBS = 4  # cap -- machine under concurrent load
 
 
 def ckpt(msg: str):
-    with open(PROGRESS, "a") as f:
+    with open(PROGRESS, "a", encoding="utf-8") as f:
         f.write(msg.rstrip() + "\n")
     print("CKPT " + msg, flush=True)
 

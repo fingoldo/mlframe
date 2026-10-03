@@ -245,7 +245,7 @@ def main():
             )
         print()
 
-    with open(out_csv, "w", newline="") as f:
+    with open(out_csv, "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)

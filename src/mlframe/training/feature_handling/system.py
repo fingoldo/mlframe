@@ -52,7 +52,7 @@ def _read_cgroup_memory_limit_bytes() -> Optional[int]:
     # cgroup v2
     if os.path.exists(_CGROUP_V2_MAX):
         try:
-            with open(_CGROUP_V2_MAX) as f:
+            with open(_CGROUP_V2_MAX, encoding="utf-8") as f:
                 value = f.read().strip()
             if value == "max":
                 return None
@@ -62,7 +62,7 @@ def _read_cgroup_memory_limit_bytes() -> Optional[int]:
     # cgroup v1
     if os.path.exists(_CGROUP_V1_LIMIT):
         try:
-            with open(_CGROUP_V1_LIMIT) as f:
+            with open(_CGROUP_V1_LIMIT, encoding="utf-8") as f:
                 limit = int(f.read().strip())
             if limit >= _CGROUP_V1_UNLIMITED_SENTINEL:
                 return None

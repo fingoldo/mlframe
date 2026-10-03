@@ -106,7 +106,7 @@ def main() -> None:
     _dir = os.path.join(os.path.dirname(__file__), "_results")
     os.makedirs(_dir, exist_ok=True)
     _path = os.path.join(_dir, "bench_oof_cache_reuse.json")
-    with open(_path, "w") as f:
+    with open(_path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2, sort_keys=True)
     print(f"wrote {_path}")
 

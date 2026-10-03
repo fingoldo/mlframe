@@ -144,7 +144,7 @@ def _flush(results, decision=None):
     if decision is not None:
         payload["decision"] = decision
         payload["summary"] = {str(k): v for k, v in summarise(results)[0].items()}
-    with open(_results_path(), "w") as fh:
+    with open(_results_path(), "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2, sort_keys=True)
 
 

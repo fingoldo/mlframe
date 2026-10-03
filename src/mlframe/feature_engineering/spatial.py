@@ -41,6 +41,8 @@ from typing import Iterable, Optional, Sequence
 
 import numpy as np
 
+from ._safe_ratio import safe_div
+
 logger = logging.getLogger(__name__)
 
 
@@ -283,7 +285,7 @@ def knn_aggregate(
                 if distance_weighted:
                     w = 1.0 / (compact_dist + weight_eps)
                     w = np.where(np.isfinite(labels_arr), w, 0.0)
-                    out_aggs[name] = (np.where(np.isfinite(labels_arr), labels_arr, 0.0) * w).sum(axis=1) / (w.sum(axis=1) + 1e-12)
+                    out_aggs[name] = safe_div((np.where(np.isfinite(labels_arr), labels_arr, 0.0) * w).sum(axis=1), w.sum(axis=1))
                 else:
                     out_aggs[name] = np.nanmean(labels_arr, axis=1)
             elif name == "std":
@@ -310,7 +312,7 @@ def knn_aggregate(
         out_aggs = _resolve_aggs(labels_arr, agg_fns)
         if distance_weighted and "mean" in agg_fns:
             w = 1.0 / (compact_dist + weight_eps)
-            out_aggs["mean"] = (labels_arr * w).sum(axis=1) / (w.sum(axis=1) + 1e-12)
+            out_aggs["mean"] = safe_div((labels_arr * w).sum(axis=1), w.sum(axis=1))
         out_aggs["_nearest_distance"] = compact_dist[:, 0]
 
     # Fill non-finite-query rows with NaN.

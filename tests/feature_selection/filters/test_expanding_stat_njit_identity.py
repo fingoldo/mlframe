@@ -1,4 +1,4 @@
-"""_expanding_stat_past_only njit kernel is bit-identical to the reference per-entity dict loop (incl NaN)."""
+"""_expanding_stat_past_only njit kernel matches the reference per-entity dict loop (incl NaN); std is compared to a centred two-pass reference at 1e-11."""
 
 import numpy as np
 from mlframe.feature_selection.filters._temporal_agg_fe import _expanding_stat_past_only
@@ -10,7 +10,7 @@ def _ref(sorted_vals, group_codes, stat):
     out = np.full(n, np.nan)
     ns = {}
     rs = {}
-    rss = {}
+    hist = {}
     rmn = {}
     rmx = {}
     for i in range(n):
@@ -23,9 +23,7 @@ def _ref(sorted_vals, group_codes, stat):
                 out[i] = rs[g] / cnt
             elif stat == "std":
                 if cnt > 1:
-                    m = rs[g] / cnt
-                    var = (rss[g] - cnt * m * m) / (cnt - 1)
-                    out[i] = float(np.sqrt(var)) if var > 0 else 0.0
+                    out[i] = float(np.std(hist[g], ddof=1))
                 else:
                     out[i] = 0.0
             elif stat == "min":
@@ -36,7 +34,7 @@ def _ref(sorted_vals, group_codes, stat):
         if np.isfinite(v):
             ns[g] = cnt + 1
             rs[g] = rs.get(g, 0.0) + v
-            rss[g] = rss.get(g, 0.0) + v * v
+            hist.setdefault(g, []).append(v)
             rmn[g] = v if g not in rmn else min(rmn[g], v)
             rmx[g] = v if g not in rmx else max(rmx[g], v)
         else:
@@ -51,10 +49,11 @@ def test_all_stats_bit_identical_incl_nan():
     gc = np.sort(rng.integers(0, 150, n))
     sv = rng.standard_normal(n)
     sv[::17] = np.nan
-    for stat in ("count", "mean", "std", "min", "max"):
+    for stat in ("count", "mean", "min", "max"):
         got = _expanding_stat_past_only(sv, gc, stat)
-        ref = _ref(sv, gc, stat)
-        assert np.array_equal(got, ref, equal_nan=True), stat
+        assert np.array_equal(got, _ref(sv, gc, stat), equal_nan=True), stat
+    got_std = _expanding_stat_past_only(sv, gc, "std")
+    assert np.allclose(got_std, _ref(sv, gc, "std"), rtol=1e-11, atol=0.0, equal_nan=True)
 
 
 def test_empty_and_single_entity():

@@ -50,8 +50,8 @@ def _fisher_lda(X_pos: np.ndarray, X_neg: np.ndarray) -> Tuple[np.ndarray, float
     """
     from sklearn.covariance import LedoitWolf
     d = X_pos.shape[1]
-    mu_pos = X_pos.mean(axis=0).astype(np.float32)
-    mu_neg = X_neg.mean(axis=0).astype(np.float32)
+    mu_pos = X_pos.mean(axis=0, dtype=np.float64).astype(np.float32)
+    mu_neg = X_neg.mean(axis=0, dtype=np.float64).astype(np.float32)
     diff = (mu_pos - mu_neg).astype(np.float32)
     # Pool within-class covariance via Ledoit-Wolf on combined within-class scatter.
     Xp_c = X_pos - mu_pos

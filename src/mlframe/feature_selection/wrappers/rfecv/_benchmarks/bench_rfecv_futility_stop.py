@@ -124,7 +124,7 @@ def load_units(paths: str) -> list:
     """Units from comma-separated ``.json`` (list) and ``.jsonl`` (one unit per line) result files."""
     units: list = []
     for f in paths.split(","):
-        txt = Path(f).read_text()
+        txt = Path(f).read_text(encoding="utf-8")
         units += [json.loads(ln) for ln in txt.splitlines() if ln.strip()] if f.endswith(".jsonl") else json.loads(txt)
     return units
 

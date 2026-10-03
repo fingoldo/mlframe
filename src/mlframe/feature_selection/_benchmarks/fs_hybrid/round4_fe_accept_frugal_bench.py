@@ -256,7 +256,7 @@ def run_light(seeds):
 
 
 def main():
-    with open(PROGRESS, "w"):
+    with open(PROGRESS, "w", encoding="utf-8"):
         pass
     checkpoint("START fe_accept FRUGAL bench")
     seeds = (0, 1)
@@ -300,7 +300,7 @@ def main():
     out.append(final_df.to_string(index=False))
     out.append("```")
     out.append(verdict(final_df))
-    with open("D:/Temp/fe_accept_results.md", "w") as f:
+    with open("D:/Temp/fe_accept_results.md", "w", encoding="utf-8") as f:
         f.write("\n".join(out))
     checkpoint("DONE all beds; results written")
 

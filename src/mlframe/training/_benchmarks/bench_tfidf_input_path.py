@@ -61,7 +61,7 @@ def main() -> dict:
         }
     out_dir = os.path.join(os.path.dirname(__file__), "_results")
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "tfidf_input_path.json"), "w") as f:
+    with open(os.path.join(out_dir, "tfidf_input_path.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, sort_keys=True)
     print(json.dumps(results, indent=2, sort_keys=True))
     return results

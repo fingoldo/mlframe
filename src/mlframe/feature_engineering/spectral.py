@@ -32,6 +32,7 @@ from typing import Tuple
 
 import numpy as np
 
+from ._safe_ratio import safe_div
 from .grouped import per_group_sliding_window
 
 
@@ -270,9 +271,9 @@ def rolling_spectral_centroid(
         spec, _ = _spec_pow(seg_f, window_K, detrend)
         n_freq = spec.shape[1]
         k = np.arange(n_freq, dtype=np.float64)
-        denom = spec.sum(axis=1) + 1e-12
+        denom = spec.sum(axis=1)
         # spec @ k == (spec * k[None, :]).sum(axis=1) but via BLAS gemv (no (rows, n_freq) temporary): 5-30x faster on the reduction, ~1e-16 reduction-order delta.
-        out[write_idx] = (spec @ k) / denom
+        out[write_idx] = safe_div(spec @ k, denom)
     return out
 
 
@@ -299,10 +300,11 @@ def rolling_spectral_bandwidth(
         spec, _ = _spec_pow(seg_f, window_K, detrend)
         n_freq = spec.shape[1]
         k = np.arange(n_freq, dtype=np.float64)
-        denom = spec.sum(axis=1) + 1e-12
-        centroid = (spec @ k) / denom  # BLAS gemv; see rolling_spectral_centroid for the equivalence note.
+        denom = spec.sum(axis=1)
+        centroid = safe_div(spec @ k, denom)  # BLAS gemv; see rolling_spectral_centroid for the equivalence note.
         # variance about centroid
-        var = (spec * (k[None, :] - centroid[:, None]) ** 2).sum(axis=1) / denom
+        var = (spec * (k[None, :] - centroid[:, None]) ** 2).sum(axis=1)
+        var = safe_div(var, denom)
         out[write_idx] = np.sqrt(np.clip(var, 0.0, None))
     return out
 
@@ -418,8 +420,8 @@ def rolling_spectral_flux(
         diff = mag[1:] - mag[:-1]
         flux = (diff**2).sum(axis=1)
         if normalize:
-            tot = mag[1:].sum(axis=1) + mag[:-1].sum(axis=1) + 1e-12
-            flux = flux / tot
+            tot = mag[1:].sum(axis=1) + mag[:-1].sum(axis=1)
+            flux = safe_div(flux, tot)
         # write_idx points to the LAST-position anchor for each window.
         # First sliding-window row is at write_idx[0]; flux is undefined
         # there (no previous window). Map flux to write_idx[1:].
@@ -460,6 +462,6 @@ def rolling_periodicity_score(
         start = 1 if exclude_lag_zero else 0
         acf_lags = acf[:, start : half + 1]
         peak = np.abs(acf_lags).max(axis=1)
-        mean_abs = np.abs(acf_lags).mean(axis=1) + 1e-12
-        out[write_idx] = peak / mean_abs
+        mean_abs = np.abs(acf_lags).mean(axis=1)
+        out[write_idx] = safe_div(peak, mean_abs)
     return out

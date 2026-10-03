@@ -89,7 +89,7 @@ def main(argv: List[str] | None = None) -> int:
         fut = ex.submit(_process_render_loop, a.specs, os.path.join(out, "p"), stop_path)
         time.sleep(3.0)
         res["process"].append(_workload(a.iters))
-        open(stop_path, "w").close()
+        open(stop_path, "w", encoding="utf-8").close()
         fut.result()
         print(f"round {r}: " + ", ".join(f"{k}={v[-1][0]:.2f}s(cpu {v[-1][1]:.2f})" for k, v in res.items()), flush=True)
     base = float(np.median([w for w, _ in res["alone"]]))

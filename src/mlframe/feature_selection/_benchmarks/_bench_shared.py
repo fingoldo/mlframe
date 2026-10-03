@@ -50,7 +50,7 @@ def write_worker_source(worker_path: str, source: str) -> None:
     """Write ``source`` to ``worker_path``: the subprocess-worker-script materialization step shared
     by the iter100/iter101 stratified-anchors benches (each closes over its own module-level source
     string and calls this with it)."""
-    with open(worker_path, "w") as f:
+    with open(worker_path, "w", encoding="utf-8") as f:
         f.write(source)
 
 

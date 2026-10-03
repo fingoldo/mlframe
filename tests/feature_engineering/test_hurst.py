@@ -244,12 +244,12 @@ def test_dfa_arange_hoist_bit_identical_to_prehoist(seed):
     """Dfa arange hoist bit identical to prehoist."""
     rng = np.random.default_rng(seed)
     x = np.cumsum(rng.standard_normal(2000)).astype(np.float64)
-    # Linear-detrend hoist is exactly bit-identical.
-    assert _new_dfa_alpha(x) == _ref_dfa_alpha(x)
+    # The reference keeps the old additive 1e-12 pads, which shift the exponent by ~1e-12 relative.
+    assert _new_dfa_alpha(x) == pytest.approx(_ref_dfa_alpha(x), rel=1e-9)
     # Quadratic-detrend hoist computes the same design moments but, under fastmath=True, the
     # once-vs-per-segment accumulation schedule may reorder FMA/reassoc by a single ULP -- a
     # reduction-order delta (~1e-15), far below anything that could move a feature decision.
-    assert _new_dfa_alpha2(x) == pytest.approx(_ref_dfa_alpha2(x), rel=1e-12, abs=1e-12)
+    assert _new_dfa_alpha2(x) == pytest.approx(_ref_dfa_alpha2(x), rel=1e-9, abs=1e-12)
 
 
 @pytest.mark.parametrize("n", [19, 20, 30, 49, 50, 60])

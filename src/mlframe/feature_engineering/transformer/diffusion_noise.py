@@ -108,7 +108,7 @@ def compute_diffusion_noise_features(
             block = np.concatenate([np.full((Xq_s.shape[0], n_k), 1e6), np.zeros((Xq_s.shape[0], n_k))], axis=1)
             return np.tile(block, (1, len(noise_scales))).astype(np.float32)
         # Learn per-feature std from positives.
-        sigma_per_feature = Xt_pos.std(axis=0).astype(np.float32) + 1e-6
+        sigma_per_feature = Xt_pos.std(axis=0, dtype=np.float64).astype(np.float32) + 1e-6
         neg_d = kth_nearest_dists(Xt_neg, Xq_s, max(_K_SCALES), _K_SCALES)
         # For each noise scale, generate virtuals and compute distances.
         all_feats = []

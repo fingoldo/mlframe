@@ -155,6 +155,13 @@ def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
     return global_value_for_stat(stat, x, "composite_group_agg")
 
 
+def _ratio_denominator(per_row_mean: np.ndarray, global_mean: float, global_std: float) -> np.ndarray:
+    """Per-row group mean with near-zero cells set to NaN; "near zero" is 1e-12 of the column scale, capped at the absolute 1e-12 for scale >= 1."""
+    scale = max(abs(global_mean), global_std if global_std > 0.0 else 1.0)
+    tiny = 1e-12 * min(1.0, scale)
+    return np.where(np.abs(per_row_mean) > tiny, per_row_mean, np.nan)
+
+
 def _agg_func_for_stat(stat: str) -> str:
     """Pandas groupby-agg name for ``stat``; this module's set includes ``count``."""
     from ._agg_stat_helpers import agg_func_for_stat
@@ -373,7 +380,7 @@ def generate_composite_group_agg_features(
             }
 
             # ---- ratio-to-composite-group residual ----
-            denom = np.where(np.abs(per_row_mean) > 1e-12, per_row_mean, np.nan)
+            denom = _ratio_denominator(per_row_mean, global_mean, global_std)
             ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0)
             r_name = engineered_name_composite_ratio(num_col, group_cols)
             encoded[r_name] = ratio
@@ -432,7 +439,7 @@ def apply_composite_group_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
             (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
         ))
     if op == "ratio":
-        denom = np.where(np.abs(per_row_mean) > 1e-12, per_row_mean, np.nan)
+        denom = _ratio_denominator(per_row_mean, global_mean, float(recipe.get("global_std", 1.0)))
         return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0))
     raise ValueError(f"apply_composite_group_agg: unknown op {op!r}")
 

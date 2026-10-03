@@ -136,14 +136,14 @@ def predictor_pairwise_abs_diffs(preds: np.ndarray) -> np.ndarray:
 
 
 def _bin_counts(arr: np.ndarray, n_bins: int) -> np.ndarray:
-    """Per-row equal-width histogram counts over ``[row_min - eps, row_max + eps]``.
+    """Per-row equal-width histogram counts over ``[row_min, row_max]`` (the max lands in the last bin).
 
     Shared by ``predictor_consensus_entropy`` and ``predictor_top2_mode_gap`` so the
     builder computes the (identical) binning + scatter exactly once instead of twice.
     """
-    lo = arr.min(axis=1, keepdims=True) - 1e-9
-    hi = arr.max(axis=1, keepdims=True) + 1e-9
-    span = (hi - lo) + 1e-12
+    lo = arr.min(axis=1, keepdims=True)
+    span = arr.max(axis=1, keepdims=True) - lo
+    span = np.where(span > 0.0, span, 1.0)
     binned = np.clip(
         ((arr - lo) / span * n_bins).astype(np.int32),
         0, n_bins - 1,

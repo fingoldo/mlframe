@@ -275,7 +275,8 @@ neural = [
     # pyarrow / mlflow advisories below this one closes on every interpreter this project supports.
     "torch>=2.6",
     # 2.4 is the floor for pytorch-lightning's path traversal (CVE-2024-8019), which ``lightning`` pulls in; also 3.9-compatible.
-    "lightning>=2.4",
+    "lightning>=2.6.6; python_version >= '3.10'",  # PYSEC-2026-3624; 2.6.6 requires Python >=3.10
+    "lightning>=2.4; python_version < '3.10'",
     "captum>=0.7",
     # Not imported directly; floors torch's own transitive setuptools resolution above the
     # patched version for PYSEC-2025-49 (torch itself caps setuptools<82).
@@ -618,6 +619,7 @@ markers = [
     "linux_only: skip on non-Linux",
     "fast: fast subset (select with '-m fast'). Every new ML feature ships with a representative subset marked @pytest.mark.fast so the full code path runs in <15s total.",
     "slow_only: only runs when --slow flag is passed",
+    "network: downloads a dataset from the internet; the test skips when the host is offline",
     "perf: a timing-race test, opted out of the single-shot timing gate (run it deliberately; it is contention-sensitive)",
     "no_xdist: cannot run under pytest-xdist parallelism",
     "requires_xgb: requires xgboost",

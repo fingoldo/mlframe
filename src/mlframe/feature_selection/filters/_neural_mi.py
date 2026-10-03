@@ -403,6 +403,10 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
 
 
 _MIST_MODEL_CACHE: dict = {}  # loss -> MISTForHF (one-time download + load)
+MIST_PINNED_REVISIONS: dict[str, str] = {
+    "grgera/MIST": "d43fb91bae217f61642a509e51f44abf5cf7793c",  # pragma: allowlist secret
+    "grgera/MIST-QR": "0b7168e1746d3511058420fbdd5aab3943edb9fe",  # pragma: allowlist secret
+}
 
 
 def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
@@ -427,7 +431,7 @@ def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
         except ImportError as exc:
             raise ImportError("MIST not installed. `pip install mist-statinf`.") from exc
         repo = "grgera/MIST-QR" if loss == "qr" else "grgera/MIST"
-        model = MISTForHF.from_pretrained(repo).eval()
+        model = MISTForHF.from_pretrained(repo, revision=MIST_PINNED_REVISIONS[repo]).eval()
         dev = _resolve_device(device)
         model = model.to(dev)
         _MIST_MODEL_CACHE[cache_key] = model

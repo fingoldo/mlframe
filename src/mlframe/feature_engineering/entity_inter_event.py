@@ -40,6 +40,7 @@ except ImportError:  # pragma: no cover - numba is a core mlframe dependency; ex
 
 if _NUMBA_AVAILABLE:
     from mlframe.core.shared import median_sorted as _median_sorted_njit
+    from mlframe.feature_engineering._welford_njit import welford_push, welford_std
 
     @numba.njit(cache=True)
     def _group_mean_std_median_njit(values_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray) -> tuple:
@@ -80,7 +81,8 @@ if _NUMBA_AVAILABLE:
             buf = np.empty(hi - lo, dtype=np.float64)
             count = 0
             total = 0.0
-            total_sq = 0.0
+            mean_w = 0.0
+            m2 = 0.0
             for i in range(lo, hi):
                 v = values_sorted[i]
                 if np.isfinite(v):
@@ -90,18 +92,14 @@ if _NUMBA_AVAILABLE:
                         buf[pos] = buf[pos - 1]
                         pos -= 1
                     buf[pos] = v
+                    mean_w, m2 = welford_push(count, mean_w, m2, v)
                     count += 1
                     total += v
-                    total_sq += v * v
                 if count == 0:
                     continue
                 mean = total / count
                 means[i] = mean
-                if count > 1:
-                    var = total_sq / count - mean * mean
-                    stds[i] = np.sqrt(var) if var > 0.0 else 0.0
-                else:
-                    stds[i] = 0.0
+                stds[i] = welford_std(m2, count, 0) if count > 1 else 0.0
                 medians[i] = _median_sorted_njit(buf[:count])
         return means, stds, medians
 

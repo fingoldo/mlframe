@@ -28,6 +28,13 @@ from numba import njit, prange
 
 _FASTMATH = False
 _ZERO_EPS = 1e-12
+_LOG_FLOOR = 1e-300
+
+
+@njit(cache=True)
+def _log_floor(v: float) -> float:  # pragma: no cover
+    """Natural log with a tiny absolute floor so an exactly-zero fluctuation does not give -inf; scale-independent for any real signal."""
+    return float(np.log(v if v > _LOG_FLOOR else _LOG_FLOOR))
 
 
 @njit(fastmath=_FASTMATH, cache=True)
@@ -252,7 +259,7 @@ def dfa_alpha(x: np.ndarray) -> float:
             for i in range(s):
                 num += (t[i] - tm) * (seg[i] - sm)
                 den += (t[i] - tm) ** 2
-            slope = num / (den + 1e-12)
+            slope = num / den if den > 0.0 else 0.0
             intercept = sm - slope * tm
             resid_sq = 0.0
             for i in range(s):
@@ -261,7 +268,7 @@ def dfa_alpha(x: np.ndarray) -> float:
             var_sum += resid_sq / s
         f_s = np.sqrt(var_sum / m)
         log_s[k] = np.log(s)
-        log_f[k] = np.log(f_s + 1e-12)
+        log_f[k] = _log_floor(f_s)
     lm = log_s.mean()
     fm = log_f.mean()
     num = 0.0
@@ -269,7 +276,7 @@ def dfa_alpha(x: np.ndarray) -> float:
     for k in range(log_s.size):
         num += (log_s[k] - lm) * (log_f[k] - fm)
         den += (log_s[k] - lm) ** 2
-    return num / (den + 1e-12)
+    return num / den if den > 0.0 else 0.0
 
 
 @njit(cache=True, fastmath=True, parallel=True)
@@ -305,7 +312,7 @@ def higuchi_fd(x: np.ndarray, kmax: int = 8) -> float:
             norm = (n - 1) / (i_max * k * k)
             Lk_avg += L * norm
         Lk[k - 1] = Lk_avg / k
-    log_lk = np.log(Lk + 1e-12)
+    log_lk = np.log(np.maximum(Lk, _LOG_FLOOR))
     log_kk = np.log(1.0 / np.arange(1, kmax + 1).astype(np.float64))
     lm = log_kk.mean()
     fm = log_lk.mean()
@@ -314,7 +321,7 @@ def higuchi_fd(x: np.ndarray, kmax: int = 8) -> float:
     for k in range(kmax):
         num += (log_kk[k] - lm) * (log_lk[k] - fm)
         den += (log_kk[k] - lm) ** 2
-    return num / (den + 1e-12)
+    return num / den if den > 0.0 else 0.0
 
 
 @njit(cache=True, fastmath=True, parallel=True)
@@ -551,7 +558,7 @@ def dfa_alpha2_quadratic(x: np.ndarray) -> float:
             var_sum += resid_sq / s
         f_s = np.sqrt(var_sum / m)
         log_s[k] = np.log(s)
-        log_f[k] = np.log(f_s + 1e-12)
+        log_f[k] = _log_floor(f_s)
     lm = log_s.mean()
     fm = log_f.mean()
     num = 0.0
@@ -559,7 +566,7 @@ def dfa_alpha2_quadratic(x: np.ndarray) -> float:
     for k in range(log_s.size):
         num += (log_s[k] - lm) * (log_f[k] - fm)
         den += (log_s[k] - lm) ** 2
-    return num / (den + 1e-12)
+    return num / den if den > 0.0 else 0.0
 
 
 @njit(cache=True, fastmath=True)
@@ -619,7 +626,7 @@ def multifractal_dfa(
             for i in range(s):
                 num += (t[i] - tm) * (seg[i] - sm)
                 den += (t[i] - tm) ** 2
-            slope = num / (den + 1e-12)
+            slope = num / den if den > 0.0 else 0.0
             intercept = sm - slope * tm
             resid_sq = 0.0
             for i in range(s):
@@ -639,7 +646,7 @@ def multifractal_dfa(
                 else:
                     powered += v ** (q * 0.5)
             mean_pow = powered / m
-            F_qs[kq, ks] = (mean_pow + 1e-12) ** (1.0 / q)
+            F_qs[kq, ks] = max(mean_pow, _LOG_FLOOR) ** (1.0 / q)
     # Fit H(q) = slope of log F_q(s) vs log s.
     for kq in range(q_values.size):
         row = F_qs[kq]

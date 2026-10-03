@@ -12,7 +12,6 @@ from os.path import exists, join
 from scipy import stats
 from typing import Any, Optional, cast
 
-import joblib
 import numpy as np
 import pandas as pd
 import polars as pl
@@ -83,24 +82,9 @@ def _load_suite_metadata(models_path: str, trusted_root: str | None, verbose: in
         logger.info("Loading metadata from %s...", metadata_file)
     _root = trusted_root if trusted_root is not None else os.path.abspath(models_path)
     _validate_trusted_path(metadata_file, _root)
-    if loader_kind == "pkl.zst":
-        # ``pickle.loads`` on a zstd-decompressed in-memory buffer; the file path was
-        # ``_validate_trusted_path``-checked above. We additionally verify the sha256 sidecar so a
-        # tampered .pkl.zst is rejected before the loads(); legacy bundles without sidecar still
-        # load through the trusted-path + version-envelope gates.
-        from mlframe.utils.safe_pickle import verify_sidecar as _vsidecar
-        import pickle as _pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-        import zstandard as _zstd
-        if not _vsidecar(metadata_file, allow_unverified=True):
-            raise RuntimeError(f"predict_mlframe_models_suite: sha256 sidecar mismatch on {metadata_file!r}; refusing to load.")
-        _dctx = _zstd.ZstdDecompressor()
-        with open(metadata_file, "rb") as _f:
-            metadata = _pickle.loads(_dctx.decompress(_f.read()))  # nosec B301 - BARE_PICKLE_OK: in-memory buffer, sidecar already verified above
-    elif loader_kind == "pkl":
-        from mlframe.utils.safe_pickle import safe_load as _sload
-        metadata = _sload(metadata_file, allow_unverified=True)
-    else:
-        metadata = joblib.load(metadata_file)
+    from ._metadata_loader import load_metadata_file
+
+    metadata = load_metadata_file(metadata_file, loader_kind, "predict_mlframe_models_suite")
     # validate the schema_version + composite_target_env_signature
     # fields that the WRITE side has populated since 2026-02 (see
     # _phase_config_setup.py:312 + _phase_helpers.py:253). The READ side never

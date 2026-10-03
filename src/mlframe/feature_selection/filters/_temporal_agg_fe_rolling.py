@@ -17,6 +17,8 @@ import numba
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_engineering._welford_njit import welford_push, welford_std
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -52,7 +54,8 @@ def _rolling_stat_past_only_njit(times, vals, group_codes, td, stat_code, n_grou
         lo = t - td
         cnt = 0
         s = 0.0
-        ss = 0.0
+        mean_w = 0.0
+        m2 = 0.0
         mn = np.inf
         mx = -np.inf
         j = last[g]
@@ -62,7 +65,7 @@ def _rolling_stat_past_only_njit(times, vals, group_codes, td, stat_code, n_grou
                 if np.isfinite(v):
                     cnt += 1
                     s += v
-                    ss += v * v
+                    mean_w, m2 = welford_push(cnt - 1, mean_w, m2, v)
                     if v < mn:
                         mn = v
                     if v > mx:
@@ -74,12 +77,7 @@ def _rolling_stat_past_only_njit(times, vals, group_codes, td, stat_code, n_grou
             elif stat_code == 1:
                 out[i] = s / cnt
             elif stat_code == 2:
-                if cnt > 1:
-                    mean = s / cnt
-                    var = (ss - cnt * mean * mean) / (cnt - 1)
-                    out[i] = np.sqrt(var) if var > 0.0 else 0.0
-                else:
-                    out[i] = 0.0
+                out[i] = welford_std(m2, cnt, 1)
             elif stat_code == 3:
                 out[i] = mn
             elif stat_code == 4:

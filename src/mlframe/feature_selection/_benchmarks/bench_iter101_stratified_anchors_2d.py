@@ -123,7 +123,7 @@ def run_cell(worker_path, width, n_rows, stratified, out_root):
                         stratified=bool(stratified), error=f"rc={proc.returncode}",
                         elapsed_outer=elapsed, stderr_tail=(proc.stderr or "")[-1000:])
         if os.path.exists(fit_out):
-            with open(fit_out) as f:
+            with open(fit_out, encoding="utf-8") as f:
                 r = json.load(f)
             r["elapsed_outer"] = elapsed
             print(f"[iter101][{label}] OK total={r['total_s']:.1f}s sp={r['spearman']:.4f} "
@@ -142,7 +142,7 @@ def _maybe_reuse_iter100(width, n_rows, stratified, out_root):
     cached = os.path.join(out_root, f"iter100_cell_{width}_dense_{int(stratified)}.json")
     if not os.path.exists(cached):
         return None
-    with open(cached) as f:
+    with open(cached, encoding="utf-8") as f:
         r = json.load(f)
     r["reused_from"] = "iter100"
     print(f"[iter101][w={width} n_rows={n_rows} stratified={stratified}] REUSED iter100 "
@@ -161,7 +161,7 @@ def main():
         for n_rows in N_ROWS_GRID:
             for strat in MODES:
                 # Heartbeat ping per cell so the harness can see liveness.
-                with open(os.path.join(out_root, "HEARTBEAT_iter101.txt"), "w") as hb:
+                with open(os.path.join(out_root, "HEARTBEAT_iter101.txt"), "w", encoding="utf-8") as hb:
                     hb.write(f"iter101 cell w={w} n={n_rows} strat={strat} t={int(time.time())}\n")
                 cached = _maybe_reuse_iter100(w, n_rows, strat, out_root)
                 if cached is not None:
@@ -169,7 +169,7 @@ def main():
                 else:
                     r = run_cell(worker_path, w, n_rows, strat, out_root)
                     results.append(r)
-                with open(os.path.join(out_root, "iter101_2d_contour.json"), "w") as f:
+                with open(os.path.join(out_root, "iter101_2d_contour.json"), "w", encoding="utf-8") as f:
                     json.dump(dict(
                         meta=dict(n_inf=N_INF, snr=SNR, seed=SEED, n_red=N_RED, rho=RHO,
                                   widths=list(WIDTHS), n_rows_grid=list(N_ROWS_GRID),

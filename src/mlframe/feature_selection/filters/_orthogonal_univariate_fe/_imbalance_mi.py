@@ -214,7 +214,7 @@ def _class_balanced_mi_batch_njit(
 
     for j in prange(k):
         col = X_cols[:, j]
-        sort_idx = np.argsort(col)
+        sort_idx = np.argsort(col, kind="mergesort")
         x_binned = np.empty(n, dtype=np.int64)
         base = n // n_bins
         rem = n % n_bins

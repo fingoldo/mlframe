@@ -56,6 +56,13 @@ jobs:
           echo "tag=$TAG package=$PKG"
           test "$TAG" = "$PKG" || { echo "::error::git tag ($TAG) != mlframe.__version__ ($PKG)"; exit 1; }
 
+      # The wheel declares `pyutilz>=1.0.0`, which only resolves from PyPI. Until pyutilz is published there, a plain
+      # `pip install mlframe` of the released wheel fails, so a release must not get as far as the upload.
+      - name: Assert the runtime dependency pyutilz is published on PyPI
+        if: github.event_name == 'release'
+        run: |
+          python -c "import urllib.request as u; r = u.urlopen('https://pypi.org/pypi/pyutilz/json', timeout=30); assert r.status == 200"  || { echo "::error::pyutilz is not on PyPI; the released wheel would be uninstallable"; exit 1; }
+
       - name: Build distributions
         run: uv build
 

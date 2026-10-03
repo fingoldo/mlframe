@@ -102,7 +102,7 @@ def compute_pure_pos_smote_features(
         Xt_pos, Xt_neg = class_or_quantile_slice(Xt_s, y_t, task, q_high)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
             return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES)), dtype=np.float32)
-        neg_centroid = Xt_neg.mean(axis=0).astype(np.float32)
+        neg_centroid = Xt_neg.mean(axis=0, dtype=np.float64).astype(np.float32)
         n_synthetic = max(50, int(Xt_pos.shape[0] * oversample))
         X_synth_pos = _pure_pos_smote_synthesize(Xt_pos, neg_centroid, n_synthetic=n_synthetic, k_neighbors=k_smote, seed=fold_seed)
         X_virtual_pos = np.concatenate([Xt_pos, X_synth_pos], axis=0)

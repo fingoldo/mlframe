@@ -127,8 +127,8 @@ def compute_decision_region_depth_features(
         min_d = flip_dists.min(axis=0).astype(np.float32)
         max_d = flip_dists.max(axis=0).astype(np.float32)
         median_d = np.median(flip_dists, axis=0).astype(np.float32)
-        mean_d = flip_dists.mean(axis=0).astype(np.float32)
-        std_d = flip_dists.std(axis=0).astype(np.float32) + 1e-9
+        mean_d = flip_dists.mean(axis=0, dtype=np.float64).astype(np.float32)
+        std_d = flip_dists.std(axis=0, dtype=np.float64).astype(np.float32) + 1e-9
         return np.column_stack([min_d, max_d, median_d, mean_d, std_d])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:

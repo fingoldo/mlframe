@@ -12,6 +12,6 @@ PROG = r"D:/Temp/synergy_scale_bench/progress.txt"
 def ck(msg: str) -> None:
     """Append a timestamped ``msg`` to the shared synergy-scale-bench progress log and echo it to stdout."""
     os.makedirs(os.path.dirname(PROG), exist_ok=True)
-    with open(PROG, "a") as f:
+    with open(PROG, "a", encoding="utf-8") as f:
         f.write(time.strftime("%Y-%m-%d %H:%M:%S") + " | " + msg + "\n")
     print(msg, flush=True)

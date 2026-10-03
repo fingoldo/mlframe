@@ -148,7 +148,7 @@ def _save_csv(rows, out_path: str) -> None:
     if not rows:
         return
     keys = list(rows[0].keys())
-    with open(out_path, "w", newline="") as f:
+    with open(out_path, "w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=keys)
         w.writeheader()
         w.writerows(rows)

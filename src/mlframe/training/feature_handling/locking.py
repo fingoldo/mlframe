@@ -197,7 +197,7 @@ class PIDAwareFileLock:
         try:
             target = self._meta_path()
             tmp = target + ".tmp"
-            with open(tmp, "w") as f:
+            with open(tmp, "w", encoding="utf-8") as f:
                 f.write(str(os.getpid()))
                 f.flush()
                 try:
@@ -217,7 +217,7 @@ class PIDAwareFileLock:
     def _read_holder_pid(self) -> Optional[int]:
         """Read the current lock holder's PID from the sidecar file; None if the file is missing, empty, or unreadable (treated as "liveness unknown", not an error)."""
         try:
-            with open(self._meta_path()) as f:
+            with open(self._meta_path(), encoding="utf-8") as f:
                 return int(f.read().strip())
         except (FileNotFoundError, ValueError):
             return None

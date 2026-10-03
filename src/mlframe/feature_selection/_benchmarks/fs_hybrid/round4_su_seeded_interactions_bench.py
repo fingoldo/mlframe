@@ -51,7 +51,7 @@ from _downstream_shared import entropy as _entropy
 
 CK = "D:/Temp/queue_ideas_progress.txt"
 def ck(msg):
-    with open(CK, "a") as f:
+    with open(CK, "a", encoding="utf-8") as f:
         f.write(msg + "\n")
 
 

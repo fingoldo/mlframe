@@ -110,7 +110,7 @@ def is_supported(estimator: Any, fit_params: dict) -> bool:
 
 def _write_subset_borders(fold: _FoldBorders, fit_features: list, path: str) -> None:
     """Write the fold's quantization borders for ``fit_features`` to ``path``, renumbering columns to the subset order."""
-    with open(path, "w") as fh:
+    with open(path, "w", encoding="utf-8") as fh:
         for new_idx, name in enumerate(fit_features):
             for row in fold.lines.get(name, ()):
                 fh.write(f"{new_idx}\t{row}\n")
@@ -123,7 +123,7 @@ def _harvest(pool: Any, fit_features: list, fold: _FoldBorders) -> None:
     try:
         pool.save_quantization_borders(path)
         new_lines: dict = {}
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             for raw in fh:
                 idx, rest = raw.rstrip("\n").split("\t", 1)
                 new_lines.setdefault(fit_features[int(idx)], []).append(rest)
