@@ -24,6 +24,8 @@ far is kept. See ``_cb_gpu_budget`` (and ``MLFRAME_CB_GPU_RUNAWAY_FACTOR`` / ``M
 """
 from __future__ import annotations
 
+from mlframe.utils.budgets import active_budget
+
 import logging
 import os
 import shutil
@@ -74,9 +76,9 @@ def _time_budget_from_callbacks(callbacks: Any) -> Optional[float]:
     """Time budget in seconds from the first stripped callback that carries ``time_budget_mins``, else ``None``."""
     for cb in callbacks or []:
         tb = getattr(cb, "time_budget_mins", None)
-        if tb:
+        if (tb_mins := active_budget(tb)) is not None:
             try:
-                return float(tb) * 60.0
+                return float(tb_mins) * 60.0
             except (TypeError, ValueError):
                 continue
     return None
@@ -98,7 +100,7 @@ def _log_notice_once(model_type_name: str, stripped: List[Any], es_summary: str,
         "stop, per-iteration metric capture (dropped here: %s). Native early stopping in effect: %s.%s A side-thread monitor "
         "(MLFRAME_CB_GPU_MONITOR_S, default %ds) reports progress / throughput collapse instead. [%s]",
         ", ".join(names), es_summary,
-        f" Configured time budget {budget_s / 60:.0f} min is only WARNED about (no safe native limit)." if budget_s is not None and budget_s > 0 else "",
+        f" Configured time budget {limit_s / 60:.0f} min is only WARNED about (no safe native limit)." if (limit_s := active_budget(budget_s)) is not None else "",
         int(DEFAULT_MONITOR_INTERVAL_S), model_type_name,
     )
 
@@ -155,7 +157,10 @@ def _fmt_s(s: Optional[float]) -> str:
 
 
 class CatBoostGpuFitMonitor:
-    """Side thread that watches a CatBoost fit through its ``train_dir`` progress file. Never raises into the fit."""
+    """Side thread that watches a CatBoost fit through its ``train_dir`` progress file. Never raises into the fit.
+
+    ``time_budget_s`` of 0 or None = no limit (``mlframe.utils.budgets``), as is a callback's ``time_budget_mins`` of 0.
+    """
 
     def __init__(
         self,
@@ -388,7 +393,7 @@ class CatBoostGpuFitMonitor:
 
     def _check_budget(self, elapsed: float, it: Optional[int], gpu_s: str) -> None:
         """Warn once when elapsed time passes the configured time budget, and ask ``on_limit`` to stop the fit (from the snapshot) on every poll past it."""
-        if self.time_budget_s and elapsed > self.time_budget_s:
+        if (limit_s := active_budget(self.time_budget_s)) is not None and elapsed > limit_s:
             if not self._budget_warned:
                 self._budget_warned = True
                 self._warn(
@@ -456,7 +461,7 @@ class CatBoostGpuFitGuard:
                 from ._cb_gpu_budget import enable_snapshots, runaway_factor_from_env
 
                 runaway = runaway_factor_from_env()
-                enforce = bool(budget_s or runaway > 0) and enable_snapshots(self)
+                enforce = (active_budget(budget_s) is not None or runaway > 0) and enable_snapshots(self)
                 params = self.est.get_params()
                 total = next((params[k] for k in ("iterations", "n_estimators", "num_boost_round") if params.get(k) is not None), None)
                 train_dir = params.get("train_dir")

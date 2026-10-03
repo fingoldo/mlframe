@@ -80,3 +80,44 @@ def test_shap_proxied_fs_stop_file_skips_revalidation(tmp_path):
     assert hasattr(s, "support_") and s.support_.any(), "must finalize with a valid proxy-best subset"
     # The expensive optional phase (honest revalidation) must have been skipped by the stop-flag.
     assert s.shap_proxy_report_.get("budget_skipped", {}).get("phase") == "revalidation", "stop_file must skip the honest-revalidation phase"
+
+
+def test_boruta_shap_zero_runtime_budget_means_no_limit():
+    """``max_runtime_mins=0`` behaves exactly like None (``mlframe.utils.budgets``): the same number of trials runs, so 0 never cuts the search short."""
+    lgb = pytest.importorskip("lightgbm")
+    from mlframe.feature_selection.boruta_shap import BorutaShap
+
+    X, y = _data()
+    runs = {}
+    for budget in (None, 0):
+        b = BorutaShap(model=lgb.LGBMClassifier(n_estimators=10, verbose=-1, random_state=0), importance_measure="permutation", n_trials=6, max_runtime_mins=budget, verbose=False, random_state=0)
+        b.fit(X, y)
+        runs[budget] = b.n_trials_run_
+    assert runs[0] == runs[None] and runs[0] > 1, runs
+
+
+class _RevalidationReached(Exception):
+    """Raised by the stubbed revalidation: the phase was entered, not skipped as over budget."""
+
+
+@pytest.mark.parametrize("budget", [None, 0])
+def test_shap_proxied_fs_zero_runtime_budget_means_no_limit(monkeypatch, budget):
+    """``max_runtime_mins=0`` behaves like None: honest revalidation is entered rather than skipped as over budget.
+
+    The revalidation itself is stubbed to raise on entry, so the test pins the budget decision without paying for the phase.
+    """
+    pytest.importorskip("shap")
+    lgb = pytest.importorskip("lightgbm")
+    from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
+    import mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate as revalidate
+
+    def _entered(*args, **kwargs):
+        """Stand-in for both revalidation variants."""
+        raise _RevalidationReached
+
+    monkeypatch.setattr(revalidate, "revalidate_top_n", _entered)
+    monkeypatch.setattr(revalidate, "active_learning_revalidate", _entered)
+    X, y = _data(n=200, p=6)
+    s = ShapProxiedFS(model=lgb.LGBMClassifier(n_estimators=5, verbose=-1, n_jobs=1), max_runtime_mins=budget, verbose=False, n_splits=2, top_n=3)
+    with pytest.raises(_RevalidationReached):
+        s.fit(X, y)

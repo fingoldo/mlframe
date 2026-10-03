@@ -4,6 +4,8 @@ Split from ``_fit_outer_loop`` so ``run_outer_loop_iteration`` keeps within its 
 """
 from __future__ import annotations
 
+from mlframe.utils.budgets import active_budget
+
 import logging
 from typing import Any
 
@@ -36,7 +38,7 @@ def runtime_budget_exhausted(state: Any, max_runtime_mins: Any, start_time: floa
     Sets ``state.stop_reason`` / ``state.ran_out_of_time`` when it returns True.
     """
     state.iter_durations.append(now - iter_t0)
-    if not max_runtime_mins or state.ran_out_of_time:
+    if active_budget(max_runtime_mins) is None or state.ran_out_of_time:
         return False
     budget_s = max_runtime_mins * 60
     elapsed_s = now - start_time

@@ -9,6 +9,8 @@ few module-scope names the two method bodies reference directly.
 
 from __future__ import annotations
 
+from mlframe.utils.budgets import active_budget
+
 import logging
 from typing import Any, Callable, Optional
 
@@ -181,7 +183,7 @@ class ShapProxiedFitMixin:
 
         def _budget_exhausted() -> bool:
             """True once the optional refinement wall-clock budget has elapsed or the caller-provided ``stop_file`` has appeared."""
-            if _budget_max_mins and (time.perf_counter() - _budget_t0) > _budget_max_mins * 60.0:
+            if (minutes := active_budget(_budget_max_mins)) is not None and (time.perf_counter() - _budget_t0) > minutes * 60.0:
                 return True
             return bool(_budget_stop_file) and _stop_file_exists(str(_budget_stop_file))
 
