@@ -26,7 +26,7 @@ import warnings
 import numpy as np
 import pytest
 
-from tests.conftest import running_under_xdist, is_fast_mode
+from tests.conftest import is_fast_mode, perf_speedup_floor
 from tests._perf_paired import assert_paired_speedup
 
 warnings.filterwarnings("ignore")
@@ -238,18 +238,18 @@ def test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k():
     # Warmup numba
     _ = _hermeval_njit(x, c)
 
-    N = 5000
-    t0 = time.perf_counter()
-    for _ in range(N):
-        hermeval(x, c)
-    t_numpy = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    for _ in range(N):
-        _hermeval_njit(x, c)
-    t_njit = time.perf_counter() - t0
+    N = 1000
+    t_numpy = t_njit = float("inf")
+    for _ in range(5):
+        t0 = time.perf_counter()
+        for _ in range(N):
+            hermeval(x, c)
+        t_numpy = min(t_numpy, time.perf_counter() - t0)
+        t0 = time.perf_counter()
+        for _ in range(N):
+            _hermeval_njit(x, c)
+        t_njit = min(t_njit, time.perf_counter() - t0)
     speedup = t_numpy / t_njit
-    if running_under_xdist():
-        pytest.skip("timing unreliable under -n contention")
     # Floor calibration: 3.0x on author's local machine (measured 3.7x
     # 2026-05-10). Shared CI runners produce different ratios due to
     # process contention with sibling jobs + cache pressure; macOS
@@ -260,7 +260,7 @@ def test_biz_njit_poly_eval_3x_faster_than_numpy_at_n2k():
     # the floor on shared CI to 2.0x so the sensor still trips on a
     # genuine regression (~1x = JIT broken) without flagging runner noise.
     _CI = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS"))
-    _floor = 2.0 if _CI else 3.0
+    _floor = perf_speedup_floor(2.0 if _CI else 3.0)
     assert (
         speedup >= _floor
     ), f"njit hermeval must be >={_floor}x faster than numpy at n=2k; got {speedup:.2f}x ({t_numpy * 1e6 / N:.1f}us vs {t_njit * 1e6 / N:.1f}us)"

@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from tests._third_party_compat import skip_if_catboost_encoder_tags_broken
 
 # Cache-key invalidation + dtype-passthrough sensors on n<=20 frames; pure helper logic, no fits, wall <0.3s total.
 pytestmark = [pytest.mark.fast]
@@ -78,12 +79,8 @@ def test_w2c_19_kfold_encode_returns_dataframe_with_correct_shape_dtype_index():
     # category_encoders 2.6 / sklearn < 1.6 combos (Python 3.9 CI) break the
     # ``__sklearn_tags__`` super() chain inside CatBoostEncoder.fit; skip
     # on the upstream-incompat path (same guard as sibling tests).
-    try:
-        out = _kfold_target_encode(df, cols=["cat_a", "cat_b"], target=target, n_splits=5, random_state=0)
-    except AttributeError as exc:
-        if "__sklearn_tags__" in str(exc):
-            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
-        raise
+    skip_if_catboost_encoder_tags_broken()
+    out = _kfold_target_encode(df, cols=["cat_a", "cat_b"], target=target, n_splits=5, random_state=0)
     assert isinstance(out, pd.DataFrame)
     assert out.shape == (n, 2)
     assert list(out.columns) == ["cat_a", "cat_b"]
@@ -115,13 +112,9 @@ def test_w2c_19_kfold_encode_deterministic_under_random_state():
     # Same ``__sklearn_tags__`` super() chain guard as the sibling test;
     # category_encoders >= 2.6 + sklearn < 1.6 (Python 3.9 CI) breaks the
     # chain inside CatBoostEncoder.fit -> _check_fit_inputs -> _get_tags.
-    try:
-        out1 = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=123)
-        out2 = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=123)
-    except AttributeError as exc:
-        if "__sklearn_tags__" in str(exc):
-            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
-        raise
+    skip_if_catboost_encoder_tags_broken()
+    out1 = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=123)
+    out2 = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=123)
     np.testing.assert_allclose(out1.values, out2.values)
 
 

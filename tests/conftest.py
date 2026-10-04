@@ -559,11 +559,10 @@ def pytest_configure(config):
         "markers",
         "heavy_automl: real AutoGluon/LAMA training test (heavy optional deps); deselected unless --run-heavy-automl is passed.",
     )
-    # B2#38 marker: opts a test OUT of the ``suppress_convergence_warnings`` autouse filter so
-    # ``pytest.warns(ConvergenceWarning)`` can catch the warning instead of having it pre-filtered.
     config.addinivalue_line(
         "markers",
-        "expects_convergence_warning: opt out of the ``suppress_convergence_warnings`` autouse filter; " "use when a test asserts the warning via ``pytest.warns(ConvergenceWarning)``.",
+        "tolerates_convergence_warning: ignore sklearn ConvergenceWarning and the lbfgs / 'Objective did not converge' messages for this test; "
+        "by default they are reported in the warnings summary so a convergence regression is visible.",
     )
     # pytest-progress defines its pytest_xdist_node_collection_finished hookimpl whenever the
     # xdist PACKAGE is importable, not whether the xdist pytest PLUGIN is registered. Running with
@@ -1119,15 +1118,13 @@ def _hang_watchdog(request, _restore_closed_standard_streams):
 
 @pytest.fixture(autouse=True)
 def suppress_convergence_warnings(request):
-    """Suppress sklearn ConvergenceWarning + the lbfgs / "Objective did not converge" pair during tests.
+    """Ignore sklearn ConvergenceWarning + the lbfgs / "Objective did not converge" pair, only for tests marked ``tolerates_convergence_warning``.
 
-    B2#38 opt-out: tests that need to assert the warning via ``pytest.warns(ConvergenceWarning)`` must carry the
-    ``@pytest.mark.expects_convergence_warning`` marker so this filter is bypassed. The marker is registered in
-    ``pytest_configure`` below; absent the marker the catch-all filter applies (default behaviour).
+    Unmarked tests leave the warnings visible in the pytest warnings summary, so a model that stops converging shows up instead of being filtered away.
     """
     from sklearn.exceptions import ConvergenceWarning
 
-    if request.node.get_closest_marker("expects_convergence_warning") is not None:
+    if request.node.get_closest_marker("tolerates_convergence_warning") is None:
         yield
         return
     with warnings.catch_warnings():

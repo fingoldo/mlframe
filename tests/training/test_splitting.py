@@ -66,13 +66,13 @@ class TestMakeTrainTestSplitBasic:
         """Test sequential split without shuffling."""
         df = pd.DataFrame({"feature": np.arange(100)})
 
-        _train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=False, shuffle_test=False, random_seed=42)
+        train_idx, val_idx, test_idx, _, _, _ = make_train_test_split(df, test_size=0.2, val_size=0.1, shuffle_val=False, shuffle_test=False, random_seed=42)
 
-        # Sequential means test should be at the end (highest indices)
-        # and val should be before test
-        if len(test_idx) > 0 and len(val_idx) > 0:
-            # With sequential splitting, test should have the highest indices
-            assert test_idx.max() >= val_idx.max(), "Test indices should be >= val indices in sequential split"
+        assert len(test_idx) == 20
+        assert len(val_idx) == 8
+        assert len(train_idx) == 72
+        assert set(train_idx).isdisjoint(val_idx) and set(train_idx).isdisjoint(test_idx) and set(val_idx).isdisjoint(test_idx)
+        assert test_idx.max() >= val_idx.max(), "Test indices should be >= val indices in sequential split"
 
     def test_zero_test_size(self):
         """Test split with zero test size."""
@@ -1029,27 +1029,22 @@ class TestValPlacementBackwardIntegration:
         bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
 
         caplog.set_level(_logging.WARNING, logger="mlframe.training.core")
-        try:
-            train_mlframe_models_suite(
-                df=pl_df,
-                target_name="recency_conflict",
-                model_name="rc",
-                features_and_targets_extractor=fte,
-                mlframe_models=["cb"],
-                hyperparams_config={"iterations": 3},
-                split_config=split_cfg,
-                behavior_config=bc,
-                preprocessing_config=PreprocessingConfig(drop_columns=[]),
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-                reporting_config=_lean_reporting_config(),
-                verbose=0,
-            )
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            # The WARN itself is what we're verifying; downstream failure
-            # shouldn't mask that check.
-            pass
+        train_mlframe_models_suite(
+            df=pl_df,
+            target_name="recency_conflict",
+            model_name="rc",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": 3},
+            split_config=split_cfg,
+            behavior_config=bc,
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_lean_reporting_config(),
+            verbose=0,
+        )
 
         conflict_warns = [
             r
@@ -1296,28 +1291,22 @@ class TestTrainMlframeModelsSuiteUseGroups:
             group_field="well_id",
         )
 
-        try:
-            train_mlframe_models_suite(
-                df=df,
-                target_name="grp_default",
-                model_name="grp_default_run",
-                features_and_targets_extractor=fte,
-                mlframe_models=["cb"],
-                hyperparams_config={"iterations": 2},
-                split_config=TrainingSplitConfig(),  # use_groups=True default
-                behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
-                preprocessing_config=PreprocessingConfig(drop_columns=[]),
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-                reporting_config=_lean_reporting_config(),
-                verbose=0,
-            )
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            # We only assert the spy fired -- downstream training failures
-            # (e.g. tiny synthetic dataset, GBDT diagnostics) shouldn't
-            # mask the wiring check.
-            pass
+        train_mlframe_models_suite(
+            df=df,
+            target_name="grp_default",
+            model_name="grp_default_run",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": 2},
+            split_config=TrainingSplitConfig(),  # use_groups=True default
+            behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_lean_reporting_config(),
+            verbose=0,
+        )
 
         assert "groups" in captured, "splitter never got called"
         assert captured["groups"] is not None, "group_ids extracted by FTE must reach the splitter when use_groups=True (default)"
@@ -1344,25 +1333,22 @@ class TestTrainMlframeModelsSuiteUseGroups:
             group_field="well_id",
         )
 
-        try:
-            train_mlframe_models_suite(
-                df=df,
-                target_name="grp_off",
-                model_name="grp_off_run",
-                features_and_targets_extractor=fte,
-                mlframe_models=["cb"],
-                hyperparams_config={"iterations": 2},
-                split_config=TrainingSplitConfig(use_groups=False),
-                behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
-                preprocessing_config=PreprocessingConfig(drop_columns=[]),
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-                reporting_config=_lean_reporting_config(),
-                verbose=0,
-            )
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
+        train_mlframe_models_suite(
+            df=df,
+            target_name="grp_off",
+            model_name="grp_off_run",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": 2},
+            split_config=TrainingSplitConfig(use_groups=False),
+            behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_lean_reporting_config(),
+            verbose=0,
+        )
 
         assert "groups" in captured, "splitter never got called"
         assert captured["groups"] is None, f"use_groups=False must suppress group_ids -- got {captured['groups']!r}"
@@ -1391,25 +1377,22 @@ class TestTrainMlframeModelsSuiteUseGroups:
             group_field=None,  # no groups
         )
 
-        try:
-            train_mlframe_models_suite(
-                df=df,
-                target_name="grp_none",
-                model_name="grp_none_run",
-                features_and_targets_extractor=fte,
-                mlframe_models=["cb"],
-                hyperparams_config={"iterations": 2},
-                split_config=TrainingSplitConfig(),
-                behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
-                preprocessing_config=PreprocessingConfig(drop_columns=[]),
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-                reporting_config=_lean_reporting_config(),
-                verbose=0,
-            )
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
+        train_mlframe_models_suite(
+            df=df,
+            target_name="grp_none",
+            model_name="grp_none_run",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb"],
+            hyperparams_config={"iterations": 2},
+            split_config=TrainingSplitConfig(),
+            behavior_config=TrainingBehaviorConfig(prefer_gpu_configs=False),
+            preprocessing_config=PreprocessingConfig(drop_columns=[]),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+            reporting_config=_lean_reporting_config(),
+            verbose=0,
+        )
 
         assert "groups" in captured, "splitter never got called"
         assert captured["groups"] is None, "no group_field on extractor → splitter must receive None"

@@ -68,10 +68,8 @@ def test_pandas_polars_numeric_block_fingerprint_match():
     data = rng.random((400, 6))
     pdf = pd.DataFrame(data, columns=[f"c{i}" for i in range(6)])
     p_pd = _streamed(pdf.to_numpy())
-    try:
-        import polars as pl
-    except ImportError:  # pragma: no cover
-        pytest.skip("polars not installed")
+    import polars as pl
+
     pldf = pl.DataFrame(data, schema=[f"c{i}" for i in range(6)])
     p_pl = _streamed(np.asarray(pldf))
     assert p_pd == p_pl == _whole(data)

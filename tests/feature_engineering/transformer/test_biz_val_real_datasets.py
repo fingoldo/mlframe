@@ -19,6 +19,8 @@ Time budget: ~10-15 minutes on a 16-core CPU box.
 from __future__ import annotations
 
 import time
+import socket
+import urllib.error
 from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -43,7 +45,7 @@ pytest.importorskip("catboost")
 # A single test in here cold-starts numba kernels that exceed pytest's
 # default per-test timeout. Mark the whole module slow_only so `pytest
 # --fast` skips it (the fast-mode conftest filter handles the skip).
-pytestmark = [pytest.mark.slow_only, pytest.mark.biz_transformer]
+pytestmark = [pytest.mark.slow_only, pytest.mark.biz_transformer, pytest.mark.network]
 pytest.importorskip("sklearn")
 
 from mlframe.feature_engineering.transformer import (
@@ -170,6 +172,8 @@ def _aggressive_gc_between_tests():
         pass
     gc.collect()
 
+
+_NETWORK_ERRORS = (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror)
 
 # ---------- dataset loaders ----------
 
@@ -1211,11 +1215,13 @@ def _run_matrix(X: np.ndarray, y: np.ndarray, task: str, dataset_name: str, buil
         fe_time = time.perf_counter() - t0
         for boost_name, factory in BOOSTING_FACTORIES.items():
             t1 = time.perf_counter()
+            arm_error = None
             try:
                 metrics = _train_eval(factory(task), Xf_tr, y_tr.astype(np.float32), Xf_te, y_te.astype(np.float32), task)
             except Exception as exc:
-                print(f"  [skip] {dataset_name}/{boost_name}/{feat_name}: {type(exc).__name__}: {exc}")
+                print(f"  [arm-error] {dataset_name}/{boost_name}/{feat_name}: {type(exc).__name__}: {exc}")
                 metrics = {}
+                arm_error = f"{type(exc).__name__}: {exc}"
             train_time = time.perf_counter() - t1
             # Legacy scalar score field for back-compat with older _print_matrix consumers.
             primary = "R2" if task == "regression" else "AUC"
@@ -1228,6 +1234,7 @@ def _run_matrix(X: np.ndarray, y: np.ndarray, task: str, dataset_name: str, buil
                     "metric": primary,
                     "score": metrics.get(primary, float("nan")),
                     "metrics": metrics,
+                    "error": arm_error,
                     "n_features": Xf_tr.shape[1],
                     "fe_time_s": fe_time,
                     "train_time_s": train_time,
@@ -1303,23 +1310,24 @@ def _per_dataset_test(loader, name: str) -> None:
     """
     try:
         X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    except _NETWORK_ERRORS as exc:
+        pytest.skip(f"{name}: dataset download unavailable offline: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[run] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name)
     _print_matrix(records)
 
-    # This helper backs 394 of the file's 396 test functions, and it asserted NOTHING -- it ran boosting
-    # matrices on real datasets, printed a table, and returned, so every one of those tests passed as long as
-    # nothing raised. A `test_biz_val_*` file is supposed to gate business value; this one measured it and threw
-    # the verdict away.
-    #
-    # The floor asserted here is deliberately weak and universal, because per-dataset lift thresholds belong in
-    # the individual tests (several of these datasets legitimately expect neutral-to-negative lift, as their own
-    # docstrings say). What it catches is a SILENT NUMERIC failure -- a NaN score, an all-zero feature block, a
-    # transform that collapses the matrix -- which is invisible in a printed table nobody diffs.
+    _assert_matrix_discriminates(records, name)
+
+
+def _assert_matrix_discriminates(records: List[Dict], name: str, max_collapse: float = 0.30) -> None:
+    """Fail when a matrix arm errored, scored non-finite, or collapsed more than ``max_collapse`` below the raw arm of the same booster.
+
+    Per-dataset lift thresholds live in the individual tests; this is the universal floor that a broken transformer-FE block cannot pass.
+    """
     assert records, f"{name}: the matrix produced no records at all"
+    _errored = [(r["boosting"], r["features"], r.get("error")) for r in records if r.get("error")]
+    assert not _errored, f"{name}: arm(s) raised instead of producing a score: {_errored}"
     _bad = [r for r in records if not np.isfinite(r["score"])]
     assert not _bad, f"{name}: non-finite score(s) in the matrix: {[(r['boosting'], r['features'], r['score']) for r in _bad]}"
 
@@ -1334,11 +1342,10 @@ def _per_dataset_test(loader, name: str) -> None:
         for _feat, _sc in _scores.items():
             if _feat == "raw":
                 continue
-            # An arm scoring far below raw is a broken feature block, not a modelling result.
-            if _sc < _raw - 0.30:
+            if _sc < _raw - max_collapse:
                 _collapsed.append((_boost, _feat, round(_sc, 4), round(_raw, 4)))
     assert not _collapsed, (
-        f"{name}: transformer-FE arm(s) collapsed more than 0.30 below raw, which indicates a broken feature "
+        f"{name}: transformer-FE arm(s) collapsed more than {max_collapse} below raw, which indicates a broken feature "
         f"block rather than a modelling outcome: {_collapsed}"
     )
 

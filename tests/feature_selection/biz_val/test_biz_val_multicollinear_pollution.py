@@ -50,6 +50,7 @@ warnings.filterwarnings("ignore")
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
+from tests._known_gap import known_gap
 from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names, spec_params
 
 # --------------------------------------------------------------------------- fixtures / metrics
@@ -190,14 +191,12 @@ def test_fixture_pollution_is_severe():
 
 # Selectors that, on this fixture, KEEP a majority of the 5-feature high-VIF cluster (>= 3 of 5 on a
 # majority of seeds) -- a documented multicollinearity-reduction GAP. Plain RFECV(argmax) keeps the full
-# 5/5 on seeds 0 and 1; HybridSelector keeps 3-4/5 on seeds 1 and 2. ForwardSelect/
-# GreedyBackwardElimination/ZeroImportancePruning are greedy CV-scored add/remove selectors with no
+# 5/5 on seeds 0 and 1. GreedyBackwardElimination/
+# ZeroImportancePruning are greedy CV-scored add/remove selectors with no
 # VIF-aware collinearity gating at all -- measured keeping the full 5/5 cluster on every seed (0,1,2).
 # ShapProxiedFS (SHAP-importance-ranked, also no collinearity gating) measured the same 5/5 on every seed.
 _CLUSTER_KEEP_GAP = {
     "RFECV",
-    "HybridSelector",
-    "ForwardSelect",
     "GreedyBackwardElimination",
     "ZeroImportancePruning",
     "ShapProxiedFS",
@@ -206,7 +205,7 @@ _CLUSTER_KEEP_GAP = {
 # Selectors whose selected subset stays rank-deficient / high-VIF on this fixture (post-VIF not bounded
 # below the polluted value): plain RFECV keeps the whole cluster; ShapProxiedFS keeps the near-collinear
 # pair AND the singular triple; BorutaShap and HybridSelector keep the singular {x1,x2,x3} triple.
-# ForwardSelect/GreedyBackwardElimination/ZeroImportancePruning share the same GAP as
+# GreedyBackwardElimination/ZeroImportancePruning share the same GAP as
 # _CLUSTER_KEEP_GAP above (no collinearity-aware pruning mechanism) -- measured post max-VIF=inf on every
 # seed (singular Gram from the retained near-collinear cluster).
 _VIF_REDUCE_GAP = {
@@ -214,7 +213,6 @@ _VIF_REDUCE_GAP = {
     "ShapProxiedFS",
     "BorutaShap",
     "HybridSelector",
-    "ForwardSelect",
     "GreedyBackwardElimination",
     "ZeroImportancePruning",
 }
@@ -243,7 +241,8 @@ def test_no_crash_on_singular_block(spec):
     X, y = make_multicollinear_pollution(seed=0)
     names, cols = _fit_or_report(spec, X, y)
     print(f"[no-crash] {spec.name}: kept {len(names)} -> {list(map(str, names))}")
-    assert len(cols) >= 0  # reaching here == it did not raise; the real assert is the absence of an exception
+    assert len(set(map(str, names))) == len(names), f"{spec.name}: duplicate names in the selection: {names}"
+    assert set(cols) <= set(X.columns), f"{spec.name}: resolved columns outside X: {cols}"
 
 
 @pytest.mark.parametrize("spec", spec_params())
@@ -264,7 +263,7 @@ def test_does_not_keep_whole_high_vif_cluster(spec):
     print(f"[vif-cluster] {spec.name}: kept-of-5 per seed={keeps} median={median_keep}")
 
     if spec.name in _CLUSTER_KEEP_GAP:
-        pytest.xfail(reason=f"FS GAP: {spec.name} keeps a majority of the high-VIF cluster (median {median_keep}/5)")
+        known_gap(f"FS GAP: {spec.name} keeps a majority of the high-VIF cluster (median {median_keep}/5)", gap_closed=median_keep <= 2)
     assert (
         median_keep <= 2
     ), f"{spec.name} kept {median_keep}/5 of the high-VIF cluster (per-seed {keeps}); a multicollinearity-aware selector should keep a representative (<=2)"
@@ -283,7 +282,10 @@ def test_recovers_linear_combo_signal(spec):
     print(f"[recovery] {spec.name}: subset AUC={auc:.3f} vs baseline={base:.3f} kept={list(map(str, names))}")
 
     if spec.name in _RECOVERY_GAP:
-        pytest.xfail(reason=f"FS GAP: {spec.name} collapses onto the rank-deficient surrogate and loses the x1+x2 signal (AUC {auc:.3f})")
+        known_gap(
+            f"FS GAP: {spec.name} collapses onto the rank-deficient surrogate and loses the x1+x2 signal (AUC {auc:.3f})",
+            gap_closed=bool(np.isfinite(auc) and auc >= base - 0.05),
+        )
     assert np.isfinite(auc), f"{spec.name} selected an empty/untransformable subset"
     assert auc >= base - 0.05, f"{spec.name} subset AUC {auc:.3f} fell >0.05 below the x1+x2 baseline {base:.3f}; it did not recover the linear-combo signal"
 
@@ -301,7 +303,7 @@ def test_reduces_multicollinearity(spec):
     print(f"[vif-reduce] {spec.name}: post max-VIF={post_vif} on {cols}")
 
     if spec.name in _VIF_REDUCE_GAP:
-        pytest.xfail(reason=f"FS GAP: {spec.name} leaves a rank-deficient / high-VIF subset (post max-VIF {post_vif})")
+        known_gap(f"FS GAP: {spec.name} leaves a rank-deficient / high-VIF subset (post max-VIF {post_vif})", gap_closed=bool(np.isfinite(post_vif) and post_vif < 20.0))
     assert np.isfinite(post_vif), f"{spec.name} kept a rank-deficient subset (singular Gram, max-VIF inf); it did not break the collinearity"
     assert (
         post_vif < 20.0

@@ -17,6 +17,7 @@ from sklearn.preprocessing import StandardScaler
 ce = pytest.importorskip("category_encoders")
 
 from mlframe.training.strategies import LinearModelStrategy
+from tests._third_party_compat import skip_if_catboost_encoder_tags_broken
 
 
 def _frame(n=200, seed=0):
@@ -52,12 +53,8 @@ def test_linear_pipeline_encodes_before_feature_selector():
     # method and CatBoostEncoder.fit raises AttributeError: 'super' object has no attribute
     # '__sklearn_tags__' deep inside sklearn's tag-resolution machinery (upstream incompat, not anything
     # mlframe owns -- see the identical guard in test_fe_audit_fixes.py).
-    try:
-        pipe.fit(X, y)
-    except AttributeError as exc:
-        if "__sklearn_tags__" in str(exc):
-            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}")
-        raise
+    skip_if_catboost_encoder_tags_broken()
+    pipe.fit(X, y)
 
 
 def test_linear_pipeline_without_selector_still_encodes():
@@ -72,10 +69,6 @@ def test_linear_pipeline_without_selector_still_encodes():
         scaler=StandardScaler(),
     )
     # See the __sklearn_tags__ upstream-incompat note in the test above.
-    try:
-        pipe.fit(X, y)
-    except AttributeError as exc:
-        if "__sklearn_tags__" in str(exc):
-            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}")
-        raise
+    skip_if_catboost_encoder_tags_broken()
+    pipe.fit(X, y)
     assert "ce" in [s[0] for s in pipe.steps]

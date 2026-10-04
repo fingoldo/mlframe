@@ -19,7 +19,7 @@ import pandas as pd
 import pytest
 from sklearn.preprocessing import LabelEncoder
 
-from tests.conftest import running_under_xdist
+from tests.conftest import perf_time_budget
 from mlframe.training.configs import DummyBaselinesConfig
 from mlframe.training.baselines.dummy import (
     BaselineReport,
@@ -1515,17 +1515,12 @@ class TestNumbaJITWarmup:
         t0_second = time.perf_counter()
         _warmup_numba_kernels()
         elapsed_second = time.perf_counter() - t0_second
-        if running_under_xdist():
-            pytest.skip("timing unreliable under -n contention")
-        # Relative invariant: second call must be substantially faster than
-        # the first (cache hit). Absolute thresholds break under heavy xdist
-        # load where even cached calls jitter into the 0.5-3s range.
-        # Tolerate first<0.5s (already-warmed by sibling test) by also passing
-        # if second is in the same fast band.
+        # Relative invariant: second call must be substantially faster than the first (cache hit); the absolute bands widen under contention.
+        # Tolerate first<0.5s (already-warmed by sibling test) by also passing if second is in the same fast band.
         if elapsed_first < 0.5:
-            assert elapsed_second < 2.0, f"both calls fast but second still took {elapsed_second:.2f}s"
+            assert elapsed_second < perf_time_budget(2.0), f"both calls fast but second still took {elapsed_second:.2f}s"
         else:
-            assert elapsed_second < max(0.5, elapsed_first * 0.5), f"warmup not cached: first={elapsed_first:.2f}s second={elapsed_second:.2f}s"
+            assert elapsed_second < max(perf_time_budget(0.5), elapsed_first * 0.5), f"warmup not cached: first={elapsed_first:.2f}s second={elapsed_second:.2f}s"
 
     def test_warmup_no_op_when_numba_unavailable(self, monkeypatch):
         """When numba is missing, warmup returns silently (no crash)."""

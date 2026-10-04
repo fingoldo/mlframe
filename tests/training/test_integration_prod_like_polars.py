@@ -46,6 +46,7 @@ from mlframe.training import FeatureSelectionConfig, OutputConfig, Preprocessing
 
 from .shared import SimpleFeaturesAndTargetsExtractor
 from tests.conftest import fast_subset
+from tests._third_party_compat import skip_if_catboost_encoder_tags_broken
 
 pytest.importorskip("catboost")  # used in most tests; lgb/xgb importorskipped per-test
 pytestmark = [pytest.mark.requires_cb, pytest.mark.integration]
@@ -439,25 +440,21 @@ def _run_combo(models, needs_encoder, tmp_path, label):
     # method and CatBoostEncoder.fit raises AttributeError: 'super' object has no attribute
     # '__sklearn_tags__' (upstream incompat, not anything mlframe owns -- see the identical guard in
     # test_fe_audit_fixes.py). Only the needs_encoder=True combos route through CatBoostEncoder.
-    try:
-        trained, _ = train_mlframe_models_suite(
-            df=df,
-            target_name=f"combo_{label}",
-            model_name=f"combo_{'_'.join(models)}",
-            features_and_targets_extractor=fte,
-            mlframe_models=models,
-            hyperparams_config=cfg,
-            preprocessing_config=preprocessing_overrides,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            verbose=0,
-            output_config=_lean_output_config(tmp_path),
-            reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
-        )
-    except AttributeError as exc:
-        if "__sklearn_tags__" in str(exc):
-            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}")
-        raise
+    skip_if_catboost_encoder_tags_broken()
+    trained, _ = train_mlframe_models_suite(
+        df=df,
+        target_name=f"combo_{label}",
+        model_name=f"combo_{'_'.join(models)}",
+        features_and_targets_extractor=fte,
+        mlframe_models=models,
+        hyperparams_config=cfg,
+        preprocessing_config=preprocessing_overrides,
+        use_ordinary_models=True,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=_lean_output_config(tmp_path),
+        reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
+    )
     assert trained, f"No models trained for combo: {label}"
 
 

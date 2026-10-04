@@ -71,7 +71,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import perf_time_budget, running_under_xdist
+from tests.conftest import perf_time_budget
 
 warnings.filterwarnings("ignore")
 
@@ -237,11 +237,10 @@ class TestPerfBudgets:
             )
             timings.append(time.perf_counter() - t0)
         elapsed = min(timings)
-        if running_under_xdist():
-            pytest.skip("timing unreliable under -n contention")
-        assert elapsed <= PERF_BUDGET_P200_SECS, (
+        budget = perf_time_budget(PERF_BUDGET_P200_SECS)
+        assert elapsed <= budget, (
             f"hybrid_orth_mi_fe at p=200 n=2000 degrees=(2,3,4) took "
-            f"{elapsed:.3f}s, budget is {PERF_BUDGET_P200_SECS:.1f}s. "
+            f"{elapsed:.3f}s, budget is {budget:.1f}s. "
             f"Check that _mi_classif_batch is still routing through "
             f"_mi_classif_batch_numba (MLFRAME_NUMBA_MI is not '0', "
             f"plugin_mi_classif_batch_dispatch imports cleanly) and that "

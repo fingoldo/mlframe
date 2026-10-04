@@ -63,6 +63,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests._known_gap import known_gap
 from tests.feature_selection.conftest import fast_subset
 
 # Permuted-y engineered-only holdout AUC must stay at/under this. Chance is 0.5; the +0.06 band
@@ -267,9 +268,10 @@ def test_permuted_y_engineered_auc_is_chance(family):
         return
 
     if family in _KNOWN_LEAK_FAMILIES:
-        pytest.xfail(
+        known_gap(
             f"PROD BUG: OOF leak in target-aware FE family {family!r}: "
-            f"permuted-y engineered holdout AUC ~ {_KNOWN_LEAK_FAMILIES[family]:.3f} > {_LEAK_AUC_CEIL}"
+            f"permuted-y engineered holdout AUC ~ {_KNOWN_LEAK_FAMILIES[family]:.3f} > {_LEAK_AUC_CEIL}",
+            gap_closed=auc <= _LEAK_AUC_CEIL,
         )
 
     assert auc <= _LEAK_AUC_CEIL, (

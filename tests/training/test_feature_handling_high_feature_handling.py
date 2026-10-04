@@ -20,7 +20,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-from tests.conftest import running_under_xdist
+from tests.conftest import perf_speedup_floor
 
 # =====================================================================
 # H-FH-04 - LRU sidecar RMW under contention
@@ -174,9 +174,6 @@ def test_h_fh_07_xxhash_absent_fallback_faster_than_legacy() -> None:
         fp2 = fp_mod.fingerprint_df(df)
         assert fp1.sampled_rows_hash == fp2.sampled_rows_hash
 
-        if running_under_xdist():
-            pytest.skip("timing unreliable under -n contention")
-
         # Speed: time the new path.
         fp_mod.reset_session()
         t0 = time.perf_counter()
@@ -195,8 +192,8 @@ def test_h_fh_07_xxhash_absent_fallback_faster_than_legacy() -> None:
     # where the legacy CSV path is itself fast (the 5x bar was tight enough
     # to flake on machines where new=27ms / legacy=99ms — 3.6x speedup, real
     # win, but below the old threshold). 2x still locks the qualitative claim.
-    assert (
-        new_path < legacy_baseline / 2.0
+    assert new_path < legacy_baseline / perf_speedup_floor(
+        2.0
     ), f"xxhash-absent fingerprint path no longer faster than legacy CSV: new={new_path * 1000:.1f}ms legacy={legacy_baseline * 1000:.1f}ms"
 
 

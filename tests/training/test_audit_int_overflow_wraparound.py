@@ -34,31 +34,8 @@ histogram cell -- without any error.
 
 from __future__ import annotations
 
-import importlib
-from pathlib import Path
-
 import numpy as np
 import pytest
-
-MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
-
-
-def _read(rel: str) -> str:
-    """Read."""
-    _path = MLFRAME_ROOT / rel
-    if not _path.exists() and _path.suffix == ".py":
-        # Monolith-split compat: the flat module became a subpackage
-        # (``X.py`` -> ``X/__init__.py`` + submodules). Read __init__ + every submodule.
-        _pkg = _path.with_suffix("")
-        _init = _pkg / "__init__.py"
-        if _init.exists():
-            parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    parts.append(_sub.read_text(encoding="utf-8"))
-            return "\n".join(parts)
-    return _path.read_text(encoding="utf-8")
-
 
 # ---------------------------------------------------------------------------
 # Behavioural sensors
@@ -101,21 +78,18 @@ def test_categorize_1d_array_auto_promotes_high_cardinality() -> None:
     assert out.dtype != np.int8 or int(out.max()) <= 127, "categorize_1d_array must auto-promote dtype when codes exceed int8 range."
 
 
-def test_recurrent_classifier_predict_handles_high_class_count() -> None:
-    """argmax on 200-class proba must yield honest 0..199 class ids, no int8 wrap."""
-    np.random.seed(0)
+def test_recurrent_classifier_predict_handles_high_class_count(monkeypatch) -> None:
+    """predict on a 200-class probability matrix returns the original labels (class 150 stays 150), with no int8 wrap."""
+    from mlframe.training.neural._recurrent_wrappers import RecurrentClassifierWrapper
+
     proba = np.zeros((10, 200), dtype=np.float32)
-    # Make class id 150 the argmax for every row.
     proba[:, 150] = 0.9
-    # Simulate the predict-tail logic directly (no PyTorch dependency).
-    classes = proba.argmax(axis=1)
-    cmax = int(classes.max())
-    # The new code path:
-    for _dt in (np.int8, np.int16, np.int32, np.int64):
-        if cmax <= np.iinfo(_dt).max:
-            out = classes.astype(_dt)
-            break
-    assert int(out.max()) == 150, f"int8 wraps class 150 -> -106; auto-promoted dtype must preserve it. Got {int(out.max())}"
+    wrapper = object.__new__(RecurrentClassifierWrapper)
+    wrapper.classes_ = np.arange(200)
+    monkeypatch.setattr(RecurrentClassifierWrapper, "predict_proba", lambda self, features=None, sequences=None: proba)
+    out = wrapper.predict()
+    assert out.shape == (10,)
+    assert set(out.tolist()) == {150}
 
 
 def test_chatgpt_mutual_information_rejects_out_of_range_bins() -> None:
@@ -145,39 +119,3 @@ def test_create_robustness_standard_bins_widens_dtype_when_needed() -> None:
     bins = result_int16[0]
     assert bins.dtype == np.int16
     assert int(bins.max()) <= 199
-
-
-# ---------------------------------------------------------------------------
-# Source-level sensors
-# ---------------------------------------------------------------------------
-
-
-def test_categorize_dataset_no_longer_silent_truncate() -> None:
-    """Categorize dataset no longer silent truncate."""
-    src = _read("feature_selection/filters/discretization.py")
-    assert "auto-promoting" in src.lower(), "categorize_dataset must auto-promote dtype, not silently log-and-truncate."
-    # The standalone unconditional astype(dtype) AFTER the warning must be gone.
-    assert "factors exceeded dtype" not in src, "The log-warn-then-truncate phrasing must be replaced with the auto-promote path."
-
-
-def test_recurrent_classifier_no_hardcoded_int8_argmax() -> None:
-    """Recurrent classifier no hardcoded int8 argmax."""
-    src = _read("training/neural/recurrent.py")
-    assert "proba.argmax(axis=1).astype(np.int8)" not in src, "Recurrent classifier must not unconditionally cast argmax to int8."
-
-
-def test_mi_int8_cast_has_range_validation() -> None:
-    """Mi int8 cast has range validation."""
-    src = _read("feature_selection/mi.py")
-    assert "bin codes must be in [0, 127]" in src, "mi.py: chatgpt_compute_mutual_information must validate input range before int8 cast."
-
-
-def test_robustness_bins_uses_range_aware_dtype() -> None:
-    # ``create_robustness_standard_bins`` was moved to ``_fairness_metrics.py``
-    # when ``metrics/core.py`` was split into siblings.
-    """Robustness bins uses range aware dtype."""
-    src = _read("metrics/_fairness_metrics.py")
-    # The fix introduces a 3-way dispatch on cont_nbins width.
-    assert (
-        "_bin_dtype = np.int8" in src and "_bin_dtype = np.int16" in src
-    ), "create_robustness_standard_bins must dispatch on cont_nbins for narrowest safe dtype."

@@ -41,6 +41,7 @@ pytest.importorskip("category_encoders")
 from mlframe.feature_selection.optbinning import get_binningprocess_featureselectors
 
 from tests.feature_selection.conftest import fast_subset
+from tests._third_party_compat import skip_if_binning_process_tags_broken
 
 # A strong-noisy-logistic signal yields signal IV ~3.0-3.6 (never 0); a 2-valued
 # perfect separator yields IV 0 (optbinning keeps one bin) -- see module docstring.
@@ -238,12 +239,8 @@ def test_withcats_fs_fit_with_categorical_fast():
     # optbinning / sklearn version mismatch on some runners (Python 3.9 CI) breaks the
     # ``__sklearn_tags__`` super() chain -- skip on the upstream-incompat path (same guard as
     # tests/feature_engineering/transformer/test_regression_w2c_dtype_gate.py).
-    try:
-        bp_withcats_fs.fit(df, y)
-    except AttributeError as exc:
-        if "__sklearn_tags__" in str(exc):
-            pytest.skip(f"optbinning / sklearn version mismatch on this runner: {exc}.")
-        raise
+    skip_if_binning_process_tags_broken()
+    bp_withcats_fs.fit(df, y)
     transformed = bp_withcats_fs.transform(df)
     assert transformed.shape[0] == df.shape[0]
     assert 0 < transformed.shape[1] <= df.shape[1]

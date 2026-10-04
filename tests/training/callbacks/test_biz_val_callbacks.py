@@ -84,12 +84,7 @@ def test_biz_val_callbacks_xgb_construction_stores_fpath(tmp_path):
 
     stop_path = str(tmp_path / "stop")
     cb = XGBoostStopFileCallback(fpath=stop_path)
-    # Find a stored attribute whose value is the path we passed in.
-    matches = [a for a in ("fpath", "_fpath", "stop_file", "path", "_path") if getattr(cb, a, None) == stop_path]
-    assert matches, (
-        f"XGBoostStopFileCallback __init__ did not store fpath under any known attribute "
-        f"name (fpath/_fpath/stop_file/path/_path); attrs={list(vars(cb).keys())}"
-    )
+    assert cb.fpath == stop_path
 
 
 def test_biz_val_callbacks_xgb_after_iteration_stops_on_file(tmp_path):
@@ -130,8 +125,7 @@ def test_biz_val_callbacks_catboost_construction(tmp_path):
 
     stop_path = str(tmp_path / "stop")
     cb = CatBoostStopFileCallback(fpath=stop_path)
-    matches = [a for a in ("fpath", "_fpath", "stop_file", "path", "_path") if getattr(cb, a, None) == stop_path]
-    assert matches, f"CatBoostStopFileCallback __init__ did not store fpath under any known attribute name; attrs={list(vars(cb).keys())}"
+    assert cb.fpath == stop_path
 
 
 def test_biz_val_callbacks_catboost_after_iteration_continues_when_no_file(tmp_path):
@@ -146,13 +140,8 @@ def test_biz_val_callbacks_catboost_after_iteration_continues_when_no_file(tmp_p
         iteration = 3
         metrics = {}
 
-    try:
-        result = cb.after_iteration(_Info())
-        # CatBoost convention: return True to continue, False to stop.
-        # The default (no file) should be True (continue).
-        assert result is True
-    except (AttributeError, NotImplementedError):
-        pytest.skip("callback API surface differs")
+    # CatBoost convention: return True to continue, False to stop.
+    assert cb.after_iteration(_Info()) is True
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +156,7 @@ def test_biz_val_callbacks_lightning_construction(tmp_path):
 
     stop_path = str(tmp_path / "stop")
     cb = LightningStopFileCallback(fpath=stop_path)
-    matches = [a for a in ("fpath", "_fpath", "stop_file", "path", "_path") if getattr(cb, a, None) == stop_path]
-    assert matches, f"LightningStopFileCallback __init__ did not store fpath under any known attribute name; attrs={list(vars(cb).keys())}"
+    assert cb.fpath == stop_path
 
 
 # ---------------------------------------------------------------------------
@@ -193,5 +181,4 @@ def test_biz_val_callbacks_all_construct_with_path(tmp_path, cb_name):
     cls = getattr(cb_mod, cb_name)
     stop_path = str(tmp_path / "stop")
     instance = cls(fpath=stop_path)
-    matches = [a for a in ("fpath", "_fpath", "stop_file", "path", "_path") if getattr(instance, a, None) == stop_path]
-    assert matches, f"{cb_name} __init__ did not store fpath under any known attribute name; attrs={list(vars(instance).keys())}"
+    assert instance.fpath == stop_path

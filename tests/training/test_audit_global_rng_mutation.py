@@ -80,12 +80,19 @@ def _read(rel: str) -> str:
 
 
 def test_ranker_fit_no_global_torch_or_np_seed() -> None:
-    """Ranker fit no global torch or np seed."""
-    src = _read("training/neural/ranker.py")
-    # The pre-fix two-liner is gone; the local generators referenced in comments still exist.
-    assert "torch.manual_seed(self.seed)\n        np.random.seed(self.seed)" not in src
-    # The documenting comment is present.
-    assert "drop global RNG mutations" in src
+    """MLPRanker.fit does not reseed or advance the process-global numpy stream."""
+    pytest.importorskip("lightning")
+    from mlframe.training.neural.ranker import MLPRanker
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(60, 4)).astype(np.float32)
+    y = rng.integers(0, 3, size=60).astype(np.float32)
+    groups = np.repeat(np.arange(12), 5)
+    ranker = MLPRanker(n_estimators=1, hidden_layers=(8,), seed=5)
+    np.random.seed(777)
+    before = np.random.get_state()
+    ranker.fit(X, y, groups)
+    _assert_np_state_equal(before, np.random.get_state())
 
 
 def _drive_preserve(seed, *, body=None, fake_cupy=True):

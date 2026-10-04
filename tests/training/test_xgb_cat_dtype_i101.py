@@ -29,12 +29,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
-
-try:
-    import polars as pl
-except ImportError:  # polars optional in some test envs
-    pl = None  # type: ignore[assignment]
+import polars as pl
 
 
 def _xgb_pandas_cat_cast(input_for_model, cat_features):
@@ -101,7 +96,6 @@ def test_pandas_unknown_cat_col_name_is_skipped():
     assert out.shape == df.shape
 
 
-@pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_string_cat_col_is_cast_to_categorical():
     """Polars string cat col is cast to categorical."""
     df = pl.DataFrame(
@@ -115,7 +109,6 @@ def test_polars_string_cat_col_is_cast_to_categorical():
     assert out.schema["num0"] == pl.Float64
 
 
-@pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_already_categorical_is_a_noop():
     """Polars already categorical is a noop."""
     df = pl.DataFrame(
@@ -127,7 +120,6 @@ def test_polars_already_categorical_is_a_noop():
     assert out.schema["cat_low"] == pl.Categorical
 
 
-@pytest.mark.skipif(pl is None, reason="polars not installed")
 def test_polars_numeric_col_named_in_cat_features_is_left_untouched():
     """Defence-in-depth: if a metadata mistake lists a numeric col as a
     cat feature, the cast block must NOT corrupt its dtype."""

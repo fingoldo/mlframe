@@ -17,7 +17,7 @@ import warnings
 import numpy as np
 import pytest
 
-from tests.conftest import running_under_xdist
+from tests.conftest import perf_speedup_floor
 
 warnings.filterwarnings("ignore")
 
@@ -95,21 +95,21 @@ def test_biz_val_permutation_besag_clifford_2x_faster_strong_signal():
     cx, fx, cy, fy, mi = _classes_and_mi(*_make_strong_signal(n=5000, seed=42))
     N_PERMS = 1000
 
-    t0 = time.perf_counter()
-    _nf_full, _nt_full = parallel_mi(cx, fx, cy, fy, N_PERMS, mi, max_failed=N_PERMS, dtype=np.int32)
-    t_full = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    _nf_bc, _nt_bc = parallel_mi_besag_clifford(cx, fx, cy, fy, N_PERMS, mi, np.uint64(0), dtype=np.int32)
-    t_bc = time.perf_counter() - t0
+    t_full = t_bc = float("inf")
+    for _ in range(5):
+        t0 = time.perf_counter()
+        _nf_full, _nt_full = parallel_mi(cx, fx, cy, fy, N_PERMS, mi, max_failed=N_PERMS, dtype=np.int32)
+        t_full = min(t_full, time.perf_counter() - t0)
+        t0 = time.perf_counter()
+        _nf_bc, _nt_bc = parallel_mi_besag_clifford(cx, fx, cy, fy, N_PERMS, mi, np.uint64(0), dtype=np.int32)
+        t_bc = min(t_bc, time.perf_counter() - t0)
 
     speedup = t_full / max(t_bc, 1e-6)
-    # Two small back-to-back timings; the ratio compresses under ``-n`` parallel CPU contention.
-    if running_under_xdist():
-        pytest.skip("timing assertion unreliable under -n contention")
+    assert _nt_bc < _nt_full, f"Besag-Clifford must test fewer permutations than the full budget; tested {_nt_bc} vs {_nt_full}"
+    floor = perf_speedup_floor(2.0)
     assert (
-        speedup >= 2.0
-    ), f"Besag-Clifford must be >=2x faster than full on strong-signal target; got {speedup:.1f}x ({t_full * 1000:.1f}ms vs {t_bc * 1000:.1f}ms)"
+        speedup >= floor
+    ), f"Besag-Clifford must be >={floor}x faster than full on strong-signal target; got {speedup:.1f}x ({t_full * 1000:.1f}ms vs {t_bc * 1000:.1f}ms)"
 
 
 def test_biz_val_permutation_besag_clifford_stops_before_full_budget():

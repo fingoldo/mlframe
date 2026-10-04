@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from mlframe.training.core._setup_helpers import _get_pipeline_components
+from tests._third_party_compat import skip_if_catboost_encoder_tags_broken
 
 
 def test_a2_12_default_encoder_is_ordered() -> None:
@@ -43,21 +44,17 @@ def test_a2_12_naive_mean_encoder_leaks_ordered_does_not() -> None:
     # method and .fit_transform raises AttributeError: 'super' object has no attribute
     # '__sklearn_tags__' (upstream incompat, not anything mlframe owns -- see the identical guard in
     # test_fe_audit_fixes.py).
-    try:
-        # Naive (non-ordered) mean target encoder: full smoothing off, no CV -> direct mean per category.
-        naive = ce.TargetEncoder(cols=["c"], smoothing=1e-9, min_samples_leaf=1)
-        naive_enc = naive.fit_transform(X, y)["c"].to_numpy()
-        naive_corr = abs(np.corrcoef(naive_enc, y.to_numpy())[0, 1])
+    skip_if_catboost_encoder_tags_broken()
+    # Naive (non-ordered) mean target encoder: full smoothing off, no CV -> direct mean per category.
+    naive = ce.TargetEncoder(cols=["c"], smoothing=1e-9, min_samples_leaf=1)
+    naive_enc = naive.fit_transform(X, y)["c"].to_numpy()
+    naive_corr = abs(np.corrcoef(naive_enc, y.to_numpy())[0, 1])
 
-        # Ordered default.
-        cfg = type("Cfg", (), {"category_encoder": None, "imputer": None, "scaler": None})()
-        ordered, _imp, _scl = _get_pipeline_components(cfg, cat_features=["c"], random_seed=42)
-        ordered_enc = ordered.fit_transform(X, y)["c"].to_numpy()
-        ordered_corr = abs(np.corrcoef(ordered_enc, y.to_numpy())[0, 1])
-    except AttributeError as exc:
-        if "__sklearn_tags__" in str(exc):
-            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}")
-        raise
+    # Ordered default.
+    cfg = type("Cfg", (), {"category_encoder": None, "imputer": None, "scaler": None})()
+    ordered, _imp, _scl = _get_pipeline_components(cfg, cat_features=["c"], random_seed=42)
+    ordered_enc = ordered.fit_transform(X, y)["c"].to_numpy()
+    ordered_corr = abs(np.corrcoef(ordered_enc, y.to_numpy())[0, 1])
 
     assert naive_corr > 0.9, f"sanity: naive mean encoder should leak hard on one-row-per-category (got corr={naive_corr:.3f})"
     assert ordered_corr < 0.5, (

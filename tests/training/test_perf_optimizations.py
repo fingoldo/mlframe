@@ -24,6 +24,7 @@ from mlframe.training.utils import (
     should_clean_ram,
     maybe_clean_ram_and_gpu,
 )
+from tests._third_party_compat import skip_if_catboost_encoder_tags_broken
 
 
 # ======================================================================
@@ -226,25 +227,21 @@ class TestSkipPandasConversion:
         # attribute '__sklearn_tags__' (upstream incompat, not anything mlframe owns -- see the
         # identical guard in test_fe_audit_fixes.py). ridge is non-native-cat, so it routes through the
         # encoder here.
-        try:
-            train_mlframe_models_suite(
-                df=df,
-                target_name="t",
-                model_name="m",
-                features_and_targets_extractor=fte,
-                mlframe_models=["cb", "ridge"],
-                reporting_config=common_init_params,
-                hyperparams_config={"iterations": 10},
-                behavior_config=CPU_BEHAVIOR,
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                verbose=0,
-                output_config=OutputConfig(data_dir=temp_data_dir),
-            )
-        except AttributeError as exc:
-            if "__sklearn_tags__" in str(exc):
-                pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}")
-            raise
+        skip_if_catboost_encoder_tags_broken()
+        train_mlframe_models_suite(
+            df=df,
+            target_name="t",
+            model_name="m",
+            features_and_targets_extractor=fte,
+            mlframe_models=["cb", "ridge"],
+            reporting_config=common_init_params,
+            hyperparams_config={"iterations": 10},
+            behavior_config=CPU_BEHAVIOR,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            verbose=0,
+            output_config=OutputConfig(data_dir=temp_data_dir),
+        )
         assert (
             counter["lazy"] + counter["upfront"] >= 1
         ), f"ridge must have received pandas — either upfront or lazily. Neither call fired: lazy={counter['lazy']}, upfront={counter['upfront']}"

@@ -33,89 +33,83 @@ convention hardening.
 
 from __future__ import annotations
 
-from pathlib import Path
+def _spy_on_base_init(monkeypatch, cls):
+    """Replace the direct base class's ``__init__`` by a recorder; return the list of instances it was invoked on."""
+    base = cls.__mro__[1]
+    seen: list = []
 
-MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
+    def spy(self, *args, **kwargs):
+        """Record the instance whose base initialiser ran."""
+        seen.append(self)
 
-
-def _read(rel: str) -> str:
-    """Read."""
-    _path = MLFRAME_ROOT / rel
-    if not _path.exists() and _path.suffix == ".py":
-        # Monolith-split compat: the flat module became a subpackage
-        # (``X.py`` -> ``X/__init__.py`` + submodules). Read __init__ + every submodule.
-        _pkg = _path.with_suffix("")
-        _init = _pkg / "__init__.py"
-        if _init.exists():
-            parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    parts.append(_sub.read_text(encoding="utf-8"))
-            return "\n".join(parts)
-    return _path.read_text(encoding="utf-8")
+    monkeypatch.setattr(base, "__init__", spy, raising=False)
+    return seen
 
 
 def test_es_transformed_target_regressor_calls_super_init() -> None:
-    """Es transformed target regressor calls super init."""
-    src = _read("estimators/custom.py")
-    helper_idx = src.find("class ESTransformedTargetRegressor")
-    assert helper_idx != -1
-    # Read the next 50 lines after the class declaration.
-    snippet = src[helper_idx : helper_idx + 1500]
-    assert "super().__init__(" in snippet
-    assert "regressor=regressor," in snippet
-    assert "transformer=transformer," in snippet
+    """The parent initialiser populates every sklearn param, so get_params and clone round-trip them together with the early-stopping one."""
+    from sklearn.base import clone
+    from sklearn.linear_model import Ridge
+    from sklearn.preprocessing import StandardScaler
+
+    from mlframe.estimators.custom import ESTransformedTargetRegressor
+
+    est = ESTransformedTargetRegressor(Ridge(alpha=3.0), transformer=StandardScaler(), check_inverse=False, es_fit_param_name="eval_set")
+    params = est.get_params(deep=False)
+    assert params["check_inverse"] is False
+    assert params["es_fit_param_name"] == "eval_set"
+    assert params["func"] is None and params["inverse_func"] is None
+    cloned = clone(est)
+    assert cloned.regressor.alpha == 3.0
+    assert cloned.es_fit_param_name == "eval_set"
+    assert cloned.get_params(deep=False).keys() == params.keys()
 
 
-def test_aggregating_validation_callback_calls_super_init() -> None:
-    # ``AggregatingValidationCallback`` was carved out of ``training/neural/base.py``
-    # into ``_base_callbacks.py``; concat parent + sibling so the source-grep
-    # guard survives the split.
-    """Aggregating validation callback calls super init."""
-    src = _read("training/neural/base.py")
-    sib = MLFRAME_ROOT / "training" / "neural" / "_base_callbacks.py"
-    if sib.exists():
-        src += "\n" + sib.read_text(encoding="utf-8")
-    helper_idx = src.find("class AggregatingValidationCallback")
-    assert helper_idx != -1
-    snippet = src[helper_idx : helper_idx + 1200]
-    assert "super().__init__()" in snippet
+def test_aggregating_validation_callback_calls_super_init(monkeypatch) -> None:
+    """Constructing the callback runs the Lightning ``Callback`` base initialiser exactly once, on the new instance."""
+    from mlframe.training.neural._base_callbacks import AggregatingValidationCallback
+
+    seen = _spy_on_base_init(monkeypatch, AggregatingValidationCallback)
+    cb = AggregatingValidationCallback("auc", lambda y, p: 0.0)
+    assert seen == [cb]
+    assert cb.metric_name == "auc" and cb.on_epoch is True
 
 
-def test_torch_dataset_calls_super_init() -> None:
-    """Torch dataset calls super init."""
-    src = _read("training/neural/data.py")
-    helper_idx = src.find("class TorchDataset")
-    assert helper_idx != -1
-    # Read enough lines to reach the __init__ body.
-    snippet = src[helper_idx : helper_idx + 4000]
-    assert "super().__init__()" in snippet
+def test_torch_dataset_calls_super_init(monkeypatch) -> None:
+    """Constructing a TorchDataset runs the torch ``Dataset`` base initialiser exactly once, on the new instance."""
+    import numpy as np
+
+    from mlframe.training.neural.data import TorchDataset
+
+    seen = _spy_on_base_init(monkeypatch, TorchDataset)
+    ds = TorchDataset(np.zeros((4, 2), dtype=np.float32), np.zeros(4, dtype=np.float32))
+    assert seen == [ds]
+    assert len(ds) == 4
 
 
-def test_group_batch_sampler_calls_super_init() -> None:
-    """Group batch sampler calls super init."""
-    src = _read("training/neural/ranker.py")
-    helper_idx = src.find("class GroupBatchSampler")
-    assert helper_idx != -1
-    snippet = src[helper_idx : helper_idx + 1600]
-    # ``super().__init__(data_source=None)`` was the pre-torch-2.x form;
-    # torch 2.x ``Sampler.__init__`` removed the ``data_source`` kwarg
-    # (it falls through to ``object.__init__`` which rejects extra args
-    # with ``TypeError: takes exactly one argument``). The bare
-    # ``super().__init__()`` is the current correct shape and works on
-    # both torch 1.x and 2.x. Accept either form so the sensor stays
-    # valid across the torch upgrade.
-    assert "super().__init__(data_source=None)" in snippet or "super().__init__()" in snippet, (
-        "GroupBatchSampler.__init__ must call super().__init__() to forward "
-        "to torch's Sampler base (either bare for torch 2.x or with "
-        "data_source=None for torch 1.x back-compat)"
-    )
+def test_group_batch_sampler_calls_super_init(monkeypatch) -> None:
+    """Constructing a GroupBatchSampler runs the torch ``Sampler`` base initialiser exactly once, with no extra arguments."""
+    import numpy as np
+
+    from mlframe.training.neural.ranker import GroupBatchSampler
+
+    calls: list = []
+
+    def spy(self, *args, **kwargs):
+        """Record the instance and the arguments the base initialiser received."""
+        calls.append((self, args, kwargs))
+
+    monkeypatch.setattr(GroupBatchSampler.__mro__[1], "__init__", spy, raising=False)
+    sampler = GroupBatchSampler(np.array([0, 0, 1, 1]), np.array([0.0, 1.0, 0.0, 1.0]), shuffle=False)
+    assert calls == [(sampler, (), {})]
 
 
-def test_ranker_dataset_calls_super_init() -> None:
-    """Ranker dataset calls super init."""
-    src = _read("training/neural/ranker.py")
-    helper_idx = src.find("class _RankerDataset")
-    assert helper_idx != -1
-    snippet = src[helper_idx : helper_idx + 600]
-    assert "super().__init__()" in snippet
+def test_ranker_dataset_calls_super_init(monkeypatch) -> None:
+    """Constructing a _RankerDataset runs the torch ``Dataset`` base initialiser exactly once, on the new instance."""
+    import numpy as np
+
+    from mlframe.training.neural.ranker import _RankerDataset
+
+    seen = _spy_on_base_init(monkeypatch, _RankerDataset)
+    ds = _RankerDataset(np.zeros((3, 2), dtype=np.float32), np.zeros(3, dtype=np.float32))
+    assert seen == [ds]

@@ -16,6 +16,7 @@ import pytest
 from tests.conftest import running_under_xdist
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from tests._third_party_compat import skip_if_catboost_encoder_tags_broken
 
 # ---------------------------------------------------------------------------
 # mps.py
@@ -1248,19 +1249,10 @@ class TestBruteforceLeakageFreeEncoding:
         # MRO walk goes via sklearn's get_tags() helper, not the regular
         # method-resolution path. Wrap the actual fit calls so the
         # detection is the same path that would otherwise fail.
-        try:
-            oof = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=42)
-            encoder = CatBoostEncoder(cols=["cat"], return_df=True)
-            fit_all = encoder.fit_transform(df[["cat"]], target)
-        except AttributeError as exc:
-            if "__sklearn_tags__" in str(exc):
-                pytest.skip(
-                    f"category_encoders / sklearn version mismatch on this "
-                    f"runner: {exc}. CatBoostEncoder.fit's "
-                    f"``__sklearn_tags__`` super() chain is broken on this "
-                    f"combo (upstream incompat, not anything mlframe owns)."
-                )
-            raise
+        skip_if_catboost_encoder_tags_broken()
+        oof = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=5, random_state=42)
+        encoder = CatBoostEncoder(cols=["cat"], return_df=True)
+        fit_all = encoder.fit_transform(df[["cat"]], target)
 
         # The two encodings must differ - if they were identical we'd not have removed the leak.
         diff = float(np.mean(np.abs(oof["cat"].values - fit_all["cat"].values)))

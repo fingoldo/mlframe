@@ -4,12 +4,7 @@ import pytest
 import numpy as np
 import pandas as pd
 
-try:
-    import polars as pl
-
-    HAS_POLARS = True
-except ImportError:
-    HAS_POLARS = False
+import polars as pl
 
 # Import from the new training module locations
 from mlframe.training.trainer import (
@@ -50,7 +45,6 @@ class TestExtractTargetSubset:
 
         assert result is target
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
     def test_polars_series(self):
         """Test extraction from polars Series."""
         target = pl.Series([10, 20, 30, 40, 50])
@@ -108,7 +102,6 @@ class TestSubsetDataframe:
         result = _subset_dataframe(df, None)
         assert result is df
 
-    @pytest.mark.skipif(not HAS_POLARS, reason="polars not installed")
     def test_polars_basic(self):
         """Test basic subsetting of polars DataFrame."""
         df = pl.DataFrame(

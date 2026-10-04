@@ -323,8 +323,7 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
 
     m_base = _extract_primary_val_metric(_run_suite(combo, df_base, target_col, str(tmp_path / "base")))
     m_renamed = _extract_primary_val_metric(_run_suite(combo, df_renamed, target_col, str(tmp_path / "ren")))
-    if m_base is None or m_renamed is None:
-        pytest.skip("no val metric produced; metamorphic check not applicable")
+    assert m_base is not None and m_renamed is not None, f"suite produced no val metric for {combo.target_type}: base={m_base}, renamed={m_renamed}"
 
     if _no_signal(combo, m_base, m_renamed):
         pytest.skip(f"base/renamed metric lacks signal ({combo.target_type}: base={m_base:.3f}, renamed={m_renamed:.3f}); metamorphic check not meaningful")
@@ -390,8 +389,7 @@ def test_metamorphic_duplicate_rows_stable(combo: FuzzCombo, tmp_path):
 
     m_base = _extract_primary_val_metric(_run_suite(combo, df_base, target_col, str(tmp_path / "base")))
     m_dup = _extract_primary_val_metric(_run_suite(combo, df_dup, target_col, str(tmp_path / "dup")))
-    if m_base is None or m_dup is None:
-        pytest.skip("no val metric produced; metamorphic check not applicable")
+    assert m_base is not None and m_dup is not None, f"suite produced no val metric for {combo.target_type}: base={m_base}, dup={m_dup}"
 
     if _no_signal(combo, m_base, m_dup):
         pytest.skip(f"base/dup metric lacks signal ({combo.target_type}: base={m_base:.3f}, dup={m_dup:.3f}); metamorphic check not meaningful")

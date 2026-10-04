@@ -35,24 +35,47 @@ def _suppress_noisy_logging_during_this_module():
 # ---------------------------------------------------------------------------
 
 
-def test_f1_oof_build_hnsw_index_call_passes_random_state():
-    """F1 oof build hnsw index call passes random state."""
-    import inspect
+def test_f1_oof_build_hnsw_index_call_passes_random_state(monkeypatch):
+    """Each OOF fold builds its ANN index with ``random_state = seed + fold_idx``."""
+    from sklearn.model_selection import KFold
 
-    from mlframe.feature_engineering.transformer import _oof
+    from mlframe.feature_engineering.transformer import _row_attention_ann
+    from mlframe.feature_engineering.transformer.row_attention import compute_row_attention
 
-    src = inspect.getsource(_oof.kfold_attention_loop)
-    assert "random_state=" in src
+    seen: list = []
+    real = _row_attention_ann.build_hnsw_index
+
+    def spy(*args, **kwargs):
+        """Record the random_state of every index build and delegate."""
+        seen.append(kwargs.get("random_state"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(_row_attention_ann, "build_hnsw_index", spy)
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(120, 6)).astype(np.float32)
+    y = rng.normal(size=120).astype(np.float32)
+    compute_row_attention(X, y, None, KFold(3, shuffle=True, random_state=0), seed=11, n_heads=1, head_dim=4, k=5, gpu_stage4=False, dedupe_threshold=None)
+    assert seen == [11, 12, 13]
 
 
-def test_f1_local_linear_build_hnsw_index_call_passes_random_state():
-    """F1 local linear build hnsw index call passes random state."""
-    import inspect
-
+def test_f1_local_linear_build_hnsw_index_call_passes_random_state(monkeypatch):
+    """The local-linear ANN index is built with the caller's seed as ``random_state``."""
     from mlframe.feature_engineering.transformer import local_linear
 
-    src = inspect.getsource(local_linear.compute_local_linear_attention)
-    assert "random_state=seed" in src
+    seen: list = []
+    real = local_linear.build_hnsw_index
+
+    def spy(*args, **kwargs):
+        """Record the random_state of every index build and delegate."""
+        seen.append(kwargs.get("random_state"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(local_linear, "build_hnsw_index", spy)
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(100, 3)).astype(np.float32)
+    y = rng.normal(size=100).astype(np.float32)
+    local_linear.compute_local_linear_attention(X, y, X[:10], None, seed=7, k=10)
+    assert seen == [7]
 
 
 # ---------------------------------------------------------------------------
@@ -60,18 +83,39 @@ def test_f1_local_linear_build_hnsw_index_call_passes_random_state():
 # ---------------------------------------------------------------------------
 
 
-def test_f2_anchor_attention_mode_a_nan_row_does_not_bucket_to_anchor_0():
-    """Mode A's OOF loop now uses np.nanargmin, matching Mode B's already-fixed pattern (source-level
-    check, since raw NaN input is rejected upfront by validate_numeric_input -- the actual trigger is
-    a NaN arising INTERNALLY mid-computation, e.g. a degenerate standardization step, not exercisable
-    without reproducing that specific internal numerical failure)."""
-    import inspect
+def test_f2_anchor_attention_mode_a_nan_row_does_not_bucket_to_anchor_0(monkeypatch):
+    """A NaN-poisoned distance row is assigned to its true nearest anchor, never silently to anchor 0, in both Mode A and Mode B."""
+    from sklearn.model_selection import KFold
 
     from mlframe.feature_engineering.transformer import anchor_attention
 
-    src = inspect.getsource(anchor_attention.compute_anchor_attention)
-    assert src.count("train_assign = np.nanargmin(") == 2, "Mode A and Mode B must BOTH use nanargmin, not plain argmin"
-    assert "train_assign = np.argmin(" not in src
+    assigned: list = []
+    real_dists = anchor_attention._squared_dists
+    real_aggs = anchor_attention._compute_anchor_aggregates
+
+    def poisoned_dists(X, anchors):
+        """Poison row 0 of the train-side matrix: NaN at anchor 0, anchor 1 the true minimum."""
+        d = np.array(real_dists(X, anchors), copy=True)
+        if X.shape[0] in (90, 60):
+            d[0, :] = 9.0
+            d[0, 0] = np.nan
+            d[0, 1] = 0.1
+        return d
+
+    def spy_aggs(y_train, assignments, n_anchors, aggregates):
+        """Record the hard assignments handed to the aggregate step."""
+        assigned.append(np.array(assignments, copy=True))
+        return real_aggs(y_train, assignments, n_anchors=n_anchors, aggregates=aggregates)
+
+    monkeypatch.setattr(anchor_attention, "_squared_dists", poisoned_dists)
+    monkeypatch.setattr(anchor_attention, "_compute_anchor_aggregates", spy_aggs)
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(90, 4)).astype(np.float32)
+    y = rng.normal(size=90).astype(np.float32)
+    anchor_attention.compute_anchor_attention(X, y, X[:30], None, seed=1, n_anchors=4)
+    anchor_attention.compute_anchor_attention(X, y, None, KFold(3), seed=1, n_anchors=4)
+    assert len(assigned) == 4
+    assert all(int(a[0]) == 1 for a in assigned), [int(a[0]) for a in assigned]
 
 
 # ---------------------------------------------------------------------------
@@ -155,14 +199,17 @@ def test_f4_borderline_smote_self_match_still_excluded_when_no_duplicates():
 
 
 def test_f5_geodesic_kgraph_empty_target_uses_far_sentinel_not_near():
-    """F5 geodesic kgraph empty target uses far sentinel not near."""
-    import inspect
+    """With no positive-class rows the geodesic distance to the target set is the 'very far' 1e6 sentinel for every query, never 0 ('very close')."""
+    from mlframe.feature_engineering.transformer.geodesic_kgraph import compute_geodesic_kgraph_features
 
-    from mlframe.feature_engineering.transformer import geodesic_kgraph
-
-    src = inspect.getsource(geodesic_kgraph)
-    assert "np.full(n_t, 1e6" in src
-    assert "np.zeros(n_t, dtype=np.float32)" not in src.split("else:")[1][:200] if "else:" in src else True
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(60, 3)).astype(np.float32)
+    y = np.zeros(60, dtype=np.float32)
+    out = compute_geodesic_kgraph_features(X, y, X[:8], None, seed=0, task="binary")
+    values = out.to_numpy()
+    assert values.shape[0] == 8
+    assert np.all(values[:, :3] == np.float32(1e6)) or np.allclose(values[:, :3], 1e6)
+    assert not np.any(values == 0.0)
 
 
 # ---------------------------------------------------------------------------
@@ -243,27 +290,23 @@ def test_f7_gradient_normal_path_still_matches_finite_difference():
 # ---------------------------------------------------------------------------
 
 
-def test_p8_local_curvature_logs_on_fit_failure(caplog):
-    """P8 local curvature logs on fit failure."""
+def test_p8_local_curvature_logs_on_fit_failure(caplog, monkeypatch):
+    """A per-row local fit failure is logged at INFO and the row is left as zeros."""
     import mlframe.feature_engineering.transformer.local_curvature as lc
 
-    # Force a singular-matrix failure by feeding degenerate (all-identical) neighbour rows.
-    rng = np.random.default_rng(0)
-    n, d = 30, 2
-    X = np.zeros((n, d), dtype=np.float32)  # every row identical -> lstsq degenerate for some k
-    y = rng.normal(size=n).astype(np.float32)
+    def failing_lstsq(*args, **kwargs):
+        """Simulate a singular local design matrix."""
+        raise np.linalg.LinAlgError("singular")
 
+    monkeypatch.setattr(np.linalg, "lstsq", failing_lstsq)
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(30, 2)).astype(np.float32)
+    y = rng.normal(size=30).astype(np.float32)
     with caplog.at_level(logging.INFO, logger=lc.__name__):
-        try:
-            lc.compute_local_curvature_features(X, y, X_query=X[:5], splitter=None, seed=0, k=10)
-        except Exception:
-            pass
-    # Whether or not this particular degenerate input actually triggers the except path, the source
-    # must contain the logging call (behavioral coverage of the actually-triggerable case is
-    # exercised via the source-level assertion below, which is deterministic regardless of whether
-    # THIS random draw happens to hit a singular matrix).
-    import inspect
-    assert "logger.info" in inspect.getsource(lc)
+        out = lc.compute_local_curvature_features(X, y, X_query=X[:5], splitter=None, seed=0, k_neighbors=10)
+    messages = [r.getMessage() for r in caplog.records if "fit failed on row" in r.getMessage()]
+    assert len(messages) == 5
+    assert np.all(out.to_numpy() == 0.0)
 
 
 def test_p9_apriori_itemsets_logs_on_fpgrowth_failure(monkeypatch, caplog):
@@ -325,14 +368,16 @@ def test_p10_logistic_regression_fallback_logs(modname, funcname, monkeypatch, c
 # ---------------------------------------------------------------------------
 
 
-def test_p13_utils_docstring_no_longer_claims_stale_blockwise_impl():
-    """P13 utils docstring no longer claims stale blockwise impl."""
-    import inspect
+def test_p13_sigma_median_heuristic_matches_exact_median_pairwise_distance():
+    """sigma_median_heuristic returns the median pairwise distance of the sample (the quantity its docstring promises)."""
+    from scipy.spatial.distance import pdist
 
     from mlframe.feature_engineering.transformer import _utils
 
-    src = inspect.getsource(_utils.sigma_median_heuristic)
-    assert "Always use the block-wise pairwise reduction" not in src
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(60, 4)).astype(np.float64)
+    sigma = _utils.sigma_median_heuristic(X, seed=0)
+    assert sigma == pytest.approx(float(np.median(pdist(X))), rel=1e-5)
 
 
 # ---------------------------------------------------------------------------

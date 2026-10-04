@@ -14,6 +14,7 @@ import inspect
 
 import numpy as np
 import pytest
+from tests._third_party_compat import skip_if_catboost_encoder_tags_broken
 
 # ----------------------------------------------------------------------------
 # FS-P1-1 — groups kwarg threaded into pre_pipeline.fit_transform.
@@ -419,13 +420,9 @@ def test_fe_p2_5_default_catboost_encoder_output_deterministic():
     # ``__sklearn_tags__`` super() chain inside CatBoostEncoder.fit; skip on
     # the upstream-incompat path (same guard as
     # ``test_kfold_helper_produces_different_encoding_than_fit_all`` etc).
-    try:
-        out1 = enc1.fit_transform(df, y)
-        out2 = enc2.fit_transform(df, y)
-    except AttributeError as exc:
-        if "__sklearn_tags__" in str(exc):
-            pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
-        raise
+    skip_if_catboost_encoder_tags_broken()
+    out1 = enc1.fit_transform(df, y)
+    out2 = enc2.fit_transform(df, y)
     # Same seed -> same encoding.
     np.testing.assert_array_equal(out1.to_numpy(), out2.to_numpy())
 

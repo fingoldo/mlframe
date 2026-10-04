@@ -486,12 +486,8 @@ class TestMlpDropPerGroupHelpers:
 
     def test_drop_columns_for_mlp_polars(self) -> None:
         """Drop columns for mlp polars."""
-        try:
-            import polars as pl
-        except ImportError:
-            import pytest
+        import polars as pl
 
-            pytest.skip("polars not installed")
         from mlframe.training.core._phase_train_one_target_body import (
             _drop_columns_for_mlp,
         )

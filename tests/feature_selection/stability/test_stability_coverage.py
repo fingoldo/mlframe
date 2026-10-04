@@ -218,11 +218,7 @@ class TestStabilityMRMRDeterminism:
             # loky BrokenProcessPool / TerminatedWorkerError / pickle-transport
             # errors during heavy concurrent test load. The Parallel/loky spawn
             # path was entered - that's what this test asserts existed.
-            _msg = str(exc).lower()
-            _name = type(exc).__name__.lower()
-            if any(s in _msg for s in ("brokenprocesspool", "terminatedworker", "pickle", "transport", "_remotetraceback")) or any(
-                s in _name for s in ("brokenprocesspool", "terminatedworker")
-            ):
+            if any(c.__name__ in ("BrokenProcessPool", "TerminatedWorkerError") for c in type(exc).__mro__):
                 pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}: {exc}")
             raise
         np.testing.assert_array_equal(seq.selection_probabilities_, par.selection_probabilities_)

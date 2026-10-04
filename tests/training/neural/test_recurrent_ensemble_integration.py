@@ -92,7 +92,7 @@ def test_recurrent_member_joins_ensemble_after_integration(tmp_path):
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             **_FAST_SUITE_KWARGS,
         )
-    except (NotImplementedError, ImportError) as e:
+    except ImportError as e:
         pytest.skip(f"recurrent path not fully wired in this env: {e}")
 
     assert trained is not None
@@ -163,7 +163,7 @@ def test_recurrent_skipped_gracefully_when_predict_fails(monkeypatch, tmp_path):
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models"),
             **_FAST_SUITE_KWARGS,
         )
-    except (NotImplementedError, ImportError) as e:
+    except ImportError as e:
         pytest.skip(f"recurrent path not fully wired in this env: {e}")
 
     # When predict is forced to None on every split, the helper appends the raw model (legacy path) but does

@@ -244,11 +244,7 @@ def test_get_fleuret_criteria_confidence_parallel_with_explicit_pool():
         # loky BrokenProcessPool / TerminatedWorkerError / pickle-transport
         # errors during heavy concurrent test load. The Parallel/loky spawn
         # path has already been exercised - the only thing this test cares about.
-        _msg = str(exc).lower()
-        _name = type(exc).__name__.lower()
-        if any(s in _msg for s in ("brokenprocesspool", "terminatedworker", "pickle", "transport", "_remotetraceback")) or any(
-            s in _name for s in ("brokenprocesspool", "terminatedworker")
-        ):
+        if any(c.__name__ in ("BrokenProcessPool", "TerminatedWorkerError") for c in type(exc).__mro__):
             pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}: {exc}")
         raise
     assert len(out) == 3

@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
+from tests._third_party_compat import skip_if_catboost_encoder_tags_broken
 
 # ============================================================================
 # _numerical_stable.py (138 missing -> aim 80%)
@@ -2326,22 +2327,18 @@ class TestBruteforceAdvancedCoverage:
         # ``__sklearn_tags__`` super() chain inside CatBoostEncoder.fit; skip
         # on the upstream-incompat path (same guard as sibling tests, e.g.
         # test_regression_w2c_dtype_gate.py).
-        try:
-            model = run_pysr_feature_engineering(
-                df=df,
-                target_col="y",
-                sample_size=n,
-                encode_categoricals=True,
-                leakage_free=True,
-                leakage_free_n_splits=3,
-                random_state=0,
-                pysr_params_override=mini,
-                verbose=0,
-            )
-        except AttributeError as exc:
-            if "__sklearn_tags__" in str(exc):
-                pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
-            raise
+        skip_if_catboost_encoder_tags_broken()
+        model = run_pysr_feature_engineering(
+            df=df,
+            target_col="y",
+            sample_size=n,
+            encode_categoricals=True,
+            leakage_free=True,
+            leakage_free_n_splits=3,
+            random_state=0,
+            pysr_params_override=mini,
+            verbose=0,
+        )
         assert model.equations_ is not None
 
     def test_run_pysr_drop_categoricals_branch(self):
@@ -2437,11 +2434,7 @@ class TestBruteforceHelper:
         # category_encoders >= 2.6 / sklearn < 1.6 combos (Python 3.9 CI) have
         # a broken ``__sklearn_tags__`` super() chain in CatBoostEncoder.fit;
         # skip on that runner-specific upstream incompat.
-        try:
-            out = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=4, random_state=0)
-        except AttributeError as exc:
-            if "__sklearn_tags__" in str(exc):
-                pytest.skip(f"category_encoders / sklearn version mismatch on this runner: {exc}.")
-            raise
+        skip_if_catboost_encoder_tags_broken()
+        out = _kfold_target_encode(df, cols=["cat"], target=target, n_splits=4, random_state=0)
         assert out.shape == (n, 1)
         assert "cat" in out.columns

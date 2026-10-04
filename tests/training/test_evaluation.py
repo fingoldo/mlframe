@@ -126,11 +126,9 @@ class TestGetModelFeatureImportances:
 
         importances = get_model_feature_importances(model, columns)
 
-        assert importances is not None
         assert isinstance(importances, np.ndarray)
-        assert len(importances) == len(columns)
-        assert np.all(importances >= 0)  # Tree importances are non-negative
-        assert np.sum(importances) > 0  # Should have some importance
+        np.testing.assert_allclose(importances, model.feature_importances_)
+        assert set(np.argsort(importances)[-2:]) == {0, 1}, "the two signal columns must rank first"
 
     def test_linear_model_has_coefficients(self, trained_regressor):
         """Test extraction from linear model with coef_."""
@@ -138,11 +136,9 @@ class TestGetModelFeatureImportances:
 
         importances = get_model_feature_importances(model, columns)
 
-        assert importances is not None
         assert isinstance(importances, np.ndarray)
-        assert len(importances) == len(columns)
-        # Linear coefficients can be negative
-        assert not np.all(importances == 0)
+        np.testing.assert_allclose(importances, np.asarray(model.coef_).reshape(-1))
+        assert set(np.argsort(np.abs(importances))[-2:]) == {0, 1}, "the two signal columns must have the largest coefficients"
 
     def test_logistic_regression_coefficients(self, trained_classifier):
         """Test extraction from logistic regression."""
@@ -150,8 +146,7 @@ class TestGetModelFeatureImportances:
 
         importances = get_model_feature_importances(model, columns)
 
-        assert importances is not None
-        assert len(importances) == len(columns)
+        np.testing.assert_allclose(importances, np.asarray(model.coef_).reshape(-1))
 
     def test_return_dataframe(self, trained_tree_regressor):
         """Test return_df=True returns DataFrame."""
@@ -160,9 +155,8 @@ class TestGetModelFeatureImportances:
         importances = get_model_feature_importances(model, columns, return_df=True)
 
         assert isinstance(importances, pd.DataFrame)
-        assert "feature" in importances.columns
-        assert "importance" in importances.columns
-        assert len(importances) == len(columns)
+        assert list(importances["feature"]) == columns
+        np.testing.assert_allclose(importances["importance"].to_numpy(), model.feature_importances_)
 
     def test_model_without_importances(self):
         """Test model without feature_importances_ or coef_ returns None."""
@@ -182,8 +176,7 @@ class TestGetModelFeatureImportances:
 
         importances = get_model_feature_importances(pipeline, columns)
 
-        assert importances is not None
-        assert len(importances) == len(columns)
+        np.testing.assert_allclose(importances, np.asarray(model.coef_).reshape(-1))
 
     def test_multiclass_coefficients(self):
         """Test extraction from multiclass classifier (2D coef_)."""
@@ -197,9 +190,7 @@ class TestGetModelFeatureImportances:
 
         importances = get_model_feature_importances(model, columns)
 
-        assert importances is not None
-        # For multiclass, should return last row of coef_
-        assert len(importances) == len(columns)
+        np.testing.assert_allclose(importances, np.abs(model.coef_).mean(axis=0))
 
 
 class TestPermutationFallbackAndNestedUnwrap:
@@ -249,10 +240,9 @@ class TestPermutationFallbackAndNestedUnwrap:
             X=X,
             y=y,
         )
-        assert importances is not None
         assert importances.shape == (4,)
-        # Permutation importances should be non-trivial for the true features.
-        assert np.any(importances > 0)
+        assert int(np.argmax(importances)) == int(np.argmax(np.abs(model._w))), "permutation importance must rank the largest-weight feature first"
+        assert np.all(importances >= 0)
 
     def test_transformed_target_regressor_unwraps_to_ridge(self, trained_regressor):
         """``TransformedTargetRegressor.regressor_`` carries the inner
@@ -267,8 +257,7 @@ class TestPermutationFallbackAndNestedUnwrap:
         )
         ttr.fit(df.values, np.asarray(y))
         importances = get_model_feature_importances(ttr, columns)
-        assert importances is not None
-        assert len(importances) == len(columns)
+        np.testing.assert_allclose(importances, np.asarray(ttr.regressor_.coef_).reshape(-1))
 
     def test_pipeline_then_ttr_double_wrap_unwraps(self, trained_regressor):
         """Pipeline -> final step TTR -> regressor_ unwrap chain."""
@@ -283,8 +272,7 @@ class TestPermutationFallbackAndNestedUnwrap:
         pipe = Pipeline([("scaler", StandardScaler()), ("ttr", ttr)])
         pipe.fit(df.values, np.asarray(y))
         importances = get_model_feature_importances(pipe, columns)
-        assert importances is not None
-        assert len(importances) == len(columns)
+        np.testing.assert_allclose(importances, np.asarray(pipe.steps[-1][1].regressor_.coef_).reshape(-1))
 
     def test_permutation_skipped_when_native_fi_present(self, trained_tree_regressor):
         """Native FI must dominate; passing X/y MUST NOT trigger the

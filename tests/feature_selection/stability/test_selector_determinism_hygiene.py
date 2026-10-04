@@ -39,6 +39,7 @@ import sys
 import numpy as np
 import pytest
 
+from tests._known_gap import known_gap
 from tests.feature_selection._biz_val_synth import make_signal_plus_noise, as_df
 from tests.feature_selection._selector_factories import (
     SELECTOR_SPECS,
@@ -108,7 +109,7 @@ def test_fit_does_not_mutate_global_numpy_rng(spec):
 
     identical = _global_state_equal(before, after)
     if spec.name in _RNG_LEAKERS:
-        pytest.xfail(reason=f"PROD BUG: {spec.name}.fit mutates the global numpy RNG even when seeded")
+        known_gap(f"PROD BUG: {spec.name}.fit mutates the global numpy RNG even when seeded", gap_closed=identical)
     assert identical, (
         f"{spec.name}.fit mutated the global numpy RNG stream despite a fixed seed; "
         f"use np.random.default_rng(seed) / a local Generator instead of np.random.seed/shuffle/...."
@@ -200,9 +201,7 @@ def test_n_jobs_parity_same_selection(spec_key):
             pytest.skip(f"Windows paging-file overflow under concurrent load: {exc}")
         raise
     except Exception as exc:  # loky transport flake under heavy concurrent load.
-        msg = str(exc).lower()
-        name = type(exc).__name__.lower()
-        if any(s in msg for s in ("brokenprocesspool", "terminatedworker", "transport")) or any(s in name for s in ("brokenprocesspool", "terminatedworker")):
+        if any(c.__name__ in ("BrokenProcessPool", "TerminatedWorkerError") for c in type(exc).__mro__):
             pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}")
         raise
 

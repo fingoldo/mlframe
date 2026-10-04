@@ -30,10 +30,7 @@ cupy = pytest.importorskip("cupy") if _CUDA_AVAILABLE else None
 if not (_CUDA_AVAILABLE and _gpu_available()):
     pytest.skip("cupy/CUDA not available", allow_module_level=True)
 
-from mlframe.feature_selection.filters._fe_resident_operands import (
-    _FE_RESIDENT_OPERANDS,
-    clear_fe_resident_operands,
-)
+from mlframe.feature_selection.filters._fe_resident_operands import clear_fe_resident_operands
 from mlframe.feature_selection.filters.hermite_fe import (
     _plugin_mi_classif_batch_cuda,
     _plugin_mi_classif_batch_cuda_resident,
@@ -123,7 +120,6 @@ def test_plugin_mi_classif_batch_cuda_bit_identical_to_prefix_raw_path():
     old_result = np.asarray(_plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu_raw, 20))
 
     np.testing.assert_array_equal(new_result, old_result)
-    assert len(_FE_RESIDENT_OPERANDS) >= 0  # sanity: cache module imported/usable
 
 
 if __name__ == "__main__":

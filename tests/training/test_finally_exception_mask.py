@@ -72,14 +72,34 @@ def _read(rel: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_locking_release_wrapped_in_try_except() -> None:
-    """Locking release wrapped in try except."""
-    src = _read("training/feature_handling/locking.py")
-    # The pre-fix bare release() inside the outer try is gone.
-    # The post-fix wraps it explicitly.
-    assert "PIDAwareFileLock.release() failed for" in src
-    # And the finally still only sets _held = False.
-    assert "self._held = False" in src
+def test_locking_release_wrapped_in_try_except(tmp_path, caplog) -> None:
+    """A failing ``release()`` is logged as a warning, never masks the body's own exception, and still clears the held flag."""
+    import logging
+
+    import pytest
+
+    pytest.importorskip("filelock")
+    from mlframe.training.feature_handling.locking import PIDAwareFileLock
+
+    lock = PIDAwareFileLock(str(tmp_path / "probe.lock"), timeout=5.0)
+    real_release = []
+
+    class _BodyError(RuntimeError):
+        """The in-flight exception that must survive the failing release."""
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(_BodyError):
+            with lock:
+                def _boom(*args, **kwargs):
+                    """Simulate a filelock release failure."""
+                    raise OSError("release failed")
+
+                real_release.append(lock._lock.release)  # type: ignore[union-attr]
+                lock._lock.release = _boom  # type: ignore[union-attr]
+                raise _BodyError("body failure")
+    real_release[0]()
+    assert any("PIDAwareFileLock.release() failed" in r.getMessage() for r in caplog.records)
+    assert lock._held is False
 
 
 def test_composite_cache_evict_forwards_exc_info() -> None:

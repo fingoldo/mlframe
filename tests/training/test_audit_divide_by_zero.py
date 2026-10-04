@@ -51,14 +51,16 @@ def _read(rel: str) -> str:
 
 
 def test_numerical_weighted_arithmetic_mean_guards_zero_sum() -> None:
-    """The numba kernels for weighted_arithmetic_mean / quadratic / std moved
-    into the sibling _numerical_numba.py during the 2026-05-21 monolith
-    split (numerical.py re-exports via from ._numerical_numba import ...)."""
-    src = _read("feature_engineering/numerical.py") + "\n" + _read("feature_engineering/_numerical_numba.py")
-    assert "if sum_weights == 0.0:\n            weighted_arithmetic_mean = np.nan" in src
-    # Two more sites in the same kernel family (quadratic + std) must also
-    # have the guard.
-    assert src.count("if sum_weights == 0.0:") >= 4
+    """An all-zero weight vector yields a NaN weighted mean (no ZeroDivisionError), while positive weights give the true weighted average."""
+    from mlframe.feature_engineering.numerical import compute_numerical_aggregates_numba
+
+    arr = np.linspace(1.0, 10.0, 20)
+    zero_weights = compute_numerical_aggregates_numba(arr, weights=np.zeros(20))
+    assert np.isnan(zero_weights[1])
+    assert zero_weights[0] == pytest.approx(float(arr.mean()))
+    weights = np.abs(np.random.default_rng(0).standard_normal(20)) + 0.1
+    weighted = compute_numerical_aggregates_numba(arr, weights=weights)
+    assert weighted[1] == pytest.approx(float(np.average(arr, weights=weights)))
 
 
 def test_fast_r2_survives_a_fold_whose_weights_are_all_zero() -> None:
@@ -157,9 +159,18 @@ def test_woe_unseen_category_uses_the_prior_log_odds_not_zero() -> None:
 
 
 def test_info_theory_guards_empty_factors_data() -> None:
-    """Info theory guards empty factors data."""
-    src = _read("feature_selection/filters/info_theory.py")
-    assert "if n_samples == 0:\n        out[:] = 0.0\n        return out" in src
+    """batch_pair_mi_prange on a zero-row matrix returns the zero-information baseline for every pair instead of dividing by zero."""
+    from mlframe.feature_selection.filters.info_theory._batch_kernels import batch_pair_mi_prange
+
+    out = batch_pair_mi_prange(
+        np.empty((0, 3), dtype=np.int32),
+        np.array([0, 1], dtype=np.int64),
+        np.array([1, 2], dtype=np.int64),
+        np.array([2, 2, 2], dtype=np.int32),
+        np.empty(0, dtype=np.int32),
+        np.array([0.5, 0.5], dtype=np.float64),
+    )
+    np.testing.assert_array_equal(out, np.zeros(2))
 
 
 def test_batch_pair_mi_gpu_host_guards_empty() -> None:
@@ -169,10 +180,28 @@ def test_batch_pair_mi_gpu_host_guards_empty() -> None:
 
 
 def test_kernels_njit_softmax_temp_guarded() -> None:
-    """Kernels njit softmax temp guarded."""
-    src = _read("feature_engineering/transformer/_kernels_njit.py")
-    # The fix mirrors the sibling kernel's pattern: temp > eps else 1.0.
-    assert "1.0 / softmax_temp if softmax_temp > 1e-12 else 1.0" in src
+    """A zero softmax temperature is treated as 1.0: the outputs are finite and equal those of temperature 1.0."""
+    from mlframe.feature_engineering.transformer._kernels_njit import row_attention_stage4_njit
+
+    rng = np.random.default_rng(0)
+    q = rng.normal(size=(2, 3)).astype(np.float32)
+    k = rng.normal(size=(5, 3)).astype(np.float32)
+    y = rng.normal(size=5).astype(np.float32)
+    topk = np.array([[0, 1, 2, 3], [1, 2, 3, 4]], dtype=np.int32)
+
+    def run(temp):
+        """Run the kernel at the given temperature and return its three outputs."""
+        y_mean = np.zeros(2, dtype=np.float32)
+        y_std = np.zeros(2, dtype=np.float32)
+        x_mean = np.zeros((2, 3), dtype=np.float32)
+        row_attention_stage4_njit(q, k, y, topk, temp, y_mean, y_std, x_mean)
+        return y_mean, y_std, x_mean
+
+    guarded = run(0.0)
+    reference = run(1.0)
+    for got, want in zip(guarded, reference):
+        assert np.all(np.isfinite(got))
+        np.testing.assert_allclose(got, want)
 
 
 # ---------------------------------------------------------------------------

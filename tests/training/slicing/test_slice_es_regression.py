@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import running_under_xdist
+from tests.conftest import perf_time_budget
 
 
 def _make_data(seed: int = 0, n_train: int = 300, n_val: int = 200, n_test: int = 200, d: int = 5):
@@ -123,10 +123,8 @@ def test_lgb_slice_es_per_iter_overhead_under_ceiling() -> None:
     ratio = slice_wall / max(baseline_wall, 1e-3)
     # Ensure the slice callback actually ran (didn't silently fall back to legacy path) -- correctness, always checked.
     assert len(cb_slice.slice_shard_score_history) > 0
-    # Tiny-dataset wall-ratio is unreliable under ``-n`` parallel CPU contention; only assert the ceiling standalone.
-    if running_under_xdist():
-        pytest.skip("timing assertion unreliable under -n contention")
-    assert ratio < 3.5, f"slice ES overhead too high: {ratio:.2f}x (baseline {baseline_wall * 1000:.1f}ms, slice {slice_wall * 1000:.1f}ms)"
+    ceiling = perf_time_budget(3.5)
+    assert ratio < ceiling, f"slice ES overhead too high: {ratio:.2f}x (baseline {baseline_wall * 1000:.1f}ms, slice {slice_wall * 1000:.1f}ms)"
 
 
 def test_default_training_config_slice_es_disabled() -> None:

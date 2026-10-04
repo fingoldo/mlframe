@@ -2017,7 +2017,7 @@ def test_recurrent_lstm_smoke(tmp_path):
             output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
             reporting_config=_LEAN_REPORTING_CONFIG,
         )
-    except (NotImplementedError, ImportError) as e:
+    except ImportError as e:
         pytest.skip(f"recurrent path not fully wired in this env: {e}")
     # Smoke: trained dict may be empty (LSTM may have its own
     # bookkeeping outside ``trained``), but the call must complete.

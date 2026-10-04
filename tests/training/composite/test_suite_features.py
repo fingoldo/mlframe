@@ -12,12 +12,7 @@ from sklearn.metrics import r2_score
 from mlframe.training.composite.spec import CompositeSpec
 from mlframe.training.composite.suite_features import CompositeFeatureGenerator
 
-try:
-    import polars as pl
-
-    _HAS_POLARS = True
-except ImportError:  # pragma: no cover
-    _HAS_POLARS = False
+import polars as pl
 
 
 def _make_spec(base_column: str = "base") -> CompositeSpec:
@@ -124,7 +119,6 @@ def test_transform_without_final_fit_raises():
         gen.transform(df)
 
 
-@pytest.mark.skipif(not _HAS_POLARS, reason="polars not installed")
 def test_polars_frame_support():
     """Polars frame support."""
     df, y = _base_dominated_data(n=500)

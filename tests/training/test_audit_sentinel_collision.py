@@ -78,14 +78,6 @@ def test_a_missing_classification_label_is_refused_before_training() -> None:
         raise_on_missing_labels({TargetTypes.BINARY_CLASSIFICATION: {"y_bin_gte_0.5": np.array([1.0, np.nan, 0.0], dtype=np.float32)}})
 
 
-def test_pd_ordinal_encoder_default_uses_minus_one() -> None:
-    """Pd ordinal encoder default uses minus one."""
-    src = _read("estimators/custom.py")
-    assert "encoded_missing_value=-1" in src
-    # transform must guard against NaN -> int32 platform-dependent behaviour.
-    assert "NaN codes in output" in src
-
-
 def test_dummy_baselines_factorize_filters_negative_codes() -> None:
     # The LTR factorize fast-path was moved to the
     # ``_dummy_compute_helpers.py`` sibling when ``dummy_baselines.py`` was

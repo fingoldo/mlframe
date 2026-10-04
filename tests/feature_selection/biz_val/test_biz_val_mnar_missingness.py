@@ -416,7 +416,7 @@ def test_biz_val_rf_wrapper_misses_mnar_without_indicator_is_fs_gap():
     """FS GAP: with the raw (imputed) MNAR value and NO indicator column, the
     RF-core wrappers cannot recover the missingness signal -- the value is
     pure noise once imputed, so no downstream importance survives. Pinned with
-    a non-strict xfail to document that the indicator MUST be emitted upstream
+    an assertion that the imputed value alone is uninformative, documenting that the indicator MUST be emitted upstream
     (the wrappers do not synthesise it themselves like MRMR's L37 path)."""
     df, ys = _build_mnar(seed=0, n=700)
     df_imp = _impute_mean(df)  # value only, no is_missing__ column
@@ -429,4 +429,4 @@ def test_biz_val_rf_wrapper_misses_mnar_without_indicator_is_fs_gap():
     val = df_imp["mnar"].to_numpy().reshape(-1, 1)
     proba = LogisticRegression().fit(val, ys).predict_proba(val)[:, 1]
     auc = roc_auc_score(ys, proba)
-    pytest.xfail(f"FS GAP: RF-core wrappers miss MNAR without a supplied is_missing__ indicator (imputed-value AUC {auc:.3f} ~ 0.5, selected={sel})")
+    assert auc < 0.6, f"imputed MNAR value alone carries signal (AUC {auc:.3f}); the indicator-required premise no longer holds, selected={sel}"

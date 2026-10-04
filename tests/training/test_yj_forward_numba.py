@@ -38,7 +38,7 @@ import time
 import numpy as np
 import pytest
 
-from tests.conftest import running_under_xdist
+from tests.conftest import perf_speedup_floor
 
 from mlframe.training.composite.transforms import unary as cut
 from mlframe.training.composite.transforms.unary import (
@@ -99,14 +99,29 @@ def test_tiny_input_falls_back_to_numpy(monkeypatch) -> None:
     assert calls == [], f"expected numba kernel skipped on n=100 < {cut._YJ_NUMBA_MIN_N}; but got {len(calls)} call(s)"
 
 
+def test_yj_forward_dispatches_to_numba_kernel_at_100k(monkeypatch) -> None:
+    """Work count: at n=100k the dispatcher hands the whole column to the numba kernel exactly once per call."""
+    calls: list[int] = []
+    real = cut._yj_forward_numba_kernel
+
+    def _spy(y, lam):  # type: ignore[no-untyped-def]
+        """Record the input length and delegate to the real kernel."""
+        calls.append(len(y))
+        return real(y, lam)
+
+    monkeypatch.setattr(cut, "_yj_forward_numba_kernel", _spy)
+    y = np.random.default_rng(0).standard_normal(100_000).astype(np.float64)
+    for lam in (0.5, 1.5):
+        _yj_forward(y, lam)
+    assert calls == [100_000, 100_000]
+
+
 def test_yj_forward_speedup_gate() -> None:
     """At n=100k the dispatcher (numba path) must be >= 2x faster than
     the pure numpy reference across a 12-step Brent-like sweep. Soft
     gate -- production speedup is 5-10x at n>=50k (see docstring).
     A future change that accidentally raises _YJ_NUMBA_MIN_N too high
     or disables the kernel trips this sensor."""
-    if running_under_xdist():
-        pytest.skip("timing unreliable under -n contention")
     rng = np.random.default_rng(0)
     y = rng.standard_normal(100_000).astype(np.float64)
     lams = np.linspace(-1.8, 3.8, 12).tolist()
@@ -114,16 +129,17 @@ def test_yj_forward_speedup_gate() -> None:
     _ = _yj_forward(y, 1.0)
 
     def _time(fn):
-        """Times 3 repetitions of fn over the full lambda sweep and returns the median wall time."""
+        """Times 3 repetitions of fn over the full lambda sweep and returns the best wall time."""
         t = []
         for _ in range(3):
             s = time.perf_counter()
             for lam in lams:
                 fn(y, lam)
             t.append(time.perf_counter() - s)
-        return sorted(t)[1]
+        return min(t)
 
     numpy_s = _time(_yj_forward_numpy)
     disp_s = _time(_yj_forward)
     speedup = numpy_s / max(disp_s, 1e-9)
-    assert speedup >= 2.0, f"expected >= 2x speedup at n=100k; got numpy={numpy_s * 1000:.1f}ms dispatcher={disp_s * 1000:.1f}ms speedup={speedup:.2f}x"
+    floor = perf_speedup_floor(2.0)
+    assert speedup >= floor, f"expected >= {floor:.2f}x speedup at n=100k; got numpy={numpy_s * 1000:.1f}ms dispatcher={disp_s * 1000:.1f}ms speedup={speedup:.2f}x"

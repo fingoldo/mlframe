@@ -236,18 +236,6 @@
       "count": 1,
       "note": ""
     },
-    "training/test_audit_divide_by_zero.py::test_info_theory_guards_empty_factors_data::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_divide_by_zero.py::test_kernels_njit_softmax_temp_guarded::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_divide_by_zero.py::test_numerical_weighted_arithmetic_mean_guards_zero_sum::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
     "training/test_audit_empty_input_edges.py::test_clip_to_quantiles_guards_empty_input::text held in `src`": {
       "count": 1,
       "note": ""
@@ -296,40 +284,12 @@
       "count": 3,
       "note": ""
     },
-    "training/test_audit_global_rng_mutation.py::test_ranker_fit_no_global_torch_or_np_seed::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
     "training/test_audit_if_elif_missing_else.py::test_categorize_1d_array_rejects_unknown_method::text held in `src`": {
       "count": 3,
       "note": ""
     },
     "training/test_audit_if_elif_missing_else.py::test_extractors_display_diagnostic_initialises_desc_data::text held in `src`": {
       "count": 2,
-      "note": ""
-    },
-    "training/test_audit_int_overflow_wraparound.py::test_categorize_dataset_no_longer_silent_truncate::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
-    "training/test_audit_int_overflow_wraparound.py::test_mi_int8_cast_has_range_validation::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_int_overflow_wraparound.py::test_recurrent_classifier_no_hardcoded_int8_argmax::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_int_overflow_wraparound.py::test_robustness_bins_uses_range_aware_dtype::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_is_vs_eq_truth_check.py::test_compute_rff_features_accepts_numpy_bool_standardize::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
-    "training/test_audit_is_vs_eq_truth_check.py::test_row_attention_stage4_backend_handles_numpy_bool::text held in `src`": {
-      "count": 3,
       "note": ""
     },
     "training/test_audit_is_vs_eq_truth_check.py::test_screen_use_simple_mode_uses_not_not_is_false::text held in `src`": {
@@ -354,46 +314,6 @@
     },
     "training/test_audit_isinstance_duck_typing.py::test_pipeline_filter_to_numeric_handles_polars::text held in `src`": {
       "count": 4,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_aggregating_validation_callback_calls_super_init::text held in `helper_idx`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_aggregating_validation_callback_calls_super_init::text held in `snippet`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_es_transformed_target_regressor_calls_super_init::text held in `helper_idx`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_es_transformed_target_regressor_calls_super_init::text held in `snippet`": {
-      "count": 3,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_group_batch_sampler_calls_super_init::text held in `helper_idx`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_group_batch_sampler_calls_super_init::text held in `snippet`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_ranker_dataset_calls_super_init::text held in `helper_idx`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_ranker_dataset_calls_super_init::text held in `snippet`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_torch_dataset_calls_super_init::text held in `helper_idx`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_missing_super_init.py::test_torch_dataset_calls_super_init::text held in `snippet`": {
-      "count": 1,
       "note": ""
     },
     "training/test_audit_mixed_type_comparison.py::test_custom_feature_selector_classes_sort_dtype_aware::text held in `src`": {
@@ -469,10 +389,6 @@
       "note": ""
     },
     "training/test_audit_sentinel_collision.py::test_dummy_baselines_factorize_filters_negative_codes::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
-    "training/test_audit_sentinel_collision.py::test_pd_ordinal_encoder_default_uses_minus_one::text held in `src`": {
       "count": 2,
       "note": ""
     },
@@ -580,10 +496,6 @@
       "count": 3,
       "note": ""
     },
-    "training/test_audit_wrong_exception_type.py::test_bruteforce_df_type_is_typeerror::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
     "training/test_audit_wrong_exception_type.py::test_categorical_numaggs_count_mismatch_is_runtimeerror::text held in `src`": {
       "count": 1,
       "note": ""
@@ -592,16 +504,8 @@
       "count": 1,
       "note": ""
     },
-    "training/test_audit_wrong_exception_type.py::test_neural_base_period_type_is_typeerror::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
     "training/test_audit_wrong_exception_type.py::test_neural_flat_batch_format_is_typeerror::text held in `src`": {
       "count": 1,
-      "note": ""
-    },
-    "training/test_audit_wrong_exception_type.py::test_neural_flat_validation_uses_typeerror_and_valueerror::text held in `src`": {
-      "count": 2,
       "note": ""
     },
     "training/test_audit_wrong_exception_type.py::test_not_fitted_uses_notfittederror::text held in `line`": {
@@ -609,14 +513,6 @@
       "note": ""
     },
     "training/test_audit_wrong_exception_type.py::test_notfittederror_is_importable_in_each_file::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_wrong_exception_type.py::test_predict_models_path_type_is_typeerror::text held in `snippet`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_wrong_exception_type.py::test_ranking_unknown_flavor_is_valueerror::text held in `src`": {
       "count": 1,
       "note": ""
     },
@@ -762,10 +658,6 @@
     },
     "training/test_finally_exception_mask.py::test_composite_cache_evict_forwards_exc_info::text held in `src`": {
       "count": 3,
-      "note": ""
-    },
-    "training/test_finally_exception_mask.py::test_locking_release_wrapped_in_try_except::text held in `src`": {
-      "count": 2,
       "note": ""
     },
     "training/test_finally_exception_mask.py::test_pipeline_temp_target_drop_wrapped::text held in `src`": {

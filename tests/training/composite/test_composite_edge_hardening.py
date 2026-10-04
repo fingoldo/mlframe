@@ -30,13 +30,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from mlframe.training.composite import CompositeTargetEstimator
 from mlframe.training.composite.estimator._predict import _finite_median_fallback
 
-try:
-    import polars as pl  # type: ignore
-
-    _HAS_POLARS = True
-except ImportError:  # pragma: no cover - polars optional
-    pl = None  # type: ignore
-    _HAS_POLARS = False
+import polars as pl
 
 
 class _LinearInner(BaseEstimator, RegressorMixin):
@@ -71,7 +65,7 @@ class _LinearInner(BaseEstimator, RegressorMixin):
     @staticmethod
     def _to_matrix(X) -> np.ndarray:
         """To matrix."""
-        if _HAS_POLARS and isinstance(X, pl.DataFrame):
+        if isinstance(X, pl.DataFrame):
             return X.to_numpy().astype(np.float64, copy=False)
         if isinstance(X, pd.DataFrame):
             return X.to_numpy(dtype=np.float64)
@@ -273,7 +267,6 @@ class TestDuplicateRows:
 # ---------------------------------------------------------------------------
 # (4) pandas vs polars parity -> bit-identical predictions.
 # ---------------------------------------------------------------------------
-@pytest.mark.skipif(not _HAS_POLARS, reason="polars not installed")
 class TestPandasPolarsParity:
     """Groups tests covering pandas polars parity."""
     @pytest.mark.parametrize("transform_name", _PARITY_TRANSFORMS)

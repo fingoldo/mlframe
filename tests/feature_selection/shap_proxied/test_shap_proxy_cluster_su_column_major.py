@@ -20,7 +20,7 @@ import time
 import numpy as np
 import pytest
 
-from tests.conftest import running_under_xdist
+from tests.conftest import perf_speedup_floor
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     _column_marginal,
     _pack_bins_for_kernel,
@@ -202,37 +202,37 @@ def test_column_major_speedup_vs_row_major_reference():
         use_parallel=True,
     )
 
-    # row-major reference timing
-    t0 = time.perf_counter()
-    _row_major_kernel(
-        bins_rm,
-        nbins_arr,
-        freqs_packed,
-        freqs_offsets,
-        h_marginals,
-        constant_mask,
-        0.4,
-    )
-    t_rm = time.perf_counter() - t0
+    # Interleaved best-of-3 per arm: a scheduler stall that lands on one arm of a single back-to-back pair swings the ratio.
+    t_rm = t_cm = float("inf")
+    for _ in range(3):
+        t0 = time.perf_counter()
+        _row_major_kernel(
+            bins_rm,
+            nbins_arr,
+            freqs_packed,
+            freqs_offsets,
+            h_marginals,
+            constant_mask,
+            0.4,
+        )
+        t_rm = min(t_rm, time.perf_counter() - t0)
 
-    # column-major (the landed path) timing
-    t0 = time.perf_counter()
-    cluster_correlated_features_su(
-        bins,
-        threshold=0.4,
-        feature_names=names,
-        use_parallel=True,
-    )
-    t_cm = time.perf_counter() - t0
+        t0 = time.perf_counter()
+        cluster_correlated_features_su(
+            bins,
+            threshold=0.4,
+            feature_names=names,
+            use_parallel=True,
+        )
+        t_cm = min(t_cm, time.perf_counter() - t0)
 
     ratio = t_rm / max(t_cm, 1e-9)
-    if running_under_xdist():
-        pytest.skip("timing assertion unreliable under -n contention")
+    floor = perf_speedup_floor(1.7)
     # Wall-clock ratio is load-sensitive: under concurrent CPU pressure the parallel column-major kernel and the row-major reference contend for the same cores, compressing the
     # measured ratio toward 1 (observed 1.94x vs the ~2.5-3x quiet-machine baseline). The cache-locality win is real and architectural (column-major joint-histogram fill is the
     # whole point of the landed layout); bound at >=1.7x so a genuine regression (ratio ~1.0, i.e. the layout advantage gone) still trips while a busy CI host does not flake.
-    assert ratio >= 1.7, (
+    assert ratio >= floor, (
         f"column-major did not beat row-major reference: "
         f"row-major={t_rm:.3f}s, column-major={t_cm:.3f}s, ratio={ratio:.2f}x "
-        f"(need >= 1.7x at width={width}, n_samples={n_samples}; load-sensitive)"
+        f"(need >= {floor:.2f}x at width={width}, n_samples={n_samples}; load-sensitive)"
     )
