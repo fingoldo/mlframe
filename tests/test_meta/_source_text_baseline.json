@@ -16,52 +16,8 @@
       "count": 1,
       "note": ""
     },
-    "training/pipeline/test_pre_pipeline_passthrough_extraction.py::test_outer_try_body_shrunk_after_wave90::text held in `src`": {
-      "count": 4,
-      "note": ""
-    },
     "training/test_audit_assert_in_production.py::test_mrmr_invariant_no_self_target_raises_runtime_error::text held in `src`": {
       "count": 2,
-      "note": ""
-    },
-    "training/test_audit_empty_input_edges.py::test_clip_to_quantiles_guards_empty_input::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_empty_input_edges.py::test_conformal_locally_adaptive_guards_tiny_train::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_empty_input_edges.py::test_metrics_calibration_plot_guards_empty_freqs_predicted::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_file_handle_leak.py::test_deserialize_materialises_arrays_before_close::text held in `src`": {
-      "count": 4,
-      "note": ""
-    },
-    "training/test_audit_file_handle_leak.py::test_deserialize_uses_with_block_on_npzfile::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_mixed_type_comparison.py::test_optimization_sampled_inputs_sort_uses_str_key::text held in `src`": {
-      "count": 4,
-      "note": ""
-    },
-    "training/test_audit_mixed_type_comparison.py::test_polars_fixes_union_sort_uses_str_key::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_non_ascii_cp1251_logging.py::test_bench_mrmr_no_em_dash_in_print::text held in `src`": {
-      "count": 3,
-      "note": ""
-    },
-    "training/test_audit_non_ascii_cp1251_logging.py::test_pipeline_to_pandas_fallback_no_em_dash::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
-    "training/test_audit_toctou_race.py::test_feature_handling_cache_read_drops_redundant_precheck::text held in `src`": {
-      "count": 1,
       "note": ""
     },
     "training/test_call_site_kwarg_propagation.py::test_ctx_kwarg_propagates_to_inner_call_site::text held in `src`": {
@@ -94,18 +50,6 @@
     },
     "training/test_ensembling_caching_future_fixes.py::test_ordering_comment_present::text held in `src`": {
       "count": 1,
-      "note": ""
-    },
-    "training/test_prediction_envelope_clip.py::test_clip_invoked_only_when_stats_supplied::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_prediction_envelope_clip.py::test_source_has_envelope_clip_wiring::text held in `src`": {
-      "count": 2,
-      "note": ""
-    },
-    "training/test_tvt_run_audit_followups.py::test_residual_std_check_in_fit_source::text held in `src`": {
-      "count": 2,
       "note": ""
     }
   },
