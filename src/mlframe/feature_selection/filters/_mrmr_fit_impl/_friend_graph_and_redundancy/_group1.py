@@ -383,37 +383,7 @@ def _prefe_raw_sole_parent_pass(self, _prefe_raw, selected_vars, cols, data, tar
         def _rr_raw_is_significant(_idx):
             """True iff the raw column at cols-index ``_idx`` sits ABOVE its permutation
             null against y (genuine signal). Pure-screen-noise sits within (p>=alpha)."""
-            if _mi_direct_rr is None:
-                return True
-            try:
-                _sig = _mi_direct_rr(
-                    data,
-                    x=np.array([int(_idx)], dtype=np.int64),  # type: ignore[arg-type]  # the annotation (tuple) is stricter than the accepted call shape
-                    y=target_indices,
-                    factors_nbins=nbins,
-                    npermutations=32,
-                    min_nonzero_confidence=0.0,
-                    return_null_mean=True,
-                    parallelism="none",
-                    dtype=_rr_q_dtype,
-                    prefer_gpu=False,
-                )
-                return float(_sig[3]) < _rr_signif_alpha
-            except Exception as e:
-                # The permissive policy is deliberate -- never drop a screening-confirmed raw because the
-                # estimator failed -- but it silently reverts this gate to its pre-fix behaviour, and the gate
-                # exists precisely because coarse-binning plug-in MI upward-biases pure-noise columns. One
-                # throttled warning per fit, so a SYSTEMATIC estimator failure is visible rather than a debug
-                # line per candidate.
-                log_throttle(
-                    logger,
-                    "mrmr_readd_significance_probe_failed",
-                    logging.WARNING,
-                    "Marginal-MI significance re-add probe failed (%s: %s); re-adding screening-confirmed raws UNTESTED for the rest of this fit.",
-                    type(e).__name__,
-                    e,
-                )
-                return True  # significance unavailable -> permissive re-add
+            return _raw_is_significant_or_permissive(_mi_direct_rr, data, _idx, target_indices, nbins, _rr_q_dtype, _rr_signif_alpha)
 
         _sv_set = set(selected_vars)
         # C2 ADDITIVE-FUSION EXCLUSION: a raw operand the FE step's
@@ -454,6 +424,39 @@ def _prefe_raw_sole_parent_pass(self, _prefe_raw, selected_vars, cols, data, tar
                 _dropped_redundant,
             )
     return selected_vars
+
+
+def _raw_is_significant_or_permissive(mi_direct, data, idx, target_indices, nbins, q_dtype, alpha) -> bool:
+    """Whether raw column ``idx`` sits above its permutation null against y; ``True`` (re-add untested) when no estimator is available or it fails.
+
+    A failure is reported through one throttled warning per fit, because the permissive answer silently reverts the gate to its pre-fix behaviour.
+    """
+    if mi_direct is None:
+        return True
+    try:
+        sig = mi_direct(
+            data,
+            x=np.array([int(idx)], dtype=np.int64),
+            y=target_indices,
+            factors_nbins=nbins,
+            npermutations=32,
+            min_nonzero_confidence=0.0,
+            return_null_mean=True,
+            parallelism="none",
+            dtype=q_dtype,
+            prefer_gpu=False,
+        )
+        return float(sig[3]) < alpha
+    except Exception as e:
+        log_throttle(
+            logger,
+            "mrmr_readd_significance_probe_failed",
+            logging.WARNING,
+            "Marginal-MI significance re-add probe failed (%s: %s); re-adding screening-confirmed raws UNTESTED for the rest of this fit.",
+            type(e).__name__,
+            e,
+        )
+        return True
 
 
 def _engineered_operand_map(selected_vars, cols, _raw_names_set, _eng_operands_of):

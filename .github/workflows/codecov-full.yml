@@ -233,8 +233,8 @@ jobs:
           fi
           echo "Combining $i shard coverage files"
           coverage combine combined_input
-          coverage xml -o coverage-full.xml
-          coverage report
+          coverage xml --ignore-errors -o coverage-full.xml
+          coverage report --ignore-errors
 
       - name: Upload combined coverage to Codecov
         uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@559f720832f4b5151e555c9f57f7a020a41e6bf9  # v1.21.0  # pragma: allowlist secret

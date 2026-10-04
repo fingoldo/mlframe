@@ -149,3 +149,13 @@ gpus
 # --- tests/training/core/test_target_loop_group_major.py: ``train_one`` stands in for the real per-target
 # training callable and must accept its full positional signature. ---
 targets_
+
+# tests/metrics/classification/test_classification_extras.py: fixture requested only for its host-quietness check.
+quiet_host_for_ks_timing
+
+# tests/test_meta/test_broad_except_logging_benchmarks_harness.py, tests/training/test_audit_stable_sort_cluster_followup.py,
+# tests/training/test_default_via_or_trap.py: stand-in callables that must accept the real callee's signature.
+member_sel
+X_drop
+seed_indices
+models_and_predictions

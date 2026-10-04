@@ -98,6 +98,9 @@ def test_tree_path_boolean_uses_lexsort() -> None:
 
 def test_apriori_itemsets_uses_lexsort(monkeypatch) -> None:
     """Itemsets with tied lift fill the top-k slots in mining order."""
+    import pytest
+
+    pytest.importorskip("mlxtend", reason="optional dependency of the apriori feature transformer")
     import mlxtend.frequent_patterns as frequent_patterns
     import pandas as pd
 

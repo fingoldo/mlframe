@@ -295,7 +295,7 @@ def test_pipeline_temp_target_drop_wrapped(monkeypatch, caplog) -> None:
     monkeypatch.setattr(pd.DataFrame, "drop", failing_drop)
     frame = pd.DataFrame({"x1": np.arange(20.0), "x2": np.arange(20.0)[::-1]})
     cfg = PreprocessingExtensionsConfig(pysr_enabled=True, random_seed=1)
-    with caplog.at_level(logging.DEBUG):
+    with caplog.at_level(logging.DEBUG, logger="mlframe.training.pipeline"):
         added = _apply_pysr_fe(train_df=frame, val_df=None, test_df=None, y_train=np.arange(20.0), config=cfg, verbose=0)
     assert added == []
     messages = [r.getMessage() for r in caplog.records]

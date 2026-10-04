@@ -34,6 +34,22 @@ SITES = {
 }
 
 
+_GROUP1 = "_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py"
+_GROUP1_LOGGER = "mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group1"
+
+
+def _probe_with_failing_estimator(idx: int) -> bool:
+    """Run the re-add significance probe with an estimator that raises, returning its verdict."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group1 import _raw_is_significant_or_permissive
+
+    def failing_estimator(*args, **kwargs):
+        """Stand in for mi_direct and fail."""
+        raise RuntimeError("injected")
+
+    data = np.zeros((500, 4), dtype=np.int32)
+    return _raw_is_significant_or_permissive(failing_estimator, data, idx, np.array([3]), np.array([2, 2, 2, 2]), np.int32, 0.05)
+
+
 def _handlers(path: pathlib.Path) -> list:
     """Every `except` clause in the module, as AST nodes."""
     return [n for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))) if isinstance(n, ast.ExceptHandler)]
@@ -75,6 +91,39 @@ def _logs_at(handler: ast.ExceptHandler, names: set) -> bool:
 class TestThePermissiveReAddIsAudible:
     """A systematic estimator failure must not be one debug line per candidate."""
 
+    def test_a_failing_estimator_warns_naming_the_cause_and_re_adds_untested(self, caplog):
+        """An injected estimator failure yields the permissive True answer and one WARNING naming the exception type, message and consequence."""
+        from mlframe.utils.log_throttle import reset_throttle_counts
+
+        reset_throttle_counts(SITES[_GROUP1])
+        with caplog.at_level(logging.WARNING, logger=_GROUP1_LOGGER):
+            answer = _probe_with_failing_estimator(3)
+        assert answer is True
+        warned = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warned) == 1
+        msg = warned[0].getMessage()
+        assert "RuntimeError: injected" in msg and "UNTESTED" in msg
+
+    def test_a_working_estimator_still_decides_by_the_permutation_null(self, caplog):
+        """Negative control: with no failure there is no warning and the verdict follows p-value against alpha, so the fallback is not a constant True."""
+        from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group1 import _raw_is_significant_or_permissive
+
+        def estimator_with_p_value(p_value):
+            """Build an estimator stand-in whose result tuple carries ``p_value`` in slot 3."""
+
+            def estimator(*args, **kwargs):
+                """Return the fixed result tuple."""
+                return (0.0, 0.0, 0.0, p_value)
+
+            return estimator
+
+        data = np.zeros((10, 2), dtype=np.int32)
+        with caplog.at_level(logging.WARNING, logger=_GROUP1_LOGGER):
+            insig = _raw_is_significant_or_permissive(estimator_with_p_value(0.5), data, 0, np.array([1]), np.array([2, 2]), np.int32, 0.05)
+            sig = _raw_is_significant_or_permissive(estimator_with_p_value(0.001), data, 0, np.array([1]), np.array([2, 2]), np.int32, 0.05)
+        assert (sig, insig) == (True, False)
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
     def test_the_handler_warns(self):
         """It returns True -- re-adding an untested column -- so the caller has to be able to see it."""
         path = SRC / "_mrmr_fit_impl" / "_friend_graph_and_redundancy" / "_group1.py"
@@ -82,10 +131,17 @@ class TestThePermissiveReAddIsAudible:
         assert returning_true, "the permissive re-add handler was not found; this test needs updating"
         assert all(_logs_at(h, {"warning", "error", "log_throttle"}) for h in returning_true)
 
-    def test_it_is_throttled(self):
-        """One line per fit, not per candidate."""
-        key = SITES["_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py"]
-        assert key in _literals(SRC / "_mrmr_fit_impl" / "_friend_graph_and_redundancy" / "_group1.py"), f"the throttle key {key!r} is not an emitted literal, so the warning is not throttled per fit"
+    def test_it_is_throttled(self, caplog):
+        """A systematic estimator failure over many candidates emits a bounded number of warnings, then one suppression notice, and keeps answering True."""
+        from mlframe.utils.log_throttle import reset_throttle_counts
+
+        reset_throttle_counts(SITES[_GROUP1])
+        with caplog.at_level(logging.WARNING, logger=_GROUP1_LOGGER):
+            answers = [_probe_with_failing_estimator(i) for i in range(12)]
+        assert answers == [True] * 12
+        failures = [m for m in caplog.messages if "significance re-add probe failed" in m]
+        assert len(failures) == 5, f"expected the warning throttled to 5 occurrences, got {len(failures)}"
+        assert any("further occurrences suppressed" in m for m in caplog.messages)
 
 
 class TestTheBlanketExclusionIsGone:
@@ -109,11 +165,43 @@ class TestTheBlanketExclusionIsGone:
         ]
         assert not bulk_updates, "the blanket exclusion is back"
 
-    def test_the_outer_handler_warns(self):
-        """Its polarity disagreed with the inner one and both were at debug."""
-        literals = _literals(self.PATH)
-        assert any("RETAINING all" in s for s in literals), "the outer handler no longer says it retains the whole candidate set"
-        assert any(_logs_at(h, {"warning", "error", "log_throttle"}) for h in _handlers(self.PATH)), "no handler in this module logs above debug"
+    def test_the_outer_handler_warns(self, monkeypatch, caplog):
+        """An injected fault inside the discriminator warns naming the exception type and leaves the exclusion set empty, so every candidate raw is retained."""
+        from types import SimpleNamespace
+
+        from mlframe.feature_selection.filters import _fallback_probe
+        from mlframe.feature_selection.filters._mrmr_fit_impl import _assign_support_tail as mod
+
+        def boom(*args, **kwargs):
+            """Fail the way an estimator-side fault would."""
+            raise RuntimeError("injected")
+
+        monkeypatch.setattr(_fallback_probe, "call_or_default", boom)
+        rng = np.random.default_rng(0)
+        data = rng.integers(0, 4, size=(500, 2))
+        excluded: set = set()
+        with caplog.at_level(logging.WARNING, logger=mod.logger.name):
+            mod._assign_support_tai_signal_aware_subsumption(
+                SimpleNamespace(random_seed=0, use_simple_mode=True), {"a"}, {"a": ["eng"]}, ["a", "eng"], data[:, 0], data, {}, excluded
+            )
+        messages = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(messages) == 1
+        assert "RuntimeError: injected" in messages[0] and "RETAINING all 1 candidate raw(s)" in messages[0]
+        assert excluded == set()
+
+    def test_an_unknown_candidate_keeps_the_conservative_exclusion_without_a_warning(self, caplog):
+        """Negative control: a candidate with no column index is excluded as before and nothing is logged, so the retain-all verdict is specific to a failure."""
+        from types import SimpleNamespace
+
+        from mlframe.feature_selection.filters._mrmr_fit_impl import _assign_support_tail as mod
+
+        excluded: set = set()
+        with caplog.at_level(logging.WARNING, logger=mod.logger.name):
+            mod._assign_support_tai_signal_aware_subsumption(
+                SimpleNamespace(random_seed=0, use_simple_mode=True), {"ghost"}, {"ghost": ["eng"]}, ["a"], np.zeros(500), np.zeros((500, 1)), {}, excluded
+            )
+        assert excluded == {"ghost"}
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 class TestAMislabelledBasisIsAnnounced:
@@ -215,10 +303,15 @@ class TestTheGpuFallbackNamesItself:
         _failing_gpu_cmi_run(monkeypatch, caplog, repeats=1)
         assert throttle._counts[SITES["_mi_greedy_cmi_fe.py"]] == 1
 
-    @pytest.mark.parametrize("rel", ["_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py"])
-    def test_the_throttle_key_is_distinct_per_site(self, rel):
-        """Two handlers sharing a key would silence each other."""
-        assert SITES[rel] in _literals(SRC / rel), f"{rel} no longer carries the throttle key {SITES[rel]!r}"
+    def test_the_throttle_key_is_distinct_per_site(self):
+        """The re-add probe counts its failures under its own key, so it cannot silence the CMI fallback site."""
+        throttle = importlib.import_module("mlframe.utils.log_throttle")
+
+        throttle.reset_throttle_counts(SITES[_GROUP1])
+        throttle.reset_throttle_counts(SITES["_mi_greedy_cmi_fe.py"])
+        _probe_with_failing_estimator(0)
+        assert throttle._counts[SITES[_GROUP1]] == 1
+        assert throttle._counts.get(SITES["_mi_greedy_cmi_fe.py"], 0) == 0
 
 
 def test_all_four_modules_still_import():

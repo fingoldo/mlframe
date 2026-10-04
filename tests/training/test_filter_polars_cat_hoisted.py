@@ -29,9 +29,7 @@ def test_S47_filter_polars_cat_features_by_dtype_hoisted_above_weight_loop():
 
     tree = ast.parse(_read_phase_body())
     weight_loops = [
-        n.lineno
-        for n in ast.walk(tree)
-        if isinstance(n, ast.For) and isinstance(n.iter, ast.Call) and "weight_schemas.items()" in ast.unparse(n.iter)
+        n.lineno for n in ast.walk(tree) if isinstance(n, ast.For) and isinstance(n.iter, ast.Call) and "weight_schemas.items()" in ast.unparse(n.iter)
     ]
     assert weight_loops, "could not locate weight_schemas loop in _phase_train_one_target_steps.py"
     loop_line = min(weight_loops)
@@ -124,9 +122,7 @@ def test_S47_cb_extra_fit_invariant_carries_filter_result_into_loop():
     owner = _enclosing_function(merged[0])
     in_loop = id(merged[0]) in loop_nodes
     called_from_loop = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == owner.name for n in ast.walk(weight_loops[0]))
-    stage_helpers_called_from_loop = {
-        n.func.id for n in ast.walk(weight_loops[0]) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-    }
+    stage_helpers_called_from_loop = {n.func.id for n in ast.walk(weight_loops[0]) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
     transitive = any(
         isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == owner.name
         for fn in ast.walk(tree)

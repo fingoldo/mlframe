@@ -207,6 +207,7 @@ def test_predict_native_probe_loads_each_model_once(monkeypatch, tmp_path):
     import zstandard
 
     from mlframe.training.core import predict as predict_mod
+    from mlframe.utils.safe_pickle import write_sidecar
 
     call_counts = {}
 
@@ -223,6 +224,7 @@ def test_predict_native_probe_loads_each_model_once(monkeypatch, tmp_path):
         (d / "CT_ENSEMBLE.dump").write_bytes(b"x")
     meta = {"slug_to_original_target_type": {"regression": "regression"}, "slug_to_original_target_name": {}}
     (tmp_path / "metadata.pkl.zst").write_bytes(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta, protocol=5)))
+    write_sidecar(str(tmp_path / "metadata.pkl.zst"))
 
     models, _md = predict_mod.load_mlframe_suite(str(tmp_path))
     loaded_paths = sorted(call_counts)

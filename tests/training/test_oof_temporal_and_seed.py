@@ -23,7 +23,7 @@ def _make_dataset(n: int = 200, seed: int = 0):
 def test_oof_iid_uses_shuffled_seeded_kfold(monkeypatch):
     """The i.i.d. path (has_time=False, no groups) must use a shuffled KFold seeded from the threaded seed."""
     import mlframe.training.trainer as trainer_mod
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import StratifiedKFold
     from sklearn.linear_model import LogisticRegression
 
     captured = {}
@@ -51,7 +51,7 @@ def test_oof_iid_uses_shuffled_seeded_kfold(monkeypatch):
         random_seed=7,
         has_time=False,
     )
-    assert isinstance(captured["cv"], KFold), f"expected KFold for i.i.d., got {type(captured['cv'])}"
+    assert isinstance(captured["cv"], StratifiedKFold), f"expected stratified k-fold for an i.i.d. classifier, got {type(captured['cv'])}"
     assert captured["cv"].shuffle is True
     assert captured["cv"].random_state == 7
 

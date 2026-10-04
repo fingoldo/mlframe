@@ -366,12 +366,17 @@ def test_h_fh_10_stale_lock_retry_uses_fresh_filelock() -> None:
         # exist, unlink, build a fresh FileLock, retry. Because we
         # still hold the real lock, the retry will fail with a Timeout -
         # the fresh-lock construction is what we're verifying, so assert
-        # that StaleLockReclaimed was warned before that Timeout.
+        # that StaleLockReclaimed was warned before that Timeout. On POSIX the unlink succeeds while the holder keeps its flock on the
+        # old inode, so the fresh lock on the recreated path is free and the retry acquires instead of timing out.
         with warnings.catch_warnings(record=True) as ws:
             warnings.simplefilter("always")
             lock = PIDAwareFileLock(lock_path, timeout=1.0, reclaim_grace_timeout=0.5)
-            with pytest.raises(Timeout):
-                lock.__enter__()  # holder still locks it
+            if os.name == "nt":
+                with pytest.raises(Timeout):
+                    lock.__enter__()  # holder still locks it
+            else:
+                with lock:
+                    pass
         reclaimed = [w for w in ws if issubclass(w.category, StaleLockReclaimed)]
         assert reclaimed, "StaleLockReclaimed warning not fired"
         # And after reclaim the holder must still own the lock,

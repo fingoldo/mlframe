@@ -471,6 +471,7 @@ def test_rf_proximity_topk_sort_is_stable() -> None:
 
 def test_fca_closed_concepts_topk_uses_content_tiebreak() -> None:
     """The emitted concept features do not depend on the order the training rows (and so the lattice) arrive in."""
+    pytest.importorskip("concepts", reason="optional dependency of the FCA closed-concepts transformer")
     from mlframe.feature_engineering.transformer.fca_closed_concepts import compute_fca_closed_concepts_features
 
     rng = np.random.default_rng(5)

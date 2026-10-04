@@ -159,6 +159,9 @@ def test_predict_mlframe_models_suite_matches_oracle(tmp_path, wrapper_owns_pipe
     }
     with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
         f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
+    from mlframe.utils.safe_pickle import write_sidecar
+
+    write_sidecar(os.path.join(models_path, "metadata.pkl.zst"))
 
     result = predict_mlframe_models_suite(X, models_path, return_probabilities=False, verbose=0)
     preds = np.asarray(result["predictions"]["cte_model"])

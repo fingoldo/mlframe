@@ -352,12 +352,12 @@ class TestCorrThresholdEdges:
             enabled=True,
             screening="mi",
             mi_sample_n=600,
-            base_candidates=["x_near_y"],
+            base_candidates="auto",
             transforms=["diff"],
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="y", feature_cols=["x_near_y", "f1"], train_idx=np.arange(1200))
-        # x_near_y dropped by corr threshold.
+        # x_near_y dropped by corr threshold; only an explicitly named base is readmitted past it, auto selection is not.
         drops = disc.filter_drops()
         assert any(d["name"] == "x_near_y" and d["reason"] == "forbidden_base_corr_threshold" for d in drops)
         # And specs_ has nothing using x_near_y.

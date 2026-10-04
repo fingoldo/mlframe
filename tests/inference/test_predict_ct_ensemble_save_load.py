@@ -61,6 +61,7 @@ def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
     tmpdir, then ``load_mlframe_suite`` must rehydrate the entry under the same key with predict equivalence."""
     from mlframe.training.core._phase_finalize import _persist_ct_ensemble_entries
     from mlframe.training.core.predict import load_mlframe_suite
+    from mlframe.utils.safe_pickle import write_sidecar
 
     ct_entry = _make_ct_entry()
 
@@ -88,6 +89,7 @@ def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
     meta_payload = {"slug_to_original_target_type": {"regression": "regression"}, "slug_to_original_target_name": {}}
     with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
         f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
+    write_sidecar(os.path.join(models_path, "metadata.pkl.zst"))
 
     with patch("mlframe.training.core._phase_finalize.save_mlframe_model", side_effect=_save_threads_zero):
         _persist_ct_ensemble_entries(ctx)
@@ -100,6 +102,7 @@ def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
     meta_payload["slug_to_original_target_name"] = dict(ctx.slug_to_original_target_name)
     with open(os.path.join(models_path, "metadata.pkl.zst"), "wb") as f:
         f.write(zstandard.ZstdCompressor(level=3, threads=0).compress(pickle.dumps(meta_payload, protocol=5)))
+    write_sidecar(os.path.join(models_path, "metadata.pkl.zst"))
 
     # Through the loader predict actually uses: its generic ``**/*.dump`` scan picks the CT entries up, which is why
     # the CT-only scanner beside it was dead code.

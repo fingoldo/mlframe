@@ -187,18 +187,31 @@ def test_mrmr_select_features_input_checks_raise_value_error():
 
 
 def test_mrmr_invariant_no_self_target_raises_runtime_error():
-    """Source guard for the silent-correctness 'target subset of factors' invariant.
+    """Equal-shaped, non-aliased factor and target frames with the target index among the default factors raise the RuntimeError, message included."""
+    from types import SimpleNamespace
 
-    Kept source-level: the guard fires deep in the index-derivation branch that is not
-    cheaply reachable from the public entry without reverse-engineering internal x/y sets.
-    """
-    import pathlib
-    import mlframe as _mlframe
+    from mlframe.feature_selection.filters._screen_predictors import _screen_predictors_step2_initialize_factor_indices as init_indices
 
-    _dir = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
-    src = (_dir / "screen.py").read_text(encoding="utf-8") + "\n" + (_dir / "_screen_predictors.py").read_text(encoding="utf-8")
-    assert "assert not set(y).issubset(set(x))" not in src
-    assert "target index set is a subset" in src
+    rng = np.random.default_rng(0)
+    factors = rng.integers(0, 3, size=(600, 3))
+    targets = factors.copy()
+    st = SimpleNamespace()
+    with pytest.raises(RuntimeError, match=r"MRMR invariant violated: target index set is a subset of the factor index set"):
+        init_indices(None, st, None, ["a", "b", "c"], factors, targets, 0, [0])
+
+
+def test_mrmr_self_target_guard_is_silent_when_target_is_not_a_factor():
+    """Negative control: with an explicit factor pool that excludes the target index the same call returns normally and leaves the pool without it."""
+    from types import SimpleNamespace
+
+    from mlframe.feature_selection.filters._screen_predictors import _screen_predictors_step2_initialize_factor_indices as init_indices
+
+    rng = np.random.default_rng(0)
+    factors = rng.integers(0, 3, size=(600, 3))
+    targets = factors.copy()
+    st = SimpleNamespace()
+    init_indices([1, 2], st, None, ["a", "b", "c"], factors, targets, 0, [0])
+    assert set(st.x) == {1, 2}
 
 
 # ---- votenrank/Leaderboard.py -----------------------------------------

@@ -1,26 +1,5 @@
 {
-  "entries": {
-    "test_meta/test_swallowed_failures_are_audible.py::test_it_is_throttled::via helper _literals()": {
-      "count": 1,
-      "note": ""
-    },
-    "test_meta/test_swallowed_failures_are_audible.py::test_the_outer_handler_warns::text held in `literals`": {
-      "count": 1,
-      "note": ""
-    },
-    "test_meta/test_swallowed_failures_are_audible.py::test_the_throttle_key_is_distinct_per_site::via helper _literals()": {
-      "count": 1,
-      "note": ""
-    },
-    "test_meta/test_x_oss_hygiene_packaging_fixes.py::test_f7_no_bare_ap_tags_in_doc_titles::text held in `first_line`": {
-      "count": 1,
-      "note": ""
-    },
-    "training/test_audit_assert_in_production.py::test_mrmr_invariant_no_self_target_raises_runtime_error::text held in `src`": {
-      "count": 2,
-      "note": ""
-    }
-  },
+  "entries": {},
   "gate": "source-text",
   "schema": 1
 }

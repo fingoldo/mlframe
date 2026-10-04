@@ -168,9 +168,29 @@ def test_f6_gallery_index_total_matches_real_png_count():
 # ---------------------------------------------------------------------------
 
 
+_H1_HEADING = re.compile(r"^#[ \t]+(?P<title>.+?)[ \t]*$", re.MULTILINE)
+_BARE_AP_TAG = re.compile(r"\(AP\d+\)")
+
+
+def _h1_titles(markdown: str) -> list[str]:
+    """Level-1 headings of a markdown document."""
+    return [m["title"] for m in _H1_HEADING.finditer(markdown)]
+
+
+def _h1_titles_with_bare_ap_tag(markdown: str) -> list[str]:
+    """Level-1 headings of a markdown document that carry an unexplained ``(APnn)`` tag."""
+    return [title for title in _h1_titles(markdown) if _BARE_AP_TAG.search(title)]
+
+
+def test_f7_title_lint_reports_a_bare_ap_tag_and_ignores_body_text_and_deeper_headings():
+    """Canary: a level-1 heading with a bare tag is reported; the same tag in prose or an H2 is not, and a clean title yields nothing."""
+    document = "# Calibration policy (AP12)\n\nBody mentions (AP3) in prose.\n\n## Subsection (AP4)\n"
+    assert _h1_titles_with_bare_ap_tag(document) == ["Calibration policy (AP12)"]
+    assert _h1_titles_with_bare_ap_tag("# Calibration policy\n\n## Subsection\n") == []
+
+
 def test_f7_no_bare_ap_tags_in_doc_titles():
-    """The public doc titles carry no unexplained ``(APnn)`` tag, and the tag pattern does match one."""
-    assert re.search(r"\(AP\d+\)", "# Title (AP12)")
+    """The public doc titles carry no unexplained ``(APnn)`` tag."""
     for doc in ("docs/calibration_policy.md", "docs/honest_diagnostics_guide.md"):
-        first_line = _read(doc).splitlines()[0]
-        assert not re.search(r"\(AP\d+\)", first_line), f"F7 REGRESSION: {doc}'s title still carries an unexplained (APnn) tag"
+        assert _h1_titles(_read(doc)), f"{doc} has no level-1 title to lint"
+        assert not _h1_titles_with_bare_ap_tag(_read(doc)), f"F7 REGRESSION: {doc}'s title still carries an unexplained (APnn) tag"

@@ -255,61 +255,7 @@ def _assign_support_tai_f_step2_re_attaches_only(self, X, verbose, _retention_pr
                 # it nonlinearly.
                 _rr_excl_names.update(_rr_cand_subsumed)
             elif _rr_cand_subsumed:
-                try:
-                    from mlframe.feature_selection.filters._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children as _rr_keep
-                    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin as _rr_qbin
-                    _rr_cols_idx = {nm: i for i, nm in enumerate(cols)}
-                    _rr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
-                    _rr_eng_cont = _eng_continuous_snapshot or {}
-                    _rr_seed = int(getattr(self, "random_seed", 0) or 0)
-                    for _base in _rr_cand_subsumed:
-                        _rr_ci = _rr_cols_idx.get(_base)
-                        if _rr_ci is None:
-                            _rr_excl_names.add(_base)  # cannot test -> keep the conservative exclusion
-                            continue
-                        _raw_b = np.asarray(data[:, _rr_ci]).astype(np.int64).ravel()
-                        _child_bins = []
-                        for _en_name in _rr_consumers.get(_base, ()):  # genuine engineered survivors
-                            _cci = _rr_cols_idx.get(_en_name)
-                            if _cci is not None:
-                                _child_bins.append(np.asarray(data[:, _cci]).astype(np.int64).ravel())
-                            elif _en_name in _rr_eng_cont:
-                                _child_bins.append(
-                                    np.asarray(_rr_qbin(np.asarray(_rr_eng_cont[_en_name], dtype=np.float64), nbins=10)).astype(np.int64).ravel()
-                                )
-                        if not _child_bins:
-                            continue  # no usable child to condition on -> not provably subsumed -> KEEP
-                        from mlframe.feature_selection.filters._fallback_probe import call_or_default
-
-                        # Estimator error -> retain (never drop genuine signal), reported like the outer handler below.
-                        def _keep_probe(_rb: np.ndarray = _raw_b, _cb: list = _child_bins) -> bool:
-                            """Whether this raw keeps private signal beyond its genuine engineered children."""
-                            return bool(_rr_keep(
-                                raw_bin=_rb, y_bin=_rr_y, genuine_child_bins=_cb,
-                                allow_linear_usability=bool(getattr(self, "use_simple_mode", False)), seed=_rr_seed,
-                            ))
-
-                        _retains = call_or_default(
-                            _keep_probe,
-                            True, key="mrmr_subsumption_discriminator_candidate_failed",
-                            message="mrmr: subsumption discriminator failed for one candidate raw; RETAINING it unverified",
-                        )
-                        if not _retains:
-                            _rr_excl_names.add(_base)  # truly subsumed -> exclude from re-attach
-                except Exception as exc:
-                    # RETAIN on error, matching the inner per-candidate handler a few lines above. This used
-                    # to do the opposite -- one exception anywhere in the enclosing block (an import fault, a
-                    # shape error building the child bins, a dtype problem on the data slice) blanket-excluded
-                    # EVERY candidate raw from the re-attach set, so features that would have been retained
-                    # were silently absent from support_, on a debug line, with the two handlers disagreeing
-                    # about polarity and no way to tell from the logs which had fired.
-                    logger.warning(
-                        "mrmr: the subsumption discriminator failed (%s: %s); RETAINING all %d candidate raw(s) for re-attach rather than "
-                        "blanket-excluding them. A dropped feature set would otherwise be indistinguishable from a genuine subsumption verdict.",
-                        type(exc).__name__,
-                        exc,
-                        len(_rr_cand_subsumed),
-                    )
+                _assign_support_tai_signal_aware_subsumption(self, _rr_cand_subsumed, _rr_consumers, cols, classes_y, data, _eng_continuous_snapshot, _rr_excl_names)
             if _rr_excl_names:
                 _raw_extra = [_nm for _nm in _raw_extra if str(_nm) not in _rr_excl_names]
         if _raw_extra:
@@ -336,6 +282,63 @@ def _assign_support_tai_f_step2_re_attaches_only(self, X, verbose, _retention_pr
             _assign_support_tai_added_idx(self, _added_idx, selected_vars, verbose, _raw_extra)
     except Exception as _raw_retain_exc:  # never let the optional retention break a fit
         logger.debug("MRMR usability-aware raw retention skipped (%s: %s).", type(_raw_retain_exc).__name__, _raw_retain_exc)
+
+
+def _assign_support_tai_signal_aware_subsumption(self, _rr_cand_subsumed, _rr_consumers, cols, classes_y, data, _eng_continuous_snapshot, _rr_excl_names):
+    """Add to ``_rr_excl_names`` the candidate raws truly subsumed by their engineered children; any failure RETAINS every candidate and warns."""
+    try:
+        from mlframe.feature_selection.filters._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children as _rr_keep
+        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin as _rr_qbin
+        _rr_cols_idx = {nm: i for i, nm in enumerate(cols)}
+        _rr_y = np.ascontiguousarray(np.asarray(classes_y)).ravel().astype(np.int64)
+        _rr_eng_cont = _eng_continuous_snapshot or {}
+        _rr_seed = int(getattr(self, "random_seed", 0) or 0)
+        for _base in _rr_cand_subsumed:
+            _rr_ci = _rr_cols_idx.get(_base)
+            if _rr_ci is None:
+                _rr_excl_names.add(_base)  # cannot test -> keep the conservative exclusion
+                continue
+            _raw_b = np.asarray(data[:, _rr_ci]).astype(np.int64).ravel()
+            _child_bins = []
+            for _en_name in _rr_consumers.get(_base, ()):  # genuine engineered survivors
+                _cci = _rr_cols_idx.get(_en_name)
+                if _cci is not None:
+                    _child_bins.append(np.asarray(data[:, _cci]).astype(np.int64).ravel())
+                elif _en_name in _rr_eng_cont:
+                    _child_bins.append(np.asarray(_rr_qbin(np.asarray(_rr_eng_cont[_en_name], dtype=np.float64), nbins=10)).astype(np.int64).ravel())
+            if not _child_bins:
+                continue  # no usable child to condition on -> not provably subsumed -> KEEP
+            from mlframe.feature_selection.filters._fallback_probe import call_or_default
+
+            # Estimator error -> retain (never drop genuine signal), reported like the outer handler below.
+            def _keep_probe(_rb: np.ndarray = _raw_b, _cb: list = _child_bins) -> bool:
+                """Whether this raw keeps private signal beyond its genuine engineered children."""
+                return bool(_rr_keep(
+                    raw_bin=_rb, y_bin=_rr_y, genuine_child_bins=_cb,
+                    allow_linear_usability=bool(getattr(self, "use_simple_mode", False)), seed=_rr_seed,
+                ))
+
+            _retains = call_or_default(
+                _keep_probe,
+                True, key="mrmr_subsumption_discriminator_candidate_failed",
+                message="mrmr: subsumption discriminator failed for one candidate raw; RETAINING it unverified",
+            )
+            if not _retains:
+                _rr_excl_names.add(_base)  # truly subsumed -> exclude from re-attach
+    except Exception as exc:
+        # RETAIN on error, matching the inner per-candidate handler a few lines above. This used
+        # to do the opposite -- one exception anywhere in the enclosing block (an import fault, a
+        # shape error building the child bins, a dtype problem on the data slice) blanket-excluded
+        # EVERY candidate raw from the re-attach set, so features that would have been retained
+        # were silently absent from support_, on a debug line, with the two handlers disagreeing
+        # about polarity and no way to tell from the logs which had fired.
+        logger.warning(
+            "mrmr: the subsumption discriminator failed (%s: %s); RETAINING all %d candidate raw(s) for re-attach rather than "
+            "blanket-excluding them. A dropped feature set would otherwise be indistinguishable from a genuine subsumption verdict.",
+            type(exc).__name__,
+            exc,
+            len(_rr_cand_subsumed),
+        )
 
 
 def _assign_support_tai_identical_seed_iloc_idx(self, X, _retention_prep_cache):
