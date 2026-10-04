@@ -26,7 +26,7 @@ from pyutilz import db
 
 import random as _stdlib_random
 import pandas as pd, numpy as np
-from catboost import CatBoostRegressor
+from mlframe._optional_imports import import_optional
 from sklearn.metrics import check_scoring
 
 from ._tuning_types import HashableDict
@@ -434,6 +434,7 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
     # the frame for any later reuse. Read the target as a view and build X from the remaining columns.
     y = trials["target"].values
     if should_retrain:
+        CatBoostRegressor = import_optional("catboost", "boosting", "the CatBoost surrogate model").CatBoostRegressor
         model = CatBoostRegressor(iterations=100, task_type="CPU", cat_features=cat_features, verbose=False)
 
         X = trials.drop(columns=["target"])
@@ -503,7 +504,7 @@ def justify_estimator(
         if refit:
             logger.info("Fitting a model")
 
-            is_catboost = isinstance(est, (CatBoostRegressor,)) or "catboost" in est.__class__.__module__.lower()
+            is_catboost = "catboost" in est.__class__.__module__.lower()
             if is_catboost:
                 rng = np.random.default_rng(random_state)
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=int(rng.integers(0, 2**32 - 1)))

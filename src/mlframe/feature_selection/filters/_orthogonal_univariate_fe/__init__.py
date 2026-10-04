@@ -895,7 +895,7 @@ def hybrid_orth_mi_fe_with_recipes(
                 [X, pd.DataFrame(_full_eng_cols, index=X.index)], axis=1,
             )
         else:
-            X_aug = X.copy()
+            X_aug = X.copy(deep=False)
     else:
         X_aug = X_aug_fit
     return X_aug, scores, recipes

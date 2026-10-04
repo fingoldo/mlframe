@@ -824,7 +824,7 @@ check-class-attributes = false       # ditto for dataclass/NamedTuple attribute 
 # -- never imported directly by mlframe itself, by design.
 DEP002 = [
     "uncertainty-calibration", "pycddlib-standalone", "polars-ds",  # declared extras whose import name deptry cannot map unless the package is installed (`calibration`, `cdd`, `polars_ds`)
-    "catboost", "xgboost", "lightgbm", "torch", "cupy", "shap", "optuna",
+    "catboost", "xgboost", "lightgbm", "torch", "cupy", "shap", "optuna", "properscoring", "seaborn",  # properscoring and seaborn are imported lazily through mlframe._optional_imports
     "tqdm", "portalocker", "sentencepiece", "flaml", "altair", "hvplot", "vegafusion", "vl-convert-python", "ipywidgets",
     "anywidget",  # ipywidgets 8's own runtime backend for custom widgets -- the progress widget fails to render without it, but nothing here imports it by name
     "sqlalchemy", "psycopg2-binary", "pymongo", "duckdb", "hdbscan",

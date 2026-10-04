@@ -487,11 +487,11 @@ def friend_graph_stats_cuda(
     if _CUDA_PAIR_KERNEL is None or _CUDA_NODE_KERNEL is None:
         raise RuntimeError("numba.cuda kernel factory failed to build")
 
-    import warnings as _warnings
+    from mlframe.utils.warning_filters import silenced_once as _silenced_once
     try:
         from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
     except ImportError:
-        _NbPerfWarn = None
+        _NbPerfWarn = Warning
 
     n = int(factors_data.shape[0])
     k = len(sel)
@@ -507,9 +507,7 @@ def friend_graph_stats_cuda(
         d_off = _nb_cuda.to_device(np.ascontiguousarray(col_off, dtype=np.int64))
         d_counts = _nb_cuda.device_array(int(total), dtype=np.int64)
         d_counts[:] = 0
-        with _warnings.catch_warnings():
-            if _NbPerfWarn is not None:
-                _warnings.simplefilter("ignore", _NbPerfWarn)
+        with _silenced_once(_NbPerfWarn, r"numba\.cuda"):
             _CUDA_NODE_KERNEL[k, threads_per_block](d_codes, d_off, d_counts, n, k)
         return d_counts.copy_to_host()
 
@@ -579,9 +577,7 @@ def friend_graph_stats_cuda(
         d_poff = _nb_cuda.to_device(np.ascontiguousarray(off_pair[:n_pairs], dtype=np.int64))
         d_counts = _nb_cuda.device_array(total_pair, dtype=np.int64)
         d_counts[:] = 0
-        with _warnings.catch_warnings():
-            if _NbPerfWarn is not None:
-                _warnings.simplefilter("ignore", _NbPerfWarn)
+        with _silenced_once(_NbPerfWarn, r"numba\.cuda"):
             _CUDA_PAIR_KERNEL[n_pairs, threads_per_block](
                 d_sub, d_posa, d_posb, d_nba, d_poff, d_counts, n,
             )

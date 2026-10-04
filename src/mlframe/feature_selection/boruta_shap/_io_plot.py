@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import pandas as pd
-import seaborn as sns
+from mlframe._optional_imports import import_optional
 
 
 def results_to_csv(self, filename="feature_importance"):
@@ -30,9 +30,9 @@ def results_to_csv(self, filename="feature_importance"):
 
     features = pd.DataFrame(
         data={
-            "Features": self.history_x.iloc[1:].columns.values,
-            "Average Feature Importance": self.history_x.iloc[1:].mean(axis=0).values,
-            "Standard Deviation Importance": self.history_x.iloc[1:].std(axis=0).values,
+            "Features": self.history_x_.iloc[1:].columns.values,
+            "Average Feature Importance": self.history_x_.iloc[1:].mean(axis=0).values,
+            "Standard Deviation Importance": self.history_x_.iloc[1:].std(axis=0).values,
         }
     )
 
@@ -72,7 +72,7 @@ def plot(self, X_rotation=90, X_size=8, figsize=(12, 8), y_scale="log", which_fe
     # depending on pandas version/internals, so mutating it in place afterward (data["index"] = ...) is a
     # classic chained-assignment anti-pattern - fragile across pandas versions (can raise
     # SettingWithCopyWarning) even though it currently works.
-    data = self.history_x.iloc[1:].copy()
+    data = self.history_x_.iloc[1:].copy()
     data["index"] = data.index
     data = pd.melt(data, id_vars="index", var_name="Methods")
 
@@ -109,6 +109,7 @@ def box_plot(self, data, X_rotation, X_size, y_scale, figsize):
 
     # Use a color palette
     fig = plt.figure(figsize=figsize)
+    sns = import_optional("seaborn", "viz", "BorutaShap box plots")
     ax = sns.boxplot(x=data["Methods"], y=data["value"], order=order, palette=my_palette)
 
     if y_scale == "log":
@@ -124,9 +125,9 @@ def create_mapping_of_features_to_attribute(self, maps=None):
     """Build a feature-name -> color dict for the box plot, assigning ``maps[0..3]`` to tentative/rejected/accepted/shadow feature groups respectively."""
     if maps is None:
         maps = []
-    rejected = list(self.rejected)
-    tentative = list(self.tentative)
-    accepted = list(self.accepted)
+    rejected = list(self.rejected_)
+    tentative = list(self.tentative_)
+    accepted = list(self.accepted_)
     shadow = ["Max_Shadow", "Median_Shadow", "Min_Shadow", "Mean_Shadow"]
 
     tentative_map = self.create_list(tentative, maps[0])

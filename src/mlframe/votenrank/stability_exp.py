@@ -14,7 +14,7 @@ from pyutilz.system import tqdmu as tqdm
 from collections import defaultdict
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+from mlframe._optional_imports import import_optional
 
 from . import Leaderboard
 from mlframe._output_paths import ensure_parent_dir
@@ -102,6 +102,7 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
 
 def count_and_plot(lb, num_repeats, exp_range, top_k=7):
     """Run :func:`spearman_exp` and plot each ranking method's correlation-vs-missingness curve onto the current axes."""
+    sns = import_optional("seaborn", "viz", "stability plots")
     sns.set(style="whitegrid")
     exp_res = spearman_exp(lb, num_repeats, exp_range, top_k)
     for col, nums in exp_res.items():
@@ -123,32 +124,38 @@ def get_res_df(exp_range, exp_res):
 
 def create_exp_pic(exp_range, exp_res, filename=None):
     """Render the stability curves as a formatted figure (custom legend labels for the mean/optimality-gap methods) and optionally save it to ``filename`` as PDF."""
+    sns = import_optional("seaborn", "viz", "stability plots")
     sns.set(style="whitegrid")
     df = get_res_df(exp_range * 100, exp_res)
     _fig, _ax = plt.subplots(figsize=(7, 6))
 
-    sns.lineplot(
-        x="criterion",
-        y="correlation",
-        hue="method",
-        style="method",
-        data=df,
-        linewidth=5,
-        ci=100,
-    )
+    try:
+        sns.lineplot(
+            x="criterion",
+            y="correlation",
+            hue="method",
+            style="method",
+            data=df,
+            linewidth=5,
+            ci=100,
+        )
 
-    plt.yticks(fontsize=20)
-    plt.xticks(range(0, 21, 5), fontsize=20)
-    plt.ylabel("$\\rho$", fontsize=30)
-    plt.xlabel("Missing values (%)", fontsize=25)
-    plt.grid()
-    plt.tight_layout()
+        plt.yticks(fontsize=20)
+        plt.xticks(range(0, 21, 5), fontsize=20)
+        plt.ylabel("$\\rho$", fontsize=30)
+        plt.xlabel("Missing values (%)", fontsize=25)
+        plt.grid()
+        plt.tight_layout()
 
-    L = plt.legend(fontsize=20, loc=3)
-    for line in L.get_lines():
-        line.set_linewidth(5.0)
-    L.get_texts()[0].set_text("$\\sigma^{am}$")
-    L.get_texts()[3].set_text("$\\sigma^{og}$")
+        L = plt.legend(fontsize=20, loc=3)
+        for line in L.get_lines():
+            line.set_linewidth(5.0)
+        L.get_texts()[0].set_text("$\\sigma^{am}$")
+        L.get_texts()[3].set_text("$\\sigma^{og}$")
 
-    if filename is not None:
-        plt.savefig(ensure_parent_dir(filename), format="pdf")
+        if filename is not None:
+            plt.savefig(ensure_parent_dir(filename), format="pdf")
+    finally:
+        from mlframe.metrics.shared import close_unless_interactive
+
+        close_unless_interactive(_fig, was_shown=filename is None)

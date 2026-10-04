@@ -246,7 +246,7 @@ class PrePipelinePredictShim(BaseEstimator):
 
     def __sklearn_clone__(self) -> "PrePipelinePredictShim":
         return type(self)(
-            model=clone(self.model),
+            model=clone(self.model) if hasattr(self.model, "get_params") else self.model,
             pre_pipeline=self.pre_pipeline,
             name=self.name,
         )

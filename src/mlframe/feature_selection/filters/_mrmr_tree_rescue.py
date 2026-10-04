@@ -61,12 +61,12 @@ class MRMRTreeRescued(MRMR):
                  tree_rescue_n_estimators: int = 80, tree_rescue_max_depth: int = 3, **kwargs):
         super().__init__(*args, **kwargs)
         self.tree_rescue = tree_rescue
-        self.tree_rescue_top_k = int(tree_rescue_top_k)
-        self.tree_rescue_min_p = int(tree_rescue_min_p)
-        self.tree_rescue_min_ratio = float(tree_rescue_min_ratio)
-        self.tree_rescue_min_features = int(tree_rescue_min_features)
-        self.tree_rescue_n_estimators = int(tree_rescue_n_estimators)
-        self.tree_rescue_max_depth = int(tree_rescue_max_depth)
+        self.tree_rescue_top_k = tree_rescue_top_k
+        self.tree_rescue_min_p = tree_rescue_min_p
+        self.tree_rescue_min_ratio = tree_rescue_min_ratio
+        self.tree_rescue_min_features = tree_rescue_min_features
+        self.tree_rescue_n_estimators = tree_rescue_n_estimators
+        self.tree_rescue_max_depth = tree_rescue_max_depth
 
     @classmethod
     def _get_param_names(cls):
@@ -82,13 +82,13 @@ class MRMRTreeRescued(MRMR):
         if not mode or (isinstance(mode, str) and mode.lower() in ("off", "false", "none")):
             return False
         p = int(getattr(self, "n_features_in_", 0) or 0)
-        if p <= self.tree_rescue_min_p:
+        if p <= int(self.tree_rescue_min_p):
             return False
         if mode is True or (isinstance(mode, str) and mode.lower() in ("always", "true")):
             return True
         # "auto": fire only on under-selection (the collapse regime)
         n_sel = int(np.asarray(getattr(self, "support_", np.array([]))).size)
-        floor = max(self.tree_rescue_min_features, math.ceil(self.tree_rescue_min_ratio * p))
+        floor = max(int(self.tree_rescue_min_features), math.ceil(float(self.tree_rescue_min_ratio) * p))
         return n_sel < floor
 
     def _apply_tree_rescue(self, X, y):
@@ -140,8 +140,8 @@ class MRMRTreeRescued(MRMR):
             is_clf = type_of_target(yv) in ("binary", "multiclass")
             seed = int(self._effective_random_seed() or 0)
             Est = lgb.LGBMClassifier if is_clf else lgb.LGBMRegressor
-            m = Est(n_estimators=self.tree_rescue_n_estimators, max_depth=self.tree_rescue_max_depth,
-                    num_leaves=2 ** self.tree_rescue_max_depth, learning_rate=0.1,
+            m = Est(n_estimators=int(self.tree_rescue_n_estimators), max_depth=int(self.tree_rescue_max_depth),
+                    num_leaves=2 ** int(self.tree_rescue_max_depth), learning_rate=0.1,
                     n_jobs=getattr(self, "n_jobs", -1), verbose=-1, random_state=int(seed))
             # ``factors_to_use`` restricts the FIT, not just the ranking. Fitting on the full frame and filtering afterwards let excluded
             # columns consume split budget and shift the importances of the allowed ones, so the exclusion was a display filter for this path.
@@ -162,7 +162,7 @@ class MRMRTreeRescued(MRMR):
             if allowed is not None:
                 _allowed_set = set(allowed)
                 order = [i for i in order if i in _allowed_set]
-            order = order[: self.tree_rescue_top_k]
+            order = order[: int(self.tree_rescue_top_k)]
             existing = {int(i) for i in np.asarray(self.support_, dtype=np.int64)}
             added = [i for i in order if i not in existing]
             if added:

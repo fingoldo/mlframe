@@ -15,9 +15,9 @@ Use as the FE baseline instead of (or in addition to) the ``MI(x_a, x_b)`` joint
 """
 from __future__ import annotations
 
-import warnings
-
 import numpy as np
+
+from mlframe.utils.warning_filters import silenced_once
 
 
 def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
@@ -68,8 +68,7 @@ def _mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, mi_estimator:
         return float(_plugin_mi_regression_njit(x_njit, y_njit, plugin_n_bins))
     # ksg path
     from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+    with silenced_once(Warning, r"sklearn\."):
         if discrete_target:
             return float(mutual_info_classif(
                 x.reshape(-1, 1), y, n_neighbors=n_neighbors,

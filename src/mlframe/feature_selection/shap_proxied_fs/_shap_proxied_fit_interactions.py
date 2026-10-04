@@ -91,12 +91,12 @@ def resolve_su_seeded_pairs(
                 # Prefilter screen did not run (no prefilter narrowing) -> run it on X_proxy now.
                 _kp, _su_screen_info = su_synergy_screen(
                     X_proxy, y_phi,
-                    n_bins=self.su_seeded_n_bins, top_k=self.su_seeded_top_k,
-                    max_screen_cols=self.su_seeded_max_screen_cols,
+                    n_bins=int(self.su_seeded_n_bins), top_k=int(self.su_seeded_top_k),
+                    max_screen_cols=int(self.su_seeded_max_screen_cols),
                     snr_z=self._su_screen_snr_z(),
-                    snr_null_quantile=self.su_seeded_snr_null_quantile,
-                    snr_abs_floor=self.su_seeded_snr_abs_floor,
-                    n_permutations=self.su_seeded_n_permutations,
+                    snr_null_quantile=float(self.su_seeded_snr_null_quantile),
+                    snr_abs_floor=float(self.su_seeded_snr_abs_floor),
+                    n_permutations=int(self.su_seeded_n_permutations),
                     importance=np.abs(phi).mean(axis=0),
                     rng=np.random.default_rng(int(self.random_state) + 7919))
                 # X_proxy column names are the proxy-space keys directly here.

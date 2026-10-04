@@ -98,7 +98,7 @@ def prepare_cb_inputs(X: Any, y: np.ndarray, group_ids: np.ndarray) -> tuple[Any
         try:
             import polars as pl
             if isinstance(X, pl.DataFrame):
-                X_sorted = X[sort_idx.tolist()]
+                X_sorted = X[sort_idx]
             else:
                 X_sorted = np.asarray(X)[sort_idx]
         except ImportError:
@@ -144,7 +144,7 @@ def prepare_lgb_inputs(X: Any, y: np.ndarray, group_ids: np.ndarray) -> tuple[An
             try:
                 import polars as pl
                 if isinstance(X, pl.DataFrame):
-                    X_sorted = X[sort_idx.tolist()]
+                    X_sorted = X[sort_idx]
                 else:
                     X_sorted = np.asarray(X)[sort_idx]
             except ImportError:

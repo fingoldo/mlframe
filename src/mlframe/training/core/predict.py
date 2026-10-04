@@ -25,8 +25,10 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+from mlframe.training.core._schema_version import CURRENT_SCHEMA_VERSION
+
 _SUPPORTED_SCHEMA_VERSIONS = frozenset({1, 2})
-_CURRENT_SCHEMA_VERSION = 2
+_CURRENT_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
 def _validate_metadata_version_envelope(metadata: dict, models_path: str) -> None:

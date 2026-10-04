@@ -25,7 +25,11 @@ from typing import Optional, Tuple
 import html
 import re
 from enum import Enum
-import mlflow
+
+try:
+    import mlflow
+except ImportError as _exc:
+    raise ImportError("mlframe.integrations.mlflow needs mlflow; install it with `pip install mlframe[mlflow]`.") from _exc
 
 # Matches ``scheme://user:password@`` prefixes so we can scrub them before
 # printing or logging exception text that bubbled up from mlflow.

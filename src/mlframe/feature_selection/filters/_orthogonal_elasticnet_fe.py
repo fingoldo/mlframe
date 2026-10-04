@@ -281,7 +281,7 @@ def hybrid_orth_mi_elasticnet_fe(
     qualified = scores[(scores["engineered_mi"] > 0.0) & (scores["engineered_mi"] >= legacy_floor) & (scores["uplift"] >= float(min_uplift))]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
 

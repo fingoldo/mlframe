@@ -44,6 +44,11 @@ _isfinite = math.isfinite
 # drop this file below the 1k-line monolith threshold. Re-imported below so the rest of this module and
 # existing external callers (`from mlframe.evaluation.bootstrap import _jackknife_metric`, etc.) keep
 # working unchanged.
+from ._bootstrap_clusters import (  # noqa: F401
+    bootstrap_metric_clustered,
+    bootstrap_metrics_clustered,
+    default_block_length,
+)
 from ._bootstrap_jackknife import (  # noqa: F401
     _ci_from_samples,
     _jackknife_auc,

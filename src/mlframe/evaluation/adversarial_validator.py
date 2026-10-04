@@ -75,6 +75,17 @@ class AdversarialValidator:
         self._X_test = X_test
         return self
 
+    def __getstate__(self) -> dict:
+        """Pickle state without the retained fit frames (references to the caller's data, never owned copies); after unpickling, pass frames explicitly."""
+        state = self.__dict__.copy()
+        state.pop("_X_train", None)
+        state.pop("_X_test", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore the fitted attributes; the fit frames are absent until ``fit`` runs again."""
+        self.__dict__.update(state)
+
     def report(self) -> pd.DataFrame:
         """Per-feature importance report from the separating classifier, sorted by importance descending."""
         if not hasattr(self, "auc_"):

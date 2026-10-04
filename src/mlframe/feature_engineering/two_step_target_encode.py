@@ -24,7 +24,7 @@ def two_step_recency_weighted_target_encode(
     decay_half_life: float,
     order: Optional[np.ndarray] = None,
     smoothing: float = 1.0,
-    causal: bool = False,
+    causal: bool = True,
 ) -> np.ndarray:
     """Event-level leak-free target encoding of ``feature_cols``, aggregated to ``entity_col`` with recency decay.
 
@@ -51,23 +51,22 @@ def two_step_recency_weighted_target_encode(
     smoothing
         Passed through to :func:`ordered_target_encode`.
     causal
-        Default ``False`` preserves the original behavior: step 2 aggregates over an entity's FULL event
-        history (past AND future relative to each row), so every row of an entity gets the identical
-        terminal aggregate -- correct for a one-shot "encode this entity as of its last known event" score,
-        but a target-leakage source if the output is used as a per-EVENT training feature, since an early
-        event's feature value is then informed by that entity's later events (information not yet available
-        at that event's own time). ``True`` makes step 2 expanding-window instead: row ``i``'s aggregate uses
+        Default ``True``: step 2 is expanding-window, so row ``i``'s aggregate uses
         only events of its entity with ``time <= events_df[time_col][i]`` (ties broken by ``order``/row
         position, matching step 1's causal ordering), so a row-level model trained on this feature can't see
         its own entity's future. Values then differ within an entity (monotonically converging to the
         ``causal=False`` value at that entity's last event) instead of being constant per entity.
+        ``False`` aggregates over an entity's FULL event history (past AND future relative to each row), so every
+        row of an entity gets the identical terminal aggregate: correct for a one-shot "encode this entity as of its
+        last known event" score, but a target-leakage source as a per-EVENT training feature, since an early event's
+        value is then informed by that entity's later events.
 
     Returns
     -------
     np.ndarray
-        ``(n_events,)`` array. With ``causal=False`` (default): each event's row gets its ENTITY's recency-
+        ``(n_events,)`` array. With ``causal=False``: each event's row gets its ENTITY's recency-
         weighted aggregate of the step-1 event-level encodings (same value repeated for every event of that
-        entity). With ``causal=True``: each row gets the expanding-window recency-weighted aggregate of only
+        entity). With ``causal=True`` (default): each row gets the expanding-window recency-weighted aggregate of only
         that entity's events up to and including its own time (no future leakage).
     """
     # vectorized str.cat chain instead of .agg("|".join, axis=1) -- the latter is a per-row Python callback

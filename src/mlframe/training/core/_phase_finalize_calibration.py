@@ -136,6 +136,7 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
     from sklearn.metrics import balanced_accuracy_score
 
     from ...calibration.threshold_optimizer import optimize_decision_threshold
+    from .._calibration_models import _PostHocCalibratedModel
 
     _cfg = getattr(ctx, "behavior_config", None)
     if _cfg is None or not bool(getattr(_cfg, "auto_optimize_threshold", False)):
@@ -161,12 +162,18 @@ def _optimize_decision_threshold_on_calib_slice(ctx: "TrainingContext") -> None:
                 if _cp.ndim != 2 or _cp.shape[1] != 2 or _cp.shape[0] != _ct.shape[0] or _cp.shape[0] < 2:
                     continue  # binary classification only
                 _pos = _cp[:, 1]
+                _scale = "raw_base_proba"
+                _iso = getattr(getattr(_e, "model", None), "_calibrator", None)
+                if isinstance(getattr(_e, "model", None), _PostHocCalibratedModel) and _iso is not None and hasattr(_iso, "predict"):
+                    _pos = _np.clip(_np.asarray(_iso.predict(_pos), dtype=_np.float64), 0.0, 1.0)
+                    _scale = "posthoc_calibrated_proba"
                 try:
                     _rep = optimize_decision_threshold(_ct, _pos, _metric_fn, **_kwargs)
                 except Exception as _thr_err:
                     log_throttle(logger, "finalize_calib_threshold_optimizer_fit_failed", logging.WARNING, "[threshold_optimizer] fit failed for %s/%s: %s", _ttype, _tname, _thr_err)
                     continue
                 _rep = {k: v for k, v in _rep.items() if k not in ("thresholds", "scores")}  # drop the full per-candidate sweep; keep the compact summary
+                _rep["probability_scale"] = _scale
                 _mn = str(getattr(_e, "model_name", None) or f"model_{_i}")
                 out[f"{_ttype}/{_tname}/{_mn}"] = _rep
     if out:
@@ -246,8 +253,13 @@ def _apply_confidence_shrinkage_to_regression(ctx: "TrainingContext") -> None:
     applied: dict = {}
     for _key, _shrunk_preds in shrunk.items():
         _e = entries_by_key[_key][0]
+        _e.test_preds_pre_shrinkage = entries_by_key[_key][3]
         _e.test_preds = _shrunk_preds
-        applied[_key] = {"confidence": confidences[_key]}
+        _val_raw = _arr(getattr(_e, "val_preds", None))
+        if _val_raw is not None:
+            _e.val_preds_pre_shrinkage = _val_raw
+            _e.val_preds = apply_confidence_shrinkage({_key: _val_raw}, {_key: confidences[_key]}, **_kwargs)[_key]
+        applied[_key] = {"confidence": confidences[_key], "metrics_are_pre_shrinkage": True, "shipped_model_applies_shrinkage": False}
     if applied:
         ctx.metadata["confidence_shrinkage"] = applied
         if getattr(ctx, "verbose", 0):

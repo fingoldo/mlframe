@@ -21,7 +21,8 @@ from types import SimpleNamespace
 from typing import Optional, Dict, Any
 
 import dill  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-import zstandard as zstd
+
+from mlframe._optional_imports import import_optional
 
 logger = logging.getLogger("mlframe.training.io")
 
@@ -358,7 +359,7 @@ def save_mlframe_model(
 
         def _writer(f):
             """Write the pre-serialized payload bytes through a zstd stream compressor into the atomic-write temp file handle."""
-            compressor = zstd.ZstdCompressor(**zstd_kwargs)
+            compressor = import_optional("zstandard", "db", "writing compressed model bundles").ZstdCompressor(**zstd_kwargs)
             # closefd=False: stream_writer.__exit__ would otherwise close the wrapped
             # file (deterministic on Windows when threads=-1 hands the descriptor to
             # a background flush thread). atomic_write_bytes still needs the fd open

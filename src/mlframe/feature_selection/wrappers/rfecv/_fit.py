@@ -395,7 +395,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
 
     if scoring is None:
         scoring = resolve_default_scoring(scoring, estimator)
-        self.scoring = scoring
+    self.scoring_ = scoring
 
     if verbose:
         logger.info("Scoring=%s", scoring)

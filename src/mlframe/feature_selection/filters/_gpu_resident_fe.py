@@ -60,6 +60,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import weakref
 from collections import OrderedDict
 
 import numpy as np
@@ -316,7 +317,7 @@ def fe_gpu_defer_host_codes_enabled() -> bool:
 # EXACT host array the producer returns (stable + alive across the synchronous producer->consumer call);
 # shape/dtype guard at lookup. Bounded FIFO so interleaved fits don't grow it; entries cleared after the
 # dispatch consumes them (clear_resident_codes_handoff). Module-level -> never reachable from pickled state.
-_RESIDENT_CODES_HANDOFF: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (device_codes, shape, dtype)
+_RESIDENT_CODES_HANDOFF: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (device_codes, shape, dtype, weakref(host))
 _RESIDENT_CODES_HANDOFF_MAX = 8
 
 
@@ -355,7 +356,7 @@ def _stash_resident_codes(host_codes, device_codes) -> None:
     """Record the resident device codes for the host array ``host_codes`` (keyed on its id)."""
     with _DEFERRED_HOST_FILL_LOCK:
         c = _RESIDENT_CODES_HANDOFF
-        c[id(host_codes)] = (device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype))
+        c[id(host_codes)] = (device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype), weakref.ref(host_codes))
         c.move_to_end(id(host_codes))
         while len(c) > _RESIDENT_CODES_HANDOFF_MAX:
             # evict-ok: a miss routes to the host codes, which ensure_host_codes_filled always delivers
@@ -399,11 +400,13 @@ def take_resident_codes(host_codes):
     The handoff is NOT cleared here (so a later host-reading branch in the SAME dispatch - e.g. the
     analytic gate that runs after this pop - can still trigger the deferred host fill from the same device
     codes); the dispatch clears everything via ``clear_resident_codes_handoff`` in its finally."""
-    h = _RESIDENT_CODES_HANDOFF.get(id(host_codes))
+    with _DEFERRED_HOST_FILL_LOCK:
+        h = _RESIDENT_CODES_HANDOFF.get(id(host_codes))
     if h is None:
         return None
-    dev, shape, dtype = h
-    if tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype:
+    dev, shape, dtype, host_ref = h
+    # id() is recycled once the producer's array dies: only the very array that was stashed may claim its codes.
+    if host_ref() is host_codes and tuple(host_codes.shape) == shape and np.dtype(host_codes.dtype) == dtype:
         return dev
     return None
 

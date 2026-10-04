@@ -220,6 +220,9 @@ def ndcg_at_k(
 
     Returns NaN if every query is degenerate (zero positives or empty).
     Otherwise returns the mean NDCG@k over queries with IDCG > 0.
+
+    Tied scores are ranked by input row order (stable sort), so with ties the value depends on how rows are ordered inside a query;
+    shuffle rows within queries first when the input order can correlate with relevance.
     """
     if k <= 0:
         raise ValueError(f"k must be >= 1, got {k}")

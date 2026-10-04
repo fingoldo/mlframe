@@ -648,7 +648,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         # for ``accumulate_grad_batches`` since OPT-7 is the active path.
         # Set ``queries_per_batch=1`` to revert to the legacy per-query
         # path (e.g., for bit-exact gradient reproduction).
-        self.queries_per_batch = max(1, int(queries_per_batch))
+        self.queries_per_batch = queries_per_batch
         # OPT-6 (2026-05-23): accumulate gradients across N "batches" (queries)
         # before each optimizer.step(). The Lightning-native equivalent of
         # explicit batch-packing across queries: each forward+backward is
@@ -856,7 +856,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         # OPT-7: pack queries_per_batch queries per gradient update. ranknet
         # loss needs precomputed per-query (i_idx, j_idx); the multi-query
         # path needs both. listnet falls back to single-query.
-        _train_qpb = self.queries_per_batch if (self.loss_fn == "ranknet" and y_arr.ndim == 1) else 1
+        _train_qpb = max(1, int(self.queries_per_batch)) if (self.loss_fn == "ranknet" and y_arr.ndim == 1) else 1
         train_sampler = GroupBatchSampler(
             group_ids=np.asarray(group_ids), relevance=y_arr,
             shuffle=True, seed=self.random_state,
@@ -893,7 +893,7 @@ class MLPRanker(RegressorMixin, BaseEstimator):
             X_val_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X_val)))
             y_val_arr = np.asarray(y_val, dtype=np.float32).ravel()
             val_ds = _RankerDataset(X_val_arr, y_val_arr)
-            _val_qpb = self.queries_per_batch if (self.loss_fn == "ranknet" and y_val_arr.ndim == 1) else 1
+            _val_qpb = max(1, int(self.queries_per_batch)) if (self.loss_fn == "ranknet" and y_val_arr.ndim == 1) else 1
             val_sampler = GroupBatchSampler(
                 group_ids=np.asarray(group_ids_val), relevance=y_val_arr,
                 shuffle=False, seed=self.random_state,

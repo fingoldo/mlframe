@@ -29,7 +29,7 @@ from sklearn.inspection import permutation_importance
 
 from pyutilz.system import ensure_dir_exists
 
-import shap
+from mlframe._optional_imports import import_optional
 from mlframe._output_paths import ensure_parent_dir
 
 # Precompile once; strips anything that could turn ``model_name`` into a path
@@ -50,6 +50,7 @@ def _sanitize_for_filename(s: str, max_len: int = 120) -> str:
 
 def show_shap_beeswarm_plot(model: object, df: pd.DataFrame, **kwargs):
     """Render a SHAP beeswarm plot for a tree model over ``df`` using ``shap.TreeExplainer``; ``kwargs`` forward to ``shap.plots.beeswarm`` (e.g. ``ax``, ``show``, ``max_display``)."""
+    shap = import_optional("shap", "calibration", "SHAP plots")
     shap.initjs()
 
     explainer = shap.TreeExplainer(model)

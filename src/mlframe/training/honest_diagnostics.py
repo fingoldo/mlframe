@@ -256,7 +256,7 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
                 if "error" in ci:
                     out[name] = {"status": "skipped", "reason": ci["error"]}
                 else:
-                    out[name] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"]}
+                    out[name] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"], "resampling": "iid"}
     elif p_pos is not None and y_true is not None:
         # Regression-ish fallback: RMSE on point-prediction-or-prob-mean.
         try:
@@ -276,11 +276,68 @@ def _bootstrap_block(y_true: np.ndarray, probs: np.ndarray, *, rng_seed: int = 0
                 y_true, p_pos, metric_fn=_rmse, n_bootstrap=1000, alpha=0.05, random_state=rng_seed,
                 jackknife_per_row=(_rmse_per_row, False, np.sqrt),
             )
-            out["rmse"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"]}
+            out["rmse"] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"], "resampling": "iid"}
         except Exception as exc:
             logger.debug("rmse metric computation failed, skipping: %s", exc)
             out["rmse"] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}
     return out
+
+
+def _bootstrap_block_clustered(
+    y_true: np.ndarray, probs: np.ndarray, rng_seed: int, groups: Optional[np.ndarray], block_length: Optional[int]
+) -> dict[str, Any]:
+    """Cluster / moving-block bootstrap CIs for the binary bundle (roc_auc, brier, log_loss, ece) or RMSE for a regression target.
+
+    Entries carry ``resampling`` naming the scheme (the i.i.d. path in ``_bootstrap_block`` tags ``"iid"``).
+    """
+    from mlframe.evaluation._bootstrap_clusters import bootstrap_metrics_clustered
+
+    out: dict[str, Any] = {}
+    metric_fns: dict = {}
+    if _is_binary_classif(y_true):
+        from mlframe.calibration.shared import ece_score as _ece_score
+        from mlframe.evaluation import brier as _brier, log_loss as _ll
+        from mlframe.metrics.core import fast_roc_auc as _auc
+
+        metric_fns = {"roc_auc": _auc, "brier": _brier, "log_loss": _ll, "ece": _ece_score}
+        yt = np.ascontiguousarray(y_true, dtype=np.float64)
+    else:
+        from mlframe.metrics.scoring import fast_rmse as _rmse
+
+        metric_fns = {"rmse": _rmse}
+        yt = np.asarray(y_true)
+    p_pos = probs[:, 1] if probs.ndim == 2 and probs.shape[1] >= 2 else probs.ravel()
+    pp = np.ascontiguousarray(p_pos, dtype=np.float64)
+    cis = bootstrap_metrics_clustered(yt, pp, metric_fns, n_bootstrap=1000, alpha=0.05, random_state=rng_seed, groups=groups, block_length=block_length)
+    for name, ci in cis.items():
+        if "error" in ci:
+            out[name] = {"status": "skipped", "reason": ci["error"]}
+        else:
+            out[name] = {"point": ci["point"], "ci_lo": ci["lo"], "ci_hi": ci["hi"], "resampling": ci["resampling"]}
+    return out
+
+
+def _test_resampling_structure(ctx: Any, n_test_rows: int) -> tuple[Optional[np.ndarray], Optional[int]]:
+    """Group ids of the test rows, else a moving-block length when the suite is time-ordered, else ``(None, None)``.
+
+    Group ids win because grouped rows are the stronger dependence; a time-ordered split without group ids gets blocks of
+    ``ceil(n ** (1/3))`` rows. A length mismatch between the split and the model's test rows disables the structure.
+    """
+    test_idx = getattr(ctx, "test_idx", None)
+    if test_idx is None or len(test_idx) != n_test_rows:
+        return None, None
+    group_ids = getattr(ctx, "group_ids", None)
+    if group_ids is not None:
+        try:
+            return np.asarray(group_ids)[np.asarray(test_idx)], None
+        except (IndexError, TypeError) as exc:
+            logger.warning("honest_diagnostics: group ids not sliceable to the test split (%s); bootstrap CIs fall back to i.i.d. rows", exc)
+            return None, None
+    if getattr(ctx, "timestamps", None) is not None:
+        from mlframe.evaluation._bootstrap_clusters import default_block_length
+
+        return None, default_block_length(n_test_rows)
+    return None, None
 
 
 def _drift_block(ctx: Any) -> dict[str, Any]:
@@ -486,7 +543,11 @@ def run_honest_diagnostics(
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": "no test_target / test_probs"}
             continue
         try:
-            payload["bootstrap_ci"][key] = _bootstrap_block(y_test, p_test, rng_seed=_derive_seed(master_seed, key))
+            _grp, _blk = _test_resampling_structure(ctx, int(y_test.shape[0]))
+            if _grp is not None or _blk is not None:
+                payload["bootstrap_ci"][key] = _bootstrap_block_clustered(y_test, p_test, _derive_seed(master_seed, key), _grp, _blk)
+            else:
+                payload["bootstrap_ci"][key] = _bootstrap_block(y_test, p_test, rng_seed=_derive_seed(master_seed, key))
         except Exception as exc:
             logger.debug("bootstrap CI block failed for key %r, skipping: %s", key, exc)
             payload["bootstrap_ci"][key] = {"status": "skipped", "reason": f"{type(exc).__name__}: {exc}"}

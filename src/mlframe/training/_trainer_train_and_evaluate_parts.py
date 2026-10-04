@@ -354,7 +354,9 @@ def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, mod
         _y_arr = np.asarray(train_target) if train_target is not None else None
         _is_multi_output_target = _y_arr is not None and _y_arr.ndim == 2
         if not _is_multi_output_target:
+            _oof_diag: dict = {}
             _oof_preds, _oof_probs = _compute_oof_preds(
+                diagnostics=_oof_diag,
                 model=model,
                 train_df=train_df,
                 train_target=train_target,
@@ -365,6 +367,7 @@ def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, mod
                 has_time=bool(oof_has_time), sample_weight=_pre_pipeline_sample_weight, timestamps=_oof_train_timestamps(timestamps, train_idx),
             )
             try:
+                model.oof_diagnostics = _oof_diag  # mlframe-injected bookkeeping attr on an arbitrary (object-typed) model
                 if _oof_preds is not None:
                     model.oof_preds = _oof_preds  # mlframe-injected bookkeeping attr on an arbitrary (object-typed) model
                 if _oof_probs is not None:

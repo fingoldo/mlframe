@@ -578,31 +578,36 @@ def _plot_cv_performance(show_plot, plot_file, font_size, figsize, checked_nfeat
 
         plt.rcParams.update({"font.size": font_size})
         _fig, ax1 = plt.subplots(figsize=figsize)
-        ax2 = ax1.twinx()
+        try:
+            ax2 = ax1.twinx()
 
-        ax1.set_xlabel("Number of features selected")
-        ax1.set_ylabel("Mean CV score", c="b")
+            ax1.set_xlabel("Number of features selected")
+            ax1.set_ylabel("Mean CV score", c="b")
 
-        ax1.errorbar(checked_nfeatures, cv_mean_perf, yerr=cv_std_perf, c="b", alpha=0.4)
+            ax1.errorbar(checked_nfeatures, cv_mean_perf, yerr=cv_std_perf, c="b", alpha=0.4)
 
-        ax2.plot(checked_nfeatures, ultimate_perf, c="g")
-        ax1.plot(checked_nfeatures[best_idx], base_perf[best_idx], "ro")
-        ax2.set_ylabel("Adj CV score", c="g")
+            ax2.plot(checked_nfeatures, ultimate_perf, c="g")
+            ax1.plot(checked_nfeatures[best_idx], base_perf[best_idx], "ro")
+            ax2.set_ylabel("Adj CV score", c="g")
 
-        plt.title("Performance by nfeatures")
-        plt.tight_layout()
+            plt.title("Performance by nfeatures")
+            plt.tight_layout()
 
-        if plot_file:
-            plt.savefig(ensure_parent_dir(plot_file))
-        if show_plot:
-            # Non-blocking show: plt.show(block=True) (the default) freezes the script behind a modal Qt window. Pair with a tiny pause
-            # to flush the GUI event loop so the figure actually renders before training continues / exits.
-            try:
-                plt.show(block=False)
-                plt.pause(0.001)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            if plot_file:
+                plt.savefig(ensure_parent_dir(plot_file))
+            if show_plot:
+                # Non-blocking show: plt.show(block=True) (the default) freezes the script behind a modal Qt window. Pair with a tiny pause
+                # to flush the GUI event loop so the figure actually renders before training continues / exits.
+                try:
+                    plt.show(block=False)
+                    plt.pause(0.001)
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
+                    pass
+        finally:
+            from mlframe.metrics.shared import close_unless_interactive
+
+            close_unless_interactive(_fig, was_shown=bool(show_plot))
 
 
 def _finalise_support_for_best_top_n(self, best_top_n, use_all_fi_runs, use_last_fi_run_only, use_one_freshest_fi_run, use_fi_ranking, votes_aggregation_method):

@@ -24,9 +24,9 @@ class _Stub:
     get_5_percent_splits = BorutaShap.get_5_percent_splits
 
     def __init__(self, preds: np.ndarray):
-        self.preds = preds
-        self.X = pd.DataFrame({"f": preds})
-        self.X_boruta = pd.DataFrame({"f": preds, "shadow_f": preds[::-1]})
+        self.preds_ = preds
+        self.X_ = pd.DataFrame({"f": preds})
+        self.X_boruta_ = pd.DataFrame({"f": preds, "shadow_f": preds[::-1]})
 
 
 def test_find_sample_terminates_when_no_subsample_ever_matches(monkeypatch):
@@ -52,7 +52,7 @@ def test_find_sample_terminates_when_no_subsample_ever_matches(monkeypatch):
 
     assert isinstance(result, pd.DataFrame)
     assert result.shape[0] > 0
-    assert result.shape[0] <= stub.X_boruta.shape[0]
+    assert result.shape[0] <= stub.X_boruta_.shape[0]
 
 
 def test_find_sample_starts_at_5_percent_not_10_percent():
@@ -92,4 +92,4 @@ def test_find_sample_no_indexerror_on_tiny_frame():
     assert stub.get_5_percent_splits(stub.X.shape[0]).size == 0, "sanity: this fixture must exercise the empty-size-array path"
     result = stub.find_sample()
     assert isinstance(result, pd.DataFrame)
-    assert result.shape[0] == stub.X_boruta.shape[0]
+    assert result.shape[0] == stub.X_boruta_.shape[0]

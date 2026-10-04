@@ -35,7 +35,9 @@ def _as_pandas(X, feature_names_in_: "list[str] | None" = None):
     if isinstance(X, np.ndarray) and feature_names_in_ is not None:
         return pd.DataFrame(X, columns=feature_names_in_)
     if not isinstance(X, pd.DataFrame) and hasattr(X, "to_pandas"):
-        return X.to_pandas()
+        from mlframe.training._polars_to_pandas_gate import polars_to_pandas_gated
+
+        return polars_to_pandas_gated(X, "neural_feature_prep")
     return X
 
 
@@ -80,9 +82,17 @@ class NeuralEmbeddingTextEncoder(TransformerMixin, BaseEstimator):
         text_features: Optional[Sequence[str]] = None,
         text_model: str = DEFAULT_TEXT_MODEL,
     ):
-        self.embedding_features = list(embedding_features) if embedding_features else []
-        self.text_features = list(text_features) if text_features else []
+        self.embedding_features = embedding_features
+        self.text_features = text_features
         self.text_model = text_model
+
+    def _embedding_cols(self) -> list:
+        """Configured embedding-list column names as a fresh list (the constructor parameter is kept verbatim for ``clone``)."""
+        return list(self.embedding_features) if self.embedding_features else []
+
+    def _text_cols(self) -> list:
+        """Configured raw-text column names as a fresh list (the constructor parameter is kept verbatim for ``clone``)."""
+        return list(self.text_features) if self.text_features else []
 
     def _get_provider(self):
         """Lazily build + acquire the frozen HF embedding provider. Cached on the instance, excluded from pickle."""
@@ -113,11 +123,11 @@ class NeuralEmbeddingTextEncoder(TransformerMixin, BaseEstimator):
         self.n_features_in_ = len(self.feature_names_in_)
         cols = set(X.columns)
         self.embedding_dims_: dict = {}
-        for c in self.embedding_features:
+        for c in self._embedding_cols():
             if c in cols:
                 _, dim = _stack_embedding_column(X[c], None)
                 self.embedding_dims_[c] = dim
-        self.text_cols_ = [c for c in self.text_features if c in cols]
+        self.text_cols_ = [c for c in self._text_cols() if c in cols]
         self.text_embedding_dim_: Optional[int] = None
         if self.text_cols_:
             # Pretrained -> no training; just resolve the embedding width so the emitted column count is fixed.
@@ -143,7 +153,7 @@ class NeuralEmbeddingTextEncoder(TransformerMixin, BaseEstimator):
                 vecs = np.asarray(provider.transform(texts), dtype=np.float32)
                 for j in range(vecs.shape[1]):
                     new_blocks[f"{c}__h{j}"] = vecs[:, j]
-        drop = [c for c in (self.embedding_features + self.text_features) if c in cols]
+        drop = [c for c in (self._embedding_cols() + self._text_cols()) if c in cols]
         out = X.drop(columns=drop) if drop else X
         if new_blocks:
             out = pd.concat([out, pd.DataFrame(new_blocks, index=X.index)], axis=1)

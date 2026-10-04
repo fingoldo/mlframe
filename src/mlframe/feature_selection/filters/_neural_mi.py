@@ -39,11 +39,44 @@ import logging
 import math
 import os
 import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
+from typing import Any, TypeVar
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+@contextmanager
+def _torch_rng_restored() -> Iterator[None]:
+    """Snapshot torch's global CPU (and, when initialised, CUDA) RNG state and put it back on exit."""
+    import torch
+
+    cpu_state = torch.get_rng_state()
+    cuda_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() and torch.cuda.is_initialized() else None
+    try:
+        yield
+    finally:
+        torch.set_rng_state(cpu_state)
+        if cuda_states is not None:
+            torch.cuda.set_rng_state_all(cuda_states)
+
+
+def _restores_torch_rng(fn: _F) -> _F:
+    """Decorator: the estimator may ``torch.manual_seed`` for reproducibility, but the caller's torch stream is left as found."""
+
+    @wraps(fn)
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        """Run ``fn`` inside ``_torch_rng_restored``."""
+        with _torch_rng_restored():
+            return fn(*args, **kwargs)
+
+    return _wrapped  # type: ignore[return-value]  # wraps() preserves the signature
 
 
 def _clamp_mi_nonneg(mi: float, estimator: str) -> float:
@@ -94,6 +127,7 @@ def _make_mine_network(input_dim: int = 2, hidden_dim: int = 100):
     )
 
 
+@_restores_torch_rng
 def mine_mi(
     x: np.ndarray, y: np.ndarray, *,
     hidden_dim: int = 100,
@@ -645,6 +679,7 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
 # =============================================================================
 
 
+@_restores_torch_rng
 def minde_mi(
     x: np.ndarray, y: np.ndarray, *, n_epochs: int = 2000, hidden_dim: int = 128, lr: float = 1e-3, device: str = "auto", seed: int = 0, verbose: bool = False
 ) -> float:
@@ -735,6 +770,7 @@ def minde_mi(
 # =============================================================================
 
 
+@_restores_torch_rng
 def dpmine_mi(
     x: np.ndarray, y: np.ndarray, *, n_iter: int = 200, concentration: float = 1.0, device: str = "auto", seed: int = 0, verbose: bool = False
 ) -> float:

@@ -50,7 +50,11 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, Iterable, Literal, Optional, Sequence, Tuple, Union
 
-from hypothesis import HealthCheck, settings, strategies as st
+try:
+    from hypothesis import HealthCheck, settings, strategies as st
+except ImportError as _exc:
+    raise ImportError("mlframe.testing.parametric needs hypothesis; install it with `pip install mlframe[dev]`.") from _exc
+
 import polars as pl
 from polars.testing.parametric import column, dataframes
 

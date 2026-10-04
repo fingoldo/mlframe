@@ -40,7 +40,6 @@ def _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_n
     """Optional RFECV pass over the MRMR-selected columns (``additional_rfecv``)."""
     from mlframe.feature_selection.filters.mrmr import (
         RFECV,
-        CatBoostClassifier,
         compute_probabilistic_multiclass_error,
     )
 
@@ -151,6 +150,8 @@ def _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_n
                     logger.info("RFECV rescue skipped: no discarded raw column is eligible after exclusions.")
             else:
                 if _is_classification:
+                    from catboost import CatBoostClassifier
+
                     cb_num_rfecv = RFECV(
                         estimator=CatBoostClassifier(**configs.CB_CLASSIF),
                         fit_params=dict(plot=False),

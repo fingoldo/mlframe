@@ -23,7 +23,10 @@ from typing import Optional
 import pandas as pd
 
 import category_encoders as ce
-from optbinning import BinningProcess
+try:
+    from optbinning import BinningProcess
+except ImportError as _exc:
+    raise ImportError("mlframe.feature_selection.optbinning needs optbinning; install it with `pip install mlframe[feature_engineering]`.") from _exc
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import FunctionTransformer
 

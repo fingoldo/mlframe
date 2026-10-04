@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import os
 import sys
 import threading
 import time
@@ -4248,18 +4247,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         if _fast_search_saved:
 
             def _restore_fast_search_knob(_k: str, _v: Any) -> None:
-                """Restore one saved fast-search knob (plain attr, Fourier-detect cap, or an os.environ entry)."""
+                """Restore one saved fast-search knob (plain attr or the Fourier-detect cap)."""
                 if _k == "__fdcap__":
                     if _v is None:
                         clear_fourier_detect_cap()
                     else:
                         set_fourier_detect_cap(_v)
-                elif _k.startswith("__env__"):
-                    _envk = _k[len("__env__") :]
-                    if _v is None:
-                        os.environ.pop(_envk, None)
-                    else:
-                        os.environ[_envk] = _v
                 else:
                     setattr(self, _k, _v)
 

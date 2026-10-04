@@ -21,10 +21,10 @@ def _make_fake_self():
     """Minimal stand-in exposing only what plot/box_plot read on `self`."""
     self = types.SimpleNamespace()
     # history_x: row 0 is a header sentinel (sliced off via .iloc[1:]), then importance rows.
-    self.history_x = pd.DataFrame({"f1": [0.0, 1.0, 2.0], "f2": [0.0, 0.5, 1.5]})
-    self.accepted = ["f1"]
-    self.tentative = []
-    self.rejected = ["f2"]
+    self.history_x_ = pd.DataFrame({"f1": [0.0, 1.0, 2.0], "f2": [0.0, 0.5, 1.5]})
+    self.accepted_ = ["f1"]
+    self.tentative_ = []
+    self.rejected_ = ["f2"]
 
     self.create_mapping_of_features_to_attribute = types.MethodType(_io_plot.create_mapping_of_features_to_attribute, self)
     # Plain function assignment, not staticmethod(...): a `staticmethod` object is only

@@ -39,12 +39,12 @@ def _run_test_features(hits, n_trials, recorded_p):
         return [binomtest(int(x), n, p, alternative=alternative).pvalue for x in array]
 
     self = SimpleNamespace(
-        hits=hits, percentile=99, pvalue=0.05, all_columns=np.array([f"f{i}" for i in range(len(hits))]), binomial_H0_test=_binom,
+        hits_=hits, percentile=99, pvalue=0.05, all_columns_=np.array([f"f{i}" for i in range(len(hits))]), binomial_H0_test=_binom,
         bonferoni_corrections=_shadow_stats.bonferoni_corrections, find_index_of_true_in_array=_shadow_stats.find_index_of_true_in_array,
-        rejected_columns=[], accepted_columns=[], _null_hit_p_sum=recorded_p * n_trials, _null_hit_p_trials=n_trials,
+        rejected_columns_=[], accepted_columns_=[], _null_hit_p_sum=recorded_p * n_trials, _null_hit_p_trials=n_trials,
     )
     _shadow_stats.test_features(self, iteration=n_trials)
-    return len(self.accepted_columns[-1])
+    return len(self.accepted_columns_[-1])
 
 
 def test_exchangeable_noise_not_accepted_with_ten_shadows():

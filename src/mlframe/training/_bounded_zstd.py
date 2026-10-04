@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-import zstandard as zstd
+from mlframe._optional_imports import import_optional
 
 MAX_DECOMPRESSED_ENV = "MLFRAME_MAX_DECOMPRESSED_BYTES"
 _DEFAULT_MAX_DECOMPRESSED_BYTES = 64 * 1024**3
@@ -70,11 +70,12 @@ class BoundedReader:
 
 def decompress_bounded(data: bytes) -> bytes:
     """Decompress a single zstd frame, refusing frames whose output would exceed the ceiling."""
+    zstd = import_optional("zstandard", "db", "reading compressed model bundles")
     limit = max_decompressed_bytes()
     dctx = zstd.ZstdDecompressor()
     if not limit:
-        return dctx.decompress(data)
+        return bytes(dctx.decompress(data))
     declared = zstd.frame_content_size(data)
     if declared >= 0 and declared != zstd.CONTENTSIZE_UNKNOWN and declared > limit:
         raise DecompressedSizeError(f"zstd frame declares {declared} decompressed bytes, over the {limit} ceiling ({MAX_DECOMPRESSED_ENV})")
-    return dctx.decompress(data, max_output_size=limit)
+    return bytes(dctx.decompress(data, max_output_size=limit))

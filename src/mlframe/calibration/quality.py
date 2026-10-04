@@ -31,7 +31,7 @@ import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
 
 from sklearn.feature_selection import mutual_info_regression
-from properscoring import crps_ensemble
+from mlframe._optional_imports import import_optional
 
 # fast_brier_score_loss is the project's numba Brier, proven sklearn-equivalent by metrics tests;
 # use it over sklearn.metrics.brier_score_loss (avoids the sklearn call overhead in the calibration path).
@@ -90,6 +90,7 @@ def crps(y: np.ndarray, y_preds: np.ndarray) -> float:
     """Computes mean Continuous Ranked Probability Score of true binary outcomes versus predicted probabilities."""
     if np.asarray(y).shape[0] == 0:
         return float("nan")  # mean of an empty CRPS array is a silent NaN; surface it explicitly.
+    crps_ensemble = import_optional("properscoring", "calibration", "CRPS scoring").crps_ensemble
     return float(crps_ensemble(observations=y, forecasts=y_preds).mean())
 
 

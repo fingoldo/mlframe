@@ -89,8 +89,8 @@ def remediate_drifting_features(
     Returns
     -------
     tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]
-        ``(train_out, test_out, report)`` — copies of the input frames with flagged feature columns either
-        replaced by their within-``group_col`` rank or dropped entirely, and a report frame with columns
+        ``(train_out, test_out, report)`` — new frames sharing the untouched columns' buffers with the inputs (only rank-transformed columns are
+        materialised), with flagged feature columns either replaced by their within-``group_col`` rank or dropped entirely, and a report frame with columns
         ``{"feature", "drift_importance", "flagged", "action"}`` sorted by importance descending. ``action``
         is one of ``{"none", "rank_transform", "drop"}``.
     """
@@ -116,8 +116,8 @@ def remediate_drifting_features(
 
     def _build(effective_drop_n_std: float | None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Build the remediated train/test frames and action report for the given drop threshold."""
-        train_out = train_df.copy()
-        test_out = test_df.copy()
+        train_out = train_df.copy(deep=False)
+        test_out = test_df.copy(deep=False)
         train_groups = train_df[group_col].to_numpy()
         test_groups = test_df[group_col].to_numpy()
 

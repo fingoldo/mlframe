@@ -69,4 +69,6 @@ def frame_for_inner(estimator: Any, X: Any) -> Any:
         "input is converted to pandas; pass a polars-capable inner or a pandas frame to avoid the copy.",
         type(estimator).__name__, X.height, X.width,
     )
-    return X.to_pandas()
+    from mlframe.training._polars_to_pandas_gate import polars_to_pandas_gated
+
+    return polars_to_pandas_gated(X, "composite_inner_frame")

@@ -15,6 +15,7 @@ except ImportError:  # pragma: no cover
     pl = None  # type: ignore[assignment]
 
 from ..configs import TargetTypes as _TargetTypes
+from ._schema_version import CURRENT_SCHEMA_VERSION
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
@@ -219,7 +220,7 @@ def _build_and_record_model_schema(
         "mlframe_model": mlframe_model_name,
         "weight_name": weight_name,
         "target_type": str(target_type) if target_type is not None else None,
-        "schema_version": 2,  # 1=legacy, 2=multi-output-aware
+        "schema_version": CURRENT_SCHEMA_VERSION,
     }
     train_y = (
         cur_target_values[_train_idx]

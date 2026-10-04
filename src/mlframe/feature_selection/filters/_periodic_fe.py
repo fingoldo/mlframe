@@ -296,7 +296,7 @@ def hybrid_modular_fe(
     qualified = scores[(scores["uplift_mean"] >= float(min_uplift_lcb)) & (scores["engineered_mi_lcb"] >= noise_floor)]
     winners = qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy()
+    X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
 

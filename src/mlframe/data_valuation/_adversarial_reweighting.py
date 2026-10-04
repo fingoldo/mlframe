@@ -97,6 +97,7 @@ def dro_reweight_fit(
     step_mix: float = 0.5,
     n_splits: int = 5,
     rng: Optional[np.random.Generator] = None,
+    groups: Optional[np.ndarray] = None,
 ) -> tuple[Any, np.ndarray, dict]:
     """Alternating best-response minimax fit: model minimizes weighted loss, adversary reweights within
     a chi-square ball of radius ``rho`` to maximize it (closed-form inner step, see
@@ -118,6 +119,9 @@ def dro_reweight_fit(
     pennies pathology of two simultaneous best-responses); smoothing damps this into converging
     trajectories.
 
+    ``groups`` (per-row group ids) makes the adversary's OOF folds group-disjoint (``GroupKFold``); with correlated rows, i.i.d. folds let a row's
+    group-mates sit in the training fold, so the OOF losses are optimistic and the adversary under-weights exactly the rows that would fail on a new group.
+
     Cost: ``n_rounds * n_splits`` model fits total (each round refits ``n_splits`` OOF folds for the
     adversary's losses, plus one final full-data fit) -- document honestly, this is not cheap.
 
@@ -125,7 +129,7 @@ def dro_reweight_fit(
     ``avg_loss_history`` (both length ``n_rounds``), and ``converged`` (``True`` iff
     ``max|w_{t+1} - w_t| < 1e-3`` on the final round).
     """
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import GroupKFold, KFold
 
     if rng is None:
         rng = np.random.default_rng()
@@ -138,8 +142,14 @@ def dro_reweight_fit(
     avg_history = []
     converged = False
 
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1)))
-    fold_splits = list(kf.split(X))
+    if groups is not None:
+        groups = np.asarray(groups).ravel()
+        if groups.shape[0] != n:
+            raise ValueError(f"dro_reweight_fit: groups length {groups.shape[0]} must match X length {n}")
+        fold_splits = list(GroupKFold(n_splits=n_splits).split(X, y, groups))
+    else:
+        kf = KFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1)))
+        fold_splits = list(kf.split(X))
 
     model = None
     for _round in range(n_rounds):

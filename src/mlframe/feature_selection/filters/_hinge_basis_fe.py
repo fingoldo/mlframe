@@ -864,7 +864,7 @@ def hybrid_hinge_fe_with_recipes(
     qualified = scores[scores["passed"]]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     recipes = []
     for name in keep:
         if name not in meta:

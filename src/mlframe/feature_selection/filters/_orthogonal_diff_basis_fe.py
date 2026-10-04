@@ -525,7 +525,7 @@ def hybrid_orth_mi_diff_basis_fe(
     if not scores.empty:
         scores = scores.sort_values("uplift", ascending=False).reset_index(drop=True)
     keep = list(engineered.columns)
-    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
 

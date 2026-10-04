@@ -28,6 +28,7 @@ from mlframe.utils.log_throttle import log_throttle
 from ._xt_ensemble_helpers import (
     logger,
     _DEFAULT_OOF_RANDOM_STATE,
+    note_stack_without_oof,
     _build_cross_target_entry_enumerate_orig_entries,
     _build_cross_target_unmatched_oof_refit_path,
     _build_cross_target_train_fold_oof_stack,
@@ -541,6 +542,7 @@ def _build_cross_target_ensemble_for_target(
                     "Proceeding with full set.", _orig_tname, _dedup_err,
                 )
 
+    _stack_without_oof = False
     try:
         if _ce_strategy == "mean":
             _ensemble = _CrossEns.from_uniform_weights(
@@ -598,16 +600,11 @@ def _build_cross_target_ensemble_for_target(
                             _gate_err,
                         )
             else:
-                if _oof_y_full is None:
-                    raise RuntimeError("stacking requires train target alignment")
-                _y_for_stack = np.asarray(_oof_y_full)[filtered_train_idx]
-                # Preallocate (n_rows, K) to skip np.column_stack's per-entry copy doubling peak RAM.
-                _frame_key2 = (id(filtered_train_df), getattr(filtered_train_df, "shape", None))
-                _n_rows = len(_y_for_stack)
-                _pred_matrix = np.empty((_n_rows, len(_oof_components)), dtype=np.float64)
-                for _ci, (_comp, _name) in enumerate(zip(_oof_components, _oof_names)):
-                    _pred_matrix[:, _ci] = _get_train_pred(_comp, _frame_key2)
-            if _ce_strategy == "linear_stack":
+                _stack_without_oof = True
+                note_stack_without_oof(metadata, _tt_e, _orig_tname, _ce_strategy)
+            if _stack_without_oof:
+                _ensemble = _CrossEns.from_uniform_weights(component_models=_oof_components, component_names=_oof_names)
+            elif _ce_strategy == "linear_stack":
                 _ensemble = _CrossEns.from_linear_stack(
                     component_models=_oof_components, component_names=_oof_names, component_predictions=_pred_matrix, y_train=_y_for_stack,
                     sample_weight=_oof_sw if _pred_matrix is _oof_pred_matrix else None,

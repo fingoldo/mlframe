@@ -35,7 +35,9 @@ def _to_pandas_features(X) -> pd.DataFrame:
     if isinstance(X, pd.DataFrame):
         return X
     if hasattr(X, "to_pandas"):  # polars
-        return X.to_pandas()
+        from mlframe.training._polars_to_pandas_gate import polars_to_pandas_gated
+
+        return polars_to_pandas_gated(X, "ranker_fs")
     return pd.DataFrame(np.asarray(X))
 
 

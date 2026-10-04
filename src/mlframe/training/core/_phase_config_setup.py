@@ -5,6 +5,8 @@ import logging
 import sys
 from typing import Any
 
+from ._schema_version import CURRENT_SCHEMA_VERSION
+
 from ..configs import (
     BaselineDiagnosticsConfig,
     CompositeTargetDiscoveryConfig,
@@ -437,7 +439,7 @@ def setup_configuration(
             pipeline_config=pipeline_config,
             split_config=split_config,
         )
-        metadata["schema_version"] = 2
+        metadata["schema_version"] = CURRENT_SCHEMA_VERSION
 
         ctx = TrainingContext(
             model_name=model_name,

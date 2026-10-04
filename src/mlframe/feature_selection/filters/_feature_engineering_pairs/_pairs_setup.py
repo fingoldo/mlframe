@@ -371,7 +371,7 @@ def _build_operand_table(
     # correctness or availability regression). Any allocated tail columns past the used width (``i`` <
     # n_operands when some (var,tr) raised + were skipped) have no spec -> the builder zero-fills them; the
     # materialise never reads them (operand indices are always < the used width), so their content is moot.
-    if _operand_col_specs is not None and len(vars_transformations) > 0:
+    if _operand_col_specs is not None and len(vars_transformations) > 0 and _operand_table_fits_vram(transformed_vars):
         try:
             from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
             # Build a FULL-WIDTH (n, n_operands) device mirror keyed on the SAME ``transformed_vars`` object
@@ -389,6 +389,13 @@ def _build_operand_table(
         except Exception:
             logger.debug("GPU-resident operand-table build failed; falling back to host H2D.", exc_info=True)
     return vars_transformations
+
+
+def _operand_table_fits_vram(transformed_vars) -> bool:
+    """Whether a device mirror of ``transformed_vars`` leaves the absolute VRAM cushion intact (False routes to the host H2D path)."""
+    from .._fe_gpu_vram import fe_gpu_has_vram_cushion
+
+    return fe_gpu_has_vram_cushion(int(transformed_vars.shape[0]) * int(transformed_vars.shape[1]) * 4)
 
 
 def _materialise_pair_operands(prospective_pairs, _extval_raw_col, _unary_names_eff, unary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, vars_transformations, transformed_vars, i, gpu_compatible_unary_names, logger, cols, _operand_col_specs):

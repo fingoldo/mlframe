@@ -33,10 +33,10 @@ from types import SimpleNamespace
 from typing import Callable, Optional, Dict, Any
 
 import dill  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-import zstandard as zstd
 from joblib.numpy_pickle import NumpyUnpickler as _JoblibNumpyUnpickler
 from joblib.numpy_pickle import _validate_fileobject_and_memmap as _joblib_validate_fileobject_and_memmap
 
+from mlframe._optional_imports import import_optional
 from mlframe.training._bounded_zstd import BoundedReader, max_decompressed_bytes
 from mlframe.training._unpickle_policy import (
     _DENIED_MODULE_PREFIXES,
@@ -595,6 +595,7 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
         )
     try:
         with open(file, "rb") as f:
+            zstd = import_optional("zstandard", "db", "reading compressed model bundles")
             decompressor = zstd.ZstdDecompressor()
             with decompressor.stream_reader(f) as _zraw:
                 zf = BoundedReader(_zraw, max_decompressed_bytes())

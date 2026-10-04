@@ -349,6 +349,9 @@ class GeomAvgClassifier(ClassifierMixin, BaseEstimator):
 class PureRandomClassifier(ClassifierMixin, BaseEstimator):
     """Random-prediction baseline. Respects `random_state` for reproducibility.
 
+    ``nprobs`` is accepted for signature parity with the averaging classifiers and is ignored: the number of probability columns
+    always follows ``len(classes_)``.
+
     Follows sklearn conventions: stores `classes_`, `n_features_in_` in fit,
     and `predict` returns original class labels (not argmax indices).
     """

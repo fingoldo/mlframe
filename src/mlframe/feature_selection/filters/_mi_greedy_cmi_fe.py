@@ -1855,7 +1855,7 @@ def greedy_cmi_fe_construct(
     if winners:
         X_aug = pd.concat([X, engineered[winners]], axis=1)
     else:
-        X_aug = X.copy()
+        X_aug = X.copy(deep=False)
     return X_aug, scores
 
 

@@ -106,7 +106,7 @@ def _second_pass_cmi_gate(self, X, _y_np, recipes, verbose):
     return X
 
 
-def _gate_engineered_accuracy(self, X, recipes, _y_np, verbose):
+def _gate_engineered_accuracy(self, X, recipes, _y_np, verbose, groups=None):
     """Accuracy gate: drop an engineered column that adds no held-out linear-probe uplift over its raw source."""
     if bool(getattr(self, "fe_accuracy_gate", True)) and isinstance(X, pd.DataFrame) and (self.hybrid_orth_features_ or []) and recipes.hybrid_orth:
         try:
@@ -118,6 +118,7 @@ def _gate_engineered_accuracy(self, X, recipes, _y_np, verbose):
             )
 
             _y_for_gate = _y_np
+            _gate_groups = np.asarray(groups).ravel() if groups is not None and len(groups) == len(_y_np) else None
             _gate_seed = int(getattr(self, "random_seed", 0) or 0)
             _gate_classif = infer_classification(_y_for_gate)
             _hybrid_set_now = set(self.hybrid_orth_features_ or [])
@@ -179,14 +180,17 @@ def _gate_engineered_accuracy(self, X, recipes, _y_np, verbose):
                     _rng_g = np.random.default_rng(_gate_seed)
                     _idx_g = _rng_g.choice(_n, 5000, replace=False)
                     _base_probe, _eng_probe, _y_probe = _base_mat[_idx_g], _eng_arr[_idx_g], _y_for_gate[_idx_g]
+                    _g_probe = _gate_groups[_idx_g] if _gate_groups is not None else None
                 else:
                     _base_probe, _eng_probe, _y_probe = _base_mat, _eng_arr, _y_for_gate
+                    _g_probe = _gate_groups
                 _cond_uplift = measure_feature_uplift(
                     _base_probe,
                     _eng_probe,
                     _y_probe,
                     classification=_gate_classif,
                     seed=_gate_seed,
+                    groups=_g_probe,
                 )
                 # Fail-open: None == probe could not measure (degenerate / exception);
                 # keep the candidate rather than silently dropping it. Only a genuine

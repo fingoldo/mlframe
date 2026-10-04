@@ -28,6 +28,7 @@ task (sub-millisecond) regardless of platform.
 """
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import sys
@@ -233,6 +234,43 @@ def run_in_big_stack_thread(
 _FIT_MEMMAP_CACHE_MAX_ENTRIES = 8
 _FIT_MEMMAP_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()  # content key -> (read-only memmap, backing path)
 _FIT_MEMMAP_LOCK = threading.Lock()
+# Evicted entries a caller still holds (a Parallel call dispatching tasks by filename) wait here; each sweep releases the ones no longer referenced.
+_FIT_MEMMAP_RETIRED: "list[tuple]" = []
+
+
+def _idle_refcount() -> int:
+    """Reference count of an object held by exactly one local variable, as ``_view_in_use`` observes it."""
+    probe = object()
+    return sys.getrefcount(probe)
+
+
+_IDLE_REFCOUNT = _idle_refcount()
+
+
+def _view_in_use(view) -> bool:
+    """True when something besides the caller's single local still references ``view`` (a Parallel call, a slice of it)."""
+    return sys.getrefcount(view) > _IDLE_REFCOUNT
+
+
+def _sweep_retired_locked() -> None:
+    """Release retired entries nobody references any more. Caller holds ``_FIT_MEMMAP_LOCK``."""
+    still_held = []
+    while _FIT_MEMMAP_RETIRED:
+        view, path = _FIT_MEMMAP_RETIRED.pop()
+        if _view_in_use(view):
+            still_held.append((view, path))
+        else:
+            _release_fit_constant_entry(view, path)
+    _FIT_MEMMAP_RETIRED.extend(still_held)
+
+
+def _evict_one_locked() -> None:
+    """Pop the LRU entry; unlink it now, or park it in the retired list while a caller still references its view."""
+    _, (view, path) = _FIT_MEMMAP_CACHE.popitem(last=False)
+    if _view_in_use(view):
+        _FIT_MEMMAP_RETIRED.append((view, path))
+    else:
+        _release_fit_constant_entry(view, path)
 
 
 def _release_fit_constant_entry(view, path: str) -> None:
@@ -300,11 +338,16 @@ def fit_constant_memmap(arr: "Any") -> "Any":
 
         fd, path = tempfile.mkstemp(prefix="mlframe_fitconst_", suffix=".mmap")
         os.close(fd)
-        a = _np.ascontiguousarray(arr)
-        mm = _np.memmap(path, dtype=a.dtype, mode="w+", shape=a.shape)
-        mm[...] = a
-        mm.flush()
-        ro = _np.memmap(path, dtype=a.dtype, mode="r", shape=a.shape)
+        try:
+            a = _np.ascontiguousarray(arr)
+            mm = _np.memmap(path, dtype=a.dtype, mode="w+", shape=a.shape)
+            mm[...] = a
+            mm.flush()
+            del mm
+            ro = _np.memmap(path, dtype=a.dtype, mode="r", shape=a.shape)
+        except BaseException:
+            _release_fit_constant_entry(None, path)
+            raise
 
         with _FIT_MEMMAP_LOCK:
             winner = _FIT_MEMMAP_CACHE.get(key)
@@ -314,9 +357,22 @@ def fit_constant_memmap(arr: "Any") -> "Any":
                 return winner[0]
             _FIT_MEMMAP_CACHE[key] = (ro, path)
             while len(_FIT_MEMMAP_CACHE) > _FIT_MEMMAP_CACHE_MAX_ENTRIES:
-                _, (_old_view, _old_path) = _FIT_MEMMAP_CACHE.popitem(last=False)
-                _release_fit_constant_entry(_old_view, _old_path)
+                _evict_one_locked()
+            _sweep_retired_locked()
         return ro
     except Exception as e:
         logger.debug("fit_constant_memmap: memmap dump/cache failed, returning the original array (dump-dedup lost, correctness unaffected): %s", e)
         return arr
+
+
+def release_fit_constant_memmaps() -> int:
+    """Close and unlink every cached fit-constant memmap; returns how many entries were released. Called at fit end and at interpreter exit."""
+    with _FIT_MEMMAP_LOCK:
+        entries = list(_FIT_MEMMAP_CACHE.values())
+        _FIT_MEMMAP_CACHE.clear()
+    for view, path in entries:
+        _release_fit_constant_entry(view, path)
+    return len(entries)
+
+
+atexit.register(release_fit_constant_memmaps)

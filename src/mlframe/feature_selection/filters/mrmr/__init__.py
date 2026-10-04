@@ -74,8 +74,6 @@ from numpy.polynomial.hermite import hermval
 from scipy import special as sp  # public facade re-export (F401 already blanket-ignored for __init__.py)
 from scipy.stats import mode
 
-from catboost import CatBoostClassifier
-
 from pyutilz.numbalib import (
     generate_combinations_recursive_njit,  # public facade re-export (F401 already blanket-ignored for __init__.py)
     python_dict_2_numba_dict,
@@ -244,7 +242,6 @@ __all__ = [
     "_MRMR_IDENTITY_FP_LOCK",
     "_MRMR_BATCH_PRECOMPUTE_MIN_PAIRS",
     "RFECV",
-    "CatBoostClassifier",
     "compute_probabilistic_multiclass_error",
     "categorize_dataset",
     "numeric_column_names",

@@ -617,7 +617,7 @@ def greedy_mi_fe_construct(
     if keep:
         X_aug = pd.concat([X, engineered[keep]], axis=1)
     else:
-        X_aug = X.copy()
+        X_aug = X.copy(deep=False)
     return X_aug, scores
 
 

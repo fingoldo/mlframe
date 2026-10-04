@@ -433,16 +433,10 @@ def compute_pair_mis_and_floor(
             )
 
         try:
-            import concurrent.futures
+            from mlframe.utils.daemon_task import start_daemon_task
 
-            _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            _future = _executor.submit(_run_loky_pair_mi_pool)
-            try:
-                dicts = _future.result(timeout=_LOKY_POOL_WALL_CLOCK_TIMEOUT)
-            finally:
-                # wait=False: never block here waiting for an already-abandoned (possibly hung-forever)
-                # worker thread - that would defeat the whole point of the watchdog.
-                _executor.shutdown(wait=False)
+            # Daemon thread: an abandoned (possibly hung-forever) pool call must not be joined at interpreter exit.
+            dicts = start_daemon_task(_run_loky_pair_mi_pool).result(timeout=_LOKY_POOL_WALL_CLOCK_TIMEOUT)
             for next_dict in dicts:
                 cached_MIs.update(next_dict)
         except Exception as _pool_exc:

@@ -30,6 +30,17 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
     _fit_fourier_for_col,
 )
 
+@pytest.fixture(autouse=True)
+def _restore_robust_axis_env():
+    """Put MLFRAME_ROBUST_AXIS back to its pre-test value however the test exits (these tests flip it in-body)."""
+    prior = os.environ.get("MLFRAME_ROBUST_AXIS")
+    yield
+    if prior is None:
+        os.environ.pop("MLFRAME_ROBUST_AXIS", None)
+    else:
+        os.environ["MLFRAME_ROBUST_AXIS"] = prior
+
+
 _N = 4000
 _OUTLIER_FRAC = 0.05
 _EXTREME = 1000.0

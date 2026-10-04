@@ -360,6 +360,9 @@ def precision_at_k(
 
     Differs from Hit@k: Hit@k saturates at 1.0 as soon as ONE relevant
     doc appears, Precision@k keeps counting.
+
+    Tied scores are ranked by input row order (stable sort), so with ties the value depends on how rows are ordered inside a query;
+    shuffle rows within queries first when the input order can correlate with relevance.
     """
     if k <= 0:
         raise ValueError(f"k must be >= 1, got {k}")

@@ -36,6 +36,7 @@ except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: F401
+from ._oof_fold_policy import cap_early_stopping_clone, iid_oof_splitter
 from mlframe.training.pipeline.shared import (  # noqa: F401
     PRE_PIPELINE_CACHE as _PRE_PIPELINE_CACHE,
     PRE_PIPELINE_CACHE_LOCK as _PRE_PIPELINE_CACHE_LOCK,
@@ -91,7 +92,7 @@ from ._model_factories import (
     XGBClassifierWithDMatrixReuse as _XGBClassifierWithDMatrixReuse,
     XGBRegressorWithDMatrixReuse as _XGBRegressorWithDMatrixReuse,
 )
-import lightgbm as _lgb_for_factory
+from mlframe._optional_imports import import_optional
 
 
 def _lgb_classifier_cls() -> type:
@@ -100,14 +101,16 @@ def _lgb_classifier_cls() -> type:
     ``trainer.USE_LGB_DATASET_REUSE_SHIM`` flip dispatch as documented."""
     if USE_LGB_DATASET_REUSE_SHIM and _LGBMClassifierWithDatasetReuse is not None:
         return _LGBMClassifierWithDatasetReuse
-    return _lgb_for_factory.LGBMClassifier
+    lgbm_cls: type = import_optional("lightgbm", "boosting", "LightGBM models").LGBMClassifier
+    return lgbm_cls
 
 
 def _lgb_regressor_cls() -> type:
     """Trainer-local wrapper, mirror of ``_lgb_classifier_cls``."""
     if USE_LGB_DATASET_REUSE_SHIM and _LGBMRegressorWithDatasetReuse is not None:
         return _LGBMRegressorWithDatasetReuse
-    return _lgb_for_factory.LGBMRegressor
+    lgbm_cls: type = import_optional("lightgbm", "boosting", "LightGBM models").LGBMRegressor
+    return lgbm_cls
 
 
 def _xgb_classifier_cls() -> type:
@@ -190,8 +193,13 @@ def _compute_oof_preds(
     has_time: bool = False,
     sample_weight=None,
     timestamps=None,
+    diagnostics: Optional[dict] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Compute K-fold OOF predictions for level-1 stacking. Returns (oof_preds, oof_probs) or (None, None) on skip.
+
+    ``diagnostics``, when given, is filled with ``fold_scheme``, ``round_budget`` (the rounds the OOF fold models were capped at, from the
+    deployed model's early-stopping point) and ``skipped_reason`` (set whenever the result is ``(None, None)``). A skipped OOF for a classifier
+    is logged at WARNING because it silently moves the ensemble choice to val and drops the honest threshold block.
 
     OOF preds replace the in-sample ``train_preds`` for stacking aggregation: the canonical fix for level-1 leakage
     is to ensure the predictions a meta-learner sees on each training row were produced by a sub-model that did NOT
@@ -213,6 +221,14 @@ def _compute_oof_preds(
     an unweighted refit, a systematically different sub-model than the one actually deployed as an ensemble
     member.
     """
+    diag: dict = diagnostics if diagnostics is not None else {}
+
+    def _skip(reason: str) -> Tuple[None, None]:
+        """Record why OOF was skipped and log it loudly for classifiers."""
+        diag["skipped_reason"] = reason
+        (logger.warning if is_classifier_model else logger.info)("OOF prediction skipped: %s", reason)
+        return None, None
+
     if train_df is None or train_target is None:
         return None, None
     try:
@@ -223,7 +239,7 @@ def _compute_oof_preds(
         # Too few rows for meaningful K-fold; level-1 stacking on tiny data isn't a realistic use case anyway.
         return None, None
     try:
-        from sklearn.model_selection import KFold, GroupKFold, cross_val_predict
+        from sklearn.model_selection import GroupKFold, cross_val_predict
         from sklearn.base import clone
     except ImportError:
         return None, None
@@ -231,22 +247,11 @@ def _compute_oof_preds(
     # Use clone() so the original (already-fit) model is not retrained in place.
     try:
         estimator = clone(model)
-    except (TypeError, RuntimeError):
+    except (TypeError, RuntimeError) as exc:
         # Some custom wrappers (Catboost shim, TTR, ClassifierChain) don't survive sklearn.clone; skip OOF gracefully.
-        return None, None
+        return _skip(f"estimator not clonable ({exc})")
 
-    # A model configured with native early stopping (LGB_GENERAL_PARAMS bakes in
-    # early_stopping_rounds for every "lgb"/"xgb" registry entry) requires an eval_set at fit time --
-    # cross_val_predict's internal per-fold .fit(X_train, y_train) call never supplies one, so every
-    # fold raises ValueError("For early stopping, at least one dataset and eval metric is required
-    # for evaluation") and the whole OOF computation silently no-ops via the except-block below.
-    # Disable early stopping on the CLONE only (the original, already-fit model is untouched) -- OOF
-    # folds need a fixed round count, not a per-fold tuned stopping point.
-    try:
-        if getattr(estimator, "early_stopping_rounds", None):
-            estimator.set_params(early_stopping_rounds=None)
-    except (ValueError, TypeError):
-        pass
+    cap_early_stopping_clone(estimator, model, diag)
 
     method = "predict_proba" if is_classifier_model and hasattr(estimator, "predict_proba") else "predict"
 
@@ -270,6 +275,7 @@ def _compute_oof_preds(
         # temporal suite keeps whole groups together (the splitter upstream already assigns spanning groups to the
         # later split, preserving temporal honesty at the group granularity).
         _n_distinct_groups = len(set(np.asarray(group_ids)))
+        diag["fold_scheme"] = "group"
         if _n_distinct_groups < 2:
             # GroupKFold(n_splits=1) raises ValueError at CONSTRUCTION time (sklearn requires
             # n_splits >= 2), outside the try/except below that only wraps cross_val_predict --
@@ -277,12 +283,11 @@ def _compute_oof_preds(
             # call after the model already trained, uncaught. No meaningful group-aware OOF is
             # possible with a single group anyway; skip gracefully like the other "not computable"
             # branches in this function.
-            logger.info("OOF prediction skipped: only %d distinct group(s) present, need >= 2 for GroupKFold.", _n_distinct_groups)
-            return None, None
+            return _skip(f"only {_n_distinct_groups} distinct group(s) present, need >= 2 for GroupKFold")
         splitter = GroupKFold(n_splits=min(n_splits, _n_distinct_groups))
         _groups_arg = np.asarray(group_ids)
     else:
-        splitter = KFold(n_splits=n_splits, shuffle=True, random_state=random_seed)
+        splitter = iid_oof_splitter(train_target, n_splits, random_seed, is_classifier_model, diag)
         _groups_arg = None
 
     # sklearn's cross_val_predict slices any array-like `params` entry to each fold's train indices
@@ -306,8 +311,7 @@ def _compute_oof_preds(
             params=_cvp_params,
         )
     except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:
-        logger.info("OOF prediction skipped: %s", exc)
-        return None, None
+        return _skip(f"{type(exc).__name__}: {exc}")
 
     if method == "predict_proba":
         return None, np.asarray(oof)
@@ -359,7 +363,7 @@ def _compute_oof_preds_timeseries(
             else:
                 oof_pred[te_idx] = np.asarray(est.predict(_row(train_df, te_idx))).ravel()
     except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:
-        logger.info("Time-aware OOF prediction skipped: %s", exc)
+        (logger.warning if method == "predict_proba" else logger.info)("Time-aware OOF prediction skipped: %s", exc)
         return None, None
 
     if method == "predict_proba":

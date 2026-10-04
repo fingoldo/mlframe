@@ -13,7 +13,7 @@ from pyutilz.system import tqdmu
 
 import pandas as pd
 import numpy as np
-import shap
+from mlframe._optional_imports import import_optional
 
 try:
     import polars as pl
@@ -237,19 +237,19 @@ def _fit_with_subsample_stability(self, X, y):
                 accept_counts[c] += 1
 
     need = max(1, int(np.ceil(thr * n_sub)))
-    self.accepted = [c for c in all_columns if accept_counts[c] >= need]
-    self.rejected = [c for c in all_columns if accept_counts[c] == 0]
-    self.tentative = [c for c in all_columns if 0 < accept_counts[c] < need]
+    self.accepted_ = [c for c in all_columns if accept_counts[c] >= need]
+    self.rejected_ = [c for c in all_columns if accept_counts[c] == 0]
+    self.tentative_ = [c for c in all_columns if 0 < accept_counts[c] < need]
     # Intersection mode (stability_threshold==1.0, the default once stability is enabled) keeps ONLY
-    # features accepted by ALL subsamples - that is exactly set(self.accepted) with need==n_sub. The
+    # features accepted by ALL subsamples - that is exactly set(self.accepted_) with need==n_sub. The
     # 'tentative' bucket here is 0<count<need, i.e. features accepted by SOME but not all subsamples:
     # precisely the draw-level-spurious columns intersection is meant to drop. So in intersection mode we
     # must NOT let optimistic re-add tentative (which would silently keep the spurious column the class
     # docstring promises to remove). optimistic only applies to majority-vote thresholds (<1.0).
     if thr >= 1.0:
-        kept = set(self.accepted)
+        kept = set(self.accepted_)
     else:
-        kept = set(self.accepted) | (set(self.tentative) if self.optimistic else set())
+        kept = set(self.accepted_) | (set(self.tentative_) if self.optimistic else set())
     if getattr(self, "_premerge_active_", False):  # re-expand accepted representatives to their cluster members
         kept, self.support_ = _premerge_expand(kept, self._premerge_members_, self._premerge_original_cols_)
         self.selected_features_ = [c for c in self._premerge_original_cols_ if c in kept]
@@ -263,14 +263,14 @@ def _fit_with_subsample_stability(self, X, y):
     if self.verbose:
         logger.info(
             "BorutaShap stability: %d subsamples @%.0f%%, threshold>=%d/%d -> %d accepted, %d tentative, %d rejected",
-            n_sub, 100 * frac, need, n_sub, len(self.accepted), len(self.tentative), len(self.rejected),
+            n_sub, 100 * frac, need, n_sub, len(self.accepted_), len(self.tentative_), len(self.rejected_),
         )
     return self
 
 
 def _selection_summary(self):
     """Selection-summary fragment of this selector for the end-of-fit log."""
-    return self.selected_features_, int(self.n_features_in_), f"{len(self.accepted)} accepted, {len(self.tentative)} tentative, {len(self.rejected)} rejected"
+    return self.selected_features_, int(self.n_features_in_), f"{len(self.accepted_)} accepted, {len(self.tentative_)} tentative, {len(self.rejected_)} rejected"
 
 
 @logs_fit("BorutaShap", _selection_summary)
@@ -376,42 +376,35 @@ def fit(self, X, y):
         warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
-        # Memory: frames here can be 100+ GB, so the algorithm keeps exactly ONE full-frame copy. ``self.X``
-        # is that single mutable working frame - BorutaShap ordinal-encodes its object/category columns,
-        # drops rejected columns, and appends shadow features into it. ``self.X = X.copy()`` makes that copy
-        # independent of the caller, so neither the encode nor the drops mutate the caller's ``X``.
+        # Memory: frames here can be 100+ GB. ``self.X_`` is the working frame - BorutaShap ordinal-encodes its object/category
+        # columns and drops rejected columns on it - and it shares the caller's column buffers, so neither step mutates the caller's ``X``.
         # ``starting_X`` keeps the ORIGINAL-dtype frame for ``Subset()`` (__init__.py): since encoding now
-        # happens only on the independent ``self.X`` copy, the untouched caller ``X`` already IS that
-        # snapshot, so we reference it rather than taking a second copy. ``self.y`` is never mutated (only
+        # happens only on the independent ``self.X_`` copy, the untouched caller ``X`` already IS that
+        # snapshot, so we reference it rather than taking a second copy. ``self.y_`` is never mutated (only
         # read for splits / model fit), so it is referenced, not copied.
-        # TODO(perf, 100GB-class frames): this IS a real deep copy (ordinal-encoding + column drops mutate
-        # existing cell values in place, so MRMR's "always-shallow-copy-is-safe" fix does NOT apply here
-        # unmodified) - but a full deep copy of a 100+GB frame is exactly the kind of cost the project's
-        # memory-discipline convention flags as unacceptable. Investigate an in-place-safe alternative:
-        # e.g. mutate-and-restore (try/finally) on the CALLER's own frame instead of copying it, or encode
-        # into a SEPARATE small side-table (object/category columns only, not the full frame) plus a
-        # column-rename/view trick for the shadow features, so the working set never doubles.
-        self.starting_X = X
-        self.X = X.copy()
-        self.y = y
+        self.starting_X_ = X
+        # The encoder below only REPLACES whole columns and rejected columns are dropped into a new frame, so no cell of the caller's data is ever
+        # written: a shallow copy gives the working frame its own column set while sharing the untouched column buffers.
+        self.X_ = X.copy(deep=False) if isinstance(X, pd.DataFrame) else X.copy()
+        self.y_ = y
         # Duplicate column names make ``df[label]`` return a DataFrame (not a Series), whose ``.dtype`` access raises in the object-col encoder below, and break the column -> accepted-feature mapping. Surface a clear error before the encoder runs.
-        if hasattr(self.X, "columns") and self.X.columns.has_duplicates:
-            dup_names = self.X.columns[self.X.columns.duplicated()].unique().tolist()
+        if hasattr(self.X_, "columns") and self.X_.columns.has_duplicates:
+            dup_names = self.X_.columns[self.X_.columns.duplicated()].unique().tolist()
             raise ValueError(
                 f"BorutaShap.fit: duplicate column names not supported: {dup_names[:10]}. "
                 f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
             )
-        # Ordinal-encode object / pandas-Categorical columns in self.X so the internal surrogate fit (Train_model) and
+        # Ordinal-encode object / pandas-Categorical columns in self.X_ so the internal surrogate fit (Train_model) and
         # the SHAP step downstream both see numeric features. Pre-fix iter-179 / iter-237 path: when the suite's main
         # cat-encoder is bypassed (polars- fastpath models / cat_enc=ordinal where the encoder ran on the polars-pre
         # frame only), BorutaShap is fed a raw pandas frame with object dtype cat cols; LGB / XGB surrogates raise
         # ``ValueError: could not convert string to float: 'A'`` and the entire feature-selection branch is lost. The
         # codes are private to BorutaShap internals: ``transform`` returns ``X.iloc[:, indices]`` of the CALLER-
-        # supplied frame (not self.X), so the encoding never leaks into the downstream model's input. The CB path also
+        # supplied frame (not self.X_), so the encoding never leaks into the downstream model's input. The CB path also
         # benefits because cat_features=col_names still works on int codes (CB treats them as ordinal-encoded
         # categories).
         _self_x_encoded_cols = self._ordinal_encode_object_cols_inplace(
-            self.X,
+            self.X_,
         )
         if _self_x_encoded_cols:
             logger.debug(
@@ -420,21 +413,21 @@ def fit(self, X, y):
                 _self_x_encoded_cols,
             )
 
-        self.ncols = self.X.shape[1]
-        self.all_columns = self.X.columns.to_numpy()
-        self.rejected_columns = []
-        self.accepted_columns = []
+        self.ncols_ = self.X_.shape[1]
+        self.all_columns_ = self.X_.columns.to_numpy()
+        self.rejected_columns_ = []
+        self.accepted_columns_ = []
 
         self.check_X()
 
-        self.features_to_remove = []
-        self.hits = np.zeros(self.ncols)
+        self.features_to_remove_ = []
+        self.hits_ = np.zeros(self.ncols_)
         self._null_hit_p_sum, self._null_hit_p_trials = 0.0, 0
-        self.order = self.create_mapping_between_cols_and_indices()
+        self.order_ = self.create_mapping_between_cols_and_indices()
         self.create_importance_history()
 
         if self.sample:
-            self.preds = self.isolation_forest(self.X)
+            self.preds_ = self.isolation_forest(self.X_)
 
         # Control/safety budget (parity with MRMR / RFECV): a wall-clock timer + a
         # filesystem stop-flag, both checked at the top of each trial below so an
@@ -455,7 +448,7 @@ def fit(self, X, y):
         _early_stop_patience = int(getattr(self, "early_stop_patience", 20))
         _early_stop_margin = float(getattr(self, "early_stop_margin", 0.15))
         _accepted_history: list = []
-        _n_total_cols = len(self.all_columns)  # full original count -> matches the validated bench Bonferroni base
+        _n_total_cols = len(self.all_columns_)  # full original count -> matches the validated bench Bonferroni base
 
         if self.n_trials < 1:
             # range(self.n_trials) never executes the loop body when n_trials<=0, leaving the `trial` loop
@@ -466,21 +459,21 @@ def fit(self, X, y):
         for trial in pbar:
             self._current_trial_ = trial  # seeds the opt-in per-trial holdout redraw
             self.remove_features_if_rejected()
-            self.columns = self.X.columns.to_numpy()
+            self.columns_ = self.X_.columns.to_numpy()
             self.create_shadow_features()
 
             # early stopping
-            if self.X.shape[1] == 0:
+            if self.X_.shape[1] == 0:
                 break
 
             else:
                 self.Check_if_chose_train_or_test_and_train_model()
 
-                self.X_feature_import, self.Shadow_feature_import = self.feature_importance(normalize=self.normalize)
+                self.X_feature_import_, self.Shadow_feature_import_ = self.feature_importance(normalize=self.normalize)
                 self.update_importance_history()
                 hits = self.calculate_hits()
-                self.hits += hits
-                self.history_hits = np.vstack((self.history_hits, self.hits))
+                self.hits_ += hits
+                self.history_hits_ = np.vstack((self.history_hits_, self.hits_))
                 self.test_features(iteration=trial + 1)
                 self.n_trials_run_ = trial + 1  # actual trials executed (< n_trials when early-terminated)
 
@@ -489,9 +482,9 @@ def fit(self, X, y):
                 # Canonical Boruta stops here; this loop previously always ran all n_trials (the dominant cost).
                 # Mirrors calculate_rejected_accepted_tentative's accepted/rejected/tentative partition exactly,
                 # so the final support_ is identical to running every trial - this is a pure speedup.
-                _acc = set(self.flatten_list(self.accepted_columns))
-                _rej = set(self.flatten_list(self.rejected_columns)) - _acc
-                _n_tentative_live = len(self.all_columns) - len(_acc) - len(_rej)
+                _acc = set(self.flatten_list(self.accepted_columns_))
+                _rej = set(self.flatten_list(self.rejected_columns_)) - _acc
+                _n_tentative_live = len(self.all_columns_) - len(_acc) - len(_rej)
                 # Periodic progress log: was dedented out of this loop (ran once, after the last trial,
                 # instead of every 5 trials as the message implies) -- moved back in, using the accepted/
                 # rejected counts already computed above for the early-stop check rather than calling
@@ -512,12 +505,12 @@ def fit(self, X, y):
                 if _early_stop_tentative:
                     _accepted_history.append(frozenset(_acc))
                     _decided = _acc | _rej
-                    _tentative_idx = [idx for idx, col in enumerate(self.all_columns) if col not in _decided]
+                    _tentative_idx = [idx for idx, col in enumerate(self.all_columns_) if col not in _decided]
                     from ._shadow_stats import calibrated_null_hit_p
 
                     _null_hit_p = calibrated_null_hit_p(self)
                     if _should_stop_tentative_tail(
-                        _accepted_history, self.hits, _tentative_idx, iteration=trial + 1, n_tests=_n_total_cols,
+                        _accepted_history, self.hits_, _tentative_idx, iteration=trial + 1, n_tests=_n_total_cols,
                         pvalue=self.pvalue, patience=_early_stop_patience, margin=_early_stop_margin, null_p=_null_hit_p,
                     ):
                         if self.verbose:
@@ -543,18 +536,21 @@ def fit(self, X, y):
 
         self.store_feature_importance()
         self.calculate_rejected_accepted_tentative(verbose=self.verbose)
-        pbar.set_description(f"Undecided features: {len(self.tentative):_}")
+        pbar.set_description(f"Undecided features: {len(self.tentative_):_}")
+        from ._shadow_stats import release_large_working_frames
+
+        release_large_working_frames(self)
 
     # sklearn-style outputs so callers can treat BorutaShap like any other selector: ``support_`` is the boolean mask aligned with the input column order, ``selected_features_`` is the list of kept names (accepted + tentative when ``optimistic``).
-    kept = set(self.accepted)
+    kept = set(self.accepted_)
     if self.optimistic:
-        kept |= set(self.tentative)
+        kept |= set(self.tentative_)
     if getattr(self, "_premerge_active_", False):  # re-expand accepted representatives to their cluster members
         kept, self.support_ = _premerge_expand(kept, self._premerge_members_, self._premerge_original_cols_)
         _final_columns = self._premerge_original_cols_
     else:
-        self.support_ = np.array([c in kept for c in self.all_columns], dtype=bool)
-        _final_columns = self.all_columns
+        self.support_ = np.array([c in kept for c in self.all_columns_], dtype=bool)
+        _final_columns = self.all_columns_
     self.selected_features_ = [c for c in _final_columns if c in kept]
     # sklearn convention: feature_names_in_ + n_features_in_ are the canonical
     # discoverable attributes for downstream report builders. Without them the
@@ -574,7 +570,7 @@ def explain(self):
     The shap package has numerous variants of explainers which use different assumptions depending on the model
     type this function allows the user to choose explainer
 
-    Sets ``self.shap_values`` in place; does not return a value.
+    Sets ``self.shap_values_`` in place; does not return a value.
 
     Raise
     ----------
@@ -597,12 +593,13 @@ def explain(self):
     # can flip a borderline hit at the nanpercentile/`>` gate -> selection-altering. The mlframe-side per-trial
     # overhead (shadow build, hit counting, binomial test, history) is now <0.1s total after the single-call drop
     # + homogeneous-numeric shadow fast path; nothing further is actionable without changing the wrapped model.
+    shap = import_optional("shap", "calibration", "BorutaShap importance")
     explainer = shap.TreeExplainer(explainer_base, feature_perturbation="tree_path_dependent")
 
     """
     ipdb> explainer_base.feature_names_
     ['1D-Price-arithmetic_mean', '1D-Price-ratio', '1D-Price-npositive', 'shadow_1D-Price-arithmetic_mean', 'shadow_1D-Price-ratio', 'shadow_1D-Price-npositive']
-    ipdb> self.X_boruta.columns
+    ipdb> self.X_boruta_.columns
     Index(['1D-Price-arithmetic_mean', '1D-Price-quadratic_mean',
         '1D-Price-qubic_mean', '1D-Price-harmonic_mean',
         'shadow_1D-Price-arithmetic_mean', 'shadow_1D-Price-quadratic_mean',
@@ -612,20 +609,20 @@ def explain(self):
 
     # In train_or_test='test' mode the model was fitted on the 70% ``X_boruta_train`` slice, so that slice - not the full
     # ``X_boruta``, which also holds the 30% the fit never saw - is the training distribution the explanation must use.
-    _train_slice = getattr(self, "X_boruta_train", None)
-    _fit_frame = _train_slice if _train_slice is not None and _uses_held_out_split(self) else self.X_boruta
+    _train_slice = getattr(self, "X_boruta_train_", None)
+    _fit_frame = _train_slice if _train_slice is not None and _uses_held_out_split(self) else self.X_boruta_
     if self.sample:
         basis = self.find_sample()
     else:
         basis = _fit_frame
 
-    # SHAP background must be the TRAIN slice - self.X_boruta = [self.X | shadow] and self.X was set in fit() from the caller-supplied X (train) via X.copy(). The shadow half is randomized from self.X column-wise so it stays train-distribution-aligned. Both invariants must hold for SHAP TreeExplainer (tree_path_dependent feature_perturbation) to produce attributions on the same distribution the surrogate model was trained on; mixing val/test rows here would let SHAP interpolate against held-out distribution and inflate borderline features' importance.
+    # SHAP background must be the TRAIN slice - self.X_boruta_ = [self.X_ | shadow] and self.X_ was set in fit() from the caller-supplied X (train) via X.copy(). The shadow half is randomized from self.X_ column-wise so it stays train-distribution-aligned. Both invariants must hold for SHAP TreeExplainer (tree_path_dependent feature_perturbation) to produce attributions on the same distribution the surrogate model was trained on; mixing val/test rows here would let SHAP interpolate against held-out distribution and inflate borderline features' importance.
     # The unsampled basis IS the fitted slice by construction above. The assert that used to stand here compared the
-    # basis against ``self.X``, the full frame, so in 'test' mode it compared the full frame with itself and could not fire.
+    # basis against ``self.X_``, the full frame, so in 'test' mode it compared the full frame with itself and could not fire.
     # What must hold in both modes is that ``X_boruta`` is ``[X | shadow]`` over the same rows: extra rows there are held-out
     # rows leaking into the fit and the explanation background.
-    _xb: Any = getattr(self, "X_boruta", None)
-    _x: Any = getattr(self, "X", None)
+    _xb: Any = getattr(self, "X_boruta_", None)
+    _x: Any = getattr(self, "X_", None)
     if hasattr(_xb, "shape") and hasattr(_x, "shape") and int(_xb.shape[0]) != int(_x.shape[0]):
         # A raise, not an assert: `python -O` strips asserts, and this guards against held-out rows in the fit.
         raise ValueError(
@@ -639,12 +636,12 @@ def explain(self):
             _n_train, _n_basis, bool(self.sample),
         )
 
-    # ``self.y.shape[1] > 1`` raises IndexError on 1-D regression targets
+    # ``self.y_.shape[1] > 1`` raises IndexError on 1-D regression targets
     # (shape is ``(n,)``). The intent is "multi-output regression"; guard
     # with ``ndim >= 2``. Pre-fix iter-237 / iter-280: BorutaShap on a 1-D
     # regression target crashed after 50+ minutes of SHAP computation
     # with ``IndexError: tuple index out of range``.
-    _y_multi = hasattr(self.y, "shape") and getattr(self.y, "ndim", 1) >= 2 and self.y.shape[1] > 1
+    _y_multi = hasattr(self.y_, "shape") and getattr(self.y_, "ndim", 1) >= 2 and self.y_.shape[1] > 1
     if self.classification or _y_multi:
         # for some reason shap returns values wrapped in a list of length 1
         # pre-fix wrapped the raw return
@@ -660,16 +657,16 @@ def explain(self):
         _raw_shap = explainer.shap_values(basis)
         if isinstance(_raw_shap, list):
             # Multi-class SHAP path: list of per-class (n_samples, n_features) arrays.
-            self.shap_values = _raw_shap
-            class_inds = range(len(self.shap_values))
-            shap_imp = np.zeros(self.shap_values[0].shape[1])
+            self.shap_values_ = _raw_shap
+            class_inds = range(len(self.shap_values_))
+            shap_imp = np.zeros(self.shap_values_[0].shape[1])
             for _i, ind in enumerate(class_inds):
-                shap_imp += np.abs(self.shap_values[ind]).mean(0)
+                shap_imp += np.abs(self.shap_values_[ind]).mean(0)
             # Final aggregated per-feature importance (averaged across classes).
-            self.shap_values = shap_imp / len(class_inds)
+            self.shap_values_ = shap_imp / len(class_inds)
         else:
-            self.shap_values = np.asarray(_raw_shap)
-            if self.shap_values.ndim == 3:
+            self.shap_values_ = np.asarray(_raw_shap)
+            if self.shap_values_.ndim == 3:
                 # SHAP's 3-D array layout is version-dependent: legacy
                 # TreeExplainer returns (classes, samples, features); modern
                 # SHAP (>=0.43) returns (samples, features, classes). The old
@@ -683,14 +680,14 @@ def explain(self):
                 # where the feature dim lives in both layouts) and mean |shap|
                 # over the other two axes, so the result is always length
                 # n_features regardless of SHAP's axis order.
-                _arr = np.abs(self.shap_values)
-                _nfeat = self.X_boruta.shape[1]
+                _arr = np.abs(self.shap_values_)
+                _nfeat = self.X_boruta_.shape[1]
                 _fax = next((ax for ax in (1, 2, 0) if _arr.shape[ax] == _nfeat), 1)
                 _other = tuple(ax for ax in range(3) if ax != _fax)
-                self.shap_values = _arr.mean(axis=_other)
+                self.shap_values_ = _arr.mean(axis=_other)
             else:
-                self.shap_values = np.abs(self.shap_values).mean(0)
+                self.shap_values_ = np.abs(self.shap_values_).mean(0)
 
     else:
-        self.shap_values = explainer.shap_values(basis)
-        self.shap_values = np.abs(self.shap_values).mean(0)
+        self.shap_values_ = explainer.shap_values(basis)
+        self.shap_values_ = np.abs(self.shap_values_).mean(0)

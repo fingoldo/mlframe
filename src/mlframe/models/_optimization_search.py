@@ -17,9 +17,10 @@ from timeit import default_timer as timer
 from typing import Any, Optional, Sequence, Union
 
 import numpy as np
-from catboost import CatBoostRegressor
 from expiringdict import ExpiringDict
 from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
+
+from mlframe._optional_imports import import_optional
 
 from ._optimization_shared import (
     BIG_VALUE,
@@ -34,6 +35,12 @@ from ._optimization_shared import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _catboost_regressor_cls() -> type:
+    """The CatBoostRegressor class, imported on first use so the module loads without catboost."""
+    cls: type = import_optional("catboost", "boosting", "the CatBoost surrogate model").CatBoostRegressor
+    return cls
 
 
 class _ETRWithStd:
@@ -311,13 +318,13 @@ class MBHOptimizer:
         if self.model_name == "CBQ":
             quantiles: Sequence = [quantile, 0.5, 1 - quantile]
             loss_function = "MultiQuantile:alpha=" + ",".join(map(str, quantiles))
-            self.model = CatBoostRegressor(
+            self.model = _catboost_regressor_cls()(
                 **model_params,
                 loss_function=loss_function,
                 verbose=0,
             )
         elif self.model_name == "CB":
-            self.model = CatBoostRegressor(
+            self.model = _catboost_regressor_cls()(
                 **model_params,
                 verbose=0,
             )

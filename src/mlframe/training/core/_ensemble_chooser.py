@@ -127,7 +127,17 @@ def _lookup_metric_ci(_d: dict, metric: str):
 
 
 def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
-    """Pick the winning ensemble flavour key from ``score_ensemble``'s return dict.
+    """Winning ensemble flavour key; see :func:`_choose_ensemble_flavour_and_surface` for the rule and the selection surface."""
+    return _choose_ensemble_flavour_and_surface(ensembles_dict)[0]
+
+
+def _choose_ensemble_flavour_and_surface(ensembles_dict: dict) -> tuple[str | None, str | None]:
+    """Pick the winning ensemble flavour key and report the split it was chosen on (``oof`` / ``val`` / ``test``, ``None`` for the no-metric fallback).
+
+    The selection surface is what makes the pick honest or optimistic: ``oof`` is held out, ``val`` is the early-stopping surface of every
+    member, ``test`` is the holdout itself.
+
+    Pick the winning ensemble flavour key from ``score_ensemble``'s return dict.
 
     ``score_ensemble`` returns ``{flavour_name: ens_result}`` for every candidate it evaluated; the
     suite has no native "winner" concept so we rank by the first metric family any candidate exposes,
@@ -148,10 +158,10 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
         ``_ENSEMBLE_RANK_METRIC_CANDIDATES``.
     """
     if not isinstance(ensembles_dict, dict) or not ensembles_dict:
-        return None
+        return None, None
     _candidates = {k: v for k, v in ensembles_dict.items() if isinstance(k, str) and not k.endswith(" conf") and not k.startswith("_")}
     if not _candidates:
-        return None
+        return None, None
     for _split, _metric, _direction in _ENSEMBLE_RANK_METRIC_CANDIDATES:
         _scored = [(k, _read_ensemble_metric(v, _split, _metric)) for k, v in _candidates.items()]
         _scored = [(k, s) for k, s in _scored if s is not None]
@@ -186,7 +196,7 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
                 "in production callers.",
                 _scored[0][0], _metric,
             )
-        return _scored[0][0]
+        return _scored[0][0], _split
     _fallback = next(iter(_candidates.keys()))
     _probed_metrics = sorted({m for _, m, _ in _ENSEMBLE_RANK_METRIC_CANDIDATES})
     logger.warning(
@@ -195,4 +205,13 @@ def _choose_ensemble_flavour(ensembles_dict: dict) -> str | None:
         "ensembling_methods order).",
         _probed_metrics, _fallback,
     )
-    return _fallback
+    return _fallback, None
+
+
+def stamp_ensemble_choice(metadata: dict, target_type: object, target_name: str, chosen: str, surface: str | None) -> None:
+    """Record the winning flavour under ``ensembles_chosen["simple"]`` and the split it was picked on under ``ensembles_chosen_surface["simple"]``.
+
+    ``surface`` is ``oof`` / ``val`` / ``test``, or ``fallback_first_flavour`` when no candidate exposed a ranking metric.
+    """
+    metadata.setdefault("ensembles_chosen_surface", {}).setdefault("simple", {}).setdefault(target_type, {})[target_name] = surface or "fallback_first_flavour"
+    metadata.setdefault("ensembles_chosen", {}).setdefault("simple", {}).setdefault(target_type, {})[target_name] = chosen

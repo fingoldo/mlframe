@@ -4,15 +4,28 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer as timer
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import numpy as np
-import lightgbm as lgb
-import xgboost as xgb
-from xgboost.callback import TrainingCallback
 
+from mlframe._optional_imports import import_optional
 from pyutilz.pythonlib import get_parent_func_args, store_params_in_object
 from pyutilz.system import get_own_memory_usage
+
+if TYPE_CHECKING:
+    import lightgbm as lgb
+    import xgboost as xgb
+
+try:
+    from xgboost.callback import TrainingCallback
+
+    _HAS_XGBOOST = True
+except ImportError:
+    _HAS_XGBOOST = False
+
+    class TrainingCallback:  # type: ignore[no-redef]
+        """Placeholder base so the module imports without xgboost; ``XGBoostCallback`` refuses to construct without it."""
+
 
 logger = logging.getLogger(__name__)
 
@@ -539,7 +552,8 @@ class LightGBMCallback(UniversalCallback):
                 best_iter = 0
             best_metric = self.best_metric if self.best_metric is not None else 0.0
             self.finalize_widget(stopped_early=True)
-            raise lgb.callback.EarlyStopException(best_iter, [(dataset, metric, best_metric, False)])
+            _lgb = import_optional("lightgbm", "boosting", "LightGBMCallback")
+            raise _lgb.callback.EarlyStopException(best_iter, [(dataset, metric, best_metric, False)])
 
 
 class XGBoostCallback(UniversalCallback, TrainingCallback):
@@ -550,6 +564,8 @@ class XGBoostCallback(UniversalCallback, TrainingCallback):
     # `super().__init__()` inside UniversalCallback chain into
     # TrainingCallback.__init__() without us having to call it explicitly.
     def __init__(self, **kwargs) -> None:
+        if not _HAS_XGBOOST:
+            import_optional("xgboost", "boosting", "XGBoostCallback")
         super().__init__(**kwargs)
         self.monitor_dataset = self.monitor_dataset or "validation_0"
 

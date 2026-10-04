@@ -28,6 +28,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from mlframe.reporting.output import PlotOutputSpec
 from mlframe.reporting.renderers.base import get_renderer
+from mlframe.utils.daemon_task import start_daemon_task
 from mlframe.reporting.renderers._render_timings import chart_type_of, record_chart_render
 from mlframe.reporting.spec import FigureSpec
 from mlframe.utils.log_throttle import log_throttle
@@ -271,28 +272,8 @@ def get_inline_display_mode():
 _BACKEND_RENDER_TIMEOUT_S = 60.0
 
 
-def _start_daemon_task(fn, *args):
-    """Run ``fn(*args)`` on a fresh DAEMON thread and return a ``Future`` for its result.
+_start_daemon_task = start_daemon_task
 
-    Unlike ``ThreadPoolExecutor``, nothing ever joins the thread: a caller that gives up on ``result(timeout=...)``
-    really does move on, and a wedged render cannot hold up interpreter exit."""
-    import threading
-    from concurrent.futures import Future
-
-    fut: Future = Future()
-
-    def _run():
-        """Run ``fn`` on the daemon thread and settle ``fut`` with its result or exception (skipped if the future was cancelled first)."""
-        if not fut.set_running_or_notify_cancel():
-            return
-        try:
-            fut.set_result(fn(*args))
-        except Exception as exc:  # handed to the waiting caller, which classifies it; anything else leaves the
-            logger.debug("render worker raised %s: %s", type(exc).__name__, exc)
-            fut.set_exception(exc)  # future pending, and the caller's per-backend timeout already covers that
-
-    threading.Thread(target=_run, name="mlframe-render", daemon=True).start()
-    return fut
 
 def render_and_save(
     spec: FigureSpec,

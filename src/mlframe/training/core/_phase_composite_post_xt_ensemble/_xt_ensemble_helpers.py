@@ -27,6 +27,19 @@ logger = logging.getLogger("mlframe.training.core._phase_composite_post")
 _DEFAULT_OOF_RANDOM_STATE = 42
 
 
+def note_stack_without_oof(metadata: Any, target_type: Any, target_name: Any, strategy: str) -> None:
+    """Warn and stamp ``metadata["xt_ensemble_stack_source"]`` when a stacking strategy has no honest OOF matrix and is replaced by a uniform mean.
+
+    Fitting NNLS / linear-stack weights on in-sample component predictions over-weights the most overfit member, so the stack is refused.
+    """
+    logger.warning(
+        "[CompositeCrossTargetEnsemble] target='%s': %s needs honest OOF predictions and none were produced; using a uniform mean "
+        "instead of fitting stack weights on in-sample predictions.", target_name, strategy,
+    )
+    if isinstance(metadata, dict):
+        metadata.setdefault("xt_ensemble_stack_source", {})[f"{target_type}/{target_name}"] = f"uniform_mean_no_oof (requested {strategy})"
+
+
 def _build_cross_target_entry_enumerate_orig_entries(_orig_entries, _components, _component_names):
     """Block of _build_cross_target_ensemble_for_target starting at ``for _i, _entry in enumerate(_orig_entries):``."""
     for _i, _entry in enumerate(_orig_entries):

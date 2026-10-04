@@ -649,14 +649,12 @@ def batch_mi_with_noise_gate_cuda_resident(
     if not _use_shared:
         d_counts[:] = 0
 
-    import warnings as _warnings
+    from mlframe.utils.warning_filters import silenced_once as _silenced_once
     try:
         from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
     except ImportError:
-        _NbPerfWarn = None
-    with _warnings.catch_warnings():
-        if _NbPerfWarn is not None:
-            _warnings.simplefilter("ignore", _NbPerfWarn)
+        _NbPerfWarn = Warning
+    with _silenced_once(_NbPerfWarn, r"numba\.cuda"):
         if _use_shared and _d_disc_cm is not None:
             _CUDA_HIST_KERNEL_BATCHED_SHARED_CM[(K, P), threads_per_block, 0, _sh_bytes](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
                 _d_disc_cm, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
@@ -762,19 +760,17 @@ def batch_mi_with_noise_gate_cuda(
     # One block per column; for tiny K the grid is small (low-occupancy) - the
     # cupy backend is preferred at the realistic large-batch sizes where GPU wins,
     # so silence the cosmetic NumbaPerformanceWarning here.
-    import warnings as _warnings
+    from mlframe.utils.warning_filters import silenced_once as _silenced_once
     try:
         from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
     except ImportError:
-        _NbPerfWarn = None
+        _NbPerfWarn = Warning
 
     def _counts_from_device_y(d_y) -> np.ndarray:
         """Launch the joint-histogram CUDA kernel against an ALREADY-RESIDENT target-codes device array, returning the flat per-column counts array copied back to host."""
         d_counts = _nb_cuda.device_array(total_size, dtype=np.int64)
         d_counts[:] = 0
-        with _warnings.catch_warnings():
-            if _NbPerfWarn is not None:
-                _warnings.simplefilter("ignore", _NbPerfWarn)
+        with _silenced_once(_NbPerfWarn, r"numba\.cuda"):
             _CUDA_HIST_KERNEL[K, threads_per_block](d_disc, d_off, d_nb, d_y, d_counts, n, K_y)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
         return np.asarray(d_counts.copy_to_host())
 

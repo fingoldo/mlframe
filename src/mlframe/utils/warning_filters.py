@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import threading
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Literal
 
 _INSTALLED: set = set()
@@ -33,3 +35,12 @@ def install_filter_once(action: Literal["default", "error", "ignore", "always", 
         warnings.filterwarnings(action, message=message, category=category, module=module)
         _INSTALLED.add(key)
         return True
+
+
+@contextmanager
+def silenced_once(category: type, module: str) -> Iterator[None]:
+    """Block-shaped spelling of ``install_filter_once(category=..., module=...)``: installs the narrow filter once, never restores it.
+
+    Replaces ``warnings.catch_warnings()`` in code that runs on pool threads, where snapshot/restore of the global filter list races."""
+    install_filter_once(category=category, module=module)
+    yield

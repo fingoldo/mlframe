@@ -41,12 +41,12 @@ def adversarial_validation(
         column indices as strings if the inputs are unlabeled arrays) -- the features driving the
         shift, if any.
         ``suggested_weights`` -- ``(n_train,)`` density-ratio importance weights
-        ``p / (1 - p)`` clipped to ``[0.1, 10]`` (bounds the variance of the importance-weighting
+        ``p / (1 - p) * n_train / n_test`` (the prior-corrected odds) clipped to ``[0.1, 10]`` (bounds the variance of the importance-weighting
         estimator against near-1 probabilities) and renormalized to mean 1.
     """
     import pandas as pd
     from sklearn.metrics import roc_auc_score
-    from sklearn.model_selection import KFold
+    from sklearn.model_selection import StratifiedKFold
 
     if rng is None:
         rng = np.random.default_rng()
@@ -69,10 +69,10 @@ def adversarial_validation(
     y_domain = np.concatenate([np.zeros(n_train, dtype=np.int64), np.ones(n_test, dtype=np.int64)])
 
     oof_proba = np.zeros(n_train + n_test, dtype=np.float64)
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1)))
+    kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1)))
     n_fi_folds = 0
     importances = np.zeros(len(feature_names), dtype=np.float64)
-    for tr_idx, val_idx in kf.split(X_all):
+    for tr_idx, val_idx in kf.split(np.zeros(n_train + n_test), y_domain):
         from sklearn.base import clone
 
         fold_model = clone(model)
@@ -107,7 +107,8 @@ def adversarial_validation(
         top_shift_features = [feature_names[i] for i in order]
 
     p = np.clip(train_test_proba, 1e-6, 1.0 - 1e-6)
-    raw_weights = p / (1.0 - p)
+    # The discriminator's odds equal the density ratio times the class prior n_test / n_train; divide the prior out so the [0.1, 10] clip bounds the ratio.
+    raw_weights = (p / (1.0 - p)) * (n_train / n_test)
     raw_weights = np.clip(raw_weights, 0.1, 10.0)
     suggested_weights = raw_weights / raw_weights.mean()
 

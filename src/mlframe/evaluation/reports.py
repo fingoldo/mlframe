@@ -62,9 +62,8 @@ from pyutilz.system import tqdmu
 from pyutilz.pythonlib import get_human_readable_set_size
 from pyutilz.logginglib import log_result
 
+from mlframe._optional_imports import import_optional
 from mlframe.calibration.quality import make_custom_calibration_plot
-
-from catboost import Pool
 
 from contextlib import nullcontext
 
@@ -342,6 +341,11 @@ def evaluate_estimators(
     return pipe, classification_report_text, classification_report_dict, cm
 
 
+def _is_catboost_pool_or_path(obj) -> bool:
+    """True for a CatBoost ``Pool`` or a ``str`` path, the inputs ``pipe.fit`` must receive without a separate ``y``."""
+    return isinstance(obj, str) or (type(obj).__name__ == "Pool" and type(obj).__module__.startswith("catboost"))
+
+
 def _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, groups, baseline_model, X_train, pipe, plot, init_model, y_train):
     """Block of evaluate_estimators starting at ``if val_size is not None and (("CatBoost" in type(est).__name__) or ('T``."""
     if val_size is not None and (("CatBoost" in type(est).__name__) or ('TransformedTargetRegressor' in type(est).__name__ and ("CatBoost" in type(est.regressor).__name__))):
@@ -361,6 +365,7 @@ def _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, 
             y_test_val = y_test.iloc[test_indices] if hasattr(y_test, "iloc") else y_test[test_indices]
 
         if baseline_model is not None:
+            Pool = import_optional("catboost", "boosting", "CatBoost eval sets").Pool
             eval_set = Pool(X_test_val, y_test_val)
             # CatBoost's set_baseline expects a raw-margin score per row, not necessarily an
             # integer -- `.astype(int)` used to TRUNCATE any continuous baseline (e.g. a
@@ -371,12 +376,12 @@ def _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, 
         else:
             eval_set = (X_test_val, y_test_val)
 
-        if type(X_train) in (Pool, str):
+        if _is_catboost_pool_or_path(X_train):
             pipe.fit(X_train, est__eval_set=eval_set, est__plot=plot, est__init_model=init_model)
         else:
             pipe.fit(X_train, y_train, est__eval_set=eval_set, est__plot=plot, est__init_model=init_model)
     else:
-        if type(X_train) in (Pool, str):
+        if _is_catboost_pool_or_path(X_train):
             pipe.fit(X_train)
         else:
             pipe.fit(X_train, y_train)

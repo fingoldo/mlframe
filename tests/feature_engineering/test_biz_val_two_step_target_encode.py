@@ -57,8 +57,8 @@ def test_biz_val_two_step_recency_weighted_encoding_beats_unweighted_aggregate()
     events_df, entity_label = _make_data(seed=0)
     y_all = events_df["y"].to_numpy()
 
-    weighted = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0)
-    unweighted = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=1e6)
+    weighted = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0, causal=False)
+    unweighted = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=1e6, causal=False)
 
     entity_ids = events_df["entity"].to_numpy()
     labels_arr = np.array([entity_label[e] for e in entity_ids])
@@ -149,21 +149,22 @@ def test_two_step_recency_weighted_encode_causal_matches_default_at_last_event()
     np.testing.assert_allclose(causal[last_idx], default[last_idx], rtol=1e-10)
 
 
-def test_two_step_recency_weighted_encode_default_unchanged_when_causal_not_passed():
-    """Regression pin: omitting ``causal`` (the new opt-in param) must be bit-identical to ``causal=False``,
-    and both must be bit-identical to the pre-extension behavior."""
+def test_two_step_recency_weighted_encode_default_is_causal():
+    """Omitting ``causal`` is bit-identical to ``causal=True`` (no future events of an entity reach an earlier row); ``causal=False`` is the opt-out."""
     events_df, _ = _make_data(seed=4)
     y_all = events_df["y"].to_numpy()
     implicit_default = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0)
-    explicit_default = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0, causal=False)
-    np.testing.assert_array_equal(implicit_default, explicit_default)
+    explicit_causal = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0, causal=True)
+    opt_out = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0, causal=False)
+    np.testing.assert_array_equal(implicit_default, explicit_causal)
+    assert not np.array_equal(implicit_default, opt_out)
 
 
 def test_two_step_recency_weighted_encode_same_value_per_entity():
     """Two step recency weighted encode same value per entity."""
     events_df, _ = _make_data(seed=1)
     y_all = events_df["y"].to_numpy()
-    encoded = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0)
+    encoded = two_step_recency_weighted_target_encode(events_df, "entity", ["cat1"], y_all, "t", decay_half_life=2.0, causal=False)
     result_df = events_df.assign(enc=encoded)
     per_entity_unique_counts = result_df.groupby("entity")["enc"].nunique()
     assert (per_entity_unique_counts == 1).all()

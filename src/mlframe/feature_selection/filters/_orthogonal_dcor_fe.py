@@ -407,7 +407,7 @@ def hybrid_orth_mi_dcor_fe(
     qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
-    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy()
+    X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
 

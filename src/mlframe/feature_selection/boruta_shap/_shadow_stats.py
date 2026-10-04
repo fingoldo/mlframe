@@ -41,7 +41,7 @@ def calculate_hits(self):
     # covariance structure; importance fit on one sample therefore ranks the top real-noise column above every
     # shadow, so it gets a hit nearly every trial. Raising the percentile does NOT fix it; only INTERSECTION-mode
     # cross-subsample stability (stability_subsamples>1, stability_threshold=1.0) reliably drops it.
-    shadow_threshold = np.nanpercentile(self.Shadow_feature_import, self.percentile)
+    shadow_threshold = np.nanpercentile(self.Shadow_feature_import_, self.percentile)
     # If EVERY shadow importance was NaN (degenerate input), nanpercentile
     # also returns NaN; surface that loudly rather than silently rejecting
     # all features.
@@ -55,15 +55,15 @@ def calculate_hits(self):
         )
         shadow_threshold = float("inf")  # ensures all `X > thr` return False predictably
 
-    padded_hits = np.zeros(self.ncols)
-    hits = self.X_feature_import > shadow_threshold
+    padded_hits = np.zeros(self.ncols_)
+    hits = self.X_feature_import_ > shadow_threshold
     # Record this trial's exact null hit rate for the accept-side binomial test (see ``finite_pool_null_hit_p``).
-    _m = int(np.isfinite(np.asarray(self.Shadow_feature_import, dtype=float)).sum())
+    _m = int(np.isfinite(np.asarray(self.Shadow_feature_import_, dtype=float)).sum())
     self._null_hit_p_sum = float(getattr(self, "_null_hit_p_sum", 0.0)) + finite_pool_null_hit_p(_m, float(self.percentile))
     self._null_hit_p_trials = int(getattr(self, "_null_hit_p_trials", 0)) + 1
 
-    for index, col in enumerate(self.columns):
-        map_index = self.order[col]
+    for index, col in enumerate(self.columns_):
+        map_index = self.order_[col]
         padded_hits[map_index] += hits[index]
 
     return padded_hits
@@ -127,12 +127,12 @@ def create_shadow_features(self):
     and biases the shadow MI low on tied columns - the failure class ``_column_tie_fraction`` /
     ``SHADOW_TIE_GATE_FRACTION`` guard, should anyone replace this with such a fast path.)
 
-    Sets ``self.X_shadow`` in place; does not return a value.
+    Sets ``self.X_shadow_`` in place; does not return a value.
     """
     # Private rng (set in __init__) keeps shadow-feature permutations seeded
     # without mutating the global np.random stream that other suite stages rely on.
     _rng = getattr(self, "_rng", None) or np.random.default_rng(getattr(self, "random_state", None))
-    # ``self.X.apply(lambda col: _rng.permutation(col.values))`` permutes each column independently in
+    # ``self.X_.apply(lambda col: _rng.permutation(col.values))`` permutes each column independently in
     # COLUMN ORDER, one ``_rng.permutation`` call per column. That per-column lambda wraps every result in a
     # pandas Series, which dominates this method (~13 ms/trial -> 2.4% of a SHAP fit). When every column shares
     # one numpy numeric dtype, ``to_numpy()`` is a no-upcast 2-D view, so permuting each column into a
@@ -142,9 +142,12 @@ def create_shadow_features(self):
     # which is itself dtype-identical to ``.apply`` (``col.values`` -> category=int codes, object=str, etc.)
     # but carries no speedup. ``bool`` is excluded from the fast path (``np.empty_like`` on a bool 2-D buffer
     # is correct, but keeping the explicit per-column path avoids any edge with bool ``permutation``).
-    cols = self.X.columns
-    _dtypes = self.X.dtypes
+    cols = self.X_.columns
+    _dtypes = self.X_.dtypes
     _fast = False
+    _buf = None
+    _n_real_cols = len(cols)
+    _pad_cfg = int(getattr(self, "shadow_min_pad", 0) or 0)
     if len(cols) > 0:
         _d0 = _dtypes.iloc[0]
         if (
@@ -153,47 +156,76 @@ def create_shadow_features(self):
             and not isinstance(_d0, pd.CategoricalDtype)
             and _d0 != bool  # noqa: E721 - dtype vs type comparison; numpy/pandas dtype `==`/`!=` is intended, `is` would break it
         ):
-            _vals = self.X.to_numpy()
+            _vals = self.X_.to_numpy()
             if _vals.dtype == _d0:  # guard: confirm no silent upcast (e.g. nullable/extension dtypes)
-                _out = np.empty_like(_vals)
-                for _j in range(_vals.shape[1]):
-                    _out[:, _j] = _rng.permutation(_vals[:, _j])
-                self.X_shadow = pd.DataFrame(_out, columns=cols, index=self.X.index, copy=False)
+                if _pad_cfg <= _n_real_cols:
+                    # One column-major buffer [real | shadow]: X_boruta is built from it directly and X_shadow is a view of its right half, so
+                    # no separate shadow block and no concat copy exist (peak 2x the frame instead of 3x, 3x retained instead of 4x).
+                    _buf = np.empty((_vals.shape[0], 2 * _n_real_cols), dtype=_vals.dtype, order="F")
+                    _buf[:, :_n_real_cols] = _vals
+                    for _j in range(_n_real_cols):
+                        _buf[:, _n_real_cols + _j] = _rng.permutation(_vals[:, _j])
+                    self.X_shadow_ = pd.DataFrame(_buf[:, _n_real_cols:], columns=cols, index=self.X_.index, copy=False)
+                else:
+                    _out = np.empty_like(_vals)
+                    for _j in range(_vals.shape[1]):
+                        _out[:, _j] = _rng.permutation(_vals[:, _j])
+                    self.X_shadow_ = pd.DataFrame(_out, columns=cols, index=self.X_.index, copy=False)
                 _fast = True
     if not _fast:
-        self.X_shadow = self.X.apply(lambda col: _rng.permutation(col.values))
+        self.X_shadow_ = self.X_.apply(lambda col: _rng.permutation(col.values))
 
     # Canonical >=N shadow pad on narrow frames: when there are fewer real columns than ``shadow_min_pad`` the
     # shadow-importance MAX (the per-trial gate threshold) would be estimated from only 1-2 draws and is noisy.
     # Recycle real columns (each independently re-permuted, so still uncorrelated with y) as extra shadows up to the
     # pad, widening the null pool without adding any real-vs-real comparison. Wide frames (n_cols >= pad) are
     # untouched. Opt out with ``shadow_min_pad=0``. Suffixed names (``shadow_<col>__pad<k>``) stay unique and the
-    # real/shadow split in ``feature_importance`` (``len(self.X.columns)``) already counts every extra as a shadow.
+    # real/shadow split in ``feature_importance`` (``len(self.X_.columns)``) already counts every extra as a shadow.
     _pad = int(getattr(self, "shadow_min_pad", 0) or 0)
-    _n_real = self.X.shape[1]
-    if _pad > _n_real > 0 and isinstance(self.X_shadow, pd.DataFrame):
+    _n_real = self.X_.shape[1]
+    if _pad > _n_real > 0 and isinstance(self.X_shadow_, pd.DataFrame):
         _extra = {}
-        _real_cols = list(self.X.columns)
+        _real_cols = list(self.X_.columns)
         for _k in range(_pad - _n_real):
             _src = _real_cols[_k % _n_real]
-            _extra[f"__shadowpad{_k}__{_src}"] = _rng.permutation(self.X[_src].values)
-        self.X_shadow = pd.concat([self.X_shadow, pd.DataFrame(_extra, index=self.X.index)], axis=1)
+            _extra[f"__shadowpad{_k}__{_src}"] = _rng.permutation(self.X_[_src].values)
+        self.X_shadow_ = pd.concat([self.X_shadow_, pd.DataFrame(_extra, index=self.X_.index)], axis=1)
 
-    if isinstance(self.X_shadow, pd.DataFrame):
+    if isinstance(self.X_shadow_, pd.DataFrame):
         # append
-        obj_col = self.X_shadow.select_dtypes(include=["object", "string"]).columns.tolist()
+        obj_col = self.X_shadow_.select_dtypes(include=["object", "string"]).columns.tolist()
         if obj_col == []:
             pass
         else:
-            self.X_shadow[obj_col] = self.X_shadow[obj_col].astype("category")
+            self.X_shadow_[obj_col] = self.X_shadow_[obj_col].astype("category")
 
     # Prefix each shadow's name; the pad columns already carry a distinct ``__shadowpad{k}__`` infix so all
     # shadow names stay unique even when a real column is recycled.
-    self.X_shadow.columns = ["shadow_" + str(feature) for feature in self.X_shadow.columns]
-    self.X_boruta = pd.concat([self.X, self.X_shadow], axis=1)
+    self.X_shadow_.columns = ["shadow_" + str(feature) for feature in self.X_shadow_.columns]
+    if _buf is not None:
+        self.X_boruta_ = pd.DataFrame(_buf, columns=list(cols) + list(self.X_shadow_.columns), index=self.X_.index, copy=False)
+    else:
+        self.X_boruta_ = pd.concat([self.X_, self.X_shadow_], axis=1)
 
-    col_types = self.X_boruta.dtypes
-    self.X_categorical = list(col_types[(col_types == "category") | (col_types == "object")].index)
+    col_types = self.X_boruta_.dtypes
+    self.X_categorical_ = list(col_types[(col_types == "category") | (col_types == "object")].index)
+
+# Working frames (``X_boruta_`` and its train/test slices) at or above this many bytes are dropped when fit ends; smaller ones stay inspectable.
+RELEASE_WORKING_FRAMES_MIN_BYTES = 1 << 30
+
+
+def release_large_working_frames(self):
+    """Drop the fit-time working frames (``X_boruta_``, ``X_shadow_``, ``X_boruta_train_`` / ``X_boruta_test_``) once fit is done when ``X_boruta_``
+    is at least ``RELEASE_WORKING_FRAMES_MIN_BYTES``; on 100GB-class frames they would otherwise stay pinned for the estimator's lifetime."""
+    frame = getattr(self, "X_boruta_", None)
+    if frame is None or not hasattr(frame, "memory_usage"):
+        return
+    if int(frame.memory_usage(index=False, deep=False).sum()) < RELEASE_WORKING_FRAMES_MIN_BYTES:
+        return
+    for name in ("X_boruta_", "X_shadow_", "X_boruta_train_", "X_boruta_test_"):
+        if hasattr(self, name):
+            setattr(self, name, None)
+
 
 def calculate_Zscore(array):
     """
@@ -235,16 +267,16 @@ def feature_importance(self, normalize):
     _measure = self._active_importance_measure() if hasattr(self, "_active_importance_measure") else str(self.importance_measure).lower()
     if _measure == "shap":
         self.explain()
-        vals = self.shap_values
+        vals = self.shap_values_
 
         if normalize:
             vals = self.calculate_Zscore(vals)
 
-        # Layout of self.X_boruta is [X | X_shadow]. Real features come first,
-        # shadow afterwards. Using len(self.X.columns) for the split is correct
+        # Layout of self.X_boruta_ is [X | X_shadow]. Real features come first,
+        # shadow afterwards. Using len(self.X_.columns) for the split is correct
         # even when the shadow side was padded to >= 5 columns.
-        X_feature_import = vals[: len(self.X.columns)]
-        Shadow_feature_import = vals[len(self.X.columns) :]
+        X_feature_import = vals[: len(self.X_.columns)]
+        Shadow_feature_import = vals[len(self.X_.columns) :]
 
     elif _measure == "gini":
         feature_importances_ = np.abs(self.model_.feature_importances_)
@@ -252,8 +284,8 @@ def feature_importance(self, normalize):
         if normalize:
             feature_importances_ = self.calculate_Zscore(feature_importances_)
 
-        X_feature_import = feature_importances_[: len(self.X.columns)]
-        Shadow_feature_import = feature_importances_[len(self.X.columns) :]
+        X_feature_import = feature_importances_[: len(self.X_.columns)]
+        Shadow_feature_import = feature_importances_[len(self.X_.columns) :]
 
     elif _measure == "permutation":
         from sklearn.inspection import permutation_importance
@@ -264,11 +296,11 @@ def feature_importance(self, normalize):
         # permutation on the full X_boruta (still ranks shadows near zero, but inherits the in-sample
         # optimism gini/SHAP also carry). Negative permutation importances mean "noise" -> clipped to 0 so
         # they tie with shadows rather than being inflated by abs().
-        X_perm = getattr(self, "X_boruta_test", None)
+        X_perm = getattr(self, "X_boruta_test_", None)
         if X_perm is not None:
-            X_perm, y_perm = self.X_boruta_test, self.y_test
+            X_perm, y_perm = self.X_boruta_test_, self.y_test_
         else:
-            X_perm, y_perm = self.X_boruta, self.y
+            X_perm, y_perm = self.X_boruta_, self.y_
         # bench-attempt-rejected: tried the same row*col size-gate that won 17.5x for
         # HybridSelector._shared_perm_fi's LightGBM-backed call (see that function's docstring), forcing
         # n_jobs=1 below a size threshold. Measured HERE (this file's own test_boruta_shap_permutation_driver
@@ -286,8 +318,8 @@ def feature_importance(self, normalize):
         if normalize:
             feature_importances_ = self.calculate_Zscore(feature_importances_)
 
-        X_feature_import = feature_importances_[: len(self.X.columns)]
-        Shadow_feature_import = feature_importances_[len(self.X.columns) :]
+        X_feature_import = feature_importances_[: len(self.X_.columns)]
+        Shadow_feature_import = feature_importances_[len(self.X_.columns) :]
 
     else:
         raise ValueError("No Importance_measure was specified select one of (shap, gini, permutation)")
@@ -323,20 +355,20 @@ def find_sample(self):
     distribution using the KS-test. Starts of a 5% however will increase to 10% and then 15% etc. if a significant sample can not be found
     """
     iteration = 0
-    size = self.get_5_percent_splits(self.X.shape[0])
+    size = self.get_5_percent_splits(self.X_.shape[0])
     if size.size == 0:
         # get_5_percent_splits' np.arange(step, length, step) can come back empty on frames with
         # <=2 rows (step >= length) -- nothing to sub-sample; return the full boruta frame as-is
         # instead of raising IndexError on size[element] below.
-        return self.X_boruta
+        return self.X_boruta_
     element = 0
     # ``iteration`` bounds the search per sample size; on the 20th miss we grow the
     # sample (next ``size`` element). Without incrementing it the bound never fired and a
     # frame where no sub-sample reaches the KS p>0.95 threshold looped forever.
     while True:
-        sample_indices = choice(np.arange(self.preds.size), size=size[element], replace=False)
-        sample = np.take(self.preds, sample_indices)
-        if ks_2samp(self.preds, sample).pvalue > 0.95:
+        sample_indices = choice(np.arange(self.preds_.size), size=size[element], replace=False)
+        sample = np.take(self.preds_, sample_indices)
+        if ks_2samp(self.preds_, sample).pvalue > 0.95:
             break
 
         iteration += 1
@@ -347,7 +379,7 @@ def find_sample(self):
             if element >= len(size):
                 break
 
-    return self.X_boruta.iloc[sample_indices]
+    return self.X_boruta_.iloc[sample_indices]
 
 
 def binomial_H0_test(array, n, p, alternative):
@@ -392,11 +424,11 @@ def test_features(self, iteration):
     For each feature with an undetermined importance perform a two-sided test of equality
     with the maximum shadow value to determine if it is statistically better
 
-    Appends this trial's accepted/rejected column names to ``self.accepted_columns`` /
-    ``self.rejected_columns`` and sets ``self.features_to_remove`` in place; does not return a value.
+    Appends this trial's accepted/rejected column names to ``self.accepted_columns_`` /
+    ``self.rejected_columns_`` and sets ``self.features_to_remove_`` in place; does not return a value.
     """
 
-    # ``self.hits`` is full-length (indexed by ``all_columns``), so this re-tests already-removed features every
+    # ``self.hits_`` is full-length (indexed by ``all_columns``), so this re-tests already-removed features every
     # trial. That is CORRECT, not a bug: a removed feature's hit count is frozen at removal, the Bonferroni base is
     # the constant full count (see ``_n_tests`` below), so its decision never changes - re-testing it is a no-op on
     # the final partition. The only residual cost is the extra binomtests, which the ``_binom_test_cached`` LRU
@@ -409,7 +441,7 @@ def test_features(self, iteration):
     # Derive the calibrated p from self.percentile.
     null_hit_p = calibrated_null_hit_p(self)
 
-    acceptance_p_values = self.binomial_H0_test(self.hits, n=iteration, p=null_hit_p, alternative="greater")
+    acceptance_p_values = self.binomial_H0_test(self.hits_, n=iteration, p=null_hit_p, alternative="greater")
 
     # Only the ACCEPT side is calibrated to the shadow percentile; the REJECT side keeps the classic p=0.5 reference.
     # Sharing ``null_hit_p`` across both tails (as a prior change did) collapses the reject test at the canonical
@@ -418,13 +450,13 @@ def test_features(self, iteration):
     # noise column hits at ~null_hit_p << 0.5, so its hit count is significantly below 0.5*n and it is correctly rejected,
     # while a borderline-redundant column (hit rate near 0.5) stays tentative - preserving Boruta's three-way verdict.
     reject_hit_p = 0.5
-    regect_p_values = self.binomial_H0_test(self.hits, n=iteration, p=reject_hit_p, alternative="less")
+    regect_p_values = self.binomial_H0_test(self.hits_, n=iteration, p=reject_hit_p, alternative="less")
 
     # [1] as function returns a tuple. Bonferroni base is the FULL original feature count (all_columns), not the
-    # shrinking current column set: self.hits and the accept/reject indexing are full-length, and using the live
+    # shrinking current column set: self.hits_ and the accept/reject indexing are full-length, and using the live
     # (post-removal) count would weaken the correction trial-over-trial as features drop out - a leniency drift.
     # This matches the base the shipped margin-gated stop already uses (_n_total_cols = len(all_columns)).
-    _n_tests = len(self.all_columns)
+    _n_tests = len(self.all_columns_)
     modified_acceptance_p_values = self.bonferoni_corrections(acceptance_p_values, alpha=0.05, n_tests=_n_tests)[1]
 
     modified_regect_p_values = self.bonferoni_corrections(regect_p_values, alpha=0.05, n_tests=_n_tests)[1]
@@ -436,10 +468,10 @@ def test_features(self, iteration):
     rejected_indices = self.find_index_of_true_in_array(rejected_columns)
     accepted_indices = self.find_index_of_true_in_array(accepted_columns)
 
-    rejected_features = self.all_columns[rejected_indices]
-    accepted_features = self.all_columns[accepted_indices]
+    rejected_features = self.all_columns_[rejected_indices]
+    accepted_features = self.all_columns_[accepted_indices]
 
-    self.features_to_remove = rejected_features
+    self.features_to_remove_ = rejected_features
 
-    self.rejected_columns.append(rejected_features)
-    self.accepted_columns.append(accepted_features)
+    self.rejected_columns_.append(rejected_features)
+    self.accepted_columns_.append(accepted_features)

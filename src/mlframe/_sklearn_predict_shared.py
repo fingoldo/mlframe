@@ -17,4 +17,5 @@ def argmax_predict(self, X: np.ndarray) -> np.ndarray:
     ``.predict_proba(X)``, mapped back through ``self.classes_``. Bound as a class attribute
     (``predict = argmax_predict``); Python's descriptor protocol resolves it to a normal bound
     method at call time."""
-    return predict_from_proba(self.classes_, self.predict_proba(X))
+    proba = self.predict_proba(X)
+    return predict_from_proba(self.classes_, proba)

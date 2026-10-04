@@ -82,15 +82,19 @@ class _MRMRFitHelpersMixin:
         global _ACTIVE_FIT_COUNT
         with _ACTIVE_FIT_COUNT_LOCK:
             _ACTIVE_FIT_COUNT += 1
-            _should_rearm = _ACTIVE_FIT_COUNT == 1
-        if _should_rearm:
-            self._rearm_gpu_circuit_breakers()
+            if _ACTIVE_FIT_COUNT == 1:
+                self._rearm_gpu_circuit_breakers()
 
     def _exit_active_fit_scope(self) -> None:
         """Decrement the process-wide in-flight-fit counter; pairs with ``_enter_active_fit_scope()``."""
         global _ACTIVE_FIT_COUNT
         with _ACTIVE_FIT_COUNT_LOCK:
             _ACTIVE_FIT_COUNT = max(0, _ACTIVE_FIT_COUNT - 1)
+            _last_fit_out = _ACTIVE_FIT_COUNT == 0
+        if _last_fit_out:
+            from .._fit_scoped_release import release_fit_scoped_caches
+
+            release_fit_scoped_caches()
 
     def _rearm_gpu_circuit_breakers(self) -> None:
         """Re-arm every process-global GPU circuit breaker in this package. Only called by

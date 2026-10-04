@@ -22,6 +22,9 @@ def compute_oof_confidence(
 ) -> Union[float, Dict[Any, float]]:
     """``mean(oof_pred | label==1) / mean(oof_pred | label==0)`` for one output/segment's OOF predictions.
 
+    Rows whose OOF prediction is non-finite (the warm-up block of a time-ordered OOF) are dropped first; a NaN would otherwise
+    propagate into the confidence and then into every shrunk prediction.
+
     Returns ``1.0`` (neutral - no discriminative signal detectable) when either class is empty, both
     conditional means are non-positive, or the negative-class mean is zero.
 
@@ -35,10 +38,15 @@ def compute_oof_confidence(
         ``segment_ids``, each computed with the exact same formula restricted to that segment's rows.
         Omitting this (the default) is bit-identical to the pre-extension single-segment behavior.
     """
+    oof_pred = np.asarray(oof_pred, dtype=np.float64)
+    oof_label = np.asarray(oof_label)
+    finite = np.isfinite(oof_pred)
+    if not finite.all():
+        oof_pred, oof_label = oof_pred[finite], oof_label[finite]
+        if segment_ids is not None:
+            segment_ids = np.asarray(segment_ids)[finite]
     if segment_ids is not None:
         segment_ids = np.asarray(segment_ids)
-        oof_pred = np.asarray(oof_pred, dtype=np.float64)
-        oof_label = np.asarray(oof_label)
         return {seg: _single_oof_confidence(oof_pred[segment_ids == seg], oof_label[segment_ids == seg]) for seg in np.unique(segment_ids)}
 
     return _single_oof_confidence(oof_pred, oof_label)

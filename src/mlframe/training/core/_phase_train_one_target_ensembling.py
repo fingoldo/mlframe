@@ -22,7 +22,7 @@ from mlframe.models.ensembling import score_ensemble
 # in-function imported on every per-target iteration to dodge the import cycle (parent re-exports
 # this sibling at its bottom). The leaf move breaks the cycle so the import resolves once at module
 # load, surfacing any typo / signature drift immediately rather than mid-suite.
-from ._ensemble_chooser import _choose_ensemble_flavour
+from ._ensemble_chooser import _choose_ensemble_flavour, _choose_ensemble_flavour_and_surface, stamp_ensemble_choice  # noqa: F401
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
@@ -181,12 +181,12 @@ def _finalize_per_target_ensembling(
         # ``{target_type: {target_name: flavour}}``. A None winner (no candidate exposed a
         # ranking metric) is intentionally NOT stamped so the predict-side fallback fires.
         try:
-            _chosen = _choose_ensemble_flavour(_ensembles)
+            _chosen, _surface = _choose_ensemble_flavour_and_surface(_ensembles)
             if _chosen is not None:
                 # Sub-key per ensemble family: simple per-target ensembles live under
                 # ``ensembles_chosen["simple"]``; cross-target ensembles are stamped by
                 # _phase_composite_post under ``ensembles_chosen["cross_target"]``.
-                metadata.setdefault("ensembles_chosen", {}).setdefault("simple", {}).setdefault(target_type, {})[cur_target_name] = _chosen
+                stamp_ensemble_choice(metadata, target_type, cur_target_name, _chosen, _surface)
         except Exception as _choose_err:
             logger.warning("ensembles_chosen stamp failed for %s/%s: %s", target_type, cur_target_name, _choose_err)
         # Persist ``rrf_k`` only when RRF was actually iterated for this target -- otherwise

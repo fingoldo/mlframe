@@ -477,7 +477,7 @@ def missingness_count_with_recipes(
     counts, raw_recipe = missingness_count_fit(X, cols)
     name = engineered_name_missingness_count()
     if return_augmented:
-        X_aug = X.copy()
+        X_aug = X.copy(deep=False)
         X_aug[name] = counts
     else:
         X_aug = pd.DataFrame({name: counts}, index=X.index)
@@ -586,7 +586,7 @@ def missingness_pattern_with_recipes(
     labels, raw_recipe = missingness_pattern_fit(X, cols, top_k=top_k)
     name = engineered_name_missingness_pattern()
     if return_augmented:
-        X_aug = X.copy()
+        X_aug = X.copy(deep=False)
         X_aug[name] = labels
     else:
         X_aug = pd.DataFrame({name: labels}, index=X.index)

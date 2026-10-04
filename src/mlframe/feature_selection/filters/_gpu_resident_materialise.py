@@ -13,12 +13,15 @@ import paths still resolve byte-for-byte. No kernel-source, residency, or select
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from collections import OrderedDict
 from typing import Any, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # Parent-of-the-FE-block names consumed by the moved host fast paths (defined in _gpu_resident_fe before it
 # imports the select parent -> resolve during the partial-init import chain, same pattern as the parent).
@@ -370,6 +373,46 @@ _PREBUILT_OPERAND_TABLE_MAX = 8
 _PREBUILT_OPERAND_TABLE_LOCK = threading.Lock()  # - see _OPERAND_TABLE_CACHE_LOCK's note
 
 
+_OPERAND_CACHE_VRAM_FRACTION = 0.25
+
+
+def _operand_cache_budget_bytes() -> int:
+    """Byte cap for the device operand-table caches: ``MLFRAME_FE_OPERAND_CACHE_MAX_MB`` when set, else a quarter of the device's total VRAM
+    (0 = unknown device, caller then falls back to the entry-count cap only)."""
+    try:
+        env = os.environ.get("MLFRAME_FE_OPERAND_CACHE_MAX_MB")
+        if env:
+            return int(float(env) * (1 << 20))
+        import cupy as cp
+        return int(cp.cuda.runtime.memGetInfo()[1] * _OPERAND_CACHE_VRAM_FRACTION)
+    except Exception as e:  # no cupy / no device / bad env value: entry-count cap only
+        logger.debug("operand cache byte budget unavailable (%s: %s)", type(e).__name__, e)
+        return 0
+
+
+def _trim_operand_cache(cache: "OrderedDict[int, tuple]", max_entries: int) -> None:
+    """Under the cache's lock: drop entries whose host array died, then evict oldest-first while over the entry or byte cap. The newest entry stays."""
+    for k in [k for k, v in cache.items() if v[0]() is None]:
+        del cache[k]
+    budget = _operand_cache_budget_bytes()
+    total = sum(int(getattr(v[1], "nbytes", 0)) for v in cache.values())
+    while len(cache) > 1 and (len(cache) > max_entries or (budget > 0 and total > budget)):
+        # evict-ok: a miss re-uploads the operand table
+        _, (_ref, _dev) = cache.popitem(last=False)
+        total -= int(getattr(_dev, "nbytes", 0))
+
+
+def clear_gpu_operand_table_caches() -> None:
+    """Drop every device operand-table cache (uploaded, prebuilt and the column-major transpose) so the VRAM can be reclaimed at fit teardown."""
+    with _OPERAND_TABLE_CACHE_LOCK:
+        _OPERAND_TABLE_CACHE.clear()
+    with _PREBUILT_OPERAND_TABLE_LOCK:
+        _PREBUILT_OPERAND_TABLE.clear()
+    with _OPERAND_TABLE_CM_CACHE_LOCK:
+        _OPERAND_TABLE_CM_CACHE["ref"] = None
+        _OPERAND_TABLE_CM_CACHE["cm"] = None
+
+
 def fe_gpu_resident_operands_enabled() -> bool:
     """Whether the GPU-RESIDENT operand-table build (phase 1) is active. DEFAULT ON (opt-out
     ``MLFRAME_FE_GPU_RESIDENT_OPERANDS=0``). When on (and CUDA present - the caller guards this and
@@ -395,9 +438,7 @@ def register_prebuilt_operand_table(transformed_vars: np.ndarray, device_table: 
         try:
             c[key] = (weakref.ref(transformed_vars), device_table)
             c.move_to_end(key)
-            while len(c) > _PREBUILT_OPERAND_TABLE_MAX:
-                # evict-ok: a miss re-uploads the operand table
-                c.popitem(last=False)
+            _trim_operand_cache(c, _PREBUILT_OPERAND_TABLE_MAX)
         except TypeError:
             c.pop(key, None)
 
@@ -447,9 +488,7 @@ def _resident_operand_table(cp, transformed_vars):
         try:
             c[key] = (weakref.ref(transformed_vars), g)
             c.move_to_end(key)
-            while len(c) > _OPERAND_TABLE_CACHE_MAX:
-                # evict-ok: a miss re-uploads the operand table
-                c.popitem(last=False)
+            _trim_operand_cache(c, _OPERAND_TABLE_CACHE_MAX)
         except TypeError:
             c.pop(key, None)
     return g

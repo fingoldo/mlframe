@@ -36,8 +36,6 @@ KNOWN_DUPLICATE_GROUPS = {
     # tests/training/test_trainer_local_shim_pickers_are_deliberate.py.
     "_xgb_classifier_cls": "DELIBERATE: reads the trainer-local shim constant so the documented monkeypatch toggle works",
     "_xgb_regressor_cls": "DELIBERATE: same trainer-local binding as _xgb_classifier_cls",
-    "_lgb_classifier_cls": "DELIBERATE: same trainer-local binding, plus a module-qualified LGBMClassifier reference",
-    "_lgb_regressor_cls": "DELIBERATE: same trainer-local binding as _lgb_classifier_cls",
     # DELIBERATE -- already the right shape: two thin wrappers over the shared
     # composite/_booster_margin.inner_raw_margin, differing in every argument (classifier vs regressor
     # attrs, keep_2d True vs False).

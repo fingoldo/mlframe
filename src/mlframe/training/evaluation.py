@@ -285,36 +285,10 @@ def post_calibrate_model(
             _target_type = TargetTypes.MULTILABEL_CLASSIFICATION
         else:
             _target_type = TargetTypes.MULTICLASS_CLASSIFICATION
-        # Fit per-class isotonic on the calibration source. Prefer caller-provided (calib_probs, calib_target);
-        # fall back to OOF-train probs stamped on the model; only as last resort -- and only with an explicit ``calib_idx``
-        # confirmed disjoint from test_idx above -- do we draw from train_idx via target_series. Pure test-slice
-        # calibration (the historical default ``test_probs[:calib_set_size]``) is no longer supported here: it leaks.
-        if calib_probs is not None:
-            _calib_p = np.asarray(calib_probs)
-            _calib_y = np.asarray(calib_target)
-        else:
-            _oof_probs_mo = getattr(model, "oof_probs", None)
-            if _oof_probs_mo is not None:
-                _calib_p = np.asarray(_oof_probs_mo)
-                # oof_probs are in train-row order (cross_val_predict); pair each
-                # with its OWN row's label via the train-aligned oof_target. The
-                # old ``target_series.iloc[:len(oof)]`` positional slice is only
-                # correct when train is the leading contiguous block, so under a
-                # shuffled / group-aware split it fit the calibrator on
-                # mismatched (prob, label) pairs.
-                _oof_y_mo = getattr(model, "oof_target", None)
-                if _oof_y_mo is None:
-                    raise ValueError(
-                        "post_calibrate_model (multi-output): model.oof_probs is present but "
-                        "model.oof_target is missing, so OOF probs cannot be aligned to their "
-                        "labels. Retrain so oof_target is stamped, or pass calib_probs+calib_target."
-                    )
-                _calib_y = np.asarray(_oof_y_mo)[: _calib_p.shape[0]]
-            else:
-                raise ValueError(
-                    "post_calibrate_model (multi-output): no calibration source available. Pass calib_probs+calib_target "
-                    "(OOF-train probs preferred) or train the model with oof_n_splits>=2 so model.oof_probs is stamped."
-                )
+        from mlframe.training._calibration_oof_mask import mask_nonfinite_oof_rows, multi_output_calibration_source
+
+        _calib_p, _calib_y = multi_output_calibration_source(model, calib_probs, calib_target)
+        _calib_p, _calib_y = mask_nonfinite_oof_rows(_calib_p, _calib_y, metrics=metrics, where="post_calibrate_model (multi-output)")
         calibrator = _PerClassIsotonicCalibrator.fit(
             _calib_p, _calib_y, _target_type,
         )
@@ -389,6 +363,9 @@ def post_calibrate_model(
     if _binary_fit_X.shape[0] != _binary_fit_y.shape[0]:
         raise ValueError(f"calibration X / y row counts diverge: X.shape[0]={_binary_fit_X.shape[0]} vs y.shape[0]={_binary_fit_y.shape[0]}")
 
+    from mlframe.training._calibration_oof_mask import mask_nonfinite_oof_rows
+
+    _binary_fit_X, _binary_fit_y = mask_nonfinite_oof_rows(_binary_fit_X, _binary_fit_y, metrics=metrics)
     meta_model.fit(_binary_fit_X, _binary_fit_y, **fit_params)
 
     try:

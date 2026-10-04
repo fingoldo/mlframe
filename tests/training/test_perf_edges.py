@@ -103,15 +103,12 @@ def test_agg_path_concurrent_threads(tmp_path, calib_inputs):
         assert p.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-def test_both_off_no_side_effects(tmp_path, calib_inputs, capsys):
+def test_both_off_no_side_effects(tmp_path, calib_inputs, capsys, monkeypatch):
     """plot_file='' and show_plots=False — neither path should trigger save/show."""
     fp, ft, h = calib_inputs
     cwd_before = set(os.listdir(tmp_path))
-    os.chdir(tmp_path)
-    try:
-        show_calibration_plot(fp, ft, h, show_plots=False, plot_file="")
-    finally:
-        os.chdir(os.path.dirname(__file__))
+    monkeypatch.chdir(tmp_path)
+    show_calibration_plot(fp, ft, h, show_plots=False, plot_file="")
     assert set(os.listdir(tmp_path)) == cwd_before, "No files should be written when both are off"
 
 

@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 
 from sklearn.utils import check_random_state, check_X_y
 from sklearn.base import TransformerMixin, BaseEstimator
+from mlframe.feature_selection.boruta_shap._estimator_protocol import BorutaShapProtocolMixin, install_legacy_aliases
 from mlframe.utils.misc import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
@@ -65,7 +66,7 @@ logger = logging.getLogger(__name__)
 # TODO(naming): rename this class/module from BorutaShap to plain Boruta - track every call site, docs
 # reference, and pickle-compat shim (``__module__``/``__qualname__`` rewrites, like MRMR's) needed for a
 # non-breaking rename, since existing pickles + user code reference the current name.
-class BorutaShap(TransformerMixin, BaseEstimator):
+class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
     """
     BorutaShap is a wrapper feature selection method built on the foundations of both the SHAP and Boruta algorithms.
 
@@ -119,14 +120,14 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
     # history_x accumulates as an ndarray across trials (run()), then is promoted to a DataFrame
     # in store_feature_importance() once accumulation is done and column-labeled stats are added.
-    history_x: "np.ndarray | pd.DataFrame"
+    history_x_: "np.ndarray | pd.DataFrame"
     # tentative starts as a plain list (set difference at fit entry), then TentativeRoughFix() rebinds it to an ndarray for boolean-mask filtering.
-    tentative: "list | np.ndarray"
-    # Set in _fit_explain.py's fit() (``self.X = X.copy()``) - a different module in this cross-file
+    tentative_: "list | np.ndarray"
+    # Set in _fit_explain.py's fit() (``self.X_ = X.copy()``) - a different module in this cross-file
     # mixin pattern, invisible to mypy without this class-level annotation (a
-    # `self.X = self.X.drop(...)` self-referential assignment in __init__.py can't infer self.X's
+    # `self.X_ = self.X_.drop(...)` self-referential assignment in __init__.py can't infer self.X_'s
     # type without it).
-    X: pd.DataFrame
+    X_: pd.DataFrame
 
     def __init__(
         self,
@@ -181,7 +182,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
             An integer ranging from 0-100 it changes the value of the max shadow importance values. Thus, lowering its value
             would make the algorithm more lenient.
 
-        p_value: float
+        pvalue: float
             A float used as a significance level again if the p-value is increased the algorithm will be more lenient making it smaller
             would make it more strict also by making the model more strict could impact runtime making it slower. As it will be less likely
             to reject and accept features.
@@ -417,7 +418,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
         """
 
-        if isinstance(self.X, pd.DataFrame) is False:
+        if isinstance(self.X_, pd.DataFrame) is False:
             raise AttributeError("X must be a pandas Dataframe")
 
     def missing_values_y(self):
@@ -435,11 +436,11 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
         """
 
-        if isinstance(self.y, pd.Series):
-            return self.y.isnull().any().any()
+        if isinstance(self.y_, pd.Series):
+            return self.y_.isnull().any().any()
 
-        elif isinstance(self.y, np.ndarray):
-            return np.isnan(self.y).any()
+        elif isinstance(self.y_, np.ndarray):
+            return np.isnan(self.y_).any()
 
         else:
             raise AttributeError("Y must be a pandas Dataframe or a numpy array")
@@ -459,7 +460,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
         """
 
-        X_missing = self.X.isnull().any().any()
+        X_missing = self.X_.isnull().any().any()
         Y_missing = self.missing_values_y()
 
         models_to_check = ("xgb", "catboost", "lgbm", "lightgbm")
@@ -509,22 +510,22 @@ class BorutaShap(TransformerMixin, BaseEstimator):
             _split_seed = int(_base_seed) + _trial if _resample else _base_seed
             # The shared suite split policy: on temporal / grouped data the held-out 30% is the newest rows / whole groups, so an importance
             # that only exists in-sample (or across time) cannot beat the shadows; i.i.d. (or no policy) keeps the stratified shuffle.
-            _policy_split = holdout_indices(get_cv_policy(self), len(self.X_boruta), 0.3, random_state=int(_split_seed or 0))
+            _policy_split = holdout_indices(get_cv_policy(self), len(self.X_boruta_), 0.3, random_state=int(_split_seed or 0))
             if _policy_split is not None:
                 _tr, _te = _policy_split
-                _take_rows = (lambda a, i: a.iloc[i]) if hasattr(self.X_boruta, "iloc") else (lambda a, i: a[i])
-                self.X_boruta_train, self.X_boruta_test = _take_rows(self.X_boruta, _tr), _take_rows(self.X_boruta, _te)
-                _yt = (lambda i: self.y.iloc[i]) if hasattr(self.y, "iloc") else (lambda i: np.asarray(self.y)[i])
-                self.y_train, self.y_test = _yt(_tr), _yt(_te)
+                _take_rows = (lambda a, i: a.iloc[i]) if hasattr(self.X_boruta_, "iloc") else (lambda a, i: a[i])
+                self.X_boruta_train_, self.X_boruta_test_ = _take_rows(self.X_boruta_, _tr), _take_rows(self.X_boruta_, _te)
+                _yt = (lambda i: self.y_.iloc[i]) if hasattr(self.y_, "iloc") else (lambda i: np.asarray(self.y_)[i])
+                self.y_train_, self.y_test_ = _yt(_tr), _yt(_te)
             else:
-                self.X_boruta_train, self.X_boruta_test, self.y_train, self.y_test = train_test_split(
-                    self.X_boruta, self.y, test_size=0.3, random_state=_split_seed, stratify=self.stratify
+                self.X_boruta_train_, self.X_boruta_test_, self.y_train_, self.y_test_ = train_test_split(
+                    self.X_boruta_, self.y_, test_size=0.3, random_state=_split_seed, stratify=self.stratify
                 )
-            self.Train_model(self.X_boruta_train, self.y_train)
+            self.Train_model(self.X_boruta_train_, self.y_train_)
 
         elif train_or_test.lower() == "train":
             # model will be trained and evaluated on the same data
-            self.Train_model(self.X_boruta, self.y)
+            self.Train_model(self.X_boruta_, self.y_)
 
         else:
             raise ValueError('The train_or_test parameter can only be "train" or "test"')
@@ -549,7 +550,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         """
 
         if "catboost" in str(type(self.model_)).lower():
-            self.model_.fit(X, y, cat_features=self.X_categorical, verbose=False, **(self.fit_params or {}))
+            self.model_.fit(X, y, cat_features=self.X_categorical_, verbose=False, **(self.fit_params or {}))
 
         else:
             try:
@@ -563,7 +564,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         X,
     ):
         """Column-select X down to the accepted features, realigned by name."""
-        # Name-based selection: ``self.X`` was mutated in place during fit
+        # Name-based selection: ``self.X_`` was mutated in place during fit
         # (rejected columns dropped by ``remove_features_if_rejected``), so its
         # column ordering is NOT the input X's ordering. Using ``X[selected]`` /
         # ``X.loc[:, selected]`` is stable across caller-side column reordering
@@ -618,9 +619,9 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
         """
 
-        self.rejected = list(set(self.flatten_list(self.rejected_columns)) - set(self.flatten_list(self.accepted_columns)))
-        self.accepted = list(set(self.flatten_list(self.accepted_columns)))
-        self.tentative = list(set(self.all_columns) - set(self.rejected + self.accepted))
+        self.rejected_ = list(set(self.flatten_list(self.rejected_columns_)) - set(self.flatten_list(self.accepted_columns_)))
+        self.accepted_ = list(set(self.flatten_list(self.accepted_columns_)))
+        self.tentative_ = list(set(self.all_columns_) - set(self.rejected_ + self.accepted_))
 
         # Empty acceptance is a defensible-but-silent outcome (single-class target -> RF fits, importances ~0, the
         # shadow gate accepts nothing; or every importance collapsed to ~0). Emit a logger warning so the caller gets
@@ -628,15 +629,15 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         # downstream selector silently keeping zero features is a failure the user must see. The two probed causes are
         # the ones a caller can act on (degenerate target / no discriminative signal); other empty-accept cases still
         # warn generically. ``getattr`` keeps the check robust for partially-built / pickled instances.
-        if not self.accepted:
-            _y = getattr(self, "y", None)
+        if not self.accepted_:
+            _y = getattr(self, "y_", None)
             _single_class = False
             if _y is not None:
                 try:
                     _single_class = bool(getattr(self, "classification", False)) and len(np.unique(np.asarray(_y))) < 2
                 except (TypeError, ValueError):
                     _single_class = False
-            _imp = getattr(self, "X_feature_import", None)
+            _imp = getattr(self, "X_feature_import_", None)
             _all_zero_imp = False
             if _imp is not None and len(_imp):
                 _imp_arr = np.asarray(_imp, dtype=float)
@@ -655,9 +656,9 @@ class BorutaShap(TransformerMixin, BaseEstimator):
                 logger.warning("BorutaShap accepted 0 features (all features rejected or tentative); the selection is empty.")
 
         if verbose:
-            logger.info("%s attributes confirmed important: %s", len(self.accepted), self.accepted)
-            logger.info("%s attributes confirmed unimportant: %s", len(self.rejected), self.rejected)
-            logger.info("%s tentative attributes remains: %s", len(self.tentative), self.tentative)
+            logger.info("%s attributes confirmed important: %s", len(self.accepted_), self.accepted_)
+            logger.info("%s attributes confirmed unimportant: %s", len(self.rejected_), self.rejected_)
+            logger.info("%s tentative attributes remains: %s", len(self.tentative_), self.tentative_)
 
     def create_importance_history(self):
         """
@@ -669,9 +670,9 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
         """
 
-        self.history_shadow = np.zeros(self.ncols)
-        self.history_x = np.zeros(self.ncols)
-        self.history_hits = np.zeros(self.ncols)
+        self.history_shadow_ = np.zeros(self.ncols_)
+        self.history_x_ = np.zeros(self.ncols_)
+        self.history_hits_ = np.zeros(self.ncols_)
 
     def update_importance_history(self):
         """
@@ -683,16 +684,16 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
         """
 
-        padded_history_shadow = np.full((self.ncols), np.nan)
-        padded_history_x = np.full((self.ncols), np.nan)
+        padded_history_shadow = np.full((self.ncols_), np.nan)
+        padded_history_x = np.full((self.ncols_), np.nan)
 
-        for index, col in enumerate(self.columns):
-            map_index = self.order[col]
-            padded_history_shadow[map_index] = self.Shadow_feature_import[index]
-            padded_history_x[map_index] = self.X_feature_import[index]
+        for index, col in enumerate(self.columns_):
+            map_index = self.order_[col]
+            padded_history_shadow[map_index] = self.Shadow_feature_import_[index]
+            padded_history_x[map_index] = self.X_feature_import_[index]
 
-        self.history_shadow = np.vstack((self.history_shadow, padded_history_shadow))
-        self.history_x = np.vstack((self.history_x, padded_history_x))
+        self.history_shadow_ = np.vstack((self.history_shadow_, padded_history_shadow))
+        self.history_x_ = np.vstack((self.history_x_, padded_history_x))
 
     def store_feature_importance(self):
         """
@@ -705,12 +706,12 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
         """
 
-        self.history_x = pd.DataFrame(data=self.history_x, columns=self.all_columns)
+        self.history_x_ = pd.DataFrame(data=self.history_x_, columns=self.all_columns_)
 
-        self.history_x["Max_Shadow"] = [max(i) for i in self.history_shadow]  # type: ignore[call-overload]  # numpy stubs narrow the per-row iteration element to a scalar float64; each row is actually a 1D ndarray
-        self.history_x["Min_Shadow"] = [min(i) for i in self.history_shadow]  # type: ignore[call-overload]
-        self.history_x["Mean_Shadow"] = [np.nanmean(i) for i in self.history_shadow]
-        self.history_x["Median_Shadow"] = [np.nanmedian(i) for i in self.history_shadow]
+        self.history_x_["Max_Shadow"] = [max(i) for i in self.history_shadow_]  # type: ignore[call-overload]  # numpy stubs narrow the per-row iteration element to a scalar float64; each row is actually a 1D ndarray
+        self.history_x_["Min_Shadow"] = [min(i) for i in self.history_shadow_]  # type: ignore[call-overload]
+        self.history_x_["Mean_Shadow"] = [np.nanmean(i) for i in self.history_shadow_]
+        self.history_x_["Median_Shadow"] = [np.nanmedian(i) for i in self.history_shadow_]
 
     def remove_features_if_rejected(self):
         """
@@ -718,7 +719,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
 
         """
 
-        if len(self.features_to_remove) != 0:
+        if len(self.features_to_remove_) != 0:
             # Single-call drop instead of a per-feature loop: each in-place ``DataFrame.drop`` rebuilds the
             # block manager, so dropping N rejected features one at a time was the dominant mlframe-side cost
             # (profiled 1.56 s = 5.2% of a 299/120-col SHAP fit, almost all in pandas ``base.drop``). Dropping
@@ -726,7 +727,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
             # per-feature ``except KeyError: pass`` exactly (a feature already dropped in a prior trial is
             # skipped), and the resulting column set + ORDER is bit-identical to the loop (drop preserves the
             # surviving columns' relative order regardless of how many are removed per call).
-            self.X = self.X.drop(list(self.features_to_remove), axis=1, errors="ignore")
+            self.X_ = self.X_.drop(list(self.features_to_remove_), axis=1, errors="ignore")
 
         else:
             pass
@@ -746,7 +747,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         # Refuse duplicate-column input - prior dict(zip(...))
         # silently collapsed dupes to the LAST index, so any earlier-duplicated column
         # would never be shuffled / tested by Boruta's shadow-feature loop.
-        cols = self.X.columns.to_list()
+        cols = self.X_.columns.to_list()
         if len(set(cols)) != len(cols):
             from collections import Counter
             dupes = [c for c, n in Counter(cols).items() if n > 1]
@@ -754,7 +755,7 @@ class BorutaShap(TransformerMixin, BaseEstimator):
                 f"BorutaShap: input X has {len(dupes)} duplicate column name(s) "
                 f"({dupes[:5]}); deduplicate before fit() to avoid silently dropping shadow indices."
             )
-        return dict(zip(cols, np.arange(self.X.shape[1])))
+        return dict(zip(cols, np.arange(self.X_.shape[1])))
 
     def TentativeRoughFix(self):
         """
@@ -762,50 +763,50 @@ class BorutaShap(TransformerMixin, BaseEstimator):
         accepted. This method is used in this case to make a decision on a tentative feature
         by comparing its median importance value with the median max shadow value.
 
-        Reads ``self.tentative`` (the pending features) and appends the resulting decisions to
-        ``self.accepted`` / ``self.rejected`` in place, clearing ``self.tentative``; does not
+        Reads ``self.tentative_`` (the pending features) and appends the resulting decisions to
+        ``self.accepted_`` / ``self.rejected_`` in place, clearing ``self.tentative_``; does not
         return a value.
         """
 
         # history_x is promoted from ndarray to DataFrame by run() before TentativeRoughFix is ever called.
-        hx: pd.DataFrame = self.history_x
+        hx: pd.DataFrame = self.history_x_
         # Row 0 is the pre-loop np.zeros(...) initializer (create_importance_history), not a real trial;
         # _io_plot.py's results_to_csv/plot already strip it via .iloc[1:] -- mirror that here.
         hx = hx.iloc[1:]
-        median_tentaive_values = hx[self.tentative].median(axis=0).values
+        median_tentaive_values = hx[self.tentative_].median(axis=0).values
         median_max_shadow = hx["Max_Shadow"].median(axis=0)
 
         filtered = median_tentaive_values > median_max_shadow
 
-        self.tentative = np.array(self.tentative)
-        newly_accepted = self.tentative[filtered]
+        self.tentative_ = np.array(self.tentative_)
+        newly_accepted = self.tentative_[filtered]
 
         if len(newly_accepted) < 1:
-            newly_rejected = np.asarray(self.tentative)
+            newly_rejected = np.asarray(self.tentative_)
 
         else:
-            newly_rejected = self.symetric_difference_between_two_arrays(newly_accepted, self.tentative)
+            newly_rejected = self.symetric_difference_between_two_arrays(newly_accepted, self.tentative_)
 
         # logger (not print): a non-ASCII feature name in the array repr would crash cp1251 stdout on Windows, and
         # this should honour the verbose channel like the rest of the class rather than writing to stdout directly.
         logger.info("%s tentative features are now accepted: %s", len(newly_accepted), list(newly_accepted))
         logger.info("%s tentative features are now rejected: %s", len(newly_rejected), list(newly_rejected))
 
-        self.rejected = self.rejected + newly_rejected.tolist()
-        self.accepted = self.accepted + newly_accepted.tolist()
-        # Every tentative feature is resolved into accepted or rejected above -- clear self.tentative so
+        self.rejected_ = self.rejected_ + newly_rejected.tolist()
+        self.accepted_ = self.accepted_ + newly_accepted.tolist()
+        # Every tentative feature is resolved into accepted or rejected above -- clear self.tentative_ so
         # a caller reading it directly (or Subset(tentative=True)) doesn't see already-resolved features
         # as still undecided.
-        self.tentative = []
+        self.tentative_ = []
 
     def Subset(self, tentative=False):
         """
         Returns the subset of desired features
         """
         if tentative:
-            return self.starting_X[self.accepted + list(self.tentative)]
+            return self.starting_X_[self.accepted_ + list(self.tentative_)]
         else:
-            return self.starting_X[self.accepted]
+            return self.starting_X_[self.accepted_]
 
 
 def load_data(data_type="classification"):
@@ -900,3 +901,4 @@ BorutaShap.symetric_difference_between_two_arrays = staticmethod(_symetric_diffe
 BorutaShap.find_index_of_true_in_array = staticmethod(_find_index_of_true_func)
 BorutaShap.bonferoni_corrections = staticmethod(_bonferoni_corrections_func)
 BorutaShap.test_features = _test_features_func
+install_legacy_aliases(BorutaShap)

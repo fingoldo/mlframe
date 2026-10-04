@@ -37,13 +37,14 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_resolvers import (
     _resolve_cluster_su_auto_max_features, ShapProxiedNoCandidatesError,
 )
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit import ShapProxiedFitMixin
+from mlframe.feature_selection.shap_proxied_fs._state_compat import ShapProxiedStateCompatMixin
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_methods import ShapProxiedMethodsMixin
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_precomputed import restrict_artifacts
 
 logger = logging.getLogger(__name__)
 
 
-class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMixin, BaseEstimator):
+class ShapProxiedFS(ShapProxiedStateCompatMixin, ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMixin, BaseEstimator):
     """SHAP-coalition-proxy feature selector (sklearn transformer)."""
 
     def __init__(
@@ -378,15 +379,15 @@ class ShapProxiedFS(ShapProxiedFitMixin, ShapProxiedMethodsMixin, TransformerMix
             raise ValueError(f"proxy_mode must be 'additive', 'interaction', 'auto', or 'faith_interaction'; got {proxy_mode!r}")
         self.proxy_mode = proxy_mode
         self.faith_n_coalitions = faith_n_coalitions
-        self.interaction_proxy_top_k = int(interaction_proxy_top_k)
+        self.interaction_proxy_top_k = interaction_proxy_top_k
         self.su_seeded_interactions = su_seeded_interactions
-        self.su_seeded_top_k = int(su_seeded_top_k)
-        self.su_seeded_n_bins = int(su_seeded_n_bins)
-        self.su_seeded_max_screen_cols = int(su_seeded_max_screen_cols)
-        self.su_seeded_snr_z = float(su_seeded_snr_z)
-        self.su_seeded_snr_null_quantile = float(su_seeded_snr_null_quantile)
-        self.su_seeded_snr_abs_floor = float(su_seeded_snr_abs_floor)
-        self.su_seeded_n_permutations = int(su_seeded_n_permutations)
+        self.su_seeded_top_k = su_seeded_top_k
+        self.su_seeded_n_bins = su_seeded_n_bins
+        self.su_seeded_max_screen_cols = su_seeded_max_screen_cols
+        self.su_seeded_snr_z = su_seeded_snr_z
+        self.su_seeded_snr_null_quantile = su_seeded_snr_null_quantile
+        self.su_seeded_snr_abs_floor = su_seeded_snr_abs_floor
+        self.su_seeded_n_permutations = su_seeded_n_permutations
         # Stored verbatim (sklearn clone rule); validated at fit time (``_validate_residual_params``
         # in ``_shap_proxied_fit_residual.py``) so an invalid value raises before the expensive
         # OOF-SHAP stages, not silently at __init__.

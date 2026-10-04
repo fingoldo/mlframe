@@ -11,6 +11,7 @@ postprocess = filter weak / duplicates from the confirmed set.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -29,9 +30,24 @@ def _pool_warmup_noop(i):
 
 from contextlib import contextmanager
 
+# Serialises every seeded-RNG scope. The numpy/cupy generators are process-global, so two overlapping scopes would reseed each other
+# mid-block and restore stale snapshots; reentrant so a nested scope on the same thread passes through.
+_GLOBAL_RNG_SCOPE_LOCK = threading.RLock()
+
 
 @contextmanager
 def _preserve_global_numpy_rng_state(seed: int | None):
+    """Run a block under the seeded global-RNG scope, one thread at a time.
+
+    Concurrent fits therefore queue on this scope instead of corrupting each other's streams. Numba's generator is per-thread
+    and the scope reseeds only the entering thread's, so worker threads spawned inside the block draw from their own streams."""
+    with _GLOBAL_RNG_SCOPE_LOCK:
+        with _preserve_global_numpy_rng_state_unlocked(seed):
+            yield
+
+
+@contextmanager
+def _preserve_global_numpy_rng_state_unlocked(seed: int | None):
     """Snapshot and restore ``np.random``'s global MT19937 state around a block.
 
     ``screen_predictors`` historically reseeded the process-global RNG to make permutation-based confidence

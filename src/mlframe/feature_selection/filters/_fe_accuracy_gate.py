@@ -50,7 +50,7 @@ _BASELINE_CV_MEMO_MAXSIZE = 64
 _FE_GATE_MEMO_LOCK = threading.Lock()
 
 
-def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool, n_splits: int, seed: int):
+def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool, n_splits: int, seed: int, groups: np.ndarray | None = None):
     """Content-hash cache key for the ``X_base``-only CV baseline, or ``None`` when the
     inputs cannot be hashed cheaply (falls back to always recomputing - never crashes)."""
     try:
@@ -63,6 +63,9 @@ def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool,
         h.update(array_buffer(X_base))
         h.update(b"|y|")
         h.update(array_buffer(y))
+        if groups is not None:
+            h.update(b"|g|")
+            h.update(array_buffer(np.ascontiguousarray(groups)))
         return (
             X_base.shape, X_base.dtype.str,
             y.shape, y.dtype.str,
@@ -82,6 +85,7 @@ def measure_feature_uplift(
     classification: bool,
     n_splits: int = 10,
     seed: int = 0,
+    groups: np.ndarray | None = None,
 ) -> float | None:
     """Held-out uplift of a linear probe fitted on ``[X_base | X_eng]`` versus
     ``X_base`` alone. Positive => the engineered set adds generalisable signal.
@@ -91,7 +95,10 @@ def measure_feature_uplift(
     sentinel: callers must KEEP the engineered column when they cannot assess it
     (a probe that errors must not silently evict a candidate - the documented
     contract of ``keep_engineered_over_source``). A genuine measured zero uplift
-    still returns ``0.0`` (and is correctly dropped)."""
+    still returns ``0.0`` (and is correctly dropped).
+
+    ``groups`` (per-row group ids) makes the probe folds group-disjoint (``GroupKFold``): with i.i.d. folds an engineered column that
+    memorises group identity looks like held-out uplift on panel data and survives the gate."""
     X_base = np.asarray(X_base, dtype=np.float64)
     X_eng = np.asarray(X_eng, dtype=np.float64)
     y = np.asarray(y).ravel()
@@ -107,9 +114,12 @@ def measure_feature_uplift(
     if int(finite.sum()) < 40:
         return None
     X_base, X_eng, y = X_base[finite], X_eng[finite], y[finite]
+    if groups is not None:
+        groups = np.asarray(groups).ravel()
+        groups = groups[finite] if groups.shape[0] == finite.shape[0] else None
 
     from sklearn.linear_model import LogisticRegression, Ridge
-    from sklearn.model_selection import KFold, StratifiedKFold
+    from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
     from mlframe.metrics.core import fast_roc_auc, fast_r2_score
     from sklearn.preprocessing import StandardScaler
 
@@ -122,17 +132,25 @@ def measure_feature_uplift(
         n_splits = min(n_splits, int(np.min(np.bincount(y_enc))))
         if n_splits < 2:
             return None
-        split_iter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base, y_enc)
+        if groups is not None and np.unique(groups).size >= 2:
+            n_splits = min(n_splits, int(np.unique(groups).size))
+            split_iter = GroupKFold(n_splits=n_splits).split(X_base, y_enc, groups)
+        else:
+            split_iter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base, y_enc)
     else:
         y_enc = y.astype(np.float64)
         binary = False
-        split_iter = KFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base)
+        if groups is not None and np.unique(groups).size >= 2:
+            n_splits = min(n_splits, int(np.unique(groups).size))
+            split_iter = GroupKFold(n_splits=n_splits).split(X_base, y_enc, groups)
+        else:
+            split_iter = KFold(n_splits=n_splits, shuffle=True, random_state=seed).split(X_base)
 
     deltas = []
     # Siblings derived from the SAME raw source share an IDENTICAL X_base/y_enc/seed, so the
     # X_base-only baseline CV score is deterministic across sibling calls - cache it keyed on
     # the exact content that determines the split + fit (see ``_baseline_cv_key``).
-    _bkey = _baseline_cv_key(X_base, y_enc, classification=classification, n_splits=n_splits, seed=seed)
+    _bkey = _baseline_cv_key(X_base, y_enc, classification=classification, n_splits=n_splits, seed=seed, groups=groups)
     with _FE_GATE_MEMO_LOCK:
         _bcache = _BASELINE_CV_MEMO.get(_bkey) if _bkey is not None else None
     _base_scores: list[float] = []

@@ -27,6 +27,7 @@ from sklearn.base import (
     is_regressor,
 )
 from sklearn.dummy import DummyClassifier, DummyRegressor
+from mlframe.feature_selection.wrappers.rfecv._state_compat import RFECVStateCompatMixin
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import (
     GroupKFold,
@@ -92,7 +93,7 @@ def _overlay_explicit_config_fields(params: dict, configs: tuple) -> None:
                 params[_k] = _v
 
 
-class RFECV(TransformerMixin, BaseEstimator):
+class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
     """Finds subset of features having best CV score, by iterative narrowing down set of top_n candidates having highest importance, as per estimator's FI scores.
 
     Optimizes mean CV scores (possibly accounting for variation, possibly translated into ranks) divided by the features number.
