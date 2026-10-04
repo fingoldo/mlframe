@@ -12,7 +12,7 @@ from timeit import default_timer as timer
 from functools import partial
 from os.path import exists
 from types import SimpleNamespace
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._reporting_configs import ConfidenceAnalysisConfig, NamingConfig, PredictionsContainer, ReportingConfig
     from ._training_runtime_configs import DataConfig, MetricsConfig, OutputConfig, TrainingControlConfig
@@ -122,6 +122,7 @@ from ._trainer_train_and_evaluate_parts import (  # noqa: F401  -- carved helper
     _train_and_evaluate_run_test_df_none,
     _train_and_evaluate_was_trained_instead_silently,
 )
+from types import SimpleNamespace as _SimpleNamespace
 
 
 def train_and_evaluate_model(
@@ -203,8 +204,9 @@ def train_and_evaluate_model(
     """
     # Lazy import of parent-resident helpers: ``.trainer`` re-imports this sibling at its bottom, so a top-level ``from .trainer
     # import ...`` would create a hard cycle the meta-test flags.
-    _mono_patience_cfg: Any = None
-    t0_metrics: Any = None
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    st._mono_patience_cfg = None
+    st.t0_metrics = None
     from .trainer import ConfidenceAnalysisConfig, FeatureImportanceConfig, OutputConfig, PredictionsContainer, _extract_targets_from_indices, _prepare_train_df_for_fitting, _setup_model_info_and_paths, _setup_sample_weight, _update_model_name_after_training, _validate_infinity_and_columns, _validate_target_values
     from IPython.display import display as ipython_display
 
@@ -214,54 +216,54 @@ def train_and_evaluate_model(
     if predictions is None:
         predictions = PredictionsContainer()
 
-    df = data.df
+    st.df = data.df
     train_df = data.train_df
-    val_df = data.val_df
-    test_df = data.test_df
-    target = data.target
-    train_target = data.train_target
-    val_target = data.val_target
-    test_target = data.test_target
-    train_idx = data.train_idx
-    val_idx = data.val_idx
-    test_idx = data.test_idx
-    calib_df = data.calib_df
-    calib_target = data.calib_target
-    group_ids = data.group_ids
-    sample_weight = data.sample_weight
-    timestamps = data.timestamps
-    drop_columns = list(data.drop_columns) if data.drop_columns else []
-    target_label_encoder = data.target_label_encoder
-    skip_infinity_checks = data.skip_infinity_checks
-    n_features = data.n_features
+    st.val_df = data.val_df
+    st.test_df = data.test_df
+    st.target = data.target
+    st.train_target = data.train_target
+    st.val_target = data.val_target
+    st.test_target = data.test_target
+    st.train_idx = data.train_idx
+    st.val_idx = data.val_idx
+    st.test_idx = data.test_idx
+    st.calib_df = data.calib_df
+    st.calib_target = data.calib_target
+    st.group_ids = data.group_ids
+    st.sample_weight = data.sample_weight
+    st.timestamps = data.timestamps
+    st.drop_columns = list(data.drop_columns) if data.drop_columns else []
+    st.target_label_encoder = data.target_label_encoder
+    st.skip_infinity_checks = data.skip_infinity_checks
+    st.n_features = data.n_features
 
-    verbose = control.verbose
-    use_cache = control.use_cache
-    just_evaluate = control.just_evaluate
-    compute_trainset_metrics = control.compute_trainset_metrics
-    compute_valset_metrics = control.compute_valset_metrics
-    compute_testset_metrics = control.compute_testset_metrics
-    pre_pipeline = control.pre_pipeline
-    skip_pre_pipeline_transform = control.skip_pre_pipeline_transform
-    skip_preprocessing = control.skip_preprocessing
-    fit_params = control.fit_params
-    callback_params = control.callback_params
-    model_category = control.model_category
+    st.verbose = control.verbose
+    st.use_cache = control.use_cache
+    st.just_evaluate = control.just_evaluate
+    st.compute_trainset_metrics = control.compute_trainset_metrics
+    st.compute_valset_metrics = control.compute_valset_metrics
+    st.compute_testset_metrics = control.compute_testset_metrics
+    st.pre_pipeline = control.pre_pipeline
+    st.skip_pre_pipeline_transform = control.skip_pre_pipeline_transform
+    st.skip_preprocessing = control.skip_preprocessing
+    st.fit_params = control.fit_params
+    st.callback_params = control.callback_params
+    st.model_category = control.model_category
 
     # Thread ``TrainingBehaviorConfig.monotonic_decline_patience`` (default 20; None disables) to the boosters:
     # for cb it travels via ``callback_params`` (consumed by ``_setup_early_stopping_callback``), for the lgb /
     # xgb shims it is a ``.fit()`` kwarg read from ``fit_params``. A value already present in callback_params / fit_params (explicit per-call override) wins.
-    _mono_beh = getattr(getattr(control, "behavior", None), "__dict__", None)
-    if _mono_beh is not None and "monotonic_decline_patience" in _mono_beh:
-        _mono_patience_cfg = _mono_beh["monotonic_decline_patience"]
+    st._mono_beh = getattr(getattr(control, "behavior", None), "__dict__", None)
+    if st._mono_beh is not None and "monotonic_decline_patience" in st._mono_beh:
+        st._mono_patience_cfg = st._mono_beh["monotonic_decline_patience"]
     else:
-        _mono_patience_cfg = getattr(control, "monotonic_decline_patience", 20)
-    if model_category == "cb" or callback_params:
+        st._mono_patience_cfg = getattr(control, "monotonic_decline_patience", 20)
+    if st.model_category == "cb" or st.callback_params:
         # Only materialise callback_params for cb (which consumes the key) or when the caller already passed one -- avoid injecting an empty callbacks kwarg
         # into non-booster fits that previously got None.
-        callback_params = dict(callback_params or {})
-        callback_params.setdefault("monotonic_decline_patience", _mono_patience_cfg)
-    fit_params = _train_and_evaluate_into_non_booster_fits(model_category, fit_params, _mono_patience_cfg)
+        st.callback_params = dict(st.callback_params or {})
+        st.callback_params.setdefault("monotonic_decline_patience", st._mono_patience_cfg)
+    st.fit_params = _train_and_evaluate_into_non_booster_fits(st.model_category, st.fit_params, st._mono_patience_cfg)
 
     # Thread the live training-performance surfaces to the boosters' shared UniversalCallback. Same behavior-config plumbing as monotonic_decline_patience
     # above. These only choose how the per-iteration trajectory is SURFACED
@@ -269,150 +271,145 @@ def train_and_evaluate_model(
     # metadata, so turning the log line off costs no information.
     #   live_trainperf_plot   -> progress_widget          (default True; a hard no-op outside a notebook)
     #   live_trainperf_report -> report_progress_to_log   (default False; the periodic "iter=..., best=..." line)
-    if model_category == "cb" or callback_params:
-        _live_plot = _mono_beh.get("live_trainperf_plot", True) if _mono_beh is not None else getattr(control, "live_trainperf_plot", True)
-        _live_report = _mono_beh.get("live_trainperf_report", False) if _mono_beh is not None else getattr(control, "live_trainperf_report", False)
-        callback_params = dict(callback_params or {})
-        callback_params.setdefault("progress_widget", bool(_live_plot))
-        callback_params.setdefault("report_progress_to_log", bool(_live_report))
+    _train_and_evaluate_m_step1_live_trainperf_report(st, control)
 
     # Thread per-iteration metric-capture knobs to the boosters (meta-learning / HPO-from-early-observation). Same behavior-config plumbing as
     # monotonic_decline_patience: cb via callback_params, lgb / xgb via fit_params. ``capture_iteration_metrics`` defaults to None in the config -> resolve to
     # the family default (OFF for boosters, since re-predicting val every round is non-trivial; the user opts in explicitly).
-    _cap_iter_cfg = _mono_beh.get("capture_iteration_metrics") if _mono_beh is not None else getattr(control, "capture_iteration_metrics", None)
-    _iter_stride_cfg = _mono_beh.get("iteration_metrics_stride", 1) if _mono_beh is not None else getattr(control, "iteration_metrics_stride", 1)
-    _cap_iter_boosters = bool(_cap_iter_cfg) if _cap_iter_cfg is not None else False
-    callback_params, fit_params = _train_and_evaluate_cap_iter_boosters(_cap_iter_boosters, model_category, callback_params, _iter_stride_cfg, fit_params)
+    st._cap_iter_cfg = st._mono_beh.get("capture_iteration_metrics") if st._mono_beh is not None else getattr(control, "capture_iteration_metrics", None)
+    st._iter_stride_cfg = st._mono_beh.get("iteration_metrics_stride", 1) if st._mono_beh is not None else getattr(control, "iteration_metrics_stride", 1)
+    st._cap_iter_boosters = bool(st._cap_iter_cfg) if st._cap_iter_cfg is not None else False
+    st.callback_params, st.fit_params = _train_and_evaluate_cap_iter_boosters(st._cap_iter_boosters, st.model_category, st.callback_params, st._iter_stride_cfg, st.fit_params)
 
-    nbins = metrics.nbins
-    custom_ice_metric = metrics.custom_ice_metric
-    custom_rice_metric = metrics.custom_rice_metric
-    subgroups = metrics.subgroups
-    train_details = metrics.train_details
-    val_details = metrics.val_details
-    test_details = metrics.test_details
+    st.nbins = metrics.nbins
+    st.custom_ice_metric = metrics.custom_ice_metric
+    st.custom_rice_metric = metrics.custom_rice_metric
+    st.subgroups = metrics.subgroups
+    st.train_details = metrics.train_details
+    st.val_details = metrics.val_details
+    st.test_details = metrics.test_details
 
-    figsize = reporting.figsize
-    print_report = reporting.print_report
-    show_perf_chart = reporting.show_perf_chart
-    show_fi = reporting.show_fi
-    fi_config = reporting.feature_importance_config or FeatureImportanceConfig()
-    fi_kwargs = dict(
-        figsize=fi_config.figsize,
-        num_factors=fi_config.num_factors,
-        positive_fi_only=fi_config.positive_fi_only,
-        show_plots=fi_config.show_plots,
-        max_zero_fi_to_plot=getattr(fi_config, "max_zero_fi_to_plot", 4),
+    st.figsize = reporting.figsize
+    st.print_report = reporting.print_report
+    st.show_perf_chart = reporting.show_perf_chart
+    st.show_fi = reporting.show_fi
+    st.fi_config = reporting.feature_importance_config or FeatureImportanceConfig()
+    st.fi_kwargs = dict(
+        figsize=st.fi_config.figsize,
+        num_factors=st.fi_config.num_factors,
+        positive_fi_only=st.fi_config.positive_fi_only,
+        show_plots=st.fi_config.show_plots,
+        max_zero_fi_to_plot=getattr(st.fi_config, "max_zero_fi_to_plot", 4),
     )
     display_sample_size = reporting.display_sample_size
-    show_feature_names = reporting.show_feature_names
-    show_prob_histogram = reporting.show_prob_histogram
-    prob_histogram_yscale = reporting.prob_histogram_yscale
-    show_inline_population_labels = reporting.show_inline_population_labels
-    title_metrics_tokens = reporting.title_metrics_tokens
-    plot_outputs = reporting.plot_outputs
-    plot_dpi = reporting.plot_dpi
-    binary_panels = reporting.binary_panels
-    multiclass_panels = reporting.multiclass_panels
-    multilabel_panels = reporting.multilabel_panels
-    ltr_panels = reporting.ltr_panels
-    quantile_panels = reporting.quantile_panels
+    st.show_feature_names = reporting.show_feature_names
+    st.show_prob_histogram = reporting.show_prob_histogram
+    st.prob_histogram_yscale = reporting.prob_histogram_yscale
+    st.show_inline_population_labels = reporting.show_inline_population_labels
+    st.title_metrics_tokens = reporting.title_metrics_tokens
+    st.plot_outputs = reporting.plot_outputs
+    st.plot_dpi = reporting.plot_dpi
+    st.binary_panels = reporting.binary_panels
+    st.multiclass_panels = reporting.multiclass_panels
+    st.multilabel_panels = reporting.multilabel_panels
+    st.ltr_panels = reporting.ltr_panels
+    st.quantile_panels = reporting.quantile_panels
     # ``quantile_alphas`` arrives via fit_params (per-fit context), not via ReportingConfig - it depends on which alphas the model was trained on, not on display preference. Resolved at the _compute_split_metrics call site.
-    quantile_alphas = None
+    st.quantile_alphas = None
     if hasattr(model, "_mlframe_quantile_alphas"):
-        quantile_alphas = getattr(model, "_mlframe_quantile_alphas", None)
+        st.quantile_alphas = getattr(model, "_mlframe_quantile_alphas", None)
 
     if output is None:
         output = OutputConfig()
-    plot_file = output.plot_file
-    data_dir = output.data_dir
-    models_subdir = output.models_dir
+    st.plot_file = output.plot_file
+    st.data_dir = output.data_dir
+    st.models_subdir = output.models_dir
 
     model_name = naming.model_name
-    model_name_prefix = naming.model_name_prefix
+    st.model_name_prefix = naming.model_name_prefix
 
-    train_preds = predictions.train_preds
-    train_probs = predictions.train_probs
-    val_preds = predictions.val_preds
-    val_probs = predictions.val_probs
-    test_preds = predictions.test_preds
-    test_probs = predictions.test_probs
+    st.train_preds = predictions.train_preds
+    st.train_probs = predictions.train_probs
+    st.val_preds = predictions.val_preds
+    st.val_probs = predictions.val_probs
+    st.test_preds = predictions.test_preds
+    st.test_probs = predictions.test_probs
 
     _maybe_clean_ram()
 
-    columns: list[Any] = []
-    best_iter = None
+    st.columns = []
+    st.best_iter = None
 
-    _orig_train_df = train_df
-    _orig_val_df = val_df
-    _orig_test_df = test_df
+    st._orig_train_df = train_df
+    st._orig_val_df = st.val_df
+    st._orig_test_df = st.test_df
 
-    real_drop_columns = _validate_infinity_and_columns(
-        df=df,
+    st.real_drop_columns = _validate_infinity_and_columns(
+        df=st.df,
         train_df=train_df,
-        skip_infinity_checks=skip_infinity_checks,
-        drop_columns=drop_columns,
+        skip_infinity_checks=st.skip_infinity_checks,
+        drop_columns=st.drop_columns,
     )
 
-    if not custom_ice_metric:
-        custom_ice_metric = partial(compute_probabilistic_multiclass_error, nbins=nbins)
+    if not st.custom_ice_metric:
+        st.custom_ice_metric = partial(compute_probabilistic_multiclass_error, nbins=st.nbins)
 
-    model_obj, model_type_name, model_name, plot_file, model_file_name = _setup_model_info_and_paths(
+    st.model_obj, st.model_type_name, model_name, st.plot_file, st.model_file_name = _setup_model_info_and_paths(
         model=model,
         model_name=model_name,
-        model_name_prefix=model_name_prefix,
-        plot_file=plot_file,
-        data_dir=data_dir,
-        models_subdir=models_subdir,
+        model_name_prefix=st.model_name_prefix,
+        plot_file=st.plot_file,
+        data_dir=st.data_dir,
+        models_subdir=st.models_subdir,
     )
 
-    model, pre_pipeline = _train_and_evaluate_use_cache_exists_model(use_cache, model_file_name, trusted_root, model, pre_pipeline)
+    model, st.pre_pipeline = _train_and_evaluate_use_cache_exists_model(st.use_cache, st.model_file_name, trusted_root, model, st.pre_pipeline)
     # Continue to training - model remains as originally passed
 
-    if fit_params is None:
-        fit_params = {}
+    if st.fit_params is None:
+        st.fit_params = {}
     else:
-        fit_params = copy.copy(fit_params)
+        st.fit_params = copy.copy(st.fit_params)
 
-    train_target, val_target, test_target = _extract_targets_from_indices(target, train_idx, val_idx, test_idx, train_target, val_target, test_target)
+    st.train_target, st.val_target, st.test_target = _extract_targets_from_indices(st.target, st.train_idx, st.val_idx, st.test_idx, st.train_target, st.val_target, st.test_target)
 
-    train_df, val_df = _train_and_evaluate_df_none_train_df(df, train_df, train_idx, real_drop_columns, val_df, val_idx)
+    train_df, st.val_df = _train_and_evaluate_df_none_train_df(st.df, train_df, st.train_idx, st.real_drop_columns, st.val_df, st.val_idx)
 
     # Decategorise float-typed pandas categorical columns BEFORE the pre_pipeline runs (RFECV inner CB / XGB inside the pre_pipeline would otherwise reject them; see helper docstring).
-    train_df, val_df, test_df = _decategorise_float_cat_columns(
+    train_df, st.val_df, st.test_df = _decategorise_float_cat_columns(
         train_df,
-        val_df=val_df,
-        test_df=test_df,
+        val_df=st.val_df,
+        test_df=st.test_df,
     )
 
     # Thread group_ids into the pre_pipeline fit so RFECV(cv=GroupKFold())
     # and grouped MRMR receive the same sample-grouping signal the suite-level
     # callers already pass into trainer.fit. Only forwarded on train+val sample
     # range (no test). fix audit row FS-P1-1.
-    _pre_pipeline_groups = None
-    _pre_pipeline_groups = _train_and_evaluate_range_no_test_fix(group_ids, train_idx, train_df, _pre_pipeline_groups)
+    st._pre_pipeline_groups = None
+    st._pre_pipeline_groups = _train_and_evaluate_range_no_test_fix(st.group_ids, st.train_idx, train_df, st._pre_pipeline_groups)
 
     # Extract train-subset sample_weight BEFORE FS runs so weight-aware MRMR / RFECV (when stamped with the
     # _mlframe_use_sample_weights_in_fs_ marker by _build_pre_pipelines) can receive it via fit_params.
     # _setup_sample_weight runs AFTER FS at L730 and writes to the model's fit_params dict; the FS-side
     # forwarding happens through _apply_pre_pipeline_transforms -> _passthrough_cols_fit_transform.
-    _pre_pipeline_sample_weight = None
-    _pre_pipeline_sample_weight = _train_and_evaluate_forwarding_happens_through_apply(sample_weight, train_idx, _pre_pipeline_sample_weight)
+    st._pre_pipeline_sample_weight = None
+    st._pre_pipeline_sample_weight = _train_and_evaluate_forwarding_happens_through_apply(st.sample_weight, st.train_idx, st._pre_pipeline_sample_weight)
 
-    train_df, val_df = _apply_pre_pipeline_transforms(
+    train_df, st.val_df = _apply_pre_pipeline_transforms(
         model=model,
-        pre_pipeline=pre_pipeline,
+        pre_pipeline=st.pre_pipeline,
         train_df=train_df,
-        val_df=val_df,
-        train_target=train_target,
-        skip_pre_pipeline_transform=skip_pre_pipeline_transform,
-        skip_preprocessing=skip_preprocessing,
-        use_cache=use_cache,
-        model_file_name=model_file_name,
-        verbose=verbose,
-        selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
-        groups=_pre_pipeline_groups,
-        sample_weight=_pre_pipeline_sample_weight,
+        val_df=st.val_df,
+        train_target=st.train_target,
+        skip_pre_pipeline_transform=st.skip_pre_pipeline_transform,
+        skip_preprocessing=st.skip_preprocessing,
+        use_cache=st.use_cache,
+        model_file_name=st.model_file_name,
+        verbose=st.verbose,
+        selector_passthrough_cols=(list(st.fit_params.get("text_features") or []) + list(st.fit_params.get("embedding_features") or [])) or None,
+        groups=st._pre_pipeline_groups,
+        sample_weight=st._pre_pipeline_sample_weight,
         # This was the ONLY caller of ``_apply_pre_pipeline_transforms`` and never passed
         # ``target_name``, so it silently defaulted to None on every call. The process-wide
         # ``_PRE_PIPELINE_CACHE``'s content fingerprint alone then wrongly matched two DIFFERENT
@@ -434,7 +431,7 @@ def train_and_evaluate_model(
     # deterministic map -- train/val here and test below map identically, so fit
     # and predict stay consistent. No-op when every name is already clean.
     train_df = _sanitize_frame_columns(train_df)
-    val_df = _sanitize_frame_columns(val_df)
+    st.val_df = _sanitize_frame_columns(st.val_df)
 
     # Check if feature selection removed all features
     if train_df is not None and train_df.shape[1] == 0:
@@ -458,7 +455,7 @@ def train_and_evaluate_model(
                 oof_probs=None,
                 metrics={"train": {}, "val": {}, "test": {}, "best_iter": None},
                 columns=[],
-                pre_pipeline=pre_pipeline,
+                pre_pipeline=st.pre_pipeline,
                 train_od_idx=train_od_idx,
                 val_od_idx=val_od_idx,
                 trainset_features_stats=trainset_features_stats,
@@ -468,23 +465,23 @@ def train_and_evaluate_model(
             None,
         )
 
-    _orig_train_df, _orig_val_df = _train_and_evaluate_model_none_pre_pipeline(model, pre_pipeline, skip_pre_pipeline_transform, train_df, val_df, _orig_train_df, _orig_val_df)
+    st._orig_train_df, st._orig_val_df = _train_and_evaluate_model_none_pre_pipeline(model, st.pre_pipeline, st.skip_pre_pipeline_transform, train_df, st.val_df, st._orig_train_df, st._orig_val_df)
 
-    model, model_obj, val_target = _train_and_evaluate_val_df_none(val_df, val_target, control, model_category, sample_weight, val_idx, group_ids, callback_params, model_obj, model_type_name, verbose, fit_params, model, oof_random_seed)
+    model, st.model_obj, st.val_target = _train_and_evaluate_val_df_none(st.val_df, st.val_target, control, st.model_category, st.sample_weight, st.val_idx, st.group_ids, st.callback_params, st.model_obj, st.model_type_name, st.verbose, st.fit_params, model, oof_random_seed)
 
-    if model is not None and fit_params:
+    if model is not None and st.fit_params:
         # Two-phase coupling with FS (FS runs at the _apply_pre_pipeline_transforms call upstream):
         # FS may drop columns from ``train_df``, so the ``cat_features`` declared in ``fit_params``
         # can now reference columns that no longer exist. ``_filter_categorical_features`` reconciles
         # the cat list against the post-FS frame; reordering this block relative to the FS call
         # would silently feed CatBoost/LightGBM stale cat_features and trigger
         # "feature_name not found" at fit time.
-        _filter_categorical_features(fit_params, train_df, val_df=val_df, test_df=test_df)
+        _filter_categorical_features(st.fit_params, train_df, val_df=st.val_df, test_df=st.test_df)
 
     if model is not None:
-        if (not use_cache) or (not exists(model_file_name)):
-            _setup_sample_weight(sample_weight, train_idx, model_obj, fit_params)
-            if verbose:
+        if (not st.use_cache) or (not exists(st.model_file_name)):
+            _setup_sample_weight(st.sample_weight, st.train_idx, st.model_obj, st.fit_params)
+            if st.verbose:
                 logger.info("training dataset shape: %s", train_df.shape)
 
             if display_sample_size:
@@ -492,51 +489,51 @@ def train_and_evaluate_model(
                 ipython_display(_style_with_caption(train_df.head(display_sample_size), f"{model_name} features head"))
                 ipython_display(_style_with_caption(train_df.tail(display_sample_size), f"{model_name} features tail"))
 
-            _train_and_evaluate_train_df_none(train_df, model_name, show_feature_names)
+            _train_and_evaluate_train_df_none(train_df, model_name, st.show_feature_names)
 
-            train_df, fit_params = _prepare_train_df_for_fitting(train_df, model, model_type_name, fit_params)
+            train_df, st.fit_params = _prepare_train_df_for_fitting(train_df, model, st.model_type_name, st.fit_params)
 
             _maybe_clean_ram()
-            if verbose:
+            if st.verbose:
                 logger.info("Training the model...")
 
-            if isinstance(train_target, pl.Series):
-                train_target = train_target.to_numpy()
+            if isinstance(st.train_target, pl.Series):
+                st.train_target = st.train_target.to_numpy()
 
             # Detect classification vs regression from the model type
             # name suffix (covers all four GBM backends + sklearn linear
             # + MultiOutputClassifier + ClassifierChain). Used by
             # ``_validate_target_values`` to flag single-class collapse
             # before the per-backend C++ crash.
-            _is_clf = "Classifier" in model_type_name or model_type_name in ("ClassifierChain", "_ChainEnsemble")
-            _validate_target_values(train_target, "train", is_classification=_is_clf)
-            if val_target is not None:
-                _validate_target_values(val_target, "val", is_classification=_is_clf)
+            _is_clf = "Classifier" in st.model_type_name or st.model_type_name in ("ClassifierChain", "_ChainEnsemble")
+            _validate_target_values(st.train_target, "train", is_classification=_is_clf)
+            if st.val_target is not None:
+                _validate_target_values(st.val_target, "val", is_classification=_is_clf)
 
             # XGB cat-category alignment (no-op for non-XGB models): align the ``categories`` list across train / val / test so val/test rows whose category wasn't seen in train don't trip XGBoost's ``Found a category not in the training set`` rejection at predict time. Done AFTER pre_pipeline so the alignment uses the actual cat layout the model.fit + model.predict will see (pre_pipeline can rename / re-cast cat columns; aligning before that would be undone).
-            train_df, val_df, test_df = _align_xgb_cat_categories(
-                model_type_name,
+            train_df, st.val_df, st.test_df = _align_xgb_cat_categories(
+                st.model_type_name,
                 train_df,
-                val_df=val_df,
-                test_df=test_df,
+                val_df=st.val_df,
+                test_df=st.test_df,
             )
 
-            if not just_evaluate:
+            if not st.just_evaluate:
                 # Nest Lightning checkpoints + CSV logger output under the per-model directory (``{dirname(model_file_name)}/{basename_no_ext}/``) so different (target, model, schema_hash) combos don't collide in a shared project-root ``logs/`` folder. Only applies to TTR-wrapped Lightning regressors; tree models ignore this attribute. Set on the inner regressor (under TTR's ``.regressor``) when present, falling back to the model itself for direct Lightning regressors.
-                _train_and_evaluate_nest_lightning_checkpoints_csv(model_file_name, model)
-                model, best_iter = _train_model_with_fallback(
+                _train_and_evaluate_nest_lightning_checkpoints_csv(st.model_file_name, model)
+                model, st.best_iter = _train_model_with_fallback(
                     model=model,
-                    model_obj=model_obj,
-                    model_type_name=model_type_name,
+                    model_obj=st.model_obj,
+                    model_type_name=st.model_type_name,
                     train_df=train_df,
-                    train_target=train_target,
-                    fit_params=fit_params,
-                    verbose=bool(verbose),
+                    train_target=st.train_target,
+                    fit_params=st.fit_params,
+                    verbose=bool(st.verbose),
                 )
 
                 # Handle failed model training (e.g., dtype incompatibility)
                 if model is None:
-                    logger.warning("Model %s training failed - skipping evaluation", model_type_name)
+                    logger.warning("Model %s training failed - skipping evaluation", st.model_type_name)
                     return (
                         SimpleNamespace(
                             model=None,
@@ -553,7 +550,7 @@ def train_and_evaluate_model(
                             oof_probs=None,
                             metrics={"train": {}, "val": {}, "test": {}, "best_iter": None},
                             columns=[],
-                            pre_pipeline=pre_pipeline,
+                            pre_pipeline=st.pre_pipeline,
                             train_od_idx=train_od_idx,
                             val_od_idx=val_od_idx,
                             trainset_features_stats=trainset_features_stats,
@@ -563,21 +560,91 @@ def train_and_evaluate_model(
                         None,
                     )
 
-            model_name = _update_model_name_after_training(model_name, len(train_df), train_details, best_iter)
+            model_name = _update_model_name_after_training(model_name, len(train_df), st.train_details, st.best_iter)
 
             # K-fold OOF predictions for level-1 stacking. The in-sample ``train_preds`` (computed by ``_compute_split_metrics``
             # below for the "train" split) leak: every row was seen by the model during fit, so a meta-learner trained on those
             # predictions learns the residual structure of the in-sample fit, not the generalisation behaviour. OOF preds
             # produced by holding each row out via K-fold CV are the canonical replacement. Attached to the model object so
             # ``score_ensemble`` can pick them up at level-1 aggregation time without changing the public return signature.
-            _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, model_type_name, train_target, model, train_df, oof_random_seed, group_ids, train_idx, oof_has_time, _pre_pipeline_sample_weight, timestamps, fit_params)
+            _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, st.just_evaluate, st.model_type_name, st.train_target, model, train_df, oof_random_seed, st.group_ids, st.train_idx, oof_has_time, st._pre_pipeline_sample_weight, st.timestamps, st.fit_params)
 
-    metrics_out: dict[str, Any] = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
+    st.metrics_out = {"train": {}, "val": {}, "test": {}, "best_iter": st.best_iter}
 
-    _render_mark = render_queued_mark()
-    if compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics:
-        t0_metrics = timer()
-        if verbose:
+    st._render_mark = render_queued_mark()
+    _train_and_evaluate_m_step2_st_compute_trainset(st, reporting, model, model_name, data, train_df, confidence)
+
+    if (st.compute_trainset_metrics or st.compute_valset_metrics or st.compute_testset_metrics) and st.verbose:
+        logger.info("  Metrics computation done -- %.1fs", timer() - st.t0_metrics)
+        log_render_queued(st._render_mark)
+
+    _maybe_clean_ram()
+
+    st._calib_probs_out, st._calib_target_out, st._calib_preds_out, st._oof_preds_out, st._oof_probs_out, st._oof_target_out = compute_calib_and_oof_outputs(
+        model=model,
+        calib_df=st.calib_df,
+        calib_target=st.calib_target,
+        real_drop_columns=st.real_drop_columns,
+        pre_pipeline=st.pre_pipeline,
+        skip_pre_pipeline_transform=st.skip_pre_pipeline_transform,
+        skip_preprocessing=st.skip_preprocessing,
+        fit_params=st.fit_params,
+        model_type_name=st.model_type_name,
+        model_name=model_name,
+        row_wise_extensions_config=control.row_wise_extensions_config,
+    )
+
+    return (
+        SimpleNamespace(
+            model=model,
+            test_preds=st.test_preds,
+            test_probs=st.test_probs,
+            test_target=st.test_target,
+            val_preds=st.val_preds,
+            val_probs=st.val_probs,
+            val_target=st.val_target,
+            train_preds=st.train_preds,
+            train_probs=st.train_probs,
+            train_target=st.train_target,
+            oof_preds=st._oof_preds_out,
+            oof_probs=st._oof_probs_out,
+            oof_target=st._oof_target_out,
+            calib_probs=st._calib_probs_out,
+            calib_target=st._calib_target_out,
+            calib_preds=st._calib_preds_out,
+            metrics=st.metrics_out,
+            columns=st.columns,
+            pre_pipeline=st.pre_pipeline,
+            train_od_idx=train_od_idx,
+            val_od_idx=val_od_idx,
+            trainset_features_stats=trainset_features_stats,
+            plot_file=st.plot_file or "",  # this model's chart prefix; charts rendered for it after the fit (composite y-scale) reuse it
+            # The chart title and split date details of THIS model, so charts rendered for it later (composite y-scale)
+            # carry the same header as its own charts instead of a hand-built shorter one.
+            chart_model_name=model_name,
+            chart_split_details={"val": st.val_details or "", "test": st.test_details or ""},
+        ),
+        st._orig_train_df,
+        st._orig_val_df,
+        st._orig_test_df,
+    )
+
+
+def _train_and_evaluate_m_step1_live_trainperf_report(st, control):
+    """Step 1 of train_and_evaluate_model: lines starting at ``if st.model_category == "cb" or st.callback_params:``."""
+    if st.model_category == "cb" or st.callback_params:
+        _live_plot = st._mono_beh.get("live_trainperf_plot", True) if st._mono_beh is not None else getattr(control, "live_trainperf_plot", True)
+        _live_report = st._mono_beh.get("live_trainperf_report", False) if st._mono_beh is not None else getattr(control, "live_trainperf_report", False)
+        st.callback_params = dict(st.callback_params or {})
+        st.callback_params.setdefault("progress_widget", bool(_live_plot))
+        st.callback_params.setdefault("report_progress_to_log", bool(_live_report))
+
+
+def _train_and_evaluate_m_step2_st_compute_trainset(st, reporting, model, model_name, data, train_df, confidence):
+    """Step 2 of train_and_evaluate_model: lines starting at ``if st.compute_trainset_metrics or st.compute_valset_metrics or st.comp``."""
+    if st.compute_trainset_metrics or st.compute_valset_metrics or st.compute_testset_metrics:
+        st.t0_metrics = timer()
+        if st.verbose:
             logger.info("Computing model's performance...")
 
         # Compute train-target envelope stats ONCE per (model, target) and
@@ -589,7 +656,7 @@ def train_and_evaluate_model(
         # for composite-target estimators (CompositeTargetEstimator) the
         # inner T-scale bound is computed by the wrapper itself, the
         # outer y-scale report sees y_train and gets the right bound.
-        _y_train_envelope_stats = _train_envelope_stats(train_target, reporting.mase_seasonality)
+        _y_train_envelope_stats = _train_envelope_stats(st.train_target, reporting.mase_seasonality)
 
         common_metrics_params = dict(
             # ReportingConfig is forwarded so report_regression_model_perf
@@ -599,33 +666,33 @@ def train_and_evaluate_model(
             # (the try/except just fell back to defaults via NameError).
             reporting_config=reporting,
             model=model,
-            model_type_name=model_type_name,
+            model_type_name=st.model_type_name,
             model_name=model_name,
-            group_ids=group_ids,
-            target_label_encoder=target_label_encoder,
-            figsize=figsize,
-            nbins=nbins,
-            print_report=print_report,
-            plot_file=plot_file,
-            show_perf_chart=show_perf_chart,
-            show_fi=show_fi,
-            fi_kwargs=fi_kwargs,
-            subgroups=subgroups,
-            custom_ice_metric=custom_ice_metric,
-            custom_rice_metric=custom_rice_metric,
-            n_features=n_features,
-            show_prob_histogram=show_prob_histogram,
-            prob_histogram_yscale=prob_histogram_yscale,
-            show_inline_population_labels=show_inline_population_labels,
-            title_metrics_tokens=title_metrics_tokens,
-            plot_outputs=plot_outputs,
-            plot_dpi=plot_dpi,
-            binary_panels=binary_panels,
-            multiclass_panels=multiclass_panels,
-            multilabel_panels=multilabel_panels,
-            ltr_panels=ltr_panels,
-            quantile_panels=quantile_panels,
-            quantile_alphas=quantile_alphas,
+            group_ids=st.group_ids,
+            target_label_encoder=st.target_label_encoder,
+            figsize=st.figsize,
+            nbins=st.nbins,
+            print_report=st.print_report,
+            plot_file=st.plot_file,
+            show_perf_chart=st.show_perf_chart,
+            show_fi=st.show_fi,
+            fi_kwargs=st.fi_kwargs,
+            subgroups=st.subgroups,
+            custom_ice_metric=st.custom_ice_metric,
+            custom_rice_metric=st.custom_rice_metric,
+            n_features=st.n_features,
+            show_prob_histogram=st.show_prob_histogram,
+            prob_histogram_yscale=st.prob_histogram_yscale,
+            show_inline_population_labels=st.show_inline_population_labels,
+            title_metrics_tokens=st.title_metrics_tokens,
+            plot_outputs=st.plot_outputs,
+            plot_dpi=st.plot_dpi,
+            binary_panels=st.binary_panels,
+            multiclass_panels=st.multiclass_panels,
+            multilabel_panels=st.multilabel_panels,
+            ltr_panels=st.ltr_panels,
+            quantile_panels=st.quantile_panels,
+            quantile_alphas=st.quantile_alphas,
             # Authoritative target_type — gates auto_dispatch's
             # render_multi_target_panels so regression+group_ids doesn't
             # incorrectly render LTR/multilabel/multiclass panels.
@@ -637,152 +704,97 @@ def train_and_evaluate_model(
             y_train_envelope_stats=_y_train_envelope_stats,
             # Full-length row timestamps; _compute_split_metrics slices per
             # split idx to gate the residual-vs-time / metric-over-time panels.
-            split_timestamps=timestamps,
+            split_timestamps=st.timestamps,
         )
 
-        has_val = (val_idx is not None and len(val_idx) > 0) or val_df is not None
-        has_test = (test_idx is not None and len(test_idx) > 0) or test_df is not None
+        has_val = (st.val_idx is not None and len(st.val_idx) > 0) or st.val_df is not None
+        has_test = (st.test_idx is not None and len(st.test_idx) > 0) or st.test_df is not None
 
         splits_config = [
             (
                 "train",
                 train_df,
-                train_target,
-                train_idx,
-                train_preds,
-                train_probs,
-                train_details,
-                compute_trainset_metrics and (train_idx is not None or train_df is not None),
+                st.train_target,
+                st.train_idx,
+                st.train_preds,
+                st.train_probs,
+                st.train_details,
+                st.compute_trainset_metrics and (st.train_idx is not None or train_df is not None),
             ),
             (
                 "val",
-                val_df,
-                val_target,
-                val_idx,
-                val_preds,
-                val_probs,
-                val_details,
-                compute_valset_metrics and ((val_idx is not None and len(val_idx) > 0) or val_df is not None),
+                st.val_df,
+                st.val_target,
+                st.val_idx,
+                st.val_preds,
+                st.val_probs,
+                st.val_details,
+                st.compute_valset_metrics and ((st.val_idx is not None and len(st.val_idx) > 0) or st.val_df is not None),
             ),
         ]
 
         # Train runs sequentially (may feed into val/test setup); val+test parallelize later.
-        columns, train_preds, train_probs = _train_and_evaluate_train_runs_sequentially_may(splits_config, metrics_out, has_val, has_test, common_metrics_params, columns, train_preds, train_probs)
+        st.columns, st.train_preds, st.train_probs = _train_and_evaluate_train_runs_sequentially_may(splits_config, st.metrics_out, has_val, has_test, common_metrics_params, st.columns, st.train_preds, st.train_probs)
 
         _val_cfg = next((c for c in splits_config if c[0] == "val" and c[-1]), None)
-        _run_test = compute_testset_metrics and ((test_idx is not None and len(test_idx) > 0) or test_df is not None)
+        _run_test = st.compute_testset_metrics and ((st.test_idx is not None and len(st.test_idx) > 0) or st.test_df is not None)
 
-        _train_and_evaluate_run_test_df_none(_run_test, df, test_df, train_df)
+        _train_and_evaluate_run_test_df_none(_run_test, st.df, st.test_df, train_df)
 
         if _run_test:
-            test_df, test_target, columns = _prepare_test_split(
-                df=df,
-                test_df=test_df,
-                test_idx=test_idx,
-                test_target=test_target,
-                target=target,
-                real_drop_columns=real_drop_columns,
+            st.test_df, st.test_target, st.columns = _prepare_test_split(
+                df=st.df,
+                test_df=st.test_df,
+                test_idx=st.test_idx,
+                test_target=st.test_target,
+                target=st.target,
+                real_drop_columns=st.real_drop_columns,
                 model=model,
-                pre_pipeline=pre_pipeline,
-                skip_pre_pipeline_transform=skip_pre_pipeline_transform,
-                skip_preprocessing=skip_preprocessing,
-                selector_passthrough_cols=(list(fit_params.get("text_features") or []) + list(fit_params.get("embedding_features") or [])) or None,
+                pre_pipeline=st.pre_pipeline,
+                skip_pre_pipeline_transform=st.skip_pre_pipeline_transform,
+                skip_preprocessing=st.skip_preprocessing,
+                selector_passthrough_cols=(list(st.fit_params.get("text_features") or []) + list(st.fit_params.get("embedding_features") or [])) or None,
             )
             # Same engineered-name sanitization as the train/val frames above:
             # the test frame is transformed here by the same fitted pipeline, so
             # the pure map reproduces the identical label rename and predict
             # matches the model's fitted feature names.
-            test_df = _sanitize_frame_columns(test_df)
-            if test_df is not None:
-                _orig_test_df = test_df
+            st.test_df = _sanitize_frame_columns(st.test_df)
+            if st.test_df is not None:
+                st._orig_test_df = st.test_df
 
         # Parallelize val and test metric computation -- numba kernels release GIL,
         # Agg matplotlib is thread-safe. Pure-Python parts still block, but the
         # heavy cumtime (binning, AUC, calibration plot save) runs concurrently.
         # Concurrent ThreadPoolExecutor was tried but matplotlib figure creation from concurrent threads races on pyplot's shared state even with Agg backend, producing "Argument must be an image or collection" errors in calibration plots. Sequential path is correct.
         with phase("compute_split_metrics", split="val"):
-            val_res = _run_val_split_metrics(_val_cfg, metrics_out, has_test, common_metrics_params)
+            val_res = _run_val_split_metrics(_val_cfg, st.metrics_out, has_test, common_metrics_params)
         with phase("compute_split_metrics", split="test"):
             test_res = _run_test_split_metrics(
-                _run_test, metrics_out, test_df, test_target, test_idx,
-                test_preds, test_probs, test_details, common_metrics_params,
+                _run_test, st.metrics_out, st.test_df, st.test_target, st.test_idx,
+                st.test_preds, st.test_probs, st.test_details, common_metrics_params,
             )
 
         if val_res is not None:
-            val_preds, val_probs, columns = val_res
+            st.val_preds, st.val_probs, st.columns = val_res
         if test_res is not None:
-            test_preds, test_probs, columns = test_res
+            st.test_preds, st.test_probs, st.columns = test_res
 
         # Same test_idx-slicing convention as `_pre_pipeline_sample_weight` above (train_idx-sliced),
         # so the confidence-analysis diagnostic reflects the same weighted objective the real model
         # was trained on instead of silently reverting to unweighted.
         _test_sample_weight = None
-        _test_sample_weight = _train_and_evaluate_was_trained_instead_silently(sample_weight, test_idx, _test_sample_weight)
+        _test_sample_weight = _train_and_evaluate_was_trained_instead_silently(st.sample_weight, st.test_idx, _test_sample_weight)
 
         maybe_run_confidence_analysis(
             run_test=_run_test,
             confidence=confidence,
-            test_df=test_df,
-            test_target=test_target,
-            test_probs=test_probs,
-            fit_params=fit_params,
-            model_type_name=model_type_name,
-            figsize=figsize,
-            verbose=verbose,
+            test_df=st.test_df,
+            test_target=st.test_target,
+            test_probs=st.test_probs,
+            fit_params=st.fit_params,
+            model_type_name=st.model_type_name,
+            figsize=st.figsize,
+            verbose=st.verbose,
             sample_weight=_test_sample_weight,
         )
-
-    if (compute_trainset_metrics or compute_valset_metrics or compute_testset_metrics) and verbose:
-        logger.info("  Metrics computation done -- %.1fs", timer() - t0_metrics)
-        log_render_queued(_render_mark)
-
-    _maybe_clean_ram()
-
-    _calib_probs_out, _calib_target_out, _calib_preds_out, _oof_preds_out, _oof_probs_out, _oof_target_out = compute_calib_and_oof_outputs(
-        model=model,
-        calib_df=calib_df,
-        calib_target=calib_target,
-        real_drop_columns=real_drop_columns,
-        pre_pipeline=pre_pipeline,
-        skip_pre_pipeline_transform=skip_pre_pipeline_transform,
-        skip_preprocessing=skip_preprocessing,
-        fit_params=fit_params,
-        model_type_name=model_type_name,
-        model_name=model_name,
-        row_wise_extensions_config=control.row_wise_extensions_config,
-    )
-
-    return (
-        SimpleNamespace(
-            model=model,
-            test_preds=test_preds,
-            test_probs=test_probs,
-            test_target=test_target,
-            val_preds=val_preds,
-            val_probs=val_probs,
-            val_target=val_target,
-            train_preds=train_preds,
-            train_probs=train_probs,
-            train_target=train_target,
-            oof_preds=_oof_preds_out,
-            oof_probs=_oof_probs_out,
-            oof_target=_oof_target_out,
-            calib_probs=_calib_probs_out,
-            calib_target=_calib_target_out,
-            calib_preds=_calib_preds_out,
-            metrics=metrics_out,
-            columns=columns,
-            pre_pipeline=pre_pipeline,
-            train_od_idx=train_od_idx,
-            val_od_idx=val_od_idx,
-            trainset_features_stats=trainset_features_stats,
-            plot_file=plot_file or "",  # this model's chart prefix; charts rendered for it after the fit (composite y-scale) reuse it
-            # The chart title and split date details of THIS model, so charts rendered for it later (composite y-scale)
-            # carry the same header as its own charts instead of a hand-built shorter one.
-            chart_model_name=model_name,
-            chart_split_details={"val": val_details or "", "test": test_details or ""},
-        ),
-        _orig_train_df,
-        _orig_val_df,
-        _orig_test_df,
-    )

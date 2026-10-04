@@ -19,10 +19,11 @@ from timeit import default_timer as timer
 
 import pandas as pd
 import polars as pl
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 
 from ..configs import PreprocessingExtensionsConfig
 from mlframe.utils.log_throttle import log_throttle
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger("mlframe.training.pipeline")
 
@@ -331,6 +332,7 @@ def apply_preprocessing_extensions(
     """
     # Lazy import of parent-resident helpers: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     from . import PreprocessingExtensionsBundle, _build_extension_steps
     # Lazy cross-package import: ``mlframe.training.core`` imports this function (see ``_phase_helpers_fit_pipeline.py``), so a top-level import here would risk
     # a cycle at module-load time; by call time both packages are already fully loaded.
@@ -342,9 +344,9 @@ def apply_preprocessing_extensions(
         return train_df, val_df, test_df, None
     # Second fastpath: the row-wise SUMMARY alone needs no sklearn estimator, so on polars input it can be computed natively and the whole pandas bridge
     # skipped. Measured 5.6x faster at 400k x 85 and 6.0x at 2M rows, with every order statistic bit-identical to the numpy reference.
-    _t_fast, _v_fast, _s_fast, _handled = _row_wise_summary_polars_fastpath(train_df, val_df, test_df, config, verbose)
-    if _handled:
-        return _t_fast, _v_fast, _s_fast, None
+    st._t_fast, st._v_fast, st._s_fast, st._handled = _row_wise_summary_polars_fastpath(train_df, val_df, test_df, config, verbose)
+    if st._handled:
+        return st._t_fast, st._v_fast, st._s_fast, None
     # Polars input -> convert to pandas (extensions use sklearn; mixing with the polars-native fastpath would defeat the point if user opted in). Bare
     # ``df.to_pandas()`` collapses pl.Enum / pl.Categorical columns to object-dtype and copies through pyarrow's slow path. Use Arrow split-blocks bridge (~32x
     # throughput vs naive copy) and preserve Arrow-backed dtypes (pyarrow CategoricalDtype etc.) so downstream sklearn estimators don't see "object" where
@@ -352,6 +354,199 @@ def apply_preprocessing_extensions(
     # object). It fires only when the installed polars version predates ``split_blocks=True`` (polars < 0.20.4). Log once at WARN so operators on stale polars
     # know they are on the slow bridge; ``logger`` is the module logger so the message goes through the project's standard logging pipeline.
     _fallback_warned = [False]
+    _to_pandas = _apply_preprocessing__step1_know_they_slow(_fallback_warned)
+
+    st.t0_to_pandas = timer()
+    # Narrow to the columns some stage can actually consume BEFORE paying the bridge (see
+    # ``_extension_relevant_polars_cols``): converting a Categorical/Enum column materialises one Python
+    # str per cell and every such column is dropped by ``_filter_to_numeric`` a few steps later anyway.
+    # Pinned from TRAIN's schema and reused for val/test so all three keep an identical column set --
+    # a per-split recompute could diverge exactly the way ``_filter_to_numeric``'s ``keep_cols`` guards against.
+    st._keep_polars_cols = _extension_relevant_polars_cols(train_df, config)
+    test_df, train_df, val_df = _apply_preprocessin_per_split_recompute_could(st._keep_polars_cols, train_df, val_df, test_df, verbose)
+    st.train = _to_pandas(train_df)
+    st.val = _to_pandas(val_df)
+    st.test = _to_pandas(test_df)
+    if verbose:
+        logger.info("    apply_preprocessing_extensions.to_pandas done in %s", _elapsed_str(st.t0_to_pandas))
+    if st.train is None:
+        return train_df, val_df, test_df, None
+
+    # PySR symbolic regression (step 0). Runs BEFORE TF-IDF and the sklearn
+    # pipeline so that discovered equation features benefit from downstream
+    # scaling, polynomial expansion, etc.
+    st._pysr_transformer_holder = []
+    _apply_preprocessin_scaling_polynomial_expansion_etc(config, st.train, st.val, st.test, y_train, verbose, out_pysr_equations, st._pysr_transformer_holder)
+    st._pysr_transformer = st._pysr_transformer_holder[0] if st._pysr_transformer_holder else None
+
+    # TF-IDF preflight: vectorize declared text columns and replace them with
+    # numeric features before downstream sklearn steps (which expect numeric).
+    #
+    # Column-parity invariant: train, val, and
+    # test MUST emerge from TF-IDF with the same column set. Pre-fix the
+    # code only TF-IDF-expanded train and left val/test untouched when
+    # the text column happened to be missing from val/test (sparse splits,
+    # user typo in ``tfidf_columns`` matching only train's schema). Then
+    # the downstream sklearn Pipeline, fit on train with e.g. 5050
+    # columns, tried ``pipe.transform(val_with_50_cols)`` and raised a
+    # shape-mismatch error that traced back to the scaler -- not TF-IDF.
+    # Now: if a tfidf_column is missing from val/test, we skip it on
+    # train too (WARN with the consequence) so all three splits stay
+    # aligned. If it's a user typo, the typo WARN fires instead.
+    st.tfidf_pipes = {}
+    st.test, st.train, st.val = _apply_preprocessin_aligned_user_typo_typo(config, st.train, st.val, st.test, st.tfidf_pipes, verbose)
+
+    # Numeric-only gate for the sklearn-bridge pipeline. The downstream extensions (scaler / kbins / polynomial / nonlinear / dim_reducer and the median-imputer in front) all reject object/string dtypes with errors that range from clear (``Cannot use median strategy with non-numeric data``) to opaque (``ValueError: The truth value of an array with more than one element is ambiguous`` from inside PolynomialFeatures or RobustScaler). The contract is "if you turn on the sklearn-bridge, your frame should be numeric". When non-numeric columns survived (unencoded cat_mid, embedding object dtypes that the upstream cat-encoder skipped, etc.), drop them here with a single-line WARN. Surfaced by 1M-harness seed=11.
+    #
+    # Note: the cat-encoder pre-pipeline normally runs BEFORE this function, so under standard configs this drop is a no-op. The gate exists to keep production callers + the 1M profiler harness robust against axis combinations where cat_encoding canonicalised to a path that bypassed the encoder.
+
+    st.t0_numeric_filter = timer()
+    # The non-numeric columns (categorical / text the models consume natively, e.g. CatBoost cat_features) are set ASIDE
+    # here, not dropped: the numeric extension steps run on the rest and the aside columns are re-attached to every output
+    # (``_with_passthrough``), and predict does the same (``_mlframe_passthrough_columns_`` on the fitted pipe). Dropping
+    # them cost every suite whose default-on row-wise steps were active its categorical features, silently for CatBoost.
+    st._pre_filter = (st.train, st.val, st.test)
+    # Decide the kept-numeric column set ONCE on train, then pin val/test to the SAME list so a column that is numeric on train but object on val (or vice versa) can't silently diverge the per-split schema and break the downstream sklearn transform.
+    st.train, st._dropped_train = _filter_to_numeric(st.train)
+    st._kept_train = list(st.train.columns) if isinstance(st.train, pd.DataFrame) else None
+    st.val, st._ = _filter_to_numeric(st.val, keep_cols=st._kept_train)
+    st.test, st._ = _filter_to_numeric(st.test, keep_cols=st._kept_train)
+    # Only categorical-like columns pass through (what the models consume natively as cat / text features); a timedelta,
+    # datetime or other non-numeric leftover stays dropped, as no model in the suite takes it raw.
+    st._pre_train = st._pre_filter[0]
+    st._passthrough = [
+        c for c in (st._dropped_train or [])
+        if isinstance(st._pre_train, pd.DataFrame) and c in st._pre_train.columns
+        and (pd.api.types.is_object_dtype(st._pre_train[c]) or pd.api.types.is_string_dtype(st._pre_train[c]) or isinstance(st._pre_train[c].dtype, pd.CategoricalDtype))
+    ]
+    if st._passthrough and verbose:
+        logger.info(
+            "apply_preprocessing_extensions: %d non-numeric column(s) bypass the numeric extension steps and pass through "
+            "unchanged to the model: %s.", len(st._passthrough), st._passthrough[:8],
+        )
+
+    # All-null column filter. SimpleImputer(strategy="median") silently
+    # drops columns with no observed values
+    # (UserWarning: ``Skipping features without any observed values: ...``)
+    # which silently shrinks n_features BELOW the dim_reducer's clamped
+    # n_components. Surfaced by 1M-harness seed=99: PCA n_components
+    # clamped from 10 -> 7 based on pre-imputer n_features=8, but
+    # imputer then dropped x4 + x5 (both all-null in the synthetic
+    # frame's missingness pattern), leaving 6 features, and PCA's
+    # internal check raised n_components=7 vs n_features=6. Hoist the
+    # all-null drop into our filter so the dim_n_components clamp can
+    # see the post-imputation count up-front.
+    st.test, st.train, st.val = _apply_preprocessin_see_post_imputation_count(st.train, st.val, st.test)
+    if verbose:
+        logger.info("    apply_preprocessing_extensions.numeric_filter_and_null_drop done in %s", _elapsed_str(st.t0_numeric_filter))
+
+    # Row-wise summary stats / top-k extreme columns (step 1.5) live in a sibling module; see apply_row_wise_steps.
+    st.train, st.val, st.test, st._pre_row_wise_ncols = apply_row_wise_steps(st.train, st.val, st.test, config, verbose, out_row_wise_replay)
+    st._row_wise_active = st.train.shape[1] != st._pre_row_wise_ncols
+
+    st.n_features = st.train.shape[1]
+    # Dim-reducer n_components clamp. PCA / TruncatedSVD / KernelPCA / NMF
+    # / FastICA / LDA etc. raise
+    # ``ValueError: n_components=K must be between 0 and min(n_samples,
+    # n_features)`` when the requested K exceeds the available feature
+    # count. The numeric-only filter above can reduce n_features below
+    # the user's configured dim_n_components (surfaced by 1M-harness
+    # seed=99: PCA n_components=10 on a 9-feature frame after cat_low /
+    # cat_mid were filtered). Clamp to min(n_features, n_samples,
+    # dim_n_components) and emit a WARN; the user explicitly chose
+    # dimensionality reduction, so silently dropping the step would be
+    # worse than running it at a lower K.
+    config = _apply_preprocessin_worse_than_running_lower(config, st.train, st.n_features)
+    # iter-69 byte-aware polynomial auto-tune. ``memory_safety_max_features``
+    # gates by column count alone; on wide post-onehot frames at degree=2
+    # the column count stays under the cap but the dense
+    # (n_samples, projected) float64 array exceeds available RAM
+    # (iter-69 surfaced n=81000, projected=1711 -> 1.03 GiB allocation
+    # MemoryError). When ``memory_safety_max_bytes`` is set, compute the
+    # exact byte-cost via the same shape formula sklearn would use and
+    # auto-tune the polynomial step downward (flip interaction_only ->
+    # decrement degree -> skip) until the projected array fits.
+    st._byte_cap = getattr(config, "memory_safety_max_bytes", None)
+    config = _apply_preprocessin_decrement_degree_skip_until(config, st._byte_cap, st.train, st.n_features)
+
+    # Thread the suite seed into RBFSampler / Nystroem / dim-reducer so their random projections are reproducible across reruns (was hardcoded 42).
+    # random_seed=0 is a legitimate seed, not a sentinel -- an ``or`` here would silently rewrite it to 42.
+    st._ext_seed_raw = getattr(config, "random_seed", None)
+    st._ext_random_state = int(st._ext_seed_raw) if st._ext_seed_raw is not None else 42
+    steps = _build_extension_steps(config, n_features=st.n_features, random_state=st._ext_random_state)
+    if not steps:
+        if st._pysr_transformer is not None or st.tfidf_pipes:
+            # PySR / TF-IDF applied but no sklearn pipeline. Bundle so predict-time
+            # replay sees the PySR transformer; legacy raw-dict shape is used only
+            # when PySR is absent so untouched persisted artefacts keep loading.
+            st.train, st.val, st.test = _with_passthrough((st.train, st.val, st.test), st._pre_filter, st._passthrough)
+            if st._pysr_transformer is not None:
+                return st.train, st.val, st.test, PreprocessingExtensionsBundle(
+                    pysr=st._pysr_transformer, tfidf=st.tfidf_pipes or None, sklearn_pipe=None,
+                )
+            return st.train, st.val, st.test, st.tfidf_pipes
+        if st._row_wise_active:
+            # Row-wise summary-stats / extreme-columns steps added columns but no PySR / TF-IDF /
+            # sklearn-bridge stage ran. Return the augmented ``train``/``val``/``test`` (NOT the
+            # original ``train_df``/``val_df``/``test_df``) so the new columns survive -- the prior
+            # early-return here unconditionally discarded them since it only checked for PySR/TF-IDF.
+            st.train, st.val, st.test = _with_passthrough((st.train, st.val, st.test), st._pre_filter, st._passthrough)
+            return st.train, st.val, st.test, None
+        return train_df, val_df, test_df, None
+
+    from sklearn.pipeline import Pipeline as SkPipeline
+    pipe = SkPipeline(steps=steps)
+    st.t0 = timer()
+    # LDA requires `y` during fit; forward y_train when provided.
+    if y_train is not None:
+        st.train_arr = pipe.fit_transform(st.train, y_train)
+    else:
+        st.train_arr = pipe.fit_transform(st.train)
+    st.val_arr = pipe.transform(st.val) if st.val is not None and len(st.val) > 0 else None
+    st.test_arr = pipe.transform(st.test) if st.test is not None and len(st.test) > 0 else None
+    if verbose:
+        logger.info("    apply_preprocessing_extensions.sklearn_bridge_pipeline done in %s", _elapsed_str(st.t0))
+
+    # Preserve named-transformer output column names so downstream
+    # diagnostics and feature-importance reports stay interpretable. Pre-fix
+    # we relabelled every column to ``ext_<i>`` which collapsed all
+    # provenance ("which scaler? which equation? which TF-IDF token?").
+    # sklearn>=1.3 exposes ``get_feature_names_out``; fall back to
+    # ``ext_<step>_<i>`` derived from the last step's name otherwise.
+    _build_output_column_names = _apply_preprocessing__step2_ext_step_derived(pipe, steps)
+
+    _to_df = _apply_preprocessing__step3_stage_recoverable_ext(_build_output_column_names, pipe, config)
+
+    st.train_out = _to_df(st.train_arr, st.train)
+    st.val_out = _to_df(st.val_arr, st.val)
+    st.test_out = _to_df(st.test_arr, st.test)
+    pipe._mlframe_passthrough_columns_ = st._passthrough  # predict re-attaches the same columns after the transform
+    st.train_out, st.val_out, st.test_out = _with_passthrough((st.train_out, st.val_out, st.test_out), st._pre_filter, st._passthrough)
+    # Two-level verbosity: caller-side ``verbose`` (function-level kill switch)
+    # AND ``config.verbose_logging`` (per-config opt-out for this stage when
+    # batching many folds whose output would drown the log). WARN paths above
+    # (skipped_typo / split_mismatch) are intentionally NOT gated -- those are
+    # configuration errors the user must see.
+    if verbose and config.verbose_logging:
+        elapsed = timer() - st.t0
+        logger.info(
+            "Applied preprocessing extensions (%d stages) -- train %s, %.2fs",
+            len(steps), st.train_out.shape, elapsed,
+        )
+    # Bundle PySR transformer / TFIDF dict alongside the sklearn pipe so
+    # predict-time replay can re-emit symbolic columns BEFORE the TF-IDF /
+    # sklearn replay. Without the bundle, the persisted artefact dropped the
+    # PySR step and predict frames silently lacked the pysr_* columns the
+    # model was trained on.
+    if st._pysr_transformer is not None or st.tfidf_pipes:
+        return st.train_out, st.val_out, st.test_out, PreprocessingExtensionsBundle(
+            pysr=st._pysr_transformer, tfidf=st.tfidf_pipes or None, sklearn_pipe=pipe,
+        )
+    return st.train_out, st.val_out, st.test_out, pipe
+
+
+def _apply_preprocessing__step1_know_they_slow(_fallback_warned):
+    """Step 1 of apply_preprocessing_extensions: lines starting at ``def _to_pandas(df):``."""
     def _to_pandas(df):
         """Convert a polars frame to pandas via the fast Arrow split-blocks bridge (preferring ``split_blocks=True`` for the ~32x throughput win), falling back to the slow ``df.to_pandas()`` consolidation copy (with a one-time WARN) only on polars < 0.20.4."""
         if df is None:
@@ -376,164 +571,11 @@ def apply_preprocessing_extensions(
                     _fallback_warned[0] = True
                 return df.to_pandas()
         return df
+    return _to_pandas
 
-    t0_to_pandas = timer()
-    # Narrow to the columns some stage can actually consume BEFORE paying the bridge (see
-    # ``_extension_relevant_polars_cols``): converting a Categorical/Enum column materialises one Python
-    # str per cell and every such column is dropped by ``_filter_to_numeric`` a few steps later anyway.
-    # Pinned from TRAIN's schema and reused for val/test so all three keep an identical column set --
-    # a per-split recompute could diverge exactly the way ``_filter_to_numeric``'s ``keep_cols`` guards against.
-    _keep_polars_cols = _extension_relevant_polars_cols(train_df, config)
-    test_df, train_df, val_df = _apply_preprocessin_per_split_recompute_could(_keep_polars_cols, train_df, val_df, test_df, verbose)
-    train = _to_pandas(train_df)
-    val = _to_pandas(val_df)
-    test = _to_pandas(test_df)
-    if verbose:
-        logger.info("    apply_preprocessing_extensions.to_pandas done in %s", _elapsed_str(t0_to_pandas))
-    if train is None:
-        return train_df, val_df, test_df, None
 
-    # PySR symbolic regression (step 0). Runs BEFORE TF-IDF and the sklearn
-    # pipeline so that discovered equation features benefit from downstream
-    # scaling, polynomial expansion, etc.
-    _pysr_transformer_holder: list = []
-    _apply_preprocessin_scaling_polynomial_expansion_etc(config, train, val, test, y_train, verbose, out_pysr_equations, _pysr_transformer_holder)
-    _pysr_transformer = _pysr_transformer_holder[0] if _pysr_transformer_holder else None
-
-    # TF-IDF preflight: vectorize declared text columns and replace them with
-    # numeric features before downstream sklearn steps (which expect numeric).
-    #
-    # Column-parity invariant: train, val, and
-    # test MUST emerge from TF-IDF with the same column set. Pre-fix the
-    # code only TF-IDF-expanded train and left val/test untouched when
-    # the text column happened to be missing from val/test (sparse splits,
-    # user typo in ``tfidf_columns`` matching only train's schema). Then
-    # the downstream sklearn Pipeline, fit on train with e.g. 5050
-    # columns, tried ``pipe.transform(val_with_50_cols)`` and raised a
-    # shape-mismatch error that traced back to the scaler -- not TF-IDF.
-    # Now: if a tfidf_column is missing from val/test, we skip it on
-    # train too (WARN with the consequence) so all three splits stay
-    # aligned. If it's a user typo, the typo WARN fires instead.
-    tfidf_pipes: dict[Any, Any] = {}
-    test, train, val = _apply_preprocessin_aligned_user_typo_typo(config, train, val, test, tfidf_pipes, verbose)
-
-    # Numeric-only gate for the sklearn-bridge pipeline. The downstream extensions (scaler / kbins / polynomial / nonlinear / dim_reducer and the median-imputer in front) all reject object/string dtypes with errors that range from clear (``Cannot use median strategy with non-numeric data``) to opaque (``ValueError: The truth value of an array with more than one element is ambiguous`` from inside PolynomialFeatures or RobustScaler). The contract is "if you turn on the sklearn-bridge, your frame should be numeric". When non-numeric columns survived (unencoded cat_mid, embedding object dtypes that the upstream cat-encoder skipped, etc.), drop them here with a single-line WARN. Surfaced by 1M-harness seed=11.
-    #
-    # Note: the cat-encoder pre-pipeline normally runs BEFORE this function, so under standard configs this drop is a no-op. The gate exists to keep production callers + the 1M profiler harness robust against axis combinations where cat_encoding canonicalised to a path that bypassed the encoder.
-
-    t0_numeric_filter = timer()
-    # The non-numeric columns (categorical / text the models consume natively, e.g. CatBoost cat_features) are set ASIDE
-    # here, not dropped: the numeric extension steps run on the rest and the aside columns are re-attached to every output
-    # (``_with_passthrough``), and predict does the same (``_mlframe_passthrough_columns_`` on the fitted pipe). Dropping
-    # them cost every suite whose default-on row-wise steps were active its categorical features, silently for CatBoost.
-    _pre_filter = (train, val, test)
-    # Decide the kept-numeric column set ONCE on train, then pin val/test to the SAME list so a column that is numeric on train but object on val (or vice versa) can't silently diverge the per-split schema and break the downstream sklearn transform.
-    train, _dropped_train = _filter_to_numeric(train)
-    _kept_train = list(train.columns) if isinstance(train, pd.DataFrame) else None
-    val, _ = _filter_to_numeric(val, keep_cols=_kept_train)
-    test, _ = _filter_to_numeric(test, keep_cols=_kept_train)
-    # Only categorical-like columns pass through (what the models consume natively as cat / text features); a timedelta,
-    # datetime or other non-numeric leftover stays dropped, as no model in the suite takes it raw.
-    _pre_train = _pre_filter[0]
-    _passthrough = [
-        c for c in (_dropped_train or [])
-        if isinstance(_pre_train, pd.DataFrame) and c in _pre_train.columns
-        and (pd.api.types.is_object_dtype(_pre_train[c]) or pd.api.types.is_string_dtype(_pre_train[c]) or isinstance(_pre_train[c].dtype, pd.CategoricalDtype))
-    ]
-    if _passthrough and verbose:
-        logger.info(
-            "apply_preprocessing_extensions: %d non-numeric column(s) bypass the numeric extension steps and pass through "
-            "unchanged to the model: %s.", len(_passthrough), _passthrough[:8],
-        )
-
-    # All-null column filter. SimpleImputer(strategy="median") silently
-    # drops columns with no observed values
-    # (UserWarning: ``Skipping features without any observed values: ...``)
-    # which silently shrinks n_features BELOW the dim_reducer's clamped
-    # n_components. Surfaced by 1M-harness seed=99: PCA n_components
-    # clamped from 10 -> 7 based on pre-imputer n_features=8, but
-    # imputer then dropped x4 + x5 (both all-null in the synthetic
-    # frame's missingness pattern), leaving 6 features, and PCA's
-    # internal check raised n_components=7 vs n_features=6. Hoist the
-    # all-null drop into our filter so the dim_n_components clamp can
-    # see the post-imputation count up-front.
-    test, train, val = _apply_preprocessin_see_post_imputation_count(train, val, test)
-    if verbose:
-        logger.info("    apply_preprocessing_extensions.numeric_filter_and_null_drop done in %s", _elapsed_str(t0_numeric_filter))
-
-    # Row-wise summary stats / top-k extreme columns (step 1.5) live in a sibling module; see apply_row_wise_steps.
-    train, val, test, _pre_row_wise_ncols = apply_row_wise_steps(train, val, test, config, verbose, out_row_wise_replay)
-    _row_wise_active = train.shape[1] != _pre_row_wise_ncols
-
-    n_features = train.shape[1]
-    # Dim-reducer n_components clamp. PCA / TruncatedSVD / KernelPCA / NMF
-    # / FastICA / LDA etc. raise
-    # ``ValueError: n_components=K must be between 0 and min(n_samples,
-    # n_features)`` when the requested K exceeds the available feature
-    # count. The numeric-only filter above can reduce n_features below
-    # the user's configured dim_n_components (surfaced by 1M-harness
-    # seed=99: PCA n_components=10 on a 9-feature frame after cat_low /
-    # cat_mid were filtered). Clamp to min(n_features, n_samples,
-    # dim_n_components) and emit a WARN; the user explicitly chose
-    # dimensionality reduction, so silently dropping the step would be
-    # worse than running it at a lower K.
-    config = _apply_preprocessin_worse_than_running_lower(config, train, n_features)
-    # iter-69 byte-aware polynomial auto-tune. ``memory_safety_max_features``
-    # gates by column count alone; on wide post-onehot frames at degree=2
-    # the column count stays under the cap but the dense
-    # (n_samples, projected) float64 array exceeds available RAM
-    # (iter-69 surfaced n=81000, projected=1711 -> 1.03 GiB allocation
-    # MemoryError). When ``memory_safety_max_bytes`` is set, compute the
-    # exact byte-cost via the same shape formula sklearn would use and
-    # auto-tune the polynomial step downward (flip interaction_only ->
-    # decrement degree -> skip) until the projected array fits.
-    _byte_cap = getattr(config, "memory_safety_max_bytes", None)
-    config = _apply_preprocessin_decrement_degree_skip_until(config, _byte_cap, train, n_features)
-
-    # Thread the suite seed into RBFSampler / Nystroem / dim-reducer so their random projections are reproducible across reruns (was hardcoded 42).
-    # random_seed=0 is a legitimate seed, not a sentinel -- an ``or`` here would silently rewrite it to 42.
-    _ext_seed_raw = getattr(config, "random_seed", None)
-    _ext_random_state = int(_ext_seed_raw) if _ext_seed_raw is not None else 42
-    steps = _build_extension_steps(config, n_features=n_features, random_state=_ext_random_state)
-    if not steps:
-        if _pysr_transformer is not None or tfidf_pipes:
-            # PySR / TF-IDF applied but no sklearn pipeline. Bundle so predict-time
-            # replay sees the PySR transformer; legacy raw-dict shape is used only
-            # when PySR is absent so untouched persisted artefacts keep loading.
-            train, val, test = _with_passthrough((train, val, test), _pre_filter, _passthrough)
-            if _pysr_transformer is not None:
-                return train, val, test, PreprocessingExtensionsBundle(
-                    pysr=_pysr_transformer, tfidf=tfidf_pipes or None, sklearn_pipe=None,
-                )
-            return train, val, test, tfidf_pipes
-        if _row_wise_active:
-            # Row-wise summary-stats / extreme-columns steps added columns but no PySR / TF-IDF /
-            # sklearn-bridge stage ran. Return the augmented ``train``/``val``/``test`` (NOT the
-            # original ``train_df``/``val_df``/``test_df``) so the new columns survive -- the prior
-            # early-return here unconditionally discarded them since it only checked for PySR/TF-IDF.
-            train, val, test = _with_passthrough((train, val, test), _pre_filter, _passthrough)
-            return train, val, test, None
-        return train_df, val_df, test_df, None
-
-    from sklearn.pipeline import Pipeline as SkPipeline
-    pipe = SkPipeline(steps=steps)
-    t0 = timer()
-    # LDA requires `y` during fit; forward y_train when provided.
-    if y_train is not None:
-        train_arr = pipe.fit_transform(train, y_train)
-    else:
-        train_arr = pipe.fit_transform(train)
-    val_arr = pipe.transform(val) if val is not None and len(val) > 0 else None
-    test_arr = pipe.transform(test) if test is not None and len(test) > 0 else None
-    if verbose:
-        logger.info("    apply_preprocessing_extensions.sklearn_bridge_pipeline done in %s", _elapsed_str(t0))
-
-    # Preserve named-transformer output column names so downstream
-    # diagnostics and feature-importance reports stay interpretable. Pre-fix
-    # we relabelled every column to ``ext_<i>`` which collapsed all
-    # provenance ("which scaler? which equation? which TF-IDF token?").
-    # sklearn>=1.3 exposes ``get_feature_names_out``; fall back to
-    # ``ext_<step>_<i>`` derived from the last step's name otherwise.
+def _apply_preprocessing__step2_ext_step_derived(pipe, steps):
+    """Step 2 of apply_preprocessing_extensions: lines starting at ``def _build_output_column_names(n_cols: int) -> list:``."""
     def _build_output_column_names(n_cols: int) -> list:
         """Named-transformer output column names for the fitted extension pipeline, preferring sklearn's ``get_feature_names_out()`` and falling back to ``ext_<last_step>_<i>`` when unavailable/mismatched (keeps stage provenance instead of opaque ``ext_<i>`` indices). The caller stamps the result on the pipeline as ``_mlframe_output_columns_``, so it is saved with the model: predict serves exactly these names and refuses an output of a different width rather than renaming positionally."""
         try:
@@ -546,7 +588,11 @@ def apply_preprocessing_extensions(
         # the stage is recoverable (e.g. ``ext_dim_reducer_3``).
         last_step_name = steps[-1][0] if steps else "ext"
         return [f"ext_{last_step_name}_{i}" for i in range(n_cols)]
+    return _build_output_column_names
 
+
+def _apply_preprocessing__step3_stage_recoverable_ext(_build_output_column_names, pipe, config):
+    """Step 3 of apply_preprocessing_extensions: lines starting at ``def _to_df(arr, template):``."""
     def _to_df(arr, template):
         """Wrap the pipeline's transformed array back into a DataFrame matching ``template``'s index, using named columns from ``_build_output_column_names`` and preserving sparsity as a Sparse-dtype DataFrame when the array is still scipy-sparse."""
         if arr is None:
@@ -570,33 +616,7 @@ def apply_preprocessing_extensions(
         # at N=100k D=50 across all three input shapes (float64 C-contig, float32 C-contig, float64 F-contig). Modern pandas block management makes the
         # constructor essentially free; gate adds branches without speedup.
         return pd.DataFrame(arr, columns=col_names, index=getattr(template, "index", None))
-
-    train_out = _to_df(train_arr, train)
-    val_out = _to_df(val_arr, val)
-    test_out = _to_df(test_arr, test)
-    pipe._mlframe_passthrough_columns_ = _passthrough  # predict re-attaches the same columns after the transform
-    train_out, val_out, test_out = _with_passthrough((train_out, val_out, test_out), _pre_filter, _passthrough)
-    # Two-level verbosity: caller-side ``verbose`` (function-level kill switch)
-    # AND ``config.verbose_logging`` (per-config opt-out for this stage when
-    # batching many folds whose output would drown the log). WARN paths above
-    # (skipped_typo / split_mismatch) are intentionally NOT gated -- those are
-    # configuration errors the user must see.
-    if verbose and config.verbose_logging:
-        elapsed = timer() - t0
-        logger.info(
-            "Applied preprocessing extensions (%d stages) -- train %s, %.2fs",
-            len(steps), train_out.shape, elapsed,
-        )
-    # Bundle PySR transformer / TFIDF dict alongside the sklearn pipe so
-    # predict-time replay can re-emit symbolic columns BEFORE the TF-IDF /
-    # sklearn replay. Without the bundle, the persisted artefact dropped the
-    # PySR step and predict frames silently lacked the pysr_* columns the
-    # model was trained on.
-    if _pysr_transformer is not None or tfidf_pipes:
-        return train_out, val_out, test_out, PreprocessingExtensionsBundle(
-            pysr=_pysr_transformer, tfidf=tfidf_pipes or None, sklearn_pipe=pipe,
-        )
-    return train_out, val_out, test_out, pipe
+    return _to_df
 
 
 def _apply_preprocessin_worse_than_running_lower(config, train, n_features):

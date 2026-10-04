@@ -35,6 +35,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import KFold, StratifiedKFold
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -671,11 +672,12 @@ def compute_shap_matrix(
     default 5-fold / 10000-column regime). With ``out_of_fold=False`` we still return a single-row
     array (the in-sample mean) so the consumer's contract stays uniform.
     """
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     if rng is None:
         rng = np.random.default_rng(0)
     X = X.reset_index(drop=True)
     y = np.asarray(y)
-    n, f = X.shape
+    st.n, f = X.shape
 
     # Content-addressable disk cache: keyed by (X summary, y summary, booster params, fold/model
     # state). The OOF-SHAP stage dominates wall-clock at C3/C4; in hyperparam sweeps and ablations
@@ -747,6 +749,79 @@ def compute_shap_matrix(
                 logger.debug("compute_shap_matrix: cache put failed (%s)", exc)
         return result
 
+    _models_phi = _compute_shap_matrix_step1_def_models_phi(f, return_variance, n_models, config_jitter, _cache, model_template, classification, n_estimators_cap, shap_backend)
+
+    if not out_of_fold:
+        seeds = [int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)]
+        phi_acc, base_val, var = _models_phi(X, y, X, seeds)
+        _assert_additivity_and_base(phi_acc, base_val)
+        base_arr = np.full(st.n, base_val, dtype=np.float64)
+        st.per_fold_mean = np.abs(phi_acc).mean(axis=0, keepdims=True) if return_per_fold_phi_mean else None
+        st.out_tail = []
+        if return_variance:
+            st.out_tail.append(var)
+        if return_per_fold_phi_mean:
+            st.out_tail.append(st.per_fold_mean)
+        if st.out_tail:
+            return _maybe_store((phi_acc, base_arr, y.astype(np.float64), *st.out_tail))
+        return _maybe_store((phi_acc, base_arr, y.astype(np.float64)))
+
+    # Out-of-fold: honest per-row attributions.
+    st.split_iter = _oof_split_iter(cv_policy, X, y, st.n, n_splits, classification, rng)
+
+    st.phi = np.zeros((st.n, f), dtype=np.float64)
+    st.base = np.zeros(st.n, dtype=np.float64)
+    st.phi_var = np.zeros((st.n, f), dtype=np.float64) if return_variance else None
+    st.per_fold_mean = np.zeros((n_splits, f), dtype=np.float64) if return_per_fold_phi_mean else None
+
+    st.folds = list(st.split_iter)
+    # Pre-draw every fold's model seeds in fold order BEFORE any fit, so concurrent folds yield the
+    # byte-identical result the serial loop would (the RNG is consumed in fold order regardless of
+    # which fold's thread runs first).
+    fold_seeds = [[int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)] for _ in st.folds]
+
+    import os
+
+    st.n_cores = os.cpu_count() or 1
+    st.outer = 1
+    if n_jobs not in (None, 0, 1) and len(st.folds) > 1:
+        st.outer = st.n_cores if n_jobs == -1 else int(n_jobs)
+        st.outer = max(1, min(st.outer, len(st.folds), st.n_cores))
+    # iter54: default lets xgboost manage all cores via its own thread pool (inner=-1). iter53 A/B at
+    # width 4000+10000 measured the iter4 oversubscription cap (n_cores // outer when outer > 1) as
+    # 8-9% e2e SLOWER - per-stage: reval +8%, refine +11%, trust +12% wall-clock loss; prefilter +2%
+    # small win. xgboost's internal scheduler handles outer*inner > n_cores more efficiently than the
+    # joblib-side cap on 8-core modern boxes. ``inner_n_jobs_cap=True`` restores legacy behaviour for
+    # callers who measure regression on their HW.
+    if st.outer > 1:
+        inner = max(1, st.n_cores // st.outer) if inner_n_jobs_cap else -1
+    else:
+        inner = None
+
+    def _one_fold(fold_id, tr_idx, va_idx):
+        """Fit + explain one out-of-fold CV split (train on ``tr_idx``, attribute the held-out ``va_idx`` rows), returning the fold id, validation indices, and the fold's mean phi/base/variance for the caller to scatter back into the full-length accumulators."""
+        pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id], inner_n_jobs=inner)
+        _assert_additivity_and_base(pf, bf, fold_tag=f" fold {fold_id}")
+        return fold_id, va_idx, pf, bf, vf
+
+    st.fold_results = _compute_shap_matri_outer(st.outer, st.folds, _one_fold, tqdm_desc)
+
+    # ``fold_results`` may arrive out of order when ``outer > 1`` (joblib threads scatter); each tuple
+    # carries its fold id explicitly so per_fold_mean[fid] keeps the deterministic split-order mapping.
+    _compute_shap_matri_carries_its_fold_id(st.fold_results, st.phi, st.base, return_variance, st.phi_var, return_per_fold_phi_mean, st.per_fold_mean)
+
+    st.out_tail = []
+    if return_variance:
+        st.out_tail.append(st.phi_var)
+    if return_per_fold_phi_mean:
+        st.out_tail.append(st.per_fold_mean)
+    if st.out_tail:
+        return _maybe_store((st.phi, st.base, y.astype(np.float64), *st.out_tail))
+    return _maybe_store((st.phi, st.base, y.astype(np.float64)))
+
+
+def _compute_shap_matrix_step1_def_models_phi(f, return_variance, n_models, config_jitter, _cache, model_template, classification, n_estimators_cap, shap_backend):
+    """Step 1 of compute_shap_matrix: lines starting at ``def _models_phi(X_tr, y_tr, X_ex, seeds, inner_n_jobs=None):``."""
     def _models_phi(X_tr, y_tr, X_ex, seeds, inner_n_jobs=None):
         """Mean phi, mean base, and (model-to-model) phi variance over n_models fits on X_ex.
 
@@ -798,74 +873,7 @@ def compute_shap_matrix(
         mean = s / n_models
         var = _phi_var.variance(n_models) if _phi_var is not None else None
         return mean, b / n_models, var
-
-    if not out_of_fold:
-        seeds = [int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)]
-        phi_acc, base_val, var = _models_phi(X, y, X, seeds)
-        _assert_additivity_and_base(phi_acc, base_val)
-        base_arr = np.full(n, base_val, dtype=np.float64)
-        per_fold_mean = np.abs(phi_acc).mean(axis=0, keepdims=True) if return_per_fold_phi_mean else None
-        out_tail: list = []
-        if return_variance:
-            out_tail.append(var)
-        if return_per_fold_phi_mean:
-            out_tail.append(per_fold_mean)
-        if out_tail:
-            return _maybe_store((phi_acc, base_arr, y.astype(np.float64), *out_tail))
-        return _maybe_store((phi_acc, base_arr, y.astype(np.float64)))
-
-    # Out-of-fold: honest per-row attributions.
-    split_iter = _oof_split_iter(cv_policy, X, y, n, n_splits, classification, rng)
-
-    phi = np.zeros((n, f), dtype=np.float64)
-    base = np.zeros(n, dtype=np.float64)
-    phi_var = np.zeros((n, f), dtype=np.float64) if return_variance else None
-    per_fold_mean = np.zeros((n_splits, f), dtype=np.float64) if return_per_fold_phi_mean else None
-
-    folds = list(split_iter)
-    # Pre-draw every fold's model seeds in fold order BEFORE any fit, so concurrent folds yield the
-    # byte-identical result the serial loop would (the RNG is consumed in fold order regardless of
-    # which fold's thread runs first).
-    fold_seeds = [[int(rng.integers(0, 2**31 - 1)) for _ in range(n_models)] for _ in folds]
-
-    import os
-
-    n_cores = os.cpu_count() or 1
-    outer = 1
-    if n_jobs not in (None, 0, 1) and len(folds) > 1:
-        outer = n_cores if n_jobs == -1 else int(n_jobs)
-        outer = max(1, min(outer, len(folds), n_cores))
-    # iter54: default lets xgboost manage all cores via its own thread pool (inner=-1). iter53 A/B at
-    # width 4000+10000 measured the iter4 oversubscription cap (n_cores // outer when outer > 1) as
-    # 8-9% e2e SLOWER - per-stage: reval +8%, refine +11%, trust +12% wall-clock loss; prefilter +2%
-    # small win. xgboost's internal scheduler handles outer*inner > n_cores more efficiently than the
-    # joblib-side cap on 8-core modern boxes. ``inner_n_jobs_cap=True`` restores legacy behaviour for
-    # callers who measure regression on their HW.
-    if outer > 1:
-        inner = max(1, n_cores // outer) if inner_n_jobs_cap else -1
-    else:
-        inner = None
-
-    def _one_fold(fold_id, tr_idx, va_idx):
-        """Fit + explain one out-of-fold CV split (train on ``tr_idx``, attribute the held-out ``va_idx`` rows), returning the fold id, validation indices, and the fold's mean phi/base/variance for the caller to scatter back into the full-length accumulators."""
-        pf, bf, vf = _models_phi(X.iloc[tr_idx], y[tr_idx], X.iloc[va_idx], fold_seeds[fold_id], inner_n_jobs=inner)
-        _assert_additivity_and_base(pf, bf, fold_tag=f" fold {fold_id}")
-        return fold_id, va_idx, pf, bf, vf
-
-    fold_results = _compute_shap_matri_outer(outer, folds, _one_fold, tqdm_desc)
-
-    # ``fold_results`` may arrive out of order when ``outer > 1`` (joblib threads scatter); each tuple
-    # carries its fold id explicitly so per_fold_mean[fid] keeps the deterministic split-order mapping.
-    _compute_shap_matri_carries_its_fold_id(fold_results, phi, base, return_variance, phi_var, return_per_fold_phi_mean, per_fold_mean)
-
-    out_tail = []
-    if return_variance:
-        out_tail.append(phi_var)
-    if return_per_fold_phi_mean:
-        out_tail.append(per_fold_mean)
-    if out_tail:
-        return _maybe_store((phi, base, y.astype(np.float64), *out_tail))
-    return _maybe_store((phi, base, y.astype(np.float64)))
+    return _models_phi
 
 
 def _compute_shap_matri_out_fold_true_splitter(out_of_fold, n_models, rng, n_splits):

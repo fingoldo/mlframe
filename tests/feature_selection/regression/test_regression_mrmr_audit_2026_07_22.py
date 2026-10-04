@@ -1010,7 +1010,7 @@ def test_regression_hermite_cupy_kernel_dispatch_honours_disable_gpu(monkeypatch
 
     from mlframe.feature_selection.filters._hermite_fe_optimise_pair import optimise_hermite_pair
 
-    src = inspect.getsource(optimise_hermite_pair)
+    src = inspect.getsource(inspect.getmodule(optimise_hermite_pair))
     assert "gpu_globally_disabled" in src
 
 
@@ -1252,7 +1252,7 @@ def test_regression_bayesian_blocks_default_subsample_threshold_is_safe():
 
     from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
-    src = inspect.getsource(per_feature_edges)
+    src = inspect.getsource(inspect.getmodule(per_feature_edges))
     # The contract is a BOUNDED default, not the literal it was first set to: 0 restores the unbounded
     # O(N^2) DP, which is the regression. The value has since moved from 2000 to 5000, so assert the
     # property against the constant the code actually reads.
@@ -2726,7 +2726,9 @@ def test_regression_greedy_cmi_fe_construct_seed_varies_permutation():
     assert "seed" in sig.parameters
     assert sig.parameters["seed"].default == 0xC011  # historical default preserved for byte-identical legacy behaviour
 
-    src = inspect.getsource(greedy_cmi_fe_construct)
+    from mlframe.feature_selection.filters import _mi_greedy_cmi_fe_steps
+
+    src = inspect.getsource(inspect.getmodule(greedy_cmi_fe_construct)) + inspect.getsource(_mi_greedy_cmi_fe_steps)
     assert "SeedSequence([0xC011, seed" in src
     assert not any(line.strip() == "rng_floor = np.random.default_rng(0xC011)" for line in src.splitlines())
 

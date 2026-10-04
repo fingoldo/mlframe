@@ -21,6 +21,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from ._fe_raw_redundancy_helpers import _excess_and_floor, _recipe_subexprs, _subexpr_continuous
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -58,25 +59,10 @@ def build_raw_redundancy_anchors(
     (no engineered or raw survivors, no replayable anchor, no consumer map) - the caller must check it first and
     return immediately when non-``None``. Otherwise every field the per-raw loop needs is populated.
     """
-    ei: Any = None
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     _gate_resident = gate_resident
 
-    def _dev_from_cont(_vals, _eng_card_local: int) -> Any:
-        """RESIDENT int64 codes from CONTINUOUS values via the device equi-frequency binner (identical
-        partition to ``_quantile_bin``), or ``None`` when residency is off / the column is non-finite / cupy
-        faults - the caller then keeps the host ``_quantile_bin`` codes."""
-        if not _gate_resident:
-            return None
-        try:
-            _v = np.asarray(_vals, dtype=np.float64)
-            if not np.isfinite(_v).all():
-                return None
-            from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
-            return _quantile_bin_gpu_resident(_v, int(_eng_card_local))
-        except Exception as exc:
-            # Hot per-candidate path: debug-only. Caller falls back to host _quantile_bin codes.
-            logger.debug("GPU-resident quantile-bin failed, falling back to host binning: %s", exc)
-            return None
+    _dev_from_cont = _build_raw_redundancy_step1_def_dev_cont(_gate_resident)
 
     def _dev_from_codes(_codes) -> Any:
         """RESIDENT int64 codes for an ALREADY-BINNED host int column (the lossy ``data`` screening codes),
@@ -93,10 +79,10 @@ def build_raw_redundancy_anchors(
             logger.debug("resident code-operand upload failed, falling back to host codes: %s", exc)
             return None
 
-    sel_names = [cols[i] for i in sel]
-    eng_idx = [i for i, nm in zip(sel, sel_names) if nm not in raw_name_set]
-    raw_sel_idx = [i for i, nm in zip(sel, sel_names) if nm in raw_name_set]
-    if not eng_idx or not raw_sel_idx:
+    st.sel_names = [cols[i] for i in sel]
+    st.eng_idx = [i for i, nm in zip(sel, st.sel_names) if nm not in raw_name_set]
+    st.raw_sel_idx = [i for i, nm in zip(sel, st.sel_names) if nm in raw_name_set]
+    if not st.eng_idx or not st.raw_sel_idx:
         return SimpleNamespace(early_return=(sel, []))
 
     # REPLAYABLE-ANCHOR GUARD: restrict the engineered subsumer/anchor set to survivors that will
@@ -104,8 +90,8 @@ def build_raw_redundancy_anchors(
     # nested-engineered-anchor rationale).
     if replayable_eng_names is not None:
         _replayable = set(replayable_eng_names)
-        eng_idx = [i for i in eng_idx if cols[i] in _replayable]
-        if not eng_idx:
+        st.eng_idx = [i for i in st.eng_idx if cols[i] in _replayable]
+        if not st.eng_idx:
             if verbose:
                 logger.info(
                     "raw-redundancy: no REPLAYABLE engineered survivor anchors the "
@@ -116,27 +102,93 @@ def build_raw_redundancy_anchors(
             return SimpleNamespace(early_return=(sel, []))
 
     # raw_name -> list of engineered survivor column indices that consume it.
-    eng_consumers: dict[str, list[int]] = {}
-    _eng_base_sets: dict[int, set[str]] = {}
-    _build_raw_redundan_raw_name_list_engineered(eng_idx, cols, raw_name_set, _eng_base_sets, eng_consumers)
+    st.eng_consumers = {}
+    st._eng_base_sets = {}
+    _build_raw_redundan_raw_name_list_engineered(st.eng_idx, cols, raw_name_set, st._eng_base_sets, st.eng_consumers)
 
-    if not eng_consumers:
+    if not st.eng_consumers:
         return SimpleNamespace(early_return=(sel, []))
 
     # Target codes (equi-frequency re-binning of a skewed continuous target; see the parent module docstring).
     y_arr = np.ascontiguousarray(np.asarray(y_binned)).ravel()
     if not np.issubdtype(y_arr.dtype, np.integer):
         y_arr = y_arr.astype(np.int64)
-    _target_card = int(np.unique(y_arr).size)
-    y_arr = _build_raw_redundan_continuous_none(y_continuous, n_rows, _target_card, y_arr)
+    st._target_card = int(np.unique(y_arr).size)
+    y_arr = _build_raw_redundan_continuous_none(y_continuous, n_rows, st._target_card, y_arr)
 
     _eng_card = int(min(max(_BINS, int(np.unique(y_arr).size)), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
-    _eng_cont = engineered_continuous or {}
-
-    from ._mi_greedy_cmi_fe import _quantile_bin
+    st._eng_cont = engineered_continuous or {}
 
     _raw_codes_cache: dict = {}
     _raw_dev_cache: dict = {}
+
+    _raw_codes, _raw_dev, _raw_marg_cache = _build_raw_redundancy_step2_def_raw_codes(_raw_codes_cache, data, raw_X, _eng_card, n_rows, _dev_from_cont, _dev_from_codes, _raw_dev_cache, st, cols, y_arr, seed)
+
+    _raw_marginal = _build_raw_redundancy_step3_def_raw_marginal(_raw_marg_cache, cols, _raw_codes, _raw_dev, y_arr, seed)
+
+    def _raw_is_signal_bearing(_rname: str) -> bool:
+        """True iff the raw's marginal CMI clears its own permutation floor with positive debiased excess."""
+        _mcmi, _mfloor, _mexc = _raw_marginal(_rname)
+        return bool(_mcmi > _mfloor and _mexc > 0.0)
+
+    st._eng_signal_parents = {}
+    _build_raw_redundan_ei_eng_idx(st.eng_idx, st._eng_base_sets, cols, raw_name_set, _raw_is_signal_bearing, st._eng_signal_parents)
+
+    # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1, 2026-06-12); see the parent module docstring.
+    st._recipes = recipes or {}
+    st._clean_subexpr_bin = {}
+    st._clean_subexpr_bin_dev = {}
+    st._clean_subexpr_leaf_pair = {}
+    _build_raw_redundan_recipes_raw_none(st._recipes, raw_X, st.eng_idx, cols, raw_name_set, _raw_is_signal_bearing, st._eng_signal_parents, n_rows, _dev_from_cont, _eng_card, st._clean_subexpr_bin, st._clean_subexpr_bin_dev, st._clean_subexpr_leaf_pair, verbose)
+
+    _join_dev = _build_raw_redundancy_step4_def_join_dev()
+
+    return SimpleNamespace(
+        early_return=None,
+        sel_names=st.sel_names,
+        eng_idx=st.eng_idx,
+        raw_sel_idx=st.raw_sel_idx,
+        eng_consumers=st.eng_consumers,
+        y_arr=y_arr,
+        eng_bin=st.eng_bin,
+        eng_bin_dev=st.eng_bin_dev,
+        eng_anchor_excess=st.eng_anchor_excess,
+        eng_signal_parents=st._eng_signal_parents,
+        clean_subexpr_bin=st._clean_subexpr_bin,
+        clean_subexpr_bin_dev=st._clean_subexpr_bin_dev,
+        clean_subexpr_leaf_pair=st._clean_subexpr_leaf_pair,
+        raw_marginal=_raw_marginal,
+        raw_is_signal_bearing=_raw_is_signal_bearing,
+        raw_codes=_raw_codes,
+        raw_dev=_raw_dev,
+        join_dev=_join_dev,
+    )
+
+
+def _build_raw_redundancy_step1_def_dev_cont(_gate_resident):
+    """Step 1 of build_raw_redundancy_anchors: lines starting at ``def _dev_from_cont(_vals, _eng_card_local: int) -> Any:``."""
+    def _dev_from_cont(_vals, _eng_card_local: int) -> Any:
+        """RESIDENT int64 codes from CONTINUOUS values via the device equi-frequency binner (identical
+        partition to ``_quantile_bin``), or ``None`` when residency is off / the column is non-finite / cupy
+        faults - the caller then keeps the host ``_quantile_bin`` codes."""
+        if not _gate_resident:
+            return None
+        try:
+            _v = np.asarray(_vals, dtype=np.float64)
+            if not np.isfinite(_v).all():
+                return None
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
+            return _quantile_bin_gpu_resident(_v, int(_eng_card_local))
+        except Exception as exc:
+            # Hot per-candidate path: debug-only. Caller falls back to host _quantile_bin codes.
+            logger.debug("GPU-resident quantile-bin failed, falling back to host binning: %s", exc)
+            return None
+    return _dev_from_cont
+
+
+def _build_raw_redundancy_step2_def_raw_codes(_raw_codes_cache, data, raw_X, _eng_card, n_rows, _dev_from_cont, _dev_from_codes, _raw_dev_cache, st, cols, y_arr, seed):
+    """Step 2 of build_raw_redundancy_anchors: lines starting at ``def _raw_codes(_rname, _ridx):``."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
 
     def _raw_codes(_rname, _ridx):
         """Cached binned codes for raw column ``_ridx`` at the fair-comparison resolution (up-resolved from
@@ -179,85 +231,58 @@ def build_raw_redundancy_anchors(
             _raw_codes(_rname, _ridx)
         return _raw_dev_cache.get(_ridx)
 
-    eng_bin: dict[int, np.ndarray] = {}
-    eng_bin_dev: dict = {}
-    eng_anchor_excess: dict[int, float] = {}
-    for ei in eng_idx:
+    st.eng_bin = {}
+    st.eng_bin_dev = {}
+    st.eng_anchor_excess = {}
+    for ei in st.eng_idx:
         _ename = cols[ei]
-        _cont = _eng_cont.get(_ename)
+        _cont = st._eng_cont.get(_ename)
         _eb_dev = None
         _eb_dev, eb = _build_raw_redundan_cont_none_np_asarray(_cont, n_rows, _dev_from_cont, _eng_card, data, ei, _dev_from_codes, _eb_dev)
-        eng_bin[ei] = eb
-        eng_bin_dev[ei] = _eb_dev
+        st.eng_bin[ei] = eb
+        st.eng_bin_dev[ei] = _eb_dev
         _, _, exc = _excess_and_floor(_eb_dev if _eb_dev is not None else eb, y_arr, None, seed=seed, kx=(int(eb.max()) + 1 if getattr(eb, "size", 0) else 1))
-        eng_anchor_excess[ei] = exc
+        st.eng_anchor_excess[ei] = exc
 
     _raw_marg_cache: dict[str, tuple] = {}
+    return _raw_codes, _raw_dev, _raw_marg_cache
 
+
+def _build_raw_redundancy_step3_def_raw_marginal(_raw_marg_cache, cols, _raw_codes, _raw_dev, y_arr, seed):
+    """Step 3 of build_raw_redundancy_anchors: lines starting at ``def _raw_marginal(_rname: str) -> tuple:``."""
     def _raw_marginal(_rname: str) -> tuple:
         """Cached ``(cmi, floor, debiased_excess)`` for the raw's UNCONDITIONAL relationship with ``y`` (see the
         parent module docstring's DPI-TRAP GUARD section)."""
         if _rname in _raw_marg_cache:
-            return _raw_marg_cache[_rname]
+            return _raw_marg_cache[_rname]  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
         try:
             _ridx = cols.index(_rname)
         except ValueError:
             _raw_marg_cache[_rname] = (0.0, 0.0, 0.0)
-            return _raw_marg_cache[_rname]
+            return _raw_marg_cache[_rname]  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
         _rb = _raw_codes(_rname, _ridx)
         _rb_dev = _raw_dev(_rname, _ridx)
         _res = _excess_and_floor(_rb_dev if _rb_dev is not None else _rb, y_arr, None, seed=seed, kx=(int(_rb.max()) + 1 if getattr(_rb, "size", 0) else 1))
         _raw_marg_cache[_rname] = _res
         return _res  # type: ignore[no-any-return]
+    return _raw_marginal
 
-    def _raw_is_signal_bearing(_rname: str) -> bool:
-        """True iff the raw's marginal CMI clears its own permutation floor with positive debiased excess."""
-        _mcmi, _mfloor, _mexc = _raw_marginal(_rname)
-        return bool(_mcmi > _mfloor and _mexc > 0.0)
 
-    _eng_signal_parents: dict[int, set[str]] = {}
-    _build_raw_redundan_ei_eng_idx(eng_idx, _eng_base_sets, cols, raw_name_set, _raw_is_signal_bearing, _eng_signal_parents)
-
-    # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1, 2026-06-12); see the parent module docstring.
-    _recipes = recipes or {}
-    _clean_subexpr_bin: dict[tuple, np.ndarray] = {}
-    _clean_subexpr_bin_dev: dict = {}
-    _clean_subexpr_leaf_pair: dict[tuple, bool] = {}
-    _build_raw_redundan_recipes_raw_none(_recipes, raw_X, eng_idx, cols, raw_name_set, _raw_is_signal_bearing, _eng_signal_parents, n_rows, _dev_from_cont, _eng_card, _clean_subexpr_bin, _clean_subexpr_bin_dev, _clean_subexpr_leaf_pair, verbose)
-
+def _build_raw_redundancy_step4_def_join_dev():
+    """Step 4 of build_raw_redundancy_anchors: lines starting at ``def _join_dev(*dev_codes):``."""
     def _join_dev(*dev_codes):
         """DEVICE-BORN conditioning-support join of the resident conditioning codes (``_renumber_joint_gpu``),
         so the support never crosses H2D. ``None`` when any code lacks a resident twin or on any cupy fault."""
         if not dev_codes or any(_d is None for _d in dev_codes):
             return None
         try:
-            from ._mi_greedy_cmi_fe import _renumber_joint_gpu
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint_gpu
             return _renumber_joint_gpu(*dev_codes)[0]
         except Exception as exc:
             # Hot per-candidate path: debug-only. Caller falls back to host-side join.
             logger.debug("device-resident conditioning-support join failed, falling back to host join: %s", exc)
             return None
-
-    return SimpleNamespace(
-        early_return=None,
-        sel_names=sel_names,
-        eng_idx=eng_idx,
-        raw_sel_idx=raw_sel_idx,
-        eng_consumers=eng_consumers,
-        y_arr=y_arr,
-        eng_bin=eng_bin,
-        eng_bin_dev=eng_bin_dev,
-        eng_anchor_excess=eng_anchor_excess,
-        eng_signal_parents=_eng_signal_parents,
-        clean_subexpr_bin=_clean_subexpr_bin,
-        clean_subexpr_bin_dev=_clean_subexpr_bin_dev,
-        clean_subexpr_leaf_pair=_clean_subexpr_leaf_pair,
-        raw_marginal=_raw_marginal,
-        raw_is_signal_bearing=_raw_is_signal_bearing,
-        raw_codes=_raw_codes,
-        raw_dev=_raw_dev,
-        join_dev=_join_dev,
-    )
+    return _join_dev
 
 
 def _build_raw_redundan_raw_name_list_engineered(eng_idx, cols, raw_name_set, _eng_base_sets, eng_consumers):

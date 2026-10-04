@@ -238,7 +238,6 @@ def _create_aggregated__checked_subsets_none(checked_subsets, countaggs_kwds, gr
 
 def _create_aggregated__countaggs_kwds_none(countaggs_kwds, groupby_vars, na_fills, nonlinear_transforms, numaggs_kwds, wavelets_correction_numaggs_kwds, span_corrections, splitting_vars, subsets, window_df, checked_subsets, vars_mask_regexp, vars_mask_exclude_regexp, dataset_name, captions_vars_sep, row_features, features_names, create_features_names, process_categoricals, counts_processing_mask_regexp, return_n_finite, drawdown_vars, lintrend_approx_vars, differences_features, ratios_features, waveletnames, weighting_vars, ewma_alphas, rolling, nonnormal_vars, robust_features, subset_token, nested_subsets):
     """Block of _create_aggregated__checked_subsets_none starting at ``if countaggs_kwds is None:``."""
-    var: Any = None
     if countaggs_kwds is None:
         countaggs_kwds = {}
     if groupby_vars is None:
@@ -273,6 +272,13 @@ def _create_aggregated__countaggs_kwds_none(countaggs_kwds, groupby_vars, na_fil
     else:
         countaggs_names = list(get_countaggs_names(**countaggs_kwds))
 
+    _create_aggregated__c_step1_var_window_df(window_df, subsets, checked_subsets, vars_mask_regexp, vars_mask_exclude_regexp, groupby_vars, dataset_name, captions_vars_sep, numaggs_kwds, numaggs_names, row_features, features_names, create_features_names, countaggs_kwds, countaggs_names, process_categoricals, counts_processing_mask_regexp, return_n_finite, drawdown_vars, lintrend_approx_vars, splitting_vars, differences_features, ratios_features, span_corrections, na_fills, waveletnames, wavelets_correction_numaggs_kwds, weighting_vars, ewma_alphas, rolling, nonnormal_vars, nonlinear_transforms, robust_features)
+
+    _create_aggregated__c_step2_subsets(subsets, checked_subsets, window_df, row_features, dataset_name, subset_token, create_features_names, features_names, captions_vars_sep, vars_mask_regexp, vars_mask_exclude_regexp, differences_features, ratios_features, robust_features, weighting_vars, na_fills, span_corrections, ewma_alphas, rolling, nonlinear_transforms, nonnormal_vars, waveletnames, wavelets_correction_numaggs_kwds, numaggs_kwds, splitting_vars, drawdown_vars, lintrend_approx_vars, groupby_vars, return_n_finite, process_categoricals, counts_processing_mask_regexp, countaggs_kwds, nested_subsets)
+
+
+def _create_aggregated__c_step1_var_window_df(window_df, subsets, checked_subsets, vars_mask_regexp, vars_mask_exclude_regexp, groupby_vars, dataset_name, captions_vars_sep, numaggs_kwds, numaggs_names, row_features, features_names, create_features_names, countaggs_kwds, countaggs_names, process_categoricals, counts_processing_mask_regexp, return_n_finite, drawdown_vars, lintrend_approx_vars, splitting_vars, differences_features, ratios_features, span_corrections, na_fills, waveletnames, wavelets_correction_numaggs_kwds, weighting_vars, ewma_alphas, rolling, nonnormal_vars, nonlinear_transforms, robust_features):
+    """Step 1 of _create_aggregated__countaggs_kwds_none: lines starting at ``for var in window_df.columns:``."""
     for var in window_df.columns:
         if var in subsets or var in checked_subsets:
             continue
@@ -396,6 +402,9 @@ def _create_aggregated__countaggs_kwds_none(countaggs_kwds, groupby_vars, na_fil
                 row_features, features_names, create_features_names,
             )
 
+
+def _create_aggregated__c_step2_subsets(subsets, checked_subsets, window_df, row_features, dataset_name, subset_token, create_features_names, features_names, captions_vars_sep, vars_mask_regexp, vars_mask_exclude_regexp, differences_features, ratios_features, robust_features, weighting_vars, na_fills, span_corrections, ewma_alphas, rolling, nonlinear_transforms, nonnormal_vars, waveletnames, wavelets_correction_numaggs_kwds, numaggs_kwds, splitting_vars, drawdown_vars, lintrend_approx_vars, groupby_vars, return_n_finite, process_categoricals, counts_processing_mask_regexp, countaggs_kwds, nested_subsets):
+    """Step 2 of _create_aggregated__countaggs_kwds_none: lines starting at ``if subsets:``."""
     if subsets:
         for subset_var, subset_var_values in subsets.items():
             if subset_var in checked_subsets or subset_var not in window_df:

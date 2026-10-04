@@ -214,10 +214,7 @@ def _materialise_and_fina_step2_pruned_here_byte(self, st, prospective_additions
         # Per clean (non-gate) survivor: (bare-var coverage, marginal MI). The marginals reuse the values
         # the CMI gate already binned for this exact pool, so no extra MI kernel is run.
         _name_marg: dict = {}
-        try:
-            _cmi_cands_local = st._cmi_cands  # defined only in the conditional_mi branch above
-        except NameError:
-            _cmi_cands_local = None
+        _cmi_cands_local = getattr(st, "_cmi_cands", None)  # set only in the conditional_mi branch above
         _materialise_and_fina_step1_isinstance_cmi_cands(_cmi_cands_local, _name_marg)
         _clean_forms = [(_raw_src_of.get(_nm, frozenset()), _name_marg.get(_nm, 0.0)) for _nm in _all_names if not _gates_of.get(_nm, ())]
 

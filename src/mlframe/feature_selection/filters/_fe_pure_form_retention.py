@@ -158,6 +158,7 @@ def retain_usable_pure_forms(
         # the regression path stays byte-identical (is_clf=False).
         is_clf = bool(infer_classification(y_cont))
         _y_codes: Any = None
+        _clf_classes: Any = None
         if is_clf:
             _clf_classes, _y_codes = np.unique(y_cont, return_inverse=True)
             if _clf_classes.size < 2:
@@ -178,33 +179,14 @@ def retain_usable_pure_forms(
         # pair recoverable. Regression keeps presence-only coverage (byte-identical).
         _CLF_COVER_CORR = 0.20
 
-        def _clf_form_relevant(recipe) -> bool:
-            """Replay ``recipe`` and test whether its values are class-relevant (|point-biserial corr with the class indicator| >= ``_CLF_COVER_CORR``); used to distinguish a genuinely-usable existing pure-pair form from a lossy one that should not count as coverage."""
-            try:
-                from .engineered_recipes import apply_recipe
-                vals = np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel()
-                if vals.shape[0] != len(X):
-                    return False
-                vals = np.nan_to_num(vals, nan=0.0, posinf=0.0, neginf=0.0)
-                pos = (_y_codes == 1).astype(np.float64) if _clf_classes.size == 2 else (_y_codes == int(np.argmax(np.bincount(_y_codes)))).astype(np.float64)
-                u = vals - vals.mean()
-                v = pos - pos.mean()
-                du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
-                if du <= 1e-12 or dv <= 1e-12:
-                    return False
-                return abs(float((u * v).sum()) / (du * dv)) >= _CLF_COVER_CORR
-            except Exception as e:
-                logger.debug("_clf_form_relevant: recipe replay/corr failed for %r, treating as not class-relevant (pair stays recoverable): %s", recipe, e)
-                return False
+        _clf_form_relevant = _retain_usable_pure_f_step1_pair_recoverable_regression(X, _clf_classes, _y_codes, _CLF_COVER_CORR)
 
         covered_pairs: set[Any] = set()
         _retain_usable_pure_existing(existing, is_clf, _clf_form_relevant, covered_pairs)
 
         # Base operands: numeric raw columns only (the usability pool builds pair forms over these).
         # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
-        base_names = _prep["base_names"] if _prep is not None else [
-            nm for nm in list(getattr(mrmr, "feature_names_in_", [])) if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)
-        ]
+        base_names = _retain_usable_pure_f_step2_feature_names_ndarray(_prep, mrmr, X, pd)
         if len(base_names) < 2:
             return []
 
@@ -229,14 +211,7 @@ def retain_usable_pure_forms(
         # cross-mix-vs-pure-pair classification is over genuine raw-operand arity.
         _raw_base_set = set(base_names)
 
-        def _raw_operands(recipe) -> set:
-            """Resolve a recipe's ``src_names`` tokens down to the set of genuine raw base-column names they reference, so multi-step composite expressions (whose src_names are themselves nested formula strings) are classified by raw-operand arity rather than by entry count."""
-            toks = set()
-            for s in getattr(recipe, "src_names", ()) or ():
-                for t in _OPERAND_TOKEN_RE.split(str(s)):
-                    if t in _raw_base_set:
-                        toks.add(t)
-            return toks
+        _raw_operands = _retain_usable_pure_f_step3_cross_mix_vs(_raw_base_set)
 
         has_cross_mix = False
         has_pure_pair = False
@@ -368,60 +343,7 @@ def retain_usable_pure_forms(
         # additive + control + a strongly-nonlinear a**2/b + log(c)*sin(d) target with raw-linear R2=0.10) the MI greedy ALREADY selected the pure pair
         # forms, so the trap pre-check (has_cross_mix OR no-pure-pair) returns [] BEFORE this gate runs and the corr floor never fires (+0 retained at corr in
         # {0.08, 0.05, 0.0}). Bench: _benchmarks/fs_quality/qual23_pure_form_resid_corr.py. Not flipped; re-test on a dataset where the greedy traps a pure pair.
-        def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr):
-            """Gate a candidate pure-pair form: regress it on the additive single-operand basis of both raw operands, and require the residual to be BOTH non-negligible (genuinely non-separable in its operands) AND correlated with the target (the nonlinearity is target-relevant) before treating the form as worth retaining."""
-            try:
-                xa = _f64(_scrub(X_fit[nm_a].to_numpy()))
-                xb = _f64(_scrub(X_fit[nm_b].to_numpy()))
-                fv = _f64(_scrub(np.asarray(form_vals)))
-                if xa.shape[0] != _nrows or fv.shape[0] != _nrows:
-                    return False
-                f_std = float(np.std(fv))
-                if f_std <= 1e-12:
-                    return False
-                # residual of the form after the ADDITIVE single-operand basis of BOTH operands: the part
-                # that is genuinely a JOINT (non-separable) interaction of the two operands.
-                # GATED GPU PATH (MLFRAME_FE_GPU_USABILITY, default OFF): compute the additive-basis
-                # residual on cupy (the SAME 6-fn basis, mean-centered OLS == StandardScaler+LinReg). Any
-                # cupy/device error -> the exact sklearn CPU path. The relevance gate below (_abscorr) is
-                # ULP-sensitive, so this is enabled only on a host the gate-on pytest verified.
-                resid = None
-                if _gpu_usability_on():
-                    try:
-                        from ._usability_gpu import gpu_additive_basis_residual
-                        resid = gpu_additive_basis_residual(fv, xa, xb)
-                    except Exception as e:
-                        logger.debug("gpu_additive_basis_residual failed, falling back to the host residual: %s", e)
-                        resid = None
-                if resid is None:
-                    _pair_key = frozenset((nm_a, nm_b))
-                    Xr_scaled = _basis_cache.get(_pair_key)
-                    if Xr_scaled is None:
-                        Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
-                        Xr_scaled = StandardScaler().fit_transform(Xr)
-                        _basis_cache[_pair_key] = Xr_scaled
-                    lr = LinearRegression().fit(Xr_scaled, fv)
-                    resid = fv - lr.predict(Xr_scaled)
-                # (a) the form must be genuinely NON-separable in its operands (rejects a linear sum AND a
-                #     separable cross-pair sum-of-single-operand-nonlinearities).
-                if float(np.std(resid)) < min_resid_frac * f_std:
-                    return False
-                if is_clf:
-                    # (b') CLASSIFICATION: the relevance of a usable form to the CLASS indicator can live in
-                    # the separable PART (e.g. div(abs(x0),sqrt(x1)) on the quadratic target has whole-form
-                    # point-biserial ~0.47 but a non-separable-residual corr of only ~0.05). Gating on the
-                    # residual corr (the regression discriminator) therefore starves the greedy of the
-                    # genuinely usable form. Use the WHOLE-form point-biserial corr with the class indicator
-                    # for relevance instead - a noise-pair form is ~0 here and still rejected, while the
-                    # CV-logloss greedy is the final commit gate that rejects anything that does not
-                    # generalise. Part (a) non-separability still rejects a trivial linear sum a logistic
-                    # model already builds from the raws.
-                    return _abscorr(fv, _rel_y) >= min_resid_corr
-                # (b) that joint structure must be RELEVANT to y (rejects a non-separable but useless form).
-                return _abscorr(resid, _rel_y) >= min_resid_corr
-            except Exception as e:
-                logger.debug("_adds_nonlinear_value: non-separability gate failed for (%r, %r), rejecting the candidate form: %s", nm_a, nm_b, e)
-                return False
+        _adds_nonlinear_value = _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, StandardScaler, LinearRegression, is_clf, _abscorr, _rel_y)
 
         # Build the candidate pool, then FILTER pair forms by the non-separability gate BEFORE the greedy.
         # The CV-MAE greedy, given the raw pool, prefers a SEPARABLE cross-pair form (it absorbs the CV
@@ -480,6 +402,109 @@ def retain_usable_pure_forms(
     except Exception as e:
         logger.debug("retain_usable_pure_forms: pure-form recovery pass failed, retaining nothing (default selection unaffected): %s", e)
         return []
+
+
+def _retain_usable_pure_f_step1_pair_recoverable_regression(X, _clf_classes, _y_codes, _CLF_COVER_CORR):
+    """Step 1 of retain_usable_pure_forms: lines starting at ``def _clf_form_relevant(recipe) -> bool:``."""
+    def _clf_form_relevant(recipe) -> bool:
+        """Replay ``recipe`` and test whether its values are class-relevant (|point-biserial corr with the class indicator| >= ``_CLF_COVER_CORR``); used to distinguish a genuinely-usable existing pure-pair form from a lossy one that should not count as coverage."""
+        try:
+            from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
+            vals = np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel()
+            if vals.shape[0] != len(X):
+                return False
+            vals = np.nan_to_num(vals, nan=0.0, posinf=0.0, neginf=0.0)
+            pos = (_y_codes == 1).astype(np.float64) if _clf_classes.size == 2 else (_y_codes == int(np.argmax(np.bincount(_y_codes)))).astype(np.float64)
+            u = vals - vals.mean()
+            v = pos - pos.mean()
+            du, dv = float(np.sqrt((u * u).sum())), float(np.sqrt((v * v).sum()))
+            if du <= 1e-12 or dv <= 1e-12:
+                return False
+            return bool(abs(float((u * v).sum()) / (du * dv)) >= _CLF_COVER_CORR)
+        except Exception as e:
+            logger.debug("_clf_form_relevant: recipe replay/corr failed for %r, treating as not class-relevant (pair stays recoverable): %s", recipe, e)
+            return False
+    return _clf_form_relevant
+
+
+def _retain_usable_pure_f_step2_feature_names_ndarray(_prep, mrmr, X, pd):
+    """Step 2 of retain_usable_pure_forms: lines starting at ``base_names = _prep["base_names"] if _prep is not None else [``."""
+    base_names = _prep["base_names"] if _prep is not None else [
+        nm for nm in list(getattr(mrmr, "feature_names_in_", [])) if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)
+    ]
+    return base_names
+
+
+def _retain_usable_pure_f_step3_cross_mix_vs(_raw_base_set):
+    """Step 3 of retain_usable_pure_forms: lines starting at ``def _raw_operands(recipe) -> set:``."""
+    def _raw_operands(recipe) -> set:
+        """Resolve a recipe's ``src_names`` tokens down to the set of genuine raw base-column names they reference, so multi-step composite expressions (whose src_names are themselves nested formula strings) are classified by raw-operand arity rather than by entry count."""
+        toks = set()
+        for s in getattr(recipe, "src_names", ()) or ():
+            for t in _OPERAND_TOKEN_RE.split(str(s)):
+                if t in _raw_base_set:
+                    toks.add(t)
+        return toks
+    return _raw_operands
+
+
+def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, StandardScaler, LinearRegression, is_clf, _abscorr, _rel_y):
+    """Step 4 of retain_usable_pure_forms: lines starting at ``def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_re``."""
+    def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr):
+        """Gate a candidate pure-pair form: regress it on the additive single-operand basis of both raw operands, and require the residual to be BOTH non-negligible (genuinely non-separable in its operands) AND correlated with the target (the nonlinearity is target-relevant) before treating the form as worth retaining."""
+        try:
+            xa = _f64(_scrub(X_fit[nm_a].to_numpy()))
+            xb = _f64(_scrub(X_fit[nm_b].to_numpy()))
+            fv = _f64(_scrub(np.asarray(form_vals)))
+            if xa.shape[0] != _nrows or fv.shape[0] != _nrows:
+                return False
+            f_std = float(np.std(fv))
+            if f_std <= 1e-12:
+                return False
+            # residual of the form after the ADDITIVE single-operand basis of BOTH operands: the part
+            # that is genuinely a JOINT (non-separable) interaction of the two operands.
+            # GATED GPU PATH (MLFRAME_FE_GPU_USABILITY, default OFF): compute the additive-basis
+            # residual on cupy (the SAME 6-fn basis, mean-centered OLS == StandardScaler+LinReg). Any
+            # cupy/device error -> the exact sklearn CPU path. The relevance gate below (_abscorr) is
+            # ULP-sensitive, so this is enabled only on a host the gate-on pytest verified.
+            resid = None
+            if _gpu_usability_on():
+                try:
+                    from mlframe.feature_selection.filters._usability_gpu import gpu_additive_basis_residual
+                    resid = gpu_additive_basis_residual(fv, xa, xb)
+                except Exception as e:
+                    logger.debug("gpu_additive_basis_residual failed, falling back to the host residual: %s", e)
+                    resid = None
+            if resid is None:
+                _pair_key = frozenset((nm_a, nm_b))
+                Xr_scaled = _basis_cache.get(_pair_key)
+                if Xr_scaled is None:
+                    Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
+                    Xr_scaled = StandardScaler().fit_transform(Xr)
+                    _basis_cache[_pair_key] = Xr_scaled
+                lr = LinearRegression().fit(Xr_scaled, fv)
+                resid = fv - lr.predict(Xr_scaled)
+            # (a) the form must be genuinely NON-separable in its operands (rejects a linear sum AND a
+            #     separable cross-pair sum-of-single-operand-nonlinearities).
+            if float(np.std(resid)) < min_resid_frac * f_std:
+                return False
+            if is_clf:
+                # (b') CLASSIFICATION: the relevance of a usable form to the CLASS indicator can live in
+                # the separable PART (e.g. div(abs(x0),sqrt(x1)) on the quadratic target has whole-form
+                # point-biserial ~0.47 but a non-separable-residual corr of only ~0.05). Gating on the
+                # residual corr (the regression discriminator) therefore starves the greedy of the
+                # genuinely usable form. Use the WHOLE-form point-biserial corr with the class indicator
+                # for relevance instead - a noise-pair form is ~0 here and still rejected, while the
+                # CV-logloss greedy is the final commit gate that rejects anything that does not
+                # generalise. Part (a) non-separability still rejects a trivial linear sum a logistic
+                # model already builds from the raws.
+                return _abscorr(fv, _rel_y) >= min_resid_corr
+            # (b) that joint structure must be RELEVANT to y (rejects a non-separable but useless form).
+            return _abscorr(resid, _rel_y) >= min_resid_corr
+        except Exception as e:
+            logger.debug("_adds_nonlinear_value: non-separability gate failed for (%r, %r), rejecting the candidate form: %s", nm_a, nm_b, e)
+            return False
+    return _adds_nonlinear_value
 
 
 def _retain_usable_pure_existing(existing, is_clf, _clf_form_relevant, covered_pairs):

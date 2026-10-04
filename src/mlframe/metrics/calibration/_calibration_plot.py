@@ -710,88 +710,15 @@ def show_calibration_plot(
     else:
         _bar_width = 0.05
 
-    def _resolve_yscale(hits_arr) -> str:
-        """auto -> log iff max/min skew > 100, else linear. Explicit modes pass through."""
-        if prob_histogram_yscale != "auto":
-            return prob_histogram_yscale
-        if len(hits_arr) == 0:
-            return "linear"
-        max_h = float(np.max(hits_arr))
-        min_h = max(float(np.min(hits_arr)), 1.0)
-        return "log" if (max_h / min_h) > 100.0 else "linear"
+    _resolve_yscale = _show_calibration_plo_step1_def_resolve_yscale(prob_histogram_yscale)
 
     if backend == "matplotlib":
         # Function to format hits values with B, M, K suffixes
-        def format_population(n):
-            """Human-readable population count with B/M/K suffix (e.g. 1_500_000 -> "1.5M") for the matplotlib calibration plot's bin-size labels."""
-            if n >= 1e9:
-                return f"{n/1e9:.1f}B"
-            elif n >= 1e6:
-                return f"{n/1e6:.1f}M"
-            elif n >= 1e3:
-                return f"{n/1e3:.1f}K"
-            else:
-                return f"{n:.0f}"
+        format_population = _show_calibration_plo_step1_function_format_hits()
 
-        def _draw_calibration_axes(ax, fig, draw_xlabel: bool, *, cbar_ax=None):
-            """Render the reliability scatter + perfect-calibration line + colorbar on ``ax``.
+        _draw_calibration_axes = _show_calibration_plo_step2_def_draw_calibration(freqs_predicted, freqs_true, hits, label_freq, label_perfect, label_prob, colorbar_label, show_inline_population_labels, format_population)
 
-            ``cbar_ax`` (optional) is the axes list / single ax the
-            colorbar attaches to. When the calibration plot stacks
-            with a histogram below, pass ``[ax_main, ax_hist]`` so the
-            colorbar spans both -- otherwise the colorbar steals
-            horizontal space from only the calibration axes, making
-            the histogram's plot-area visibly wider and breaking the
-            shared-X alignment (2026-04-27 user feedback).
-            """
-            cm = matplotlib.colormaps["RdYlBu"]
-            sc = ax.scatter(
-                x=freqs_predicted, y=freqs_true, marker="o",
-                s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm,
-            )
-            ax.plot(
-                [min(freqs_predicted), max(freqs_predicted)],
-                [min(freqs_predicted), max(freqs_predicted)],
-                "g--", label=label_perfect,
-            )
-            if draw_xlabel:
-                ax.set_xlabel(label_prob)
-            ax.set_ylabel(label_freq)
-            cbar = fig.colorbar(sc, ax=(cbar_ax if cbar_ax is not None else ax))
-            cbar.set_label("Bin population" if colorbar_label is None else colorbar_label)
-            if show_inline_population_labels:
-                vertical_offset = 0.02
-                for x, y, hit in zip(freqs_predicted, freqs_true, hits):
-                    ax.text(
-                        x, y + vertical_offset, format_population(hit),
-                        fontsize=8, ha="right", va="bottom",
-                    )
-
-        def _draw_histogram_axes(ax):
-            """Render the predicted-probability histogram under the calibration axes.
-
-            Bars are coloured by the same ``RdYlBu`` colormap + same
-            normalisation as the top calibration scatter, so the colorbar
-            reads consistently across both subplots: a tall blue bar in
-            the histogram matches the blue scatter bubble at the same X
-            (both encode "this bin is populated").
-            """
-            cm = matplotlib.colormaps["RdYlBu"]
-            # Same normalisation as the scatter (which uses ``c=hits`` and
-            # auto-normalises across the value range). Reproduce that here:
-            _h_min = float(np.min(hits)) if len(hits) else 0.0
-            _h_max = float(np.max(hits)) if len(hits) else 1.0
-            if _h_max <= _h_min:
-                _h_max = _h_min + 1.0
-            _bar_colors = cm((hits - _h_min) / (_h_max - _h_min))
-            ax.bar(
-                freqs_predicted, hits,
-                width=_bar_width, align="center",
-                color=_bar_colors, edgecolor="white", linewidth=0.5,
-            )
-            ax.set_xlabel(label_prob)
-            ax.set_ylabel(label_histogram)
-            ax.set_yscale(_resolve_yscale(hits))
+        _draw_histogram_axes = _show_calibration_plo_step3_def_draw_histogram(hits, freqs_predicted, _bar_width, label_prob, label_histogram, _resolve_yscale)
 
         # Save-only fast path: bypass pyplot + GUI backend (Qt init costs ~1.7s per call).
         # Using Figure + FigureCanvasAgg directly drops this to ~0.2s. Also thread-safe,
@@ -860,6 +787,103 @@ def show_calibration_plot(
         _close_unless_interactive(fig, was_shown=show_plots)
 
     return fig
+
+
+def _show_calibration_plo_step1_function_format_hits():
+    """Step 1 of show_calibration_plot: lines starting at ``def format_population(n):``."""
+    def format_population(n):
+        """Human-readable population count with B/M/K suffix (e.g. 1_500_000 -> "1.5M") for the matplotlib calibration plot's bin-size labels."""
+        if n >= 1e9:
+            return f"{n/1e9:.1f}B"
+        elif n >= 1e6:
+            return f"{n/1e6:.1f}M"
+        elif n >= 1e3:
+            return f"{n/1e3:.1f}K"
+        else:
+            return f"{n:.0f}"
+    return format_population
+
+
+def _show_calibration_plo_step2_def_draw_calibration(freqs_predicted, freqs_true, hits, label_freq, label_perfect, label_prob, colorbar_label, show_inline_population_labels, format_population):
+    """Step 2 of show_calibration_plot: lines starting at ``def _draw_calibration_axes(ax, fig, draw_xlabel: bool, *, cbar_ax=None``."""
+    def _draw_calibration_axes(ax, fig, draw_xlabel: bool, *, cbar_ax=None):
+        """Render the reliability scatter + perfect-calibration line + colorbar on ``ax``.
+
+        ``cbar_ax`` (optional) is the axes list / single ax the
+        colorbar attaches to. When the calibration plot stacks
+        with a histogram below, pass ``[ax_main, ax_hist]`` so the
+        colorbar spans both -- otherwise the colorbar steals
+        horizontal space from only the calibration axes, making
+        the histogram's plot-area visibly wider and breaking the
+        shared-X alignment (2026-04-27 user feedback).
+        """
+        cm = matplotlib.colormaps["RdYlBu"]
+        sc = ax.scatter(
+            x=freqs_predicted, y=freqs_true, marker="o",
+            s=5000 * hits / hits.sum(), c=hits, label=label_freq, cmap=cm,
+        )
+        ax.plot(
+            [min(freqs_predicted), max(freqs_predicted)],
+            [min(freqs_predicted), max(freqs_predicted)],
+            "g--", label=label_perfect,
+        )
+        if draw_xlabel:
+            ax.set_xlabel(label_prob)
+        ax.set_ylabel(label_freq)
+        cbar = fig.colorbar(sc, ax=(cbar_ax if cbar_ax is not None else ax))
+        cbar.set_label("Bin population" if colorbar_label is None else colorbar_label)
+        if show_inline_population_labels:
+            vertical_offset = 0.02
+            for x, y, hit in zip(freqs_predicted, freqs_true, hits):
+                ax.text(
+                    x, y + vertical_offset, format_population(hit),
+                    fontsize=8, ha="right", va="bottom",
+                )
+    return _draw_calibration_axes
+
+
+def _show_calibration_plo_step3_def_draw_histogram(hits, freqs_predicted, _bar_width, label_prob, label_histogram, _resolve_yscale):
+    """Step 3 of show_calibration_plot: lines starting at ``def _draw_histogram_axes(ax):``."""
+    def _draw_histogram_axes(ax):
+        """Render the predicted-probability histogram under the calibration axes.
+
+        Bars are coloured by the same ``RdYlBu`` colormap + same
+        normalisation as the top calibration scatter, so the colorbar
+        reads consistently across both subplots: a tall blue bar in
+        the histogram matches the blue scatter bubble at the same X
+        (both encode "this bin is populated").
+        """
+        cm = matplotlib.colormaps["RdYlBu"]
+        # Same normalisation as the scatter (which uses ``c=hits`` and
+        # auto-normalises across the value range). Reproduce that here:
+        _h_min = float(np.min(hits)) if len(hits) else 0.0
+        _h_max = float(np.max(hits)) if len(hits) else 1.0
+        if _h_max <= _h_min:
+            _h_max = _h_min + 1.0
+        _bar_colors = cm((hits - _h_min) / (_h_max - _h_min))
+        ax.bar(
+            freqs_predicted, hits,
+            width=_bar_width, align="center",
+            color=_bar_colors, edgecolor="white", linewidth=0.5,
+        )
+        ax.set_xlabel(label_prob)
+        ax.set_ylabel(label_histogram)
+        ax.set_yscale(_resolve_yscale(hits))
+    return _draw_histogram_axes
+
+
+def _show_calibration_plo_step1_def_resolve_yscale(prob_histogram_yscale):
+    """Step 1 of show_calibration_plot: lines starting at ``def _resolve_yscale(hits_arr) -> str:``."""
+    def _resolve_yscale(hits_arr) -> str:
+        """auto -> log iff max/min skew > 100, else linear. Explicit modes pass through."""
+        if prob_histogram_yscale != "auto":
+            return prob_histogram_yscale  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
+        if len(hits_arr) == 0:
+            return "linear"
+        max_h = float(np.max(hits_arr))
+        min_h = max(float(np.min(hits_arr)), 1.0)
+        return "log" if (max_h / min_h) > 100.0 else "linear"
+    return _resolve_yscale
 
 
 def _show_calibration_p_plot_outputs_base_path(plot_outputs, base_path, plot_file):

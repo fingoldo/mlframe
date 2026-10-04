@@ -271,7 +271,10 @@ def _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, 
                 st.i = _score_one_pair_transformations_pair_combs(st.combs, vars_transformations, _PREWARP_UNARY, _name_list, _a_cols, _b_cols, _ops, _op_code_arr, _gpu_cands, st.i)
                 _K = st.i
                 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
-                _batch_candidates, _disc_2d, _gpu_fused_done = _score_one_pair_fe_gpu_binning_enabled(_K, _fe_gpu_binning_enabled, final_transformed_vals, quantization_nbins, quantization_dtype, transformed_vars, _a_cols, _b_cols, _ops, _gpu_cands, _name_list, st._local_times, _batch_candidates, _disc_2d, _gpu_fused_done)
+                _batch_candidates, _disc_2d, _gpu_fused_done, _defer_meta = _score_one_pair_fe_gpu_binning_enabled(_K, _fe_gpu_binning_enabled, final_transformed_vals, quantization_nbins, quantization_dtype, transformed_vars, _a_cols, _b_cols, _ops, _gpu_cands, _name_list, st._local_times, _batch_candidates, _disc_2d, _gpu_fused_done, st._fe_defer_float)
+                if _defer_meta is not None:
+                    # same keys the chunk path keeps in ``chunk_state``: the operand table is uploaded once and resolved columns are cached
+                    st._pair_defer_state = {"defer_meta": _defer_meta, "tv_gpu": None, "resolved_cols": {}}
         except Exception:
             logger.debug("FE per-pair GPU fused materialise+bin failed; CPU materialise", exc_info=True)
             _gpu_fused_done = False
@@ -296,7 +299,8 @@ def _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, 
             # analytic dispatch (GPU binning == CPU discretize, maxdiff 0; GPU observed-MI == CPU,
             # maxdiff 0; same analytic chi2 gate), so the FE selection is identical. Returns None for
             # the non-analytic branch (SU / sparse / small-n) -> falls through to the CPU dispatch.
-            _fe_mi_arr = _score_one_pair_non_analytic_branch_su(_fe_gpu_discretize_enabled, final_transformed_vals, st.i, quantization_nbins, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, _fe_mi_arr)
+            # a deferred pair has no host float matrix to hand the GPU pair-MI path; its resident codes go to the noise gate below
+            _fe_mi_arr = None if st._pair_defer_state is not None else _score_one_pair_non_analytic_branch_su(_fe_gpu_discretize_enabled, final_transformed_vals, st.i, quantization_nbins, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, _fe_mi_arr)
             _disc_2d = _score_one_pair_fe_mi_arr_none(_fe_mi_arr, _disc_2d, final_transformed_vals, st.i, quantization_nbins, _code_dtype, discretize_2d_quantile_batch, serial_main_thread)
 
             # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate

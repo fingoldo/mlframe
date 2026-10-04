@@ -82,6 +82,7 @@ from ._reporting_probabilistic_helpers import (  # noqa: F401  -- carved helpers
     _report_probabilist_subgroups,
     _predict_probs_if_missing,
 )
+from types import SimpleNamespace as _SimpleNamespace
 
 
 def _resolve_class_label(class_id: int, class_name: Any, target_label_encoder: Any) -> str:
@@ -217,8 +218,8 @@ def report_probabilistic_model_perf(
     tuple
         (preds, probs) - class predictions and probability arrays.
     """
-    y_true: Any = None
-    _pos_label: Any = None
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    st._pos_label = None
     probs = _predict_probs_if_missing(probs, model, df)
 
     preds, probs = _report_probabilist_preds_none(preds, targets, probs, multilabel_dispatch_config, model)
@@ -226,13 +227,13 @@ def report_probabilistic_model_perf(
     if isinstance(targets, pd.Series):
         targets = targets.values
 
-    brs = []
-    calibs = []
-    pr_aucs = []
-    roc_aucs = []
-    integral_errors = []
-    log_losses = []
-    robust_integral_errors = []
+    brs: list[Any] = []
+    calibs: list[Any] = []
+    pr_aucs: list[Any] = []
+    roc_aucs: list[Any] = []
+    integral_errors: list[Any] = []
+    log_losses: list[Any] = []
+    robust_integral_errors: list[Any] = []
 
     # Detect multilabel from 2-D target shape. Each
     # column is an independent binary label; the per-class loop below uses
@@ -244,27 +245,27 @@ def report_probabilistic_model_perf(
     # Extracted to ``_canonical_multilabel_y`` helper so the
     # new ``mlframe.training.dummy_baselines`` module can reuse the same
     # canonicalization logic without duplication.
-    targets_arr = _canonical_multilabel_y(targets)
-    targets = targets_arr  # rebind so downstream uses the stacked form
-    is_multilabel = targets_arr.ndim == 2
+    st.targets_arr = _canonical_multilabel_y(targets)
+    targets = st.targets_arr  # rebind so downstream uses the stacked form
+    st.is_multilabel = st.targets_arr.ndim == 2
 
     # Single full-(N,K) ICE call. return_per_class=True surfaces the per-class ICE vector the
     # batched kernel already computes, so the per-class loop INDEXes it instead of recomputing
     # each 1-D column (bit-identical); a metric without the kwarg falls back to the scalar form.
-    integral_error = 0.0
-    _per_class_ice: dict | None = None
-    _per_class_ice, integral_error = _report_probabilist_each_column_bit_identical(custom_ice_metric, targets, probs, _per_class_ice, integral_error)
-    robust_integral_error = None
+    st.integral_error = 0.0
+    st._per_class_ice = None
+    st._per_class_ice, st.integral_error = _report_probabilist_each_column_bit_identical(custom_ice_metric, targets, probs, st._per_class_ice, st.integral_error)
+    st.robust_integral_error = None
     if custom_rice_metric and custom_rice_metric != custom_ice_metric:
-        robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
+        st.robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
 
     # Explicit None/empty check instead of `if not classes:` -- the bare-truthiness form crashes with
     # "truth value of an array with more than one element is ambiguous" for any ndarray `classes` with
     # >=2 elements, a case the function's own type hint (Sequence | np.ndarray | None) documents as supported.
-    classes = _report_probabilist_elements_case_function_own(classes, is_multilabel, targets_arr, model, targets, target_label_encoder)
+    classes = _report_probabilist_elements_case_function_own(classes, st.is_multilabel, st.targets_arr, model, targets, target_label_encoder)
 
-    if _per_class_ice is not None and not is_multilabel and not _labels_are_arange(classes, probs):
-        _per_class_ice = None  # non-0-indexed labels -> kernel column index != class label
+    if st._per_class_ice is not None and not st.is_multilabel and not _labels_are_arange(classes, probs):
+        st._per_class_ice = None  # non-0-indexed labels -> kernel column index != class label
 
     # GPU batch-AUC fastpath: when the suite has many classes (multiclass /
     # multilabel) and the row count is large enough, compute all K
@@ -275,26 +276,84 @@ def report_probabilistic_model_perf(
     # Only valid when group_ids is None (per-group AUCs need the full
     # function path). Empirical wins documented in ``bench_gpu_metrics.py``:
     # at N=1M K=20 PR AUC alone, GPU = 170 ms vs CPU loop = 2016 ms.
-    _precomputed_aucs_per_class: list[tuple[float, float] | None] | None = None
-    _precomputed_aucs_per_class = _report_probabilist_pr_auc_alone_gpu(group_ids, classes, is_multilabel, targets_arr, probs, targets, _precomputed_aucs_per_class)
+    st._precomputed_aucs_per_class = None
+    st._precomputed_aucs_per_class = _report_probabilist_pr_auc_alone_gpu(group_ids, classes, st.is_multilabel, st.targets_arr, probs, targets, st._precomputed_aucs_per_class)
 
     # DSL render spec for the reliability diagram. Default ON when the caller
     # supplies plot_outputs (e.g. "png,html" from ReportingConfig.plot_outputs);
     # routes every class's chart through build_calibration_spec so plotly HTML is
     # produced for the single most important classification chart, not just PNG.
-    _plot_outputs_dsl = plot_outputs if plot_outputs else None
+    st._plot_outputs_dsl = plot_outputs if plot_outputs else None
 
-    true_classes = []
+    st.true_classes = []
+    _report_probabilistic_step1_produced_single_most(classes, target_label_encoder, st, targets, probs, report_title, model_name, custom_ice_metric, n_features, columns, custom_rice_metric, calib_report_ndigits, plot_file, use_weights, nbins, group_ids, figsize, show_perf_chart, verbose, show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, plot_dpi, reliability_smoothed, title_metrics_tokens, f1_opt_threshold, tune_f1_threshold, metrics, calibration_binning, reliability_show_ci, print_report, calibs, pr_aucs, report_ndigits, roc_aucs, brs, integral_errors, log_losses, robust_integral_errors)
+
+    # 2026-05-28 audit batch: post-loop macro / weighted aggregation across
+    # classes. The per-class loop above stamped each class's KS / MCC / F1 /
+    # BSS / HL / AccuracyRatio / ROC_AUC / log_loss / ... but provided no
+    # single scalar to compare two multiclass models. We compute:
+    #   macro_<m>    = mean of class-m across classes (equal weight)
+    #   weighted_<m> = mean weighted by class true-support (prevalence)
+    # for every scalar emitted under per-class dicts. NaN-safe: a class
+    # whose metric is NaN (e.g. AUC on a single-class slice) is dropped
+    # from the macro mean and its support excluded from the weighted denom.
+    # Skipped entirely on binary (single positive class, aggregation
+    # collapses to the per-class value itself - no new information).
+    _report_probabilist_collapses_per_class_value(metrics, st.is_multilabel, classes, targets)
+
+    # Registered single-label classification scalars (quadratic_weighted_kappa / weighted_kappa /
+    # exploss from metrics_registry). Mirrors the multilabel dispatch below, but lands the values in
+    # the metrics dict so the suite reports them automatically for binary/multiclass targets. Each
+    # metric is isolated by iter_extra_metrics' own narrow try/except, so a degenerate class slice
+    # omits only that row (logged) rather than poisoning the report.
+    _report_probabilist_omits_only_row_logged(st.is_multilabel, probs, print_report, metrics, targets, preds, report_ndigits)
+
+    _report_probabilistic_step2_omits_only_row(print_report, st, targets, preds, classes, report_ndigits, report_title, model_name, roc_aucs, pr_aucs, calibs, brs, log_losses, integral_errors, custom_ice_metric, custom_rice_metric, robust_integral_errors, probs)
+
+    # Binary positive-class indicator (0/1) for the fairness + calibration-chart paths.
+    # Those consumers (fast_roc_auc, ECE binning) assume y_true is a 0/1 indicator;
+    # the raw ``targets`` may carry non-0/1 binary labels (e.g. {1,2} or strings),
+    # which silently inverts / NaNs the AUC and corrupts ECE base rates. Map once to
+    # the positive class (column 1 of probs == classes[1] by sklearn convention).
+    st._y_true_pos_bin = None
+    if probs is not None and probs.shape[1] == 2:
+        st._pos_label = classes[1] if classes is not None and len(classes) > 1 else 1
+        st._y_true_pos_bin = (np.asarray(targets) == st._pos_label).astype(np.int8)
+
+    _report_probabilist_subgroups(subgroups, custom_ice_metric, probs, st._pos_label, subset_index, targets, print_report, metrics, fairness_calibration_charts, plot_file, st._y_true_pos_bin, plot_outputs)
+
+    # Per-feature calibration: a pooled reliability curve can hide miscalibration that varies with a continuous
+    # feature (calibrated for low values, overconfident for high). Render reliability+ECE conditioned on the
+    # top-importance feature(s) for binary targets. Default-ON when charts are saved AND a feature frame is present.
+    if calibration_by_feature_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
+        _render_calibration_by_feature(
+            df=df, columns=columns, model=model, y_true=st._y_true_pos_bin, pos_score=probs[:, 1],
+            plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
+        )
+
+    # 2D calibration heatmap: a miscalibration pocket may surface only at a joint corner of the TOP-2 features (high f0
+    # AND high f1) that either 1D per-feature view averages away. Render the ECE grid for the top-2-importance pair.
+    if calibration_heatmap_2d_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
+        _render_calibration_heatmap_2d(
+            df=df, columns=columns, model=model, y_true=st._y_true_pos_bin, pos_score=probs[:, 1],
+            plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
+        )
+
+    return preds, probs
+
+
+def _report_probabilistic_step1_produced_single_most(classes, target_label_encoder, st, targets, probs, report_title, model_name, custom_ice_metric, n_features, columns, custom_rice_metric, calib_report_ndigits, plot_file, use_weights, nbins, group_ids, figsize, show_perf_chart, verbose, show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, plot_dpi, reliability_smoothed, title_metrics_tokens, f1_opt_threshold, tune_f1_threshold, metrics, calibration_binning, reliability_show_ci, print_report, calibs, pr_aucs, report_ndigits, roc_aucs, brs, integral_errors, log_losses, robust_integral_errors):
+    """Step 1 of report_probabilistic_model_perf: lines starting at ``for class_id, class_name in enumerate(classes):``."""
     for class_id, class_name in enumerate(classes):
         str_class_name = _resolve_class_label(class_id, class_name, target_label_encoder)
-        true_classes.append(str_class_name)
+        st.true_classes.append(str_class_name)
 
         # Multilabel: never skip class_id=0; every column is an independent label.
-        if not is_multilabel and len(classes) == 2 and class_id == 0:
+        if not st.is_multilabel and len(classes) == 2 and class_id == 0:
             continue
 
-        if is_multilabel:
-            y_true = targets_arr[:, class_id]
+        if st.is_multilabel:
+            y_true = st.targets_arr[:, class_id]
         else:
             y_true = targets == class_name
         y_score = probs[:, class_id]
@@ -307,8 +366,8 @@ def report_probabilistic_model_perf(
 
         # Reuse the per-class ICE the batched kernel already produced in the single full-(N,K)
         # call (keyed by class_id); bit-identical. Recompute only when it's unavailable.
-        if _per_class_ice is not None and class_id in _per_class_ice:
-            class_integral_error = _per_class_ice[class_id]
+        if st._per_class_ice is not None and class_id in st._per_class_ice:
+            class_integral_error = st._per_class_ice[class_id]
         else:
             class_integral_error = custom_ice_metric(y_true=y_true, y_score=y_score) if custom_ice_metric else 0.0
         n_cols = n_features if n_features is not None else (len(columns) if columns is not None and len(columns) > 0 else 0)
@@ -365,8 +424,8 @@ def report_probabilistic_model_perf(
         # fast_calibration_report routes the reliability diagram through
         # build_calibration_spec (matplotlib PNG + plotly HTML + any future
         # backend) instead of the matplotlib-only legacy plotter.
-        if _plot_outputs_dsl and _class_base_path:
-            _fcr_kwargs["plot_outputs"] = _plot_outputs_dsl
+        if st._plot_outputs_dsl and _class_base_path:
+            _fcr_kwargs["plot_outputs"] = st._plot_outputs_dsl
             _fcr_kwargs["base_path"] = _class_base_path
         if title_metrics_tokens is not None:
             _fcr_kwargs["title_metrics_tokens"] = title_metrics_tokens
@@ -382,8 +441,8 @@ def report_probabilistic_model_perf(
         # Inject precomputed (roc, pr) for THIS class id when the batched GPU/CPU fastpath ran above; fast_calibration_report then skips its own
         # ``fast_aucs_per_group_optimized`` call. Multilabel and multiclass matrices have K columns indexed by class_id; the binary matrix has ONE
         # column (we only get here for class_id=1), indexed at 0.
-        if _precomputed_aucs_per_class is not None:
-            _fcr_kwargs["_precomputed_aucs"] = _precomputed_aucs_per_class[0 if (not is_multilabel and len(classes) == 2) else class_id]
+        if st._precomputed_aucs_per_class is not None:
+            _fcr_kwargs["_precomputed_aucs"] = st._precomputed_aucs_per_class[0 if (not st.is_multilabel and len(classes) == 2) else class_id]
 
         with phase("fast_calibration_report", class_id=str_class_name, n_rows=len(y_true)):
             (
@@ -442,26 +501,9 @@ def report_probabilistic_model_perf(
 
             metrics.update({class_id: class_metrics})
 
-    # 2026-05-28 audit batch: post-loop macro / weighted aggregation across
-    # classes. The per-class loop above stamped each class's KS / MCC / F1 /
-    # BSS / HL / AccuracyRatio / ROC_AUC / log_loss / ... but provided no
-    # single scalar to compare two multiclass models. We compute:
-    #   macro_<m>    = mean of class-m across classes (equal weight)
-    #   weighted_<m> = mean weighted by class true-support (prevalence)
-    # for every scalar emitted under per-class dicts. NaN-safe: a class
-    # whose metric is NaN (e.g. AUC on a single-class slice) is dropped
-    # from the macro mean and its support excluded from the weighted denom.
-    # Skipped entirely on binary (single positive class, aggregation
-    # collapses to the per-class value itself - no new information).
-    _report_probabilist_collapses_per_class_value(metrics, is_multilabel, classes, targets)
 
-    # Registered single-label classification scalars (quadratic_weighted_kappa / weighted_kappa /
-    # exploss from metrics_registry). Mirrors the multilabel dispatch below, but lands the values in
-    # the metrics dict so the suite reports them automatically for binary/multiclass targets. Each
-    # metric is isolated by iter_extra_metrics' own narrow try/except, so a degenerate class slice
-    # omits only that row (logged) rather than poisoning the report.
-    _report_probabilist_omits_only_row_logged(is_multilabel, probs, print_report, metrics, targets, preds, report_ndigits)
-
+def _report_probabilistic_step2_omits_only_row(print_report, st, targets, preds, classes, report_ndigits, report_title, model_name, roc_aucs, pr_aucs, calibs, brs, log_losses, integral_errors, custom_ice_metric, custom_rice_metric, robust_integral_errors, probs):
+    """Step 2 of report_probabilistic_model_perf: lines starting at ``if print_report and logger.isEnabledFor(logging.INFO):``."""
     if print_report and logger.isEnabledFor(logging.INFO):
         # Logger.isEnabledFor gate: when verbose=0 / file handler filters out
         # INFO, the multilabel branch below would still pay sklearn's
@@ -481,7 +523,7 @@ def report_probabilistic_model_perf(
         # njit version computes the same numbers in ~1ms warm and formats
         # to the identical text shape.
         _cls_report_text = ""
-        _cls_report_text = _report_probabilist_identical_text_shape(is_multilabel, targets, preds, classes, true_classes, report_ndigits, _cls_report_text)
+        _cls_report_text = _report_probabilist_identical_text_shape(st.is_multilabel, targets, preds, classes, st.true_classes, report_ndigits, _cls_report_text)
         _report_lines = [
             report_title + " " + model_name,
             _cls_report_text,
@@ -496,9 +538,9 @@ def report_probabilistic_model_perf(
             _report_lines.append(f"RICEs: \n\t{', '.join(robust_integral_errors)}")
         logger.info("\n".join(_report_lines))
 
-        logger.info("TOTAL INTEGRAL ERROR: %.4f", integral_error)
-        if robust_integral_error is not None:
-            logger.info("TOTAL ROBUST INTEGRAL ERROR: %.4f", robust_integral_error)
+        logger.info("TOTAL INTEGRAL ERROR: %.4f", st.integral_error)
+        if st.robust_integral_error is not None:
+            logger.info("TOTAL ROBUST INTEGRAL ERROR: %.4f", st.robust_integral_error)
 
         # Pluggable multi-output metrics registry.
         # Dispatches hamming_loss / subset_accuracy / jaccard_score_multilabel
@@ -508,37 +550,6 @@ def report_probabilistic_model_perf(
         # ``register_metric(target_type, name, fn)`` -- no code change to
         # this report function required.
         _report_probabilist_report_function_required(targets, probs, preds, report_ndigits)
-
-    # Binary positive-class indicator (0/1) for the fairness + calibration-chart paths.
-    # Those consumers (fast_roc_auc, ECE binning) assume y_true is a 0/1 indicator;
-    # the raw ``targets`` may carry non-0/1 binary labels (e.g. {1,2} or strings),
-    # which silently inverts / NaNs the AUC and corrupts ECE base rates. Map once to
-    # the positive class (column 1 of probs == classes[1] by sklearn convention).
-    _y_true_pos_bin = None
-    if probs is not None and probs.shape[1] == 2:
-        _pos_label = classes[1] if classes is not None and len(classes) > 1 else 1
-        _y_true_pos_bin = (np.asarray(targets) == _pos_label).astype(np.int8)
-
-    _report_probabilist_subgroups(subgroups, custom_ice_metric, probs, _pos_label, subset_index, targets, print_report, metrics, fairness_calibration_charts, plot_file, _y_true_pos_bin, plot_outputs)
-
-    # Per-feature calibration: a pooled reliability curve can hide miscalibration that varies with a continuous
-    # feature (calibrated for low values, overconfident for high). Render reliability+ECE conditioned on the
-    # top-importance feature(s) for binary targets. Default-ON when charts are saved AND a feature frame is present.
-    if calibration_by_feature_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
-        _render_calibration_by_feature(
-            df=df, columns=columns, model=model, y_true=_y_true_pos_bin, pos_score=probs[:, 1],
-            plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
-        )
-
-    # 2D calibration heatmap: a miscalibration pocket may surface only at a joint corner of the TOP-2 features (high f0
-    # AND high f1) that either 1D per-feature view averages away. Render the ECE grid for the top-2-importance pair.
-    if calibration_heatmap_2d_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
-        _render_calibration_heatmap_2d(
-            df=df, columns=columns, model=model, y_true=_y_true_pos_bin, pos_score=probs[:, 1],
-            plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
-        )
-
-    return preds, probs
 
 
 # calibration/fairness render helpers carved to _reporting_probabilistic_calib.py (1k-LOC ceiling).

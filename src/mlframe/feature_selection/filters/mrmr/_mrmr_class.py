@@ -70,7 +70,7 @@ from .._mrmr_fingerprints import (
     _mrmr_identity_cache_key,
     _mrmr_y_corr_sample,
     _mrmr_y_corr,
-    _hashable_params_signature,
+    _hashable_params_signature,  # noqa: F401  -- re-exported through the package
     _MRMR_IDENTITY_FP_CACHE,
     _MRMR_IDENTITY_FP_LOCK,
 )
@@ -109,7 +109,7 @@ from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
 from .._fourier_detect_cap import clear_fourier_detect_cap, set_fourier_detect_cap
 from .._mrmr_validate_transform import transform as _mrmr_transform_impl
 from mlframe.feature_selection.filters.info_theory.shared import set_group_mi as _set_group_mi
-from mlframe.feature_selection.filters.info_theory.shared import prepare_group_segments as _prepare_group_segments
+from mlframe.feature_selection.filters.info_theory.shared import prepare_group_segments as _prepare_group_segments  # noqa: F401  -- kept importable here
 from ..info_theory import (
     set_su_normalization,
     set_jmim_aggregator,
@@ -130,7 +130,8 @@ from ..info_theory import (
     get_cmi_perm_stop,
     get_cpt_test,
 )
-from mlframe.training.provenance import record_provenance as _record_provenance
+from mlframe.training.provenance import record_provenance as _record_provenance  # noqa: F401  -- kept importable here
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -3422,7 +3423,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
 
         Cross-target identity cache. When a prior fit on the SAME X (same columns + same dtypes) produced an identity result (all input columns selected + zero engineered features), subsequent calls with a different y short-circuit the 80+ min FE pipeline and return identity-equivalent output. Opt-in via ``mrmr_skip_when_prior_was_identity=True``.
         """
-        _prior_y_sample: Any = None
+        st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+        st._prior_y_sample = None
         self._fit_body_getattr_self_partial_fit()
         # Row-count guard, first thing: no length-validation existed anywhere before the MI/screening pipeline, so a mismatched (X, y) reached numba-njit
         # kernels (bounds checking compiled OUT for speed) with an out-of-bounds row index instead of a Python exception. Off the JIT-disabled fallback path
@@ -3434,8 +3436,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # LazyFrame, absent on pandas/polars-eager/ndarray) so this guard skips it without a hard polars import (polars stays an optional dependency throughout
         # this module). The auto-collect step downstream turns it into an eager frame, and the row-count check still fires there (this guard's whole point --
         # reaching the mismatch as a clean ValueError before any njit kernel -- is preserved, just deferred to after collection).
-        _is_lazyframe = hasattr(X, "collect") and not hasattr(X, "shape")
-        if _is_lazyframe:
+        st._is_lazyframe = hasattr(X, "collect") and not hasattr(X, "shape")
+        if st._is_lazyframe:
             _n_rows_X = None
         else:
             _n_rows_X = X.shape[0] if hasattr(X, "shape") else len(X)
@@ -3465,13 +3467,13 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # budget fraction means fewer candidates proposed for that family this fit. Snapshot the
         # ORIGINAL ctor values first (restored in the ``finally`` block below) so a crashing fit
         # never leaves the instance with a scaled-down quota baked in for a later ``get_params()``.
-        _fe_budget_quota_snapshot: dict[str, int] = {}
-        _fe_budget_setting = getattr(self, "fe_budget_learning", False)
-        _fe_budget_learning_effective = bool(_fe_budget_setting)
-        _fe_loaded_budgets: Optional[dict[str, float]] = None
-        _fe_budget_learning_effective, _fe_loaded_budgets = self._fit_body_isinstance_fe_budget_setting(_fe_budget_setting, X, _fe_budget_learning_effective, _fe_loaded_budgets)
-        if _fe_budget_learning_effective:
-            apply_learned_fe_budgets(self, X, _fe_loaded_budgets, _fe_budget_quota_snapshot)
+        st._fe_budget_quota_snapshot = {}
+        st._fe_budget_setting = getattr(self, "fe_budget_learning", False)
+        st._fe_budget_learning_effective = bool(st._fe_budget_setting)
+        st._fe_loaded_budgets = None
+        st._fe_budget_learning_effective, st._fe_loaded_budgets = self._fit_body_isinstance_fe_budget_setting(st._fe_budget_setting, X, st._fe_budget_learning_effective, st._fe_loaded_budgets)
+        if st._fe_budget_learning_effective:
+            apply_learned_fe_budgets(self, X, st._fe_loaded_budgets, st._fe_budget_quota_snapshot)
         self._check_groups_contract(groups)
         self._pandas_frame_for_target_cleanup = None
         self._target_names_for_cleanup = None
@@ -3521,8 +3523,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # degrades relevance numbers. Skip the check on object-dtype y
         # (categorical labels) where np.isnan would raise; numeric / float /
         # int paths get validated.
-        _y_check = np.asarray(y)
-        self._fit_body_int_paths_get_validated(_y_check)
+        st._y_check = np.asarray(y)
+        self._fit_body_int_paths_get_validated(st._y_check)
 
         # Multi-output (2D y) opt-in. MRMR's merged-target greedy under-selects the 2nd genuine feature on a 2D y (the lazy confirmation step
         # drops it even though per-column MI is high), so fit one single-target selector per output column (the correct 1D path) and aggregate.
@@ -3548,7 +3550,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         record_degenerate_column_audit(self, X)
 
         # #2 cross-target identity cache.
-        _identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
+        st._identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
         _include_y = bool(getattr(self, "mrmr_identity_cache_include_y", False))
         # Suite caller (train_mlframe_models_suite) can inject a ctx-scoped dict here via
         # ``_mlframe_identity_cache_override_`` so cache lifetime is bounded by the suite
@@ -3556,37 +3558,37 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # cross-suite reuse (CI matrices opt in via mrmr_identity_cache_scope="process").
         # Entries are legacy bool OR (is_id, prior_y_sample) tuples (see the store below); the module-level
         # dict is declared dict[str, bool] for its legacy shape, so widen the local view to match actual usage.
-        _cache_dict: Optional[dict] = getattr(self, "_mlframe_identity_cache_override_", None)
-        if _cache_dict is None:
-            _cache_dict = cast(dict, _MRMR_IDENTITY_FP_CACHE)
-        _x_fp = None
-        if _identity_skip:
+        st._cache_dict = getattr(self, "_mlframe_identity_cache_override_", None)
+        if st._cache_dict is None:
+            st._cache_dict = cast(dict, _MRMR_IDENTITY_FP_CACHE)
+        st._x_fp = None
+        if st._identity_skip:
             # Covers X, y (when ``mrmr_identity_cache_include_y``) and this selector's params. Read, store and the self-refit check below all
             # use this one key.
-            _x_fp = _mrmr_identity_cache_key(self, X, y)
+            st._x_fp = _mrmr_identity_cache_key(self, X, y)
             with _MRMR_IDENTITY_FP_LOCK:
-                _prior_entry = _cache_dict.get(_x_fp)
+                _prior_entry = st._cache_dict.get(st._x_fp)
             # Entry is either a legacy bool or the (is_id, prior_y_sample) tuple stored below.
             if isinstance(_prior_entry, tuple):
-                _prior_was_identity, _prior_y_sample = _prior_entry
+                _prior_was_identity, st._prior_y_sample = _prior_entry
             else:
-                _prior_was_identity, _prior_y_sample = _prior_entry, None
+                _prior_was_identity, st._prior_y_sample = _prior_entry, None
             # A refit of this SAME instance on the exact (X, y) pair that produced this cache entry
             # is not a cross-target reuse - it's a self-refit, which _fit_impl's own signature /
             # _FIT_CACHE shortcuts already handle precisely (replaying the TRUE fitted support_ order
             # and mrmr_gains_). Taking the coarse identity-shortcut here instead would silently replace
             # the real MI-ranked selection order with raw arange(n_cols) and zero out mrmr_gains_/
             # provenance_ - caught live via a bit-identical-refit regression test.
-            _is_self_refit = _x_fp == getattr(self, "_own_last_identity_fp_", None)
+            _is_self_refit = st._x_fp == getattr(self, "_own_last_identity_fp_", None)
             if _prior_was_identity is True and not _is_self_refit:
                 _ycorr_thr = float(getattr(self, "mrmr_identity_cache_ycorr_threshold", 0.0) or 0.0)
                 _ycorr_ok = True
                 _measured_corr = None
-                _measured_corr, _ycorr_ok = self._fit_body_ycorr_thr(_ycorr_thr, _prior_y_sample, y, _measured_corr, _ycorr_ok)
+                _measured_corr, _ycorr_ok = self._fit_body_ycorr_thr(_ycorr_thr, st._prior_y_sample, y, _measured_corr, _ycorr_ok)
                 if _ycorr_ok:
                     logger.info(
                         "[MRMR] cross-target identity cache HIT for X fingerprint=%s (y-corr=%s, thr=%.3g) -- " "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
-                        _x_fp,
+                        st._x_fp,
                         ("%.3f" % _measured_corr) if _measured_corr is not None else "n/a",
                         _ycorr_thr,
                     )
@@ -3596,7 +3598,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                     return self
                 logger.info(
                     "[MRMR] cross-target identity cache candidate REFUSED for X fingerprint=%s: " "|y-corr|=%.3f < threshold %.3g; running a full fit for this distinct target.",
-                    _x_fp,
+                    st._x_fp,
                     abs(_measured_corr) if _measured_corr is not None else float("nan"),
                     _ycorr_thr,
                 )
@@ -3650,8 +3652,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # data-derived survivors BEFORE the super-linear MRMR machinery. Fastest-default dispatch, not opt-in.
         # Subsetting X to survivor columns (pandas/polars/numpy) keeps the rest of fit unchanged; the screen
         # is best-effort - any failure falls through to the full path.
-        _sis_input_space_info = None
-        X, _sis_input_space_info = self._fit_body_best_effort_any_failure(X, y, _sis_input_space_info)
+        st._sis_input_space_info = None
+        X, st._sis_input_space_info = self._fit_body_best_effort_any_failure(X, y, st._sis_input_space_info)
 
         if isinstance(X, pd.DataFrame):
             X = X.copy(deep=False)
@@ -3713,8 +3715,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
             raise ValueError(f"MRMR.mi_normalization must be 'none' or 'su'; got {_mi_norm!r}.")
-        _prev_su = _mi_norm == "su"
-        set_su_normalization(_prev_su)
+        st._prev_su = _mi_norm == "su"
+        set_su_normalization(st._prev_su)
         # activate JMIM aggregator + BUR weight thread-locals.
         # Both default OFF (redundancy_aggregator=None, bur_lambda=0.0) so the
         # legacy Fleuret path stays bit-stable.
@@ -3723,10 +3725,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # A typo (e.g. 'JMIM', 'jimm') would otherwise silently fall through to plain Fleuret with no signal
             # that the requested aggregator was ignored - fail loudly instead.
             _restore_toggles_snapshot_and_raise(ValueError(f"redundancy_aggregator must be one of None, 'jmim', 'auto'; got {_redundancy_agg!r}."))
-        _jmim_on = self._fit_body_requested_aggregator_was_ignored(_redundancy_agg, X, y)
-        _bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
-        set_jmim_aggregator(_jmim_on)
-        set_bur_lambda(_bur_lambda)
+        st._jmim_on = self._fit_body_requested_aggregator_was_ignored(_redundancy_agg, X, y)
+        st._bur_lambda = float(getattr(self, "bur_lambda", 0.0) or 0.0)
+        set_jmim_aggregator(st._jmim_on)
+        set_bur_lambda(st._bur_lambda)
         # Miller-Madow / Chao-Shen relevance-MI bias correction. Both subtract/re-estimate away the plug-in
         # estimator's finite-sample bias from the OBSERVED relevance so high-cardinality noise no longer
         # out-ranks low-cardinality true signal at small n. Default 'none' keeps the legacy plug-in
@@ -3734,42 +3736,17 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # was previously an accepted-but-silently-ignored value (degraded to plug-in with a warning); it is
         # now fully wired into both the observed-relevance and permutation-null paths, mirroring
         # Miller-Madow's wiring exactly (see compute_relevance_score / mi_or_su_from_classes).
-        _mi_corr = getattr(self, "mi_correction", "none")
-        _mm_on = _mi_corr == "miller_madow"
-        _cs_on = _mi_corr == "chao_shen"
-        set_mi_miller_madow(_mm_on)
-        set_mi_chao_shen(_cs_on)
+        st._mi_corr = getattr(self, "mi_correction", "none")
+        st._mm_on = st._mi_corr == "miller_madow"
+        st._cs_on = st._mi_corr == "chao_shen"
+        set_mi_miller_madow(st._mm_on)
+        set_mi_chao_shen(st._cs_on)
         # Group-aware relevance MI: per-group I(X;Y|G) so a between-group-level feature (high global MI, ~0 within-group)
         # is demoted. Row resampling under non-uniform sample_weight reshuffles X but not groups, so restrict to the
         # no-resample case (sample_weight is None); otherwise disable with a warning rather than mis-assign rows.
-        _gmi_payload = None
-        if getattr(self, "group_aware_mi", False) and groups is not None:
-            _g_arr = np.asarray(groups)
-            _n_rows = X.shape[0] if hasattr(X, "shape") else len(X)
-            # 09_error_messages_ux.md: a groups-length mismatch is almost certainly a caller bug (wrong
-            # array passed, stale groups from a differently-shaped prior call), not a "gracefully degrade
-            # and move on" situation - raise instead of silently disabling group-aware MI for the fit.
-            if _g_arr.shape[0] != _n_rows:
-                _restore_toggles_snapshot_and_raise(ValueError(f"MRMR.fit: groups length {_g_arr.shape[0]} != X rows {_n_rows}; groups must have one entry per row of X."))
-            if sample_weight is not None:
-                # 09_error_messages_ux.md: this is functionally identical to the ``groups``-ignored
-                # situation (line ~3014's ``warnings.warn(UserWarning)``) - an on-by-request feature
-                # silently disabled for the fit - so it uses the SAME guaranteed-visible channel instead
-                # of a logger.warning a plain-script user with default logging would never see.
-                warnings.warn(
-                    "MRMR.fit: group_aware_mi disabled this fit because sample_weight is non-uniform "
-                    "(resampling rows would misalign them against groups). Pass sample_weight=None or "
-                    "group_aware_mi=False to silence this warning.",
-                    UserWarning,
-                    stacklevel=2,
-                )
-                logger.warning("[MRMR] group_aware_mi disabled this fit: non-uniform sample_weight resamples rows and would misalign groups; pass sample_weight=None or group_aware_mi=False.")
-            else:
-                _si, _off = _prepare_group_segments(_g_arr)
-                _size_weighted = getattr(self, "group_mi_aggregate", "size") == "size"
-                _gmi_payload = (_si, _off, int(getattr(self, "group_mi_min_rows", 20)), _size_weighted)
-                self.groups_ignored_ = False
-        _set_group_mi(_gmi_payload)
+        st._gmi_payload = None
+        self._fit_body_step1_no_resample_case(groups, X, _restore_toggles_snapshot_and_raise, sample_weight, st)
+        _set_group_mi(st._gmi_payload)
         # Research-knob thread-locals (RelaxMRMR 3-D redundancy / PID synergy bonus / CMI permutation early-stop). All default OFF (alpha=0 / bonus=0 / stop=False) so the
         # legacy Fleuret per-candidate score is byte-identical; reset in the finally. Read in evaluation.py and forwarded to joblib workers like the SU/JMIM/BUR toggles.
         set_relaxmrmr_alpha(float(getattr(self, "relaxmrmr_alpha", 0.0) or 0.0))
@@ -3787,15 +3764,15 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # is constructed inside ``_screen_predictors`` (passed via dcd_config
         # kwarg) — joblib-safe; the thread-local is only the read-only branch
         # toggle. Reset in finally.
-        _dcd_on = bool(getattr(self, "dcd_enable", False))
-        _set_dcd_active(_dcd_on)
+        st._dcd_on = bool(getattr(self, "dcd_enable", False))
+        _set_dcd_active(st._dcd_on)
         # Critic1/H-3 fix: when DCD active and dcd_postoc_compose=False, suppress
         # the post-hoc cluster_aggregate FE-step (else double-aggregation). Save
         # and restore the original flag to keep the constructor-arg semantics
         # bit-stable across fits.
         _orig_cluster_aggregate_enable = bool(getattr(self, "cluster_aggregate_enable", True))
-        _dcd_suppress_postoc = _dcd_on and not bool(getattr(self, "dcd_postoc_compose", False))
-        if _dcd_suppress_postoc:
+        st._dcd_suppress_postoc = st._dcd_on and not bool(getattr(self, "dcd_postoc_compose", False))
+        if st._dcd_suppress_postoc:
             self.cluster_aggregate_enable = False
         # FAST-SEARCH PROFILE. Apply the fast FE-search overrides for the duration of
         # this fit, recording each pre-fit value so the ``finally`` restores constructor-arg
@@ -3807,35 +3784,35 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # are rank-stable under subsampling and the survivors replay at full n, so the default MRMR() fit
         # can screen on ~30k rows at n=100k (168.8s -> ~75s, both compounds still recovered). Only knobs at
         # their package default are shrunk; restored in ``finally``. n below the screen size is a no-op.
-        _default_screen_saved: dict = {}
-        _default_screen_saved = self._fit_body_their_package_default_shrunk(X, _default_screen_saved)
-        _fast_search_saved: dict = {}
+        st._default_screen_saved = {}
+        st._default_screen_saved = self._fit_body_their_package_default_shrunk(X, st._default_screen_saved)
+        st._fast_search_saved = {}
         # Resolve the auto knobs first; an explicit True/False is never touched, and the fast-search pass below leaves
         # these alone because a resolved value no longer equals the None default it compares against.
-        _fast_values = dict(self._FAST_SEARCH_OVERRIDES)
-        _fast_on = bool(getattr(self, "fe_fast_search", False))
-        self._fit_body_these_alone_because_resolved(_fast_search_saved, _fast_on, _fast_values)
-        self._fit_body_fast(_fast_on, _fast_search_saved)
+        st._fast_values = dict(self._FAST_SEARCH_OVERRIDES)
+        st._fast_on = bool(getattr(self, "fe_fast_search", False))
+        self._fit_body_these_alone_because_resolved(st._fast_search_saved, st._fast_on, st._fast_values)
+        self._fit_body_fast(st._fast_on, st._fast_search_saved)
         # LAZY ctor-alias reconciliation (sklearn ``get_params`` stays byte-identical to what the user
         # passed). The constructor no longer promotes ``random_state`` -> ``random_seed``; that is
         # resolved HERE and the EFFECTIVE value is written onto the public attr for the fit duration so
         # every reader (this module + _fit_impl_core's skip check + the cross-file ``self.random_seed``
         # uses) sees it, then the original stored value is restored in ``finally`` (saved == _UNSET means
         # "not overridden, leave alone").
-        _eff_seed = self._effective_random_seed()
-        _orig_random_seed = _UNSET
-        if _eff_seed != getattr(self, "random_seed", None):
-            _orig_random_seed = getattr(self, "random_seed", None)
-            self.random_seed = _eff_seed
+        st._eff_seed = self._effective_random_seed()
+        st._orig_random_seed = _UNSET
+        if st._eff_seed != getattr(self, "random_seed", None):
+            st._orig_random_seed = getattr(self, "random_seed", None)
+            self.random_seed = st._eff_seed
         # PICKLE-ONLY migration (NOT a ctor alias - the ctor no longer accepts
         # ``skip_retraining_on_same_shape`` at all): an already-pickled MRMR predating
         # the content/shape rename can still carry the old attribute verbatim in its ``__dict__``
         # (``__setstate__`` never removes it), so a genuinely-legacy saved model's explicit
         # True/False choice is still honoured here rather than silently reset to the current default.
         # A freshly-constructed instance never has this attribute, so this is a no-op for it.
-        _orig_skip_content = _UNSET
-        _skip_shape = getattr(self, "skip_retraining_on_same_shape", None)
-        _orig_skip_content = self._fit_body_freshly_constructed_instance_never(_skip_shape, _orig_skip_content)
+        st._orig_skip_content = _UNSET
+        st._skip_shape = getattr(self, "skip_retraining_on_same_shape", None)
+        st._orig_skip_content = self._fit_body_freshly_constructed_instance_never(st._skip_shape, st._orig_skip_content)
         # _fit_impl's large-n regression adaptive-quantization
         # gate (adaptive_nbins_large_n_reg) permanently overwrote self.nbins_strategy/self.quantization_nbins
         # in place with no restore anywhere - breaking the sklearn clone()/get_params() round-trip contract
@@ -3881,36 +3858,15 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                 # established pattern here - clear exactly once, at the SAME outer call-site boundary,
                 # regardless of how _fit_impl exited.
                 _clear_fe_deadline()
-            if _sis_input_space_info is not None:
+            if st._sis_input_space_info is not None:
                 # The fit ran on the SIS survivors; express support_ / feature_names_in_ / n_features_in_ in the caller's input space before
                 # anything below reads them. Done per fit, so a cache replay of the survivor-space state is remapped the same way.
                 from .._mrmr_sis_apply import _remap_sis_fit_to_input_space
 
-                _remap_sis_fit_to_input_space(self, *_sis_input_space_info)
-            try:
-                _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
-                # ``_effective_random_seed`` resolves both the canonical ``random_state`` and the
-                # deprecated ``random_seed`` alias, whichever is set.
-                _seed_resolved = self._effective_random_seed()
-                _seed_for_provenance = int(_seed_resolved) if _seed_resolved is not None else None
-                _record_provenance(
-                    getattr(self, "_provenance_sink_", None),
-                    "mrmr",
-                    source="train_only",
-                    n_rows=_n_rows,
-                    seed=_seed_for_provenance,
-                    extra={"n_features_in": int(X.shape[1]) if hasattr(X, "shape") and len(X.shape) > 1 else None},
-                )
-                self.provenance_ = {
-                    "step": "mrmr",
-                    "source": "train_only",
-                    "n_rows": _n_rows,
-                    "seed": _seed_for_provenance,
-                }
-            except Exception as exc:
-                logger.debug("mrmr: provenance_ metadata build failed (diagnostic only): %r", exc, exc_info=True)
+                _remap_sis_fit_to_input_space(self, *st._sis_input_space_info)
+            self._fit_body_step1_anything_below_reads(X)
             # Stash X-fingerprint -> identity-bool in cross-target cache so a SUBSEQUENT fit (different y, same X) can early-skip the FE pipeline.
-            self._fit_body_stash_fingerprint_identity_bool(_identity_skip, _x_fp, X, y, _cache_dict)
+            self._fit_body_stash_fingerprint_identity_bool(st._identity_skip, st._x_fp, X, y, st._cache_dict)
             # populate ``fe_provenance_`` from
             # the sibling module so users can audit which engineered
             # columns landed in support_, why (origin + mechanism
@@ -3932,7 +3888,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # reallocates when it actually fired this fit - a probe that found nothing cached must not
             # start writing a NEW cache entry, or "auto" would silently flip itself on forever after one
             # fit, defeating the whole "opt-in-once" contract).
-            if _fe_budget_learning_effective:
+            if st._fe_budget_learning_effective:
                 update_fe_budgets_after_fit(self)
             _log_fe_wall()
             self._print_fit_summary()
@@ -3941,88 +3897,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # Restore the MI thread-locals to the values they held at fit ENTRY (snapshot above), not to
             # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
             # _prev_* restore in _evaluation_driver.py's worker path.
-            _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0 = _toggles_snapshot
-
-            def _restore_synergy_bonuses() -> None:
-                """Restore RelaxMRMR/PID/CMI-perm/CPT thread-locals to their fit-entry snapshot."""
-                set_relaxmrmr_alpha(_relax0)
-                set_pid_synergy_bonus(_pid0)
-                set_cmi_perm_stop(_cmi0[0], _cmi0[1], _cmi0[2])
-                set_cpt_test(_cpt0[0], _cpt0[1])
-
-            def _make_fe_budget_restorer(_a: str, _v: int) -> Callable[[], None]:
-                """Bind (attr, value) at definition time so the restore closure isn't a late-binding loop-variable trap."""
-
-                def _restore() -> None:
-                    """Restore the bound attribute to its bound original value."""
-                    setattr(self, _a, _v)
-
-                return _restore
-
-            for _attr, _orig_val in _fe_budget_quota_snapshot.items():
-                _safe_restore(_make_fe_budget_restorer(_attr, _orig_val), f"fe_budget_learning quota override ({_attr})")
-            _safe_restore(lambda: set_su_normalization(_su0), "SU normalization thread-local")
-            _safe_restore(lambda: set_jmim_aggregator(_jmim0), "JMIM aggregator thread-local")
-            _safe_restore(lambda: set_bur_lambda(_bur0), "BUR lambda thread-local")
-            _safe_restore(lambda: set_mi_miller_madow(_mm0), "Miller-Madow thread-local")
-            _safe_restore(lambda: set_mi_chao_shen(_cs0), "Chao-Shen thread-local")
-            _safe_restore(lambda: _set_group_mi(None), "group-aware MI thread-local")
-            _safe_restore(_restore_synergy_bonuses, "RelaxMRMR/PID/CMI-perm/CPT synergy thread-locals")
-            # reset DCD thread-local and restore cluster_aggregate_enable to its constructor value
-            # (Critic2 fix: missing reset in v1 plan).
-            _safe_restore(lambda: _set_dcd_active(False), "DCD active thread-local")
-            _safe_restore(lambda: setattr(self, "cluster_aggregate_enable", _orig_cluster_aggregate_enable), "cluster_aggregate_enable")
-            _safe_restore(lambda: self.__dict__.pop("_pre_fit_ctor_params_snapshot_", None), "pre-fit ctor-params snapshot")
-            # Restore the lazily-reconciled ctor aliases so ``get_params`` / ``clone`` see the unmodified
-            # user-supplied values (sklearn round-trip contract). ``_UNSET`` => never overridden.
-            if _orig_random_seed is not _UNSET:
-                # cast: narrowed by the is-not-_UNSET sentinel check above; mypy can't track object-identity narrowing.
-                self.random_seed = cast(Optional[int], _orig_random_seed)
-            if _orig_skip_content is not _UNSET:
-                self.skip_retraining_on_same_content = cast(bool, _orig_skip_content)
-            # Restore the adaptive_nbins_large_n_reg gate's in-place overwrite of
-            # nbins_strategy/quantization_nbins so clone()/get_params()/a subsequent .fit() on this same
-            # instance see the constructor's original values, not whatever the gate last computed.
-            _safe_restore(lambda: setattr(self, "nbins_strategy", _orig_nbins_strategy), "nbins_strategy (adaptive_nbins_large_n_reg gate)")
-            _safe_restore(lambda: setattr(self, "quantization_nbins", _orig_quantization_nbins), "quantization_nbins (adaptive_nbins_large_n_reg gate)")
-            # restore the fast-search profile overrides (constructor-arg stability).
-            # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
-            # clone / pickle / repeated-fit see unchanged constructor-arg semantics.
-            self._fit_body_clone_pickle_repeated_fit(_default_screen_saved)
-            self._fit_body_fast_search_saved(_fast_search_saved)
-
-            def _restore_fe_auto_flags() -> None:
-                """Restore every fe_*_enable flag fe_auto flipped ON back to its pre-fit value."""
-                for _flag, _orig in _fe_auto_restore.items():
-                    setattr(self, _flag, _orig)
-
-            # restore any fe_*_enable flags fe_auto flipped ON, so the
-            # constructor-arg semantics are stable across fits / clone / pickle.
-            _safe_restore(_restore_fe_auto_flags, "fe_auto-flipped fe_*_enable flags")
-            frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
-            names = getattr(self, "_target_names_for_cleanup", None)
-            self._fit_body_frame_none_names(frame, names)
-            self._pandas_frame_for_target_cleanup = None
-            self._target_names_for_cleanup = None
-
-            def _refresh_signature_params_post_restore() -> None:
-                """Re-stamp ``self.signature``'s params component from a LIVE ``get_params()`` read taken
-                AFTER every restore above has completed (bug found while testing the re-entrancy
-                guard). ``_fit_impl`` (``_fit_impl_core.py``) already
-                does an analogous "refresh with post-fit values before storing" step so a param genuinely
-                normalised IN PLACE during the fit (e.g. RFECV's ``scoring`` resolution) still matches the
-                NEXT fit's freshly-read params - but that refresh runs BEFORE this method's OWN transient
-                overrides (cluster_aggregate_enable, fast-search profile, default-screen-subsample, ...)
-                are restored, so it captured their TRANSIENT mid-fit values, permanently breaking the
-                same-content-skip match for the common default config. This second, later refresh runs
-                after every override above is undone, so it reflects the true, stable, post-fit-and-
-                restore state - exactly what the NEXT fit's pre-override snapshot will read."""
-                _sig = getattr(self, "signature", None)
-                if _sig is None:
-                    return
-                self.signature = (*_sig[:-1], _hashable_params_signature(self.get_params(deep=True)))
-
-            _safe_restore(_refresh_signature_params_post_restore, "post-restore signature params refresh")
+            self._fit_body_step2_prev_restore_evaluation(_toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_nbins_strategy, _orig_quantization_nbins, _fe_auto_restore)
 
     def _fit_body_clone_pickle_repeated_fit(self, _default_screen_saved):
         """Block of _fit_body starting at ``if _default_screen_saved:``."""

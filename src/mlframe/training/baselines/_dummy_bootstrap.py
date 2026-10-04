@@ -15,7 +15,7 @@ What lives here:
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,7 @@ from mlframe.metrics.core import fast_mean_absolute_error, fast_root_mean_square
 # Numba kernels live in the ``_dummy_numba_kernels.py`` leaf so this sibling
 # can depend on them without re-entering the parent module.
 from ._dummy_numba_kernels import _NUMBA_AVAILABLE
+from types import SimpleNamespace as _SimpleNamespace
 if _NUMBA_AVAILABLE:
     from ._dummy_numba_kernels import (
         _numba_bootstrap_logloss_binary_samples,
@@ -381,14 +382,34 @@ def _bootstrap_ci_for_strongest(
     ``None`` when not computable. 1000 resamples by default; cost ~1s on
     n=10^4. Seed is per-target for reproducibility.
     """
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     rng = np.random.default_rng(seed)
 
     # Pick the metric callable matching primary_metric. Minimize
     # convention follows _pick_strongest naming.
+    _resample_metric = _bootstrap_ci_for_str_step1_convention_follows_pick(primary_metric, n_resamples, seed, rng)
+
+    st.out = {}
+    st.val_p = val_preds.get(strongest)
+    st.test_p = test_preds.get(strongest)
+    if val_y is not None and st.val_p is not None and len(val_y) == len(st.val_p):
+        v = _resample_metric(val_y, st.val_p)
+        if v is not None:
+            st.out["val"] = v
+    if test_y is not None and st.test_p is not None and len(test_y) == len(st.test_p):
+        v = _resample_metric(test_y, st.test_p)
+        if v is not None:
+            st.out["test"] = v
+    return st.out if st.out else None
+
+
+def _bootstrap_ci_for_str_step1_convention_follows_pick(primary_metric, n_resamples, seed, rng):
+    """Step 1 of _bootstrap_ci_for_strongest: lines starting at ``def _resample_metric(y: np.ndarray, p: np.ndarray) -> tuple[float, flo``."""
     def _resample_metric(y: np.ndarray, p: np.ndarray) -> tuple[float, float, float] | None:
         """Bootstrap ``(lo, point, hi)`` 95% CI for ``primary_metric`` on ``(y, p)``; routes to the numba-accelerated kernel for RMSE/MAE/binary log-loss when available, else falls back to a per-resample sklearn metric loop."""
-        n = len(y)
-        if n < 10:
+        st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+        st.n = len(y)
+        if st.n < 10:
             return None
 
         # Numba-accelerated path for RMSE / MAE / binary log-loss
@@ -399,42 +420,42 @@ def _bootstrap_ci_for_strongest(
                 y_arr = np.ascontiguousarray(y, dtype=np.float64)
                 p_arr = np.ascontiguousarray(p, dtype=np.float64)
                 if "RMSE" in primary_metric:
-                    samples = _numba_bootstrap_rmse_samples(
+                    st.samples = _numba_bootstrap_rmse_samples(
                         y_arr, p_arr, int(n_resamples), int(seed),
                     )
-                    point = float(np.sqrt(np.mean((y_arr - p_arr) ** 2)))
-                    if not np.isfinite(point):
+                    st.point = float(np.sqrt(np.mean((y_arr - p_arr) ** 2)))
+                    if not np.isfinite(st.point):
                         return None
-                    lo = float(np.percentile(samples, 2.5))
-                    hi = float(np.percentile(samples, 97.5))
-                    return (lo, point, hi)
+                    st.lo = float(np.percentile(st.samples, 2.5))
+                    st.hi = float(np.percentile(st.samples, 97.5))
+                    return (st.lo, st.point, st.hi)
                 if "MAE" in primary_metric:
-                    samples = _numba_bootstrap_mae_samples(
+                    st.samples = _numba_bootstrap_mae_samples(
                         y_arr, p_arr, int(n_resamples), int(seed),
                     )
-                    point = float(np.mean(np.abs(y_arr - p_arr)))
-                    if not np.isfinite(point):
+                    st.point = float(np.mean(np.abs(y_arr - p_arr)))
+                    if not np.isfinite(st.point):
                         return None
-                    lo = float(np.percentile(samples, 2.5))
-                    hi = float(np.percentile(samples, 97.5))
-                    return (lo, point, hi)
+                    st.lo = float(np.percentile(st.samples, 2.5))
+                    st.hi = float(np.percentile(st.samples, 97.5))
+                    return (st.lo, st.point, st.hi)
                 if "log_loss" in primary_metric and "macro" not in primary_metric and y.dtype.kind in "iu" and len(np.unique(y)) <= 2:
                     # Binary 1D-prob case: matches the binary log-loss
                     # numba kernel signature.
                     y_int = np.ascontiguousarray(y, dtype=np.int64)
-                    samples = _numba_bootstrap_logloss_binary_samples(
+                    st.samples = _numba_bootstrap_logloss_binary_samples(
                         y_int, p_arr, int(n_resamples), int(seed),
                     )
                     # Point estimate via the same eps-clipped formula
                     # the kernel uses (matches sklearn's eps=1e-15).
-                    eps = 1e-15
-                    p_clip = np.clip(p_arr, eps, 1.0 - eps)
-                    point = float(np.mean(-np.where(y_int == 1, np.log(p_clip), np.log1p(-p_clip))))
-                    if not np.isfinite(point):
+                    st.eps = 1e-15
+                    st.p_clip = np.clip(p_arr, st.eps, 1.0 - st.eps)
+                    st.point = float(np.mean(-np.where(y_int == 1, np.log(st.p_clip), np.log1p(-st.p_clip))))
+                    if not np.isfinite(st.point):
                         return None
-                    lo = float(np.percentile(samples, 2.5))
-                    hi = float(np.percentile(samples, 97.5))
-                    return (lo, point, hi)
+                    st.lo = float(np.percentile(st.samples, 2.5))
+                    st.hi = float(np.percentile(st.samples, 97.5))
+                    return (st.lo, st.point, st.hi)
             except Exception as _numba_err:
                 # Numba single-bootstrap fast-path failed; same operator-blindness as
                 # the paired-bootstrap twin above. Log so the perf regression is
@@ -451,27 +472,27 @@ def _bootstrap_ci_for_strongest(
         # ~40x faster than the sklearn-per-call loop at n=600.
         if "log_loss" in primary_metric:
             try:
-                samples = _vectorized_bootstrap_logloss_samples(
+                st.samples = _vectorized_bootstrap_logloss_samples(
                     y, p, int(n_resamples), int(seed),
                 )
             except Exception as e:
                 logger.debug("_vectorized_bootstrap_logloss_samples failed, falling back to the per-resample loop: %s", e)
-                samples = None
-            if samples is not None and len(samples) >= max(1, n_resamples // 4):
-                eps = 1e-15
-                p_clip = np.clip(p, eps, 1.0 - eps)
+                st.samples = None
+            if st.samples is not None and len(st.samples) >= max(1, n_resamples // 4):
+                st.eps = 1e-15
+                st.p_clip = np.clip(p, st.eps, 1.0 - st.eps)
                 is_pos = y > 0.5
-                elem = -np.where(is_pos, np.log(p_clip), np.log1p(-p_clip))
+                elem = -np.where(is_pos, np.log(st.p_clip), np.log1p(-st.p_clip))
                 if y.ndim == 1:
-                    point = float(np.mean(elem))
+                    st.point = float(np.mean(elem))
                 elif y.ndim == 2:
-                    point = float(np.mean(elem))
+                    st.point = float(np.mean(elem))
                 else:
-                    point = float("nan")
-                if np.isfinite(point):
-                    lo = float(np.percentile(samples, 2.5))
-                    hi = float(np.percentile(samples, 97.5))
-                    return (lo, point, hi)
+                    st.point = float("nan")
+                if np.isfinite(st.point):
+                    st.lo = float(np.percentile(st.samples, 2.5))
+                    st.hi = float(np.percentile(st.samples, 97.5))
+                    return (st.lo, st.point, st.hi)
 
         # Fallback path: sklearn metric loop. Used for log_loss
         # variants and as a safety net if the numba kernel raises.
@@ -533,59 +554,53 @@ def _bootstrap_ci_for_strongest(
 
         # Point estimate
         try:
-            point = fn(y, p)
+            st.point = fn(y, p)
         except Exception as exc:
             import logging as _logging
 
             _logging.getLogger(__name__).debug("dummy_baselines: bootstrap point-estimate failed: %r", exc, exc_info=True)
             return None
-        if not np.isfinite(point):
+        if not np.isfinite(st.point):
             return None
         # Bootstrap resamples
-        samples = []
-        failures = 0
-        first_err: Optional[str] = None
-        for _ in range(n_resamples):
-            idx = rng.integers(0, n, size=n)
-            try:
-                v = fn(y[idx], p[idx])
-                if np.isfinite(v):
-                    samples.append(float(v))
-            except Exception as _e_boot:
-                if first_err is None:
-                    logger.debug("bootstrap resample metric failed, first occurrence: %s", _e_boot)
-                # Pre-fix `continue` was silent. Track failure count so we
-                # can WARN-log if more than a small fraction failed -- the
-                # `< n_resamples // 4` guard below only catches extreme
-                # under-sampling, not the partial-bias case where (say) 40%
-                # of resamples raised and the CI is computed over the
-                # surviving 60% (likely the most well-behaved tail).
-                failures += 1
-                if first_err is None:
-                    first_err = str(_e_boot)
-                continue
-        if failures > max(1, n_resamples // 10):
+        st.samples = []
+        st.failures = 0
+        st.first_err = None
+        st.failures, st.first_err = _resample_metric_step1_bootstrap_resamples(st.n, fn, y, p, st.samples, st.first_err, st.failures, n_resamples, rng)
+        if st.failures > max(1, n_resamples // 10):
             import logging as _logging
             _logging.getLogger(__name__).warning(
                 "dummy_baselines: bootstrap CI: %d/%d resamples failed "
                 "(first error: %s); CI computed over %d surviving samples "
-                "may be biased.", failures, n_resamples, first_err, len(samples),
+                "may be biased.", st.failures, n_resamples, st.first_err, len(st.samples),
             )
-        if len(samples) < n_resamples // 4:
+        if len(st.samples) < n_resamples // 4:
             return None
-        lo = float(np.percentile(samples, 2.5))
-        hi = float(np.percentile(samples, 97.5))
-        return (lo, point, hi)
+        st.lo = float(np.percentile(st.samples, 2.5))
+        st.hi = float(np.percentile(st.samples, 97.5))
+        return (st.lo, st.point, st.hi)
+    return _resample_metric
 
-    out: dict[str, Any] = {}
-    val_p = val_preds.get(strongest)
-    test_p = test_preds.get(strongest)
-    if val_y is not None and val_p is not None and len(val_y) == len(val_p):
-        v = _resample_metric(val_y, val_p)
-        if v is not None:
-            out["val"] = v
-    if test_y is not None and test_p is not None and len(test_y) == len(test_p):
-        v = _resample_metric(test_y, test_p)
-        if v is not None:
-            out["test"] = v
-    return out if out else None
+
+def _resample_metric_step1_bootstrap_resamples(n, fn, y, p, samples, first_err, failures, n_resamples, rng):
+    """Step 1 of _resample_metric: lines starting at ``for _ in range(n_resamples):``."""
+    for _ in range(n_resamples):
+        idx = rng.integers(0, n, size=n)
+        try:
+            v = fn(y[idx], p[idx])
+            if np.isfinite(v):
+                samples.append(float(v))
+        except Exception as _e_boot:
+            if first_err is None:
+                logger.debug("bootstrap resample metric failed, first occurrence: %s", _e_boot)
+            # Pre-fix `continue` was silent. Track failure count so we
+            # can WARN-log if more than a small fraction failed -- the
+            # `< n_resamples // 4` guard below only catches extreme
+            # under-sampling, not the partial-bias case where (say) 40%
+            # of resamples raised and the CI is computed over the
+            # surviving 60% (likely the most well-behaved tail).
+            failures += 1
+            if first_err is None:
+                first_err = str(_e_boot)
+            continue
+    return failures, first_err

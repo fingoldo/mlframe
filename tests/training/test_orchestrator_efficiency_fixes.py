@@ -28,6 +28,7 @@ def _read(name: str) -> str:
     if name == "_phase_train_one_target.py":
         for _sib_name in (
             "_phase_train_one_target_body.py",
+            "_phase_train_one_target_steps.py",
             "_phase_train_one_target_ensembling.py",
             "_phase_train_one_target_polars_fastpath.py",
             "_phase_train_one_target_pre_screen.py",
@@ -207,7 +208,8 @@ def test_common_params_are_copied_per_iteration():
     bindings = [
         node.value
         for node in ast.walk(tree)
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "current_common_params" for t in node.targets)
+        if isinstance(node, ast.Assign)
+        and any((isinstance(t, ast.Name) and t.id == "current_common_params") or (isinstance(t, ast.Attribute) and t.attr == "current_common_params") for t in node.targets)
     ]
     assert bindings, "current_common_params is never bound, so each model iteration no longer gets its own params dict"
     aliases = [b for b in bindings if isinstance(b, ast.Name)]

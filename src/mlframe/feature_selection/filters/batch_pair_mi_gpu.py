@@ -59,6 +59,7 @@ from ._batch_pair_mi_cuda_shared_fused import (
     batch_pair_mi_cuda_shared_fused,
     shared_fused_kernel_fits_budget,
 )
+from types import SimpleNamespace as _SimpleNamespace
 
 try:
     import cupy as _cp
@@ -397,6 +398,7 @@ def dispatch_batch_pair_mi(
     result is still preferred over ever risking the silent-crash upload, but "slower" no longer means
     "no GPU at all" whenever CUDA is present.
     """
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     from ._gpu_policy import gpu_globally_disabled
 
     if gpu_globally_disabled():
@@ -405,12 +407,132 @@ def dispatch_batch_pair_mi(
         # force_backend="cuda"/"cupy" caller request - that is the whole point of the switch.
         return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
 
-    n_samples = int(factors_data.shape[0])
-    n_cols = int(factors_data.shape[1]) if factors_data.ndim == 2 else 0
+    st.n_samples = int(factors_data.shape[0])
+    st.n_cols = int(factors_data.shape[1]) if factors_data.ndim == 2 else 0
     n_pairs = int(pair_a.shape[0])
-    _req_bytes = _required_gpu_bytes(factors_data, pair_a, nbins, classes_y, freqs_y)
-    _vram_ok = _gpu_upload_fits(_req_bytes, n_samples=n_samples, n_cols=n_cols, n_pairs=n_pairs)
+    st._req_bytes = _required_gpu_bytes(factors_data, pair_a, nbins, classes_y, freqs_y)
+    st._vram_ok = _gpu_upload_fits(st._req_bytes, n_samples=st.n_samples, n_cols=st.n_cols, n_pairs=n_pairs)
 
+    _try_cuda_shared_fused = _dispatch_batch_pair__step1_def_try_cuda(nbins, n_pairs, pair_a, pair_b, freqs_y, factors_data, classes_y)
+
+    def _try_cuda_row_chunked(reason: str) -> tuple[np.ndarray, str] | None:
+        """Attempt the row-chunked CUDA kernel; returns None (falls through to CPU) on any failure."""
+        if not _CUDA_AVAIL:
+            return None
+        try:
+            mi = batch_pair_mi_cuda_row_chunked(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
+            logger.info("batch_pair_mi: %s -- completed via row-chunked CUDA (GPU speed preserved, VRAM-safe)", reason)
+            return mi, "cuda_row_chunked"
+        except Exception as e:
+            logger.warning("batch_pair_mi: row-chunked CUDA also failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
+            return None
+
+    # Explicit override
+    if force_backend is not None:
+        force_backend = force_backend.lower()
+        if force_backend == "cuda" and _CUDA_AVAIL:
+            if st._vram_ok:
+                try:
+                    return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
+                except Exception as e:
+                    logger.warning("batch_pair_mi: forced CUDA backend failed (%s: %s) -- trying single-launch shared-fused CUDA", type(e).__name__, e)
+                    st._result = _try_cuda_shared_fused("forced CUDA backend failed on the full-upload path")
+                    if st._result is not None:
+                        return st._result  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
+                    st._result = _try_cuda_row_chunked("forced CUDA backend and shared-fused CUDA both failed on the full-upload path")
+                    if st._result is not None:
+                        return st._result  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
+            else:
+                st._result = _try_cuda_row_chunked("forced CUDA backend requested but full upload does not fit VRAM")
+                if st._result is not None:
+                    return st._result  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
+        elif force_backend == "cupy":
+            # Split from the availability/VRAM conditions on purpose. As one `elif ... and _CUPY_AVAIL and
+            # _vram_ok`, a forced-cupy request that could not be honoured matched no branch and fell straight
+            # through to the njit return with NO log at all -- a caller benchmarking or pinning a backend got
+            # the CPU kernel, and only the returned backend_name said so, which many call sites discard. The
+            # forced-CUDA branch above already warns on every downgrade; this one now matches it.
+            if _CUPY_AVAIL and st._vram_ok:
+                try:
+                    return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
+                except Exception as e:
+                    logger.warning("batch_pair_mi: forced cupy backend failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
+            else:
+                logger.warning(
+                    "batch_pair_mi: forced cupy backend requested but not honoured (%s) -- falling back to CPU njit",
+                    "cupy is unavailable" if not _CUPY_AVAIL else "the estimate says the upload does not fit VRAM",
+                )
+        elif force_backend == "cuda":
+            # The forced-CUDA branch above is entered only when _CUDA_AVAIL; without it the request
+            # disappeared just as quietly.
+            logger.warning("batch_pair_mi: forced cuda backend requested but numba.cuda is unavailable -- falling back to CPU njit")
+        else:
+            logger.warning(
+                "batch_pair_mi: force_backend=%r is not one of 'cuda'/'cupy' -- falling back to CPU njit",
+                force_backend,
+            )
+        return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
+
+    # Per-host backend (njit/cuda/cupy) from the kernel_tuning_cache via the shared
+    # get_or_tune orchestrator; measurement-backed fallback = the old CUDA_/CUPY_MIN_*
+    # thresholds. Guarded by live availability (the tuning host had the backend; a
+    # reader may not) - preserves the original cupy-then-cuda-then-njit preference order.
+    st.choice = _batch_pair_mi_backend_choice(st.n_samples, n_pairs)
+
+    if st.choice == "cupy" and _CUPY_AVAIL and st._vram_ok:
+        try:
+            return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.warning("batch_pair_mi: cupy backend failed (%s: %s) -- falling through to CUDA/njit", type(e).__name__, e)
+
+    if st.choice == "cuda" and _CUDA_AVAIL:
+        if st._vram_ok:
+            try:
+                return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
+            except Exception as e:
+                # The comment below names three causes and this handler treated them identically. A shape-guard
+                # trip is expected, cheap and PERMANENT for that shape, so it stays at debug; a driver fault or
+                # a kernel bug is neither, and the fallback keeps the answer correct, which is exactly why a
+                # genuine regression would otherwise never be noticed. `_is_shape_guard` separates them.
+                _is_shape_guard = isinstance(e, ValueError) and ("shared" in str(e).lower() or "exceed" in str(e).lower())
+                if _is_shape_guard:
+                    logger.debug("batch_pair_mi_cuda shape guard tripped for this shape, falling back to the next backend: %s", e)
+                else:
+                    log_throttle(
+                        logger,
+                        "batch_pair_mi_cuda_runtime_failure",
+                        logging.WARNING,
+                        "batch_pair_mi_cuda failed with %s (%s) -- NOT a shape-guard trip; falling back to the "
+                        "next backend. The result stays correct, so this would otherwise be invisible.",
+                        type(e).__name__,
+                        e,
+                    )
+                # Shape guard tripped (most commonly max_joint/n_classes_y exceeding the STATIC
+                # shared-memory kernel's compile-time caps) or a runtime/driver fault -> try the single-
+                # launch shared-fused kernel (sidesteps the static caps via opt-in dynamic shared memory,
+                # still one launch regardless of VRAM pressure), then row-chunked CUDA, then CPU. Broadened
+                # from ``(ValueError, RuntimeError)``: numba's ``CudaAPIError``/``CudaDriverError``
+                # derive directly from ``Exception``, not ``RuntimeError``, so a genuine CUDA driver fault
+                # used to skip this handler and propagate to the caller uncaught.
+                st._result = _try_cuda_shared_fused("full-upload CUDA kernel raised (shape exceeds static shared-memory caps)")
+                if st._result is not None:
+                    return st._result  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
+                st._result = _try_cuda_row_chunked("full-upload CUDA kernel and shared-fused CUDA both raised")
+                if st._result is not None:
+                    return st._result  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
+        else:
+            st._result = _try_cuda_row_chunked("size-heuristic picked CUDA but full upload does not fit VRAM")
+            if st._result is not None:
+                return st._result  # type: ignore[no-any-return]  # read from the untyped state namespace / cache the stage helpers share
+
+    # CPU: serial vs parallel njit per the tuned choice (tag stays "njit").
+    if st.choice == "njit_serial":
+        return batch_pair_mi_njit_serial(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
+    return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
+
+
+def _dispatch_batch_pair__step1_def_try_cuda(nbins, n_pairs, pair_a, pair_b, freqs_y, factors_data, classes_y):
+    """Step 1 of dispatch_batch_pair_mi: lines starting at ``def _try_cuda_shared_fused(reason: str) -> tuple[np.ndarray, str] / No``."""
     def _try_cuda_shared_fused(reason: str) -> tuple[np.ndarray, str] | None:
         """Attempt the single-launch dynamic-shared-memory CUDA kernel; returns None (falls through to
         row-chunked CUDA) on any failure or when the shape exceeds the opt-in shared-memory budget.
@@ -442,121 +564,7 @@ def dispatch_batch_pair_mi(
         except Exception as e:
             logger.warning("batch_pair_mi: shared-fused CUDA failed (%s: %s) -- trying row-chunked CUDA", type(e).__name__, e)
             return None
-
-    def _try_cuda_row_chunked(reason: str) -> tuple[np.ndarray, str] | None:
-        """Attempt the row-chunked CUDA kernel; returns None (falls through to CPU) on any failure."""
-        if not _CUDA_AVAIL:
-            return None
-        try:
-            mi = batch_pair_mi_cuda_row_chunked(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
-            logger.info("batch_pair_mi: %s -- completed via row-chunked CUDA (GPU speed preserved, VRAM-safe)", reason)
-            return mi, "cuda_row_chunked"
-        except Exception as e:
-            logger.warning("batch_pair_mi: row-chunked CUDA also failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
-            return None
-
-    # Explicit override
-    if force_backend is not None:
-        force_backend = force_backend.lower()
-        if force_backend == "cuda" and _CUDA_AVAIL:
-            if _vram_ok:
-                try:
-                    return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
-                except Exception as e:
-                    logger.warning("batch_pair_mi: forced CUDA backend failed (%s: %s) -- trying single-launch shared-fused CUDA", type(e).__name__, e)
-                    _result = _try_cuda_shared_fused("forced CUDA backend failed on the full-upload path")
-                    if _result is not None:
-                        return _result
-                    _result = _try_cuda_row_chunked("forced CUDA backend and shared-fused CUDA both failed on the full-upload path")
-                    if _result is not None:
-                        return _result
-            else:
-                _result = _try_cuda_row_chunked("forced CUDA backend requested but full upload does not fit VRAM")
-                if _result is not None:
-                    return _result
-        elif force_backend == "cupy":
-            # Split from the availability/VRAM conditions on purpose. As one `elif ... and _CUPY_AVAIL and
-            # _vram_ok`, a forced-cupy request that could not be honoured matched no branch and fell straight
-            # through to the njit return with NO log at all -- a caller benchmarking or pinning a backend got
-            # the CPU kernel, and only the returned backend_name said so, which many call sites discard. The
-            # forced-CUDA branch above already warns on every downgrade; this one now matches it.
-            if _CUPY_AVAIL and _vram_ok:
-                try:
-                    return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
-                except Exception as e:
-                    logger.warning("batch_pair_mi: forced cupy backend failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
-            else:
-                logger.warning(
-                    "batch_pair_mi: forced cupy backend requested but not honoured (%s) -- falling back to CPU njit",
-                    "cupy is unavailable" if not _CUPY_AVAIL else "the estimate says the upload does not fit VRAM",
-                )
-        elif force_backend == "cuda":
-            # The forced-CUDA branch above is entered only when _CUDA_AVAIL; without it the request
-            # disappeared just as quietly.
-            logger.warning("batch_pair_mi: forced cuda backend requested but numba.cuda is unavailable -- falling back to CPU njit")
-        else:
-            logger.warning(
-                "batch_pair_mi: force_backend=%r is not one of 'cuda'/'cupy' -- falling back to CPU njit",
-                force_backend,
-            )
-        return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
-
-    # Per-host backend (njit/cuda/cupy) from the kernel_tuning_cache via the shared
-    # get_or_tune orchestrator; measurement-backed fallback = the old CUDA_/CUPY_MIN_*
-    # thresholds. Guarded by live availability (the tuning host had the backend; a
-    # reader may not) - preserves the original cupy-then-cuda-then-njit preference order.
-    choice = _batch_pair_mi_backend_choice(n_samples, n_pairs)
-
-    if choice == "cupy" and _CUPY_AVAIL and _vram_ok:
-        try:
-            return batch_pair_mi_cupy(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cupy"
-        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-            logger.warning("batch_pair_mi: cupy backend failed (%s: %s) -- falling through to CUDA/njit", type(e).__name__, e)
-
-    if choice == "cuda" and _CUDA_AVAIL:
-        if _vram_ok:
-            try:
-                return batch_pair_mi_cuda(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "cuda"
-            except Exception as e:
-                # The comment below names three causes and this handler treated them identically. A shape-guard
-                # trip is expected, cheap and PERMANENT for that shape, so it stays at debug; a driver fault or
-                # a kernel bug is neither, and the fallback keeps the answer correct, which is exactly why a
-                # genuine regression would otherwise never be noticed. `_is_shape_guard` separates them.
-                _is_shape_guard = isinstance(e, ValueError) and ("shared" in str(e).lower() or "exceed" in str(e).lower())
-                if _is_shape_guard:
-                    logger.debug("batch_pair_mi_cuda shape guard tripped for this shape, falling back to the next backend: %s", e)
-                else:
-                    log_throttle(
-                        logger,
-                        "batch_pair_mi_cuda_runtime_failure",
-                        logging.WARNING,
-                        "batch_pair_mi_cuda failed with %s (%s) -- NOT a shape-guard trip; falling back to the "
-                        "next backend. The result stays correct, so this would otherwise be invisible.",
-                        type(e).__name__,
-                        e,
-                    )
-                # Shape guard tripped (most commonly max_joint/n_classes_y exceeding the STATIC
-                # shared-memory kernel's compile-time caps) or a runtime/driver fault -> try the single-
-                # launch shared-fused kernel (sidesteps the static caps via opt-in dynamic shared memory,
-                # still one launch regardless of VRAM pressure), then row-chunked CUDA, then CPU. Broadened
-                # from ``(ValueError, RuntimeError)``: numba's ``CudaAPIError``/``CudaDriverError``
-                # derive directly from ``Exception``, not ``RuntimeError``, so a genuine CUDA driver fault
-                # used to skip this handler and propagate to the caller uncaught.
-                _result = _try_cuda_shared_fused("full-upload CUDA kernel raised (shape exceeds static shared-memory caps)")
-                if _result is not None:
-                    return _result
-                _result = _try_cuda_row_chunked("full-upload CUDA kernel and shared-fused CUDA both raised")
-                if _result is not None:
-                    return _result
-        else:
-            _result = _try_cuda_row_chunked("size-heuristic picked CUDA but full upload does not fit VRAM")
-            if _result is not None:
-                return _result
-
-    # CPU: serial vs parallel njit per the tuned choice (tag stays "njit").
-    if choice == "njit_serial":
-        return batch_pair_mi_njit_serial(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
-    return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
+    return _try_cuda_shared_fused
 
 
 def _free_ram_bytes_for_chunking() -> int:
