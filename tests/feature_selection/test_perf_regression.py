@@ -274,15 +274,22 @@ def test_perf_mi_direct_gpu_at_n100k():
     # unbatched ``mi_direct_gpu`` — at lower N the sync dominates and observed speedup drops to ~1.3x.
     # Calibrated on dev box: ~3-4x speedup at N=500 (1.5s CPU vs 0.4s GPU).
     N_PERMS = 500
+    def _synchronize_device():
+        """Kernel launches are asynchronous: stop the timer only after the device has finished."""
+        try:
+            import cupy
+
+            cupy.cuda.Stream.null.synchronize()
+        except ImportError:
+            pass
+
     def _best_of(fn, repeats=3):
         """Best wall time of ``repeats`` runs of ``fn`` (one measurement on a shared runner can be perturbed 2x-3x)."""
         best = float("inf")
         for _ in range(repeats):
             started = time.perf_counter()
             fn()
-            import cupy as cp
-
-            cp.cuda.Device().synchronize()
+            _synchronize_device()
             best = min(best, time.perf_counter() - started)
         return best
 

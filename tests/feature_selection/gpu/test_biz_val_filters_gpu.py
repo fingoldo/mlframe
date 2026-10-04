@@ -107,15 +107,22 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
     factors, factors_nbins = _make_signal(n=10_000, seed=42)
     N_PERMS = 500
 
+    def _synchronize_device():
+        """Kernel launches are asynchronous: stop the timer only after the device has finished."""
+        try:
+            import cupy
+
+            cupy.cuda.Stream.null.synchronize()
+        except ImportError:
+            pass
+
     def _best_of(fn, repeats=3):
         """Best wall time of ``repeats`` runs of ``fn`` (one measurement on a shared runner can be perturbed 2x-3x)."""
         best = float("inf")
         for _ in range(repeats):
             started = time.perf_counter()
             fn()
-            import cupy as cp
-
-            cp.cuda.Device().synchronize()
+            _synchronize_device()
             best = min(best, time.perf_counter() - started)
         return best
 

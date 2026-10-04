@@ -189,7 +189,7 @@ jobs:
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: 635d0c5a34c36f6aec46ffcb93c6fe06ae96c121  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: b919005bbe25bef27ca439c5e54c9cac5564a8db  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Report the architecture this leg is on
         run: |
