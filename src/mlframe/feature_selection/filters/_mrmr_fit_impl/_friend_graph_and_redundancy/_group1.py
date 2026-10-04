@@ -446,7 +446,7 @@ def _raw_is_significant_or_permissive(mi_direct, data, idx, target_indices, nbin
             dtype=q_dtype,
             prefer_gpu=False,
         )
-        return float(sig[3]) < alpha
+        return bool(float(sig[3]) < alpha)
     except Exception as e:
         log_throttle(
             logger,

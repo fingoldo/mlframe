@@ -19,7 +19,7 @@ The dispatcher is opt-in per panel-template kwarg: if the relevant
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence, cast
 
 import numpy as np
 
@@ -436,7 +436,7 @@ def render_multi_target_panels(
     ):
         outcome = branch()
         if outcome is not _CONTINUE:
-            return outcome
+            return cast("str | None", outcome)
     return _try_binary(
         render, tt, targets_arr, probs_arr, binary_panels,
         threshold=threshold, cost_ratio=cost_ratio, panel_emphasis=panel_emphasis, binary_panels_is_default=binary_panels_is_default,

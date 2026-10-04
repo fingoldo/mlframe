@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import random as _stdlib_random
 from timeit import default_timer as timer
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Optional, Sequence, Union, cast
 
 import numpy as np
 from expiringdict import ExpiringDict
@@ -267,7 +267,7 @@ class MBHOptimizer:
             known_evaluations = known_evaluations.astype(np.float64)
         self.known_candidates = known_candidates
         self.known_evaluations = known_evaluations
-        return known_candidates
+        return cast(np.ndarray, known_candidates)
 
     def _init_search_state(self, suggestions_cache_max_age_sec: int) -> None:
         """Best / worst bookkeeping and the counters, caches and placeholders the suggestion loop updates."""

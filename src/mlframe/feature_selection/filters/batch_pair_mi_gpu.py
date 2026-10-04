@@ -411,7 +411,7 @@ class _PairMiDispatch:
         """The single-launch shared-fused kernel, then the row-chunked one; ``None`` when neither produced a result."""
         result = self._try_shared_fused(shared_reason)
         if result is not None:
-            return result
+            return cast("tuple[np.ndarray, str]", result)
         return self.try_row_chunked(chunked_reason)
 
     def forced(self, force_backend: str) -> tuple[np.ndarray, str]:

@@ -105,7 +105,7 @@ def enumerate_candidate_pairs(candidate_idxs_arr: np.ndarray, nbins: np.ndarray,
     keep = (nb_prod <= int(max_combined)) & (nb_prod < 2**31)
     return i_arr[keep], j_arr[keep]
 
-def _skipped(st, verbose, message, *args):
+def _skipped(st: Any, verbose: Any, message: str, *args: Any) -> tuple[Any, Any, Any, Any]:
     """Log (when verbose) why cat-FE did nothing and return the ORIGINAL arrays with the empty state, which is what every early exit yields."""
     if verbose:
         logger.info(message, *args)

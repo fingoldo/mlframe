@@ -35,7 +35,7 @@ def _is_empty(edges: Any) -> bool:
 
 def _max_depth(kwargs: dict) -> int:
     """The MDLP depth: an explicit ``max_depth`` wins, else it is derived from the ``max_adaptive_nbins`` ceiling (``log2``)."""
-    return kwargs.get("max_depth", max(1, int(math.log2(kwargs.get("max_adaptive_nbins", _an().MAX_ADAPTIVE_NBINS)))))
+    return int(kwargs.get("max_depth", max(1, int(math.log2(kwargs.get("max_adaptive_nbins", _an().MAX_ADAPTIVE_NBINS))))))
 
 
 def _fayyad_irani(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict) -> Any:
