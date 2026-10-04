@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
@@ -120,11 +121,8 @@ def test_grouped_block_stacker_requires_nonempty_feature_groups():
     from sklearn.linear_model import LinearRegression
 
     stacker = GroupedBlockStacker(feature_groups={}, submodel_factory=lambda: LinearRegression(), meta_estimator=LinearRegression())
-    try:
+    with pytest.raises(ValueError, match="feature_groups must be non-empty"):
         stacker.fit(pd.DataFrame({"a": [1.0, 2.0]}), np.array([1.0, 2.0]))
-        raise AssertionError("expected ValueError for empty feature_groups")
-    except ValueError:
-        pass
 
 
 def test_biz_val_grouped_block_stacker_auto_discover_recovers_blocks_and_matches_manual_accuracy():
@@ -185,8 +183,5 @@ def test_grouped_block_stacker_auto_discover_and_manual_feature_groups_are_mutua
         submodel_factory=lambda: LinearRegression(),
         meta_estimator=LinearRegression(),
     )
-    try:
+    with pytest.raises(ValueError, match="Set only one of feature_groups or auto_discover_blocks=True, not both"):
         stacker.fit(pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}), np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]))
-        raise AssertionError("expected ValueError when both feature_groups and auto_discover_blocks are set")
-    except ValueError:
-        pass

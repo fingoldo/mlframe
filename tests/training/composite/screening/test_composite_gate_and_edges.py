@@ -121,14 +121,12 @@ class TestRawYBaselineGate:
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="y", feature_cols=["X", "Y", "Z", "f1", "f2"], train_idx=np.arange(1200))
-        # Either all composites rejected -> empty specs, or some kept
-        # but each kept one's tiny RMSE < raw_y_baseline_rmse_ * 1.0.
-        if disc.specs_:
-            for s in disc.specs_:
-                composite_rmse = disc.tiny_rerank_scores_[s.name]
-                assert (
-                    composite_rmse < disc.raw_y_baseline_rmse_
-                ), f"Gate failed: {s.name} kept with RMSE {composite_rmse:.4f} >= raw {disc.raw_y_baseline_rmse_:.4f}"
+        assert len(disc.tiny_rerank_scores_) > 0
+        assert disc.raw_y_baseline_rmse_ > 0
+        # Every scored composite is no better than raw y, so the gate must have rejected all of them.
+        worse_than_raw = {name: rmse for name, rmse in disc.tiny_rerank_scores_.items() if rmse >= disc.raw_y_baseline_rmse_}
+        assert worse_than_raw == dict(disc.tiny_rerank_scores_)
+        assert disc.specs_ == []
 
     def test_dominant_lag_passes_gate(self) -> None:
         """Sanity counterpart: when the base actually dominates (slow
@@ -227,15 +225,14 @@ class TestRawYBaselineGate:
             eps_mi_gain=-1.0,
             require_beats_raw_baseline=True,
             raw_baseline_tolerance=1000.0,  # admits everything finite
+            honest_rmse_gate_enabled=False,  # its own 1.05x tolerance would otherwise drop the marginal composite
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df, target_col="y", feature_cols=["X", "f1", "f2"], train_idx=np.arange(1200))
-        # With absurd tolerance, surviving spec's RMSE may exceed raw
-        # but stays < raw * 1000.
-        if disc.specs_:
-            for s in disc.specs_:
-                cr = disc.tiny_rerank_scores_[s.name]
-                assert cr < disc.raw_y_baseline_rmse_ * 1000.0
+        assert [s.name for s in disc.specs_] == ["y-diff-X"]
+        composite_rmse = disc.tiny_rerank_scores_["y-diff-X"]
+        # Worse than raw y, so only the loose tolerance could have admitted it.
+        assert disc.raw_y_baseline_rmse_ < composite_rmse < disc.raw_y_baseline_rmse_ * 1000.0
 
     def test_all_rejected_returns_empty_with_warning(self, caplog) -> None:
         """When the gate kills every composite, discovery returns no

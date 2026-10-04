@@ -73,8 +73,7 @@ def test_linear_strategy_pipeline_preserves_pandas_across_scaler():
         imputer=SimpleImputer(strategy="mean"),
         scaler=StandardScaler(),
     )
-    if pipeline is None:
-        pytest.skip("build_pipeline returned None")
+    assert pipeline is not None, "LinearModelStrategy must build a pipeline when an imputer and a scaler are supplied"
 
     out = pipeline.fit_transform(df, y)
     assert isinstance(out, pd.DataFrame), (
@@ -82,6 +81,9 @@ def test_linear_strategy_pipeline_preserves_pandas_across_scaler():
         f"expected pd.DataFrame. mlframe must call set_output(transform='pandas') "
         f"on sklearn Pipelines so pd.Categorical survives downstream."
     )
+    assert list(out.columns) == ["num1", "num2"]
+    assert np.allclose(out.mean().to_numpy(), 0.0, atol=1e-5)
+    assert np.allclose(out.std(ddof=0).to_numpy(), 1.0, atol=1e-4)
 
 
 # ---------------------------------------------------------------------------

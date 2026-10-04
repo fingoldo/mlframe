@@ -157,16 +157,21 @@ def test_phase_helpers_no_dead_strategies_for_check():
 
 # Fix 5: strategy_by_model hoisted out of per-target loop (or factored to helper).
 def test_strategy_by_model_hoisted_out_of_inner_loop():
-    """Strategy by model hoisted out of inner loop."""
-    src = _read("_phase_train_one_target.py")
-    # The per-(pre_pipeline) loop starts around "for pre_pipeline, pre_pipeline_name in".
-    # After fix: strategy_by_model must NOT appear AS AN ASSIGNMENT inside that loop body.
-    m = re.search(r"for pre_pipeline, pre_pipeline_name in", src)
-    assert m is not None, "outer pre_pipeline loop not found"
-    body = src[m.start() :]
-    # Find first assignment inside body
-    assign_inside = re.search(r"^\s+strategy_by_model\s*=\s*\{id\(m\):", body, re.MULTILINE)
-    assert assign_inside is None, "strategy_by_model is STILL recomputed inside the pre_pipeline loop; should be hoisted"
+    """strategy_by_model is not rebuilt as a fresh ``{id(m): ...}`` dict inside the per-pre_pipeline loop."""
+    tree = ast.parse(_read("_phase_train_one_target.py"))
+    loops = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.For) and isinstance(n.target, ast.Tuple) and [getattr(e, "id", None) for e in n.target.elts] == ["pre_pipeline", "pre_pipeline_name"]
+    ]
+    assert loops, "outer pre_pipeline loop not found"
+    rebuilt = [
+        a.lineno
+        for loop in loops
+        for a in ast.walk(loop)
+        if isinstance(a, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "strategy_by_model" for t in a.targets) and isinstance(a.value, ast.DictComp)
+    ]
+    assert not rebuilt, f"strategy_by_model is STILL recomputed inside the pre_pipeline loop (line(s) {rebuilt}); should be hoisted"
 
 
 # Fix 6: len(list(sorted_models)) -> len(sorted_models).
@@ -244,15 +249,27 @@ def test_per_iteration_memory_probe_uses_the_shared_helper():
 
 # Fix 9: dead try/except around _dropped_high_card_data.clear() removed.
 def test_main_dropped_high_card_clear_no_dead_try_except():
-    """Main dropped high card clear no dead try except."""
-    src = _read("main.py")
-    # Either the entire ``try: _dropped_high_card_data.clear() except (NameError,
-    # AttributeError): pass`` block is gone, or the except no longer lists those.
-    bad_pat = re.compile(
-        r"try:\s*_dropped_high_card_data\.clear\(\)\s*except\s*\(\s*NameError\s*,\s*AttributeError\s*\)\s*:\s*pass",
-        re.DOTALL,
-    )
-    assert not bad_pat.search(src), "dead try/except around _dropped_high_card_data.clear() still present"
+    """The _dropped_high_card_data.clear() call is not wrapped in a try that swallows NameError / AttributeError."""
+    tree = ast.parse(_read("main.py"))
+    clears = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "clear"
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == "_dropped_high_card_data"
+    ]
+    assert clears, "_dropped_high_card_data.clear() call not found"
+    dead = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try) or not any(c in clears for stmt in node.body for c in ast.walk(stmt)):
+            continue
+        for h in node.handlers:
+            caught = {n.id for n in ast.walk(h.type)} if h.type is not None else {"BaseException"}
+            if caught & {"NameError", "AttributeError", "BaseException"}:
+                dead.append(node.lineno)
+    assert not dead, f"dead try/except around _dropped_high_card_data.clear() still present at line(s) {dead}"
 
 
 # Fix 11: _is_interactive_logp probe moved to module-import time.
@@ -267,17 +284,7 @@ def test_config_setup_interactive_probe_at_module_scope():
 
 # Fix 12: _ensure_logging_visible early-returns if already configured.
 def test_ensure_logging_visible_is_idempotent():
-    """Ensure logging visible is idempotent."""
-    src = _read("_misc_helpers.py")
-    # After fix: function inspects root.handlers BEFORE mutating, returns early
-    # when the asctime formatter is already in place.
-    fn_match = re.search(r"def _ensure_logging_visible\([^)]*\)[^:]*:.*?(?=\ndef |\Z)", src, re.DOTALL)
-    assert fn_match, "_ensure_logging_visible not found"
-    body = fn_match.group(0)
-    # Must contain an early-return guarded on asctime detection.
-    assert re.search(r"return", body), "function lacks an early-return"
-    assert "%(asctime)" in body, "function must reference asctime formatter literal"
-    # Behavioural: a real second call must NOT add a handler.
+    """A second _ensure_logging_visible call neither adds nor replaces a handler on the mlframe logger, and leaves the root alone."""
     sys.path.insert(0, str(CORE.parents[3]))  # repo/src
     from mlframe.training.core._misc_helpers import _ensure_logging_visible
 
@@ -312,18 +319,25 @@ def test_finalize_suite_single_pass_walk():
 
 # Fix 14: WHY comment on `del df; ctx.df = None`.
 def test_main_del_df_has_why_comment():
-    """Main del df has why comment."""
-    src = _read("main.py")
-    # Anchor on the STATEMENT, not on the text "del df": the WHY comment this test exists to require itself
-    # quotes ``del df``, so a plain substring search lands on the comment and then reads the 400 characters
-    # BEFORE it -- failing precisely when the comment is present. Indentation varies with the enclosing block.
-    _m = re.search(r"^[ \t]*del df$", src, re.MULTILINE)
-    assert _m is not None, "del df line not found"
-    # Both halves of the release must be present: `del df` alone leaves `ctx.df` holding the frame, so the
-    # memory is not actually reclaimed. That is a property of the code, unlike the comment window that used to
-    # be checked here, which passed or failed on wording.
-    _tail = src[_m.end() : _m.end() + 400]
-    # A chained reset (``ctx.df = ctx.split_row_ids = None``) clears ctx.df just the same.
-    assert re.search(
-        r"^[ \t]*ctx\.df = (?:[\w.]+ = )*None\b", _tail, re.MULTILINE
-    ), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"
+    """``del df`` is followed by clearing ctx.df, otherwise the context keeps the frame alive and nothing is reclaimed."""
+    tree = ast.parse(_read("main.py"))
+
+    def _clears_ctx_df(stmt: ast.stmt) -> bool:
+        """True for ``ctx.df = None`` including chained targets such as ``ctx.df = ctx.split_row_ids = None``."""
+        return (
+            isinstance(stmt, ast.Assign)
+            and isinstance(stmt.value, ast.Constant)
+            and stmt.value.value is None
+            and any(isinstance(t, ast.Attribute) and t.attr == "df" and isinstance(t.value, ast.Name) and t.value.id == "ctx" for t in stmt.targets)
+        )
+
+    checked = 0
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list):
+            continue
+        for i, stmt in enumerate(body):
+            if isinstance(stmt, ast.Delete) and [getattr(t, "id", None) for t in stmt.targets] == ["df"]:
+                checked += 1
+                assert _clears_ctx_df(body[i + 1]), "`del df` without clearing ctx.df leaves the context holding the frame, so nothing is reclaimed"
+    assert checked, "del df statement not found"

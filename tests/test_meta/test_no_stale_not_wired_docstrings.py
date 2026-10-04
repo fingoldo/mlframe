@@ -96,22 +96,28 @@ def _build_offending_set() -> set[str]:
         tree = parsed_ast(py)
         if tree is None:
             continue
-        rel = py.relative_to(MLFRAME_DIR).as_posix()
-        stem_tokens = _docstring_family_tokens(py.stem)
-        module_doc = ast.get_docstring(tree, clean=False) or ""
-        if _NOT_WIRED_RE.search(module_doc):
-            doc_tokens = _docstring_family_tokens(module_doc)
-            if any(_param_matches(p, stem_tokens | doc_tokens) for p in true_default_params):
-                out.add(f"{rel}:1")
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            fn_doc = ast.get_docstring(node, clean=False) or ""
-            if not _NOT_WIRED_RE.search(fn_doc):
-                continue
-            fn_tokens = _docstring_family_tokens(node.name) | _docstring_family_tokens(fn_doc)
-            if any(_param_matches(p, stem_tokens | fn_tokens) for p in true_default_params):
-                out.add(f"{rel}:{node.lineno}")
+        out |= _offending_in_tree(tree, py.relative_to(MLFRAME_DIR).as_posix(), py.stem, true_default_params)
+    return out
+
+
+def _offending_in_tree(tree: ast.Module, rel: str, stem: str, true_default_params: set[str]) -> set[str]:
+    """``{rel:lineno}`` for each stale "not wired" docstring in one parsed module."""
+    out: set[str] = set()
+    stem_tokens = _docstring_family_tokens(stem)
+    module_doc = ast.get_docstring(tree, clean=False) or ""
+    if _NOT_WIRED_RE.search(module_doc):
+        doc_tokens = _docstring_family_tokens(module_doc)
+        if any(_param_matches(p, stem_tokens | doc_tokens) for p in true_default_params):
+            out.add(f"{rel}:1")
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        fn_doc = ast.get_docstring(node, clean=False) or ""
+        if not _NOT_WIRED_RE.search(fn_doc):
+            continue
+        fn_tokens = _docstring_family_tokens(node.name) | _docstring_family_tokens(fn_doc)
+        if any(_param_matches(p, stem_tokens | fn_tokens) for p in true_default_params):
+            out.add(f"{rel}:{node.lineno}")
     return out
 
 
@@ -123,14 +129,24 @@ def _param_matches(param_name: str, tokens: set[str]) -> bool:
     return bool(core_tokens & tokens)
 
 
+def test_stale_docstring_detector_catches_a_not_wired_claim_and_passes_accurate_docs():
+    """A docstring calling a default-on family "not wired" is reported; an accurate one and an unrelated family are not."""
+    params = {"fe_hybrid_orth_enable"}
+    stale = ast.parse('def run():\n    """Hybrid orth step, not currently wired into MRMR.fit."""\n')
+    accurate = ast.parse('def run():\n    """Hybrid orth step, on by default."""\n')
+    unrelated = ast.parse('def run():\n    """Splines are not enabled by default."""\n')
+    assert _offending_in_tree(stale, "m.py", "m", params) == {"m.py:1"}
+    assert _offending_in_tree(accurate, "m.py", "m", params) == set()
+    assert _offending_in_tree(unrelated, "m.py", "m", params) == set()
+
+
 def test_no_new_stale_not_wired_docstrings():
     """No new module/function docstring under ``filters/`` claims a default-on mechanism is opt-in/not
     wired into ``MRMR.fit``, beyond the frozen baseline."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"stale-not-wired-docstring baseline refreshed at {_BASELINE_PATH.name} ({len(current)} site(s))")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"stale-not-wired-docstring baseline refreshed at {_BASELINE_PATH.name}")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

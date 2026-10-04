@@ -59,9 +59,24 @@ def test_mlp_fits_and_predicts_with_embedding_column():
     assert np.all(np.isfinite(preds))
 
 
+def _default_text_model_available() -> bool:
+    """True when the default HuggingFace text model's tokenizer loads (from the local cache or the network)."""
+    from transformers import AutoTokenizer
+
+    from mlframe.training.neural.feature_prep import DEFAULT_TEXT_MODEL
+
+    try:
+        AutoTokenizer.from_pretrained(DEFAULT_TEXT_MODEL)  # nosec B615 - availability probe of the default model, nothing is executed
+    except OSError:
+        return False
+    return True
+
+
 def test_mlp_fits_and_predicts_with_text_column_real_hf():
     """Mlp fits and predicts with text column real hf."""
     pytest.importorskip("transformers")
+    if not _default_text_model_available():
+        pytest.skip("default HuggingFace text model unavailable offline")
     n = 48
     rng = np.random.default_rng(1)
     pos = ["great wonderful excellent", "superb fantastic", "amazing brilliant"]
@@ -72,10 +87,7 @@ def test_mlp_fits_and_predicts_with_text_column_real_hf():
     y = ys.astype(np.float32)
 
     reg = PytorchLightningRegressor(**_regressor_params())
-    try:
-        reg.fit(X, y, text_features=["text_0"])  # boundary HF-embeds text_0 -> numeric before the MLP
-    except Exception as e:  # pragma: no cover -- offline / model-fetch failure
-        pytest.skip(f"HuggingFace model unavailable ({type(e).__name__}: {e})")
+    reg.fit(X, y, text_features=["text_0"])  # boundary HF-embeds text_0 -> numeric before the MLP
     assert getattr(reg, "_emb_text_encoder_", None) is not None
     preds = np.asarray(reg.predict(X))
     assert preds.shape[0] == n

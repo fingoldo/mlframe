@@ -102,10 +102,7 @@ def test_ks_shared_desc_order_bit_identical(kind):
     own = ks_statistic(y, s)
     desc = np.argsort(s)[::-1]
     shared = ks_statistic(y, s, desc_order=desc)
-    if np.isnan(own):
-        assert np.isnan(shared)
-    else:
-        assert own == shared, (kind, own, shared)
+    np.testing.assert_array_equal(shared, own, err_msg=str((kind, own, shared)))
 
 
 def test_ks_matches_scipy_for_2_sample():
@@ -184,10 +181,7 @@ def test_ks_size_gate_is_bit_identical_both_sides(kind):
             yt[-1] = 0
         got = ks_statistic(yt, ys)
         ref = _ks_statistic_numpy(yt, ys)
-        if np.isnan(ref):
-            assert np.isnan(got), f"{kind} n={n}: got {got!r}, ref NaN"
-        else:
-            assert got == ref, f"{kind} n={n}: gate {got!r} != ref {ref!r}"
+        np.testing.assert_array_equal(got, ref, err_msg=f"{kind} n={n}: gate {got!r} != ref {ref!r}")
 
 
 def test_ks_size_gate_routes_to_expected_kernel(monkeypatch):
@@ -285,10 +279,7 @@ def test_ks_upper_gate_is_bit_identical(kind):
     ref = _ks_statistic_numpy(yt, ys)
     desc_order = np.argsort(ys)[::-1].copy()
     for got in (ext.ks_statistic(yt, ys), ext.ks_statistic(yt, ys, desc_order=desc_order)):
-        if np.isnan(ref):
-            assert np.isnan(got), f"{kind}: got {got!r}, ref NaN"
-        else:
-            assert got == ref, f"{kind}: gated {got!r} != ref {ref!r}"
+        np.testing.assert_array_equal(got, ref, err_msg=f"{kind}: gated {got!r} != ref {ref!r}")
 
 
 def test_ks_fused_gate_matches_the_reference_on_tied_and_tie_free_scores():
@@ -316,8 +307,33 @@ def test_ks_fused_gate_matches_the_reference_on_tied_and_tie_free_scores():
         assert got == expected, f"{name}: fused {got!r} != reference {expected!r}"
 
 
+@pytest.fixture
+def quiet_host_for_ks_timing():
+    """Skips before any measurement when the host is too contended to time the KS kernel steady-state."""
+    from statistics import median
+    from mlframe.metrics.classification._classification_extras import _KS_FUSED_MAX_N, _ks_statistic_kernel
+
+    n = max(128, _KS_FUSED_MAX_N // 2)
+    rng = np.random.default_rng(123)
+    spreads = []
+    for _ in range(5):
+        ys = rng.random(n)
+        yt = (rng.random(n) < 0.3).astype(np.int64)
+
+        def probe(a, b):
+            """Sorted-gather reference used as the contention probe."""
+            order = np.argsort(b, kind="quicksort")
+            return float(_ks_statistic_kernel(a[order], b[order]))
+
+        probe(yt, ys)
+        blocks = [_timed_block(probe, yt, ys, 500) for _ in range(8)]
+        spreads.append(max(blocks) / min(blocks))
+    if median(spreads) > 2.0:
+        pytest.skip(f"host too contended to time steady-state (ref block spread {median(spreads):.1f}x)")
+
+
 @pytest.mark.slow
-def test_ks_fused_gate_perf_sentinel():
+def test_ks_fused_gate_perf_sentinel(quiet_host_for_ks_timing):
     """Perf sentinel: the gated-in fused-gather path must not be materially slower than the
     pre-gathered reference at a size well inside the gate (it wins 1.3-1.7x on an uncontended
     box). Uses best-of-many-blocks per path + multiple trials and takes the MEDIAN speedup so
@@ -351,20 +367,12 @@ def test_ks_fused_gate_perf_sentinel():
     n = max(128, _KS_FUSED_MAX_N // 2)
     rng = np.random.default_rng(123)
     speedups = []
-    ref_block_spreads = []
     for _ in range(5):
         ys = rng.random(n)
         yt = (rng.random(n) < 0.3).astype(np.int64)
-        # contention probe: spread of ref blocks; if huge, the host is too noisy to trust.
-        ref(yt, ys)
-        rblocks = [_timed_block(ref, yt, ys, 500) for _ in range(8)]
-        ref_block_spreads.append(max(rblocks) / min(rblocks))
         tr = best_block(ref, yt, ys)
         tf = best_block(fused, yt, ys)
         speedups.append(tr / tf)
-
-    if median(ref_block_spreads) > 2.0:
-        pytest.skip(f"host too contended to time steady-state (ref block spread {median(ref_block_spreads):.1f}x)")
 
     med = median(speedups)
     # Floor well below the 1.3-1.7x clean-box win to absorb noise but catch a real fused regression.

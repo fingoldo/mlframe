@@ -124,8 +124,8 @@ def test_bayesian_blocks_dispatch_defaults_bounded_subsample(monkeypatch):
     col = np.random.default_rng(0).normal(size=50000)
     an.per_feature_edges(col.reshape(-1, 1), method="bayesian_blocks", n_jobs=1)
     assert captured.get("subsample_threshold"), "BB dispatch must forward a bounded subsample_threshold, not 0"
-    assert 0 < captured["subsample_threshold"] <= 50000
-    assert captured["subsample_threshold"] == an._BB_DEFAULT_SUBSAMPLE_THRESHOLD
+    assert captured["subsample_threshold"] == an._BB_DEFAULT_SUBSAMPLE_THRESHOLD == 5000
+    assert captured["subsample_threshold"] < col.size
 
 
 class _AllMedoidsStub:
@@ -232,7 +232,10 @@ def test_validate_string_params_still_allows_none_where_it_is_a_real_sentinel():
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     est = MRMR(nbins_strategy=None, redundancy_aggregator=None, random_seed=0, n_workers=1, verbose=0)
-    est._validate_string_params()  # must not raise
+    assert est._validate_string_params() is None
+    assert est.nbins_strategy is None and est.redundancy_aggregator is None
+    with pytest.raises(ValueError, match="nbins_strategy='bogus' is not a recognised value"):
+        MRMR(nbins_strategy="bogus")._validate_string_params()
 
 
 def test_adaptive_arity_multileg_recipes_freeze_preprocess_params():
@@ -270,8 +273,7 @@ def test_adaptive_arity_multileg_recipes_freeze_preprocess_params():
         adaptive_min_abs_mi_frac=0.0,
     )
     multileg = [r for r in recipes if getattr(r, "kind", "") in ("orth_pair_cross", "orth_triplet_cross", "orth_quadruplet_cross")]
-    if not multileg:
-        pytest.skip("fixture produced no arity>=2 adaptive-arity recipe to check")
+    assert multileg, "fixture produced no arity>=2 adaptive-arity recipe to check"
     for r in multileg:
         extra = dict(getattr(r, "extra", {}) or {})
         n_legs = len(getattr(r, "src_names", ()) or ())

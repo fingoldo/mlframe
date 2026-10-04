@@ -148,9 +148,8 @@ class TestSirDirectionBizValue:
         mi_raw = _mi_one(x0, y)
 
         _, appended, _, enc = hybrid_sir_direction_fe(X, y, num_cols=list(X.columns), n_directions=2, top_k=2, mi_gate=True, random_state=0)
-        if appended:
-            mi_best = max(_mi_one(enc[c].to_numpy(), y) for c in appended)
-            assert mi_best <= mi_raw + 0.05, f"SIR direction MI ({mi_best:.4f}) should not materially exceed the single truly-informative raw column's MI ({mi_raw:.4f})"
+        mi_best = max((_mi_one(enc[c].to_numpy(), y) for c in appended), default=0.0)
+        assert mi_best <= mi_raw + 0.05, f"SIR direction MI ({mi_best:.4f}) should not materially exceed the single truly-informative raw column's MI ({mi_raw:.4f})"
 
     def test_canonical_pair_fe_fixture_unperturbed_when_disabled(self):
         """With fe_sir_direction_enable at its shipped default (False), MRMR's selected support_

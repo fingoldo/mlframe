@@ -24,6 +24,7 @@ import warnings
 import numpy as np
 import pytest
 
+from tests._known_gap import known_gap
 from tests.conftest import perf_time_budget
 from tests.conftest import skip_under_numba_disabled_jit
 
@@ -213,47 +214,40 @@ def test_perf_prewarm_eliminates_cold_start():
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
+def _gpu_n100k_skip_reason() -> str:
+    """Why the n=100k GPU speedup floor does not apply on this host ("" when it does).
+
+    The floors are calibrated for Volta+ (compute capability >= 7.0) with >= 4 GB VRAM: Pascal lands at 0.1-0.3x on this size, dominated by H2D sync, and a
+    smaller card is dominated by residency and launch overhead; neither is a code regression.
+    """
+    try:
+        import cupy
+
+        if cupy.cuda.runtime.getDeviceCount() < 1:
+            return "no CUDA device available"
+        dev = cupy.cuda.Device(0)
+        major, minor = int(dev.compute_capability[0]), int(dev.compute_capability[1])
+        vram_total = int(dev.mem_info[1])
+    except Exception as err:
+        return f"CUDA runtime not usable: {err}"
+    if (major, minor) < (7, 0):
+        return f"GPU compute capability {major}.{minor} below Volta (7.0); the n=100k parity floor is calibrated for Volta+"
+    if vram_total < 4 * 1024**3:
+        return f"GPU VRAM {vram_total / 1e9:.1f} GB below 4 GB; kernel residency / launch-overhead floors do not apply"
+    return ""
+
+
+_GPU_N100K_SKIP_REASON = _gpu_n100k_skip_reason()
+
+
 @pytest.mark.gpu
+@pytest.mark.skipif(bool(_GPU_N100K_SKIP_REASON), reason=_GPU_N100K_SKIP_REASON or "GPU speedup floor applies")
 def test_perf_mi_direct_gpu_at_n100k():
     """At n=100_000, GPU MI must be at least 1.5x faster than CPU.
 
     Real GPU speedup at this size is typically 3-10x; the 1.5x floor leaves headroom for slow / shared GPUs.
     Skipped cleanly when cupy or a CUDA device is unavailable.
     """
-    cupy = pytest.importorskip("cupy")
-    try:
-        if cupy.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip("no CUDA device available")
-    except Exception as e:
-        pytest.skip(f"CUDA runtime not usable: {e}")
-
-    # GPU-capability gate: bail out when the host GPU is too old or too small
-    # to run this kernel competitively. The speedup floors below are calibrated
-    # for Pascal+ (compute capability 6.x+) with >= 4 GB VRAM; older / smaller
-    # devices land below the 0.1x catastrophic floor purely on hardware, NOT
-    # because of a code regression. We surface the skip so the regression
-    # sensor stays meaningful on capable hosts.
-    try:
-        _dev = cupy.cuda.Device(0)
-        _major, _minor = _dev.compute_capability[0], _dev.compute_capability[1]
-        _vram_total = int(_dev.mem_info[1])  # bytes
-        # 2026-06-01: tighten Pascal (6.0) -> Volta (7.0). The 0.7x parity
-        # floor at n=100k is achievable on Volta+ but not on Pascal: after
-        # iter126/143 CPU rewrites the CPU baseline runs at ~90 ms while
-        # a Pascal-class GPU spends most of the 1.5 s budget on H2D sync.
-        # Volta+ starts winning at this size; Pascal SKIPs cleanly instead
-        # of XFAILing every run (observed 0.18-0.27x soft-band on GTX 1050 Ti).
-        if (int(_major), int(_minor)) < (7, 0):
-            pytest.skip(
-                f"GPU compute capability {_major}.{_minor} below Volta (7.0); "
-                f"the n=100k 0.7x parity floor is calibrated for Volta+ -- "
-                f"Pascal lands at 0.1-0.3x dominated by H2D sync."
-            )
-        if _vram_total < 4 * 1024 * 1024 * 1024:
-            pytest.skip(f"GPU VRAM {_vram_total / 1e9:.1f} GB below 4 GB threshold; kernel residency / launch-overhead floors do not apply.")
-    except Exception as _gpu_info_err:
-        pytest.skip(f"GPU capability probe failed: {_gpu_info_err}")
-
     from mlframe.feature_selection.filters.permutation import mi_direct
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu
 
@@ -326,21 +320,22 @@ def test_perf_mi_direct_gpu_at_n100k():
     # of the 1.5 s budget on H2D sync rather than the kernel itself.
     # The 0.1x floor was calibrated on idle dev-box; the iter126/143
     # CPU optimisations + shared-GPU contention put parity well below.
-    if speedup < 0.02:
-        pytest.fail(
-            f"GPU mi_direct CATASTROPHICALLY slow vs CPU at n=100k "
-            f"(speedup={speedup:.2f}x, floor 0.02x). Likely a kernel "
-            f"decompile / H2D sync regression. "
-            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
-        )
+    assert speedup >= 0.02, (
+        f"GPU mi_direct CATASTROPHICALLY slow vs CPU at n=100k "
+        f"(speedup={speedup:.2f}x, floor 0.02x). Likely a kernel "
+        f"decompile / H2D sync regression. "
+        f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
+    )
     if speedup < 0.7:
-        pytest.xfail(
+        known_gap(
             f"GPU mi_direct at n=100k slower than CPU "
             f"(speedup={speedup:.2f}x, parity floor 0.7x). Soft sensor: "
             f"shared / low-end GPU vs aggressive CPU baseline; the GPU "
             f"path still wins at n>=200k. "
-            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
+            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)",
+            gap_closed=False,
         )
+    assert speedup >= 0.7
 
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------

@@ -26,6 +26,7 @@ import pandas as pd
 import pytest
 from sklearn.exceptions import NotFittedError
 
+from tests._known_gap import known_gap
 from tests.feature_selection._selector_factories import (
     SELECTOR_SPECS,
     selected_mask,
@@ -84,6 +85,17 @@ def fitted_binary(spec):
 
 
 _SPECS = spec_params()
+
+
+def _outcome(fn, expected_exceptions) -> str:
+    """Run ``fn``: ``"raised"`` when it raises one of ``expected_exceptions``, ``"other-error"`` for any other exception, else ``"ok"``."""
+    try:
+        fn()
+    except expected_exceptions:
+        return "raised"
+    except Exception:
+        return "other-error"
+    return "ok"
 
 
 # ===========================================================================
@@ -149,24 +161,22 @@ class TestUniversalContract:
         """Get feature names out capability."""
         sel = fitted_binary(spec)
         has = callable(getattr(sel, "get_feature_names_out", None))
-        if spec.has_gfno:
-            assert has, f"{spec.name}: has_gfno=True but get_feature_names_out missing"
-            names = sel.get_feature_names_out()
-            assert len(names) == sel.transform(_BINARY_X).shape[1]
-        elif not has:
-            pytest.xfail(f"{spec.name}: no get_feature_names_out (declared sklearn-parity gap)")
+        if not spec.has_gfno:
+            known_gap(f"{spec.name}: no get_feature_names_out (declared sklearn-parity gap)", gap_closed=has)
+        assert has, f"{spec.name}: has_gfno=True but get_feature_names_out missing"
+        names = sel.get_feature_names_out()
+        assert len(names) == sel.transform(_BINARY_X).shape[1]
 
     def test_get_support_capability(self, spec):
         """Get support capability."""
         sel = fitted_binary(spec)
         gs = getattr(sel, "get_support", None)
-        if spec.has_get_support:
-            assert callable(gs), f"{spec.name}: has_get_support=True but get_support missing"
-            mask = np.asarray(gs())
-            idx = np.asarray(gs(indices=True))
-            assert np.array_equal(np.where(np.asarray(_as_bool(mask, sel)))[0], idx)
-        elif not callable(gs):
-            pytest.xfail(f"{spec.name}: no get_support (declared sklearn-parity gap)")
+        if not spec.has_get_support:
+            known_gap(f"{spec.name}: no get_support (declared sklearn-parity gap)", gap_closed=callable(gs))
+        assert callable(gs), f"{spec.name}: has_get_support=True but get_support missing"
+        mask = np.asarray(gs())
+        idx = np.asarray(gs(indices=True))
+        assert np.array_equal(np.where(np.asarray(_as_bool(mask, sel)))[0], idx)
 
 
 def _as_bool(mask, sel):
@@ -230,12 +240,16 @@ class TestTransformWidthValidation:
     def test_wrong_ndarray_width_raises(self, spec):
         """Wrong ndarray width raises."""
         sel = fitted_binary(spec)
-        if not spec.accepts_ndarray:
-            pytest.xfail(f"{spec.name}: DataFrame-only (declared)")
-        if not spec.validates_transform_width:
-            pytest.xfail(f"{spec.name}: no transform-time width validation (silent positional indexing -- prod guard backlog)")
         nfin = int(sel.n_features_in_)
         bad = np.random.default_rng(0).standard_normal((20, nfin + 2))
+        if not spec.accepts_ndarray:
+            good = _BINARY_X.values
+            known_gap(f"{spec.name}: DataFrame-only (declared)", gap_closed=_outcome(lambda: sel.transform(good), (ValueError,)) == "ok")
+        if not spec.validates_transform_width:
+            known_gap(
+                f"{spec.name}: no transform-time width validation (silent positional indexing -- prod guard backlog)",
+                gap_closed=_outcome(lambda: sel.transform(bad), (ValueError, KeyError, IndexError)) == "raised",
+            )
         with pytest.raises((ValueError, KeyError, IndexError)):
             sel.transform(bad)
 
@@ -259,18 +273,18 @@ class TestColumnOrderInvariance:
     """Groups tests covering TestColumnOrderInvariance."""
     def test_reversed_columns_select_same_names(self, spec):
         """Reversed columns select same names."""
-        if not spec.column_order_invariant:
-            pytest.xfail(f"{spec.name}: selection depends on input column order (positional tie-break / shadow ordering -- reproducibility gap)")
         rev = list(_BINARY_X.columns)[::-1]
-        s1 = _fit(spec.make("binary"), _BINARY_X, _BINARY_Y)
+        s1 = fitted_binary(spec)
         s2 = _fit(spec.make("binary"), _BINARY_X[rev], _BINARY_Y)
         names1, names2 = set(selected_names(s1)), set(selected_names(s2))
-        if spec.determinism >= 1.0:
-            assert names1 == names2, f"{spec.name}: column reorder changed selection {names1} vs {names2}"
-        else:
-            inter = len(names1 & names2)
-            union = len(names1 | names2) or 1
-            assert inter / union >= spec.determinism
+        if not spec.column_order_invariant:
+            known_gap(
+                f"{spec.name}: selection depends on input column order (positional tie-break / shadow ordering -- reproducibility gap)",
+                gap_closed=spec.determinism >= 1.0 and names1 == names2,
+            )
+        floor = 1.0 if spec.determinism >= 1.0 else spec.determinism
+        similarity = 1.0 if names1 == names2 else len(names1 & names2) / (len(names1 | names2) or 1)
+        assert similarity >= floor, f"{spec.name}: column reorder changed selection {sorted(names1)} vs {sorted(names2)}"
 
 
 # ===========================================================================
@@ -324,10 +338,11 @@ class TestSampleWeight:
             with pytest.raises(TypeError):
                 sel.fit(_BINARY_X, _BINARY_Y, sample_weight=np.ones(len(_BINARY_Y)))
             return
-        s_none = fitted_binary(spec)
-        s_w = _fit_with_weight(spec, np.ones(len(_BINARY_Y)))
-        if spec.determinism >= 1.0:
-            assert set(selected_names(s_none)) == set(selected_names(s_w))
+        names_none = set(selected_names(fitted_binary(spec)))
+        names_w = set(selected_names(_fit_with_weight(spec, np.ones(len(_BINARY_Y)))))
+        floor = 1.0 if spec.determinism >= 1.0 else spec.determinism
+        similarity = 1.0 if names_none == names_w else len(names_none & names_w) / (len(names_none | names_w) or 1)
+        assert similarity >= floor, f"{spec.name}: uniform sample_weight changed selection {sorted(names_none)} vs {sorted(names_w)}"
 
 
 def _fit_with_weight(spec, w):
@@ -348,7 +363,10 @@ class TestDuplicateColumnNames:
         Xdup = pd.concat([_BINARY_X, _BINARY_X[["f0"]]], axis=1)  # two cols named f0
         sel = spec.make("binary")
         if not spec.rejects_duplicate_names:
-            pytest.xfail(f"{spec.name}: no duplicate-column-name guard at fit entry (silent positional pick -- prod guard backlog)")
+            known_gap(
+                f"{spec.name}: no duplicate-column-name guard at fit entry (silent positional pick -- prod guard backlog)",
+                gap_closed=_outcome(lambda: _fit(sel, Xdup, _BINARY_Y), (ValueError, KeyError, AssertionError)) == "raised",
+            )
         with pytest.raises((ValueError, KeyError, AssertionError)):
             _fit(sel, Xdup, _BINARY_Y)
 
@@ -386,17 +404,18 @@ class TestNanInXPolicy:
     """Groups tests covering TestNanInXPolicy."""
     def test_nan_in_X_declared_policy(self, spec):
         """Nan in X declared policy."""
-        if spec.nan_in_X_policy == "unknown":
-            pytest.skip(f"{spec.name}: NaN-in-X policy not yet pinned (measure-then-pin backlog)")
         X = _BINARY_X.copy()
         rng = np.random.default_rng(0)
         nan_rows = rng.choice(len(X), size=int(0.05 * len(X)), replace=False)
         X.iloc[nan_rows, 0] = np.nan
         X.iloc[nan_rows, 1] = np.nan
         sel = spec.make("binary")
-        if spec.nan_in_X_policy == "raises":
-            with pytest.raises((ValueError, TypeError)):
-                _fit(sel, X, _BINARY_Y)
-        else:  # tolerates
+        try:
             fitted = _fit(sel, X, _BINARY_Y)
-            assert int(selected_mask(fitted).sum()) >= 1
+        except (ValueError, TypeError):
+            outcome = "raises"
+        else:
+            outcome = "tolerates" if int(selected_mask(fitted).sum()) >= 1 else "selected-nothing"
+        # An unpinned policy still has to be one of the two coherent outcomes: a clean ValueError/TypeError, or a fit that keeps a feature.
+        allowed = ("raises", "tolerates") if spec.nan_in_X_policy == "unknown" else (spec.nan_in_X_policy,)
+        assert outcome in allowed, f"{spec.name}: NaN-in-X outcome {outcome!r}, declared policy {spec.nan_in_X_policy!r}"

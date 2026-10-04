@@ -668,7 +668,11 @@ def test_weak_segment_heatmap_with_embedding_column_does_not_raise(reg_clean):
     X, yt, yp = reg_clean
     X = X.copy()
     X["emb"] = [[0.0, 1.0]] * len(X)
-    weak_segment_heatmap(X, yt, yp)
+    res = weak_segment_heatmap(X, yt, yp)
+    assert isinstance(res, WeakSegmentResult)
+    assert "emb" not in res.split_features
+    assert set(res.split_features) <= {"f0", "f1", "f2"}
+    assert res.cell_count.sum() == pytest.approx(len(yt))
 
 
 # ----------------------------------------------------------------------------

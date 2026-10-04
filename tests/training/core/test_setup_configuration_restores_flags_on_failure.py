@@ -99,9 +99,9 @@ def test_the_flip_still_happens_on_the_success_path():
 
 def test_the_calibration_colormap_override_is_also_unwound(monkeypatch):
     """The three thread-local overrides share the failure path; this one is furthest from the first flip."""
-    colors = pytest.importorskip("mlframe.reporting.colors")
-    if not hasattr(colors, "set_calibration_cmap"):
-        pytest.skip("this build of mlframe.reporting.colors has no calibration-cmap override to restore")
+    from mlframe.reporting import colors
+
+    assert hasattr(colors, "set_calibration_cmap"), "mlframe.reporting.colors lost its calibration-cmap override"
 
     prior = colors.get_calibration_cmap_override()
     try:

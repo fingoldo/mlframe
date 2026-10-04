@@ -97,6 +97,21 @@ def median_fill_pandas(frame: pd.DataFrame) -> pd.DataFrame:
     return frame
 
 
+def sanitize_pysr_column_names(columns: list) -> list:
+    """Replace PySR-reserved characters ("-", "=") with "_" and suffix collisions with _2, _3, ... so every returned name is unique."""
+    renamed = [col.replace("-", "_").replace("=", "_") for col in columns]
+    seen: dict = {}
+    final_names: list = []
+    for name in renamed:
+        if name in seen:
+            seen[name] += 1
+            final_names.append(f"{name}_{seen[name]}")
+        else:
+            seen[name] = 1
+            final_names.append(name)
+    return final_names
+
+
 def run_pysr_feature_engineering(
     df: Union[pd.DataFrame, pl.DataFrame],
     target_col: str,
@@ -208,16 +223,7 @@ def run_pysr_feature_engineering(
     clean_ram()
 
     # Sanitise PySR-reserved characters ("-", "=") into "_" and suffix collisions ("col-x" and "col=x" both map to "col_x") with _2, _3, ... so each renamed column retains a unique identity; pandas with dupe columns silently collapses to one when read via dict-comprehension over .columns.
-    _renamed = [col.replace("-", "_").replace("=", "_") for col in tmp_df.columns]
-    _seen: dict = {}
-    _final_names: list = []
-    for _name in _renamed:
-        if _name in _seen:
-            _seen[_name] += 1
-            _final_names.append(f"{_name}_{_seen[_name]}")
-        else:
-            _seen[_name] = 1
-            _final_names.append(_name)
+    _final_names = sanitize_pysr_column_names(list(tmp_df.columns))
     # Build a fresh BlockManager via dict-of-Series so the renamed frame owns its column Index AND its block storage. ``tmp_df.columns = _final_names`` would reassign the column Index but leave the underlying blocks aliased to the caller's frame (when caller passed a view like ``df.head(N)``); later ``tmp_df[col] = ...astype("category")`` mutations would then broadcast-copy through the shared block manager and corrupt the caller's frame. The dict-of-Series construction with ``copy=False`` keeps the ndarrays themselves zero-copy but rebinds them under a brand-new BlockManager that is no longer aliased to the caller.
     tmp_df = pd.DataFrame(
         {new_name: tmp_df[old_name] for old_name, new_name in zip(list(tmp_df.columns), _final_names)},

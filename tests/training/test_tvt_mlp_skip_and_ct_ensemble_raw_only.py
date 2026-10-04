@@ -49,29 +49,36 @@ class TestMlpExtremeArGroupAwareSkip:
         assert cfg.mlp_extreme_ar_group_aware_skip is False
         assert cfg.mlp_extreme_ar_threshold == 0.99
 
-    def test_skip_logic_reads_from_behavior_config(self) -> None:
-        """Lock in that the per-model loop reads the skip flag from
-        behavior_config (not env). Catches a future refactor that
-        re-introduces env-var gating without updating the config."""
-        # Monolith-split compat: the extreme-AR gate body was carved out of
-        # ``_phase_train_one_target_body`` into the ``_phase_train_one_target_post``
-        # sibling; concatenate both so the marker sensor still matches the
-        # relocated skip logic.
-        from mlframe.training.core import (
-            _phase_train_one_target_body,
-            _phase_train_one_target_post,
-        )
+    def test_skip_logic_reads_from_behavior_config(self, monkeypatch) -> None:
+        """The per-model gate takes the skip flag, the threshold and the model list from behavior_config (not the environment)."""
+        from mlframe.training._model_configs import TrainingBehaviorConfig
+        from mlframe.training.core._phase_train_one_target_post import _evaluate_mlp_extreme_ar_gate
 
-        src = _module_source(_phase_train_one_target_body) + "\n" + _module_source(_phase_train_one_target_post)
-        assert "mlp_extreme_ar_group_aware_skip" in src
-        assert "mlp_extreme_ar_threshold" in src
-        assert "lag1_autocorr_per_group" in src
-        assert "prefer_group_aware" in src
-        assert "extreme-AR + group-aware skip fired" in src
-        assert 'if mlframe_model_name == "mlp":' in src
-        # No leftover env-var references for the MLP skip.
-        assert "MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP" not in src
-        assert "MLFRAME_MLP_EXTREME_AR_THRESHOLD" not in src
+        monkeypatch.setenv("MLFRAME_MLP_EXTREME_AR_GROUP_AWARE_SKIP", "1")
+        metadata = {
+            "target_distribution_report": {
+                "diagnostics": {"lag1_autocorr_per_group": 0.995},
+                "knob_overrides": {"split_config": {"prefer_group_aware": True}},
+            }
+        }
+
+        def _gate(model_name, **cfg):
+            """The gate's ``(skip, fired, lag1)`` for the raw target under a behavior config with ``cfg`` fields."""
+            return _evaluate_mlp_extreme_ar_gate(
+                mlframe_model_name=model_name,
+                cur_target_name="y",
+                behavior_config=TrainingBehaviorConfig(**cfg),
+                metadata=metadata,
+                _model_idx_in_run=0,
+                _total_models_in_run=2,
+            )
+
+        assert _gate("mlp", mlp_extreme_ar_group_aware_skip=True) == (True, True, 0.995)
+        # Default off: the protections still see the fired signal, the model is not skipped, and the environment variable changes nothing.
+        assert _gate("mlp") == (False, True, 0.995)
+        assert _gate("mlp", mlp_extreme_ar_group_aware_skip=True, mlp_extreme_ar_threshold=0.999) == (False, False, 0.995)
+        assert _gate("mlp", mlp_extreme_ar_group_aware_skip=True, extreme_ar_group_aware_skip_models=("lstm",)) == (False, True, 0.995)
+        assert _gate("ridge", mlp_extreme_ar_group_aware_skip=True) == (False, False, None)
 
 
 class TestAlwaysBuildCtEnsembleForRaw:
@@ -93,36 +100,44 @@ class TestAlwaysBuildCtEnsembleForRaw:
         is on AND a regression target has trained models, synthesise
         an empty-spec entry so the existing loop covers raw-only."""
         from mlframe.training.core import _phase_composite_post
-
-        src = _module_source(_phase_composite_post)
-        assert "always_build_ct_ensemble_for_raw" in src
-        assert "synthesised raw-only entries" in src
-        # The synthesis must skip composite targets (they would double-count once their specs land). Checked by behaviour:
-        # composite status now comes from the spec names, not from a name-shape helper this test used to grep for.
         from mlframe.training.configs import CompositeTargetDiscoveryConfig, TargetTypes
 
+        models = {TargetTypes.REGRESSION: {"y": [object()], "z": [object()], "empty": []}}
+        merged = _phase_composite_post._with_raw_only_ensemble_entries(
+            {}, models, CompositeTargetDiscoveryConfig(), discovery_enabled=True, ce_strategy="nnls",
+        )
+        assert merged == {TargetTypes.REGRESSION: {"y": [], "z": []}}
+
+        # The knob off, discovery off or the ensemble strategy off leave the caller's mapping untouched.
+        off = CompositeTargetDiscoveryConfig(always_build_ct_ensemble_for_raw=False)
+        given: dict = {}
+        assert _phase_composite_post._with_raw_only_ensemble_entries(given, models, off, discovery_enabled=True, ce_strategy="nnls") is given
+        assert _phase_composite_post._with_raw_only_ensemble_entries(given, models, CompositeTargetDiscoveryConfig(), discovery_enabled=False, ce_strategy="nnls") is given
+        assert _phase_composite_post._with_raw_only_ensemble_entries(given, models, CompositeTargetDiscoveryConfig(), discovery_enabled=True, ce_strategy="off") is given
+
+        # The synthesis must skip composite targets (they would double-count once their specs land). Composite status comes from the spec names.
         specs = {TargetTypes.REGRESSION: {"y": [{"name": "y-chain_linear_residual_cbrt-b"}]}}
         models = {TargetTypes.REGRESSION: {"y": [object()], "y-chain_linear_residual_cbrt-b": [object()]}}
         merged = _phase_composite_post._with_raw_only_ensemble_entries(
             specs, models, CompositeTargetDiscoveryConfig(), discovery_enabled=True, ce_strategy="nnls",
         )
         assert "y-chain_linear_residual_cbrt-b" not in merged[TargetTypes.REGRESSION]
+        assert specs == {TargetTypes.REGRESSION: {"y": [{"name": "y-chain_linear_residual_cbrt-b"}]}}, "the metadata-owned mapping must not be mutated"
 
     def test_target_types_import_path_is_correct(self) -> None:
-        """Regression guard: the raw-only synthesis block does ``from
-        ..target_types import TargetTypes`` (BROKEN -- no such module;
-        TargetTypes lives in ``mlframe.training.configs``). TVT prod
-        2026-05-25 surfaced this as ModuleNotFoundError at the end of
-        Phase 4, killing the suite right before the ensemble verdict.
-        The import must resolve from ``mlframe.training.configs``.
+        """Regression guard: the raw-only synthesis block imports TargetTypes from ``mlframe.training.configs``.
+        A wrong module path (``..target_types``, which does not exist) surfaced in TVT prod as ModuleNotFoundError
+        at the end of Phase 4, killing the suite right before the ensemble verdict; the import runs inside the
+        function, so calling it with a regression target is what exercises it.
         """
         from mlframe.training.core import _phase_composite_post
+        from mlframe.training.configs import CompositeTargetDiscoveryConfig, TargetTypes
 
-        src = _module_source(_phase_composite_post)
-        assert "from ..target_types import" not in src
-        assert "from ..configs import TargetTypes" in src
-        # Round-trip the import itself to be sure.
-        from mlframe.training.configs import TargetTypes  # noqa: F401
+        models = {TargetTypes.REGRESSION: {"y": [object()]}}
+        merged = _phase_composite_post._with_raw_only_ensemble_entries(
+            {}, models, CompositeTargetDiscoveryConfig(), discovery_enabled=True, ce_strategy="nnls",
+        )
+        assert list(merged) == [TargetTypes.REGRESSION]
 
 
 class TestVerdictTableTestFallback:
@@ -159,12 +174,13 @@ class TestVerdictTableTestFallback:
             handler.emit = lambda r, _out=records: _out.append(r.getMessage())
             log = logging.getLogger("mlframe.training.core._phase_composite_post")
             log.addHandler(handler)
-            old_level, log.level = log.level, logging.INFO
+            old_level = log.level
+            log.setLevel(logging.INFO)
             try:
                 _run_suite_end_dummy_baselines_summary(models={"regression": {"y": [entry]}}, metadata={"dummy_baselines": {"regression": {"y": dict(rep)}}}, dummy_baselines_config=cfg)
             finally:
                 log.removeHandler(handler)
-                log.level = old_level
+                log.setLevel(old_level)
             text = "\n".join(records)
             assert ("ridge (test" in text) is tagged, text  # the verdict table truncates the name column
 

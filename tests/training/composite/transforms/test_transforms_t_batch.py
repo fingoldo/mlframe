@@ -567,14 +567,14 @@ class TestGaussianCopula:
         assert np.all(y_hat >= y.min()) and np.all(y_hat <= y.max())
 
     def test_round_trip_median_error_small(self) -> None:
-        """forward followed by inverse recovers y with a negligible median absolute error."""
+        """forward followed by inverse recovers every y element to 1e-9."""
         rng = np.random.default_rng(2)
         base = rng.normal(size=2000)
         y = np.exp(0.5 * base + rng.normal(scale=0.3, size=2000))
         t = get_transform("gaussian_copula_residual")
         p = t.fit(y, base)
         y_back = t.inverse(t.forward(y, base, p), base, p)
-        assert float(np.median(np.abs(y_back - y))) < 1e-6
+        np.testing.assert_allclose(y_back, y, rtol=0.0, atol=1e-9)
 
 
 # ---------------------------------------------------------------------------

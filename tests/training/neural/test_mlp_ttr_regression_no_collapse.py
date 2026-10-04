@@ -257,41 +257,37 @@ def test_regression_collapse_sensor_silent_on_healthy_predictions(caplog):
     assert not any("regression-collapse-sensor" in m for m in msgs), f"Sensor should NOT fire on healthy predictions; got noise: {msgs}"
 
 
-def test_mlp_suite_default_use_layernorm_is_false():
-    """Structural pin: the suite-level MLP construction MUST set
-    ``use_layernorm=False`` in its default ``network_params`` dict.
-    Catches a future revert of the 2026-05-21 fix that would silently
-    re-introduce the collapse mode on group-split tabular regression.
+def test_mlp_suite_default_use_layernorm_is_false(monkeypatch):
+    """The suite-level MLP defaults to ``use_layernorm=False`` for regression and classification heads, and a caller override still wins."""
+    from types import SimpleNamespace
 
-    The pin reads the source instead of running the suite because the
-    suite path is non-trivial to invoke standalone and the default
-    lives in a literal dict in trainer.py.
-    """
-    from pathlib import Path
+    from mlframe.training import trainer
+    from mlframe.training.neural.flat import MLPNeuronsByLayerArchitecture
 
-    src = Path("src/mlframe/training/trainer.py").read_text(encoding="utf-8")
-    # Find the mlp_network_params block (literal dict near line ~1262).
-    assert (
-        "mlp_network_params = dict(" in src
-    ), "trainer.py: mlp_network_params dict literal missing -- the suite-level MLP construction was refactored. Update the pin."
-    # Extract the dict block (between ``mlp_network_params = dict(`` and
-    # the matching closing paren).
-    start = src.index("mlp_network_params = dict(")
-    # Walk forward to balanced close-paren.
-    depth = 0
-    end = start
-    for i in range(start + len("mlp_network_params = dict"), len(src)):
-        if src[i] == "(":
-            depth += 1
-        elif src[i] == ")":
-            depth -= 1
-            if depth == 0:
-                end = i
-                break
-    block = src[start : end + 1]
-    assert "use_layernorm=False" in block, (
-        f"trainer.py mlp_network_params block must contain "
-        f"``use_layernorm=False`` (post-2026-05-21 fix). Pre-fix default "
-        f"was True which collapsed MLP on group-split tabular regression "
-        f"with strong AR signal. Block was:\n{block}"
-    )
+    captured: list = []
+
+    class _Recorder:
+        """Estimator stand-in that records the network_params it was built with."""
+
+        def __init__(self, network_params=None, **kwargs):
+            """Store the constructor arguments."""
+            captured.append(dict(network_params or {}))
+
+    monkeypatch.setattr(trainer, "_get_neural_components", lambda: (MLPNeuronsByLayerArchitecture, _Recorder, _Recorder))
+    configs = SimpleNamespace(MLP_GENERAL_PARAMS={})
+
+    def build(use_regression, config_params=None):
+        """Run the suite configurator and return the network_params it handed the estimator."""
+        trainer._configure_mlp_params(
+            configs=configs,
+            config_params=config_params or {},
+            use_regression=use_regression,
+            metamodel_func=lambda m: m,
+            target_type=None,
+            n_train=200_000,
+        )
+        return captured[-1]
+
+    assert build(True)["use_layernorm"] is False
+    assert build(False)["use_layernorm"] is False
+    assert build(True, {"mlp_kwargs": {"network_params": {"use_layernorm": True}}})["use_layernorm"] is True

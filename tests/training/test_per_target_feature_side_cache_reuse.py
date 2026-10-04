@@ -196,13 +196,15 @@ def test_invalidate_polars_feature_side_cache_drops_polars_only():
 def test_invalidate_polars_feature_side_cache_no_op_when_empty():
     """Called on a virgin ctx, the helper must not raise (it runs from every
     _release_ctx_polars_frames call, including ones that fire BEFORE any feature_side
-    cache entry exists)."""
+    cache entry exists) and must leave the artifacts untouched."""
     from mlframe.training.core._phase_train_one_target import _invalidate_polars_feature_side_cache
 
     ctx = _FakeCtx()
-    _invalidate_polars_feature_side_cache(ctx)  # must not raise
+    assert _invalidate_polars_feature_side_cache(ctx) is None
+    assert ctx.artifacts == {}
     ctx.artifacts["feature_side_cache"] = {}
-    _invalidate_polars_feature_side_cache(ctx)  # must not raise
+    assert _invalidate_polars_feature_side_cache(ctx) is None
+    assert ctx.artifacts == {"feature_side_cache": {}}
 
 
 # ----------------------------------------------------------------------------

@@ -20,6 +20,20 @@ import pandas as pd
 import polars as pl
 import pytest
 
+
+def _cb_pool_reuse_supported() -> bool:
+    """True when the installed CatBoost exposes Pool.set_label and Pool.set_weight (the reuse fast-path precondition)."""
+    try:
+        from mlframe.training.core import _detect_dataset_reuse_capabilities
+
+        caps = _detect_dataset_reuse_capabilities()
+    except ImportError:
+        return False
+    return bool(caps.get("cb_pool_set_label") and caps.get("cb_pool_set_weight"))
+
+
+_requires_cb_pool_reuse = pytest.mark.skipif(not _cb_pool_reuse_supported(), reason="Installed CatBoost Pool lacks set_label / set_weight")
+
 # ---------------------------------------------------------------------------
 # Fix 2 — stale _warn_on_unsupported_polars_dtypes is gone; post-fail
 #         schema dump no longer claims Enum-is-culprit.
@@ -65,11 +79,7 @@ def test_fix3a_deep_false_on_pandas_uses_shallow_accounting():
     """deep=False path returns pointer-size totals for object columns —
     orders of magnitude faster on frames with million-unique strings.
 
-    Older pyutilz versions accept the ``deep`` kwarg without honouring
-    it (silently returns the same value for both branches). The test
-    skips on those versions so the wiring fix lands without forcing a
-    pyutilz pin -- the prod call site in ``configure_training_params``
-    still passes ``deep=False`` correctly regardless of pyutilz support.
+    A pyutilz that accepts the ``deep`` kwarg without honouring it returns the same value for both branches and fails here.
     """
     from pyutilz.data.pandaslib import get_df_memory_consumption
 
@@ -81,14 +91,6 @@ def test_fix3a_deep_false_on_pandas_uses_shallow_accounting():
     )
     shallow = get_df_memory_consumption(df, deep=False)
     deep = get_df_memory_consumption(df, deep=True)
-    if shallow == deep:
-        pytest.skip(
-            f"Installed pyutilz get_df_memory_consumption ignores the deep "
-            f"kwarg (shallow={shallow}=={deep}=deep); upgrade pyutilz to "
-            f"differentiate. The kwarg wiring at the mlframe call site is "
-            f"unaffected -- the speedup just doesn't materialise on this "
-            f"pyutilz build."
-        )
     assert shallow < deep, f"shallow must be < deep (got shallow={shallow}, deep={deep})"
     # Index + int64 column alone is already ~8k bytes; object pointer sizes
     # add another ~8k (shallow), while deep adds ~64k (1000*64). Just check
@@ -101,10 +103,7 @@ def test_fix3a_default_deep_true_preserves_behaviour():
     caller that predates Fix 3A. mlframe's specific heuristic call site
     passes ``deep=False`` explicitly (see trainer.py
     ``configure_training_params``). This test asserts the library
-    default is unchanged.
-
-    Skipped on pyutilz builds that ignore the ``deep`` kwarg (see
-    sibling test for rationale)."""
+    default is unchanged."""
     from pyutilz.data.pandaslib import get_df_memory_consumption
 
     df = pd.DataFrame({"s": ["abcdef"] * 500})
@@ -113,8 +112,6 @@ def test_fix3a_default_deep_true_preserves_behaviour():
     assert default_value == explicit_deep
     # The kwarg should still exist and accept False.
     explicit_shallow = get_df_memory_consumption(df, deep=False)
-    if explicit_shallow == explicit_deep:
-        pytest.skip("Installed pyutilz get_df_memory_consumption ignores the deep kwarg; upgrade to differentiate.")
     assert explicit_shallow < explicit_deep
 
 
@@ -753,6 +750,7 @@ def test_fix9_capability_detection_returns_booleans():
         assert isinstance(v, bool), f"{k} is {type(v).__name__}, expected bool"
 
 
+@_requires_cb_pool_reuse
 def test_fix9_cb_pool_label_swap_detected_on_current_install():
     """The reuse fast-path is conditional on ``Pool.set_label`` / ``set_weight``
     being present, so this test only sensors the path on installs that ACTUALLY
@@ -761,8 +759,6 @@ def test_fix9_cb_pool_label_swap_detected_on_current_install():
     from mlframe.training.core import _detect_dataset_reuse_capabilities
 
     caps = _detect_dataset_reuse_capabilities()
-    if not (caps.get("cb_pool_set_label") and caps.get("cb_pool_set_weight")):
-        pytest.skip("Installed CatBoost lacks Pool.set_label / set_weight; reuse fast-path is intentionally inert on this build.")
     assert caps["cb_pool_set_label"] is True
     assert caps["cb_pool_set_weight"] is True
     assert caps["cb_pool_label_swap"] is True
@@ -773,18 +769,14 @@ def test_fix9_cb_pool_label_swap_detected_on_current_install():
 # ---------------------------------------------------------------------------
 
 
+@_requires_cb_pool_reuse
 def test_fix9_cb_pool_reuse_weight_only_swap_no_rebuild():
     """Same train_df + same label + different weight → cache hit on the
     second fit, no new Pool constructor call."""
     from mlframe.training import trainer
-    from mlframe.training.core import _detect_dataset_reuse_capabilities
 
     pytest.importorskip("catboost")
     import catboost as cb
-
-    _caps = _detect_dataset_reuse_capabilities()
-    if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the reuse fast-path is intentionally inert and would rebuild every fit.")
 
     rng = np.random.default_rng(0)
     n = 300
@@ -1085,6 +1077,7 @@ def test_align_polars_categorical_dicts_no_test_leakage(tmp_path):
     ), f"Future-leakage regression: 'test_only_cat' (test-only category) leaked into the trained Enum vocabulary. dtype snapshot: {cats_seen!r}"
 
 
+@_requires_cb_pool_reuse
 def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     """Orch-1 (2026-04-21): val Pool also reused across weight fits.
     Pre-Orch-1 each CB fit rebuilt both train AND val Pools; the train
@@ -1092,14 +1085,9 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     test counts constructor calls across 3 weight-only fits and asserts
     one train Pool build + one val Pool build (was 3+3)."""
     from mlframe.training import trainer
-    from mlframe.training.core import _detect_dataset_reuse_capabilities
 
     pytest.importorskip("catboost")
     import catboost as cb
-
-    _caps = _detect_dataset_reuse_capabilities()
-    if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the val Pool reuse fast-path is intentionally inert and would rebuild.")
 
     rng = np.random.default_rng(0)
     n, nv = 300, 80
@@ -1151,6 +1139,7 @@ def test_orch1_cb_val_pool_reuse_across_weight_swaps():
     assert build_count["n"] == 2, f"expected 1 train + 1 val Pool build (2 total) across 3 weight-only fits; got {build_count['n']}"
 
 
+@_requires_cb_pool_reuse
 def test_fix943_cb_val_pool_reused_on_predict_path_too():
     """Fix 9.4.3 correction (2026-04-22): the val Pool cached at
     fit time MUST be reused on the subsequent predict_proba /
@@ -1162,14 +1151,9 @@ def test_fix943_cb_val_pool_reused_on_predict_path_too():
     across (1) fit and (2) predict_proba on the SAME val frame;
     total must be 2 (1 train + 1 val at fit, 0 at predict)."""
     from mlframe.training import trainer
-    from mlframe.training.core import _detect_dataset_reuse_capabilities
 
     pytest.importorskip("catboost")
     import catboost as cb
-
-    _caps = _detect_dataset_reuse_capabilities()
-    if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip("Installed CatBoost Pool lacks set_label / set_weight; the val Pool reuse fast-path is intentionally inert and would rebuild.")
 
     rng = np.random.default_rng(0)
     n, nv = 300, 80
@@ -1229,23 +1213,15 @@ def test_fix943_cb_val_pool_reused_on_predict_path_too():
         cb.Pool.__init__ = orig_init
 
 
+@_requires_cb_pool_reuse
 def test_fix9_cb_stale_cat_features_filtered():
     """If ``fit_params['cat_features']`` contains a name absent from
     train_df.columns (e.g. after MRMR dropped it), ``_maybe_get_or_build_cb_pool``
     should narrow to the intersection so the subsequent fit doesn't
     raise ``ValueError: 'feat' is not in list``."""
     from mlframe.training import trainer
-    from mlframe.training.core import _detect_dataset_reuse_capabilities
 
     pytest.importorskip("catboost")
-
-    _caps = _detect_dataset_reuse_capabilities()
-    if not (_caps.get("cb_pool_set_label") and _caps.get("cb_pool_set_weight")):
-        pytest.skip(
-            "Installed CatBoost Pool lacks set_label / set_weight; "
-            "``_maybe_get_or_build_cb_pool`` returns None on this build by "
-            "design and the cat_features filter still applies to fit_params."
-        )
 
     rng = np.random.default_rng(0)
     n = 100

@@ -131,10 +131,17 @@ def test_exclusivity_accepts_none_args():
     lists that were skipped (e.g. a model without categorical support
     passed None instead of []).
     """
-    _validate_feature_type_exclusivity(None, None, None)
-    _validate_feature_type_exclusivity(None, [], ["a"])
-    _validate_feature_type_exclusivity(["a"], None, [])
-    _validate_feature_type_exclusivity([], ["b"], None)
+    assert _validate_feature_type_exclusivity(None, None, None) is None
+    assert _validate_feature_type_exclusivity(None, [], ["a"]) is None
+    assert _validate_feature_type_exclusivity(["a"], None, []) is None
+    assert _validate_feature_type_exclusivity([], ["b"], None) is None
+    # None is treated as an empty list, so an overlap between the remaining lists is still caught.
+    with pytest.raises(ValueError, match="text_features and cat_features"):
+        _validate_feature_type_exclusivity(["a"], None, ["a"])
+    with pytest.raises(ValueError, match="embedding_features and cat_features"):
+        _validate_feature_type_exclusivity(None, ["a"], ["a"])
+    with pytest.raises(ValueError, match="text_features and embedding_features"):
+        _validate_feature_type_exclusivity(["a"], ["a"], None)
 
 
 def test_exclusivity_none_still_catches_real_overlap():

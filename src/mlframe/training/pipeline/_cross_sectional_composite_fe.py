@@ -41,9 +41,9 @@ def apply_cross_sectional_composite_fe(
 ) -> tuple:
     """Generate cross-sectional-neighbor columns on train/val/test, opt-in per ``config``.
 
-    No-op when ``config.cross_sectional_neighbors_snapshot_col`` is unset, when it or any declared
-    ``cross_sectional_neighbors_feature_cols`` is missing from a split's schema, or fewer than
-    ``k+1`` distinct snapshots exist in a split (kNN needs neighbors to find).
+    No-op when ``config.cross_sectional_neighbors_snapshot_col`` is unset or when it or any declared
+    ``cross_sectional_neighbors_feature_cols`` is missing from a split's schema. A split with fewer than ``k+1``
+    distinct snapshots uses a reduced k; one with a single snapshot gets NaN neighbor aggregates.
     """
     snapshot_col = getattr(config, "cross_sectional_neighbors_snapshot_col", None)
     feature_cols = list(getattr(config, "cross_sectional_neighbors_feature_cols", None) or [])
@@ -78,10 +78,9 @@ def apply_cross_sectional_composite_fe(
             out[split_name] = df
             continue
         n_snapshots = pd_df[snapshot_col].nunique()
-        if n_snapshots < 2:
-            out[split_name] = df
-            continue
-        split_k = min(effective_k, n_snapshots - 1)
+        # A split with a single snapshot has no neighbors: it still gets the full column set (NaN aggregates, distance_ratio 1.0)
+        # so its schema matches the train frame the model was fit on.
+        split_k = max(min(effective_k, n_snapshots - 1), 1)
         if split_k < effective_k:
             log_throttle(
                 logger,

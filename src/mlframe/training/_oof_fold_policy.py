@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.training._data_helpers import get_function_param_names
 from mlframe.training._oof_round_budget import apply_round_budget, deployed_round_budget
 
 
@@ -26,6 +27,26 @@ def cap_early_stopping_clone(estimator: Any, deployed_model: Any, diag: dict) ->
                 diag["round_budget"] = budget
     except (ValueError, TypeError):
         pass
+
+
+def apply_feature_roles_to_clone(estimator: Any, fit_params: Optional[dict], columns: Any) -> None:
+    """Copy the deployed fit's ``cat_features`` / ``text_features`` / ``embedding_features`` onto the OOF clone's constructor params.
+
+    Those roles reach the deployed model through ``.fit(**fit_params)``, which ``cross_val_predict``'s per-fold ``.fit(X, y)`` never sees; a
+    CatBoost clone without them reads every categorical column as numeric and raises. Only estimators exposing the param (CatBoost) are touched,
+    and only columns still present in the frame are kept.
+    """
+    if not fit_params or not hasattr(estimator, "get_params"):
+        return
+    available = set(columns) if columns is not None else None
+    ctor_params = get_function_param_names(type(estimator).__init__)
+    roles = {}
+    for key in ("cat_features", "text_features", "embedding_features"):
+        names = fit_params.get(key)
+        if names and key in ctor_params:
+            roles[key] = [c for c in names if available is None or c in available]
+    if roles:
+        estimator.set_params(**roles)
 
 
 def iid_oof_splitter(train_target: Any, n_splits: int, random_seed: int, is_classifier_model: bool, diag: dict) -> Any:

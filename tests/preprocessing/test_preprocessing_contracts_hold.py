@@ -173,7 +173,8 @@ class TestRareCollapseWorksOnCategoryDtype:
 
     def test_it_does_not_raise(self):
         """`TypeError: Cannot setitem on a Categorical with a new category (__other__)`."""
-        apply_rare_category_collapse(self._frame(), {"c": ["rare"]})
+        out = apply_rare_category_collapse(self._frame(), {"c": ["rare"]})
+        assert len(out) == 6
 
     def test_the_rare_level_is_collapsed(self):
         """Not raising is not enough; the collapse has to happen."""

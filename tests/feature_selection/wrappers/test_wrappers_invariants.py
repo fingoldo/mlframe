@@ -196,9 +196,9 @@ class TestRFECVProperties:
             warnings.simplefilter("ignore")
             rfecv.fit(X, y)
             X_out = rfecv.transform(X)
-        out_cols = set(X_out.columns) if isinstance(X_out, pd.DataFrame) else None
-        if out_cols is not None:
-            assert out_cols.issubset(set(X.columns)), f"transform() introduced unknown columns: {out_cols - set(X.columns)}"
+        assert isinstance(X_out, pd.DataFrame), f"transform() of a DataFrame returned {type(X_out).__name__}"
+        out_cols = set(X_out.columns)
+        assert out_cols.issubset(set(X.columns)), f"transform() introduced unknown columns: {out_cols - set(X.columns)}"
 
     @pytest.mark.slow
     @settings(max_examples=8, deadline=None, suppress_health_check=[HealthCheck.too_slow])

@@ -88,7 +88,8 @@ def test_pruner_auto_enables_median_pruner_may_prune_some_trials():
     assert np.isfinite(res.selection_score)
     # Under an explicit "auto" MedianPruner a pruned trial raises optuna.TrialPruned before _evaluate appends to
     # trials_log -- so completed trials logged can be <= n_trials, not necessarily exactly n_trials.
-    assert 0 < len(res.trials) <= 10
+    # optuna's MedianPruner never prunes its first 5 (startup) trials, so at least those are logged.
+    assert 5 <= len(res.trials) <= 10
 
 
 def test_pruner_custom_instance_accepted():

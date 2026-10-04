@@ -184,8 +184,18 @@ def test_numba_nogil_releases_gil():
             s += (i * 0.5) ** 0.5
         return s
 
-    N = 5_000_000
     _heavy(100)  # warmup
+
+    def _wall(n):
+        """Wall time of one single-threaded call on n iterations."""
+        t0 = time.perf_counter()
+        _heavy(n)
+        return time.perf_counter() - t0
+
+    # Size the workload so one call runs long enough (>= 50 ms) for the 2-thread ratio to be stable.
+    N = 5_000_000
+    while _wall(N) < 0.05 and N < 2_000_000_000:
+        N *= 4
 
     # Take the best-of-3 for both solo and parallel to suppress one-shot
     # CPU-contention spikes from other test workers.
@@ -205,12 +215,7 @@ def test_numba_nogil_releases_gil():
     solo = min(_time_solo() for _ in range(3))
     par = min(_time_par() for _ in range(3))
 
-    # Best-of-3 measurement removes most contention noise, but if the
-    # solo timing is sub-5ms even after best-of-3, the noise floor of
-    # ThreadPoolExecutor startup overhead dominates the ratio. Skip
-    # rather than fail-flake.
-    if solo < 0.005:
-        pytest.skip(f"solo={solo * 1000:.1f}ms too small for stable ratio check")
+    assert solo >= 0.005, f"solo={solo * 1000:.1f}ms too small for a stable ratio check"
 
     # Perfect scaling = 1.0x solo; GIL-bound = 2.0x solo. CI / shared-runner
     # contention plus pytest-xdist sibling-worker noise (the parent test

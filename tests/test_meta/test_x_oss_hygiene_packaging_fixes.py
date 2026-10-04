@@ -16,6 +16,8 @@ class this project's own conventions are set up to avoid -- not worth the blast 
 
 from __future__ import annotations
 
+import logging
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -31,21 +33,63 @@ def _read(rel_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _process_manifest_includes(manifest: Path, root_files: list[str]) -> tuple[list[str], int]:
+    """Feed the bare ``include X`` directives of ``manifest`` to setuptools' own template processor over ``root_files``; return ``(matched files, warning count)``."""
+    from setuptools._distutils.filelist import FileList
+
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        """Collect the records setuptools' template processor emits for an include that matched nothing."""
+
+        def emit(self, record):
+            """Keep ``record``."""
+            records.append(record)
+
+    handler = _Collect(level=logging.WARNING)
+    root = logging.getLogger()
+    previous_level = root.level
+    root.addHandler(handler)
+    root.setLevel(logging.WARNING)
+    try:
+        file_list = FileList()
+        file_list.allfiles = list(root_files)
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            if line.startswith("include ") and not re.findall(r"[*?\[]", line):
+                file_list.process_template_line(line)
+    finally:
+        root.removeHandler(handler)
+        root.setLevel(previous_level)
+    return list(file_list.files), len(records)
+
+
+def _root_files() -> list[str]:
+    """Names of the regular files directly under the repository root."""
+    return sorted(p.name for p in REPO_ROOT.iterdir() if p.is_file())
+
+
+def test_manifest_processor_warns_for_a_missing_include_and_matches_an_existing_one(tmp_path):
+    """A directive naming a file that is absent produces a warning; one naming a present file is matched without any."""
+    manifest = tmp_path / "MANIFEST.in"
+    manifest.write_text("include A.md\ninclude NOPE.md\nrecursive-include src *.py\n", encoding="utf-8")
+    matched, warnings = _process_manifest_includes(manifest, ["A.md"])
+    assert matched == ["A.md"]
+    assert warnings == 1
+
+
 def test_f2_manifest_no_longer_includes_nonexistent_files():
-    """F2 manifest no longer includes nonexistent files."""
-    text = _read("MANIFEST.in")
-    assert "SECURITY.md" not in text, "F2 REGRESSION: MANIFEST.in must not reference the nonexistent SECURITY.md"
-    assert "CODE_OF_CONDUCT.md" not in text, "F2 REGRESSION: MANIFEST.in must not reference the nonexistent CODE_OF_CONDUCT.md"
+    """MANIFEST.in's include directives match files that exist: the nonexistent SECURITY.md and CODE_OF_CONDUCT.md are not among them."""
+    assert not (REPO_ROOT / "SECURITY.md").exists() and not (REPO_ROOT / "CODE_OF_CONDUCT.md").exists()
+    matched, warnings = _process_manifest_includes(REPO_ROOT / "MANIFEST.in", _root_files())
+    assert matched, "MANIFEST.in declares no bare include directives that match a root file"
+    assert warnings == 0, "F2 REGRESSION: MANIFEST.in must not reference nonexistent files"
 
 
 def test_f2_manifest_referenced_files_all_exist():
     """Every remaining bare `include X` line in MANIFEST.in must reference a real file."""
-    text = _read("MANIFEST.in")
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("include ") and not any(c in line for c in "*?["):
-            fname = line.removeprefix("include ").strip()
-            assert (REPO_ROOT / fname).exists(), f"MANIFEST.in references missing file: {fname}"
+    matched, warnings = _process_manifest_includes(REPO_ROOT / "MANIFEST.in", _root_files())
+    assert matched
+    assert warnings == 0, f"MANIFEST.in references {warnings} missing file(s)"
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +126,9 @@ def test_f3_antropy_not_duplicated_in_signal_extra():
 
 
 def test_f4_readme_core_install_claim_points_to_pyproject():
-    """F4 readme core install claim points to pyproject."""
-    text = _read("README.md")
-    assert "pyproject.toml" in text.split("The core install pulls")[1][:400], (
+    """The README paragraph that starts "The core install pulls" links readers to pyproject.toml."""
+    pointers = re.findall(r"The core install pulls[^`]{0,400}`(pyproject\.toml)`", _read("README.md"))
+    assert pointers == ["pyproject.toml"], (
         "F4 REGRESSION: the core-install description must point readers to pyproject.toml's "
         "[project.dependencies] instead of re-enumerating (and drifting out of sync with) the list"
     )
@@ -96,10 +140,12 @@ def test_f4_readme_core_install_claim_points_to_pyproject():
 
 
 def test_f5_docs_readme_lists_previously_missing_docs():
-    """F5 docs readme lists previously missing docs."""
-    text = _read("docs/README.md")
+    """docs/README.md's index links to each of the previously missing docs, and every linked doc exists on disk."""
+    linked = re.findall(r"\]\(([^)#]+\.md)\)", _read("docs/README.md"))
+    assert linked, "docs/README.md links to no markdown docs"
     for missing_doc in ("visualization.md", "SHAP_PROXIED_FS_GAME_THEORY.md", "gallery/index.md"):
-        assert missing_doc in text, f"F5 REGRESSION: docs/README.md's index must list {missing_doc}"
+        assert missing_doc in linked, f"F5 REGRESSION: docs/README.md's index must list {missing_doc}"
+        assert (REPO_ROOT / "docs" / missing_doc).is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -108,13 +154,10 @@ def test_f5_docs_readme_lists_previously_missing_docs():
 
 
 def test_f6_gallery_index_total_matches_real_png_count():
-    """F6 gallery index total matches real png count."""
-    import re
-
-    text = _read("docs/gallery/index.md")
-    m = re.search(r"Total images:\s*(\d+)", text)
-    assert m is not None, "docs/gallery/index.md must state a 'Total images: N' summary line"
-    claimed_total = int(m.group(1))
+    """The gallery index's 'Total images: N' summary equals the number of PNGs on disk."""
+    claims = re.findall(r"Total images:\s*(\d+)", _read("docs/gallery/index.md"))
+    assert len(claims) == 1, "docs/gallery/index.md must state exactly one 'Total images: N' summary line"
+    claimed_total = int(claims[0])
 
     real_total = len(list((REPO_ROOT / "docs" / "gallery").rglob("*.png")))
     assert claimed_total == real_total, f"F6 REGRESSION: index.md claims {claimed_total} images but {real_total} PNGs exist on disk"
@@ -126,9 +169,8 @@ def test_f6_gallery_index_total_matches_real_png_count():
 
 
 def test_f7_no_bare_ap_tags_in_doc_titles():
-    """F7 no bare ap tags in doc titles."""
-    import re
-
+    """The public doc titles carry no unexplained ``(APnn)`` tag, and the tag pattern does match one."""
+    assert re.search(r"\(AP\d+\)", "# Title (AP12)")
     for doc in ("docs/calibration_policy.md", "docs/honest_diagnostics_guide.md"):
         first_line = _read(doc).splitlines()[0]
         assert not re.search(r"\(AP\d+\)", first_line), f"F7 REGRESSION: {doc}'s title still carries an unexplained (APnn) tag"

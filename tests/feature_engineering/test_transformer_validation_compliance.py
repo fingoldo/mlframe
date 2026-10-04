@@ -69,14 +69,22 @@ def _file_calls_validate_numeric_input(src: str) -> bool:
     return "validate_numeric_input" in src
 
 
-@pytest.mark.parametrize("path", _list_transformer_modules(), ids=lambda p: p.name)
+def _list_float32_casting_modules() -> list[pathlib.Path]:
+    """Transformer modules that cast to float32 and therefore owe the validator call."""
+    return [p for p in _list_transformer_modules() if _file_does_float32_cast(p.read_text(encoding="utf-8"))]
+
+
+def test_float32_casting_modules_were_discovered():
+    """The parametrised compliance check below must cover a non-trivial set of modules."""
+    assert len(_list_float32_casting_modules()) >= 5
+
+
+@pytest.mark.parametrize("path", _list_float32_casting_modules(), ids=lambda p: p.name)
 def test_every_float32_caster_calls_validate_numeric_input(path):
     """Compliance check: any module that casts X to float32 must run the validator
     first so the precision warning fires (silently truncating int64 epoch-seconds
     to float32 would otherwise corrupt every kNN / SMOTE / RFF distance silently)."""
     src = path.read_text(encoding="utf-8")
-    if not _file_does_float32_cast(src):
-        pytest.skip(f"{path.name}: no np.asarray(..., dtype=np.float32) -- nothing to validate")
     assert _file_calls_validate_numeric_input(src), (
         f"{path.name} casts to float32 but does not call validate_numeric_input. "
         f"This bypasses the float32-precision warning (commit d772f0c). Add "

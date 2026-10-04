@@ -62,10 +62,11 @@ class TestDetectGroupColumn:
         results = detect_group_column_candidates(df, min_size_ratio=0.005)
         # Both pass min thresholds but balanced should rank higher.
         names = [name for name, _ in results]
-        if "balanced" in names and "unbalanced" in names:
-            balanced_idx = names.index("balanced")
-            unbalanced_idx = names.index("unbalanced")
-            assert balanced_idx < unbalanced_idx
+        assert "balanced" in names and "unbalanced" in names
+        assert names.index("balanced") < names.index("unbalanced")
+        scores = {name: info["score"] for name, info in results}
+        assert scores["balanced"] == 10.0
+        assert scores["unbalanced"] < 0.3 * scores["balanced"]
 
     def test_min_group_size_floor(self) -> None:
         """Group with < min_size_ratio * n_rows rows excludes the WHOLE column."""

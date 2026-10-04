@@ -216,8 +216,7 @@ def test_quantile_residual_fit_end_to_end_matches_pre_dispatch_semantics():
     y = rng.standard_normal(10_000).astype(np.float64)
     base = rng.standard_normal(10_000).astype(np.float64)
     params = _quantile_residual_fit(y, base)
-    if int(params.get("n_bins", 0)) <= 1:
-        pytest.skip("degenerate single-bin path -- separate code branch")
+    assert int(params.get("n_bins", 0)) > 1, "10k continuous samples must yield a multi-bin fit"
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
     actual_n_bins = edges.size - 1
     np.clip(

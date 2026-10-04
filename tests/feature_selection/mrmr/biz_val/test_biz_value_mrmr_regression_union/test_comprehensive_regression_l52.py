@@ -238,17 +238,22 @@ def _all_fe_kwargs():
 # ---------------------------------------------------------------------------
 
 
+def _import_error(mod_path: str) -> str | None:
+    """``repr`` of the exception importing ``mod_path`` raises, or ``None`` when it imports."""
+    try:
+        importlib.import_module(mod_path)
+    except Exception as exc:
+        return repr(exc)
+    return None
+
+
 class TestLayer52_RosterImportSmoke:
     """Every L1..L51 primary entry-point module imports cleanly and the roster covers >=25 distinct modules."""
 
     def test_every_layer_primary_module_imports_cleanly(self):
         """Every layer's primary entry-point module imports without raise."""
-        failures: list[tuple[int, str, str]] = []
-        for layer_no, mod_path in LAYER_PRIMARY_MODULES:
-            try:
-                importlib.import_module(mod_path)
-            except Exception as exc:
-                failures.append((layer_no, mod_path, repr(exc)))
+        assert LAYER_PRIMARY_MODULES, "the layer roster is empty, so nothing was imported"
+        failures = [(layer_no, mod_path, err) for layer_no, mod_path in LAYER_PRIMARY_MODULES if (err := _import_error(mod_path)) is not None]
         assert not failures, f"{len(failures)} layer primary modules failed to import:\n" + "\n".join(f"  L{lno}: {mp} -> {err}" for lno, mp, err in failures)
 
     def test_at_least_50_distinct_modules_discoverable(self):

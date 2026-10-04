@@ -213,7 +213,9 @@ def test_biz_val_proxy_mode_auto_noop_on_noise_buried_interactions():
 def test_proxy_mode_validator_accepts_auto_and_legacy_values():
     """the validator accepts "auto" alongside the legacy modes, case-insensitively."""
     for mode in ("additive", "interaction", "auto", "AUTO", "Additive"):
-        ShapProxiedFS(proxy_mode=mode)  # must not raise
+        sel = ShapProxiedFS(proxy_mode=mode)
+        assert sel.proxy_mode == mode
+        assert sel.get_params()["proxy_mode"] == mode
 
 
 def test_proxy_mode_validator_rejects_garbage():

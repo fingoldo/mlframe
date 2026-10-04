@@ -129,29 +129,28 @@ def test_polars_numeric_col_named_in_cat_features_is_left_untouched():
 
 
 def test_predict_py_xgb_cat_cast_block_lives_in_predict_module():
-    """Behavioural pin: AST-parse predict.py and assert the XGB cat-cast
-    block stays in the module via name presence checks. The original marker
-    used to be a string-constant docstring; it is now a regular comment so
-    we read the raw source for the marker phrase (still NOT
-    ``inspect.getsource`` per the meta-test rule).
+    """The predict path's real XGB cat-cast: pandas object columns become ``category``, polars strings become the persisted ``pl.Enum`` (out-of-domain values null) or ``pl.Categorical`` without a domain, and a non-boosting model is left alone."""
+    from mlframe.training.core.predict import _coerce_cat_dtype_for_lgb_xgb
 
-    The dispatch block moved out of ``predict.py`` into the sibling
-    ``_predict_main_from_models.py`` during the 2026-05-22 predict-monolith
-    split; check the parent + every sibling."""
-    import ast
-    from pathlib import Path
-    from mlframe.training.core import predict as _predict_mod
+    class XGBClassifier:
+        """Stand-in matched by class name as an XGBoost model."""
 
-    _core = Path(_predict_mod.__file__).resolve().parent
-    raw_src = ""
-    for _name in ("predict.py", "_predict_main.py", "_predict_main_from_models.py", "_predict_pre_pipeline.py"):
-        _p = _core / _name
-        if _p.exists():
-            raw_src += _p.read_text(encoding="utf-8")
-            raw_src += "\n"
-    tree = ast.parse(raw_src)
-    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
-    attrs = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    class Ridge:
+        """Stand-in for a model that must not get its columns recast."""
 
-    assert "XGB cat dtype coercion" in raw_src, "predict module must keep the 'XGB cat dtype coercion' marker in the cast block"
-    assert any("_xgb" in n for n in names) or any("_is_xgb" in n for n in names) or any("_xgb" in a for a in attrs)
+    pdf = pd.DataFrame({"num0": [1.0, 2.0, 3.0], "cat_low": pd.Series(["A", "B", "A"], dtype=object)})
+    out_pd = _coerce_cat_dtype_for_lgb_xgb(pdf, model=XGBClassifier(), cat_features=["cat_low"])
+    assert out_pd["cat_low"].dtype.name == "category"
+    assert out_pd["cat_low"].astype(str).tolist() == ["A", "B", "A"]
+    assert out_pd["num0"].dtype == np.float64
+    assert pdf["cat_low"].dtype == object
+    untouched = _coerce_cat_dtype_for_lgb_xgb(pdf, model=Ridge(), cat_features=["cat_low"])
+    assert untouched["cat_low"].dtype == object
+
+    pldf = pl.DataFrame({"num0": [1.0, 2.0, 3.0], "cat_low": pl.Series(["A", "B", "C"], dtype=pl.String)})
+    out_enum = _coerce_cat_dtype_for_lgb_xgb(pldf, model=XGBClassifier(), cat_features=["cat_low"], enum_domains={"cat_low": ["A", "B"]})
+    assert out_enum.schema["cat_low"] == pl.Enum(["A", "B"])
+    assert out_enum["cat_low"].cast(pl.String).to_list() == ["A", "B", None]
+    out_cat = _coerce_cat_dtype_for_lgb_xgb(pldf, model=XGBClassifier(), cat_features=["cat_low"])
+    assert out_cat.schema["cat_low"] == pl.Categorical
+    assert out_cat.schema["num0"] == pl.Float64

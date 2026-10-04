@@ -31,17 +31,17 @@ from tests.conftest import perf_time_budget
 def test_qs_nbins_no_overflow_at_extreme_n():
     """``qs_nbins`` must stay clamped in [3, 64] even at astronomically large N (no int overflow, no
     runaway bin count that would blow up downstream joint histograms)."""
-    for n in (0, 1, 2, 10, 1000, 10**6, 10**12, 10**18):
-        nb = qs_nbins(n)
-        assert nb == 1 or 3 <= nb <= 64, f"n={n} -> nb={nb} out of contract"
+    expected = {0: 1, 1: 1, 2: 3, 10: 3, 1000: 64, 10**6: 64, 10**12: 64, 10**18: 64}
+    got = {n: qs_nbins(n) for n in expected}
+    assert got == expected
 
 
 def test_qs_nbins_alpha_extremes_stay_clamped():
     """Alpha outside the recommended [0.25, 0.35] band (a caller typo/misuse) must still clamp, not
     silently explode the bin count or collapse to 0."""
-    for alpha in (0.0, 1e-9, 0.99, 5.0, -1.0):
-        nb = qs_nbins(100_000, alpha=alpha)
-        assert 1 <= nb <= 64
+    expected = {0.0: 3, 1e-9: 3, 0.99: 64, 5.0: 64, -1.0: 3}
+    got = {alpha: qs_nbins(100_000, alpha=alpha) for alpha in expected}
+    assert got == expected
 
 
 def test_edges_qs_all_identical_values_returns_empty_not_garbage():

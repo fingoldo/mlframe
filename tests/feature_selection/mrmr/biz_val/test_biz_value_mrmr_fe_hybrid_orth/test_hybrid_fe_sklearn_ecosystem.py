@@ -606,12 +606,11 @@ class TestSetOutputPandasWithHybrid:
     def test_engineered_column_values_finite(self):
         """Every engineered hybrid_orth_features_ column value in transform() output is finite."""
         _X, _y, m, out = _seed1_n1200_pandas_hybrid_fit()
+        assert len(m.hybrid_orth_features_) >= 1, "the hybrid FE fit must engineer at least one column"
         for eng_name in m.hybrid_orth_features_:
-            if eng_name in out.columns:
-                col = out[eng_name].to_numpy()
-                assert np.all(
-                    np.isfinite(col)
-                ), f"engineered column {eng_name!r} has non-finite values; first bad rows: {np.flatnonzero(~np.isfinite(col))[:5]}"
+            assert eng_name in out.columns, f"engineered column {eng_name!r} missing from transform output {list(out.columns)}"
+            col = out[eng_name].to_numpy()
+            assert np.all(np.isfinite(col)), f"engineered column {eng_name!r} has non-finite values; first bad rows: {np.flatnonzero(~np.isfinite(col))[:5]}"
 
 
 # ---------------------------------------------------------------------------

@@ -612,7 +612,8 @@ def test_f15_muon_triton_ktc_helper_returns_none_gracefully_without_gpu():
     from mlframe.training.neural._muon_triton_kernel import _get_kernel_tuning_cache
 
     # Must never raise even when pyutilz/FS or CUDA is unavailable in this test environment.
-    _get_kernel_tuning_cache()
+    cache = _get_kernel_tuning_cache()
+    assert cache is None or callable(getattr(cache, "get_or_tune", None))
 
 
 def test_f15_muon_triton_ktc_lookup_invoked_when_cache_available(monkeypatch):
@@ -649,12 +650,25 @@ def test_f15_muon_triton_ktc_lookup_invoked_when_cache_available(monkeypatch):
 
 
 def test_f16_test_estimators_get_params_test_uses_introspection():
-    """Confirms the fixed test in test_estimators.py is not the old hardcoded-list version -- a
-    lightweight guard so this specific regression can't silently reappear via an unrelated edit."""
-    from pathlib import Path
+    """Every ``__init__`` parameter of the Lightning classifier is exposed by ``get_params`` so ``clone`` round-trips it."""
+    import inspect
 
-    src = Path(__file__).with_name("test_estimators.py").read_text(encoding="utf-8")
-    start = src.index("def test_get_params_includes_all_init_params")
-    body = src[start : start + 1200]  # generously covers this one short test method's full body
-    assert "inspect.signature" in body
-    assert '"model_class",' not in body  # the old hardcoded list is gone
+    init_params = [name for name in inspect.signature(PytorchLightningClassifier.__init__).parameters if name != "self"]
+    assert len(init_params) > 12
+    est = PytorchLightningClassifier(
+        model_class=object,
+        model_params={},
+        network_params={},
+        datamodule_class=object,
+        datamodule_params={},
+        trainer_params={},
+        label_smoothing=0.15,
+        focal_loss_gamma=1.5,
+        random_state=7,
+    )
+    params = est.get_params(deep=False)
+    assert sorted(params) == sorted(init_params)
+    twin = clone(est)
+    assert twin.get_params(deep=False)["label_smoothing"] == 0.15
+    assert twin.get_params(deep=False)["focal_loss_gamma"] == 1.5
+    assert twin.get_params(deep=False)["random_state"] == 7

@@ -484,8 +484,7 @@ def test_no_model_collapses_on_any_dgp_under_defaults(
     rmse = _rmse(y_te, model.predict(X_te))
 
     target_std = float(np.std(y_te))
-    if target_std < 1e-9:
-        pytest.skip(f"DGP={dgp_name} produced a near-constant test target; ratio test n/a")
+    assert target_std > 1e-9, f"DGP={dgp_name} produced a near-constant test target; the ratio test is undefined"
 
     ratio = rmse / target_std
     threshold = _THRESHOLDS[(dgp_name, model_name)]

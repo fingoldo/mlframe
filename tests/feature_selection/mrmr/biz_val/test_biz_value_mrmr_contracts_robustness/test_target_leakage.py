@@ -445,8 +445,7 @@ class TestDownstreamLeakSignatureVisible:
         sel = _make_mrmr(random_seed=seed)
         _fit_quiet(sel, X_tr, y_tr)
         names = list(sel.get_feature_names_out())
-        if "leaky_direct" not in names:
-            pytest.skip(f"direct-leak column not selected on this seed; can't probe the train-saturation signature. seed={seed}, support={names}")
+        assert "leaky_direct" in names, f"seed={seed}: the direct-leak column must be selected so the train-saturation signature can be probed; support={names}"
         Xs_tr = sel.transform(X_tr)
         Xs_te = sel.transform(X_te)
         model = Ridge(alpha=1.0).fit(Xs_tr, y_tr)

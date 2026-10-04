@@ -56,7 +56,7 @@ def test_biz_val_neural_feature_prep_hf_text_beats_tfidf_on_synonym_generalizati
     enc = NeuralEmbeddingTextEncoder(text_features=["text_0"])
     try:
         tr_emb = enc.fit_transform(Xtr)
-    except Exception as e:  # pragma: no cover -- offline / model-fetch failure
+    except (OSError, ImportError) as e:  # pragma: no cover -- offline / model-fetch failure; anything else is a real defect and propagates
         pytest.skip(f"HuggingFace model unavailable ({type(e).__name__}: {e})")
     te_emb = enc.transform(Xte)
 

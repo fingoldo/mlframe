@@ -464,7 +464,7 @@ class TestFeatureSelectorsWithTextEmbedding:
 
         df = self._make_df().drop("text_feat")
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        train_mlframe_models_suite(
+        models, _meta = train_mlframe_models_suite(
             df=df,
             target_name="t",
             model_name="mrmr_emb",
@@ -481,6 +481,12 @@ class TestFeatureSelectorsWithTextEmbedding:
             verbose=0,
             output_config=OutputConfig(data_dir=temp_data_dir),
         )
+        from mlframe.training.configs import TargetTypes
+
+        assert TargetTypes.BINARY_CLASSIFICATION in models
+        entries = [e for by_name in models.values() for lst in by_name.values() for e in lst]
+        assert len(entries) >= 1
+        assert all(getattr(e, "model", None) is not None for e in entries)
 
 
 # ======================================================================

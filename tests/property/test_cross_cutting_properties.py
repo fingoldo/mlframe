@@ -256,10 +256,7 @@ def test_quantile_safe_all_nan_returns_exact_sentinel(sentinel):
     """quantile_safe returns EXACTLY the requested fallback on an all-NaN input (scalar q)."""
     arr = np.array([np.nan, np.nan, np.nan])
     out = quantile_safe(arr, 0.5, fallback=sentinel)
-    if np.isnan(sentinel):
-        assert np.isnan(out)
-    else:
-        assert out == sentinel
+    np.testing.assert_array_equal(out, sentinel)
 
 
 def test_quantile_safe_sequence_q_all_nan_returns_sentinel_vector():

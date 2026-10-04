@@ -570,7 +570,7 @@ def train_and_evaluate_model(
             # predictions learns the residual structure of the in-sample fit, not the generalisation behaviour. OOF preds
             # produced by holding each row out via K-fold CV are the canonical replacement. Attached to the model object so
             # ``score_ensemble`` can pick them up at level-1 aggregation time without changing the public return signature.
-            _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, model_type_name, train_target, model, train_df, oof_random_seed, group_ids, train_idx, oof_has_time, _pre_pipeline_sample_weight, timestamps)
+            _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, model_type_name, train_target, model, train_df, oof_random_seed, group_ids, train_idx, oof_has_time, _pre_pipeline_sample_weight, timestamps, fit_params)
 
     metrics_out: dict[str, Any] = {"train": {}, "val": {}, "test": {}, "best_iter": best_iter}
 

@@ -126,10 +126,10 @@ class TestLossRecommendationHuberBand:
         outliers = rng.normal(0, 4, n) * (rng.random(n) < 0.05).astype(float)
         y = base + outliers
         rec = recommend_boosting_regression_loss(y)
-        if rec["excess_kurt"] > 1.5:
-            assert "Huber" in rec["cb"], rec
-            assert rec["lgb"] == "huber", rec
-            assert rec["xgb"] == "reg:pseudohubererror", rec
+        assert rec["excess_kurt"] > 1.5, rec
+        assert "Huber" in rec["cb"], rec
+        assert rec["lgb"] == "huber", rec
+        assert rec["xgb"] == "reg:pseudohubererror", rec
 
     def test_high_kurt_now_picks_huber_too(self) -> None:
         """High kurt (~6+) previously picked MAE; round-5 collapses
@@ -150,10 +150,10 @@ class TestLossRecommendationHuberBand:
         n = 5000
         y = rng.standard_t(df=6, size=n)  # kurt ~ 3 (within [1.5, 20])
         rec = recommend_boosting_regression_loss(y)
-        if rec["excess_kurt"] > 1.5:
-            assert "Huber" in rec["cb"], rec
-            assert rec["lgb"] == "huber", rec
-            assert rec["xgb"] == "reg:pseudohubererror", rec
+        assert rec["excess_kurt"] > 1.5, rec
+        assert "Huber" in rec["cb"], rec
+        assert rec["lgb"] == "huber", rec
+        assert rec["xgb"] == "reg:pseudohubererror", rec
 
 
 class TestXGBShimContentFingerprint:

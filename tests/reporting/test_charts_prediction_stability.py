@@ -172,7 +172,12 @@ def test_figure_renders_matplotlib():
     rendered = rend.render(fig)
     import matplotlib.pyplot as plt
 
-    plt.close(rendered)
+    try:
+        n_panels = sum(1 for row in fig.panels for p in row if p is not None)
+        assert n_panels == 3
+        assert len(rendered.axes) >= n_panels
+    finally:
+        plt.close(rendered)
 
 
 # ----------------------------------------------------------------------------

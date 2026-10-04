@@ -27,25 +27,20 @@ def test_rfecv_polars_sorted_datetime_triggers_time_series_split():
     import datetime as _dt
 
     ts = [_dt.datetime(2024, 1, 1) + _dt.timedelta(hours=i) for i in range(n)]
-    df = pl.DataFrame(
-        {
-            "ts": pl.Series(ts, dtype=pl.Datetime),
-            "a": rng.standard_normal(n),
-            "b": rng.standard_normal(n),
-        }
-    )
-    # The Datetime column must be sorted ascending and null-free for the auto-detect heuristic
-    # to engage (see _rfecv.py:530 ff.).
+    a, b = rng.standard_normal(n), rng.standard_normal(n)
     y = pd.Series(rng.standard_normal(n))
-    rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0)
-    try:
+
+    def _resolved_cv(stamps):
+        """Fit RFECV on a polars frame with the given timestamp column (excluded as a feature) and return the resolved splitter."""
+        df = pl.DataFrame({"ts": pl.Series(stamps, dtype=pl.Datetime), "a": a, "b": b})
+        rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0, must_exclude=["ts"], verbose=0)
         rfecv.fit(df, y)
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # We tolerate downstream early-stop / fallback; we only care about the splitter wiring.
-        pass
-    # The auto-detect path stores the resolved splitter on ``cv_`` when triggered.
-    if hasattr(rfecv, "cv_") and rfecv.cv_ is not None:
-        assert isinstance(rfecv.cv_, TimeSeriesSplit), "sorted polars Datetime column should trigger TimeSeriesSplit auto-detection"
+        return rfecv.cv_
+
+    # The Datetime column must be sorted ascending and null-free for the auto-detect heuristic to engage.
+    assert isinstance(_resolved_cv(ts), TimeSeriesSplit), "sorted polars Datetime column should trigger TimeSeriesSplit auto-detection"
+    shuffled = [ts[i] for i in np.random.default_rng(1).permutation(n)]
+    assert not isinstance(_resolved_cv(shuffled), TimeSeriesSplit), "an unsorted Datetime column must not trigger TimeSeriesSplit"
 
 
 # ---------------------------------------------------------------------------

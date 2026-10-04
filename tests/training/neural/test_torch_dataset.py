@@ -485,10 +485,11 @@ class TestTorchDatasetGetItem:
         labels = np.random.randint(0, 2, 10)
         dataset = TorchDataset(features, labels, batch_size=0)
 
-        _x, _y = dataset[0]
-        # Should squeeze only if x.ndim==2 and x.shape[0]==1
-        # In this case, x extracted will be shape (1, 5) after slicing
-        # So it should be squeezed to (5,)
+        x, y = dataset[0]
+        # x extracted is (1, 5) after slicing and is squeezed to (5,)
+        assert tuple(x.shape) == (5,)
+        np.testing.assert_allclose(np.asarray(x), features[0, 0], rtol=1e-6)
+        assert int(y) == int(labels[0])
 
     def test_getitem_no_squeeze_in_batch_mode(self):
         """Test that no squeezing occurs in batch mode."""

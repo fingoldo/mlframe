@@ -31,6 +31,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests._known_gap import known_gap
 
 
 def _nonlinear_panel(seed: int, G: int = 60, per: int = 50):
@@ -210,9 +211,10 @@ def test_group_aware_leak_excluded_across_a_broad_fe_family_sweep(seed):
         "x_within*x_leak__He1_He2",
         "x_within*x_leak__He2_He1",
     ]:
-        pytest.skip(
+        known_gap(
             "known Linux-only CMI-computation divergence (seed=42, this exact selection shape) -- "
             "passes deterministically on Windows, reproduces deterministically on every CI Python "
-            "version; seeds 1/7 and every other selection shape at seed=42 remain strictly enforced."
+            "version; seeds 1/7 and every other selection shape at seed=42 remain strictly enforced.",
+            gap_closed="x_leak" not in sel,
         )
     assert "x_leak" not in sel, f"[seed={seed}] the raw leak resurfaced under the broad FE-family sweep; got {sel}"

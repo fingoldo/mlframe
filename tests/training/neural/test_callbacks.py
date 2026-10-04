@@ -124,9 +124,10 @@ class TestNetworkGraphLoggingCallback:
         mock_trainer.logger = None
 
         mock_module = Mock()
+        mock_module.logger = None
 
-        # Should not crash
-        callback.on_train_end(mock_trainer, mock_module)
+        assert callback.on_train_end(mock_trainer, mock_module) is None
+        assert mock_module.method_calls == []
 
 
 # ================================================================================================

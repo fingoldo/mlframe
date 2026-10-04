@@ -193,7 +193,7 @@ def test_parallel_mi_prange_runs_full_budget():
     cx, fx, cy, fy, mi = _make_classes(factors, nbins)
     nf, nc = parallel_mi_prange(cx, fx, cy, fy, 50, mi, np.uint64(42), dtype=np.int32)
     assert nc == 50
-    assert 0 <= nf <= 50
+    assert nf == 0, f"a strong signal (mi={mi:.3f}) must beat every one of the 50 shuffles; nfailed={nf}"
 
 
 def test_parallel_mi_prange_reproducible_across_runs():

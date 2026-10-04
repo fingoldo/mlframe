@@ -251,10 +251,7 @@ def test_a_zero_filled_ohlcv_null_is_announced(caplog):
         }
     )
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.financial"):
-        try:
-            add_ohlcv_ta_indicators(df, ta_windows=[5], market_action_prefixes=[""])
-        except Exception:  # the indicator stack itself may be unavailable; the warning fires before it runs
-            pass
+        add_ohlcv_ta_indicators(df, ta_windows=[5], market_action_prefixes=[""])
     assert any("filled with 0.0" in r.message for r in caplog.records), [r.message for r in caplog.records]
 
 

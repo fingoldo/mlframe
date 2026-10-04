@@ -10,6 +10,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pytest
 
 from mlframe.feature_engineering.transformer.denoising_autoencoder import _extract_bottleneck
 from mlframe.feature_engineering.transformer.swap_noise import swap_noise_augment
@@ -119,21 +120,15 @@ def test_swap_noise_augment_column_swap_probs_rates_match_targets():
 def test_swap_noise_augment_column_swap_probs_out_of_range_raises():
     """Swap noise augment column swap probs out of range raises."""
     X = np.random.default_rng(0).normal(size=(10, 2))
-    try:
+    with pytest.raises(ValueError, match=r"column_swap_probs entries must be in \[0, 1\]"):
         swap_noise_augment(X, column_swap_probs=np.array([0.5, 1.5]))
-        raise AssertionError("expected ValueError for out-of-range column_swap_probs entry")
-    except ValueError:
-        pass
 
 
 def test_swap_noise_augment_column_swap_probs_wrong_length_raises():
     """Swap noise augment column swap probs wrong length raises."""
     X = np.random.default_rng(0).normal(size=(10, 3))
-    try:
+    with pytest.raises(ValueError, match=r"column_swap_probs array must have shape \(3,\)"):
         swap_noise_augment(X, column_swap_probs=np.array([0.5, 0.5]))
-        raise AssertionError("expected ValueError for column_swap_probs length mismatch")
-    except ValueError:
-        pass
 
 
 def test_swap_noise_augment_default_behavior_matches_self_exclusion_reference():

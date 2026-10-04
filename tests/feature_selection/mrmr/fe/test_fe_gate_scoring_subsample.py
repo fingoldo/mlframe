@@ -102,6 +102,5 @@ def test_fe_gate_scoring_subsample_caps_rows():
     n = 1_000_000
     cap = 250_000
     rows_capped, _ = _fit_capture(cap, n=n)
-    if rows_capped is None:
-        pytest.skip("CMI redundancy gate did not fire on this problem (no engineered candidate pool)")
+    assert rows_capped is not None, "CMI redundancy gate did not fire at n=1M (no engineered candidate pool)"
     assert rows_capped <= cap + 8, f"gate saw {rows_capped} rows, expected <= cap {cap}"

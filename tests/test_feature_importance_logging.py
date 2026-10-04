@@ -161,23 +161,11 @@ class TestInlineDisplayDoesNotLeakFigures:
         import builtins
         import matplotlib.pyplot as plt
 
+        pytest.importorskip("IPython.display")
         # Patch __IPYTHON__ in builtins (the detection condition).
         had_ipy = hasattr(builtins, "__IPYTHON__")
         prior = getattr(builtins, "__IPYTHON__", None)
         builtins.__IPYTHON__ = True
-
-        # If IPython is not installed in the test env, the fallback
-        # path runs (no kernel-display) -- skip the assertion in that
-        # case; the bug only manifests when IPython.display actually
-        # renders.
-        try:
-            from IPython.display import display  # noqa: F401
-        except Exception:
-            if not had_ipy:
-                del builtins.__IPYTHON__
-            else:
-                builtins.__IPYTHON__ = prior
-            pytest.skip("IPython not available -- bug only manifests inside kernel")
 
         try:
             plt.close("all")

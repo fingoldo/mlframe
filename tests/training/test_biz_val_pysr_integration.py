@@ -142,39 +142,22 @@ def test_biz_val_pysr_pipeline_improves_downstream_model():
             "procs": 1,
         },
     )
-    train_out, _, _, _ = apply_preprocessing_extensions(
+    train_out, _, test_out, _ = apply_preprocessing_extensions(
         train_df=train.copy(),
         val_df=None,
-        test_df=None,
+        test_df=test.copy(),
         config=config,
         y_train=y_train,
         verbose=0,
     )
-    # Apply same columns to test.
     pysr_cols = [c for c in train_out.columns if c.startswith("pysr__")]
-    if not pysr_cols:
-        pytest.skip("PySR did not discover any equations")
-    test[feats].copy()
-    for _c in pysr_cols:
-        # Re-run PySR on test via the model — but we don't have the model here.
-        # Instead: just verify the raw train had the columns added.
-        pass
+    assert pysr_cols, f"PySR must add >=1 pysr__ column; columns={list(train_out.columns)}"
+    for c in pysr_cols:
+        assert c in test_out.columns, f"pysr col {c} missing from test"
 
-    # Use the added columns from train_out for training
     all_feats = feats + pysr_cols
     m_pysr = LGBMRegressor(random_state=42, n_estimators=60, verbose=-1)
     m_pysr.fit(train_out[all_feats], y_train)
-
-    # For test: we need the PySR model to transform it. Since we don't
-    # have access to it here, skip the test-side eval and just assert
-    # the train-side columns were added correctly (the column-addition
-    # test above already checks val/test parity).
-    #
-    # The true integration test is: pysr columns were added to train
-    # AND the downstream model trains successfully on them.
-    preds_pysr = m_pysr.predict(train_out[all_feats])
-    rmse_pysr_train = float(np.sqrt(mean_squared_error(y_train, preds_pysr)))
-    # On TRAIN data with engineered features, fit should be no worse.
-    assert (
-        rmse_pysr_train <= rmse_raw * 1.2
-    ), f"PySR features must not catastrophically hurt train fit; raw_train_rmse={rmse_raw:.4f}, pysr_train_rmse={rmse_pysr_train:.4f}"
+    preds_pysr = m_pysr.predict(test_out[all_feats])
+    rmse_pysr = float(np.sqrt(mean_squared_error(y_test, preds_pysr)))
+    assert rmse_pysr <= rmse_raw + 0.02, f"PySR features must not hurt held-out RMSE; raw={rmse_raw:.4f}, pysr={rmse_pysr:.4f}"

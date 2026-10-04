@@ -30,85 +30,7 @@ P2 #5 core/main.py -- ``isinstance(df, (pd, pl, str))`` rejected
 
 from __future__ import annotations
 
-import pathlib
-
 import pytest
-
-import mlframe as _mlframe
-
-_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
-
-
-def _read(rel: str) -> str:
-    """Read a source file under src/mlframe.
-
-    Monolith-split compat: concat parent + every matching sibling so
-    source-grep sensors still match after the recent splits.
-    """
-    _path = _ROOT / rel
-    if not _path.exists() and _path.suffix == ".py":
-        _pkg = _path.with_suffix("")
-        _init = _pkg / "__init__.py"
-        if _init.exists():
-            parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    parts.append(_sub.read_text(encoding="utf-8"))
-            return "\n".join(parts)
-    primary = _path.read_text(encoding="utf-8")
-    if rel == "training/core/main.py":
-        # main.py was carved into ``_main_train_suite.py`` (suite entry) plus
-        # ``_main_train_suite_phases.py`` (PathLike coerce / leaderboard phase
-        # / precomputed bundle deepcopy live here).
-        _dir = _ROOT / "training" / "core"
-        for nm in ("_main_train_suite.py", "_main_train_suite_phases.py"):
-            sibling = _dir / nm
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    elif rel == "training/extractors.py":
-        # extractors.py was carved into themed siblings; the
-        # ``classification_exact_values`` tuple/set acceptance lives in
-        # ``_extractors_simple.py``.
-        _dir = _ROOT / "training"
-        for nm in (
-            "_extractors_simple.py",
-            "_extractors_showcase.py",
-            "_extractors_dtype_helpers.py",
-        ):
-            sibling = _dir / nm
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    elif rel == "feature_selection/boruta_shap.py":
-        # BorutaShap.fit + .explain live in the boruta_shap package submodule.
-        sibling = _ROOT / "feature_selection" / "boruta_shap" / "_fit_explain.py"
-        if sibling.exists():
-            primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    elif rel == "training/pipeline.py":
-        # 2026-05-22 split: apply_preprocessing_extensions + _apply_pysr_fe
-        # + fit_and_transform_pipeline moved to sibling files.
-        _dir = _ROOT / "training"
-        for nm in ("_pipeline_extensions.py", "_pipeline_fit_transform.py"):
-            sibling = _dir / nm
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    elif rel == "feature_selection/filters/mrmr/_mrmr_class.py":
-        # mrmr subpackage split: MRMR class body in mrmr/_mrmr_class.py; the rest of the surface lives in
-        # _mrmr_{fingerprints,fit_impl,fe_step,validate_transform}.py + the mrmr/__init__.py facade.
-        _dir = _ROOT / "feature_selection" / "filters"
-        for nm in (
-            "mrmr/__init__.py",
-            "_mrmr_fingerprints.py",
-            "_mrmr_fit_impl/_fit_impl_core.py",
-            "_mrmr_fit_impl/_helpers.py",
-            "_mrmr_fe_step/_step_core.py",
-            "_mrmr_fe_step/_helpers.py",
-            "_mrmr_validate_transform.py",
-        ):
-            sibling = _dir / nm
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    return primary
-
 
 # ---- #1 extractors classification_exact_values accepts iterables -------
 
@@ -212,61 +134,88 @@ def test_mrmr_fit_handles_polars_input_without_inplace_mutation():
 # ---- #3 boruta_shap multi-class branch revived -------------------------
 
 
-def test_boruta_shap_inspects_raw_shap_type_before_array_wrap():
-    """Boruta shap inspects raw shap type before array wrap."""
-    src = _read("feature_selection/boruta_shap.py")
-    # Pre-fix shape MUST be gone:
-    assert "self.shap_values = np.array(explainer.shap_values(basis))\n            if isinstance(self.shap_values, list):" not in src, (
-        "Wave 29 P1 regression: boruta_shap reverted to np.array-then-isinstance-list "
-        "pattern; the list branch is dead code and multi-class SHAP aggregation "
-        "silently mis-counts importances."
+def _explain_with_fake_shap(monkeypatch, shap_return, n_features):
+    """Run ``BorutaShap.explain`` against a stub TreeExplainer returning ``shap_return``; return the aggregated importances."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_selection.boruta_shap import _fit_explain
+
+    class _Explainer:
+        """Stub explainer returning a canned SHAP payload."""
+
+        def __init__(self, model, **kwargs):
+            """Accept and ignore the model and kwargs."""
+
+        def shap_values(self, basis):
+            """Return the canned payload."""
+            return shap_return
+
+    monkeypatch.setattr(_fit_explain, "import_optional", lambda *a, **k: SimpleNamespace(TreeExplainer=_Explainer))
+    n = 12
+    frame = pd.DataFrame(np.zeros((n, n_features)), columns=[f"f{i}" for i in range(n_features)])
+    owner = SimpleNamespace(
+        model_=object(),
+        sample=False,
+        X_boruta_=frame,
+        X_=frame,
+        y_=np.zeros(n, dtype=int),
+        classification=True,
     )
-    # Post-fix marker:
-    assert "_raw_shap = explainer.shap_values(basis)" in src
-    assert "if isinstance(_raw_shap, list):" in src
-    # Multi-class branch correctly computes shap_imp / n_classes:
-    assert "self.shap_values = shap_imp / len(class_inds)" in src
+    _fit_explain.explain(owner)
+    return owner.shap_values_
+
+
+def test_boruta_shap_inspects_raw_shap_type_before_array_wrap(monkeypatch):
+    """A list of per-class SHAP arrays is aggregated as the mean over classes of the per-class mean |shap|."""
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    per_class = [rng.normal(size=(12, 4)) for _ in range(3)]
+    got = _explain_with_fake_shap(monkeypatch, per_class, n_features=4)
+    expected = np.mean([np.abs(a).mean(0) for a in per_class], axis=0)
+    assert got.shape == (4,)
+    np.testing.assert_allclose(got, expected, rtol=1e-12)
 
 
 # ---- #4 pipeline _filter_to_numeric coerces polars ---------------------
 
 
 def test_pipeline_filter_to_numeric_handles_polars():
-    """Pipeline filter to numeric handles polars."""
-    src = _read("training/pipeline.py")
-    # Pre-fix shape (silent passthrough) MUST be gone:
-    assert (
-        "if _df is None or not isinstance(_df, pd.DataFrame):\n            return _df, []" not in src
-    ), "Wave 29 P2 regression: _filter_to_numeric silently passes polars DataFrames through; downstream select_dtypes raises AttributeError."
-    # Post-fix markers. The polars-coerce branch now lives in sibling
-    # ``_pipeline_extensions.py`` and the bare ``_df = _df.to_pandas()``
-    # call is no longer contiguous with the isinstance check (intervening
-    # comment + Arrow split-blocks try/except). Check the two pieces
-    # independently so the sensor matches the current shape.
-    assert "import polars as _pl_local" in src
-    assert (
-        "isinstance(_df, _pl_local.DataFrame)" in src
-    ), "Wave 29 P2 regression: polars-DataFrame branch in _filter_to_numeric is gone; silent passthrough resurfaced."
-    assert "_df = _df.to_pandas()" in src, "Wave 29 P2 regression: bare ``_df.to_pandas()`` fallback gone from the polars coerce path."
+    """A polars frame is coerced to pandas and filtered to its numeric columns, with the dropped names reported."""
+    import pandas as pd
+    import polars as pl
+
+    from mlframe.training.pipeline._pipeline_extensions import _filter_to_numeric
+
+    df = pl.DataFrame({"a": [1, 2, 3], "s": ["x", "y", "z"], "b": [0.5, 1.5, 2.5]})
+    out, dropped = _filter_to_numeric(df)
+    assert isinstance(out, pd.DataFrame)
+    assert list(out.columns) == ["a", "b"]
+    assert dropped == ["s"]
+    assert out["a"].tolist() == [1, 2, 3]
+    assert out["b"].tolist() == [0.5, 1.5, 2.5]
 
 
 # ---- #5 main.py PathLike coercion --------------------------------------
 
 
-def test_main_accepts_pathlike_df_argument():
-    """Main accepts pathlike df argument."""
-    src = _read("training/core/main.py")
-    # Post-fix markers:
-    assert "isinstance(df, _os_for_pathlike.PathLike)" in src
-    assert "df = str(df)" in src
+def test_main_accepts_pathlike_df_argument(tmp_path):
+    """A ``pathlib.Path`` df is coerced to its string form at the suite boundary instead of being rejected."""
+    from mlframe.training.core._main_train_suite_phases import validate_suite_inputs
+
+    path = tmp_path / "data.parquet"
+    out = validate_suite_inputs(path, "target", "model", object())
+    assert out == str(path)
+    assert isinstance(out, str)
 
 
 def test_main_typeerror_message_mentions_pathlike():
-    """Post-fix error message must mention PathLike as an accepted type
-    (the prior message confused users passing pathlib.Path)."""
-    src = _read("training/core/main.py")
-    assert "PathLike" in src, (
-        "Wave 29 P2 regression: TypeError message no longer mentions "
-        "PathLike; users passing pathlib.Path will be told to use a "
-        "'path string' instead of the documented PathLike contract."
-    )
+    """The TypeError for an unsupported df type names PathLike as an accepted type and the offending type."""
+    from mlframe.training.core._main_train_suite_phases import validate_suite_inputs
+
+    with pytest.raises(TypeError, match="PathLike") as info:
+        validate_suite_inputs(123, "target", "model", object())
+    assert "int" in str(info.value)

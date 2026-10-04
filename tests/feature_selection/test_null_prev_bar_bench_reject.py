@@ -209,6 +209,7 @@ def test_weak_f2_crossmix_ratio_clears_null_ceiling():
         r > nq for r in cross_ratios.values()
     ), f"EXPECTED bench-reject wall: every cross-mix ratio must clear the null ceiling {nq:.3f} (so #5 admits noise like #1) -- got {cross_ratios}"
     # And at least one cross-mix ratio is >= a genuine ratio -- no ordering separates them.
+    closest_ratio = max(cross_ratios.values()) / min(r_genuine_ab, r_genuine_cd)  # measured 0.98 at seed 0
     assert (
-        max(cross_ratios.values()) >= min(r_genuine_ab, r_genuine_cd) * 0.9
+        0.85 <= closest_ratio <= 1.15
     ), f"cross-mix ratios {cross_ratios} should be comparable to genuine (ab={r_genuine_ab:.3f}, cd={r_genuine_cd:.3f}); the null bar cannot separate them"

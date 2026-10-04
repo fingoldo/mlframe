@@ -220,10 +220,10 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
         eval_func_b: optional distinct eval closure for the b-side when it differs from ``eval_func``.
         B_a: optional precomputed basis matrix for the a-side, reused across candidates.
         B_b: optional precomputed basis matrix for the b-side, reused across candidates.
+        random_state: seed forwarded to the KSG mutual-information estimators.
 
     Returns:
-      (best_scores, best_raws, best_idxs) each ndarray (P,) - per-candidate
-      best regularised score, raw MI, and bf index.
+      (best_scores, best_raws, best_idxs) each ndarray (P,) - per-candidate best regularised score, raw MI, and bf index.
 
     The single-call version dispatches one MI batch call across ALL
     (candidate, bf) column combinations: typical (P=20, K_bf=5) gives a
@@ -947,7 +947,7 @@ def optimise_pair_multimode(
         ))
     # Secondary key on (deg_a, deg_b, bf_name) so tied
     # mi doesn't make results[0] depend on insertion order.
-    results.sort(key=lambda r: (-r.mi, getattr(r, "degree_a", 0), getattr(r, "degree_b", 0), getattr(r, "bf_name", "")))
+    results.sort(key=lambda r: (-r.mi, getattr(r, "degree_a", 0), getattr(r, "degree_b", 0), r.bin_func_name))
     return results
 
 

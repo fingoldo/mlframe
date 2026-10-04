@@ -127,16 +127,17 @@ def test_canonical_report_surfaces_real_recipe_and_gate_with_margin():
     prov = est.fe_provenance_
     led = est.fe_rejection_ledger_
 
-    if prov is not None and (prov["origin"].astype(str) != "raw").any():
-        # at least one engineered recipe kind must appear by name in the report.
-        eng_kinds = {str(o) for o in prov["origin"].unique() if str(o) != "raw"}
-        assert any(k in report for k in eng_kinds), f"no engineered recipe kind from {eng_kinds} surfaced in report:\n{report}"
+    assert prov is not None, "the canonical FE-on fit must record provenance"
+    eng_kinds = {str(o) for o in prov["origin"].unique() if str(o) != "raw"}
+    assert eng_kinds, f"the canonical FE-on fit must build at least one engineered feature; origins={sorted(prov['origin'].astype(str).unique())}"
+    # at least one engineered recipe kind must appear by name in the report.
+    assert any(k in report for k in eng_kinds), f"no engineered recipe kind from {eng_kinds} surfaced in report:\n{report}"
 
-    if led is not None and not led.empty:
-        # the binding gate (top killer) must be named AND a margin band rendered.
-        top_gate = str(led.groupby("gate").size().sort_values(ascending=False).index[0])
-        assert top_gate in report, f"binding gate {top_gate} not in report:\n{report}"
-        assert "margin" in report.lower()
+    assert led is not None and not led.empty, "the canonical FE-on fit must reject at least one candidate through a gate"
+    # the binding gate (top killer) must be named AND a margin band rendered.
+    top_gate = str(led.groupby("gate").size().sort_values(ascending=False).index[0])
+    assert top_gate in report, f"binding gate {top_gate} not in report:\n{report}"
+    assert "margin" in report.lower()
 
 
 # ---------------------------------------------------------------------------

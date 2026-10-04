@@ -92,7 +92,7 @@ def test_default_budget_is_bounded_not_unlimited():
     budget = _resolve_exhaustive_budget_seconds(_Knobs("auto"))
     assert budget is not None
     assert budget == pytest.approx(_DEFAULT_EXHAUSTIVE_BUDGET_SECONDS)
-    assert 0 < budget < 3600, "default exhaustive budget must be a bounded, sane value (minutes, not hours)"
+    assert budget == pytest.approx(300.0), "default exhaustive budget must stay at five minutes, never hours or unlimited"
 
 
 def test_auto_declines_when_no_budget_set_and_sweep_too_expensive():

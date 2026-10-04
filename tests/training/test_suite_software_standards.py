@@ -221,7 +221,9 @@ def test_check_estimator_runs_clean_on_early_stop_wrapper():
     from mlframe.estimators.base import EstimatorWithEarlyStopping
 
     # Full sklearn check_estimator must pass clean on the early-stop regressor wrapper.
-    check_estimator(EstimatorWithEarlyStopping(base_estimator=Ridge()))
+    results = check_estimator(EstimatorWithEarlyStopping(base_estimator=Ridge()), on_fail=None)
+    assert len(results) >= 40
+    assert {r["status"] for r in results} == {"passed"}, [(r["check_name"], r["status"]) for r in results if r["status"] != "passed"]
 
 
 # CompositeTargetEstimator's X carries a domain-specific base column, so the
@@ -294,7 +296,13 @@ def test_check_estimator_runs_on_composite_with_pinned_failures():
 
     est = CompositeTargetEstimator(base_estimator=Ridge(), transform_name="diff", base_column="__base__")
     # Raises only if a NON-pinned check fails -> the generic-protocol checks must pass.
-    check_estimator(est, expected_failed_checks=_CTE_EXPECTED_FAILED)
+    results = check_estimator(est, expected_failed_checks=_CTE_EXPECTED_FAILED, on_fail=None)
+    by_status: dict = {}
+    for r in results:
+        by_status.setdefault(r["status"], []).append(r["check_name"])
+    assert "failed" not in by_status, by_status.get("failed")
+    assert len(by_status["passed"]) >= 15
+    assert set(by_status["xfail"]) <= set(_CTE_EXPECTED_FAILED)
 
 
 # ----------------------------------------------------------------------------

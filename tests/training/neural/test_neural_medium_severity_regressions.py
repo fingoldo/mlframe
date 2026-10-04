@@ -293,28 +293,44 @@ def test_m_neu_10_obj_kwargs_win_over_model_kwargs(caplog) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_m_neu_11_no_lazy_import_in_create_dataset() -> None:
+def test_m_neu_11_no_lazy_import_in_create_dataset(monkeypatch) -> None:
     """ThreadPoolExecutor was lazily imported inside _create_dataset on every
     fit/predict pass. Post-fix it is imported once at module top of the module
     that defines _create_dataset (the recurrent monolith was carved into
     submodules; _create_dataset now lives in _recurrent_wrapper_base --
     recurrent_dataset_helpers is a pure re-export shim over it).
+
+    The fan-out above 100k sequences must go through the module-level name: a per-call import would bypass this spy.
     """
-    import mlframe.training.neural._recurrent_wrapper_base as ds
+    import types
     from concurrent.futures import ThreadPoolExecutor
 
-    # Module top of the owning module must expose ThreadPoolExecutor.
-    assert getattr(ds, "ThreadPoolExecutor") is ThreadPoolExecutor
+    import mlframe.training.neural._recurrent_wrapper_base as ds
 
-    # Real contract: ThreadPoolExecutor is used via the module GLOBAL, not (re-)imported inside the hot function body.
-    # A per-call ``from concurrent.futures import ThreadPoolExecutor`` (or ``import concurrent...``) binds the name as a
-    # local, so it would appear in ``co_varnames`` and ``concurrent``/``futures`` would show up as imported names. We
-    # inspect the code object (bytecode-level, no source-text matching) to assert the hoist actually happened.
-    code = ds._RecurrentWrapperBase._create_dataset.__code__
-    assert "ThreadPoolExecutor" in code.co_names, "ThreadPoolExecutor must be referenced as a module global"
-    assert "ThreadPoolExecutor" not in code.co_varnames, "ThreadPoolExecutor is imported/bound locally in the hot path"
-    # A lazy ``import concurrent.futures`` inside the body would surface ``concurrent`` among the referenced names.
-    assert "concurrent" not in code.co_names, "concurrent.futures must not be imported inside the hot function body"
+    assert ds.ThreadPoolExecutor is ThreadPoolExecutor
+    created: list = []
+
+    class _SpyExecutor(ThreadPoolExecutor):
+        """Records each executor the hot path opens."""
+
+        def __init__(self, *args, **kwargs) -> None:
+            created.append(self)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(ds, "ThreadPoolExecutor", _SpyExecutor)
+    rng = np.random.default_rng(0)
+    sequences = [rng.normal(size=(2, 1)).astype(np.float32) for _ in range(100_001)]
+    labels = np.zeros(len(sequences), dtype=np.float32)
+    stub = types.SimpleNamespace(_cfg=types.SimpleNamespace(sequence_preprocessing="per_sequence_zscore"), _feature_scaler=None, _is_regression=True)
+    dataset = ds._RecurrentWrapperBase._create_dataset(stub, sequences, None, labels)
+    assert len(created) == 1
+    expected = ds._RecurrentWrapperBase._preprocess_sequence(sequences[-1], mode="per_sequence_zscore")
+    np.testing.assert_array_equal(np.asarray(dataset.sequences[-1]), expected)
+    assert len(dataset.sequences) == len(sequences)
+
+    created.clear()
+    ds._RecurrentWrapperBase._create_dataset(stub, sequences[:10], None, labels[:10])
+    assert created == []
 
 
 def test_m_neu_11_no_lazy_xxhash_in_cache_key() -> None:
@@ -498,16 +514,9 @@ def test_m_neu_r2_single_sample_skipped() -> None:
     # Pre-fix: would .update() R2Score with a single sample, NaN follows.
     # Post-fix: numel()<2 branch skips val_r2 entirely.
     model.validation_step(batch, 0)
-    # If we reach here without exceptions and val_r2 hasn't been updated, the
-    # internal sum_squared_label is still its init value (0.0 for R2Score), not NaN.
-    if hasattr(model, "val_r2"):
-        # Either the metric hasn't been touched (post-fix) - in which case .compute()
-        # raises a "not been called" warning but returns a tensor; or it was touched
-        # with safe single-sample handling. The hard assertion is: no NaN observed.
-        _state_ok = True
-        for buf in getattr(model.val_r2, "_defaults", {}):
-            t = getattr(model.val_r2, buf, None)
-            if isinstance(t, torch.Tensor) and torch.isnan(t).any():
-                _state_ok = False
-                break
-        assert _state_ok
+    assert hasattr(model, "val_r2"), "a regression model carries a val_r2 metric"
+    assert not model.val_r2.update_called, "a single-sample batch must not update R2Score"
+    # A two-sample batch does update it, so the guard is the single-sample size and not a metric that never updates.
+    model.validation_step({"aux_features": torch.randn(2, 3), "labels": torch.randn(2)}, 1)
+    assert model.val_r2.update_called
+    assert bool(torch.isfinite(model.val_r2.compute()))

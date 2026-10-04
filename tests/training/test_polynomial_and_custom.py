@@ -131,14 +131,36 @@ class TestPolynomialErrors:
 class TestCustomTransformerValidator:
     """Groups tests covering custom transformer validator."""
     def test_valid_sklearn_estimator(self):
-        # Should not raise
-        """Valid sklearn estimator."""
-        validate_custom_transformer(StandardScaler())
+        """A sklearn estimator passes validation untouched: no return value, still unfitted, and it stays usable."""
+        scaler = StandardScaler()
+
+        assert validate_custom_transformer(scaler) is None
+
+        assert not hasattr(scaler, "mean_")
+        out = scaler.fit_transform(np.array([[1.0], [3.0]]))
+        np.testing.assert_allclose(out.ravel(), [-1.0, 1.0])
+
+    def test_object_without_transform_rejected(self):
+        """An object with fit but no transform is rejected naming .transform()."""
+
+        class _FitOnly:
+            """Fit-only object."""
+
+            def fit(self, X):
+                """Fit."""
+                return self
+
+        with pytest.raises(TypeError, match=r"must implement \.transform\(\)"):
+            validate_custom_transformer(_FitOnly())
 
     def test_valid_pipeline(self):
         """Valid pipeline."""
         pipe = Pipeline([("scale", StandardScaler())])
-        validate_custom_transformer(pipe)
+
+        assert validate_custom_transformer(pipe) is None
+
+        out = pipe.fit_transform(np.array([[1.0], [3.0]]))
+        np.testing.assert_allclose(out.ravel(), [-1.0, 1.0])
 
     def test_lambda_rejected_clear_error(self):
         """Round-3 U-R2-16: lambda has no .fit() -- caught at validation,

@@ -103,10 +103,25 @@ def test_sibling_module_owns_the_moved_symbols() -> None:
 
 
 def test_silence_context_manager_works() -> None:
-    """Functional smoke: the @contextlib.contextmanager decorator
-    survived the split."""
+    """Inside the context the lightgbm logger sits at ERROR and the noisy sklearn / numpy warnings are dropped; on exit both are restored."""
+    import logging
+    import warnings
+
+    from sklearn.exceptions import ConvergenceWarning
+
     from mlframe.training.composite.discovery.screening import _silence_tiny_model_output
 
-    with _silence_tiny_model_output():
-        # Just exercising the with-block exit path.
-        pass
+    lgb_logger = logging.getLogger("lightgbm")
+    level_before = lgb_logger.level
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with _silence_tiny_model_output():
+            assert lgb_logger.level == logging.ERROR
+            warnings.warn("X has feature names, but Ridge was fitted without feature names", UserWarning, stacklevel=2)
+            warnings.warn("did not converge", ConvergenceWarning, stacklevel=2)
+            warnings.warn("invalid value", RuntimeWarning, stacklevel=2)
+            warnings.warn("kept: not on the silenced list", UserWarning, stacklevel=2)
+        assert lgb_logger.level == level_before
+        warnings.warn("after the context", RuntimeWarning, stacklevel=2)
+
+    assert [str(w.message) for w in caught] == ["kept: not on the silenced list", "after the context"]

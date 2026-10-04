@@ -713,9 +713,6 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     return cp.ascontiguousarray(g), n_gpu, n_cpu
 
 
-_LOG = logging.getLogger(__name__)
-
-
 def _candidate_float_audit_tag():
     """Residency-audit tag for the float candidate block copied to host for the downstream survivor reads (filed apart from the codes the audit forbids)."""
     from ._gpu_strict_fe._audit import audit_tag  # local: the strict-FE package imports this module
@@ -804,7 +801,7 @@ def gpu_materialise_discretize_codes_host(
         try:
             _copy_stream = cp.cuda.Stream(non_blocking=True)
         except Exception as e:
-            _LOG.debug("non-blocking copy stream creation failed, falling back to synchronous copy: %s", e)
+            logger.debug("non-blocking copy stream creation failed, falling back to synchronous copy: %s", e)
             _copy_stream = None
 
     def _drain_pending():
@@ -847,7 +844,7 @@ def gpu_materialise_discretize_codes_host(
                         _db_slot ^= 1
                         _done_async = True
                     except Exception:
-                        _LOG.debug("async D2H pipeline failed; sync fallback", exc_info=True)
+                        logger.debug("async D2H pipeline failed; sync fallback", exc_info=True)
                         _copy_stream = None
                         _drain_pending()
                 if not _done_async:
@@ -856,7 +853,7 @@ def gpu_materialise_discretize_codes_host(
                         cand.get(out=hv)
                         out_cand[:, start:stop] = hv
                     except Exception:
-                        _LOG.debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
+                        logger.debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
                         out_cand[:, start:stop] = cp.asnumpy(cand)
         # Bin the candidate RESIDENT at its native float32 (the FE buffer dtype) - no f64 up-cast: the
         # cand already IS float32 (bit-equal to _materialise_chunk_njit), so binning in f32 removes a needless

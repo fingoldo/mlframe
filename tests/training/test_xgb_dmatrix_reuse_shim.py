@@ -999,37 +999,34 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
         assert m._cached_train_dmatrix is None, "auto-clear helper failed to wipe shim cache; RAM leak path reintroduced."
 
     def test_duck_typing_skips_non_shim_estimators(self):
-        """Safety: the helper uses duck-typing via ``callable(clear_cache)``,
-        so non-shim estimators (CB, LGB, sklearn LinearModel, etc.) are
-        silently skipped. Verify by calling the same pattern on a
-        vanilla XGBClassifier (which has no ``clear_cache``) — must be
-        a no-op without raising."""
+        """The production auto-clear helper duck-types on ``callable(clear_cache)``: estimators without one are skipped,
+        one that has it is cleared, and a ``clear_cache`` that raises is swallowed."""
+        from mlframe.training.core._misc_helpers import _maybe_clear_shim_cache
 
-        # Inline helper mirroring core.py's _maybe_clear_shim_cache.
-        def _probe(est):
-            """Probe."""
-            fn = getattr(est, "clear_cache", None)
-            if callable(fn):
-                try:
-                    fn()
-                except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-                    pass
-
-        # Vanilla XGBClassifier — no shim → no clear_cache → silent no-op.
         vanilla = xgb.XGBClassifier(n_estimators=3)
-        _probe(vanilla)  # must not raise
+        assert not hasattr(vanilla, "clear_cache")
+        assert _maybe_clear_shim_cache(vanilla) is None
+        assert _maybe_clear_shim_cache(None) is None
 
-        # None — must not raise either.
-        _probe(None)
+        class _Counting:
+            """Estimator-like object exposing a counting ``clear_cache``."""
 
-        # An object with a clear_cache that raises — must swallow.
-        class _Boom:
-            """Groups tests covering boom."""
+            calls = 0
+
             def clear_cache(self):
-                """Clear cache."""
+                """Count the call."""
+                type(self).calls += 1
+
+        class _Boom:
+            """Estimator-like object whose ``clear_cache`` raises."""
+
+            def clear_cache(self):
+                """Raise."""
                 raise RuntimeError("boom")
 
-        _probe(_Boom())  # must not raise (try/except swallows)
+        _maybe_clear_shim_cache(_Counting())
+        assert _Counting.calls == 1
+        assert _maybe_clear_shim_cache(_Boom()) is None
 
     def test_shim_clear_cache_preserves_booster(self, small_classification_data):
         """After ``clear_cache()``, the model must STILL be usable for
@@ -1055,52 +1052,40 @@ class TestCoreAutoClearsShimCacheAtStrategyEnd:
     def test_ensemble_scoring_does_not_recall_predict_on_cleared_member(self, small_classification_data):
         """End-of-strategy cache clear happens AFTER the inner weight loop populates ``ens_models``.
         Ensemble scoring must pull ``val_probs`` / ``test_probs`` off the stored SimpleNamespace
-        rather than calling ``predict_proba`` on the (cleared) model again. We construct a
-        member-like namespace with pre-computed probs but a sentinel model that raises if predict
-        is called, then drive the hot path and verify no predict happens."""
+        rather than calling ``predict_proba`` on the (cleared) model again: members here carry a
+        sentinel model that raises if predicted with, and the blend must equal the stored probabilities' mean."""
         from types import SimpleNamespace
-        from mlframe.models import ensembling as ens_mod
+
+        from mlframe.models.ensembling.predict import ensemble_probabilistic_predictions
+        from mlframe.models.ensembling.process_method import _select_split_probs
 
         X, _y = small_classification_data
+        n = len(X)
 
         class _PoisonModel:
-            """Groups tests covering poison model."""
+            """Model stand-in that must never be asked to predict."""
+
             def predict_proba(self, _X):
-                """Predict proba."""
-                raise AssertionError(
-                    "ensemble hot path re-called predict_proba on a stored member -- after "
-                    "_maybe_clear_shim_cache the cache is gone; this would re-build the DMatrix "
-                    "and defeat the RAM saving."
-                )
+                """Fail: the stored probabilities are the only legitimate source."""
+                raise AssertionError("ensemble hot path re-called predict_proba on a stored member after its cache was cleared")
 
-        # Pre-computed probs that the hot path should consume.
-        probs_val = np.full((len(X), 2), 0.5)
-        probs_test = np.full((len(X), 2), 0.5)
-        member = SimpleNamespace(
-            model=_PoisonModel(),
-            val_probs=probs_val,
-            test_probs=probs_test,
-            target_type="binary",
-            model_name="poison",
-        )
-        # Locate the hot-path callable; tolerate either name (single-method or process).
-        hot = getattr(ens_mod, "_process_single_ensemble_method", None)
-        if hot is None:
-            pytest.skip("ensembling hot-path symbol _process_single_ensemble_method not exposed")
-        # We don't need this to succeed end-to-end; we only need to assert NO call to
-        # member.predict_proba occurs anywhere in the path. Wrap in a soft try/except that
-        # surfaces the AssertionError if the poison fires.
-        try:
-            # Best-effort invocation: pass member-list-shaped arg if signature allows.
-            import inspect as _inspect
+        def _member(val_row, test_row):
+            """Member namespace with pre-computed split probabilities."""
+            return SimpleNamespace(
+                model=_PoisonModel(),
+                val_probs=np.tile(val_row, (n, 1)),
+                test_probs=np.tile(test_row, (n, 1)),
+                target_type="binary",
+                model_name="poison",
+            )
 
-            sig = _inspect.signature(hot)
-            if "members" in sig.parameters or "level_models_and_predictions" in sig.parameters:
-                key = "members" if "members" in sig.parameters else "level_models_and_predictions"
-                hot(**{key: [member]})
-        except AssertionError:
-            raise  # poison fired -> finding regressed
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            # Any other shape mismatch -- the predict_proba poison didn't fire, which is the
-            # surface we care about.
-            pass
+        members = [_member([0.8, 0.2], [0.9, 0.1]), _member([0.4, 0.6], [0.5, 0.5])]
+        val_probs = _select_split_probs(members, "val", True)
+        test_probs = _select_split_probs(members, "test", True)
+        assert [p is m.val_probs for p, m in zip(val_probs, members)] == [True, True]
+        assert [p is m.test_probs for p, m in zip(test_probs, members)] == [True, True]
+
+        val_blend = ensemble_probabilistic_predictions(*val_probs, ensemble_method="arithm")[0]
+        test_blend = ensemble_probabilistic_predictions(*test_probs, ensemble_method="arithm")[0]
+        np.testing.assert_allclose(val_blend, np.tile([0.6, 0.4], (n, 1)))
+        np.testing.assert_allclose(test_blend, np.tile([0.7, 0.3], (n, 1)))

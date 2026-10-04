@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error
 
@@ -83,11 +84,8 @@ def test_biz_val_adversarial_validator_fold_selection_tracks_true_test_score():
 def test_adversarial_validator_report_before_fit_raises():
     """Adversarial validator report before fit raises."""
     validator = AdversarialValidator()
-    try:
+    with pytest.raises(RuntimeError, match="before fit"):
         validator.report()
-        raise AssertionError("expected RuntimeError")
-    except RuntimeError:
-        pass
 
 
 def _make_pruning_scenario(seed: int, n_train: int = 2500, n_test: int = 2500, n_drift: int = 3, n_clean: int = 12):

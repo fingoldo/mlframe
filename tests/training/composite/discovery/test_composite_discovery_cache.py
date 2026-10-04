@@ -6,6 +6,7 @@ Disk-backed cache for CompositeTargetDiscovery results. R&D workflows that re-ru
 from __future__ import annotations
 
 import os
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -165,12 +166,13 @@ class TestDiscoveryCache:
         cache = DiscoveryCache(tmp)
         # Build an unpicklable object to force the inner write to raise.
         unpicklable = lambda x: x
-        try:
+        with pytest.raises((pickle.PicklingError, AttributeError, TypeError)):
             cache.set("abc", unpicklable)
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
-        # No file should exist at the target path.
+        # No file should exist at the target path, and the temp file the write started must be cleaned up.
         assert "abc" not in cache
+        assert not [name for name in os.listdir(tmp) if name.endswith((".tmp", ".pkl"))]
+        cache.set("abc", {"ok": 1})
+        assert cache.get("abc") == {"ok": 1}
 
     def test_get_corrupt_file_returns_default(self, tmp_path) -> None:
         """Manually corrupt a cache file -> ``get`` returns default rather than crash."""

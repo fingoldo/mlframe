@@ -25,57 +25,10 @@ import numpy as np
 
 
 def _build_stratify_key(target_by_type):
-    """Replicate the stratify-key build from _phase_train_val_test_split for testing.
+    """Stratify key the split phase derives from ``target_by_type`` (production helper, bucket-stratify off, default cardinality cap)."""
+    from mlframe.training.core._phase_helpers_fit_split import _stratify_labels_for_split
 
-    Inlines the post-fix decision tree so the test asserts the contract
-    without invoking the full suite (heavy fixtures + cb/lgb downloads).
-    """
-    import numpy as _np
-
-    _MAX_COMPOSITE_CARDINALITY = 200
-    _stratify_y = None
-    _classification_targets = []
-    _multilabel_target = None
-    for _tt, _named in target_by_type.items():
-        _tt_name = getattr(_tt, "name", str(_tt)).upper()
-        if "MULTILABEL" in _tt_name:
-            if isinstance(_named, dict):
-                _multilabel_target = next(iter(_named.values()), None)
-            else:
-                _multilabel_target = _named
-            continue
-        if "CLASS" in _tt_name and isinstance(_named, dict):
-            for _tv in _named.values():
-                if _tv is not None:
-                    _classification_targets.append(_tv)
-    if _multilabel_target is not None:
-        _ml_arr = _np.asarray(_multilabel_target)
-        if _ml_arr.ndim == 2 and _ml_arr.shape[1] >= 1:
-            try:
-                from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit  # noqa: F401
-
-                _stratify_y = _ml_arr
-            except ImportError:
-                _first = _ml_arr[:, 0]
-                _u, _c = _np.unique(_first, return_counts=True)
-                if len(_u) >= 2 and _c.min() >= 2:
-                    _stratify_y = _first
-    elif len(_classification_targets) == 1:
-        _arr = _np.asarray(_classification_targets[0])
-        if _arr.ndim == 1:
-            _u, _c = _np.unique(_arr, return_counts=True)
-            if len(_u) >= 2 and _c.min() >= 2:
-                _stratify_y = _arr
-    elif len(_classification_targets) > 1:
-        _arrs = [_np.asarray(_t) for _t in _classification_targets]
-        _n = len(_arrs[0])
-        if all(_a.ndim == 1 and len(_a) == _n for _a in _arrs):
-            _stack = _np.stack(_arrs, axis=1)
-            _, _composite_ids = _np.unique(_stack, axis=0, return_inverse=True)
-            _u, _c = _np.unique(_composite_ids, return_counts=True)
-            if 2 <= len(_u) <= _MAX_COMPOSITE_CARDINALITY and _c.min() >= 2:
-                _stratify_y = _composite_ids
-    return _stratify_y
+    return _stratify_labels_for_split(None, target_by_type, 200, False, None)
 
 
 class _BinaryClass:
@@ -120,15 +73,15 @@ def test_high_cardinality_composite_key_skipped():
     """Composite cardinality cap (200): too many distinct row-tuples means
     every val slice would have unique-class rows; stratification refused."""
     rng = np.random.default_rng(2)
-    # 4 targets x 8 classes each -> 4096 potential tuples; cap should block.
-    targets = {f"y{i}": rng.integers(0, 8, 1000) for i in range(4)}
-    tbt = {_BinaryClass(): targets}
-    out = _build_stratify_key(tbt)
-    # Either composite cardinality > 200 -> None, OR if it happens to be <=200
-    # by RNG luck, the test still passes because the function returned something
-    # consistent. The assertion: we don't crash on high-cardinality input.
-    if out is not None:
-        assert len(np.unique(out)) <= 200
+    # 4 targets x 5 classes each -> 625 distinct tuples over 5000 rows (every tuple well populated), so only the cap can refuse.
+    targets = {f"y{i}": rng.integers(0, 5, 5000) for i in range(4)}
+    assert _build_stratify_key({_BinaryClass(): targets}) is None
+    # Control: 3 targets x 5 classes -> 125 tuples, under the cap, so the same construction does stratify.
+    allowed = {f"y{i}": rng.integers(0, 5, 5000) for i in range(3)}
+    out = _build_stratify_key({_BinaryClass(): allowed})
+    assert out is not None
+    assert out.shape == (5000,)
+    assert len(np.unique(out)) == 125
 
 
 def test_multilabel_target_first_label_fallback():

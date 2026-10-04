@@ -11,14 +11,18 @@
 from mlframe.feature_selection.filters.permutation import _perm_pvalue, _addone_pvalue_enabled
 
 
-def test_perm_pvalue_full_budget_break_position_independent():
+def test_perm_pvalue_full_budget_break_position_independent(monkeypatch):
     # Retained (deliberate) design: an early-stopped run scores its p against the FULL budget so confidence does not
     # depend on WHERE the break fired. Pins the behaviour N-F3 proposed to change so a future edit is a conscious one.
     """Perm pvalue full budget break position independent."""
-    p_stopped = _perm_pvalue(5, 8, full_budget=100)
-    p_full = _perm_pvalue(5, 100, full_budget=100)
-    if _addone_pvalue_enabled():
-        assert p_stopped == p_full == (1.0 + 5) / (1.0 + 100)
+    monkeypatch.setenv("MLFRAME_MRMR_ADDONE_PVALUE", "1")
+    assert _addone_pvalue_enabled()
+    assert _perm_pvalue(5, 8, full_budget=100) == _perm_pvalue(5, 100, full_budget=100) == (1.0 + 5) / (1.0 + 100)
+    assert _perm_pvalue(5, 8) == (1.0 + 5) / (1.0 + 8)
+    monkeypatch.setenv("MLFRAME_MRMR_ADDONE_PVALUE", "0")
+    assert not _addone_pvalue_enabled()
+    assert _perm_pvalue(5, 8, full_budget=100) == _perm_pvalue(5, 100, full_budget=100) == 5 / 100
+    assert _perm_pvalue(5, 8) == 5 / 8
 
 
 def test_gpu_null_budget_constant_available():

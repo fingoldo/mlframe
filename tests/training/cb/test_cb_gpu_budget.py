@@ -10,6 +10,7 @@ max_ctr_complexity from the planned iteration count, so a capped resume fails un
 from __future__ import annotations
 
 import threading
+import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -48,13 +49,19 @@ def fake_gpu(monkeypatch):
 def test_time_budget_stops_fit_and_keeps_model(caplog):
     """Budget exceeded -> interrupted -> resumed from snapshot: a FITTED model, far fewer trees, original params restored."""
     Xt, yt, Xv, yv = _data()
+    reference = catboost.CatBoostRegressor(iterations=300, learning_rate=0.02, depth=8, verbose=0, thread_count=2)
+    t0 = time.perf_counter()
+    reference.fit(Xt, yt)
+    trees_per_second = 300 / (time.perf_counter() - t0)
+    budget_s = 5.0
+    expected_trees = trees_per_second * budget_s
     model = catboost.CatBoostRegressor(iterations=100_000, learning_rate=0.02, depth=8, od_type="Iter", od_wait=90_000,
                                        use_best_model=True, verbose=0, thread_count=2)
-    budget_cb = SimpleNamespace(time_budget_mins=5 / 60.0)  # 5 s; stripped by the guard, its budget is read
+    budget_cb = SimpleNamespace(time_budget_mins=budget_s / 60.0)  # stripped by the guard, its budget is read
     fit_params = {"eval_set": (Xv, yv), "callbacks": [budget_cb]}
     out = fit_with_cb_gpu_guard(_plain_fit, model, model, "CatBoostRegressor", Xt, yt, fit_params)
     assert out is model and model.is_fitted()
-    assert 0 < model.tree_count_ < 100_000
+    assert 0.1 * expected_trees < model.tree_count_ < 3 * expected_trees
     # Stopped by the budget rather than by a fast machine: the resume log names the time budget as the reason.
     assert any("resuming from its snapshot" in r.getMessage() and "time budget" in r.getMessage() for r in caplog.records)
     r2 = 1 - np.mean((model.predict(Xv) - yv) ** 2) / np.var(yv)

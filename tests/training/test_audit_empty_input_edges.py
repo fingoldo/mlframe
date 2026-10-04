@@ -140,42 +140,39 @@ def test_compute_splitting_stats_empty_window_no_crash() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Source-level sensors: ensure the fix actually committed.
+# Guards on degenerate inputs
 # ---------------------------------------------------------------------------
 
 
-import importlib
-from pathlib import Path
+def test_metrics_calibration_plot_guards_empty_freqs_predicted(tmp_path, caplog) -> None:
+    """A calibration plot over empty bin data is skipped with a warning: nothing is returned or written, and nothing raises."""
+    import logging
 
-MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
+    from mlframe.metrics.calibration._calibration_plot import show_calibration_plot
 
-
-def _read(rel: str) -> str:
-    """Read."""
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
-
-
-def test_metrics_calibration_plot_guards_empty_freqs_predicted() -> None:
-    # ``show_calibration_plot`` was moved to ``_calibration_plot.py`` when
-    # ``metrics/core.py`` was split into siblings.
-    """Metrics calibration plot guards empty freqs predicted."""
-    src = _read("metrics/calibration/_calibration_plot.py")
-    assert (
-        "if freqs_predicted.size == 0:" in src
-    ), "metrics/calibration/_calibration_plot.py: show_calibration_plot must guard freqs_predicted before np.min/np.max."
-
-
-def test_clip_to_quantiles_guards_empty_input() -> None:
-    """Clip to quantiles guards empty input."""
-    src = _read("estimators/custom.py")
-    # The fix introduces an early-return on empty array before the np.quantile call.
-    assert "arr_arr.size == 0" in src, "estimators/custom.py: clip_to_quantiles must guard empty input before np.quantile."
+    plot_file = tmp_path / "calibration.png"
+    empty = np.array([], dtype=np.float64)
+    with caplog.at_level(logging.WARNING):
+        result = show_calibration_plot(empty, empty, np.array([], dtype=np.int64), show_plots=False, plot_file=str(plot_file))
+    assert result is None
+    assert not plot_file.exists()
+    assert any("no bin data available" in r.getMessage() for r in caplog.records)
 
 
 def test_conformal_locally_adaptive_guards_tiny_train() -> None:
-    """Conformal locally adaptive guards tiny train."""
-    src = _read("feature_engineering/transformer/conformal_locally_adaptive.py")
-    assert "if n < 4:" in src, "conformal_locally_adaptive.py: _process must guard tiny-train (n<4) before half-split."
+    """A train fold with fewer than 4 rows yields the all-zero feature block; a normal fold yields real features."""
+    from mlframe.feature_engineering.transformer.conformal_locally_adaptive import compute_conformal_locally_adaptive_features
+
+    rng = np.random.default_rng(0)
+    X_query = rng.normal(size=(4, 2)).astype(np.float32)
+    tiny = compute_conformal_locally_adaptive_features(rng.normal(size=(3, 2)).astype(np.float32), np.array([0.1, 0.5, 0.9]), X_query, seed=1)
+    assert tiny.shape == (4, 5)
+    assert not np.any(tiny.to_numpy())
+    X = rng.normal(size=(80, 2)).astype(np.float32)
+    normal = compute_conformal_locally_adaptive_features(X, X[:, 0] + 0.1 * rng.normal(size=80), X_query, seed=1)
+    assert normal.shape == (4, 5)
+    assert np.all(np.isfinite(normal.to_numpy()))
+    assert np.any(normal.to_numpy() != 0.0)
 
 
 def test_target_encoders_compute_prior_guards_empty_y() -> None:

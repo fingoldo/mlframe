@@ -201,17 +201,15 @@ class TestOptimizerTargetMean:
         # Compare what was submitted vs raw cv_mean_perf in cv_results_.
         cv_means = dict(zip(sel.cv_results_["nfeatures"], sel.cv_results_["cv_mean_perf"]))
         cv_stds = dict(zip(sel.cv_results_["nfeatures"], sel.cv_results_["cv_std_perf"]))
-        for n, submitted_v in captured:
-            if n in cv_means:
-                expected_final = cv_means[n] * 1.0 - cv_stds[n] * 1.0
-                # With final_score target, submitted value should match expected_final, NOT cv_means[n].
-                # We allow small floating tolerance; if it matched cv_means[n] alone, the assertion fails.
-                if abs(submitted_v - cv_means[n]) > 1e-6:
-                    # Found at least one case where final_score != cv_means, so we're on the right path.
-                    assert abs(submitted_v - expected_final) < 1e-4
-                    return
-        # If every cv_means[n] == final_score (no std variance) the test is inconclusive;
-        # don't fail in that degenerate case.
+        assert captured, "the optimizer was never handed an evaluation"
+        scored = [(n, v) for n, v in captured if n in cv_means]
+        assert scored, "no submitted subset size matches a scored point in cv_results_"
+        # With final_score target, every submitted value is mean - 1.0 * std, NOT the raw mean.
+        for n, submitted_v in scored:
+            expected_final = cv_means[n] * 1.0 - cv_stds[n] * 1.0
+            assert abs(submitted_v - expected_final) < 1e-4, f"N={n}: submitted {submitted_v}, expected mean-std {expected_final}"
+        # The fixture must discriminate: at least one point has a std large enough that mean-std differs from the raw mean.
+        assert any(abs(v - cv_means[n]) > 1e-6 for n, v in scored), "no scored point carries a std, so the check could not tell the targets apart"
 
 
 # ----------------------------------------------------------------------- S9

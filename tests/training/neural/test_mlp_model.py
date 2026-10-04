@@ -440,10 +440,13 @@ class TestMLPTorchModelOnTrainEpochEnd:
     """Tests for MLPTorchModel.on_train_epoch_end()."""
 
     def test_on_train_epoch_end_without_outputs(self, simple_network, loss_function):
-        """Test on_train_epoch_end without outputs."""
+        """With compute_trainset_metrics=False no train metric is computed and the collected outputs are left alone."""
         model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, compute_trainset_metrics=False, metrics=[])
+        computed: list = []
+        model.compute_metrics = lambda *a, **kw: computed.append((a, kw))  # type: ignore[method-assign]
 
-        model.training_step_outputs = []
+        sentinel = {"raw_predictions": torch.randn(8, 3), "labels": torch.randint(0, 3, (8,))}
+        model.training_step_outputs = [sentinel]
 
         # Mock trainer for epoch_end method
         mock_trainer = Mock()
@@ -452,8 +455,10 @@ class TestMLPTorchModelOnTrainEpochEnd:
         mock_trainer.optimizers = [mock_optimizer]
         model.trainer = mock_trainer
 
-        # Should not crash
         model.on_train_epoch_end()
+
+        assert computed == []
+        assert model.training_step_outputs == [sentinel]
 
     def test_on_train_epoch_end_with_outputs(self, simple_network, loss_function):
         """Test on_train_epoch_end with outputs."""
@@ -501,15 +506,36 @@ class TestMLPTorchModelOnValidationEpochEnd:
 # ================================================================================================
 
 
+def _write_checkpoint(model, path, fill):
+    """Save a checkpoint whose every weight equals ``fill`` and return the path."""
+    state = {k: torch.full_like(v, fill) for k, v in model.state_dict().items()}
+    torch.save({"state_dict": state}, path)
+    return str(path)
+
+
+def _weights(model):
+    """Snapshot of the model's parameters."""
+    return [p.detach().clone() for p in model.parameters()]
+
+
 class TestMLPTorchModelOnTrainEnd:
     """Tests for MLPTorchModel.on_train_end()."""
 
-    def test_on_train_end_without_load_best_weights(self, simple_network, loss_function):
-        """Test on_train_end when load_best_weights_on_train_end=False."""
-        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=False, metrics=[])
+    def test_on_train_end_without_load_best_weights(self, simple_network, loss_function, tmp_path):
+        """With load_best_weights_on_train_end=False a reachable best checkpoint is left unloaded."""
+        from lightning.pytorch.callbacks import ModelCheckpoint
 
-        # Should not crash
+        model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=False, metrics=[])
+        checkpoint = Mock(spec=ModelCheckpoint)
+        checkpoint.best_model_path = _write_checkpoint(model, tmp_path / "best.ckpt", 0.0)
+        checkpoint.best_model_score = 0.5
+        model.trainer = Mock(is_global_zero=True, callbacks=[checkpoint])
+        before = _weights(model)
+
         model.on_train_end()
+
+        assert any(bool((p != 0).any()) for p in before)
+        assert all(torch.equal(a, b) for a, b in zip(before, _weights(model)))
 
 
 # ================================================================================================
@@ -681,56 +707,50 @@ class TestMLPTorchModelMutationTests:
 class TestMLPTorchModelPhase2:
     """Phase 2 tests for MLPTorchModel mutation survivors."""
 
-    def test_on_train_end_load_best_weights_rank_check(self, simple_network, loss_function):
+    def test_on_train_end_load_best_weights_rank_check(self, simple_network, loss_function, tmp_path):
         """Test best weights only loaded on global rank 0.
 
         Kills mutation: `not self.trainer.is_global_zero` to `self.trainer.is_global_zero`.
         """
 
+        from lightning.pytorch.callbacks import ModelCheckpoint
+
         model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=True, metrics=[])
+        checkpoint = Mock(spec=ModelCheckpoint)
+        checkpoint.best_model_path = _write_checkpoint(model, tmp_path / "best.ckpt", 0.0)
+        checkpoint.best_model_score = 0.5
+        before = _weights(model)
+        assert any(bool((p != 0).any()) for p in before)
 
-        # Mock trainer as NOT rank 0
-        mock_trainer = Mock()
-        mock_trainer.is_global_zero = False
-        mock_trainer.callbacks = []
-        model.trainer = mock_trainer
+        model.trainer = Mock(is_global_zero=False, callbacks=[checkpoint])
+        model.on_train_end()
+        assert all(torch.equal(a, b) for a, b in zip(before, _weights(model)))
 
-        # on_train_end should return early without loading
-        model.on_train_end()  # Should not crash
+        model.trainer = Mock(is_global_zero=True, callbacks=[checkpoint])
+        model.on_train_end()
+        assert all(bool((p == 0).all()) for p in _weights(model))
 
-    def test_on_train_end_checkpoint_search(self, simple_network, loss_function):
-        """Test that finding ModelCheckpoint stops the callback search.
+    def test_on_train_end_checkpoint_search(self, simple_network, loss_function, tmp_path):
+        """The first ModelCheckpoint among the trainer callbacks supplies the best weights; later ones are ignored.
 
         Kills mutation: `break` to `continue` in checkpoint loop.
         """
         from lightning.pytorch.callbacks import ModelCheckpoint
-        import tempfile
-        import os
 
         model = MLPTorchModel(network=simple_network, loss_fn=loss_function, learning_rate=0.001, load_best_weights_on_train_end=True, metrics=[])
+        first = Mock(spec=ModelCheckpoint)
+        first.best_model_path = _write_checkpoint(model, tmp_path / "first.ckpt", 0.25)
+        first.best_model_score = 0.95
+        second = Mock(spec=ModelCheckpoint)
+        second.best_model_path = _write_checkpoint(model, tmp_path / "second.ckpt", 0.75)
+        second.best_model_score = 0.99
+        model.trainer = Mock(is_global_zero=True, callbacks=[Mock(), first, Mock(), second])
 
-        # Create a temporary checkpoint file
-        with tempfile.TemporaryDirectory() as tmpdir:
-            ckpt_path = os.path.join(tmpdir, "best.ckpt")
-            # Save model state to checkpoint
-            torch.save({"state_dict": model.state_dict()}, ckpt_path)
+        model.on_train_end()
 
-            # Mock ModelCheckpoint
-            mock_checkpoint = Mock(spec=ModelCheckpoint)
-            mock_checkpoint.best_model_path = ckpt_path
-            mock_checkpoint.best_model_score = 0.95
-
-            mock_trainer = Mock()
-            mock_trainer.is_global_zero = True
-            mock_trainer.callbacks = [
-                Mock(),  # Other callback
-                mock_checkpoint,  # ModelCheckpoint
-                Mock(),  # Another callback
-            ]
-            model.trainer = mock_trainer
-
-            # Should find first ModelCheckpoint and use it
-            model.on_train_end()
+        weights = _weights(model)
+        assert weights
+        assert all(bool((p == 0.25).all()) for p in weights)
 
     def test_validation_step_stores_outputs(self, simple_network, loss_function, sample_batch):
         """Test validation_step properly stores outputs for metrics.

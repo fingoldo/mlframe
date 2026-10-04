@@ -141,7 +141,7 @@ def test_biz_val_column_summary_recovers_the_true_culprit_columns_for_a_flagged_
     # thresholds set below/above the measured values to leave headroom for seed variance.
     assert top_recovered == culprit_cols, f"expected the column summary to recover exactly the true culprit columns, got {top_recovered} vs {culprit_cols}"
     assert culprit_frequencies.min() >= 0.45, f"expected every culprit column to dominate the flagged batch's top-k, got min={culprit_frequencies.min():.4f}"
-    assert culprit_frequencies.min() > noise_frequencies.max() * 3, (
+    assert culprit_frequencies.min() - 3 * noise_frequencies.max() > 0, (
         f"expected culprit columns to be far more frequent than any noise column, "
         f"got min_culprit={culprit_frequencies.min():.4f} max_noise={noise_frequencies.max():.4f}"
     )

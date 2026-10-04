@@ -10,6 +10,7 @@ versus training with uniform weights.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_squared_error
 
@@ -126,8 +127,5 @@ def test_recency_step_weight_omitting_new_params_is_bit_identical_to_baseline():
 def test_recency_step_weight_tiers_and_smooth_window_together_raises():
     """Recency step weight tiers and smooth window together raises."""
     dates = np.array([1, 2, 3])
-    try:
+    with pytest.raises(ValueError, match="mutually exclusive"):
         recency_step_weight(dates, cutoff_date=0, tiers=[(1, 2.0)], smooth_window=1.0)
-    except ValueError:
-        return
-    raise AssertionError("expected ValueError when both tiers and smooth_window are set")

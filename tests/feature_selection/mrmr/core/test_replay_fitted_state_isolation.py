@@ -44,7 +44,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _fit_pair():
@@ -95,13 +94,12 @@ def test_support_writeable_on_replay_and_isolated_from_source():
     """
     A, B = _fit_pair()
     sig = getattr(B, "signature", "") or ""
-    if isinstance(sig, str) and sig.startswith("_mrmr_identity_shortcut"):
-        pytest.skip("identity-shortcut path produced a fresh writable support_; the writeable-and-isolated assertion targets the FIT_CACHE replay path")
+    assert not (isinstance(sig, str) and sig.startswith("_mrmr_identity_shortcut")), "the second fit must take the FIT_CACHE replay path"
     assert B.support_.flags.writeable, "replayed support_ must be writeable like a cold-fit instance's"
+    assert not np.shares_memory(B.support_, A.support_)
     a_first = int(A.support_[0])
-    if not np.shares_memory(B.support_, A.support_):
-        B.support_[0] = 999
-        assert int(A.support_[0]) == a_first, "writing the replayed support_ corrupted the cached source"
+    B.support_[0] = 999
+    assert int(A.support_[0]) == a_first, "writing the replayed support_ corrupted the cached source"
 
 
 def test_large_internal_ndarrays_still_shared_for_density():
@@ -111,15 +109,16 @@ def test_large_internal_ndarrays_still_shared_for_density():
     """
     A, B = _fit_pair()
     sig = getattr(B, "signature", "") or ""
-    if isinstance(sig, str) and sig.startswith("_mrmr_identity_shortcut"):
-        pytest.skip("identity-shortcut path produced fresh arrays; the sharing assertion only applies to the FIT_CACHE replay path")
+    assert not (isinstance(sig, str) and sig.startswith("_mrmr_identity_shortcut")), "the second fit must take the FIT_CACHE replay path"
     _public_writeable_copies = {"support_", "ranking_"}
-    for k, v in B.__dict__.items():
-        if k in _public_writeable_copies or not isinstance(v, np.ndarray):
-            continue
-        a_v = A.__dict__.get(k)
-        if isinstance(a_v, np.ndarray) and np.shares_memory(v, a_v):
-            assert v.flags.writeable is False, f"shared internal ndarray {k!r} must be read-only to protect the cache entry"
+    shared = [
+        k
+        for k, v in B.__dict__.items()
+        if k not in _public_writeable_copies and isinstance(v, np.ndarray) and isinstance(A.__dict__.get(k), np.ndarray) and np.shares_memory(v, A.__dict__[k])
+    ]
+    assert "mrmr_gains_" in shared, f"the freeze-and-share density win is gone: only {shared} are shared"
+    for k in shared:
+        assert B.__dict__[k].flags.writeable is False, f"shared internal ndarray {k!r} must be read-only to protect the cache entry"
 
 
 def test_replay_count_unchanged_after_fix():

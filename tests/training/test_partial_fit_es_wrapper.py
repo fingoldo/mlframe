@@ -140,8 +140,12 @@ def test_dichotomic_ridge_picks_a_budget() -> None:
     )
     wrapper.fit(X, y)
     assert wrapper.stopped_via == "dichotomic"
-    assert 10 <= wrapper.best_iter <= 500
-    assert wrapper.best_metric is not None
+    tested = {budget: score for budget, (score, _est) in wrapper.history}
+    assert {10, 500} <= set(tested)
+    assert wrapper.best_iter == min(tested, key=lambda b: tested[b])
+    assert wrapper.best_metric == tested[wrapper.best_iter]
+    # Ridge ignores max_iter for the dense default solver, so every tested budget scores identically.
+    assert max(tested.values()) - min(tested.values()) < 1e-9
     assert wrapper.predict(X).shape == y.shape
 
 
@@ -191,7 +195,12 @@ def test_user_supplied_val_set_used_directly() -> None:
         max_iter=30,
     )
     wrapper.fit(X, y, X_val=X_val, y_val=y_val)
-    assert wrapper.best_metric is not None
-    # The val we evaluated against came from a different seed than train; the history should
-    # have <= max_iter entries.
-    assert 0 < len(wrapper.history) <= 30
+    # Replay the same epochs by hand against the supplied validation set: the recorded history must match it.
+    reference = SGDRegressor(max_iter=1, tol=None, random_state=0, learning_rate="constant", eta0=0.01)
+    expected = []
+    for _ in range(30):
+        reference.partial_fit(X, y)
+        expected.append(float(np.sqrt(np.mean((reference.predict(X_val) - y_val) ** 2))))
+    assert len(wrapper.history) > 1
+    assert wrapper.history == pytest.approx(expected[: len(wrapper.history)], rel=1e-9)
+    assert wrapper.best_metric == pytest.approx(min(wrapper.history), rel=1e-9)

@@ -121,7 +121,7 @@ def test_biz_val_auto_chain_default_on_ships_a_chain_spec():
         get_transform(s.transform_name)  # registered -> resolvable by name
 
 
-def test_biz_val_default_config_opt_in_step_flags():
+def test_default_config_opt_in_step_flags():
     """Opt-in discovery flag defaults: interaction_base / auto_chain ON; region_adaptive OFF.
 
     region_adaptive is a committed-but-rejected research prototype (heavy + collapses at deploy), so

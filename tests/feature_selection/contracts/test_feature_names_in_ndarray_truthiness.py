@@ -26,20 +26,25 @@ ndarray ``feature_names_in_`` via ``X or []``) and passes post-fix.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
+_RETENTION_LOGGER = "mlframe.feature_selection.filters._fe_pure_form_retention"
 
-def _fitted_mrmr():
-    """Fitted mrmr."""
+
+def _fitted_mrmr(interaction: bool = False):
+    """Fit a real MRMR on an additive-linear target, or on a pure x0*x1 interaction target when ``interaction`` is set."""
     rng = np.random.default_rng(0)
     n = 400
     X = pd.DataFrame(
         {f"x{i}": rng.standard_normal(n) for i in range(6)},
     )
-    y = pd.Series(X["x0"] * 2 + X["x1"] - X["x2"] + rng.standard_normal(n) * 0.1, name="y")
+    signal = 3 * X["x0"] * X["x1"] + X["x2"] if interaction else X["x0"] * 2 + X["x1"] - X["x2"]
+    y = pd.Series(signal + rng.standard_normal(n) * 0.1, name="y")
     m = MRMR(
         verbose=0,
         interactions_max_order=1,
@@ -71,25 +76,37 @@ def test_build_usability_lists_no_crash():
     assert hasattr(m, "support_nonlinear_")
 
 
-def test_retain_usable_pure_forms_no_crash():
-    """Retain usable pure forms no crash."""
+def test_retain_usable_pure_forms_no_crash(caplog):
+    """The pure-form pass runs over the ndarray ``feature_names_in_`` and recovers the trapped x0*x1 pair form instead of failing into its empty fallback."""
     from mlframe.feature_selection.filters._fe_pure_form_retention import retain_usable_pure_forms
 
-    m, X, y = _fitted_mrmr()
-    retain_usable_pure_forms(m, X, np.asarray(y, dtype=np.float64))
+    m, X, y = _fitted_mrmr(interaction=True)
+    with caplog.at_level(logging.DEBUG, logger=_RETENTION_LOGGER):
+        added = retain_usable_pure_forms(m, X, np.asarray(y, dtype=np.float64))
+    assert not [r.getMessage() for r in caplog.records if "pass failed" in r.getMessage()]
+    assert len(added) >= 1
+    assert any({"x0", "x1"} <= {str(s) for s in recipe.src_names} for recipe, _name in added), [(r.src_names, n) for r, n in added]
 
 
-def test_retain_usable_raw_columns_no_crash():
-    """Retain usable raw columns no crash."""
+def test_retain_usable_raw_columns_no_crash(caplog):
+    """The raw-column pass runs over the ndarray ``feature_names_in_`` without hitting its swallowed-failure fallback and only proposes unselected columns."""
     from mlframe.feature_selection.filters._fe_pure_form_retention import retain_usable_raw_columns
 
     m, X, y = _fitted_mrmr()
-    retain_usable_raw_columns(m, X, np.asarray(y, dtype=np.float64))
+    with caplog.at_level(logging.DEBUG, logger=_RETENTION_LOGGER):
+        extra = retain_usable_raw_columns(m, X, np.asarray(y, dtype=np.float64))
+    assert not [r.getMessage() for r in caplog.records if "probe failed" in r.getMessage()]
+    assert isinstance(extra, list)
+    assert set(extra).isdisjoint(set(m.get_feature_names_out()))
+    assert set(extra) <= set(X.columns)
 
 
 def test_compute_fe_provenance_no_crash():
-    """Compute fe provenance no crash."""
+    """The provenance frame is built from the ndarray ``feature_names_in_`` with one raw-origin row per selected column."""
     from mlframe.feature_selection.filters._mrmr_fe_provenance import compute_fe_provenance
 
     m, _, _ = _fitted_mrmr()
-    compute_fe_provenance(m)
+    prov = compute_fe_provenance(m)
+    assert set(prov["feature_name"]) == set(m.get_feature_names_out())
+    assert len(prov) == len(m.get_feature_names_out()) > 0
+    assert set(prov["origin"]) == {"raw"}

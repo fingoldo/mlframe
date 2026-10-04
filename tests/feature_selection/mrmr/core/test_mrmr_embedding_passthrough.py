@@ -11,6 +11,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.filters._mrmr_passthrough import detect_passthrough_columns
@@ -74,20 +75,14 @@ def test_mrmr_embedding_passed_through_untouched_numerics_selected():
 
 
 def test_mrmr_embedding_passthrough_opt_out_is_legacy():
-    """With passthrough disabled the non-scalar column is no longer routed through;
-    MRMR either drops it or errors -- either way it is NOT in _passthrough_features_."""
+    """With passthrough disabled the ndarray-celled column is not routed through, and the legacy discretiser fails on its unhashable cells."""
     df, y = _make_frame(n=200)
     m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_seed=0, embedding_passthrough=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        try:
+        with pytest.raises(TypeError, match="unhashable type: 'numpy.ndarray'"):
             m.fit(df, y)
-        except Exception:
-            # Legacy path can crash on the ndarray cells -- that is exactly the bug the
-            # default-on passthrough fixes; the opt-out is allowed to reproduce it.
-            return
-        # If the legacy path did not crash, the embedding must NOT have been passthrough-routed.
-        assert m._passthrough_features_ == []
+    assert not hasattr(m, "support_")
 
 
 def test_mrmr_no_embedding_columns_is_noop():

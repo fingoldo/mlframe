@@ -50,7 +50,7 @@ def test_the_picker_drops_labels_that_land_on_each_other():
     rng = np.random.default_rng(0)
     pts = rng.normal(0.0, 0.01, 40)
     kept = non_colliding_label_indices(pts, pts, [f"node_{i}" for i in range(40)], fontsize=8, x_span=1.0, y_span=1.0, width_in=6.0, height_in=4.0)
-    assert 0 < len(kept) < 40, f"{len(kept)} of 40 labels kept in a cluster one hundredth of the panel wide"
+    assert kept == [0], f"{len(kept)} of 40 labels kept in a cluster one hundredth of the panel wide"
 
 
 def test_a_collapsed_graph_layout_does_not_print_a_smudge():

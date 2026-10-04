@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import KFold
@@ -115,8 +116,5 @@ def test_auxiliary_feature_prediction_rejects_unknown_target_feature():
     """Auxiliary feature prediction rejects unknown target feature."""
     X, _y = _make_noisy_proxy_dataset(n=50, seed=5)
     kf = KFold(n_splits=3, shuffle=True, random_state=0)
-    try:
+    with pytest.raises(ValueError, match="target_features not in X_train.columns"):
         compute_auxiliary_feature_prediction_features(X, ["not_a_real_column"], splitter=kf, seed=0)
-        raise AssertionError("expected ValueError")
-    except ValueError:
-        pass

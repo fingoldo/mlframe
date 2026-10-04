@@ -42,6 +42,7 @@ from ._xt_ensemble_helpers import (
     _build_cross_target_do_calib,
     _build_cross_target_rather_than_each_fallback,
     _build_cross_target_split_name_report_title,
+    _ct_ensemble_split_plan,
 )
 
 
@@ -787,13 +788,7 @@ def _build_cross_target_ensemble_for_target(
                 target_type=str(_tt_e),
                 y_train_envelope_stats=_ens_train_envelope,
             )
-            _emit_val_ens = bool(getattr(reporting_config, "compute_valset_metrics", True))
-            _emit_test_ens = bool(getattr(reporting_config, "compute_testset_metrics", True))
-            _split_plan = []
-            if _emit_val_ens:
-                _split_plan.append(("val", "VAL (CT_ENSEMBLE) ", filtered_val_idx, filtered_val_df))
-            if _emit_test_ens:
-                _split_plan.append(("test", "TEST (CT_ENSEMBLE) ", test_idx, test_df_pd))
+            _split_plan = _ct_ensemble_split_plan(reporting_config, filtered_val_idx, filtered_val_df, test_idx, test_df_pd)
             _build_cross_target_split_name_report_title(_split_plan, _ens_y_arr, _ensemble, _ce_strategy, metadata, _tt_e, _orig_tname, _ens_common, plot_file, report_model_perf)
     except Exception as _ens_report_err:  # best-effort: charting failure never invalidates the already-stored ensemble entry
         logger.warning(

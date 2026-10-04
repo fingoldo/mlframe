@@ -72,13 +72,13 @@ def test_bc_and_outer_agree_on_noise_rejection_with_tight_mnc():
     )
     # Outer (always full budget) is the ground truth - if it rejects
     # at this mnc, BC must too.
-    if mi_outer == 0.0:
-        assert mi_bc == 0.0, (
-            f"BC accepted noise candidate at mi={mi_bc} while outer "
-            f"correctly rejected with the same data. "
-            f"BC's small-n_checked early-stop didn't enforce the "
-            f"caller's mnc=0.99 rate."
-        )
+    assert mi_outer == 0.0, f"the noise-corridor fixture must be rejected by the full-budget outer path; got mi={mi_outer}"
+    assert mi_bc == 0.0, (
+        f"BC accepted noise candidate at mi={mi_bc} while outer "
+        f"correctly rejected with the same data. "
+        f"BC's small-n_checked early-stop didn't enforce the "
+        f"caller's mnc=0.99 rate."
+    )
 
 
 def test_bc_signal_still_accepts():

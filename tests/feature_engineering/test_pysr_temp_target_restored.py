@@ -151,28 +151,18 @@ def test_pysr_temp_target_column_restored_when_random_seed_cast_raises(monkeypat
     y_train = np.arange(100, dtype=np.float32)
     cols_before = list(train_df.columns)
 
-    # Whether the call raises or returns [] depends on where exactly the
-    # exception fires relative to the try/except boundary. Both are
-    # acceptable; what matters is that train_df is restored either way.
-    try:
-        result = _apply_pysr_fe(
-            train_df=train_df,
-            val_df=val_df,
-            test_df=test_df,
-            y_train=y_train,
-            config=_BadSeedConfig(),
-            out_transformer=None,
-            verbose=False,
-            out_equations=None,
-        )
-        # Post-fix path: the bad int() cast is inside the try, caught by
-        # ``except Exception``, function returns []. Pre-fix path would
-        # have raised here instead AND left the column leaked.
-        assert result == []
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # Pre-fix path also acceptable as a possible behaviour shape; the
-        # invariant under test is the no-leak guarantee below.
-        pass
+    # The bad int() cast sits inside the try, is caught by ``except Exception`` and the function returns [].
+    result = _apply_pysr_fe(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        y_train=y_train,
+        config=_BadSeedConfig(),
+        out_transformer=None,
+        verbose=False,
+        out_equations=None,
+    )
+    assert result == []
 
     assert "_pysr_y_" not in train_df.columns, (
         "S03 (random-seed-cast leak window): _apply_pysr_fe leaked _pysr_y_ "

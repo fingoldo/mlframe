@@ -18,6 +18,7 @@ through a model fit.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 
 def _band_means(weighted_train: np.ndarray, y_t: np.ndarray, n_bands: int, seed_with_global_mean: bool) -> np.ndarray:
@@ -56,48 +57,24 @@ def test_an_empty_band_makes_the_two_initialisers_disagree():
     assert np.allclose(mean_seeded, [1.0, 1.8889, 1.8889, 1.8889, 9.0], atol=1e-4)
 
 
-def _band_seed_expression(module) -> str:
-    """The right-hand side of the module's `band_y_mean = ...` initialiser, rendered from its parse tree.
-
-    Compared on the AST rather than by searching the source text for a substring: the two files are a frozen
-    copy and its original, so the question really is a source-level one, but reformatting or a reworded
-    comment must not answer it.
-
-    The file is read from disk rather than through ``inspect.getsource``, which the behavioural-test gate
-    forbids outright -- and reading it is the more direct expression of a question that is about two FILES.
-    """
-    import ast
-    from pathlib import Path as _Path
-
-    tree = ast.parse(_Path(module.__file__).read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "band_y_mean" for t in node.targets):
-            if isinstance(node.value, ast.Call):  # the initialiser, not the per-band overwrite
-                return ast.unparse(node.value)
-    raise AssertionError(f"{module.__name__} has no band_y_mean initialiser; this test has lost its subject")
-
-
 def test_the_frozen_baseline_seeds_bands_the_way_production_does():
-    """Both modules must agree on this statistic, so the identity test can only fail on the batching."""
-    from mlframe.feature_engineering._benchmarks._cpx36_baseline import fisher_weighted_residual_old as old
-    from mlframe.feature_engineering.transformer import fisher_weighted_residual as new
-
-    production = _band_seed_expression(new)
-    frozen = _band_seed_expression(old)
-    # That production seeds from the GLOBAL MEAN is a behavioural claim, so it is checked by running the
-    # band loop rather than by looking for "mean()" in the rendered expression: a substring can be present
-    # in code that computes something else entirely, and absent from code that is correct.
-    rng = np.random.default_rng(11)
-    weighted = np.concatenate([np.zeros(40), np.ones(40) * 5.0])  # a quantile band with no rows in it
-    y_t = rng.normal(size=weighted.size)
-    seeded = _band_means(weighted, y_t, 5, seed_with_global_mean=True)
-    empty = [b for b, v in enumerate(seeded) if np.isclose(v, float(y_t.mean()), atol=1e-5)]
-    assert empty, f"no band fell back to the global mean {y_t.mean():.4f}; seeded bands were {seeded}"
-    assert frozen == production, (
-        f"the frozen cpx36 baseline seeds empty bands as {frozen!r} while production uses {production!r}, so "
-        "the batching identity test would fail on fishres_band_y_mean for any tie-heavy fold -- a statistic "
-        "that baseline was never frozen to pin"
+    """On a fold whose weighted residuals all tie, empty bands must read the global mean in the frozen baseline and in production alike."""
+    pytest.importorskip("lightgbm")
+    from mlframe.feature_engineering._benchmarks._cpx36_baseline.fisher_weighted_residual_old import (
+        compute_fisher_weighted_residual_features as old,
     )
+    from mlframe.feature_engineering.transformer.fisher_weighted_residual import compute_fisher_weighted_residual_features as new
+
+    rng = np.random.default_rng(11)
+    x_train = rng.standard_normal((200, 6)).astype(np.float32)
+    x_query = rng.standard_normal((50, 6)).astype(np.float32)
+    y_train = np.full(200, 3.0, dtype=np.float32)
+    col = "fishres_band_y_mean"
+    from_old = old(x_train, y_train, x_query, seed=7, task="regression")[col].to_numpy()
+    from_new = new(x_train, y_train, x_query, seed=7, task="regression")[col].to_numpy()
+    np.testing.assert_array_equal(from_old, from_new)
+    np.testing.assert_allclose(from_new, 3.0)
+
 
 def test_a_band_that_has_rows_is_unaffected_by_the_seed():
     """The fix must only touch bands with no data; every populated band is overwritten either way."""

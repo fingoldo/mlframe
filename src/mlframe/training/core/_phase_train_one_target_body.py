@@ -69,6 +69,35 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
+
+def _clone_base_pipeline_for_strategy(base_pipeline):
+    """Fresh un-fitted clone of ``base_pipeline`` for one strategy, with the selector's sticky attrs forwarded.
+
+    Custom non-BaseEstimator pipelines cannot be sklearn-cloned; the original reference is then reused, which is correct only for a stateless pipeline or one with
+    its own per-call reset, so the fallback is logged with the pipeline type. A partially-fit selector shared across strategies trips ``imputer.transform`` on a
+    feature-names mismatch.
+    """
+    if base_pipeline is None:
+        return None
+    try:
+        cloned = clone(base_pipeline)
+        _forward_selector_sticky_attrs(base_pipeline, cloned)
+        return cloned
+    except Exception as clone_err:
+        log_throttle(
+            logger,
+            "train_one_target_clone_base_pipeline_failed",
+            logging.WARNING,
+            "  sklearn.clone failed for base_pipeline (%s); reusing "
+            "original reference. If %s is a stateful selector with "
+            "no per-call reset, downstream `pre_pipeline.fit` may "
+            "see stale state from a prior model in the suite.",
+            clone_err,
+            type(base_pipeline).__name__,
+        )
+        return base_pipeline
+
+
 def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_values):
     """Train all models for one (target_type, target_name) pair."""
     # Lazy import: ``._phase_train_one_target`` re-imports this sibling at
@@ -370,30 +399,7 @@ def _train_one_target(ctx, target_type, targets, cur_target_name, cur_target_val
             # fitted MRMR/RFECV across strategies caused `_is_fitted` to misreport True for a partially-fit
             # pipeline (selector fitted but encoder/imputer/scaler not), tripping imputer.transform on a
             # feature-names mismatch.
-            _base_for_strategy = orig_pre_pipeline
-            if _base_for_strategy is not None:
-                try:
-                    _cloned_base = clone(_base_for_strategy)
-                    _forward_selector_sticky_attrs(_base_for_strategy, _cloned_base)
-                    _base_for_strategy = _cloned_base
-                except Exception as _clone_e:
-                    # Custom non-BaseEstimator pipelines can't be sklearn-cloned;
-                    # falling back to the original reference is correct IF the
-                    # pipeline is genuinely stateless OR if it carries its own
-                    # per-call reset. WARN-log so operators see when this
-                    # fallback fires -- a partially-fit selector reused across
-                    # strategies trips `imputer.transform` on a feature-names
-                    # mismatch (the exact bug the docstring 4 lines above
-                    # describes).
-                    log_throttle(
-                        logger, "train_one_target_clone_base_pipeline_failed", logging.WARNING,
-                        "  sklearn.clone failed for base_pipeline (%s); reusing "
-                        "original reference. If %s is a stateful selector with "
-                        "no per-call reset, downstream `pre_pipeline.fit` may "
-                        "see stale state from a prior model in the suite.",
-                        _clone_e,
-                        type(_base_for_strategy).__name__,
-                    )
+            _base_for_strategy = _clone_base_pipeline_for_strategy(orig_pre_pipeline)
             pre_pipeline = strategy.build_pipeline(
                 base_pipeline=_base_for_strategy,
                 cat_features=cat_features,

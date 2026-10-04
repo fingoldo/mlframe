@@ -215,8 +215,8 @@ def _tolerance_for(combo: FuzzCombo) -> float:
 
 def _no_signal(combo: FuzzCombo, m_base: float, m_perturbed: float) -> bool:
     """Return True when the metric pair indicates a near-random base model;
-    metamorphic stability claims are then meaningless and we skip rather
-    than fail. Per-target-type thresholds reflect the metric's range:
+    metamorphic stability claims are then meaningless, so the tests require signal.
+    Per-target-type thresholds reflect the metric's range:
 
     * regression: R² < 0 ⇒ worse than mean predictor → no signal
     * binary/multi*: |AUC - 0.5| < 0.05 ⇒ near-coin-flip
@@ -318,15 +318,15 @@ def test_metamorphic_column_rename_invariance(combo: FuzzCombo, tmp_path):
     # break ranker dispatch (different bug than the metamorphic invariant).
     protect: tuple[str, ...] = ("qid",) if combo.target_type == "learning_to_rank" else ()
     df_renamed, renamed_col = _rename_first_numeric(df_base, target_col, protect=protect)
-    if not renamed_col:
-        pytest.skip("no numeric column available to rename")
+    assert renamed_col, "no numeric column available to rename"
 
     m_base = _extract_primary_val_metric(_run_suite(combo, df_base, target_col, str(tmp_path / "base")))
     m_renamed = _extract_primary_val_metric(_run_suite(combo, df_renamed, target_col, str(tmp_path / "ren")))
     assert m_base is not None and m_renamed is not None, f"suite produced no val metric for {combo.target_type}: base={m_base}, renamed={m_renamed}"
 
-    if _no_signal(combo, m_base, m_renamed):
-        pytest.skip(f"base/renamed metric lacks signal ({combo.target_type}: base={m_base:.3f}, renamed={m_renamed:.3f}); metamorphic check not meaningful")
+    assert not _no_signal(
+        combo, m_base, m_renamed
+    ), f"base/renamed metric lacks signal ({combo.target_type}: base={m_base:.3f}, renamed={m_renamed:.3f}); metamorphic check not meaningful"
 
     tol = _tolerance_for(combo)
     assert (
@@ -391,8 +391,9 @@ def test_metamorphic_duplicate_rows_stable(combo: FuzzCombo, tmp_path):
     m_dup = _extract_primary_val_metric(_run_suite(combo, df_dup, target_col, str(tmp_path / "dup")))
     assert m_base is not None and m_dup is not None, f"suite produced no val metric for {combo.target_type}: base={m_base}, dup={m_dup}"
 
-    if _no_signal(combo, m_base, m_dup):
-        pytest.skip(f"base/dup metric lacks signal ({combo.target_type}: base={m_base:.3f}, dup={m_dup:.3f}); metamorphic check not meaningful")
+    assert not _no_signal(
+        combo, m_base, m_dup
+    ), f"base/dup metric lacks signal ({combo.target_type}: base={m_base:.3f}, dup={m_dup:.3f}); metamorphic check not meaningful"
 
     tol = _tolerance_for(combo)
     assert (

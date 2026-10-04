@@ -35,11 +35,13 @@ def test_record_provenance_basic():
         assert "ts" in rec and rec["ts"].endswith("+00:00"), f"{step}: missing or non-UTC ts"
 
 
-def test_record_provenance_none_metadata_is_noop():
-    """Record provenance none metadata is noop."""
+def test_record_provenance_none_metadata_is_noop(caplog):
+    """A None metadata is a silent no-op: nothing is returned and nothing is logged."""
     from mlframe.training.provenance import record_provenance
 
-    record_provenance(None, "x", source="train")
+    with caplog.at_level("DEBUG", logger="mlframe.training.provenance"):
+        assert record_provenance(None, "x", source="train") is None
+    assert not caplog.records
 
 
 def test_record_provenance_unknown_source_still_records_with_warning(caplog):

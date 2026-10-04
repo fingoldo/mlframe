@@ -213,5 +213,5 @@ def stamp_ensemble_choice(metadata: dict, target_type: object, target_name: str,
 
     ``surface`` is ``oof`` / ``val`` / ``test``, or ``fallback_first_flavour`` when no candidate exposed a ranking metric.
     """
-    metadata.setdefault("ensembles_chosen_surface", {}).setdefault("simple", {}).setdefault(target_type, {})[target_name] = surface or "fallback_first_flavour"
+    metadata.setdefault("ensembles_chosen_surface", {}).setdefault("simple", {}).setdefault(target_type, {})[target_name] = "fallback_first_flavour" if surface is None else surface
     metadata.setdefault("ensembles_chosen", {}).setdefault("simple", {}).setdefault(target_type, {})[target_name] = chosen

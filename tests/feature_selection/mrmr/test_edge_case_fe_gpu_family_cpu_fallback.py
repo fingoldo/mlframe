@@ -78,13 +78,9 @@ def test_gpu_resident_path_selection_equivalent_to_cpu_default(monkeypatch):
     """When a CUDA device IS available and STRICT-residency is explicitly forced on, the
     GPU-resident non-separability filter must select the SAME engineered columns as the exact CPU
     default path -- never a silent divergence or empty contribution from the device branch."""
-    try:
-        import cupy as cp
-
-        if cp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip("no CUDA device visible")
-    except Exception:
-        pytest.skip("cupy unavailable")
+    cp = pytest.importorskip("cupy")
+    if cp.cuda.runtime.getDeviceCount() < 1:
+        pytest.skip("no CUDA device visible")
 
     X, y = _trapped_product_fixture(seed=3)
 

@@ -106,7 +106,7 @@ def test_informative_column_scores_higher_mi_than_noise():
 
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
-def test_rank_binning_path_also_returns_valid_mi():
+def test_rank_binning_path_also_returns_valid_mi(monkeypatch):
     """``rank_binning=True`` routes through the argsort equi-frequency resident binner (the gate-MI
     byte-match path) instead of the percentile-edge binner, and still returns a well-formed result."""
     pytest.importorskip("cupy")
@@ -116,12 +116,11 @@ def test_rank_binning_path_also_returns_valid_mi():
     y = (signal > 0).astype(np.int64)
     mat = signal[:, None]
 
-    os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
-    os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
     result = resident_raw_baseline_mi(mat, y, "test_role_rank", nbins=10, rank_binning=True)
-    # The rank-binning resident path may itself be unavailable on some builds (documented fallback to
-    # None); if present, it must be a finite, non-negative MI value.
-    if result is not None:
-        assert result.shape == (1,)
-        assert np.isfinite(result[0])
-        assert result[0] >= 0.0
+    assert result is not None, "the rank-binning resident path fell back to None on a working device"
+    assert result.shape == (1,)
+    assert np.isfinite(result[0])
+    # y = sign(signal): the binned MI approaches ln 2 = 0.693 nats.
+    assert result[0] >= 0.55

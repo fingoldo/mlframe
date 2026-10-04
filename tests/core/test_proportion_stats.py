@@ -61,3 +61,10 @@ def test_biz_val_zodiac_gap_not_significant_but_huge_n_is():
     huge = proportions_significantly_different(88250, 250000, 85500, 250000, confidence=0.95)
     assert small is False, "1pp gap at n=1000 should not be significant"
     assert huge is True, "1pp gap at n=250000 should be significant"
+    _lo_small, hi_small = wilson_interval(342, 1000)
+    lo_small_hi, _ = wilson_interval(353, 1000)
+    assert lo_small_hi < hi_small
+    lo_huge, hi_huge = wilson_interval(85500, 250000)
+    lo_huge_hi, _ = wilson_interval(88250, 250000)
+    assert lo_huge_hi > hi_huge
+    assert hi_huge - lo_huge < 0.01

@@ -187,36 +187,41 @@ class TestReportingIntegration:
     y_train_{min,max,std} kwargs are supplied."""
 
     def test_source_has_envelope_clip_wiring(self) -> None:
-        """Source has envelope clip wiring."""
-        from pathlib import Path
-        from mlframe.training.reporting import _reporting as rep
+        """The regression report clips the returned predictions to the train envelope when the train target stats are supplied."""
+        from mlframe.training.reporting._reporting_regression import report_regression_model_perf
 
-        # ``report_regression_model_perf`` was carved out of ``_reporting.py``
-        # into ``_reporting_regression.py``; the envelope-clip wiring moved
-        # with it. Concat both files so the source-grep guard still matches.
-        src = Path(rep.__file__).read_text(encoding="utf-8")
-        _pkg = Path(rep.__file__).parent / "_reporting_regression"
-        if _pkg.is_dir():
-            for _f in sorted(_pkg.glob("*.py")):
-                src += "\n" + _f.read_text(encoding="utf-8")
-        assert "_prediction_envelope_clip" in src
-        assert "clip_predictions_to_train_envelope" in src
+        rng = np.random.default_rng(0)
+        targets = rng.uniform(10.0, 20.0, size=50)
+        preds = targets.copy()
+        preds[0] = 5000.0
+        preds[1] = -5000.0
+        returned, _ = report_regression_model_perf(
+            targets, ["f"], "m", None, preds=preds, print_report=False, show_perf_chart=False, y_train_min=10.0, y_train_max=20.0, y_train_std=2.0
+        )
+        # train envelope with k=3 sigma: [10 - 6, 20 + 6]
+        np.testing.assert_allclose(returned, np.clip(preds, 4.0, 26.0))
+        assert returned[0] == pytest.approx(26.0)
+        assert returned[1] == pytest.approx(4.0)
 
     def test_clip_invoked_only_when_stats_supplied(self) -> None:
-        """Legacy callers that didn't pass y_train_{min,max,std} get a
-        no-op (back-compat)."""
-        from pathlib import Path
-        from mlframe.training.reporting import _reporting as rep
+        """Without train stats and without enough finite eval targets there is no envelope and predictions pass through;
+        with train stats the 3-sigma window applies, and with only eval targets the wider 10-sigma window does."""
+        from mlframe.training.reporting._reporting_regression._sensors import apply_prediction_envelope_clip
 
-        # Same carve as ``test_source_has_envelope_clip_wiring``: the
-        # gate moved to ``_reporting_regression.py``.
-        src = Path(rep.__file__).read_text(encoding="utf-8")
-        _pkg = Path(rep.__file__).parent / "_reporting_regression"
-        if _pkg.is_dir():
-            for _f in sorted(_pkg.glob("*.py")):
-                src += "\n" + _f.read_text(encoding="utf-8")
-        # The clip block must be gated on the three kwargs being non-None.
-        assert "if y_train_min is not None and y_train_max is not None" in src
+        preds = np.array([-100.0, 15.0, 100.0] * 5)
+        few_targets = np.array([10.0, 20.0, 15.0])
+        untouched = apply_prediction_envelope_clip(
+            preds[:3], few_targets, y_train_min=None, y_train_max=None, y_train_std=None, model_name="m", report_title="t"
+        )
+        np.testing.assert_array_equal(untouched, preds[:3])
+        with_train = apply_prediction_envelope_clip(
+            preds, np.tile([10.0, 20.0, 15.0], 5), y_train_min=10.0, y_train_max=20.0, y_train_std=2.0, model_name="m", report_title="t"
+        )
+        np.testing.assert_allclose(with_train, np.clip(preds, 4.0, 26.0))
+        eval_targets = np.tile([10.0, 20.0, 15.0], 5)
+        fallback = apply_prediction_envelope_clip(preds, eval_targets, y_train_min=None, y_train_max=None, y_train_std=None, model_name="m", report_title="t")
+        std = float(eval_targets.std())
+        np.testing.assert_allclose(fallback, np.clip(preds, 10.0 - 10.0 * std, 20.0 + 10.0 * std))
 
     def test_train_envelope_stats_threaded_through_unified_entry(self) -> None:
         """2026-05-26: ``report_model_perf`` accepts a single

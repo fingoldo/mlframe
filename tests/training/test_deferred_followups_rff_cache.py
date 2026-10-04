@@ -238,15 +238,34 @@ def test_cat_interactions_multiclass_docstring_documents_design() -> None:
 
 
 def test_timeseries_past_side_sanity_check_landed() -> None:
-    """Timeseries past side sanity check landed."""
-    src = _read("feature_engineering/timeseries.py")
-    # The "deferred to a follow-up" marker is gone.
-    assert "deferred to a follow-up" not in src
-    # The check itself is what matters; the wave marker that once introduced it is not. The shipped
-    # fix is stricter than a bare non-empty check: it compares against the full expected window count
-    # (symmetric with the pre-existing future-side check), catching a PARTIALLY-satisfied past window
-    # set too, not just a totally empty one.
-    assert "past_nwindows_expected" in src and "insufficient_past" in src
+    """A base point whose past windows are only PARTIALLY satisfied is skipped, so every emitted row carries the full expected window count."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_engineering.timeseries import create_windowed_features
+
+    df = pd.DataFrame({"vol": np.ones(30), "pos": np.arange(30, dtype=float)})
+
+    def apply_fcn(df, row_features, targets, features_names, dataset_name):
+        """Emit the last position of the window; register one column name per window."""
+        row_features.append(float(df["pos"].iloc[-1]))
+        if f"{dataset_name}-last" not in features_names:
+            features_names.append(f"{dataset_name}-last")
+
+    X, Y = create_windowed_features(
+        df=df,
+        start_index=0,
+        end_index=20,
+        past_processing_fcn=apply_fcn,
+        future_processing_fcn=apply_fcn,
+        past_windows={"vol": [3, 10]},
+        future_windows={"": [1]},
+    )
+    assert list(X.columns) == ["vol:3-last", "vol:10-last"]
+    assert X.shape == (12, 2)
+    assert len(Y) == len(X)
+    assert not X.isna().any().any()
+    assert X.iloc[:, 0].is_monotonic_increasing
 
 
 def test_mrmr_factors_to_use_documented_already_threaded() -> None:

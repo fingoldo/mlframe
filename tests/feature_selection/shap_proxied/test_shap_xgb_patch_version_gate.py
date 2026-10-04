@@ -16,13 +16,12 @@ shap = pytest.importorskip("shap")
 
 from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_explain as spe
 
+_SHAP_VERSION = tuple(int(p) for p in shap.__version__.split(".")[:2])
 
+
+@pytest.mark.skipif(_SHAP_VERSION < (0, 52), reason="workaround is expected to apply on shap < 0.52")
 def test_patch_is_noop_on_shap_ge_052():
     """Patch is noop on shap ge 052."""
-    ver = tuple(int(p) for p in shap.__version__.split(".")[:2])
-    if ver < (0, 52):
-        pytest.skip("workaround is expected to apply on shap < 0.52")
-
     from shap.explainers import _tree as _shap_tree
 
     # shap's _tree module does not define a module-global ``float`` -- the legacy
@@ -43,6 +42,7 @@ def test_patch_is_noop_on_shap_ge_052():
             _shap_tree.__dict__.pop("float", None)
 
 
+@pytest.mark.skipif(_SHAP_VERSION >= (0, 52), reason="the patch is a no-op on shap >= 0.52 -- nothing to restore")
 def test_patch_restores_shap_tree_float_after_the_with_block():
     """CI regression: a plain function call left ``shap.explainers._tree.float`` monkeypatched to
     ``_safe_float`` for the rest of the process, so an unrelated LATER ``TreeExplainer`` construction on
@@ -53,10 +53,6 @@ def test_patch_restores_shap_tree_float_after_the_with_block():
     function, not a type, and something inside shap's tree-loading machinery needs ``float`` usable as a
     numpy dtype). The context-manager form must restore (or remove) the name on exit so no later,
     unrelated ``TreeExplainer`` call in the same process is affected."""
-    ver = tuple(int(p) for p in shap.__version__.split(".")[:2])
-    if ver >= (0, 52):
-        pytest.skip("the patch is a no-op on shap >= 0.52 -- nothing to restore")
-
     from shap.explainers import _tree as _shap_tree
 
     had_attr_before = "float" in _shap_tree.__dict__

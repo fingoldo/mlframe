@@ -1036,7 +1036,8 @@ class TestValidateTargetValues:
         from mlframe.training.trainer import _validate_target_values
 
         target = target_factory([1.0, 2.0, 3.0, 4.0])
-        _validate_target_values(target, "train")  # should not raise
+        assert _validate_target_values(target, "train") is None
+        np.testing.assert_array_equal(np.asarray(target), [1.0, 2.0, 3.0, 4.0])
 
     @pytest.mark.parametrize(
         "target_factory",

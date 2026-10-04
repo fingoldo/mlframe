@@ -299,13 +299,25 @@ class TestFillNullPreservesFastpath:
         # __MISSING__ is now one of the categories.
         assert "__MISSING__" in filled["cat"].unique().to_list()
 
-    @pytest.mark.skipif(
-        True,  # CB fit is heavy; covered by the earlier bench. Keep the
-        # test body as documentation of the expected behaviour.
-        reason="End-to-end CB fit covered in bench_polars_cb_nullfrac.py; running it per-test adds 5-10 s and noise.",
-    )
     def test_cb_fastpath_accepts_filled_categorical(self):
-        """Expected behavior (proven in bench_polars_cb_nullfrac.py):
-        CB fit on a fill-null'd Categorical succeeds on the Polars
-        fastpath without any fallback."""
-        pass
+        """CB fit on a fill-null'd Categorical succeeds on the Polars fastpath without any fallback and yields valid probabilities."""
+        pytest.importorskip("catboost")
+        from catboost import CatBoostClassifier
+
+        from mlframe.training.trainer import _polars_fill_null_in_categorical
+
+        rng = np.random.default_rng(0)
+        n = 200
+        cats = np.array(["a", "b", "c"], dtype=object)[rng.integers(0, 3, n)]
+        cat_values = [None if i % 7 == 0 else str(c) for i, c in enumerate(cats)]
+        df = pl.DataFrame({"num": rng.standard_normal(n).astype(np.float32), "cat": pl.Series("cat", cat_values, dtype=pl.String).cast(pl.Categorical)})
+        assert df["cat"].null_count() > 0
+        filled = _polars_fill_null_in_categorical(df, ["cat"])
+        assert filled["cat"].null_count() == 0
+        y = rng.integers(0, 2, n)
+        model = CatBoostClassifier(iterations=3, verbose=0, allow_writing_files=False, thread_count=2)
+        model.fit(filled, y, cat_features=["cat"])
+        proba = model.predict_proba(filled)
+        assert proba.shape == (n, 2)
+        assert np.isfinite(proba).all()
+        np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-6)

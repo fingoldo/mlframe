@@ -123,11 +123,11 @@ class TestDCDPoolPrune:
 
         X, y = _collinear_frame()
         sel = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0).fit(X, y)
-        if sel.dcd_["n_anchors"] > 0:
-            # At least one anchor in cluster_anchors must have non-empty
-            # member set.
-            members_max = max(len(m) for m in sel.dcd_["cluster_anchors"].values())
-            assert members_max >= 1
+        assert sel.dcd_["n_anchors"] >= 1
+        anchors = sel.dcd_["cluster_anchors"]
+        assert 0 in anchors, f"the strongest copy f0 must anchor a cluster; got {anchors}"
+        members = set(anchors[0])
+        assert members and members <= {1, 2, 3}, f"anchor f0 must own only its noisy copies f1..f3; got {anchors}"
 
     def test_dcd_no_signal_no_clusters(self):
         """Pure-noise data: DCD should still prune some noise pairs that
@@ -510,9 +510,9 @@ class TestDCDSwapPath:
             target_y=target_indices,
             full_npermutations=0,
         )
-        if decision.accept:
-            # No null was run; perm_p_value untouched from the accept branch.
-            assert decision.perm_p_value == 0.0
+        assert decision.accept
+        assert decision.branch == "aggregate"
+        assert decision.perm_p_value == 0.0
 
     def test_dcd_swap_alpha_validation(self):
         """``dcd_swap_alpha`` must be in (0, 1]."""
@@ -568,23 +568,23 @@ class TestDCDSwapPath:
             entropy_cache=None,
             full_npermutations=0,
         )
-        if decision.accept:
-            data_ref = {}
-            selected_vars = [0]
-            new_idx = commit_swap(
-                state,
-                0,
-                decision,
-                selected_vars=selected_vars,
-                data_ref=data_ref,
-                engineered_recipes=None,
-                predictors_log=None,
-            )
-            # data_ref["data"] should be extended by 1 column.
-            assert data_ref["data"].shape[1] == data.shape[1] + 1
-            # selected_vars's first element should now be the new aggregate idx.
-            assert selected_vars[0] == new_idx
-            # pool_pruned_mask should mark the original anchor as pruned.
-            assert state.pool_pruned_mask[0] is np.True_ or bool(state.pool_pruned_mask[0])
-            # swap_log entry persisted.
-            assert len(state.swap_log) >= 1
+        assert decision.accept
+        data_ref = {}
+        selected_vars = [0]
+        new_idx = commit_swap(
+            state,
+            0,
+            decision,
+            selected_vars=selected_vars,
+            data_ref=data_ref,
+            engineered_recipes=None,
+            predictors_log=None,
+        )
+        # data_ref["data"] should be extended by 1 column.
+        assert data_ref["data"].shape[1] == data.shape[1] + 1
+        # selected_vars's first element should now be the new aggregate idx.
+        assert selected_vars[0] == new_idx
+        # pool_pruned_mask should mark the original anchor as pruned.
+        assert state.pool_pruned_mask[0] is np.True_ or bool(state.pool_pruned_mask[0])
+        # swap_log entry persisted.
+        assert len(state.swap_log) >= 1

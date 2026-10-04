@@ -253,12 +253,12 @@ class TestFuzzFitPredictNeverCrashes:
             try:
                 est.fit(X, y)
             except Exception as exc:
-                pytest.fail(f"fit crashed [{ctx}]: {type(exc).__name__}: {exc}")
+                raise AssertionError(f"fit crashed [{ctx}]: {type(exc).__name__}: {exc}") from exc
 
             try:
                 y_hat = est.predict(X)
             except Exception as exc:
-                pytest.fail(f"predict crashed [{ctx}]: {type(exc).__name__}: {exc}")
+                raise AssertionError(f"predict crashed [{ctx}]: {type(exc).__name__}: {exc}") from exc
 
             assert y_hat.shape == (len(X),), f"shape [{ctx}]"
             assert np.all(np.isfinite(y_hat)), f"non-finite prediction [{ctx}]"

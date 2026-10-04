@@ -32,6 +32,9 @@ import ast
 import os
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
 
@@ -154,11 +157,33 @@ def test_no_caller_controlled_name_reaches_a_path_unslugified() -> None:
     assert not offenders, "caller-controlled names reach a path unslugified at: " + ", ".join(offenders)
 
 
-def test_neural_base_default_root_dir_trust_contract_documented() -> None:
-    """Neural base default root dir trust contract documented."""
-    src = _read("training/neural/base.py")
-    # The Wave 46 documentation comment marks the trust contract explicitly.
-    assert "default_root_dir" in src and "caller-controlled" in src
+def test_neural_base_default_root_dir_trust_contract_documented(tmp_path) -> None:
+    """The neural estimator takes ``trainer_params['default_root_dir']`` as a caller-owned root: the fit's run directory is created directly beneath it, unmodified."""
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("lightning")
+    from mlframe.training.neural import MLPTorchModel, PytorchLightningRegressor, TorchDataModule
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(64, 4)).astype(np.float32)
+    y = X.sum(axis=1).astype(np.float32)
+    root = tmp_path / "caller_root"
+    reg = PytorchLightningRegressor(
+        model_class=MLPTorchModel,
+        model_params={"loss_fn": torch.nn.MSELoss(), "learning_rate": 1e-3},
+        network_params={"nlayers": 1},
+        datamodule_class=TorchDataModule,
+        datamodule_params={
+            "read_fcn": None,
+            "data_placement_device": None,
+            "features_dtype": torch.float32,
+            "labels_dtype": torch.float32,
+            "dataloader_params": {"batch_size": 16, "num_workers": 0},
+        },
+        trainer_params={"max_epochs": 1, "default_root_dir": str(root), "log_every_n_steps": 1, "devices": 1, "logger": False, "enable_model_summary": False},
+    )
+    reg.fit(X, y)
+    run_dirs = [p for p in root.iterdir() if p.is_dir() and p.name.startswith("_run_")]
+    assert len(run_dirs) == 1
 
 
 def test_hex_key_re_is_fully_anchored() -> None:

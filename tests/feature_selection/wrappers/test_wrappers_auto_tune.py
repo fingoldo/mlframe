@@ -107,10 +107,9 @@ class TestSuggestConfigs:
         X = rng.normal(size=(200, 8))
         y = rng.normal(size=200)
         fp = DataFingerprint.from_xy(X, y)
-        # max_corr should be small.
-        if fp.max_abs_corr_to_y < 0.3:
-            _, _fic, _ = suggest_configs(fp)
-            assert _fic.n_features_selection_rule == "one_se_max"
+        assert fp.max_abs_corr_to_y < 0.3, f"the pure-noise fixture must give a flat curve, got max |corr| {fp.max_abs_corr_to_y:.3f}"
+        _, _fic, _ = suggest_configs(fp)
+        assert _fic.n_features_selection_rule == "one_se_max"
 
     def test_explain_suggestion_returns_str(self):
         """Explain suggestion returns str."""

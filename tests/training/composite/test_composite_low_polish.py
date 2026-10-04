@@ -29,16 +29,31 @@ import pytest
 
 def test_polish_composite_public_symbols_importable() -> None:
     """Audit-tag stripping in composite.py must not break re-exports."""
-    from mlframe.training.composite import (  # noqa: F401
-        CompositeSpec,
-        CompositeTargetEstimator,
-        CompositeProvenance,
+    from mlframe.training.composite import (
         CompositeCrossTargetEnsemble,
+        CompositeProvenance,
+        CompositeSpec,
         CompositeTargetDiscovery,
+        CompositeTargetEstimator,
         Transform,
         get_transform,
         list_transforms,
     )
+
+    exported = {
+        "CompositeSpec": CompositeSpec,
+        "CompositeTargetEstimator": CompositeTargetEstimator,
+        "CompositeProvenance": CompositeProvenance,
+        "CompositeCrossTargetEnsemble": CompositeCrossTargetEnsemble,
+        "CompositeTargetDiscovery": CompositeTargetDiscovery,
+        "Transform": Transform,
+        "get_transform": get_transform,
+        "list_transforms": list_transforms,
+    }
+    assert {name: obj.__name__ for name, obj in exported.items()} == {name: name for name in exported}
+    registered = list_transforms()
+    assert "diff" in registered and "linear_residual" in registered
+    assert all(isinstance(get_transform(name), Transform) for name in registered)
 
 
 def test_polish_composite_spec_frozen_with_multi_base() -> None:

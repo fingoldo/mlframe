@@ -162,18 +162,21 @@ def test_install_pair_index_cache_small_query_uses_torch_where_path():
     ds = _RankerDataset(X, y)
     ds.install_pair_index_cache(sampler._query_slices)
 
+    assert len(sampler._query_slices) == n_queries
+    informative = 0
     for q_slice in sampler._query_slices:
         rel_q = ds.y[torch.as_tensor(q_slice, dtype=torch.long)]
         i_ref, j_ref = torch.where(rel_q.unsqueeze(1) > rel_q.unsqueeze(0))
         key = tuple(q_slice.tolist())
-        cached = ds._pair_idx_by_query[key]
-        if i_ref.numel() == 0:
-            # No-informative-pair sentinel: (None, None).
-            assert cached == (None, None)
-        else:
-            i_cached, j_cached = cached
-            assert torch.equal(i_cached, i_ref.to(torch.long))
-            assert torch.equal(j_cached, j_ref.to(torch.long))
+        i_cached, j_cached = ds._pair_idx_by_query[key]
+        # No-informative-pair queries cache the (None, None) sentinel; every other query caches the torch.where pair tensors.
+        assert (i_cached is None) == (i_ref.numel() == 0)
+        assert (j_cached is None) == (i_ref.numel() == 0)
+        empty = torch.empty(0, dtype=torch.long)
+        assert torch.equal(empty if i_cached is None else i_cached, i_ref.to(torch.long))
+        assert torch.equal(empty if j_cached is None else j_cached, j_ref.to(torch.long))
+        informative += int(i_ref.numel() > 0)
+    assert informative > 0
 
 
 def test_ranknet_loss_large_n_ordinal_falls_back():

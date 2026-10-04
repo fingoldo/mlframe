@@ -10,6 +10,7 @@ ensembling pipeline needs to avoid.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mlframe.votenrank.hill_climb import hill_climb_ensemble
 
@@ -79,7 +80,11 @@ def test_hill_climb_ensemble_correct_shapes_do_not_raise():
     """Sanity: every candidate matching y_true's shape must not trigger the new validation."""
     y_true = np.array([1.0, 2.0, 3.0, 4.0])
     preds = [y_true + 0.1, y_true - 0.1]
-    hill_climb_ensemble(preds, y_true, _rmse, maximize=False, max_iterations=10)  # must not raise
+    result = hill_climb_ensemble(preds, y_true, _rmse, maximize=False, max_iterations=10)
+    assert result["ensemble_pred"].shape == y_true.shape
+    np.testing.assert_allclose(result["ensemble_pred"], y_true, atol=1e-12)
+    assert result["score"] == pytest.approx(0.0, abs=1e-12)
+    assert result["weights"].sum() == pytest.approx(1.0)
 
 
 def test_biz_val_hill_climb_beats_equal_weight_average_and_single_best_model():

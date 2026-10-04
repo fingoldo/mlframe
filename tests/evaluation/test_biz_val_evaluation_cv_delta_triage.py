@@ -30,6 +30,10 @@ def test_biz_val_triage_cv_delta_trusts_fe_but_flags_equal_size_hyperparameter_d
 
     assert fe_result["actionable"] is True, fe_result["reason"]
     assert hp_result["actionable"] is False, hp_result["reason"]
+    assert fe_result["delta"] == pytest.approx(float(np.mean(borderline_delta)))
+    assert hp_result["delta"] == pytest.approx(fe_result["delta"])
+    assert fe_result["delta"] > fe_result["band"]
+    assert hp_result["band"] > fe_result["band"]
 
 
 def test_triage_cv_delta_within_noise_flags_both_sources_non_actionable():

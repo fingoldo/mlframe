@@ -15,6 +15,7 @@ and including the scored row, degrades to a realistic, still genuinely useful, A
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from sklearn.metrics import roc_auc_score
 
 from mlframe.feature_engineering.grouped import per_group_rank
@@ -147,8 +148,5 @@ def test_biz_val_per_group_rank_causal_rejects_non_average_method():
     """Biz val per group rank causal rejects non average method."""
     groups, values, _label = _make_drifting_panel(n_groups=10, group_size=8, seed=5)
     for method in ("min", "max", "dense", "ordinal"):
-        try:
+        with pytest.raises(ValueError, match="causal is only supported with method='average'"):
             per_group_rank(values, groups, method=method, causal=True)
-        except ValueError:
-            continue
-        raise AssertionError(f"expected ValueError for method={method!r} with causal=True")

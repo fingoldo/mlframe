@@ -15,7 +15,6 @@ prod fix." The rule is deleted here alongside the fix.
 from __future__ import annotations
 
 import logging
-import pathlib
 
 import numpy as np
 import pandas as pd
@@ -76,10 +75,27 @@ class TestItRunsWhereItUsedToRefuse:
         assert _fit(X, y).cv == 5
 
 
-def test_the_fuzz_canon_rule_is_gone():
-    """The rule hid the defect; leaving it would keep RFECV untested against every imbalanced target."""
-    src = (pathlib.Path(__file__).resolve().parents[2] / "training" / "_fuzz_combo" / "combo.py").read_text(encoding="utf-8")
-    assert 'self.imbalance_ratio != "balanced"' not in src, "the RFECV imbalance canon rule is back"
+@pytest.mark.parametrize("imbalance_ratio", ["balanced", "rare_5pct", "rare_1pct"])
+def test_the_fuzz_canon_rule_is_gone(imbalance_ratio):
+    """The fuzz canonicalisation keeps the RFECV estimator on a binary target at every imbalance level, so RFECV is exercised on rare positives."""
+    from tests.training._fuzz_combo import FuzzCombo
+
+    combo = FuzzCombo(
+        models=("cb",),
+        input_type="pandas",
+        n_rows=1000,
+        cat_feature_count=0,
+        null_fraction_cats=0.0,
+        use_mrmr_fs=False,
+        weight_schemas=("uniform",),
+        target_type="binary_classification",
+        auto_detect_cats=False,
+        align_polars_categorical_dicts=False,
+        seed=0,
+        imbalance_ratio=imbalance_ratio,
+        rfecv_estimator_cfg="cb_rfecv",
+    )
+    assert combo._canonical_rfecv_estimator() == "cb_rfecv"
 
 
 class _capture:

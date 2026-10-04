@@ -360,24 +360,10 @@ class TestUnseenCategoricalLevel:
                 "noise_b": rng.standard_normal(N_TEST),
             }
         )
-        # Acceptable outcomes: (a) transform succeeds and returns a frame
-        # whose columns match the fit-time selection, OR (b) raises a
-        # clean ValueError / RuntimeError naming the offending level.
-        # Anything else (numba/numpy traceback, silent shape mutation)
-        # is a contract violation.
-        try:
-            out = _transform_quiet(sel, X_test)
-        except (ValueError, RuntimeError):
-            return  # acceptable actionable error
-        except Exception as e:
-            pytest.fail(
-                f"unseen-level transform raised non-actionable "
-                f"{type(e).__name__}: {e!r}. seed={seed}. "
-                f"Expected either success (selector passes column "
-                f"through) or ValueError / RuntimeError naming the "
-                f"unseen level."
-            )
+        # The transform succeeds and returns a frame whose columns match the fit-time selection; any exception propagates and fails the test.
+        out = _transform_quiet(sel, X_test)
         assert list(out.columns) == selected, f"unseen-level transform changed column set; seed={seed}. got={list(out.columns)}, expected={selected}"
+        assert len(out) == N_TEST, f"unseen-level transform changed the row count; seed={seed}. got={len(out)}, expected={N_TEST}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_unseen_level_passes_through_when_cat_selected(self, seed):

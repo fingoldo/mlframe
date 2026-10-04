@@ -83,8 +83,7 @@ def test_a_real_chart_keeps_the_value_on_the_value_axis(builder):
         spec = compose_category_discriminability_figure(X, y, list(X.columns))
 
     bars = [pnl for row in spec.panels for pnl in row if isinstance(pnl, BarPanelSpec) and pnl.orientation == "horizontal"]
-    if not bars:
-        pytest.skip(f"{builder} produced no horizontal bar panel on this fixture")
+    assert bars, f"{builder} produced no horizontal bar panel"
 
     fig = PlotlyRenderer().render(spec)
     x_titles = [fig.layout[a].title.text for a in fig.layout if a.startswith("xaxis")]

@@ -124,8 +124,14 @@ def test_validate_inputs_clean_object_column_no_false_positive():
     """Validate inputs clean object column no false positive."""
     m = MRMR()
     y = np.array([0, 1, 0, 1, 0, 1])
-    df = pd.DataFrame({"a": pd.Series(["x", "y", "z", "w", "u", "v"], dtype="object"), "b": [1, 2, 3, 4, 5, 6]})
-    m._validate_inputs(df, y)  # no raise
+    df = pd.DataFrame(
+        {
+            "a": pd.Series(["x", "y", "z", "w", "u", "v"], dtype="object"),
+            "c": pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype="object"),
+            "b": [1, 2, 3, 4, 5, 6],
+        }
+    )
+    assert m._validate_inputs(df, y) is df
 
 
 @pytest.mark.fast

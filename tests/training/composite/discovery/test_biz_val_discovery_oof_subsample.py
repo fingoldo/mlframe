@@ -102,3 +102,13 @@ def test_biz_val_oof_subsample_disabled_returns_none():
     _X, _y, groups = _grouped(n=5_000)
     assert _oof_subsample_positions(groups.size, groups, cap=0, seed=42) is None  # disabled
     assert _oof_subsample_positions(groups.size, groups, cap=10_000, seed=42) is None  # n <= cap
+    assert _oof_subsample_positions(groups.size, groups, cap=groups.size, seed=42) is None  # n == cap
+    # The same inputs with the cap active do subsample: whole groups until at least ``cap`` rows are held, overshooting by less than one group.
+    cap = 1_500
+    pos = _oof_subsample_positions(groups.size, groups, cap=cap, seed=42)
+    assert pos is not None
+    largest_group = int(np.bincount(groups).max())
+    assert cap <= pos.size < cap + largest_group
+    # Without groups the subsample is a plain seeded draw of exactly ``cap`` distinct rows.
+    plain = _oof_subsample_positions(groups.size, None, cap=cap, seed=42)
+    assert plain is not None and plain.size == cap and np.unique(plain).size == cap

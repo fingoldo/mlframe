@@ -18,13 +18,24 @@ from mlframe.feature_selection.filters._mi_greedy_cmi_fe import (
 )
 
 
-def _check(joint, c, mult):
-    """Assert the serial and parallel-memset combine_factorize njit kernels agree on nc and the inverse-index array."""
+def _first_seen_reference(joint, c, mult):
+    """Dense first-seen ids of ``joint + c * mult`` from numpy alone: the ground truth both kernels must reproduce."""
+    key = joint + c * mult
+    uniq, first_idx, inv = np.unique(key, return_index=True, return_inverse=True)
+    rank = np.empty(uniq.size, dtype=np.int64)
+    rank[np.argsort(first_idx, kind="stable")] = np.arange(uniq.size)
+    return rank[inv.reshape(-1)], int(uniq.size)
+
+
+def _assert_matches_reference(joint, c, mult):
+    """Both combine_factorize njit kernels equal the numpy first-seen reference on nc and the inverse-index array."""
+    ref_inv, ref_nc = _first_seen_reference(joint, c, mult)
     a_inv, a_nc = _combine_factorize_serial_njit(joint, c, mult)
     b_inv, b_nc = _combine_factorize_njit(joint, c, mult)
-    assert a_nc == b_nc
-    assert np.array_equal(a_inv, b_inv)
-    return a_nc
+    assert a_nc == b_nc == ref_nc
+    assert np.array_equal(a_inv, ref_inv)
+    assert np.array_equal(b_inv, ref_inv)
+    return ref_nc
 
 
 @pytest.mark.parametrize(
@@ -43,7 +54,8 @@ def test_parmemset_matches_serial(n, jcard, ccard):
     rng = np.random.default_rng(n + jcard + ccard)
     joint = rng.integers(0, jcard, n).astype(np.int64)
     c = rng.integers(0, ccard, n).astype(np.int64)
-    _check(joint, c, jcard)
+    nc = _assert_matches_reference(joint, c, jcard)
+    assert 1 < nc <= jcard * ccard
 
 
 def test_heavy_ties_low_cardinality():
@@ -53,13 +65,16 @@ def test_heavy_ties_low_cardinality():
     n = 300_000
     joint = rng.integers(0, 5, n).astype(np.int64)
     c = rng.integers(0, 3, n).astype(np.int64)
-    _check(joint, c, 5)
+    assert _assert_matches_reference(joint, c, 5) == 15
 
 
 def test_empty_input():
     """Empty input."""
     e = np.zeros(0, dtype=np.int64)
-    _check(e, e, 1)
+    assert _assert_matches_reference(e, e, 1) == 0
+    inv, nc = _combine_factorize_njit(e, e, 1)
+    assert nc == 0
+    assert inv.size == 0
 
 
 def test_hash_fallback_over_cap():
@@ -70,7 +85,9 @@ def test_hash_fallback_over_cap():
     mult = _FAC_ARRAY_CAP  # joint + c*mult immediately exceeds the cap for c>=1
     joint = rng.integers(0, 1000, n).astype(np.int64)
     c = rng.integers(1, 50, n).astype(np.int64)
-    _check(joint, c, mult)
+    assert int((joint + c * mult).max()) >= _FAC_ARRAY_CAP
+    nc = _assert_matches_reference(joint, c, mult)
+    assert nc > 1000
 
 
 def test_gate_constant_sane():

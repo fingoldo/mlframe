@@ -147,11 +147,10 @@ def _build_offending_set() -> set[str]:
 
 def test_no_new_fe_family_enabled_under_a_zero_budget():
     """No construction switches an FE family on while pinning ``fe_max_steps=0``, beyond the baseline."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"fe-budget-conflict baseline written with {len(current)} entry/entries")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip("fe-budget-conflict baseline written")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     added = sorted(current - baseline)

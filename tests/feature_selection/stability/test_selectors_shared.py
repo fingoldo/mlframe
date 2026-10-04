@@ -117,15 +117,12 @@ class TestSharedAPIContract:
         """Get feature names out matches transform cols."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
-        try:
-            names = selector.get_feature_names_out()
-        except (AttributeError, NotImplementedError):
-            pytest.skip("selector lacks get_feature_names_out()")
+        names = selector.get_feature_names_out()
         out = selector.transform(X)
+        assert len(names) >= 1
+        assert out.shape[1] == len(names)
         if hasattr(out, "columns"):
             assert list(out.columns) == list(names)
-        else:
-            assert out.shape[1] == len(names)
 
     def test_n_features_in_set_after_fit(self, selector_factory, small_clf_problem):
         """N features in set after fit."""
@@ -166,13 +163,13 @@ class TestSharedAPIContract:
         # MRMR and RFECV use different support_ representations:
         # - RFECV: bool mask aligned with feature_names_in_
         # - MRMR: integer indices into feature_names_in_
-        if len(support) > 0:
-            if isinstance(support[0], (bool, np.bool_)):
-                count = int(np.sum(support))
-            else:
-                count = len(support)
-            n_engineered = len(getattr(selector, "_engineered_recipes_", []))
-            assert count + n_engineered == selector.n_features_
+        assert len(support) > 0
+        if isinstance(support[0], (bool, np.bool_)):
+            count = int(np.sum(support))
+        else:
+            count = len(support)
+        n_engineered = len(getattr(selector, "_engineered_recipes_", []))
+        assert count + n_engineered == selector.n_features_
 
     def test_transform_output_column_count_matches_n_features(self, selector_factory, small_clf_problem):
         """Transform output column count matches n features."""
@@ -291,11 +288,8 @@ class TestSharedPersistence:
         # First transform with original
         out_original = selector.transform(X)
         # Pickle round-trip
-        try:
-            blob = pickle.dumps(selector)
-            restored = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
-        except Exception as exc:
-            pytest.skip(f"selector not pickle-safe: {exc}")
+        blob = pickle.dumps(selector)
+        restored = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
         out_restored = restored.transform(X)
         assert out_restored.shape == out_original.shape
         # Compare values element-wise (to tolerance for floating)
@@ -341,12 +335,8 @@ class TestSharedColumnDrift:
         selector must raise (not silently return a partial selection)."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
-        try:
-            names = list(selector.get_feature_names_out())
-        except (AttributeError, NotImplementedError):
-            pytest.skip("get_feature_names_out unavailable")
-        if not names:
-            pytest.skip("selector picked 0 features; nothing to drop")
+        names = list(selector.get_feature_names_out())
+        assert names, "selector picked 0 features on a fixture with 8 informative columns"
         # Drop the first selected column from X.
         X_drift = X.drop(columns=[names[0]])
         with pytest.raises((RuntimeError, KeyError, ValueError)):
@@ -485,28 +475,30 @@ class TestSharedRefit:
         # (RFECV PR-1 F35 fix added column-key to signature; MRMR has not
         # yet been patched - tracked in TODO.md as P1 audit symmetry.)
         s1 = selector_factory().fit(X, y)
-        names_first = sorted(s1.get_feature_names_out()) if hasattr(s1, "get_feature_names_out") else None
+        names_first = sorted(s1.get_feature_names_out())
         X_renamed = X.rename(columns={c: f"renamed_{c}" for c in X.columns})
         s2 = selector_factory().fit(X_renamed, y)
-        names_second = sorted(s2.get_feature_names_out()) if hasattr(s2, "get_feature_names_out") else None
-        if names_first and names_second:
-            # On a fresh instance, the second selection must include only
-            # renamed_* columns - no possible cache contamination.
-            # Engineered recipes (MRMR cluster-aggregate / unary-binary) carry a
-            # composite name like ``clusteragg_mean_z(renamed_f4+...)`` whose source
-            # columns are renamed_*; treat such names as renamed-aware iff every
-            # renamed-prefixed token they reference is renamed_*.
-            def _is_renamed_aware(name: str) -> bool:
-                """Is renamed aware."""
-                if name.startswith("renamed_"):
-                    return True
-                # No bare raw column survived (e.g. "f4" with no "renamed_" prefix).
-                import re
+        names_second = sorted(s2.get_feature_names_out())
+        assert names_first and names_second
+        assert not any(n.startswith("renamed_") for n in names_first)
 
-                bare = re.findall(r"\bf\d+\b", name)
-                return not bare
+        # On a fresh instance, the second selection must include only
+        # renamed_* columns - no possible cache contamination.
+        # Engineered recipes (MRMR cluster-aggregate / unary-binary) carry a
+        # composite name like ``clusteragg_mean_z(renamed_f4+...)`` whose source
+        # columns are renamed_*; treat such names as renamed-aware iff every
+        # renamed-prefixed token they reference is renamed_*.
+        def _is_renamed_aware(name: str) -> bool:
+            """Is renamed aware."""
+            if name.startswith("renamed_"):
+                return True
+            # No bare raw column survived (e.g. "f4" with no "renamed_" prefix).
+            import re
 
-            assert all(_is_renamed_aware(n) for n in names_second), f"Fresh-instance refit on renamed X produced stale-looking names: {names_second}"
+            bare = re.findall(r"\bf\d+\b", name)
+            return not bare
+
+        assert all(_is_renamed_aware(n) for n in names_second), f"Fresh-instance refit on renamed X produced stale-looking names: {names_second}"
 
 
 # ----------------------------------------------------------------------------
@@ -607,12 +599,8 @@ class TestSharedFeatureNamesOut:
     def test_unfitted_raises(self, selector_factory):
         """Unfitted raises."""
         selector = selector_factory()
-        try:
-            with pytest.raises((NotFittedError, ValueError, AttributeError)):
-                selector.get_feature_names_out()
-        except AssertionError:
-            # Some selectors may legitimately return [] on unfitted; skip
-            pytest.skip("selector returns [] on unfitted (non-strict)")
+        with pytest.raises((NotFittedError, ValueError, AttributeError)):
+            selector.get_feature_names_out()
 
 
 # ----------------------------------------------------------------------------

@@ -82,15 +82,21 @@ def _build_offending_set() -> set[str]:
     return out
 
 
+def test_with_recipes_detector_catches_a_recipe_constructor_and_ignores_other_modules():
+    """A top-level ``*_with_recipes`` function is detected; a module without one, or with it nested in a class, is not."""
+    assert _defines_with_recipes_function(ast.parse("def build_with_recipes(x):\n    return x\n"))
+    assert not _defines_with_recipes_function(ast.parse("def build(x):\n    return x\n"))
+    assert not _defines_with_recipes_function(ast.parse("class C:\n    def build_with_recipes(self):\n        return 1\n"))
+
+
 def test_no_new_orth_fe_recipe_module_missing_preprocess_params():
     """No new orthogonal/Hermite-family ``*_with_recipes`` module omits ``preprocess_params`` entirely,
     beyond the frozen baseline (each baseline entry is a module confirmed to legitimately delegate its
     recipe-emission to a sibling module rather than build recipes with a local preprocess step itself)."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"orth-fe-recipes-no-freeze baseline refreshed at {_BASELINE_PATH.name} ({len(current)} module(s))")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"orth-fe-recipes-no-freeze baseline refreshed at {_BASELINE_PATH.name}")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

@@ -111,11 +111,10 @@ def _build_offending_set() -> set[str]:
 
 def test_no_new_module_level_logging_disable():
     """No test module gains a new unrestored import-time ``logging.disable(...)`` call."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"module-level-logging-disable baseline written with {len(current)} entry/entries")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip("module-level-logging-disable baseline written")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     added = sorted(current - baseline)

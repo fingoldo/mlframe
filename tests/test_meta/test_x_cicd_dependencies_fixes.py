@@ -7,7 +7,10 @@ bug -- assessed, no fix required beyond what F1-F7 already cover.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,24 +25,33 @@ def _read(rel_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _precommit_repos() -> list[dict]:
+    """The ``repos`` list of the parsed ``.pre-commit-config.yaml``."""
+    return yaml.safe_load(_read(".pre-commit-config.yaml"))["repos"]
+
+
 def test_f1_no_duplicate_tests_lint_bundle():
-    """F1 no duplicate tests lint bundle."""
-    text = _read(".pre-commit-config.yaml")
-    assert text.count("id: interrogate-tests-blocking") == 1, "F1 REGRESSION: the tests/ blocking lint bundle must not be duplicated"
-    assert text.count("id: codespell-tests-blocking") == 1
+    """Each tests/ blocking lint hook id is declared exactly once across the pre-commit config."""
+    ids = [hook["id"] for repo in _precommit_repos() for hook in repo["hooks"]]
+    assert ids, "no hooks parsed from .pre-commit-config.yaml"
+    assert ids.count("interrogate-tests-blocking") == 1, "F1 REGRESSION: the tests/ blocking lint bundle must not be duplicated"
+    assert ids.count("codespell-tests-blocking") == 1
 
 
 def test_f1_no_stale_ruff_pin_remains():
-    """F1 no stale ruff pin remains."""
-    text = _read(".pre-commit-config.yaml")
-    assert "v0.8.6" not in text, "F1 REGRESSION: the stale ruff-pre-commit rev must not remain anywhere in the file"
+    """No ruff-pre-commit repo is pinned to the stale v0.8.6 rev, and every one of them carries the same rev."""
+    ruff_revs = [repo["rev"] for repo in _precommit_repos() if repo["repo"].endswith("astral-sh/ruff-pre-commit")]
+    assert ruff_revs, "expected at least one ruff-pre-commit repo"
+    assert "v0.8.6" not in ruff_revs, "F1 REGRESSION: the stale ruff-pre-commit rev must not remain anywhere in the file"
+    assert len(set(ruff_revs)) == 1, f"ruff-pre-commit revs disagree: {ruff_revs}"
 
 
 def test_f1_precommit_config_is_valid_yaml():
-    """F1 precommit config is valid yaml."""
-    import yaml
-
-    yaml.safe_load(_read(".pre-commit-config.yaml"))
+    """The pre-commit config parses to a mapping with a non-empty ``repos`` list whose entries each declare hooks."""
+    doc = yaml.safe_load(_read(".pre-commit-config.yaml"))
+    assert isinstance(doc, dict)
+    assert doc["repos"], "the config declares no repos"
+    assert all(repo["hooks"] for repo in doc["repos"])
 
 
 # ---------------------------------------------------------------------------
@@ -127,19 +139,61 @@ def test_f4_dependabot_python_ecosystem_reenabled():
 # ---------------------------------------------------------------------------
 
 
+def _has_key(node: object, key: str) -> bool:
+    """True when ``key`` is a mapping key anywhere inside the parsed YAML value ``node``."""
+    if isinstance(node, dict):
+        return key in node or any(_has_key(v, key) for v in node.values())
+    if isinstance(node, list):
+        return any(_has_key(v, key) for v in node)
+    return False
+
+
+def _commented_out_job_lines(text: str) -> list[int]:
+    """First line of every contiguous comment block that, once uncommented, parses as YAML containing a ``runs-on`` key: an inert job."""
+    blocks: list[tuple[int, list[str]]] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            if blocks and blocks[-1][0] + len(blocks[-1][1]) == number:
+                blocks[-1][1].append(stripped[1:])
+            else:
+                blocks.append((number, [stripped[1:]]))
+    out = []
+    for first, body in blocks:
+        if any(_parses_to_a_job("\n".join(body[i:j])) for i in range(len(body)) for j in range(i + 1, len(body) + 1)):
+            out.append(first)
+    return out
+
+
+def _parses_to_a_job(snippet: str) -> bool:
+    """True when ``snippet`` is YAML whose parsed value contains a ``runs-on`` key."""
+    try:
+        return _has_key(yaml.safe_load(snippet), "runs-on")
+    except yaml.YAMLError:
+        return False
+
+
+def test_commented_out_job_detector_finds_an_inert_job_and_ignores_prose():
+    """A commented-out job body is reported at its first line; prose comments and a live job are not."""
+    inert = "name: x\n# Why this is not built yet, in prose.\n# sketch:\n#   runs-on: ubuntu-latest\n#   steps: []\n# trailing prose\njobs: {}\n"
+    assert _commented_out_job_lines(inert) == [2]
+    assert _commented_out_job_lines("# a plain explanation: with a colon\n# and more prose\njobs:\n  a:\n    runs-on: x\n") == []
+
+
 def test_f5_no_inert_future_sketch_block():
-    """F5 no inert future sketch block."""
-    text = _read(".github/workflows/numba-coverage.yml")
-    assert "FUTURE SKETCH" not in text
-    # The rationale (why not implemented) must still be preserved, just compressed.
-    assert "codecov-numba" in text
+    """The workflow's jobs are all live (each has steps) and no comment block is a commented-out job."""
+    path = REPO_ROOT / ".github" / "workflows" / "numba-coverage.yml"
+    jobs = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]
+    assert set(jobs) == {"numba-disabled-coverage", "test-heavy-serial-numba-disabled", "merge-test-durations"}
+    assert all(job["steps"] for job in jobs.values())
+    assert _commented_out_job_lines(path.read_text(encoding="utf-8")) == []
 
 
 def test_f5_numba_coverage_workflow_is_valid_yaml():
-    """F5 numba coverage workflow is valid yaml."""
-    import yaml
-
-    yaml.safe_load(_read(".github/workflows/numba-coverage.yml"))
+    """The numba coverage workflow parses to a mapping that declares jobs."""
+    doc = yaml.safe_load(_read(".github/workflows/numba-coverage.yml"))
+    assert isinstance(doc, dict)
+    assert doc["jobs"]
 
 
 # ---------------------------------------------------------------------------
@@ -150,11 +204,13 @@ def test_f5_numba_coverage_workflow_is_valid_yaml():
 
 
 def test_f6_nightly_gate_meta_test_exists():
-    """F6 nightly gate meta test exists."""
+    """The referenced nightly-gate meta-test exists as a test function and passes when run."""
     from tests.test_meta.test_numba_coverage_workflow_exists import (
         test_numba_coverage_workflow_nightly_gate_is_intentionally_on,
     )
 
+    assert inspect.isfunction(test_numba_coverage_workflow_nightly_gate_is_intentionally_on)
+    assert test_numba_coverage_workflow_nightly_gate_is_intentionally_on.__name__.startswith("test_")
     test_numba_coverage_workflow_nightly_gate_is_intentionally_on()
 
 
@@ -176,7 +232,6 @@ def test_f7_gpu_cuda12x_row_marked_experimental_at_py314():
 
 
 def test_f7_gpu_extras_matrix_is_valid_yaml():
-    """F7 gpu extras matrix is valid yaml."""
-    import yaml
-
-    yaml.safe_load(_read(".github/workflows/gpu-extras-install-matrix.yml"))
+    """The GPU extras matrix workflow parses and its resolve job declares a non-empty include matrix."""
+    doc = yaml.safe_load(_read(".github/workflows/gpu-extras-install-matrix.yml"))
+    assert doc["jobs"]["resolve"]["strategy"]["matrix"]["include"]

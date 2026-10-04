@@ -233,9 +233,6 @@ class TestENS_P2_5_CachedPerBin:
             if sibling.name == "__init__.py":
                 continue
             _sources[sibling] = sibling.read_text(encoding="utf-8")
-        src = "\n".join(_sources.values())
-        assert "_per_bin_first_pass" in src, "ENS-P2-5: the per-bin caching dict was removed/renamed; second pass will re-run the K-fold LGBM fits."
-
         # The cache lookup must GUARD the recompute -- a relationship inside one function, checked on the AST.
         # The byte-order assertion this replaces (`src.index(reuse) < re.search(recompute).start()`) held for
         # any file where the two literals happened to appear in that order, including in two different
@@ -264,7 +261,7 @@ class TestENS_P2_5_CachedPerBin:
                         "second pass re-runs the K-fold LGBM fits"
                     )
                     _checked = True
-        assert _checked, "no function containing both the per-bin cache lookup and the recompute was found; this test needs updating"
+        assert _checked, "ENS-P2-5: the per-bin caching dict was removed/renamed; second pass will re-run the K-fold LGBM fits"
 
 
 # ---------------------------------------------------------------------------
@@ -451,24 +448,38 @@ class TestENS_Low_6_PoolArraysHoist:
     pool signature combination, not once per spec."""
 
     def test_pool_cache_keyed_correctly(self) -> None:
-        # 2026-05-21 split: composite_discovery body moved to siblings
-        # (_composite_discovery_fit.py etc.); read parent + every matching
-        # sibling so the source-pattern sensor still matches.
-        """Pool cache keyed correctly."""
+        # composite_discovery's body lives in the parent plus sibling modules; the cache is looked for in all of them.
+        """The pool-arrays cache is a dict keyed by (base column, pool signature) and the loop reads it before building."""
+        import ast
         import pathlib
         import mlframe.training.composite.discovery as cd
 
         _dir = pathlib.Path(cd.__file__).resolve().parent
-        src = open(cd.__file__, encoding="utf-8").read()
-        for sibling in _dir.glob("*.py"):
-            if sibling.name == "__init__.py":
-                continue
-            src += "\n" + sibling.read_text(encoding="utf-8")
-        # Verify the cache dict exists with the expected (base, pool_sig)
-        # tuple key.
-        assert "_pool_arrays_cache: dict[tuple[str, frozenset]" in src
+        declared = []
+        lookups = []
+        for path in _dir.glob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "_pool_arrays_cache":
+                    declared.append(node.annotation)
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "get"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "_pool_arrays_cache"
+                    and [a.id for a in node.args if isinstance(a, ast.Name)] == ["_cache_key"]
+                ):
+                    lookups.append(node)
+        # Verify the cache dict exists with the expected (base, pool_sig) tuple key.
+        assert len(declared) == 1
+        annotation = declared[0]
+        assert isinstance(annotation, ast.Subscript) and isinstance(annotation.value, ast.Name) and annotation.value.id == "dict"
+        key_type = annotation.slice.elts[0]
+        assert isinstance(key_type, ast.Subscript) and key_type.value.id == "tuple"
+        assert [e.id for e in key_type.slice.elts] == ["str", "frozenset"]
         # Verify the loop reads from the cache before building.
-        assert "_pool_arrays_cache.get(_cache_key)" in src
+        assert len(lookups) >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -570,20 +581,47 @@ class TestCACHE_P1_7_SizeSafetyFactor:
     post-conversion size is read from pandas.memory_usage."""
 
     def test_safety_factor_function_present(self) -> None:
-        """Safety factor function present."""
+        """A polars frame's cached size carries the 1.5x cat-heavy factor, scaled by categorical share; a pandas frame is sized by a shallow scan."""
+        import polars as pl
+
         import mlframe.training.core._phase_helpers as ph
 
-        src = open(ph.__file__, encoding="utf-8").read()
-        assert "_CAT_SIZE_SAFETY_FACTOR = 1.5" in src
-        assert "_cat_heavy_size" in src
-        # Post-conversion recompute branch must be present. 2026-05-25
-        # update: the recompute path was switched from
-        # memory_usage(deep=True) (~17.6s on a 4Mx25 object-heavy frame)
-        # to memory_usage(deep=False) (~1ms) when the polars-side
-        # estimated_size + 1.5x cat-heavy safety factor already gives an
-        # accurate-enough value upstream. The shallow recompute is the
-        # current fallback when train_df_size_bytes_cached is None.
-        assert "memory_usage(deep=False, index=False).sum()" in src
+        def _sizes(train_df, was_polars_input, cat_features):
+            """Run the conversion/cat-prep phase and return its cached train size (index 9 of the result)."""
+            out = ph._phase_pandas_conversion_and_cat_prep(
+                train_df=train_df,
+                val_df=None,
+                test_df=None,
+                train_df_polars_pre=train_df if was_polars_input else None,
+                val_df_polars_pre=None,
+                test_df_polars_pre=None,
+                cat_features=cat_features,
+                was_polars_input=was_polars_input,
+                all_models_polars_native=True,
+                needs_polars_pre_clone=False,
+                mlframe_models=["cb"],
+                recurrent_models=[],
+                rfecv_models=[],
+                baseline_rss_mb=0.0,
+                df_size_mb=0.0,
+                verbose=False,
+                polars_pipeline_applied=True,
+                pipeline_stages_requested=False,
+            )
+            return out[9]
+
+        rng = np.random.default_rng(0)
+        n = 400
+        frame = pl.DataFrame(
+            {"c1": rng.integers(0, 3, n).astype(str), "c2": rng.integers(0, 3, n).astype(str), "n1": rng.normal(size=n), "n2": rng.normal(size=n)}
+        )
+        raw = float(frame.estimated_size())
+        assert _sizes(frame, True, []) == pytest.approx(raw)
+        assert _sizes(frame, True, ["c1", "c2"]) == pytest.approx(raw * 1.5)
+        assert _sizes(frame, True, ["c1"]) == pytest.approx(raw * 1.25)
+
+        pdf = pd.DataFrame({"a": rng.normal(size=n), "b": rng.normal(size=n)})
+        assert _sizes(pdf, False, []) == float(pdf.memory_usage(deep=False, index=False).sum())
 
 
 # ---------------------------------------------------------------------------

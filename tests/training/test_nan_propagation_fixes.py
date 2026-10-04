@@ -48,23 +48,32 @@ import pytest
 # ---- Site 1: boruta_shap shadow threshold -------------------------------
 
 
-def test_boruta_shadow_threshold_uses_nanpercentile(caplog):
-    """Source-level guard: the post-fix line MUST use np.nanpercentile,
-    NOT np.percentile, for the shadow threshold. Scans the whole
-    feature_selection package (the shadow/stats helpers may live in a
-    sibling module after a monolith split), so the guard survives file
-    relocation while still catching a percentile->nanpercentile regression."""
-    import pathlib
-    import mlframe as _mlframe
+def _shadow_state(shadows, real):
+    """Minimal BorutaShap-like state for ``calculate_hits``: one real column per entry of ``real``."""
+    from types import SimpleNamespace
 
-    fs_dir = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection"
-    src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(fs_dir.rglob("*.py")))
-    assert "shadow_threshold = np.nanpercentile(self.Shadow_feature_import" in src, (
-        "Wave 21 P0 regression: boruta_shap reverted to np.percentile; "
-        "any NaN in shadow importances will collapse threshold to NaN "
-        "and the gate will silently reject every feature."
+    cols = [f"c{i}" for i in range(len(real))]
+    return SimpleNamespace(
+        Shadow_feature_import_=np.asarray(shadows, dtype=float),
+        X_feature_import_=np.asarray(real, dtype=float),
+        percentile=100,
+        ncols_=len(cols),
+        columns_=cols,
+        order_={c: i for i, c in enumerate(cols)},
     )
-    assert "BorutaShap: shadow_threshold is non-finite" in src, "All-NaN guard message must be present so operators see the degenerate case explicitly."
+
+
+def test_boruta_shadow_threshold_uses_nanpercentile(caplog):
+    """A NaN among the shadow importances must not poison the threshold: real columns above the finite shadow maximum still score a hit."""
+    from mlframe.feature_selection.boruta_shap._shadow_stats import calculate_hits
+
+    hits = calculate_hits(_shadow_state([0.1, 0.2, np.nan, 0.3], [0.5, 0.25, 0.9]))
+    assert hits.tolist() == [1.0, 0.0, 1.0]
+
+    with caplog.at_level("WARNING"):
+        degenerate = calculate_hits(_shadow_state([np.nan, np.nan], [0.5, 0.9]))
+    assert degenerate.tolist() == [0.0, 0.0]
+    assert [r for r in caplog.records if "shadow_threshold is non-finite" in r.getMessage()], "the all-NaN case must be reported, not silent"
 
 
 # ---- Site 2 + 3: discretization edges + njit twin -----------------------
@@ -171,48 +180,55 @@ def test_rfecv_winner_picker_skips_nan_candidates(rule):
 # ---- Site 5: fe_baselines best-baseline picker --------------------------
 
 
-def test_fe_baselines_handles_all_nan_mi_arr():
-    """When the MI batch kernel emits NaN for every feature, the best-
-    baseline picker must return None/NaN, NOT pick the first NaN slot."""
-    import pathlib
-    import mlframe as _mlframe
+def test_fe_baselines_handles_all_nan_mi_arr(monkeypatch):
+    """A NaN MI for some trivial features never wins the best-baseline pick; when every MI is NaN no baseline is returned."""
+    from mlframe.feature_selection.filters.fe_baselines import best_trivial_pair, trivial_pair_features
+    from mlframe.feature_selection.filters.hermite_fe import shared
 
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters" / "fe_baselines.py").read_text(encoding="utf-8")
-    assert "_finite_mask = np.isfinite(mi_arr)" in src, "Wave 21 P0 regression: fe_baselines best-baseline picker no longer masks NaN candidates."
+    rng = np.random.default_rng(0)
+    x_a, x_b = rng.uniform(1.0, 2.0, 100), rng.uniform(1.0, 2.0, 100)
+    y = rng.integers(0, 2, 100)
+    n_feats = len(trivial_pair_features(x_a, x_b))
+    assert n_feats > 3
+
+    def _mi_with_one_finite(X, *_a, **_kw):
+        """NaN everywhere except the last column."""
+        out = np.full(X.shape[1], np.nan)
+        out[-1] = 0.4
+        return out
+
+    monkeypatch.setattr(shared, "plugin_mi_classif_batch_njit", _mi_with_one_finite)
+    name, arr, mi = best_trivial_pair(x_a, x_b, y)
+    assert name is not None and arr is not None
+    assert mi == 0.4
+
+    monkeypatch.setattr(shared, "plugin_mi_classif_batch_njit", lambda X, *_a, **_kw: np.full(X.shape[1], np.nan))
+    name, arr, mi = best_trivial_pair(x_a, x_b, y)
+    assert name is None and arr is None
+    assert np.isnan(mi)
 
 
 # ---- Site 6: apriori_itemsets discretiser -------------------------------
 
 
 def test_apriori_itemsets_handles_nan_column():
-    """The Apriori-itemsets discretiser must not silently collapse a
-    NaN-bearing column to all-zero bin columns AND must not emit NaN
-    downstream."""
-    import pathlib
-    import mlframe as _mlframe
+    """NaN in either the train or the query matrix is rejected loudly (never silently binned), and a clean run yields finite top_k + 2 features."""
+    pytest.importorskip("mlxtend")
+    from mlframe.feature_engineering.transformer.apriori_itemsets import compute_apriori_itemsets_features
 
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "feature_engineering" / "transformer" / "apriori_itemsets.py").read_text(encoding="utf-8")
-    assert (
-        "np.nanquantile(X_ref[:, j]" in src
-    ), "Wave 21 P0 regression: apriori_itemsets._discretize reverted to np.quantile; any NaN poisons every edge and collapses the entire discretised feature."
+    rng = np.random.default_rng(0)
+    n = 300
+    X = rng.uniform(size=(n, 3)).astype(np.float32)
+    y = (X[:, 0] > 0.5).astype(np.float32)
+    kwargs = dict(seed=1, task="binary", top_k=4, min_support=0.1, max_len=2)
 
+    out = compute_apriori_itemsets_features(X, y, X[:50], **kwargs)
+    assert out.shape == (50, 6)
+    assert np.isfinite(out.to_numpy()).all()
 
-# ---- Cross-site invariant -----------------------------------------------
-
-
-def test_no_silent_argmax_on_potentially_nan_in_wave21_sites():
-    """Cross-cutting source-level guard: each of the 5 wave-21 sites no
-    longer has the pre-fix raw ``np.argmax(...)`` shape on a sequence that
-    could contain NaN."""
-    import pathlib
-    import mlframe as _mlframe
-
-    root = pathlib.Path(_mlframe.__file__).resolve().parent
-    # Each (file, pre_fix_substring) pair:
-    pre_fix_shapes = [
-        ("feature_selection/wrappers/rfecv/__init__.py", "best_mean_idx = nz_idx[np.argmax(mean_arr[nz_idx])]"),
-        ("feature_engineering/transformer/apriori_itemsets.py", "edges = np.quantile(X_ref[:, j]"),
-    ]
-    for rel, banned in pre_fix_shapes:
-        text = (root / rel).read_text(encoding="utf-8")
-        assert banned not in text, f"Wave 21 P0 regression: pre-fix shape `{banned}` reappeared in {rel}"
+    X_nan = X.copy()
+    X_nan[::7, 0] = np.nan
+    with pytest.raises(ValueError, match="non-finite"):
+        compute_apriori_itemsets_features(X_nan, y, X[:50], **kwargs)
+    with pytest.raises(ValueError, match="non-finite"):
+        compute_apriori_itemsets_features(X, y, X_nan[:50], **kwargs)

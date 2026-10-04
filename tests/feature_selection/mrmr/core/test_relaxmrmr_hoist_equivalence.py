@@ -45,7 +45,8 @@ def test_biz_val_relaxmrmr_fit_still_completes_and_selects():
             relaxmrmr_alpha=1.0,
         )
         sel.fit(df, ys)
-    assert len(sel.get_feature_names_out()) >= 1
+    names = [str(n) for n in sel.get_feature_names_out()]
+    assert names == ["x0", "x0*x1*x2__T1_T1_T1"], names
 
 
 def test_relaxmrmr_fit_deterministic_same_seed():

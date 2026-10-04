@@ -75,6 +75,7 @@ import pytest
 
 from sklearn.metrics import mutual_info_score
 
+from tests._known_gap import known_gap
 from tests.conftest import perf_time_budget, running_under_xdist
 
 warnings.filterwarnings("ignore")
@@ -281,12 +282,13 @@ class TestJmimPerfSpeedup:
         if speedup < 1.5:
             if running_under_xdist():
                 return
-            pytest.xfail(
+            known_gap(
                 f"JMIM L86 1.5x speedup not reached on this host: "
                 f"{elapsed_ms:.2f} ms vs {JMIM_PRE_OPT_REFERENCE_MS:.1f} ms = "
                 f"{speedup:.2f}x. Soft sensor: the dev-box 1.5x ratio "
                 f"doesn't generalise; investigate via profiler on the "
-                f"target host before promoting back to hard-fail."
+                f"target host before promoting back to hard-fail.",
+                gap_closed=speedup >= 1.5,
             )
 
 
@@ -343,11 +345,12 @@ class TestTcPerfSpeedup:
                 # Under the full ``-n`` run the steady-state ratio is contention-compressed and not meaningful; the
                 # >=0.7x hard-fail above stays the live gate. Standalone on a slow host this remains a soft xfail sensor.
                 return
-            pytest.xfail(
+            known_gap(
                 f"TC L86 1.5x speedup not reached on this host: "
                 f"{elapsed_ms:.2f} ms vs {TC_PRE_OPT_REFERENCE_MS:.1f} ms = "
                 f"{speedup:.2f}x. Soft sensor: re-run profiler on the "
-                f"target host before promoting back to hard-fail."
+                f"target host before promoting back to hard-fail.",
+                gap_closed=speedup >= 1.5,
             )
 
 

@@ -126,3 +126,5 @@ def test_biz_val_hybrid_tree_max_depth_recovers_interaction_products_fast():
     deep_pairs = getattr(deep, "_tree_prod_pairs_", []) or []
     assert len(stump_pairs) == 0, f"a depth-1 stump cannot co-occur two features -> 0 tree products; got {len(stump_pairs)}"
     assert len(deep_pairs) >= 1, f"depth=3 must propose >=1 tree co-occurrence interaction product; got {len(deep_pairs)}"
+    assert len(deep_pairs) > len(stump_pairs)
+    assert frozenset({"inf_a", "inf_b"}) in {frozenset(p) for p in deep_pairs}, f"depth=3 must co-occur the true operands (inf_a, inf_b); got {deep_pairs}"

@@ -60,23 +60,21 @@ class TestCacheKeyIncludesFeatureTier:
         assert cb_key != lgb_key
 
     def test_same_tier_same_cache_key(self):
-        """False-positive sensor: two strategies with the same tier
-        must share the cache key (that's the whole point of
-        cache_key='tree'). Confirm CB + any hypothetical
-        same-tier subclass still collide (intended collision =
-        cache reuse)."""
+        """Strategies with the same feature tier share the pipeline cache key (intended cache reuse) and strategies with
+        different tiers never do, whichever tier XGB currently has."""
+        from mlframe.training.core._phase_train_one_target import _compute_pipeline_cache_key
         from mlframe.training.strategies import CatBoostStrategy, XGBoostStrategy
 
-        cb = CatBoostStrategy()
-        xgb = XGBoostStrategy()
-        # XGB currently has supports_text=False, embedding=False -> different tier from CB.
-        # If that ever changes (XGB adds text), the keys should merge.
-        cb_tier = cb.feature_tier()
-        xgb_tier = xgb.feature_tier()
-        if cb_tier == xgb_tier:
-            cb_key = f"{cb.cache_key}_tier{cb_tier}"
-            xgb_key = f"{xgb.cache_key}_tier{xgb_tier}"
-            assert cb_key == xgb_key, "Same-tier strategies should share cache; regression of the 'partition by tier' fix has over-partitioned."
+        def _key(strategy):
+            """Cache key the suite composes for ``strategy`` over one fixed feature layout."""
+            return _compute_pipeline_cache_key(strategy.cache_key, None, strategy.feature_tier(), False, ["c"], ["t"], [])
+
+        cb, xgb = CatBoostStrategy(), XGBoostStrategy()
+        assert cb.cache_key == xgb.cache_key
+        assert (_key(cb) == _key(xgb)) == (cb.feature_tier() == xgb.feature_tier())
+        assert _key(cb) == _key(CatBoostStrategy())
+        assert _compute_pipeline_cache_key("tree", None, (True, True), False, ["c"], [], []) == _compute_pipeline_cache_key("tree", None, (True, True), False, ["c"], [], [])
+        assert _compute_pipeline_cache_key("tree", None, (True, True), False, ["c"], [], []) != _compute_pipeline_cache_key("tree", None, (False, False), False, ["c"], [], [])
 
 
 # =============================================================================
@@ -171,27 +169,51 @@ class TestBruteforceTargetEncoderWarnStaticCheck:
     Julia/PySR import chain.
     """
 
-    def test_warn_strings_present_in_source(self):
-        """The bruteforce encoder path MUST emit a target-encoding
-        leak WARN via both ``warnings.warn`` and ``logger.warning``.
-        This sensor reads the source to confirm both code paths are
-        still wired up."""
-        import pathlib
-        from mlframe.feature_engineering import bruteforce as _bruteforce
+    def test_warn_strings_present_in_source(self, monkeypatch, caplog):
+        """The legacy (non-OOF) bruteforce encoder path warns about the target-encoding leak through both ``warnings.warn`` and
+        the logger, hands PySR a numeric frame, and the leakage-free path stays silent."""
+        import sys
+        import types
+        import warnings
 
-        src_path = pathlib.Path(_bruteforce.__file__)
-        src = src_path.read_text(encoding="utf-8")
-        # Both emissions must be present.
-        assert "warnings.warn(" in src, "warnings.warn call missing from bruteforce.py"
-        assert "logger.warning(" in src, "logger.warning call missing from bruteforce.py"
-        # The specific leakage phrase must be present.
-        assert (
-            "TARGET-ENCODING LEAK" in src or "target-encoding leak" in src.lower()
-        ), "Target-encoding leak WARN text removed from bruteforce.py — the round-10 defensive observability fix regressed"
-        # And the CatBoostEncoder.fit_transform call (the leak itself)
-        # must still be there — if someone replaces it with OOF encoding,
-        # the WARN becomes redundant and this test should be updated.
-        assert "encoder.fit_transform(" in src
+        from mlframe.feature_engineering import bruteforce
+
+        seen: dict = {}
+
+        class _FakePySR:
+            """PySRRegressor stand-in recording the frame it is fitted on."""
+
+            def __init__(self, **params):
+                """Keep the parameters."""
+                self.params = params
+
+            def fit(self, X, y):
+                """Record the fit inputs."""
+                seen["X"] = X
+                seen["y"] = y
+                return self
+
+        monkeypatch.setitem(sys.modules, "pysr", types.SimpleNamespace(PySRRegressor=_FakePySR))
+        monkeypatch.setattr(bruteforce, "clean_ram", lambda *a, **k: None)
+        rng = np.random.default_rng(0)
+        n = 200
+        df = pd.DataFrame({"x": rng.normal(size=n), "c": rng.choice(list("abcde"), size=n), "y": rng.normal(size=n)})
+        df["y"] = df["y"] + df["c"].map({"a": 0.0, "b": 1.0, "c": 2.0, "d": 3.0, "e": 4.0})
+
+        with caplog.at_level("WARNING", logger=bruteforce.logger.name):
+            with pytest.warns(UserWarning, match="TARGET-ENCODING LEAK"):
+                bruteforce.run_pysr_feature_engineering(df, "y", leakage_free=False, random_state=0, verbose=0)
+        assert [r for r in caplog.records if "TARGET-ENCODING LEAK" in r.getMessage()]
+        assert list(seen["X"].columns) == ["x", "c"]
+        assert all(pd.api.types.is_numeric_dtype(t) for t in seen["X"].dtypes)
+
+        caplog.clear()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bruteforce.run_pysr_feature_engineering(df, "y", leakage_free=True, random_state=0, verbose=0)
+        assert not [w for w in caught if "TARGET-ENCODING LEAK" in str(w.message)]
+        assert not [r for r in caplog.records if "TARGET-ENCODING LEAK" in r.getMessage()]
+        assert all(pd.api.types.is_numeric_dtype(t) for t in seen["X"].dtypes)
 
 
 # =============================================================================

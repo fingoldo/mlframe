@@ -76,8 +76,10 @@ def test_resident_vram_gate_raises_when_matrix_exceeds_budget(monkeypatch):
 
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
-def test_resident_vram_gate_noop_on_query_failure(monkeypatch):
-    """A memGetInfo failure must NOT raise (the try/except OOM fallback is the backstop) -- assume OK."""
+def test_resident_vram_gate_noop_on_query_failure(monkeypatch, caplog):
+    """A memGetInfo failure must NOT raise (the try/except OOM fallback is the backstop) -- assume OK; a genuine shortfall still raises."""
+    import logging
+
     import mlframe.feature_selection.filters._orthogonal_univariate_fe as ofe
 
     cp = pytest.importorskip("cupy")
@@ -87,4 +89,10 @@ def test_resident_vram_gate_noop_on_query_failure(monkeypatch):
         raise RuntimeError("no device")
 
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _raise)
-    ofe._raise_if_vram_insufficient(5_000_000, 80)  # must not raise
+    with caplog.at_level(logging.DEBUG):
+        assert ofe._raise_if_vram_insufficient(5_000_000, 80) is None
+    assert any("VRAM query failed" in r.getMessage() for r in caplog.records)
+
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (1024 * 1024, 4 * 1024**3))
+    with pytest.raises(RuntimeError, match="resident univariate FE needs"):
+        ofe._raise_if_vram_insufficient(5_000_000, 80)

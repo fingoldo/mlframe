@@ -163,20 +163,20 @@ def test_f45_cudnn_autotune_skipped_for_transformer():
         torch.backends.cudnn.benchmark = prev
 
 
-def test_f45_cudnn_autotune_skipped_pre_ampere():
+def test_f45_cudnn_autotune_skipped_pre_ampere(monkeypatch):
     # On Pascal/Turing/Volta (cc < 8.0) the persistent-RNN kernel doesn't
     # exist and benchmark autotune costs more than it returns.
     """F45 cudnn autotune skipped pre ampere."""
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA required to read compute capability")
-    cc = torch.cuda.get_device_capability()
-    if cc >= (8, 0):
-        pytest.skip("test asserts pre-Ampere behaviour; this host is Ampere+")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *args, **kwargs: (6, 1))
     prev = torch.backends.cudnn.benchmark
     try:
         torch.backends.cudnn.benchmark = False
-        maybe_enable_cudnn_rnn_autotune(RNNType.LSTM)
-        assert torch.backends.cudnn.benchmark is False, f"F-45 should be a no-op on cc < 8.0 (got {cc})"
+        assert maybe_enable_cudnn_rnn_autotune(RNNType.LSTM) is None
+        assert torch.backends.cudnn.benchmark is False, "F-45 should be a no-op on cc < 8.0"
+        monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *args, **kwargs: (8, 0))
+        assert maybe_enable_cudnn_rnn_autotune(RNNType.LSTM) is False
+        assert torch.backends.cudnn.benchmark is True, "F-45 should enable autotune on cc >= 8.0"
     finally:
         torch.backends.cudnn.benchmark = prev
 

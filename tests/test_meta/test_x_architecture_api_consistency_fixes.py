@@ -53,11 +53,15 @@ def test_f1_calibration_post_still_importable_standalone():
     """F1 calibration post still importable standalone."""
     post = importlib.import_module("mlframe.calibration.post")
     snapshot = dict(post.__dict__)
+    public_before = {n for n in snapshot if not n.startswith("_")}
+    assert public_before, "mlframe.calibration.post exposes no public names"
     try:
         importlib.reload(post)
+        public_after = {n for n in post.__dict__ if not n.startswith("_")}
     finally:
         post.__dict__.clear()
         post.__dict__.update(snapshot)
+    assert public_before <= public_after, f"reloading dropped public names: {sorted(public_before - public_after)}"
 
 
 # ---------------------------------------------------------------------------

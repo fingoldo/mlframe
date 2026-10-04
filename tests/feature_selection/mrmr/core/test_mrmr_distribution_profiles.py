@@ -387,7 +387,7 @@ _PROFILES = list(sd.available_profiles())
 _BROAD_N = 20000
 
 
-def _gate(formula, profile, n, selected, keep_fail, drop_fail):
+def _assert_gate(formula, profile, n, selected, keep_fail, drop_fail):
     """The shared verdict gate.
 
     HARD gate (the robustness question): a missing keep == a GENUINE signal lost.
@@ -425,7 +425,7 @@ def test_create_keep_drop_under_profile(profile, formula):
     _checkpoint(f"PROFILE start {formula}/{profile} n={_BROAD_N}")
     selected, keep_fail, drop_fail = _fit_profile(formula, profile, _BROAD_N)
     _checkpoint(f"PROFILE done  {formula}/{profile} n={_BROAD_N} sel={selected} signal_lost={keep_fail} noise={drop_fail}")
-    _gate(formula, profile, _BROAD_N, selected, keep_fail, drop_fail)
+    _assert_gate(formula, profile, _BROAD_N, selected, keep_fail, drop_fail)
 
 
 # A small n-sweep for the divisor-ratio formula -- the one whose recoverability the
@@ -442,7 +442,7 @@ def test_ratio_sqr_nsweep_under_profile(profile, n):
     _checkpoint(f"NSWEEP start ratio_sqr/{profile} n={n}")
     selected, keep_fail, drop_fail = _fit_profile("ratio_sqr", profile, n)
     _checkpoint(f"NSWEEP done  ratio_sqr/{profile} n={n} sel={selected} signal_lost={keep_fail} noise={drop_fail}")
-    _gate("ratio_sqr", profile, n, selected, keep_fail, drop_fail)
+    _assert_gate("ratio_sqr", profile, n, selected, keep_fail, drop_fail)
 
 
 # ---------------------------------------------------------------------------

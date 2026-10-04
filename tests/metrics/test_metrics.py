@@ -1282,6 +1282,8 @@ class TestPerformance:
         print(f"\nCustom PR AUC time: {custom_time:.3f}s")
         print(f"Sklearn PR AUC time: {sklearn_time:.3f}s")
         print(f"Speedup: {sklearn_time / custom_time:.2f}x")
+        assert _custom_pr == pytest.approx(average_precision_score(y_true, y_score), abs=1e-9)
+        assert custom_time < sklearn_time * 2, f"Custom: {custom_time:.3f}s, sklearn: {sklearn_time:.3f}s"
 
 
 # =============================================================================

@@ -435,7 +435,9 @@ class TestPerformanceBenchmarks:
     def test_benchmark_simple_stats_numba(self, benchmark, random_array_1000):
         """Benchmark numba simple stats."""
         arr = random_array_1000
-        benchmark(compute_simple_stats_numba, arr)
+        result = benchmark(compute_simple_stats_numba, arr)
+        reference = (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr), np.mean(arr), np.std(arr))
+        np.testing.assert_allclose(result, reference, rtol=1e-9)
 
     @pytest.mark.benchmark(group="simple_stats")
     def test_benchmark_simple_stats_numpy(self, benchmark, random_array_1000):
@@ -446,14 +448,17 @@ class TestPerformanceBenchmarks:
             """Numpy simple stats."""
             return (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr), np.mean(arr), np.std(arr))
 
-        benchmark(numpy_simple_stats, arr)
+        result = benchmark(numpy_simple_stats, arr)
+        np.testing.assert_allclose(result, compute_simple_stats_numba(arr), rtol=1e-9)
 
     @pytest.mark.benchmark(group="moments")
     def test_benchmark_moments_numba(self, benchmark, random_array_1000):
         """Benchmark numba moments computation."""
         arr = random_array_1000
         mean_val = np.mean(arr)
-        benchmark(compute_moments_slope_mi, arr, mean_val)
+        result = benchmark(compute_moments_slope_mi, arr, mean_val)
+        reference = (np.mean(np.abs(arr - mean_val)), np.std(arr), stats.skew(arr), stats.kurtosis(arr))
+        np.testing.assert_allclose(result[0][:4], reference, rtol=1e-9)
 
     @pytest.mark.benchmark(group="moments")
     def test_benchmark_moments_scipy(self, benchmark, random_array_1000):
@@ -465,13 +470,16 @@ class TestPerformanceBenchmarks:
             mean_val = np.mean(arr)
             return (np.mean(np.abs(arr - mean_val)), np.std(arr), stats.skew(arr), stats.kurtosis(arr))
 
-        benchmark(scipy_moments, arr)
+        result = benchmark(scipy_moments, arr)
+        np.testing.assert_allclose(result, compute_moments_slope_mi(arr, np.mean(arr))[0][:4], rtol=1e-9)
 
     @pytest.mark.benchmark(group="rolling_ma")
     def test_benchmark_rolling_ma_numba(self, benchmark, random_array_1000):
         """Benchmark numba rolling moving average."""
         arr = random_array_1000
-        benchmark(rolling_moving_average, arr, 10)
+        result = benchmark(rolling_moving_average, arr, 10)
+        assert result.shape == (len(arr) - 9,)
+        np.testing.assert_allclose(result, np.convolve(arr, np.ones(10) / 10, mode="valid"), atol=1e-12)
 
     @pytest.mark.benchmark(group="rolling_ma")
     def test_benchmark_rolling_ma_numpy(self, benchmark, random_array_1000):
@@ -482,14 +490,18 @@ class TestPerformanceBenchmarks:
             """Numpy rolling ma."""
             return np.convolve(arr, np.ones(n) / n, mode="valid")
 
-        benchmark(numpy_rolling_ma, arr, 10)
+        result = benchmark(numpy_rolling_ma, arr, 10)
+        assert result.shape == (len(arr) - 9,)
+        np.testing.assert_allclose(result, rolling_moving_average(arr, 10), atol=1e-12)
 
     @pytest.mark.benchmark(group="crossings")
     def test_benchmark_crossings_numba(self, benchmark, random_array_1000):
         """Benchmark numba crossings computation."""
         arr = random_array_1000
         marks = np.array([0.0, 0.5, 1.0], dtype=np.float64)
-        benchmark(compute_ncrossings, arr, marks)
+        result = benchmark(compute_ncrossings, arr, marks)
+        expected = [int(np.sum(np.diff(np.sign(arr - m)) != 0)) for m in marks]
+        np.testing.assert_array_equal(result, expected)
 
     @pytest.mark.benchmark(group="crossings")
     def test_benchmark_crossings_numpy(self, benchmark, random_array_1000):
@@ -506,13 +518,18 @@ class TestPerformanceBenchmarks:
                 results.append(crossings)
             return results
 
-        benchmark(numpy_crossings, arr, marks)
+        result = benchmark(numpy_crossings, arr, marks)
+        np.testing.assert_array_equal(result, compute_ncrossings(arr, np.array(marks, dtype=np.float64)))
 
     @pytest.mark.benchmark(group="full_numaggs")
     def test_benchmark_full_numaggs(self, benchmark, random_array_1000):
         """Benchmark full compute_numaggs."""
         arr = random_array_1000.astype(np.float32)
-        benchmark(compute_numaggs, arr)
+        result = benchmark(compute_numaggs, arr)
+        named = dict(zip(get_numaggs_names(), result))
+        assert len(result) == len(get_numaggs_names())
+        assert named["min"] == pytest.approx(float(arr.min()), rel=1e-6)
+        assert named["std"] == pytest.approx(float(arr.std()), rel=1e-5)
 
 
 # =============================================================================

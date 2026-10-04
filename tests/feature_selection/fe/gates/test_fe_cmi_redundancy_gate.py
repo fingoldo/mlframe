@@ -774,11 +774,7 @@ def test_gpu_resident_perm_null_selection_equivalent_to_cpu():
     import numpy as np
     import pytest as _pt
 
-    cp = _pt.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        _pt.skip("no usable CUDA device")
+    _pt.importorskip("cupy")
 
     from mlframe.feature_selection.filters._fe_cmi_perm_null_gpu import conditional_perm_null_gpu
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned, precompute_cmi_yz_terms

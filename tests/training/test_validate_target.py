@@ -30,13 +30,29 @@ from mlframe.training._data_helpers import _validate_target_values
 def test_all_finite_passes() -> None:
     """All finite passes."""
     arr = np.arange(5000, dtype=np.float64)
-    _validate_target_values(arr, subset_name="train", is_classification=False)
+    before = arr.copy()
+
+    assert _validate_target_values(arr, subset_name="train", is_classification=False) is None
+
+    np.testing.assert_array_equal(arr, before)
+    corrupted = arr.copy()
+    corrupted[17] = np.nan
+    with pytest.raises(ValueError, match="1 NaN"):
+        _validate_target_values(corrupted, subset_name="train", is_classification=False)
 
 
 def test_all_finite_classification_passes() -> None:
     """All finite classification passes."""
     arr = np.random.default_rng(0).integers(0, 2, size=5000).astype(np.float64)
-    _validate_target_values(arr, subset_name="train", is_classification=True)
+    before = arr.copy()
+
+    assert _validate_target_values(arr, subset_name="train", is_classification=True) is None
+
+    np.testing.assert_array_equal(arr, before)
+    assert set(np.unique(arr)) == {0.0, 1.0}
+    collapsed = np.zeros_like(arr)
+    with pytest.raises(ValueError, match="only one unique value"):
+        _validate_target_values(collapsed, subset_name="train", is_classification=True)
 
 
 def test_nan_raises_with_count() -> None:
@@ -71,7 +87,12 @@ def test_object_dtype_falls_through_to_classification_branch() -> None:
     """Categorical / object targets cannot be isfinite'd; the TypeError
     fall-through must still let the single-class detector run."""
     arr = np.array(["a", "b", "a", "b"], dtype=object)
-    _validate_target_values(arr, subset_name="train", is_classification=True)
+
+    assert _validate_target_values(arr, subset_name="train", is_classification=True) is None
+
+    single = np.array(["a", "a", "a", "a"], dtype=object)
+    with pytest.raises(ValueError, match="only one unique value"):
+        _validate_target_values(single, subset_name="train", is_classification=True)
 
 
 def test_single_class_classification_raises() -> None:
@@ -84,7 +105,11 @@ def test_single_class_classification_raises() -> None:
 def test_empty_target_does_not_crash() -> None:
     """Empty target does not crash."""
     arr = np.array([], dtype=np.float64)
-    _validate_target_values(arr, subset_name="train", is_classification=False)
+
+    assert _validate_target_values(arr, subset_name="train", is_classification=False) is None
+    assert arr.shape == (0,)
+    with pytest.raises(ValueError, match="EMPTY"):
+        _validate_target_values(arr, subset_name="train", is_classification=True)
 
 
 def test_empty_classification_target_raises_clear_valueerror() -> None:

@@ -17,14 +17,15 @@ import pytest
 @pytest.mark.fast
 def test_cprofile_budget_smoke() -> None:
     """Cprofile budget smoke."""
+    import numpy as np
+
+    np.linalg.svd(np.ones((4, 2)), full_matrices=False)
     pr = cProfile.Profile()
     pr.enable()
     try:
         # Stand-in workload: cheap numpy ops that mirror the per-target setup
         # cost of a real train_one_target. The point is to exercise cProfile
         # and assert it produces a non-empty Stats object within budget.
-        import numpy as np
-
         rng = np.random.default_rng(0)
         x = rng.standard_normal((2000, 50))
         for _ in range(5):
@@ -40,7 +41,7 @@ def test_cprofile_budget_smoke() -> None:
     # loosened -- the inevitable response to the first CI flake -- the file would assert nothing. A call-count
     # bound is hardware-independent: it catches an algorithmic regression (an O(n) pass becoming O(n^2), a
     # kernel dispatched per row) without depending on how fast or how contended the runner is.
-    assert 0 < stats.total_calls < 200_000, f"profiled call count {stats.total_calls} outside the expected envelope"
+    assert 30 <= stats.total_calls <= 120, f"profiled call count {stats.total_calls} outside the expected envelope"
 
     # Best-of-N, not one shot. A single timing on a shared runner measures the machine as much as the code;
     # the minimum over repeats is the standard way to read a steady-state cost, and the ceiling stays generous

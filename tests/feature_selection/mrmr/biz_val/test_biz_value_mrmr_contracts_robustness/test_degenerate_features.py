@@ -477,25 +477,12 @@ class TestPureDegenerateFrameDegradesSafely:
         )
         y = pd.Series(y_arr, name="y_reg")
         sel = _make_mrmr(random_seed=seed)
-        # Either it completes (possibly with empty / fallback support)
-        # OR raises a ValueError. A cryptic non-ValueError exception
-        # is the failure mode -- it means the degeneracy wasn't
-        # detected before some downstream numpy/numba kernel.
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                sel.fit(X.copy(), y)
-        except ValueError:
-            pass  # acceptable: explicit user-facing error
-        except Exception as e:
-            pytest.fail(
-                f"pure-degenerate frame raised non-ValueError "
-                f"{type(e).__name__}: {e!r}. seed={seed}. "
-                f"The degeneracy check should fire as ValueError "
-                f"BEFORE a downstream kernel produces a cryptic crash."
-            )
-        else:
-            # Completed: support must be either empty or just contain
-            # what the fallback floor decided to keep -- never a
-            # claim of "useful information" attached to constants.
-            assert sel.support_ is not None
+        # The fit completes; any exception (a cryptic downstream numpy/numba crash included) propagates and fails the test.
+        # The support is just the single column the fallback floor keeps -- never a claim of "useful information" attached to constants.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sel.fit(X.copy(), y)
+        names = list(sel.get_feature_names_out())
+        assert len(names) == 1, f"seed={seed}: a frame of only degenerate columns must keep exactly the fallback column; got {names}"
+        assert names[0] in X.columns, f"seed={seed}: fallback column {names[0]!r} is not an input column"
+        assert np.asarray(sel.support_).size == 1

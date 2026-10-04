@@ -14,7 +14,6 @@ repo's own source-proxy meta-gates by one level of indirection, which is what le
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 class TestStabilitySelectionTopKIsOrderStable:
@@ -22,9 +21,9 @@ class TestStabilitySelectionTopKIsOrderStable:
 
     def _top_k(self, scores, k):
         """The shipped top-K selection over a per-feature score vector."""
-        arr = np.asarray(scores, dtype=np.float64)
-        order = np.lexsort((np.arange(len(arr)), -arr))
-        return list(order[:k])
+        from mlframe.feature_selection.wrappers.rfecv._stability_select import _top_k_by_score
+
+        return [int(i) for i in _top_k_by_score(scores, k)]
 
     def test_all_tied_scores_resolve_to_the_first_indices(self):
         """With every score equal there is no information but position, so the answer is forced."""
@@ -40,13 +39,11 @@ class TestStabilitySelectionTopKIsOrderStable:
         assert self._top_k([0.1, 0.9, 0.5], 2) == [1, 2]
 
     def test_the_shipped_selector_uses_a_stable_tiebreak(self):
-        """Run the real module rather than restating its formula, so a swap to `argsort` is caught."""
-        from mlframe.feature_selection.wrappers.rfecv import _stability_select
+        """Run the real selector on tied inputs, so a swap to `argsort` is caught."""
+        from mlframe.feature_selection.wrappers.rfecv._stability_select import _top_k_by_score
 
-        fn = getattr(_stability_select, "_top_k_by_score", None)
-        if fn is None:
-            pytest.skip("the top-K helper is inlined; the formula test above covers the invariant")
-        assert list(fn(np.ones(8), 3)) == [0, 1, 2]
+        assert list(_top_k_by_score(np.ones(8), 3)) == [0, 1, 2]
+        assert list(_top_k_by_score([0.5, 0.9, 0.5, 0.9, 0.1], 3)) == [1, 3, 0]
 
 
 class TestFeatureImportanceTopNIsOrderStable:

@@ -110,8 +110,12 @@ def test_biz_val_numerical_numaggs_weighted_differs_from_unweighted():
     out_weighted = np.asarray(compute_numaggs(arr, weights=weights))
     # At least one aggregate should differ -- weights should affect
     # weighted means / variances / etc.
-    if len(out_unweighted) != len(out_weighted):
-        # Different shapes is also a valid difference signal.
-        return
-    diff = np.any(out_unweighted != out_weighted)
-    assert diff, "weights had zero effect on output -- silently ignored?"
+    from mlframe.feature_engineering.numerical import get_numaggs_names
+
+    names_unweighted = get_numaggs_names()
+    names_weighted = get_numaggs_names(weights=weights)
+    assert len(out_unweighted) == len(names_unweighted)
+    assert len(out_weighted) == len(names_weighted)
+    extra = [i for i, name in enumerate(names_weighted) if name not in names_unweighted]
+    assert extra, "weights added no weighted aggregates -- silently ignored?"
+    assert np.isfinite(out_weighted[extra]).all()

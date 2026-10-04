@@ -92,8 +92,12 @@ def test_functions_no_longer_use_add_at_scatter(monkeypatch):
     The pre-fix scatter loop called ``np.add.at`` per predictor; on post-fix code the fused njit histogram replaces it,
     so the sabotaged ufunc is never touched. A revert to the scatter loop trips the sabotage and fails this sensor.
     """
-    monkeypatch.setattr(np, "add", _AddSansAt())
     rng = np.random.default_rng(17)
     arr = rng.standard_normal((500, 6))
-    ef.predictor_consensus_entropy(arr)
-    ef.predictor_top2_mode_gap(arr)
+    ref_entropy = np.asarray(ef.predictor_consensus_entropy(arr))
+    ref_gap = np.asarray(ef.predictor_top2_mode_gap(arr))
+    monkeypatch.setattr(np, "add", _AddSansAt())
+    np.testing.assert_array_equal(np.asarray(ef.predictor_consensus_entropy(arr)), ref_entropy)
+    np.testing.assert_array_equal(np.asarray(ef.predictor_top2_mode_gap(arr)), ref_gap)
+    assert ref_entropy.shape == (500,)
+    assert np.isfinite(ref_entropy).all()

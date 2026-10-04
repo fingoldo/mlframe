@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_engineering._safe_ratio import safe_div
-from mlframe.feature_engineering._welford_njit import welford_push, welford_std
+from mlframe._welford_njit import welford_push, welford_std
 from mlframe.feature_engineering.anchor import anchor_residual_rmse_features
 from mlframe.feature_engineering.bayesian import kalman_filter_posterior_1d
 from mlframe.feature_engineering.ensemble_features import predictor_consensus_entropy

@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 import logging
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.models.ensembling import (
     _per_member_mae_std,
@@ -535,17 +536,15 @@ def test_kn_borderline_mae_blowout_stamped_into_metadata(caplog):
         uncertainty_quantile=0.0,
         verbose=True,
     )
-    blowout = res.get("_diagnostic_mae_blowout")
-    # The borderline member (3) should appear in the diagnostic; we don't strictly
-    # require it (the bench threshold depends on rng) but at minimum the field
-    # MUST be a dict when present and contain the documented keys.
-    if blowout is not None:
-        assert isinstance(blowout, dict)
-        assert "borderline_idx" in blowout
-        assert "per_member_target_mae" in blowout
-        assert "best_mae" in blowout
-        # Sentinel key contract.
-        assert "_diagnostic_mae_blowout".startswith("_")
+    # The fixture is seeded: member 3 sits between 10x and 20x the best member's MAE, the documented borderline band.
+    maes = [float(np.mean(np.abs(m.val_preds - y_true))) for m in members]
+    ratios = [mae / min(maes) for mae in maes]
+    assert [i for i, r in enumerate(ratios) if 10.0 <= r < 20.0] == [3], ratios
+    blowout = res["_diagnostic_mae_blowout"]
+    assert isinstance(blowout, dict)
+    assert blowout["borderline_idx"] == [3]
+    assert blowout["per_member_target_mae"] == pytest.approx(maes)
+    assert blowout["best_mae"] == pytest.approx(min(maes))
 
 
 def test_kn_all_members_catastrophic_sentinel_when_only_one_survives(caplog):

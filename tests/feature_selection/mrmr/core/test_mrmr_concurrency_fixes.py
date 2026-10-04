@@ -154,23 +154,23 @@ def test_same_content_skip_signature_survives_transient_ctor_overrides():
 
 
 def test_biz_val_cmi_perm_seed_depends_on_random_effective_context():
-    """End-to-end smoke: fitting twice with cmi_perm_stop active on data where multiple greedy rounds
-    occur must not raise and must produce a valid (non-crashing) selection -- exercises the new seed
-    derivation through the real evaluation.py call sites."""
+    """cmi_perm_stop active end to end (seed derivation through the real evaluation.py call sites) must keep exactly the one signal feature of
+    the fixture, on every one of several fixture seeds."""
     from mlframe.feature_selection.filters.info_theory import set_cmi_perm_stop
 
-    X, y = _xy(seed=3, n=600, p=5)
-    m = MRMR(
-        verbose=0,
-        full_npermutations=1,
-        baseline_npermutations=1,
-        fe_max_steps=0,
-        cmi_perm_stop=True,
-        cmi_perm_n_permutations=5,
-        min_features_fallback=1,
-    )
-    try:
-        m.fit(X, y)
-    finally:
-        set_cmi_perm_stop(False)
-    assert hasattr(m, "support_")
+    for seed in (3, 4, 5):
+        X, y = _xy(seed=seed, n=600, p=5)
+        m = MRMR(
+            verbose=0,
+            full_npermutations=1,
+            baseline_npermutations=1,
+            fe_max_steps=0,
+            cmi_perm_stop=True,
+            cmi_perm_n_permutations=5,
+            min_features_fallback=1,
+        )
+        try:
+            m.fit(X, y)
+        finally:
+            set_cmi_perm_stop(False)
+        assert [m.feature_names_in_[i] for i in m.support_] == ["f0"], f"seed {seed}"

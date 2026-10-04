@@ -74,7 +74,8 @@ class TestAdditionalRfecvSelectionRuleValidated:
     def test_valid_rules_pass(self, rule):
         """Every value RFECV itself accepts must validate cleanly."""
         m = _make_cheap_mrmr(additional_rfecv_selection_rule=rule)
-        m._validate_string_params()  # must not raise
+        assert m._validate_string_params() is None
+        assert m.additional_rfecv_selection_rule == rule
 
     def test_default_rule_is_valid(self):
         """The constructor default ('one_se_min') is in the accepted set, so

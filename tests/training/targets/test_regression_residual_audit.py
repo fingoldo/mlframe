@@ -394,8 +394,10 @@ def test_plot_passes_when_one_axis_is_none():
     y_true = y_pred + rng.normal(0, 1.0, size=500)
     fig, ax = plt.subplots()
     plot_residual_diagnostics(y_true, y_pred, ax_hist=ax, ax_resid_vs_pred=None)
+    assert fig.axes == [ax]
+    assert len(ax.patches) >= 5
+    assert len(ax.collections) == 0
     plt.close(fig)
-    # No exception means pass.
 
 
 def test_plot_handles_too_few_obs_gracefully():

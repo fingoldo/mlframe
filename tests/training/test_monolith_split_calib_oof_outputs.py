@@ -62,44 +62,33 @@ def test_compute_calib_and_oof_outputs_mirrors_oof_without_predict_proba():
     assert op is model.oof_preds and opb is model.oof_probs and otg is model.oof_target
 
 
-def test_maybe_run_confidence_analysis_noop_paths():
-    """Maybe run confidence analysis noop paths."""
-    from mlframe.training._calib_oof_outputs import maybe_run_confidence_analysis
+def test_maybe_run_confidence_analysis_noop_paths(monkeypatch):
+    """The analysis is skipped when the test split is off, confidence is excluded or there is no test frame, and runs for the enabled case."""
+    from mlframe.training import _calib_oof_outputs as mod
 
-    conf_off = SimpleNamespace(include=False)
-    # run_test False -> no-op even if include True
-    maybe_run_confidence_analysis(
-        run_test=False,
-        confidence=SimpleNamespace(include=True),
-        test_df=object(),
-        test_target=None,
-        test_probs=None,
-        fit_params=None,
-        model_type_name="X",
-        figsize=None,
-        verbose=0,
-    )
-    # include False -> no-op
-    maybe_run_confidence_analysis(
-        run_test=True,
-        confidence=conf_off,
-        test_df=object(),
-        test_target=None,
-        test_probs=None,
-        fit_params=None,
-        model_type_name="X",
-        figsize=None,
-        verbose=0,
-    )
-    # test_df None -> no-op
-    maybe_run_confidence_analysis(
-        run_test=True,
-        confidence=SimpleNamespace(include=True),
-        test_df=None,
-        test_target=None,
-        test_probs=None,
-        fit_params=None,
-        model_type_name="X",
-        figsize=None,
-        verbose=0,
-    )
+    calls: list = []
+    monkeypatch.setattr(mod, "run_confidence_analysis", lambda **kw: calls.append(kw))
+
+    def invoke(run_test, include, test_df):
+        """Call the dispatcher with an otherwise fixed argument set."""
+        return mod.maybe_run_confidence_analysis(
+            run_test=run_test,
+            confidence=SimpleNamespace(include=include, model_kwargs=None, use_shap=False, max_features=5, cmap=None, alpha=0.5, title=None, ylabel=None),
+            test_df=test_df,
+            test_target="target",
+            test_probs="probs",
+            fit_params=None,
+            model_type_name="X",
+            figsize=None,
+            verbose=0,
+        )
+
+    assert invoke(False, True, object()) is None
+    assert invoke(True, False, object()) is None
+    assert invoke(True, True, None) is None
+    assert calls == []
+    frame = object()
+    assert invoke(True, True, frame) is None
+    assert len(calls) == 1
+    assert calls[0]["test_df"] is frame
+    assert calls[0]["test_target"] == "target" and calls[0]["test_probs"] == "probs"

@@ -15,6 +15,8 @@ import warnings
 import numpy as np
 import pytest
 
+from tests._known_gap import known_gap
+
 warnings.filterwarnings("ignore")
 
 
@@ -34,6 +36,26 @@ if not _gpu_available():  # pragma: no cover - guarded at collection time
     pytest.skip("No CUDA device available", allow_module_level=True)
 
 pytestmark = pytest.mark.gpu
+
+
+def _speedup_floor_skip_reason():
+    """Why this host cannot judge the n=10k speedup floor (pre-Volta, under 4 GB, or an unusable runtime), else None."""
+    try:
+        if cp.cuda.runtime.getDeviceCount() < 1:
+            return "no CUDA device available"
+        dev = cp.cuda.Device(0)
+        major, minor = dev.compute_capability[0], dev.compute_capability[1]
+        vram_total = int(dev.mem_info[1])
+    except Exception as err:
+        return f"CUDA runtime not usable: {err}"
+    if (int(major), int(minor)) < (7, 0):
+        return (
+            f"GPU compute capability {major}.{minor} below Volta (7.0); the n=10k speedup floor is calibrated for Volta+, "
+            "Pascal lands at 0.1-0.4x because H2D and launch overhead dominate the cheap per-permutation work"
+        )
+    if vram_total < 4 * 1024 * 1024 * 1024:
+        return f"GPU VRAM {vram_total / 1e9:.1f} GB below 4 GB threshold; launch-overhead floors do not apply on tiny devices."
+    return None
 
 
 def _make_signal(n=50_000, seed=42):
@@ -71,42 +93,13 @@ def _warmup():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(_speedup_floor_skip_reason() is not None, reason=f"host cannot judge the n=10k speedup floor: {_speedup_floor_skip_reason()}")
 def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
     """``mi_direct_gpu_batched`` (Phase 2 batch-permutation kernel)
     must be >=1.5x faster than the single-thread CPU njit path on
     n=10000 with 500 permutations. Measured 2026-05-10 on
     GTX 1050 Ti: 1.86x. Floor 1.5x leaves headroom for slow GPUs.
     """
-    # GPU-capability gate: same rationale as test_perf_mi_direct_gpu_at_n100k.
-    # On hosts where the GPU is too old / too small / shared, the speedup
-    # contract is hardware-bound rather than a code regression. Skip with a
-    # specific reason so the sensor still polices real regressions on
-    # capable boxes.
-    cupy = pytest.importorskip("cupy")
-    try:
-        if cupy.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip("no CUDA device available")
-        _dev = cupy.cuda.Device(0)
-        _major, _minor = _dev.compute_capability[0], _dev.compute_capability[1]
-        _vram_total = int(_dev.mem_info[1])  # bytes
-        # 2026-06-01: tighten Pascal (6.0) -> Volta (7.0). The 1.5x speedup
-        # at n=10k was calibrated on GTX 1050 Ti pre iter126/143 CPU
-        # rewrites; after the CPU baseline got ~25% faster + permutation
-        # kernel inline-LCG, GTX 1050 Ti lands at ~0.18x and the test
-        # XFAILs every run. Volta (cc 7.0+) starts winning consistently.
-        # Hosts below Volta SKIP cleanly instead of XFAILing every run.
-        if (int(_major), int(_minor)) < (7, 0):
-            pytest.skip(
-                f"GPU compute capability {_major}.{_minor} below Volta (7.0); "
-                f"the n=10k 1.5x speedup floor is calibrated for Volta+ -- "
-                f"Pascal lands at 0.1-0.4x because per-perm work is so cheap "
-                f"on AVX-2 njit that H2D + launch overhead dominate."
-            )
-        if _vram_total < 4 * 1024 * 1024 * 1024:
-            pytest.skip(f"GPU VRAM {_vram_total / 1e9:.1f} GB below 4 GB threshold; launch-overhead floors do not apply on tiny devices.")
-    except Exception as _gpu_info_err:
-        pytest.skip(f"CUDA runtime not usable: {_gpu_info_err}")
-
     from mlframe.feature_selection.filters.permutation import mi_direct
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched
 
@@ -127,40 +120,18 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
     t_gpu = time.perf_counter() - t0
 
     speedup = t_cpu / max(t_gpu, 1e-6)
-    # 2026-05-21 (iter143): floor relaxed from 1.5x -> 0.5x. iter143
-    # rewrote compute_mi_from_classes (indexed range loop + on-the-fly
-    # freq calc) for a ~25% CPU speedup; the CPU permutation kernel
-    # benefits from the same. At n=10k the GPU dispatch + H2D overhead
-    # dominates the per-perm work, so faster CPU pushes the ratio
-    # toward equilibrium (~0.5-1.0x). Same baseline-shift pattern as
-    # iter126's mi_direct_gpu_at_n100k floor drop (1.5x -> 1.05x).
-    # GPU still wins at n=200k (covered by test_biz_val_gpu_mi_batched_
-    # scales_to_n200k); at n=10k the GPU dispatch dominates regardless.
-    # Two-tier sensor (mirror of ``test_perf_mi_direct_gpu_at_n100k``): a
-    # CATASTROPHIC speedup is a real regression (kernel decompile / H2D sync
-    # storm); the 0.02-0.5x band is the shared-GPU / CPU-acceleration-baseline
-    # soft signal -- xfail rather than fail so the box-to-box variance in GPU
-    # contention doesn't poison CI on the suite. On a properly-warm capable
-    # GPU we still expect >=0.5x; on a contended box / shared cluster GPU
-    # the floor falls to ~0.02-0.4x and that's not a code regression.
-    # 2026-06-01: catastrophic floor relaxed 0.1x -> 0.02x to mirror the
-    # ``test_perf_mi_direct_gpu_at_n100k`` relaxation -- observed 0.09x on
-    # the Windows pytest-xdist worker (contended GPU vs aggressive CPU
-    # njit baseline), which was a hardware artefact not a kernel decompile.
-    if speedup < 0.02:
-        pytest.fail(
-            f"GPU batched MI CATASTROPHICALLY slow vs CPU at n=10k "
-            f"(speedup={speedup:.2f}x, floor 0.02x). Likely a kernel decompile "
-            f"/ H2D sync storm. "
-            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
-        )
+    # Two-tier sensor: a catastrophic ratio is a real regression (kernel decompile / H2D sync storm); the 0.02-0.5x band is the shared-GPU /
+    # fast-CPU-baseline soft signal and is recorded as a known gap that fails once the 1.5x target is actually met.
+    assert speedup >= 0.02, (
+        f"GPU batched MI CATASTROPHICALLY slow vs CPU at n=10k (speedup={speedup:.2f}x, floor 0.02x). "
+        f"Likely a kernel decompile / H2D sync storm. ({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
+    )
     if speedup < 0.5:
-        pytest.xfail(
-            f"GPU batched MI at n=10k slower than the 0.5x soft floor "
-            f"(speedup={speedup:.2f}x). Shared / contended GPU vs aggressive "
-            f"CPU baseline; the GPU path still wins at n>=200k "
-            f"(test_biz_val_gpu_mi_batched_scales_to_n200k covers it). "
-            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)"
+        known_gap(
+            f"GPU batched MI at n=10k slower than the 0.5x soft floor (speedup={speedup:.2f}x). Shared / contended GPU vs aggressive "
+            f"CPU baseline; the GPU path still wins at n>=200k (test_biz_val_gpu_mi_batched_scales_to_n200k covers it). "
+            f"({t_cpu * 1000:.1f}ms CPU vs {t_gpu * 1000:.1f}ms GPU)",
+            gap_closed=speedup >= 1.5,
         )
 
 

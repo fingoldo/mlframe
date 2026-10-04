@@ -20,6 +20,7 @@ from __future__ import annotations
 import sys
 import warnings
 
+import numpy as np
 import pytest
 
 from tests.conftest import is_fast_mode
@@ -34,6 +35,8 @@ warnings.filterwarnings("ignore")
 # enough to exercise the trainer loop; the higher original iterations=30 was
 # pure runtime overhead. Halved under fast mode.
 _DEFAULT_SMOKE_ITERATIONS = 2 if is_fast_mode() else 5
+# The quality assertions below were measured at 5 boosting rounds, so they do not shrink with fast mode.
+_QUALITY_ITERATIONS = 5
 
 # These tests share state between runs (matplotlib backend, numba JIT
 # cache, on-disk model directories). pytest-randomly's default
@@ -129,17 +132,18 @@ def test_biz_val_training_suite_regression_completes(tmp_path):
         output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
         reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         verbose=0,
-        hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
+        hyperparams_config={"iterations": _QUALITY_ITERATIONS},
     )
-    # Behavioural: suite returned a real models mapping (not a stub) with at least one trained estimator under
-    # the requested family, and the metadata dict carries the canonical keys downstream consumers depend on.
-    assert models is not None, "regression suite returned None models on lgb-only path"
-    assert (
-        hasattr(models, "__len__") and len(models) >= 1
-    ), f"models container empty after successful suite call; got {type(models).__name__} len={len(models) if hasattr(models, '__len__') else 'n/a'}"
-    assert (
-        isinstance(metadata, dict) and len(metadata) > 0
-    ), f"metadata empty / wrong type: {type(metadata).__name__} keys={list(metadata)[:5] if isinstance(metadata, dict) else 'n/a'}"
+    assert metadata["model_name"] == "m_reg"
+    from mlframe.training.configs import TargetTypes
+
+    trained = models[TargetTypes.REGRESSION]["target"]
+    assert len(trained) == 1
+    val_metrics = trained[0].metrics["val"]
+    val_target = np.asarray(trained[0].val_target, dtype=float)
+    # The kept model explains the held-out target far better than the mean predictor (measured R2 0.73, RMSE 1.99 vs target std 4.0).
+    assert val_metrics["R2"] > 0.6, val_metrics["R2"]
+    assert val_metrics["RMSE"] < 0.7 * float(np.std(val_target)), (val_metrics["RMSE"], float(np.std(val_target)))
 
 
 @_MACOS_LGB_LIBOMP_CRASH_SKIP
@@ -163,12 +167,17 @@ def test_biz_val_training_suite_classification_completes(tmp_path):
         output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
         reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
         verbose=0,
-        hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
+        hyperparams_config={"iterations": _QUALITY_ITERATIONS},
     )
-    # Same behavioural contract as the regression path (see above).
-    assert models is not None, "classification suite returned None models on lgb-only path"
-    assert hasattr(models, "__len__") and len(models) >= 1, f"models container empty after successful classification suite call; got {type(models).__name__}"
-    assert isinstance(metadata, dict) and len(metadata) > 0, "metadata empty / wrong type on classification path"
+    assert metadata["model_name"] == "m_clf"
+    from mlframe.training.configs import TargetTypes
+
+    trained = models[TargetTypes.BINARY_CLASSIFICATION]["target"]
+    assert len(trained) == 1
+    val_metrics = trained[0].metrics["val"][1]
+    # Held-out ranking quality of the kept model (measured ROC AUC 0.93 and Brier 0.119 on this fixture; a constant scorer sits at 0.5 / 0.25).
+    assert val_metrics["roc_auc"] > 0.85, val_metrics["roc_auc"]
+    assert val_metrics["brier_loss"] < 0.18, val_metrics["brier_loss"]
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +292,14 @@ def test_biz_val_training_suite_metadata_dict_schema(tmp_path):
         use_mlframe_ensembles=False,
         output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
         verbose=0,
-        hyperparams_config={"iterations": _DEFAULT_SMOKE_ITERATIONS},
+        hyperparams_config={"iterations": _QUALITY_ITERATIONS},
     )
     assert isinstance(metadata, dict), f"metadata must be a dict; got {type(metadata).__name__}"
+    assert metadata["model_name"] == "m_md"
+    assert metadata["target_name"] == "test_target"
+    n_rows = len(df)
+    sizes = (metadata["train_size"], metadata["val_size"], metadata["test_size"])
+    assert all(s > 0 for s in sizes), sizes
+    assert sum(sizes) == n_rows, (sizes, n_rows)
+    assert sizes[0] > sizes[1] and sizes[0] > sizes[2], sizes
+    assert len(metadata["columns"]) >= 1

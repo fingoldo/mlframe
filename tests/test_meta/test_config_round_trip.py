@@ -30,7 +30,7 @@ from __future__ import annotations
 import inspect
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from pydantic_core import PydanticUndefined
 
 from mlframe.training import configs as configs_module
@@ -129,6 +129,63 @@ def _strip_opaque(d: dict) -> dict:
     return {k: v for k, v in d.items() if k not in _OPAQUE_FIELDS}
 
 
+def _round_trip_failure(cls: type[BaseModel], extra: dict) -> str | None:
+    """Describe how ``cls`` breaks the default-construct / dump / rebuild round-trip, or None when it survives."""
+    try:
+        original = cls(**extra)
+    except Exception as e:
+        return f"{cls.__name__} default construct raised: {type(e).__name__}: {e}"
+    try:
+        dumped = original.model_dump()
+    except Exception as e:
+        return f"{cls.__name__}.model_dump() raised: {type(e).__name__}: {e}"
+    try:
+        rebuilt = cls(**dumped)
+    except Exception as e:
+        return f"{cls.__name__}(**dumped) raised — round-trip broken: {type(e).__name__}: {e}"
+    # Compare via dump-then-strip-opaque to dodge ndarray ==
+    # ambiguity. If a non-opaque field differs the dumps will too.
+    a = _strip_opaque(original.model_dump())
+    b = _strip_opaque(rebuilt.model_dump())
+    if a != b:
+        keys = set(a) | set(b)
+        diffs = [k for k in sorted(keys) if a.get(k) != b.get(k)]
+        return f"{cls.__name__} round-trip mutated state: diffs in {diffs[:5]} (showing up to 5)"
+    return None
+
+
+class _CanaryStable(BaseModel):
+    """Round-trips cleanly."""
+
+    a: str = "x"
+
+
+class _CanaryMutating(BaseModel):
+    """A validator that rewrites the value on every validation, so rebuilding from a dump changes it."""
+
+    a: str = "x"
+
+    @field_validator("a")
+    @classmethod
+    def _bang(cls, v: str) -> str:
+        """Append a marker on every validation."""
+        return v + "!"
+
+
+class _CanaryNeedsArg(BaseModel):
+    """Has a required field, so default construction raises."""
+
+    a: str
+
+
+def test_round_trip_check_catches_a_mutating_config_and_a_failing_constructor_and_passes_a_stable_one():
+    """The per-class check reports a state-mutating validator and a raising constructor, and returns None for a clean model."""
+    assert _round_trip_failure(_CanaryStable, {}) is None
+    assert _round_trip_failure(_CanaryMutating, {"a": "x"}) == "_CanaryMutating round-trip mutated state: diffs in ['a'] (showing up to 5)"
+    raised = _round_trip_failure(_CanaryNeedsArg, {})
+    assert raised is not None and raised.startswith("_CanaryNeedsArg default construct raised: ValidationError")
+
+
 def test_every_config_round_trips_via_model_dump():
     """``Cls(**cls().model_dump()) == cls()`` for every default-
     constructable Pydantic config in mlframe.training.configs.
@@ -143,33 +200,9 @@ def test_every_config_round_trips_via_model_dump():
         if not ok:
             skipped.append(f"{cls.__name__} (required fields without sentinels in _REQUIRES_USER_ARGS)")
             continue
-        try:
-            original = cls(**extra)
-        except Exception as e:
-            failures.append(f"{cls.__name__} default construct raised: {type(e).__name__}: {e}")
-            continue
-
-        try:
-            dumped = original.model_dump()
-        except Exception as e:
-            failures.append(f"{cls.__name__}.model_dump() raised: {type(e).__name__}: {e}")
-            continue
-
-        try:
-            rebuilt = cls(**dumped)
-        except Exception as e:
-            failures.append(f"{cls.__name__}(**dumped) raised — round-trip broken: {type(e).__name__}: {e}")
-            continue
-
-        # Compare via dump-then-strip-opaque to dodge ndarray ==
-        # ambiguity. If a non-opaque field differs the dumps will too.
-        a = _strip_opaque(original.model_dump())
-        b = _strip_opaque(rebuilt.model_dump())
-        if a != b:
-            # Find the first differing key for an actionable message.
-            keys = set(a) | set(b)
-            diffs = [k for k in sorted(keys) if a.get(k) != b.get(k)]
-            failures.append(f"{cls.__name__} round-trip mutated state: diffs in {diffs[:5]} (showing up to 5)")
+        failure = _round_trip_failure(cls, extra)
+        if failure is not None:
+            failures.append(failure)
 
     if failures:
         pytest.fail(

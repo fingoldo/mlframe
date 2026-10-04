@@ -56,7 +56,9 @@ def test_a_figure_grown_for_its_bars_names_all_of_them(reader):
 def test_a_cramped_figure_still_thins(reader):
     """Guard: the fix must follow the axis in BOTH directions, not just stop thinning."""
     drawn = reader(_spec(60, (10.0, 4.0)))
-    assert 0 < len(drawn) < 60, f"{len(drawn)} of 60 labels on a 4-inch axis is a smear, not an axis"
+    expected = {"_mpl_labels": 16, "_plotly_labels": 18}[reader.__name__]
+    assert len(drawn) == expected, f"{len(drawn)} of 60 labels on a 4-inch axis (expected {expected})"
+    assert drawn[0] == "slice_0" and set(drawn) <= {f"slice_{i}" for i in range(60)}
 
 
 def test_upright_labels_are_rotated_only_when_they_do_not_fit():

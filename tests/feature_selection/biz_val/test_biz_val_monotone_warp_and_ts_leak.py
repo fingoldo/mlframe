@@ -59,6 +59,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
+from tests._known_gap import known_gap
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
@@ -316,19 +317,12 @@ class TestMRMRPartialTimeSeriesLeak:
         assert "lead1" in names, f"fast rep: lead1 should surface to support. seed={seed}, support={names}"
 
     @pytest.mark.slow
-    @pytest.mark.xfail(
-        reason="PROD BUG: the layer-17 gain-ratio leak audit (top-leak gain / top-legit gain >= 2x) "
-        "fires only on a DIRECT corr~1 leak. A PARTIAL look-ahead leak (lead1 ties lag1 in "
-        "marginal MI by AR(1) symmetry) yields a ratio ~0.7-1.5, so the audit is structurally "
-        "blind to it; a leak-aware audit must not rely on gain dominance alone.",
-        strict=False,
-    )
     @pytest.mark.parametrize("seed", LEAK_SEEDS)
     def test_gain_ratio_flags_partial_leak(self, seed):
         """Extends the layer-17 direct-leak gain-ratio detector to a partial leak.
         Current behaviour: the ratio lead1_gain / best_lag_gain does NOT reach the
         2x flag threshold (lead1 ties lag1), so the audit cannot flag the partial
-        leak -> xfail(strict=False)."""
+        leak (recorded as a known gap)."""
         df, y = _make_ar1_leak_frame(seed=seed)
         sel = _fit_mrmr(df, y, seed)
         names = _names(sel)
@@ -340,10 +334,11 @@ class TestMRMRPartialTimeSeriesLeak:
         lag_idx = [i for i, n in enumerate(names) if n in ("lag1", "lag2", "lag3")]
         assert lag_idx, f"no legit lag in support to baseline against; seed={seed}, support={names}"
         ratio = float(np.max(gains[lead_idx])) / max(float(np.max(gains[lag_idx])), 1e-12)
-        assert ratio >= 2.0, (
-            f"gain-ratio leak/legit={ratio:.2f}; a leak audit extended to partial "
-            f"leaks should fire (>= 2.0) but the partial leak ties the legit lag "
-            f"in marginal MI. seed={seed}, gains={gains}, support={names}"
+        known_gap(
+            "PROD BUG: the layer-17 gain-ratio leak audit (top-leak gain / top-legit gain >= 2x) fires only on a DIRECT corr~1 leak. "
+            "A PARTIAL look-ahead leak (lead1 ties lag1 in marginal MI by AR(1) symmetry) yields a ratio ~0.7-1.5, so the audit is structurally "
+            f"blind to it (ratio={ratio:.2f}, seed={seed}, gains={gains}, support={names}).",
+            gap_closed=ratio >= 2.0,
         )
 
 

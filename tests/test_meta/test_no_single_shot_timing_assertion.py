@@ -264,11 +264,10 @@ def _build_offending_set() -> set[str]:
 
 def test_no_new_single_shot_timing_assertion():
     """No test function gains a new single-shot (non-best-of-N) wall-clock timing-ratio assertion."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"single-shot-timing baseline written with {len(current)} entry/entries")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip("single-shot-timing baseline written")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     added = sorted(current - baseline)

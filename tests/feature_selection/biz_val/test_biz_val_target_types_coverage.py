@@ -283,6 +283,8 @@ def test_biz_val_mrmr_multioutput_strategy_none_uses_legacy_merged_target():
     sel.multioutput_strategy = None
     sel.fit(df, y)
     assert not hasattr(sel, "multioutput_supports_")
+    chosen = _selected(sel)
+    assert 0 in chosen and chosen <= SIGNAL, f"merged-target path must keep only signal columns including 0; got {sorted(chosen)}"
 
 
 def test_biz_val_mrmr_multioutput_strategy_validation():

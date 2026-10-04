@@ -172,17 +172,8 @@ def _build_snapshot() -> dict:
     return snapshot
 
 
-def test_public_api_matches_snapshot():
-    """Public surface must match the recorded snapshot byte-for-byte."""
-    current = _build_snapshot()
-    if _refresh_requested() or not _SNAPSHOT_PATH.exists():
-        _SNAPSHOT_PATH.write_bytes(
-            orjson.dumps(current, option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS),
-        )
-        pytest.skip(f"snapshot refreshed at {_SNAPSHOT_PATH.name} ({len(current)} symbols)")
-
-    expected = orjson.loads(_SNAPSHOT_PATH.read_bytes())
-
+def _snapshot_diffs(expected: dict, current: dict) -> list[str]:
+    """Removed names and changed entries of ``current`` against ``expected``; additions are not diffs."""
     diffs: list[str] = []
     # Removed / renamed names — always fail.
     for name in expected:
@@ -196,6 +187,32 @@ def test_public_api_matches_snapshot():
             old = expected[name]
             new = current[name]
             diffs.append(f"CHANGED: {name}\n      was: {old}\n      now: {new}")
+    return diffs
+
+
+def test_snapshot_diff_reports_removals_and_changes_but_not_additions():
+    """A dropped name and an altered signature are diffs; an added name and an identical entry are not."""
+    expected = {"kept": {"kind": "callable", "signature": "(a)"}, "gone": {"kind": "value"}, "moved": {"kind": "callable", "signature": "(a)"}}
+    current = {"kept": {"kind": "callable", "signature": "(a)"}, "moved": {"kind": "callable", "signature": "(a, b)"}, "extra": {"kind": "value"}}
+    assert _snapshot_diffs(expected, current) == [
+        "REMOVED: gone",
+        "CHANGED: moved\n      was: {'kind': 'callable', 'signature': '(a)'}\n      now: {'kind': 'callable', 'signature': '(a, b)'}",
+    ]
+    assert _snapshot_diffs(expected, expected) == []
+
+
+def test_public_api_matches_snapshot():
+    """Public surface must match the recorded snapshot byte-for-byte."""
+    if _refresh_requested() or not _SNAPSHOT_PATH.exists():
+        _SNAPSHOT_PATH.write_bytes(
+            orjson.dumps(_build_snapshot(), option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS),
+        )
+        pytest.skip(f"snapshot refreshed at {_SNAPSHOT_PATH.name}")
+    current = _build_snapshot()
+
+    expected = orjson.loads(_SNAPSHOT_PATH.read_bytes())
+
+    diffs = _snapshot_diffs(expected, current)
     # Additions — informational, not a failure.
     additions = [n for n in current if n not in expected]
     if additions:

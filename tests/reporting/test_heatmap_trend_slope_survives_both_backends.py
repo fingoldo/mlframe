@@ -78,14 +78,24 @@ class TestTheTwoBackendsAgreeOnTheSlope:
 
     def test_the_y_map_uses_the_row_axis(self):
         """It resolved both coordinates against `col_labels`; asymmetric labels put y on a nonexistent category."""
-        import ast
-        import pathlib
+        pytest.importorskip("plotly")
+        from mlframe.reporting.renderers.plotly import PlotlyRenderer
+        from mlframe.reporting.spec import FigureSpec, HeatmapPanelSpec
 
-        src = (pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe" / "reporting" / "renderers" / "_plotly_heatmap.py").read_text(encoding="utf-8")
-        calls = [n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call) and getattr(n.func, "id", "") == "heatmap_value_to_index"]
-        assert len(calls) == 2, f"expected an x map and a y map, found {len(calls)}"
-        args = [ast.dump(c.args[-1]) for c in calls]
-        assert any("row_labels" in a for a in args), f"neither map is built from row_labels: {args}"
+        x = np.random.default_rng(0).uniform(0.0, 10.0, 400)
+        panel = HeatmapPanelSpec(
+            matrix=np.ones((4, 12)),
+            row_labels=tuple(f"r{i}" for i in range(4)),
+            col_labels=tuple(f"c{i}" for i in range(12)),
+            title="t",
+            trend_line="theil-sen",
+            trend_xy=(x, x.copy()),
+        )
+        fig = PlotlyRenderer().render(FigureSpec(panels=((panel,),)))
+        trend = [tr for tr in fig.data if "robust fit" in (tr.name or "")]
+        assert len(trend) == 1
+        assert np.allclose(trend[0].x, [0.0, 11.0], atol=1e-9), "the x map must span the 12 column bins"
+        assert np.allclose(trend[0].y, [0.0, 3.0], atol=1e-9), "the y map must span the 4 row bins, not the column count"
 
 
 def test_the_plotly_trace_carries_numeric_positions():

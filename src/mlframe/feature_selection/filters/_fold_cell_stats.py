@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 import numba
 import numpy as np
 
@@ -24,14 +26,16 @@ def _cell_sum_cnt_kernel(codes, y, fold_ids, skip_fold, valid, use_valid, n_cell
     return cell_sum, cell_cnt
 
 
-def fold_cell_sum_cnt(codes, y, fold_ids, skip_fold, n_cells, valid=None):
+def fold_cell_sum_cnt(
+    codes: np.ndarray, y: np.ndarray, fold_ids: np.ndarray, skip_fold: int, n_cells: int, valid: Optional[np.ndarray] = None
+) -> tuple[np.ndarray, np.ndarray]:
     """Per-cell (sum, count) of y over rows outside fold ``skip_fold`` (``skip_fold=-1`` keeps every row), optionally restricted to ``valid``.
 
     Summation runs in row order exactly like ``np.add.at`` on the boolean-masked arrays, so the result is bit-identical.
     """
     use_valid = valid is not None
     v = valid if use_valid else np.ones(1, dtype=np.bool_)
-    return _cell_sum_cnt_kernel(
+    sums, counts = _cell_sum_cnt_kernel(
         np.ascontiguousarray(codes, dtype=np.int64),
         np.ascontiguousarray(y, dtype=np.float64),
         np.ascontiguousarray(fold_ids, dtype=np.int64),
@@ -40,3 +44,4 @@ def fold_cell_sum_cnt(codes, y, fold_ids, skip_fold, n_cells, valid=None):
         use_valid,
         int(n_cells),
     )
+    return sums, counts

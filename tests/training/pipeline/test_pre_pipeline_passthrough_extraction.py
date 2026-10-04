@@ -200,35 +200,38 @@ def test_not_fitted_error_in_transform_falls_back_to_feature_names_in() -> None:
     assert list(out.columns) == ["x"]
 
 
-def test_outer_try_body_shrunk_after_wave90() -> None:
-    """Structural marker: the lifted helper exists and the per-iteration block delegates."""
-    from pathlib import Path
+def test_outer_try_body_shrunk_after_wave90(monkeypatch) -> None:
+    """predict_from_models hands each model's pre-pipeline step to the module-level helper, once per model, with the full keyword surface."""
+    from sklearn.linear_model import LinearRegression
 
-    # After the 2026-05-21 predict.py monolith split, the helper lives in
-    # _predict_pre_pipeline.py and the call site moved to _predict_main.py.
-    # The 2026-05-22 sub-split further moved the call site into
-    # _predict_main_from_models.py (the predict_from_models body). The
-    # structural sensor checks need to see all five files concatenated.
-    _core = Path(__file__).resolve().parent.parent.parent.parent / "src" / "mlframe" / "training" / "core"
-    src = "\n".join(
-        (_core / nm).read_text(encoding="utf-8")
-        for nm in (
-            "predict.py",
-            "_predict_main.py",
-            "_predict_main_from_models.py",
-            "_predict_main_suite.py",
-            "_predict_pre_pipeline.py",
-        )
-        if (_core / nm).exists()
-    )
-    # The lifted helper is module-level.
-    assert "\ndef _apply_pre_pipeline_with_passthrough(" in src
-    # The per-iteration call site uses keyword args (full surface preserved).
-    assert "_apply_pre_pipeline_with_passthrough(\n                        input_for_model," in src
-    # The ``_stashed_passthrough: dict[str, Any] = {}`` declaration now
-    # lives ONLY inside the module-level helper, NOT in the per-iteration
-    # for-loop body. Pre-wave-90 it was inline inside the mega-try.
-    assert src.count("_stashed_passthrough: dict[str, Any] = {}") == 1
-    # The per-iteration ``_meta_text = list(metadata.get("text_features")``
-    # passthrough col discovery is likewise gone from the for-loop body.
-    assert src.count('_meta_text = list(metadata.get("text_features") or [])') == 1
+    from mlframe.training.core import predict as predict_mod
+    from mlframe.training.core._predict_main_from_models import predict_from_models
+
+    class _ModelWrapper:
+        """Fitted model plus the pre_pipeline slot predict_from_models reads."""
+
+        def __init__(self, model) -> None:
+            self.model = model
+            self.pre_pipeline = None
+
+    X = pd.DataFrame({"a": np.arange(20.0), "b": np.arange(20.0) * 2})
+    y = X["a"] + 5.0
+    wrappers = [_ModelWrapper(LinearRegression().fit(X, y)), _ModelWrapper(LinearRegression().fit(X, y * 2))]
+    calls: list = []
+    real_helper = predict_mod._apply_pre_pipeline_with_passthrough
+
+    def spy(input_for_model, **kwargs):
+        """Record the call, then run the real helper."""
+        calls.append((input_for_model, kwargs))
+        return real_helper(input_for_model, **kwargs)
+
+    monkeypatch.setattr(predict_mod, "_apply_pre_pipeline_with_passthrough", spy)
+    meta = {"raw_input_columns": ["a", "b"], "columns": ["a", "b"], "cat_features": [], "text_features": [], "embedding_features": []}
+    out = predict_from_models(X, {"regression": {"t": wrappers}}, meta, return_probabilities=False, verbose=0)
+    assert "regression_t" in out["predictions"]
+    assert len(calls) == len(wrappers)
+    expected_keywords = {"model", "model_obj", "pipeline", "df", "df_pre_pipeline", "metadata", "model_name", "verbose"}
+    for (frame, kwargs), wrapper in zip(calls, wrappers):
+        assert isinstance(frame, pd.DataFrame)
+        assert set(kwargs) == expected_keywords
+        assert kwargs["model_obj"] is wrapper

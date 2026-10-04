@@ -286,7 +286,7 @@ def njit_functions_dict(
     Compiled dispatchers are memoised process-wide (see ``_NJIT_DISPATCHER_CACHE``) so the
     registry rebuilds within a single fit reuse one dispatcher per distinct source callable
     instead of recompiling the same signature repeatedly."""
-    for key, func in dict_.items():
+    for key, func in list(dict_.items()):
         if key not in exceptions:
             try:
                 ck = _njit_cache_key(func)

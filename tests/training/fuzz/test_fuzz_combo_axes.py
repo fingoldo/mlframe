@@ -53,17 +53,17 @@ def test_F1_enable_crash_reporting_field_on_FuzzCombo():
     assert combo_off.enable_crash_reporting_cfg is False
 
 
-def test_F1_enable_crash_reporting_windows_only_canon():
-    """Non-Windows hosts must canonicalise ``enable_crash_reporting_cfg=True`` to False so the dedup pass collapses identical-behaviour combos. On Windows the axis stays meaningful."""
+def test_F1_enable_crash_reporting_windows_only_canon(monkeypatch):
+    """Non-Windows hosts canonicalise ``enable_crash_reporting_cfg=True`` to False so the dedup pass collapses identical-behaviour combos; on Windows the axis stays meaningful."""
     combo_off = _make_combo(enable_crash_reporting_cfg=False)
     combo_on = _make_combo(enable_crash_reporting_cfg=True)
-    is_windows = platform.system() == "Windows"
-    if is_windows:
-        # On Windows the True variant must be distinct from the False variant (the canon does NOT collapse them since the axis is meaningful there).
-        assert combo_off.canonical_key() != combo_on.canonical_key(), "F1: on Windows, enable_crash_reporting_cfg=True must NOT canonicalise away"
-    else:
-        # On non-Windows the True variant must collapse to the False variant.
-        assert combo_off.canonical_key() == combo_on.canonical_key(), f"F1: on {platform.system()}, enable_crash_reporting_cfg=True must canonicalise to False"
+
+    monkeypatch.setattr(platform, "system", lambda: "Windows")
+    assert combo_off.canonical_key() != combo_on.canonical_key(), "F1: on Windows, enable_crash_reporting_cfg=True must NOT canonicalise away"
+
+    for other_os in ("Linux", "Darwin"):
+        monkeypatch.setattr(platform, "system", lambda other_os=other_os: other_os)
+        assert combo_off.canonical_key() == combo_on.canonical_key(), f"F1: on {other_os}, enable_crash_reporting_cfg=True must canonicalise to False"
 
 
 # ---------------------------------------------------------------------------

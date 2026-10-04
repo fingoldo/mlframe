@@ -36,67 +36,89 @@ enumerate, range, families list, hash output, or all-equal-value init).
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
+import pandas as pd
 import pytest
 
-MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
-
-
-def _read(rel: str) -> str:
-    """Read."""
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
-
-
 # ---------------------------------------------------------------------------
-# Source-level sensors
+# Duplicate-name guards, exercised through the code that owns them
 # ---------------------------------------------------------------------------
 
 
 def test_boruta_shap_rejects_dup_columns() -> None:
-    """Boruta shap rejects dup columns."""
-    src = _read("feature_selection/boruta_shap/__init__.py")
-    assert "duplicate column name" in src
-    assert "deduplicate before fit() to avoid silently dropping shadow indices" in src
+    """The shadow-feature column mapping refuses duplicate names and tells the caller how to fix the frame."""
+    from mlframe.feature_selection import boruta_shap as bs_mod
+
+    inst = bs_mod.BorutaShap.__new__(bs_mod.BorutaShap)
+    inst.X = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "a"])
+    with pytest.raises(ValueError, match=r"duplicate column name.*deduplicate before fit\(\) to avoid silently dropping shadow indices"):
+        inst.create_mapping_between_cols_and_indices()
+    inst.X = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "c"])
+    assert inst.create_mapping_between_cols_and_indices() == {"a": 0, "b": 1, "c": 2}
 
 
 def test_phase_helpers_rejects_dup_columns_in_train_df() -> None:
-    """The dupe-column check moved into the sibling _phase_helpers_fit_split.py
-    during the 2026-05-21 monolith split, then further into
-    _phase_helpers_fit_pipeline.py during the 2026-05-22 split. Read all three."""
-    src_parent = _read("training/core/_phase_helpers.py")
-    src_sibling_a = _read("training/core/_phase_helpers_fit_split.py")
-    src_sibling_b = _read("training/core/_phase_helpers_fit_pipeline.py")
-    needle = "deduplicate before fit() to keep schema-hash honest"
-    assert needle in src_parent or needle in src_sibling_a or needle in src_sibling_b
+    """The fit-time dtype snapshot refuses a train frame with duplicate column names instead of collapsing them."""
+    from mlframe.training.core._phase_helpers_fit_pipeline import _phase_fit_pipeline_string_object_category_columns
+
+    frame = pd.DataFrame({"x": ["u", "v", "u"], "y": [1.0, 2.0, 3.0]})
+    frame.columns = ["x", "x"]
+    with pytest.raises(ValueError, match=r"train_df has 1 duplicate column name\(s\).*deduplicate before fit\(\) to keep schema-hash honest"):
+        _phase_fit_pipeline_string_object_category_columns(True, False, frame, None)
+    unique = frame.set_axis(["x", "z"], axis=1)
+    _phase_fit_pipeline_string_object_category_columns(True, False, unique, None)
 
 
 def test_misc_helpers_rejects_dup_columns_in_predict_df() -> None:
-    """The duplicate-column guard must exist wherever the feature-type code now lives.
+    """The predict-time feature-type detection refuses a frame with duplicate column names."""
+    from mlframe.training.configs import FeatureTypesConfig
+    from mlframe.training.core._misc_helpers_feature_types import _auto_detect_feature_types
 
-    ``_misc_helpers`` crossed the 1000-LOC budget and its feature-type detection moved to a sibling, taking this
-    guard with it. The check follows the code rather than the file it used to sit in.
-    """
-    needle = "deduplicate before predict() to keep schema-hash honest"
-    src_parent = _read("training/core/_misc_helpers.py")
-    src_sibling = _read("training/core/_misc_helpers_feature_types.py")
-    assert needle in src_parent or needle in src_sibling
+    frame = pd.DataFrame({"x": ["u", "v", "u"], "y": [1.0, 2.0, 3.0]})
+    frame.columns = ["x", "x"]
+    cfg = FeatureTypesConfig(auto_detect_feature_types=True)
+    with pytest.raises(ValueError, match=r"df has 1 duplicate column name\(s\).*deduplicate before predict\(\) to keep schema-hash honest"):
+        _auto_detect_feature_types(frame, cfg, [])
 
 
-def test_general_mi_rejects_dup_target_columns() -> None:
-    """General mi rejects dup target columns."""
-    src = _read("feature_selection/general.py")
-    assert "deduplicate to avoid silently dropping MI rows" in src
+def test_general_mi_rejects_dup_target_columns(monkeypatch) -> None:
+    """Exhaustive feature search refuses a target list naming the same column twice rather than dropping an MI row."""
+    import polars as pl
+
+    from mlframe.feature_selection import general
+
+    n_feat = 2
+    bins = pl.DataFrame({"f0": [0, 1, 0], "f1": [1, 0, 1]}).to_pandas()
+    monkeypatch.setattr(general, "clean_ram", lambda *a, **k: None)
+    monkeypatch.setattr(general, "bin_numerical_columns", lambda **kw: (bins, kw["binned_targets"], None, [], None))
+    monkeypatch.setattr(
+        general,
+        "estimate_features_relevancy",
+        lambda **kw: ([], np.zeros((len(kw["target_columns"]), n_feat)), {}, []),
+    )
+    df = pl.DataFrame({"f0": [0.0, 1.0, 2.0], "f1": [1.0, 0.0, 1.0], "t": [0, 1, 0]})
+    common = dict(
+        df=df,
+        exclude_columns=[],
+        permuted_mutual_informations={},
+        binned_targets=df.select("t"),
+        mi_algorithms_ranking=[],
+        binning_params={},
+        efs_params={},
+    )
+    with pytest.raises(ValueError, match=r"target_columns has 1 duplicate\(s\).*deduplicate to avoid silently dropping MI rows"):
+        general.run_efs(target_columns=["t", "t"], **common)
+    *_head, features_mis = general.run_efs(target_columns=["t"], **common)
+    assert list(features_mis.columns) == ["t", "feature"]
 
 
 def test_bruteforce_renames_handle_collisions() -> None:
-    """Bruteforce renames handle collisions."""
-    src = _read("feature_engineering/bruteforce.py")
-    # The fix introduces the suffix-collision loop.
-    assert "_renamed = [col.replace" in src
-    assert "_final_names: list = []" in src
-    assert 'f"{_name}_{_seen[_name]}"' in src
+    """PySR column sanitising maps "-" and "=" to "_" and suffixes every collision, so no two columns share a name."""
+    from mlframe.feature_engineering.bruteforce import sanitize_pysr_column_names
+
+    cols = ["a-x", "a=x", "b", "c-y", "c=y", "c-y"]
+    assert sanitize_pysr_column_names(cols) == ["a_x", "a_x_2", "b", "c_y", "c_y_2", "c_y_3"]
+    assert sanitize_pysr_column_names(["p", "q"]) == ["p", "q"]
 
 
 # ---------------------------------------------------------------------------
@@ -118,31 +140,3 @@ def test_boruta_shap_raises_on_dup_input_columns() -> None:
     inst.X = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "a"])
     with pytest.raises(ValueError, match="duplicate column name"):
         inst.create_mapping_between_cols_and_indices()
-
-
-def test_bruteforce_column_renaming_disambiguates_collisions() -> None:
-    """After the column-rename pass, the resulting frame has unique column names
-    even when the renaming would have collided (e.g. 'a-x' and 'a=x')."""
-    # Replicate the rename loop logic directly.
-    cols = ["a-x", "a=x", "b", "c-y", "c=y", "c-y"]
-    renamed = [c.replace("-", "_").replace("=", "_") for c in cols]
-    # Without disambiguation, renamed has dupes.
-    assert len(set(renamed)) < len(renamed)
-
-    seen: dict = {}
-    final_names: list = []
-    for name in renamed:
-        if name in seen:
-            seen[name] += 1
-            final_names.append(f"{name}_{seen[name]}")
-        else:
-            seen[name] = 1
-            final_names.append(name)
-    # Post-disambiguation, all unique.
-    assert len(set(final_names)) == len(final_names)
-    # And first-arrival keeps its base name.
-    assert final_names[0] == "a_x"
-    assert final_names[1] == "a_x_2"
-    assert final_names[3] == "c_y"
-    assert final_names[4] == "c_y_2"
-    assert final_names[5] == "c_y_3"

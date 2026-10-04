@@ -165,6 +165,9 @@ def test_biz_value_signal_column_has_higher_iv_than_noise():
     to any of the noise columns. This locks in that the binner discovers the relationship.
     """
     df, y = _make_synthetic_binary_df(n=600, n_features=5, seed=2)
+    # a perfectly separating step makes the information value infinite and optbinning reports 0.0 for it, so flip 10% of the labels to keep the IV finite
+    flip = np.random.default_rng(5).random(len(y)) < 0.10
+    y = y.where(~flip, 1 - y)
     _, _, _, bp_nocats_nofs = get_binningprocess_featureselectors(df, n_jobs=1)
     try:
         bp_nocats_nofs.fit(df, y)
@@ -176,21 +179,7 @@ def test_biz_value_signal_column_has_higher_iv_than_noise():
     signal_iv = iv_map["signal_step"]
     noise_ivs = [iv for name, iv in iv_map.items() if name.startswith("noise_")]
     max_noise_iv = max(noise_ivs)
-    # Defensive skip: optbinning's binner occasionally collapses
-    # ``signal_step`` to a single bin and reports ``IV=0`` on certain
-    # optbinning + numpy + n_samples combos (observed GitHub-hosted CI
-    # ubuntu / windows 2026-05-24 with iv_map showing signal_step=0.0
-    # and noise IVs at 0.06-0.16 — the binner found no monotone trend
-    # under that specific version pin's default ``monotonic_trend=auto``
-    # heuristic). The locally-pinned optbinning + sklearn combo passes
-    # the assertion; skip on the environment where the binner has
-    # collapsed the column rather than assert a false positive.
-    if signal_iv == 0.0:
-        pytest.skip(
-            f"optbinning binned signal_step to a single bin (IV=0) on "
-            f"this optbinning / numpy / sklearn combo; skipping the "
-            f"IV-vs-noise assertion. iv_map={iv_map}"
-        )
+    assert signal_iv > 0.0, f"optbinning collapsed signal_step to a single bin (IV=0); iv_map={iv_map}"
     assert signal_iv > max_noise_iv, f"signal_step IV ({signal_iv:.3f}) must exceed every noise IV (max={max_noise_iv:.3f}); iv_map={iv_map}"
     # Tighter contract: signal must be at least 2x the noise max — keeps a regression-detection margin
     assert signal_iv > max_noise_iv * 2.0, f"signal_step IV ({signal_iv:.3f}) should be >=2x max noise IV ({max_noise_iv:.3f}); iv_map={iv_map}"

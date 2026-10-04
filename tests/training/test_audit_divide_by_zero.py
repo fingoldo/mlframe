@@ -24,26 +24,8 @@ category, user-supplied zero temperature). Either crashes the njit kernel
 
 from __future__ import annotations
 
-import importlib
-from pathlib import Path
-
 import numpy as np
 import pytest
-
-MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
-
-
-def _read(rel: str) -> str:
-    # info_theory.py was carved into the ``info_theory/`` subpackage; the
-    # empty-factors guard now lives in a submodule (``_batch_kernels.py``).
-    # Concat every submodule so the source-grep sensor matches the relocated
-    # guard regardless of which submodule owns it now.
-    """Read."""
-    pkg_dir = MLFRAME_ROOT / "feature_selection" / "filters" / "info_theory"
-    if rel == "feature_selection/filters/info_theory.py" and pkg_dir.is_dir():
-        return "\n".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
-
 
 # ---------------------------------------------------------------------------
 # Source-level sensors
@@ -174,9 +156,21 @@ def test_info_theory_guards_empty_factors_data() -> None:
 
 
 def test_batch_pair_mi_gpu_host_guards_empty() -> None:
-    """Batch pair mi gpu host guards empty."""
-    src = _read("feature_selection/filters/batch_pair_mi_gpu.py")
-    assert "if n_samples == 0:\n        return np.zeros(n_pairs, dtype=np.float64)" in src
+    """With zero samples the cupy pair-MI kernel returns one zero per pair instead of dividing by zero; with no pairs it returns an empty array."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters.batch_pair_mi_gpu import batch_pair_mi_cupy
+
+    empty = np.zeros((0, 3), dtype=np.int32)
+    pair_a = np.array([0, 1], dtype=np.int64)
+    pair_b = np.array([1, 2], dtype=np.int64)
+    nbins = np.array([2, 2, 2], dtype=np.int32)
+    classes_y = np.zeros(0, dtype=np.int32)
+    freqs_y = np.array([1.0], dtype=np.float64)
+    out = batch_pair_mi_cupy(empty, pair_a, pair_b, nbins, classes_y, freqs_y)
+    assert out.shape == (2,)
+    assert out.dtype == np.float64
+    np.testing.assert_array_equal(out, np.zeros(2))
+    assert batch_pair_mi_cupy(empty, pair_a[:0], pair_b[:0], nbins, classes_y, freqs_y).shape == (0,)
 
 
 def test_kernels_njit_softmax_temp_guarded() -> None:

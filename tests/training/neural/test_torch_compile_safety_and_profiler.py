@@ -174,9 +174,22 @@ def reg_data():
     return X_tr, y_tr
 
 
-def test_profile_env_off_does_not_attach_profiler(reg_data, monkeypatch):
-    """Default: no PyTorchProfiler attached, no traces emitted."""
+def test_profile_env_off_does_not_attach_profiler(reg_data, monkeypatch, tmp_path):
+    """Default: no PyTorchProfiler attached, no traces emitted; with the env on, the same call does attach one."""
+    from mlframe.training.neural.base._base_fit_helpers import _FitCommonHelpersMixin
+
     monkeypatch.delenv("MLFRAME_TORCH_PROFILE", raising=False)
+    monkeypatch.delenv("MLFRAME_TORCH_PROFILE_DIR", raising=False)
+    off_params: dict = {}
+    _FitCommonHelpersMixin._fit_common_chrome_trace_export_mlframe(off_params, str(tmp_path))
+    assert "profiler" not in off_params
+    assert not (tmp_path / "torch_traces").exists()
+    monkeypatch.setenv("MLFRAME_TORCH_PROFILE", "1")
+    on_params: dict = {}
+    _FitCommonHelpersMixin._fit_common_chrome_trace_export_mlframe(on_params, str(tmp_path))
+    assert type(on_params["profiler"]).__name__ == "PyTorchProfiler"
+    assert (tmp_path / "torch_traces").is_dir()
+    monkeypatch.delenv("MLFRAME_TORCH_PROFILE")
     X_tr, y_tr = reg_data
     reg = PytorchLightningRegressor(
         model_class=MLPTorchModel,
@@ -208,7 +221,8 @@ def test_profile_env_off_does_not_attach_profiler(reg_data, monkeypatch):
         random_state=0,
     )
     reg.fit(X_tr, y_tr)
-    # No torch_traces dir created (or empty); we don't crash.
+    assert reg.predict(X_tr).shape[0] == len(y_tr)
+    assert "profiler" not in reg.trainer_params
 
 
 def test_profile_env_on_attaches_profiler(reg_data, monkeypatch, tmp_path):

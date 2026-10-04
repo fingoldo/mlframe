@@ -18,6 +18,7 @@ ranking feature actually track quality" check, not a raw identity assertion.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from scipy.stats import spearmanr
 
 from mlframe.feature_engineering.grouped import per_group_rank
@@ -81,8 +82,5 @@ def test_biz_val_per_group_rank_tiebreak_rejects_non_ordinal_method():
     """Biz val per group rank tiebreak rejects non ordinal method."""
     groups, score, tiebreak, _merit = _make_coarse_score_dataset(n_groups=10, group_size=8, seed=3)
     for method in ("average", "min", "max", "dense"):
-        try:
+        with pytest.raises(ValueError, match="tiebreak_values is only supported with method='ordinal'"):
             per_group_rank(score, groups, method=method, tiebreak_values=tiebreak)
-        except ValueError:
-            continue
-        raise AssertionError(f"expected ValueError for method={method!r} with tiebreak_values set")

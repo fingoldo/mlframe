@@ -23,74 +23,32 @@ intent-disagreement was operator-visible:
    "gate pruned every member" signal; the pre-fix ``rebuilt or ensemble_dict``
    collapsed it to "return prior ensemble" silently.
 
-All four checks are source-level (no full-suite fixture needed): grep for
-the pre-fix pattern's absence + presence of the post-fix idiom. Per
-``feedback_behavioral_tests`` source-level checks are reserved for boundary
-contracts where behavioural reproduction would require an integration
-fixture; cross-field validation of the ``x is None`` vs ``not x`` distinction
-qualifies because the only difference is in the (caller, sentinel-value)
-pair, not the arithmetic the function performs.
+Each site is exercised through its behaviour: the resolver, the signature function, the fit-cache writer and the recurrent rerun are called with the falsy sentinel.
 """
 
 from __future__ import annotations
 
-import pathlib
+import logging
+from types import SimpleNamespace
 
-import mlframe as _mlframe
-
-_SRC_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
-
-
-def _read(rel: str) -> str:
-    """Read a source file. For modules that have been split into sibling
-    helpers / subpackages (e.g. ``mrmr.py`` -> ``mrmr/_mrmr_class.py`` +
-    ``_mrmr_fit_impl.py`` / ``_mrmr_fingerprints.py`` / ``_mrmr_fe_step/``
-    (subpackage) / ``_mrmr_validate_transform.py``), concat every sibling so
-    the source-grep boundary check still matches the relocated code."""
-    _path = _SRC_ROOT / rel
-    if not _path.exists() and _path.suffix == ".py" and (_path.with_suffix("") / "__init__.py").exists():
-        _pkg = _path.with_suffix("")
-        _parts = [(_pkg / "__init__.py").read_text(encoding="utf-8")]
-        for _sub in sorted(_pkg.glob("*.py")):
-            if _sub.name != "__init__.py":
-                _parts.append(_sub.read_text(encoding="utf-8"))
-        primary = "\n".join(_parts)
-    else:
-        primary = _path.read_text(encoding="utf-8")
-    if rel == "feature_selection/filters/mrmr/_mrmr_class.py":
-        _dir = _SRC_ROOT / "feature_selection" / "filters"
-        for nm in (
-            "mrmr/__init__.py",
-            "_mrmr_fingerprints.py",
-            "_mrmr_fit_impl/_fit_impl_core.py",
-            "_mrmr_fit_impl/_helpers.py",
-            "_mrmr_fe_step/_step_core.py",
-            "_mrmr_fe_step/_helpers.py",
-            "_mrmr_validate_transform.py",
-        ):
-            _sib = _dir / nm
-            if _sib.exists():
-                primary = primary + "\n" + _sib.read_text(encoding="utf-8")
-    return primary
+import numpy as np
 
 
-def test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch():
-    """``tiny_rerank_n_jobs=0`` (auto-pick) MUST reach the ``if cfg == 0:``
-    branch. Pre-fix ``int(... or 1)`` collapsed it.
+def test_tiny_rerank_n_jobs_zero_sentinel_reaches_branch(monkeypatch):
+    """``tiny_rerank_n_jobs=0`` auto-picks min(spec count, physical cores); None is the historical 1; other values are taken as given.
 
-    ``_tiny_model_rerank`` was moved to the
-    ``_composite_discovery_tiny_rerank.py`` sibling when
-    ``composite_discovery.py`` was split below 1k LOC.
+    The pre-fix ``int(raw or 1)`` collapsed 0 to 1 before the auto-pick branch ran.
     """
-    src = _read("training/composite/discovery/_tiny_rerank.py")
-    assert 'int(getattr(self.config, "tiny_rerank_n_jobs", 1) or 1)' not in src, (
-        "Pre-fix `or 1` pattern reappeared: tiny_rerank_n_jobs=0 sentinel is "
-        "silently rewritten to 1 BEFORE the `if cfg == 0:` auto-pick branch "
-        "runs (wave 14 regression). Use `int(1 if raw is None else raw)`."
-    )
-    assert (
-        "_rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)" in src
-    ), "Post-fix idiom missing in _composite_discovery_tiny_rerank.py. Expected explicit None-check so `tiny_rerank_n_jobs=0` reaches the auto-pick branch."
+    import pyutilz.parallel
+    from mlframe.training.composite.discovery._tiny_rerank import _resolve_rerank_n_jobs
+
+    monkeypatch.setattr(pyutilz.parallel, "cpu_count_physical", lambda: 8)
+    assert _resolve_rerank_n_jobs(0, 5) == 5
+    assert _resolve_rerank_n_jobs(0, 20) == 8
+    assert _resolve_rerank_n_jobs(0, 0) == 1
+    assert _resolve_rerank_n_jobs(None, 20) == 1
+    assert _resolve_rerank_n_jobs(3, 20) == 3
+    assert _resolve_rerank_n_jobs(-1, 20) == 1
 
 
 def test_discovery_random_state_zero_preserved():
@@ -135,21 +93,44 @@ def test_mrmr_fit_cache_max_zero_disables_cache():
         MRMR._FIT_CACHE.update(_saved)
 
 
-def test_recurrent_rerun_empty_rebuild_not_silently_swapped():
-    """``rebuilt == {}`` (all members gated out) MUST be returned verbatim.
-    Pre-fix ``rebuilt or ensemble_dict`` conflated empty-rebuild with
-    "rerun failed", silently restoring the pre-recurrent ensemble."""
-    src = _read("training/core/_phase_recurrent.py")
-    assert "return rebuilt or ensemble_dict" not in src, (
-        "Pre-fix `rebuilt or ensemble_dict` pattern reappeared. Empty rebuild "
-        "(all members gated out by the recurrent rerun) is operationally "
-        "distinct from rebuild-failed and must not silently restore the "
-        "prior ensemble (wave 14 regression)."
+def _recurrent_ctx():
+    """A context with two members whose predictions match the sliced target row counts, plus the aligned target values."""
+    members = [SimpleNamespace(model_name=f"m{i}", train_preds=np.zeros(6), val_preds=np.zeros(2), test_preds=np.zeros(2)) for i in range(2)]
+    ctx = SimpleNamespace(
+        models={"reg": {"t": members}},
+        train_idx=np.arange(0, 6),
+        val_idx=np.arange(6, 8),
+        test_idx=np.arange(8, 10),
+        verbose=0,
+        model_name="mdl",
+        group_ids=None,
+        sample_weights=None,
     )
-    assert "if rebuilt is None:" in src
-    assert (
-        "all members gated out" in src
-    ), "The empty-rebuild branch must WARN-log with a distinguishable message so operators can tell `{}` from `prior_ensemble`."
+    return ctx, np.arange(10.0)
+
+
+def test_recurrent_rerun_empty_rebuild_not_silently_swapped(monkeypatch, caplog):
+    """An empty rebuilt ensemble (every member gated out) is returned as the empty dict with a distinguishable WARN; ``None`` keeps the prior ensemble."""
+    from mlframe.models import ensembling
+    from mlframe.training.core._phase_recurrent import _apply_recurrent_to_ensemble
+
+    ctx, target_values = _recurrent_ctx()
+    prior = {"prior_method": object()}
+
+    def run(result):
+        """Apply the recurrent rerun with ``score_ensemble`` stubbed to return ``result``."""
+        monkeypatch.setattr(ensembling, "score_ensemble", lambda models_and_predictions, **kwargs: result)
+        return _apply_recurrent_to_ensemble(ctx=ctx, ensemble_dict=prior, target_type="reg", target_name="t", target_values=target_values)
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.core._phase_recurrent"):
+        empty = run({})
+    assert empty == {} and empty is not prior
+    assert any("all members gated out" in r.getMessage() for r in caplog.records)
+
+    assert run(None) is prior
+
+    fresh = {"blend": 1}
+    assert run(fresh) == fresh
 
 
 def test_mrmr_fit_cache_disable_zero_behavior_unit():

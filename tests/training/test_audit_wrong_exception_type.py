@@ -33,6 +33,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
@@ -79,57 +80,147 @@ def _read(rel: str) -> str:
 # P1 / cluster #1: not-fitted now raises sklearn.exceptions.NotFittedError
 # ---------------------------------------------------------------------------
 
-NOT_FITTED_TARGETS = [
-    "feature_selection/wrappers/rfecv/__init__.py",
-    "training/feature_handling/polynomial.py",
-    "training/feature_handling/text_encoder.py",
-    "training/feature_handling/custom_handler.py",
-    "training/pu_learning.py",
-    "training/neural/base.py",
-    "training/neural/recurrent.py",
-    "training/neural/keras_compat.py",
-]
+def _not_fitted_calls() -> dict:
+    """Zero-argument callables, one per not-fitted guard, each invoking the guarded method on an unfitted object."""
+    import pandas as pd
+    from sklearn.linear_model import LogisticRegression
+
+    x2 = np.zeros((3, 2))
+
+    def rfecv(method):
+        """Return a callable running ``method`` on an unfitted RFECV."""
+
+        def call():
+            """Invoke the method on a fresh unfitted RFECV."""
+            from mlframe.feature_selection.wrappers.rfecv import RFECV
+
+            return getattr(RFECV(estimator=LogisticRegression()), method)(*([x2] if method == "transform" else []))
+
+        return call
+
+    def rfecv_stability():
+        """Run the RFECV stability diagnostic on an unfitted selector."""
+        from mlframe.feature_selection.wrappers.rfecv import RFECV
+        from mlframe.feature_selection.wrappers.rfecv import _diagnostics
+
+        return _diagnostics.selection_stability_(RFECV(estimator=LogisticRegression()))
+
+    def polynomial(attr):
+        """Return a callable touching ``attr`` (or calling it) on an unfitted expander."""
+
+        def call():
+            """Touch the attribute on a fresh unfitted PolynomialFeatureExpander."""
+            from mlframe.training.feature_handling.polynomial import PolynomialFeatureExpander
+
+            obj = PolynomialFeatureExpander(degree=2)
+            return getattr(obj, attr)(x2) if attr == "transform" else getattr(obj, attr)
+
+        return call
+
+    def text_encoder():
+        """Transform with an unfitted text encoder."""
+        from mlframe.training.feature_handling.text_encoder import TextColumnEncoder, TfidfParams
+
+        return TextColumnEncoder("c", TfidfParams()).transform(pd.DataFrame({"c": ["a"]}))
+
+    def custom_handler():
+        """Transform with an unfitted custom handler."""
+        from sklearn.preprocessing import StandardScaler
+
+        from mlframe.training.feature_handling.custom_handler import CustomHandler
+        from mlframe.training.feature_handling.handlers import CustomParams
+
+        return CustomHandler("c", CustomParams(transformer=StandardScaler())).transform(pd.DataFrame({"c": [1.0]}))
+
+    def pu_learning():
+        """predict_proba on an unfitted PU wrapper."""
+        from mlframe.training.pu_learning import PULearningWrapper
+
+        return PULearningWrapper(LogisticRegression()).predict_proba(x2)
+
+    def neural_base():
+        """predict on an unfitted Lightning estimator."""
+        from mlframe.training.neural.base import PytorchLightningRegressor
+
+        est = PytorchLightningRegressor(
+            model_class=object, model_params={}, network_params={}, datamodule_class=object, datamodule_params={}, trainer_params={}
+        )
+        return est.predict(x2)
+
+    def recurrent(cls_name, method):
+        """Return a callable running ``method`` on an unfitted recurrent wrapper."""
+
+        def call():
+            """Invoke the method on a fresh unfitted wrapper."""
+            from mlframe.training.neural import recurrent as rec
+
+            return getattr(getattr(rec, cls_name)(), method)(x2)
+
+        return call
+
+    def keras_compat():
+        """predict on an unfitted Keras-compatible MLP."""
+        from mlframe.training.neural.keras_compat import KerasCompatibleMLP
+
+        return KerasCompatibleMLP().predict(x2)
+
+    return {
+        "rfecv.get_feature_names_out": rfecv("get_feature_names_out"),
+        "rfecv.get_support": rfecv("get_support"),
+        "rfecv.transform": rfecv("transform"),
+        "rfecv.selection_stability": rfecv_stability,
+        "polynomial.transform": polynomial("transform"),
+        "polynomial.n_features_in": polynomial("n_features_in"),
+        "polynomial.feature_names_out": polynomial("feature_names_out"),
+        "text_encoder.transform": text_encoder,
+        "custom_handler.transform": custom_handler,
+        "pu_learning.predict_proba": pu_learning,
+        "neural_base.predict": neural_base,
+        "recurrent_classifier.predict_proba": recurrent("RecurrentClassifierWrapper", "predict_proba"),
+        "recurrent_classifier.predict": recurrent("RecurrentClassifierWrapper", "predict"),
+        "recurrent_regressor.predict": recurrent("RecurrentRegressorWrapper", "predict"),
+        "keras_compat.predict": keras_compat,
+    }
 
 
-@pytest.mark.parametrize("rel", NOT_FITTED_TARGETS)
-def test_not_fitted_uses_notfittederror(rel: str) -> None:
-    """Every not-fitted code path must use sklearn's NotFittedError so pipelines catch it."""
-    src = _read(rel)
-    # No bare RuntimeError("...not been fitted...") or "...is not fitted..." patterns.
-    forbidden_phrases = ["not been fitted", "is not fitted", "not fitted; call fit"]
-    for phrase in forbidden_phrases:
-        # Allow the phrase in the NEW NotFittedError messages; forbid only with RuntimeError class.
-        # Lightweight check: if phrase appears, ensure no RuntimeError on the same logical raise line.
-        assert src.strip(), f"{rel}: the source to scan is empty"
-        for line_idx, line in enumerate(src.splitlines()):
-            if phrase in line and "RuntimeError" in line:
-                pytest.fail(f"{rel}: line {line_idx + 1} still raises RuntimeError for a not-fitted state: {line.strip()!r}")
+NOT_FITTED_TARGETS = sorted(_not_fitted_calls())
+
+
+@pytest.mark.parametrize("target", NOT_FITTED_TARGETS)
+def test_not_fitted_uses_notfittederror(target: str) -> None:
+    """Every not-fitted code path raises sklearn's NotFittedError so pipelines catch it, never a bare RuntimeError."""
+    from sklearn.exceptions import NotFittedError
+
+    if target.startswith("rfecv"):
+        pytest.importorskip("mlframe.feature_selection.wrappers.rfecv")
+    if target.startswith(("neural_base", "recurrent")):
+        pytest.importorskip("lightning")
+    with pytest.raises(NotFittedError) as info:
+        _not_fitted_calls()[target]()
+    assert type(info.value) is NotFittedError
+    assert not isinstance(info.value, RuntimeError)
+    assert str(info.value).strip()
 
 
 def test_notfittederror_is_importable_in_each_file() -> None:
-    """If a file mentions NotFittedError, sklearn must be the source."""
-    for rel in NOT_FITTED_TARGETS:
-        src = _read(rel)
-        if "NotFittedError" not in src:
-            continue
-        assert "from sklearn.exceptions import NotFittedError" in src, f"{rel}: NotFittedError referenced but not imported from sklearn.exceptions"
+    """The NotFittedError every guard raises is sklearn's own class, so ``except sklearn.exceptions.NotFittedError`` catches it."""
+    from sklearn.exceptions import NotFittedError
+
+    available = [t for t in NOT_FITTED_TARGETS if not t.startswith(("neural_base", "recurrent"))]
+    assert len(available) >= 10
+    caught = []
+    for target in available:
+        try:
+            _not_fitted_calls()[target]()
+        except NotFittedError as exc:
+            caught.append((target, type(exc)))
+    assert [t for t, _ in caught] == available
+    assert {cls for _, cls in caught} == {NotFittedError}
 
 
 # ---------------------------------------------------------------------------
 # P1 / cluster #2: isinstance failures now raise TypeError (not ValueError)
 # ---------------------------------------------------------------------------
-
-
-def _raise_type_for_isinstance_fail(src: str, sentinel_token: str) -> str:
-    """Return raise-class on the line following the isinstance check naming sentinel_token."""
-    lines = src.splitlines()
-    for i, ln in enumerate(lines):
-        if "isinstance" in ln and sentinel_token in ln:
-            # The raise should be in the same suite within 3 lines.
-            for j in range(i, min(i + 5, len(lines))):
-                if "raise " in lines[j]:
-                    return lines[j].strip()
-    return ""
 
 
 def test_bruteforce_df_type_is_typeerror() -> None:
@@ -142,9 +233,19 @@ def test_bruteforce_df_type_is_typeerror() -> None:
 
 
 def test_neural_base_mixin_type_is_typeerror() -> None:
-    """Neural base mixin type is typeerror."""
-    src = _read("training/neural/base.py")
-    assert 'raise TypeError(f"Estimator must be a RegressorMixin or ClassifierMixin' in src, "neural/base.py: mixin dispatch failure should raise TypeError"
+    """An estimator that is neither a regressor nor a classifier is refused by ``score`` with a TypeError naming its class."""
+    pytest.importorskip("lightning")
+    from mlframe.training.neural.base._base_predict import _PredictMixin
+
+    class _NeitherKind(_PredictMixin):
+        """Mixin host that is not a RegressorMixin or ClassifierMixin."""
+
+        def predict(self, X, **kwargs):
+            """Return fixed predictions so ``score`` reaches its type dispatch."""
+            return np.zeros(len(X))
+
+    with pytest.raises(TypeError, match=r"Estimator must be a RegressorMixin or ClassifierMixin, got _NeitherKind"):
+        _NeitherKind().score(np.zeros((3, 2)), np.zeros(3))
 
 
 def test_neural_base_period_type_is_typeerror() -> None:
@@ -195,11 +296,19 @@ def test_neural_flat_validation_accepts_valid_arguments() -> None:
 
 
 def test_neural_flat_batch_format_is_typeerror() -> None:
-    """``MLPTorchModel`` (where the batch-format dispatch lives) moved to
-    sibling _flat_torch_module.py after the flat-module monolith split;
-    concat so the source sensor still matches."""
-    src = _read("training/neural/flat.py") + "\n" + _read("training/neural/_flat_torch_module.py")
-    assert 'raise TypeError(f"Unexpected batch format' in src, "neural/flat.py: batch format dispatch failure should raise TypeError"
+    """``MLPTorchModel`` unpacks tuple / list / dict batches and refuses anything else with a TypeError naming the type."""
+    pytest.importorskip("torch")
+    pytest.importorskip("lightning")
+    from mlframe.training.neural._flat_torch_module._flat_torch_loss import _LossMixin
+
+    loss = _LossMixin()
+    assert loss._unpack_batch((1, 2)) == (1, 2, None)
+    assert loss._unpack_batch([1, 2, 3]) == (1, 2, 3)
+    assert loss._unpack_batch({"features": 1, "labels": 2}) == (1, 2, None)
+    with pytest.raises(TypeError, match=r"Unexpected batch format: int"):
+        loss._unpack_batch(5)
+    with pytest.raises(TypeError, match=r"Unexpected batch format: tuple"):
+        loss._unpack_batch((1,))
 
 
 # ---------------------------------------------------------------------------
@@ -225,18 +334,28 @@ def test_assertion_error_not_used_at_validation_boundary(rel: str, forbidden_ass
             pytest.fail(f"{rel}: still raises AssertionError at validation boundary; would be stripped by python -O\n  line: {line.strip()!r}")
 
 
-def test_categorical_numaggs_count_mismatch_is_runtimeerror() -> None:
-    """Categorical numaggs count mismatch is runtimeerror."""
-    src = _read("feature_engineering/categorical.py")
-    assert (
-        "raise RuntimeError(" in src and "compute_numaggs(directional_only=True) returned" in src
-    ), "categorical.py: numaggs count mismatch should raise RuntimeError"
+def test_categorical_numaggs_count_mismatch_is_runtimeerror(monkeypatch) -> None:
+    """A directional-numaggs width that disagrees with the registered names raises RuntimeError (not an assert stripped by -O)."""
+    import pandas as pd
+
+    from mlframe.feature_engineering import categorical
+
+    monkeypatch.setattr(categorical, "compute_numaggs", lambda **kwargs: [1.0])
+    series = pd.Series([1.0, 2.0, 2.0, 3.0, 3.0, 3.0])
+    with pytest.raises(RuntimeError, match=r"compute_numaggs\(directional_only=True\) returned 1 values but \d+ names are registered"):
+        categorical.compute_countaggs(series, counts_compute_numaggs=False, counts_compute_values_numaggs=True)
 
 
-def test_ranking_unreachable_is_runtimeerror() -> None:
-    """Ranking unreachable is runtimeerror."""
-    src = _read("training/ranking.py")
-    assert 'raise RuntimeError("unreachable' in src, "ranking.py: unreachable sentinel should be RuntimeError"
+def test_ranking_unreachable_is_runtimeerror(monkeypatch) -> None:
+    """A ranker family the dispatcher does not recognise raises RuntimeError rather than falling off the end."""
+    from types import SimpleNamespace
+
+    from mlframe.training.ranking import ranking as r
+
+    strategy = SimpleNamespace(supports_native_ranking=True, get_ranker_objective_kwargs=lambda **kwargs: {})
+    monkeypatch.setattr(r, "_strategy_flavor", lambda s: "banana")
+    with pytest.raises(RuntimeError, match=r"unreachable: unhandled ranker family after backend dispatch"):
+        r.fit_ranker(strategy, np.zeros((4, 2)), np.zeros(4), np.zeros(4, dtype=int))
 
 
 # ---------------------------------------------------------------------------

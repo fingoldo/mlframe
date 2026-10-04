@@ -71,32 +71,82 @@ def test_phase_helpers_enum_cast_logs_oov_delta_on_test() -> None:
     assert "[enum-cast] %s split: %d col(s) had OOV nulls cast-failed" in src
 
 
-def test_phase_polars_fixes_test_cast_logs_oov_delta() -> None:
-    """Phase polars fixes test cast logs oov delta."""
-    src = _read("training/core/_phase_polars_fixes.py")
-    assert "[cat-alignment] test col=%s: %d row(s) cast-failed to null" in src
-    # The null-count baseline is now batched into one collect across all eligible cols (S44)
-    # instead of a per-col sync call inside the alignment loop. The diagnostic semantics are
-    # preserved: a pre-cast null_count is captured per col and compared against the post-cast
-    # null_count to emit the OOV log line.
-    assert "_test_nulls_pre" in src
-    assert "null_count()" in src
+def test_phase_polars_fixes_test_cast_logs_oov_delta(caplog) -> None:
+    """The dict alignment logs how many test rows were nulled by an out-of-vocabulary cast against the train+val Enum domain, and stays silent without OOV."""
+    import logging
+
+    import polars as pl
+
+    from mlframe.training.core._phase_polars_fixes import _apply_polars_categ_train_df_polars_none
+
+    train = pl.DataFrame({"cat": ["a", "b", "a", "b"]})
+    val = pl.DataFrame({"cat": ["a", "c", "b", "c"]})
+    test = pl.DataFrame({"cat": ["a", "zzz", "c", "zzz", "yyy"]})
+
+    with caplog.at_level(logging.INFO):
+        test_out, _train_out, val_out = _apply_polars_categ_train_df_polars_none(train, ["cat"], True, None, val, 1, test, set(), {})
+
+    assert test_out["cat"].dtype == pl.Enum(["a", "b", "c"])
+    assert test_out["cat"].to_list() == ["a", None, "c", None, None]
+    assert val_out["cat"].null_count() == 0
+    messages = [m for m in caplog.messages if m.startswith("[cat-alignment]")]
+    assert messages == ["[cat-alignment] test col=cat: 3 row(s) cast-failed to null (OOV vs train+val Enum domain)"]
+
+    caplog.clear()
+    clean_test = pl.DataFrame({"cat": ["a", "b", "c"]})
+    with caplog.at_level(logging.INFO):
+        _apply_polars_categ_train_df_polars_none(train, ["cat"], True, None, val, 1, clean_test, set(), {})
+    assert [m for m in caplog.messages if m.startswith("[cat-alignment]")] == []
 
 
-def test_strategies_xgb_cat_cast_logs_oov_delta() -> None:
-    """The xgb cat-cast OOV-delta logging lives in the XGBoost strategy submodule."""
-    sibling = _read("training/strategies/xgboost.py")
-    needle = "[xgb cat-cast] %d col(s) had OOV nulls cast-failed"
-    assert needle in sibling
+def test_strategies_xgb_cat_cast_logs_oov_delta(caplog) -> None:
+    """The XGBoost strategy logs the per-column count of rows its category_map cast nulled, and stays silent when every value is in the map."""
+    import logging
+
+    import polars as pl
+
+    from mlframe.training.strategies.xgboost import XGBoostStrategy
+
+    category_map = {"cat": pl.Enum(["a", "b"])}
+    df = pl.DataFrame({"cat": ["a", "c", "b", "c", "d"], "num": [1.0, 2.0, 3.0, 4.0, 5.0]})
+
+    with caplog.at_level(logging.INFO):
+        out = XGBoostStrategy().prepare_polars_dataframe(df, ["cat"], category_map=category_map)
+
+    assert out["cat"].dtype == pl.Enum(["a", "b"])
+    assert out["cat"].to_list() == ["a", None, "b", None, None]
+    assert [m for m in caplog.messages if "[xgb cat-cast]" in m] == ["[xgb cat-cast] 1 col(s) had OOV nulls cast-failed: {'cat': 3}"]
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        clean = XGBoostStrategy().prepare_polars_dataframe(pl.DataFrame({"cat": ["a", "b", "a"]}), ["cat"], category_map=category_map)
+    assert clean["cat"].null_count() == 0
+    assert [m for m in caplog.messages if "[xgb cat-cast]" in m] == []
 
 
-def test_strategies_hgb_cat_cast_logs_oov_delta() -> None:
-    """The hgb cat-cast OOV-delta logging lives in the HGB strategy submodule."""
-    sibling = _read("training/strategies/hgb.py")
-    needle = "[hgb cat-cast] %d col(s) had OOV nulls cast-failed"
-    assert needle in sibling
-    track_needle = "_strict_false_cols: list[str] = []"
-    assert track_needle in sibling
+def test_strategies_hgb_cat_cast_logs_oov_delta(caplog) -> None:
+    """The HGB strategy logs the per-column count of rows its category_map cast nulled, and stays silent when every value is in the map."""
+    import logging
+
+    import polars as pl
+
+    from mlframe.training.strategies.hgb import HGBStrategy
+
+    category_map = {"cat": pl.Enum(["a", "b"])}
+    df = pl.DataFrame({"cat": ["a", "c", "b", "c", "d"], "num": [1.0, 2.0, 3.0, 4.0, 5.0]})
+
+    with caplog.at_level(logging.INFO):
+        out = HGBStrategy().prepare_polars_dataframe(df, ["cat"], category_map=category_map)
+
+    assert out["cat"].dtype == pl.Enum(["a", "b"])
+    assert out["cat"].to_list() == ["a", None, "b", None, None]
+    assert [m for m in caplog.messages if "[hgb cat-cast]" in m] == ["[hgb cat-cast] 1 col(s) had OOV nulls cast-failed: {'cat': 3}"]
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        clean = HGBStrategy().prepare_polars_dataframe(pl.DataFrame({"cat": ["a", "b", "a"]}), ["cat"], category_map=category_map)
+    assert clean["cat"].null_count() == 0
+    assert [m for m in caplog.messages if "[hgb cat-cast]" in m] == []
 
 
 # ---------------------------------------------------------------------------

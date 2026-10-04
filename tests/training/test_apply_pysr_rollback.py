@@ -20,158 +20,91 @@ import numpy as np
 import pandas as pd
 
 
-class _FakeEqDF:
-    """Minimal stand-in for PySR's equations_ DataFrame; supplies .index and .loc[idx, col]."""
+class _FakePySRModel:
+    """Stand-in for a fitted PySRRegressor: ``equations_`` plus a ``predict(df, index)`` that can be told to fail on one frame size."""
 
-    def __init__(self, n_equations: int = 3):
-        self._n = n_equations
-        self.columns = ["equation", "score", "complexity"]
-        self.index = list(range(n_equations))
-
-    @property
-    def loc(self):
-        """Loc."""
-        class _Loc:
-            """Groups tests covering loc."""
-            def __init__(self, outer):
-                self.outer = outer
-
-            def __getitem__(self, key):
-                idx, _col = key
-                # Per-equation distinct text so hashes differ
-                return f"eq_{idx}"
-
-        return _Loc(self)
-
-    def sort_values(self, by, ascending):
-        """Sort values."""
-        return self  # already sorted
-
-    def head(self, n):
-        """Head."""
-        return self
-
-    def __len__(self):
-        return self._n
-
-
-class _PartialFailModel:
-    """Mock PySR model whose .predict raises ValueError on val_df but succeeds on
-    train_df / test_df. Reproduces the schema-drift bug shape pre-fix."""
-
-    def __init__(self, *, train_df, val_df, test_df):
-        self._train = id(train_df)
-        self._val = id(val_df)
-        self._test = id(test_df)
-        self.predict_calls = []
+    def __init__(self, n_equations: int, *, fail_rows: int | None = None, fail_index: int | None = None):
+        """Build ``n_equations`` equations (descending score) and the optional (frame size, equation index) failure trigger."""
+        self.equations_ = pd.DataFrame(
+            {"equation": [f"eq_{i}" for i in range(n_equations)], "score": [float(n_equations - i) for i in range(n_equations)], "complexity": 1}
+        )
+        self.feature_names_in_ = np.array(["x0", "x1"], dtype=object)
+        self.fail_rows = fail_rows
+        self.fail_index = fail_index
 
     def predict(self, df, index=None):
-        """Predict."""
-        self.predict_calls.append((id(df), index))
-        if id(df) == self._val:
-            raise ValueError(f"simulated PySR predict failure on val_df at equation idx={index}")
-        return np.full(len(df), float(index or 0), dtype=np.float32)
+        """Predict ``index`` as a constant column; raise for the configured (frame size, equation index) pair."""
+        if self.fail_rows is not None and len(df) == self.fail_rows and index == self.fail_index:
+            raise ValueError(f"simulated PySR predict failure on a {len(df)}-row frame at equation idx={index}")
+        return np.full(len(df), float(index), dtype=np.float32)
 
 
-def test_pysr_per_equation_predict_failure_rolls_back_all_frames(caplog):
-    """The exact bug shape from agent finding #1: val predict raises, train_df
-    must NOT keep the orphan column. New cols must be uniformly present or
-    uniformly absent across the three splits."""
-    # Build minimal frames + scaffold for the equation loop. We bypass run_pysr_feature_engineering
-    # (the PySR model call) by directly invoking the loop logic via apply_pysr_extension's
-    # internals -- but the loop lives inside _apply_pysr_fe and is not separately exposed.
-    # Instead test the property at the integration level: after the rollback fix, no
-    # column starting with "pysr__" leaks into train_df without appearing in val/test.
-    import hashlib
+def _frames():
+    """Train / val / test frames of 100 / 40 / 50 rows sharing the two feature columns."""
+    return tuple(pd.DataFrame({"x0": np.arange(n, dtype=np.float32), "x1": np.arange(n, dtype=np.float32)}) for n in (100, 40, 50))
 
-    # Reproduce the loop's logic in isolation (the production function is too coupled to
-    # the run_pysr_feature_engineering call to test directly; this validates the rollback contract).
-    train_df = pd.DataFrame({"x0": np.arange(100, dtype=np.float32), "x1": np.arange(100, dtype=np.float32)})
-    val_df = pd.DataFrame({"x0": np.arange(50, dtype=np.float32), "x1": np.arange(50, dtype=np.float32)})
-    test_df = pd.DataFrame({"x0": np.arange(50, dtype=np.float32), "x1": np.arange(50, dtype=np.float32)})
-    eq_df = _FakeEqDF(n_equations=2)
-    model = _PartialFailModel(train_df=train_df, val_df=val_df, test_df=test_df)
-    pysr_random_state = 42
-    new_cols: list = []
-    _col_to_index: dict = {}
-    out_equations: dict = {}
 
-    with caplog.at_level(logging.WARNING):
-        # Inline the post-fix loop (mirrors src/mlframe/training/pipeline.py:431-477)
-        for idx in eq_df.index:
-            equation_str = str(eq_df.loc[idx, "equation"])
-            hash8 = hashlib.blake2b(equation_str.encode("utf-8"), digest_size=4).hexdigest()
-            col_name = f"pysr__{hash8}__{pysr_random_state}"
-            if col_name in train_df.columns:
-                _col_to_index[col_name] = int(idx)
-                continue
-            try:
-                train_df[col_name] = np.asarray(model.predict(train_df, index=idx), dtype=np.float32)
-                if val_df is not None:
-                    val_df[col_name] = np.asarray(model.predict(val_df, index=idx), dtype=np.float32)
-                if test_df is not None:
-                    test_df[col_name] = np.asarray(model.predict(test_df, index=idx), dtype=np.float32)
-            except Exception as _eq_err:
-                for _frame in (train_df, val_df, test_df):
-                    if _frame is not None and col_name in _frame.columns:
-                        try:
-                            _frame.drop(columns=[col_name], inplace=True)
-                        except (TypeError, ValueError):
-                            pass
-                continue
-            new_cols.append(col_name)
-            _col_to_index[col_name] = int(idx)
-            out_equations[col_name] = equation_str
+def _run_apply(monkeypatch, model, train_df, val_df, test_df, out_equations):
+    """Run ``_apply_pysr_fe`` with ``run_pysr_feature_engineering`` replaced by one returning ``model``."""
+    from mlframe.feature_engineering import bruteforce
+    from mlframe.training.configs import PreprocessingExtensionsConfig
+    from mlframe.training.pipeline._pipeline_extensions_pysr import _apply_pysr_fe
 
-    # KEY ASSERTION: no orphan columns. Every column starting with pysr__ must be uniformly
-    # present or uniformly absent across train / val / test.
-    pysr_cols_train = {c for c in train_df.columns if c.startswith("pysr__")}
-    pysr_cols_val = {c for c in val_df.columns if c.startswith("pysr__")}
-    pysr_cols_test = {c for c in test_df.columns if c.startswith("pysr__")}
-    assert pysr_cols_train == pysr_cols_val == pysr_cols_test, (
-        f"schema drift detected -- pysr columns differ across splits:\n"
-        f"  train: {sorted(pysr_cols_train)}\n"
-        f"  val:   {sorted(pysr_cols_val)}\n"
-        f"  test:  {sorted(pysr_cols_test)}\n"
-        f"All equations failed on val; rollback should leave NO pysr cols anywhere."
+    monkeypatch.setattr(bruteforce, "run_pysr_feature_engineering", lambda **kwargs: model)
+    return _apply_pysr_fe(
+        train_df=train_df,
+        val_df=val_df,
+        test_df=test_df,
+        y_train=np.arange(len(train_df), dtype=np.float64),
+        config=PreprocessingExtensionsConfig(pysr_enabled=True),
+        verbose=0,
+        out_equations=out_equations,
     )
-    # All equations failed: new_cols must be empty.
-    assert new_cols == [], f"expected no successfully-applied equations, got {new_cols}"
 
 
-def test_pysr_all_succeed_baseline_no_rollback():
-    """Sanity: when no equation fails, the rollback path is not triggered and
-    columns are uniformly added to all three frames."""
-    import hashlib
+def _pysr_cols(df):
+    """Names of the PySR-derived columns of ``df``."""
+    return {c for c in df.columns if c.startswith("pysr__")}
 
-    train_df = pd.DataFrame({"x0": np.arange(100, dtype=np.float32)})
-    val_df = pd.DataFrame({"x0": np.arange(50, dtype=np.float32)})
-    test_df = pd.DataFrame({"x0": np.arange(50, dtype=np.float32)})
 
-    class _AllSucceedModel:
-        """Groups tests covering all succeed model."""
-        def predict(self, df, index=None):
-            """Predict."""
-            return np.full(len(df), float(index or 0), dtype=np.float32)
+def test_pysr_per_equation_predict_failure_rolls_back_all_frames(monkeypatch, caplog):
+    """An equation whose predict fails on val is rolled back from train, val and test; the others stay uniformly present."""
+    from mlframe.utils.log_throttle import reset_throttle_counts
 
-    eq_df = _FakeEqDF(n_equations=3)
-    model = _AllSucceedModel()
-    new_cols = []
-    pysr_random_state = 42
-    for idx in eq_df.index:
-        equation_str = str(eq_df.loc[idx, "equation"])
-        hash8 = hashlib.blake2b(equation_str.encode("utf-8"), digest_size=4).hexdigest()
-        col_name = f"pysr__{hash8}__{pysr_random_state}"
-        try:
-            train_df[col_name] = np.asarray(model.predict(train_df, index=idx), dtype=np.float32)
-            val_df[col_name] = np.asarray(model.predict(val_df, index=idx), dtype=np.float32)
-            test_df[col_name] = np.asarray(model.predict(test_df, index=idx), dtype=np.float32)
-        except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
-            continue
-        new_cols.append(col_name)
+    train_df, val_df, test_df = _frames()
+    out_equations: dict = {}
+    reset_throttle_counts("pysr_equation_skipped")
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
+        new_cols = _run_apply(monkeypatch, _FakePySRModel(3, fail_rows=40, fail_index=0), train_df, val_df, test_df, out_equations)
 
-    pysr_cols_train = {c for c in train_df.columns if c.startswith("pysr__")}
-    pysr_cols_val = {c for c in val_df.columns if c.startswith("pysr__")}
-    pysr_cols_test = {c for c in test_df.columns if c.startswith("pysr__")}
-    assert pysr_cols_train == pysr_cols_val == pysr_cols_test
-    assert len(pysr_cols_train) == 3
+    assert len(new_cols) == 2
+    assert _pysr_cols(train_df) == _pysr_cols(val_df) == _pysr_cols(test_df) == set(new_cols)
+    assert set(out_equations) == set(new_cols)
+    assert sorted(out_equations.values()) == ["eq_1", "eq_2"]
+    assert any("rolled back to keep splits schema-consistent" in r.getMessage() and "idx=0" in r.getMessage() for r in caplog.records)
+
+
+def test_pysr_all_equations_failing_leaves_no_orphan_columns(monkeypatch):
+    """When every equation fails on val, no PySR column survives on any frame and nothing is reported as added."""
+    train_df, val_df, test_df = _frames()
+    model = _FakePySRModel(1, fail_rows=40, fail_index=0)
+    new_cols = _run_apply(monkeypatch, model, train_df, val_df, test_df, {})
+    assert new_cols == []
+    assert _pysr_cols(train_df) == _pysr_cols(val_df) == _pysr_cols(test_df) == set()
+    assert list(train_df.columns) == ["x0", "x1"]
+
+
+def test_pysr_all_succeed_baseline_no_rollback(monkeypatch, caplog):
+    """When no equation fails nothing is rolled back: every column lands on all three frames carrying its own equation index."""
+    train_df, val_df, test_df = _frames()
+    out_equations: dict = {}
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
+        new_cols = _run_apply(monkeypatch, _FakePySRModel(3), train_df, val_df, test_df, out_equations)
+
+    assert len(new_cols) == 3
+    assert _pysr_cols(train_df) == _pysr_cols(val_df) == _pysr_cols(test_df) == set(new_cols)
+    assert sorted(out_equations.values()) == ["eq_0", "eq_1", "eq_2"]
+    for col in new_cols:
+        idx = int(out_equations[col].split("_")[1])
+        assert (train_df[col] == idx).all() and (val_df[col] == idx).all() and (test_df[col] == idx).all()
+    assert not any("rolled back" in r.getMessage() for r in caplog.records)

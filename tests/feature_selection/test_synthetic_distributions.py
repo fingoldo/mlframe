@@ -89,8 +89,14 @@ def test_with_outliers_scale_tracks_input_spread():
     wide = rng.normal(0, 100.0, 4000)
     bt = sd.with_outliers(rng, tight, frac=0.02, mag=10.0)
     bw = sd.with_outliers(rng, wide, frac=0.02, mag=10.0)
-    # The max excursion of the wide column's outliers >> the tight column's.
-    assert bw.max() > 100.0 * bt.max()
+    # The injected extreme sits at ``mag`` interquartile ranges of its own column, whatever the column's scale.
+    def _iqr(a):
+        """Interquartile range of ``a``."""
+        q75, q25 = np.percentile(a, [75, 25])
+        return q75 - q25
+
+    assert bt.max() / _iqr(tight) == pytest.approx(10.0, rel=0.1)
+    assert bw.max() / _iqr(wide) == pytest.approx(10.0, rel=0.1)
 
 
 def test_with_outliers_zero_frac_is_noop():

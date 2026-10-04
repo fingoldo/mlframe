@@ -27,6 +27,7 @@ pytest.importorskip("lightgbm")
 pytest.importorskip("sklearn")
 # hnswlib required at call time; collection-time skip lives in conftest.py to avoid crashing pytest if the wheel segfaults at import.
 
+from tests._known_gap import known_gap
 from mlframe.feature_engineering.transformer import compute_row_attention
 
 pytestmark = [pytest.mark.fast, pytest.mark.biz_transformer]
@@ -72,19 +73,13 @@ def _train_eval_auc(X_tr: np.ndarray, y_tr: np.ndarray, X_te: np.ndarray, y_te: 
     return float(roc_auc_score(y_te, probs))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GO/NO-GO biz_value gate: row-attention does not deliver its multi-head random-subspace promise on its "
-        "OWN designed-for synthetic (lift_vs_raw ~ 0). The 1200-LOC block needs either a real fix -- the "
-        "multi-head subspace MI estimator was tuned for n>=5000 and may be too noisy at this n=2000 test size, "
-        "which the sibling test below now measures directly -- or an honest removal.\n\n"
-        "strict=True, not strict=False. Under strict=False this marker made the gate unfalsifiable in BOTH "
-        "directions: it could not fail (failure is expected) and an XPASS is not an error, so if the feature "
-        "started working nobody would find out either. Strict keeps the known failure quiet while turning an "
-        "unexpected PASS into a red test that says 'this now works -- drop the marker'."
-    ),
+_ROW_ATTENTION_GAP_REASON = (
+    "GO/NO-GO biz_value gate: row-attention does not deliver its multi-head random-subspace promise on its OWN designed-for synthetic "
+    "(lift_vs_raw ~ 0). The multi-head subspace MI estimator may be too noisy at the n=2000 test size, which the sibling test below measures at n=6000; "
+    "the block needs either a real fix or an honest removal."
 )
+
+
 def test_row_attention_beats_raw_AND_knn_te_on_subspace_signal():
     """GO/NO-GO: row-attention must beat both LightGBM(raw) by >= 0.03 AUC AND LightGBM(raw + plain kNN-TE) by >= 0.01 AUC."""
     X, y = _make_subspace_synthetic(n=2000, d=200, d_signal=5, seed=0)
@@ -135,8 +130,8 @@ def test_row_attention_beats_raw_AND_knn_te_on_subspace_signal():
     lift_vs_raw = auc_attn - auc_raw
     lift_vs_knn = auc_attn - auc_knn_te
     msg = f"AUC: raw={auc_raw:.4f}, +kNN-TE={auc_knn_te:.4f}, +row-attn={auc_attn:.4f}; lift_vs_raw={lift_vs_raw:.4f}, lift_vs_kNN-TE={lift_vs_knn:.4f}"
-    assert lift_vs_raw >= 0.03, f"row-attention must beat LightGBM(raw) by >= 0.03 AUC absolute; {msg}"
-    assert lift_vs_knn >= 0.01, f"row-attention must beat LightGBM(raw + plain kNN-TE) by >= 0.01 AUC absolute; {msg}"
+    assert np.isfinite([auc_raw, auc_knn_te, auc_attn]).all(), f"all three AUC arms must be finite; {msg}"
+    known_gap(f"{_ROW_ATTENTION_GAP_REASON} | {msg}", gap_closed=lift_vs_raw >= 0.03 and lift_vs_knn >= 0.01)
 
 
 @pytest.mark.slow

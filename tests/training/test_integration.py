@@ -16,6 +16,8 @@ import pandas as pd
 
 from sklearn.linear_model import Ridge, LogisticRegression
 
+from tests._known_gap import known_gap
+
 from mlframe.training.configs import (
     DataConfig,
     TrainingControlConfig,
@@ -372,10 +374,11 @@ class TestAutoMLIntegration:
             fit_params={"time_limit": 30, "presets": "medium_quality"},  # Fast training
         )
 
-        if result is not None:
-            assert hasattr(result, "model")
-            assert hasattr(result, "feature_importances")
-            assert hasattr(result, "test_roc_auc")
+        assert result is not None
+        assert result.model is not None
+        assert result.test_probs.shape == (len(test_df), 2)
+        assert 0.8 <= result.metrics["test_auc"] <= 1.0
+        assert result.fi is not None and len(result.fi) > 0
 
     def test_lama_training(self, automl_data, tmp_path):
         """Test LightAutoML model training."""
@@ -386,26 +389,23 @@ class TestAutoMLIntegration:
 
         train_df, test_df = automl_data
 
-        # LightAutoML <= 0.3.8 references the removed np.find_common_type symbol; the bug surfaces as ``AttributeError`` deep inside lama at fit time.
-        # Gate on numpy version up front so the failure mode is loud (xfail) instead of silent (skip), and any future numpy-compat lama release re-enables it.
-        import numpy as _np_ver
-
-        _numpy_breaks_lama = tuple(int(x) for x in _np_ver.__version__.split(".")[:2]) >= (2, 0)
-        if _numpy_breaks_lama:
-            pytest.xfail(
-                f"LightAutoML <=0.3.8 references np.find_common_type which was removed in NumPy 2.0 "
-                f"(detected numpy {_np_ver.__version__}). Re-enable when lama ships a numpy-2-compatible release."
+        try:
+            result = train_lama_model(
+                train_df=train_df,
+                test_df=test_df,
+                target_name="target",
+                init_params={"task": Task("binary"), "timeout": 30},  # Required task + fast training
             )
-
-        result = train_lama_model(
-            train_df=train_df,
-            test_df=test_df,
-            target_name="target",
-            init_params={"task": Task("binary"), "timeout": 30},  # Required task + fast training
-        )
-
-        if result is not None:
-            assert hasattr(result, "model")
+        except AttributeError as err:
+            # LightAutoML <= 0.3.8 references np.find_common_type, removed in NumPy 2.0; it surfaces as an AttributeError at fit time.
+            if "find_common_type" not in str(err):
+                raise
+            known_gap(f"LightAutoML <=0.3.8 references np.find_common_type, removed in NumPy 2.0 ({err})", gap_closed=False)
+        else:
+            assert result is not None
+            assert result.model is not None
+            assert result.test_probs.shape == (len(test_df), 2)
+            assert 0.8 <= result.metrics["test_auc"] <= 1.0
 
     def test_automl_suite(self, automl_data, tmp_path):
         """Test training multiple AutoML models."""

@@ -108,7 +108,15 @@ def test_serial_vs_parallel_below_threshold_uses_serial_path():
     assert np.array_equal(out_default, out_serial)
 
 
+def _numba_thread_count() -> int:
+    """Threads numba reports for parallel kernels."""
+    import numba
+
+    return int(numba.get_num_threads())
+
+
 @skip_under_numba_disabled_jit
+@pytest.mark.skipif(_numba_thread_count() < 2, reason="numba reports a single thread; the parallel kernel cannot beat serial")
 def test_parallel_kernel_speedup_at_f500():
     """Parallel kernel >= 2x faster than serial at f=500. Both runs exclude
     the kernel compile cost via a warm-up call.
@@ -116,12 +124,6 @@ def test_parallel_kernel_speedup_at_f500():
     Skipped when numba reports a single thread (CI boxes, WSL-restricted
     containers, OMP_NUM_THREADS=1 explicitly).
     """
-    import numba
-
-    n_threads = numba.get_num_threads()
-    if n_threads < 2:
-        pytest.skip(f"numba reports {n_threads} thread(s); parallel kernel cannot beat serial")
-
     bins, names = _build_synthetic_bins(n_samples=1500, n_features=500, n_bins=10, seed=3)
     # Warm-up so the JIT compile of _pairwise_su_edges is not counted.
     cluster_correlated_features_su(
@@ -162,4 +164,4 @@ def test_parallel_kernel_speedup_at_f500():
     ratio = t_serial / max(t_parallel, 1e-9)
     assert (
         ratio >= 2.0
-    ), f"parallel kernel not fast enough: serial={t_serial:.3f}s, parallel={t_parallel:.3f}s, ratio={ratio:.2f}x (need >= 2x), threads={n_threads}"
+    ), f"parallel kernel not fast enough: serial={t_serial:.3f}s, parallel={t_parallel:.3f}s, ratio={ratio:.2f}x (need >= 2x), threads={_numba_thread_count()}"

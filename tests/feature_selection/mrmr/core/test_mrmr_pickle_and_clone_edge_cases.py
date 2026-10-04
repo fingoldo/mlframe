@@ -65,11 +65,9 @@ class TestPicklingMidFit:
             m.fit(X, y)
         assert not hasattr(m, "support_")
 
-        try:
-            restored = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
-        except Exception as exc:
-            pytest.fail(f"pickling a partially-fitted (never-completed) instance raised an unclear error: {exc!r}")
+        restored = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert not hasattr(restored, "support_")
+        assert restored.get_params() == m.get_params()
 
 
 class TestCloneRandomStateMinusOneResolution:

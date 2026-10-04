@@ -101,23 +101,37 @@ def _build_offending_set() -> set[str]:
         text = source_text(py)
         if text is None:
             continue
-        rel = py.relative_to(MLFRAME_DIR).as_posix()
-        for _lineno, comment in _comment_lines(text):
-            if _SANCTIONED.search(comment):
-                continue
-            for kind, pat in _BANNED.items():
-                if pat.search(comment):
-                    out.add(f"{rel}::{_comment_fingerprint(comment)}:{kind}")
+        out |= _offending_in_text(text, py.relative_to(MLFRAME_DIR).as_posix())
     return out
+
+
+def _offending_in_text(text: str, rel: str) -> set[str]:
+    """``{"rel::fingerprint:kind"}`` for every banned marker in the comments of one source text."""
+    out: set[str] = set()
+    for _lineno, comment in _comment_lines(text):
+        if _SANCTIONED.search(comment):
+            continue
+        for kind, pat in _BANNED.items():
+            if pat.search(comment):
+                out.add(f"{rel}::{_comment_fingerprint(comment)}:{kind}")
+    return out
+
+
+def test_audit_metadata_detector_catches_each_marker_and_passes_clean_and_sanctioned_comments():
+    """Each banned marker kind is reported in a comment; a plain comment, a string literal and a sanctioned record are not."""
+    flagged = _offending_in_text("x = 1  # Wave 3 cleanup\ny = 2  # measured 2026-01-02\nz = 3  # loop iter 4\n", "m.py")
+    assert {k.rsplit(":", 1)[1] for k in flagged} == {"wave-marker", "date-stamp", "loop-iter"}
+    assert {k.rsplit(":", 1)[1] for k in _offending_in_text("# FE_STEP_B-8 fix applied\n", "m.py")} == {"finding-id"}
+    assert _offending_in_text("# explains why the loop is bounded\ns = '# Wave 3'\n", "m.py") == set()
+    assert _offending_in_text("# REJECTED 2026-01-02: slower\n", "m.py") == set()
 
 
 def test_no_new_audit_metadata_in_comments():
     """No comment gains a finding ID, wave/iter marker, audit-dir name or date stamp beyond the baseline."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"audit-metadata baseline written with {len(current)} entries")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip("audit-metadata baseline written")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     added = current - baseline

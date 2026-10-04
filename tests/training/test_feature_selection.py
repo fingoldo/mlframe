@@ -76,11 +76,13 @@ class TestMRMRFeatureSelection:
 
         selector.fit(X, y)
 
-        # Transform if support_ is set
-        if selector.support_ is not None and selector.support_.any():
-            X_transformed = selector.transform(X)
-            # Should have fewer or equal features
-            assert X_transformed.shape[1] <= X.shape[1]
+        assert selector.support_ is not None
+        support = np.asarray(selector.support_)
+        n_selected = int(support.sum()) if support.dtype == bool else int(support.size)
+        assert n_selected >= 1
+        X_transformed = selector.transform(X)
+        assert X_transformed.shape == (X.shape[0], n_selected)
+        assert X_transformed.shape[1] <= X.shape[1]
 
     def test_mrmr_with_classification(self, sample_classification_data):
         """Test MRMR on classification data."""
@@ -294,10 +296,12 @@ class TestRFECVFeatureSelection:
 
         selector.fit(X, y_subset)
 
-        # Transform if support_ is set
-        if hasattr(selector, "support_") and selector.support_ is not None:
-            X_transformed = selector.transform(X)
-            assert X_transformed.shape[1] <= X.shape[1]
+        assert selector.support_ is not None
+        n_selected = int(np.asarray(selector.support_).sum())
+        assert n_selected >= 1
+        X_transformed = selector.transform(X)
+        assert X_transformed.shape == (X.shape[0], n_selected)
+        assert X_transformed.shape[1] <= X.shape[1]
 
     def test_rfecv_with_early_stopping(self, sample_regression_data):
         """Test RFECV with early stopping configuration."""

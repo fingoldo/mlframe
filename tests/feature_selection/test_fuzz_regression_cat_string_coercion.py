@@ -223,4 +223,7 @@ class TestMrmrNbinsQuantileAlias:
         sel = MRMR(nbins_strategy="quantile")
         # Pre-fix: ``_validate_string_params`` raised
         # ``MRMR: nbins_strategy='quantile' is not a recognised value``.
-        sel._validate_string_params()
+        assert sel._validate_string_params() is None
+        assert sel.nbins_strategy == "quantile"
+        with pytest.raises(ValueError, match="nbins_strategy='bogus' is not a recognised value"):
+            MRMR(nbins_strategy="bogus")._validate_string_params()

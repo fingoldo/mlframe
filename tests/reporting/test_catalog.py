@@ -53,9 +53,11 @@ def test_every_token_has_a_real_description():
 def test_descriptions_are_ascii():
     """Descriptions are ascii."""
     cat = available_panels()
+    assert cat
     for rows in cat.values():
-        for _tok, desc in rows:
-            desc.encode("ascii")  # raises on non-ascii (console safety)
+        assert rows
+        for tok, desc in rows:
+            assert desc.isascii(), f"non-ascii description for {tok}: {desc!r}"
 
 
 def test_describe_prints_and_returns_mapping():
@@ -74,7 +76,9 @@ def test_describe_output_is_ascii():
     """Describe output is ascii."""
     buf = io.StringIO()
     describe_available_panels(file=buf)
-    buf.getvalue().encode("ascii")
+    text = buf.getvalue()
+    assert "CONFUSED_PAIRS" in text
+    assert text.isascii()
 
 
 def test_standalone_diagnostics_listed_and_described():

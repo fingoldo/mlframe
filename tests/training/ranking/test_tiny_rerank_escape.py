@@ -91,5 +91,9 @@ def test_ram_checkpoint_tolerates_psutil_failure(caplog):
     from mlframe.training.composite.discovery import _tiny_rerank as mod
 
     with patch("mlframe.training.composite.discovery._fit._process_mem_mb", side_effect=RuntimeError("psutil down")):
-        # Must not raise.
-        mod._tiny_rerank_ram_checkpoint("test")
+        with caplog.at_level(logging.DEBUG, logger="mlframe.training.composite.discovery._tiny_rerank"):
+            result = mod._tiny_rerank_ram_checkpoint("test")
+    assert result is None
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("memory probe failed" in m and "psutil down" in m for m in messages)
+    assert not any("tiny_rerank.RAM" in m for m in messages)

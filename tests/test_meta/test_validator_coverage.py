@@ -22,8 +22,7 @@ import inspect
 import re
 import typing
 
-import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from pydantic_core import PydanticUndefined
 
 from mlframe.training import configs as configs_module
@@ -74,14 +73,14 @@ def _per_field_doc(cls: type[BaseModel]) -> dict[str, str]:
     lines = doc.splitlines()
     i = 0
     while i < len(lines):
-        m = re.match(r"^\s+([A-Za-z_]\w*)\s*:\s*\S", lines[i])
+        m = re.match(r"^\s*([A-Za-z_]\w*)\s*:\s*\S", lines[i])
         if m:
             name = m.group(1)
             chunk = []
             j = i + 1
             while j < len(lines):
                 nxt = lines[j]
-                if re.match(r"^\s+[A-Za-z_]\w*\s*:\s*\S", nxt) or nxt.strip() == "":
+                if re.match(r"^\s*[A-Za-z_]\w*\s*:\s*\S", nxt) or nxt.strip() == "":
                     break
                 chunk.append(nxt.strip())
                 j += 1
@@ -120,44 +119,82 @@ def _required_kwargs(cls: type[BaseModel]) -> dict:
     return out
 
 
-def test_normalisation_promises_actually_normalise():
-    """Every field whose docstring promises normalization actually normalizes a non-canonical input."""
+def _normalisation_audit(cls: type[BaseModel]) -> tuple[int, list[str]]:
+    """``(audited promise count, failure messages)`` for the documented normalisation promises of one config class."""
     failures: list[str] = []
     audited = 0
-    classes = _config_classes()
-    for cls in classes:
-        per_field = _per_field_doc(cls)
-        if not per_field:
+    for field_name, doc in _per_field_doc(cls).items():
+        if field_name not in cls.model_fields:
             continue
-        for field_name, doc in per_field.items():
-            if field_name not in cls.model_fields:
-                continue
-            info = cls.model_fields[field_name]
-            if not _field_accepts_str(info):
-                continue
-            wants_lower = any(p in doc for p in _LOWER_PROMISES)
-            wants_upper = any(p in doc for p in _UPPER_PROMISES)
-            if not (wants_lower or wants_upper):
-                continue
-            audited += 1
+        info = cls.model_fields[field_name]
+        if not _field_accepts_str(info):
+            continue
+        wants_lower = any(p in doc for p in _LOWER_PROMISES)
+        wants_upper = any(p in doc for p in _UPPER_PROMISES)
+        if not (wants_lower or wants_upper):
+            continue
+        audited += 1
 
-            sentinel_in = "MiXeDcAsE"
-            base_kwargs = _required_kwargs(cls)
-            base_kwargs[field_name] = sentinel_in
-            try:
-                instance = cls(**base_kwargs)
-            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
-                # Synth values couldn't satisfy other validators; can't audit this field.
-                continue
-            actual = getattr(instance, field_name, None)
-            if not isinstance(actual, str):
-                continue
-            if wants_lower and actual != sentinel_in.lower():
-                failures.append(f"{cls.__name__}.{field_name}: docstring promises lowercase normalisation; input {sentinel_in!r} kept as {actual!r}")
-            elif wants_upper and actual != sentinel_in.upper():
-                failures.append(f"{cls.__name__}.{field_name}: docstring promises uppercase normalisation; input {sentinel_in!r} kept as {actual!r}")
+        sentinel_in = "MiXeDcAsE"
+        base_kwargs = _required_kwargs(cls)
+        base_kwargs[field_name] = sentinel_in
+        try:
+            instance = cls(**base_kwargs)
+        except Exception:  # nosec B112 -- the synthesised values could not satisfy other validators; this field cannot be audited
+            continue
+        actual = getattr(instance, field_name, None)
+        if not isinstance(actual, str):
+            continue
+        if wants_lower and actual != sentinel_in.lower():
+            failures.append(f"{cls.__name__}.{field_name}: docstring promises lowercase normalisation; input {sentinel_in!r} kept as {actual!r}")
+        elif wants_upper and actual != sentinel_in.upper():
+            failures.append(f"{cls.__name__}.{field_name}: docstring promises uppercase normalisation; input {sentinel_in!r} kept as {actual!r}")
+    return audited, failures
 
-    if audited == 0:
-        pytest.skip("no normalisation promises found in config docstrings with str-typed fields")
-    if failures:
-        pytest.fail(f"{len(failures)} normalisation promise(s) not actually enforced:\n  " + "\n  ".join(failures))
+
+class _PromiseKept(BaseModel):
+    """Canary config.
+
+    Parameters
+    ----------
+    mode : str
+        Case-insensitive, normalized to lowercase.
+    """
+
+    mode: str = "a"
+
+    @field_validator("mode")
+    @classmethod
+    def _lower(cls, v: str) -> str:
+        """Lowercase the value."""
+        return v.lower()
+
+
+class _PromiseBroken(BaseModel):
+    """Canary config.
+
+    Parameters
+    ----------
+    mode : str
+        Case-insensitive, normalized to lowercase.
+    """
+
+    mode: str = "a"
+
+
+def test_normalisation_gate_catches_a_broken_promise_and_passes_a_kept_one():
+    """A documented lowercase promise with no validator is reported; one backed by a validator is not."""
+    assert _normalisation_audit(_PromiseKept) == (1, [])
+    audited, failures = _normalisation_audit(_PromiseBroken)
+    assert audited == 1
+    assert failures == ["_PromiseBroken.mode: docstring promises lowercase normalisation; input 'MiXeDcAsE' kept as 'MiXeDcAsE'"]
+
+
+def test_normalisation_promises_actually_normalise():
+    """Every field whose docstring promises normalization actually normalizes a non-canonical input."""
+    classes = _config_classes()
+    assert classes, "no config classes found"
+    audits = [_normalisation_audit(cls) for cls in classes]
+    assert sum(audited for audited, _ in audits) > 0, "no normalisation promise was audited; the docstring scan has gone inert"
+    failures = [msg for _, messages in audits for msg in messages]
+    assert not failures, f"{len(failures)} normalisation promise(s) not actually enforced:\n  " + "\n  ".join(failures)

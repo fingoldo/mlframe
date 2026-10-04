@@ -75,21 +75,20 @@ def test_dict_cast_preserves_ordered_enum():
     without the ``ordered=`` arg, silently dropping the order metadata. This
     test prevents that regression.
     """
+    import pandas as pd
+
     from mlframe.training.utils import get_pandas_view_of_polars_df
 
     ordered_cats = ["low", "mid", "high"]
     enum = pl.Enum(ordered_cats)
     df = pl.DataFrame({"sev": pl.Series(["low", "high", "mid", "low"]).cast(enum)})
     # polars stores Enum as an ordered dictionary on the Arrow side.
-    arrow_col = df.to_arrow().column("sev")
-    if arrow_col.type.ordered:
-        pdf = get_pandas_view_of_polars_df(df)
-        import pandas as pd
-
-        assert isinstance(pdf["sev"].dtype, pd.CategoricalDtype)
-        assert pdf["sev"].cat.ordered is True, "ordered flag lost during dict cast"
-    else:
-        pytest.skip("Polars build does not mark Enum as ordered at the Arrow boundary; nothing to assert.")
+    assert df.to_arrow().column("sev").type.ordered
+    pdf = get_pandas_view_of_polars_df(df)
+    assert isinstance(pdf["sev"].dtype, pd.CategoricalDtype)
+    assert pdf["sev"].cat.ordered is True, "ordered flag lost during dict cast"
+    assert list(pdf["sev"].cat.categories) == ordered_cats
+    assert pdf["sev"].astype(object).tolist() == ["low", "high", "mid", "low"]
 
 
 def test_dict_cast_skip_when_already_int32():

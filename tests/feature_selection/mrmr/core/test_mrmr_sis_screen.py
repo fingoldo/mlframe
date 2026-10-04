@@ -271,16 +271,18 @@ def test_cprofile_hotspot(tmp_path):
     n, p = 4000, 20000
     path = os.path.join(str(tmp_path), "Xp.dat")
     mm = np.memmap(path, dtype=np.float32, mode="w+", shape=(n, p))
-    _, y, _, _ = _make_frame(n, p, n_main=10, n_pairs=8, L=0.15, seed=5, out=mm)
+    _, y, main_idx, _ = _make_frame(n, p, n_main=10, n_pairs=8, L=0.15, seed=5, out=mm)
     Xr = np.memmap(path, dtype=np.float32, mode="r", shape=(n, p))
 
     pr = cProfile.Profile()
     pr.enable()
-    sis_screen(Xr, y, k_target=30)
+    survivors = sis_screen(Xr, y, k_target=30)
     pr.disable()
     s = io.StringIO()
     pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(20)
     print(s.getvalue())
+    assert survivors.size < p // 4
+    assert _recall(survivors, main_idx) >= 0.9
 
 
 def test_sis_screen_encodes_moderate_cardinality_integer_y_gap(monkeypatch):

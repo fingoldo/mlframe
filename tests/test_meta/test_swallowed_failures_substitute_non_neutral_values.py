@@ -216,21 +216,51 @@ class TestATransientFaultDoesNotLatchAPermanentDowngrade:
 class TestThePermutationNullIsRngIdenticalOnBothPaths:
     """The GPU path consumed n_perm draws BEFORE the call that can fail; the fallback then drew n_perm MORE."""
 
-    def test_both_paths_rebuild_the_same_child_generator(self):
-        """One draw for a seed, two identical reconstructions -- so a GPU failure cannot move the verdict."""
-        rel = "feature_selection/filters/_binned_numeric_agg_fe.py"
-        # Counted on the SEEDED call specifically: the module builds other generators too, so a bare
-        # `default_rng` tally says nothing about whether both permutation draws share one explicit seed.
-        seeded = [
-            node
-            for node in ast.walk(_tree(rel))
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "default_rng"
-            and any(isinstance(a, ast.Name) and a.id == "_perm_seed" for a in node.args)
-        ]
-        assert len(seeded) == 2, f"expected both permutation draws to come from default_rng(_perm_seed); found {len(seeded)}"
-        assert "_perm_seed" in _identifiers(rel), "the explicit permutation seed is gone, so the two draws cannot be reproduced"
+    @staticmethod
+    def _gate_run(monkeypatch, gpu_fails):
+        """Run the binned-aggregate redundancy gate on a noise candidate; return ``(rejection thresholds, kept columns, next outer draw, batch calls)``."""
+        import pandas as pd
+
+        from mlframe.feature_selection.filters import _binned_numeric_agg_fe as agg
+        from mlframe.feature_selection.filters import _fe_batched_mi as batched
+        from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as cmi_mod
+
+        n = 400
+        data_rng = np.random.default_rng(1)
+        y_cls = data_rng.integers(0, 2, n).astype(np.int64)
+        X = pd.DataFrame({"g": data_rng.integers(0, 3, n), "v": data_rng.normal(size=n)})
+        feat_df = pd.DataFrame({"cand": data_rng.normal(size=n)})
+        raw = {"cand": {"group_col": "g", "agg_col": "v"}}
+
+        def src_bins(col):
+            """Three equal-count bins of a source column."""
+            return (X[col].rank(method="first") * 3 // (n + 1)).astype(np.int64).to_numpy()
+
+        batch_calls = []
+
+        def failing_batch(*args, **kwargs):
+            """Stand in for the batched GPU null and fail."""
+            batch_calls.append(1)
+            raise RuntimeError("batched kernel exploded")
+
+        monkeypatch.setattr(cmi_mod, "_cmi_gpu_enabled", lambda **kw: bool(gpu_fails and kw.get("min_p")))
+        monkeypatch.setattr(batched, "batched_cmi_gpu", failing_batch)
+        rejections = []
+        kept = []
+        outer = np.random.default_rng(7)
+        agg._build_binned_agg_recipes(feat_df, raw, X, src_bins, 6, y_cls, 0.0, outer, 8, 2.0, kept, lambda **kw: rejections.append(kw["threshold"]))
+        return rejections, kept, int(outer.integers(0, 2**62)), len(batch_calls)
+
+    def test_both_paths_rebuild_the_same_child_generator(self, monkeypatch):
+        """One draw for a seed, two identical reconstructions -- so a GPU failure cannot move the verdict or the outer generator."""
+        cpu_rejections, cpu_kept, cpu_next_draw, cpu_batch_calls = self._gate_run(monkeypatch, gpu_fails=False)
+        gpu_rejections, gpu_kept, gpu_next_draw, gpu_batch_calls = self._gate_run(monkeypatch, gpu_fails=True)
+        assert cpu_batch_calls == 0
+        assert gpu_batch_calls == 1, "the failing GPU batch was never attempted, so the fallback was not exercised"
+        assert len(cpu_rejections) == 1 and cpu_rejections[0] > 0.0, "the noise candidate must be rejected against a positive null ceiling"
+        assert gpu_rejections == cpu_rejections
+        assert gpu_kept == cpu_kept
+        assert gpu_next_draw == cpu_next_draw
 
     def test_the_fallback_no_longer_draws_from_the_outer_generator(self):
         """That is what made the two nulls differ."""

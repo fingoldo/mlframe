@@ -414,12 +414,14 @@ class TestRFECVCompliance:
         # estimator gets cloned by sklearn's get_params(deep=True); for
         # deep=False the wrapped instance is the exact same object.
         roundtripped = est2.get_params(deep=False)
-        for k in params:
-            sv, nv = params[k], roundtripped[k]
-            if isinstance(sv, BaseEstimator):
-                assert type(nv) is type(sv)
-            else:
-                assert sv == nv, f"param {k!r}: src={sv!r} new={nv!r}"
+        assert set(roundtripped) == set(params)
+        estimator_keys = [k for k, v in params.items() if isinstance(v, BaseEstimator)]
+        plain_keys = [k for k in params if k not in estimator_keys]
+        assert estimator_keys
+        assert plain_keys
+        assert all(type(roundtripped[k]) is type(params[k]) for k in estimator_keys)
+        mismatched = [k for k in plain_keys if params[k] != roundtripped[k]]
+        assert not mismatched, f"params changed in the round trip: {mismatched}"
 
     def test_clone_of_unfitted_wrapper(self):
         """Clone of unfitted wrapper."""

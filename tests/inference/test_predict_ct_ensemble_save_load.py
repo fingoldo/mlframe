@@ -122,7 +122,7 @@ def test_persist_ct_ensemble_entries_roundtrips(tmp_path):
     assert np.allclose(roundtripped.model.predict(X_test), 7.5)
 
 
-def test_persist_ct_ensemble_entries_no_models_dir_is_noop():
+def test_persist_ct_ensemble_entries_no_models_dir_is_noop(tmp_path, monkeypatch):
     """When ``ctx.data_dir`` / ``ctx.models_dir`` is empty (in-memory only run), the persister must be a no-op
     rather than create files in CWD or crash."""
     from mlframe.training.core._phase_finalize import _persist_ct_ensemble_entries
@@ -138,5 +138,8 @@ def test_persist_ct_ensemble_entries_no_models_dir_is_noop():
         slug_to_original_target_name = {}
         metadata = {}
 
-    _persist_ct_ensemble_entries(_CtxStub())
-    # No exception is the success criterion. Implicitly: no files leaked into CWD because data_dir guard fires.
+    monkeypatch.chdir(tmp_path)
+    ctx = _CtxStub()
+    _persist_ct_ensemble_entries(ctx)
+    assert list(tmp_path.iterdir()) == []
+    assert ctx.metadata == {}

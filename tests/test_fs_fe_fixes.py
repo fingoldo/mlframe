@@ -84,21 +84,15 @@ def test_general_early_exit_no_indexerror():
     rng = np.random.default_rng(0)
     data = rng.integers(0, 15, size=(1000, 5), dtype=np.int8)
     df = pl.DataFrame({f"c{i}": data[:, i] for i in range(5)})
-    # Must not crash with IndexError when max_runtime_mins forces early exit.
-    try:
-        estimate_features_relevancy(
-            bins=df,
-            target_columns=["c0"],
-            max_runtime_mins=0.0001,
-            min_randomized_permutations=1,
-            benchmark_mi_algorithms=False,
-            verbose=0,
-        )
-    except IndexError as e:
-        pytest.fail(f"IndexError on early-exit path: {e}")
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # other exceptions (e.g., empty stack) are allowed — we only care about IndexError
-        pass
+    result = estimate_features_relevancy(
+        bins=df,
+        target_columns=["c0"],
+        max_runtime_mins=0.0001,
+        min_randomized_permutations=1,
+        benchmark_mi_algorithms=False,
+        verbose=0,
+    )
+    assert result is not None
 
 
 # ----------------------------------------------------------------------------

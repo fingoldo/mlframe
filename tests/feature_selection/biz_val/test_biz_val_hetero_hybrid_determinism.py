@@ -34,6 +34,7 @@ import pytest
 
 from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 from mlframe.feature_selection.hybrid_selector import HybridSelector
+from tests._known_gap import known_gap
 
 # ---------------------------------------------------------------------------
 # Synthetic frames.
@@ -164,24 +165,19 @@ def test_hybrid_selector_same_seed_deterministic_fast():
 
 @pytest.mark.slow
 @pytest.mark.timeout(900)
-@pytest.mark.xfail(
-    reason="HybridSelector selection depends on input column order: the composed members' positional "
-    "tie-breaks and corr-cluster representative picks are order-sensitive (mirrors the contract suite's "
-    "column_order_invariant=False spec for HybridSelector -- known reproducibility gap)",
-    strict=False,
-)
 def test_hybrid_selector_column_order_invariant():
     """Fitting on X vs X[reversed columns] (fresh seeded instances) should select the same RAW feature set.
 
     It does NOT today -- the composition's order-sensitive tie-breaks change which equivalent columns survive
-    (measured: forward keeps {inf_0, noise_1}; reversed keeps {red_2, noise_2}). This xfail documents the gap
-    without weakening the contract; flip to strict (or delete the marker) once HybridSelector is made
-    column-order invariant.
+    (measured: forward keeps {inf_0, noise_1}; reversed keeps {red_2, noise_2}). The recorded gap fails this test
+    once HybridSelector becomes column-order invariant, so the entry gets removed.
     """
     X, y = _linear_dataset(n=1200, seed=0)
     rev = list(X.columns)[::-1]
     h_fwd = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
     h_rev = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X[rev], y)
-    assert set(h_fwd.raw_selected_) == set(
-        h_rev.raw_selected_
-    ), f"column reorder changed the selected set: fwd={sorted(h_fwd.raw_selected_)} rev={sorted(h_rev.raw_selected_)}"
+    known_gap(
+        "HybridSelector selection depends on input column order: the composed members' positional tie-breaks and corr-cluster representative picks "
+        f"are order-sensitive (fwd={sorted(h_fwd.raw_selected_)} rev={sorted(h_rev.raw_selected_)})",
+        gap_closed=set(h_fwd.raw_selected_) == set(h_rev.raw_selected_),
+    )

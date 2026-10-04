@@ -119,25 +119,53 @@ def test_per_target_seed_no_hash_call_in_source():
     assert blake2b_calls, "Post-fix marker missing -- _per_target_seed should derive its offset from hashlib.blake2b for cross-process stability."
 
 
-def test_rfecv_random_state_none_uses_hashlib_not_builtin_hash():
-    """Source-level guard for the RFECV._seed derivation. Same rationale:
-    builtin hash() of the signature tuple (which contains strings) is
-    per-process salted and silently breaks the 'same data -> same
-    support_' guarantee across worker spawns."""
+def _rfecv_rng_seeds_in_fresh_process(hash_seed: str) -> list:
+    """Fit a small RFECV with ``random_state=None`` in a fresh interpreter under ``PYTHONHASHSEED=hash_seed``; return every seed handed to ``default_rng``."""
+    import os
     import pathlib
-    import mlframe as _mlframe
 
-    # The fit body and its submodule helpers all live under wrappers/rfecv/;
-    # concat every submodule so the source-grep sensor catches the pattern
-    # regardless of which one owns the relocated code.
-    _rfecv = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "wrappers" / "rfecv"
-    src = "\n".join(p.read_text(encoding="utf-8") for p in _rfecv.glob("*.py"))
-    # Pre-fix shape must be gone:
-    assert "_seed = abs(hash(signature)) % (2 ** 32)" not in src, (
-        "Wave 18 P1 regression: RFECV _seed derivation re-introduced "
-        "abs(hash(signature)). Use hashlib.blake2b for cross-process "
-        "stability (the 'same data -> same support_' guarantee in the "
-        "in-line comment depends on it)."
+    import mlframe as _mlframe
+    import orjson
+
+    src_root = pathlib.Path(_mlframe.__file__).resolve().parent.parent
+    code = (
+        "import sys\n"
+        f"sys.path.insert(0, r'{src_root}')\n"
+        "import numpy as np\n"
+        "import pandas as pd\n"
+        "import orjson\n"
+        "seeds = []\n"
+        "real = np.random.default_rng\n"
+        "def spy(seed=None):\n"
+        "    seeds.append(seed if isinstance(seed, (int, type(None))) else repr(seed))\n"
+        "    return real(seed)\n"
+        "np.random.default_rng = spy\n"
+        "from sklearn.tree import DecisionTreeRegressor\n"
+        "from mlframe.feature_selection.wrappers.rfecv import RFECV\n"
+        "rng = real(0)\n"
+        "X = pd.DataFrame(rng.normal(size=(80, 4)), columns=list('abcd'))\n"
+        "y = X['a'] + 0.1 * rng.normal(size=80)\n"
+        "seeds.clear()\n"
+        "RFECV(estimator=DecisionTreeRegressor(max_depth=3, random_state=0), cv=2, max_refits=2, verbose=0, random_state=None).fit(X, y)\n"
+        "sys.stdout.write(orjson.dumps(seeds).decode())\n"
     )
-    # Post-fix marker:
-    assert "_hashlib.blake2b(_sig_bytes, digest_size=4).digest()" in src
+    proc = subprocess.run(  # nosec B603 -- fixed local argv (sys.executable + literal args), no shell, no untrusted input
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env={**os.environ, "PYTHONHASHSEED": hash_seed},
+    )
+    assert proc.returncode == 0, f"subprocess failed: stderr={proc.stderr}"
+    return orjson.loads(proc.stdout.strip().splitlines()[-1])
+
+
+def test_rfecv_random_state_none_uses_hashlib_not_builtin_hash():
+    """With random_state=None, the seed RFECV derives from its fit signature is the same in processes with different string-hash salts:
+    builtin hash() of the signature tuple (which contains strings) is per-process salted and would silently break the
+    'same data -> same support_' guarantee across worker spawns."""
+    first = _rfecv_rng_seeds_in_fresh_process("1")
+    second = _rfecv_rng_seeds_in_fresh_process("2")
+    derived = [s for s in first if isinstance(s, int)]
+    assert derived, f"no integer seed derived from the signature: {first}"
+    assert first == second

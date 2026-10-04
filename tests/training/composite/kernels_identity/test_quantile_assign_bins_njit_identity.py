@@ -32,12 +32,16 @@ def test_assign_bins_bit_identical_random(n, n_bins):
     edges = np.quantile(base, np.linspace(0.0, 1.0, n_bins + 1))
     edges = np.unique(edges)
     if edges.size < 2:
-        pytest.skip("degenerate edges")
-    edges[0] = -np.inf
-    edges[-1] = np.inf
+        edges = np.array([-np.inf, np.inf])
+    else:
+        edges[0] = -np.inf
+        edges[-1] = np.inf
     got = nl._quantile_residual_assign_bins(base, edges)
     exp = _reference_assign(base, edges)
     assert np.array_equal(got, exp)
+    assert got.shape == (n,)
+    assert got.min() >= 0
+    assert got.max() <= edges.size - 2
 
 
 def test_assign_bins_bit_identical_nan_inf_oob():

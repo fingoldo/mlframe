@@ -88,15 +88,24 @@ def _build_offending_set() -> set[str]:
         tree = parsed_ast(py)
         if tree is None:
             continue
-        caches = _module_level_cache_names(tree)
-        if not caches:
-            continue
-        if _module_has_lock_construction(tree):
-            continue
-        rel = py.relative_to(MLFRAME_DIR).as_posix()
-        for _name, lineno in caches:
-            out.add(f"{rel}:{lineno}")
+        out |= _offending_in_tree(tree, py.relative_to(MLFRAME_DIR).as_posix())
     return out
+
+
+def _offending_in_tree(tree: ast.Module, rel: str) -> set[str]:
+    """``{rel:lineno}`` for each mutated module-level dict in a module that constructs no lock."""
+    caches = _module_level_cache_names(tree)
+    if not caches or _module_has_lock_construction(tree):
+        return set()
+    return {f"{rel}:{lineno}" for _name, lineno in caches}
+
+
+def test_unlocked_cache_detector_catches_a_lockless_module_and_passes_a_locked_one():
+    """A mutated module dict with no lock anywhere is reported; the same dict beside a ``Lock()`` and a never-mutated table are not."""
+    body = "_CACHE = {}\n\ndef put(k, v):\n    _CACHE[k] = v\n"
+    assert _offending_in_tree(ast.parse(body), "m.py") == {"m.py:1"}
+    assert _offending_in_tree(ast.parse("import threading\n_L = threading.Lock()\n" + body), "m.py") == set()
+    assert _offending_in_tree(ast.parse("_TABLE = {'a': 1}\n\ndef get(k):\n    return _TABLE[k]\n"), "m.py") == set()
 
 
 def test_no_new_unlocked_module_level_cache():
@@ -110,11 +119,10 @@ def test_no_new_unlocked_module_level_cache():
     the call chain doesn't already cover it) -- new hits should be reviewed, not blindly "fixed" by
     slapping a lock on a cache that's provably single-threaded.
     """
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"unlocked-module-cache baseline refreshed at {_BASELINE_PATH.name} ({len(current)} site(s))")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"unlocked-module-cache baseline refreshed at {_BASELINE_PATH.name}")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

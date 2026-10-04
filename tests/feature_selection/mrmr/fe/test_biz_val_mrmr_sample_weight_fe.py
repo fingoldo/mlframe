@@ -47,6 +47,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests._known_gap import known_gap
 from tests.feature_selection.conftest import is_fast_mode, fast_subset
 
 warnings.filterwarnings("ignore")
@@ -97,6 +98,15 @@ _MECHANISMS = [
 ]
 
 _MECH_PARAMS = [pytest.param(kw, cat, id=mid) for (mid, kw, cat) in _MECHANISMS]
+
+
+# (mechanism id, seed) cells where the shared engineered column replays to allclose values under weights; every other cell is a measured open gap
+_ENGINEERED_VALUE_PARITY_CELLS = {("mi_greedy", 0)}
+
+
+def _mechanism_id(ctor_kw: dict) -> str:
+    """The ``_MECHANISMS`` id whose extra constructor kwargs are ``ctor_kw``."""
+    return next(mid for (mid, kw, _cat) in _MECHANISMS if kw == ctor_kw)
 
 
 def _mech_subset():
@@ -248,12 +258,6 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_raw_set(ctor_kw, needs_
 
 @pytest.mark.slow
 @pytest.mark.parametrize("ctor_kw, needs_categorical", _mech_subset())
-@pytest.mark.xfail(
-    reason="PROD GAP: MRMR sample_weight is a fixed-size MC resample (not row duplication) and "
-    "_target_encoding_fe.py ignores sample_weight (0 refs), so engineered-recipe replay values "
-    "diverge from the duplication baseline -- param_axes-06",
-    strict=False,
-)
 @pytest.mark.parametrize("seed", [0, 1])
 def test_biz_val_mrmr_int_weight_matches_row_duplication_engineered_values(ctor_kw, needs_categorical, seed):
     """The engineered columns common to BOTH fits must replay to allclose values on a shared probe
@@ -261,36 +265,33 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_engineered_values(ctor_
 
     Currently they do NOT (measured kfold_te ``cat__te`` maxdiff ~0.033; mi_greedy relu split
     thresholds differ outright), because the resample is fixed-size MC and TE is weight-blind. The
-    assertion is written to the CORRECT target (allclose, rtol=1e-6) and xfailed strict=False, so
-    when weights are plumbed into the FE recipes this flips to XPASS and the gap closes visibly.
-
-    Skips cleanly (no false XPASS) when the two fits share no engineered column name -- the
-    divergence then shows up structurally in the name set rather than in values, which the raw-set
-    test already covers."""
+    verdict is the correct target (allclose, rtol=1e-6 on every shared engineered column, and at least one
+    shared column); while it fails the gap is recorded as open, and once weights are plumbed into the FE
+    recipes the test fails so the gap entry gets removed."""
     sel_a, sel_b, df, _w = _fit_pair(ctor_kw, needs_categorical, seed)
 
     common_eng = sorted(set(_engineered_names(sel_a)) & set(_engineered_names(sel_b)))
-    if not common_eng:
-        pytest.skip(f"no engineered column name common to both fits (dup={_engineered_names(sel_a)} sw={_engineered_names(sel_b)})")
-
     probe = df.iloc[:30].copy()
     out_a = sel_a.transform(probe)
     out_b = sel_b.transform(probe)
+    assert out_a.shape[0] == out_b.shape[0] == probe.shape[0]
     cols_a = {str(c): c for c in getattr(out_a, "columns", [])}
     cols_b = {str(c): c for c in getattr(out_b, "columns", [])}
 
-    checked = 0
-    for name in common_eng:
-        if name not in cols_a or name not in cols_b:
-            continue
-        va = np.asarray(out_a[cols_a[name]], dtype=float)
-        vb = np.asarray(out_b[cols_b[name]], dtype=float)
-        checked += 1
-        assert np.allclose(
-            va, vb, rtol=1e-6, atol=1e-8
-        ), f"engineered column {name!r} replay diverges between duplication and sample_weight: maxdiff={np.max(np.abs(va - vb)):.6g}"
-    if checked == 0:
-        pytest.skip("common engineered names not present as transform output columns")
+    checked = [name for name in common_eng if name in cols_a and name in cols_b]
+    maxdiffs = {name: float(np.max(np.abs(np.asarray(out_a[cols_a[name]], dtype=float) - np.asarray(out_b[cols_b[name]], dtype=float)))) for name in checked}
+    gap_closed = bool(checked) and all(
+        np.allclose(np.asarray(out_a[cols_a[name]], dtype=float), np.asarray(out_b[cols_b[name]], dtype=float), rtol=1e-6, atol=1e-8) for name in checked
+    )
+    if (_mechanism_id(ctor_kw), seed) in _ENGINEERED_VALUE_PARITY_CELLS:
+        assert gap_closed, f"engineered replay values diverge between duplication and sample_weight (shared={checked}, maxdiff={maxdiffs})"
+        return
+    known_gap(
+        "PROD GAP: MRMR sample_weight is a fixed-size MC resample (not row duplication) and _target_encoding_fe.py ignores sample_weight (0 refs), so "
+        f"engineered-recipe replay values diverge from the duplication baseline (shared={checked}, maxdiff={maxdiffs}, dup={_engineered_names(sel_a)}, "
+        f"sw={_engineered_names(sel_b)})",
+        gap_closed=gap_closed,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -45,6 +45,17 @@ def _c901_findings() -> list[str]:
     return [f"{Path(f['filename']).as_posix()}:{f['location']['row']}" for f in findings]
 
 
+def _quoted_counts(section_text: str) -> list[str]:
+    """Finding counts quoted by the mccabe comment as ``threshold=40 keeps N findings``."""
+    return re.findall(r"threshold=40 keeps\s*#?\s*(\d+) findings", section_text)
+
+
+def test_quoted_count_detector_catches_a_stale_number_and_passes_a_clean_comment():
+    """The comment parser extracts the number from a quoting comment and finds nothing in a comment that quotes none."""
+    assert _quoted_counts("# threshold=40 keeps\n# 70 findings, real debt") == ["70"]
+    assert _quoted_counts("# 25, measured on this codebase") == []
+
+
 def test_c901_complexity_debt_does_not_grow():
     """The number of functions over the mccabe threshold must not rise above the recorded ceiling."""
     findings = _c901_findings()
@@ -69,10 +80,8 @@ def test_mccabe_comment_matches_the_measured_count():
     text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     section = text.split("[tool.ruff.lint.mccabe]", 1)
     assert len(section) == 2, "expected a [tool.ruff.lint.mccabe] section in pyproject.toml"
-    quoted = re.findall(r"threshold=40 keeps\s*#?\s*(\d+) findings", section[1][:2000])
-    if not quoted:
-        pytest.skip("the mccabe comment no longer quotes a finding count")
-    assert int(quoted[0]) == C901_CEILING, (
+    quoted = _quoted_counts(section[1][:2000])
+    assert not quoted or int(quoted[0]) == C901_CEILING, (
         f"pyproject.toml's mccabe comment says {quoted[0]} findings while the ratchet records "
         f"{C901_CEILING}. Update the comment; a number nobody rechecks is what let the debt grow silently."
     )

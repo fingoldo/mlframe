@@ -39,14 +39,11 @@ def test_biz_val_callbacks_lgb_stop_when_file_exists(tmp_path):
         end_iteration = 100
         evaluation_result_list = []
 
-    # Should raise an interrupt or set a flag; the contract is that
-    # the callback signals stop somehow. The defining test is just
-    # "doesn't crash when file exists".
-    try:
+    import lightgbm as lgb
+
+    with pytest.raises(lgb.callback.EarlyStopException) as excinfo:
         cb(_Env())
-    except Exception as e:
-        # Some early-stop callbacks raise lightgbm's ``EarlyStopException``.
-        assert "stop" in str(type(e).__name__).lower() or "callback" in str(type(e).__name__).lower(), f"unexpected exception {type(e).__name__}: {e}"
+    assert excinfo.value.best_iteration == 5
 
 
 def test_biz_val_callbacks_lgb_continue_when_file_missing(tmp_path):
@@ -64,11 +61,13 @@ def test_biz_val_callbacks_lgb_continue_when_file_missing(tmp_path):
         end_iteration = 100
         evaluation_result_list = []
 
-    # Should NOT raise.
-    try:
+    assert cb(_Env()) is None
+    assert not stop_path.exists()
+    stop_path.write_text("stop")
+    import lightgbm as lgb
+
+    with pytest.raises(lgb.callback.EarlyStopException):
         cb(_Env())
-    except Exception as e:
-        pytest.fail(f"callback raised when stop file missing: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +109,8 @@ def test_biz_val_callbacks_xgb_after_iteration_stops_on_file(tmp_path):
     # And the negative half, which was never covered: no stop file -> training must continue.
     stop_path.unlink()
     cb_no_file = XGBoostStopFileCallback(fpath=str(stop_path))
-    assert cb_no_file.after_iteration(model=None, epoch=1, evals_log={}) is not True, "training halted with no stop file present"
+    no_file_result = cb_no_file.after_iteration(model=None, epoch=1, evals_log={})
+    assert [result, no_file_result] == [True, False], "training must halt only when the stop file is present"
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,10 @@ def test_biz_val_callbacks_catboost_after_iteration_continues_when_no_file(tmp_p
         metrics = {}
 
     # CatBoost convention: return True to continue, False to stop.
-    assert cb.after_iteration(_Info()) is True
+    continue_result = cb.after_iteration(_Info())
+    (tmp_path / "no_stop").write_text("stop")
+    stop_result = cb.after_iteration(_Info())
+    assert [continue_result, stop_result] == [True, False]
 
 
 # ---------------------------------------------------------------------------

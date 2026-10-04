@@ -476,8 +476,7 @@ def test_fe_l_3_int8_date_columns_pass_through_unchanged():
         imputer_strategy=None,
     )
     pipe = create_polarsds_pipeline(df, cfg, verbose=0)
-    if pipe is None:
-        pytest.skip("polars-ds not available")
+    assert pipe is not None
     out = pipe.transform(df)
     # Int8 date-decomp cols must remain Int8 (or at least NOT have been
     # upcast to Float32 / Float64); wide int64 column SHOULD have been cast to f32.

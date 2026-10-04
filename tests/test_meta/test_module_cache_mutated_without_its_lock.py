@@ -174,11 +174,10 @@ def test_detector_is_not_blind():
 
 def test_no_new_cache_mutation_outside_a_lock():
     """No new function mutates a module-level ``*_CACHE`` without any ``with`` block, in a lock-aware module."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"cache-mutation-lock baseline written with {len(current)} site(s)")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip("cache-mutation-lock baseline written")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
@@ -249,10 +248,10 @@ def test_cross_module_detector_is_not_blind():
 
 def test_no_new_cross_module_dict_mutation_outside_a_lock():
     """No new function mutates another module's module-level dict without any ``with`` block."""
-    current = _cross_module_offending(_all_modules())
     if _refresh_requested() or not _XMOD_BASELINE_PATH.exists():
-        _XMOD_BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"cross-module dict-mutation baseline written with {len(current)} site(s)")
+        _XMOD_BASELINE_PATH.write_text(orjson.dumps(sorted(_cross_module_offending(_all_modules())), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip("cross-module dict-mutation baseline written")
+    current = _cross_module_offending(_all_modules())
     baseline = set(orjson.loads(_XMOD_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)
     if new:

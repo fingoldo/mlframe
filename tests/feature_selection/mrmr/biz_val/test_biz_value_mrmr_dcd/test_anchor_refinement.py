@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests._known_gap import known_gap
+
 warnings.filterwarnings("ignore")
 
 
@@ -250,15 +252,19 @@ class TestLayer45_ScenarioB_MemberSwap:
         # Either at least one member-swap fires (the desired Layer 45
         # behaviour on this fixture), or - if none does - no aggregate
         # swap demotes a better member either.
-        if member_entries:
-            assert len(member_entries) > 0
-            for entry in member_entries:
-                assert entry.get("aggregate_name", "") == "", "member-swap entry must have empty aggregate_name"
-                assert "member_relevance" in entry, "member-swap entry must record member_relevance"
-                # member_relevance must exceed anchor_relevance_in_ctx.
-                assert float(entry["member_relevance"]) >= float(
-                    entry["anchor_relevance_in_ctx"]
-                ), f"member-swap must only fire when member CMI > anchor CMI; got {entry}"
+        if not member_entries:
+            known_gap(
+                "end-to-end fit on scenario B forms no member swap (swap_log empty); the member branch is pinned by the direct evaluate_swap_candidate tests",
+                gap_closed=bool(member_entries),
+            )
+        assert member_entries, f"no member-swap entry fired; swap_log={swap_log}"
+        for entry in member_entries:
+            assert entry.get("aggregate_name", "") == "", "member-swap entry must have empty aggregate_name"
+            assert "member_relevance" in entry, "member-swap entry must record member_relevance"
+            # member_relevance must exceed anchor_relevance_in_ctx.
+            assert float(entry["member_relevance"]) >= float(
+                entry["anchor_relevance_in_ctx"]
+            ), f"member-swap must only fire when member CMI > anchor CMI; got {entry}"
 
     def test_commit_swap_member_branch_updates_state_correctly(self):
         """Drive the full ``evaluate_swap_candidate`` -> ``commit_swap``
@@ -397,13 +403,12 @@ class TestLayer45_ScenarioC_AggregateSwap:
         """
         m = _scenario_C_pca_pc1_fit()
         swap_log = (m.dcd_ or {}).get("swap_log", [])
-        # n_swaps must be >= 1 to preserve the L42/L43 contract; if it
-        # fires it must be an aggregate-branch swap.
-        if int((m.dcd_ or {}).get("n_swaps", 0)) >= 1:
-            agg_entries = [e for e in swap_log if e.get("branch") == "aggregate"]
-            assert agg_entries, "On 3-dups fixture with a fired swap, the aggregate branch must dominate; got swap_log=" + repr(swap_log)
-            for entry in agg_entries:
-                assert entry["aggregate_name"].startswith("_dcd_pc1_"), f"aggregate entry must carry _dcd_pc1_ name; got {entry}"
+        # n_swaps must be >= 1 to preserve the L42/L43 contract, and the fired swap must be an aggregate-branch swap.
+        assert int((m.dcd_ or {}).get("n_swaps", 0)) >= 1, f"the 3-dups fixture must fire a swap; swap_log={swap_log}"
+        agg_entries = [e for e in swap_log if e.get("branch") == "aggregate"]
+        assert agg_entries, "On 3-dups fixture with a fired swap, the aggregate branch must dominate; got swap_log=" + repr(swap_log)
+        for entry in agg_entries:
+            assert entry["aggregate_name"].startswith("_dcd_pc1_"), f"aggregate entry must carry _dcd_pc1_ name; got {entry}"
 
     def test_aggregate_swap_records_branch_field(self):
         """Every aggregate-swap entry written to swap_log must include

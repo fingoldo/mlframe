@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters import _gpu_resident_fe as g
+from tests.conftest import _need_cuda
 
 
 def test_default_fraction_matches_legacy_025_math():
@@ -58,13 +59,11 @@ def test_tuner_spec_registered():
     assert g._gpu_k_chunk_fallback_choice(100_000) == f"frac_{g._GPU_K_CHUNK_VRAM_FRACTION_DEFAULT}"
 
 
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
 def test_candidate_mi_selection_invariant_across_fractions():
     """Candidate mi selection invariant across fractions."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    pytest.importorskip("cupy")
     rng = np.random.default_rng(0)
     n = 60_000
     a = rng.normal(size=n).astype(np.float64)
@@ -73,5 +72,7 @@ def test_candidate_mi_selection_invariant_across_fractions():
     _, mi_default = g.gpu_resident_pair_candidate_mi(a, b, y, nbins=20)
     _, mi_wide = g.gpu_resident_pair_candidate_mi_vram_fraction(a, b, y, nbins=20, vram_fraction=0.70)
     # Chunk width is per-column-independent -> MI must be bit-identical regardless of chunking.
+    assert len(mi_default) == len(mi_wide) > 0
+    assert float(np.max(mi_default)) > 0.0
     np.testing.assert_array_equal(np.argsort(-mi_default), np.argsort(-mi_wide))
     np.testing.assert_allclose(mi_default, mi_wide, rtol=1e-9, atol=1e-9)

@@ -18,37 +18,72 @@ on close).
 
 from __future__ import annotations
 
-import importlib
 import os
 import tempfile
-from pathlib import Path
 
 import numpy as np
 
-MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
 
+def test_deserialize_uses_with_block_on_npzfile(monkeypatch) -> None:
+    """The NpzFile a cache read opens is closed when the read returns, for dense and sparse payloads, and the file can then be deleted."""
+    import scipy.sparse as sp
 
-def _read(rel: str) -> str:
-    """Reads an mlframe source file's text for source-level assertions."""
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+    from mlframe.training.feature_handling import cache
+    from mlframe.training.feature_handling.cache import _deserialize, _serialize
 
+    closed: list = []
+    real_load = np.load
 
-def test_deserialize_uses_with_block_on_npzfile() -> None:
-    """Source-level: NpzFile path must close via a with-block, not leak."""
-    src = _read("training/feature_handling/cache.py")
-    # The fix replaces unrestricted `npz = np.load(...)` with a with-block
-    # for the NpzFile branch.
-    assert "with loaded as npz:" in src, "training/feature_handling/cache.py: NpzFile must be closed via a with-block."
+    def tracking_load(*args, **kwargs):
+        """np.load that records the close() of the NpzFile it returns."""
+        loaded = real_load(*args, **kwargs)
+        real_close = loaded.close
+
+        def close():
+            """Record, then close."""
+            closed.append(1)
+            real_close()
+
+        loaded.close = close
+        return loaded
+
+    monkeypatch.setattr(cache.np, "load", tracking_load)
+    payloads = [np.arange(16, dtype=np.float64), sp.random(8, 6, density=0.4, format="csr", random_state=0)]
+    with tempfile.TemporaryDirectory() as td:
+        for index, payload in enumerate(payloads):
+            path = os.path.join(td, f"payload_{index}.npz")
+            with open(path, "wb") as f:
+                _serialize(value=payload, fileobj=f, allow_pickle=False)
+            before = len(closed)
+            _deserialize(path, allow_pickle=False)
+            assert len(closed) == before + 1
+            os.remove(path)
 
 
 def test_deserialize_materialises_arrays_before_close() -> None:
     """Arrays returned to the caller must NOT be mmap views (which die on close)."""
-    src = _read("training/feature_handling/cache.py")
-    # Three callsites: ndarray "value", legacy "value"/first-key fallback, csr.
-    assert src.count('np.array(npz["value"])') >= 1
-    assert 'np.array(npz["data"])' in src
-    assert 'np.array(npz["indices"])' in src
-    assert 'np.array(npz["indptr"])' in src
+    import scipy.sparse as sp
+
+    from mlframe.training.feature_handling.cache import _deserialize, _serialize
+
+    dense = np.arange(24, dtype=np.float32).reshape(4, 6)
+    sparse = sp.random(9, 7, density=0.4, format="csr", random_state=1)
+    with tempfile.TemporaryDirectory() as td:
+        results = []
+        for name, payload in (("dense", dense), ("sparse", sparse)):
+            path = os.path.join(td, f"{name}.npz")
+            with open(path, "wb") as f:
+                _serialize(value=payload, fileobj=f, allow_pickle=False)
+            out = _deserialize(path, allow_pickle=False)
+            os.remove(path)
+            results.append(out)
+    np.testing.assert_array_equal(results[0], dense)
+    assert (results[1] != sparse).nnz == 0
+    for arr in (results[0], results[1].data, results[1].indices, results[1].indptr):
+        assert not isinstance(arr, np.memmap)
+        assert not isinstance(arr.base, np.memmap)
+        assert arr.flags.writeable
+        assert arr.flags.owndata
 
 
 def test_deserialize_roundtrip_does_not_leak_handles_on_windows() -> None:

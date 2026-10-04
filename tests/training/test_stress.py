@@ -465,25 +465,19 @@ class TestEdgeCaseStress:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        # May fail or succeed depending on imputation. Only the training call itself is allowed to
-        # raise (too many NaNs is a legitimate failure mode); the assertion below must always run
-        # to completion and is never allowed to be silently swallowed by this except.
-        try:
-            models, _metadata = train_mlframe_models_suite(
-                df=df,
-                target_name="test_target",
-                model_name="many_nan",
-                features_and_targets_extractor=fte,
-                mlframe_models=["ridge"],
-                hyperparams_config={"iterations": 5},
-                reporting_config=common_init_params,
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
-                verbose=0,
-            )
-        except Exception:  # nosec B110 -- expected: too many NaNs may legitimately cause a training failure
-            return
+        models, _metadata = train_mlframe_models_suite(
+            df=df,
+            target_name="test_target",
+            model_name="many_nan",
+            features_and_targets_extractor=fte,
+            mlframe_models=["ridge"],
+            hyperparams_config={"iterations": 5},
+            reporting_config=common_init_params,
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
+            verbose=0,
+        )
 
         assert TargetTypes.REGRESSION in models
 

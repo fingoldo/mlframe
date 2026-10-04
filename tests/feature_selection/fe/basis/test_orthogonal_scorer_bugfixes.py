@@ -57,8 +57,7 @@ def test_ksg_near_zero_baseline_uplift_not_exploded(monkeypatch):
     # Pre-fix this divided 1e-10 / (1e-10 + 1e-12) -> ~0.99 OR a huge ratio when
     # emi >> baseline; either way the +1e-12 path produces a finite ratio that
     # can pass the gate. Post-fix the near-zero baseline suppresses the ratio.
-    assert up == 0.0 or up == float("inf"), up
-    assert not (0.0 < up < 1e6)
+    assert up == float("inf"), up
 
 
 def test_hsic_near_zero_baseline_uplift_not_exploded(monkeypatch):
@@ -75,8 +74,7 @@ def test_hsic_near_zero_baseline_uplift_not_exploded(monkeypatch):
     monkeypatch.setattr(hsic, "_hsic_batch", _fake_hsic)
     df = hsic.score_features_by_hsic_uplift(raw_X, eng, y)
     up = float(df["uplift"].iloc[0])
-    assert up == 0.0 or up == float("inf"), up
-    assert not (0.0 < up < 1e6)
+    assert up == float("inf"), up
 
 
 def test_lasso_near_zero_baseline_uplift_not_exploded(monkeypatch):
@@ -91,8 +89,7 @@ def test_lasso_near_zero_baseline_uplift_not_exploded(monkeypatch):
     monkeypatch.setattr(lasso, "_fit_lasso_abs_coefs", _fake_coefs)
     df = lasso.score_features_by_lasso_coef(raw_X, eng, y)
     up = float(df["uplift"].iloc[0])
-    assert up == 0.0 or up == float("inf"), up
-    assert not (0.0 < up < 1e6)
+    assert up == float("inf"), up
 
 
 def test_adaptive_degree_near_zero_baseline_does_not_pass_gate():

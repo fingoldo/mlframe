@@ -120,12 +120,12 @@ def test_predict_converts_polars_to_pandas_when_unsupported(monkeypatch):
 
     X = pl.DataFrame({"f0": [1.0, 2.0, 3.0], "f1": [4.0, 5.0, 6.0]})
     received = {}
-    real_predict = xgb_shim.XGBClassifier.predict
+    sentinel = np.array([0, 1, 0])
 
     def _spy_predict(self, X_arg, **kwargs):
-        """Record X_arg then delegate to the real (pre-monkeypatch) XGBClassifier.predict."""
+        """Record X_arg and return a sentinel, so the mixin's own return value is observable."""
         received["X"] = X_arg
-        return real_predict(self, X_arg, **kwargs)
+        return sentinel
 
     monkeypatch.setattr(xgb_shim.XGBClassifier, "predict", _spy_predict)
     model = xgb_shim.XGBClassifierWithDMatrixReuse(n_estimators=3, max_depth=2)
@@ -133,10 +133,7 @@ def test_predict_converts_polars_to_pandas_when_unsupported(monkeypatch):
     model._Booster = object()  # placeholder; _spy_predict intercepts before the real call needs it
 
     # The mixin's own predict() must hand the spy a pandas frame, not the raw polars one.
-    try:
-        model.predict(X)
-    except Exception:
-        pass  # the placeholder _Booster can't actually predict; only the X type at the spy matters
+    assert model.predict(X) is sentinel
     assert isinstance(received["X"], pd.DataFrame), "polars X must be converted to pandas before reaching XGBoost's own predict"
     assert list(received["X"].columns) == ["f0", "f1"]
 
@@ -148,21 +145,18 @@ def test_predict_proba_converts_polars_to_pandas_when_unsupported(monkeypatch):
 
     X = pl.DataFrame({"f0": [1.0, 2.0, 3.0], "f1": [4.0, 5.0, 6.0]})
     received = {}
-    real_predict_proba = xgb_shim.XGBClassifier.predict_proba
+    sentinel = np.array([[0.5, 0.5], [0.2, 0.8], [0.9, 0.1]])
 
     def _spy_predict_proba(self, X_arg, **kwargs):
-        """Record X_arg then delegate to the real (pre-monkeypatch) XGBClassifier.predict_proba."""
+        """Record X_arg and return a sentinel, so the mixin's own return value is observable."""
         received["X"] = X_arg
-        return real_predict_proba(self, X_arg, **kwargs)
+        return sentinel
 
     monkeypatch.setattr(xgb_shim.XGBClassifier, "predict_proba", _spy_predict_proba)
     model = xgb_shim.XGBClassifierWithDMatrixReuse(n_estimators=3, max_depth=2)
     model.n_classes_ = 2
     model._Booster = object()
 
-    try:
-        model.predict_proba(X)
-    except Exception:
-        pass
+    assert model.predict_proba(X) is sentinel
     assert isinstance(received["X"], pd.DataFrame), "polars X must be converted to pandas before reaching XGBoost's own predict_proba"
     assert list(received["X"].columns) == ["f0", "f1"]

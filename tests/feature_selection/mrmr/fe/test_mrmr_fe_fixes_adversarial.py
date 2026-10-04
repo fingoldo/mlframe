@@ -392,7 +392,7 @@ def test_bug3_two_pure_noise_operands_not_rescued():
 # ===========================================================================
 
 
-def _byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int, slices: list[tuple[int, int]]) -> None:
+def _assert_byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int, slices: list[tuple[int, int]]) -> None:
     """Fit IN-PROCESS once (single fit -> no RNG contamination concern) then assert
     every engineered survivor replays byte-exactly on each adversarial row slice."""
     fs = MRMR(verbose=0, random_seed=seed)
@@ -427,7 +427,7 @@ def test_prewarp_replay_extreme_outlier_slice_byte_exact():
     a[5100] = -1e9
     y = a**2 / b + np.log(c) * np.sin(d) + f / 5.0
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
-    _byte_exact_slice_replay(df, y, seed=11, slices=[(5000, 5300), (0, 200)])
+    _assert_byte_exact_slice_replay(df, y, seed=11, slices=[(5000, 5300), (0, 200)])
 
 
 @pytest.mark.timeout(900)
@@ -446,7 +446,7 @@ def test_prewarp_replay_constant_operand_slice_byte_exact():
     a[5000:5200] = 0.42  # constant operand in the slice
     y = a**2 / b + np.log(c) * np.sin(d) + f / 5.0
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
-    _byte_exact_slice_replay(df, y, seed=13, slices=[(5000, 5200)])
+    _assert_byte_exact_slice_replay(df, y, seed=13, slices=[(5000, 5200)])
 
 
 @pytest.mark.timeout(900)
@@ -469,4 +469,4 @@ def test_prewarp_replay_out_of_fit_range_slice_byte_exact():
     a[5000:5300] = np.linspace(0.95, 1.0, 300)
     y = a**2 / b + np.log(c) * np.sin(d) + f / 5.0
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
-    _byte_exact_slice_replay(df, y, seed=17, slices=[(5000, 5300)])
+    _assert_byte_exact_slice_replay(df, y, seed=17, slices=[(5000, 5300)])

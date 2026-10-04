@@ -266,15 +266,11 @@ class TestBizValStabilityCheck:
             n_bootstrap_runs=5,
             min_keep_fraction=0.6,
         )
-        # On noise-only data, NO spec should pass a 3-of-5 majority gate
-        # consistently. Some seeds may produce a spec, but a stable spec
-        # would need a real signal. Assert: either zero kept OR a few
-        # genuine survivors (counts >= 3) -- never a single-seed luck.
-        if disc.specs_:
-            counts = disc.stability_counts_
-            assert len(disc.specs_) > 0
-            for spec in disc.specs_:
-                assert counts.get(spec.name, 0) >= 3, f"spec '{spec.name}' kept despite stability count {counts.get(spec.name, 0)} < 3 -- lucky-split survivor"
+        # On noise-only data no spec may survive on a single lucky seed: every kept spec needs a stability count of at least 3.
+        counts = disc.stability_counts_
+        assert isinstance(counts, dict)
+        weak = {spec.name: counts.get(spec.name, 0) for spec in disc.specs_ if counts.get(spec.name, 0) < 3}
+        assert not weak, f"lucky-split survivors kept: {weak}"
 
 
 # ----------------------------------------------------------------------
@@ -398,11 +394,8 @@ class TestBizValStackedDiscovery:
                     transform_name=spec.transform_name,
                     base_column=spec.base_column,
                 )
-                try:
-                    w.fit(train_df.iloc[:n_train], y[:n_train])
-                    preds = w.predict(train_df.iloc[n_train:])
-                except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
-                    continue
+                w.fit(train_df.iloc[:n_train], y[:n_train])
+                preds = w.predict(train_df.iloc[n_train:])
                 mae = float(np.mean(np.abs(preds - y[n_train:])))
                 if mae < best:
                     best = mae
@@ -439,11 +432,7 @@ class TestBizValStackedDiscovery:
                     base_column=_s.base_column,
                 )
 
-            try:
-                oof = composite_oof_predictions(_factory, df, y, n_splits=3, random_state=0)
-                df_aug[f"_oof_{spec.name}"] = oof
-            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
-                continue
+            df_aug[f"_oof_{spec.name}"] = composite_oof_predictions(_factory, df, y, n_splits=3, random_state=0)
         stacked_mae = _best_holdout_mae(stacked, df_aug)
 
         # biz_val (no-regression contract): stacked holdout MAE must NOT be
@@ -461,10 +450,7 @@ class TestBizValStackedDiscovery:
         # 6e-8 and 1e-7 has no signal). Skip the relative check when both
         # MAEs are below the f32-precision noise floor.
         _NOISE_FLOOR = 1e-5
-        if max(plain_mae, stacked_mae) <= _NOISE_FLOOR:
-            pass  # both numerically zero -- no signal to gate
-        else:
-            assert stacked_mae <= plain_mae * 1.02, (
-                f"stacked REGRESSED holdout MAE: plain={plain_mae:.4f}, "
-                f"stacked={stacked_mae:.4f} (delta {(stacked_mae - plain_mae) / max(plain_mae, 1e-9) * 100:.2f}% > 2% threshold)"
-            )
+        assert np.isfinite(plain_mae) and np.isfinite(stacked_mae), (plain_mae, stacked_mae)
+        assert (
+            max(plain_mae, stacked_mae) <= _NOISE_FLOOR or stacked_mae <= plain_mae * 1.02
+        ), f"stacked REGRESSED holdout MAE: plain={plain_mae:.4f}, stacked={stacked_mae:.4f}"

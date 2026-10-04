@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._resident_raw_mi import resident_raw_baseline_mi
+from tests.conftest import _need_cuda
 
 cp = pytest.importorskip("cupy")
 
@@ -42,6 +43,8 @@ class TestResidentMatchesHostStrictMi:
     ``_mi_classif_batch`` estimator over the SAME matrix/y/binner (edge, non-rank) to the
     documented ~1e-9 tolerance."""
 
+    @pytest.mark.gpu
+    @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
     def test_resident_edge_binned_mi_matches_host(self, monkeypatch):
         """Resident edge binned mi matches host."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backends import _mi_classif_batch
@@ -57,8 +60,7 @@ class TestResidentMatchesHostStrictMi:
         nbins = 10
 
         resident = resident_raw_baseline_mi(mat, y, ("test_parity_role", tuple(f"c{j}" for j in range(k))), nbins=nbins)
-        if resident is None:
-            pytest.skip("STRICT-resident raw-baseline path did not engage on this host (no usable CUDA device / gate declined) -- nothing to compare")
+        assert resident is not None, "STRICT-resident raw-baseline path did not engage on a working CUDA device"
 
         host = _mi_classif_batch(mat, y, nbins=nbins, rank_binning=False)
         max_abs_diff = float(np.max(np.abs(np.asarray(resident) - np.asarray(host))))

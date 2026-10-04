@@ -45,27 +45,8 @@ found across the codebase -- that subclass is absent.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
-
-
-def _read(rel: str) -> str:
-    """Read a source file. A flat module that became a subpackage
-    (``X.py`` -> ``X/__init__.py`` + submodules) is read as the package
-    __init__ plus every submodule so structural source pins still match."""
-    _path = MLFRAME_ROOT / rel
-    if not _path.exists() and _path.suffix == ".py":
-        _pkg = _path.with_suffix("")
-        _init = _pkg / "__init__.py"
-        if _init.exists():
-            parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    parts.append(_sub.read_text(encoding="utf-8"))
-            return "\n".join(parts)
-    return _path.read_text(encoding="utf-8")
-
+import numpy as np
+import pytest
 
 # ---------------------------------------------------------------------------
 # Source-level sensors
@@ -102,29 +83,124 @@ def test_locking_release_wrapped_in_try_except(tmp_path, caplog) -> None:
     assert lock._held is False
 
 
-def test_composite_cache_evict_forwards_exc_info() -> None:
-    """Composite cache evict forwards exc info."""
-    src = _read("training/composite/cache_store.py")
-    # The pre-fix `__exit__(None, None, None)` is replaced with `__exit__(*_exc)`.
-    assert "_lock_ctx.__exit__(None, None, None)" not in src
-    assert "_lock_ctx.__exit__(*_exc)" in src
-    # Wrapped in try/except so __exit__ failure doesn't propagate.
-    assert "DiscoveryCache eviction filelock __exit__ failed" in src
+class _RecordingLock:
+    """Lock manager that records the arguments ``__exit__`` receives and can fail on release."""
+
+    def __init__(self, exit_error=None):
+        """Remember the error ``__exit__`` should raise, if any."""
+        self.exit_error = exit_error
+        self.exit_args = None
+
+    def __enter__(self):
+        """Enter the lock."""
+        return self
+
+    def __exit__(self, *exc):
+        """Record the exception triple; raise the configured release error."""
+        self.exit_args = exc
+        if self.exit_error is not None:
+            raise self.exit_error
+        return False
 
 
-def test_cache_backend_lru_filelock_forwards_exc_info() -> None:
-    """Cache backend lru filelock forwards exc info."""
-    src = _read("training/feature_handling/cache_backend.py")
-    assert "file_lock.__exit__(None, None, None)" not in src
-    assert "file_lock.__exit__(*_exc)" in src
-    assert "DiskBackend LRU filelock __exit__ failed" in src
+def _discovery_cache_with_lock(monkeypatch, tmp_path, lock, locked_body):
+    """DiscoveryCache whose eviction lock is ``lock`` and whose locked eviction body is ``locked_body``."""
+    from mlframe.training.composite.cache_store import DiscoveryCache
+
+    cache = DiscoveryCache(tmp_path, max_entries=1)
+    monkeypatch.setattr(cache, "_maybe_filelock", lambda path: lock)
+    monkeypatch.setattr(cache, "_evict_to_caps_locked", locked_body)
+    return cache
 
 
-def test_row_attention_free_device_wrapped() -> None:
-    """Row attention free device wrapped."""
-    src = _read("feature_engineering/transformer/row_attention.py")
-    # The fix wraps free_device in try/except WARN.
-    assert "bank.free_device() failed (likely after upstream CUDA error)" in src
+def test_composite_cache_evict_forwards_exc_info(monkeypatch, tmp_path) -> None:
+    """The eviction lock's __exit__ sees the body's in-flight exception, and a clean body gives it the all-None triple."""
+    body_error = ValueError("eviction body failed")
+
+    def failing_body():
+        """Eviction body that fails."""
+        raise body_error
+
+    lock = _RecordingLock()
+    with pytest.raises(ValueError, match="eviction body failed"):
+        _discovery_cache_with_lock(monkeypatch, tmp_path, lock, failing_body)._evict_to_caps()
+    assert lock.exit_args is not None
+    assert lock.exit_args[0] is ValueError
+    assert lock.exit_args[1] is body_error
+
+    clean_lock = _RecordingLock()
+    assert _discovery_cache_with_lock(monkeypatch, tmp_path, clean_lock, lambda: 3)._evict_to_caps() == 3
+    assert clean_lock.exit_args == (None, None, None)
+
+
+def test_cache_backend_lru_filelock_forwards_exc_info(monkeypatch, tmp_path) -> None:
+    """The LRU sidecar's file lock __exit__ sees the critical section's in-flight exception, and a clean section gives it the all-None triple."""
+    from mlframe.training.feature_handling import cache_backend
+
+    locks: list = []
+
+    class RecordingFileLock:
+        """Stand-in for PIDAwareFileLock that records its __exit__ arguments."""
+
+        def __init__(self, path, timeout=None):
+            """Register this lock."""
+            self.exit_args = None
+            locks.append(self)
+
+        def __enter__(self):
+            """Enter."""
+            return self
+
+        def __exit__(self, *exc):
+            """Record the exception triple."""
+            self.exit_args = exc
+            return False
+
+    monkeypatch.setattr(cache_backend, "PIDAwareFileLock", RecordingFileLock)
+    backend = cache_backend.LocalDiskBackend(str(tmp_path))
+    section_error = ValueError("critical section failed")
+    with pytest.raises(ValueError, match="critical section failed"):
+        with backend._lru_locked():
+            raise section_error
+    assert locks[-1].exit_args is not None
+    assert locks[-1].exit_args[0] is ValueError
+    assert locks[-1].exit_args[1] is section_error
+
+    with backend._lru_locked():
+        pass
+    assert locks[-1].exit_args == (None, None, None)
+
+
+def test_row_attention_free_device_wrapped(monkeypatch, caplog) -> None:
+    """A free_device() failure after a failed attend() is logged and the attend() error is the one that propagates."""
+    import logging
+
+    from mlframe.feature_engineering.transformer import row_attention
+
+    class BrokenBank:
+        """Key bank whose device cleanup fails, as after a CUDA error."""
+
+        def to_device(self):
+            """Pretend to move to the GPU."""
+
+        def free_device(self):
+            """Fail like a broken CUDA context."""
+            raise RuntimeError("cuda context is broken")
+
+    def failing_attend(**kwargs):
+        """Fail like a CUDA OOM."""
+        raise ValueError("attend ran out of memory")
+
+    monkeypatch.setattr(row_attention, "build_key_bank", lambda **kwargs: BrokenBank())
+    monkeypatch.setattr(row_attention, "is_gpu_available", lambda: True)
+    monkeypatch.setattr(row_attention, "attend", failing_attend)
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(40, 16)).astype(np.float32)
+    y = rng.normal(size=40).astype(np.float32)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="attend ran out of memory"):
+            row_attention.compute_row_attention(X, y, X[:5], None, seed=1, k=4, keep_key_bank_on_gpu=True)
+    assert any("free_device() failed" in r.getMessage() and "cuda context is broken" in r.getMessage() for r in caplog.records)
 
 
 def test_logging_transformers_psutil_wrapped() -> None:
@@ -192,11 +268,39 @@ def test_logging_transformers_psutil_wrapped() -> None:
     assert records[0].d_rss_mb < 0.0
 
 
-def test_pipeline_temp_target_drop_wrapped() -> None:
-    """Pipeline temp target drop wrapped."""
-    src = _read("training/pipeline.py")
-    # The fix wraps drop in try/except DEBUG.
-    assert "pipeline: temp_target_col drop failed in finally" in src
+def test_pipeline_temp_target_drop_wrapped(monkeypatch, caplog) -> None:
+    """A failing temp-target drop is logged at debug and does not mask the PySR fit failure that is being handled."""
+    import logging
+    import sys
+    import types
+
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.training.configs import PreprocessingExtensionsConfig
+    from mlframe.training.pipeline import _apply_pysr_fe
+
+    def failing_pysr(*args, **kwargs):
+        """PySR run that fails."""
+        raise RuntimeError("pysr search failed")
+
+    fake_module = types.ModuleType("mlframe.feature_engineering.bruteforce")
+    fake_module.run_pysr_feature_engineering = failing_pysr
+    monkeypatch.setitem(sys.modules, "mlframe.feature_engineering.bruteforce", fake_module)
+
+    def failing_drop(self, *args, **kwargs):
+        """Fail like a corrupted-MultiIndex frame."""
+        raise KeyError("corrupted column index")
+
+    monkeypatch.setattr(pd.DataFrame, "drop", failing_drop)
+    frame = pd.DataFrame({"x1": np.arange(20.0), "x2": np.arange(20.0)[::-1]})
+    cfg = PreprocessingExtensionsConfig(pysr_enabled=True, random_seed=1)
+    with caplog.at_level(logging.DEBUG):
+        added = _apply_pysr_fe(train_df=frame, val_df=None, test_df=None, y_train=np.arange(20.0), config=cfg, verbose=0)
+    assert added == []
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("PySR fit failed" in m and "pysr search failed" in m for m in messages)
+    assert any("temp_target_col drop failed" in m and "corrupted column index" in m for m in messages)
 
 
 # ---------------------------------------------------------------------------
@@ -204,29 +308,17 @@ def test_pipeline_temp_target_drop_wrapped() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_finally_with_raising_cleanup_does_not_mask_original_exception() -> None:
-    """Validate the bug-class invariant: a finally that catches its own cleanup
-    error preserves the original exception from the try body."""
-    seen = []
+def test_finally_with_raising_cleanup_does_not_mask_original_exception(monkeypatch, tmp_path, caplog) -> None:
+    """A lock release that raises inside the eviction finally block is logged, and the body's own exception is the one that propagates."""
+    import logging
 
-    class FakeLock:
-        """Groups tests covering fake lock."""
-        def release(self):
-            """Release."""
-            raise OSError("simulated filelock release failure")
+    def failing_body():
+        """Eviction body that fails."""
+        raise ValueError("real bug")
 
-    fl = FakeLock()
-    try:
-        try:
-            raise ValueError("real bug")
-        finally:
-            # Mirrors the locking.py:175 fix pattern.
-            try:
-                fl.release()
-            except Exception as _rel_err:
-                seen.append(("release_failed", _rel_err))
-    except ValueError as ve:
-        seen.append(("propagated", str(ve)))
-    # The release error was logged; the original ValueError propagated.
-    assert ("release_failed",) == (seen[0][0],)
-    assert seen[1] == ("propagated", "real bug")
+    lock = _RecordingLock(exit_error=OSError("simulated filelock release failure"))
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ValueError, match="real bug"):
+            _discovery_cache_with_lock(monkeypatch, tmp_path, lock, failing_body)._evict_to_caps()
+    assert lock.exit_args is not None
+    assert any("filelock __exit__ failed" in r.getMessage() and "simulated filelock release failure" in r.getMessage() for r in caplog.records)

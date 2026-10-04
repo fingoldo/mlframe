@@ -185,14 +185,12 @@ def test_mrmr_recovers_ab_signal_on_nullable_frame_majority_seeds(dtype):
         if rec == set(_SIGNAL_PAIR):
             full_pair_hits += 1
 
-    if is_fast_mode():
-        # Single representative seed must still recover the full pair.
-        assert full_pair_hits >= 1
-    else:
-        # Majority of seeds recover the FULL (a, b) pair. Measured 3/3; floor 2/3.
-        assert (
-            full_pair_hits >= 2
-        ), f"{dtype}: (a,b) pair recovered on only {full_pair_hits}/{len(seeds)} seeds on the nullable frame; expected >= 2 (measured 3/3)."
+    # Fast mode runs one representative seed that must still recover the full pair; otherwise a majority of seeds must (measured 3/3, floor 2/3).
+    required_hits = 1 if is_fast_mode() else 2
+    assert len(seeds) >= 1
+    assert (
+        full_pair_hits >= required_hits
+    ), f"{dtype}: (a,b) pair recovered on only {full_pair_hits}/{len(seeds)} seeds on the nullable frame; expected >= {required_hits} (measured 3/3)."
 
 
 # ---------------------------------------------------------------------------

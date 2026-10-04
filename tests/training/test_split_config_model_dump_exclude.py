@@ -17,8 +17,7 @@ one side.
 
 from __future__ import annotations
 
-from pathlib import Path
-
+import functools
 import inspect
 
 # Fields on TrainingSplitConfig that are CALLER-SIDE behaviour knobs:
@@ -33,18 +32,63 @@ _CALLER_SIDE_FIELDS = (
 )
 
 
-def test_phase_helpers_fit_split_uses_signature_derived_filter() -> None:
+def test_phase_helpers_fit_split_uses_signature_derived_filter(monkeypatch) -> None:
     """The model_dump filter MUST be derived from the splitter's signature
     at runtime, not a hardcoded list. Hardcoded lists drift: prod TVT
     2026-05-25 surfaced TWO consecutive TypeErrors when caller-side fields
     were added without exclude updates. The runtime-signature filter
     catches any future field addition automatically."""
-    import mlframe.training.core._phase_helpers_fit_split as ph
+    from types import SimpleNamespace
 
-    src = Path(ph.__file__).read_text(encoding="utf-8")
-    assert (
-        "inspect.signature(make_train_test_split).parameters" in src
-    ), "phase_helpers_fit_split must inspect the splitter signature at runtime to filter the model_dump kwargs; hardcoded exclude lists drift out of sync."
+    import numpy as np
+    import pandas as pd
+
+    import mlframe.training.core._phase_helpers_fit_split as ph
+    from mlframe.training._preprocessing_configs import TrainingSplitConfig
+
+    real_splitter = ph.make_train_test_split
+    seen: list = []
+
+    def _run(splitter) -> None:
+        """Run the split phase on a small frame with ``splitter`` in place of the production one."""
+        monkeypatch.setattr(ph, "make_train_test_split", splitter)
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame({"x": rng.normal(size=300), "y": rng.normal(size=300)})
+        ph._phase_train_val_test_split(
+            df=df,
+            target_by_type={},
+            timestamps=None,
+            group_ids=None,
+            group_ids_raw=None,
+            artifacts=None,
+            sequences=None,
+            split_config=TrainingSplitConfig(),
+            behavior_config=SimpleNamespace(fairness_features=None),
+            metadata={},
+            data_dir="",
+            models_dir="",
+            target_name="t",
+            model_name="m",
+            df_size_mb=0.0,
+            verbose=False,
+        )
+
+    @functools.wraps(real_splitter)
+    def _recording_splitter(*args, **kwargs):
+        """The production splitter, recording the keyword arguments the phase passes."""
+        seen.append(set(kwargs))
+        return real_splitter(*args, **kwargs)
+
+    def _narrow_splitter(df, timestamps, stratify_y, groups, return_calib, test_size, val_size):
+        """A splitter whose signature is narrower than production: any other keyword the phase passes raises TypeError."""
+        return real_splitter(df=df, timestamps=timestamps, stratify_y=stratify_y, groups=groups, return_calib=return_calib, test_size=test_size, val_size=val_size)
+
+    _run(_recording_splitter)
+    (passed,) = seen
+    assert {"df", "timestamps", "stratify_y", "groups", "return_calib"} <= passed
+    assert not passed & set(_CALLER_SIDE_FIELDS)
+    assert "bucket_stratify" not in passed
+    _run(_narrow_splitter)
 
 
 def test_phase_helpers_fit_split_filter_drops_all_caller_side_fields() -> None:

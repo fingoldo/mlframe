@@ -214,5 +214,5 @@ def test_gated_regression_mixture_branch_sample_weight_changes_fit():
         random_state=0,
     )
     m2.fit(X, y, is_outlier)
-    if "low" in m1.branch_models_ and "low" in m2.branch_models_:
-        assert not np.allclose(m1.branch_models_["low"].coef_, m2.branch_models_["low"].coef_)
+    assert "low" in m1.branch_models_ and "low" in m2.branch_models_
+    assert not np.allclose(m1.branch_models_["low"].coef_, m2.branch_models_["low"].coef_)

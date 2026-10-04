@@ -11,6 +11,7 @@ from __future__ import annotations
 import sys
 import types
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
@@ -21,13 +22,19 @@ from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpe
 BACKENDS = ["matplotlib", "plotly"]
 
 
+@pytest.fixture(autouse=True)
+def _close_mpl_figures():
+    """Close every matplotlib figure a test rendered."""
+    yield
+    plt.close("all")
+
+
 def _render_both(panel):
-    """Helper: Render both."""
+    """Render one panel on both backends and return (matplotlib figure, plotly figure)."""
     spec = FigureSpec(panels=((panel,),), figsize=(6, 4))
-    for backend in BACKENDS:
-        fig = get_renderer(backend).render(spec)
-        assert fig is not None
-    return spec
+    mpl_fig, plotly_fig = (get_renderer(backend).render(spec) for backend in BACKENDS)
+    assert len(mpl_fig.axes) == 1
+    return mpl_fig, plotly_fig
 
 
 # ----------------------------------------------------------------------------
@@ -40,37 +47,55 @@ class TestSpecVocabularyRenders:
     def test_vlines(self):
         """Vlines."""
         x = np.arange(20)
-        _render_both(LinePanelSpec(x=x, y=x.astype(float), vlines=((5.0, "red", "split"), (12.0, "gray", ""))))
+        mpl_fig, plotly_fig = _render_both(LinePanelSpec(x=x, y=x.astype(float), vlines=((5.0, "red", "split"), (12.0, "gray", ""))))
+        assert len(mpl_fig.axes[0].lines) == 3  # the series plus two vertical lines
+        assert [(s.type, s.x0) for s in plotly_fig.layout.shapes] == [("line", 5.0), ("line", 12.0)]
+        assert [a.text for a in plotly_fig.layout.annotations] == ["split"]
 
     def test_vspans(self):
         """Vspans."""
         x = np.arange(20)
-        _render_both(LinePanelSpec(x=x, y=x.astype(float), vspans=((3.0, 7.0, "orange", 0.2), (10.0, 15.0, "green", 0.15))))
+        mpl_fig, plotly_fig = _render_both(LinePanelSpec(x=x, y=x.astype(float), vspans=((3.0, 7.0, "orange", 0.2), (10.0, 15.0, "green", 0.15))))
+        assert len(mpl_fig.axes[0].patches) == 2
+        assert [(s.type, s.x0, s.x1) for s in plotly_fig.layout.shapes] == [("rect", 3.0, 7.0), ("rect", 10.0, 15.0)]
 
     def test_marker_only_series(self):
         """Marker only series."""
         x = np.arange(20)
-        _render_both(LinePanelSpec(x=x, y=(x.astype(float), x.astype(float) * 0.5), line_styles=("markers", "-"), series_labels=("observed", "fit")))
+        mpl_fig, plotly_fig = _render_both(
+            LinePanelSpec(x=x, y=(x.astype(float), x.astype(float) * 0.5), line_styles=("markers", "-"), series_labels=("observed", "fit"))
+        )
+        assert len(mpl_fig.axes[0].lines) == 2
+        assert [(t.name, t.mode) for t in plotly_fig.data] == [("observed", "markers"), ("fit", "lines")]
 
     def test_lines_plus_markers(self):
         """Lines plus markers."""
         x = np.arange(20)
-        _render_both(LinePanelSpec(x=x, y=x.astype(float), line_styles=("lines+markers",)))
+        mpl_fig, plotly_fig = _render_both(LinePanelSpec(x=x, y=x.astype(float), line_styles=("lines+markers",)))
+        assert [t.mode for t in plotly_fig.data] == ["lines+markers"]
+        line = mpl_fig.axes[0].lines[0]
+        assert line.get_marker() not in (None, "None", "") and line.get_linestyle() != "None"
 
     def test_band(self):
         """Band."""
         x = np.arange(20).astype(float)
         center = np.sin(x / 3.0)
-        _render_both(LinePanelSpec(x=x, y=center, band=(center - 0.3, center + 0.3), band_label="+-std"))
+        mpl_fig, plotly_fig = _render_both(LinePanelSpec(x=x, y=center, band=(center - 0.3, center + 0.3), band_label="+-std"))
+        assert len(mpl_fig.axes[0].collections) == 1  # the filled band
+        assert "+-std" in [t.name for t in plotly_fig.data]
 
     def test_x_is_time(self):
         """X is time."""
         x = np.arange(20).astype(float)
-        _render_both(LinePanelSpec(x=x, y=x, x_is_time=True))
+        mpl_fig, plotly_fig = _render_both(LinePanelSpec(x=x, y=x, x_is_time=True))
+        assert ":" in mpl_fig.axes[0].get_xticklabels()[0].get_text(), "the time axis is not drawn with a date formatter"
+        assert len(plotly_fig.data) == 1
 
     def test_annotation_panel(self):
         """Annotation panel."""
-        _render_both(AnnotationPanelSpec(text="metric unavailable\n(K<3)", title="PIT"))
+        mpl_fig, plotly_fig = _render_both(AnnotationPanelSpec(text="metric unavailable\n(K<3)", title="PIT"))
+        assert [t.get_text() for t in mpl_fig.axes[0].texts] == ["metric unavailable\n(K<3)"]
+        assert [a.text for a in plotly_fig.layout.annotations] == ["PIT", "metric unavailable<br>(K<3)"]
 
     def test_marker_series_plotly_mode(self):
         """A markers-only series must emit a markers-mode trace on plotly (not lines)."""
@@ -257,4 +282,5 @@ class TestMatplotlibShowIPython:
         spec = FigureSpec(panels=((ScatterPanelSpec(x=np.array([0.0, 1.0]), y=np.array([0.0, 1.0])),),), figsize=(4, 3))
         renderer = get_renderer("matplotlib")
         fig = renderer.render(spec)
-        renderer.show(fig)  # must return cleanly
+        assert renderer.show(fig) is None  # must return cleanly
+        assert len(fig.axes) == 1 and len(fig.axes[0].collections) == 1

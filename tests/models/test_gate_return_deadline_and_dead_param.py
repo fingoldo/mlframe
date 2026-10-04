@@ -58,8 +58,11 @@ class TestAPassingGateIsDistinguishableFromARejection:
         """The path that already worked must not regress."""
         from sklearn.utils.validation import check_is_fitted
 
-        est, _ = self._run(refit=True, min_score=0.5)
+        est, score = self._run(refit=True, min_score=0.5)
+        assert est is not None
+        assert score >= 0.5
         check_is_fitted(est)
+        np.testing.assert_allclose(est.coef_, [2.0, -1.0, 0.5], atol=0.05)
 
 
 class TestTheStagedBackendHonoursTheRuntimeCap:

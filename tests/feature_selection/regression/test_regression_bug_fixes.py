@@ -24,30 +24,30 @@ def test_regression_polygamma_late_binding():
     transforms = create_unary_transformations(preset="maximal")
     x = np.linspace(1.5, 3.5, 20)  # positive domain valid for polygamma/struve/jv
 
+    for family in ("polygamma_{}", "struve{}", "jv{}"):
+        assert all(family.format(i) in transforms for i in (0, 1, 2)), f"{family} orders missing from the maximal preset"
+
     # polygamma family
-    if all(f"polygamma_{i}" in transforms for i in (0, 1, 2)):
-        p0 = transforms["polygamma_0"](x)
-        p1 = transforms["polygamma_1"](x)
-        p2 = transforms["polygamma_2"](x)
-        # Pre-fix bug: all three identical (all use order=2). Post-fix: distinct.
-        assert not np.allclose(p0, p1), "polygamma_0 and polygamma_1 were identical (late-binding bug regressed)"
-        assert not np.allclose(p1, p2), "polygamma_1 and polygamma_2 were identical (late-binding bug regressed)"
+    p0 = transforms["polygamma_0"](x)
+    p1 = transforms["polygamma_1"](x)
+    p2 = transforms["polygamma_2"](x)
+    # Pre-fix bug: all three identical (all use order=2). Post-fix: distinct.
+    assert not np.allclose(p0, p1), "polygamma_0 and polygamma_1 were identical (late-binding bug regressed)"
+    assert not np.allclose(p1, p2), "polygamma_1 and polygamma_2 were identical (late-binding bug regressed)"
 
     # struve family (same bug pattern)
-    if all(f"struve{i}" in transforms for i in (0, 1, 2)):
-        s0 = transforms["struve0"](x)
-        s1 = transforms["struve1"](x)
-        s2 = transforms["struve2"](x)
-        assert not np.allclose(s0, s1)
-        assert not np.allclose(s1, s2)
+    s0 = transforms["struve0"](x)
+    s1 = transforms["struve1"](x)
+    s2 = transforms["struve2"](x)
+    assert not np.allclose(s0, s1)
+    assert not np.allclose(s1, s2)
 
     # jv (Bessel-J) family
-    if all(f"jv{i}" in transforms for i in (0, 1, 2)):
-        j0 = transforms["jv0"](x)
-        j1 = transforms["jv1"](x)
-        j2 = transforms["jv2"](x)
-        assert not np.allclose(j0, j1)
-        assert not np.allclose(j1, j2)
+    j0 = transforms["jv0"](x)
+    j1 = transforms["jv1"](x)
+    j2 = transforms["jv2"](x)
+    assert not np.allclose(j0, j1)
+    assert not np.allclose(j1, j2)
 
 
 # ---------------------------------------------------------------------------

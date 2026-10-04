@@ -91,6 +91,8 @@ def test_structural_codes_fold_fallback_bit_exact():
     host = enc_df.to_numpy(dtype=np.float64)
     # Bit-exact zero set: |z| / z**2 == 0 exactly on NaN-x_i rows + degenerate-residual rows. The device must
     # mark the SAME rows zero (structural fold), regardless of the ULP on the non-zero magnitudes.
+    assert col_specs
+    assert mat.shape == host.shape
     for j, spec in enumerate(col_specs):
         host_zero = host[:, j] == 0.0
         dev_zero = mat[:, j] == 0.0
@@ -102,9 +104,9 @@ def test_structural_codes_fold_fallback_bit_exact():
         # Sign structure of the signed-equivalent magnitude (|z| and z**2 are non-negative -> sign always >=0);
         # assert the non-zero magnitudes agree to ULP.
         nz = ~host_zero
-        if nz.any():
-            md = float(np.max(np.abs(host[nz, j] - mat[nz, j])))
-            assert md < 1e-10, f"column {spec['name']}: non-zero magnitudes differ by {md} (> ULP)"
+        assert nz.any(), f"column {spec['name']}: every row folded to zero"
+        md = float(np.max(np.abs(host[nz, j] - mat[nz, j])))
+        assert md < 1e-10, f"column {spec['name']}: non-zero magnitudes differ by {md} (> ULP)"
 
 
 def test_codes_bit_identical_to_host_digitize():

@@ -290,7 +290,7 @@ def _bootstrap_block_clustered(
 
     Entries carry ``resampling`` naming the scheme (the i.i.d. path in ``_bootstrap_block`` tags ``"iid"``).
     """
-    from mlframe.evaluation._bootstrap_clusters import bootstrap_metrics_clustered
+    from mlframe.evaluation.bootstrap import bootstrap_metrics_clustered
 
     out: dict[str, Any] = {}
     metric_fns: dict = {}
@@ -334,7 +334,7 @@ def _test_resampling_structure(ctx: Any, n_test_rows: int) -> tuple[Optional[np.
             logger.warning("honest_diagnostics: group ids not sliceable to the test split (%s); bootstrap CIs fall back to i.i.d. rows", exc)
             return None, None
     if getattr(ctx, "timestamps", None) is not None:
-        from mlframe.evaluation._bootstrap_clusters import default_block_length
+        from mlframe.evaluation.bootstrap import default_block_length
 
         return None, default_block_length(n_test_rows)
     return None, None

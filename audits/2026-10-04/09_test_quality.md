@@ -56,3 +56,21 @@ Edited: feature_engineering/{test_coverage_fill,test_fe_audit_fixes}.py; feature
 Verified green: a_fixes (before last fix) + divide_by_zero + int_overflow + sentinel + missing_super_init (63 passed), wrong_exception_type 26, test_evaluation 45, the four new test files, known_gap/contract batch (23 passed, 1 xfailed), loky/recurrent 16, hermite/yj/shap/perf_regression batch 39 passed.
 Unverified at wrap-up: is_vs_eq stage4 fix, test_splitting sequential sizes, locking/ranker-RNG/callbacks conversions, T05 polars batch, fuzz metamorphic, contract_shared known_gap, BC best-of-5, a_fixes p8 fix. Environment noise: test_perf_optimizations errors on missing `temp_data_dir` fixture; DCD budget and BC ratio missed under many concurrent pytest sessions.
 Baselines: _source_text_baseline.json 243 -> 219 entries (claim count 384 -> 353; entries for the unverified is_vs_eq stage4, finally_exception_mask and global_rng conversions were kept). _nondiscriminating_assert_baseline.json 1198 -> 1192 (6 imperative-xfail entries moved to known_gap/assertions and verified green); the other converted tests (test_splitting x5, callbacks x4, perf/skip sites) are stale in it but unverified, so remain: 1192 entries. The nondiscriminating gate passed (1 passed) after the final edits; the contract_shared known_gap edit was reverted because it created new all-asserts-conditional flags (T10 note stays: 4 capability-flag xfails there remain). T04 remaining: 219 baseline entries (330 claims) plus 26 allowlisted files.
+
+## Fix log pass 2 (transformer)
+
+Scope: 498 entries under feature_engineering/transformer/ (394 test_biz_val_real_datasets.py, 87 test_validation_records_at_scale.py, 6 test_validation_records.py, 11 elsewhere). No source-text entries in scope.
+
+- Gate scanner (tests/test_meta/test_no_nondiscriminating_assert.py, `_build_offending_set`) reports 0 offenders in scope; 497 keys listed in baseline_removed_transformer.txt.
+- test_biz_val_real_datasets.py: the `_run_*_test` / `_RUN_N` / `_per_dataset_test` helpers now return the matrix records (loader failure is `pytest.skip` instead of a silent return), and every test body calls
+  `_assert_matrix_discriminates(records, name)` (arm errors, non-finite scores, collapse > 0.30 below raw). Previously 93 helper-based tests only printed. Direct-body tests assert on every `_run_matrix` result.
+- test_validation_records*.py: `_validate` / `_validate_scale` return (median, iqr, lifts); every test asserts via `_assert_lifts_finite` that no seed errored and the median is finite
+  (the SURVIVES / FOLD-NOISE verdict stays informational).
+- supervised_projection_ops: `_augment_auc` returns (raw, aug) AUC and each test asserts the lift floor in its body. swap_noise: `pytest.raises(ValueError, match=...)` on the exact messages.
+- fe_transformer_b_fixes: F3-F6 and F7 asserts made unconditional with non-empty column checks; F13 rewritten to patch `concepts.Context`, asserting the INFO log, zero n_concepts and an all-zero panel (no source inspection).
+  fe_transformer_a_fixes p8 key was already clean in the tree.
+- row_attention GO/NO-GO gate: unconditional strict xfail replaced by tests/_known_gap.py (xfails with measured lifts, fails when the gap closes); it xfailed as before.
+- Verified by running: swap_noise, fe_transformer_a/b_fixes, supervised_projection_ops (3 of 4), row_attention gate (35 passed, 1 xfailed, 1 skipped). Not run to completion (shared machine, 15+ min per arm matrix): the real_datasets and
+  validation-records conversions are mechanical and AST-checked by the scanner; sample runs of 3 real_datasets matrix tests (iter90/iter1/matrix diabetes) hit the 600 s hang watchdog on the loaded machine (no assertion failure, no arm-error in the log), test_validate_iter77_diabetes_cb_pr_auc passed (1 passed, 3 timeouts).
+- Remaining: test_biz_val_rf_proximity_lifts_linear_auc_on_xor_blobs converted but its run hit the 900 s pytest timeout in the LightGBM fit under CPU contention, so its key is NOT in the removed list.
+- Product bugs found: none.

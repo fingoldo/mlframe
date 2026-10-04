@@ -167,14 +167,16 @@ def test_the_temporal_audit_unit_knob_is_declared():
 def test_the_dead_ensembling_knob_and_its_fuzz_axis_are_gone_together():
     """Nothing in `src` read `force_legacy`, yet the fuzz harness varied it as a combo axis -- so both arms
     produced identical runs and the suite reported coverage of a path it never exercised."""
-    import pathlib
+    import dataclasses
 
     from mlframe.training._model_configs_ensembling import EnsemblingConfig
+    from tests.training._fuzz_combo.axes import AXES
+    from tests.training._fuzz_combo.combo import FuzzCombo
 
     assert "force_legacy" not in EnsemblingConfig.model_fields
-    root = pathlib.Path(__file__).resolve().parents[1]
-    for rel in ("training/_fuzz_combo/axes.py", "training/_fuzz_combo/combo.py", "test_meta/test_config_field_consumption.py"):
-        assert "force_legacy" not in (root / rel).read_text(encoding="utf-8"), rel
+    assert "force_legacy" not in AXES
+    assert "force_legacy" not in {f.name for f in dataclasses.fields(FuzzCombo)}
+    assert len(AXES) > 0
 
 
 class TestTheStatedContractsMatchTheCode:

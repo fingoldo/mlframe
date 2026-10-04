@@ -99,24 +99,33 @@ def _build_offending_set() -> set[str]:
         tree = parsed_ast(py)
         if tree is None:
             continue
-        rel = py.relative_to(MLFRAME_DIR).as_posix()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            if not _is_logger_call(node):
-                continue
-            if _first_arg_is_eager_format(node):
-                out.add(f"{rel}:{node.lineno}")
+        out |= _eager_sites(tree, py.relative_to(MLFRAME_DIR).as_posix())
     return out
+
+
+def _eager_sites(tree: ast.AST, rel: str) -> set[str]:
+    """``{rel:lineno}`` for every eager-formatted logger.debug/info call in one parsed module."""
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _is_logger_call(node) and _first_arg_is_eager_format(node):
+            out.add(f"{rel}:{node.lineno}")
+    return out
+
+
+def test_eager_format_detector_catches_fstring_and_passes_lazy_form():
+    """An f-string logger.info call is reported; the lazy ``%s`` form and a warning-level f-string are not."""
+    bad = ast.parse("logger.info(f'x {v}')\n")
+    clean = ast.parse("logger.info('x %s', v)\nlogger.warning(f'x {v}')\n")
+    assert _eager_sites(bad, "m.py") == {"m.py:1"}
+    assert _eager_sites(clean, "m.py") == set()
 
 
 def test_no_new_eager_log_format_on_debug_or_info():
     """H1: no new eager-formatted ``logger.debug/info`` call beyond the frozen baseline."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"logger lazy-format baseline refreshed at {_BASELINE_PATH.name} ({len(current)} eager call site(s))")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"logger lazy-format baseline refreshed at {_BASELINE_PATH.name}")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

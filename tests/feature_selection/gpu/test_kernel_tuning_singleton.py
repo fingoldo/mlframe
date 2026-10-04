@@ -77,7 +77,6 @@ def test_dispatch_module_shares_filters_singleton():
 
     _kernel_tuning._reset_for_tests()
     via_filters = _kernel_tuning.get_kernel_tuning_cache()
-    if via_filters is None:
-        pytest.skip("KernelTuningCache unavailable on this host")
+    assert via_filters is not None, "KernelTuningCache failed to construct although pyutilz's cache module imports"
     via_dispatch = _disp._get_cache()
     assert via_filters is via_dispatch, "dispatch._get_cache must return the same instance as the shared singleton"

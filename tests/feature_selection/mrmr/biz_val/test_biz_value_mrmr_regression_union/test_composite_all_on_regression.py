@@ -421,14 +421,13 @@ class TestNoEngineeredNameCollisions:
         # Within-roster: every specific bucket must have unique entries.
         within_specific = tuple(a for a in _ENGINEERED_ROSTER_ATTRS if a != "hybrid_orth_features_")
         per_roster_dupes: dict[str, list[str]] = {}
+        n_rosters_checked = 0
         for attr in within_specific:
             roster = getattr(m, attr, None)
             if roster is None:
                 continue
-            try:
-                names = list(roster)
-            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
-                continue
+            names = list(roster)
+            n_rosters_checked += 1
             seen: set[str] = set()
             dupes: list[str] = []
             for nm in names:
@@ -438,6 +437,7 @@ class TestNoEngineeredNameCollisions:
                     seen.add(nm)
             if dupes:
                 per_roster_dupes[attr] = dupes
+        assert n_rosters_checked >= 1, "no specific-bucket engineered roster was populated, so the duplicate check examined nothing"
         assert not per_roster_dupes, (
             f"Engineered roster(s) contain duplicate column names: "
             f"{per_roster_dupes!r}. A regression in one FE stage is "

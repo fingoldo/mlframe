@@ -98,19 +98,34 @@ def test_regression_flag_on_dispatch_matches_cpu():
         os.environ.pop("MLFRAME_FE_GPU_STRICT_RESIDENT", None)
 
 
-def test_classification_delegates_to_logistic_sibling():
+def test_classification_delegates_to_logistic_sibling(monkeypatch):
     """``classification=True`` routes to the logistic resident sibling, not this regression twin."""
+    from mlframe.feature_selection.filters import _usability_greedy_clf_gpu_resident as clf_mod
     from mlframe.feature_selection.filters._usability_greedy_gpu_resident import usability_greedy_gpu_resident
 
     pool, y_cont = _make_pool(400, 0, True)
     y_bin = (y_cont > np.median(y_cont)).astype(int)
     kw = dict(K=4, n_folds=4, shortlist=8, mae_improve_rel=0.005)
+
+    calls = []
+
+    def _stub(pool_arg, y_arg, **kwargs):
+        """Record the delegated call and return a sentinel selection."""
+        calls.append((pool_arg, y_arg, kwargs))
+        return ["sentinel"]
+
+    monkeypatch.setattr(clf_mod, "usability_greedy_clf_gpu_resident", _stub)
+    stubbed = usability_greedy_gpu_resident(pool, y_bin, seed=0, classification=True, **kw)
+    assert stubbed == ["sentinel"]
+    assert len(calls) == 1
+    assert calls[0][0] is pool and calls[0][1] is y_bin
+    assert calls[0][2]["K"] == 4 and calls[0][2]["seed"] == 0 and calls[0][2]["shortlist"] == 8
+    monkeypatch.undo()
+
     direct = usability_greedy_gpu_resident(pool, y_bin, seed=0, classification=True, **kw)
-    # The logistic sibling either resolves a selection or defers (None); either is valid -- this test
-    # only pins that classification=True does NOT run this module's OWN regression body (which would
-    # treat y_bin as continuous and silently produce a different, wrong selection).
-    if direct is not None:
-        assert isinstance(direct, list)
+    sibling = clf_mod.usability_greedy_clf_gpu_resident(pool, y_bin, seed=0, **kw)
+    assert (direct is None) == (sibling is None)
+    assert [c.name for c in direct or []] == [c.name for c in sibling or []]
 
 
 def test_empty_pool_and_short_target_return_none():

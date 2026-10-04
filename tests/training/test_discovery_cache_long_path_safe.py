@@ -21,15 +21,11 @@ def test_discovery_cache_cache_dir_uses_long_path_prefix_on_windows(tmp_path):
     """
     from mlframe.training.composite.cache import DiscoveryCache
 
-    cache = DiscoveryCache(str(tmp_path / "lp_root"))
-    if sys.platform == "win32":
-        assert cache.cache_dir.startswith("\\\\?\\"), f"cache_dir should carry long-path prefix on Windows; got: {cache.cache_dir!r}"
-    else:
-        # On POSIX long_path_safe is a no-op - the cache_dir is just the
-        # absolute path.
-        import os
+    import os
 
-        assert cache.cache_dir == os.path.abspath(str(tmp_path / "lp_root"))
+    cache = DiscoveryCache(str(tmp_path / "lp_root"))
+    prefix = "\\\\?\\" if sys.platform == "win32" else ""
+    assert cache.cache_dir == prefix + os.path.abspath(str(tmp_path / "lp_root"))
 
 
 def test_discovery_cache_set_get_on_deeply_nested_path(tmp_path):

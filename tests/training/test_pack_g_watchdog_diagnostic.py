@@ -19,15 +19,22 @@ import pytest
 class TestWatchdogDiagnosticFormat:
     """When watchdog detects divergence, the log line MUST contain the diagnostic dump for downstream forensics."""
 
-    def test_watchdog_log_includes_sample_rows_on_divergence(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Construct a scenario where the watchdog fires: a wrapper whose inner.predict returns SCALED predictions instead of T-scale (simulating the production TTR transformer_ corruption hypothesis). Then assert the log line carries the diagnostic dump."""
+    def test_watchdog_log_includes_sample_rows_on_divergence(self, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A wrapper whose y-scale output drifts away from its inner's T-scale error trips the additive watchdog; a consistent wrapper stays quiet.
+
+        The warning must carry the composite, the split, both MAEs and the divergence percentage so an operator can see where the two scales part.
+        """
+        import re
+
         from sklearn.base import BaseEstimator, RegressorMixin
 
         from mlframe.training.composite import CompositeTargetEstimator
         from mlframe.training.composite.transforms import get_transform
+        from mlframe.training.core._composite_wrap_watchdog import run_wrap_watchdog
+        from mlframe.utils.log_throttle import reset_throttle_counts
 
         class _BrokenInner(BaseEstimator, RegressorMixin):
-            """Predicts T_hat = T_true / 10 -- i.e., something close to but not exactly T."""
+            """Predicts noise around zero: a poor but self-consistent inner model of the residual T."""
 
             def __init__(self, scale_factor: float = 0.1) -> None:
                 self.scale_factor = scale_factor
@@ -38,7 +45,6 @@ class TestWatchdogDiagnosticFormat:
                 return self
 
             def predict(self, X):
-                # Pretend we know y - return scaled y. Production-style "near-oracle with wrong scaling".
                 """Predict."""
                 rng = np.random.default_rng(0)
                 return rng.normal(0.0, 1.0, size=len(X)) * self.scale_factor
@@ -51,8 +57,6 @@ class TestWatchdogDiagnosticFormat:
 
         transform = get_transform("linear_residual")
         params = transform.fit(y, base)
-
-        # Wrap a broken inner that produces predictions with wrong scaling.
         wrapper = CompositeTargetEstimator.from_fitted_inner(
             fitted_inner=_BrokenInner().fit(df.values, y - 1.5 * base - 5.0),
             transform_name="linear_residual",
@@ -60,67 +64,26 @@ class TestWatchdogDiagnosticFormat:
             transform_fitted_params=params,
             y_train=y,
         )
+        spec = {"name": "y-linres-base", "transform_name": "linear_residual", "base_column": "base", "fitted_params": params}
+        logger_name = "mlframe.training.core._phase_composite_wrapping"
 
-        # The watchdog lives inside _run_composite_target_wrapping in
-        # _phase_composite_post.py. To exercise it in isolation would require
-        # plumbing through a full models / specs / target_by_type dict. Here
-        # we just verify the watchdog's KEY DIAGNOSTIC PATH renders the
-        # right substrings when invoked manually.
-        from mlframe.training.core._phase_composite_post import (
-            _run_composite_target_wrapping,
-        )
+        def _watchdog_lines() -> list:
+            """Run the watchdog on the full frame and return the watchdog warnings it logged."""
+            caplog.clear()
+            reset_throttle_counts()
+            with caplog.at_level(logging.WARNING, logger=logger_name):
+                run_wrap_watchdog(wrapper, spec, df, y, composite_name="y-linres-base", split_name="val")
+            return [r.getMessage() for r in caplog.records if "watchdog" in r.getMessage()]
 
-        target_by_type = {"regression": {"y": y}}
-        composite_specs_by_target_type = {
-            "regression": {
-                "y": [
-                    {
-                        "name": "y-linres-base",
-                        "transform_name": "linear_residual",
-                        "base_column": "base",
-                        "fitted_params": params,
-                    }
-                ],
-            },
-        }
+        assert _watchdog_lines() == []
 
-        # Wire a fake fitted-inner under the composite name in the models dict
-        # using the same structure the suite produces (list of entries; each
-        # entry has .model attribute pointing at the inner).
-        class _Entry:
-            """Groups tests covering entry."""
-            def __init__(self, m):
-                self.model = m
-                self.model_name = "Broken"
-
-        models = {
-            "regression": {
-                "y-linres-base": [_Entry(wrapper.estimator_)],
-            },
-        }
-        train_idx = np.arange(int(0.8 * n))
-        val_idx = np.arange(int(0.8 * n), n)
-        train_df = df.iloc[train_idx].reset_index(drop=True)
-        val_df = df.iloc[val_idx].reset_index(drop=True)
-
-        with caplog.at_level(logging.WARNING, logger="mlframe.training.core._phase_composite_post"):
-            _run_composite_target_wrapping(
-                models=models,
-                metadata={},
-                target_by_type=target_by_type,
-                composite_specs_by_target_type=composite_specs_by_target_type,
-                filtered_train_idx=train_idx,
-                filtered_train_df=train_df,
-                filtered_val_idx=val_idx,
-                filtered_val_df=val_df,
-                test_idx=None,
-                test_df_pd=None,
-                skip_predict=False,
-            )
-
-        # Watchdog fired AND log includes the diagnostic dump tokens.
-        log_text = caplog.text
-        # Defensive: the watchdog OR another log line should mention the divergence.
-        # We don't gate on exact text; just verify the diagnostic carriers appear when fire happens.
-        if "watchdog" in log_text:
-            assert "y=" in log_text or "T=" in log_text, f"watchdog log line does not include diagnostic sample tokens; got: {log_text[:500]}"
+        real_predict = wrapper.predict
+        monkeypatch.setattr(wrapper, "predict", lambda X: real_predict(X) + 7.5)
+        (message,) = _watchdog_lines()
+        assert "composite='y-linres-base'" in message and "split='val'" in message
+        match = re.search(r"y-MAE=([\d.eE+-]+) differs from T-MAE=([\d.eE+-]+) by ([\d.]+)% on (\d+) in-range rows", message)
+        assert match is not None, message
+        y_mae, t_mae, pct, rows = float(match[1]), float(match[2]), float(match[3]), int(match[4])
+        assert y_mae > 3.0 * t_mae
+        assert pct == pytest.approx(abs(y_mae - t_mae) / t_mae * 100.0, rel=0.01)
+        assert rows > 0

@@ -887,27 +887,21 @@ def test_inf_nan_in_numeric_columns_default_handling(tmp_path):
 
 # #11 Date/datetime column — should either pass through or be dropped cleanly
 def test_datetime_column_does_not_crash_suite(tmp_path):
-    """A frame with a ``pl.Datetime`` / pandas datetime column — the
-    suite must either silently drop it (treat as non-feature) or feed
-    it through as numeric via int64 epoch. A crash in feature-type
-    auto-detection is the failure mode this guards.
-    """
+    """A pandas datetime column is expanded into calendar features: the trained column list holds those and not the raw ``ts`` column."""
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
-    # Add a datetime column spanning 1 year.
     start = pd.Timestamp("2026-01-01")
     df["ts"] = pd.date_range(start, periods=len(df), freq="h")
 
     trained, meta = _train_once(df, tmp_path, models=("cb",), regression=False)
+
     assert trained, "datetime column broke the suite"
-    trained_cols = meta.get("columns") or []
-    # Either ``ts`` is in trained_cols (treated as numeric epoch) OR
-    # it was dropped. Both are acceptable; the INVARIANT is that the
-    # run completed without crashing on the datetime dtype.
-    if "ts" in trained_cols:
-        # If kept, CB received it — that's fine, datetime is allowed
-        # as a numeric feature for CB when cast to int64.
-        pass
+    trained_cols = meta.get("columns")
+    assert trained_cols is not None
+    assert "ts" not in trained_cols
+    for derived in ("ts_hour", "ts_day", "ts_weekday", "ts_month"):
+        assert derived in trained_cols, derived
+    assert {"num_0", "num_1", "num_2"} <= set(trained_cols)
 
 
 # #12 Multi-target regression (two regression targets at once)
@@ -1326,185 +1320,56 @@ def test_verbose_zero_suppresses_suite_info_logs(tmp_path, capsys, caplog):
 
 # #23 Empty / None df / missing target column
 @pytest.mark.parametrize(
-    "df_input,error_kw",
+    "df_input,error_type,error_pattern",
     [
-        (None, ("none", "type", "input")),
-        # Empty pd.DataFrame has no columns at all → extractor fails with
-        # KeyError when looking up the target column. Either error class
-        # is acceptable as long as the message points at the missing
-        # column (or the empty frame).
-        (pd.DataFrame(), ("empty", "rows", "no", "target", "column", "key")),
+        (None, TypeError, r"df must be pandas DataFrame, polars DataFrame, or path string / PathLike, got NoneType"),
+        (pd.DataFrame(), ValueError, r"df has 0 rows -- train_mlframe_models_suite needs a non-empty dataset\."),
     ],
+    ids=["none", "empty-frame"],
 )
-def test_invalid_df_inputs_raise_clear_error(tmp_path, df_input, error_kw):
-    """``train_mlframe_models_suite`` must raise a CLEAR error (not a
-    cryptic AttributeError deep in the pipeline) when given invalid
-    ``df`` input. Two cases:
-      * ``df=None`` — caller forgot to load
-      * ``df=empty pandas frame`` — upstream filter killed all rows
-
-    The error message should reference the underlying problem
-    (none-type / empty / no rows / type), not be opaque.
-    """
+def test_invalid_df_inputs_raise_clear_error(tmp_path, df_input, error_type, error_pattern):
+    """``train_mlframe_models_suite`` raises a typed error naming the problem for ``df=None`` and for an empty frame, not an AttributeError deep in the pipeline."""
     pytest.importorskip("catboost")
-    from mlframe.training.core import train_mlframe_models_suite
 
-    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-
-    raised = None
-    try:
-        train_mlframe_models_suite(
-            df=df_input,
-            target_name="tgt",
-            model_name="mdl",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-            reporting_config=_LEAN_REPORTING_CONFIG,
-        )
-    except Exception as e:
-        raised = e
-    msg = str(raised).lower() if raised is not None else ""
-    assert raised is not None and any(kw in msg for kw in error_kw), f"raise was opaque for df={type(df_input).__name__}: {raised!r}"
+    with pytest.raises(error_type, match=error_pattern):
+        _train_once(df_input, tmp_path, models=("cb",), regression=False)
 
 
 def test_missing_target_column_raises(tmp_path):
-    """If the extractor's ``target_column`` is not in the input df,
-    the suite must raise a clear KeyError/ValueError mentioning the
-    missing column name. Silent dummy-fill or default-to-zero would
-    silently train a useless model.
-    """
+    """If the extractor's ``target_column`` is not in the input df the suite raises a KeyError naming the missing column; no dummy target is invented."""
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
-    df = df.drop(columns=["target"])  # target column gone
+    df = df.drop(columns=["target"])
 
-    from mlframe.training.core import train_mlframe_models_suite
-
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-
-    raised = None
-    try:
-        train_mlframe_models_suite(
-            df=df,
-            target_name="tgt",
-            model_name="mdl",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb"],
-            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-            reporting_config=_LEAN_REPORTING_CONFIG,
-            verbose=0,
-        )
-    except Exception as e:
-        raised = e
-    assert raised is not None, "missing target column did not raise"
-    msg = str(raised).lower()
-    # Either explicit "target" mention OR a KeyError-style message about
-    # the column name. Anything that points the operator at the missing
-    # column is acceptable.
-    assert "target" in msg or "column" in msg or "key" in msg, f"missing-target raise was opaque: {raised!r}"
+    with pytest.raises(KeyError, match="target"):
+        _train_once(df, tmp_path, models=("cb",), regression=False)
 
 
 # #24 Empty model list / unknown model name
 def test_empty_mlframe_models_handled_gracefully(tmp_path):
-    """``mlframe_models=[]`` (empty list) must either (a) raise a clean
-    error indicating no models were requested OR (b) skip cleanly with
-    an empty trained dict. A silent return-with-non-empty-dict from
-    nowhere would be the bug.
-    """
+    """``mlframe_models=[]`` returns an empty trained dict and a metadata dict; nothing is trained from nowhere."""
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
-    from mlframe.training.core import train_mlframe_models_suite
 
-    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, meta = _train_once(df, tmp_path, models=(), regression=False)
 
-    raised = None
-    trained = None
-    try:
-        trained, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="tgt",
-            model_name="mdl",
-            features_and_targets_extractor=fte,
-            mlframe_models=[],
-            hyperparams_config={"iterations": 3},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-            reporting_config=_LEAN_REPORTING_CONFIG,
-        )
-    except Exception as e:
-        raised = e
-    if raised is not None:
-        msg = str(raised).lower()
-        assert any(kw in msg for kw in ("model", "empty", "none")), f"empty-models raise was opaque: {raised!r}"
-        return
-    # Or, a non-crashing result: trained dict must be empty.
-    assert not trained, f"empty mlframe_models silently returned non-empty trained dict: {trained}"
+    assert len(trained) == 0
+    assert not (meta or {}).get("model_schemas")
 
 
-def test_unknown_mlframe_model_name_raises_or_warns(tmp_path):
-    """An unknown model name in ``mlframe_models`` must NOT silently
-    pass — either raise a ValueError listing valid names OR log a
-    WARNING and skip the unknown name. Silent acceptance leads to
-    "trained" reports that don't mention the missing model.
-    """
-    pytest.importorskip("catboost")
-    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
-    from mlframe.training.core import train_mlframe_models_suite
-
-    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
-
+def test_unknown_mlframe_model_name_raises_or_warns(tmp_path, caplog):
+    """An unknown model name is skipped with a WARNING naming it plus a UserWarning, and nothing is trained for it."""
     import logging
-    import io
 
-    log_buf = io.StringIO()
-    handler = logging.StreamHandler(log_buf)
-    handler.setLevel(logging.WARNING)
-    logging.getLogger("mlframe").addHandler(handler)
+    pytest.importorskip("catboost")
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
 
-    raised = None
-    trained = None
-    try:
-        trained, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="tgt",
-            model_name="mdl",
-            features_and_targets_extractor=fte,
-            mlframe_models=["this_is_not_a_real_model"],
-            hyperparams_config={"iterations": 3},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-            reporting_config=_LEAN_REPORTING_CONFIG,
-        )
-    except Exception as e:
-        raised = e
-    finally:
-        logging.getLogger("mlframe").removeHandler(handler)
+    with caplog.at_level(logging.WARNING, logger="mlframe"), pytest.warns(UserWarning, match="Unknown model 'this_is_not_a_real_model'"):
+        trained, meta = _train_once(df, tmp_path, models=("this_is_not_a_real_model",), regression=False)
 
-    log_text = log_buf.getvalue().lower()
-    if raised is not None:
-        # Loud raise — preferred.
-        msg = str(raised).lower()
-        assert any(kw in msg for kw in ("unknown", "model", "not", "valid")), f"unknown-model raise was opaque: {raised!r}"
-        return
-    # Or, silent skip with WARN. Trained dict empty + warning fired.
-    assert (
-        "unknown" in log_text or "skip" in log_text or "this_is_not_a_real_model" in log_text
-    ) or not trained, "unknown model name was silently accepted with no warning and no skip — operator would never know"
+    assert len(trained) == 0
+    assert not (meta or {}).get("model_schemas")
+    assert any("mlframe model this_is_not_a_real_model not known, skipping" in m for m in caplog.messages)
 
 
 # #25 Predict output range invariant
@@ -1673,51 +1538,17 @@ def test_save_load_predict_in_subprocess(tmp_path):
 # #28 Duplicates in mlframe_models — must dedupe or raise, not silently
 # train twice and overwrite.
 def test_duplicate_mlframe_models_handled(tmp_path):
-    """``mlframe_models=["cb", "cb"]`` (copy-paste typo). Acceptable
-    behaviours:
-      (a) silently dedupe → trained once, one entry in metadata
-      (b) explicit ValueError mentioning the duplicate
-
-    Unacceptable: train twice with the SAME model_file_name and the
-    second run silently overwrites the first — leaves stale metadata
-    referencing a file the suite has already replaced.
-    """
+    """``mlframe_models=["cb", "cb"]`` is deduplicated: exactly one uniform-weight cb schema entry is recorded, so the second run cannot overwrite the first."""
     pytest.importorskip("catboost")
     df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
-    from mlframe.training.core import train_mlframe_models_suite
 
-    fte = SimpleFeaturesAndTargetsExtractor(regression=False)
+    trained, meta = _train_once(df, tmp_path, models=("cb", "cb"), regression=False)
 
-    raised = None
-    meta = None
-    try:
-        _trained, meta = train_mlframe_models_suite(
-            df=df,
-            target_name="tgt",
-            model_name="mdl",
-            features_and_targets_extractor=fte,
-            mlframe_models=["cb", "cb"],
-            hyperparams_config={"iterations": 3, "cb_kwargs": {"task_type": "CPU", "verbose": 0}},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-            reporting_config=_LEAN_REPORTING_CONFIG,
-        )
-    except Exception as e:
-        raised = e
-
-    if raised is not None:
-        msg = str(raised).lower()
-        assert any(kw in msg for kw in ("duplicate", "unique", "twice", "model")), f"duplicate-models raise was opaque: {raised!r}"
-        return
-    # Silent dedupe path: ensure model_schemas has at most ONE 'cb' entry.
-    schemas = (meta or {}).get("model_schemas") or {}
+    assert trained
+    schemas = meta.get("model_schemas")
+    assert schemas
     cb_entries = [v for v in schemas.values() if v.get("mlframe_model") == "cb" and v.get("weight_name") == "uniform"]
-    assert (
-        len(cb_entries) <= 1
-    ), f"duplicate ['cb','cb'] silently produced {len(cb_entries)} 'cb' entries in model_schemas — overwrite hazard. Entries: {cb_entries}"
+    assert len(cb_entries) == 1, cb_entries
 
 
 # ===========================================================================
@@ -2024,40 +1855,36 @@ def test_recurrent_lstm_smoke(tmp_path):
     assert trained is not None
 
 
-# #36 CB GPU vs CPU equivalence (skip if no GPU)
-def test_cb_gpu_and_cpu_predictions_match_within_tolerance(tmp_path):
-    """When CatBoost reports a usable GPU, train CB on GPU and CPU
-    with the same data + seed; assert predictions agree within a
-    looser tolerance than equal (CB has known float-precision drift
-    between backends). Skipped on machines without a GPU.
+# #36 CB GPU vs CPU equivalence
+def _cb_gpu_device_count() -> int:
+    """Number of GPUs CatBoost can use; 0 when catboost is missing or built without GPU support."""
+    try:
+        from catboost.utils import get_gpu_device_count
+    except ImportError:
+        return 0
+    return int(get_gpu_device_count())
 
-    This is a soft guard — exact equivalence is impossible across
-    backends, but a 5% disagreement would flag a real numerical bug.
+
+@pytest.mark.skipif(_cb_gpu_device_count() == 0, reason="no CatBoost GPU available on this host")
+def test_cb_gpu_and_cpu_predictions_match_within_tolerance(tmp_path):
+    """CatBoost trained on GPU and on CPU with the same data and seed agree on predicted probabilities within a mean absolute difference of 5%.
+
+    Exact equivalence is impossible across backends, but a 5% disagreement would flag a real numerical bug.
     """
     pytest.importorskip("catboost")
-    import catboost as cb
-
-    # Detect GPU. CB's get_gpu_device_count() returns 0 on CPU-only.
-    try:
-        gpu_count = cb.get_gpu_device_count()
-    except Exception:
-        gpu_count = 0
-    if gpu_count == 0:
-        pytest.skip("no CatBoost GPU available on this host")
-
-    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     from mlframe.training.core import predict_mlframe_models_suite
 
+    df = _make_baseline_pandas(n=300, seed=0, with_cat=False, regression=False)
     serving = df.head(50).drop(columns=["target"])
 
     def _train_with(task_type):
-        """Train with."""
+        """Train a cb suite on the given task_type and predict the serving frame from the saved models."""
         _train_once(
             df,
             tmp_path / task_type,
             models=("cb",),
             regression=False,
-            extra_kwargs=None,  # _train_once already sets cb_kwargs; ignore extras here
+            extra_kwargs={"hyperparams_config": {"iterations": 5, "cb_kwargs": {"task_type": task_type, "verbose": 0}}},
         )
         models_path = os.path.join(str(tmp_path / task_type), "models", "tgt", "mdl")
         return predict_mlframe_models_suite(serving, models_path=models_path, verbose=0)
@@ -2065,14 +1892,13 @@ def test_cb_gpu_and_cpu_predictions_match_within_tolerance(tmp_path):
     res_cpu = _train_with("CPU")
     res_gpu = _train_with("GPU")
 
-    probs_cpu = next(iter((res_cpu.get("probabilities") or {}).values()), None)
-    probs_gpu = next(iter((res_gpu.get("probabilities") or {}).values()), None)
-    assert probs_cpu is not None and probs_gpu is not None
-
-    # Mean absolute difference tolerance. CB CPU/GPU drift is normally
-    # < 1% on smooth data; we permit 5% to absorb the synthetic noise.
-    diff = float(np.mean(np.abs(np.asarray(probs_cpu) - np.asarray(probs_gpu))))
-    assert diff < 0.05, f"CB CPU vs GPU prediction drift {diff:.4f} exceeds tolerance — either real numerical regression OR backend drift > expected."
+    probs_cpu = np.asarray(next(iter(res_cpu["probabilities"].values())))
+    probs_gpu = np.asarray(next(iter(res_gpu["probabilities"].values())))
+    assert probs_cpu.shape == probs_gpu.shape
+    assert probs_cpu.shape[0] == 50
+    assert np.isfinite(probs_cpu).all() and np.isfinite(probs_gpu).all()
+    diff = float(np.mean(np.abs(probs_cpu - probs_gpu)))
+    assert diff < 0.05, f"CB CPU vs GPU prediction drift {diff:.4f} exceeds tolerance"
 
 
 # #37 Memory ceiling during polars→pandas conversion

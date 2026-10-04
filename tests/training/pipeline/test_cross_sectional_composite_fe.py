@@ -51,6 +51,24 @@ def test_apply_cross_sectional_composite_fe_schema_aligned_across_splits():
     assert metadata["cross_sectional_neighbors_snapshot_col"] == "time_id"
 
 
+def test_apply_cross_sectional_composite_fe_single_snapshot_split_keeps_train_schema():
+    """A val/test split holding one snapshot (e.g. every row an unseen category) must still get the train column set, else a booster fit on train
+    rejects it with a feature-count mismatch at predict time."""
+    df = _snapshot_frame()
+    cfg = PreprocessingExtensionsConfig(
+        cross_sectional_neighbors_snapshot_col="time_id",
+        cross_sectional_neighbors_feature_cols=["f0", "f1"],
+        cross_sectional_neighbors_k=5,
+    )
+    test_df = df.iloc[350:].copy()
+    test_df["time_id"] = 999
+    train, _val, test = apply_cross_sectional_composite_fe(df.iloc[:300], df.iloc[300:350], test_df, cfg, {}, verbose=0)
+    assert list(test.columns) == list(train.columns)
+    assert test["xsnn_f0_mean"].isna().all()
+    assert (test["xsnn_distance_ratio"] == 1.0).all()
+    assert test.shape[0] == 50
+
+
 def test_apply_cross_sectional_composite_fe_polars_roundtrip():
     """Apply cross sectional composite fe polars roundtrip."""
     n = 200

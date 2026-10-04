@@ -296,6 +296,7 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
     ),
     "ShapProxiedFS": SelectorSpec(
         name="ShapProxiedFS",
+        rejects_duplicate_names=True,
         make=_make_shap_proxied,
         tasks=("binary", "regression"),
         supports_sample_weight=False,
@@ -308,9 +309,9 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
     ),
     "BorutaShap": SelectorSpec(
         name="BorutaShap",
+        rejects_duplicate_names=True,
         make=_make_boruta_shap,
         tasks=("binary", "regression"),
-        has_gfno=False,
         has_get_support=False,
         supports_sample_weight=False,
         rejects_single_class_y=False,
@@ -322,13 +323,13 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
     ),
     "HybridSelector": SelectorSpec(
         name="HybridSelector",
+        rejects_duplicate_names=True,
         make=_make_hybrid,
         tasks=("binary",),
         supports_sample_weight=False,
         rejects_single_class_y=False,
         nan_in_X_policy="unknown",
         determinism=1.0,
-        column_order_invariant=False,  # composed members' ordering
         validates_transform_width=False,  # no transform-time width guard (backlog)
         slow=True,
         needs_shap=True,
@@ -341,8 +342,6 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         rejects_single_class_y=False,
         nan_in_X_policy="unknown",
         determinism=1.0,
-        column_order_invariant=False,  # RF split-subset ordering is column-order sensitive
-        validates_transform_width=False,  # transform narrows positionally; no width guard
         slow=True,
     ),
     "ForwardSelect": SelectorSpec(
@@ -352,8 +351,6 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         supports_sample_weight=False,
         nan_in_X_policy="unknown",
         determinism=1.0,
-        column_order_invariant=False,  # greedy stepwise gain comparison is tie-break/order sensitive
-        validates_transform_width=False,  # base adapter transform() has no width guard
     ),
     "GreedyBackwardElimination": SelectorSpec(
         name="GreedyBackwardElimination",
@@ -363,7 +360,6 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         nan_in_X_policy="unknown",
         determinism=1.0,
         column_order_invariant=False,  # greedy stepwise elimination order is tie-break/order sensitive
-        validates_transform_width=False,  # base adapter transform() has no width guard
     ),
     "ZeroImportancePruning": SelectorSpec(
         name="ZeroImportancePruning",
@@ -372,8 +368,6 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         supports_sample_weight=False,
         nan_in_X_policy="unknown",
         determinism=1.0,
-        column_order_invariant=False,  # tree-importance ties are column-order sensitive
-        validates_transform_width=False,  # base adapter transform() has no width guard
     ),
     "CascadeSelect": SelectorSpec(
         name="CascadeSelect",
@@ -382,8 +376,6 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         supports_sample_weight=False,
         nan_in_X_policy="unknown",
         determinism=1.0,
-        column_order_invariant=False,  # composes Boruta + forward-select + RFECV, all order-sensitive
-        validates_transform_width=False,  # base adapter transform() has no width guard
         slow=True,  # 3-stage cascade (Boruta screen -> forward select -> RFECV)
     ),
     "GroupAware(RFECV)": SelectorSpec(
@@ -391,7 +383,6 @@ SELECTOR_SPECS: dict[str, SelectorSpec] = {
         make=_make_group_aware_rfecv,
         tasks=("binary",),
         supports_sample_weight=True,  # forwards sample_weight to the inner RFECV
-        column_order_invariant=False,  # corr-cluster medoid pick is order-sensitive
         validates_transform_width=False,  # wrapper does not re-validate ndarray width
         nan_in_X_policy="unknown",
         determinism=1.0,

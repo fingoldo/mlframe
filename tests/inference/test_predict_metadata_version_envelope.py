@@ -23,6 +23,7 @@ runs at every metadata load and enforces:
 from __future__ import annotations
 
 import logging
+import warnings
 
 import pytest
 
@@ -32,8 +33,11 @@ def test_legacy_v1_bundle_no_composite_accepted():
     (back-compat). INFO-level message, no warning, no raise."""
     from mlframe.training.core.predict import _validate_metadata_version_envelope
 
-    # Empty metadata dict represents a stripped-down legacy bundle.
-    _validate_metadata_version_envelope({}, "fake/legacy/path")
+    legacy: dict = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _validate_metadata_version_envelope(legacy, "fake/legacy/path") is None
+    assert legacy == {}
 
 
 def test_legacy_bundle_with_composite_specs_raises():
@@ -140,5 +144,7 @@ def test_non_dict_metadata_does_not_crash():
     from types import SimpleNamespace
     from mlframe.training.core.predict import _validate_metadata_version_envelope
 
-    _validate_metadata_version_envelope(SimpleNamespace(), "fake/path")
-    _validate_metadata_version_envelope(None, "fake/path")  # type: ignore[arg-type]
+    ns = SimpleNamespace()
+    assert _validate_metadata_version_envelope(ns, "fake/path") is None
+    assert vars(ns) == {}
+    assert _validate_metadata_version_envelope(None, "fake/path") is None  # type: ignore[arg-type]

@@ -850,8 +850,12 @@ def test_optimise_hermite_pair_cma_with_sweep_degrees():
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
-    if res is not None:
-        assert 2 <= res.degree_a <= 4
+    assert res is not None
+    assert 2 <= res.degree_a <= 4
+    assert 2 <= res.degree_b <= 4
+    # XOR is invisible to either marginal; the measured MI is >= 0.62 nats (ln2 = 0.69 ceiling) against a <= 0.09 identity baseline.
+    assert res.mi >= 0.55
+    assert res.mi > 5 * res.baseline_mi
 
 
 def test_optimise_hermite_pair_direction_only_arg():
@@ -997,7 +1001,7 @@ def test_optimise_hermite_pair_ksg_estimator():
 def test_optimise_hermite_pair_neighbors_auto_pick_small():
     """n_neighbors=None at n<1000 auto-picks the small-sample n_neighbors=7 branch without raising."""
     x_a, x_b, y = _xor_pair(n=300)
-    _ = optimise_hermite_pair(
+    res = optimise_hermite_pair(
         x_a,
         x_b,
         y,
@@ -1014,6 +1018,10 @@ def test_optimise_hermite_pair_neighbors_auto_pick_small():
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
+    assert res is not None
+    assert (res.degree_a, res.degree_b) == (2, 2)
+    assert res.mi >= 0.5
+    assert res.mi > 5 * res.baseline_mi
 
 
 # ---------------------------------------------------------------------------

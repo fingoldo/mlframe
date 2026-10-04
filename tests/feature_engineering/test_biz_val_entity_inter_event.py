@@ -10,6 +10,7 @@ behavioral signal a raw per-row column cannot express.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from scipy.stats import spearmanr
 
 from mlframe.feature_engineering.entity_inter_event import entity_inter_event_features
@@ -185,11 +186,8 @@ def test_entity_inter_event_features_window_size_and_window_time_mutually_exclus
     """Entity inter event features window size and window time mutually exclusive."""
     entity_ids = np.array([1, 1])
     timestamps = np.array([0.0, 1.0])
-    try:
+    with pytest.raises(ValueError, match="at most one of window_size / window_time"):
         entity_inter_event_features(entity_ids, timestamps, window_size=2, window_time=1.0)
-        raise AssertionError("expected ValueError")
-    except ValueError:
-        pass
 
 
 def test_biz_val_entity_group_mean_gap_predicts_target_while_raw_timestamp_does_not():

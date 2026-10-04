@@ -30,7 +30,6 @@ import time
 import numpy as np
 import pandas as pd
 import polars as pl
-import pytest
 import torch
 
 from mlframe.training.neural.data import TorchDataset
@@ -277,69 +276,34 @@ class TestEagerVsLazyPerformance:
             _ = ds[i]
         return time.perf_counter() - t0
 
-    def test_eager_faster_than_lazy_pandas(self):
+    def test_eager_faster_than_lazy_pandas(self, monkeypatch):
         """Wave 22's biz_value: ``__getitem__`` on a pandas DataFrame
         feature carrier was previously dominated by per-batch
         ``.iloc[indices, :].to_numpy()`` which IS expensive. The eager
         path converts ONCE in __init__ and pays only a tensor index per
         batch -- this is where the 3x speedup claim from Wave 22 lives.
 
-        We force the lazy path by wrapping the same DataFrame in a
-        BigBytesArray-equivalent (a pandas frame whose values' nbytes
-        report 3 GB via a wrapper).
+        The lazy path is forced by lowering the eager byte cap below the
+        frame's size.
         """
         n = 100_000
         features_arr = np.random.rand(n, 16).astype(np.float32)
         labels = np.random.rand(n).astype(np.float32)
         features_df = pd.DataFrame(features_arr)
 
-        # Tiny pandas frames don't trip the byte cap (DataFrame.nbytes
-        # = sum of column nbytes). Wrap the underlying ndarray so we
-        # can force the lazy path even on a small carrier.
-        class BigBytesFrame:
-            """DataFrame-like wrapper that proxies everything to a
-            real DataFrame but reports a huge nbytes so byte-cap
-            short-circuits to the lazy path."""
-
-            def __init__(self, df):
-                self._df = df
-                self.columns = df.columns
-                self.shape = df.shape
-                self.dtypes = df.dtypes
-
-            @property
-            def nbytes(self):
-                """Nbytes."""
-                return 3 * 1024**3
-
-            def __len__(self):
-                return len(self._df)
-
-            @property
-            def iloc(self):
-                """Iloc."""
-                return self._df.iloc
-
         ds_eager = TorchDataset(features=features_df, labels=labels, batch_size=128)
-        ds_lazy = TorchDataset(features=BigBytesFrame(features_df), labels=labels, batch_size=128)
+        from mlframe.training.neural import data as neural_data
+
+        monkeypatch.setattr(neural_data, "_EAGER_CONVERSION_BYTES_CAP", 1)
+        ds_lazy = TorchDataset(features=features_df, labels=labels, batch_size=128)
 
         assert ds_eager._eager_features is True
-        # The wrapper isn't a pd.DataFrame instance, so legacy path
-        # takes the else branch -- still needs an isinstance match.
-        # If lazy path doesn't recognise the carrier, skip the bench
-        # (the wrapper API mismatch isn't what we're testing).
-        if not ds_lazy._eager_features:
-            n_batches = min(len(ds_eager), len(ds_lazy), 200)
-            try:
-                # Verify lazy path even works on this carrier first
-                _ = ds_lazy[0]
-            except TypeError:
-                pytest.skip("lazy path doesn't recognise wrapper carrier")
-            t_eager = self._bench_getitem(ds_eager, n_batches)
-            t_lazy = self._bench_getitem(ds_lazy, n_batches)
-            assert t_lazy / t_eager >= 1.5, f"Wave 22 perf regression: eager={t_eager * 1000:.1f}ms lazy={t_lazy * 1000:.1f}ms (ratio={t_lazy / t_eager:.2f}x)"
-        else:
-            pytest.skip("BigBytesFrame wrapper didn't trip byte cap")
+        assert not ds_lazy._eager_features, "a frame above the byte cap must take the lazy path"
+        n_batches = min(len(ds_eager), len(ds_lazy), 200)
+        assert ds_lazy[0] is not None
+        t_eager = self._bench_getitem(ds_eager, n_batches)
+        t_lazy = self._bench_getitem(ds_lazy, n_batches)
+        assert t_lazy / t_eager >= 1.5, f"Wave 22 perf regression: eager={t_eager * 1000:.1f}ms lazy={t_lazy * 1000:.1f}ms (ratio={t_lazy / t_eager:.2f}x)"
 
     def test_eager_vs_simulated_legacy_pandas_iloc(self):
         """Direct comparison of the eager tensor index vs the legacy

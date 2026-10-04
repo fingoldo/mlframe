@@ -74,16 +74,23 @@ def _build_missing_set() -> set[str]:
     return bare
 
 
+def test_docstring_detector_catches_a_bare_def_and_passes_a_documented_one():
+    """A def with no leading string literal is undocumented; one with a docstring, and a class with one, are documented."""
+    bare, documented, klass = ast.parse('def f():\n    return 1\n\n\ndef g():\n    """d"""\n\n\nclass C:\n    """d"""\n').body
+    assert not _has_docstring(bare)
+    assert _has_docstring(documented)
+    assert _has_docstring(klass)
+
+
 def test_no_new_undocumented_public_symbols():
     """No new undocumented public top-level function/class beyond the frozen baseline."""
-    current = _build_missing_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(
-            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
+            orjson.dumps(sorted(_build_missing_set()), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
-        pytest.skip(f"docstring baseline refreshed at {_BASELINE_PATH.name} ({len(current)} undocumented symbols)")
+        pytest.skip(f"docstring baseline refreshed at {_BASELINE_PATH.name}")
+    current = _build_missing_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

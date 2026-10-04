@@ -214,10 +214,15 @@ def test_verify_sidecar_survives_the_sidecar_vanishing_mid_call(monkeypatch) -> 
             assert verify_sidecar(str(bundle)) is True
 
 
-def test_feature_handling_cache_read_drops_redundant_precheck() -> None:
-    """Feature handling cache read drops redundant precheck."""
-    src = _read("training/feature_handling/cache.py")
-    assert "if not os.path.exists(path):\n            return None\n        allow_pickle" not in src
+def test_feature_handling_cache_read_drops_redundant_precheck(tmp_path, monkeypatch) -> None:
+    """A disk-tier entry that vanishes between the existence probe and the read is a cache miss, not an error."""
+    from mlframe.training.feature_handling.cache import FeatureCache
+
+    cache = FeatureCache.__new__(FeatureCache)
+    cache._cfg = SimpleNamespace(allow_pickle=False)
+    monkeypatch.setattr(cache, "_path_for", lambda disk_key: str(tmp_path / "gone.npz"))
+    with _existence_probes_lie():
+        assert cache._read_from_disk(object()) is None
 
 
 def test_exists_really_is_only_advisory() -> None:

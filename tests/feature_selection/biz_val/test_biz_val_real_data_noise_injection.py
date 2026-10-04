@@ -243,7 +243,7 @@ _FAST_KEYS = {("MRMR", "breast_cancer"), ("RFECV", "diabetes")}
 _FAST_CASES = [c for c in _CASES if (c[0], c[2]) in _FAST_KEYS]
 
 
-def _run_case(case):
+def _assert_case(case):
     """Fit the selector on both augmented seeds and assert the value / honesty / noise-rejection legs on the worse seed."""
     selector_key, make, ds_name, needs_shap, value_floor, tree_eps, recall_floor = case
     if needs_shap:
@@ -309,11 +309,11 @@ def _run_case(case):
 @pytest.mark.parametrize("case", _CASES, ids=_case_id)
 def test_biz_val_real_data_noise_injection_value_and_honesty(case):
     """Biz val real data noise injection value and honesty."""
-    _run_case(case)
+    _assert_case(case)
 
 
 @pytest.mark.parametrize("case", fast_subset(_FAST_CASES, n=2), ids=_case_id)
 def test_biz_val_real_data_noise_injection_fast_smoke(case):
     """Fast-mode-surviving representative: keeps one binary + one regression noise-injection proof alive under
     ``MLFRAME_FAST=1`` (where the slow full-matrix test above is skipped), so every leg has a fast code path."""
-    _run_case(case)
+    _assert_case(case)

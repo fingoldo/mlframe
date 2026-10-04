@@ -78,16 +78,17 @@ def test_transform_reordered_columns_realigned():
     X_shuffled = X[["d", "c", "b", "a"]]
     out_shuffled = sel.transform(X_shuffled)
     # Both outputs must reference the SAME underlying columns by name.
-    if hasattr(out_ordered, "columns"):
-        assert list(out_ordered.columns) == list(
-            out_shuffled.columns
-        ), f"transform on reordered columns gave different output names: {list(out_ordered.columns)} vs {list(out_shuffled.columns)}"
-        # And the values per column must match.
-        for col in out_ordered.columns:
-            np.testing.assert_allclose(
-                out_ordered[col].values,
-                out_shuffled[col].values,
-            )
+    assert isinstance(out_ordered, pd.DataFrame) and isinstance(out_shuffled, pd.DataFrame)
+    assert len(out_ordered.columns) >= 1
+    assert list(out_ordered.columns) == list(
+        out_shuffled.columns
+    ), f"transform on reordered columns gave different output names: {list(out_ordered.columns)} vs {list(out_shuffled.columns)}"
+    # And the values per column must match.
+    for col in out_ordered.columns:
+        np.testing.assert_allclose(
+            out_ordered[col].values,
+            out_shuffled[col].values,
+        )
 
 
 def test_transform_missing_fit_column_raises():
@@ -116,8 +117,11 @@ def test_transform_extra_columns_allowed_if_fit_set_present():
     sel, X = _fit()
     X_extra = X.copy()
     X_extra["extra_col"] = np.zeros(len(X))
-    # Must not raise.
-    sel.transform(X_extra)
+    out_extra = sel.transform(X_extra)
+    out_plain = sel.transform(X)
+    assert "extra_col" not in out_extra.columns
+    assert list(out_extra.columns) == list(out_plain.columns)
+    np.testing.assert_allclose(out_extra.to_numpy(), out_plain.to_numpy())
 
 
 def test_transform_ndarray_wrong_width_raises():

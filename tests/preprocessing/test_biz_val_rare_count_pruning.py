@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import train_test_split
@@ -152,8 +153,5 @@ def test_collapse_rare_categories_target_aware_default_off_is_bit_identical():
 def test_collapse_rare_categories_target_aware_requires_y():
     """Collapse rare categories target aware requires y."""
     df = pd.DataFrame({"cat": ["a", "a", "a", "b", "c", "d"]})
-    try:
+    with pytest.raises(ValueError, match="target_aware=True requires y"):
         collapse_rare_categories(df, ["cat"], min_count=2, target_aware=True)
-        raise AssertionError("expected ValueError when target_aware=True without y")
-    except ValueError:
-        pass

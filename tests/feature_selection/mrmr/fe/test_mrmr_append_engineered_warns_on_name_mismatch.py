@@ -8,6 +8,7 @@ import logging
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from mlframe.feature_selection.filters._mrmr_validate_transform import _append_engineered
 
@@ -23,9 +24,8 @@ def test_name_mismatch_warns_not_silent(caplog):
     # warn fires during the wrap (before any recipe is applied), so a downstream apply error is fine.
     recipes = [SimpleNamespace(name="dummy", src_names=("a",), extra={"chain_lookups": []}, verbose=0)]
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters.mrmr"):
-        try:
+        with pytest.raises(RuntimeError, match="references source column"):
             _append_engineered(self, base_out, X, recipes=recipes)
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
     msgs = " ".join(r.getMessage() for r in caplog.records)
-    assert "unnamed frame" in msgs or "could not wrap" in msgs
+    assert "could not wrap input ndarray in fit-time feature_names_in_" in msgs
+    assert "engineered-recipe replay will run on an unnamed frame" in msgs

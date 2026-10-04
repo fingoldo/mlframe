@@ -137,19 +137,18 @@ def test_a1_09_su_captures_nonmonotone_redundancy():
 
 def test_a1_13_fallback_metadata_populated():
     """When screening rejects everything and the count floor fires, fallback_used_ + fallback_metadata_ are set."""
-    rng = np.random.RandomState(5)
-    X = pd.DataFrame({f"f{i}": rng.randn(400) for i in range(5)})
-    y = pd.Series((rng.randn(400) > 0).astype(int), name="t")  # pure noise: no feature is informative
-    m = MRMR(full_npermutations=3, cv=2, min_relevance_gain=10.0, min_features_fallback=1)
+    rng = np.random.default_rng(1)
+    n = 500
+    X = pd.DataFrame({f"n{i}": rng.normal(size=n) for i in range(6)})
+    y = pd.Series(rng.integers(0, 2, n), name="t")  # pure noise: this draw drives the screen to zero features
+    m = MRMR(verbose=0, fe_max_steps=0, random_seed=7, min_features_fallback=1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m.fit(X, y)
-    if getattr(m, "fallback_used_", False):
-        md = getattr(m, "fallback_metadata_", None)
-        assert isinstance(md, dict)
-        assert md["fallback_used"] is True
-        assert md["min_features_fallback"] == 1
-        assert "uninformative" in md
-    else:
-        # If the fallback didn't fire (selection found something), metadata stays None -- still a valid contract.
-        assert getattr(m, "fallback_metadata_", None) is None
+    assert m.fallback_used_ is True
+    md = m.fallback_metadata_
+    assert isinstance(md, dict)
+    assert md["fallback_used"] is True
+    assert md["min_features_fallback"] == 1
+    assert md["n_features"] == m.n_features_ == 1
+    assert "uninformative" in md

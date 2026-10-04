@@ -23,8 +23,8 @@ def _seed_global_numpy_rng():
 def test_hurst_returns_valid_range(arr):
     """Hurst exponent should generally be between 0 and 1.5 for most series."""
     h, _c = compute_hurst_exponent(np.array(arr, dtype=np.float64))
-    if not np.isnan(h):
-        assert -0.5 <= h <= 2.0, f"Hurst exponent {h} out of expected range"
+    assert np.isnan(h) == (float(np.ptp(arr)) == 0.0)
+    assert np.isnan(h) or -0.5 <= h <= 2.0, f"Hurst exponent {h} out of expected range"
 
 
 @given(st.lists(st.floats(min_value=1, max_value=100, allow_nan=False, allow_infinity=False), min_size=5, max_size=5))
@@ -88,9 +88,8 @@ def test_hurst_random_walk_close_to_half():
     np.random.seed(42)
     arr = np.cumsum(np.random.randn(1000)).astype(np.float64)
     h, _c = compute_hurst_exponent(arr, take_diffs=True)
-    # Random walk H should be around 0.5 (with some tolerance)
-    if not np.isnan(h):
-        assert 0.3 <= h <= 0.7, f"Random walk Hurst {h} not close to 0.5"
+    assert not np.isnan(h)
+    assert 0.5 < h < 0.7, f"Random walk Hurst {h} not close to 0.5"
 
 
 def test_hurst_trending_series():
@@ -100,8 +99,8 @@ def test_hurst_trending_series():
     noise = np.random.randn(1000) * 0.1
     arr = (trend + noise).astype(np.float64)
     h, _c = compute_hurst_exponent(arr)
-    if not np.isnan(h):
-        assert h > 0.3, f"Trending series Hurst {h} expected to be > 0.3"
+    assert not np.isnan(h)
+    assert 1.0 < h < 1.2, f"Trending series Hurst {h} expected near 1.08"
 
 
 # Regression: the np.arange(s) + derived-invariant hoist out of the per-segment j-loop

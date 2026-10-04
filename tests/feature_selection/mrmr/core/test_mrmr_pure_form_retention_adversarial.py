@@ -27,7 +27,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -165,8 +164,7 @@ def test_every_engineered_recipe_replays_finite_on_fresh_data():
     # pure forms are always recipes, so this set covers them.
     eng_names = [getattr(r, "name", None) for r in (getattr(fs, "_engineered_recipes_", []) or [])]
     eng_names = [n for n in eng_names if n is not None]
-    if not eng_names:
-        pytest.skip("no engineered recipes synthesized on this dataset")
+    assert eng_names, "no engineered recipes synthesized on this dataset"
     fresh, _ = _build_case2(seed=123)  # same columns, different rows
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")

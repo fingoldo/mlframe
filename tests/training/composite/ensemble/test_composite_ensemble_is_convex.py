@@ -84,10 +84,11 @@ def test_from_nnls_stack_weights_not_post_normalised():
     finite = np.isfinite(y) & np.all(np.isfinite(preds), axis=1)
     w_ref, _ = nnls(preds[finite], y[finite])
     np.testing.assert_allclose(ens.weights, w_ref, rtol=1e-9, atol=1e-9)
-    # Sanity: if the bug was present, ens.weights would be w_ref / w_ref.sum()
-    # which (for non-degenerate y in our fixture) does NOT equal w_ref.
-    if w_ref.sum() > 0 and not np.isclose(w_ref.sum(), 1.0):
-        assert not np.allclose(ens.weights, w_ref / w_ref.sum()), "weights look renormalised; F7 regression"
+    # If the bug was present, ens.weights would be w_ref / w_ref.sum(); the fixture's raw NNLS weights do not sum to 1,
+    # so the two are distinguishable.
+    assert w_ref.sum() > 0
+    assert not np.isclose(w_ref.sum(), 1.0)
+    assert not np.allclose(ens.weights, w_ref / w_ref.sum()), "weights look renormalised; F7 regression"
 
 
 def test_constructor_is_convex_false_skips_renormalisation():

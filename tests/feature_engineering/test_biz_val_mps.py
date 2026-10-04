@@ -120,8 +120,7 @@ def test_biz_val_mps_compute_area_profits_returns_per_position_profit():
     prices = np.array([10.0, 12, 14], dtype=np.float64)
     positions = np.array([1, 1], dtype=np.int8)
     result = compute_area_profits(prices, positions)
-    arr = np.asarray(result)
-    assert len(arr) >= 1
+    np.testing.assert_allclose(np.asarray(result), [4.0 / 10.0, 2.0 / 12.0, 0.0])
 
 
 # ---------------------------------------------------------------------------

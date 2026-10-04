@@ -171,41 +171,54 @@ def test_proxy_does_not_corrupt_transform_when_pickled_via_dill():
     assert out_orig.equals(out_loaded), "dill round-trip diverged on Pipeline output. The proxy's __reduce__ must work for both pickle and dill paths."
 
 
+def _finalize_with_pipeline(monkeypatch, pipe):
+    """Run the real metadata finalizer on a context holding ``pipe``, with the process-wide round-trip cache isolated; return the metadata."""
+    from types import SimpleNamespace
+
+    from mlframe.training.core import _setup_helpers_metadata as meta
+
+    monkeypatch.setattr(meta, "_PIPELINE_JSON_ROUNDTRIP_CACHE", {})
+    monkeypatch.setattr(meta, "_load_pipeline_disk_cache_into_memory", lambda: None)
+    monkeypatch.setattr(meta, "_persist_pipeline_disk_cache", lambda: None)
+    ctx = SimpleNamespace(
+        metadata={"pipeline": pipe},
+        verbose=0,
+        outlier_detector=None,
+        outlier_detection_result=None,
+        trainset_features_stats=None,
+        slug_to_original_target_type={},
+        slug_to_original_target_name={},
+        data_dir=None,
+        models_dir=None,
+    )
+    meta._finalize_and_save_metadata(ctx)
+    return ctx.metadata
+
+
 def test_save_path_falls_back_to_pickle_when_from_json_roundtrip_fails(monkeypatch):
     """When ``Pipeline.from_json(Pipeline.to_json())`` raises (e.g. encoder
     variants polars-ds can't deserialize), the save path must keep the
     ORIGINAL Pipeline in metadata so the bundle remains loadable - it must
     NOT substitute the JSON proxy, which would crash at predict-time load.
 
-    Behavioural cover for the save-time roundtrip validation block in
-    ``_finalize_and_save_metadata`` (replaces a former inspect.getsource
-    structural pin).
+    Drives the real ``_finalize_and_save_metadata`` (the save-time roundtrip validation block).
     """
     from mlframe.training.core._setup_helpers import _PolarsDsPipelineJsonProxy
     from polars_ds.pipeline import Pipeline as _PdsPipeline
 
     _, pipe = _make_pipeline()
 
-    # Replay the wrap-or-fallback decision in isolation, mirroring the
-    # save-time block: validate JSON roundtrip; on failure keep the
-    # original Pipeline; on success wrap with the proxy.
-    metadata = {"pipeline": pipe}
-    original = metadata["pipeline"]
+    # Control: with a working from_json the same pipeline IS wrapped in the proxy.
+    wrapped = _finalize_with_pipeline(monkeypatch, pipe)["pipeline"]
+    assert isinstance(wrapped, _PolarsDsPipelineJsonProxy)
 
     def _broken_from_json(_js):
         """Broken from json."""
         raise RuntimeError("simulated from_json failure")
 
     monkeypatch.setattr(_PdsPipeline, "from_json", staticmethod(_broken_from_json))
-
-    try:
-        _js = original.to_json()
-        _PdsPipeline.from_json(_js)
-        metadata["pipeline"] = _PolarsDsPipelineJsonProxy(original)
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        pass
-
-    assert metadata["pipeline"] is original, (
+    kept = _finalize_with_pipeline(monkeypatch, pipe)["pipeline"]
+    assert kept is pipe, (
         "save-time roundtrip validation removed: a Pipeline whose from_json "
         "raises was wrapped in the proxy anyway, which produces unreadable "
         "bundles at load time."

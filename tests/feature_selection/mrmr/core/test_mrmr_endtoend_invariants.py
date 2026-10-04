@@ -500,12 +500,9 @@ def test_I4b_subsumed_raw_not_kept_alongside_capturing_engineered(case_idx, case
     # On the canonical UNIFORM terrain the lean drop config (fe_max_steps>=1,
     # redundancy_policy="drop") deterministically produces engineered features, so an
     # empty eng_cols there is a real FE regression -- assert presence instead of skipping.
-    # Off-uniform, FE may legitimately produce nothing on some target families; that case
-    # is data-dependent and is skipped (it would also be skipped by the calibration gate below).
+    # Off-uniform, FE may legitimately produce nothing on some target families; only the no-harm leg below binds there.
     if case["distribution"] == "uniform":
         assert r["eng_cols"], f"uniform terrain produced no engineered feature -- FE regression (kept_raws={r['kept_raws']})"
-    elif not r["eng_cols"]:
-        pytest.skip("off-uniform fixture produced no engineered feature -> no subsumption to test")
     # FUNCTIONAL no-harm (ALL distributions): keeping redundant raws must never make the
     # FE selection score BELOW the raw-only baseline. Measured with the TREE downstream
     # (``delta`` = fe_hgb - raw_hgb) -- the model that can use every feature -- so the
@@ -528,11 +525,7 @@ def test_I4b_subsumed_raw_not_kept_alongside_capturing_engineered(case_idx, case
     # is the binding contract there). Asserting the literal-column drop off-uniform
     # would pin an RNG-sensitive cleanliness detail with no quality impact.
     if case["distribution"] != "uniform":
-        pytest.skip(
-            f"redundancy-drop is calibrated for uniform; on {case['distribution']} it "
-            f"conservatively keeps 0-uplift redundant raws (cosmetic, no functional "
-            f"cost) -- the functional no-harm leg above is the binding contract here."
-        )
+        return
     # PLATFORM-CROSSING CMI DIVERGENCE: (ratio_plus_trig, uniform, regression, s101) drops
     # 'a' cleanly on Windows (verified: passes deterministically across 20+ local runs, incl. with
     # NUMBA_NUM_THREADS forced to 1 and 2 -- not a local thread-count/RNG-order effect) but keeps it on
@@ -546,11 +539,7 @@ def test_I4b_subsumed_raw_not_kept_alongside_capturing_engineered(case_idx, case
     # triggered here by an OS/platform difference instead of distribution. Same disposition: skip the
     # strict cosmetic check for this one case, keep it everywhere else.
     if (case["target_family"], case["distribution"], case["task"], case["seed"]) == ("ratio_plus_trig", "uniform", "regression", 101):
-        pytest.skip(
-            "known Linux-only CMI-computation divergence in the raw-redundancy drop for this exact "
-            "(target_family, distribution, task, seed) -- passes deterministically on Windows, keeps "
-            "'a' deterministically on every CI Python version; functional no-harm leg above still binds."
-        )
+        return
     # a subsumed raw kept ALONGSIDE a MULTI-operand composite that captures it is the bug.
     offenders = []
     for raw in r["subsumed_raws"]:

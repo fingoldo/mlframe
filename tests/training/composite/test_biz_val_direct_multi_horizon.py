@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.linear_model import Lasso, LinearRegression, MultiTaskLasso
 
@@ -222,16 +223,11 @@ def test_direct_multi_horizon_block_diagnostics_reports_per_block_importance_sim
 
 def test_direct_multi_horizon_rejects_overlapping_or_incomplete_blocks():
     """Direct multi horizon rejects overlapping or incomplete blocks."""
+    X = pd.DataFrame({"x": [1.0, 2.0]})
     est_overlap = DirectMultiHorizonEnsemble(estimator_factory=lambda: LinearRegression(), horizon_blocks=[[0, 1], [1, 2]])
-    try:
-        est_overlap.fit(pd.DataFrame({"x": [1.0, 2.0]}), np.zeros((2, 3)))
-        raise AssertionError("expected ValueError for overlapping blocks")
-    except ValueError:
-        pass
+    with pytest.raises(ValueError, match="horizon index 1 appears in more than one block"):
+        est_overlap.fit(X, np.zeros((2, 3)))
 
     est_incomplete = DirectMultiHorizonEnsemble(estimator_factory=lambda: LinearRegression(), horizon_blocks=[[0]])
-    try:
-        est_incomplete.fit(pd.DataFrame({"x": [1.0, 2.0]}), np.zeros((2, 3)))
-        raise AssertionError("expected ValueError for incomplete horizon coverage")
-    except ValueError:
-        pass
+    with pytest.raises(ValueError, match=r"must partition range\(n_horizons=3\) exactly; got indices \[0\]"):
+        est_incomplete.fit(X, np.zeros((2, 3)))

@@ -25,19 +25,13 @@ from mlframe.training.preprocessing import save_split_artifacts
 
 
 def _load_metadata(metadata_dir: Path) -> dict:
-    """Load saved metadata from the post-2026-04-29 format (`metadata.pkl.zst`
-    or `.pkl` fallback when zstandard is missing). Replaces the legacy
-    `joblib.load(metadata.joblib)` path."""
-    import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
+    """Load the saved suite metadata through the production restricted loader (sidecar-verified, zstd or plain pickle)."""
+    from mlframe.training.core._metadata_loader import load_metadata_file
 
-    zst_path = metadata_dir / "metadata.pkl.zst"
-    pkl_path = metadata_dir / "metadata.pkl"
-    if zst_path.exists():
-        import zstandard as zstd
-
-        return pickle.loads(zstd.ZstdDecompressor().decompress(zst_path.read_bytes()))  # nosec B301 -- round-trip of a locally-created, trusted object
-    if pkl_path.exists():
-        return pickle.loads(pkl_path.read_bytes())  # nosec B301 -- round-trip of a locally-created, trusted object
+    for name, kind in (("metadata.pkl.zst", "pkl.zst"), ("metadata.pkl", "pkl")):
+        candidate = metadata_dir / name
+        if candidate.exists():
+            return load_metadata_file(str(candidate), kind, "test")
     raise FileNotFoundError(f"No metadata file in {metadata_dir}")
 
 
@@ -57,7 +51,7 @@ def test_validate_inside_is_ok(tmp_path):
     """Validate inside is ok."""
     f = tmp_path / "x.joblib"
     f.write_text("")
-    _validate_trusted_path(str(f), str(tmp_path))
+    assert _validate_trusted_path(str(f), str(tmp_path)) is None
 
 
 def test_validate_outside_rejected(tmp_path):
@@ -98,7 +92,8 @@ def test_validate_symlink_escape_resolved(tmp_path):
         pytest.skip("symlink unavailable")
     # abspath does NOT resolve symlinks, so link is considered inside trusted.
     # This asserts current (documented) behavior, not a security claim.
-    _validate_trusted_path(str(linkname), str(trusted))
+    assert os.path.realpath(linkname) == os.path.realpath(outside)
+    assert _validate_trusted_path(str(linkname), str(trusted)) is None
 
 
 @pytest.mark.skipif(not sys.platform.startswith("win"), reason="cross-drive only meaningful on Windows")

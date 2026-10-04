@@ -127,21 +127,28 @@ def test_pure_random_classifier_respects_random_state():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(
-    reason="Averager classifiers interpret X as pre-computed probability columns, "
-    "not generic features — the sklearn check_estimator synthetic data violates "
-    "that contract. check_estimator does not accept custom data, so a meaningful "
-    "API-conformance check would require a parallel custom harness."
-)
 @pytest.mark.parametrize("clf_cls", [ArithmAvgClassifier, GeomAvgClassifier, PureRandomClassifier])
 def test_check_estimator_averagers(clf_cls):
-    """Check estimator averagers."""
-    from sklearn.utils.estimator_checks import check_estimator
+    """Averagers follow the estimator API on probability-column input: clone, fit-returns-self, exact proba vs the documented reference."""
+    from sklearn.base import clone
 
-    if clf_cls is PureRandomClassifier:
-        check_estimator(clf_cls())
-    else:
-        check_estimator(clf_cls(nprobs=2))
+    rng = np.random.default_rng(0)
+    X = rng.uniform(0.05, 0.95, size=(200, 2))
+    y = (X.mean(axis=1) > 0.5).astype(int)
+    clf = clf_cls() if clf_cls is PureRandomClassifier else clf_cls(nprobs=2)
+    cloned = clone(clf)
+    assert cloned.get_params() == clf.get_params()
+    assert clf.fit(X, y) is clf
+    np.testing.assert_array_equal(clf.classes_, [0, 1])
+    proba = clf.predict_proba(X)
+    assert proba.shape == (200, 2)
+    np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-12)
+    np.testing.assert_array_equal(proba, clf.predict_proba(X))
+    np.testing.assert_array_equal(clf.predict(X), clf.classes_[np.argmax(proba, axis=1)])
+    if clf_cls is ArithmAvgClassifier:
+        np.testing.assert_allclose(proba[:, 1], X.mean(axis=1), atol=1e-12)
+    elif clf_cls is GeomAvgClassifier:
+        np.testing.assert_allclose(proba[:, 1], np.sqrt(X[:, 0] * X[:, 1]), atol=1e-12)
 
 
 # ---------------------------------------------------------------------------

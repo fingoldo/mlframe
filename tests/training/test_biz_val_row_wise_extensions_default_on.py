@@ -88,6 +88,8 @@ def test_biz_val_row_wise_extensions_default_on_without_touching_config(tmp_path
     extreme_cols = [c for c in cols if c.startswith("row_extreme_")]
     assert summary_cols, f"row_wise_summary_stats must fire by default; got columns={cols}"
     assert extreme_cols, f"row_wise_top_k_extreme_columns must fire by default; got columns={cols}"
+    assert {"f0", "f1", "f2"} <= set(cols)
+    assert len(cols) == 3 + len(summary_cols) + len(extreme_cols), f"unexpected extra columns in the fitted feature set: {cols}"
 
 
 def test_row_wise_extensions_explicit_false_disables_both(tmp_path):

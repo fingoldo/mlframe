@@ -236,12 +236,13 @@ class TestHeadlineLogLoss:
         all_ones) collapse to AUC=0.5 by construction → AUC cannot
         discriminate them, so log_loss must be the headline."""
         rep = compute_dummy_baselines(config=cfg, **binary_data)
-        if "val_AUC" in rep.table.columns:
-            for name in ("prior", "most_frequent", "all_zeros", "all_ones"):
-                if name in rep.table.index:
-                    auc = rep.table.loc[name, "val_AUC"]
-                    if pd.notna(auc):
-                        assert abs(auc - 0.5) < 0.05, f"{name} AUC should ≈ 0.5 by construction, got {auc}"
+        assert "val_AUC" in rep.table.columns
+        names = [n for n in ("prior", "most_frequent", "all_zeros", "all_ones") if n in rep.table.index]
+        assert names, "no constant classifier row emitted"
+        for name in names:
+            auc = rep.table.loc[name, "val_AUC"]
+            assert pd.notna(auc), f"{name} AUC missing"
+            assert abs(auc - 0.5) < 0.05, f"{name} AUC should ≈ 0.5 by construction, got {auc}"
 
     def test_multilabel_macro_and_micro_explicitly_named(self, multilabel_data, cfg):
         """Multilabel macro and micro explicitly named."""
@@ -908,13 +909,13 @@ class TestBootstrapCI:
         rep = compute_dummy_baselines(config=cfg, **reg_data)
         # CI may not always populate (best-effort); but extras has it when emitted.
         ci = rep.extras.get("bootstrap_ci")
-        # If present, must have val key with (lo, point, hi) tuple.
-        if ci is not None:
-            assert "val" in ci or "test" in ci
-            for split in ("val", "test"):
-                if split in ci:
-                    lo, point, hi = ci[split]
-                    assert lo <= point <= hi
+        assert ci is not None, "bootstrap CI must be emitted for n_val=100 < 2000"
+        splits = [s for s in ("val", "test") if s in ci]
+        assert splits
+        for split in splits:
+            lo, point, hi = ci[split]
+            assert lo <= point <= hi
+            assert lo < hi
 
     def test_ci_suppressed_for_large_n(self, cfg):
         # n_val >= bootstrap_ci_threshold (2000) → CI suppressed.
@@ -1171,14 +1172,13 @@ class TestPairedBootstrap:
             config=cfg,
         )
         paired = rep.extras.get("paired_bootstrap")
-        # n_val=80 < 2000 → paired bootstrap fires.
-        if paired is not None:
-            assert "runner_up" in paired
-            assert "delta" in paired
-            assert "delta_ci" in paired
-            assert "p_strongest_beats" in paired
-            # Strong seasonality → strongest should beat runner-up cleanly.
-            assert paired["p_strongest_beats"] >= 0.5
+        assert paired is not None, "n_val=80 < 2000 so the paired bootstrap must fire"
+        assert "runner_up" in paired
+        assert "delta" in paired
+        assert "delta_ci" in paired
+        assert "p_strongest_beats" in paired
+        # Strong seasonality → strongest should beat runner-up cleanly.
+        assert paired["p_strongest_beats"] >= 0.5
 
     def test_tie_annotation_skips_overlay_plot(self, cfg, tmp_path):
         """When two baselines are statistically indistinguishable, plot
@@ -1202,9 +1202,8 @@ class TestPairedBootstrap:
             config=cfg,
             plot_file_prefix=plot_dir,
         )
-        # If TIE detected, plot is suppressed; otherwise plot exists.
-        if rep.extras.get("tie"):
-            assert rep.plot_path is None
+        assert rep.extras.get("tie") is True
+        assert rep.plot_path is None
 
 
 # ---------------------------------------------------------------------
@@ -1274,14 +1273,15 @@ class TestPlotPathSlugify:
         to a safe path component."""
         plot_dir = str(tmp_path)
         d = dict(reg_data, target_name="Bad/Name: рус", train_X=reg_data["train_X"].copy())
-        rep = compute_dummy_baselines(config=cfg, plot_file_prefix=plot_dir, **d)
-        if rep.plot_path is not None:
-            # Must not contain raw '/', ':', or non-ASCII path-breaking chars
-            import os as _os
+        rep = compute_dummy_baselines(config=DummyBaselinesConfig(overlay_plot=True), plot_file_prefix=plot_dir, **d)
+        assert rep.plot_path is not None
+        import os as _os
 
-            tail = _os.path.basename(rep.plot_path)
-            assert ":" not in tail
-            assert " " not in tail
+        assert _os.path.isfile(rep.plot_path)
+        tail = _os.path.basename(rep.plot_path)
+        assert ":" not in tail
+        assert " " not in tail
+        assert "/" not in tail
 
 
 # ---------------------------------------------------------------------
@@ -1342,11 +1342,19 @@ class TestNumbaAcceleration:
         rep = compute_dummy_baselines(config=cfg, **multilabel_data)
         # Macro log-loss should be in (0, ln(2)) range for binary-per-label
         # with random data — typically near ln(2) ≈ 0.693.
-        for idx in rep.table.index:
-            v = rep.table.loc[idx, "val_log_loss_macro"]
-            if pd.notna(v):
-                # Sanity: reasonable bounds for binary-per-label cross-entropy.
-                assert 0 < v < 30, f"{idx}: implausible macro log-loss {v}"
+        from sklearn.metrics import log_loss
+
+        macro = rep.table["val_log_loss_macro"].dropna()
+        assert "per_label_prior" in macro.index
+        train_y = multilabel_data["train_y"]
+        val_y = multilabel_data["val_y"]
+        prior = train_y.mean(axis=0)
+        expected = float(np.mean([log_loss(val_y[:, k], np.full(len(val_y), prior[k]), labels=[0, 1]) for k in range(train_y.shape[1])]))
+        assert macro["per_label_prior"] == pytest.approx(expected, rel=1e-6)
+        ceiling = float(-np.log(np.finfo(np.float64).eps)) + 1e-6
+        for idx, v in macro.items():
+            assert np.isfinite(v)
+            assert expected - 1e-9 <= v <= ceiling, f"{idx}: macro log-loss {v} outside [prior {expected}, clip ceiling {ceiling}]"
 
 
 class TestNumbaBootstrapKernelsEquivalence:
@@ -1515,12 +1523,8 @@ class TestNumbaJITWarmup:
         t0_second = time.perf_counter()
         _warmup_numba_kernels()
         elapsed_second = time.perf_counter() - t0_second
-        # Relative invariant: second call must be substantially faster than the first (cache hit); the absolute bands widen under contention.
-        # Tolerate first<0.5s (already-warmed by sibling test) by also passing if second is in the same fast band.
-        if elapsed_first < 0.5:
-            assert elapsed_second < perf_time_budget(2.0), f"both calls fast but second still took {elapsed_second:.2f}s"
-        else:
-            assert elapsed_second < max(perf_time_budget(0.5), elapsed_first * 0.5), f"warmup not cached: first={elapsed_first:.2f}s second={elapsed_second:.2f}s"
+        # The second call hits the compiled-kernel cache: it stays under a fixed band or half the first call, whichever is looser.
+        assert elapsed_second < max(perf_time_budget(2.0), elapsed_first * 0.5), f"warmup not cached: first={elapsed_first:.2f}s second={elapsed_second:.2f}s"
 
     def test_warmup_no_op_when_numba_unavailable(self, monkeypatch):
         """When numba is missing, warmup returns silently (no crash)."""
@@ -1528,8 +1532,8 @@ class TestNumbaJITWarmup:
 
         # Simulate numba missing
         monkeypatch.setattr(db, "_NUMBA_AVAILABLE", False)
-        # Must not raise; must not log anything noisy.
-        db._warmup_numba_kernels()
+        assert db._warmup_numba_kernels() is None
+        assert db._NUMBA_AVAILABLE is False
 
 
 class TestLTRPopularityBaseline:
@@ -1593,10 +1597,10 @@ class TestLTRPopularityBaseline:
             doc_ids_test=doc_te,
         )
         rep = compute_dummy_baselines(config=cfg, **d)
-        if "popularity" in rep.table.index:
-            diag = rep.extras["popularity_diagnostics"]
-            assert diag["val_cold_start_pct"] == 100.0
-            assert diag["test_cold_start_pct"] == 100.0
+        assert "popularity" in rep.table.index
+        diag = rep.extras["popularity_diagnostics"]
+        assert diag["val_cold_start_pct"] == 100.0
+        assert diag["test_cold_start_pct"] == 100.0
 
 
 class TestQuantileAlphasAutoPickup:

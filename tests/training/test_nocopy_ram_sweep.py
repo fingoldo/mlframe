@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def _big_passthrough_frame(n=64):
@@ -68,8 +67,7 @@ def test_preprocess_dataframe_stringdtype_normalise_no_deep_copy():
     s_codes_before = df["s"].tolist()
     cfg = PreprocessingConfig()
     out = preprocess_dataframe(df, cfg, verbose=0)
-    if not isinstance(out, pd.DataFrame):
-        pytest.skip("non-pandas return")
+    assert isinstance(out, pd.DataFrame)
     assert out["s"].dtype == object
     # caller's StringDtype column is untouched (pre-fix shallow path must not mutate caller)
     assert df["s"].dtype == "string"

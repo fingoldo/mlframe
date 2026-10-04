@@ -52,10 +52,7 @@ def test_dispatch_threshold_boundary(n_rows, expect_numba, restore_threshold, mo
     ref = rc.spearmanr_batched(X, Y)
     np.testing.assert_allclose(got, ref, atol=1e-10, equal_nan=True)
 
-    if expect_numba:
-        assert calls["n"] == 1, f"n={n_rows}: expected numba path (>= threshold)"
-    else:
-        assert calls["n"] == 0, f"n={n_rows}: expected numpy path (< threshold)"
+    assert calls["n"] == (1 if expect_numba else 0), f"n={n_rows}: numba calls={calls['n']}, expect_numba={expect_numba}"
 
 
 def test_dispatch_1d_input_uses_numpy_path_regardless_of_size(restore_threshold, monkeypatch):

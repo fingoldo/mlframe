@@ -37,6 +37,8 @@ import os
 import numpy as np
 import pytest
 
+from tests._known_gap import known_gap
+
 _L101_PATH = os.path.join(os.path.dirname(__file__), "test_biz_value_mrmr_regression_union", "test_full_suite_regression.py")
 _spec = importlib.util.spec_from_file_location("_l101_underselect_helpers", _L101_PATH)
 _l101 = importlib.util.module_from_spec(_spec)
@@ -160,12 +162,15 @@ def test_composite_fe_retains_strongest_signal(seed):
     X, y = _build_mega(seed)
     m = _make_mega_mrmr(random_seed=seed).fit(X, y)
     names = _support_names(m)
-    if "x1" not in _sources(names):
-        pytest.xfail(
+    x1_kept = "x1" in _sources(names)
+    if not x1_kept:
+        known_gap(
             f"seed={seed}: genuine open MRMR regression (Westfall-Young FWER-null candidate-pool inflation, see "
             f"this test's own docstring) -- overfit-in-sample-MI out-ranked and dropped the strongest signal x1; "
-            f"support={names}"
+            f"support={names}",
+            gap_closed=x1_kept,
         )
+    assert x1_kept, f"seed={seed}: x1 absent from support={names}"
 
 
 @pytest.mark.parametrize("seed", COLLAPSE_SEEDS)
@@ -175,11 +180,10 @@ def test_composite_fe_no_highcard_noise_over_signal(seed):
     m = _make_mega_mrmr(random_seed=seed).fit(X, y)
     names = _support_names(m)
     srcs = _sources(names)
-    if "cat_b" in srcs:
-        assert "x1" in srcs, (
-            f"seed={seed}: high-card noise cat_b was selected while real signal x1 was dropped -- its 50-level "
-            f"in-sample binned MI is finite-sample-inflated above genuine signal. support={names}"
-        )
+    assert "cat_b" not in srcs or "x1" in srcs, (
+        f"seed={seed}: high-card noise cat_b was selected while real signal x1 was dropped -- its 50-level "
+        f"in-sample binned MI is finite-sample-inflated above genuine signal. support={names}"
+    )
 
 
 @pytest.mark.parametrize("seed", COLLAPSE_SEEDS)

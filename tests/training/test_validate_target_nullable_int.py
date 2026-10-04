@@ -59,8 +59,11 @@ def test_pandas_nullable_float64_with_na_detected():
 def test_pandas_nullable_int_without_na_passes():
     """No NA -> no error. Pre-fix this also worked, just by accident (no NA to detect)."""
     t = pd.Series([1, 2, 3, 4], dtype="Int64")
-    # Should not raise
-    _validate_target_values(t, subset_name="train", is_classification=True)
+    before = t.copy()
+    assert _validate_target_values(t, subset_name="train", is_classification=True) is None
+    pd.testing.assert_series_equal(t, before)
+    with pytest.raises(ValueError, match=r"train target contains 1 NaN value"):
+        _validate_target_values(pd.Series([1, 2, 3, pd.NA], dtype="Int64"), subset_name="train", is_classification=True)
 
 
 def test_pandas_float_with_inf_detected():
@@ -99,13 +102,21 @@ def test_polars_float_with_nan_detected():
 def test_polars_int_without_null_passes():
     """Polars int without null passes."""
     t = pl.Series([1, 2, 3], dtype=pl.Int64)
-    _validate_target_values(t, subset_name="train", is_classification=True)
+    before = t.clone()
+    assert _validate_target_values(t, subset_name="train", is_classification=True) is None
+    assert t.equals(before)
+    with pytest.raises(ValueError, match=r"train target contains 1 NaN value"):
+        _validate_target_values(pl.Series([1, 2, None], dtype=pl.Int64), subset_name="train", is_classification=True)
 
 
 def test_polars_clean_target_passes():
     """Polars clean target passes."""
     t = pl.Series([0, 1, 0, 1], dtype=pl.Int8)
-    _validate_target_values(t, subset_name="train", is_classification=True)
+    before = t.clone()
+    assert _validate_target_values(t, subset_name="train", is_classification=True) is None
+    assert t.equals(before)
+    with pytest.raises(ValueError, match=r"one unique value"):
+        _validate_target_values(pl.Series([1, 1, 1, 1], dtype=pl.Int8), subset_name="train", is_classification=True)
 
 
 # ---- classification single-class detection (post-fix path still works) ----

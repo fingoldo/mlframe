@@ -95,30 +95,25 @@ class TestPipelineCacheHitAtSuiteLevel:
         )
         caplog.set_level(logging.INFO, logger="mlframe.training.strategies")
 
-        try:
-            models, _ = train_mlframe_models_suite(
-                df=df,
-                target_name="target",
-                model_name="cache_hit_integration_test",
-                features_and_targets_extractor=fte,
-                mlframe_models=["linear", "mlp"],
-                reporting_config=ReportingConfig(
-                    show_perf_chart=False,
-                    show_fi=False,
-                ),
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                output_config=OutputConfig(
-                    data_dir=str(tmp_path),
-                    models_dir="models",
-                ),
-                verbose=0,
-                hyperparams_config={"iterations": 30},
-            )
-        except Exception as exc:
-            pytest.skip(
-                f"Suite execution failed for unrelated reasons: {exc!r}",
-            )
+        models, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="target",
+            model_name="cache_hit_integration_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["linear", "mlp"],
+            reporting_config=ReportingConfig(
+                show_perf_chart=False,
+                show_fi=False,
+            ),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(
+                data_dir=str(tmp_path),
+                models_dir="models",
+            ),
+            verbose=0,
+            hyperparams_config={"iterations": 30},
+        )
 
         # Sanity: the suite produced at least one model entry.
         entries = models[TargetTypes.BINARY_CLASSIFICATION]["target"]
@@ -157,28 +152,26 @@ class TestPipelineCacheHitAtSuiteLevel:
         )
         caplog.set_level(logging.INFO, logger="mlframe.training.strategies")
 
-        try:
-            train_mlframe_models_suite(
-                df=df,
-                target_name="target",
-                model_name="cache_hit_ratio_test",
-                features_and_targets_extractor=fte,
-                mlframe_models=["linear", "mlp"],
-                reporting_config=ReportingConfig(
-                    show_perf_chart=False,
-                    show_fi=False,
-                ),
-                use_ordinary_models=True,
-                use_mlframe_ensembles=False,
-                output_config=OutputConfig(
-                    data_dir=str(tmp_path),
-                    models_dir="models",
-                ),
-                verbose=0,
-                hyperparams_config={"iterations": 30},
-            )
-        except Exception as exc:
-            pytest.skip(f"Suite execution failed: {exc!r}")
+        models, _ = train_mlframe_models_suite(
+            df=df,
+            target_name="target",
+            model_name="cache_hit_ratio_test",
+            features_and_targets_extractor=fte,
+            mlframe_models=["linear", "mlp"],
+            reporting_config=ReportingConfig(
+                show_perf_chart=False,
+                show_fi=False,
+            ),
+            use_ordinary_models=True,
+            use_mlframe_ensembles=False,
+            output_config=OutputConfig(
+                data_dir=str(tmp_path),
+                models_dir="models",
+            ),
+            verbose=0,
+            hyperparams_config={"iterations": 30},
+        )
+        assert len(models[TargetTypes.BINARY_CLASSIFICATION]["target"]) >= 1
 
         hits, misses = _count_pipeline_cache_hits(caplog)
         # Floor: hits must be >= half the misses. Stricter ratios would

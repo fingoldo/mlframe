@@ -174,6 +174,14 @@ def test_binary_focal_loss_differs_from_bce(imbalanced_binary):
 def test_focal_loss_alpha_default_does_not_crash(imbalanced_binary):
     """focal_loss_alpha=-1.0 disables the alpha weighting (per torchvision
     convention). Verify it doesn't crash."""
-    X_tr, _, y_tr, _ = imbalanced_binary
+    X_tr, X_te, y_tr, _ = imbalanced_binary
     clf = PytorchLightningClassifier(**_params(focal_loss_gamma=2.0, focal_loss_alpha=-1.0))
     clf.fit(X_tr, y_tr)
+    probs = np.asarray(clf.predict_proba(X_te))
+    assert probs.shape == (len(X_te), 2)
+    assert np.isfinite(probs).all()
+    assert probs.min() >= 0.0 and probs.max() <= 1.0
+    np.testing.assert_allclose(probs.sum(axis=1), 1.0, atol=1e-5)
+    clf_weighted = PytorchLightningClassifier(**_params(focal_loss_gamma=2.0, focal_loss_alpha=0.25))
+    clf_weighted.fit(X_tr, y_tr)
+    assert not np.allclose(probs, np.asarray(clf_weighted.predict_proba(X_te)), atol=1e-3), "alpha=-1 must change the loss relative to alpha=0.25"

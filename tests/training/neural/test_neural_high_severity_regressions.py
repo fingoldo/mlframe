@@ -364,46 +364,44 @@ def test_h_neu_15_extract_sequences_speedup_and_equivalence() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_h_neu_16_ranks_within_group_equivalent_and_faster() -> None:
-    """Compare the new vectorised implementation against the (pre-fix) naive
-    Python loop on a non-trivial dataset and report timings.
-    """
-    import timeit
-    from mlframe.training.ranking import ranking as _r
-    from tests.conftest import running_under_xdist
-
-    # The lexsort vectorisation amortises one full-array sort against the
-    # naive path's per-group Python-loop + per-group argsort. Its win is
-    # driven by GROUP COUNT (Python iterations removed), and is eroded by
-    # large per-group sizes (the single lexsort grows with total n). At only
-    # 5k groups the two paths are a wash on modern hardware; the optimisation
-    # was written for the >50k-query LTR workloads (see _ranks_within_group
-    # docstring), so the benchmark exercises that regime: many small groups.
+def _h_neu_16_workload():
+    """Many small groups (the >50k-query LTR regime the lexsort vectorisation was written for): scores, group starts, docs per group."""
+    # The lexsort vectorisation amortises one full-array sort against the naive path's per-group Python-loop + per-group argsort.
+    # Its win is driven by GROUP COUNT (Python iterations removed) and eroded by large per-group sizes; at only 5k groups the
+    # two paths are a wash on modern hardware, so the benchmark exercises many small groups.
     rng = np.random.default_rng(0)
     n_groups = 100000
     docs_per = 10
     n = n_groups * docs_per
     scores = rng.standard_normal(n).astype(np.float64)
     group_starts = np.arange(0, n + 1, docs_per, dtype=np.intp)
+    return scores, group_starts, docs_per
 
-    def _naive(scores, group_starts, descending=True):
-        """Naive."""
-        n = len(scores)
-        ranks = np.empty(n, dtype=np.float64)
-        n_groups = len(group_starts) - 1
-        for i in range(n_groups):
-            s, e = group_starts[i], group_starts[i + 1]
-            sl = scores[s:e]
-            if descending:
-                order = np.argsort(-sl, kind="stable")
-            else:
-                order = np.argsort(sl, kind="stable")
-            local = np.empty(len(sl), dtype=np.float64)
-            local[order] = np.arange(1, len(sl) + 1, dtype=np.float64)
-            ranks[s:e] = local
-        return ranks
 
-    naive_out = _naive(scores, group_starts)
+def _h_neu_16_naive(scores, group_starts, descending=True):
+    """The pre-fix per-group Python loop."""
+    n = len(scores)
+    ranks = np.empty(n, dtype=np.float64)
+    n_groups = len(group_starts) - 1
+    for i in range(n_groups):
+        s, e = group_starts[i], group_starts[i + 1]
+        sl = scores[s:e]
+        if descending:
+            order = np.argsort(-sl, kind="stable")
+        else:
+            order = np.argsort(sl, kind="stable")
+        local = np.empty(len(sl), dtype=np.float64)
+        local[order] = np.arange(1, len(sl) + 1, dtype=np.float64)
+        ranks[s:e] = local
+    return ranks
+
+
+def test_h_neu_16_ranks_within_group_equivalent_and_group_count_free() -> None:
+    """The vectorised implementation equals the (pre-fix) naive Python loop, and its work does not grow with the group count."""
+    from mlframe.training.ranking import ranking as _r
+
+    scores, group_starts, docs_per = _h_neu_16_workload()
+    naive_out = _h_neu_16_naive(scores, group_starts)
     fast_out = _r._ranks_within_group(scores, group_starts)
     np.testing.assert_array_equal(naive_out, fast_out)
 
@@ -433,22 +431,18 @@ def test_h_neu_16_ranks_within_group_equivalent_and_faster() -> None:
     calls_small, calls_large = _calls(1_000), _calls(10_000)
     assert calls_large <= calls_small + 5, f"call count grows with group count ({calls_small} -> {calls_large}): per-group work is back"
 
-    if running_under_xdist():
-        pytest.skip("timing comparison flakes under -n contention; equivalence asserted above")
 
-    # Best-of-N timings: take the minimum across repeats so transient CPU
-    # contention (concurrent test workers, scheduler jitter) cannot flip the
-    # comparison. The min is the contention-free estimate of each path's cost.
-    t_naive = min(timeit.repeat(lambda: _naive(scores, group_starts), number=3, repeat=5))
-    t_fast = min(
-        timeit.repeat(
-            lambda: _r._ranks_within_group(scores, group_starts),
-            number=3,
-            repeat=5,
-        )
-    )
+@pytest.mark.no_xdist
+def test_h_neu_16_vectorised_ranks_not_much_slower_than_naive() -> None:
+    """Wall-clock sanity next to the structural call-count check: the vectorised path must not become much slower than the naive loop."""
+    import timeit
+
+    from mlframe.training.ranking import ranking as _r
+
+    scores, group_starts, _docs_per = _h_neu_16_workload()
+    # Best-of-N timings: the minimum across repeats is the contention-free estimate of each path's cost.
+    t_naive = min(timeit.repeat(lambda: _h_neu_16_naive(scores, group_starts), number=3, repeat=5))
+    t_fast = min(timeit.repeat(lambda: _r._ranks_within_group(scores, group_starts), number=3, repeat=5))
     # The wall-clock margin depends on the runner: on the dev host the vectorised path wins clearly, but on macOS CI
-    # runners (fast per-call numpy, slow large sorts) the two came out within 10% of each other (0.94s vs 0.86s). The
-    # structural check above is what pins the optimisation; this one catches the vectorised path becoming much slower.
+    # runners (fast per-call numpy, slow large sorts) the two came out within 10% of each other (0.94s vs 0.86s).
     assert t_fast < 1.5 * t_naive, f"vectorised={t_fast:.3f}s naive={t_naive:.3f}s"
-    print(f"[H-NEU-16] naive={t_naive:.3f}s  vectorised={t_fast:.3f}s  speedup={t_naive / t_fast:.1f}x")

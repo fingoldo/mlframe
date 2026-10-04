@@ -167,10 +167,10 @@ def test_biz_val_composite_discovery_hybrid_screening_runs_tiny_model():
     # the mi-only discovery's must be empty / None.
     hybrid_scores = disc_hybrid.tiny_rerank_scores_
     mi_only_scores = disc_mi.tiny_rerank_scores_
-    has_hybrid = hybrid_scores is not None and len(hybrid_scores) > 0
-    has_mi_only = mi_only_scores is not None and len(mi_only_scores) > 0
-    assert has_hybrid, f"hybrid screening must produce tiny_rerank_scores_; got {hybrid_scores}"
-    assert not has_mi_only, f"mi-only screening must NOT run tiny rerank; got {mi_only_scores}"
+    assert hybrid_scores is not None, "hybrid screening must produce tiny_rerank_scores_"
+    assert len(hybrid_scores) >= 1, f"hybrid screening must produce tiny_rerank_scores_; got {hybrid_scores}"
+    assert all(np.isfinite(v) and v > 0.0 for v in hybrid_scores.values()), f"tiny rerank RMSEs must be finite and positive: {hybrid_scores}"
+    assert len(mi_only_scores or {}) == 0, f"mi-only screening must NOT run tiny rerank; got {mi_only_scores}"
 
 
 # ---------------------------------------------------------------------------

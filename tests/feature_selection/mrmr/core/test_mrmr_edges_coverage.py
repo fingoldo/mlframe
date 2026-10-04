@@ -96,7 +96,17 @@ def test_validate_inputs_memory_cap_uses_available_ram_not_absolute(monkeypatch)
 
     sel = _fast_mrmr()
     # _validate_inputs is the only thing under test -- y is provided to satisfy the duplicate-column check path. The full fit would OOM the test runner; intercepting after _validate_inputs is sufficient.
-    sel._validate_inputs(_FakeFrame(), np.array([0, 1, 0, 1]))  # must NOT raise
+    frame = _FakeFrame()
+    assert sel._validate_inputs(frame, np.array([0, 1, 0, 1])) is frame
+
+    class _TinyVM:
+        """Groups tests covering TinyVM."""
+
+        available = 8 * 1024**3
+
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: _TinyVM())
+    with pytest.raises(ValueError, match="half of available"):
+        sel._validate_inputs(frame, np.array([0, 1, 0, 1]))
 
 
 def test_validate_inputs_memory_cap_rejects_when_footprint_exceeds_half_ram(monkeypatch):

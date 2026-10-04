@@ -102,17 +102,33 @@ def test_d1_replayed_dataframe_mutation_does_not_corrupt_future_replays(_isolate
     assert "__phantom_audit__" not in src.fe_provenance_.columns, "phantom column leaked back into the cached source DataFrame"
 
 
-def test_d1_cat_fe_state_dataclass_not_shared_when_present(_isolated_cache):
-    """D1: when cat-FE produced a ``_cat_fe_state_`` dataclass, the replay must deep-copy it (not share the object).
+def _make_cat_xy(n: int = 600, seed: int = 0):
+    """Two categorical columns whose parity jointly determines the target, so the cat-FE step runs and produces a state."""
+    rng = np.random.default_rng(seed)
+    X = pd.DataFrame(
+        {
+            "c1": pd.Categorical(rng.integers(0, 4, n)),
+            "c2": pd.Categorical(rng.integers(0, 4, n)),
+            "a": rng.standard_normal(n),
+        }
+    )
+    y = pd.Series(((X["c1"].cat.codes + X["c2"].cat.codes) % 2 == 0).astype(np.int64), name="targ")
+    return X, y
 
-    Skipped when the fit produced no cat-FE state (numeric-only synthetic may leave it ``None``)."""
-    X, y = _make_xy()
-    src, replayed = _fit_src_then_replay(X, y)
-    src_state = getattr(src, "_cat_fe_state_", None)
-    replayed_state = getattr(replayed, "_cat_fe_state_", None)
-    if src_state is None:
-        pytest.skip("no _cat_fe_state_ produced by this fit; nothing to isolate")
-    assert replayed_state is not src_state, "_cat_fe_state_ dataclass is shared by reference with the cached source"
+
+def test_d1_cat_fe_state_dataclass_not_shared_when_present(_isolated_cache):
+    """D1: when cat-FE produced a ``_cat_fe_state_`` dataclass, the replay must deep-copy it (not share the object)."""
+    from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig, CatFEState
+
+    X, y = _make_cat_xy()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        src = MRMR(verbose=0, random_seed=42, fe_max_pair_features=0, cat_fe_config=CatFEConfig(enable=True)).fit(X, y)
+        replayed = MRMR(verbose=0, random_seed=42, fe_max_pair_features=0, cat_fe_config=CatFEConfig(enable=True)).fit(X, y)
+    assert len(MRMR._FIT_CACHE) >= 1, "source fit did not populate _FIT_CACHE"
+    assert isinstance(src._cat_fe_state_, CatFEState)
+    assert isinstance(replayed._cat_fe_state_, CatFEState)
+    assert replayed._cat_fe_state_ is not src._cat_fe_state_, "_cat_fe_state_ dataclass is shared by reference with the cached source"
 
 
 def test_d7_replayed_support_is_writeable_like_cold_fit(_isolated_cache):

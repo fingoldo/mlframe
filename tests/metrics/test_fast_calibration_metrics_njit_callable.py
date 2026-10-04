@@ -48,10 +48,14 @@ def test_fast_calibration_metrics_is_njit_callable_and_matches_dispatcher():
     assert out == ref, f"fast_calibration_metrics output {out} != dispatcher path {ref}"
 
 
-def test_prewarm_numba_cache_completes_without_aborting():
+def test_prewarm_numba_cache_completes_without_aborting(monkeypatch):
     """The metric-kernel prewarm must run to completion. Pre-fix the
     ``fast_calibration_metrics`` call in the first prewarm loop raised
     TypingError, aborting every subsequent kernel warmup."""
-    from mlframe.metrics.core import prewarm_numba_cache
+    from mlframe.metrics._core_numba_warmup import _REENTRANCY
+    from mlframe.metrics.core import fast_calibration_metrics, prewarm_numba_cache
 
-    prewarm_numba_cache()  # pre-fix: raised numba.core.errors.TypingError
+    monkeypatch.delenv("MLFRAME_SKIP_NUMBA_PREWARM", raising=False)
+    assert prewarm_numba_cache() is None  # pre-fix: raised numba.core.errors.TypingError
+    assert _REENTRANCY.in_progress is False
+    assert len(fast_calibration_metrics.signatures) >= 1

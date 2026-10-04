@@ -99,6 +99,11 @@ def test_biz_val_drift_compute_label_handles_missing_val():
     )
     assert result["splits"].get("val") is None
     assert result["splits"].get("test") is None
+    assert result["splits"]["train"]["n"] == 300
+    assert result["splits"]["train"]["n_positive"] == int(train.sum())
+    assert result["splits"]["train"]["p_positive"] == pytest.approx(float(train.mean()), abs=1e-12)
+    assert result["drifts"]["max_abs_drift_pp"] == 0.0
+    assert result["warnings"] == []
 
 
 def test_biz_val_drift_compute_label_binary_result_has_drift_keys():
@@ -117,6 +122,11 @@ def test_biz_val_drift_compute_label_binary_result_has_drift_keys():
     expected_keys = {"target_type", "splits", "drifts", "warnings", "warn_threshold_pp"}
     missing = expected_keys - set(result.keys())
     assert not missing, f"missing top-level keys: {missing}"
+    expected_pp = (float(y[100:].mean()) - float(y[:100].mean())) * 100.0
+    assert result["drifts"]["val_minus_train_pp"] == pytest.approx(expected_pp, abs=1e-9)
+    assert result["drifts"]["max_abs_drift_pp"] == pytest.approx(abs(expected_pp), abs=1e-9)
+    assert abs(expected_pp) < result["warn_threshold_pp"]
+    assert result["warnings"] == []
 
 
 # ---------------------------------------------------------------------------

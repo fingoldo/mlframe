@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+from tests.conftest import _need_cuda
 
 
 @pytest.mark.parametrize("nbins", [10, 32, 64])
@@ -42,20 +43,20 @@ def test_real_quantile_bin_f32_input_bounded(nbins):
     assert float(np.mean(diff > 0)) < 0.02
 
 
-def test_gpu_resident_discretize_matches_cpu_within_one_bin():
+@pytest.mark.gpu
+@pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
+def test_gpu_resident_discretize_matches_cpu_within_one_bin(monkeypatch):
     """Same numeric bound on the REAL device kernel, when CUDA is available (skips otherwise)."""
-    try:
-        from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu, _cmi_gpu_enabled
-    except Exception:
-        pytest.skip("gpu quantile-bin path unavailable")
-    if not _cmi_gpu_enabled():
-        pytest.skip("CUDA / cupy not available")
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu, _cmi_gpu_enabled
+
+    monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
+    assert _cmi_gpu_enabled()
     rng = np.random.default_rng(2)
     x = rng.standard_normal(60_000).astype(np.float64)
     for nbins in (10, 32):
         gpu = _quantile_bin_gpu(x, nbins)
-        if gpu is None:
-            pytest.skip("gpu binner returned None (fault / disabled)")
+        assert gpu is not None, f"gpu binner returned None with CUDA enabled (nbins={nbins})"
         cpu = np.asarray(_quantile_bin(x, nbins)).astype(np.int64)
         diff = np.abs(np.asarray(gpu).astype(np.int64) - cpu)
         assert diff.max() <= 1, f"GPU-resident f32 discretize differs from CPU f64 by {diff.max()} > 1 bin (nbins={nbins})"

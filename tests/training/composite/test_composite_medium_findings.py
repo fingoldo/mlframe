@@ -35,7 +35,6 @@ from sklearn.exceptions import NotFittedError
 from mlframe.training.composite import estimator as _ce
 from mlframe.training.composite import cache as _cc
 from mlframe.training.composite import ensemble as _cen
-from mlframe.training.composite import discovery as _cd
 
 # ---------------------------------------------------------------------------
 # M-COMP-M1: duplicate deque import inside `.update`
@@ -181,19 +180,32 @@ def test_m3_spearman_demoter_handles_ties_with_rankdata():
     assert old_corr < 0.95, f"Reference argsort-of-argsort {old_corr:.4f} above threshold too; fixture not adversarial enough to differentiate."
 
 
-def test_m3_spearman_demoter_uses_rankdata():
-    """Behavioural: composite_discovery module must have rankdata in scope
-    (imported, not just referenced in a comment), i.e. ``rankdata`` is
-    resolvable from the module namespace.
-    """
-    rd = getattr(_cd, "rankdata", None)
-    if rd is None:
-        # Some versions import it under a different alias; check the
-        # module's globals dict for scipy.stats.rankdata identity.
-        from scipy.stats import rankdata as _rd
+def test_m3_spearman_demoter_uses_rankdata(monkeypatch):
+    """The time-index demoter ranks every unprotected column through ``rankdata(method="average")``, demotes the monotonic column and keeps the tied one."""
+    from types import SimpleNamespace
 
-        found = any(v is _rd for v in vars(_cd).values())
-        assert found, "composite_discovery does not have scipy.stats.rankdata in scope - the M3 fix may have been reverted to argsort-of-argsort."
+    from mlframe.training.composite.discovery import _auto_base
+
+    n = 500
+    rng = np.random.default_rng(0)
+    time_col = np.arange(n, dtype=np.float64)
+    tied = np.repeat(rng.permutation(50).astype(np.float64), n // 50)
+    x_matrix = np.column_stack([time_col, tied])
+    calls: list = []
+    original = _auto_base.rankdata
+
+    def spy(values, method="average"):
+        """Record the tie method, then delegate to scipy."""
+        calls.append(method)
+        return original(values, method=method)
+
+    monkeypatch.setattr(_auto_base, "rankdata", spy)
+    demote_set: set = set()
+    _auto_base._auto_base_step2_genuinely_high_mi(
+        SimpleNamespace(config=SimpleNamespace(auto_base_demote_time_index=True)), np.ones(n, dtype=bool), None, ["time", "tied"], x_matrix, demote_set
+    )
+    assert calls == ["average", "average"]
+    assert demote_set == {"time"}
 
 
 # ---------------------------------------------------------------------------

@@ -65,7 +65,9 @@ def test_fusion_scoring_subsample_keeps_output_full_n():
     """Under MLFRAME_FE_FUSION_MAX_ROWS well below n, the resident fusion twin still fuses the two canonical
     halves into one compound AND every admitted compound's materialised ``values`` are full-n (scoring is
     subsampled; output is not)."""
-    pytest.importorskip("cupy")
+    cp = pytest.importorskip("cupy")
+    if cp.cuda.runtime.memGetInfo()[0] < 200 * 1024**2:
+        pytest.skip("less than 200 MB of free VRAM; the resident fusion twin would fall back to CPU")
     import mlframe.feature_selection.filters._fe_additive_fusion_gpu_resident as TWIN
     from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -105,8 +107,7 @@ def test_fusion_scoring_subsample_keeps_output_full_n():
         else:
             os.environ["MLFRAME_FE_FUSION_MAX_ROWS"] = prev
 
-    if captured["admitted"] is None:
-        pytest.skip("resident fusion twin admitted no compound (CPU fallback or no fusion on this box)")
+    assert captured["admitted"] is not None, "resident fusion twin admitted no compound on the canonical fixture"
     assert cap < n
     assert len(captured["admitted"]) > 0
     for _len in captured["admitted"]:

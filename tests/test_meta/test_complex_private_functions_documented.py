@@ -50,12 +50,9 @@ def _has_docstring(file_path: Path, lineno: int) -> bool:
     return True  # couldn't locate the node precisely -- don't false-positive-flag it
 
 
-def test_report_complex_private_functions_missing_docstrings():
-    """Advisory (never fails): logs every private (leading-underscore) function/method that ruff's
-    mccabe check flags as complex AND that has no docstring, so this gap is visible without
-    blocking the suite on writing dozens of docstrings for legacy complex helpers in one pass."""
-    findings = _ruff_c901_findings()
-    undocumented = []
+def _undocumented_private(findings: list[dict]) -> list[tuple[Path, int, str]]:
+    """``(path, lineno, name)`` of each complex single-underscore function in ``findings`` that has no docstring."""
+    out = []
     for finding in findings:
         func_name = finding["message"].split("`")[1] if "`" in finding["message"] else ""
         if not func_name.startswith("_") or func_name.startswith("__"):
@@ -63,7 +60,29 @@ def test_report_complex_private_functions_missing_docstrings():
         file_path = Path(finding["filename"])
         lineno = finding["location"]["row"]
         if not _has_docstring(file_path, lineno):
-            undocumented.append(f"{file_path.relative_to(REPO_ROOT)}:{lineno} {func_name} (complexity in: {finding['message']})")
+            out.append((file_path, lineno, func_name))
+    return out
+
+
+def test_undocumented_private_filter_keeps_only_bare_private_functions(tmp_path):
+    """Only an undocumented ``_name`` is reported: a documented one, a public one and a dunder are skipped."""
+    src = tmp_path / "m.py"
+    src.write_text(
+        'def _bare(x):\n    return x\n\n\ndef _doc(x):\n    """d"""\n    return x\n\n\ndef pub(x):\n    return x\n\n\ndef __dunder(x):\n    return x\n',
+        encoding="utf-8",
+    )
+    findings = [
+        {"message": f"`{name}` is too complex (30 > 25)", "filename": str(src), "location": {"row": row}}
+        for name, row in (("_bare", 1), ("_doc", 5), ("pub", 10), ("__dunder", 14))
+    ]
+    assert _undocumented_private(findings) == [(src, 1, "_bare")]
+
+
+def test_report_complex_private_functions_missing_docstrings():
+    """Advisory: logs every private function that ruff's mccabe check flags as complex and that has no docstring; the
+    reported entries must each resolve to a real file and a private name."""
+    undocumented = [f"{file_path.relative_to(REPO_ROOT)}:{lineno} {func_name}" for file_path, lineno, func_name in _undocumented_private(_ruff_c901_findings())]
+    assert all(file_path_str.split(":")[0] and (REPO_ROOT / file_path_str.split(":")[0]).is_file() for file_path_str in undocumented)
 
     if undocumented:
         print(

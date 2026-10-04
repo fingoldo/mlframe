@@ -17,25 +17,26 @@ consistently on both write and read sides.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
-
-MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
-
-
-def _read(rel: str) -> str:
-    """Reads an mlframe source file's text for source-level assertions."""
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
+import pytest
 
 
-def test_cache_legacy_kind_decode_handles_bytes() -> None:
-    """Legacy npz cache-kind decode must branch on bytes/bytearray explicitly, not blindly str() the raw value."""
-    src = _read("training/feature_handling/cache.py")
-    # The pre-fix `str(kind_arr[0])` standalone-line is gone.
-    assert "kind = str(kind_arr[0])" not in src
-    # The post-fix handles bytes / bytearray separately.
-    assert 'raw.decode("ascii") if isinstance(raw, (bytes, bytearray)) else str(raw)' in src
+def test_cache_legacy_kind_decode_handles_bytes(tmp_path) -> None:
+    """A legacy npz whose ``kind`` is a bytes-typed object array is read back as the stored ndarray, and an unknown bytes kind is named without the ``b'..'`` repr."""
+    from mlframe.training.feature_handling.cache import _deserialize
+
+    value = np.arange(12, dtype=np.float32).reshape(3, 4)
+    for label, kind in (("bytes", b"ndarray"), ("str", "ndarray")):
+        path = tmp_path / f"legacy_{label}.npz"
+        np.savez(path, kind=np.array([kind], dtype=object), value=value)
+        loaded = _deserialize(str(path), allow_pickle=True)
+        np.testing.assert_array_equal(loaded, value)
+        assert loaded.dtype == np.float32
+
+    unknown = tmp_path / "legacy_unknown.npz"
+    np.savez(unknown, kind=np.array([b"mystery"], dtype=object), value=value)
+    with pytest.raises(ValueError, match=r"unknown serialised kind 'mystery'"):
+        _deserialize(str(unknown), allow_pickle=True)
 
 
 def test_legacy_bytes_kind_decode_path_returns_correct_string() -> None:

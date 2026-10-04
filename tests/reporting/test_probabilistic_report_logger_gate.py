@@ -46,13 +46,8 @@ def test_classification_report_skipped_when_info_filtered(monkeypatch):
 
     monkeypatch.setattr(_reporting, "classification_report", _fake_classification_report)
 
-    # report_probabilistic_model_perf has a deep signature; only invoke the
-    # local block that gates the report computation. The simplest way to
-    # exercise this is to call the public function with print_report=True,
-    # is_multilabel-shaped (N, K) probs/preds, and verify the sklearn fake
-    # is NOT invoked when logger.isEnabledFor(INFO) is False.
-
-    try:
+    def _run():
+        """Run the multilabel report once with print_report on."""
         _reporting.report_probabilistic_model_perf(
             targets=targets,
             columns=["f1", "f2"],
@@ -65,14 +60,15 @@ def test_classification_report_skipped_when_info_filtered(monkeypatch):
             show_perf_chart=False,
             verbose=False,
         )
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # The function may bail on missing optional kwargs in the test
-        # harness; the assertion that matters is the sklearn call count.
-        pass
 
-    assert (
-        sklearn_call_count["n"] == 0
-    ), f"classification_report fired {sklearn_call_count['n']} time(s) under WARNING-level logger; the isEnabledFor(INFO) gate is regressed"
+    try:
+        _run()
+        assert (
+            sklearn_call_count["n"] == 0
+        ), f"classification_report fired {sklearn_call_count['n']} time(s) under WARNING-level logger; the isEnabledFor(INFO) gate is regressed"
 
-    # Restore default level
-    _reporting.logger.setLevel(logging.NOTSET)
+        _reporting.logger.setLevel(logging.INFO)
+        _run()
+        assert sklearn_call_count["n"] >= 1, "classification_report never fires with INFO enabled, so the silent run above proves nothing"
+    finally:
+        _reporting.logger.setLevel(logging.NOTSET)

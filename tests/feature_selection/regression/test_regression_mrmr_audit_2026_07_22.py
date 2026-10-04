@@ -46,7 +46,11 @@ def test_regression_mrmr_fit_does_not_crash_on_construction():
     y = pd.Series(rng.integers(0, 2, 200))
 
     m = MRMR(n_workers=1)
-    m.fit(X, y)  # must not raise
+    fitted = m.fit(X, y)
+    assert fitted is m
+    assert m.get_params()["n_workers"] == 1
+    assert m.n_features_in_ == 5
+    assert list(m.feature_names_in_) == [f"f{i}" for i in range(5)]
 
 
 # ---------------------------------------------------------------------------
@@ -749,17 +753,29 @@ def test_regression_dy_device_cache_has_lock():
             """Release."""
             return _real_lock.__exit__(*exc)
 
+    import collections
+    import contextlib
+    import types
     import unittest.mock as _mock
 
+    uploads: list = []
+
+    def _fake_to_device(arr):
+        """Host stand-in for the device upload so the cache bookkeeping runs without a GPU."""
+        uploads.append(arr.shape)
+        return arr
+
     _classes_y = np.arange(16, dtype=np.int64) % 2
-    with _mock.patch.object(bng_gpu, "_DY_DEVICE_CACHE_LOCK", _CountingLock()):
-        try:
-            bng_gpu._resident_y_all_device(_classes_y, _classes_y, base_seed=0, nperm=0, n=16, P=1)
-        except Exception:
-            # No CUDA on this box: the upload fails, but the lookup under the lock has already happened, which
-            # is the property being asserted. The eviction half is exercised wherever CUDA is present.
-            pass
-    assert _acquired["n"] >= 1, "the device-cache lock was never acquired during a cache call; it is decorative"
+    with contextlib.ExitStack() as stack:
+        stack.enter_context(_mock.patch.object(bng_gpu, "_DY_DEVICE_CACHE_LOCK", _CountingLock()))
+        stack.enter_context(_mock.patch.object(bng_gpu, "_DY_DEVICE_CACHE", collections.OrderedDict()))
+        stack.enter_context(_mock.patch.object(bng_gpu, "_nb_cuda", types.SimpleNamespace(to_device=_fake_to_device)))
+        first = bng_gpu._resident_y_all_device(_classes_y, _classes_y, base_seed=0, nperm=0, n=16, P=1)
+        second = bng_gpu._resident_y_all_device(_classes_y, _classes_y, base_seed=0, nperm=0, n=16, P=1)
+    assert first is second
+    assert uploads == [(1, 16)]
+    # miss: lookup + store; hit: lookup only
+    assert _acquired["n"] == 3, "the device-cache lock must guard the lookup and the store of every cache call"
 
 
 # ---------------------------------------------------------------------------
@@ -1203,11 +1219,7 @@ def test_regression_discretize_2d_array_cuda_row_chunked_nan_parity(method):
     """Pre-fix: a single NaN anywhere in a column poisoned that column's edges to NaN, collapsing every
     real value in the column to one degenerate bin. Post-fix: NaN-aware min/max/percentile matches the
     non-chunked (already-fixed) sibling's behaviour -- non-NaN rows land in real, non-degenerate bins."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    pytest.importorskip("cupy")
 
     from mlframe.feature_selection.filters.discretization import discretize_2d_array_cuda_row_chunked
 
@@ -3744,8 +3756,7 @@ def test_regression_orth_scorer_zoo_recipe_freezes_preprocess_params(modname, fu
     # Result arity varies across the scorer zoo (some return an extra intermediate-scores frame),
     # but recipes is always the LAST element and X_aug is always the FIRST.
     X_aug, recipes = result[0], result[-1]
-    if not recipes:
-        pytest.skip(f"{modname}.{funcname} emitted no recipes on this fixture; cannot exercise the slice-replay contract.")
+    assert recipes, f"{modname}.{funcname} emitted no recipes on this fixture; cannot exercise the slice-replay contract."
 
     for r in recipes:
         if "preprocess_params" not in r.extra:

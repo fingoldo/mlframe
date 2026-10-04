@@ -303,15 +303,34 @@ def test_no_library_code_calls_set_random_seed() -> None:
 
 
 def test_cat_interactions_uses_local_cupy_rng() -> None:
-    # ``_count_nfailed_joint_indep_cupy`` (the cupy permutation kernel)
-    # was moved to the ``_cat_confirm_permutation.py`` sibling when
-    # ``cat_interactions.py`` was split below 1k LOC.
-    """Cat interactions uses local cupy rng."""
-    src = _read("feature_selection/filters/_cat_confirm_permutation.py")
-    # The fix replaces cp.random.seed + cp.random.permutation with local RandomState.
-    assert "cp.random.seed(base_seed + p)\n        y_perm = cp.random.permutation(classes_y_g)" not in src
-    assert "_local_cp_rng = cp.random.RandomState(base_seed + p)" in src
-    assert "_local_cp_rng.permutation(classes_y_g)" in src
+    """The cupy permutation kernel is deterministic in ``base_seed`` and leaves the caller's cupy global stream where it was."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._cat_confirm_permutation import _count_nfailed_joint_indep_cupy
+
+    rng = np.random.default_rng(0)
+    n = 400
+    x1 = rng.integers(0, 3, n)
+    x2 = rng.integers(0, 4, n)
+    y = rng.integers(0, 2, n)
+    pair = x1 * 4 + x2
+
+    def freqs(codes, k):
+        """Marginal frequency of each of ``k`` codes."""
+        return np.bincount(codes, minlength=k) / n
+
+    args = (pair, freqs(pair, 12), x1, freqs(x1, 3), x2, freqs(x2, 4), y, freqs(y, 2))
+    cp.random.seed(123)
+    expected_next = cp.random.random(4).get()
+    cp.random.seed(123)
+    first = _count_nfailed_joint_indep_cupy(*args, ii_obs=0.0, n_perms=8, base_seed=99)
+    after_global = cp.random.random(4).get()
+    second = _count_nfailed_joint_indep_cupy(*args, ii_obs=0.0, n_perms=8, base_seed=99)
+
+    np.testing.assert_array_equal(after_global, expected_next)
+    assert first == second
+    assert 0 <= first <= 8
+    assert _count_nfailed_joint_indep_cupy(*args, ii_obs=-1e9, n_perms=8, base_seed=99) == 8
+    assert _count_nfailed_joint_indep_cupy(*args, ii_obs=1e9, n_perms=8, base_seed=99) == 0
 
 
 def test_mps_generate_market_price_is_reproducible_from_its_own_seed() -> None:
@@ -348,6 +367,14 @@ def test_mps_generate_market_price_is_unaffected_by_the_global_stream() -> None:
     np.testing.assert_array_equal(np.asarray(first), np.asarray(again))
 
 
+def _iia_table():
+    """A 5-model x 3-task score table with fixed values, plus unit per-task weights."""
+    pd = pytest.importorskip("pandas")
+    rng = np.random.default_rng(3)
+    table = pd.DataFrame(rng.uniform(size=(5, 3)), index=[f"m{i}" for i in range(5)], columns=["t0", "t1", "t2"])
+    return table, {task: 1.0 for task in table.columns}
+
+
 def test_votenrank_iia_is_unaffected_by_the_global_stream() -> None:
     """compute_iia seeds per iteration; that seed must come from the iteration, not the process.
 
@@ -355,35 +382,18 @@ def test_votenrank_iia_is_unaffected_by_the_global_stream() -> None:
     is absent and `rng = np.random.default_rng(i)` / `rng.shuffle(models_order)` present -- neither
     of which says the result stops depending on whatever the caller last seeded.
     """
-    pd = pytest.importorskip("pandas")
+    table, weights = _iia_table()
     from mlframe.votenrank.iia_exp import compute_iia
 
-    table = pd.DataFrame(
-        {"m1": [0.5, 0.6], "m2": [0.55, 0.65], "m3": [0.7, 0.4]},
-        index=["a", "b"],
-    ).T
-    weights = np.ones(2)
-
-    def _mean_method(table, weights):
-        """Mean method."""
-        return np.average(table.values, weights=weights, axis=1)
-
-    def _run():
-        """Compute iia once, reporting None if the stub signature does not fit."""
-        try:
-            return compute_iia(_mean_method, table, weights, num_repetitions=3)
-        except Exception:  # nosec B110 -- an optional/mismatched signature is a different failure
-            return None
-
     np.random.seed(0)
-    first = _run()
+    first = compute_iia("mean", table, weights, num_repetitions=6)
     np.random.seed(999)
     np.random.random(1000)
-    again = _run()
+    again = compute_iia("mean", table, weights, num_repetitions=6)
 
-    if first is None or again is None:
-        pytest.skip("compute_iia signature did not accept the stub method")
-    np.testing.assert_array_equal(np.asarray(first), np.asarray(again))
+    assert len(first[2]) == 6
+    assert first[0] == again[0] and first[1] == again[1]
+    assert first[2] == again[2]
 
 
 # ---------------------------------------------------------------------------
@@ -408,29 +418,17 @@ def test_generate_market_price_does_not_mutate_global_np_rng() -> None:
 
 def test_compute_iia_does_not_mutate_global_np_rng() -> None:
     """compute_iia per-iter seed must NOT shift the caller's global stream."""
-    pd = pytest.importorskip("pandas")
+    table, weights = _iia_table()
     from mlframe.votenrank.iia_exp import compute_iia
-
-    # Minimal stub: 3 models x 2 metrics, weights=ones, method=mean.
-    table = pd.DataFrame(
-        {"m1": [0.5, 0.6], "m2": [0.55, 0.65], "m3": [0.7, 0.4]},
-        index=["a", "b"],
-    ).T
-    weights = np.ones(2)
 
     np.random.seed(0)
     pre = np.random.get_state()
-
-    def _mean_method(table, weights):
-        """Mean method."""
-        return np.average(table.values, weights=weights, axis=1)
-
-    try:
-        compute_iia(_mean_method, table, weights, num_repetitions=3)
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        pass  # the method signature might mismatch; we only care about RNG state.
+    result = compute_iia("mean", table, weights, num_repetitions=3)
     post = np.random.get_state()
+    assert len(result[2]) == 3
+    assert pre[0] == post[0]
     np.testing.assert_array_equal(pre[1], post[1])
+    assert pre[2] == post[2]
 
 
 def test_rfecv_fit_leaves_the_callers_global_rng_untouched() -> None:

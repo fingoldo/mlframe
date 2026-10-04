@@ -42,6 +42,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
+from tests._known_gap import known_gap
 
 from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names
 from tests.feature_selection.conftest import is_fast_mode
@@ -173,9 +174,9 @@ def test_biz_val_p_gt_n_recovers_signal_above_chance(name):
                 hits += 1
             detail.append((n, p, seed, rec, total))
     msg = f"{name}: recovered>=1 on {hits}/{trials} trials; detail (n,p,seed,rec,total)={detail}"
-    if hits <= trials // 2:
-        if name == "MRMR":
-            pytest.xfail(_MRMR_RECOVERY_XFAIL + f" | {msg}")
+    if name == "MRMR":
+        # a bare majority (measured 7/12) sits inside seed noise, so the gap counts as closed only at a clear three-quarters majority
+        known_gap(_MRMR_RECOVERY_XFAIL + f" | {msg}", gap_closed=hits > (3 * trials) // 4)
     assert hits > trials // 2, msg
 
 
@@ -280,10 +281,13 @@ def test_biz_val_p_gt_n_mrmr_fp_control_hard_floor():
     This is the non-xfail counterpart to RFECV's select-all gap -- a real, hard, quantitative win."""
     spec = SELECTOR_SPECS["MRMR"]
     overs = []
+    excess = []
     for n, p in _NPS:
         for seed in _SEEDS:
             sel, signal = _fit(spec, n, p, seed)
             _, total = _recovered_and_total(sel, signal)
+            excess.append(total - _FP_CEILING(p))
             if total > _FP_CEILING(p):
                 overs.append((n, p, seed, total, _FP_CEILING(p)))
-    assert not overs, f"MRMR FP-control breached at p>>n (should keep a tight set): overs={overs}"
+    assert len(excess) == len(_NPS) * len(_SEEDS) > 0
+    assert max(excess) <= 0, f"MRMR FP-control breached at p>>n (should keep a tight set): overs={overs}"

@@ -87,11 +87,13 @@ class TestEstimatorsTypeFamilyAssert:
 
     def test_pure_classifier_list_ok(self):
         """Pure classifier list ok."""
-        RFECV(estimators=[LogisticRegression(), LogisticRegression(C=0.1)])
+        selector = RFECV(estimators=[LogisticRegression(), LogisticRegression(C=0.1)])
+        assert [est.C for est in selector.estimators] == [1.0, 0.1]
 
     def test_pure_regressor_list_ok(self):
         """Pure regressor list ok."""
-        RFECV(estimators=[Ridge(), Ridge(alpha=0.5)])
+        selector = RFECV(estimators=[Ridge(), Ridge(alpha=0.5)])
+        assert [est.alpha for est in selector.estimators] == [1.0, 0.5]
 
 
 # ----------------------------------------------------------------------- E10

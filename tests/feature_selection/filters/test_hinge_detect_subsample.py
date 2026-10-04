@@ -51,8 +51,7 @@ def test_hinge_subsample_still_finds_breakpoint(max_rows, monkeypatch):
         pytest.importorskip("cupy")
         x, y = _hinge_data(1_000_000)
         taus = m.detect_hinge_breakpoints_gpu(x, y, **_KW)
-        if taus is None:
-            pytest.skip("cupy fault -> host detector path (not under test here)")
+        assert taus is not None, f"[cap={max_rows}] GPU detector fell back to the host path on a working device"
         assert len(taus) >= 1, f"[cap={max_rows}] no breakpoint found on a clear hinge signal"
         assert abs(float(taus[0]) - 0.5) < 0.4, f"[cap={max_rows}] breakpoint {taus[0]:.3f} far from 0.5"
     finally:

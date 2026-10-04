@@ -234,13 +234,60 @@ def _build_offending_set() -> set:
     return out
 
 
+_CANARY_SOURCE = """
+def test_no_check():
+    fit()
+
+def test_swallows():
+    try:
+        assert f()
+    except AssertionError:
+        pass
+
+def test_conditional(x):
+    if x:
+        assert x
+
+def test_pass_if(x):
+    if x:
+        pass
+    assert x
+
+def test_xfails():
+    assert f()
+    pytest.xfail("later")
+
+def test_late_skip():
+    x = compute()
+    if x:
+        pytest.skip("the data decided")
+    assert x
+
+def test_discriminates():
+    assert f() == 3
+"""
+
+
+def test_scanner_flags_each_nondiscriminating_shape_and_passes_a_discriminating_test():
+    """Every shape the scanner names is reported for its canary function and the clean one gets no reason at all."""
+    funcs = {n.name: n for n in ast.walk(ast.parse(_CANARY_SOURCE)) if isinstance(n, ast.FunctionDef)}
+    assert len(funcs) == 7
+    assert _reasons(funcs["test_no_check"]) == ["no-assert"]
+    assert _reasons(funcs["test_swallows"]) == ["swallows-assertionerror"]
+    assert _reasons(funcs["test_conditional"]) == ["all-asserts-conditional"]
+    assert _reasons(funcs["test_pass_if"]) == ["pass-body-if"]
+    assert _reasons(funcs["test_xfails"]) == ["imperative-xfail"]
+    assert shape_reasons(funcs["test_late_skip"]) == ["late-skip"]
+    assert _reasons(funcs["test_discriminates"]) == []
+    assert shape_reasons(funcs["test_discriminates"]) == []
+
+
 def test_no_new_nondiscriminating_assert():
     """No test function is added that cannot fail for the reason it claims to check."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_bytes(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2))  # bytes: text mode on Windows writes CRLF
-        pytest.skip(f"nondiscriminating-assert baseline written with {len(current)} entry/entries")
+        _BASELINE_PATH.write_bytes(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2))  # bytes: text mode on Windows writes CRLF
+        pytest.skip("nondiscriminating-assert baseline written")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     added = sorted(current - baseline)

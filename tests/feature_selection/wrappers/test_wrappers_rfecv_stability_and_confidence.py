@@ -81,22 +81,22 @@ class TestN1_SelectionStability:
         """Jaccard in unit range."""
         rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="jaccard")
-        if not np.isnan(s):
-            assert 0.0 <= s <= 1.0
+        assert not np.isnan(s), "the fixture has 3 folds with FI at the chosen N, so stability is defined"
+        assert 0.0 <= s <= 1.0
 
     def test_dice_in_unit_range(self, fitted_rfecv):
         """Dice in unit range."""
         rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="dice")
-        if not np.isnan(s):
-            assert 0.0 <= s <= 1.0
+        assert not np.isnan(s), "the fixture has 3 folds with FI at the chosen N, so stability is defined"
+        assert 0.0 <= s <= 1.0
 
     def test_kuncheva_in_unit_range(self, fitted_rfecv):
         """Kuncheva in unit range."""
         rfecv, _X, _y = fitted_rfecv
         s = rfecv.selection_stability_(metric="kuncheva")
-        if not np.isnan(s):
-            assert 0.0 <= s <= 1.0
+        assert not np.isnan(s), "the fixture has 3 folds with FI at the chosen N, so stability is defined"
+        assert 0.0 <= s <= 1.0
 
     def test_unknown_metric_raises(self, fitted_rfecv):
         """Unknown metric raises."""
@@ -125,9 +125,9 @@ class TestN2_OneSeRule:
         nfs = np.asarray(rfecv.cv_results_["nfeatures"])
         means = np.asarray(rfecv.cv_results_["cv_mean_perf"])
         nonzero = nfs > 0
-        if nonzero.any():
-            argmax_n = int(nfs[nonzero][np.argmax(means[nonzero])])
-            assert n_one_se <= argmax_n, f"1-SE rule N={n_one_se} must be <= variance-blind argmax N={argmax_n}"
+        assert nonzero.any(), "the CV curve holds no non-zero subset size"
+        argmax_n = int(nfs[nonzero][np.argmax(means[nonzero])])
+        assert n_one_se <= argmax_n, f"1-SE rule N={n_one_se} must be <= variance-blind argmax N={argmax_n}"
 
     def test_one_se_returns_positive(self, fitted_rfecv):
         """One se returns positive."""

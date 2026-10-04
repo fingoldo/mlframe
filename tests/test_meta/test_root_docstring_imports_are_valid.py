@@ -25,13 +25,8 @@ def _parse_import_line(line: str) -> "tuple[str, list[str]] | None":
     return module_path, [n.strip() for n in names_raw.split(",")]
 
 
-def test_root_docstring_import_examples_are_importable():
-    """Every ``from mlframe.x import y`` example line in mlframe/__init__.py's module docstring must
-    actually resolve, so the package's own documented public-API convention never silently rots."""
-    doc = mlframe.__doc__ or ""
-    parsed = [p for p in (_parse_import_line(line) for line in doc.splitlines()) if p is not None]
-    assert len(parsed) >= 5, "expected the docstring's public-API-convention code block to list several example imports"
-
+def _import_failures(parsed: "list[tuple[str, list[str]]]") -> list[str]:
+    """One message per ``(module_path, names)`` entry whose import or attribute lookup fails."""
     failures = []
     for module_path, names in parsed:
         try:
@@ -40,5 +35,27 @@ def test_root_docstring_import_examples_are_importable():
                 getattr(module, name)
         except Exception as exc:
             failures.append(f"from {module_path} import {', '.join(names)} -> {type(exc).__name__}: {exc}")
+    return failures
+
+
+def test_import_check_catches_a_missing_name_and_a_missing_module_and_passes_a_valid_import():
+    """A bad attribute and a bad module are each reported; a resolvable import and the line parser behave as expected."""
+    assert _parse_import_line("    from mlframe.training import a, b") == ("mlframe.training", ["a", "b"])
+    assert _parse_import_line("import os") is None
+    assert _import_failures([("os.path", ["join"])]) == []
+    missing_name = _import_failures([("os.path", ["no_such_name_xyz"])])
+    assert len(missing_name) == 1 and "AttributeError" in missing_name[0]
+    missing_module = _import_failures([("no_such_module_xyz", ["a"])])
+    assert len(missing_module) == 1 and "ModuleNotFoundError" in missing_module[0]
+
+
+def test_root_docstring_import_examples_are_importable():
+    """Every ``from mlframe.x import y`` example line in mlframe/__init__.py's module docstring must
+    actually resolve, so the package's own documented public-API convention never silently rots."""
+    doc = mlframe.__doc__ or ""
+    parsed = [p for p in (_parse_import_line(line) for line in doc.splitlines()) if p is not None]
+    assert len(parsed) >= 5, "expected the docstring's public-API-convention code block to list several example imports"
+
+    failures = _import_failures(parsed)
 
     assert not failures, "mlframe/__init__.py's documented example imports are broken:\n" + "\n".join(failures)

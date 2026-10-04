@@ -127,22 +127,42 @@ class TestCompositeResidualStdDegeneracyFilter:
     must reject such composites BEFORE per-target training."""
 
     def test_residual_std_check_in_fit_source(self) -> None:
-        """The new check lives in _composite_discovery_fit.py.
-        Verify the source guard is present so a refactor that
-        accidentally drops it gets caught at test time."""
-        from pathlib import Path
-        import mlframe.training.composite.discovery._fit as mod
+        """Discovery rejects a composite whose T_std / y_std is below 0.001 at fit time, with the noise-floor reason,
+        while a composite on an unrelated base is not rejected for that reason."""
+        import pandas as pd
 
-        src = Path(mod.__file__).read_text(encoding="utf-8")
-        # The residual-std degeneracy check moved to the _composite_discovery_eval.py
-        # sibling during the discovery-fit split; concat so the source guard matches.
-        _sib = Path(mod.__file__).parent / "_eval.py"
-        if _sib.exists():
-            src += "\n" + _sib.read_text(encoding="utf-8")
-        assert (
-            "_residual_ratio < 0.001" in src
-        ), "residual-std degeneracy check missing from _composite_discovery_fit.py -- the 0.001 threshold below which composites get rejected at fit time"
-        assert "below noise floor" in src, "rejection reason string missing -- audit trail for the degeneracy filter"
+        from mlframe.training.composite.discovery import CompositeTargetDiscovery
+        from mlframe.training.configs import CompositeTargetDiscoveryConfig
+
+        rng = np.random.default_rng(0)
+        n = 1500
+        base_near = rng.uniform(100.0, 200.0, n)
+        df = pd.DataFrame(
+            {
+                "base_near": base_near,
+                "base_far": rng.uniform(100.0, 200.0, n),
+                "n0": rng.standard_normal(n),
+                "y": base_near + rng.normal(scale=base_near * 1e-5, size=n),
+            }
+        )
+        config = CompositeTargetDiscoveryConfig(
+            enabled=True,
+            mi_sample_n=400,
+            composite_skip_when_raw_dominates_ratio=0.0,
+            base_candidates=["base_near", "base_far"],
+            transforms=["diff"],
+            tiny_model_n_seed_repeats=1,
+            tiny_model_n_estimators=30,
+            top_m_after_tiny=3,
+        )
+        disc = CompositeTargetDiscovery(config=config).fit(df=df, target_col="y", feature_cols=["base_near", "base_far", "n0"], train_idx=np.arange(1200))
+        reasons: dict = {}
+        for row in [*disc.report_, *disc.rejection_ledger]:
+            reasons.setdefault(row["base_column"], []).append(str(row.get("reason", "")))
+        near = " ".join(reasons.get("base_near", []))
+        assert "below noise floor" in near, reasons
+        assert "(ratio=" in near and "< 0.001" in near
+        assert "below noise floor" not in " ".join(reasons.get("base_far", []))
 
     def test_compute_residual_ratio_logic(self) -> None:
         """The check is: T_std / y_std < 0.001 -> reject. Verify the

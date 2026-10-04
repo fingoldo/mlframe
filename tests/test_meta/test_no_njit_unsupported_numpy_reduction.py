@@ -62,27 +62,42 @@ def _forbidden_np_call(node: ast.Call) -> str | None:
     return None
 
 
+def _reduction_violations(tree: ast.AST, rel: object) -> list[str]:
+    """Forbidden NumPy reduction calls inside ``@njit`` functions of one parsed module, as report lines."""
+    violations: list[str] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not any(_is_njit_decorator(d) for d in fn.decorator_list):
+            continue
+        for call in ast.walk(fn):
+            if isinstance(call, ast.Call):
+                bad = _forbidden_np_call(call)
+                if bad:
+                    violations.append(f"{rel}:{call.lineno}  {fn.name}() calls {bad}")
+    return violations
+
+
+def test_reduction_detector_catches_median_in_njit_and_passes_sort_and_eager_median():
+    """``np.median`` inside ``@njit`` is reported; ``np.sort`` there and ``np.median`` outside a compiled function are not."""
+    bad = ast.parse("@njit\ndef f(x):\n    return np.median(x)\n")
+    clean = ast.parse("@njit\ndef f(x):\n    return np.sort(x)\n\ndef g(x):\n    return np.median(x)\n")
+    assert _reduction_violations(bad, "m.py") == ["m.py:3  f() calls np.median"]
+    assert _reduction_violations(clean, "m.py") == []
+
+
 def test_no_unsupported_numpy_reduction_in_njit():
     """No forbidden NumPy reduction call inside an ``@njit`` function body."""
     violations: list[str] = []
+    scanned = 0
     for path in PKG_ROOT.rglob("*.py"):
         tree = parsed_ast(path)
         if tree is None:
             continue
-        for fn in ast.walk(tree):
-            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            if not any(_is_njit_decorator(d) for d in fn.decorator_list):
-                continue
-            for call in ast.walk(fn):
-                if isinstance(call, ast.Call):
-                    bad = _forbidden_np_call(call)
-                    if bad:
-                        rel = path.relative_to(PKG_ROOT.parent)
-                        violations.append(f"{rel}:{call.lineno}  {fn.name}() calls {bad}")
-
-    if violations:
-        raise AssertionError(
-            "Forbidden NumPy reduction(s) called inside @njit functions (numba nopython support "
-            "is version-fragile -- derive from np.sort instead, see _hermite_robust._median_sorted_njit):\n  " + "\n  ".join(sorted(violations))
-        )
+        scanned += 1
+        violations.extend(_reduction_violations(tree, path.relative_to(PKG_ROOT.parent)))
+    assert scanned > 0, "no package sources were scanned"
+    assert not violations, (
+        "Forbidden NumPy reduction(s) called inside @njit functions (numba nopython support "
+        "is version-fragile -- derive from np.sort instead, see _hermite_robust._median_sorted_njit):\n  " + "\n  ".join(sorted(violations))
+    )

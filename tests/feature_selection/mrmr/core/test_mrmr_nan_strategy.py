@@ -202,21 +202,25 @@ class TestSeparateBinSurfacesInformativeNan:
 
 class TestTransformPreservesNan:
     """Groups tests covering TestTransformPreservesNan."""
-    def test_separate_bin_output_keeps_nan_rows(self, df_with_random_nan):
-        """Separate bin output keeps nan rows."""
-        X, y = df_with_random_nan
+    def test_separate_bin_output_keeps_nan_rows(self):
+        """A selected signal column holding NaN rows is returned by transform with exactly those NaN rows, not imputed."""
+        rng = np.random.default_rng(7)
+        n = 1000
+        other = rng.normal(size=n)
+        noise = rng.normal(size=n)
+        sig = rng.normal(size=n)
+        nan_mask = rng.random(n) < 0.3
+        y = ((sig + 0.2 * rng.normal(size=n)) > 0).astype(int)
+        sig_obs = sig.copy()
+        sig_obs[nan_mask] = np.nan
+        X = pd.DataFrame({"noise": noise, "sig_nan": sig_obs, "other": other})
         m = MRMR(quantization_nbins=4, nan_strategy="separate_bin", verbose=0)
         m.fit(X, y)
         Xt = m.transform(X)
-        selected = _selected_names(m)
-        nan_cols_picked = [c for c in selected if c.startswith("noise_with_nan")]
-        if nan_cols_picked:
-            for col in nan_cols_picked:
-                if isinstance(Xt, pd.DataFrame):
-                    assert Xt[col].isna().any(), f"col {col} lost its NaN values in transform output"
-                else:
-                    idx = selected.index(col)
-                    assert np.isnan(Xt[:, idx]).any()
+        assert _selected_names(m) == ["sig_nan"]
+        assert isinstance(Xt, pd.DataFrame)
+        assert Xt.shape[0] == n
+        assert int(Xt["sig_nan"].isna().sum()) == int(nan_mask.sum())
 
 
 # ---------------------------------------------------------------------------

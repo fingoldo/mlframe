@@ -483,13 +483,7 @@ def _run_composite_targ_split_cfg_overrides_td(_td_knobs, split_config, group_id
                 # at _phase_composite_post.py:174-177 already does ``.clear()`` on a sibling
                 # metadata list) would corrupt the cache entry in place. Same shape as the CB
                 # Pool id-recycle bug -- catch it BEFORE the LRU sidecar lands.
-                metadata["composite_target_specs"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_specs"][str(_tt_disc)][_tname_disc] = list(_cached_payload.get("specs_export") or [])
-                metadata["composite_target_failures"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_failures"][str(_tt_disc)][_tname_disc] = list(_cached_payload.get("failures") or [])
-                metadata.setdefault("composite_target_filter_drops", {})
-                metadata["composite_target_filter_drops"].setdefault(str(_tt_disc), {})
-                metadata["composite_target_filter_drops"][str(_tt_disc)][_tname_disc] = dict(_cached_payload.get("filter_drops") or {})
+                _replay_cached_payload_into_metadata(metadata, _tt_disc, _tname_disc, _cached_payload)
                 metadata.setdefault("composite_target_cache", {}).setdefault(str(_tt_disc), {})[_tname_disc] = {
                     "hit": True,
                     "key": _disc_cache_key,
@@ -729,6 +723,14 @@ def _run_composite_targ_source_truth_did_skip(group_ids, filtered_train_idx, _gr
         except (TypeError, ValueError, IndexError):
             _grp_train = None
     return _grp_train
+
+
+def _replay_cached_payload_into_metadata(metadata: dict, target_type, target_name: str, payload: dict) -> None:
+    """Copy a discovery payload's slots into ``metadata`` as fresh containers so in-place metadata edits cannot reach the cache entry."""
+    tt = str(target_type)
+    metadata["composite_target_specs"].setdefault(tt, {})[target_name] = list(payload.get("specs_export") or [])
+    metadata["composite_target_failures"].setdefault(tt, {})[target_name] = list(payload.get("failures") or [])
+    metadata.setdefault("composite_target_filter_drops", {}).setdefault(tt, {})[target_name] = dict(payload.get("filter_drops") or {})
 
 
 def _run_composite_targ_pre_specs(_pre_specs, _tname_disc, discovery_cache_dir, _grp_filtered_slice, _use_hint, _hint_strengths, _disc_df, _disc_cfg, val_df_pd, _y_arr, val_idx, _disc_feature_cols, _disc_signature, _disc_cache, _disc_cache_key):

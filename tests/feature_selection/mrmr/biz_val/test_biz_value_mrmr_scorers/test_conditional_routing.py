@@ -312,7 +312,7 @@ class TestBestPerColumn:
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_heavy_tail_source_routes_to_log_abs(self, seed):
-        """Among mixed sources, the heavy-tail x_lognorm column, if it survives, routes to log_abs."""
+        """Among mixed sources, the heavy-tail x_lognorm column survives and routes to log_abs."""
         gen_routing, _, _, _, _ = _import_routing_fe()
         X, y = _build_mixed_routing(seed)
         _eng, meta = gen_routing(
@@ -323,14 +323,10 @@ class TestBestPerColumn:
             min_uplift=1.10,
             top_k=10,
         )
-        # x_lognorm: if it survives, must pick log_abs.
-        for info in meta.values():
-            if info["src"] == "x_lognorm":
-                assert info["pre_transform"] == "log_abs", f"seed={seed}: heavy-tail source 'x_lognorm' should route to log_abs; got {info}"
-                return
-        # If it didn't survive at all that's a separate failure mode; the
-        # test for survival belongs to TestHeavyTailSignal -- here we only
-        # assert routing CORRECTNESS conditional on survival.
+        lognorm_infos = [info for info in meta.values() if info["src"] == "x_lognorm"]
+        assert lognorm_infos, f"seed={seed}: heavy-tail source 'x_lognorm' did not survive routing; sources={[i['src'] for i in meta.values()]}"
+        for info in lognorm_infos:
+            assert info["pre_transform"] == "log_abs", f"seed={seed}: heavy-tail source 'x_lognorm' should route to log_abs; got {info}"
 
 
 # ---------------------------------------------------------------------------

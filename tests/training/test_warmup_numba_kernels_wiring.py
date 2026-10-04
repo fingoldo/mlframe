@@ -67,8 +67,11 @@ def test_warmup_numba_kernels_survives_metric_prewarm_failure(monkeypatch):
     """
     pytest.importorskip("numba")
 
-    def _broken_prewarm():
+    attempts = {"count": 0}
+
+    def _broken_prewarm(*args, **kwargs):
         """Always raises, simulating a numba runtime hiccup / stale .nbc / library-upgrade failure during prewarm."""
+        attempts["count"] += 1
         raise RuntimeError("simulated cache miss")
 
     monkeypatch.setattr(
@@ -78,5 +81,6 @@ def test_warmup_numba_kernels_survives_metric_prewarm_failure(monkeypatch):
 
     from mlframe.training.baselines.dummy import _warmup_numba_kernels
 
-    # Must not raise.
-    _warmup_numba_kernels(verbose=False)
+    assert _warmup_numba_kernels(verbose=False) is None
+    assert attempts["count"] >= 1, "the failing prewarm was never reached, so the survival path was not exercised"
+    assert _warmup_numba_kernels._in_progress is False

@@ -52,7 +52,10 @@ def _mean_rmse(test, y_test):
 
 def test_biz_val_ct_ensemble_dedup_default_is_off():
     """The corrective-mechanism flag stays OFF: qual-19 measured it neutral-or-harmful, so OFF is the most-accurate default."""
-    assert CompositeTargetDiscoveryConfig().ct_ensemble_dedup_enabled is False
+    cfg = CompositeTargetDiscoveryConfig()
+    assert cfg.ct_ensemble_dedup_enabled is False
+    # The measurements pinned below were taken at this correlation threshold, so the default carries the one the evidence covers.
+    assert cfg.ct_ensemble_dedup_corr_threshold == 0.95
 
 
 def test_biz_val_ct_ensemble_dedup_does_not_help_nnls_or_mean_on_redundant_pool():

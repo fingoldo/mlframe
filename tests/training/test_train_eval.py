@@ -118,8 +118,9 @@ class TestOptimizeModelColumnsEdgeCases:
     def test_no_columns_attribute_does_not_raise(self):
         """No columns attribute does not raise."""
         model = SimpleNamespace(train_preds=np.array([1.0]))
-        # model has no .columns at all; should not raise
-        optimize_model_for_storage(model, TargetTypes.REGRESSION, metadata_columns=["a"])
+        assert optimize_model_for_storage(model, TargetTypes.REGRESSION, metadata_columns=["a"]) is None
+        assert not hasattr(model, "columns")
+        np.testing.assert_array_equal(model.train_preds, np.array([1.0]))
 
 
 # =============================================================================

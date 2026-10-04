@@ -11,8 +11,8 @@ Two mechanisms, both a pure ADD (they only TIGHTEN when the GPU may be used, nev
 
 * ``fe_gpu_has_vram_cushion(bytes_needed)`` - cheap absolute-cushion gate to call per-dispatch. Returns
   ``False`` (route CPU) whenever ``free - bytes_needed`` would drop below an ABSOLUTE cushion, so no
-  kernel is launched on a near-full card. Permissive (``True``) when cupy / memGetInfo is unavailable,
-  so non-GPU hosts are entirely unaffected.
+  kernel is launched on a near-full card. Permissive (``True``) when cupy is not importable, so non-GPU
+  hosts are entirely unaffected; fails closed (``False``) when ``memGetInfo`` itself raises.
 * ``ensure_fe_gpu_pool_limit()`` - ONCE per process, cap MRMR's OWN default memory pool to a fraction
   of total VRAM (default 0.6) so it cannot consume the whole device and starve concurrent processes /
   the next launch. On exhaustion cupy raises ``OutOfMemoryError`` which the existing GPU-FE try/excepts
@@ -94,8 +94,8 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     existing relative ``free_b * 0.5`` caps which are computed only AFTER the pool already ate the card.
 
     Cheap (one ``memGetInfo``); safe to call per-dispatch. PERMISSIVE (returns ``True``) whenever cupy
-    or ``memGetInfo`` is unavailable / raises, so non-GPU hosts and probe failures are unaffected: the
-    cushion can only DECLINE the GPU on a genuinely near-full card, never block a host that has no cupy.
+    is not importable, so non-GPU hosts are unaffected. A ``memGetInfo`` that raises fails CLOSED (returns
+    ``False``, with a throttled warning): free memory cannot be read, so uploading would be blind.
 
     ``free_b``/``total_b``: pass the caller's OWN already-probed ``memGetInfo()`` result to skip this
     function's internal probe entirely (e.g. ``_cmi_cuda._should_use_cuda`` already queries ``memGetInfo``

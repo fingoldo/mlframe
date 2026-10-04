@@ -262,23 +262,19 @@ def test_a_path_outside_the_trusted_root_is_rejected(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_save_mlframe_model_logs_traceback_on_failure(caplog) -> None:
+def test_save_mlframe_model_logs_traceback_on_failure(caplog, tmp_path) -> None:
     """save_mlframe_model failure must surface a traceback (not just str(e))."""
     import logging
     from mlframe.training.io import save_mlframe_model
 
     caplog.set_level(logging.ERROR)
-    # Trigger by passing a model that cannot be pickled (e.g. a lambda)
-    # and an invalid path so save fails.
-    try:
-        ok = save_mlframe_model(lambda x: x, file="/nonexistent_dir_xyz/model.bin")
-    except Exception:
-        # If the function re-raises rather than swallowing, that's also acceptable;
-        # we only care that the lossy log pattern is gone.
-        return
-    if ok is False:
-        # If it swallowed, traceback should be in the record via exc_info.
-        # logger.exception sets exc_info on the record.
-        relevant = [r for r in caplog.records if "Could not save model" in r.getMessage()]
-        if relevant:
-            assert relevant[0].exc_info is not None, "save_mlframe_model swallowed an exception without exc_info; traceback was lost."
+    missing_dir = tmp_path / "missing_dir"
+    # An unpicklable model (a lambda) and a directory that does not exist, so the save fails.
+    ok = save_mlframe_model(lambda x: x, file=str(missing_dir / "model.bin"))
+    assert ok is False
+    assert not missing_dir.exists()
+    relevant = [r for r in caplog.records if "Could not save model" in r.getMessage()]
+    assert len(relevant) == 1
+    # logger.exception sets exc_info on the record: the traceback is in the log, not just str(e).
+    assert relevant[0].exc_info is not None, "save_mlframe_model swallowed an exception without exc_info; traceback was lost."
+    assert relevant[0].exc_info[0] is FileNotFoundError

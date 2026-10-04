@@ -56,16 +56,11 @@ def _panels():
 @pytest.mark.parametrize(("panel_id", "panel"), _panels(), ids=[p[0] for p in _panels()])
 def test_both_backends_agree_on_degenerate_input(panel_id, panel):
     """Neither backend may raise where the other succeeds -- that is the divergence this matrix exists to catch."""
-    outcomes = {}
-    for backend in ("matplotlib", "plotly"):
-        try:
-            get_renderer(backend).render(FigureSpec(panels=((panel,),), figsize=(5.0, 4.0)))
-            outcomes[backend] = "rendered"
-        except Exception as exc:  # the exception TYPE is the assertion subject, so it must be caught here
-            outcomes[backend] = f"{type(exc).__name__}: {exc}"
-    assert (
-        outcomes["matplotlib"] == outcomes["plotly"] == "rendered"
-    ), f"{panel_id}: backends disagree -- matplotlib={outcomes['matplotlib']!r}, plotly={outcomes['plotly']!r}"
+    spec = FigureSpec(panels=((panel,),), figsize=(5.0, 4.0))
+    mpl_fig = get_renderer("matplotlib").render(spec)
+    plotly_fig = get_renderer("plotly").render(spec)
+    assert len(mpl_fig.axes) >= 1, f"{panel_id}: matplotlib drew no axes"
+    assert plotly_fig.layout is not None, f"{panel_id}: plotly produced no layout"
 
 
 def test_the_matrix_covers_every_panel_type():

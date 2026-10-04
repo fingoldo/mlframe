@@ -114,16 +114,26 @@ def regenerate_baseline() -> None:
     )
 
 
+def test_annotation_detector_catches_missing_return_and_param_types_and_passes_a_full_signature():
+    """A missing return or parameter annotation is reported; a full signature and a bare ``self`` are accepted."""
+    no_return, no_param, full, method = ast.parse(
+        "def a(x: int):\n    return x\n\n\ndef b(x) -> int:\n    return x\n\n\ndef c(x: int) -> int:\n    return x\n\n\ndef d(self, x: int) -> int:\n    return x\n"
+    ).body
+    assert not _is_fully_annotated(no_return)
+    assert not _is_fully_annotated(no_param)
+    assert _is_fully_annotated(full)
+    assert _is_fully_annotated(method)
+
+
 def test_no_new_unannotated_public_functions():
     """No new public top-level function missing a full signature annotation beyond the frozen baseline."""
-    current = _build_missing_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
         _BASELINE_PATH.write_text(
-            orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"),
+            orjson.dumps(sorted(_build_missing_set()), option=orjson.OPT_INDENT_2).decode("utf-8"),
             encoding="utf-8",
         )
-        pytest.skip(f"annotation baseline refreshed at {_BASELINE_PATH.name} ({len(current)} unannotated function(s))")
+        pytest.skip(f"annotation baseline refreshed at {_BASELINE_PATH.name}")
+    current = _build_missing_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

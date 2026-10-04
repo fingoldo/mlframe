@@ -7,7 +7,7 @@ from typing import Any
 
 from mlframe.training._bounded_zstd import decompress_bounded
 from mlframe.training.io import _SafeUnpickler, safe_joblib_load
-from mlframe.utils.safe_pickle import _ENV_VAR as UNVERIFIED_ENV_VAR
+from mlframe.utils.safe_pickle import UNVERIFIED_ENV_VAR
 from mlframe.utils.safe_pickle import verify_sidecar
 
 

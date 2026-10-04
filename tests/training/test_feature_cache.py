@@ -411,11 +411,22 @@ class TestDiskPersistence:
             params_canonical_hash="0" * 32,
             provider_signature="x",
         )
-        cache.get_or_compute(in_mem_key, lambda: np.zeros(10), disk_key=disk_key)
+        computed: list = []
+
+        def _compute():
+            """Count invocations and return a fixed block."""
+            computed.append(1)
+            return np.zeros(10)
+
+        first = cache.get_or_compute(in_mem_key, _compute, disk_key=disk_key)
+        second = cache.get_or_compute(in_mem_key, _compute, disk_key=disk_key)
+        np.testing.assert_array_equal(first, np.zeros(10))
+        np.testing.assert_array_equal(second, first)
+        assert len(computed) == 1, "the in-memory tier must still serve the second call"
         # Disk dir should NOT have any cache files because persistence="off".
         cache_dir = tmp_path / "cache"
-        if cache_dir.exists():
-            assert not list(cache_dir.glob("*.bin"))
+        files = [p for p in cache_dir.rglob("*") if p.is_file()] if cache_dir.exists() else []
+        assert files == []
 
     def test_disk_dir_mode_is_0o700(self, small_df, tmp_path):
         """Round-3 S11 cross-tenant leakage defence."""

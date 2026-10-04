@@ -9,6 +9,8 @@ Carved out of the ``boruta_shap`` package facade (LOC-budget submodule split, se
 from __future__ import annotations
 
 
+from typing import Any
+
 import numpy as np
 
 from mlframe.feature_selection.filters import guarded_scale
@@ -214,7 +216,7 @@ def create_shadow_features(self):
 RELEASE_WORKING_FRAMES_MIN_BYTES = 1 << 30
 
 
-def release_large_working_frames(self):
+def release_large_working_frames(self: Any) -> None:
     """Drop the fit-time working frames (``X_boruta_``, ``X_shadow_``, ``X_boruta_train_`` / ``X_boruta_test_``) once fit is done when ``X_boruta_``
     is at least ``RELEASE_WORKING_FRAMES_MIN_BYTES``; on 100GB-class frames they would otherwise stay pinned for the estimator's lifetime."""
     frame = getattr(self, "X_boruta_", None)

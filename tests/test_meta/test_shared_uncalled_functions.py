@@ -34,6 +34,8 @@ _PUBLIC_API = {
     "replay_report", "spec_hash_for", "assert_oracle_agrees_with_dit", "reference_crosscheck",  # benchmark-bed tooling
     "create_aggregated_features", "optimize_pipeline_by_gridsearch", "get_full_classifier_name",
     "predict_mlframe_models_suite", "serving_base_from_columns", "blend",  # blend is exported as pseudo_bma_blend
+    "bootstrap_metric_clustered",  # single-metric form, re-exported from mlframe.evaluation.bootstrap
+    "track_package",  # extension hook: a downstream package opts its numba kernels into the dependency-aware cache stamp
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -48,6 +50,9 @@ _RETAINED_KERNELS = {
 #: fallback reads as a local shadow there. Fixed upstream in 9b48122; drop this entry when the pin moves past it.
 _SCANNER_LAG = {"_fill_bf_batch_njit"}
 
+#: Looked up by name in ``sys.modules`` (``_fit_scoped_release._RELEASERS``) so a never-imported module is not imported to be cleared.
+_NAME_DISPATCHED = {"clear_gpu_operand_table_caches"}
+
 
 def _production_files() -> list[Path]:
     """Shipped modules only. Benchmarks (``_benchmarks/`` and ``_bench_*`` helpers) keep deliberately-uncalled baselines."""
@@ -61,4 +66,4 @@ def test_no_new_function_without_a_caller(request):
     files = _production_files()
     assert len(files) > 1000, f"only {len(files)} production files found -- the scan lost its subject"
 
-    assert_no_new_uncalled_function(files, REPO_ROOT, BASELINE, ignore=_INTERPRETER_INVOKED | _PUBLIC_API | _RETAINED_KERNELS | _SCANNER_LAG)
+    assert_no_new_uncalled_function(files, REPO_ROOT, BASELINE, ignore=_INTERPRETER_INVOKED | _PUBLIC_API | _RETAINED_KERNELS | _SCANNER_LAG | _NAME_DISPATCHED)

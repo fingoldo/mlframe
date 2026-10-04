@@ -74,7 +74,11 @@ def test_biz_val_bias_corrector_engages_and_is_recorded():
 
 def test_biz_val_bias_corrector_off_does_not_record():
     """Biz val bias corrector off does not record."""
-    assert _fit(False).shap_proxy_report_.get("bias_corrector") is None
+    sel = _fit(False)
+    assert sel.shap_proxy_report_.get("bias_corrector") is None
+    selected = {str(c) for c in sel.selected_features_}
+    assert {"inf0", "inf1", "inf2"} <= selected, f"corrector-off must still keep the 3 informative cols; got {selected}"
+    assert len(selected) <= 4
 
 
 def test_biz_val_bias_corrector_preserves_recovery():

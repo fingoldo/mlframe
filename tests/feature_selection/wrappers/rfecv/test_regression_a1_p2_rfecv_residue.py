@@ -52,15 +52,10 @@ def test_A1_12_polars_self_destruct_only_on_internally_owned():
     X_pl = pl.from_pandas(X_pd)
     sel = RFECV(estimator=LogisticRegression(max_iter=50), cv=3, max_nfeatures=2)
     sel.fit(X_pl, y)
-    # After fit on caller-owned polars frame, the polars frame must still be usable. polars
-    # consumed frames raise on .shape or operations; un-consumed frames retain their data.
-    try:
-        _shape = X_pl.shape
-        _ = X_pl.head(2)
-        consumed = False
-    except Exception:
-        consumed = True
-    assert not consumed, "caller-owned polars frame must NOT be destroyed by RFECV self_destruct"
+    # A consumed polars frame loses its rows or raises on access; an untouched one still equals the frame it was built from.
+    assert X_pl.shape == X_pd.shape, "caller-owned polars frame must NOT be destroyed by RFECV self_destruct"
+    assert X_pl.equals(pl.from_pandas(X_pd)), "caller-owned polars frame content changed during fit"
+    assert X_pl.head(2).shape == (2, X_pd.shape[1])
 
 
 def test_A1_12_polars_self_destruct_opted_in_by_marker():
@@ -81,14 +76,11 @@ def test_fs_wrappers_5_transform_polars_self_destruct_only_on_internally_owned()
     sel.fit(X_pd, y)
 
     X_pl = pl.from_pandas(X_pd)
-    sel.transform(X_pl)
-    try:
-        _ = X_pl.shape
-        _ = X_pl.head(2)
-        consumed = False
-    except Exception:
-        consumed = True
-    assert not consumed, "caller-owned polars frame passed to transform() must NOT be destroyed by self_destruct"
+    out = sel.transform(X_pl)
+    assert out.shape[0] == X_pd.shape[0]
+    assert X_pl.shape == X_pd.shape, "caller-owned polars frame passed to transform() must NOT be destroyed by self_destruct"
+    assert X_pl.equals(pl.from_pandas(X_pd)), "caller-owned polars frame content changed during transform"
+    assert X_pl.head(2).shape == (2, X_pd.shape[1])
 
 
 def test_A1_13_x_hash_full_content_no_collision_after_outlier_clip():

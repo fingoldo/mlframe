@@ -335,6 +335,8 @@ def test_h_fh_10_stale_lock_retry_uses_fresh_filelock() -> None:
     """
     pytest.importorskip("filelock")
 
+    from filelock import Timeout
+
     from mlframe.training.feature_handling.locking import (
         PIDAwareFileLock,
         StaleLockReclaimed,
@@ -362,17 +364,14 @@ def test_h_fh_10_stale_lock_retry_uses_fresh_filelock() -> None:
 
         # The reclaim path will: read the PID meta, see PID doesn't
         # exist, unlink, build a fresh FileLock, retry. Because we
-        # still hold the real lock, the retry will fail - but the
-        # fresh-lock construction is what we're verifying. We catch
-        # the eventual Timeout and assert that StaleLockReclaimed
-        # was warned.
+        # still hold the real lock, the retry will fail with a Timeout -
+        # the fresh-lock construction is what we're verifying, so assert
+        # that StaleLockReclaimed was warned before that Timeout.
         with warnings.catch_warnings(record=True) as ws:
             warnings.simplefilter("always")
             lock = PIDAwareFileLock(lock_path, timeout=1.0, reclaim_grace_timeout=0.5)
-            try:
-                lock.__enter__()
-            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-                pass  # holder still locks it; we only care about the warning
+            with pytest.raises(Timeout):
+                lock.__enter__()  # holder still locks it
         reclaimed = [w for w in ws if issubclass(w.category, StaleLockReclaimed)]
         assert reclaimed, "StaleLockReclaimed warning not fired"
         # And after reclaim the holder must still own the lock,
@@ -487,35 +486,47 @@ def test_h_fh_13_no_lying_f821_noqa_in_target_encoders() -> None:
     callers. The fix imports them under ``TYPE_CHECKING`` and drops
     the noqa.
 
-    Behavioural check: invoke pyflakes (via ruff if available) on the
-    target_encoders.py source file. If no F821 (undefined-name) errors
-    are reported the module is annotation-clean WITHOUT relying on a
-    silencer noqa. We also verify by importing under TYPE_CHECKING-style
-    introspection - the module must import without error.
+    Behavioural check: every name a function annotation of
+    target_encoders.py uses must be bound at module level (import, definition or
+    assignment, including under ``TYPE_CHECKING``) or be a builtin - the undefined-name
+    condition ruff reports as F821, checked here without needing a linter installed.
     """
+    import ast
+    import builtins
     import importlib
-
-    # Module must import without errors (sanity check).
-    te = importlib.import_module("mlframe.training.feature_handling.target_encoders")
-    assert te is not None
-
-    # Behavioural: actually run ruff/pyflakes on the file; F821 must be zero.
-    import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
     from pathlib import Path
 
-    path = Path(te.__file__)
-    # Try ruff first; fall back to pyflakes; skip if neither installed.
-    for cmd in (["ruff", "check", "--select", "F821", "--no-cache", str(path)], ["python", "-m", "pyflakes", str(path)]):
-        try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)  # nosec B603 -- fixed local argv (sys.executable/git + literal args), no shell, no untrusted input
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            continue
-        # ruff/pyflakes exit 0 means no issues; otherwise output lists them.
-        # We are only interested in F821 (undefined name) - other warnings irrelevant.
-        out = (res.stdout or "") + (res.stderr or "")
-        assert "F821" not in out, f"target_encoders.py has F821 undefined-name issues: {out}"
-        return
-    pytest.skip("Neither ruff nor pyflakes available; cannot run static F821 check.")
+    te = importlib.import_module("mlframe.training.feature_handling.target_encoders")
+    tree = ast.parse(Path(te.__file__).read_text(encoding="utf-8"))
+
+    bound = set(dir(builtins))
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            bound.update((alias.asname or alias.name).split(".")[0] for alias in node.names)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            bound.update(n.id for t in targets for n in ast.walk(t) if isinstance(n, ast.Name))
+
+    annotations = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            args = node.args
+            for arg in [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]:
+                if arg is not None and arg.annotation is not None:
+                    annotations.append(arg.annotation)
+            if node.returns is not None:
+                annotations.append(node.returns)
+    assert annotations
+    undefined = set()
+    for annotation in annotations:
+        expressions = [annotation]
+        if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
+            expressions.append(ast.parse(annotation.value, mode="eval").body)
+        for expression in expressions:
+            undefined.update(n.id for n in ast.walk(expression) if isinstance(n, ast.Name) and n.id not in bound)
+    assert not undefined, f"target_encoders.py annotations use undefined names: {sorted(undefined)}"
 
 
 # =====================================================================
@@ -555,14 +566,12 @@ def test_h_fh_14_compute_per_category_vectorised_correctness() -> None:
 
 
 def test_h_fh_14_fit_transform_speedup() -> None:
-    """The vectorised encoder must beat a legacy-shaped reference on a
-    representative workload (100k rows, 200 categories, cv=3). We
-    re-implement the legacy loop locally and assert the new path is
-    at least 3x faster - generous floor against CI variance.
+    """The vectorised encoder must reproduce a legacy-shaped reference on a
+    representative workload (100k rows, 200 categories, cv=3): the vectorised
+    path is an optimisation, so its out-of-fold encoding has to equal the
+    pre-fix Python-loop result.
     """
-    from mlframe.training.feature_handling.target_encoders import (
-        LeakageSafeEncoder,
-    )
+    from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 
     rng = np.random.default_rng(0)
     n = 100_000
@@ -570,10 +579,7 @@ def test_h_fh_14_fit_transform_speedup() -> None:
     y = rng.standard_normal(n)
 
     enc = LeakageSafeEncoder(smoothing=10.0, cv=3, random_state=0)
-
-    t0 = time.perf_counter()
-    _ = enc.fit_transform(cats, y)
-    new_path = time.perf_counter() - t0
+    encoded = np.asarray(enc.fit_transform(cats, y), dtype=np.float64).ravel()
 
     # Legacy reference: emulate the pre-fix Python-loop _compute_per_category
     # plus the inner per-row dict.get loop.
@@ -602,26 +608,9 @@ def test_h_fh_14_fit_transform_speedup() -> None:
                     out[j] = (n_c * m_c + 10.0 * prior_t) / (n_c + 10.0)
         return out
 
-    t0 = time.perf_counter()
-    _ = legacy_kfold()
-    legacy_path = time.perf_counter() - t0
-
-    speedup = legacy_path / max(new_path, 1e-6)
-    # At n=100k, K=200 the _compute_per_category numpy bincount path
-    # gives ~1.2x; the _kfold_encode dict.get is kept (pandas Series.map
-    # regresses at this scale -- see audit 2026-05-17 H-FH-14 retest).
-    # Threshold pinned at 1.1x: confirms "no regression" rather than the
-    # over-optimistic 3x the agent's first revision claimed.
-    # At n=100k, K=200 the vectorised path is competitive but noise can
-    # swing the ratio significantly on shared CI machines (observed range
-    # 0.4x - 1.5x). The optimisation's actual win lands at n=1M; this
-    # test exists to assert correctness + smoke the path end-to-end. We
-    # log perf for visibility but do NOT fail on it -- the ``test_h_fh_14_per_category_vectorised``
-    # test (separate; n=10k correctness) is the regression sentinel.
-    print(
-        f"\n[H-FH-14 perf] legacy={legacy_path * 1000:.1f}ms new={new_path * 1000:.1f}ms speedup={speedup:.2f}x",
-        flush=True,
-    )
+    reference = legacy_kfold()
+    assert encoded.shape == reference.shape == (n,)
+    np.testing.assert_allclose(encoded, reference, rtol=1e-9, atol=1e-9)
 
 
 # =====================================================================

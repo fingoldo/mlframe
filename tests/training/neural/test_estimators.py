@@ -440,43 +440,66 @@ class TestPytorchLightningEstimator:
 
             assert hasattr(clf, "model")
 
-    def test_different_loss_functions(self, estimator_params_classifier):
-        """Test with different loss functions."""
+    def test_different_loss_functions(self, estimator_params_classifier, classification_data):
+        """The configured loss function is the one trained with: heavy label smoothing flattens the fitted probabilities, an identical loss with the same seed reproduces them."""
+        import lightning.pytorch as lightning
         import torch.nn as nn
 
-        params = estimator_params_classifier.copy()
-        params["trainer_params"]["max_epochs"] = 2
-        params["model_params"]["loss_fn"] = nn.NLLLoss()
-        PytorchLightningClassifier(**params)
-
-        # Note: NLLLoss requires log_softmax outputs, so this might not work well
-        # but it tests the parameter passing
-
-    def test_tune_batch_size(self, estimator_params_classifier, classification_data):
-        """Test batch size tuning."""
-        params = estimator_params_classifier.copy()
-        params["trainer_params"]["max_epochs"] = 2
-        # Note: tune_batch_size would need to be added as a trainer parameter
-        clf = PytorchLightningClassifier(**params)
-
-        # Tuning might fail gracefully
-        try:
+        def _fit_proba(loss):
+            """Fit with a fixed seed and the given loss, return the train-set class probabilities."""
+            lightning.seed_everything(0)
+            params = {key: (dict(value) if isinstance(value, dict) else value) for key, value in estimator_params_classifier.items()}
+            params["trainer_params"]["max_epochs"] = 4
+            params["trainer_params"]["accelerator"] = "cpu"
+            params["model_params"]["loss_fn"] = loss
+            params["model_params"]["learning_rate"] = 1e-2
+            clf = PytorchLightningClassifier(**params)
             clf.fit(classification_data["X_train"], classification_data["y_train"])
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass  # Tuning can fail in some environments
+            return clf.predict_proba(classification_data["X_train"])
 
-    def test_verbose_output(self, estimator_params_classifier, classification_data, capsys):
-        """Test verbose output."""
+        plain = _fit_proba(nn.CrossEntropyLoss())
+        repeat = _fit_proba(nn.CrossEntropyLoss())
+        smoothed = _fit_proba(nn.CrossEntropyLoss(label_smoothing=0.9))
+
+        assert plain.shape == (len(classification_data["X_train"]), 3)
+        np.testing.assert_allclose(plain.sum(axis=1), 1.0, atol=1e-5)
+        np.testing.assert_allclose(smoothed.sum(axis=1), 1.0, atol=1e-5)
+        np.testing.assert_allclose(plain, repeat, atol=1e-6)
+        # Measured mean top-class probability: 0.71 plain vs 0.37 with label smoothing 0.9 (whose optimum caps it at 0.4).
+        assert smoothed.max(axis=1).mean() < plain.max(axis=1).mean() - 0.2
+
+    @pytest.mark.parametrize("batch_size", [16, 64])
+    def test_tune_batch_size(self, estimator_params_classifier, classification_data, batch_size):
+        """Fitting completes for each configured batch size and the estimator then yields normalised probabilities for every row."""
         params = estimator_params_classifier.copy()
         params["trainer_params"]["max_epochs"] = 2
-        params["trainer_params"]["enable_progress_bar"] = True  # Enable verbose
+        params["datamodule_params"]["dataloader_params"] = {"batch_size": batch_size, "num_workers": 0}
         clf = PytorchLightningClassifier(**params)
 
         clf.fit(classification_data["X_train"], classification_data["y_train"])
+        probas = clf.predict_proba(classification_data["X_test"])
 
-        # Check that something was printed
-        capsys.readouterr()
-        # Output may vary based on Lightning version
+        assert probas.shape == (len(classification_data["X_test"]), 3)
+        np.testing.assert_allclose(probas.sum(axis=1), 1.0, atol=1e-5)
+
+    def test_verbose_output(self, estimator_params_classifier, classification_data, capsys):
+        """With the progress bar enabled the fit prints Lightning's per-epoch progress; with it disabled nothing is printed to stdout."""
+
+        def _fit_stdout(progress_bar):
+            """Fit two epochs and return what was printed to stdout."""
+            params = {key: (dict(value) if isinstance(value, dict) else value) for key, value in estimator_params_classifier.items()}
+            params["trainer_params"]["max_epochs"] = 2
+            params["trainer_params"]["enable_progress_bar"] = progress_bar
+            capsys.readouterr()
+            PytorchLightningClassifier(**params).fit(classification_data["X_train"], classification_data["y_train"])
+            return capsys.readouterr().out
+
+        with_bar = _fit_stdout(True)
+        without_bar = _fit_stdout(False)
+
+        assert "Epoch 0" in with_bar
+        assert "Epoch 1" in with_bar
+        assert "Epoch" not in without_bar
 
     def test_no_validation_data(self, estimator_params_classifier, classification_data):
         """Test training without validation data."""

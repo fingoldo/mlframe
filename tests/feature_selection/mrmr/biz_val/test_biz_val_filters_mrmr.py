@@ -26,6 +26,19 @@ def _to_df(X, y):
     return df, pd.Series(y, name="y")
 
 
+def _assert_polynomial_pair_recovered(sel, df, ys, signal, auc_floor):
+    """Both planted signal columns are referenced by the selected set, and a logistic fit on it clears ``auc_floor``.
+
+    The saddle target is even in both signal columns, so a raw-column logistic baseline sits at chance; only an engineered polynomial column lifts the AUC.
+    """
+    from tests.feature_selection._biz_val_synth import downstream_auc, signal_recovery_count
+
+    names = list(sel.get_feature_names_out())
+    assert signal_recovery_count(sel, signal) == len(signal), f"selected set must reference every signal column {signal}; got names={names}"
+    auc_sel = downstream_auc(sel, df, ys)
+    assert auc_sel >= auc_floor, f"selected-set AUC {auc_sel:.4f} below the {auc_floor} floor; names={names}"
+
+
 # ---------------------------------------------------------------------------
 # interactions_max_order
 # ---------------------------------------------------------------------------
@@ -568,25 +581,24 @@ def test_biz_val_mrmr_baseline_npermutations_robust_topk(baseline_n):
 
 @pytest.mark.parametrize("redundancy_algo", ["fleuret"])
 def test_biz_val_mrmr_redundancy_algo_smoke(redundancy_algo):
-    """``mrmr_redundancy_algo`` parametrization: smoke-test it
-    completes. Currently only 'fleuret' is the supported value; the
-    parametrize keeps the structure ready for new algorithms."""
+    """``mrmr_redundancy_algo`` parametrization: the selection keeps the orthogonal informative column and a high-AUC feature set.
+    Currently only 'fleuret' is the supported value; the parametrize keeps the structure ready for new algorithms."""
     from mlframe.feature_selection.filters.mrmr import MRMR
     from tests.feature_selection._biz_val_synth import (
         make_correlated_redundant,
         as_df,
+        downstream_auc,
+        signal_recovery_count,
     )
 
-    X, y, _ = make_correlated_redundant(n=800, n_corr=3, p_noise=5, seed=42)
+    X, y, unique_idx = make_correlated_redundant(n=800, n_corr=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(verbose=0, random_seed=42, mrmr_redundancy_algo=redundancy_algo)
     sel.fit(df, ys)
-    # Re-baselined for full-mode default: full mode can de-duplicate the
-    # correlated cluster into a single ENGINEERED feature with empty raw
-    # `support_`; count total selected (raw + engineered) via
-    # get_feature_names_out() so the smoke test still asserts a non-empty
-    # selection.
-    assert len(sel.get_feature_names_out()) >= 1
+    names = list(sel.get_feature_names_out())
+    assert signal_recovery_count(sel, [unique_idx]) == 1, f"the orthogonal informative column x{unique_idx} must be selected; got {names}"
+    auc_sel = downstream_auc(sel, df, ys)
+    assert auc_sel >= 0.9, f"selected-set AUC {auc_sel:.4f} below the 0.9 floor; names={names}"
 
 
 def test_biz_val_mrmr_only_unknown_interactions_actual_semantic():
@@ -819,7 +831,7 @@ def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
         as_df,
     )
 
-    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     try:
         sel = MRMR(
@@ -830,7 +842,7 @@ def test_biz_val_mrmr_fe_unary_preset_parametrize(preset):
             fe_unary_preset=preset,
         )
         sel.fit(df, ys)
-        assert len(sel.support_) >= 1
+        _assert_polynomial_pair_recovered(sel, df, ys, signal, 0.9)
     except (KeyError, ValueError) as e:
         # Required preset missing from registry is a real wiring bug, not optional config
         # (memory feedback_no_mask_via_canon_or_guards). Fail loudly.
@@ -895,7 +907,7 @@ def test_biz_val_mrmr_fe_max_pair_features_completes(max_pair_features):
         as_df,
     )
 
-    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
         verbose=0,
@@ -905,7 +917,7 @@ def test_biz_val_mrmr_fe_max_pair_features_completes(max_pair_features):
         fe_max_pair_features=max_pair_features,
     )
     sel.fit(df, ys)
-    assert len(sel.support_) >= 1
+    _assert_polynomial_pair_recovered(sel, df, ys, signal, 0.9)
 
 
 def test_biz_val_mrmr_factors_to_use_int_indices_restricts_search():
@@ -989,7 +1001,7 @@ def test_biz_val_mrmr_fe_min_pair_mi_prevalence_parametrize(fe_min_pair_prev):
         as_df,
     )
 
-    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
         verbose=0,
@@ -999,7 +1011,7 @@ def test_biz_val_mrmr_fe_min_pair_mi_prevalence_parametrize(fe_min_pair_prev):
         fe_min_pair_mi_prevalence=fe_min_pair_prev,
     )
     sel.fit(df, ys)
-    assert len(sel.support_) >= 1
+    _assert_polynomial_pair_recovered(sel, df, ys, signal, 0.9)
 
 
 @pytest.mark.parametrize("min_pair_mi", [0.0001, 0.001, 0.01])
@@ -1011,7 +1023,7 @@ def test_biz_val_mrmr_fe_min_pair_mi_parametrize(min_pair_mi):
         as_df,
     )
 
-    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
         verbose=0,
@@ -1021,7 +1033,7 @@ def test_biz_val_mrmr_fe_min_pair_mi_parametrize(min_pair_mi):
         fe_min_pair_mi=min_pair_mi,
     )
     sel.fit(df, ys)
-    assert len(sel.support_) >= 1
+    _assert_polynomial_pair_recovered(sel, df, ys, signal, 0.9)
 
 
 @pytest.mark.parametrize("degree", [2, 3, 4, 5])
@@ -1042,7 +1054,7 @@ def test_biz_val_mrmr_fe_max_polynom_degree_parametrize(degree):
         as_df,
     )
 
-    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
         verbose=0,
@@ -1054,7 +1066,7 @@ def test_biz_val_mrmr_fe_max_polynom_degree_parametrize(degree):
         fe_max_polynom_degree=degree,
     )
     sel.fit(df, ys)
-    assert len(sel.support_) >= 1
+    _assert_polynomial_pair_recovered(sel, df, ys, signal, 0.9)
 
 
 @pytest.mark.parametrize("coef_range_max", [2.0, 5.0, 10.0])
@@ -1071,7 +1083,7 @@ def test_biz_val_mrmr_fe_max_polynom_coeff_parametrize(coef_range_max):
         as_df,
     )
 
-    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
         verbose=0,
@@ -1084,7 +1096,7 @@ def test_biz_val_mrmr_fe_max_polynom_coeff_parametrize(coef_range_max):
         fe_max_polynom_coeff=coef_range_max,
     )
     sel.fit(df, ys)
-    assert len(sel.support_) >= 1
+    _assert_polynomial_pair_recovered(sel, df, ys, signal, 0.9)
 
 
 @pytest.mark.parametrize("n_polynoms", [0, 1, 2])
@@ -1097,7 +1109,7 @@ def test_biz_val_mrmr_fe_max_polynoms_parametrize(n_polynoms):
         as_df,
     )
 
-    X, y, _ = make_polynomial_target(n=800, degree=2, seed=42)
+    X, y, signal = make_polynomial_target(n=800, degree=2, seed=42)
     df, ys = as_df(X, y)
     sel = MRMR(
         verbose=0,
@@ -1106,7 +1118,7 @@ def test_biz_val_mrmr_fe_max_polynoms_parametrize(n_polynoms):
         fe_max_polynoms=n_polynoms,
     )
     sel.fit(df, ys)
-    assert len(sel.support_) >= 1
+    _assert_polynomial_pair_recovered(sel, df, ys, signal, 0.9)
 
 
 @pytest.mark.parametrize("nbins", [5, 10, 20, 50])
@@ -1166,7 +1178,10 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
     from tests.feature_selection._biz_val_synth import (
         make_signal_plus_noise,
         as_df,
+        signal_recovery_count,
     )
+
+    outcomes: list[tuple[int, int, int]] = []
 
     # Re-baselined for full-mode default: a full-mode MRMR.fit (Fleuret
     # conditional-MI + FE) is much slower per example than simple mode, so
@@ -1184,7 +1199,7 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
     @settings(max_examples=6, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def _property(n, p_signal, p_noise, seed):
         """Helper that property."""
-        X, y, _ = make_signal_plus_noise(
+        X, y, signal = make_signal_plus_noise(
             n=n,
             p_signal=p_signal,
             p_noise=p_noise,
@@ -1201,10 +1216,13 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
         # Intent: no crash + >=1 feature, with no runaway explosion. The upper cap is a loose sanity bound -- raw +
         # engineered (smart_polynom / pairwise) FE can legitimately expand past 2x the raw column count, so cap at the
         # pairwise-FE scale (~ p*(p+1)/2) which still catches a genuine blow-up.
-        p = df.shape[1]
-        assert 1 <= n_selected <= max(2 * p, p * (p + 1) // 2)
+        outcomes.append((n_selected, df.shape[1], signal_recovery_count(sel, signal)))
 
     _property()
+    assert outcomes, "hypothesis ran no examples"
+    for n_selected, p, n_signal_recovered in outcomes:
+        assert 1 <= n_selected <= max(2 * p, p * (p + 1) // 2), f"selected {n_selected} of p={p}"
+        assert n_signal_recovered >= 1, f"no signal column recovered among the {n_selected} selected features at p={p}"
 
 
 @pytest.mark.parametrize("target_type", ["regression"])

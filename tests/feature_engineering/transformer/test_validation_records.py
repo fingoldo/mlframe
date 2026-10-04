@@ -352,31 +352,40 @@ def _validate(loader_fn, builder, target_model, target_metric, claimed_lift, lab
     return median, iqr, lifts
 
 
+def _assert_lifts_finite(result, label):
+    """Every seed must yield a finite lift: a swallowed per-seed error or an all-NaN panel is a failed validation, not a FOLD-NOISE verdict."""
+    median, _iqr, lifts = result
+    assert len(lifts) > 0, f"{label}: no seeds were evaluated"
+    bad = [(seed, lift) for seed, lift in zip(_VALIDATION_SEEDS, lifts) if not np.isfinite(lift)]
+    assert not bad, f"{label}: seed(s) produced a non-finite lift (error or NaN): {bad}"
+    assert np.isfinite(median), f"{label}: median lift is not finite"
+
+
 def test_validate_iter61_abalone_xgb_r2():
     """Validate iter61 abalone xgb r2."""
-    _validate(_load_abalone, _build_iter61, "xgb", "R2", 0.0405, "iter61_mtrbattn+cdist")
+    _assert_lifts_finite(_validate(_load_abalone, _build_iter61, "xgb", "R2", 0.0405, "iter61_mtrbattn+cdist"), "iter61_mtrbattn+cdist")
 
 
 def test_validate_iter66_mammography_lgb_auc():
     """Validate iter66 mammography lgb auc."""
-    _validate(_load_mammography, _build_iter66, "lgb", "AUC", 0.1446, "iter66_cbhrattn+rff")
+    _assert_lifts_finite(_validate(_load_mammography, _build_iter66, "lgb", "AUC", 0.1446, "iter66_cbhrattn+rff"), "iter66_cbhrattn+rff")
 
 
 def test_validate_iter68_kin8nm_lgb_r2():
     """Validate iter68 kin8nm lgb r2."""
-    _validate(_load_kin8nm, _build_iter68, "lgb", "R2", 0.1191, "iter68_mbhrattn+rff")
+    _assert_lifts_finite(_validate(_load_kin8nm, _build_iter68, "lgb", "R2", 0.1191, "iter68_mbhrattn+rff"), "iter68_mbhrattn+rff")
 
 
 def test_validate_iter69_abalone_cb_r2():
     """Validate iter69 abalone cb r2."""
-    _validate(_load_abalone, _build_iter69, "cb", "R2", 0.0384, "iter69_blagreement+cdist")
+    _assert_lifts_finite(_validate(_load_abalone, _build_iter69, "cb", "R2", 0.0384, "iter69_blagreement+cdist"), "iter69_blagreement+cdist")
 
 
 def test_validate_iter72_abalone_lgb_r2():
     """Validate iter72 abalone lgb r2."""
-    _validate(_load_abalone, _build_iter72, "lgb", "R2", 0.0319, "iter72_ldgrad_alone")
+    _assert_lifts_finite(_validate(_load_abalone, _build_iter72, "lgb", "R2", 0.0319, "iter72_ldgrad_alone"), "iter72_ldgrad_alone")
 
 
 def test_validate_iter77_diabetes_cb_pr_auc():
     """Validate iter77 diabetes cb pr auc."""
-    _validate(_load_diabetes_classification, _build_iter77, "cb", "PR_AUC", 0.0675, "iter77_curv_alone")
+    _assert_lifts_finite(_validate(_load_diabetes_classification, _build_iter77, "cb", "PR_AUC", 0.0675, "iter77_curv_alone"), "iter77_curv_alone")

@@ -234,24 +234,25 @@ def test_every_optimum_search_value_either_works_or_errors(small_clf_data):
     X_small = X.iloc[sel].reset_index(drop=True)
     y_small = y[sel]
 
+    # Any exception other than NotImplementedError propagates and fails the test: a generic crash mid-fold is a regression.
+    outcomes = {}
     for method in OptimumSearch:
+        rfecv = RFECV(
+            estimator=LogisticRegression(max_iter=200, random_state=0),
+            cv=2,
+            max_refits=2,
+            top_predictors_search_method=method,
+            verbose=0,
+        )
         try:
-            rfecv = RFECV(
-                estimator=LogisticRegression(max_iter=200, random_state=0),
-                cv=2,
-                max_refits=2,
-                top_predictors_search_method=method,
-                verbose=0,
-            )
             rfecv.fit(X_small, y_small)
-            # If it fits, n_features_ must be reasonable.
-            assert rfecv.n_features_ >= 1, f"{method} produced empty support_"
         except NotImplementedError as exc:
             # Acceptable - the dispatch explicitly rejected this method.
             assert method.value in str(exc), f"NotImplementedError for {method} should name the method, got: {exc}"
-        except Exception as exc:  # pragma: no cover
-            pytest.fail(
-                f"OptimumSearch.{method.name} raised unexpected {type(exc).__name__}: {exc}\n"
-                f"Either implement the dispatch in get_next_features_subset OR raise "
-                f"NotImplementedError with the enum value at construction time."
-            )
+            outcomes[method] = "rejected"
+            continue
+        # If it fits, n_features_ must be reasonable.
+        assert rfecv.n_features_ >= 1, f"{method} produced empty support_"
+        outcomes[method] = "fitted"
+    assert set(outcomes) == set(OptimumSearch)
+    assert "fitted" in outcomes.values(), f"no OptimumSearch value completes a fit: {outcomes}"

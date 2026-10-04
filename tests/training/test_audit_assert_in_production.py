@@ -250,19 +250,23 @@ def test_input_validation_raises_in_targeted_modules():
 
 
 def test_no_input_validation_asserts_in_residual_modules():
-    """Source-level residual guard for the few audit sites whose validation fires deep in
-    plotting / tuning / permutation paths that are not cheaply reachable behaviourally;
-    confirm the pre-fix ``assert <param-check>`` shapes have not reappeared (-O strips them)."""
-    import pathlib
-    import mlframe as _mlframe
+    """Invalid arguments to the residual audit sites raise ValueError (survives -O) instead of tripping an assert that ``python -O`` strips."""
+    import polars as pl
+    from mlframe.feature_selection.general import estimate_features_relevancy
+    from mlframe.metrics._ice_metric import compute_probabilistic_multiclass_error
+    from mlframe.metrics.calibration._calibration_plot import show_calibration_plot
+    from mlframe.metrics.classification._classification_report import fast_calibration_report
+    from mlframe.models.tuning_rules import ParamsOptimizer
 
-    root = pathlib.Path(_mlframe.__file__).resolve().parent
-    banned = [
-        ("metrics/core.py", 'assert backend in ("plotly", "matplotlib")'),
-        ("metrics/core.py", 'assert method in ("multicrit", "brier_score", "precision")'),
-        ("models/tuning.py", 'assert sampler in ("random", "ml")'),
-        ("feature_selection/general.py", "assert min_randomized_permutations >= 1"),
-    ]
-    for rel, shape in banned:
-        text = (root / rel).read_text(encoding="utf-8")
-        assert shape not in text, f"Wave 31 regression at {rel}: pre-fix assert shape `{shape}` reappeared; -O would strip it."
+    y = np.array([0, 1, 0, 1])
+    p = np.array([0.2, 0.8, 0.3, 0.7])
+    with pytest.raises(ValueError, match="backend must be 'plotly' or 'matplotlib'"):
+        fast_calibration_report(y, p, backend="banana")
+    with pytest.raises(ValueError, match="backend must be 'plotly' or 'matplotlib'"):
+        show_calibration_plot(np.array([0.5]), np.array([0.5]), np.array([1]), backend="banana")
+    with pytest.raises(ValueError, match="method must be 'multicrit', 'brier_score', or 'precision'"):
+        compute_probabilistic_multiclass_error(y, np.column_stack([1 - p, p]), method="banana")
+    with pytest.raises(ValueError, match="sampler must be 'random' or 'ml'"):
+        ParamsOptimizer.suggest_trials(object(), "exp", "obj", sampler="banana")
+    with pytest.raises(ValueError, match="min_randomized_permutations must be >= 1"):
+        estimate_features_relevancy(pl.DataFrame({"a": [1, 2, 3]}), ["a"], min_randomized_permutations=0)

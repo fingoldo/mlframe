@@ -41,6 +41,7 @@ from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import ReportingConfig, TargetTypes
 from mlframe.training import FeatureSelectionConfig, OutputConfig
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+from tests._known_gap import known_gap
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -151,8 +152,8 @@ def _fs_model_used_features(inner_models):
     return used, model
 
 
-def _train(df, fte, target_type, fs_config, *, models=("cb",), iters=10, **suite_kw):
-    """Helper that train."""
+def _suite_run(df, fte, fs_config, *, models=("cb",), iters=10, **suite_kw):
+    """Run the training suite once and return its raw ``(result, metadata)``."""
     with tempfile.TemporaryDirectory() as d:
         result, metadata = train_mlframe_models_suite(
             df=df,
@@ -175,6 +176,12 @@ def _train(df, fte, target_type, fs_config, *, models=("cb",), iters=10, **suite
             feature_selection_config=fs_config,
             **suite_kw,
         )
+    return result, metadata
+
+
+def _train(df, fte, target_type, fs_config, *, models=("cb",), iters=10, **suite_kw):
+    """Run the suite and return the inner per-model list of ``target_type``'s ``target`` entry together with the raw result and metadata."""
+    result, metadata = _suite_run(df, fte, fs_config, models=models, iters=iters, **suite_kw)
     assert target_type in result, f"target type {target_type} missing from suite output"
     assert "target" in result[target_type]
     inner = result[target_type]["target"]
@@ -284,10 +291,7 @@ def test_biz_val_suite_rfecv_regression_excludes_noise():
 
     _assert_suite_predicts(df, _res, _meta, fte)
 
-    if noise_excl_frac < 0.5:
-        pytest.xfail(
-            f"FS GAP: suite FS rfecv_regression keeps too many noise cols on tiny data (excl_frac={noise_excl_frac:.2f}, kept noise={sorted(noise_kept)})"
-        )
+    assert noise_excl_frac >= 0.5, f"suite FS rfecv_regression keeps too many noise cols (excl_frac={noise_excl_frac:.2f}, kept noise={sorted(noise_kept)})"
     assert len(signal_kept) >= 2, f"signal lost: kept only {sorted(signal_kept)}"
 
 
@@ -339,12 +343,9 @@ def test_biz_val_suite_mrmr_mixed_features_excludes_noise():
 
     noise_kept = used & set(num_noise)
     noise_excl_frac = 1.0 - len(noise_kept) / len(num_noise)
-    if noise_excl_frac < 0.6:
-        pytest.xfail(
-            f"FS GAP: suite FS mixed_features keeps too much numeric noise through the encoder "
-            f"path (excl_frac={noise_excl_frac:.2f}, kept={sorted(noise_kept)})"
-        )
-    assert noise_excl_frac >= 0.6
+    assert (
+        noise_excl_frac >= 0.6
+    ), f"suite FS mixed_features keeps too much numeric noise through the encoder path (excl_frac={noise_excl_frac:.2f}, kept={sorted(noise_kept)})"
 
 
 # ---------------------------------------------------------------------------
@@ -459,13 +460,15 @@ def test_biz_val_suite_mrmr_fs_isolated_from_other_stages():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="FS GAP: suite FS x LEARNING_TO_RANK. The LtR suite path returns a model-keyed ranker output "
+_LTR_FS_GAP = (
+    "FS GAP: suite FS x LEARNING_TO_RANK. The LtR suite path returns a model-keyed ranker output "
     "(result['cb'] -> CatBoostRanker), not the target_type-keyed baseline+FS-branch structure the other "
     "target types use, so the per-target MRMR-FS branch is not wired into the ranker path. Independently, "
     "MRMR's MI is group-naive and the suite forces strict_groups=True under the LtR group-aware split. "
-    "Full support needs (1) routing use_mrmr_fs through the LtR ranker branch and (2) group-aware MI in MRMR.",
+    "Full support needs (1) routing use_mrmr_fs through the LtR ranker branch and (2) group-aware MI in MRMR."
 )
+
+
 def test_biz_val_suite_mrmr_ltr_excludes_noise():
     """MRMR feature selection through the suite on a LEARNING_TO_RANK target: the FS-branch model must
     train, predict, and its used feature set must EXCLUDE the planted pure-noise columns while keeping
@@ -480,12 +483,11 @@ def test_biz_val_suite_mrmr_ltr_excludes_noise():
         target_type=TargetTypes.LEARNING_TO_RANK,
         group_field="qid",
     )
-    inner, _res, _meta = _train(
-        df,
-        fte,
-        TargetTypes.LEARNING_TO_RANK,
-        FeatureSelectionConfig(mrmr=_MRMR_KW),
-    )
+    _res, _meta = _suite_run(df, fte, FeatureSelectionConfig(mrmr=_MRMR_KW))
+    wired = TargetTypes.LEARNING_TO_RANK in _res and "target" in _res[TargetTypes.LEARNING_TO_RANK]
+    if not wired:
+        known_gap(f"{_LTR_FS_GAP} (suite output keys={sorted(map(str, _res))})", gap_closed=False)
+    inner = _res[TargetTypes.LEARNING_TO_RANK]["target"]
     used, _fs_model = _fs_model_used_features(inner)
     assert used is not None, "no FS-branch model produced for LtR (use_mrmr_fs=True ignored?)"
 

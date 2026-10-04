@@ -268,6 +268,7 @@ def test_cat_fe_recipes_replay_matches_manual(xor_cat_df):
             from_transform,
             err_msg=f"apply_recipe disagrees with MRMR.transform for {recipe.name!r}",
         )
+    assert out.shape[0] == len(df_te)
 
 
 # ---------------------------------------------------------------------------
@@ -417,5 +418,7 @@ def test_get_feature_names_out_consistent_with_support_(small_classification_df)
 
     # transform() column order must match get_feature_names_out().
     out = mrmr.transform(X)
+    assert len(actual) > 0
+    assert out.shape == (len(X), len(actual))
     if isinstance(out, pd.DataFrame):
         assert list(out.columns) == list(actual), f"transform column order {list(out.columns)} != get_feature_names_out() {list(actual)}"

@@ -18,6 +18,7 @@ _RELEASERS = (
 
 def release_fit_scoped_caches() -> None:
     """Free the fit-scoped caches (GPU operand tables, F-order CMI matrix copy, memmap dumps); each rebuilds on the next miss, so this is always safe."""
+    failures = []
     for mod_name, fn_name in _RELEASERS:
         mod = sys.modules.get(mod_name)
         if mod is None:
@@ -25,4 +26,7 @@ def release_fit_scoped_caches() -> None:
         try:
             getattr(mod, fn_name)()
         except Exception as exc:
-            logger.warning("fit-end release %s.%s failed (%s: %s); the cache stays resident", mod_name, fn_name, type(exc).__name__, exc)
+            logger.debug("fit-end release %s.%s failed", mod_name, fn_name, exc_info=True)
+            failures.append(f"{mod_name}.{fn_name} ({type(exc).__name__}: {exc})")
+    if failures:
+        logger.warning("fit-end release failed for %s; those caches stay resident", "; ".join(failures))

@@ -20,7 +20,10 @@ def test_visualize_prediction_vs_truth_single_sample_does_not_crash():
     rng = np.random.default_rng(0)
     y_true = pd.DataFrame(rng.standard_normal((5, 4)))
     y_preds = rng.standard_normal((5, 4))
-    visualize_prediction_vs_truth(y_true, y_preds, samples=(0,))
+    fig = visualize_prediction_vs_truth(y_true, y_preds, samples=(0,))
+    assert len(fig.axes) == 1
+    np.testing.assert_array_equal(fig.axes[0].lines[0].get_ydata(), y_preds[0])
+    np.testing.assert_array_equal(fig.axes[0].lines[1].get_ydata(), y_true.iloc[0].values)
 
 
 def test_visualize_prediction_vs_truth_multi_sample_still_works():
@@ -28,4 +31,9 @@ def test_visualize_prediction_vs_truth_multi_sample_still_works():
     rng = np.random.default_rng(0)
     y_true = pd.DataFrame(rng.standard_normal((5, 4)))
     y_preds = rng.standard_normal((5, 4))
-    visualize_prediction_vs_truth(y_true, y_preds, samples=(0, 1, 2))
+    fig = visualize_prediction_vs_truth(y_true, y_preds, samples=(0, 1, 2))
+    assert len(fig.axes) == 3
+    for i, ax in enumerate(fig.axes):
+        assert ax.get_title().startswith(f"#{i}")
+        np.testing.assert_array_equal(ax.lines[0].get_ydata(), y_preds[i])
+        np.testing.assert_array_equal(ax.lines[1].get_ydata(), y_true.iloc[i].values)

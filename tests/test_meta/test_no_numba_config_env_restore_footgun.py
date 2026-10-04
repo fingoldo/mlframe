@@ -119,11 +119,10 @@ def _build_offending_set() -> set[str]:
 
 def test_no_new_numba_config_env_mutation():
     """No test module gains a new real-process mutation of NUMBA_DISABLE_CUDA/NUMBA_DISABLE_JIT."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"numba-config-env-mutation baseline written with {len(current)} entry/entries")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip("numba-config-env-mutation baseline written")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     added = sorted(current - baseline)

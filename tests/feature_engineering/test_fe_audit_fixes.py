@@ -925,9 +925,8 @@ class TestPropertyInvariants:
         """Trade count flat baseline."""
         from mlframe.feature_engineering.mps import _trade_count
 
-        # If at least one of prev/new is zero (flat), at most 1 trade is needed.
-        if prev == 0 or new == 0:
-            assert _trade_count(prev, new) <= 1
+        expected = 0 if prev == new else (2 if prev * new == -1 else 1)
+        assert _trade_count(prev, new) == expected
 
     @given(
         n=st.integers(min_value=2, max_value=200),

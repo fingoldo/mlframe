@@ -24,18 +24,13 @@ from types import SimpleNamespace
 import numpy as np
 
 
-def test_yscale_chart_helper_runs_without_raising() -> None:
-    """_emit_yscale_composite_chart completes without raising given a minimal inner_entry stub and realistic y arrays."""
-    from mlframe.training.core._phase_composite_wrapping import (
-        _emit_yscale_composite_chart,
-    )
+def _call_yscale_helper(monkeypatch, y_target, y_pred, inner_entry, plot_file):
+    """Run ``_emit_yscale_composite_chart`` with the chart renderer recorded and return the recorded render calls."""
+    from mlframe.training import evaluation
+    from mlframe.training.core._phase_composite_wrapping import _emit_yscale_composite_chart
 
-    rng = np.random.default_rng(0)
-    y_target = rng.normal(11502.0, 11.5, 1000)
-    y_pred = y_target + rng.normal(0.0, 10.0, 1000)
-    # Use a minimal stub for ``inner_entry`` (the helper only reads
-    # ``model``/``estimator_``/class-name to build the chart title).
-    inner_entry = SimpleNamespace(model=SimpleNamespace())
+    calls: list = []
+    monkeypatch.setattr(evaluation, "report_regression_model_perf", lambda **kw: calls.append(kw))
     _emit_yscale_composite_chart(
         y_target=y_target,
         y_pred=y_pred,
@@ -43,34 +38,39 @@ def test_yscale_chart_helper_runs_without_raising() -> None:
         composite_name="TVT-spline-TVT_prev",
         orig_tname="TVT",
         target_name="TVT",
-        plot_file="",  # interactive-session-only; we don't write
+        plot_file=plot_file,
         reporting_config=None,
         rmse_y=13.5,
         mae_y=8.0,
         r2_y=0.99,
     )
+    return calls
 
 
-def test_yscale_chart_helper_no_op_on_empty_inputs() -> None:
-    """_emit_yscale_composite_chart is a safe no-op when given empty y arrays rather than raising."""
-    from mlframe.training.core._phase_composite_wrapping import (
-        _emit_yscale_composite_chart,
-    )
-    from types import SimpleNamespace
+def test_yscale_chart_helper_runs_without_raising(monkeypatch) -> None:
+    """The y-scale chart is rendered once on y-scale arrays, under the entry's own chart prefix, else under the caller's base; with no path it is skipped."""
+    rng = np.random.default_rng(0)
+    y_target = rng.normal(11502.0, 11.5, 1000)
+    y_pred = y_target + rng.normal(0.0, 10.0, 1000)
 
-    _emit_yscale_composite_chart(
-        y_target=np.array([]),
-        y_pred=np.array([]),
-        inner_entry=SimpleNamespace(),
-        composite_name="X",
-        orig_tname="X",
-        target_name="X",
-        plot_file="",
-        reporting_config=None,
-        rmse_y=0.0,
-        mae_y=0.0,
-        r2_y=0.0,
-    )
+    own_prefix = SimpleNamespace(model=SimpleNamespace(), plot_file="out/model_chart")
+    (call,) = _call_yscale_helper(monkeypatch, y_target, y_pred, own_prefix, plot_file="")
+    assert call["plot_file"] == "out/model_chart_test"
+    assert call["targets"] is y_target and call["preds"] is y_pred
+    assert call["report_title"] == "TEST"
+    assert f"[y-scale] test_mean/test_std={np.mean(y_target):.2f}/{np.std(y_target):.2f}" in call["model_name"]
+
+    (fallback,) = _call_yscale_helper(monkeypatch, y_target, y_pred, SimpleNamespace(model=SimpleNamespace()), plot_file="out/base.png")
+    assert fallback["plot_file"] == "out/base_yscale_TVT-spline-TVT_prev_test.png"
+
+    assert _call_yscale_helper(monkeypatch, y_target, y_pred, SimpleNamespace(model=SimpleNamespace()), plot_file="") == []
+
+
+def test_yscale_chart_helper_no_op_on_empty_inputs(monkeypatch) -> None:
+    """_emit_yscale_composite_chart renders nothing for empty y arrays, even when a chart path is available."""
+    entry = SimpleNamespace(plot_file="out/model_chart")
+    assert _call_yscale_helper(monkeypatch, np.array([]), np.array([]), entry, plot_file="out/base.png") == []
+    assert _call_yscale_helper(monkeypatch, np.array([1.0]), np.array([1.0]), entry, plot_file="out/base.png") != []
 
 
 def test_mtresid_t_scale_chart_returns_early_without_rendering(monkeypatch) -> None:

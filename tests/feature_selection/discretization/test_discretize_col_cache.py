@@ -83,11 +83,10 @@ def test_cache_not_consulted_on_supervised_strategy():
     df = _frame(2)
     from mlframe.feature_selection.filters.discretization import _discretization_dataset as _dd
 
-    try:
-        categorize_dataset(df=df, method="quantile", n_bins=10, nbins_strategy="mdlp", y_for_strategy=df["target"].to_numpy())
-    except Exception:
-        pytest.skip("mdlp strategy unavailable in this build")
+    categorize_dataset(df=df, method="quantile", n_bins=10, nbins_strategy="mdlp", y_for_strategy=df["target"].to_numpy())
     assert len(_dd._NUMERIC_CODE_CACHE) == 0, "supervised path must not use the unsupervised per-column cache"
+    categorize_dataset(df=df, method="quantile", n_bins=10)
+    assert len(_dd._NUMERIC_CODE_CACHE) > 0, "the unsupervised path must populate the per-column cache, else the supervised emptiness proves nothing"
 
 
 def test_regression_xxh3_cache_key_matches_blake2b_fallback():

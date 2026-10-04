@@ -24,7 +24,6 @@ import warnings
 
 import numpy as np
 import pandas as pd
-import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -140,8 +139,7 @@ def test_canonical_hinge_legs_labeled_not_unknown():
     assert prov is not None and not prov.empty
 
     hinge = prov[prov["feature_name"].astype(str).str.contains("relu_")]
-    if hinge.empty:
-        pytest.skip("FE search produced no hinge legs on this build; nothing to label")
+    assert not hinge.empty, "FE search produced no hinge legs on the canonical fixture"
 
     origins = set(hinge["origin"].astype(str))
     assert origins == {"hinge_basis"}, f"hinge legs carry wrong origin(s): {origins}"

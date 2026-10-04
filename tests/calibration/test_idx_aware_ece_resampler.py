@@ -43,10 +43,7 @@ def test_fused_kernel_bit_identical_to_slice(seed, kind):
         idx = rng.integers(0, n, n).astype(np.int64)  # unsorted resample
         fused = _ece_score_idx_numba_serial(y, p, idx, 15)
         sliced = _ece_score(y[idx], p[idx], n_bins=15)
-        if np.isnan(sliced):
-            assert np.isnan(fused)
-        else:
-            assert fused == sliced
+        np.testing.assert_array_equal(fused, sliced)
 
 
 @pytest.mark.parametrize("stratified", [True, False])

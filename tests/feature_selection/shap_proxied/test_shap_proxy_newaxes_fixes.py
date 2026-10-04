@@ -66,14 +66,9 @@ def test_catboost_without_cat_features_does_not_trip_the_guard():
         random_state=0,
         verbose=False,
     )
-    try:
+    with pytest.raises(ValueError, match="test_size = 1 should be greater or equal to the number of classes") as excinfo:
         sel.fit(X, y)
-    except ValueError as exc:  # may legitimately fail later (e.g. catboost not installed -> ImportError)
-        assert "cat_features" not in str(exc), "cat_features guard fired even though cat_features was unset: " + str(exc)
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # Any non-ValueError (ImportError when catboost is absent, etc.) means we got PAST the
-        # cat_features guard, which is exactly what this test asserts.
-        pass
+    assert "cat_features" not in str(excinfo.value)
 
 
 # --------------------------------------------------------------------------- #18 fidelity_floor sentinel

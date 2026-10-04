@@ -46,8 +46,10 @@ def test_excepthook_survives_sys_name_cleared_during_finalization(monkeypatch):
     monkeypatch.setattr(guard, "_is_finalizing", lambda: True)
     monkeypatch.setattr(guard, "sys", None)
     exc = _FakeCUDADriverError("CUDA_ERROR_ILLEGAL_ADDRESS: an illegal memory access was encountered")
-    guard._prev_excepthook = None
+    chained = []
+    monkeypatch.setattr(guard, "_prev_excepthook", lambda *a: chained.append(a))
     guard._excepthook(type(exc), exc, None)  # must not raise
+    assert chained == [], "the known teardown error must be swallowed, not chained to the previous hook"
 
 
 def test_unraisablehook_survives_sys_name_cleared_during_finalization(monkeypatch):
@@ -56,8 +58,10 @@ def test_unraisablehook_survives_sys_name_cleared_during_finalization(monkeypatc
     monkeypatch.setattr(guard, "sys", None)
     exc = _FakeCUDADriverError("CUDA_ERROR_ILLEGAL_ADDRESS: an illegal memory access was encountered")
     unraisable = types.SimpleNamespace(exc_value=exc)
-    guard._prev_unraisablehook = None
+    chained = []
+    monkeypatch.setattr(guard, "_prev_unraisablehook", lambda u: chained.append(u))
     guard._unraisablehook(unraisable)  # must not raise
+    assert chained == [], "the known teardown error must be swallowed, not chained to the previous hook"
 
 
 def test_excepthook_chains_to_previous_hook_for_unrelated_exception(monkeypatch):

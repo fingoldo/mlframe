@@ -429,23 +429,9 @@ class TestMRMRMiNormalizationE2E:
         #    SU EXCLUDES all standalone noise cols.
         n_noise_none = len(_standalone_noise(picks_none))
         n_noise_su = len(_standalone_noise(picks_su))
-        if n_noise_none < 1:
-            # The discriminating premise (raw-MI admits standalone hi-card noise that SU
-            # rejects) no longer holds on this fixture: MRMR's default-on cardinality-bias
-            # correction (commit ``63c894b6``: Miller-Madow gate + relative-gain stop) AND the
-            # default-on integer-lattice FE (which fuses sig_lo with a hi-card col into ONE
-            # signal-carrying pick) both keep the raw-MI baseline from ever admitting standalone
-            # hi-card noise. Confirmed identical at n in {4k, 25k, 50k} across seeds {0,1,2} and
-            # with cardinality_bias_correction / integer-lattice FE individually disabled -- the
-            # min_relevance_gain stop alone already rejects the noise -- so it is NOT a
-            # small-sample artifact. The SU biz-value claim is still meaningful on uncorrected
-            # high-card bias, but this fixture no longer exhibits it; it needs a stronger noise
-            # injection or the gates disabled on the raw-MI baseline to be a regression sensor.
-            pytest.skip(
-                "MRMR default-on cardinality correction + integer-lattice FE make raw-MI mode "
-                "ALSO reject standalone hi-card noise on this fixture; the SU-vs-raw-MI "
-                f"discriminator is no longer measurable here. picks_none={picks_none}"
-            )
+        assert n_noise_none >= 1, (
+            "the discriminating premise (raw-MI admits standalone hi-card noise that SU rejects) must hold on this fixture; " f"picks_none={picks_none}"
+        )
         assert n_noise_su == 0, f"SU should reject all hi-card noise at this threshold; got picks_su={picks_su}"
 
         # 3) Headline: SU mode picks a STRICTLY SMALLER (more parsimonious) support.

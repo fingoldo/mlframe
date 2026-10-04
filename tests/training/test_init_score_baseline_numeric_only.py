@@ -83,8 +83,11 @@ class TestTheBaselineSkipsNonNumericTopFeatures:
         )
 
     def test_a_string_top_feature_no_longer_raises(self, frame):
-        """One assertion for the production failure: the diagnostic must survive it."""
-        self._run(frame, self._ablation("job_post_device", "prior_score"))
+        """The diagnostic survives a string column ranked first and builds its baseline from the numeric feature behind it."""
+        result = self._run(frame, self._ablation("job_post_device", "prior_score"))
+        assert result is not None
+        assert result.feature_used == "prior_score"
+        assert result.metric == 0.61
 
     def test_the_skip_is_reported(self, frame, caplog):
         """A silently dropped candidate reads as "no init-score baseline was possible"."""

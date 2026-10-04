@@ -166,7 +166,10 @@ class TestRender:
         pytest.importorskip("plotly")
         y, p, c = _balanced(600, 3)
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION_MARGINS")
-        get_renderer("plotly").render(spec)
+        fig = get_renderer("plotly").render(spec)
+        assert len([t for t in fig.data if t.type == "bar"]) == 2  # row-support and column-volume margins
+        heat = next(t for t in fig.data if t.type == "heatmap")
+        assert len(heat.x) == 3 and len(heat.y) == 3
 
     def test_combined_template_with_confusion(self):
         """CONFUSION_MARGINS composes alongside other tokens in one figure."""

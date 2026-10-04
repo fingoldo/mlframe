@@ -123,10 +123,11 @@ class TestFeatureGroupsOverlapAssert:
 
     def test_disjoint_groups_init_fine(self):
         """Disjoint groups init fine."""
-        RFECV(
+        selector = RFECV(
             estimator=LogisticRegression(),
             feature_groups={"g1": ["a", "b"], "g2": ["c", "d"]},
         )
+        assert selector.feature_groups == {"g1": ["a", "b"], "g2": ["c", "d"]}
 
 
 # ----------------------------------------------------------------------- F1 init knob
@@ -224,14 +225,14 @@ class TestAutoRuleResolution:
         stds = np.asarray(rfecv.cv_results_["cv_std_perf"], dtype=float)
         nfeats = np.asarray(rfecv.cv_results_["nfeatures"], dtype=int)
         nz = nfeats > 0
-        if not nz.any():
-            return
+        assert nz.any(), "the CV curve holds no non-zero subset size"
         best = int(np.argmax(means[nz]))
         threshold = means[nz][best] - stds[nz][best] / np.sqrt(3)
         in_band = nfeats[nz][means[nz] >= threshold]
+        # The argmax point is always inside its own band, so the band is never empty.
+        assert len(in_band) > 0
         # 'one_se_max' picks the LARGEST N within the 1-SE band.
-        if len(in_band) > 0:
-            assert rfecv.n_features_ == int(in_band.max())
+        assert rfecv.n_features_ == int(in_band.max())
 
     def test_explicit_argmax_still_picks_argmax(self):
         """Explicit argmax still picks argmax."""

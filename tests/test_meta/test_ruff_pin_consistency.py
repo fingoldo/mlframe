@@ -12,6 +12,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - python < 3.11
+    import tomli as tomllib  # type: ignore[no-redef]
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -82,7 +87,8 @@ def test_the_pins_match_the_version_ci_actually_resolves():
     """
     from py_ci_shared.tool_versions import RUFF_VERSION
 
-    pyproject_pins = set(re.findall(r'"ruff==([\d.]+)"', _read("pyproject.toml")))
+    dev_extra = tomllib.loads(_read("pyproject.toml"))["project"]["optional-dependencies"]["dev"]
+    pyproject_pins = {req.partition("==")[2].strip() for req in dev_extra if req.startswith("ruff==")}
     assert pyproject_pins == {RUFF_VERSION}, (
         f"this repo pins ruff {sorted(pyproject_pins)} but py-ci-shared's tool_versions.RUFF_VERSION, which CI resolves at run time, "
         f"is {RUFF_VERSION} -- bump whichever is behind"

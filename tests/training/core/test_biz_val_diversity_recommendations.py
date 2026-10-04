@@ -65,6 +65,13 @@ def test_biz_val_diversity_recommendations_surfaces_diverse_weaker_member():
     shortlist = compute_diversity_recommendations(ens_models=members, target_type=TargetTypes.REGRESSION, behavior_config=behavior_config, verbose=False)
     assert shortlist is not None, "diversity recommendation did not fire on a well-formed OOF pool"
     assert len(shortlist) >= 1, "no diverse-but-weaker member was recommended despite a genuine diversity gap"
+    # The tight cluster is members 1-3 (noise 0.3); only the diverse-but-weaker half (members 4-6, noise 0.6; tags suffixed #2.. by position) may be recommended, ranked by blend payoff.
+    assert {entry["model"] for entry in shortlist} <= {"SimpleNamespace#4", "SimpleNamespace#5", "SimpleNamespace#6"}
+    assert [entry["recommended_rank"] for entry in shortlist] == list(range(1, len(shortlist) + 1))
+    gains = [entry["ablation_improvement"] for entry in shortlist]
+    assert all(g > 0.0 for g in gains)
+    assert gains == sorted(gains, reverse=True)
+    assert all(entry["max_correlation"] < 0.85 for entry in shortlist)
 
 
 def test_default_off_when_flag_false():

@@ -126,12 +126,12 @@ def test_run_auto_tune_true_passes_async_sweep(_fresh_dispatch_cache, monkeypatc
 def test_lookup_pairwise_corr_backend_honors_region_size_caps(_fresh_dispatch_cache):
     """Regression for the ``dims={"p": p, "n": n}`` vs ``**dims`` bug: a region's ``p_max``/``n_max``
     caps must actually gate which region is returned, not silently match every call regardless of size."""
+    pytest.importorskip("pyutilz.performance.kernel_tuning.cache")
     from mlframe.feature_selection.filters import _kernel_tuning as _kt
     from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
 
     cache = _kt.get_kernel_tuning_cache()
-    if cache is None:
-        pytest.skip("KernelTuningCache unavailable on this host")
+    assert cache is not None, "KernelTuningCache failed to construct although pyutilz's cache module imports"
     cache.update(
         "fe_pairwise_complete_corr",
         axes=["p", "n"],

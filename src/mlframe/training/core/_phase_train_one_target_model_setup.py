@@ -123,6 +123,17 @@ def _render_per_target_diagnostics(
             logger.warning("per-target drift/adversarial diagnostics failed for target='%s': %s", cur_target_name, _e)
 
 
+def _save_temporal_audit_plot(audit, behavior_config, reporting_config, plot_file) -> None:
+    """Save the per-target temporal-audit chart, through the multi-backend DSL when ``reporting_config.plot_outputs`` is set and as a matplotlib PNG otherwise."""
+    if not (getattr(behavior_config, "target_temporal_audit_save_plot", True) and plot_file):
+        return
+    _plot_outputs = getattr(reporting_config, "plot_outputs", None)
+    if _plot_outputs:
+        _plot_target_over_time(audit, plot_outputs=_plot_outputs, base_path=f"{plot_file}_target_temporal_audit")
+    else:
+        _plot_target_over_time(audit, save_path=f"{plot_file}_target_temporal_audit.png")
+
+
 def _setup_per_target_mlframe_models(
     *,
     ctx,
@@ -348,21 +359,7 @@ def _setup_per_target_mlframe_models(
     if _audit is not None:
         try:
             logger.info(_format_temporal_audit_report(_audit))
-            if getattr(behavior_config, "target_temporal_audit_save_plot", True) and plot_file:
-                # Route through the multi-backend DSL when reporting_config exposes plot_outputs
-                # (e.g. "plotly[html]+matplotlib[png]") so the temporal-audit chart obeys the
-                # same backend selection as every other suite plot. Falls back to matplotlib-only
-                # PNG when plot_outputs is absent (legacy default).
-                _plot_outputs = getattr(reporting_config, "plot_outputs", None)
-                if _plot_outputs:
-                    _plot_target_over_time(
-                        _audit,
-                        plot_outputs=_plot_outputs,
-                        base_path=f"{plot_file}_target_temporal_audit",
-                    )
-                else:
-                    _plot_path = f"{plot_file}_target_temporal_audit.png"
-                    _plot_target_over_time(_audit, save_path=_plot_path)
+            _save_temporal_audit_plot(_audit, behavior_config, reporting_config, plot_file)
             metadata.setdefault("target_temporal_audit", {}).setdefault(str(target_type), {})[cur_target_name] = _audit.to_dict()
         except Exception as _audit_err:  # best-effort: a diagnostic chart failure must never abort training
             logger.warning(

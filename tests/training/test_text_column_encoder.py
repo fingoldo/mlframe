@@ -79,6 +79,8 @@ class TestTfidfHappyPath:
     """Groups tests covering tfidf happy path."""
     def test_fit_then_transform_polars(self, small_text_polars):
         """Fit then transform polars."""
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
         enc = TextColumnEncoder(
             column="txt",
             params=TfidfParams(max_features=50, ngram_range=(1, 1)),
@@ -87,8 +89,11 @@ class TestTfidfHappyPath:
         out = enc.transform(small_text_polars)
         assert issparse(out)
         assert isinstance(out, csr_matrix)
-        assert out.shape[0] == 5
-        assert 0 < out.shape[1] <= 50
+        reference = TfidfVectorizer(max_features=50, ngram_range=(1, 1), min_df=2, max_df=1.0, sublinear_tf=True, norm="l2").fit_transform(
+            small_text_polars["txt"].to_list()
+        )
+        assert out.shape == reference.shape == (5, 3)
+        np.testing.assert_allclose(out.toarray(), reference.toarray())
 
     def test_fit_transform_pandas(self, small_text_pandas):
         """Fit transform pandas."""
@@ -305,10 +310,10 @@ class TestCapabilityDetector:
             _has_full_polars_ds = True
         except ImportError:
             _has_full_polars_ds = False
+        assert isinstance(v, str) == _has_full_polars_ds
+        assert (v is None) == (not _has_full_polars_ds)
         if _has_full_polars_ds:
-            assert isinstance(v, str)
-        else:
-            assert v is None
+            assert v.strip()
 
 
 # =====================================================================

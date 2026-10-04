@@ -39,30 +39,8 @@ confusing real data with sentinel.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
-
-MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
-
-
-def _read(rel: str) -> str:
-    """Read."""
-    _path = MLFRAME_ROOT / rel
-    if not _path.exists() and _path.suffix == ".py":
-        # Monolith-split compat: the flat module became a subpackage
-        # (``X.py`` -> ``X/__init__.py`` + submodules). Read __init__ + every submodule.
-        _pkg = _path.with_suffix("")
-        _init = _pkg / "__init__.py"
-        if _init.exists():
-            parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    parts.append(_sub.read_text(encoding="utf-8"))
-            return "\n".join(parts)
-    return _path.read_text(encoding="utf-8")
-
 
 # ---------------------------------------------------------------------------
 # Source-level sensors
@@ -79,30 +57,79 @@ def test_a_missing_classification_label_is_refused_before_training() -> None:
 
 
 def test_dummy_baselines_factorize_filters_negative_codes() -> None:
-    # The LTR factorize fast-path was moved to the
-    # ``_dummy_compute_helpers.py`` sibling when ``dummy_baselines.py`` was
-    # split below 1k LOC.
-    """Dummy baselines factorize filters negative codes."""
-    src = _read("training/baselines/_dummy_compute_helpers.py")
-    # The fix filters codes>=0 before bincount.
-    assert "_factor_codes = pd.factorize(g_train)[0]" in src
-    assert "np.bincount(_factor_codes[_factor_codes >= 0])" in src
+    """The LTR fast path skips (rather than crashes on) a train group column holding NaN ids, and sizes groups over the non-missing rows."""
+    import pandas as pd
+
+    from mlframe.training.baselines._dummy_compute_helpers import _compute_ltr_baselines
+    from mlframe.training.configs import DummyBaselinesConfig
+
+    n = 60
+    ids = (np.arange(n) % 6).astype(float)
+    ids[::7] = np.nan
+    assert pd.factorize(ids)[0].min() == -1
+    y = np.arange(n, dtype=float)
+    clean_ids = (np.arange(20) % 6).astype(float)
+    val_preds, _test_preds, extras = _compute_ltr_baselines("ltr", y, y[:20], y[:20], ids, clean_ids, clean_ids, None, None, None, DummyBaselinesConfig())
+    assert "ltr_skip_reason" not in extras
+    assert extras["n_groups_train"] == 7
+    assert set(val_preds) >= {"random_within_query", "mean_relevance"}
 
 
-def test_predict_guards_nan_detection_uses_isnan_not_isfinite() -> None:
-    """Predict guards nan detection uses isnan not isfinite."""
-    src = _read("training/_predict_guards.py")
-    # The numpy branch must use np.isnan (not ~np.isfinite) for parity.
-    assert "_has_nan = bool(np.any(np.isnan(_arr_check[:500])))" in src
+def _reference_impute_scale(arr):
+    """sklearn mean-imputation then standardisation of ``arr`` with +/-inf treated as missing."""
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
+
+    cleaned = np.where(np.isfinite(arr), arr, np.nan)
+    return StandardScaler().fit_transform(SimpleImputer(strategy="mean", keep_empty_features=True).fit_transform(cleaned))
+
+
+@pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])
+def test_predict_guards_nan_detection_uses_isnan_not_isfinite(bad_value) -> None:
+    """A numpy frame holding NaN or +/-inf in its first rows is imputed and scaled before the model sees it; a clean frame is passed through untouched."""
+    from types import SimpleNamespace
+
+    from mlframe.training._predict_guards import _apply_nan_guard
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(600, 3))
+    X[10, 1] = bad_value
+    seen: list = []
+
+    def fn(a):
+        """Record the frame handed to the model and return its first column."""
+        seen.append(np.asarray(a))
+        return np.asarray(a)[:, 0]
+
+    model = SimpleNamespace()
+    out = _apply_nan_guard(model, X, fn, 600, fit_at_predict=True)
+    assert len(seen) == 1
+    assert np.isfinite(seen[0]).all()
+    np.testing.assert_allclose(seen[0], _reference_impute_scale(X), rtol=1e-9, atol=1e-9)
+    np.testing.assert_allclose(out, seen[0][:, 0])
+    assert model._mlframe_nan_imputer is not None and model._mlframe_nan_scaler is not None
+
+    clean = rng.normal(size=(600, 3))
+    seen.clear()
+    clean_model = SimpleNamespace()
+    _apply_nan_guard(clean_model, clean, fn, 600, fit_at_predict=True)
+    assert len(seen) == 1
+    np.testing.assert_array_equal(seen[0], clean)
+    assert not hasattr(clean_model, "_mlframe_nan_imputer")
 
 
 def test_discretization_nan_filler_supports_raise() -> None:
-    """Discretization nan filler supports raise."""
-    src = _read("feature_selection/filters/discretization.py")
-    # The fix adds a nan_filler=None branch that raises.
-    assert "input contains NaN and nan_filler=None" in src
-    # And a WARN when the legacy default fires.
-    assert "biases MI by mixing" in src
+    """``nan_filler=None`` raises on NaN input; the legacy 0.0 default warns and bins NaN together with the real zeros."""
+    from mlframe.feature_selection.filters.discretization import categorize_1d_array
+
+    vals = np.array([0.0, np.nan, 5.0, 0.0, 5.0, 2.0])
+    with pytest.raises(ValueError, match="input contains NaN and nan_filler=None"):
+        categorize_1d_array(vals, 2, "discretizer", 0, {"n_bins": 3}, nan_filler=None)
+    with pytest.warns(UserWarning, match="biases MI by mixing"):
+        out = categorize_1d_array(vals, 2, "discretizer", 0, {"n_bins": 3})
+    codes = np.asarray(out).ravel()
+    assert codes[1] == codes[0] == codes[3]
+    assert codes[2] != codes[0]
 
 
 def test_a_bin_s_positive_rate_ignores_missing_rows_rather_than_counting_them_negative() -> None:

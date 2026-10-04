@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
@@ -131,11 +132,8 @@ def test_binned_unique_count_per_entity_bins_default_matches_prior_behavior():
 def test_binned_unique_count_per_entity_bins_rejects_explicit_edges():
     """Binned unique count per entity bins rejects explicit edges."""
     df = pd.DataFrame({"entity": [1, 1, 2, 2], "value": [0.0, 1.0, 5.0, 5.1]})
-    try:
+    with pytest.raises(ValueError, match="bin_edges must be None when per_entity_bins=True"):
         binned_unique_count(df, entity_col="entity", value_col="value", bin_edges=np.array([0.0, 5.0]), per_entity_bins=True)
-        raise AssertionError("expected ValueError when bin_edges is combined with per_entity_bins=True")
-    except ValueError:
-        pass
 
 
 def test_binned_unique_count_exact_values():

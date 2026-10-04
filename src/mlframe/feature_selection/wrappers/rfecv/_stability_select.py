@@ -105,6 +105,12 @@ def _rank_features_by_importance(
     )
 
 
+def _top_k_by_score(scores, k: int) -> np.ndarray:
+    """Indices of the ``k`` highest scores; equal scores resolve to the lowest index so the pick never depends on sort internals."""
+    arr = np.asarray(scores, dtype=np.float64)
+    return np.asarray(np.lexsort((np.arange(len(arr)), -arr))[:k])
+
+
 def _in_and_out_of_bag(X, y_arr, idx, n_samples: int, is_df: bool):
     """``(X_sub, y_sub, X_eval, y_eval)``: the bootstrap's fitted rows and the rows it did NOT fit on, which its
     importances are measured on.
@@ -265,7 +271,7 @@ def _fit_stability_selection(self, X, y, signature):
         if per_feature_score_sum.sum() <= 0:
             continue
         # np.lexsort with feature-index tiebreaker so tied scores don't make the top-K pick depend on feature_names insertion order.
-        top_idx = np.lexsort((np.arange(len(per_feature_score_sum)), -per_feature_score_sum))[:top_k]
+        top_idx = _top_k_by_score(per_feature_score_sum, top_k)
         # Only count features that actually carry positive importance this bootstrap. When fewer than top_k features have nonzero FI,
         # padding the top-K with zero-importance (pure-noise) columns lets them accrue selection counts every bootstrap and cross the
         # stability threshold - admitting noise into support_. A zero-FI feature is, by definition, not "selected" by this bootstrap.

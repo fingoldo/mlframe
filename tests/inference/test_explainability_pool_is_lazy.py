@@ -12,6 +12,10 @@ from __future__ import annotations
 import ast
 import pathlib
 
+import numpy as np
+import pandas as pd
+import pytest
+
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe" / "inference" / "explainability.py"
 
 
@@ -47,6 +51,28 @@ def test_catboost_is_not_imported_unconditionally():
 
 
 def test_the_native_branch_still_has_what_it_needs():
-    """The lazy import must actually cover both names the branch uses."""
-    src = SRC.read_text(encoding="utf-8")
-    assert "from catboost import Pool" in src and "from catboost import EFstrType" in src
+    """The lazy import must actually cover both names the branch uses: the native path runs end to end on a CatBoost model."""
+    pytest.importorskip("shap")
+    pytest.importorskip("imblearn")
+    catboost = pytest.importorskip("catboost")
+    from sklearn.model_selection import KFold
+
+    from mlframe.inference.explainability import compute_shap_on_cv
+
+    rng = np.random.default_rng(0)
+    n, f = 120, 4
+    X = pd.DataFrame(rng.standard_normal((n, f)), columns=[f"f{i}" for i in range(f)])
+    y = pd.Series((X["f0"] + 0.3 * rng.standard_normal(n) > 0).astype(int))
+    values, _base, interactions, _ibase, predictions, _expected = compute_shap_on_cv(
+        X,
+        y,
+        catboost.CatBoostClassifier,
+        {"iterations": 5, "verbose": 0, "random_seed": 0, "thread_count": 1},
+        KFold(n_splits=2, shuffle=True, random_state=0),
+        catboost_native_feature_importance=True,
+        show_oos_metrics=False,
+        plot=False,
+    )
+    assert values.shape == (2, n, f + 1)
+    assert interactions.shape == (2, n, f + 1, f + 1)
+    assert predictions.shape == (2, n)

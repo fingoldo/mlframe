@@ -75,6 +75,19 @@ def _record_rerank_sample_time(self, train_idx_screen: np.ndarray) -> None:
     time_all = getattr(self, "_time_ordering_", None)
     self._rerank_sample_time_ = None if time_all is None else np.asarray(time_all)[train_idx_screen]
 
+def _resolve_rerank_n_jobs(raw, n_specs: int) -> int:
+    """Outer spec-worker count for the rerank: ``0`` auto-picks, ``None`` is the historical 1, anything else is taken as given (floored at 1).
+
+    Auto caps at the spec count and at the PHYSICAL core count: logical/SMT siblings do not help GIL-releasing booster threads and only add scheduler churn.
+    """
+    cfg = int(1 if raw is None else raw)
+    if cfg == 0:
+        from pyutilz.parallel import cpu_count_physical
+
+        return max(1, min(n_specs, int(cpu_count_physical())))
+    return max(1, cfg)
+
+
 def _tiny_model_rerank(
     self,
     kept_specs: list[CompositeSpec],
@@ -309,16 +322,7 @@ def _tiny_model_rerank(
     # collapsed 0->1 BEFORE the sentinel check ran, making the auto-pick
     # branch unreachable. ``None`` (Pydantic-default-unset) still folds to
     # 1 (the historical default).
-    _rerank_raw = getattr(self.config, "tiny_rerank_n_jobs", 0)
-    _rerank_n_jobs_cfg = int(1 if _rerank_raw is None else _rerank_raw)
-    if _rerank_n_jobs_cfg == 0:
-        # Auto: cap at len(kept_specs) and at the PHYSICAL core count to avoid
-        # oversubscription (logical/SMT siblings don't help GIL-releasing booster
-        # threads and just add scheduler churn).
-        _cpu = cpu_count_physical()
-        _rerank_n_jobs = max(1, min(len(kept_specs), _cpu))
-    else:
-        _rerank_n_jobs = max(1, _rerank_n_jobs_cfg)
+    _rerank_n_jobs = _resolve_rerank_n_jobs(getattr(self.config, "tiny_rerank_n_jobs", 0), len(kept_specs))
     # Cap each inner LGBM/XGB to its fair share of cores when the OUTER rerank
     # runs N spec-workers in parallel (threading backend). Without this, N
     # workers x all-core boosters demand N*cpu threads on the dominant rerank

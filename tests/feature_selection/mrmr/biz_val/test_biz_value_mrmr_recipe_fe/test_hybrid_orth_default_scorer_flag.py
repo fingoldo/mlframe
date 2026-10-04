@@ -187,10 +187,13 @@ class TestInvalidValueRaises:
         # Use master OFF so we exercise only the validation, not the
         # dispatcher (some scorers e.g. ksg have heavyweight sklearn
         # imports we don't need to pay here).
+        assert MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS
         for scorer in MRMR._VALID_FE_HYBRID_ORTH_DEFAULT_SCORERS:
             m = _make_mrmr(fe_hybrid_orth_default_scorer=scorer)
-            # Should NOT raise. We don't care about the fit output here.
-            m.fit(X, y)
+            assert m.fit(X, y) is m
+            assert m.fe_hybrid_orth_default_scorer == scorer
+            names = set(m.get_feature_names_out())
+            assert {"x1", "x2"} <= names, f"scorer={scorer!r}: the linear signal columns x1, x2 must survive validation and fit; got {sorted(names)}"
 
 
 # ---------------------------------------------------------------------------

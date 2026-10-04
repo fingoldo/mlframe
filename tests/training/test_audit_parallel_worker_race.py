@@ -33,72 +33,104 @@
 
 from __future__ import annotations
 
-import pathlib
+import multiprocessing
 
-import mlframe as _mlframe
-
-_ROOT = pathlib.Path(_mlframe.__file__).resolve().parent
+import pytest
 
 
-def _read(rel: str) -> str:
-    """Read a source file under src/mlframe.
+def _child_try_init_lock(module_name, queue):
+    """Child process: import the module afresh and report whether its init lock can be taken without blocking."""
+    import importlib
 
-    2026-05-21 rfecv monolith split: RFECV.fit body moved to
-    ``_rfecv_fit.py``; concat so source-grep sensors for the relocated
-    Parallel-call pattern still match.
-    """
-    primary = (_ROOT / rel).read_text(encoding="utf-8")
-    if rel == "feature_selection/wrappers/rfecv/__init__.py":
-        _dir = _ROOT / "feature_selection" / "wrappers" / "rfecv"
-        # Concat every rfecv/ submodule so the source-grep sensor matches
-        # the relocated code regardless of which submodule owns it now.
-        for _sib_path in sorted(_dir.glob("*.py")):
-            if _sib_path.name != "__init__.py":
-                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
-    elif rel == "feature_selection/filters/feature_engineering.py":
-        # check_prospective_fe_pairs lives in the ``_feature_engineering_pairs``
-        # subpackage; concat every submodule so the source-grep sensor matches the
-        # relocated ``_TIMES_SPENT_LOCK`` declaration + locked ``times_spent[...] +=``
-        # regardless of which submodule owns each now.
-        sibling_pkg = _ROOT / "feature_selection" / "filters" / "_feature_engineering_pairs"
-        if sibling_pkg.is_dir():
-            for _sib_path in sorted(sibling_pkg.glob("*.py")):
-                primary = primary + "\n" + _sib_path.read_text(encoding="utf-8")
-        else:
-            sibling = _ROOT / "feature_selection" / "filters" / "_feature_engineering_pairs.py"
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    return primary
+    lock = importlib.import_module(module_name)._KERNEL_INIT_LOCK
+    acquired = lock.acquire(block=False)
+    if acquired:
+        lock.release()
+    queue.put(acquired)
+
+
+def _init_lock_is_private_to_each_process(module_name):
+    """True when a spawned child can take its own copy of the module's init lock while the parent holds the parent's."""
+    import importlib
+
+    module = importlib.import_module(module_name)
+    ctx = multiprocessing.get_context("spawn")
+    queue = ctx.Queue()
+    assert module._KERNEL_INIT_LOCK.acquire(timeout=30)
+    try:
+        proc = ctx.Process(target=_child_try_init_lock, args=(module_name, queue))
+        proc.start()
+        child_acquired = queue.get(timeout=420)
+        proc.join(timeout=60)
+    finally:
+        module._KERNEL_INIT_LOCK.release()
+    return bool(child_acquired)
 
 
 # ---- #1 times_spent lock ------------------------------------------------
 
 
 def test_feature_engineering_times_spent_lock_added():
-    """Feature engineering times spent lock added."""
-    src = _read("feature_selection/filters/feature_engineering.py")
-    assert (
-        "_TIMES_SPENT_LOCK = threading.Lock()" in src
-    ), "Wave 27 P1 regression: _TIMES_SPENT_LOCK module-level lock removed; times_spent[k] += ... races silently between threading workers."
-    assert "with _TIMES_SPENT_LOCK:" in src
-    # The shared-dict increment MUST be guarded by the lock. Assert STRUCTURALLY
-    # (tolerant of variable renames / indent / the batched-per-pair merge form)
-    # that a ``times_spent[...] +=`` sits inside a ``with _TIMES_SPENT_LOCK:``
-    # block, rather than pinning an exact variable name + indent: the increment
-    # was legitimately renamed (``bin_func_name`` -> ``_bf``) and batched into one
-    # locked merge per pair (fewer lock acquisitions, still race-safe). This fails
-    # iff the lock no longer guards the increment (the actual regression to catch).
-    import re
+    """Every per-pair merge into the shared ``times_spent`` dict happens while ``_TIMES_SPENT_LOCK`` is held, and no increment is lost across threads."""
+    import threading
+    from collections import defaultdict
 
-    locked_increment = re.search(
-        r"with _TIMES_SPENT_LOCK:(?:\n[ \t]+[^\n]*)*?\n[ \t]+times_spent\[[^\]]+\]\s*\+=",
-        src,
-    )
-    assert locked_increment is not None, (
-        "Wave 27 P1 regression: no ``times_spent[...] +=`` found under a "
-        "``with _TIMES_SPENT_LOCK:`` block -- the lock guarding the shared "
-        "timing dict was removed or the increment moved outside it."
-    )
+    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_score_helpers as helpers
+
+    real_lock = threading.Lock()
+
+    class _SpyLock:
+        """Lock that records which thread holds it and how often it was taken."""
+
+        def __init__(self):
+            self.holder = None
+            self.acquisitions = 0
+
+        def __enter__(self):
+            real_lock.acquire()
+            self.holder = threading.get_ident()
+            self.acquisitions += 1
+            return self
+
+        def __exit__(self, *exc):
+            self.holder = None
+            real_lock.release()
+
+    spy = _SpyLock()
+    unlocked_writes = []
+
+    class _GuardedTimes(defaultdict):
+        """defaultdict that records every write made while the spy lock is not held by the writing thread."""
+
+        def __setitem__(self, key, value):
+            if spy.holder != threading.get_ident():
+                unlocked_writes.append(key)
+            super().__setitem__(key, value)
+
+    times_spent = _GuardedTimes(float)
+    original = helpers._TIMES_SPENT_LOCK
+    helpers._TIMES_SPENT_LOCK = spy
+    try:
+        n_threads, n_calls = 16, 500
+
+        def _worker():
+            """Merge a thread-local timing dict into the shared dict, as one pair worker does."""
+            for _ in range(n_calls):
+                helpers._score_one_pair_iteration_serialization_point_under({"bf_a": 1.0, "bf_b": 2.0}, times_spent)
+
+        threads = [threading.Thread(target=_worker) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        helpers._TIMES_SPENT_LOCK = original
+
+    assert unlocked_writes == []
+    assert spy.acquisitions == n_threads * n_calls
+    assert times_spent["bf_a"] == float(n_threads * n_calls)
+    assert times_spent["bf_b"] == 2.0 * n_threads * n_calls
+    assert helpers._TIMES_SPENT_LOCK is original
 
 
 def test_feature_engineering_times_spent_lock_behaves_threadsafe():
@@ -135,38 +167,35 @@ def test_feature_engineering_times_spent_lock_behaves_threadsafe():
 # ---- #2 _KERNEL_INIT_LOCK doc honesty -----------------------------------
 
 
+@pytest.mark.timeout(900)
 def test_gpu_kernel_init_lock_doc_no_longer_claims_cross_process():
-    """Gpu kernel init lock doc no longer claims cross process."""
-    src = _read("feature_selection/filters/gpu.py")
-    # Pre-fix claim must be gone:
-    assert "Cross-process safe lock. Constructed on first import" not in src, (
-        "Wave 27 P2 regression: gpu.py reverted to misleading "
-        "'Cross-process safe' claim on a multiprocessing.Lock that "
-        "is actually intra-process-only under Windows spawn."
-    )
-    # Post-fix honest documentation:
-    assert "is FALSE on Windows ``spawn``" in src or "is FALSE on Windows" in src
+    """The filters GPU init lock is intra-process only: under spawn a child process holds its own lock, so it is not taken while the parent holds its copy."""
+    assert _init_lock_is_private_to_each_process("mlframe.feature_selection.filters.gpu") is True
 
 
+@pytest.mark.timeout(900)
 def test_cupy_kernel_init_lock_doc_honest():
-    """Cupy kernel init lock doc honest."""
-    src = _read("feature_engineering/transformer/_kernels_cupy.py")
-    assert "Cross-process safe lock (Windows spawn workers)." not in src
-    # Post-fix marker:
-    assert "intra-process lock" in src
+    """The transformer cupy init lock is intra-process only: under spawn a child process holds its own lock, so it is not taken while the parent holds its copy."""
+    assert _init_lock_is_private_to_each_process("mlframe.feature_engineering.transformer._kernels_cupy") is True
 
 
 # ---- #3 _rfecv require=sharedmem ---------------------------------------
 
 
 def test_rfecv_parallel_requires_sharedmem():
-    """Rfecv parallel requires sharedmem."""
-    src = _read("feature_selection/wrappers/rfecv/__init__.py")
-    # Pre-fix bare ``prefer='threads'`` without require must be gone:
-    assert 'Parallel(n_jobs=n_jobs_effective, prefer="threads")(' not in src, (
-        "Wave 27 P2 regression: _rfecv Parallel call reverted to "
-        "prefer='threads'-only; an outer loky parallel_backend would "
-        "silently break the closure-mutation pattern."
-    )
-    # Post-fix marker:
-    assert 'prefer="threads", require="sharedmem"' in src
+    """Folds run under an outer loky backend still mutate the caller's closure state, because the fold dispatch demands shared memory."""
+    import joblib
+
+    from mlframe.feature_selection.wrappers.rfecv._fit_outer_loop import _run_folds_parallel
+
+    seen = []
+
+    def _fold_runner(fold_idx):
+        """Record the fold in closure state, as the real fold runner does with its score lists."""
+        seen.append(fold_idx)
+
+    fold_args = [(i,) for i in range(6)]
+    with joblib.parallel_backend("loky", n_jobs=2):
+        _run_folds_parallel(2, fold_args, _fold_runner, 0)
+
+    assert sorted(seen) == list(range(6))

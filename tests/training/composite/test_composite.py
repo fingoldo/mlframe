@@ -210,6 +210,8 @@ class TestHypothesisRoundTrip:
         from hypothesis.extra.numpy import arrays
         from hypothesis import strategies as st
 
+        checked: list[int] = []
+
         @given(
             y=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False)),
             base=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False)),
@@ -222,14 +224,18 @@ class TestHypothesisRoundTrip:
             T = t.forward(y, base, p)
             y_back = t.inverse(T, base, p)
             np.testing.assert_allclose(y, y_back, rtol=1e-10, atol=1e-8)
+            checked.append(1)
 
         _check()
+        assert len(checked) >= 10
 
     def test_ratio_property(self) -> None:
         """Ratio property."""
         from hypothesis import given, settings
         from hypothesis.extra.numpy import arrays
         from hypothesis import strategies as st
+
+        checked: list[int] = []
 
         @given(
             y=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e3, max_value=1e3, allow_nan=False, allow_infinity=False)),
@@ -243,14 +249,18 @@ class TestHypothesisRoundTrip:
             T = t.forward(y, base, p)
             y_back = t.inverse(T, base, p)
             np.testing.assert_allclose(y, y_back, rtol=1e-9, atol=1e-9)
+            checked.append(1)
 
         _check()
+        assert len(checked) >= 10
 
     def test_linear_residual_property(self) -> None:
         """Linear residual property."""
         from hypothesis import given, settings, assume
         from hypothesis.extra.numpy import arrays
         from hypothesis import strategies as st
+
+        checked: list[int] = []
 
         @given(
             y=arrays(dtype=np.float64, shape=(50,), elements=st.floats(min_value=-1e4, max_value=1e4, allow_nan=False, allow_infinity=False)),
@@ -265,8 +275,10 @@ class TestHypothesisRoundTrip:
             T = t.forward(y, base, p)
             y_back = t.inverse(T, base, p)
             np.testing.assert_allclose(y, y_back, rtol=1e-7, atol=1e-7)
+            checked.append(1)
 
         _check()
+        assert len(checked) >= 10
 
 
 # ----------------------------------------------------------------------

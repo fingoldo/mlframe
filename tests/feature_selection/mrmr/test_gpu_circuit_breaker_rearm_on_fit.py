@@ -21,6 +21,7 @@ from mlframe.feature_selection.filters.info_theory import _cmi_cuda
 from mlframe.feature_selection.filters import permutation as _permutation_mod
 from mlframe.feature_selection.filters import _permutation_null_pair_resident as _pair_resident_mod
 from mlframe.feature_selection.filters.mrmr import MRMR
+from mlframe.feature_selection.filters.mrmr import _mrmr_class_fit_helpers as _fit_helpers_mod
 
 
 @pytest.fixture(autouse=True)
@@ -69,14 +70,20 @@ def test_breaker_reset_is_resilient_to_missing_gpu_modules(monkeypatch):
     """If a GPU submodule import itself fails (e.g. cupy uninstalled), fit() must not raise -- the
     re-arm is a best-effort resilience nicety, never a hard fit() dependency."""
 
+    calls = []
+
     def _boom():
         """Helper that boom."""
+        calls.append(1)
         raise ImportError("simulated missing GPU module")
 
     # Patch the re-arm targets' own reset functions to raise, proving fit() swallows the failure.
-    monkeypatch.setattr(_cmi_cuda, "reset_cmi_gpu_circuit_breaker", _boom)
+    monkeypatch.setattr(_fit_helpers_mod, "reset_cmi_gpu_circuit_breaker", _boom)
     X, y = _make_data(seed=4)
-    MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)  # must not raise
+    m = MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)
+    assert len(calls) >= 1, "fit() never reached the failing re-arm hook"
+    assert m.n_features_in_ == X.shape[1]
+    assert len(m.support_) >= 1
 
 
 if __name__ == "__main__":

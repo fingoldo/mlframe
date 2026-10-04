@@ -42,6 +42,9 @@ def test_biz_val_cv_informativeness_flags_uninformative_groups():
 
     result = cv_informativeness_check(X, y, _make_group_splits(group_ids), model_factory=lambda: LinearRegression(), metric_fn=_neg_rmse, maximize=True)
     assert result["informative"] is False, result
+    assert len(result["fold_results"]) == n_groups
+    assert result["fraction_folds_informative"] == 0.0
+    assert all(r["real_score"] < r["dummy_score"] for r in result["fold_results"])
 
 
 def test_biz_val_cv_informativeness_confirms_informative_groups():

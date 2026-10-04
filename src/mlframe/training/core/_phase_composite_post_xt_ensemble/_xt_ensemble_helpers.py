@@ -321,6 +321,16 @@ def _build_cross_target_rather_than_each_fallback(filtered_train_idx, _ens_y_arr
     return _ens_train_envelope
 
 
+def _ct_ensemble_split_plan(reporting_config, val_idx, val_df, test_idx, test_df) -> list:
+    """The (split name, report title, row index, frame) entries the CT_ENSEMBLE report covers; a split the operator switched off is left out."""
+    plan = []
+    if bool(getattr(reporting_config, "compute_valset_metrics", True)):
+        plan.append(("val", "VAL (CT_ENSEMBLE) ", val_idx, val_df))
+    if bool(getattr(reporting_config, "compute_testset_metrics", True)):
+        plan.append(("test", "TEST (CT_ENSEMBLE) ", test_idx, test_df))
+    return plan
+
+
 def _build_cross_target_split_name_report_title(_split_plan, _ens_y_arr, _ensemble, _ce_strategy, metadata, _tt_e, _orig_tname, _ens_common, plot_file, report_model_perf):
     """Block of _build_cross_target_ensemble_for_target starting at ``for _split_name, _report_title, _split_idx, _split_df in _split_plan:``."""
     for _split_name, _report_title, _split_idx, _split_df in _split_plan:

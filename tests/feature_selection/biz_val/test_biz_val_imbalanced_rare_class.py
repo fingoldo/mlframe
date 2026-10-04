@@ -51,6 +51,7 @@ import io
 
 import numpy as np
 import pytest
+from tests._known_gap import known_gap
 
 sys.path.insert(0, os.path.dirname(__file__))
 from tests.feature_selection._biz_val_synth import make_imbalanced, as_df
@@ -220,19 +221,17 @@ def test_biz_val_rfecv_recovers_signal_under_imbalance(rate):
     assert min(recs) >= 3, f"RFECV lost signal at rate={rate}: recov={recs}"
 
 
-@pytest.mark.xfail(
-    reason="FS GAP: RFECV does not prune noise columns under severe imbalance -- "
-    "at a 1% positive rate it selects 6-11 of 11 columns (8 are pure noise); "
-    "the rare-class CV score barely separates signal from noise so the "
-    "backward elimination cannot shrink the set. Measured nsel=[6,6,11].",
-)
 def test_biz_val_rfecv_prunes_noise_at_severe_imbalance():
     """ASPIRATIONAL: RFECV should drop the 8 noise columns and keep a compact
     set (<=5) at a 1% positive rate. It does not -- the median selection still
     carries most of the noise. Pinned as an explicit GAP, not weakened."""
     recs, nsels = _majority_recovery(_make_rfecv, 0.01, 4000, (0, 1, 2))
     print(f"RFECV prune@1pct recov={recs} nsel={nsels}")
-    assert _median(nsels) <= 5, f"RFECV did not prune noise under 1% imbalance: median nsel={_median(nsels)}"
+    known_gap(
+        "FS GAP: RFECV does not prune noise columns under severe imbalance -- at a 1% positive rate it selects 6-11 of 11 columns (8 are pure noise); "
+        f"the rare-class CV score barely separates signal from noise so the backward elimination cannot shrink the set (nsel={nsels}).",
+        gap_closed=_median(nsels) <= 5,
+    )
 
 
 @pytest.mark.slow

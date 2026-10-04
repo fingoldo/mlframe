@@ -17,6 +17,8 @@ These tests pin the contract that:
 
 from __future__ import annotations
 
+import copy
+
 import numpy as np
 import pandas as pd
 
@@ -287,7 +289,7 @@ class TestRecoverComposeYScaleMetrics:
 
         problem = _build_problem()
         models, metadata, _, train_idx, val_idx = _skipped_then_recovered_run(problem)
-        first_metrics = metadata["composite_target_y_scale_metrics"]["regression"]["y-linres-base"][0]["metrics"]
+        first_metrics = copy.deepcopy(metadata["composite_target_y_scale_metrics"]["regression"]["y-linres-base"][0]["metrics"])
 
         # Call again on the same wrapped models; must not double-wrap or change the numbers.
         recover_composite_y_scale_metrics(
@@ -307,14 +309,14 @@ class TestRecoverComposeYScaleMetrics:
         second_metrics = metadata["composite_target_y_scale_metrics"]["regression"]["y-linres-base"][0]["metrics"]
         # The metric numbers must match to within floating-point precision.
         for split in ("train", "val"):
-            if split in first_metrics and split in second_metrics:
-                for metric in ("RMSE", "MAE", "R2"):
-                    if metric in first_metrics[split]:
-                        assert np.isclose(
-                            first_metrics[split][metric],
-                            second_metrics[split][metric],
-                            equal_nan=True,
-                        ), f"second recovery diverged on {split}/{metric}: first={first_metrics[split][metric]}, second={second_metrics[split][metric]}"
+            assert split in first_metrics and split in second_metrics, split
+            for metric in ("RMSE", "MAE", "R2"):
+                assert metric in first_metrics[split] and metric in second_metrics[split], (split, metric)
+                assert np.isclose(
+                    first_metrics[split][metric],
+                    second_metrics[split][metric],
+                    equal_nan=True,
+                ), f"second recovery diverged on {split}/{metric}: first={first_metrics[split][metric]}, second={second_metrics[split][metric]}"
 
 
 class TestRecoveryBizValueMatchesEager:

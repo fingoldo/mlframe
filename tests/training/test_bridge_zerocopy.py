@@ -16,16 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import polars as pl
-from pathlib import Path
-
-
-def _module_source(mod) -> str:
-    """Read a module's source via ``Path.read_text`` rather than
-    ``inspect.getsource``. The latter is forbidden in tests per the
-    ``feedback_behavioral_tests`` rule (meta-test
-    ``tests/test_meta/test_no_inspect_getsource.py``). File-based
-    read achieves the same source-grep without importing inspect."""
-    return Path(mod.__file__).read_text(encoding="utf-8")
+import pytest
 
 
 from mlframe.training.utils import get_pandas_view_of_polars_df
@@ -48,25 +39,36 @@ def _mixed_polars_frame_for_dtype_check(n=64):
     )
 
 
-def test_f1_main_train_suite_leaderboard_path_routes_polars_through_bridge():
-    """Source-level sensor: the polars leaderboard branch must call the Arrow bridge, not a pd.DataFrame() / CSV round-trip that would silently densify all dtypes.
+def test_f1_main_train_suite_leaderboard_path_routes_polars_through_bridge(tmp_path, monkeypatch):
+    """The leaderboard CSV export converts a polars leaderboard through the Arrow bridge and writes every row under the target_type/target_name columns."""
+    from types import SimpleNamespace
 
-    ``_main_train_suite.py`` was carved into themed siblings; the
-    leaderboard / VOTENRANK aggregation phase moved to
-    ``_main_train_suite_phases.py``. Concat parent + sibling so the
-    source-grep guard survives the split.
-    """
-    from mlframe.training.core import _main_train_suite as mts
+    from mlframe.training import utils as training_utils
+    from mlframe.training.core._main_train_suite_phases import export_votenrank_leaderboards
 
-    src = _module_source(mts)
-    sib = Path(mts.__file__).parent / "_main_train_suite_phases.py"
-    if sib.exists():
-        src += "\n" + sib.read_text(encoding="utf-8")
-    # CSV round-trip is the old pl -> bytes -> pd.read_csv path; it densified every column to whatever pd.read_csv inferred (typically string for datetimes / categoricals).
-    assert (
-        "pl.DataFrame, _pd.DataFrame)" not in src or "get_pandas_view_of_polars_df" in src
-    ), "the leaderboard polars branch must route through get_pandas_view_of_polars_df"
-    assert "get_pandas_view_of_polars_df" in src, "F1 regression: leaderboard polars branch no longer routes through the Arrow split-blocks bridge"
+    seen = []
+    real_bridge = training_utils.get_pandas_view_of_polars_df
+
+    def spy(frame, *args, **kwargs):
+        """Record the polars frame handed to the bridge, then delegate."""
+        seen.append(frame)
+        return real_bridge(frame, *args, **kwargs)
+
+    monkeypatch.setattr(training_utils, "get_pandas_view_of_polars_df", spy)
+    leaderboard = pl.DataFrame({"model": ["cb", "lgb", "xgb"], "rank": [1, 2, 3]})
+    ctx = SimpleNamespace(ensembles={"binary": {"tgt": {"_leaderboard": leaderboard}}}, metadata={})
+
+    export_votenrank_leaderboards(ctx, str(tmp_path), 0)
+
+    assert len(seen) == 1
+    assert seen[0] is leaderboard
+    assert ctx.metadata["votenrank_leaderboard"]["binary"]["tgt"] is leaderboard
+    out = pd.read_csv(tmp_path / ".leaderboard.csv")
+    assert list(out.columns) == ["target_type", "target_name", "model", "rank"]
+    assert out["model"].tolist() == ["cb", "lgb", "xgb"]
+    assert out["rank"].tolist() == [1, 2, 3]
+    assert (out["target_type"] == "binary").all()
+    assert (out["target_name"] == "tgt").all()
 
 
 def test_f15_extractors_head_tail_preserves_enum_dtype_through_bridge():
@@ -78,31 +80,32 @@ def test_f15_extractors_head_tail_preserves_enum_dtype_through_bridge():
     )
 
 
-def test_f15_extractors_module_source_routes_head_tail_via_bridge():
-    """Module-level source check: extractors must not call ``head.to_pandas()`` / ``tail.to_pandas()`` bare; both head and tail polars-branch must go through ``get_pandas_view_of_polars_df``.
+def test_f15_extractors_module_source_routes_head_tail_via_bridge(monkeypatch, capsys):
+    """The showcase display path hands Jupyter a head and a tail whose pl.Enum column kept its pandas CategoricalDtype, not object."""
+    import IPython.display as ipy_display
 
-    ``extractors.py`` was carved into themed siblings
-    (``_extractors_showcase.py`` for the head/tail show-distribution path,
-    plus ``_extractors_simple.py`` / ``_extractors_dtype_helpers.py``).
-    Concat parent + every relevant sibling so source-grep guards survive
-    the split.
-    """
-    from mlframe.training import extractors
+    from mlframe.training.extractors import _extractors_showcase as showcase
 
-    src = _module_source(extractors)
-    _dir = Path(extractors.__file__).parent
-    for sib_name in (
-        "_extractors_showcase.py",
-        "_extractors_simple.py",
-        "_extractors_dtype_helpers.py",
-    ):
-        sib = _dir / sib_name
-        if sib.exists():
-            src += "\n" + sib.read_text(encoding="utf-8")
-    assert "head = head.to_pandas()" not in src, "F15 regression: extractors head path back to bare .to_pandas()"
-    assert "tail = tail.to_pandas()" not in src, "F15 regression: extractors tail path back to bare .to_pandas()"
-    # 1 import at top + at least 2 call-sites (head, tail) on the show-distribution path.
-    assert src.count("get_pandas_view_of_polars_df") >= 3, "expected both head + tail polars branches to route through the bridge"
+    shown = []
+    monkeypatch.setattr(showcase, "is_jupyter_notebook", lambda: True)
+    monkeypatch.setattr(ipy_display, "display", lambda obj, *a, **k: shown.append(obj))
+    pl_df = pl.DataFrame(
+        {
+            "f_float": np.arange(12, dtype=np.float32),
+            "f_enum": pl.Series(["x", "y", "z"] * 4).cast(pl.Enum(["x", "y", "z"])),
+        }
+    )
+
+    showcase.showcase_features_and_targets(pl_df, {})
+
+    frames = [obj for obj in shown if isinstance(obj, pd.DataFrame)]
+    assert len(frames) == 2
+    head, tail = frames
+    assert isinstance(head["f_enum"].dtype, pd.CategoricalDtype)
+    assert isinstance(tail["f_enum"].dtype, pd.CategoricalDtype)
+    assert head["f_enum"].astype(str).tolist() == ["x", "y", "z", "x", "y"]
+    assert tail["f_enum"].astype(str).tolist() == ["y", "z", "x", "y", "z"]
+    assert tail["f_float"].tolist() == [7.0, 8.0, 9.0, 10.0, 11.0]
 
 
 # ---------------------------------------------------------------------------
@@ -110,14 +113,30 @@ def test_f15_extractors_module_source_routes_head_tail_via_bridge():
 # ---------------------------------------------------------------------------
 
 
-def test_f3_pipeline_helpers_ndarray_branch_uses_bridge_for_held():
-    """F3 pipeline helpers ndarray branch uses bridge for held."""
-    from mlframe.training.pipeline import _pipeline_helpers as ph
+def _passthrough_frames():
+    """A polars passthrough frame holding a pl.Enum column, and the reduced polars frame the transformer saw."""
+    held = pl.DataFrame({"f_enum": pl.Series(["x", "y", "z", "x"]).cast(pl.Enum(["x", "y", "z"]))})
+    reduced = pl.DataFrame({"a": np.arange(4, dtype=np.float64), "b": np.arange(4, dtype=np.float64) * 2.0})
+    return held, reduced
 
-    src = _module_source(ph)
-    # The pre-fix shape was ``held_pd = held.to_pandas() if is_polars else held``; the fix routes is_polars=True through the bridge.
-    assert "held_pd = held.to_pandas() if is_polars else held" not in src, "F3 regression: ndarray-output branch reverted to bare held.to_pandas()"
-    assert src.count("get_pandas_view_of_polars_df") >= 2, "expected BOTH DataFrame-output and ndarray-output passthrough branches to route through the bridge"
+
+@pytest.mark.parametrize("output_kind", ["ndarray", "dataframe"])
+def test_f3_pipeline_helpers_ndarray_branch_uses_bridge_for_held(output_kind):
+    """Rejoining polars passthrough columns to a transformer's pandas or ndarray output keeps the pl.Enum column categorical and the values row-aligned."""
+    from mlframe.training.pipeline._pipeline_helpers import _reattach_passthrough_to_frame
+
+    held, reduced = _passthrough_frames()
+    if output_kind == "ndarray":
+        out = np.column_stack([np.arange(4, dtype=np.float64), np.arange(4, dtype=np.float64) * 2.0])
+    else:
+        out = pd.DataFrame({"a": np.arange(4, dtype=np.float64), "b": np.arange(4, dtype=np.float64) * 2.0})
+
+    result = _reattach_passthrough_to_frame(out, ["f_enum"], held, True, reduced)
+
+    assert list(result.columns) == ["a", "b", "f_enum"]
+    assert isinstance(result["f_enum"].dtype, pd.CategoricalDtype)
+    assert result["f_enum"].astype(str).tolist() == ["x", "y", "z", "x"]
+    assert result["b"].tolist() == [0.0, 2.0, 4.0, 6.0]
 
 
 # ---------------------------------------------------------------------------
@@ -125,27 +144,52 @@ def test_f3_pipeline_helpers_ndarray_branch_uses_bridge_for_held():
 # ---------------------------------------------------------------------------
 
 
-def test_f4_predict_main_uses_dict_of_numpy_not_from_pandas():
-    """pl.from_pandas(df[cols]) consolidates pandas blocks; building polars columns via per-column to_numpy() views skips that copy. Bench shows 15x speedup on 100k x 30 mixed dtypes; this sensor pins the source pattern so a future refactor cannot silently revert."""
+def test_f4_predict_main_uses_dict_of_numpy_not_from_pandas(monkeypatch):
+    """The predict back-merge hstacks the extension columns onto the polars-pre frame without ``pl.from_pandas``, which would pay a pandas block consolidation copy."""
     from mlframe.training.core import _predict_main_from_models as pm
 
-    src = _module_source(pm)
-    # Old form: pl.from_pandas(df[_ext_new_cols]) — the back-merge hot path.
-    assert "pl.from_pandas(df[_ext_new_cols])" not in src, "F4 regression: predict back-merge reverted to pl.from_pandas (pays pandas block consolidation copy)"
-    assert (
-        "pl.DataFrame({c: df[c].to_numpy() for c in _ext_new_cols})" in src
-    ), "F4 regression: expected pl.DataFrame({c: df[c].to_numpy() ...}) dict-of-numpy back-merge"
+    def forbidden(*args, **kwargs):
+        """Fail the call: the back-merge must build polars columns from per-column numpy views."""
+        raise AssertionError("pl.from_pandas used on the predict back-merge")
+
+    monkeypatch.setattr(pm.pl, "from_pandas", forbidden)
+    df_pre = pl.DataFrame({"raw": np.arange(6, dtype=np.float64)})
+    df_post = pd.DataFrame({"raw": np.arange(6, dtype=np.float64), "ext_0": np.arange(6, dtype=np.float32) * 0.5, "ext_1": np.arange(6, dtype=np.int32)})
+
+    merged = pm._predict_from_model_dim_reducer_truncatedsvd(object(), df_post, df_pre)
+
+    assert isinstance(merged, pl.DataFrame)
+    assert merged.columns == ["raw", "ext_0", "ext_1"]
+    assert merged["ext_0"].to_list() == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5]
+    assert merged["ext_1"].to_list() == [0, 1, 2, 3, 4, 5]
+    assert merged["ext_0"].dtype == pl.Float32
 
 
-def test_f5_phase_helpers_fit_pipeline_uses_dict_of_numpy_not_from_pandas():
-    """F5 phase helpers fit pipeline uses dict of numpy not from pandas."""
+def test_f5_phase_helpers_fit_pipeline_uses_dict_of_numpy_not_from_pandas(monkeypatch):
+    """The fit-time train/val/test back-merge hstacks the extension columns onto each polars-pre split without ``pl.from_pandas``."""
     from mlframe.training.core import _phase_helpers_fit_pipeline as phfp
 
-    src = _module_source(phfp)
-    assert "pl.from_pandas(_new_df_pd)" not in src, "F5 regression: train/val/test back-merge reverted to pl.from_pandas (pays 3x the consolidation copy)"
-    assert (
-        "pl.DataFrame({c: _new_df_pd[c].to_numpy() for c in _new_df_pd.columns})" in src
-    ), "F5 regression: expected dict-of-numpy back-merge for polars-pre extension hstack"
+    def forbidden(*args, **kwargs):
+        """Fail the call: the back-merge must build polars columns from per-column numpy views."""
+        raise AssertionError("pl.from_pandas used on the fit back-merge")
+
+    monkeypatch.setattr(phfp.pl, "from_pandas", forbidden)
+    raw_cols = ["raw"]
+
+    def split(n, offset):
+        """One split as a (pandas post-extension, polars pre-extension) pair."""
+        base = np.arange(n, dtype=np.float64) + offset
+        pre = pl.DataFrame({"raw": base})
+        post = pd.DataFrame({"raw": base, "ext_0": base * 2.0})
+        return post, pre
+
+    (train_pd, train_pl), (val_pd, val_pl), (test_pd, test_pl) = split(6, 0), split(3, 100), split(4, 200)
+
+    test_out, train_out, val_out = phfp._phase_fit_pipeline_polars_native_fastpath_mrmr(train_pd, raw_cols, True, train_pl, val_pl, test_pl, val_pd, test_pd, 0)
+
+    for out, post in ((train_out, train_pd), (val_out, val_pd), (test_out, test_pd)):
+        assert out.columns == ["raw", "ext_0"]
+        assert out["ext_0"].to_list() == post["ext_0"].tolist()
 
 
 def test_f4_f5_dict_of_numpy_back_merge_behaviour_matches_from_pandas():
@@ -170,20 +214,27 @@ def test_f4_f5_dict_of_numpy_back_merge_behaviour_matches_from_pandas():
 # ---------------------------------------------------------------------------
 
 
-def test_f7_filter_to_numeric_uses_split_blocks_for_polars_input():
-    """F7 filter to numeric uses split blocks for polars input."""
-    from mlframe.training.pipeline import _pipeline_extensions as pe
+def test_f7_filter_to_numeric_uses_split_blocks_for_polars_input(monkeypatch):
+    """_filter_to_numeric converts a polars frame with ``split_blocks=True`` rather than a bare ``to_pandas()`` full consolidation copy."""
+    from mlframe.training.pipeline._pipeline_extensions import _filter_to_numeric
 
-    # Read the module source (Path.read_text, NOT inspect.getsource per
-    # ``feedback_behavioral_tests``) and grep for the contract anchors. The
-    # ``_filter_to_numeric`` function body is the only place ``split_blocks``
-    # appears in this module, so a substring check is sufficient.
-    src = _module_source(pe)
-    # Bare ``_df = _df.to_pandas()`` is the regressed shape; fixed shape uses split_blocks=True with a TypeError fallback for pre-0.20.4 polars.
-    assert (
-        "_df = _df.to_pandas()" not in src or "split_blocks=True" in src
-    ), "F7 regression: _filter_to_numeric reverted to bare _df.to_pandas() (full consolidation copy on wide frames)"
-    assert "split_blocks=True" in src, "F7 regression: expected split_blocks=True in _filter_to_numeric polars hop"
+    calls = []
+    real_to_pandas = pl.DataFrame.to_pandas
+
+    def spy(self, *args, **kwargs):
+        """Record the keyword arguments of each conversion, then delegate."""
+        calls.append(kwargs)
+        return real_to_pandas(self, *args, **kwargs)
+
+    monkeypatch.setattr(pl.DataFrame, "to_pandas", spy)
+    pl_df = pl.DataFrame({"f_float": np.arange(4, dtype=np.float32), "f_str": ["a", "b", "c", "d"]})
+
+    out, dropped = _filter_to_numeric(pl_df)
+
+    assert len(calls) == 1
+    assert calls[0].get("split_blocks") is True
+    assert list(out.columns) == ["f_float"]
+    assert dropped == ["f_str"]
 
 
 def test_f7_filter_to_numeric_accepts_polars_and_preserves_numeric_dtypes():

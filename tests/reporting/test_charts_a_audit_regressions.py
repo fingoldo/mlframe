@@ -103,8 +103,7 @@ class TestCalibrationDriftReadability:
     def test_windows_are_labelled_by_date_not_index(self):
         """ "w3" cannot be mapped back to a period, which is the whole question."""
         figure = build_calibration_drift_spec(self._result())
-        if len(figure.panels) < 2:
-            pytest.skip("reliability small-multiple not built for this fixture")
+        assert len(figure.panels) >= 2, "reliability small-multiple not built"
         labels = figure.panels[1][0].series_labels
         assert any("2024-" in lab for lab in labels)
         assert not any(lab.startswith("w") and lab[1:].isdigit() for lab in labels)

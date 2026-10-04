@@ -29,20 +29,26 @@ def test_metrics_core_facade_loc_budget():
 
 def test_metrics_core_re_exports_resolve():
     """All carved public symbols importable from the parent."""
-    from mlframe.metrics.core import (  # noqa: F401
-        numba_warmup,
-        prewarm_numba_cache,
-        cb_logits_to_probs_binary,
-        cb_logits_to_probs_multiclass,
-        fast_roc_auc,
-        fast_aucs,
-        fast_brier_score_loss,
-        brier_and_precision_score,
-        make_brier_precision_scorer,
-        fast_precision,
-        fast_classification_report,
-        maximum_absolute_percentage_error,
+    import mlframe.metrics.core as core
+
+    names = (
+        "numba_warmup",
+        "prewarm_numba_cache",
+        "cb_logits_to_probs_binary",
+        "cb_logits_to_probs_multiclass",
+        "fast_roc_auc",
+        "fast_aucs",
+        "fast_brier_score_loss",
+        "brier_and_precision_score",
+        "make_brier_precision_scorer",
+        "fast_precision",
+        "fast_classification_report",
+        "maximum_absolute_percentage_error",
     )
+    for name in names:
+        obj = getattr(core, name)
+        assert callable(obj), name
+        assert obj.__module__.startswith("mlframe.metrics"), (name, obj.__module__)
 
 
 def test_metrics_core_identity_warmup():
@@ -143,12 +149,13 @@ def test_metrics_core_smoke_mape():
 
 def test_metrics_core_external_consumers_still_resolve():
     """Names imported by training.helpers / RFECV / ICE consumers must keep working."""
-    from mlframe.metrics.core import (  # noqa: F401
-        compute_probabilistic_multiclass_error,
-        robust_mlperf_metric,
-        ICE,
-        create_fairness_subgroups,
-    )
+    import mlframe.metrics.core as core
+
+    names = ("compute_probabilistic_multiclass_error", "robust_mlperf_metric", "ICE", "create_fairness_subgroups")
+    for name in names:
+        obj = getattr(core, name)
+        assert callable(obj), name
+        assert obj.__module__.startswith("mlframe.metrics"), (name, obj.__module__)
 
 
 def test_show_plots_unless_agg_resolves_from_the_public_metrics_package():

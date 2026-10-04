@@ -89,21 +89,24 @@ def test_multistart_beats_random(easy_problem):
     """Multistart beats random."""
     phi, base, y, truth = easy_problem
     top = H.multistart_local(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), n_starts=8, top_n=5)
-    _check(top, phi, base, y, truth)
+    assert _check(top, phi, base, y, truth) == truth
+    assert top[0][0] < 0.03
 
 
 def test_genetic_beats_random(easy_problem):
     """Genetic beats random."""
     phi, base, y, truth = easy_problem
     top = H.genetic(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), pop_size=30, n_generations=20, top_n=5)
-    _check(top, phi, base, y, truth)
+    assert _check(top, phi, base, y, truth) == truth
+    assert top[0][0] < 0.03
 
 
 def test_annealing_beats_random(easy_problem):
     """Annealing beats random."""
     phi, base, y, truth = easy_problem
     top = H.simulated_annealing(phi, base, y, classification=False, metric="rmse", rng=np.random.default_rng(0), n_iter=1500, top_n=5)
-    _check(top, phi, base, y, truth)
+    assert _check(top, phi, base, y, truth) == truth
+    assert top[0][0] < 0.03
 
 
 @pytest.mark.parametrize("metric", ["brier", "logloss", "mae", "rmse", "mse", "auc"])

@@ -29,77 +29,45 @@ updating the dispatcher.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
-
-
-def _read(rel: str) -> str:
-    """Read a source file under src/mlframe.
-
-    Monolith-split compat: when a parent was carved into themed sibling
-    files (``_extractors_showcase.py`` for the show_target_diagnostics
-    body, ``_pipeline_extensions.py`` for the ``_select_scalable_numeric_columns``
-    body), concat parent + siblings so source-grep sensors still match
-    after the splits.
-    """
-    _path = MLFRAME_ROOT / rel
-    if not _path.exists() and _path.suffix == ".py":
-        # Monolith-split compat: the flat module became a subpackage
-        # (``X.py`` -> ``X/__init__.py`` + submodules). Read __init__ + every submodule.
-        _pkg = _path.with_suffix("")
-        _init = _pkg / "__init__.py"
-        if _init.exists():
-            parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    parts.append(_sub.read_text(encoding="utf-8"))
-            src = "\n".join(parts)
-        else:
-            src = _path.read_text(encoding="utf-8")
-    else:
-        src = _path.read_text(encoding="utf-8")
-    if rel == "training/extractors.py":
-        for sib_name in (
-            "_extractors_showcase.py",
-            "_extractors_simple.py",
-            "_extractors_dtype_helpers.py",
-        ):
-            sib = MLFRAME_ROOT / "training" / sib_name
-            if sib.exists():
-                src += "\n" + sib.read_text(encoding="utf-8")
-    elif rel == "training/pipeline.py":
-        for sib_name in ("_pipeline_extensions.py", "_pipeline_fit_transform.py"):
-            sib = MLFRAME_ROOT / "training" / sib_name
-            if sib.exists():
-                src += "\n" + sib.read_text(encoding="utf-8")
-    return src
-
-
 # ---------------------------------------------------------------------------
-# Source-level sensors
+# Dispatcher fallthrough guards
 # ---------------------------------------------------------------------------
 
 
 def test_categorize_1d_array_rejects_unknown_method() -> None:
-    """Categorize 1d array rejects unknown method."""
-    src = _read("feature_selection/filters/discretization.py")
-    # The fix adds an explicit else: raise ValueError with the method name.
-    assert "categorize_1d_array: unknown method=" in src
-    assert "expected one of " in src
-    assert "'discretizer', 'numpy', 'astropy'" in src
+    """An unknown discretisation method is refused with a ValueError naming it and listing the supported ones."""
+    from mlframe.feature_selection.filters import discretization as disc_mod
+
+    vals = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    with pytest.raises(ValueError, match=r"categorize_1d_array: unknown method='banana'.*expected one of .*'discretizer', 'numpy', 'astropy'"):
+        disc_mod.categorize_1d_array(
+            vals=vals,
+            min_ncats=2,
+            method="banana",
+            astropy_sample_size=1000,
+            method_kwargs={"bins": 3},
+            dtype=np.int16,
+            nan_filler=0.0,
+        )
 
 
-def test_extractors_display_diagnostic_initialises_desc_data() -> None:
-    """Extractors display diagnostic initialises desc data."""
-    src = _read("training/extractors.py")
-    # The fix initialises desc_data = None before the isinstance dispatch
-    # and guards the display with `if desc_data is not None`.
-    assert "desc_data = None" in src
-    assert "if desc_data is not None:" in src
+def test_extractors_display_diagnostic_initialises_desc_data(capsys) -> None:
+    """A target of an unrecognised container type is skipped by the distribution display instead of raising NameError."""
+    from mlframe.training.configs import TargetTypes
+    from mlframe.training.extractors._extractors_showcase import _showcase_target_distributions
+
+    kind = TargetTypes.BINARY_CLASSIFICATION
+    _showcase_target_distributions({kind: {"t": [0, 1, 1, 0]}}, in_jupyter=False, random_seed=0, max_hist_samples=100)
+    unknown_out = capsys.readouterr().out
+    assert unknown_out.strip() == f"{kind} t"
+
+    _showcase_target_distributions({kind: {"t": np.array([0, 1, 1, 0])}}, in_jupyter=False, random_seed=0, max_hist_samples=100)
+    known_out = capsys.readouterr().out
+    assert known_out.startswith(f"{kind} t")
+    assert len(known_out.strip().splitlines()) > 1
 
 
 # ---------------------------------------------------------------------------
@@ -110,9 +78,6 @@ def test_extractors_display_diagnostic_initialises_desc_data() -> None:
 def test_categorize_1d_array_raises_typed_on_unknown_method() -> None:
     """An unknown method must raise ValueError, not UnboundLocalError."""
     from mlframe.feature_selection.filters import discretization as disc_mod
-
-    if "src" + "\\" + "mlframe" not in disc_mod.__file__ and "src/mlframe" not in disc_mod.__file__:
-        pytest.skip(f"discretization loaded from stale build path {disc_mod.__file__}")
 
     # min_ncats and bins chosen so we enter the nuniques > min_ncats branch.
     vals = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
@@ -132,9 +97,6 @@ def test_select_scalable_numeric_columns_raises_typed_on_unknown_method() -> Non
     """Select scalable numeric columns raises typed on unknown method."""
     pl = pytest.importorskip("polars")
     from mlframe.training import pipeline as pipe_mod
-
-    if "src" + "\\" + "mlframe" not in pipe_mod.__file__ and "src/mlframe" not in pipe_mod.__file__:
-        pytest.skip(f"pipeline loaded from stale build path {pipe_mod.__file__}")
 
     df = pl.DataFrame({"a": [1.0, 2.0, 3.0]})
     with pytest.raises(ValueError, match="unknown method='banana'"):

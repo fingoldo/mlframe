@@ -57,8 +57,8 @@ class TestEnsureXgbClassificationObjective:
     """_ensure_xgb_classification_objective."""
 
     def test_none_model_is_noop(self):
-        """model=None must not raise."""
-        _ensure_xgb_classification_objective(None, np.array([0, 1, 0]))
+        """model=None must not raise and returns None."""
+        assert _ensure_xgb_classification_objective(None, np.array([0, 1, 0])) is None
 
     def test_non_xgb_model_is_noop(self):
         """A non-XGB-classifier model's set_params is never called."""
@@ -97,14 +97,24 @@ class TestEnsureXgbClassificationObjective:
         class _BrokenGetParams:
             """A model whose get_params raises."""
 
+            def __init__(self):
+                """Start with no recorded calls."""
+                self.set_params_calls: list[dict] = []
+
             def get_params(self):
                 """Raise to simulate a broken estimator."""
                 raise RuntimeError("boom")
 
+            def set_params(self, **kwargs):
+                """Record a set_params call."""
+                self.set_params_calls.append(kwargs)
+
         # Class name must still match the XGB+Classifier dispatch gate to exercise the try/except.
         _BrokenGetParams.__name__ = "XGBClassifierBroken"
         model = _BrokenGetParams()
-        _ensure_xgb_classification_objective(model, np.array([0, 1, 2]))  # must not raise
+
+        assert _ensure_xgb_classification_objective(model, np.array([0, 1, 2])) is None
+        assert model.set_params_calls == []
 
 
 class TestMaybeWrapFor2dTarget:

@@ -390,12 +390,14 @@ class TestFitAndTransformPipeline:
             verbose=0,
         )
 
-        # Verify dtypes are float32 (or compatible)
-        if isinstance(train_transformed, pd.DataFrame):
-            # Check that numeric columns are float32
-            assert len(train_transformed.select_dtypes(include=[np.number]).columns) > 0
-            for col in train_transformed.select_dtypes(include=[np.number]).columns:
-                assert train_transformed[col].dtype == np.float32 or train_transformed[col].dtype == np.float64
+        assert isinstance(train_transformed, pd.DataFrame)
+        numeric_cols = list(train_transformed.select_dtypes(include=[np.number]).columns)
+        assert len(numeric_cols) > 0
+        numeric = train_transformed[numeric_cols].to_numpy(dtype=np.float64)
+        assert numeric.shape == (len(train_df), len(train_df.columns))
+        assert np.isfinite(numeric).all()
+        # ensure_float32 guarantees float32 convertability of the values; the sklearn branch keeps the frame dtype itself.
+        np.testing.assert_allclose(numeric.astype(np.float32), numeric, rtol=1e-6)
 
 
 class TestPrepareDfForCatboost:
@@ -575,9 +577,7 @@ class TestCreatePolardsPipeline:
         config = PreprocessingBackendConfig()
 
         with patch.dict("sys.modules", {"polars_ds": None, "polars_ds.pipeline": None}):
-            create_polarsds_pipeline(pl_df, config, verbose=0)
-            # Function returns None if polars-ds can't be imported
-            # This is expected behavior
+            assert create_polarsds_pipeline(pl_df, config, verbose=0) is None
 
     def test_basic_pipeline_creation(self, sample_polars_data):
         """Test basic pipeline creation with Polars DataFrame."""
@@ -688,11 +688,10 @@ class TestCreatePolardsPipeline:
             verbose=0,
         )
 
-        # Transform data
-        if pipeline is not None:
-            transformed = pipeline.transform(pl_df.select(feature_names))
-            assert len(transformed) == len(pl_df)
-            assert len(transformed.columns) == len(feature_names)
+        assert pipeline is not None
+        transformed = pipeline.transform(pl_df.select(feature_names))
+        assert len(transformed) == len(pl_df)
+        assert len(transformed.columns) == len(feature_names)
 
     def test_pipeline_with_no_scaling(self, sample_polars_data):
         """Test pipeline creation without scaling."""
@@ -750,7 +749,6 @@ class TestCreatePolardsPipeline:
             verbose=0,
         )
 
-        if pipeline is not None:
-            transformed = pipeline.transform(pl_df)
-            # int_col should be converted to float
-            assert transformed["int_col"].dtype in (pl.Float32, pl.Float64)
+        assert pipeline is not None
+        transformed = pipeline.transform(pl_df)
+        assert transformed["int_col"].dtype == pl.Float32

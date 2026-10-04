@@ -52,6 +52,9 @@ class TestTheCallersArraysAreLeftAlone:
         ensemble_probabilistic_predictions(*members)
         members[0][0, 0] = 0.5  # must not raise
         np.clip(members[1], 0.01, 0.99, out=members[1])
+        assert members[0][0, 0] == 0.5
+        assert members[1].min() >= 0.01
+        assert members[1].max() <= 0.99
 
     def test_repeated_calls_do_not_accumulate_frozen_arrays(self):
         """The freeze was applied per insert, so a loop over splits froze every set it ever saw."""

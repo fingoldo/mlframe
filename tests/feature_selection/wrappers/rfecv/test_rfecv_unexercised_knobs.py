@@ -143,15 +143,15 @@ def test_stability_top_k_monotonically_shrinks_selection():
     per-bootstrap top set, so fewer clear the frequency threshold -> a smaller, NESTED selection.
     Measured (n=800, 6 signal + 6 noise, B=40, threshold=0.6): top_k 1->0, 2->{x2}, 3->{x0,x2,x4},
     6->{x0..x5}; each smaller-top_k set is a subset of the next."""
-    _stability_top_k_body()
+    _assert_stability_top_k_body()
 
 
 def test_stability_top_k_fast():
     """MLFRAME_FAST representative: just the 2-vs-6 contrast so the cheap path stays covered."""
-    _stability_top_k_body(fast=True)
+    _assert_stability_top_k_body(fast=True)
 
 
-def _stability_top_k_body(fast: bool = False):
+def _assert_stability_top_k_body(fast: bool = False):
     """Stability top k body."""
     X, y, _ = make_signal_plus_noise(n=400 if fast else 800, p_signal=6, p_noise=6, seed=7)
     Xdf, ys = as_df(X, y)
@@ -196,15 +196,15 @@ def test_prescreen_fdr_level_strict_keeps_fewer_signal_survives():
     columns than a permissive level (0.5), and the true signal survives BOTH. Measured (n=600,
     3 signal + 12 noise): level 0.5 -> 4 selected; level 1e-6 -> 3 selected; all 3 signal cols
     present at both levels."""
-    _prescreen_fdr_body()
+    _assert_prescreen_fdr_body()
 
 
 def test_prescreen_fdr_level_fast():
     """MLFRAME_FAST representative for the prescreen-FDR contrast."""
-    _prescreen_fdr_body(fast=True)
+    _assert_prescreen_fdr_body(fast=True)
 
 
-def _prescreen_fdr_body(fast: bool = False):
+def _assert_prescreen_fdr_body(fast: bool = False):
     """Prescreen fdr body."""
     n = 400 if fast else 600
     X, y, sig = make_signal_plus_noise(n=n, p_signal=3, p_noise=12, seed=4)
@@ -239,15 +239,15 @@ def test_cpi_max_depth_changes_conditional_permutation_fi_vector():
     far more weakly than an unbounded (None) tree, so the FI vector changes between the two.
     Measured (n=500, 3 correlated + 3 noise, RF model): max |depth1 - depthN| ~ 0.068 over the
     per-feature CPI scores -- well above noise. Floor 0.015 (>=4x margin below the measured gap)."""
-    _cpi_depth_body()
+    _assert_cpi_depth_body()
 
 
 def test_cpi_max_depth_fast():
     """MLFRAME_FAST representative for the CPI depth contrast (smaller n, fewer repeats)."""
-    _cpi_depth_body(fast=True)
+    _assert_cpi_depth_body(fast=True)
 
 
-def _cpi_depth_body(fast: bool = False):
+def _assert_cpi_depth_body(fast: bool = False):
     """Cpi depth body."""
     from sklearn.ensemble import RandomForestClassifier
 

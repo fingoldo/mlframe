@@ -119,6 +119,38 @@ def apply_composite_kill_switch(config: Any) -> Any:
     logger.info("[CompositeTargetDiscovery] disabled by MLFRAME_DISABLE_COMPOSITE env var.")
     return config.model_copy(update={"enabled": False})
 
+
+def _clear_catboost_pool_caches() -> None:
+    """Drop the CatBoost train and val Pool caches (and their byte ledger) so a new suite never reuses a stale Pool."""
+    # Pool cache is keyed by id(df), and Python recycles object ids across independent suite
+    # invocations. Without this clear, suite N would see an id() collision against a Pool from
+    # suite N-1, fetch the stale Pool, and feed CatBoost stale binned data + stale labels.
+    # The cache is small and rebuilds cheaply, so per-suite reset is the safe default.
+    #
+    # the train-side _CB_POOL_CACHE lives in mlframe.training._cb_pool, NOT
+    # in trainer.py. The pre-fix import resolved trainer._CB_POOL_CACHE (a DEAD stub at
+    # trainer.py:217 that nothing else reads or writes), called .clear() on an empty dict,
+    # and silently succeeded WITHOUT clearing the live cache. The val-side _CB_VAL_POOL_CACHE
+    # is re-exported from _predict_guards via trainer.py:71 and its clear was correct.
+    try:
+        from mlframe.training.cb.shared import CB_POOL_CACHE as _CB_POOL_CACHE
+        from mlframe.training.cb import POOL_CACHE_LOCK, reset_cache_bytes
+        from mlframe.training.trainer import _CB_VAL_POOL_CACHE
+        with POOL_CACHE_LOCK:
+            _CB_POOL_CACHE.clear()
+            _CB_VAL_POOL_CACHE.clear()
+            reset_cache_bytes()
+    except (ImportError, AttributeError) as _cache_clear_err:
+        # Narrow: only the cases that mean "the cache module isn't importable / the symbol
+        # was renamed". Anything else (MemoryError, our own bug) should propagate so the
+        # stale-Pool risk doesn't silently re-emerge as before.
+        logger.warning(
+            "CB Pool cache clear skipped: %s: %s. id()-recycle across suite calls " "may now feed stale binned data to CatBoost; investigate.",
+            type(_cache_clear_err).__name__,
+            _cache_clear_err,
+        )
+
+
 def setup_configuration(
     *,
     preprocessing_config: Any,
@@ -386,32 +418,7 @@ def setup_configuration(
                 "/".join(_n for _n in ("set_label", "set_weight") if _n not in _missing) or "neither",
             )
 
-        # Pool cache is keyed by id(df), and Python recycles object ids across independent suite
-        # invocations. Without this clear, suite N would see an id() collision against a Pool from
-        # suite N-1, fetch the stale Pool, and feed CatBoost stale binned data + stale labels.
-        # The cache is small and rebuilds cheaply, so per-suite reset is the safe default.
-        #
-        # the train-side _CB_POOL_CACHE lives in mlframe.training._cb_pool, NOT
-        # in trainer.py. The pre-fix import resolved trainer._CB_POOL_CACHE (a DEAD stub at
-        # trainer.py:217 that nothing else reads or writes), called .clear() on an empty dict,
-        # and silently succeeded WITHOUT clearing the live cache. The val-side _CB_VAL_POOL_CACHE
-        # is re-exported from _predict_guards via trainer.py:71 and its clear was correct.
-        try:
-            from mlframe.training.cb.shared import CB_POOL_CACHE as _CB_POOL_CACHE
-            from mlframe.training.cb import reset_cache_bytes
-            from mlframe.training.trainer import _CB_VAL_POOL_CACHE
-            _CB_POOL_CACHE.clear()
-            _CB_VAL_POOL_CACHE.clear()  # unlocked-ok: suite setup, before any worker starts; nothing else touches the val-pool cache yet
-            reset_cache_bytes()
-        except (ImportError, AttributeError) as _cache_clear_err:
-            # Narrow: only the cases that mean "the cache module isn't importable / the symbol
-            # was renamed". Anything else (MemoryError, our own bug) should propagate so the
-            # stale-Pool risk doesn't silently re-emerge as before.
-            logger.warning(
-                "CB Pool cache clear skipped: %s: %s. id()-recycle across suite calls " "may now feed stale binned data to CatBoost; investigate.",
-                type(_cache_clear_err).__name__,
-                _cache_clear_err,
-            )
+        _clear_catboost_pool_caches()
 
         _mlframe_models_is_default_allowlist = mlframe_models is None
         if mlframe_models is None:

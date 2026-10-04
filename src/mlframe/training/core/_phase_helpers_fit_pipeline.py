@@ -619,6 +619,13 @@ def _phase_fit_pipeline_dt_cols(_dt_cols, feature_types_config, verbose, train_d
 def _phase_fit_pipeline_string_object_category_columns(_feature_types_first, was_polars_input, train_df, train_df_pandas_pre_meta):
     """Block of _phase_fit_pipeline starting at ``if _feature_types_first and (not was_polars_input) and isinstance(trai``."""
     if _feature_types_first and (not was_polars_input) and isinstance(train_df, pd.DataFrame):
+        # pandas allows duplicate column names; the prior {c: ...} comprehension silently collapsed dupes to one entry, so the downstream schema-hash would
+        # mis-flag a "matching" schema and drop auto-detect coverage for the duplicate columns. Refuse explicitly, outside the best-effort snapshot below.
+        _cols_list = list(train_df.columns)
+        if len(set(_cols_list)) != len(_cols_list):
+            from collections import Counter as _Counter
+            _dupes = [_c for _c, _n in _Counter(_cols_list).items() if _n > 1]
+            raise ValueError(f"train_df has {len(_dupes)} duplicate column name(s) " f"({_dupes[:5]}); deduplicate before fit() to keep schema-hash honest.")
         try:
             _text_cand_cols = [c for c in train_df.columns if train_df[c].dtype.kind in "OUSb" or isinstance(train_df[c].dtype, pd.CategoricalDtype)]
             _n_unique: dict[str, int] = {}
@@ -640,15 +647,6 @@ def _phase_fit_pipeline_string_object_category_columns(_feature_types_first, was
                         _first = None
                     if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
                         _embedding_object_cols.append(_c)
-            # pandas allows duplicate column names; the prior {c: ...} comprehension silently collapsed dupes to one entry, so the downstream schema-hash would
-            # mis-flag a "matching" schema and drop auto-detect coverage for the duplicate columns. Refuse explicitly.
-            _cols_list = list(train_df.columns)
-            if len(set(_cols_list)) != len(_cols_list):
-                from collections import Counter as _Counter
-                _dupes = [_c for _c, _n in _Counter(_cols_list).items() if _n > 1]
-                raise ValueError(
-                    f"train_df has {len(_dupes)} duplicate column name(s) " f"({_dupes[:5]}); deduplicate before fit() to keep schema-hash honest."
-                )
             # A pandas 'category' dtype's categories can hold ANY value type (bool/int/float), unlike polars
             # Categorical/Enum which are always string-backed. Flag columns whose categories aren't strings so
             # the consumer (_auto_detect_feature_types) never text-auto-promotes them -- CatBoost rejects a

@@ -15,18 +15,14 @@ from mlframe.training.configs import CompositeTargetDiscoveryConfig
 def test_default_does_not_fit_in_sample_stacker():
     """If the default cross-target ensemble strategy is a stacker, oof_holdout_frac must be nonzero or it fits on leaked in-sample predictions."""
     cfg = CompositeTargetDiscoveryConfig()
-    # Acceptable defenses: either the strategy isn't a stacker, or the
-    # stacker fits on a real honest holdout slice (>0).
-    is_stacker = cfg.cross_target_ensemble_strategy in {"linear_stack", "nnls_stack"}
-    if is_stacker:
-        assert cfg.oof_holdout_frac > 0.0, (
-            "Default cross_target_ensemble_strategy is a stacker "
-            f"({cfg.cross_target_ensemble_strategy!r}) but oof_holdout_frac=0.0; "
-            "this fits the stacker on in-sample component predictions (leak)."
-        )
-    else:
-        # Non-stacker default is also acceptable.
-        assert cfg.cross_target_ensemble_strategy in {"off", "mean", "oof_weighted"}
+    strategy = cfg.cross_target_ensemble_strategy
+    assert strategy in {"off", "mean", "oof_weighted", "linear_stack", "nnls_stack"}
+    # Acceptable defenses: either the strategy isn't a stacker, or the stacker fits on a real honest holdout slice (>0).
+    is_stacker = strategy in {"linear_stack", "nnls_stack"}
+    assert (not is_stacker) or cfg.oof_holdout_frac > 0.0, (
+        f"Default cross_target_ensemble_strategy is a stacker ({strategy!r}) but oof_holdout_frac=0.0; "
+        "this fits the stacker on in-sample component predictions (leak)."
+    )
 
 
 def test_oof_holdout_frac_default_value():

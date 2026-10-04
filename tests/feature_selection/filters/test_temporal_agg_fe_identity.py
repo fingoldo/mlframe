@@ -129,11 +129,8 @@ def test_expanding_replay_identity(stat, tol):
     df_test = _make(seed=2)
     ref = _reference_expanding_replay(df_test, extra)
     got = M.apply_temporal_expanding(df_test, extra)
-    if tol == 0.0:
-        np.testing.assert_array_equal(got, ref)
-    else:
-        md = float(np.max(np.abs(got - ref)))
-        assert md <= tol, f"{stat}: max abs diff {md} exceeds {tol}"
+    assert len(got) == len(df_test) > 0
+    np.testing.assert_allclose(got, ref, rtol=0.0, atol=tol, err_msg=f"{stat}: replay differs from the reference by more than {tol}")
 
 
 @pytest.mark.parametrize(

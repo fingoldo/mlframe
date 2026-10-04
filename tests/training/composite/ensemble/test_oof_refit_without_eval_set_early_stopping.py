@@ -41,7 +41,8 @@ def test_the_clone_trains_the_deployed_round_count():
     """With no eval data, the honest stand-in for early stopping is the round the deployed model stopped at."""
     model, _, _ = _early_stopped_model()
     best = _best_iteration_of(model)
-    assert best is not None and 0 < best < 500
+    assert best == model.best_iteration_
+    assert 0 < best < model.get_params()["n_estimators"]
     refit = clone(model)
     _disable_early_stopping(refit, model)
     params = refit.get_params()

@@ -124,20 +124,20 @@ def _fuzz3way_cleanup():
     gc.collect()
 
 
+def _combo_param(combo: FuzzCombo):
+    """Parameter set for one combo; a combo with a known gap carries a strict xfail so a fix that lands shows up as an unexpected pass."""
+    reason = xfail_reason(combo)
+    marks = [] if reason is None else [pytest.mark.xfail(reason=reason, strict=True)]
+    return pytest.param(combo, id=combo.pytest_id(), marks=marks)
+
+
 @pytest.mark.timeout(900)
-@pytest.mark.parametrize("combo", COMBOS_3WAY, ids=[c.pytest_id() for c in COMBOS_3WAY])
-def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
+@pytest.mark.parametrize("combo", [_combo_param(c) for c in COMBOS_3WAY])
+def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
     """Run the suite on one triple-coverage combo. Identical assertion
     contract to the pairwise suite — we're sampling a different region
     of the combo space, not using different checks."""
     _skip_if_deps_missing(combo.models)
-    reason = xfail_reason(combo)
-    if reason is not None:
-        # strict=True so an XPASS (combo now passes because the underlying fix landed) is a
-        # visible regression -- the developer must remove the rule from KNOWN_XFAIL_RULES.
-        # Pre-fix this was strict=False, which silently greened combos whether they passed or
-        # failed and lost track of fix landings.
-        request.node.add_marker(pytest.mark.xfail(reason=reason, strict=True))
 
     df, target_col, _ = build_frame_for_combo(combo)
     frame_cols_before = tuple(df.columns) if hasattr(df, "columns") else None
@@ -179,11 +179,9 @@ def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, reques
             feature_selection_config=FeatureSelectionConfig(custom_pre_pipelines=custom_pre or {}, mrmr=({'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3} if combo.use_mrmr_fs else None)),
             **_configs_for_combo(combo),
         )
-        if not trained:
-            if combo.continue_on_model_failure and _meta is not None and _meta.get("failed_models"):
-                pass
-            else:
-                raise AssertionError(f"empty models dict for combo {combo.short_id()}")
+        assert trained or (
+            combo.continue_on_model_failure and _meta is not None and _meta.get("failed_models")
+        ), f"empty models dict for combo {combo.short_id()}"
         if combo.input_storage == "memory" and frame_cols_before is not None:
             assert tuple(df.columns) == frame_cols_before
             assert getattr(df, "shape", None) == frame_shape_before

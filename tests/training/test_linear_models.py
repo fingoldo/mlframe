@@ -161,9 +161,7 @@ class TestLinearModelTraining:
         model.fit(train_df, train_target)
 
         # ElasticNet should create sparse solutions
-        if hasattr(model, "coef_"):
-            # Check that some coefficients are zero (L1 effect)
-            assert np.sum(np.abs(model.coef_) < 0.01) > 0
+        assert np.sum(np.abs(model.coef_) < 0.01) > 0
 
     def test_elasticnet_classifier_uses_configured_l1_ratio(self):
         # TRAINING_LOOSE_C-2 (2026-08-05 audit): _build_elasticnet_classifier routed l1_ratio through
@@ -244,9 +242,8 @@ class TestLinearModelConfigurations:
             models.append(model)
 
         # Higher alpha should lead to smaller coefficients (more regularization)
-        if all(hasattr(m, "coef_") for m in models):
-            coef_norms = [np.linalg.norm(m.coef_) for m in models]
-            assert coef_norms[2] < coef_norms[0]  # High alpha < low alpha
+        coef_norms = [np.linalg.norm(m.coef_) for m in models]
+        assert coef_norms[0] > coef_norms[1] > coef_norms[2]
 
     def test_calibrated_classifier(self, sample_classification_data):
         """Test calibrated classifier wrapper."""
@@ -291,12 +288,7 @@ class TestLinearModelConvergence:
         model = create_linear_model("sgd", config, use_regression=True)
         model.fit(train_df, train_target)
 
-        # SGD should have n_iter_ attribute
-        if hasattr(model, "n_iter_"):
-            # Should have completed some iterations
-            assert model.n_iter_ > 0
-            # Should have converged before max_iter (for this simple data)
-            # Note: may or may not converge early depending on data
+        assert 0 < model.n_iter_ <= config.max_iter
 
     def test_lasso_convergence(self, sample_regression_data):
         """Test LASSO convergence behavior."""
@@ -321,19 +313,12 @@ class TestLinearModelConvergence:
             warnings.simplefilter("always")
             model.fit(train_df, train_target)
 
-            # Check if convergence warning was raised
             convergence_warnings = [warning for warning in w if "converge" in str(warning.message).lower()]
 
-            # For simple test data, should converge without warnings
-            # But if there's a warning, verify model still produces predictions
-            if convergence_warnings:
-                # Model should still work despite warning
-                preds = model.predict(train_df)
-                assert len(preds) == len(train_target)
-
-        # Verify model has n_iter_ if available
-        if hasattr(model, "n_iter_"):
-            assert model.n_iter_ > 0
+        preds = model.predict(train_df)
+        assert len(preds) == len(train_target)
+        assert not convergence_warnings, [str(x.message) for x in convergence_warnings]
+        assert 0 < model.n_iter_ < config.max_iter
 
     def test_elasticnet_convergence(self, sample_regression_data):
         """Test ElasticNet convergence behavior."""

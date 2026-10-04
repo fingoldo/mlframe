@@ -61,6 +61,7 @@ The original numbered fixes:
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -133,35 +134,119 @@ def _read(rel: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_rfecv_sffs_swap_uses_secondary_name_key() -> None:
-    """SFFS swap_out/swap_in break tied feature-importance ties on feature name."""
-    src = _read("feature_selection/wrappers/rfecv/__init__.py")
-    assert "key=lambda f: (fi_mean.get(f, 0.0), str(f))" in src
-    assert "key=lambda f: (-fi_mean.get(f, 0.0), str(f))" in src
+def _sffs_tried_designs(monkeypatch, best_set, original_features, fi):
+    """Run one SFFS swap pass with CV scores no swap can beat; return the column lists of the swapped designs, in the order tried."""
+    import pandas as pd
+    import sklearn.model_selection as model_selection
+    from sklearn.dummy import DummyClassifier
+
+    from mlframe.feature_selection.wrappers.rfecv._sffs import _sffs_swap_pass
+
+    tried: list = []
+
+    def fake_cross_val_score(estimator, X, y, **kwargs):
+        """Record the swapped design and return a score that never improves on the reference."""
+        tried.append(list(X.columns))
+        return np.array([0.1, 0.1])
+
+    monkeypatch.setattr(model_selection, "cross_val_score", fake_cross_val_score)
+    X = pd.DataFrame(np.zeros((6, len(original_features))), columns=list(original_features))
+    y = np.array([0, 1, 0, 1, 0, 1])
+    owner = SimpleNamespace(swap_top_k=2, _fit_sample_weight_=None)
+    _sffs_swap_pass(
+        owner, X, y, DummyClassifier(), 2, "accuracy", len(best_set), 0.9, {len(best_set): list(best_set)}, {"run": fi}, list(original_features), {}, {}, 0, 3
+    )
+    return tried
+
+
+def test_rfecv_sffs_swap_uses_secondary_name_key(monkeypatch) -> None:
+    """SFFS swaps the tied-lowest kept features for the tied-highest dropped ones in name order, whatever the input order."""
+    fi = {"d": 1.0, "b": 1.0, "c": 1.0, "e": 0.5, "a": 0.5, "f": 0.5}
+    expected = [["a", "c", "d"], ["b", "d", "e"]]
+    for best_set, original in ((["d", "b", "c"], ["e", "d", "c", "b", "a", "f"]), (["c", "d", "b"], ["f", "a", "b", "c", "d", "e"])):
+        fi_in_order = {k: fi[k] for k in original}
+        tried = _sffs_tried_designs(monkeypatch, best_set, original, fi_in_order)
+        assert [sorted(t) for t in tried] == expected
+        tried = _sffs_tried_designs(monkeypatch, best_set, original, dict(reversed(list(fi_in_order.items()))))
+        assert [sorted(t) for t in tried] == expected
 
 
 def test_rfecv_stability_topk_uses_lexsort() -> None:
-    """Stability-selection top-K uses an index-tiebreak lexsort, not a plain sort."""
-    import re
+    """Stability selection over tied importances picks the lowest-index features, so the public support mask is reproducible."""
+    import pandas as pd
+    from sklearn.base import BaseEstimator, ClassifierMixin
 
-    # Monolith split: the stability-selection top-k logic moved out of __init__.py into the
-    # sibling _stability_select.py; the site is now a single line, not the indented multi-line
-    # shape from before the split.
-    src = _read("feature_selection/wrappers/rfecv/_stability_select.py")
-    pattern = re.compile(r"np\.lexsort\(\(np\.arange\(len\(per_feature_score_sum\)\), " r"-per_feature_score_sum\)\)")
-    assert pattern.search(src) is not None
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
+
+    class TiedImportanceClassifier(BaseEstimator, ClassifierMixin):
+        """Classifier whose every feature has the same importance."""
+
+        def fit(self, X, y, sample_weight=None):
+            """Record equal importances."""
+            self.classes_ = np.unique(y)
+            self.feature_importances_ = np.ones(X.shape[1])
+            return self
+
+        def predict(self, X):
+            """Constant prediction."""
+            return np.zeros(len(X), dtype=int)
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(size=(40, 8)), columns=[f"f{i}" for i in range(8)])
+    y = (rng.random(40) > 0.5).astype(int)
+    selector = RFECV(
+        estimator=TiedImportanceClassifier(),
+        importance_getter="feature_importances_",
+        stability_selection=True,
+        stability_n_bootstrap=6,
+        stability_top_k=3,
+        stability_threshold=0.6,
+        random_state=0,
+        verbose=0,
+    )
+    selector.fit(X, y)
+    assert np.asarray(selector.support_).tolist() == [True, True, True, False, False, False, False, False]
 
 
 def test_rfecv_per_fold_top_uses_secondary_key() -> None:
-    """Per-fold top-feature-importance logging breaks ties on feature name."""
-    src = _read("feature_selection/wrappers/rfecv/__init__.py")
-    assert "key=lambda k: (-fi[k], str(k))" in src
+    """Per-fold top-N sets break importance ties on feature name, so stability does not depend on dict insertion order."""
+    from mlframe.feature_selection.wrappers.rfecv._diagnostics import selection_stability_, stability_vs_n_curve_
+
+    fis = {
+        "2_0": {"c": 0.0, "b": 0.0, "a": 0.0},
+        "2_1": {"a": 0.0, "b": 0.0, "c": 0.0},
+        "2_2": {"z": 5.0, "c": 0.0, "b": 0.0, "a": 0.0},
+    }
+    owner = SimpleNamespace(feature_importances_=fis, n_features_=2, n_features_in_=4, feature_names_in_=["a", "b", "c", "z"])
+    # top-2 sets: {a, b}, {a, b}, {z, a} -> pair Jaccards 1, 1/3, 1/3
+    assert selection_stability_(owner) == pytest.approx(5.0 / 9.0)
+    assert stability_vs_n_curve_(owner) == {2: pytest.approx(5.0 / 9.0)}
 
 
-def test_importance_topn_uses_lexsort() -> None:
-    """Feature-importance bar-plot top-N uses a column-position-tiebreak lexsort."""
-    src = _read("feature_selection/importance.py")
-    assert "_abs_order_full = np.lexsort((np.arange(len(_abs_fi)), -_abs_fi))" in src
+def test_importance_topn_uses_lexsort(monkeypatch, tmp_path) -> None:
+    """The FI bar plot keeps the lowest-position features among tied magnitudes."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from matplotlib.axes import Axes
+
+    from mlframe.feature_selection.importance import plot_feature_importance
+
+    labels: list = []
+    original_set = Axes.set
+
+    def recording_set(self, **kwargs):
+        """Capture the y tick labels the plot assigns."""
+        if "yticklabels" in kwargs:
+            labels.append([str(x) for x in kwargs["yticklabels"]])
+        return original_set(self, **kwargs)
+
+    monkeypatch.setattr(Axes, "set", recording_set)
+    fi = np.ones(20)
+    fi[7] = -3.0
+    plot_feature_importance(fi, [f"f{i}" for i in range(20)], kind="tie", n=6, show_plots=False, plot_file=str(tmp_path / "fi.png"), log_fi=False)
+    assert len(labels) == 1
+    assert set(labels[0]) == {"f7", "f0", "f1", "f2", "f3", "f4"}
 
 
 def _has_stable_kind(src: str, base: str, count: int = 1) -> bool:
@@ -214,14 +299,16 @@ def test_metrics_ranking_uses_stable_argsort() -> None:
 
 
 def test_composite_ensemble_trim_uses_lexsort() -> None:
-    """The lexsort pattern moved from composite_ensemble.py to the sibling
-    _composite_cross_target_ensemble.py during the cross-target-ensemble
-    monolith split. Either location is acceptable - pin the pattern
-    in whichever module currently houses it."""
-    facade_src = _read("training/composite/ensemble/__init__.py")
-    sibling_src = _read("training/composite/ensemble/_cross_target.py")
-    pattern = "order = np.lexsort((np.arange(len(_abs_w)), -_abs_w))"
-    assert pattern in facade_src or pattern in sibling_src
+    """Trimming to the top-N components keeps the lowest-index components among tied weights."""
+    from mlframe.training.composite.ensemble._cross_target import CompositeCrossTargetEnsemble
+
+    weights = np.full(24, 0.1)
+    weights[5] = 0.3
+    weights[17] = 0.3
+    ensemble = CompositeCrossTargetEnsemble([object()] * 24, [f"m{i}" for i in range(24)], weights, "nnls_stack", is_convex=False)
+    capped = ensemble.cap_inference_components(4)
+    assert capped.component_names == ["m0", "m1", "m5", "m17"]
+    assert capped.notes["dropped_components"] == [f"m{i}" for i in range(2, 24) if i not in (5, 17)]
 
 
 def _tied_specs():
@@ -254,45 +341,60 @@ def test_composite_discovery_mi_gain_uses_secondary_name() -> None:
 
 
 def test_mrmr_empty_fallback_uses_secondary_index() -> None:
-    """Empty-RAW-support MRMR fallback breaks tied MI scores on feature index."""
-    # The empty-RAW-support fallback rescue was carved out of the giant ``_fit_impl``
-    # body into the ``_mrmr_fit_impl/_finalise.py`` sibling when ``_fit_impl_core.py``
-    # was split toward the 1k LOC ceiling; the stable secondary-index sort lives there now.
-    src = _read("feature_selection/filters/_mrmr_fit_impl/_finalise.py")
-    assert "_raw_mi.sort(key=lambda kv: (-kv[1], kv[0]))" in src
+    """The empty-support rescue ranks tied MI scores by feature index."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._finalise import _rank_raw_candidates
+
+    names = [f"f{i}" for i in range(24)]
+    owner = SimpleNamespace(feature_names_in_=names, n_features_in_=24, factors_names_to_use=None, factors_to_use=None)
+    cached = {(i,): 0.2 for i in range(24)}
+    cached[(9,)] = 0.7
+    ranked, allowed = _rank_raw_candidates(owner, {n: i for i, n in enumerate(names)}, cached)
+    assert allowed is None
+    assert [r[0] for r in ranked] == [9, *[i for i in range(24) if i != 9]]
+    assert [r[1] for r in ranked] == [0.7] + [0.2] * 23
 
 
 def test_screen_expected_gains_uses_lexsort() -> None:
-    """expected_gains candidate ranking breaks ties via a column-order-invariant lexsort."""
-    # Confirm-step body moved to ``_confirm_predictor.py`` during the
-    # post-1k-LOC monolith split; concat so the source-presence assertion
-    # matches regardless of which sibling currently houses the literal.
-    #
-    # The tiebreak key was subsequently STRENGTHENED: the original wave-57 fix
-    # used a positional index tiebreak ``np.arange(len(expected_gains))`` which
-    # is NOT column-order invariant; the candidate-confirmation refactor
-    # replaced it with a NAME-derived ``_name_rank`` (contiguous int rank of the
-    # candidate name, invariant under column reordering). Both are stable
-    # lexsorts on descending ``expected_gains``; pin the current name-rank shape
-    # while still accepting the legacy index shape so the intent (deterministic,
-    # input-order-invariant gain ranking) is what's asserted.
-    src = _read("feature_selection/filters/screen.py")
-    _confirm = MLFRAME_ROOT / "feature_selection" / "filters" / "_confirm_predictor.py"
-    if _confirm.exists():
-        src += "\n" + _confirm.read_text(encoding="utf-8")
-    assert "np.lexsort((_name_rank, -np.asarray(expected_gains)))" in src or "np.lexsort((np.arange(len(expected_gains)), -np.asarray(expected_gains)))" in src
+    """Two exact copies of the signal column tie on gain; the winner is the name-first one in either column order."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import MRMR
+
+    rng = np.random.default_rng(3)
+    n = 500
+    signal = rng.normal(size=n)
+    y = (signal + 0.2 * rng.normal(size=n) > 0).astype(np.int32)
+    noise = rng.normal(size=(n, 3))
+    frames = {
+        "a_first": pd.DataFrame({"a": signal, "b": signal, "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2]}),
+        "b_first": pd.DataFrame({"b": signal, "a": signal, "n0": noise[:, 0], "n1": noise[:, 1], "n2": noise[:, 2]}),
+    }
+    picked = {}
+    for label, frame in frames.items():
+        MRMR._FIT_CACHE.clear()
+        selector = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=1, verbose=0, random_seed=7)
+        selector.fit(frame, y)
+        picked[label] = sorted(frame.columns[np.asarray(selector.support_)])
+        MRMR._FIT_CACHE.clear()
+    assert picked["a_first"] == picked["b_first"]
+    assert picked["a_first"] == ["a"]
 
 
 def test_phase_train_ensemble_flavour_uses_secondary_name() -> None:
-    """``_choose_ensemble_flavour`` (where the _scored.sort lives) moved
-    to sibling ``_ensemble_chooser.py``; concat so the source sensor
-    matches the post-carve layout."""
-    src = _read("training/core/_phase_train_one_target.py")
-    _sib = MLFRAME_ROOT / "training" / "core" / "_ensemble_chooser.py"
-    if _sib.exists():
-        src += "\n" + _sib.read_text(encoding="utf-8")
-    assert "_scored.sort(key=lambda kv: (kv[1], kv[0]))" in src
-    assert "_scored.sort(key=lambda kv: (-kv[1], kv[0]))" in src
+    """Tied validation metrics give the name-first flavour as the winner, for lower-is-better and higher-is-better metrics, in any insertion order."""
+    from mlframe.training.core._ensemble_chooser import _choose_ensemble_flavour
+
+    def result(**val_metrics):
+        """Ensemble result carrying only validation metrics."""
+        return SimpleNamespace(metrics={"val": dict(val_metrics)})
+
+    for metric, best, worse in (("rmse", 1.0, 2.0), ("roc_auc", 0.9, 0.8)):
+        flavours = {f"m{i:02d}": result(**{metric: worse}) for i in range(20)}
+        flavours["m17"] = result(**{metric: best})
+        flavours["m05"] = result(**{metric: best})
+        flavours["m11"] = result(**{metric: best})
+        assert _choose_ensemble_flavour(flavours) == "m05"
+        assert _choose_ensemble_flavour(dict(reversed(list(flavours.items())))) == "m05"
 
 
 # ---------------------------------------------------------------------------
@@ -324,26 +426,64 @@ def test_lexsort_tiebreak_returns_same_top_k_across_input_permutations() -> None
 # ---------------------------------------------------------------------------
 
 
-def test_spectral_attention_eig_sort_is_stable() -> None:
-    """spectral_attention's eigenvalue-order argsort uses kind='stable'."""
-    src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "spectral_attention.py").read_text(encoding="utf-8")
-    assert (
-        'np.argsort(-eigvals_A, kind="stable")' in src
-    ), "spectral_attention eigenvalue order must use kind='stable' so degenerate eigenvalues do not flip which eigenvector becomes feature-k"
+def test_spectral_attention_eig_sort_is_stable(monkeypatch) -> None:
+    """Degenerate eigenvalues keep the solver's column order, so which eigenvector becomes feature-k does not drift."""
+    import scipy.sparse as sp
+    import scipy.sparse.linalg as sparse_linalg
+
+    from mlframe.feature_engineering.transformer.spectral_attention import _eigvecs_from_graph
+
+    n_eigvecs = 30
+    k = n_eigvecs + 1
+    vals = np.array([0.5, 0.9, 0.5, 1.0, 0.9] * 7)[:k]
+    vecs = np.eye(60)[:, :k]
+    monkeypatch.setattr(sparse_linalg, "eigsh", lambda A, k, which: (vals, vecs))
+    eigvals, eigvecs, _ = _eigvecs_from_graph(sp.csr_matrix(np.ones((60, 60), dtype=np.float32)), n_eigvecs)
+    order = sorted(range(k), key=lambda i: -vals[i])
+    assert eigvecs.argmax(axis=0).tolist() == order[1 : n_eigvecs + 1]
+    np.testing.assert_allclose(eigvals, vals[order][1 : n_eigvecs + 1])
 
 
 def test_rf_proximity_topk_sort_is_stable() -> None:
-    """rf_proximity's top-k neighbour-order argsort uses kind='stable'."""
-    src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "rf_proximity.py").read_text(encoding="utf-8")
-    assert 'np.argsort(-part_sims, axis=1, kind="stable")' in src, "rf_proximity top-k neighbour order must use kind='stable' (quantised proximities tie often)"
+    """Top-k neighbours come back descending by similarity, as a valid top-k, with tied similarities in a stable order."""
+    import scipy.sparse as sp
+
+    from mlframe.feature_engineering.transformer.rf_proximity import _topk_proximity
+
+    rng = np.random.default_rng(0)
+    bank = sp.csr_matrix((rng.random((50, 6)) < 0.5).astype(np.float32))
+    query = sp.csr_matrix((rng.random((4, 6)) < 0.5).astype(np.float32))
+    k = 30
+    ids, sims = _topk_proximity(query, bank, k)
+    sim_dense = (query @ bank.T).toarray()
+    assert ids.shape == sims.shape == (4, k)
+    for row in range(4):
+        assert len(set(ids[row].tolist())) == k
+        np.testing.assert_array_equal(sims[row], sim_dense[row, ids[row]])
+        assert np.all(np.diff(sims[row]) <= 0)
+        excluded = np.setdiff1d(np.arange(50), ids[row])
+        assert sims[row].min() >= sim_dense[row, excluded].max()
+        assert len(np.unique(sims[row])) < k
+        partition = np.argpartition(-sim_dense, kth=k - 1, axis=1)[row, :k]
+        expected = partition[np.argsort(-sim_dense[row, partition], kind="stable")]
+        np.testing.assert_array_equal(ids[row], expected)
 
 
 def test_fca_closed_concepts_topk_uses_content_tiebreak() -> None:
-    """fca_closed_concepts top_k selection breaks equal-extent-size ties on intent content."""
-    src = (MLFRAME_ROOT / "feature_engineering" / "transformer" / "fca_closed_concepts.py").read_text(encoding="utf-8")
-    assert (
-        "key=lambda x: (-len(x[0]), tuple(sorted(x[1])))" in src
-    ), "fca top_k concept selection must break equal-extent-size ties on intent content, not on the concepts-lib lattice iteration order"
+    """The emitted concept features do not depend on the order the training rows (and so the lattice) arrive in."""
+    from mlframe.feature_engineering.transformer.fca_closed_concepts import compute_fca_closed_concepts_features
+
+    rng = np.random.default_rng(5)
+    X = rng.normal(size=(60, 6)).astype(np.float32)
+    y = rng.normal(size=60).astype(np.float32)
+    Xq = rng.normal(size=(15, 6)).astype(np.float32)
+    base = compute_fca_closed_concepts_features(X, y, Xq, seed=1, top_k=8)
+    assert base.shape == (15, 10)
+    assert base["fca_n_concepts"].min() > 0
+    for _ in range(3):
+        perm = rng.permutation(60)
+        shuffled = compute_fca_closed_concepts_features(X[perm], y[perm], Xq, seed=1, top_k=8)
+        assert shuffled.equals(base)
 
 
 def test_fca_concept_topk_selection_is_permutation_invariant() -> None:

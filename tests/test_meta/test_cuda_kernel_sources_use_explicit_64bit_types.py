@@ -9,6 +9,8 @@ import ast
 import re
 from pathlib import Path
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 SRC = Path(__file__).resolve().parents[2] / "src" / "mlframe"
 _PLATFORM_LONG = re.compile(r"(?<!long )(?<!unsigned )\blong\b(?! long)(?!\s*(?:long|double))")
 _LINE_COMMENT = re.compile(r"//[^\n]*")
@@ -43,5 +45,7 @@ def test_detector_flags_platform_long_and_accepts_long_long():
 
 def test_no_cuda_kernel_source_uses_platform_width_long():
     """Every CUDA kernel source in src/mlframe spells 64-bit indices as ``long long``."""
-    offenders = [f"{path.relative_to(SRC)}:{line}" for path, line, text in _kernel_strings() if platform_long_uses(text)]
+    kernels = list(_kernel_strings())
+    assert_scanned_enough(len(kernels), "CUDA kernel source strings under src/mlframe", minimum=10)
+    offenders = [f"{path.relative_to(SRC)}:{line}" for path, line, text in kernels if platform_long_uses(text)]
     assert offenders == []

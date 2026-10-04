@@ -55,6 +55,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
 from mlframe.feature_selection.wrappers import RFECV as MlframeRFECV
+from tests._known_gap import known_gap
 from tests.conftest import running_under_xdist
 from tests.feature_selection.conftest import is_fast_mode
 
@@ -234,20 +235,18 @@ def test_rfecv_produces_a_valid_selection_at_parity_config():
 # --- 2. the runtime-WIN-at-parity axis (intended contract, measured to fail) ---
 
 
-@pytest.mark.slow
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "PROD/PERF GAP: MBH RFECV is NOT faster than sklearn at score parity on "
-        "300x40. Warm 3x-min measurement: when MBH explores enough intermediate "
-        "anchors to reach parity (~11 anchors) it is 5-7x SLOWER (each anchor is a "
-        "full 3-fold LR CV refit; sklearn's step-1 LR refits are ~20ms each); when it "
-        "short-circuits to {0,p} it is 0.3-0.5x sklearn's wall but keeps all p features "
-        "and loses parity by 0.05-0.13 AUC. The two axes are anti-correlated -- no "
-        "regime here is at-parity AND faster. xfail(strict=False) so a future "
-        "MBH/surrogate speedup flips this to an unexpected pass we then promote."
-    ),
+_RUNTIME_WIN_GAP = (
+    "PROD/PERF GAP: MBH RFECV is NOT faster than sklearn at score parity on "
+    "300x40. Warm 3x-min measurement: when MBH explores enough intermediate "
+    "anchors to reach parity (~11 anchors) it is 5-7x SLOWER (each anchor is a "
+    "full 3-fold LR CV refit; sklearn's step-1 LR refits are ~20ms each); when it "
+    "short-circuits to {0,p} it is 0.3-0.5x sklearn's wall but keeps all p features "
+    "and loses parity by 0.05-0.13 AUC. The two axes are anti-correlated -- no "
+    "regime here is at-parity AND faster."
 )
+
+
+@pytest.mark.slow
 def test_rfecv_runtime_at_score_parity():
     """The mission's named head-to-head: assert the INTENDED win on BOTH axes --
     score parity (``our_score >= sk_score - 0.02``) AND a runtime win
@@ -255,7 +254,7 @@ def test_rfecv_runtime_at_score_parity():
     3 times and take the per-method MIN wall (the cleanest steady-state estimate;
     discards the one-time numba/surrogate cold-compile of the first fit).
 
-    Currently xfail (see the marker): the MBH refit-count advantage does not buy a
+    Currently a recorded known gap (see ``_RUNTIME_WIN_GAP``): the MBH refit-count advantage does not buy a
     wall-clock win at this scale because the per-anchor CV refit cost dominates when
     the optimiser explores, and the fast branch sacrifices parity. The assertion is
     written to the CORRECT contract so a real future improvement converts it to a pass.
@@ -288,11 +287,14 @@ def test_rfecv_runtime_at_score_parity():
     our_wall_min = min(our_walls)
     our_score = _subset_auc(X, y, our_mask)
 
-    # Both halves of the intended win. Either failing is the documented gap.
-    assert our_score >= sk_score - 0.02, f"score parity not met: ours={our_score:.4f} sklearn={sk_score:.4f} (floor sklearn-0.02={sk_score - 0.02:.4f})"
-    assert (
-        our_wall_min <= 0.7 * sk_wall_min
-    ), f"runtime win not met: our_min={our_wall_min:.3f}s sklearn_min={sk_wall_min:.3f}s ratio={our_wall_min / sk_wall_min:.3f} (want <= 0.7)"
+    # Both halves of the intended win. Either failing is the documented gap; both holding fails the test so the gap entry gets removed.
+    assert our_wall_min > 0.0 and sk_wall_min > 0.0, "wall-clock measurement returned a non-positive duration"
+    parity_met = our_score >= sk_score - 0.02
+    win_met = our_wall_min <= 0.7 * sk_wall_min
+    known_gap(
+        f"{_RUNTIME_WIN_GAP} measured: ours={our_score:.4f} sklearn={sk_score:.4f}, our_min={our_wall_min:.3f}s sklearn_min={sk_wall_min:.3f}s",
+        gap_closed=parity_met and win_met,
+    )
 
 
 # --- fast-mode representative ----------------------------------------------

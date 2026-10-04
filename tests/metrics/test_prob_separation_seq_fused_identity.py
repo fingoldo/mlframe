@@ -39,11 +39,9 @@ def test_seq_fused_matches_reference(n, class_label, std_weight):
     yp = rng.random(n)
     got = _probability_separation_score_seq(yt, yp, class_label, std_weight)
     ref = _reference_old(yt, yp, class_label, std_weight)
-    if np.isnan(ref):
-        assert np.isnan(got)
-    else:
-        # reduction-order tolerance (running sum vs np pairwise); contract ~1e-15 rel
-        assert got == pytest.approx(ref, rel=1e-12, abs=1e-12)
+    assert np.isnan(got) == np.isnan(ref)
+    # reduction-order tolerance (running sum vs np pairwise); contract ~1e-15 rel
+    np.testing.assert_allclose(got, ref, rtol=1e-12, atol=1e-12, equal_nan=True)
 
 
 def test_seq_empty_in_class_returns_nan():

@@ -143,13 +143,26 @@ class TestOverlayColoursAreNamed:
     """Nine hardcoded literals across two backends had to change in nine places or they drifted."""
 
     def test_renderers_use_the_shared_palette_constants(self):
-        """No renderer should carry a raw overlay colour literal any more."""
-        assert TREND_LINE and OVERLAY_LINE
-        for mod in (mpl_mod, plotly_mod):
-            with open(mod.__file__, encoding="utf-8") as fh:
-                src = fh.read()
-            assert 'color="darkorange"' not in src
-            assert 'color="purple"' not in src
+        """The robust-fit overlay is drawn in the shared TREND_LINE colour on both backends."""
+        x = np.random.default_rng(0).uniform(0.0, 10.0, 300)
+        panel = HeatmapPanelSpec(
+            matrix=np.ones((5, 5)), row_labels=_labels(5), col_labels=_labels(5), title="t", trend_line="theil-sen", trend_xy=(x, x.copy()),
+        )
+        spec = FigureSpec(panels=((panel,),), figsize=(5.0, 4.0))
+        mpl_fig = MatplotlibRenderer().render(spec)
+        try:
+            fits = [ln for ln in mpl_fig.axes[0].lines if str(ln.get_label()).startswith("robust fit")]
+            assert len(fits) == 1
+            assert matplotlib.colors.to_rgba(fits[0].get_color()) == matplotlib.colors.to_rgba(TREND_LINE)
+        finally:
+            import matplotlib.pyplot as plt
+
+            plt.close(mpl_fig)
+        plotly_fig = PlotlyRenderer().render(spec)
+        trend = [t for t in plotly_fig.data if "robust fit" in (t.name or "")]
+        assert len(trend) == 1
+        assert trend[0].line.color == TREND_LINE
+        assert TREND_LINE != OVERLAY_LINE
 
 
 class TestUnmappedMarkerIsAudible:

@@ -977,14 +977,14 @@ class TestPredictionValidation:
         # Get predictions from the trained model result
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
-        # Check that test predictions exist and are reasonable
-        if hasattr(model_entry, "test_preds") and model_entry.test_preds is not None:
-            preds = model_entry.test_preds
-            assert not np.all(np.isnan(preds)), "Predictions should not be all NaN"
-            assert not np.all(np.isinf(preds)), "Predictions should not have infinity"
+        assert hasattr(model_entry, "test_preds"), "the model entry carries no test_preds at all"
+        preds = model_entry.test_preds
+        assert preds is not None and len(preds) > 0, f"test_preds is empty or None: {preds!r}"
+        assert not np.all(np.isnan(preds)), "Predictions should not be all NaN"
+        assert not np.all(np.isinf(preds)), "Predictions should not have infinity"
 
-            # Predictions should be in a reasonable range (within 10x of target range)
-            assert np.all(np.abs(preds) < np.abs(y).max() * 10 + 100), "Predictions should be in reasonable range"
+        # Predictions should be in a reasonable range (within 10x of target range)
+        assert np.all(np.abs(preds) < np.abs(y).max() * 10 + 100), "Predictions should be in reasonable range"
 
     def test_probabilities_sum_to_one(self, sample_classification_data, temp_data_dir, common_init_params, fast_iterations):
         """Test classification probabilities sum to approximately 1."""
@@ -1009,15 +1009,15 @@ class TestPredictionValidation:
         # Get model entry
         model_entry = models[TargetTypes.BINARY_CLASSIFICATION]["target"][0]
 
-        # Check test probabilities if available
-        if hasattr(model_entry, "test_probs") and model_entry.test_probs is not None:
-            probs = model_entry.test_probs
-            if probs.ndim == 2:
-                prob_sums = probs.sum(axis=1)
-                np.testing.assert_allclose(prob_sums, 1.0, atol=1e-5, err_msg="Classification probabilities should sum to 1")
-            else:
-                # Binary probs in [0, 1]
-                assert np.all(probs >= 0) and np.all(probs <= 1), "Binary probabilities should be in [0, 1]"
+        assert hasattr(model_entry, "test_probs"), "the model entry carries no test_probs at all"
+        probs = model_entry.test_probs
+        assert probs is not None and len(probs) > 0, f"test_probs is empty or None: {probs!r}"
+        if probs.ndim == 2:
+            prob_sums = probs.sum(axis=1)
+            np.testing.assert_allclose(prob_sums, 1.0, atol=1e-5, err_msg="Classification probabilities should sum to 1")
+        else:
+            # Binary probs in [0, 1]
+            assert np.all(probs >= 0) and np.all(probs <= 1), "Binary probabilities should be in [0, 1]"
 
     def test_predictions_not_all_nan(self, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
         """Test that predictions are not all NaN."""
@@ -1082,10 +1082,10 @@ class TestPredictionValidation:
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
         # Verify predictions have variance (model learned)
-        if hasattr(model_entry, "test_preds") and model_entry.test_preds is not None:
-            preds = model_entry.test_preds
-            if len(preds) > 1:
-                assert np.std(preds) > 1e-10, "Predictions should not all be identical (model should learn)"
+        assert hasattr(model_entry, "test_preds"), "the model entry carries no test_preds at all"
+        preds = model_entry.test_preds
+        assert preds is not None and len(preds) > 1, f"test_preds is empty, single-valued or None: {preds!r}"
+        assert np.std(preds) > 1e-10, "Predictions should not all be identical (model should learn)"
 
     @pytest.mark.parametrize("model_name", ["cb", "lgb", "hgb", "ridge"])
     def test_prediction_shape_matches_input(self, model_name, sample_regression_data, temp_data_dir, common_init_params, fast_iterations):
@@ -1114,10 +1114,10 @@ class TestPredictionValidation:
         # Get predictions
         model_entry = models[TargetTypes.REGRESSION]["target"][0]
 
-        # Check that shapes match expected sizes from metadata
-        if hasattr(model_entry, "test_preds") and model_entry.test_preds is not None:
-            # Predictions shape should match test size
-            assert len(model_entry.test_preds) == metadata.get("test_size", len(model_entry.test_preds))
+        assert hasattr(model_entry, "test_preds"), "the model entry carries no test_preds at all"
+        assert model_entry.test_preds is not None
+        # Predictions shape should match test size
+        assert len(model_entry.test_preds) == metadata["test_size"]
 
 
 # ================================================================================================

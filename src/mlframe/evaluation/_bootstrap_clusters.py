@@ -90,6 +90,7 @@ def bootstrap_metrics_clustered(
         try:
             points[name] = float(fn(y_true, y_pred))
         except Exception as exc:  # noqa: PERF203 -- per-metric fault isolation, one bad metric must not sink the others
+            logger.debug("clustered bootstrap metric %r failed on the full sample: %r", name, exc)
             results[name] = {"error": f"{type(exc).__name__}: {exc}"}
     samples: dict[str, list[float]] = {name: [] for name in points}
     for _ in range(n_bootstrap):

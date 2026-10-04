@@ -236,11 +236,14 @@ class TestUniversalContract:
         sel = factory("binary")
         c = clone(sel)
         # get_params equivalence; comparison via repr is robust to nested-object identity differences.
-        for k, v in sel.get_params(deep=False).items():
-            if k in c.get_params(deep=False):
-                v_c = c.get_params(deep=False)[k]
-                # Compare repr because some param values are class instances (e.g. estimator).
-                assert repr(v) == repr(v_c) or v == v_c or (v is None and v_c is None), f"{name}: clone() lost {k}: {v} vs {v_c}"
+        params = sel.get_params(deep=False)
+        c_params = c.get_params(deep=False)
+        assert len(params) > 0
+        assert params.keys() == c_params.keys(), f"{name}: clone() changed the parameter set: {sorted(set(params) ^ set(c_params))}"
+        for k, v in params.items():
+            v_c = c_params[k]
+            # Compare repr because some param values are class instances (e.g. estimator).
+            assert repr(v) == repr(v_c) or v == v_c or (v is None and v_c is None), f"{name}: clone() lost {k}: {v} vs {v_c}"
 
 
 # ===========================================================================

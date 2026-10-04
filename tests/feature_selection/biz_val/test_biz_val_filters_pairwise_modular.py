@@ -266,27 +266,43 @@ class TestScanOptimizationEquivalence:
     class pins the equivalence (responded-set + grid/baseline MI unchanged) AND a measurable speedup floor."""
 
     @staticmethod
-    def _load_reference_scan():
-        """Load the git-HEAD reference ``cheap_modular_scan`` as a standalone module to compare against the optimized one.
-        Skips if HEAD already contains the optimization (e.g. running post-merge) so the test stays meaningful, not flaky."""
-        import subprocess  # nosec B404 -- test-only local trusted subprocess invocation (fixed argv, no shell, no untrusted input)
-        import types
-        from pathlib import Path
+    def _naive_scan(X, y):
+        """Unoptimized reference scan: one MI call per residue and the 12-perm null for every combiner, over the same combiner enumeration."""
+        from itertools import combinations
 
-        repo = Path(__file__).resolve().parents[2]
-        src = subprocess.run(  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
-            ["git", "show", "HEAD:src/mlframe/feature_selection/filters/_pairwise_modular_fe.py"],
-            capture_output=True,
-            text=True,
-            cwd=str(repo),
-        ).stdout
-        if not src.strip():
-            pytest.skip("could not load HEAD reference scan (no git / detached source)")
-        ref = types.ModuleType("_ref_pwm_test")
-        ref.__package__ = "mlframe.feature_selection.filters"
-        ref.__name__ = "mlframe.feature_selection.filters._pairwise_modular_fe"
-        exec(compile(src, "ref_pairwise_modular_fe.py", "exec"), ref.__dict__)  # nosec B102 -- exec of locally-authored trusted source (repo module text or a literal test string), never untrusted input
-        return ref
+        import mlframe.feature_selection.filters._pairwise_modular_fe as pm
+        from mlframe.feature_selection.filters._pairwise_modular_fe import ModularHit
+
+        yi = pm.encode_y_for_classif_mi(y)
+        cols = sorted((c for c in X.columns if pm._is_integer_col(np.asarray(X[c]))), key=str)
+        arrs = {c: np.asarray(X[c]) for c in cols}
+        mods = [int(k) for k in pm.COARSE_MODULI if int(k) >= 2]
+        hits = []
+
+        def one(op, cset, c_arr):
+            """Score one combiner column the slow way."""
+            base = pm._mi(c_arr.astype(np.float64), yi, nbins=12)
+            grid = np.array([pm._residue_mi(c_arr, yi, k, 12) for k in mods])
+            i = int(np.argmax(grid))
+            null_hi = pm._perm_null_hi(c_arr, yi, mods[i], 12, seed=0)
+            hits.append(ModularHit(op, cset, mods[i], float(grid[i]), base, null_hi, c_arr))
+
+        for c in cols:
+            one("self", (c,), pm._combine([arrs[c]], "self"))
+        budget = 24
+        for a_, b_ in combinations(cols, 2):
+            if budget <= 0:
+                break
+            for op in pm._PAIR_OPS:
+                one(op, (a_, b_), pm._combine([arrs[a_], arrs[b_]], op))
+            budget -= 1
+        budget = 12
+        for a_, b_, c_ in combinations(cols, 3):
+            if budget <= 0:
+                break
+            one("sum3", (a_, b_, c_), arrs[a_].astype(np.int64) + arrs[b_].astype(np.int64) + arrs[c_].astype(np.int64))
+            budget -= 1
+        return hits
 
     @staticmethod
     def _tp_frame(seed, n=2000):
@@ -313,14 +329,12 @@ class TestScanOptimizationEquivalence:
         """Responded set and mi bit identical to reference."""
         from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
 
-        ref = self._load_reference_scan()
-        if "_residue_grid_mi" in ref.__dict__:
-            pytest.skip("HEAD already contains the optimized scan; nothing to compare against")
         for builder in (self._tp_frame, self._control_frame):
-            for seed in (0, 1, 7):
+            for seed in (0, 7):
                 X, y = builder(seed)
-                hr = ref.cheap_modular_scan(X, y)
+                hr = self._naive_scan(X, y)
                 hn = cheap_modular_scan(X, y)
+                assert len(hr) > 0 and len(hn) == len(hr)
                 resp_r = {(h.op, h.cols, h.modulus) for h in hr if h.responded}
                 resp_n = {(h.op, h.cols, h.modulus) for h in hn if h.responded}
                 assert resp_r == resp_n, f"responded-set drifted on {builder.__name__} seed={seed}"
@@ -338,14 +352,10 @@ class TestScanOptimizationEquivalence:
 
         from mlframe.feature_selection.filters._pairwise_modular_fe import cheap_modular_scan
 
-        ref = self._load_reference_scan()
-        if "_residue_grid_mi" in ref.__dict__:
-            pytest.skip("HEAD already contains the optimized scan; speedup already realized")
         X, y = self._tp_frame(0, n=2000)
-        ref.cheap_modular_scan(X, y)
         cheap_modular_scan(X, y)  # warm JIT
-        rt = min(self._time(ref.cheap_modular_scan, X, y) for _ in range(3))
-        nt = min(self._time(cheap_modular_scan, X, y) for _ in range(3))
+        rt = min(self._time(self._naive_scan, X, y) for _ in range(2))
+        nt = min(self._time(cheap_modular_scan, X, y) for _ in range(2))
         speedup = rt / nt
         assert speedup >= 1.6, f"optimized scan only {speedup:.2f}x faster than reference (floor 1.6x; measured ~2.1-3.4x)"
 

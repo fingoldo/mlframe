@@ -129,11 +129,13 @@ class TestChartCmapsHavePlotlyMapping:
 
     def test_each_chart_cmap_maps_to_non_viridis(self):
         """Each chart cmap maps to non viridis."""
+        expected = {
+            "Reds": "Reds", "Blues": "Blues", "RdYlGn_r": "RdYlGn_r", "RdBu_r": "RdBu_r",
+            "viridis": "Viridis", "RdYlGn": "RdYlGn", "coolwarm": "RdBu_r",
+        }
+        assert set(expected) == set(self.CHART_CMAPS)
         for name in self.CHART_CMAPS:
-            scale = _mpl_to_plotly_cmap(name)
-            # viridis is the only cmap legitimately allowed to resolve to Viridis; everything else must map to its own scale.
-            if name.lower() != "viridis":
-                assert scale != "Viridis", f"{name!r} silently fell back to Viridis"
+            assert _mpl_to_plotly_cmap(name) == expected[name], f"{name!r} resolved to the wrong plotly scale"
 
     def test_reds_weak_segment_heatmap_maps_to_reds(self):
         # Pin the error-analysis weak-segment heatmap case that produced the original warning.

@@ -318,9 +318,9 @@ class TestBug1SpatialDemoterFalsePositive:
         disc.fit(df, target_col="y", feature_cols=["X", "Y", "Z", "x_real"], train_idx=np.arange(1600))
         # Sanity: x_real should win base selection (real structural
         # signal; spatial X/Y/Z demoted).
-        if disc.specs_:
-            top = disc.specs_[0].base_column
-            assert top == "x_real", f"regression: tight spatial triplet detector failed; top base picked '{top}' instead of 'x_real'"
+        assert disc.specs_, "fixture broken: discovery must produce a spec from x_real"
+        top = disc.specs_[0].base_column
+        assert top == "x_real", f"regression: tight spatial triplet detector failed; top base picked '{top}' instead of 'x_real'"
 
     def test_biz_value_tight_synonym_group_is_not_demoted(self, caplog) -> None:
         """A tight cluster of synonyms (text lengths, budget variants) correlates like X/Y/Z but is not spatial. A

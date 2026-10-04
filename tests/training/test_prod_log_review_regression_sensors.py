@@ -27,12 +27,15 @@ Fixes covered:
    subsequent predict calls (VAL, TEST, ensembles) skip the retry dance.
 """
 
+import logging
 import warnings
 
 import numpy as np
 import pandas as pd
 import polars as pl
 import pytest
+
+from mlframe.training.cb._cb_pool import _cb_reuse_capable
 
 
 def _lean_reporting_config():
@@ -152,6 +155,10 @@ class TestNullableBooleanCoercion:
             # Int8 regresses to pandas nullable ``boolean`` here, CB's
             # numeric-feature path crashes with "Cannot convert <NA> to float".
             m.fit(pdf, y, cat_features=["cat_col"])
+        proba = m.predict_proba(pdf)
+        assert proba.shape == (n, 2)
+        assert np.isfinite(proba).all()
+        np.testing.assert_allclose(proba.sum(axis=1), 1.0, atol=1e-6)
 
 
 # =====================================================================
@@ -745,100 +752,48 @@ class TestCategoryDriftHealingSuggestions:
     **train-side cardinality only** — using test data to shape
     preprocessing would leak test information into training."""
 
+    @staticmethod
+    def _run_drift_snapshot(caplog, card_tr, *, align, n_new=8):
+        """Run the cardinality/drift snapshot on a train column of ``card_tr`` levels whose val/test frames carry ``n_new`` unseen levels; return the log records."""
+        from mlframe.training.core._phase_drift_snapshot import _log_cardinality_and_drift_snapshot
+        from mlframe.utils.log_throttle import reset_throttle_counts
+
+        for key in ("phase_drift_snapshot_category_drift_suspect", "phase_drift_snapshot_category_drift_handled"):
+            reset_throttle_counts(key)
+        seen = [f"t{i}" for i in range(card_tr)]
+        train = pl.DataFrame({"c": [seen[i % card_tr] for i in range(max(2 * card_tr, 400))]})
+        val = pl.DataFrame({"c": seen[:20] + [f"u{i}" for i in range(n_new)]})
+        with caplog.at_level(logging.INFO, logger="mlframe.training.core._phase_drift_snapshot"):
+            _log_cardinality_and_drift_snapshot(
+                train_df=train, val_df=val, test_df=val, cat_features=["c"], text_features=[], embedding_features=[], align_categorical_dicts=align
+            )
+        return caplog.records
+
     def test_drift_warning_contains_suggested_actions(self, caplog):
-        """Trigger the drift-WARN path end-to-end and assert the suggestion
-        block is present in the log message. Uses a small polars suite so
-        the warning fires on a known cardinality bucket."""
-        import logging as _logging
-        import tempfile
-        from mlframe.training.core import train_mlframe_models_suite
-        from mlframe.training.configs import TrainingBehaviorConfig
-        from mlframe.training import OutputConfig, PreprocessingConfig
-        from .shared import SimpleFeaturesAndTargetsExtractor
-
-        # Build train/val/test where val has categories train never saw —
-        # at least 5 new levels so the ``v_only >= 5`` trigger fires.
-        rng = np.random.default_rng(0)
-        n = 400
-        train_cats = [f"t{i}" for i in range(20)]
-        val_extra = [f"u{i}" for i in range(8)]  # 8 unseen categories
-        all_cats = train_cats + val_extra
-        pl_df = pl.DataFrame(
-            {
-                "num": rng.standard_normal(n).astype(np.float32),
-                # 'many_levels' ensures we hit the high-cardinality suggestion
-                # branch (card_tr >= 100 would need 100 levels; stay at 20 for
-                # the "low cardinality" branch and assert "__UNSEEN__" bucket
-                # suggestion shows).
-                "many_levels": pl.Series([all_cats[i % len(all_cats)] for i in range(n)]).cast(pl.Enum(all_cats)),
-                # Timestamp-ish to make the temporal split nontrivial.
-                "ts": [float(i) for i in range(n)],
-                "target": rng.integers(0, 2, n),
-            }
-        )
-
-        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        bc = TrainingBehaviorConfig(prefer_gpu_configs=False)
-
-        caplog.set_level(_logging.WARNING, logger="mlframe.training.core")
-        with tempfile.TemporaryDirectory() as tmp:
-            try:
-                train_mlframe_models_suite(
-                    df=pl_df,
-                    target_name="drift_test",
-                    model_name="drift",
-                    features_and_targets_extractor=fte,
-                    mlframe_models=["cb"],
-                    hyperparams_config={"iterations": 3},
-                    behavior_config=bc,
-                    preprocessing_config=PreprocessingConfig(drop_columns=[]),
-                    use_ordinary_models=True,
-                    use_mlframe_ensembles=False,
-                    output_config=OutputConfig(data_dir=tmp, models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-                    reporting_config=_lean_reporting_config(),
-                    verbose=1,
-                )
-            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-                # The drift WARN can fire even if the suite itself hits
-                # an unrelated error — we only care about the WARN
-                # content here.
-                pass
-
-        drift_records = [r for r in caplog.records if "Category drift suspect" in r.getMessage()]
-        if not drift_records:
-            # The synthetic data may not always trip the WARN under every
-            # split ratio; skip rather than false-fail in that case. The
-            # structural guarantee (message format) is still validated
-            # below against a hand-built message.
-            pytest.skip("drift WARN not triggered by this synthetic dataset — structural check below verifies format independently.")
-        msg = drift_records[0].getMessage()
+        """Val-only categories on a low-cardinality column the fit does not align raise the drift WARN carrying the ``suggested actions`` block and the ``__UNSEEN__`` advice."""
+        records = self._run_drift_snapshot(caplog, 50, align=False)
+        drift = [r for r in records if r.levelno == logging.WARNING and "Category drift suspect" in r.getMessage()]
+        assert len(drift) == 1
+        msg = drift[0].getMessage()
         assert "suggested actions" in msg, f"Drift WARN must include 'suggested actions' block:\n{msg}"
+        assert "__UNSEEN__" in msg
+        assert "val has 8 categories" in msg
 
-    def test_high_cardinality_branch_suggests_hash_bucket(self):
-        """Structural check of the suggestion-by-cardinality logic.
+    def test_aligned_low_cardinality_drift_is_info_not_warning(self, caplog):
+        """With category-dict alignment on, low-cardinality val-only values are reported as handled at INFO, with no crash WARN."""
+        records = self._run_drift_snapshot(caplog, 50, align=True)
+        assert not [r for r in records if r.levelno == logging.WARNING]
+        assert any("Handled automatically" in r.getMessage() for r in records if r.levelno == logging.INFO)
 
-        Verifies the shape of the message for each of the three
-        cardinality tiers — if the tiers drift or the texts change
-        silently, this test catches it.
-        """
-        # The tiered suggestion text lives in a single logger.warning
-        # call in ``core.py``; structurally verify each branch emits the
-        # keyword we rely on.
-        branches = {
-            1500: "hash-bucket",
-            500: "target-encoding",
-            50: "__UNSEEN__",
-        }
-        for card_tr, expected_keyword in branches.items():
-            if card_tr >= 1000:
-                healing = "hash-bucket"
-            elif card_tr >= 100:
-                healing = "target-encoding"
-            else:
-                healing = "__UNSEEN__"
-            assert (
-                healing == expected_keyword
-            ), f"cardinality {card_tr}: expected {expected_keyword!r}, got {healing!r} — the suggestion tiers in core.py must match this test's expectations."
+    @pytest.mark.parametrize("card_tr,expected_keyword", [(1500, "hash-bucket"), (500, "target-encoding")])
+    def test_high_cardinality_branch_suggests_hash_bucket(self, caplog, card_tr, expected_keyword):
+        """The suggested action is keyed on train-side cardinality: hash-bucketing from 1000 levels, target-encoding from 100."""
+        records = self._run_drift_snapshot(caplog, card_tr, align=True)
+        drift = [r for r in records if r.levelno == logging.WARNING and "Category drift suspect" in r.getMessage()]
+        assert len(drift) == 1
+        msg = drift[0].getMessage()
+        assert expected_keyword in msg, f"cardinality {card_tr}: expected {expected_keyword!r} advice in:\n{msg}"
+        assert "__UNSEEN__" not in msg
 
 
 # =====================================================================
@@ -1633,12 +1588,7 @@ class TestCBValPoolCacheContentFallback:
         fake.predict_proba = _fake_predict_proba
         # Sticky flag off so the cache probe runs (sticky path bypasses it
         # for polars; we're testing pandas here so flag is moot).
-        try:
-            _predict_with_fallback(fake, df_b, method="predict_proba")
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            # Some downstream call may fail because our fake_pool isn't a
-            # real Pool — but we only care that the cache HIT was logged.
-            pass
+        _predict_with_fallback(fake, df_b, method="predict_proba")
 
         # If the content-fallback fired, fn was called with our fake Pool.
         assert calls == [
@@ -1648,15 +1598,9 @@ class TestCBValPoolCacheContentFallback:
         # Cleanup.
         _CB_VAL_POOL_CACHE.clear()
 
+    @pytest.mark.skipif(not _cb_reuse_capable(), reason="Installed CatBoost lacks Pool.set_label / set_weight; the eval_set rewrite is inert")
     def test_dtypes_sig_stored_on_pool_during_eval_set_setup(self):
         """Behavioural: call _maybe_rewrite_eval_set_as_cb_pool with a small (val_df, val_target) eval_set and assert the resulting val Pool carries _mlframe_dtypes_sig. Without it the predict-side content-fallback lookup has nothing to compare, and the 2026-04-24 cache-miss regression returns."""
-        try:
-            from catboost import Pool as _Pool  # noqa: F401
-        except ImportError:
-            import pytest
-
-            pytest.skip("catboost not installed")
-
         from mlframe.training.cb._cb_pool import (
             _maybe_rewrite_eval_set_as_cb_pool,
             _CB_VAL_POOL_CACHE,
@@ -1676,10 +1620,7 @@ class TestCBValPoolCacheContentFallback:
 
         rewritten = fit_params["eval_set"]
         val_pool = rewritten[0] if isinstance(rewritten, list) else rewritten
-        if isinstance(val_pool, tuple):
-            import pytest
-
-            pytest.skip("Pool build skipped (catboost not capable in this env); fingerprint storage path not reached")
+        assert not isinstance(val_pool, tuple), "the eval_set entry must be rewritten into a catboost Pool"
 
         sig = getattr(val_pool, "_mlframe_dtypes_sig", "ATTR_MISSING")
         assert sig != "ATTR_MISSING", (

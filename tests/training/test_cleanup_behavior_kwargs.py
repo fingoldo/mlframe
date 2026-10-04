@@ -42,17 +42,17 @@ def test_configure_training_params_known_no_op_knobs_dont_raise():
     # Picking three knobs that were flagged by Wave 1 cleanup as missing-on-signature;
     # all three are consumed downstream via behavior_config not via this signature.
     sig = inspect.signature(configure_training_params)
-    accepts_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+    var_keyword = [name for name, p in sig.parameters.items() if p.kind is inspect.Parameter.VAR_KEYWORD]
+    assert var_keyword, "configure_training_params lost its **kwargs catch-all for behavior knobs it does not declare"
 
     candidates = {
         "mlp_extreme_ar_group_aware_skip": True,
         "mlp_extreme_ar_threshold": 1.5,
         "pre_pipeline_cache_max": 4,
     }
-    if not accepts_kw:
-        assert len(candidates) > 0
-        for name in candidates:
-            assert name in sig.parameters, f"configure_training_params missing kw '{name}' and no **kwargs to catch it"
     # Binding with these kwargs must not raise TypeError-on-bind. (We bind to a partial via
     # Signature.bind_partial to avoid executing the body, which needs many other args.)
-    sig.bind_partial(**candidates)
+    bound = sig.bind_partial(**candidates)
+    caught = bound.arguments.get(var_keyword[0], {})
+    for name, value in candidates.items():
+        assert bound.arguments.get(name, caught.get(name)) == value, f"knob {name!r} was not bound"

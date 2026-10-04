@@ -888,18 +888,47 @@ class TestCoreAutoClearsLGBShimCacheAtStrategyEnd:
         probs_after = m.predict_proba(X)
         np.testing.assert_allclose(probs_after, probs_before, atol=1e-9)
 
-    def test_duck_typing_skips_non_shim_lgb(self):
+    def test_duck_typing_skips_non_shim_lgb(self, caplog):
         """Safety: vanilla LGBMClassifier has no ``clear_cache`` -- the
         helper's ``callable`` check skips it harmlessly."""
+        import logging
 
-        def _probe(est):
-            """Probe."""
-            fn = getattr(est, "clear_cache", None)
-            if callable(fn):
-                try:
-                    fn()
-                except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-                    pass
+        from mlframe.training.core._misc_helpers import _maybe_clear_shim_cache
+
+        class CountingEstimator:
+            """Estimator with a callable clear_cache."""
+
+            def __init__(self):
+                """Start with no clears."""
+                self.cleared = 0
+
+            def clear_cache(self):
+                """Count the clear."""
+                self.cleared += 1
+
+        class FailingEstimator:
+            """Estimator whose clear_cache raises."""
+
+            def clear_cache(self):
+                """Fail like a half-torn-down cache."""
+                raise RuntimeError("cache already gone")
+
+        class NotCallableEstimator:
+            """Estimator with a non-callable clear_cache attribute."""
+
+            clear_cache = 5
 
         vanilla = lgb.LGBMClassifier(n_estimators=3, **_QUIET_LGB)
-        _probe(vanilla)  # must not raise
+        params_before = vanilla.get_params()
+        assert not hasattr(vanilla, "clear_cache")
+        assert _maybe_clear_shim_cache(vanilla) is None
+        assert vanilla.get_params() == params_before
+        assert _maybe_clear_shim_cache(NotCallableEstimator()) is None
+
+        counting = CountingEstimator()
+        assert _maybe_clear_shim_cache(counting) is None
+        assert counting.cleared == 1
+
+        with caplog.at_level(logging.DEBUG, logger="mlframe.training.core._misc_helpers"):
+            assert _maybe_clear_shim_cache(FailingEstimator()) is None
+        assert any("clear_cache() raised on estimator 'FailingEstimator'" in r.getMessage() for r in caplog.records)

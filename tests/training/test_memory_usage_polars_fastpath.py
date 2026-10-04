@@ -56,18 +56,62 @@ def test_S49_no_deep_memory_usage_call_in_phase_helpers():
     )
 
 
-def test_S49_size_compute_skips_when_polars_cache_present():
-    """When ``train_df_size_bytes_cached`` was already populated (polars path), the fallback
-    pandas ``memory_usage`` must NOT overwrite it.
-    """
-    src = _read_phase_helpers()
-    # Behavioural contract pinned in the new comment + ``is None`` guard.
-    assert (
-        "train_df_size_bytes_cached is None" in src
-    ), "Expected a guard 'train_df_size_bytes_cached is None' so the polars-cached value is preserved when present (skip the pandas fallback)."
-    assert (
-        "val_df_size_bytes_cached is None" in src
-    ), "Expected a guard 'val_df_size_bytes_cached is None' so the polars-cached value is preserved when present (skip the pandas fallback)."
+def test_S49_size_compute_skips_when_polars_cache_present(monkeypatch):
+    """A polars input keeps its pre-conversion ``estimated_size`` for the size cache and never runs the pandas ``memory_usage`` fallback; a pandas input falls back to the shallow scan."""
+    import polars as pl
+
+    from mlframe.training.core._phase_helpers import _phase_pandas_conversion_and_cat_prep
+
+    def _frame(n):
+        """A polars frame with a numeric and a long-string column."""
+        return pl.DataFrame({"num": np.arange(n, dtype=np.float64), "txt": [f"value_number_{i:08d}_padding_text" for i in range(n)]})
+
+    def _prep(train, val, was_polars_input):
+        """Run the pandas-conversion phase with a configuration that forces the conversion."""
+        return _phase_pandas_conversion_and_cat_prep(
+            train_df=train,
+            val_df=val,
+            test_df=None,
+            train_df_polars_pre=None,
+            val_df_polars_pre=None,
+            test_df_polars_pre=None,
+            cat_features=[],
+            was_polars_input=was_polars_input,
+            all_models_polars_native=False,
+            needs_polars_pre_clone=False,
+            mlframe_models=["lgb"],
+            recurrent_models=[],
+            rfecv_models=[],
+            baseline_rss_mb=0.0,
+            df_size_mb=0.0,
+            verbose=False,
+        )
+
+    memory_usage_calls = []
+    real_memory_usage = pd.DataFrame.memory_usage
+
+    def _spy(self, *args, **kwargs):
+        """Record the shallow fallback scan (deep=False, index=False), then delegate."""
+        if kwargs == {"deep": False, "index": False}:
+            memory_usage_calls.append(kwargs)
+        return real_memory_usage(self, *args, **kwargs)
+
+    monkeypatch.setattr(pd.DataFrame, "memory_usage", _spy)
+    train_pl, val_pl = _frame(500), _frame(200)
+
+    out = _prep(train_pl, val_pl, True)
+
+    assert out[11] is False
+    assert out[9] == float(train_pl.estimated_size())
+    assert out[10] == float(val_pl.estimated_size())
+    assert memory_usage_calls == []
+
+    train_pd = pd.DataFrame({"num": np.arange(500, dtype=np.float64), "txt": [f"value_number_{i:08d}_padding_text" for i in range(500)]})
+    out_pd = _prep(train_pd, None, False)
+
+    assert out_pd[9] == float(real_memory_usage(train_pd, deep=False, index=False).sum())
+    assert out_pd[10] is None
+    assert len(memory_usage_calls) >= 1
 
 
 def test_S49_shallow_memory_usage_is_fast_and_returns_finite_bytes():

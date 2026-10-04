@@ -171,27 +171,22 @@ class TestXGBShimUsesSharedHelper:
         assert xgb_shim._signature_of(df_a) == compute_signature(df_a)
         assert xgb_shim._signature_of(df_a) == xgb_shim._signature_of(df_b)
 
-    def test_xgb_signature_delegates_not_inlines(self) -> None:
-        """Source-guard: the shim function must delegate to the shared
-        helper, not re-implement id(X)-keyed signature inline. We assert
-        positively (delegates to ``compute_signature``) rather than
-        negatively (no id(X)) because the rationale docstring still
-        mentions id(X) as historical context."""
-        from pathlib import Path
-        import mlframe.training.xgb_shim as mod
+    def test_xgb_signature_delegates_not_inlines(self, monkeypatch) -> None:
+        """The shim signature is whatever the shared helper returns for the very same frame: swapping the helper changes the shim's key."""
+        from mlframe.training import _dataset_cache_fingerprint as fp
+        from mlframe.training import xgb_shim
 
-        src = Path(mod.__file__).read_text(encoding="utf-8")
-        defn_start = src.find("def _signature_of(X)")
-        assert defn_start != -1
-        next_def = src.find("\ndef ", defn_start + 1)
-        body = src[defn_start:next_def]
-        assert "compute_signature" in body, (
-            "xgb_shim._signature_of must delegate to "
-            "_dataset_cache_fingerprint.compute_signature -- regression "
-            "would re-introduce id(X) cache-key bug from prod TVT 2026-05-23."
-        )
-        # ``return compute_signature(X)`` should be the only return statement.
-        assert "return compute_signature" in body
+        seen = []
+
+        def spy(X, *args, **kwargs):
+            """Record the frame handed to the shared helper and return a sentinel key."""
+            seen.append(X)
+            return ("sentinel-key", len(seen))
+
+        monkeypatch.setattr(fp, "compute_signature", spy)
+        df = pd.DataFrame({"a": np.arange(10.0)})
+        assert xgb_shim._signature_of(df) == ("sentinel-key", 1)
+        assert seen == [df] or (len(seen) == 1 and seen[0] is df)
 
 
 class TestLGBShimUsesSharedHelper:
@@ -223,61 +218,66 @@ class TestCBTrainPoolCacheKeyUsesHelper:
     """``_cb_pool_build`` builds the train CB Pool cache key via the
     shared helper. Source-grep verifies no ``id(train_df)`` left."""
 
-    def test_no_id_train_df_in_cache_key_construction(self) -> None:
-        """No id train df in cache key construction."""
-        from pathlib import Path
-        import mlframe.training.cb._cb_pool_build as mod
+    def test_no_id_train_df_in_cache_key_construction(self, monkeypatch) -> None:
+        """Two equal frames at different addresses share one train Pool cache entry; a frame with different content gets its own."""
+        pytest.importorskip("catboost")
+        from mlframe.training.cb import _cb_pool
+        from mlframe.training.cb._cb_pool_build import _maybe_get_or_build_cb_pool
 
-        src = Path(mod.__file__).read_text(encoding="utf-8")
-        assert "compute_signature" in src, "_cb_pool_build.py no longer uses compute_signature for the train Pool cache key -- regression vs 2026-05-23 fix."
-        args = _key_call_arguments(mod, "_cb_pool_build train Pool")
-        assert len(args) > 0
-        for arg in args:
-            assert "id(" not in arg, f"_cb_pool_build train Pool cache key is built from an object address: {arg!r}"
-
-
-def _key_call_arguments(module, subject: str) -> list[str]:
-    """Every argument source of a ``key = compute_signature(...)`` assignment in ``module``.
-
-    The previous form of this check collected physical lines starting with ``key = `` and asserted the
-    forbidden token was absent from each. Both real assignments span several lines, so the only line it ever
-    matched was ``key = compute_signature(`` -- which by construction carries no arguments at all, and the
-    assertion was true for that reason rather than for the intended one. Re-introducing ``id(train_df)`` on a
-    continuation line left both tests green. Walking the call node reads the arguments wherever they sit.
-    """
-    import ast
-    from pathlib import Path
-
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
-    args: list[str] = []
-    found = False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == "key" for t in node.targets):
-            continue
-        found = True
-        for a in list(node.value.args) + [kw.value for kw in node.value.keywords]:
-            args.append(ast.unparse(a))
-    assert found, f"{subject}: no `key = <call>(...)` assignment found; this check has lost its subject"
-    return args
+        monkeypatch.setattr(_cb_pool, "_cb_reuse_capable", lambda: True)
+        y = np.arange(60) % 2
+        frame_a = pd.DataFrame({"x": np.linspace(0.0, 1.0, 60), "z": np.linspace(1.0, 3.0, 60)})
+        frame_b = frame_a.copy()
+        frame_c = frame_a.assign(x=frame_a["x"] + 5.0)
+        assert id(frame_a) != id(frame_b)
+        saved = dict(_cb_pool._CB_POOL_CACHE)
+        _cb_pool._CB_POOL_CACHE.clear()
+        try:
+            model = type("M", (), {})()
+            assert _maybe_get_or_build_cb_pool("CatBoostClassifier", model, frame_a, y, {}) is not None
+            keys_after_a = set(_cb_pool._CB_POOL_CACHE)
+            assert _maybe_get_or_build_cb_pool("CatBoostClassifier", model, frame_b, y, {}) is not None
+            keys_after_b = set(_cb_pool._CB_POOL_CACHE)
+            assert _maybe_get_or_build_cb_pool("CatBoostClassifier", model, frame_c, y, {}) is not None
+            keys_after_c = set(_cb_pool._CB_POOL_CACHE)
+        finally:
+            _cb_pool._CB_POOL_CACHE.clear()
+            _cb_pool._CB_POOL_CACHE.update(saved)
+        assert len(keys_after_a) == 1
+        assert keys_after_b == keys_after_a
+        assert len(keys_after_c) == 2 and keys_after_a < keys_after_c
 
 
 class TestCBValPoolCacheKeyUsesHelper:
     """``_cb_pool._maybe_rewrite_eval_set_as_cb_pool`` builds the val
     Pool cache key via the shared helper."""
 
-    def test_no_id_val_df_in_cache_key_construction(self) -> None:
-        """No id val df in cache key construction."""
-        from pathlib import Path
-        import mlframe.training.cb._cb_pool as mod
+    def test_no_id_val_df_in_cache_key_construction(self, monkeypatch) -> None:
+        """Two equal validation frames at different addresses share one val Pool cache entry; different content gets its own."""
+        pytest.importorskip("catboost")
+        from mlframe.training.cb import _cb_pool
 
-        src = Path(mod.__file__).read_text(encoding="utf-8")
-        assert "compute_signature" in src, "_cb_pool.py no longer uses compute_signature for val Pool cache key -- regression vs 2026-05-23 fix."
-        args = _key_call_arguments(mod, "_cb_pool val Pool")
-        assert len(args) > 0
-        for arg in args:
-            assert "id(" not in arg, f"_cb_pool val Pool cache key is built from an object address: {arg!r}"
+        monkeypatch.setattr(_cb_pool, "_cb_reuse_capable", lambda: True)
+        y = np.arange(60) % 2
+        val_a = pd.DataFrame({"x": np.linspace(0.0, 1.0, 60)})
+        val_b = val_a.copy()
+        val_c = val_a.assign(x=val_a["x"] + 5.0)
+        assert id(val_a) != id(val_b)
+        saved = dict(_cb_pool._CB_VAL_POOL_CACHE)
+        _cb_pool._CB_VAL_POOL_CACHE.clear()
+        try:
+            key_sets = []
+            for frame in (val_a, val_b, val_c):
+                fit_params = {"eval_set": (frame, y)}
+                _cb_pool._maybe_rewrite_eval_set_as_cb_pool(fit_params)
+                assert type(fit_params["eval_set"][0]).__name__ == "Pool"
+                key_sets.append(set(_cb_pool._CB_VAL_POOL_CACHE))
+        finally:
+            _cb_pool._CB_VAL_POOL_CACHE.clear()
+            _cb_pool._CB_VAL_POOL_CACHE.update(saved)
+        assert len(key_sets[0]) == 1
+        assert key_sets[1] == key_sets[0]
+        assert len(key_sets[2]) == 2 and key_sets[0] < key_sets[2]
 
     def test_the_signature_is_the_same_for_equal_frames_at_different_addresses(self) -> None:
         """What the id() ban is FOR: two equal frames must address one cached Pool, and unequal ones must not."""

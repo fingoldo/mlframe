@@ -109,3 +109,21 @@ def test_round_budget_readers_cover_lightgbm_catboost_and_unknown():
     est = _EsStub()
     assert apply_round_budget(est, 5) == "n_estimators" and est.n_estimators == 5
     assert apply_round_budget(est, None) is None
+
+
+def test_catboost_oof_clone_receives_cat_features_from_fit_params():
+    """The deployed CatBoost gets ``cat_features`` via ``.fit(**fit_params)``; the OOF clone must get them too, else a pandas Categorical column
+    reaches CatBoost as a numeric feature ('Unsupported data type Categorical')."""
+    from catboost import CatBoostRegressor
+
+    rng = np.random.default_rng(0)
+    n = 90
+    cat = pd.Categorical(rng.choice(["x", "y", "z"], size=n))
+    X = pd.DataFrame({"a": rng.normal(size=n), "cat_0": cat})
+    y = rng.normal(size=n) + (X["cat_0"] == "x").to_numpy()
+    model = CatBoostRegressor(iterations=3, verbose=0, allow_writing_files=False, thread_count=1)
+    preds, _ = _compute_oof_preds(
+        model=model, train_df=X, train_target=y, is_classifier_model=False, n_splits=3, random_seed=0, fit_params={"cat_features": ["cat_0", "gone"]},
+    )
+    assert preds is not None and preds.shape == (n,) and np.isfinite(preds).all()
+    assert model.get_params().get("cat_features") is None

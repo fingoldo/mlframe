@@ -120,12 +120,12 @@ def test_f3_f6_degenerate_fold_uses_far_sentinel_not_zero(modname, funcname):
     out = func(X, y, X_query=X[:5], splitter=None, seed=0, task="binary")
     pos_cols = [c for c in out.columns if "loggap" not in c.lower()]
     loggap_cols = [c for c in out.columns if "loggap" in c.lower()]
-    if pos_cols:
-        pos_vals = out[pos_cols].to_numpy()
-        assert np.all(pos_vals >= 1e5), f"F3-F6 REGRESSION: {modname} degenerate-fold distance columns must use the far sentinel, not 0.0: {pos_vals}"
-    if loggap_cols:
-        loggap_vals = out[loggap_cols].to_numpy()
-        assert np.allclose(loggap_vals, 0.0)
+    assert pos_cols, f"{modname} must emit distance columns, got {list(out.columns)}"
+    assert loggap_cols, f"{modname} must emit loggap columns, got {list(out.columns)}"
+    pos_vals = out[pos_cols].to_numpy()
+    assert np.all(pos_vals >= 1e5), f"F3-F6 REGRESSION: {modname} degenerate-fold distance columns must use the far sentinel, not 0.0: {pos_vals}"
+    loggap_vals = out[loggap_cols].to_numpy()
+    assert np.allclose(loggap_vals, 0.0)
 
 
 def test_f7_bgmm_density_ratio_degenerate_fold_uses_low_density_sentinel():
@@ -140,9 +140,9 @@ def test_f7_bgmm_density_ratio_degenerate_fold_uses_low_density_sentinel():
 
     out = compute_bgmm_density_ratio_features(X, y, X_query=X[:5], splitter=None, seed=0, task="binary")
     logp_cols = [c for c in out.columns if "log_ratio" not in c and ("logp" in c or "log_p" in c)]
-    if logp_cols:
-        vals = out[logp_cols].to_numpy()
-        assert np.allclose(vals, -30.0), f"F7 REGRESSION: degenerate-fold log-density columns must use the -30.0 sentinel, not 0.0: {vals}"
+    assert logp_cols, f"bgmm_density_ratio must emit log-density columns, got {list(out.columns)}"
+    vals = out[logp_cols].to_numpy()
+    assert np.allclose(vals, -30.0), f"F7 REGRESSION: degenerate-fold log-density columns must use the -30.0 sentinel, not 0.0: {vals}"
 
 
 def test_f8_class_mahalanobis_degenerate_fold_uses_far_sentinel():
@@ -210,28 +210,30 @@ def test_f11_tree_path_boolean_logs_on_extraction_failure(monkeypatch, caplog):
 
 
 def test_f13_fca_closed_concepts_logs_on_lattice_failure(monkeypatch, caplog):
-    """F13 fca closed concepts logs on lattice failure."""
+    """A failing lattice build is logged at INFO and degrades to zero concepts: top_k + 2 columns, n_concepts == 0, no indicator fires."""
+    pytest.importorskip("concepts")
+    import concepts
     import mlframe.feature_engineering.transformer.fca_closed_concepts as mod
 
-    class _RaisingConcepts:
-        """RaisingConcepts."""
-        def __getattr__(self, name):
-            """getattr  ."""
-            raise RuntimeError("simulated concepts lib failure")
+    def _raising_context(*args, **kwargs):
+        """Raise, simulating a failing lattice construction."""
+        raise RuntimeError("simulated concepts lib failure")
 
-    # Force the try-block to fail by making the lattice-building context manager raise.
-    monkeypatch.setattr(mod, "concepts", _RaisingConcepts(), raising=False)
+    monkeypatch.setattr(concepts, "Context", _raising_context)
     rng = np.random.default_rng(0)
     X = (rng.random((30, 3)) > 0.5).astype(np.float32)
     y = rng.normal(size=30).astype(np.float32)
     with caplog.at_level(logging.INFO, logger=mod.__name__):
-        try:
-            mod.compute_fca_closed_concepts_features(X, y, X_query=X[:5], splitter=None, seed=0)
-        except Exception:
-            pass
-    # Source-level fallback assertion (mocking concepts internals is fragile across versions):
-    import inspect
-    assert "logger.info" in inspect.getsource(mod.compute_fca_closed_concepts_features)
+        out = mod.compute_fca_closed_concepts_features(X, y, X_query=X[:5], splitter=None, seed=0)
+    messages = [r.getMessage() for r in caplog.records if "lattice construction failed" in r.getMessage()]
+    assert messages, "the lattice failure must be logged"
+    assert "simulated concepts lib failure" in messages[0]
+    arr = out.to_numpy()
+    assert arr.shape[0] == 5
+    n_concepts = [c for c in out.columns if c.endswith("_n_concepts")]
+    assert len(n_concepts) == 1
+    assert np.all(out[n_concepts[0]].to_numpy() == 0.0)
+    assert np.all(arr == 0.0)
 
 
 def test_f14_multi_baseline_hard_row_logs_on_logreg_failure(monkeypatch, caplog):

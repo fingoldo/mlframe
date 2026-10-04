@@ -456,13 +456,25 @@ def _run_combo(models, needs_encoder, tmp_path, label):
         reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
     )
     assert trained, f"No models trained for combo: {label}"
+    return trained
+
+
+def _assert_one_fitted_classifier_per_model(trained, models):
+    """The suite returns one entry per requested model under the binary-classification target, each with a fitted ``predict_proba`` model."""
+    from mlframe.training.configs import TargetTypes
+
+    entries = trained[TargetTypes.BINARY_CLASSIFICATION]["target"]
+    assert len(entries) == len(models)
+    assert all(callable(getattr(entry.model, "predict_proba", None)) for entry in entries)
 
 
 def test_polars_full_combo_tree_only(tmp_path):
     """Polars+Enum frame × all three tree models. Tree-only suite triggers
     auto-set of skip_categorical_encoding=True (all models handle cats
     natively), no encoder fires."""
-    _run_combo(["cb", "xgb", "lgb"], needs_encoder=False, tmp_path=tmp_path, label="tree_only")
+    models = ["cb", "xgb", "lgb"]
+    trained = _run_combo(models, needs_encoder=False, tmp_path=tmp_path, label="tree_only")
+    _assert_one_fitted_classifier_per_model(trained, models)
 
 
 def test_polars_full_combo_with_linear(tmp_path):
@@ -480,7 +492,9 @@ def test_polars_full_combo_with_linear(tmp_path):
     gets skip_preprocessing=False, and its CatBoostEncoder+scaler+imputer
     pipeline actually runs. LogReg receives numeric features instead of raw
     pd.Categorical — no more 'HOURLY' crash."""
-    _run_combo(["cb", "xgb", "lgb", "linear"], needs_encoder=True, tmp_path=tmp_path, label="tree_plus_linear")
+    models = ["cb", "xgb", "lgb", "linear"]
+    trained = _run_combo(models, needs_encoder=True, tmp_path=tmp_path, label="tree_plus_linear")
+    _assert_one_fitted_classifier_per_model(trained, models)
 
 
 @pytest.mark.parametrize("model_name", fast_subset(["cb", "xgb", "lgb"], representative="lgb"))

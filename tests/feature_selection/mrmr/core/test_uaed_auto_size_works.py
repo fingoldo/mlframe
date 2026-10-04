@@ -145,10 +145,11 @@ def test_uaed_auto_size_trims_at_elbow():
         sel_on = MRMR(verbose=0, uaed_auto_size=True).fit(X, y)
     # uaed_elbow_ MUST be set when at least 3 gains were available and
     # the elbow lies strictly inside the trace.
-    if sel_off.mrmr_gains_.size >= 3:
-        assert hasattr(sel_on, "uaed_elbow_"), "uaed_elbow_ was not set despite >=3 gains in trace"
-        # And the trimmed support must be <= default support.
-        assert len(sel_on.support_) <= len(sel_off.support_)
+    assert sel_off.mrmr_gains_.size >= 3
+    assert hasattr(sel_on, "uaed_elbow_"), "uaed_elbow_ was not set despite >=3 gains in trace"
+    assert 0 < sel_on.uaed_elbow_ < sel_off.mrmr_gains_.size
+    # And the trimmed support must be <= default support.
+    assert len(sel_on.support_) <= len(sel_off.support_)
 
 
 def test_uaed_auto_size_disabled_unchanged():

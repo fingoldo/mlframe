@@ -233,8 +233,8 @@ def test_format_drift_report_emits_no_warn_marker_when_clean():
         target_type="binary_classification",
     )
     out = format_drift_report(rep, target_name="x")
-    if not rep["warnings"]:
-        assert "(no drift warnings" in out
+    assert not rep["warnings"]
+    assert "(no drift warnings" in out
 
 
 def test_multiclass_split_summary_single_pass_via_unique(monkeypatch):

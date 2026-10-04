@@ -352,12 +352,11 @@ class TestLockTimeIndexDemoter:
             feature_cols=["base_time", "x1", "x2"],
             train_idx=train_idx,
         )
-        if d_off.specs_:
-            assert d_off.specs_[0].base_column == "base_time", "fixture broken: OFF should pick base_time (highest MI)"
-        if d_on.specs_:
-            assert (
-                d_on.specs_[0].base_column != "base_time"
-            ), f"regression: time-index demoter failed to push base_time down; got '{d_on.specs_[0].base_column}'"
+        assert d_off.specs_, "fixture broken: OFF must discover a composite"
+        assert d_off.specs_[0].base_column == "base_time", "fixture broken: OFF should pick base_time (highest MI)"
+        assert (
+            not d_on.specs_ or d_on.specs_[0].base_column != "base_time"
+        ), f"regression: time-index demoter failed to push base_time down; got '{d_on.specs_[0].base_column}'"
 
 
 # ----------------------------------------------------------------------
@@ -422,11 +421,11 @@ class TestLockMedianSeeds:
         std_single = float(np.std(single))
         std_median = float(np.std(median5))
         # Demo showed 47.8% reduction. Lock at >=30%.
-        if std_single > 1e-6:
-            reduction = (std_single - std_median) / std_single
-            assert (
-                reduction >= 0.3
-            ), f"regression: median-of-5 reduced std by only {reduction * 100:.0f}% (single={std_single:.4f}, median={std_median:.4f}); expected >= 30%"
+        assert std_single > 1e-6, "fixture broken: the single-seed estimate must vary across seeds"
+        reduction = (std_single - std_median) / std_single
+        assert (
+            reduction >= 0.3
+        ), f"regression: median-of-5 reduced std by only {reduction * 100:.0f}% (single={std_single:.4f}, median={std_median:.4f}); expected >= 30%"
 
 
 # ----------------------------------------------------------------------
@@ -484,14 +483,14 @@ class TestLockMeanMI:
             aggregation="mean",
         )
         # sum: scales ~10x (artifact).
-        if sum_x1 > 1e-6:
-            sum_ratio = sum_x10 / sum_x1
-            assert sum_ratio > 5.0, f"regression: sum aggregation should scale ~10x with duplicates; got {sum_ratio:.2f}x"
+        assert sum_x1 > 1e-6, "fixture broken: the 5-column MI sum must be positive"
+        sum_ratio = sum_x10 / sum_x1
+        assert sum_ratio > 5.0, f"regression: sum aggregation should scale ~10x with duplicates; got {sum_ratio:.2f}x"
         # mean: invariant within 5% (small numerical jitter from
         # duplicate columns producing near-identical bin patterns).
-        if mean_x1 > 1e-6:
-            mean_ratio = mean_x10 / mean_x1
-            assert 0.9 < mean_ratio < 1.1, f"regression: mean aggregation should be invariant to duplicates; got {mean_ratio:.2f}x"
+        assert mean_x1 > 1e-6, "fixture broken: the 5-column MI mean must be positive"
+        mean_ratio = mean_x10 / mean_x1
+        assert 0.9 < mean_ratio < 1.1, f"regression: mean aggregation should be invariant to duplicates; got {mean_ratio:.2f}x"
 
 
 # ----------------------------------------------------------------------
@@ -565,20 +564,19 @@ class TestLockWilcoxonGate:
         # keeps the coarser "catches at least one" check -- still fails a genuine "Wilcoxon gate is a
         # no-op" regression (wilcoxon_accepts == threshold_accepts) while tolerating the single-flip noise
         # the 5-rep sample size can't resolve at 30%-precision.
-        if threshold_accepts >= 5:
-            reduction = (threshold_accepts - wilcoxon_accepts) / threshold_accepts
-            if n_reps >= 10:
-                assert reduction >= 0.3, (
-                    f"regression: Wilcoxon caught only {reduction * 100:.0f}% "
-                    f"of threshold's borderline false-positives "
-                    f"(threshold={threshold_accepts}/{n_reps}, "
-                    f"wilcoxon={wilcoxon_accepts}/{n_reps}); expected >= 30%"
-                )
-            else:
-                assert wilcoxon_accepts < threshold_accepts, (
-                    f"regression: Wilcoxon caught none of threshold's borderline false-positives "
-                    f"(threshold={threshold_accepts}/{n_reps}, wilcoxon={wilcoxon_accepts}/{n_reps})"
-                )
+        assert threshold_accepts >= 5, f"fixture broken: the threshold gate must accept the borderline noise (accepted {threshold_accepts}/{n_reps})"
+        reduction = (threshold_accepts - wilcoxon_accepts) / threshold_accepts
+        assert wilcoxon_accepts < threshold_accepts, (
+            f"regression: Wilcoxon caught none of threshold's borderline false-positives "
+            f"(threshold={threshold_accepts}/{n_reps}, wilcoxon={wilcoxon_accepts}/{n_reps})"
+        )
+        if n_reps >= 10:
+            assert reduction >= 0.3, (
+                f"regression: Wilcoxon caught only {reduction * 100:.0f}% "
+                f"of threshold's borderline false-positives "
+                f"(threshold={threshold_accepts}/{n_reps}, "
+                f"wilcoxon={wilcoxon_accepts}/{n_reps}); expected >= 30%"
+            )
 
 
 # ----------------------------------------------------------------------

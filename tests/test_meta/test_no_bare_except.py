@@ -138,14 +138,28 @@ def _build_verbose_gated_offending_set() -> set[str]:
         tree = parsed_ast(py)
         if tree is None:
             continue
-        rel = py.relative_to(MLFRAME_DIR).as_posix()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Try):
-                continue
-            for handler in node.handlers:
-                if _handler_is_effectively_silent(handler):
-                    out.add(f"{rel}:{handler.lineno}")
+        out |= _silent_handler_sites(tree, py.relative_to(MLFRAME_DIR).as_posix())
     return out
+
+
+def _silent_handler_sites(tree: ast.AST, rel: str) -> set[str]:
+    """``{rel:lineno}`` for every silent or verbose-gated broad handler in one parsed module."""
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        for handler in node.handlers:
+            if _handler_is_effectively_silent(handler):
+                out.add(f"{rel}:{handler.lineno}")
+    return out
+
+
+def test_silent_except_detector_catches_silent_and_gated_handlers_and_passes_logging_ones():
+    """A pass-only and a verbose-gated-only handler are reported; an unconditional log and a re-raise are not."""
+    bad = ast.parse("try:\n    f()\nexcept Exception:\n    pass\ntry:\n    f()\nexcept Exception:\n    if verbose:\n        logger.warning('x')\n")
+    clean = ast.parse("try:\n    f()\nexcept Exception:\n    logger.debug('x')\ntry:\n    f()\nexcept Exception:\n    raise\n")
+    assert _silent_handler_sites(bad, "m.py") == {"m.py:3", "m.py:7"}
+    assert _silent_handler_sites(clean, "m.py") == set()
 
 
 def test_no_new_verbose_gated_or_silent_except_exception():
@@ -157,11 +171,12 @@ def test_no_new_verbose_gated_or_silent_except_exception():
     a handler that logs ONLY when ``verbose`` is truthy is completely invisible at the library's own
     ``verbose=0`` default, functionally equivalent to a silent swallow for every default-config caller.
     """
-    current = _build_verbose_gated_offending_set()
-
     if _refresh_verbose_gated_requested() or not _VERBOSE_GATED_BASELINE_PATH.exists():
-        _VERBOSE_GATED_BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"verbose-gated-except baseline refreshed at {_VERBOSE_GATED_BASELINE_PATH.name} ({len(current)} site(s))")
+        _VERBOSE_GATED_BASELINE_PATH.write_text(
+            orjson.dumps(sorted(_build_verbose_gated_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8"
+        )
+        pytest.skip(f"verbose-gated-except baseline refreshed at {_VERBOSE_GATED_BASELINE_PATH.name}")
+    current = _build_verbose_gated_offending_set()
 
     baseline = set(orjson.loads(_VERBOSE_GATED_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

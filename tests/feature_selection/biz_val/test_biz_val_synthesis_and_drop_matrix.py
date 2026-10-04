@@ -48,6 +48,7 @@ import sys
 import numpy as np
 import pandas as pd
 import pytest
+from tests._known_gap import known_gap
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
@@ -201,21 +202,14 @@ def test_synthesis_matrix(family, score_fn, thr, floor, gap):
     feature exposes?  Floor is on (FE_auc - raw_auc) for a held-out LogReg.
 
     A documented capability GAP (MODULAR) is asserted to the CORRECT behavior
-    and xfail-ed -- not weakened -- so the miss stays visible. XOR3 is now
+    and recorded as a known gap -- not weakened -- so the miss stays visible. XOR3 is now
     recovered via the triplet cross-basis synthesizer in _FE_FULL."""
     df, y = _build_synth(family, score_fn, thr)
     fe_auc, fe_names = _sel_auc(_FE_FULL, df, y)
     raw_auc, raw_names = _sel_auc(_RAW_ONLY, df, y)
     delta = fe_auc - raw_auc
     if gap is not None:
-        # MEASURE FIRST, then xfail only if the gap is still open -- the pattern the dropping-matrix sibling
-        # already uses. Calling `pytest.xfail(gap)` before the measurement meant the gap families never ran at
-        # all, so a gap that CLOSED (the synthesizer learning to cover that family) would go unnoticed for as
-        # long as the parametrisation carried a gap string.
-        if fe_auc <= 0.70 or delta < floor:
-            pytest.xfail(f"{gap} [still open: FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} delta={delta:+.3f}]")
-        # Fell through: the gap has closed. Let the assertions below run and PASS, which is the signal to
-        # remove this family's gap string.
+        known_gap(f"{gap} [FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} delta={delta:+.3f}]", gap_closed=fe_auc > 0.70 and delta >= floor)
     print(f"SYNTH {family:14s} FE_auc={fe_auc:.3f} raw_auc={raw_auc:.3f} delta={delta:+.3f} floor={floor:+.3f} fe_names={fe_names[:4]}")
     # The FE selection must (a) carry the signal absolutely AND (b) beat raw-only
     # by the floor.  For THRESHOLD_RELU the raw column already exposes the step
@@ -321,25 +315,16 @@ _DROP_FAMILIES = [
 def test_mrmr_dropping_matrix(family, decoy, kind, gap):
     """DROPPING (redundancy-aware MRMR): the decoy is dropped / the redundant
     twin pair collapses to one survivor.  ``x_real`` must always survive."""
-    if gap is not None:
-        # Document the leak-proxy GAP to the CORRECT behavior, then xfail.
-        df, y = _drop_dataset(decoy)
-        fs = MRMR(verbose=0, random_seed=42, **_RAW_ONLY)
-        fs.fit(df, y)
-        sel = list(fs.get_feature_names_out())
-        print(f"DROP  {family:18s} sel={sel} (GAP)")
-        # CORRECT behavior: a leak proxy should be dropped. It is NOT (the proxy
-        # is the single most relevant feature for a pure-MI filter), so we
-        # demonstrate the miss and xfail rather than weaken the contract.
-        if "decoy" in sel:
-            pytest.xfail(gap)
-        assert "decoy" not in sel, gap
-        return
     df, y = _drop_dataset(decoy)
     fs = MRMR(verbose=0, random_seed=42, **_RAW_ONLY)
     fs.fit(df, y)
     sel = list(fs.get_feature_names_out())
     print(f"DROP  {family:18s} sel={sel}")
+    carriers = {"x_real", "decoy"} if kind == "twin" or gap is not None else {"x_real"}
+    assert carriers & set(sel), f"{family}: real signal column was DROPPED, selection={sel}"
+    if gap is not None:
+        # A leak proxy should be dropped but is the single most relevant feature for a pure-MI filter.
+        known_gap(f"{gap} [selection={sel}]", gap_closed="decoy" not in sel)
     if kind == "twin":
         # x_real and the decoy are MI-identical (exact dup, sign flip, scale, monotone warp all bin to the
         # same quantile codes), so WHICH twin survives is name-determined by the order-invariant tie-break,
@@ -380,7 +365,7 @@ _RFECV_DROP = [
 def test_rfecv_dropping_matrix(family, decoy, kind, gap):
     """DROPPING (wrapper RFECV): exact-dup + constant are dropped; redundant
     scaled copies / realistic-marginal noise / ID-like decoys are ADMITTED.
-    The admissions are written to the CORRECT behavior and xfail-ed as GAPs."""
+    The admissions are written to the CORRECT behavior and recorded as known gaps."""
     df, y = _drop_dataset(decoy)
     sel = _make_rfecv("binary")
     sel.fit(df, y)
@@ -393,10 +378,8 @@ def test_rfecv_dropping_matrix(family, decoy, kind, gap):
         assert ("x_real" in names) or ("decoy" in names), f"{family}: RFECV dropped BOTH the signal and its copy: {names}"
     else:
         assert "x_real" in names, f"{family}: RFECV dropped the real signal: {names}"
-    if gap is not None and "decoy" in names:
-        # Same pattern: xfail only when the gap is CONFIRMED still open. Xfailing unconditionally meant a
-        # closed gap -- RFECV learning to reject this decoy -- was reported as an expected failure forever.
-        pytest.xfail(f"{gap} [still open: selection={names}]")
+    if gap is not None:
+        known_gap(f"{gap} [selection={names}]", gap_closed="decoy" not in names)
     assert "decoy" not in names, f"{family}: RFECV admitted the decoy into selection: {names}"
 
 

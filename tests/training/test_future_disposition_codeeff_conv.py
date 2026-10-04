@@ -6,6 +6,7 @@ pattern: the test must FAIL on pre-fix source and PASS on post-fix source.
 
 from __future__ import annotations
 
+import ast
 import inspect
 from pathlib import Path
 
@@ -70,15 +71,11 @@ def test_codep14_run_temporal_audit_batch_has_no_df_param():
 
 
 def test_codep14_main_does_not_pass_df_to_temporal_audit():
-    """Codep14 main does not pass df to temporal audit."""
-    src = _read("training/core/main.py")
-    # The call site must not pass df=...
-    assert "run_temporal_audit_batch(" in src
-    # crude but adequate: between the opening paren and closing paren of the call we should not see ``df=``
-    call_idx = src.index("run_temporal_audit_batch(")
-    closing = src.index(")", call_idx)
-    call_block = src[call_idx:closing]
-    assert "df=" not in call_block, "CODE-P1-4 regression: main.py still passes df= to run_temporal_audit_batch"
+    """Every call of run_temporal_audit_batch reachable from main.py passes no ``df`` keyword."""
+    tree = ast.parse(_read("training/core/main.py"))
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "attr", getattr(n.func, "id", "")) == "run_temporal_audit_batch"]
+    assert len(calls) == 1
+    assert "df" not in {kw.arg for kw in calls[0].keywords}
 
 
 # ---------- CODE-P1-7: _prep_polars_df cycle-break -----------
@@ -92,9 +89,10 @@ def test_codep17_prep_polars_df_lives_in_misc_helpers():
 
 
 def test_codep17_no_local_main_import_in_train_one_target():
-    """Codep17 no local main import in train one target."""
-    src = _read("training/core/_phase_train_one_target.py")
-    assert "from .main import _prep_polars_df" not in src, "CODE-P1-7 regression: _train_one_target hot loop still locally imports _prep_polars_df from .main"
+    """The _train_one_target hot loop does not import _prep_polars_df from .main at call time."""
+    tree = ast.parse(_read("training/core/_phase_train_one_target.py"))
+    imports_from_main = [n for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.level == 1 and n.module == "main"]
+    assert not [a.name for n in imports_from_main for a in n.names if a.name == "_prep_polars_df"]
 
 
 # ---------- CODE-P1-10: fingerprint cache outside weight loop ----------
@@ -178,32 +176,30 @@ def test_codep18_phase_runners_namespace_present():
 
 
 def test_codep18_main_uses_phase_runner_namespace():
-    """Codep18 main uses phase runner namespace."""
-    src = _read("training/core/main.py")
-    # The per-target loop lives in its own module and receives the ``pr`` namespace as an argument, so its calls count too.
-    loop_src = _read("training/core/_main_train_suite_target_loop.py")
-    # The post-loop tail (recurrent / finalize / composite post) lives in _main_train_suite_phases and hands some phase functions on
-    # as ``pr_module.X`` callables (e.g. to a per-target row-policy wrapper) rather than calling them inline.
-    phases_src = _read("training/core/_main_train_suite_phases.py")
-    # The consolidated import must be present.
-    assert "from . import _phase_runners as pr" in src
-    # And the calls should go through the phase-runner namespace -- either
-    # the module-level ``pr.X(`` alias or the helper-injected ``pr_module.X(``
-    # parameter that the 2026-05-22 phase-split introduced. Both forms route
-    # through ``_phase_runners``; the intent of CODE-P1-8 is preserved.
-    for sym in (
-        "setup_configuration(",
-        "run_composite_target_discovery(",
-        "apply_polars_categorical_fixes(",
-        "run_temporal_audit_batch(",
-        "_train_one_target(",
-        "train_recurrent_models(",
-        "finalize_suite(",
-        "run_composite_post_processing(",
-    ):
-        assert any(f"{ns}.{sym}" in text for ns in ("pr", "pr_module") for text in (src, loop_src, phases_src)) or any(
-            f"{ns}.{sym.rstrip('(')}," in text for ns in ("pr", "pr_module") for text in (src, loop_src, phases_src)
-        ), f"main.py does not call through (or hand on) pr.{sym} or pr_module.{sym}"
+    """main.py imports ``_phase_runners as pr`` and routes every phase entry point through ``pr`` / ``pr_module``."""
+    # The per-target loop lives in its own module and receives the ``pr`` namespace as an argument; the post-loop tail lives in
+    # _main_train_suite_phases and hands some phase functions on as ``pr_module.X`` callables rather than calling them inline.
+    used = set()
+    imports_pr = False
+    for rel in ("training/core/main.py", "training/core/_main_train_suite_target_loop.py", "training/core/_main_train_suite_phases.py"):
+        tree = ast.parse(_read(rel))
+        used.update(n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ("pr", "pr_module"))
+        imports_pr = imports_pr or any(
+            isinstance(n, ast.ImportFrom) and n.level == 1 and n.module is None and any(a.name == "_phase_runners" and a.asname == "pr" for a in n.names)
+            for n in ast.walk(tree)
+        )
+    assert imports_pr
+    expected = {
+        "setup_configuration",
+        "run_composite_target_discovery",
+        "apply_polars_categorical_fixes",
+        "run_temporal_audit_batch",
+        "_train_one_target",
+        "train_recurrent_models",
+        "finalize_suite",
+        "run_composite_post_processing",
+    }
+    assert expected - used == set()
 
 
 # ---------- CODE-P1-12: recurrent_models read from ctx ----------
@@ -270,11 +266,19 @@ def test_codelow2_no_redundant_slug_assignment():
 
 
 def test_codelow3_models_dir_read_once():
-    """Codelow3 models dir read once."""
-    src = _read("training/core/_phase_train_one_target.py")
-    # `models_dir = ctx.models_dir` must appear exactly once at the top of _train_one_target.
-    count = src.count("models_dir = ctx.models_dir")
-    assert count == 1, f"CODE-LOW-3 regression: models_dir = ctx.models_dir appears {count} times (expected 1)"
+    """``models_dir = ctx.models_dir`` is bound exactly once across the _train_one_target modules."""
+    tree = ast.parse(_read("training/core/_phase_train_one_target.py"))
+    binds = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Assign)
+        and [t.id for t in n.targets if isinstance(t, ast.Name)] == ["models_dir"]
+        and isinstance(n.value, ast.Attribute)
+        and n.value.attr == "models_dir"
+        and isinstance(n.value.value, ast.Name)
+        and n.value.value.id == "ctx"
+    ]
+    assert len(binds) == 1
 
 
 # ---------- CODE-LOW-7: dataset reuse cache helper ----------
@@ -334,50 +338,109 @@ def test_convmed5_pandas_view_cache_attr_on_ctx():
     assert hasattr(ctx, "_pandas_view_cache"), "CONV-MED-5 regression: TrainingContext must declare _pandas_view_cache"
 
 
-def test_convmed5_cache_used_in_train_one_target():
-    """The lazy pandas conversion site must hit ctx._pandas_view_cache before calling
-    get_pandas_view_of_polars_df, so two non-Polars-native strategies converting the same
-    source frame pay only one conversion total."""
-    src = _read("training/core/_phase_train_one_target.py")
-    assert "_pandas_view_cache" in src, "CONV-MED-5 regression: lazy-conversion site does not consult ctx._pandas_view_cache"
+def test_convmed5_cache_used_in_train_one_target(monkeypatch):
+    """Two lazy pandas conversions of the same polars frame cost one conversion: the second is a cache hit on ctx._pandas_view_cache."""
+    import collections
+    import types
+
+    import polars as pl
+
+    from mlframe.training.core import _phase_train_one_target_polars_fastpath as fp
+    from mlframe.training.strategies import get_strategy
+
+    conversions = []
+    real = fp.get_pandas_view_of_polars_df
+
+    def _spy(df):
+        """Count the conversion, then convert for real."""
+        conversions.append(id(df))
+        return real(df)
+
+    monkeypatch.setattr(fp, "get_pandas_view_of_polars_df", _spy)
+    strategy = get_strategy("linear")
+    assert not strategy.supports_polars
+    frame = pl.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+    ctx = types.SimpleNamespace(_pandas_view_cache=collections.OrderedDict(), _cache_stats={})
+    views = []
+    for _ in range(2):
+        common_params = {"train_df": frame, "val_df": None, "test_df": None}
+        out = fp._prepare_strategy_inputs(
+            polars_fastpath_active=False,
+            mlframe_model_name="linear",
+            strategy=strategy,
+            cat_features=[],
+            text_features=[],
+            embedding_features=[],
+            train_df_polars=frame,
+            val_df_polars=None,
+            test_df_polars=None,
+            prepared_frames_cache={},
+            tier_dfs_cache={},
+            tier_enum_map_cache={},
+            common_params=common_params,
+            pre_pipeline_name="",
+            ctx=ctx,
+            verbose=False,
+        )
+        assert out["polars_fastpath_active"] is False
+        views.append(common_params["train_df"])
+    assert conversions == [id(frame)]
+    assert views[0] is views[1]
+    assert ctx._cache_stats["pandas_view_cache"] == {"hits": 1, "misses": 1}
 
 
 # ---------- CONV-LOW-15: np.isinf -> pl.Series.is_infinite ----------
 
 
 def test_convlow15_preprocessing_uses_native_is_infinite():
-    """Convlow15 preprocessing uses native is infinite."""
-    src = _read("training/preprocessing.py")
-    # CONV-LOW-15: the polars _frame_contains_inf branch must use the native expression-side
-    # ``df[name].is_infinite().any()`` rather than going through ``np.isinf(series.to_numpy())``.
-    # We verify by source pattern: the polars-branch ``is_infinite()`` call must be present
-    # and there must be NO ``np.isinf(`` invocation on a polars Series (only on the pandas
-    # branch's ``.to_numpy()``, which already has a separate dtype guard).
-    assert "is_infinite().any()" in src, "CONV-LOW-15 regression: polars _frame_contains_inf branch must use ``is_infinite().any()``"
-    # Defensive: there must not be a polars-Series ``.is_infinite`` followed by ``.to_numpy()`` -
-    # any np.isinf on .to_numpy() must be guarded behind a pandas dtype check, not a polars Series.
-    # We scan: every ``np.isinf(...to_numpy()...)`` line must be reachable only after a pandas
-    # ``select_dtypes`` upstream.
-    for lineno, line in enumerate(src.splitlines(), start=1):
-        if "np.isinf(" in line and ".to_numpy()" in line:
-            # walk back to find the nearest enclosing block context
-            prev = "\n".join(src.splitlines()[max(0, lineno - 30) : lineno])
-            assert "select_dtypes" in prev, f"CONV-LOW-15 regression: line {lineno} uses np.isinf(...to_numpy()) outside a pandas select_dtypes block"
+    """``_frame_contains_inf`` finds +/-inf in polars and pandas float columns (nullable included) and nothing in finite or integer frames."""
+    import numpy as np
+    import pandas as pd
+    import polars as pl
+
+    from mlframe.training.preprocessing import _frame_contains_inf
+
+    assert _frame_contains_inf(pl.DataFrame({"a": [1.0, float("inf")], "b": [1, 2]})) is True
+    assert _frame_contains_inf(pl.DataFrame({"a": [1.0, float("-inf")]})) is True
+    assert _frame_contains_inf(pl.DataFrame({"a": [1.0, None, 3.0], "b": [1, 2, 3]})) is False
+    assert _frame_contains_inf(pl.DataFrame({"s": ["x", "y"], "n": [1, 2]})) is False
+    assert _frame_contains_inf(pd.DataFrame({"a": [1.0, np.inf], "b": [1, 2]})) is True
+    assert _frame_contains_inf(pd.DataFrame({"a": [1.0, -np.inf]})) is True
+    assert _frame_contains_inf(pd.DataFrame({"a": [1.0, np.nan, 3.0]})) is False
+    assert _frame_contains_inf(pd.DataFrame({"a": pd.array([1.0, np.inf, None], dtype="Float64")})) is True
+    assert _frame_contains_inf(pd.DataFrame({"a": pd.array([1.0, None, 2.0], dtype="Float64")})) is False
 
 
 # ---------- CODE-LOW-6: cProfile harness exists ----------
 
 
-def test_codelow6_profile_harness_module_present():
-    """The cProfile harness for train_mlframe_models_suite must live under tests/perf/."""
-    here = Path(__file__).resolve()
-    repo_root = here.parents[2]
+def test_codelow6_profile_harness_module_present(tmp_path, monkeypatch):
+    """The cProfile harness for train_mlframe_models_suite runs ``profile`` with its defaults and writes under tests/perf/results/."""
+    import importlib.util
+
+    repo_root = Path(__file__).resolve().parents[2]
     harness = repo_root / "tests" / "perf" / "profile_train_mlframe_models_suite.py"
-    assert harness.is_file(), f"CODE-LOW-6 regression: profile harness missing at {harness}"
-    txt = harness.read_text(encoding="utf-8")
-    assert "cProfile" in txt and "tests/perf/results" in txt.replace(
-        "\\", "/"
-    ), "CODE-LOW-6 regression: harness must invoke cProfile and write to tests/perf/results/"
+    assert harness.is_file()
+    spec = importlib.util.spec_from_file_location("p1_profile_harness", harness)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    seen = {}
+
+    def _fake_profile(**kwargs):
+        """Record the harness arguments instead of profiling a suite."""
+        seen.update(kwargs)
+        return kwargs["output_path"]
+
+    monkeypatch.setattr(module, "profile", _fake_profile)
+    monkeypatch.setattr("sys.argv", ["harness"])
+    assert module.main() == 0
+    assert seen["n_rows"] == 2000 and seen["top"] == 30
+    assert Path(seen["output_path"]).parts[-3:] == ("perf", "results", "train_mlframe_models_suite.prof")
+    custom = tmp_path / "custom.prof"
+    monkeypatch.setattr("sys.argv", ["harness", "--n-rows", "123", "--output", str(custom)])
+    assert module.main() == 0
+    assert seen["n_rows"] == 123 and seen["output_path"] == custom
 
 
 # ---------- CODE-P1-13: tqdmu_lazy_start audit ----------
@@ -403,15 +466,14 @@ def test_codep113_tqdmu_lazy_start_handles_single_item_internally():
 
 
 def test_convhigh1_clone_gate_documented():
-    """The needs_polars_pre_clone clone()s must either be removed or carry an inline TODO/comment
-    citing the destructive op that requires them. The audit verdict: keep if destructive, drop if not.
+    """The pre-encoding polars clone is kept only when categorical encoding will actually mutate the polars frames."""
+    from mlframe.training.core._main_train_suite_polars_gate import needs_polars_pre_clone
 
-    Our post-fix state: the clone is gated behind ``needs_polars_pre_clone`` which is already a
-    narrow predicate; we add a TODO comment pointing at the destructive site to document the gate.
-    """
-    src = _read("training/core/_phase_helpers.py")
-    if "needs_polars_pre_clone" in src and ".clone()" in src:
-        # If the gated clone still exists, a CONV-HIGH-1 marker must be present documenting why.
-        assert (
-            "CONV-HIGH-1" in src
-        ), "CONV-HIGH-1 regression: gated clone()s still present but no CONV-HIGH-1 TODO/marker explains the destructive operation that requires them"
+    assert needs_polars_pre_clone({"categorical_encoding": "ordinal"}, was_polars_input=True) is True
+    assert needs_polars_pre_clone({"categorical_encoding": "ordinal"}, was_polars_input=False) is False
+    assert needs_polars_pre_clone({"categorical_encoding": "ordinal", "skip_categorical_encoding": True}, was_polars_input=True) is False
+    assert needs_polars_pre_clone({"categorical_encoding": None}, was_polars_input=True) is False
+    assert needs_polars_pre_clone({}, was_polars_input=True) is False
+    assert needs_polars_pre_clone(None, was_polars_input=True) is False
+    cfg = type("Cfg", (), {"categorical_encoding": "target", "skip_categorical_encoding": False})()
+    assert needs_polars_pre_clone(cfg, was_polars_input=True) is True

@@ -14,25 +14,6 @@ Post-fix: ``copy.deepcopy`` at the assignment site decouples the caller's bundle
 from __future__ import annotations
 
 
-def _read_main_or_split() -> str:
-    """The ``train_mlframe_models_suite`` body was carved out of ``main.py``
-    into ``_main_train_suite.py`` -> further into ``_main_train_suite_phases.py``
-    during successive monolith-split waves; the deepcopy assignments moved
-    with each carve. Concat all known carve siblings so the source-grep
-    boundary check still matches the relocated code regardless of which
-    carve generation owns it."""
-    import pathlib
-    import mlframe as _mlframe
-
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    primary = (_core / "main.py").read_text(encoding="utf-8")
-    for _sibname in ("_main_train_suite.py", "_main_train_suite_phases.py"):
-        sib = _core / _sibname
-        if sib.exists():
-            primary = primary + "\n" + sib.read_text(encoding="utf-8")
-    return primary
-
-
 def test_precomputed_composite_specs_decoupled_from_metadata_slot():
     """Mutating ``metadata['composite_target_specs']`` after the precomputed
     branch fires must NOT mutate the caller's precomputed bundle -- the deepcopy
@@ -101,33 +82,56 @@ def test_precomputed_dummy_baselines_decoupled_from_metadata_slot():
 
 
 def test_setup_helpers_slug_maps_dict_copy():
-    """Slug maps stored on metadata must be dict() copies, not ctx aliases.
+    """Slug maps stored on metadata are copies, not ctx aliases.
     Long-running serving process: each predict's slug-fallback setdefault would
     otherwise mutate the loaded metadata in place -> phantom slugs accumulate
     across the session.
-
-    ``_setup_helpers.py`` was carved into themed siblings; the metadata
-    finaliser that stores the slug maps moved to ``_setup_helpers_metadata.py``.
-    Concat parent + sibling so the source-grep guard survives the split.
     """
-    import pathlib
-    import mlframe as _mlframe
+    from types import SimpleNamespace
 
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    src = (_core / "_setup_helpers.py").read_text(encoding="utf-8")
-    sib = _core / "_setup_helpers_metadata.py"
-    if sib.exists():
-        src += "\n" + sib.read_text(encoding="utf-8")
-    assert "dict(ctx.slug_to_original_target_type)" in src
-    assert "dict(ctx.slug_to_original_target_name)" in src
+    from mlframe.training.core import _finalize_and_save_metadata
+
+    ctx = SimpleNamespace(
+        metadata={"model_name": "m", "target_name": "t", "mlframe_models": []},
+        outlier_detector=None,
+        outlier_detection_result={},
+        trainset_features_stats=None,
+        slug_to_original_target_type={"reg": "Regression"},
+        slug_to_original_target_name={"t": "Target"},
+        data_dir="",
+        models_dir="",
+        target_name="t",
+        model_name="m",
+        verbose=0,
+    )
+    _finalize_and_save_metadata(ctx)
+    assert ctx.metadata["slug_to_original_target_type"] == {"reg": "Regression"}
+    assert ctx.metadata["slug_to_original_target_name"] == {"t": "Target"}
+    assert ctx.metadata["slug_to_original_target_type"] is not ctx.slug_to_original_target_type
+    assert ctx.metadata["slug_to_original_target_name"] is not ctx.slug_to_original_target_name
+    ctx.metadata["slug_to_original_target_type"]["phantom"] = "x"
+    ctx.metadata["slug_to_original_target_name"]["phantom"] = "x"
+    assert ctx.slug_to_original_target_type == {"reg": "Regression"}
+    assert ctx.slug_to_original_target_name == {"t": "Target"}
 
 
 def test_discovery_cache_payload_consumed_via_defensive_copy():
-    """Cached payload list/dict consumed via list(...) / dict(...) wrapper at the
-    load boundary. Prevents future LRU-sidecar regression (wave 11 #5)."""
-    import pathlib
-    import mlframe as _mlframe
+    """Cached payload list/dict consumed through fresh containers at the load boundary.
+    Prevents future LRU-sidecar regression (wave 11 #5)."""
+    from mlframe.training.core._phase_composite_discovery import _replay_cached_payload_into_metadata
 
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_composite_discovery.py").read_text(encoding="utf-8")
-    assert 'list(\n                    _cached_payload.get("specs_export") or []' in src or 'list(_cached_payload.get("specs_export") or [])' in src
-    assert 'dict(\n                    _cached_payload.get("filter_drops") or {}' in src or 'dict(_cached_payload.get("filter_drops") or {})' in src
+    payload = {"specs_export": [{"name": "s1"}], "failures": [{"name": "f1"}], "filter_drops": {"a": 1}}
+    metadata: dict = {"composite_target_specs": {}, "composite_target_failures": {}}
+    _replay_cached_payload_into_metadata(metadata, "REGRESSION", "y", payload)
+    assert metadata["composite_target_specs"]["REGRESSION"]["y"] == payload["specs_export"]
+    assert metadata["composite_target_failures"]["REGRESSION"]["y"] == payload["failures"]
+    assert metadata["composite_target_filter_drops"]["REGRESSION"]["y"] == payload["filter_drops"]
+    metadata["composite_target_specs"]["REGRESSION"]["y"].append({"name": "late"})
+    metadata["composite_target_failures"]["REGRESSION"]["y"].clear()
+    metadata["composite_target_filter_drops"]["REGRESSION"]["y"]["b"] = 2
+    assert payload == {"specs_export": [{"name": "s1"}], "failures": [{"name": "f1"}], "filter_drops": {"a": 1}}
+
+    empty: dict = {"composite_target_specs": {}, "composite_target_failures": {}}
+    _replay_cached_payload_into_metadata(empty, "REGRESSION", "y", {})
+    assert empty["composite_target_specs"]["REGRESSION"]["y"] == []
+    assert empty["composite_target_filter_drops"]["REGRESSION"]["y"] == {}

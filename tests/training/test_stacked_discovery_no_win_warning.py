@@ -30,4 +30,6 @@ def test_no_warning_when_both_false():
     """No warning when both false."""
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        CompositeTargetDiscoveryConfig(use_stacked_discovery=False, use_stacked_discovery_residual=False)
+        cfg = CompositeTargetDiscoveryConfig(use_stacked_discovery=False, use_stacked_discovery_residual=False)
+    assert cfg.use_stacked_discovery is False
+    assert cfg.use_stacked_discovery_residual is False

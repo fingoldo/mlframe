@@ -262,12 +262,7 @@ class TestB14_NullableIntLeakageDetection:
                 leakage_corr_threshold=0.9,
                 leakage_action="warn",
             )
-            try:
-                rfecv.fit(X, y)
-            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-                # CB/LR may error on Int8; the leakage WARNING should still
-                # have fired BEFORE the fit failure.
-                pass
+            rfecv.fit(X, y)
 
         # The leakage warning must have fired.
         leak_warnings = [r for r in caplog.records if "Pearson" in r.getMessage()]

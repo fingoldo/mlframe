@@ -103,42 +103,81 @@ def test_D_release_clears_dataset_reuse_cache():
 # A: dummy + CT_ENSEMBLE phases respect compute_valset_metrics=False /
 # compute_testset_metrics=False.
 # ---------------------------------------------------------------------------
-def test_A_dummy_baselines_respects_compute_valset_metrics_false():
-    """The dummy-baselines emit path must read ``compute_valset_metrics`` and
-    ``compute_testset_metrics`` from the reporting_config.
+def _dummy_baselines_kwargs(reporting_config, metadata):
+    """Keyword set for a real ``run_dummy_baselines`` call on a small regression problem."""
+    import pandas as pd
 
-    Behavioural check via file read (no ``inspect.getsource`` -- per
-    feedback_behavioral_tests / feedback_no_inspect_getsource memory): if the
-    gate tokens disappear from the source, the gate has been silently dropped
-    and VAL/TEST dummy metrics will leak out even when the operator opts out.
-    """
-    import pathlib
-    import mlframe as _mlframe
+    from mlframe.training.configs import DummyBaselinesConfig
 
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_dummy_baselines.py").read_text(encoding="utf-8")
-    assert "compute_valset_metrics" in src, (
-        "dummy-baselines emit path must read compute_valset_metrics from "
-        "reporting_config; user explicitly set it to False and still saw "
-        "VAL (DUMMY) metric lines."
+    rng = np.random.default_rng(0)
+    n = 120
+    frame = pd.DataFrame({"f1": rng.normal(size=n), "f2": rng.normal(size=n)})
+    y = rng.normal(size=n)
+    return dict(
+        target_type="regression",
+        cur_target_name="y",
+        target_name="y",
+        model_name="m",
+        current_train_target=y[:80],
+        current_val_target=y[80:100],
+        current_test_target=y[100:],
+        filtered_train_df=frame.iloc[:80],
+        filtered_val_df=frame.iloc[80:100],
+        test_df_pd=frame.iloc[100:],
+        filtered_train_idx=np.arange(80),
+        filtered_val_idx=np.arange(80, 100),
+        test_idx=np.arange(100, 120),
+        timestamps=None,
+        cat_features=[],
+        dummy_baselines_config=DummyBaselinesConfig(enabled=True),
+        quantile_regression_config=None,
+        reporting_config=reporting_config,
+        _dropped_high_card_data={},
+        train_od_idx=None,
+        val_od_idx=None,
+        plot_file="",
+        metadata=metadata,
+        target_by_type={},
+        _split_preds_probs=lambda raw, target_type: (raw, None),
     )
-    assert "compute_testset_metrics" in src, "Symmetric test-side gate must be present too."
 
 
-def test_A_ct_ensemble_respects_compute_valset_metrics_false():
-    """Mirror of the dummy-baselines gate, on the cross-target ensemble emit path."""
-    import pathlib
-    import mlframe as _mlframe
+@pytest.mark.parametrize(
+    "compute_val, compute_test, expected_titles",
+    [(False, False, []), (True, False, ["VAL (DUMMY) "]), (False, True, ["TEST (DUMMY) "]), (True, True, ["VAL (DUMMY) ", "TEST (DUMMY) "])],
+)
+def test_A_dummy_baselines_respects_compute_valset_metrics_false(monkeypatch, compute_val, compute_test, expected_titles):
+    """The dummy-baselines emit path reports a split only when the matching ``compute_*set_metrics`` flag is on."""
+    from mlframe.training.core import _phase_dummy_baselines as mod
 
-    _core = pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core"
-    _xt = _core / "_phase_composite_post_xt_ensemble.py"
-    if _xt.exists():
-        src = _xt.read_text(encoding="utf-8")
-    else:
-        # Monolith-split compat: became a subpackage; read __init__ + submodules.
-        _pkg = _core / "_phase_composite_post_xt_ensemble"
-        src = "\n".join(p.read_text(encoding="utf-8") for p in sorted(_pkg.glob("*.py")))
-    assert "compute_valset_metrics" in src
-    assert "compute_testset_metrics" in src
+    titles: list = []
+    monkeypatch.setattr(mod, "report_model_perf", lambda **kw: titles.append(kw["report_title"]))
+    reporting = types.SimpleNamespace(compute_valset_metrics=compute_val, compute_testset_metrics=compute_test, plot_outputs=None, plot_dpi=None)
+    metadata: dict = {}
+    mod.run_dummy_baselines(**_dummy_baselines_kwargs(reporting, metadata))
+    assert metadata.get("dummy_baselines_status") != "failed", metadata.get("dummy_baselines_status_detail")
+    assert "regression" in metadata["dummy_baselines"]
+    assert titles == expected_titles
+
+
+@pytest.mark.parametrize(
+    "compute_val, compute_test, expected",
+    [(False, False, []), (True, False, ["val"]), (False, True, ["test"]), (True, True, ["val", "test"])],
+)
+def test_A_ct_ensemble_respects_compute_valset_metrics_false(compute_val, compute_test, expected):
+    """The cross-target ensemble report covers a split only when the matching ``compute_*set_metrics`` flag is on."""
+    from mlframe.training.core._phase_composite_post_xt_ensemble._xt_ensemble_helpers import _ct_ensemble_split_plan
+
+    reporting = types.SimpleNamespace(compute_valset_metrics=compute_val, compute_testset_metrics=compute_test)
+    val_idx, val_df, test_idx, test_df = np.arange(3), object(), np.arange(5), object()
+    plan = _ct_ensemble_split_plan(reporting, val_idx, val_df, test_idx, test_df)
+    assert [entry[0] for entry in plan] == expected
+    by_split = {entry[0]: entry for entry in plan}
+    if "val" in by_split:
+        assert by_split["val"][1:] == ("VAL (CT_ENSEMBLE) ", val_idx, val_df)
+    if "test" in by_split:
+        assert by_split["test"][1:] == ("TEST (CT_ENSEMBLE) ", test_idx, test_df)
+    assert [e[0] for e in _ct_ensemble_split_plan(None, val_idx, val_df, test_idx, test_df)] == ["val", "test"]
 
 
 # ---------------------------------------------------------------------------
@@ -162,18 +201,15 @@ def test_E_val_placement_downgrade_emits_warning_with_remediation(caplog):
         }
     )
     with caplog.at_level(logging.INFO, logger="mlframe.training.splitting"):
-        try:
-            make_train_test_split(
-                df=df,
-                val_size=0.1,
-                test_size=0.1,
-                val_placement="backward",
-                timestamps=None,
-                random_seed=0,
-            )
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            # Downstream split-shape errors are not under test; the log line is.
-            pass
+        train, val, test = make_train_test_split(
+            df=df,
+            val_size=0.1,
+            test_size=0.1,
+            val_placement="backward",
+            timestamps=None,
+            random_seed=0,
+        )[:3]
+    assert len(train) + len(val) + len(test) == n
 
     relevant = [r for r in caplog.records if "downgraded" in r.getMessage() and r.name == "mlframe.training.splitting"]
     assert relevant, "expected a log line about val_placement downgrade"
@@ -189,22 +225,24 @@ def test_E_val_placement_downgrade_emits_warning_with_remediation(caplog):
 # ---------------------------------------------------------------------------
 # B: temporal-audit plot routes through plot_outputs (multi-backend DSL).
 # ---------------------------------------------------------------------------
-def test_B_temporal_audit_uses_plot_outputs_when_present():
-    """When reporting_config.plot_outputs is set, _plot_target_over_time gets
-    invoked through the base_path / plot_outputs branch (multi-backend), NOT
-    via the matplotlib-only save_path branch.
+@pytest.mark.parametrize("plot_outputs", ["plotly[html]+matplotlib[png]", None])
+def test_B_temporal_audit_uses_plot_outputs_when_present(monkeypatch, plot_outputs):
+    """With ``reporting_config.plot_outputs`` set the temporal-audit chart goes through the multi-backend DSL; without it, the matplotlib PNG fallback."""
+    from mlframe.training.core import _phase_train_one_target_model_setup as mod
 
-    Source-presence sensor via file read (not ``inspect.getsource`` -- see
-    feedback_behavioral_tests). Both call shapes must coexist: with-plot_outputs
-    (DSL) and without (matplotlib-only PNG fallback for legacy callers that
-    don't supply reporting_config.plot_outputs).
-    """
-    import pathlib
-    import mlframe as _mlframe
+    calls: list = []
+    monkeypatch.setattr(mod, "_plot_target_over_time", lambda audit, **kw: calls.append((audit, kw)))
+    reporting = types.SimpleNamespace(plot_outputs=plot_outputs)
+    mod._save_temporal_audit_plot("AUDIT", types.SimpleNamespace(target_temporal_audit_save_plot=True), reporting, "out/run")
+    if plot_outputs:
+        assert calls == [("AUDIT", {"plot_outputs": plot_outputs, "base_path": "out/run_target_temporal_audit"})]
+    else:
+        assert calls == [("AUDIT", {"save_path": "out/run_target_temporal_audit.png"})]
 
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "training" / "core" / "_phase_train_one_target_model_setup.py").read_text(encoding="utf-8")
-    assert "plot_outputs=" in src
-    assert "_target_temporal_audit" in src
+    calls.clear()
+    mod._save_temporal_audit_plot("AUDIT", types.SimpleNamespace(target_temporal_audit_save_plot=False), reporting, "out/run")
+    mod._save_temporal_audit_plot("AUDIT", types.SimpleNamespace(target_temporal_audit_save_plot=True), reporting, "")
+    assert calls == []
 
 
 # ---------------------------------------------------------------------------
@@ -261,30 +299,22 @@ def test_G_verdict_picks_ensemble_when_better_than_best_model():
 # warning fires at import time.
 # ---------------------------------------------------------------------------
 def test_I_mape_warmup_does_not_emit_zero_y_warning(caplog):
-    """Reload the warmup module; if the warmup y_true contains zeros the
-    rate-limited '_MAPE_ZERO_WARN_SEEN' warning fires once. After the fix it
-    must stay silent."""
-    from mlframe.metrics import _core_precision_mape
+    """The numba warmup's MAPE call uses a non-zero y_true, so the rate-limited zero-y_true warning stays silent; a zero vector does trigger it."""
+    from mlframe.metrics import _core_numba_warmup, _core_precision_mape
+    from mlframe.metrics.core import maximum_absolute_percentage_error
 
-    # Clear the rate-limit cache so a stale prior call doesn't mask a fresh trigger.
     _core_precision_mape._MAPE_ZERO_WARN_SEEN.clear()
-
-    with caplog.at_level(logging.WARNING, logger="mlframe.metrics._core_precision_mape"):
-        from mlframe.metrics import _core_numba_warmup
-
-        # Re-run the warmup explicitly even if the module is already cached so
-        # the call paths fire again under our caplog.
-        warmup_fn = getattr(_core_numba_warmup, "warmup_numba_kernels", None) or getattr(_core_numba_warmup, "warmup", None)
-        if warmup_fn is not None:
-            try:
-                warmup_fn()
-            except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-                # If warmup signature differs, importing the module already executed it.
-                pass
+    with caplog.at_level(logging.WARNING):
+        _core_numba_warmup._prewarm_numba_cach_lazy_first_real_call()
+    assert not [r for r in caplog.records if "warmup failed" in r.getMessage()], [r.getMessage() for r in caplog.records]
     zero_warns = [r for r in caplog.records if "y_true entries are zero" in r.getMessage()]
-    assert (
-        not zero_warns
-    ), f"MAPE zero-y warning fired during numba warmup; warmup y_true must be a non-zero vector. Captured: {[r.getMessage() for r in zero_warns]}"
+    assert not zero_warns, f"MAPE zero-y warning fired during numba warmup: {[r.getMessage() for r in zero_warns]}"
+
+    caplog.clear()
+    _core_precision_mape._MAPE_ZERO_WARN_SEEN.clear()
+    with caplog.at_level(logging.WARNING):
+        maximum_absolute_percentage_error(np.array([0.0, 0.0, 1.0, 2.0]), np.array([0.1, 0.2, 1.1, 2.1]))
+    assert [r for r in caplog.records if "y_true entries are zero" in r.getMessage()], "positive control: a zero y_true must trigger the warning"
 
 
 # ---------------------------------------------------------------------------

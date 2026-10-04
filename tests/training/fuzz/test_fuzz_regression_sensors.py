@@ -31,6 +31,7 @@ import pytest
 pytestmark = pytest.mark.fuzz
 
 from tests.training._fuzz_combo import FuzzCombo, build_frame_for_combo
+from tests.training._fuzz_suite_helpers import _assert_prediction_invariants, _iter_trained_models
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 
@@ -160,6 +161,21 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
         ),
     )
     assert trained, "train_mlframe_models_suite returned empty models dict"
+    return trained, _meta
+
+
+def _assert_sensor_trained(combo: FuzzCombo, trained, meta) -> None:
+    """Every requested model family produced at least one entry carrying finite, correctly sized validation predictions."""
+    import numpy as np
+
+    entries = list(_iter_trained_models(trained))
+    assert len(entries) >= len(combo.models), f"{len(entries)} trained entries for models {combo.models}"
+    for _tt, _tn, entry in entries:
+        preds = getattr(entry, "val_probs", None)
+        if preds is None:
+            preds = getattr(entry, "val_preds", None)
+        assert preds is not None and np.asarray(preds).size > 0, "a trained entry carries no validation predictions"
+    _assert_prediction_invariants(trained, meta, combo)
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +256,7 @@ def test_sensor_tier_cache_polars_pandas_collision(tmp_path):
         align_polars_categorical_dicts=False,
         seed=11,
     )
-    _run_sensor_combo(combo, tmp_path)
+    _assert_sensor_trained(combo, *_run_sensor_combo(combo, tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +497,7 @@ def test_sensor_polars_utf8_nullable_cat_fills_before_cb(tmp_path):
         align_polars_categorical_dicts=False,
         seed=84,
     )
-    _run_sensor_combo(combo, tmp_path)
+    _assert_sensor_trained(combo, *_run_sensor_combo(combo, tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -523,7 +539,7 @@ def test_sensor_linear_polars_gating_bug(tmp_path):
         align_polars_categorical_dicts=False,
         seed=11,
     )
-    _run_sensor_combo(combo, tmp_path)
+    _assert_sensor_trained(combo, *_run_sensor_combo(combo, tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +576,7 @@ def test_sensor_mrmr_transform_handles_missing_support_(tmp_path):
         align_polars_categorical_dicts=False,
         seed=109,
     )
-    _run_sensor_combo(combo, tmp_path)
+    _assert_sensor_trained(combo, *_run_sensor_combo(combo, tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -679,7 +695,7 @@ def test_sensor_polarsds_does_not_encode_text_features(tmp_path):
         text_col_count=1,
         embedding_col_count=1,
     )
-    _run_sensor_combo(combo, tmp_path)
+    _assert_sensor_trained(combo, *_run_sensor_combo(combo, tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -742,7 +758,7 @@ def test_sensor_enum_null_fill_reaches_lazy_pandas_conversion(tmp_path):
         text_col_count=1,
         embedding_col_count=1,
     )
-    _run_sensor_combo(combo, tmp_path)
+    _assert_sensor_trained(combo, *_run_sensor_combo(combo, tmp_path))
 
 
 # ---------------------------------------------------------------------------
@@ -795,7 +811,7 @@ def test_sensor_polars_utf8_cats_cast_before_lazy_pandas_conversion(tmp_path):
         text_col_count=0,
         embedding_col_count=0,
     )
-    _run_sensor_combo(combo, tmp_path)
+    _assert_sensor_trained(combo, *_run_sensor_combo(combo, tmp_path))
 
 
 # ---------------------------------------------------------------------------

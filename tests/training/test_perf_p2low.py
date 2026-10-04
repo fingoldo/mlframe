@@ -128,17 +128,45 @@ def test_orjson_roundtrip_payload_matches_json():
     assert via_orjson == via_json == payload
 
 
-def test_polars_cat_verbose_gate_skips_null_count_when_quiet():
-    """When ``verbose=False`` the cat-alignment block must NOT call ``null_count()`` on the test cat column.
+def test_polars_cat_verbose_gate_skips_null_count_when_quiet(monkeypatch):
+    """When ``verbose=False`` the cat-alignment block builds no ``null_count()`` expression; with ``verbose=True`` it builds the pre/post OOV probes."""
+    from mlframe.training.core._phase_polars_fixes import apply_polars_categorical_fixes
 
-    Structural sanity check: the source must guard the post-cast null-count diagnostic behind a ``if verbose:``
-    branch so non-verbose runs skip the sync collects.
-    """
-    from mlframe.training.core import _phase_polars_fixes as ppf
-    from pathlib import Path
+    calls: list = []
+    original = pl.Expr.null_count
 
-    # Read module source via Path.read_text (NOT inspect.getsource per
-    # ``feedback_behavioral_tests`` / tests/test_meta/test_no_inspect_getsource.py).
-    src = Path(ppf.__file__).read_text(encoding="utf-8")
-    assert "if verbose:" in src, "verbose gate should be present in apply_polars_categorical_fixes"
-    assert src.count(".null_count()") >= 1, "expected null_count() probes under verbose gate"
+    def spy(self):
+        """Count null_count expression builds, then delegate."""
+        calls.append(1)
+        return original(self)
+
+    def run(verbose):
+        """Align one categorical column across train/val/test, test carrying a value unseen in train+val."""
+        train = pl.DataFrame({"c": pl.Series(["a", "b", "a", "b"]).cast(pl.Categorical)})
+        val = pl.DataFrame({"c": pl.Series(["a", "b"]).cast(pl.Categorical)})
+        test = pl.DataFrame({"c": pl.Series(["a", "zzz"]).cast(pl.Categorical)})
+        return apply_polars_categorical_fixes(
+            train_df_polars=train,
+            val_df_polars=val,
+            test_df_polars=test,
+            train_df_pd=None,
+            val_df_pd=None,
+            test_df_pd=None,
+            filtered_train_df=None,
+            filtered_val_df=None,
+            cat_features=["c"],
+            align_polars_categorical_dicts=True,
+            defer_pandas_conv=False,
+            was_polars_input=True,
+            verbose=verbose,
+        )
+
+    monkeypatch.setattr(pl.Expr, "null_count", spy)
+    quiet = run(False)
+    quiet_calls = len(calls)
+    calls.clear()
+    loud = run(True)
+    assert quiet_calls == 0
+    assert len(calls) >= 2
+    assert quiet.test_df_polars["c"].dtype == loud.test_df_polars["c"].dtype
+    assert quiet.test_df_polars["c"].null_count() == 1

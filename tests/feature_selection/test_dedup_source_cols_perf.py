@@ -39,13 +39,11 @@ def test_pairwise_complete_matches_per_pair_on_partial_nan():
     M = rng.normal(size=(P, n))
     M[rng.random((P, n)) < 0.3] = np.nan  # 30% missing, independent masks
     got = _pairwise_complete_abs_corr(M, M)
-    for i in range(P):
-        for j in range(P):
-            ref = _legacy_partial_pair_corr(M[i], M[j])
-            if np.isnan(ref):
-                assert not np.isfinite(got[i, j]), f"({i},{j}) should be nan"
-            else:
-                assert abs(got[i, j] - ref) < 1e-9, f"({i},{j}) {got[i, j]} vs {ref}"
+    ref = np.array([[_legacy_partial_pair_corr(M[i], M[j]) for j in range(P)] for i in range(P)])
+    ref_finite = np.isfinite(ref)
+    assert ref_finite.any()
+    assert np.array_equal(ref_finite, np.isfinite(got)), "nan pattern differs from the per-pair reference"
+    assert np.max(np.abs(got[ref_finite] - ref[ref_finite])) < 1e-9
 
 
 def test_exact_duplicate_dropped_above_row_cap():

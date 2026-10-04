@@ -237,14 +237,7 @@ def test_hhus11_lgb_shim_length_mismatch_raises():
     pytest.importorskip("lightgbm")
     from mlframe.training import lgb_shim
 
-    # Use the LGBMClassifierWithDatasetReuse class if exposed.
-    LGBMClassifier = getattr(
-        lgb_shim,
-        "LGBMClassifierWithDatasetReuse",
-        None,
-    )
-    if LGBMClassifier is None:  # pragma: no cover
-        pytest.skip("LGBMClassifierWithDatasetReuse not available in this build")
+    LGBMClassifier = lgb_shim.LGBMClassifierWithDatasetReuse
 
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((100, 3)), columns=["a", "b", "c"])
@@ -274,13 +267,7 @@ def test_hhus12_lgb_shim_handles_bare_list_pair_eval_set():
     pytest.importorskip("lightgbm")
     from mlframe.training import lgb_shim
 
-    LGBMClassifier = getattr(
-        lgb_shim,
-        "LGBMClassifierWithDatasetReuse",
-        None,
-    )
-    if LGBMClassifier is None:
-        pytest.skip("LGBMClassifierWithDatasetReuse not available")
+    LGBMClassifier = lgb_shim.LGBMClassifierWithDatasetReuse
 
     rng = np.random.default_rng(1)
     X = pd.DataFrame(rng.standard_normal((80, 3)), columns=["a", "b", "c"])
@@ -291,8 +278,13 @@ def test_hhus12_lgb_shim_handles_bare_list_pair_eval_set():
     clf = LGBMClassifier(n_estimators=4, verbose=-1)
     # eval_set as a plain bare list-pair (NOT wrapped in another list).
     clf.fit(X, y, eval_set=[X_val, y_val])
-    # If normalisation worked, no exception and the model has an evals_result.
-    assert hasattr(clf, "best_iteration_") or hasattr(clf, "_best_iteration") or True
+    # The 20-row validation pair was used as the eval set: one metric curve with one value per boosting round.
+    curves = clf.evals_result_["valid_0"]
+    assert len(curves) >= 1
+    for values in curves.values():
+        assert len(values) == 4
+        assert np.isfinite(values).all()
+    assert clf.predict_proba(X_val).shape == (20, 2)
 
 
 # ---------------------------------------------------------------------------
@@ -305,13 +297,7 @@ def test_hhus13_xgb_shim_rejects_2d_y_in_finalize():
     pytest.importorskip("xgboost")
     from mlframe.training import xgb_shim
 
-    XGBClassifier = getattr(
-        xgb_shim,
-        "XGBClassifierWithDMatrixReuse",
-        None,
-    )
-    if XGBClassifier is None:
-        pytest.skip("XGBClassifierWithDMatrixReuse not available")
+    XGBClassifier = xgb_shim.XGBClassifierWithDMatrixReuse
 
     clf = XGBClassifier(n_estimators=2)
     y_2d = np.array([[0, 1], [1, 0], [0, 1]])
@@ -561,12 +547,8 @@ def test_hhus20_quantile_wrapper_uses_parallel_as_context_manager(monkeypatch):
 
     base = QuantileRegressor(alpha=0.0, solver="highs")
     wrapper = QW(base_estimator=base, alphas=(0.1, 0.5, 0.9), n_jobs=2)
-    try:
-        wrapper.fit(X, y)
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # Real fit failures (env/lib) are tolerated here -- the assertion
-        # below only cares about Parallel context-manager hygiene.
-        pass
+    wrapper.fit(X, y)
+    assert enters, "the wrapper never entered a Parallel context"
     # Every enter must have a matching exit.
     assert len(enters) == len(
         exits

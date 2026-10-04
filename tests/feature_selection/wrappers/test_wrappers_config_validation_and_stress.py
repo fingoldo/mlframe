@@ -316,10 +316,7 @@ class TestH39_MRMRFallback:
         X = pd.DataFrame(rng.standard_normal((300, 8)), columns=[f"f{i}" for i in range(8)])
         y = rng.integers(0, 2, 300)
         mrmr = MRMR(min_features_fallback=3, min_relevance_gain=10.0, verbose=False)
-        try:
-            mrmr.fit(X, y)
-        except Exception as exc:
-            pytest.skip(f"MRMR variant unavailable in this build: {exc}")
+        mrmr.fit(X, y)
         # ``min_features_fallback`` only kicks in when ``selected_vars`` is empty AND no engineered features are emitted (see ``_mrmr_fit_impl.py:725``).
         # Whatever path ran, ``support_`` must be non-empty: either the screen surfaced at least one feature (selection path) OR the fallback engaged
         # (top-K MI path). Both produce ``n_features_ >= 1``; n_features_ == 0 is the broken-contract case the parameter exists to prevent.

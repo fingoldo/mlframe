@@ -25,45 +25,90 @@ future.
 
 from __future__ import annotations
 
-import importlib
 import logging
 import time
-from pathlib import Path
-
-MLFRAME_ROOT = Path(importlib.import_module("mlframe").__file__).parent
-
-
-def _read(rel: str) -> str:
-    """Read."""
-    return (MLFRAME_ROOT / rel).read_text(encoding="utf-8")
-
 
 # ---------------------------------------------------------------------------
-# Source-level sensors
+# Failure surfacing, exercised through the code that owns it
 # ---------------------------------------------------------------------------
 
 
-def test_kick_cpu_count_logs_at_debug_on_failure() -> None:
-    # ``_kick_cpu_count`` was carved out of metrics/core.py into sibling
-    # metrics/_core_numba_warmup.py during a numba-warmup split. Check both
-    # files so the sensor still works after the move.
-    """Kick cpu count logs at debug on failure."""
-    src = _read("metrics/core.py")
-    helper_idx = src.find("def _kick_cpu_count")
-    if helper_idx == -1:
-        src = _read("metrics/_core_numba_warmup.py")
-        helper_idx = src.find("def _kick_cpu_count")
-    assert helper_idx != -1, "def _kick_cpu_count not found in metrics/core.py or metrics/_core_numba_warmup.py"
-    snippet = src[helper_idx : helper_idx + 800]
-    assert "logger.debug" in snippet, "_kick_cpu_count must surface failures at DEBUG, not silently pass."
+def test_kick_cpu_count_logs_at_debug_on_failure(monkeypatch, caplog) -> None:
+    """A failing cpu_count prefetch is swallowed but leaves a DEBUG record with the traceback; a healthy one logs nothing."""
+    import threading
+
+    import joblib.parallel
+
+    from mlframe.metrics import _core_numba_warmup as warmup
+
+    started = []
+
+    class _InlineThread:
+        """Thread stand-in that records its target so the test runs it synchronously."""
+
+        def __init__(self, target, daemon=None):
+            """Remember the target."""
+            self.target = target
+
+        def start(self):
+            """Record instead of spawning."""
+            started.append(self.target)
+
+    monkeypatch.setattr(threading, "Thread", _InlineThread)
+
+    def _boom():
+        """Fail like a broken physical-core probe."""
+        raise OSError("probe exploded")
+
+    monkeypatch.setattr(joblib.parallel, "cpu_count", _boom)
+    warmup._prewarm_numba_cach_kick_loky_wmic_physical()
+    assert len(started) == 1
+    with caplog.at_level(logging.DEBUG, logger=warmup.logger.name):
+        started[0]()
+    failed = [r for r in caplog.records if "_kick_cpu_count: prefetch failed" in r.getMessage()]
+    assert len(failed) == 1
+    assert failed[0].levelno == logging.DEBUG
+    assert failed[0].exc_info is not None and failed[0].exc_info[0] is OSError
+
+    caplog.clear()
+    monkeypatch.setattr(joblib.parallel, "cpu_count", lambda *a, **k: 4)
+    warmup._prewarm_numba_cach_kick_loky_wmic_physical()
+    with caplog.at_level(logging.DEBUG, logger=warmup.logger.name):
+        started[1]()
+    assert [r for r in caplog.records if "_kick_cpu_count" in r.getMessage()] == []
 
 
-def test_prewarm_registers_done_callback() -> None:
-    """Prewarm registers done callback."""
-    src = _read("training/feature_handling/registry.py")
-    # The fix attaches add_done_callback after submit.
-    assert "add_done_callback(_log_unhandled)" in src, "registry.py prewarm: must attach a done-callback so an unawaited failure logs."
-    assert "_log_unhandled" in src, "registry.py prewarm: _log_unhandled helper must exist."
+def test_prewarm_registers_done_callback(caplog) -> None:
+    """prewarm() on a provider whose load fails logs one WARNING naming the signature even when wait_prewarm is never called."""
+    from mlframe.training.feature_handling import registry as reg
+
+    sig = f"prewarm_unawaited_failure_{id(object())}"
+
+    class _FailingProvider:
+        """Provider whose weight load always raises."""
+
+        signature = sig
+
+        def acquire(self):
+            """Fail the load."""
+            raise RuntimeError("intentional prewarm failure")
+
+    provider = _FailingProvider()
+    caplog.set_level(logging.WARNING, logger=reg.logger.name)
+    try:
+        fut = reg.prewarm(provider)
+        assert isinstance(fut.exception(timeout=30), RuntimeError)
+        for _ in range(300):
+            if any(sig in r.getMessage() for r in caplog.records):
+                break
+            time.sleep(0.01)
+        logged = [r for r in caplog.records if sig in r.getMessage()]
+        assert len(logged) == 1
+        assert logged[0].levelno == logging.WARNING
+        assert "caller did not call wait_prewarm" in logged[0].getMessage()
+        assert sig not in reg._REGISTRY
+    finally:
+        reg._PREWARM_FUTURES.pop(sig, None)
 
 
 # ---------------------------------------------------------------------------

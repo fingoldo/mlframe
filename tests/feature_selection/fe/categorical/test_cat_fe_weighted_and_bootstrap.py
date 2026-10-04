@@ -239,18 +239,9 @@ class TestBootstrapCIs:
         cfg = CatFEConfig()
         assert cfg.bootstrap_ci_n_replicates == 0
 
-    def test_bootstrap_lower_ci_drops_unstable_pair(self):
-        """If the bootstrap distribution has high variance (CI lower
-        below the floor), the pair is dropped."""
-        rng = np.random.default_rng(11)
-        n = 800
-        # Construct: x1 has weak marginal signal, x2 noise. Signal is
-        # too noisy for the bootstrap to stabilize CI > 0.05.
-        x1 = rng.integers(0, 2, n).astype(np.int32)
-        x2 = rng.integers(0, 2, n).astype(np.int32)
-        # Y depends weakly on x1 (50%+5%) -- bootstrap CI on II should
-        # bracket ~0 with high variance.
-        y = np.where(rng.random(n) < 0.55, x1, 1 - x1).astype(np.int32)
+    @staticmethod
+    def _run_pair_step(x1, x2, y, *, bootstrap_replicates, floor):
+        """Run the cat-interaction step on one (x1, x2) pair against ``y`` and return its state."""
         data = np.column_stack([x1, x2, y]).astype(np.int32)
         nbins = np.array([2, 2, 2], dtype=np.int64)
         cls_y, fq_y, _ = merge_vars(
@@ -263,10 +254,10 @@ class TestBootstrapCIs:
         cfg = CatFEConfig(
             enable=True,
             top_k_pairs=1,
-            min_interaction_information=0.05,  # tight floor
+            min_interaction_information=floor,
             full_npermutations=0,
             fwer_correction="none",
-            bootstrap_ci_n_replicates=15,
+            bootstrap_ci_n_replicates=bootstrap_replicates,
         )
         _, _, _, state = run_cat_interaction_step(
             data=data,
@@ -280,15 +271,38 @@ class TestBootstrapCIs:
             cfg=cfg,
             dtype=np.int32,
         )
-        # Whether this pair is dropped depends on the specific seed
-        # variance, but we can verify: state.recipes is either empty
-        # (dropped by bootstrap CI) OR all surviving recipes have
-        # lower CI >= floor.
-        for r in state.recipes:
-            ci = state.diagnostics[r.name].get("bootstrap_ii_ci")
-            if ci is not None:
-                lower, _, _ = ci
-                assert lower >= 0.05, f"Surviving recipe must clear lower-CI floor; got lower={lower:.4f}"
+        return state
+
+    @pytest.mark.parametrize("seed", [11, 1, 4])
+    def test_bootstrap_lower_ci_drops_unstable_pair(self, seed):
+        """A pair whose point interaction information clears the floor but whose bootstrap CI reaches down
+        to ~0 (y depends only weakly on x1, x2 is noise) survives without the bootstrap and is dropped with it."""
+        rng = np.random.default_rng(seed)
+        n = 800
+        x1 = rng.integers(0, 2, n).astype(np.int32)
+        x2 = rng.integers(0, 2, n).astype(np.int32)
+        y = np.where(rng.random(n) < 0.55, x1, 1 - x1).astype(np.int32)
+
+        without_ci = self._run_pair_step(x1, x2, y, bootstrap_replicates=0, floor=0.0)
+        assert len(without_ci.recipes) == 1, "precondition: the weak pair clears the point-estimate gate"
+        with_ci = self._run_pair_step(x1, x2, y, bootstrap_replicates=50, floor=0.0)
+        assert with_ci.recipes == [], "the bootstrap lower CI of a noise-level interaction must fall below the floor"
+
+    def test_bootstrap_lower_ci_keeps_real_interaction(self):
+        """A genuine XOR interaction keeps a bootstrap lower CI above the floor, so the CI gate is not a blanket drop."""
+        rng = np.random.default_rng(11)
+        n = 800
+        x1 = rng.integers(0, 2, n).astype(np.int32)
+        x2 = rng.integers(0, 2, n).astype(np.int32)
+        y = (x1 ^ x2).astype(np.int32)
+
+        state = self._run_pair_step(x1, x2, y, bootstrap_replicates=50, floor=0.05)
+        assert len(state.recipes) == 1
+        ci = state.diagnostics[state.recipes[0].name]["bootstrap_ii_ci"]
+        assert ci is not None
+        lower, point, upper = ci
+        assert lower >= 0.05
+        assert lower <= point <= upper
 
 
 # ---------------------------------------------------------------------------

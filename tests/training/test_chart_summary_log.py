@@ -50,4 +50,6 @@ def test_missing_charts_key_is_safe(caplog):
 def test_none_metadata_does_not_crash():
     # Must not raise on a None metadata (defensive).
     """None metadata does not crash."""
-    log_chart_summary(None, save_charts=False, data_dir="")
+    msg = log_chart_summary(None, save_charts=False, data_dir="")
+    assert "0 charts saved" in msg
+    assert "output_config.data_dir" in msg

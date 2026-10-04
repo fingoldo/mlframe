@@ -214,6 +214,11 @@ def test_biz_val_monitor_drift_alerts_stationary_quiet() -> None:
     rep_ok = mon.monitor(X_ok, y_ok)
     assert rep_ok["alert"] is False, f"stationary stream alerted: {rep_ok['signals']}"
     assert rep_ok["recommend_update"] is False
+    quiet = rep_ok["signals"]
+    assert quiet["base_psi[lag]"]["value"] < 0.1
+    assert quiet["base_ks[lag]"]["value"] < 0.2
+    assert quiet["prediction_psi"]["value"] < 0.1
+    assert quiet["residual_mean_shift"]["value"] < 0.1
 
     # Drifted stream: base mean + scale shift AND residual bias -> alert + recommend.
     rng = np.random.default_rng(321)
@@ -225,3 +230,9 @@ def test_biz_val_monitor_drift_alerts_stationary_quiet() -> None:
     rep_bad = mon.monitor(X_bad, y_drift)
     assert rep_bad["alert"] is True, f"drifted stream stayed quiet: {rep_bad['signals']}"
     assert rep_bad["recommend_update"] is True
+    loud = rep_bad["signals"]
+    assert loud["base_psi[lag]"]["value"] > 3.3
+    assert loud["base_ks[lag]"]["value"] > 0.72
+    assert loud["prediction_psi"]["value"] > 2.9
+    assert loud["residual_mean_shift"]["value"] > 10.0
+    assert loud["residual_mean_shift"]["value"] > 20 * quiet["residual_mean_shift"]["value"]

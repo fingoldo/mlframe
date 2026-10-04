@@ -94,19 +94,19 @@ def test_recommended_filter_mask_handles_tz_aware_segments():
 
 
 def test_cleaning_datetime_probe_strips_tz_before_astype():
-    """The pandas-2.x raise on tz-aware Series .astype('datetime64[D]')
-    is preempted by an upfront tz strip."""
-    import pathlib
-    import mlframe as _mlframe
+    """A tz-aware datetime carrier is judged exactly like the same instants as tz-naive UTC; the resolution probe no longer raises on it (pandas >= 2.0 rejects astype on tz-aware values)."""
+    from mlframe.preprocessing.cleaning import is_variable_truly_continuous
 
-    src = (pathlib.Path(_mlframe.__file__).resolve().parent / "preprocessing" / "cleaning.py").read_text(encoding="utf-8")
-    # Pre-fix shape direct on values MUST be gone:
-    assert (
-        'if np.all(values.astype(f"datetime64[{date_fract}]") == values):' not in src
-    ), "cleaning.py reverted to .astype on the raw values, which raises on pandas >=2.0 for tz-aware Series."
-    # Post-fix marker:
-    assert "_vals_naive = values" in src
-    assert 'values.tz_convert("UTC").tz_localize(None)' in src
+    aware = pd.date_range("2024-01-01 00:07:13", periods=2000, freq="37min", tz="Europe/Berlin")
+    naive_utc = aware.tz_convert("UTC").tz_localize(None).to_numpy()
+
+    from_index = is_variable_truly_continuous(values=aware, var_is_datetime=True)
+    from_array = is_variable_truly_continuous(values=aware.array, var_is_datetime=True)
+    from_naive = is_variable_truly_continuous(values=naive_utc, var_is_datetime=True)
+
+    assert isinstance(from_naive, tuple) and len(from_naive) == 2
+    assert from_index == from_naive
+    assert from_array == from_naive
 
 
 # ---- behavioural: tz-aware input doesn't crash audit ---------------------

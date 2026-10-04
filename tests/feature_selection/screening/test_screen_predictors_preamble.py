@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 
 def test_factors_names_none_does_not_crash():
@@ -74,29 +73,18 @@ def test_screen_predictors_factors_names_empty_list_no_mismatch():
     # Targets must NOT share memory with factors_data.
     targets_data = rng.integers(0, 2, (n_rows, 1)).astype(np.int32)
     targets_nbins = np.array([2], dtype=np.int64)
-    # The signature-level auto-name branch must succeed; we don't care
-    # about the screen result, only that the preamble doesn't crash.
-    try:
-        screen_predictors(
-            factors_data=factors_data,
-            factors_nbins=factors_nbins,
-            factors_names=[],  # triggers auto-name branch
-            targets_data=targets_data,
-            targets_nbins=targets_nbins,
-            y=[0],
-            full_npermutations=10,
-            verbose=0,
-        )
-    except TypeError as exc:
-        pytest.fail(f"factors_names=[] should trigger auto-name branch without TypeError; got {exc!r}")
-    except ValueError as exc:
-        if "len(factors_names)" in str(exc):
-            pytest.fail(f"auto-name branch produced wrong-length name list (should use factors_data.shape[1] = {n_cols}); got: {exc}")
-        # Any other ValueError (e.g. signature mismatch from a
-        # less-than-perfect harness) is acceptable for this iter-25
-        # regression - the preamble validation already passed.
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # The screen may throw a downstream error from our minimal
-        # harness setup; that's fine. We only care that the preamble
-        # didn't TypeError or ValueError on the auto-name branch.
-        pass
+    # The auto-name branch must succeed and the screen must run to completion on the generated names.
+    result = screen_predictors(
+        factors_data=factors_data,
+        factors_nbins=factors_nbins,
+        factors_names=[],  # triggers auto-name branch
+        targets_data=targets_data,
+        targets_nbins=targets_nbins,
+        y=[0],
+        full_npermutations=10,
+        verbose=0,
+    )
+    predictors_log = result[1]
+    assert len(predictors_log) >= 1
+    assert {entry["name"] for entry in predictors_log} <= {f"F{i}" for i in range(n_cols)}
+    assert len(result[4]) == n_cols, f"expected one univariate MI per column ({n_cols}); got {len(result[4])}"

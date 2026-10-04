@@ -395,13 +395,14 @@ class TestClusterDiagnosticsMonotonicity:
             cluster_mins = [info["min_pair_su"] for info in diag.values() if info["min_pair_su"] is not None]
             if cluster_mins:
                 mins[tau] = min(cluster_mins)
-        # Only assert when we have observations at 2+ taus.
+        assert {0.4, 0.6} <= set(mins), f"clusters must form at tau 0.4 and 0.6; observed min_pair_su per tau: {mins}"
         observed_taus = sorted(mins.keys())
-        if len(observed_taus) >= 2:
-            for i in range(1, len(observed_taus)):
-                t_lo, t_hi = observed_taus[i - 1], observed_taus[i]
-                # Allow tiny slack for FP noise.
-                assert mins[t_hi] >= mins[t_lo] - 1e-6, f"min_pair_su not monotone in tau: tau={t_lo}->min={mins[t_lo]:.4f}, tau={t_hi}->min={mins[t_hi]:.4f}"
+        for tau, observed_min in mins.items():
+            assert observed_min >= tau - 1e-6, f"a cluster admitted at tau={tau} reports min_pair_su={observed_min:.4f} below the admission threshold"
+        for i in range(1, len(observed_taus)):
+            t_lo, t_hi = observed_taus[i - 1], observed_taus[i]
+            # Allow tiny slack for FP noise.
+            assert mins[t_hi] >= mins[t_lo] - 1e-6, f"min_pair_su not monotone in tau: tau={t_lo}->min={mins[t_lo]:.4f}, tau={t_hi}->min={mins[t_hi]:.4f}"
 
 
 # ---------------------------------------------------------------------------

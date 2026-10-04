@@ -179,6 +179,8 @@ def test_plt_grid_visible_kwarg_accepted():
 
     fig = plt.figure()
     try:
-        plt.grid(visible=None)  # must not raise on matplotlib >= 3.5
+        plt.grid(visible=None)
+        assert fig.axes[0].get_xgridlines() is not None
+        assert len(fig.axes) == 1
     finally:
         plt.close(fig)

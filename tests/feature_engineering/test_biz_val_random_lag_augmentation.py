@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 
@@ -123,16 +124,10 @@ def test_biz_val_randomize_as_of_lag_histogram_beats_uniform_under_skewed_servin
 def test_randomize_as_of_lag_histogram_requires_both_edges_and_counts():
     """Randomize as of lag histogram requires both edges and counts."""
     as_of = pd.DataFrame({"entity": range(10), "as_of": 100.0})
-    try:
+    with pytest.raises(ValueError, match="must be supplied together"):
         randomize_as_of_lag(as_of, "as_of", max_lag=10.0, lag_histogram_edges=[0.0, 5.0, 10.0])
-        raise AssertionError("expected ValueError when only lag_histogram_edges is supplied")
-    except ValueError:
-        pass
-    try:
+    with pytest.raises(ValueError, match="must be supplied together"):
         randomize_as_of_lag(as_of, "as_of", max_lag=10.0, lag_histogram_counts=[1.0, 1.0])
-        raise AssertionError("expected ValueError when only lag_histogram_counts is supplied")
-    except ValueError:
-        pass
 
 
 def test_randomize_as_of_lag_histogram_shifts_within_bin_bounds():

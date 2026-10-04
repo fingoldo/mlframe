@@ -344,7 +344,7 @@ def _train_and_evaluate_nest_lightning_checkpoints_csv(model_file_name, model):
         pass
 
 
-def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, model_type_name, train_target, model, train_df, oof_random_seed, group_ids, train_idx, oof_has_time, _pre_pipeline_sample_weight, timestamps):
+def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, model_type_name, train_target, model, train_df, oof_random_seed, group_ids, train_idx, oof_has_time, _pre_pipeline_sample_weight, timestamps, fit_params=None):
     """Block of train_and_evaluate_model starting at ``if oof_n_splits and oof_n_splits >= 2 and not just_evaluate:``."""
     from mlframe.training.trainer import _compute_oof_preds
 
@@ -365,6 +365,7 @@ def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, mod
                 random_seed=int(oof_random_seed),
                 group_ids=group_ids[train_idx] if (group_ids is not None and train_idx is not None) else None,
                 has_time=bool(oof_has_time), sample_weight=_pre_pipeline_sample_weight, timestamps=_oof_train_timestamps(timestamps, train_idx),
+                fit_params=fit_params,
             )
             try:
                 model.oof_diagnostics = _oof_diag  # mlframe-injected bookkeeping attr on an arbitrary (object-typed) model

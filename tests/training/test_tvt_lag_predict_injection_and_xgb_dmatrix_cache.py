@@ -144,7 +144,8 @@ class TestLagPredictDeployableModel:
         m = _LagPredictDeployableModel(lag_column="TVT_prev")
         df = pd.DataFrame({"TVT_prev": np.arange(1000.0)})
         y = np.arange(1000.0) + 5.0  # arbitrary, fit ignores it
-        clone(m).fit(df, y).predict(df)  # must not raise
+        preds = clone(m).fit(df, y).predict(df)
+        np.testing.assert_array_equal(preds, np.arange(1000.0))
 
 
 class TestXGBModuleLevelCache:
@@ -316,15 +317,15 @@ class TestLossRecommendationRound5HuberUnified:
         outliers = rng.normal(0, 4, n) * (rng.random(n) < 0.05).astype(float)
         y = base + outliers
         rec = recommend_boosting_regression_loss(y)
-        if rec["excess_kurt"] > 1.5:
-            assert "Huber" in rec["cb"], rec
-            assert rec["lgb"] == "huber", rec
-            assert rec["xgb"] == "reg:pseudohubererror", rec
-            # The old "MAE" / "regression_l1" / "reg:absoluteerror" path
-            # must NOT be selected anywhere in the leptokurtic regime.
-            assert rec["cb"] != "MAE"
-            assert rec["lgb"] != "regression_l1"
-            assert rec["xgb"] != "reg:absoluteerror"
+        assert rec["excess_kurt"] > 1.5, rec
+        assert "Huber" in rec["cb"], rec
+        assert rec["lgb"] == "huber", rec
+        assert rec["xgb"] == "reg:pseudohubererror", rec
+        # The old "MAE" / "regression_l1" / "reg:absoluteerror" path
+        # must NOT be selected anywhere in the leptokurtic regime.
+        assert rec["cb"] != "MAE"
+        assert rec["lgb"] != "regression_l1"
+        assert rec["xgb"] != "reg:absoluteerror"
 
     def test_high_kurt_3_to_10_now_huber_not_mae(self) -> None:
         """Round-5 specifically targets this band. TVT composite residual
@@ -334,15 +335,15 @@ class TestLossRecommendationRound5HuberUnified:
         from mlframe.training.loss_recommendation import recommend_boosting_regression_loss
 
         rng = np.random.default_rng(0)
-        # Student-t df=3 has excess_kurt theoretical infinity; large
-        # sample will land in (3, 10] range for our purposes.
-        y = rng.standard_t(df=3, size=10000)
+        # 90% N(0,1) + 10% N(0,3): theoretical excess kurtosis 5.33, inside the (3, 10] band.
+        n = 40000
+        y = rng.normal(0, 1, n) * np.where(rng.random(n) < 0.1, 3.0, 1.0)
         rec = recommend_boosting_regression_loss(y)
-        if 3.0 < rec["excess_kurt"] <= 10.0:
-            assert "Huber" in rec["cb"], rec
-            assert rec["cb"] != "MAE", rec
-            assert rec["lgb"] == "huber", rec
-            assert rec["xgb"] == "reg:pseudohubererror", rec
+        assert 3.0 < rec["excess_kurt"] <= 10.0, rec
+        assert "Huber" in rec["cb"], rec
+        assert rec["cb"] != "MAE", rec
+        assert rec["lgb"] == "huber", rec
+        assert rec["xgb"] == "reg:pseudohubererror", rec
 
     def test_gaussian_still_picks_rmse(self) -> None:
         """Gaussian still picks rmse."""
@@ -465,7 +466,11 @@ class TestMLPEvalSetShapeNormalisation:
         # eval_set arrives wrapped as a 1-element list-of-tuples in the
         # prod path; pre-fix this crashed with IndexError. After the
         # _fit_common normalisation it unwraps cleanly.
-        model.fit(X_train, y_train, eval_set=[(X_val, y_val)])
+        fitted = model.fit(X_train, y_train, eval_set=[(X_val, y_val)])
+        assert fitted is model
+        preds = np.asarray(model.predict(X_val)).ravel()
+        assert preds.shape == (10,)
+        assert np.all(np.isfinite(preds))
 
 
 class TestExternalValHoldoutOOF:

@@ -15,92 +15,109 @@ _mlframe_callback_cache_installed (neural/base iter189) patterns.
 """
 
 
-def test_pipeline_json_roundtrip_cache_skips_second_validation():
-    """First call populates the cache, second call with same JSON hash
-    short-circuits without re-invoking ``Pipeline.from_json``."""
-    from mlframe.training.core import _setup_helpers as sh
-
-    # Clear cache to make the test deterministic across re-runs.
-    sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
-
-    # Simulate the JSON + pipeline shape. Use a stub since we don't have
-    # polars_ds installed in every CI env (test_pipeline_json_roundtrip_cache
-    # avoids depending on it).
-    fake_js = '{"steps": [{"type": "test_stub"}]}'
-    call_count = {"n": 0}
-
-    class _StubPipeline:
-        """Groups tests covering stub pipeline."""
-        def to_json(self):
-            """To json."""
-            return fake_js
-
-        @classmethod
-        def from_json(cls, js):
-            """From json."""
-            call_count["n"] += 1
-            return cls()
-
-    # Mock polars_ds.pipeline.Pipeline import + isinstance gate.
+def _fake_polars_ds_with_pipeline(monkeypatch, pipeline_cls):
+    """Install a stand-in ``polars_ds.pipeline`` module exposing ``pipeline_cls`` as ``Pipeline``."""
     import sys
 
     fake_module = type(sys)("polars_ds")
     fake_module.pipeline = type(sys)("polars_ds.pipeline")
-    fake_module.pipeline.Pipeline = _StubPipeline
-    sys.modules["polars_ds"] = fake_module
-    sys.modules["polars_ds.pipeline"] = fake_module.pipeline
-    try:
-        # Re-run the cache-using block twice.
-        for _ in range(2):
-            _js = fake_js
-            _js_hash = hash(_js)
-            _rt_ok = sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(_js_hash)
-            if _rt_ok is None:
-                try:
-                    _StubPipeline.from_json(_js)
-                    _rt_ok = True
-                except Exception:
-                    _rt_ok = False
-                sh._PIPELINE_JSON_ROUNDTRIP_CACHE[_js_hash] = _rt_ok
+    fake_module.pipeline.Pipeline = pipeline_cls
+    monkeypatch.setitem(sys.modules, "polars_ds", fake_module)
+    monkeypatch.setitem(sys.modules, "polars_ds.pipeline", fake_module.pipeline)
 
-        assert call_count["n"] == 1, f"Pipeline.from_json was invoked {call_count['n']} times; expected exactly 1 (cache should short-circuit the second call)."
-        assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(hash(fake_js)) is True
+
+def _finalize_ctx(pipeline):
+    """A minimal training context carrying ``pipeline`` in its metadata and no output directory."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        metadata={"pipeline": pipeline},
+        verbose=0,
+        outlier_detector=None,
+        outlier_detection_result=None,
+        trainset_features_stats=None,
+        slug_to_original_target_type=None,
+        slug_to_original_target_name=None,
+        data_dir=None,
+        models_dir=None,
+    )
+
+
+def test_pipeline_json_roundtrip_cache_skips_second_validation(tmp_path, monkeypatch):
+    """Saving metadata twice for a pipeline with the same JSON validates ``Pipeline.from_json`` once and wraps the pipeline in the JSON proxy both times."""
+    from mlframe.training.core import _setup_helpers as sh
+    from mlframe.training.core._setup_helpers_metadata import _finalize_and_save_metadata
+    from mlframe.training.core._setup_helpers_pipeline_cache import _PolarsDsPipelineJsonProxy, pipeline_json_cache_key
+
+    monkeypatch.setenv("MLFRAME_PIPELINE_DISK_CACHE_PATH", str(tmp_path / "roundtrip.json"))
+    sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
+    fake_js = '{"steps": [{"type": "test_stub_cached_ok"}]}'
+    call_count = {"n": 0}
+
+    class _StubPipeline:
+        """Pipeline stand-in whose from_json counts its invocations."""
+
+        def to_json(self):
+            """The fixed JSON payload."""
+            return fake_js
+
+        @classmethod
+        def from_json(cls, js):
+            """Count the validation call."""
+            call_count["n"] += 1
+            return cls()
+
+    _fake_polars_ds_with_pipeline(monkeypatch, _StubPipeline)
+    try:
+        wrapped = []
+        for _ in range(2):
+            ctx = _finalize_ctx(_StubPipeline())
+            _finalize_and_save_metadata(ctx)
+            wrapped.append(ctx.metadata["pipeline"])
+
+        assert call_count["n"] == 1
+        assert all(isinstance(w, _PolarsDsPipelineJsonProxy) for w in wrapped)
+        assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE[pipeline_json_cache_key(fake_js)] is True
     finally:
-        sys.modules.pop("polars_ds", None)
-        sys.modules.pop("polars_ds.pipeline", None)
         sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
 
 
-def test_pipeline_json_roundtrip_cache_remembers_failures():
-    """Negative-result caching: a JSON that fails parse this time will fail
-    every time (deterministic), so the cache must remember False outcomes too
-    and skip retry."""
+def test_pipeline_json_roundtrip_cache_remembers_failures(tmp_path, monkeypatch):
+    """A pipeline whose JSON fails ``from_json`` is validated once across three saves, cached as a failure, and keeps its plain (unwrapped) pipeline."""
     from mlframe.training.core import _setup_helpers as sh
+    from mlframe.training.core._setup_helpers_metadata import _finalize_and_save_metadata
+    from mlframe.training.core._setup_helpers_pipeline_cache import pipeline_json_cache_key
 
+    monkeypatch.setenv("MLFRAME_PIPELINE_DISK_CACHE_PATH", str(tmp_path / "roundtrip.json"))
     sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
     fake_js = '{"steps": [{"type": "always_fails"}]}'
     call_count = {"n": 0}
 
-    def _failing_from_json(js):
-        """Failing from json."""
-        call_count["n"] += 1
-        raise ValueError("intentional failure for test")
+    class _FailingPipeline:
+        """Pipeline stand-in whose from_json always raises."""
 
-    # Drive the cache directly.
-    for _ in range(3):
-        _js_hash = hash(fake_js)
-        _rt_ok = sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(_js_hash)
-        if _rt_ok is None:
-            try:
-                _failing_from_json(fake_js)
-                _rt_ok = True
-            except Exception:
-                _rt_ok = False
-            sh._PIPELINE_JSON_ROUNDTRIP_CACHE[_js_hash] = _rt_ok
+        def to_json(self):
+            """The fixed JSON payload."""
+            return fake_js
 
-    assert call_count["n"] == 1, f"Failing from_json invoked {call_count['n']} times; expected 1 (negative-result cache must skip retry)."
-    assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE.get(hash(fake_js)) is False
-    sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
+        @classmethod
+        def from_json(cls, js):
+            """Count the call, then fail as polars-ds does for an unsupported step type."""
+            call_count["n"] += 1
+            raise ValueError("intentional failure for test")
+
+    _fake_polars_ds_with_pipeline(monkeypatch, _FailingPipeline)
+    try:
+        for _ in range(3):
+            pipeline = _FailingPipeline()
+            ctx = _finalize_ctx(pipeline)
+            _finalize_and_save_metadata(ctx)
+            assert ctx.metadata["pipeline"] is pipeline
+
+        assert call_count["n"] == 1
+        assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE[pipeline_json_cache_key(fake_js)] is False
+    finally:
+        sh._PIPELINE_JSON_ROUNDTRIP_CACHE.clear()
 
 
 def test_pipeline_json_cache_keyed_by_content_not_object_identity():

@@ -229,12 +229,7 @@ def test_kernel_variants_match_per_class_loop_reference(backend, nclasses):
     reference score to float precision AND give the identical descending ranking -- the kernel
     optimization is a pure speedup, never a behavior change. cupy/numba skip cleanly if unavailable."""
     if backend == "cupy":
-        cp = pytest.importorskip("cupy")
-        try:
-            if cp.cuda.runtime.getDeviceCount() < 1:
-                pytest.skip("no CUDA device")
-        except Exception:
-            pytest.skip("cupy present but no usable GPU")
+        pytest.importorskip("cupy")
     if backend == "numba":
         pytest.importorskip("numba")
 
@@ -248,8 +243,8 @@ def test_kernel_variants_match_per_class_loop_reference(backend, nclasses):
     ref = _discrete_score_numpy_loop(V, V2, yf, classes)
     try:
         got = _kernels.compute_discrete_score(V, V2, yf, classes, backend=backend)
-    except Exception as e:  # GPU OOM under concurrent load etc. -- the variant exists, just unbenchable now
-        pytest.skip(f"{backend} unavailable at runtime: {e}")
+    except MemoryError as e:  # GPU OOM under concurrent load: the variant exists, just unbenchable now
+        pytest.skip(f"{backend} out of memory at runtime: {e}")
 
     assert np.allclose(got, ref, rtol=1e-8, atol=1e-10), f"{backend} score drift max={np.abs(got - ref).max():.2e}"
     # ranking (the only thing top-k consumes) must be bit-identical to the reference

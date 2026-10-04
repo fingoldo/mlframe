@@ -96,11 +96,10 @@ def test_spectral_norm_bounds_linear_sigma_to_one() -> None:
     X = torch.randn(8, 64)
     for _ in range(50):
         _ = net(X)
-    for m in net.modules():
-        if isinstance(m, nn.Linear):
-            W = m.weight.detach()
-            sigma_max = float(torch.linalg.matrix_norm(W, ord=2))
-            assert abs(sigma_max - 1.0) < 1e-4, f"SN Linear has sigma_max={sigma_max} after 50 iters; expected ~1.0 for spectral_norm=True."
+    sigmas = [float(torch.linalg.matrix_norm(m.weight.detach(), ord=2)) for m in net.modules() if isinstance(m, nn.Linear)]
+    assert len(sigmas) >= 4, f"expected one Linear per layer, found {len(sigmas)}"
+    for sigma_max in sigmas:
+        assert abs(sigma_max - 1.0) < 1e-4, f"SN Linear has sigma_max={sigma_max} after 50 iters; expected ~1.0 for spectral_norm=True."
 
 
 def test_spectral_norm_off_no_constraint() -> None:

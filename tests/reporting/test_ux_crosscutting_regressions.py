@@ -84,10 +84,8 @@ class TestSpecFieldsAreHonouredByBothBackends:
         """Both backends handled the flag only INSIDE the perfect-fit branch, so it was a no-op alone."""
         panel = ScatterPanelSpec(x=np.arange(10.0), y=np.arange(10.0) * 2, equal_aspect=True, perfect_fit_line=False)
         fig = get_renderer(backend).render(FigureSpec(panels=((panel,),), figsize=(5.0, 5.0)))
-        if backend == "matplotlib":
-            assert fig.get_axes()[0].get_aspect() == 1.0
-        else:
-            assert fig.layout.yaxis.scaleanchor is not None
+        observed = fig.get_axes()[0].get_aspect() if backend == "matplotlib" else (fig.layout.yaxis.scaleanchor, fig.layout.yaxis.scaleratio)
+        assert observed == {"matplotlib": 1.0, "plotly": ("x", 1.0)}[backend]
 
     def test_plotly_places_the_legend_outside_when_asked(self):
         """legend_outside/legend_ncol were matplotlib-only, so HTML covered the very curves they protect."""

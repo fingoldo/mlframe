@@ -206,38 +206,37 @@ class TestN6_PermutationImportance:
 
 class TestN6_ShapImportance:
     """Groups tests covering TestN6_ShapImportance."""
-    def test_shap_either_works_or_raises_clear_error(self):
-        """Run SHAP if available, else assert the ImportError is informative."""
+    def test_shap_either_works_or_raises_clear_error(self, monkeypatch):
+        """With the shap package unimportable the error names shap, whatever the host has installed."""
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 5)), columns=list("abcde"))
         y = (X["a"] > 0).astype(int).values
         model = RandomForestClassifier(n_estimators=20, random_state=0).fit(X, y)
-        try:
-            import shap  # noqa: F401
-
-            has_shap = True
-        except ImportError:
-            has_shap = False
-
-        if has_shap:
-            result = get_feature_importances(
+        monkeypatch.setitem(sys.modules, "shap", None)
+        with pytest.raises(ImportError, match="shap"):
+            get_feature_importances(
                 model=model,
                 current_features=list("abcde"),
                 importance_getter="shap",
                 data=X,
             )
-            assert set(result.keys()) == set("abcde")
-            # Driver feature 'a' should be near the top.
-            top = max(result, key=result.get)
-            assert top == "a", f"shap top feature should be 'a', got {top}"
-        else:
-            with pytest.raises(ImportError, match="shap"):
-                get_feature_importances(
-                    model=model,
-                    current_features=list("abcde"),
-                    importance_getter="shap",
-                    data=X,
-                )
+
+    def test_shap_ranks_the_driver_feature_first(self):
+        """With shap installed the importance dict covers every feature and the driver feature tops it."""
+        pytest.importorskip("shap")
+        rng = np.random.default_rng(0)
+        X = pd.DataFrame(rng.standard_normal((100, 5)), columns=list("abcde"))
+        y = (X["a"] > 0).astype(int).values
+        model = RandomForestClassifier(n_estimators=20, random_state=0).fit(X, y)
+        result = get_feature_importances(
+            model=model,
+            current_features=list("abcde"),
+            importance_getter="shap",
+            data=X,
+        )
+        assert set(result.keys()) == set("abcde")
+        top = max(result, key=result.get)
+        assert top == "a", f"shap top feature should be 'a', got {top}"
 
 
 # ----------------------------------------------------------------------------

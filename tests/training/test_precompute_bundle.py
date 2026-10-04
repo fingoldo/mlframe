@@ -156,7 +156,7 @@ def test_suite_uses_precomputed_stats_when_passed_in(tmp_path, monkeypatch):
     data_dir = str(tmp_path / "data")
     bundle = TrainMlframeSuitePrecomputed(trainset_features_stats=helper_out)
     try:
-        train_mlframe_models_suite(
+        _models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="t",
             model_name="m_precomp",
@@ -171,12 +171,8 @@ def test_suite_uses_precomputed_stats_when_passed_in(tmp_path, monkeypatch):
         )
     except _InlineStatsCalled:
         pytest.fail("suite called the inline trainset_features_stats path despite the bundle supplying one")
-    except Exception as e:
-        # Downstream pre-existing failures (e.g. _phase_train_one_target NameError -- locked file,
-        # not in scope) are allowed to surface here without failing the test. The skip-when-supplied
-        # contract is verified by the absence of _InlineStatsCalled.
-        if isinstance(e, _InlineStatsCalled):  # belt-and-suspenders, the bare except above caught it
-            pytest.fail("inline stats path was called via the bundle skip branch")
+    assert isinstance(metadata, dict)
+    assert _models
 
 
 def test_suite_falls_back_to_inline_when_bundle_field_is_none(tmp_path, monkeypatch):

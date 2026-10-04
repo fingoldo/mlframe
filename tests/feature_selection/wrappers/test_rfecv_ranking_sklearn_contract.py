@@ -59,11 +59,21 @@ def test_dropped_features_rank_from_two_upward(fitted_rfecv: RFECV) -> None:
     assert dropped.min() >= 2, "a dropped feature must not share rank 1 with the survivors"
 
 
-def test_consensus_ranking_keeps_the_name_order(fitted_rfecv: RFECV) -> None:
-    """The native name order is still reachable, under a name that says what it is."""
-    consensus = getattr(fitted_rfecv, "consensus_ranking_", None)
-    if consensus is None:
-        pytest.skip("this fit took a branch that does not build a consensus ranking")
+def test_consensus_ranking_keeps_the_name_order() -> None:
+    """The native name order is still reachable, under a name that says what it is, and the final vote selects its head."""
+    rng = np.random.default_rng(0)
+    n, p = 300, 24
+    x = rng.normal(size=(n, p))
+    y = (x[:, 0] + 0.8 * x[:, 1] - 0.6 * x[:, 2] + 0.4 * rng.normal(size=n) > 0).astype(np.int64)
+    frame = pd.DataFrame(x, columns=[f"f{i}" for i in range(p)])
+    selector = RFECV(LogisticRegression(max_iter=300), cv=3, verbose=0, conduct_final_voting=True, max_refits=4)
+    selector.fit(frame, pd.Series(y))
+
+    consensus = selector.consensus_ranking_
     assert isinstance(consensus, list)
-    known = set(str(f) for f in fitted_rfecv.feature_names_in_)
+    known = set(str(f) for f in selector.feature_names_in_)
     assert set(str(c) for c in consensus) <= known, "consensus_ranking_ must only name input features"
+    assert len(set(consensus)) == len(consensus), "consensus_ranking_ lists a feature twice"
+    assert set(consensus[:3]) == {"f0", "f1", "f2"}, f"the three true drivers must head the consensus order, got {consensus[:3]}"
+    selected = {name for name, kept in zip(selector.feature_names_in_, selector.support_) if kept}
+    assert selected == set(consensus[: selector.n_features_]), "support_ must be the head of the consensus order"

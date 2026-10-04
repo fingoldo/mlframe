@@ -200,11 +200,11 @@ def _majority(flags: list[bool]) -> bool:
 
 
 def test_biz_val_mrmr_no_crash_on_raw_nan():
-    """MRMR ingests raw NaN end to end without raising (nan_in_X_policy tolerates)."""
+    """MRMR ingests raw NaN end to end without raising (nan_in_X_policy tolerates) and keeps exactly the informative column."""
     df, ys = _build_mostly_nan(seed=0)
     m = _make_mrmr_missingness()
     m.fit(df, ys)  # must not raise
-    assert len(m.get_feature_names_out()) >= 1
+    assert set(_mrmr_selected(m)) == {"mcar"}, f"expected only the informative MCAR column, got {_mrmr_selected(m)}"
 
 
 def test_biz_val_mrmr_keeps_mcar_informative_feature():

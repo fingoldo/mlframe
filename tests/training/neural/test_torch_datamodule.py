@@ -168,33 +168,48 @@ class TestTorchDataModuleSetup:
     """Tests for TorchDataModule.setup()."""
 
     def test_setup_fit_stage(self, sample_data):
-        """Test setup with stage='fit'."""
+        """setup('fit') casts train and val features to float32 and leaves their values intact."""
+        sample_data = {k: v.astype(np.float64) if v.dtype == np.float32 else v for k, v in sample_data.items()}
         dm = TorchDataModule(
             train_features=sample_data["X_train"], train_labels=sample_data["y_train"], val_features=sample_data["X_val"], val_labels=sample_data["y_val"]
         )
+        assert dm.train_features.dtype == np.float64
 
         dm.setup(stage="fit")
-        # Should setup train and val datasets
+
+        assert dm.train_features.dtype == np.float32
+        assert dm.val_features.dtype == np.float32
+        assert dm.train_features.shape == (100, 10)
+        np.testing.assert_array_equal(dm.train_features, sample_data["X_train"].astype(np.float32))
 
     def test_setup_test_stage(self, sample_data):
-        """Test setup with stage='test'."""
+        """setup('test') casts only the test features and leaves the train features untouched."""
+        sample_data = {k: v.astype(np.float64) if v.dtype == np.float32 else v for k, v in sample_data.items()}
         dm = TorchDataModule(
             train_features=sample_data["X_train"], train_labels=sample_data["y_train"], test_features=sample_data["X_test"], test_labels=sample_data["y_test"]
         )
 
         dm.setup(stage="test")
-        # Should setup test dataset
+
+        assert dm.test_features.dtype == np.float32
+        np.testing.assert_array_equal(dm.test_features, sample_data["X_test"].astype(np.float32))
+        assert dm.train_features.dtype == np.float64
 
     def test_setup_predict_stage(self, sample_data):
-        """Test setup with stage='predict'."""
+        """setup('predict') casts only the predict features and leaves the train features untouched."""
+        sample_data = {k: v.astype(np.float64) if v.dtype == np.float32 else v for k, v in sample_data.items()}
         dm = TorchDataModule(train_features=sample_data["X_train"], train_labels=sample_data["y_train"])
 
         dm.predict_features = sample_data["X_test"]
         dm.setup(stage="predict")
-        # Should setup predict dataset
+
+        assert dm.predict_features.dtype == np.float32
+        np.testing.assert_array_equal(dm.predict_features, sample_data["X_test"].astype(np.float32))
+        assert dm.train_features.dtype == np.float64
 
     def test_setup_none_stage(self, sample_data):
-        """Test setup with stage=None (setup all)."""
+        """setup(None) casts the train, val and test features to float32."""
+        sample_data = {k: v.astype(np.float64) if v.dtype == np.float32 else v for k, v in sample_data.items()}
         dm = TorchDataModule(
             train_features=sample_data["X_train"],
             train_labels=sample_data["y_train"],
@@ -205,7 +220,10 @@ class TestTorchDataModuleSetup:
         )
 
         dm.setup(stage=None)
-        # Should setup all datasets
+
+        for name in ("train_features", "val_features", "test_features"):
+            assert getattr(dm, name).dtype == np.float32, name
+        np.testing.assert_array_equal(dm.test_features, sample_data["X_test"].astype(np.float32))
 
 
 # ================================================================================================
@@ -446,8 +464,10 @@ class TestTorchDataModuleSetupPredict:
         """Test that setup_predict calls setup(stage='predict')."""
         dm = TorchDataModule(train_features=sample_data["X_train"], train_labels=sample_data["y_train"])
 
-        dm.setup_predict(sample_data["X_test"])
-        # If setup wasn't called, predict_dataloader would fail
+        dm.setup_predict(sample_data["X_test"].astype(np.float64))
+
+        assert dm.predict_features.dtype == np.float32
+        np.testing.assert_array_equal(dm.predict_features, sample_data["X_test"])
 
 
 # ================================================================================================
@@ -605,7 +625,9 @@ class TestTorchDataModuleDtypeConversion:
 
         dm._convert_features_dtype(["train_features", "val_features"])
 
-        # Should attempt conversion (may or may not succeed depending on pandas version)
+        assert isinstance(dm.train_features, pd.DataFrame)
+        assert (dm.train_features.dtypes == np.float32).all()
+        np.testing.assert_allclose(dm.train_features.to_numpy(), features.to_numpy().astype(np.float32))
 
     def test_convert_features_dtype_with_none(self, sample_data):
         """Test dtype conversion when features are None."""
@@ -615,8 +637,10 @@ class TestTorchDataModuleDtypeConversion:
             val_features=None,  # None value
         )
 
-        # Should not crash - provide feature_names parameter
         dm._convert_features_dtype(["train_features", "val_features"])
+
+        assert dm.val_features is None
+        assert dm.train_features.dtype == np.float32
 
 
 # ================================================================================================
@@ -704,15 +728,21 @@ class TestTorchDataModuleEdgeCases:
         dm = TorchDataModule(train_features=sample_data["X_train"], train_labels=sample_data["y_train"])
 
         dm.setup(stage="fit")
-        dm.setup(stage="fit")  # Second call
-        # Should not crash
+        after_first = dm.train_features.copy()
+        dm.setup(stage="fit")
+
+        assert dm.train_features.dtype == np.float32
+        np.testing.assert_array_equal(dm.train_features, after_first)
 
     def test_teardown_method(self, sample_data):
         """Test teardown method."""
         dm = TorchDataModule(train_features=sample_data["X_train"], train_labels=sample_data["y_train"])
 
-        # Teardown should not crash
-        dm.teardown(stage="fit")
+        before = dm.train_features
+
+        assert dm.teardown(stage="fit") is None
+        assert dm.train_features is before
+        assert dm.train_labels is not None
 
 
 if __name__ == "__main__":

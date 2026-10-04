@@ -62,11 +62,17 @@ class TestApplyDoesNotCrashOnIntegers:
 
     def test_applying_to_an_int_column_succeeds(self, learned):
         """`IntCastingNaNError` on the default configuration."""
-        apply_features_cleaning(_frame(), learned)
+        out = apply_features_cleaning(_frame(), learned)
+        assert out.shape == _frame().shape
+        assert out["i"].isna().sum() == 4
 
     def test_the_mutating_path_succeeds_too(self, learned):
         """Both branches of `apply_features_cleaning` re-derived the dtype the same way."""
-        apply_features_cleaning(_frame(), learned, update_data=True)
+        frame = _frame()
+        out = apply_features_cleaning(frame, learned, update_data=True)
+        assert out is frame
+        assert out["i"].isna().sum() == 4
+        assert out["i"].dtype.name == learned["features_dtypes"]["i"]
 
     def test_the_merged_values_became_missing(self, learned):
         """The transform must still do its job after the cast is fixed."""
@@ -97,4 +103,7 @@ class TestTrainAndApplyAgreeOnDtype:
         """Result dicts pickled before `features_dtypes` existed must keep working."""
         legacy = {k: v for k, v in learned.items() if k != "features_dtypes"}
         legacy["features_transforms"] = {c: t for c, t in learned["features_transforms"].items() if not c.startswith("i")}
-        apply_features_cleaning(_frame(), legacy)
+        out = apply_features_cleaning(_frame(), legacy)
+        assert out.shape == _frame().shape
+        assert out["i"].dtype == _frame()["i"].dtype
+        assert out["f"].dtype == _frame()["f"].dtype

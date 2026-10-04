@@ -300,9 +300,15 @@ def test_biz_val_significance_off_omits_pvalue():
 
 
 def test_biz_val_significance_does_not_create_false_discovery_on_noise():
-    """Significance testing must not manufacture discoveries: a pure-noise frame stays empty even with the deeper null on."""
+    """Significance testing must not manufacture discoveries: a pure-noise frame stays empty even with the deeper null on, while the same call
+    on a planted gcd structure finds it with a small p-value."""
     rng = _rng(3)
     X = pd.DataFrame({f"f{i}": rng.normal(size=N) for i in range(5)})
     y = (rng.normal(size=N) > 0).astype(int)
     report = discover_structure(X, y, significance_n_perm=200)
     assert len(report) == 0, f"noise frame must yield 0 discovered relations; got {[r.description for r in report]}"
+    a = rng.integers(1, 40, N)
+    b = rng.integers(1, 40, N)
+    planted = discover_structure(pd.DataFrame({"price": a, "quantity": b, "noise": rng.normal(size=N)}), (np.gcd(a, b) >= 4).astype(int), significance_n_perm=200)
+    assert planted.relations, "the same significance setting must still discover a planted gcd structure"
+    assert planted.relations[0].p_value < 0.05

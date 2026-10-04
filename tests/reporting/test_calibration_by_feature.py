@@ -152,4 +152,10 @@ def test_figure_renders_via_matplotlib():
     rendered = rend.render(fig)
     import matplotlib.pyplot as plt
 
-    plt.close(rendered)
+    try:
+        assert len(rendered.axes) >= 5  # four per-bin reliability panels + the heterogeneity panel
+        titles = [ax.get_title() for ax in rendered.axes]
+        assert sum("ECE=" in t for t in titles) == 4
+        assert any("heterogeneity" in t for t in titles)
+    finally:
+        plt.close(rendered)

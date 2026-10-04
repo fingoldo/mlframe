@@ -145,20 +145,14 @@ def test_y_nan_parity_with_rfecv():
     df = pd.DataFrame({"a": a, "b": b})
     yn = y.astype(float)
     yn[0] = np.nan
-    with pytest.raises((ValueError, Exception)):
+    with pytest.raises(ValueError, match=r"y contains 1 NaN and 0 \+/-inf values"):
         _mrmr().fit(df, yn)
-    # RFECV path also refuses to produce an honest fit on NaN y (raises somewhere in
-    # the sklearn estimator / cv split). Both refuse rather than silently coerce.
     from sklearn.linear_model import LogisticRegression
 
-    raised = False
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        with pytest.raises(ValueError, match=r"y contains 1 NaN and 0 \+/-inf values"):
             RFECV(LogisticRegression(max_iter=50), cv=2).fit(df, yn)
-    except Exception:
-        raised = True
-    assert raised
 
 
 # --------------------------------------------------------------------------- transparency: byte-identical selection

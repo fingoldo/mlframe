@@ -25,6 +25,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from tests._known_gap import known_gap
 
 from tests.conftest import fast_n_estimators
 from tests.feature_selection.conftest import fast_subset, is_fast_mode
@@ -312,11 +313,13 @@ def test_biz_val_weak_family_n_much_less_than_p_fast_smoke(high_dimensional_data
     if not is_fast_mode():
         pytest.skip("fast representative; the slow per-family scenario tests cover these paths in the full run")
     X, y, _ = high_dimensional_data
-    informative, _noise = _informative_noise_names(X.columns)
+    informative, noise = _informative_noise_names(X.columns)
     bs = set(_fit_boruta(X, y, seed=0, n_trials=20))
     assert len(bs & set(informative)) >= 1, "BorutaShap fast n<<p recovered no informative feature"
+    assert len(bs & set(noise)) <= int(0.75 * len(noise)), f"BorutaShap fast n<<p admitted {len(bs & set(noise))} of {len(noise)} noise cols (near-all)"
     hs = set(_fit_hybrid(X, y, seed=0))
     assert len(hs) >= 1, "HybridSelector fast n<<p returned an empty selection"
+    assert len(hs) <= 20, f"HybridSelector fast n<<p selected {len(hs)} features (n=50, expected a compact set)"
 
 
 # ====================================================================================================================
@@ -362,19 +365,19 @@ def test_biz_val_hybrid_redundancy_chain_keeps_both_signal_paths():
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-    reason="PROD GAP: HybridSelector keeps the redundant bridge b in a graded chain a~b~c "
-    "(corr(a,b)=0.86 < default corr_thr=0.92, so b is never clustered away); measured kept 3/3 seeds.",
-)
 def test_biz_val_hybrid_redundancy_chain_drops_redundant_bridge():
-    """Biz val hybrid redundancy chain drops redundant bridge."""
+    """HybridSelector should drop the redundant bridge b of a graded chain a~b~c; recorded as a known gap while b survives on the majority of seeds."""
     seeds = _seeds((0, 1, 2))
     b_dropped = []
     for seed in seeds:
         X, y = _make_redundancy_chain(seed=seed)
         sel = set(_fit_hybrid(X, y, seed=seed))
         b_dropped.append("b" not in sel)
-    assert _majority(b_dropped), f"HybridSelector kept the redundant bridge b on the majority of seeds: {b_dropped}"
+    known_gap(
+        "PROD GAP: HybridSelector keeps the redundant bridge b in a graded chain a~b~c (corr(a,b)=0.86 < default corr_thr=0.92, so b is never "
+        f"clustered away); b dropped per seed: {b_dropped}.",
+        gap_closed=_majority(b_dropped),
+    )
 
 
 # ====================================================================================================================

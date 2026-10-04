@@ -210,13 +210,17 @@ def test_multiclass_aggregation_weighted_uses_support():
         metrics=metrics,
     )
     # macro != weighted under heavy skew (class 0 carries 80% weight).
+    from sklearn.metrics import roc_auc_score
+
     macro = metrics.get("macro_roc_auc")
     weighted = metrics.get("weighted_roc_auc")
-    if np.isfinite(macro) and np.isfinite(weighted):
-        # The values can be close on a well-separable synthetic problem,
-        # but they should not be identical bit-for-bit (weights are not
-        # all 1/K). Use a soft inequality.
-        assert macro != weighted or abs(macro - weighted) < 1e-3
+    assert macro is not None and weighted is not None
+    probs = model.predict_proba(X)
+    supports = np.bincount(y, minlength=3)
+    per_class = [roc_auc_score((y == k).astype(int), probs[:, k]) for k in range(3)]
+    assert weighted == pytest.approx(float(np.dot(supports, per_class) / N), abs=1e-12)
+    assert weighted == pytest.approx(roc_auc_score(y, probs, multi_class="ovr", average="weighted"), abs=1e-12)
+    assert macro == pytest.approx(float(np.mean(per_class)), abs=1e-12)
 
 
 def test_multiclass_aggregation_skipped_on_binary():

@@ -9,6 +9,7 @@ Also verifies the effect-size filter suppresses a spurious tiny-magnitude break.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from mlframe.signal.changepoint_detection import detect_regime_changepoints
 
@@ -72,32 +73,23 @@ def test_detect_regime_changepoints_njit_backend_matches_ruptures_backend():
 def test_detect_regime_changepoints_unknown_backend_raises():
     """Detect regime changepoints unknown backend raises."""
     y = np.arange(100, dtype=np.float64)
-    try:
+    with pytest.raises(ValueError, match="Unknown backend: 'bogus'"):
         detect_regime_changepoints(y, min_segment_length=10, backend="bogus")
-        raise AssertionError("expected ValueError")
-    except ValueError:
-        pass
 
 
 def test_detect_regime_changepoints_min_segment_length_zero_raises():
     """CORE_INFRA_MISC-10: min_segment_length=0 must raise a clear ValueError instead of reaching the njit
     PELT kernel, where a zero-length-segment division silently produces inf/nan costs that corrupt breakpoints."""
     y = np.arange(100, dtype=np.float64)
-    try:
+    with pytest.raises(ValueError, match="min_segment_length must be >= 1, got 0"):
         detect_regime_changepoints(y, min_segment_length=0)
-        raise AssertionError("expected ValueError")
-    except ValueError:
-        pass
 
 
 def test_detect_regime_changepoints_min_segment_length_negative_raises():
     """A negative min_segment_length must also raise, not just zero."""
     y = np.arange(100, dtype=np.float64)
-    try:
+    with pytest.raises(ValueError, match="min_segment_length must be >= 1, got -3"):
         detect_regime_changepoints(y, min_segment_length=-3)
-        raise AssertionError("expected ValueError")
-    except ValueError:
-        pass
 
 
 def test_detect_regime_changepoints_segment_stats_opt_in_default_unchanged():

@@ -11,6 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from mlframe.feature_selection.filters._fe_gpu_batch import _packer as _packer_mod
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import DeviceProfile
 from mlframe.feature_selection.filters._fe_gpu_batch._packer import (
     _cpsat_pack,
@@ -43,14 +44,16 @@ def test_pack_heterogeneous_speed_loads_the_faster_device_more():
     assert load1 > load0, f"faster device must get more work: load0={load0} load1={load1}"
 
 
-def test_cpsat_not_worse_than_greedy():
+def test_cpsat_not_worse_than_greedy(monkeypatch):
     """CP-SAT makespan <= greedy on the canonical LPT-suboptimal instance (and generally)."""
+    pytest.importorskip("ortools")
+    # the default 1 s solver budget returns no solution on a heavily loaded box, which is a scheduling artifact and not the property under test
+    monkeypatch.setattr(_packer_mod, "_CP_SAT_TIME_LIMIT_S", 60.0)
     works = [3, 3, 2, 2, 2]
     speeds = [1.0, 1.0]
     greedy = _greedy_lpt(works, speeds)
     cpsat = _cpsat_pack(works, speeds)
-    if cpsat is None:
-        pytest.skip("ortools unavailable")
+    assert cpsat is not None, "ortools is installed, so the CP-SAT packer must return an assignment"
     ms_greedy = _makespan(greedy, works, speeds)
     ms_cpsat = _makespan(cpsat, works, speeds)
     assert ms_cpsat <= ms_greedy + 1e-9, f"CP-SAT {ms_cpsat} should be <= greedy {ms_greedy}"

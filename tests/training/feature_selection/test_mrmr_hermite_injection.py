@@ -114,27 +114,17 @@ class TestHermiteInjectionWiring:
         )
         m.fit(df, y)
         injected = getattr(m, "_hermite_features_", None)
-        if injected:
-            engineered = set(m._engineered_features_ or [])
-            injected_names = {entry["name"] for entry in injected}
-            # Schema check on each entry.
-            assert injected
-            for entry in injected:
-                assert "name" in entry and isinstance(entry["name"], str)
-                assert "src_a" in entry and "src_b" in entry
-                assert "basis" in entry
-                assert "bin_func_name" in entry
-                assert "best_mi" in entry and isinstance(entry["best_mi"], float)
-                assert "baseline_mi" in entry
-            # ``_hermite_features_`` records every INJECTED candidate; ``_engineered_features_`` is the
-            # authoritative SURVIVORS-only roster (the MRMR screen / accuracy gate / dedup drop a subset
-            # before support is finalised -- see the roster-reconciliation block in _fit_impl_core). So an
-            # injected hermite column need NOT survive selection. The invariant we CAN pin: a surviving
-            # hermite name is recorded in BOTH rosters consistently, and survivors are a subset of injected.
-            surviving_hermite = {n for n in engineered if n in injected_names}
-            assert surviving_hermite <= injected_names
-            for hermite_name in surviving_hermite:
-                assert hermite_name in m._engineered_features_
+        assert isinstance(injected, list), "the Hermite block must initialise _hermite_features_ when fe_smart_polynom_iters > 0"
+        assert injected, "a pair-FE-amenable XOR-like target must inject at least one Hermite column"
+        required = ("name", "src_a", "src_b", "basis", "bin_func_name", "best_mi", "baseline_mi")
+        malformed = [e for e in injected if any(k not in e for k in required) or not isinstance(e["name"], str) or not isinstance(e["best_mi"], float)]
+        assert not malformed, f"entries missing metadata: {malformed}"
+        injected_names = [e["name"] for e in injected]
+        assert len(set(injected_names)) == len(injected_names)
+        # ``_hermite_features_`` records every INJECTED candidate; ``_engineered_features_`` is the authoritative SURVIVORS-only roster
+        # (the MRMR screen / accuracy gate / dedup drop a subset before support is finalised), so survivors are a subset of the injected names.
+        hermite_survivors = {n for n in (m._engineered_features_ or []) if n.startswith("_polynom_")}
+        assert hermite_survivors <= set(injected_names)
 
 
 # ----------------------------------------------------------------------

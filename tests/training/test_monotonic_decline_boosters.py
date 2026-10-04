@@ -313,8 +313,10 @@ def test_lgb_callback_unknown_max_metric_does_not_stop_improving_curve():
 
     # Strictly improving (higher-is-better) curve. Under the old 'min' guess every step looks like a
     # decline -> would stop at iter 3. With SKIP the detector never fires.
-    for it, v in enumerate([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]):
-        cb(_env(it, v))  # must not raise EarlyStopException
+    values = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    for it, v in enumerate(values):
+        assert cb(_env(it, v)) is None  # must not raise EarlyStopException
+    assert it == len(values) - 1
 
 
 def test_cb_callback_unknown_max_metric_does_not_stop_improving_curve():

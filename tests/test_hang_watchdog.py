@@ -1,5 +1,7 @@
 """Unit tests for tests/_hang_watchdog.py -- the per-test stall-diagnostics timer."""
 
+import os
+
 from tests import _hang_watchdog
 
 
@@ -39,4 +41,6 @@ def test_default_seconds_is_positive_and_below_the_per_test_timeout():
     # --timeout=900 is the suite's per-test cap (pyproject.toml addopts); the watchdog must fire
     # BEFORE that so a genuine hang is diagnosed even though pytest-timeout's thread method can't
     # interrupt it (see the module docstring). Reads the real env-derived default, not a reloaded copy.
-    assert 0 < _hang_watchdog.HANG_WATCHDOG_SECONDS < 900
+    assert _hang_watchdog.HANG_WATCHDOG_SECONDS == int(os.environ.get("MLFRAME_HANG_WATCHDOG_SECONDS", "600"))
+    assert _hang_watchdog.HANG_WATCHDOG_SECONDS > 0
+    assert _hang_watchdog.HANG_WATCHDOG_SECONDS < 900

@@ -154,14 +154,13 @@ class TestA34StackedPass2Training:
                 n_oof_folds=2,
                 max_pass1_specs_to_aggregate=2,
             )
-        # Either pass-2 found new residual specs (the warning fired) or it found
-        # none (nothing to warn about). When new residual specs are merged the
-        # discovered_on_residual flag must be set AND the A7 warning emitted.
+        # The two-signal frame gives pass 2 residual structure to find; every merged residual spec must carry the
+        # discovered_on_residual flag, and the A7 warning must be emitted.
         new_residual = [s for s in disc.specs_ if getattr(s, "discovered_on_residual", False)]
-        if new_residual:
-            assert any(
-                "discovered on the RESIDUAL target" in rec.message for rec in caplog.records
-            ), "residual-fitted pass-2 specs were merged without the A7 residual-vs-raw warning"
+        assert new_residual, "pass 2 found no residual specs on a frame built to have residual signal"
+        assert any(
+            "discovered on the RESIDUAL target" in rec.message for rec in caplog.records
+        ), "residual-fitted pass-2 specs were merged without the A7 residual-vs-raw warning"
 
 
 # ===========================================================================

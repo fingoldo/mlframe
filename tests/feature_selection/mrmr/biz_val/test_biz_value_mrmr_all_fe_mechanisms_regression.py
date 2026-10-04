@@ -380,12 +380,14 @@ class TestPriorLayerImportSmoke:
         if mod_name in sys.modules:
             del sys.modules[mod_name]
         try:
-            importlib.import_module(mod_name)
+            imported = importlib.import_module(mod_name)
+            imported_file = Path(imported.__file__).resolve()
         finally:
             if original_mod is not None:
                 sys.modules[mod_name] = original_mod
             else:
                 sys.modules.pop(mod_name, None)
+        assert imported_file == Path(path).resolve(), f"{mod_name} imported from {imported_file}, expected {path}"
 
 
 # ---------------------------------------------------------------------------

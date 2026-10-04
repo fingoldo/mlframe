@@ -22,13 +22,11 @@ def test_traversal_featureset_rejected_without_trusted_root(malicious_featureset
         read_trained_models(malicious_featureset, X, inference_folder="infer")
 
 
-def test_legitimate_featureset_not_rejected_by_containment():
+def test_legitimate_featureset_not_rejected_by_containment(tmp_path, monkeypatch):
     """A normal relative featureset inside inference_folder passes the containment check (it then fails
     later for a missing dir, NOT with the traversal ValueError) — confirms the guard isn't over-broad."""
     X = pd.DataFrame({"a": [1.0, 2.0]})
-    try:
-        read_trained_models("my_featureset", X, inference_folder="infer")
-    except ValueError as e:
-        assert "not inside trusted_root" not in str(e), "legitimate path wrongly flagged as traversal"
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        pass  # missing-dir / no-models errors are fine; only the traversal ValueError must not fire
+    monkeypatch.chdir(tmp_path)
+    models, X_out = read_trained_models("my_featureset", X, inference_folder="infer")
+    assert models == {}
+    assert X_out is X

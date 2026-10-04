@@ -71,13 +71,21 @@ def test_unregister_removes_metric():
 
 def test_unregister_missing_is_noop():
     """Module docstring: ``no-op if not registered``."""
-    mr.unregister_metric(TargetTypes.REGRESSION, "this_was_never_registered")  # must not raise
+    mr.register_metric(TargetTypes.REGRESSION, "survivor", _dummy_metric)
+    before = {tt: dict(specs) for tt, specs in mr._REGISTRY.items()}
+    assert mr.unregister_metric(TargetTypes.REGRESSION, "this_was_never_registered") is None
+    assert {tt: dict(specs) for tt, specs in mr._REGISTRY.items()} == before
+    assert "survivor" in mr.list_registered(TargetTypes.REGRESSION)
 
 
 def test_unregister_unknown_target_type_is_noop():
     """The target_type may have nothing registered at all."""
     # Build a fresh target type space (one we know has no entries)
-    mr.unregister_metric(TargetTypes.LEARNING_TO_RANK, "anything")  # must not raise
+    mr._REGISTRY.pop(TargetTypes.LEARNING_TO_RANK, None)
+    before = {tt: dict(specs) for tt, specs in mr._REGISTRY.items()}
+    assert mr.unregister_metric(TargetTypes.LEARNING_TO_RANK, "anything") is None
+    assert {tt: dict(specs) for tt, specs in mr._REGISTRY.items()} == before
+    assert list(mr.list_registered(TargetTypes.LEARNING_TO_RANK)) == []
 
 
 def test_iter_extra_metrics_yields_registered():

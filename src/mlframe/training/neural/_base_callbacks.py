@@ -24,7 +24,9 @@ class NetworkGraphLoggingCallback(Callback):
     """Logs the model's computation graph to the active Lightning logger once training finishes."""
 
     def on_train_end(self, trainer, pl_module):
-        """Log the trained model's computation graph via the Lightning logger's ``log_graph`` hook."""
+        """Log the trained model's computation graph via the Lightning logger's ``log_graph`` hook; a no-op when the trainer has no logger."""
+        if pl_module.logger is None:
+            return
         pl_module.logger.log_graph(model=pl_module)
 
 

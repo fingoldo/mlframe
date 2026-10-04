@@ -402,10 +402,7 @@ class TestMixedOutlierAndNanDoesNotCrash:
             nan_frac=0.03,
             noise_outlier_frac=0.01,
         )
-        try:
-            names = _fit_layer11(X, y)
-        except Exception as exc:
-            pytest.fail(f"seed={seed}: mixed extreme+NaN input crashed MRMR with {type(exc).__name__}: {exc}")
+        names = _fit_layer11(X, y)
         assert "x1" in names, f"seed={seed}: x1 dropped under mixed extreme+NaN; support={names}"
         assert "x2" in names, f"seed={seed}: x2 dropped under mixed extreme+NaN; support={names}"
         assert names[0] == "x1", f"seed={seed}: x1 demoted from rank #0 under mixed extreme+NaN; support={names}"

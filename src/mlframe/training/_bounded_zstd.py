@@ -29,10 +29,9 @@ class DecompressedSizeError(OSError):
 
 class BoundedReader:
     """Read-through wrapper over a zstd stream reader that raises ``DecompressedSizeError`` once more than ``limit`` bytes were produced.
-    Exposes the ``read``/``readline``/``readinto`` trio the pickle unpicklers use."""
+    Exposes the ``read``/``readline``/``readinto`` trio the pickle unpicklers use. A ``limit`` of 0 disables the cap."""
 
     def __init__(self, raw: Any, limit: int) -> None:
-        """Wrap ``raw``; ``limit`` of 0 disables the cap."""
         self._raw = raw
         self._limit = limit
         self._count = 0

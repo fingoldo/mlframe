@@ -12,7 +12,6 @@ Pins the residency-path INFRASTRUCTURE before the pipeline is wired:
 
 from __future__ import annotations
 
-import os
 import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np
@@ -34,13 +33,17 @@ def _need_cuda() -> bool:
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
-def test_resident_flag_default_off():
+def test_resident_flag_default_off(monkeypatch):
     """Resident flag default off."""
     from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled
 
-    # RESIDENT unset -> OFF regardless of STRICT (env not set here in the default test env).
-    if os.environ.get("MLFRAME_FE_GPU_STRICT_RESIDENT", "") == "":
-        assert fe_gpu_strict_resident_enabled() is False
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT_RESIDENT", raising=False)
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
+    assert fe_gpu_strict_resident_enabled() is False, "STRICT off must keep the resident stages off"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    assert fe_gpu_strict_resident_enabled() is True, "resident stages follow STRICT by default"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "0")
+    assert fe_gpu_strict_resident_enabled() is False, "RESIDENT=0 is the explicit opt-out under STRICT"
 
 
 def test_entry_stub_is_inert():

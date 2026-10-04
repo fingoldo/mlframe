@@ -60,7 +60,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import running_under_xdist
+from tests._known_gap import known_gap
+from tests.conftest import running_under_xdist, skip_if_host_contended
 
 warnings.filterwarnings("ignore")
 
@@ -195,6 +196,7 @@ class TestCmimSpeedupVsBaseline:
 
     def test_post_opt_at_least_1p5x_faster(self):
         """Post-opt CMIM never regresses below 0.7x pre-opt; ideally reaches 1.5x."""
+        skip_if_host_contended("CMIM speedup ratio against a fixed pre-opt wall time is unmeasurable under detected host contention")
         from mlframe.feature_selection.filters._orthogonal_cmim_fe import (
             score_features_by_cmim,
         )
@@ -228,13 +230,14 @@ class TestCmimSpeedupVsBaseline:
                 # Under the full ``-n`` run the steady-state ratio is contention-compressed and not meaningful; the
                 # >=0.7x hard-fail above stays the live gate. Standalone on a slow host this remains a soft xfail sensor.
                 return
-            pytest.xfail(
+            known_gap(
                 f"CMIM L84 1.5x speedup not reached on this host: "
                 f"{elapsed_ms:.2f} ms vs {PRE_OPT_REFERENCE_MS:.1f} ms = "
                 f"{speedup:.2f}x. Soft sensor: post-opt didn't regress "
                 f"(>= 0.7x) but the dev-box 1.5x ratio doesn't generalise. "
                 f"Re-run profiling/bench_cmim_l84.py on the target host to "
-                f"investigate before promoting back to hard-fail."
+                f"investigate before promoting back to hard-fail.",
+                gap_closed=speedup >= 1.5,
             )
 
 

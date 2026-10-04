@@ -68,13 +68,20 @@ def test_regression_path_still_subsamples():
     assert idx is not None and idx.shape[0] <= size + 10
 
 
-def test_resolver_logs_on_failure_instead_of_silent_none(caplog):
+def test_resolver_logs_on_failure_instead_of_silent_none(caplog, monkeypatch):
     """A resolver failure must WARN (diagnosable full-n fallback), not return None silently."""
-    # A non-numeric object array with an uncomparable element makes the internal np draw raise; the
-    # resolver must log + fall back rather than swallow. Force stratify to exercise the stratified path.
-    bad = np.array([object()] * 100, dtype=object)
-    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters.mrmr"):
-        out = resolve_shared_fe_subsample_idx(bad, 100, 30, is_clf=True, stratify_knob=True, random_seed=1)
-    # Either it succeeds (returns indices) or, if it fails, it must have logged a WARNING (never a silent None).
-    if out is None:
-        assert any("FULL n" in rec.message for rec in caplog.records), "silent None without a WARNING log"
+    from mlframe.feature_selection.filters import _fe_subsample
+
+    y = np.arange(100) % 2
+
+    def _boom(*args, **kwargs):
+        """Stand-in for the stratified draw that fails."""
+        raise RuntimeError("stratified draw exploded")
+
+    monkeypatch.setattr(_fe_subsample, "stratified_subsample_idx", _boom)
+    with caplog.at_level(logging.WARNING):
+        out = resolve_shared_fe_subsample_idx(y, 100_000, 30, is_clf=True, stratify_knob=True, random_seed=1)
+    assert out is None
+    warned = [rec for rec in caplog.records if rec.levelno == logging.WARNING and "FULL n" in rec.getMessage()]
+    assert warned, "silent None without a WARNING log"
+    assert "stratified draw exploded" in warned[0].getMessage()

@@ -31,69 +31,135 @@ that downstream broad-except blocks then mask as something unrelated.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-MLFRAME_ROOT = Path(__file__).resolve().parent.parent.parent / "src" / "mlframe"
-
-
-def _read(rel: str) -> str:
-    """Read."""
-    _path = MLFRAME_ROOT / rel
-    if not _path.exists() and _path.suffix == ".py":
-        # Monolith-split compat: the flat module became a subpackage
-        # (``X.py`` -> ``X/__init__.py`` + submodules). Read __init__ + every submodule.
-        _pkg = _path.with_suffix("")
-        _init = _pkg / "__init__.py"
-        if _init.exists():
-            parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    parts.append(_sub.read_text(encoding="utf-8"))
-            return "\n".join(parts)
-    return _path.read_text(encoding="utf-8")
-
-
 # ---------------------------------------------------------------------------
 # Source-level sensors
 # ---------------------------------------------------------------------------
 
 
 def test_fingerprint_cols_sort_uses_str_key() -> None:
-    """Fingerprint cols sort uses str key."""
-    src = _read("training/feature_handling/fingerprint.py")
-    assert "cols_sorted = sorted(cols, key=str)" in src
+    """A frame with int and str column labels fingerprints, and the fingerprint does not depend on the column order."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.training.feature_handling.fingerprint import fingerprint_df
+
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame(rng.normal(size=(30, 4)))
+    frame.columns = [0, "alpha", 1, "beta"]
+    shuffled = frame[["beta", 1, "alpha", 0]].copy()
+    first = fingerprint_df(frame)
+    assert first.n_cols == 4
+    assert fingerprint_df(shuffled) == first
+    changed = frame.copy()
+    changed["alpha"] = changed["alpha"] + 1.0
+    assert fingerprint_df(changed) != first
 
 
 def test_polars_fixes_union_sort_uses_str_key() -> None:
-    """Polars fixes union sort uses str key."""
-    src = _read("training/core/_phase_polars_fixes.py")
-    assert "union_sorted = sorted(union, key=str)" in src
+    """The Enum domain is the name-sorted union of train, val and the null-fill sentinel, whatever order the pre-computed union lists it in."""
+    import polars as pl
+
+    from mlframe.training.core._phase_polars_fixes import apply_polars_categorical_fixes
+
+    train = pl.DataFrame({"c": ["b", "a", None, "b"]}, schema={"c": pl.Categorical})
+    val = pl.DataFrame({"c": ["a", "z"]}, schema={"c": pl.Categorical})
+    result = apply_polars_categorical_fixes(
+        train_df_polars=train,
+        val_df_polars=val,
+        test_df_polars=None,
+        train_df_pd=None,
+        val_df_pd=None,
+        test_df_pd=None,
+        filtered_train_df=None,
+        filtered_val_df=None,
+        cat_features=["c"],
+        align_polars_categorical_dicts=True,
+        defer_pandas_conv=False,
+        was_polars_input=True,
+        verbose=False,
+        precomputed_category_union={"c": ["z", "b", "a"]},
+    )
+    expected = ["__MISSING__", "a", "b", "z"]
+    assert result.train_df_polars.schema["c"] == pl.Enum(expected)
+    assert result.val_df_polars.schema["c"] == pl.Enum(expected)
+    assert result.train_df_polars["c"].to_list() == ["b", "a", "__MISSING__", "b"]
+    assert result.enum_domains["c"] == ["a", "b", "z"]
 
 
 def test_neural_base_classes_sort_dtype_aware() -> None:
-    """Neural base classes sort dtype aware."""
-    src = _read("training/neural/base.py")
-    assert 'if hasattr(_y_arr, "dtype") and _y_arr.dtype != object:' in src
-    assert "self.classes_ = np.sort(_y_arr)" in src
-    assert "self.classes_ = np.asarray(sorted(_y_arr, key=lambda v: (v is None, str(v))))" in src
+    """The classifier's classes_ is the sorted label set: numeric labels sort numerically, string labels by value."""
+    import pytest
+
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("lightning")
+    import numpy as np
+
+    from mlframe.training.neural import MLPTorchModel, PytorchLightningClassifier, TorchDataModule
+
+    def make_classifier():
+        """Tiny one-epoch CPU classifier."""
+        return PytorchLightningClassifier(
+            model_class=MLPTorchModel,
+            model_params={"loss_fn": torch.nn.CrossEntropyLoss(), "learning_rate": 1e-3},
+            network_params={"nlayers": 1, "first_layer_num_neurons": 8, "dropout_prob": 0.0, "activation_function": torch.nn.ReLU},
+            datamodule_class=TorchDataModule,
+            datamodule_params={
+                "read_fcn": None,
+                "data_placement_device": None,
+                "features_dtype": torch.float32,
+                "labels_dtype": torch.int64,
+                "dataloader_params": {"batch_size": 32, "num_workers": 0},
+            },
+            trainer_params={
+                "max_epochs": 1,
+                "enable_model_summary": False,
+                "default_root_dir": None,
+                "log_every_n_steps": 1,
+                "devices": 1,
+                "logger": False,
+                "accelerator": "cpu",
+            },
+        )
+
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(60, 4)).astype(np.float32)
+    numeric = np.array([10, 2, 7] * 20)
+    clf = make_classifier().fit(X, numeric)
+    assert clf.classes_.tolist() == [2, 7, 10]
+    text = np.array(["pear", "apple", "fig"] * 20, dtype=object)
+    clf = make_classifier().fit(X, text)
+    assert clf.classes_.tolist() == ["apple", "fig", "pear"]
 
 
 def test_custom_feature_selector_classes_sort_dtype_aware() -> None:
-    """Custom feature selector classes sort dtype aware."""
-    src = _read("estimators/custom.py")
-    assert "self.classes_ = np.array(sorted(_y_arr, key=lambda v: (v is None, str(v))))" in src
+    """IdentityClassifier.fit records sorted classes_, with None last and mixed-type labels ordered by their text."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.estimators.custom import IdentityClassifier
+
+    X = np.zeros((6, 1))
+    assert IdentityClassifier(feature_indices=[0]).fit(X, np.array([10, 2, 7, 2, 10, 7])).classes_.tolist() == [2, 7, 10]
+    mixed = pd.Series(["pear", None, "apple", 3, "pear", None], dtype=object)
+    assert IdentityClassifier(feature_indices=[0]).fit(X, mixed).classes_.tolist() == [3, "apple", "pear", None]
 
 
 def test_optimization_sampled_inputs_sort_uses_str_key() -> None:
-    # Monolith split (2026-07-12): the sort_key logic moved from optimization.py into the sibling
-    # _optimization_search.py; optimization.py now only re-exports. _read()'s compat shim only
-    # handles the X.py -> X/__init__.py subpackage form, not this flat-sibling form, so read both.
-    """Optimization sampled inputs sort uses str key."""
-    src = _read("models/optimization.py") + _read("models/_optimization_search.py")
-    assert "def _sort_key(v):" in src
-    assert "return (v is None, str(v))" in src
-    assert "sampled_inputs = sorted(sampled_inputs, key=_sort_key)" in src
-    assert "sampled_inputs = sorted(sampled_inputs, key=_sort_key)[::-1]" in src
+    """Initial samples of a mixed-type search space are evaluated in text order, None last, ascending or descending as asked."""
+    from mlframe.models.optimization import MBHOptimizer
+
+    space = [3, "b", None, "a", 10]
+    for ascending, expected in ((True, [10, 3, "a", "b", None]), (False, [None, "b", "a", 3, 10])):
+        optimizer = MBHOptimizer(
+            search_space=space,
+            init_num_samples=5,
+            init_evaluate_ascending=ascending,
+            init_evaluate_descending=not ascending,
+            model_name="ETR",
+            model_params={"n_estimators": 5},
+            random_state=0,
+        )
+        assert optimizer.pre_seeded_candidates == expected
 
 
 # ---------------------------------------------------------------------------

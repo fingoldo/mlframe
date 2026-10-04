@@ -56,7 +56,10 @@ class TestE23RobustAllowlist:
             online_refit_enabled=True,
         ).fit(X, y)
         # Must NOT raise NotImplementedError (robust shares the alpha/beta shape).
-        est.update(y[:50], b[:50])
+        info = est.update(y[:50], b[:50])
+        assert info["buffer_n_total"] == 50
+        assert est.update(y[50:100], b[50:100])["buffer_n_total"] == 100
+        assert float(np.sqrt(np.mean((est.predict(X) - y) ** 2))) < 0.2
 
     def test_unsupported_transform_still_rejected(self) -> None:
         """Unsupported transform still rejected."""

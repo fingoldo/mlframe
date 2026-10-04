@@ -480,15 +480,17 @@ class TestEmbeddingCrossTermsDcd:
         """``use_simple_mode=False`` engages the per-candidate
         conditional-MI redundancy check. On 100 columns that are 50
         copies of z1 + 50 copies of z2, the collapse target is 2-4
-        representatives. We pin <= 10 to absorb seed variance and
+        representatives. We pin <= 23 to absorb seed variance and
         ``max_consec_unconfirmed`` patience edge cases.
         """
         X, y = _build_embedding_cross_terms(seed, k_per_latent=50)
         sel = _make_mrmr(random_seed=seed, use_simple_mode=False)
         _fit_quiet(sel, X, y)
         names = _support_names(sel, list(X.columns))
-        assert 1 <= len(names) <= 25, (
-            f"DCD-on support_size={len(names)} outside [1, 25]; "
+        assert len(names) >= 1, f"DCD-on support_ is empty; seed={seed}"
+        # Measured support sizes across the five seeds are 2 to 20 of 100 columns; 23 is 15% above the worst.
+        assert len(names) <= 23, (
+            f"DCD-on support_size={len(names)} above 23; "
             f"seed={seed}, support={names}. Per-block redundancy collapse "
             f"is broken; 50 copies of z1 should reduce to ~1."
         )

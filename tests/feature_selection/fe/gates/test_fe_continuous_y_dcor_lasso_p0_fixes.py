@@ -149,12 +149,6 @@ def test_lasso_multiclass_not_driven_by_spurious_ordinal():
 def test_ksg_gpu_cpu_parity_on_discrete_ties():
     """Ksg gpu cpu parity on discrete ties."""
     pytest.importorskip("cupy")
-    import cupy as cp
-
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
     from mlframe.feature_selection.filters._ksg import mixed_ksg_mi, mixed_ksg_mi_gpu
 
     rng = np.random.default_rng(7)

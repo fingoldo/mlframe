@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 
 import polars as pl
-import pytest
 
 
 def _make_frames():
@@ -65,9 +64,7 @@ def test_enum_domain_logs_val_only_categories(caplog) -> None:
         # 2026-06-01: align stub with _misc_helpers._auto_detect_feature_types
         # interface so the helper short-circuits cleanly (returns empty
         # auto-detection lists) instead of raising AttributeError on a
-        # missing field. Pre-fix the test silently pytest.skipped through
-        # the ``except Exception`` catch-all, hiding the val-only-Enum
-        # log sensor it was supposed to gate.
+        # missing field.
         text_features: list = ()
         embedding_features: list = ()
         auto_detect_feature_types: bool = False
@@ -77,26 +74,22 @@ def test_enum_domain_logs_val_only_categories(caplog) -> None:
     metadata: dict = {}
     caplog.set_level(logging.INFO, logger="mlframe.training.core._phase_helpers_fit_split")
 
-    try:
-        _phase_auto_detect_feature_types(
-            train_df=train,
-            val_df=val,
-            test_df=test,
-            train_df_polars_pre=train,
-            val_df_polars_pre=val,
-            test_df_polars_pre=test,
-            cat_features=[],
-            cat_features_polars=[],
-            was_polars_input=True,
-            all_models_polars_native=True,
-            pipeline_config=_PipelineCfg(),
-            feature_types_config=_FeatureTypesCfg(),
-            metadata=metadata,
-            verbose=True,
-        )
-    except Exception as exc:
-        # The helper has many downstream dependencies; if it crashes for unrelated reasons during the auto-detect path that's fine for our purposes -- the val-only log should fire before the crash on the Enum-cast block. If the log never fired the test will still fail at the assertion.
-        pytest.skip(f"_phase_auto_detect_feature_types raised pre-cast (irrelevant to S64): {exc}")
+    _phase_auto_detect_feature_types(
+        train_df=train,
+        val_df=val,
+        test_df=test,
+        train_df_polars_pre=train,
+        val_df_polars_pre=val,
+        test_df_polars_pre=test,
+        cat_features=[],
+        cat_features_polars=[],
+        was_polars_input=True,
+        all_models_polars_native=True,
+        pipeline_config=_PipelineCfg(),
+        feature_types_config=_FeatureTypesCfg(),
+        metadata=metadata,
+        verbose=True,
+    )
 
     msgs = [r.getMessage() for r in caplog.records]
     val_only_msgs = [m for m in msgs if "[enum-domain] Enum domain widened" in m]

@@ -4522,10 +4522,11 @@ class TestTextAndEmbeddingFeatures:
         # (both default ON, see PreprocessingExtensionsConfig) additively inject their own
         # numeric columns on top of num_feat/cat_feat, so the total column count on a tier-
         # trimmed frame can legitimately exceed the raw pre-trim feature count.
-        for name, cols in captured_columns.items():
-            if "Ridge" in name:
-                leaked = [c for c in cols if "text_feat" in c or "emb_feat" in c]
-                assert not leaked, f"Ridge should not train on text/emb-derived columns after tier trimming, got {leaked} in {cols}"
+        ridge_columns = {name: cols for name, cols in captured_columns.items() if "Ridge" in name}
+        assert ridge_columns, f"the Ridge model was never trained; captured {sorted(captured_columns)}"
+        assert all(ridge_columns.values()), "Ridge trained on a frame without columns"
+        leaked = {name: [c for c in cols if "text_feat" in c or "emb_feat" in c] for name, cols in ridge_columns.items()}
+        assert not any(leaked.values()), f"Ridge should not train on text/emb-derived columns after tier trimming, got {leaked}"
 
     def test_polars_originals_freed_after_tier1(self, temp_data_dir, common_init_params, monkeypatch):
         """B5: Pre-pipeline Polars originals released after all Polars-native models finish."""

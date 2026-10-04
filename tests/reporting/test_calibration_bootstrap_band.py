@@ -146,6 +146,10 @@ class TestBootstrapBandBizValue:
 def test_cprofile_band_bounded():
     """Cost is the B isotonic refits at the row cap; assert it stays well under ~1.5s on a warm process at the cap so
     the band does not silently regress into a slow path. The 50k cap + n_boot=150 bound it."""
+    from tests.conftest import running_under_xdist
+
+    if running_under_xdist():
+        pytest.skip("wall-clock band-timing assert unreliable under xdist contention")
     rng = np.random.default_rng(0)
     z = rng.normal(0.0, 1.0, size=50000)
     p = 1.0 / (1.0 + np.exp(-z))
@@ -162,12 +166,6 @@ def test_cprofile_band_bounded():
         pr.disable()
     st = pstats.Stats(pr, stream=io.StringIO())
     st.sort_stats("cumulative")
-    # Wall-clock cost is unreliable under -n xdist contention (a worker can be starved for seconds), so skip the timing
-    # ceiling there and keep it only on a quiet single-process run; the band still ran to completion above either way.
-    from tests.conftest import running_under_xdist
-
-    if running_under_xdist():
-        pytest.skip("wall-clock band-timing assert unreliable under xdist contention")
     # The cost is the B=150 inherent isotonic refits at the 50k row cap (~18ms each) -- irreducible, not a slow path.
     # This wall ceiling is a COARSE "did not regress into an O(n^2) / recompute slow path" sensor (a real regression is
     # 10x+, not a fraction over), and is hardware-relative: a slower single-core dev box measures ~2.7-3.1s under

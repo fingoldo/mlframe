@@ -32,6 +32,7 @@ ALLOWED = {
     f"available_not_passed:{_T}pipeline/_entity_time_composite_fe.py::replay_entity_time_composite_fe->{_T}pipeline/_entity_time_composite_fe.py::apply_entity_time_composite_fe:metadata": "a predict-time replay reads fit-time state from metadata; passing it would let the replay overwrite that state",
     f"available_not_passed:{_T}pipeline/_event_proximity_decay_composite_fe.py::replay_event_proximity_decay_composite_fe->{_T}pipeline/_event_proximity_decay_composite_fe.py::apply_event_proximity_decay_composite_fe:metadata": "same predict-time replay contract as the entity-time replay",
     f"available_not_passed:{_T}pipeline/_ma_crossover_composite_fe.py::replay_ma_crossover_composite_fe->{_T}pipeline/_ma_crossover_composite_fe.py::apply_ma_crossover_composite_fe:metadata": "same predict-time replay contract as the entity-time replay",
+    f"available_not_passed:{_T}composite/_heteroscedastic.py::HeteroscedasticCompositeEstimator.fit->{_T}composite/_heteroscedastic.py::HeteroscedasticCompositeEstimator._fit_calibration:sample_weight": "the calibration holdout (X_cal) is a different row set from the training rows sample_weight indexes; the holdout carries no weights of its own",
     f"available_not_passed:{_T}pipeline/_pipeline_helpers.py::_prepare_test_split->{_T}pipeline/_pipeline_helpers.py::_passthrough_cols_fit_transform:target": "the test split is only transformed (fit=False); the target has no role in a transform",
 }
 

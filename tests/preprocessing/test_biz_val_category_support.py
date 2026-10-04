@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 from scipy.stats import spearmanr
 
 from mlframe.preprocessing.category_support import smoothed_target_encode_column, train_test_support_screen
@@ -182,11 +183,8 @@ def test_train_test_support_screen_recommends_smoothed_target_encode_when_freque
 def test_train_test_support_screen_requires_target_col_for_smoothed_fallback():
     """Train test support screen requires target col for smoothed fallback."""
     train_df, test_df = _make_near_uniform_overlapping_category_data(1000, 1000, n_shared_cats=40, n_test_only_cats=6, seed=3)
-    try:
+    with pytest.raises(ValueError, match="requires a valid target_col"):
         train_test_support_screen(train_df, test_df, categorical_cols=["cat_col"], enable_smoothed_target_encoding_fallback=True)
-        raise AssertionError("expected ValueError for missing target_col")
-    except ValueError:
-        pass
 
 
 def test_biz_val_smoothed_target_encoding_beats_frequency_encoding_on_near_uniform_shared_categories():

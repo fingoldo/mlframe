@@ -72,23 +72,35 @@ def test_drift_snapshot_uses_ctx_cache():
     assert next(iter(ctx._cat_drift_implode_cache.values()))["cat"] == {"a", "b", "c"}
 
 
-def test_drift_snapshot_without_ctx_does_not_crash():
-    """Drift snapshot without ctx does not crash."""
+def test_drift_snapshot_without_ctx_does_not_crash(caplog):
+    """With ``ctx=None`` the snapshot recomputes instead of using the cache, and reports exactly what the cached path reports."""
+    import logging
+
     from mlframe.training.core._phase_helpers import _log_cardinality_and_drift_snapshot
 
     df = pl.DataFrame({"cat": ["a", "b", "c"] * 50})
     val_df = pl.DataFrame({"cat": ["a", "b", "z"] * 50})
     test_df = pl.DataFrame({"cat": ["a", "q", "c"] * 50})
-    # ctx=None falls back to the pre-fix recompute path; behaviour must stay identical.
-    _log_cardinality_and_drift_snapshot(
-        train_df=df,
-        val_df=val_df,
-        test_df=test_df,
-        cat_features=["cat"],
-        text_features=[],
-        embedding_features=[],
-        ctx=None,
-    )
+
+    def _messages(ctx):
+        """The snapshot's log messages for ``ctx``."""
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="mlframe.training.core._phase_drift_snapshot"):
+            _log_cardinality_and_drift_snapshot(
+                train_df=df,
+                val_df=val_df,
+                test_df=test_df,
+                cat_features=["cat"],
+                text_features=[],
+                embedding_features=[],
+                ctx=ctx,
+            )
+        return [r.getMessage() for r in caplog.records]
+
+    without_ctx = _messages(None)
+    assert any("cat:3" in m for m in without_ctx)
+    assert any("cat:val_only=1,test_only=1" in m for m in without_ctx)
+    assert without_ctx == _messages(SimpleNamespace(_cat_drift_implode_cache={}))
 
 
 # ---------------------------------------------------------------------------

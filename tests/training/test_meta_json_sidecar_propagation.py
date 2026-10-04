@@ -28,41 +28,28 @@ the boundary that lost its version check.
 
 from __future__ import annotations
 
-import pathlib
+import logging
+import os
+
 import numpy as np
 
 
-def _read_src(rel_path: str) -> str:
-    """Read a source file under src/mlframe. A flat module that became a
-    subpackage (``X.py`` -> ``X/__init__.py`` + submodules) is read as the
-    package __init__ plus every submodule so source-pattern sensors match."""
-    import mlframe as _mlframe
+def test_ranker_suite_per_flavor_dump_writes_sidecar(tmp_path):
+    """The ranker suite's save step writes a ``.meta.json`` library-version envelope beside every per-flavor booster artefact."""
+    import joblib
+    from sklearn.linear_model import LinearRegression
 
-    _pkg = pathlib.Path(_mlframe.__file__).resolve().parent
-    _path = _pkg / rel_path
-    if not _path.exists() and _path.suffix == ".py":
-        _sub_pkg = _path.with_suffix("")
-        _init = _sub_pkg / "__init__.py"
-        if _init.exists():
-            parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_sub_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    parts.append(_sub.read_text(encoding="utf-8"))
-            return "\n".join(parts)
-    return _path.read_text(encoding="utf-8")
+    from mlframe.training.io import _meta_sidecar_path
+    from mlframe.training.ranking._ranker_suite_train_helpers import _train_mlframe_rank_save_dir
 
-
-def test_ranker_suite_per_flavor_dump_writes_sidecar():
-    """training/ranking write loop calls _write_save_meta_sidecar
-    immediately after each joblib.dump."""
-    src = _read_src("training/ranking.py")
-    # Both the helper-import line and the call must be present in the loop body.
-    assert "_write_save_meta_sidecar as _wsms" in src, (
-        "Wave 19 P0 #3 regression: ranker_suite no longer imports the "
-        "_write_save_meta_sidecar helper; booster artefacts will be saved "
-        "without library-version envelope."
-    )
-    assert "_wsms(artefact_path, durable=False)" in src, "Wave 19 P0 #3 regression: the sidecar call site is gone from the ranker_suite per-flavor dump loop."
+    flavors = ["catboost", "lightgbm"]
+    models_dict = {f: {"model": LinearRegression().fit(np.arange(6.0).reshape(-1, 1), np.arange(6.0))} for f in flavors}
+    _train_mlframe_rank_save_dir(str(tmp_path), "rk", flavors, models_dict, False, {"n": 1})
+    artefacts = sorted(tmp_path.glob("rk_*.joblib"))
+    assert [a.name for a in artefacts] == ["rk_catboost.joblib", "rk_lightgbm.joblib"]
+    for artefact in artefacts:
+        assert os.path.isfile(_meta_sidecar_path(str(artefact)))
+        assert joblib.load(artefact).coef_.shape == (1,)
 
 
 def test_calibrator_post_dump_writes_sidecar(tmp_path):
@@ -98,16 +85,44 @@ def test_calibrator_post_dump_writes_sidecar(tmp_path):
         assert Path(str(dump) + ".meta.json").is_file(), f"{dump.name} has no .meta.json version envelope"
 
 
-def test_inference_read_trained_models_validates_sidecar():
-    """inference/predict.py read_trained_models loop calls
-    validate_load_meta_sidecar before joblib.load."""
-    src = _read_src("inference/predict.py")
-    assert "validate_load_meta_sidecar as _vlms" in src, (
-        "Wave 19 P1 regression: inference/predict.read_trained_models "
-        "no longer imports validate_load_meta_sidecar; library-version "
-        "drift will not surface to operators."
-    )
-    assert "_vlms(model_file, strict=False)" in src, "Wave 19 P1 regression: sidecar validation call site missing in the inference read_trained_models loop."
+def test_inference_read_trained_models_validates_sidecar(tmp_path, caplog):
+    """read_trained_models warns about library-version drift recorded in a model's ``.meta.json`` and still loads the model."""
+    import json
+
+    import joblib
+    import pandas as pd
+    from sklearn.linear_model import LinearRegression
+
+    from mlframe.inference.predict import read_trained_models
+    from mlframe.training.io import _meta_sidecar_path, _write_save_meta_sidecar
+    from mlframe.utils.safe_pickle import write_sidecar
+
+    frame = pd.DataFrame({"a": np.arange(8.0), "b": np.arange(8.0) ** 2})
+    model = LinearRegression().fit(frame, np.arange(8.0))
+    featureset_dir = tmp_path / "infer" / "fs"
+    featureset_dir.mkdir(parents=True)
+    features_json = featureset_dir / "features.dump.json"
+    features_json.write_text(json.dumps(["a", "b"]))
+    write_sidecar(str(features_json))
+    model_path = featureset_dir / "model.pkl"
+    joblib.dump(model, str(model_path))
+    write_sidecar(str(model_path))
+    _write_save_meta_sidecar(str(model_path), durable=False)
+    envelope = _meta_sidecar_path(str(model_path))
+    with open(envelope, encoding="utf-8") as fh:
+        meta = json.load(fh)
+    assert meta["lib_versions"], "the envelope must record library versions"
+    lib = sorted(meta["lib_versions"])[0]
+    meta["lib_versions"][lib] = "0.0.0-saved-elsewhere"
+    with open(envelope, "w", encoding="utf-8") as fh:
+        json.dump(meta, fh)
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.io"):
+        models, _X = read_trained_models("fs", frame, inference_folder=str(tmp_path / "infer"))
+    assert list(models) == ["model"]
+    drift = [r for r in caplog.records if "library-version drift detected" in r.getMessage()]
+    assert len(drift) == 1
+    assert f"{lib}: saved='0.0.0-saved-elsewhere'" in drift[0].getMessage()
 
 
 def test_sidecar_helpers_remain_importable_from_io():

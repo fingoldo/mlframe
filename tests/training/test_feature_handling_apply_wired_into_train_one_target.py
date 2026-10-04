@@ -240,25 +240,53 @@ def test_helper_is_module_level_in_phase_train_one_target():
     )
 
 
-def test_train_one_target_actually_calls_the_helper():
-    """Pin the call site: the per-target training path must reference ``_maybe_run_feature_handling_apply`` in its compiled co_names.
+def test_train_one_target_actually_calls_the_helper(monkeypatch):
+    """The per-target model-setup phase invokes ``_maybe_run_feature_handling_apply`` with the target's frames, its training target and the sample weights.
 
-    The compiled-bytecode introspection is behavioural (asks the interpreter what names the function actually resolves, not what the
-    source string contains) so a future refactor that drops the call -- whether by deleting the line or by renaming through an
-    alias -- breaks this assertion before the wire-in goes dark. Avoids ``inspect.getsource`` per the project rule against
-    source-string assertions.
-
-    The per-target body was carved into submodules; ``_train_one_target`` now delegates the model-setup seam (where the wire-in
-    lives) to ``_setup_per_target_mlframe_models``. Walk the delegation chain so the sensor follows the call wherever it sits.
+    The helper is replaced by a recorder that halts the phase right after the call, so the test needs only the ctx attributes read up to that seam.
+    If the call is dropped the phase runs on past the seam and never reaches the recorder.
     """
-    from mlframe.training.core._phase_train_one_target import _train_one_target
-    from mlframe.training.core._phase_train_one_target_model_setup import (
-        _setup_per_target_mlframe_models,
-    )
+    from mlframe.training.core import _phase_train_one_target as parent
+    from mlframe.training.core import _phase_train_one_target_model_setup as setup_mod
 
-    # _train_one_target delegates the model-setup seam (which owns the wire-in) to this function.
-    assert "_setup_per_target_mlframe_models" in _train_one_target.__code__.co_names
-    assert "_maybe_run_feature_handling_apply" in _setup_per_target_mlframe_models.__code__.co_names, (
-        "the per-target model-setup path must invoke _maybe_run_feature_handling_apply; the wire-in lives there. If this fails "
-        "after a refactor, the FHC kwarg is dead code again."
-    )
+    class _Reached(Exception):
+        """Raised by the recorder to stop the phase once the wire-in call was made."""
+
+    calls: list = []
+
+    def _recorder(*args, **kwargs):
+        """Record the call and halt the phase."""
+        calls.append((args, kwargs))
+        raise _Reached
+
+    monkeypatch.setattr(parent, "_maybe_run_feature_handling_apply", _recorder)
+    monkeypatch.setattr(setup_mod, "_setup_model_directories", lambda **_kw: ("plot_file", "model_file"))
+
+    ctx = mock.MagicMock()
+    ctx.mlframe_models = ["xgb"]
+    ctx.filtered_train_idx = np.arange(5)
+    ctx.filtered_val_idx = None
+    ctx.test_idx = None
+    ctx.train_df_polars = None
+    ctx.val_df_polars = None
+    ctx.test_df_polars = None
+    ctx.filtered_train_df = "train-frame"
+    ctx.filtered_val_df = "val-frame"
+    ctx.test_df_pd = "test-frame"
+    ctx.calib_idx = None
+    ctx.calib_df = None
+    sample_weights = np.linspace(0.5, 1.5, 10)
+    ctx.sample_weights = sample_weights
+    target = np.arange(10, dtype=np.float64) * 2.0
+
+    with pytest.raises(_Reached):
+        setup_mod._setup_per_target_mlframe_models(
+            ctx=ctx, target_type="regression", cur_target_name="t1", cur_target_values=target, metadata={}, slug_to_original_target_name={}
+        )
+    assert len(calls) == 1
+    args, kwargs = calls[0]
+    assert args == (ctx,)
+    assert kwargs["cur_target_name"] == "t1"
+    assert (kwargs["train_df"], kwargs["val_df"], kwargs["test_df"]) == ("train-frame", "val-frame", "test-frame")
+    assert np.array_equal(kwargs["current_train_target"], target[:5])
+    assert kwargs["sample_weight"] is sample_weights

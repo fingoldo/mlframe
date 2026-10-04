@@ -80,85 +80,59 @@ def test_no_noop_lock_dead_code_in_cache_backend() -> None:
 
 
 def test_target_encoders_typecheck_imports_clean() -> None:
-    """Wave 3 added pd/pl imports under TYPE_CHECKING (replacing the
-    earlier ``# noqa: F821`` lie). The Wave 4+5 polish-pass must not
-    have reintroduced that noqa anywhere in the file."""
-    src = (_FH_ROOT / "target_encoders.py").read_text(encoding="utf-8")
+    """target_encoders.py has no undefined name even with every ``noqa`` ignored: pd/pl are imported under TYPE_CHECKING, not silenced."""
+    import subprocess
+    import sys
 
-    # pd/pl available to type checkers without runtime cost.
-    assert "noqa: F821" not in src, "target_encoders.py reintroduced a # noqa: F821 silencer; the TYPE_CHECKING import is supposed to satisfy F821 properly"
+    result = subprocess.run(  # nosec B603 - fixed argv (sys.executable + literal ruff args), no shell
+        [sys.executable, "-m", "ruff", "check", "--select", "F821", "--ignore-noqa", "--no-cache", "--isolated", str(_FH_ROOT / "target_encoders.py")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_locking_holder_pid_atomic_write(tmp_path, monkeypatch) -> None:
-    """Behavioural: when ``_write_holder_pid`` is interrupted mid-write
-    (simulated by raising in the underlying write), the file at the
-    target path must NOT exist - i.e. the implementation must be atomic
-    (write-to-temp + rename), not a non-atomic open+write.
-    """
+    """``_write_holder_pid`` writes the PID through a temp file and an atomic replace: a failing replace leaves the previous complete PID file intact."""
     import os
     from mlframe.training.feature_handling import locking
 
-    target = tmp_path / "holder.pid"
+    target = tmp_path / "holder"
+    instance = locking.PIDAwareFileLock(str(target))
+    meta = tmp_path / "holder.pid"
 
-    # Find any write call inside the implementation that we can monkeypatch
-    # to raise. We patch os.replace and os.rename to see if they're used
-    # (atomic-write fingerprint) AND we patch a generic os.write/os.fsync
-    # to raise mid-write so a non-atomic write would leave a partial file.
-    called_atomic = {"replace": False, "rename": False}
-    original_replace = os.replace
-    original_rename = os.rename
+    instance._write_holder_pid()
 
-    def _track_replace(src, dst, *a, **kw):
-        """Records that os.replace fired (proof of an atomic swap) while delegating to the real call."""
-        called_atomic["replace"] = True
-        return original_replace(src, dst, *a, **kw)
+    assert meta.read_text(encoding="utf-8") == str(os.getpid())
+    assert not (tmp_path / "holder.pid.tmp").exists()
 
-    def _track_rename(src, dst, *a, **kw):
-        """Records that os.rename fired (proof of an atomic swap) while delegating to the real call."""
-        called_atomic["rename"] = True
-        return original_rename(src, dst, *a, **kw)
+    meta.write_text("424242", encoding="utf-8")
 
-    monkeypatch.setattr(os, "replace", _track_replace)
-    monkeypatch.setattr(os, "rename", _track_rename)
+    def _failing_replace(src, dst, *a, **kw):
+        """Simulates the process dying between writing the temp file and swapping it in."""
+        raise OSError("simulated crash before the atomic swap")
 
-    # Construct a PIDAwareFileLock-like object and try to invoke _write_holder_pid.
-    # Different mlframe versions have slightly different constructors;
-    # we adapt by trying a few signatures and fall back to skipping.
-    lock_cls = locking.PIDAwareFileLock
-    instance = None
-    for attempt in (
-        lambda: lock_cls(str(target)),
-        lambda: lock_cls(path=str(target)),
-        lambda: lock_cls(lock_path=str(target)),
-    ):
-        try:
-            instance = attempt()
-            break
-        except TypeError:
-            continue
-    if instance is None:
-        pytest.skip("Cannot construct PIDAwareFileLock for this version")
+    monkeypatch.setattr(os, "replace", _failing_replace)
+    instance._write_holder_pid()
 
-    # Try to write a PID through the private writer.
-    try:
-        instance._write_holder_pid()
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # Some versions require additional state; the assertion below covers
-        # both the success path (file exists, atomic was used) and
-        # error path (partial-file MUST not remain).
-        pass
-
-    # Atomic write fingerprint: at least one of os.replace / os.rename was used.
-    assert (
-        called_atomic["replace"] or called_atomic["rename"]
-    ), "_write_holder_pid did not use os.replace/os.rename - implementation is not atomic; SIGKILL race re-introduced"
+    assert meta.read_text(encoding="utf-8") == "424242"
+    assert not (tmp_path / "holder.pid.tmp").exists()
 
 
-def test_pl_isinstance_guard_in_utils() -> None:
-    """The ``pl is not None`` guard before any ``isinstance(df, pl.DataFrame)``
-    must be present in utils.py to keep polars-absent installs from
-    raising ``TypeError: isinstance() arg 2 must be a type``."""
-    src = (_FH_ROOT.parent / "utils.py").read_text(encoding="utf-8")
-    # The guard pattern can appear several ways; assert at least one
-    # of them precedes the polars isinstance check.
-    assert "pl is not None" in src or "_HAS_POLARS" in src, "utils.py is missing the polars-installed guard before isinstance(df, pl.DataFrame)"
+def test_pl_isinstance_guard_in_utils(monkeypatch) -> None:
+    """With polars absent (``pl`` is None) the column-drop and numpy-coercion helpers still handle pandas input instead of raising from ``isinstance(x, None)``."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.training import utils
+
+    monkeypatch.setattr(utils, "pl", None)
+    df = pd.DataFrame({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
+
+    dropped = utils.drop_columns_from_dataframe(df, ["b", "missing"], verbose=0)
+
+    assert list(dropped.columns) == ["a", "c"]
+    assert utils.coerce_to_numpy(pd.Series([1.0, 2.0])).tolist() == [1.0, 2.0]
+    assert isinstance(utils.coerce_to_numpy([1, 2, 3]), np.ndarray)

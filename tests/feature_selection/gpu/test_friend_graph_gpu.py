@@ -245,13 +245,15 @@ def test_force_cpu_backend_does_not_use_gpu_and_matches_default_cpu():
     assert g_cpu.suspected_garbage == ["G"]
 
 
-def test_force_unavailable_gpu_backend_returns_none():
+def test_force_unavailable_gpu_backend_returns_none(monkeypatch):
     """Forcing a backend that isn't installed returns None so the build uses CPU."""
+    import mlframe.feature_selection.filters.friend_graph_gpu as mod
+
     sel, data, nbins, tgt = _synthetic_selected_set(n=500, k=6, seed=1)
-    if not _CUPY_AVAIL:
-        assert dispatch_friend_graph_stats(sel, data, nbins, tgt, force_backend="cupy") is None
-    if not _CUDA_AVAIL:
-        assert dispatch_friend_graph_stats(sel, data, nbins, tgt, force_backend="cuda") is None
+    monkeypatch.setattr(mod, "_CUPY_AVAIL", False)
+    monkeypatch.setattr(mod, "_CUDA_AVAIL", False)
+    assert mod.dispatch_friend_graph_stats(sel, data, nbins, tgt, force_backend="cupy") is None
+    assert mod.dispatch_friend_graph_stats(sel, data, nbins, tgt, force_backend="cuda") is None
 
 
 def test_dispatch_honors_mlframe_disable_gpu_even_with_gpu_available(monkeypatch):

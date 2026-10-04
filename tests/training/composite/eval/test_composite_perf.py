@@ -279,13 +279,11 @@ class TestDeterministicScreeningModels:
         assert set(_params_det) == set(
             _params_nondet
         ), f"param-key drift: det-only={set(_params_det) - set(_params_nondet)}, nondet-only={set(_params_nondet) - set(_params_det)}"
+        assert _params_det
         for _k in _params_det:
             _v_det = _params_det[_k]
             _v_nondet = _params_nondet[_k]
-            try:
-                _both_nan = isinstance(_v_det, float) and isinstance(_v_nondet, float) and _v_det != _v_det and _v_nondet != _v_nondet
-            except Exception:
-                _both_nan = False
+            _both_nan = isinstance(_v_det, float) and isinstance(_v_nondet, float) and _v_det != _v_det and _v_nondet != _v_nondet
             if _both_nan:
                 continue
             # Use repr() for non-trivially-comparable objects like sklearn

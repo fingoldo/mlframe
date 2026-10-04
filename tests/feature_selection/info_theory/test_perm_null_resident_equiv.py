@@ -19,6 +19,19 @@ from mlframe.feature_selection.filters._permutation_null import _pooled_gain_flo
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
+_MIN_FREE_VRAM_BYTES = 100 * 1024 * 1024
+
+
+def _free_vram_bytes() -> int:
+    """Free device memory in bytes, 0 when the CUDA runtime cannot be queried."""
+    try:
+        import cupy as cp
+
+        return int(cp.cuda.runtime.memGetInfo()[0])
+    except Exception:
+        return 0
+
+
 def _make_inputs(n, ncand, nperm, nbins_x=16, nbins_y=10, seed=0):
     """Make inputs."""
     rng = np.random.default_rng(seed)
@@ -48,11 +61,7 @@ def _make_inputs(n, ncand, nperm, nbins_x=16, nbins_y=10, seed=0):
 @pytest.mark.parametrize("n,ncand,nperm", [(5000, 8, 25), (8000, 24, 40)])
 def test_resident_permnull_floor_selection_equivalent(n, ncand, nperm):
     """Resident permnull floor selection equivalent."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    pytest.importorskip("cupy")
     from mlframe.feature_selection.filters._permutation_null_resident import pooled_gain_floor_perms_cupy
 
     args = _make_inputs(n, ncand, nperm)
@@ -69,12 +78,13 @@ def test_gpu_device_shuffle_gen_valid_permutations():
     permutation of the target codes (identical sorted multiset) and distinct rows -- a valid uniform null
     born on the device and fed resident to the floor with no host gen / no (nperm,n) H2D."""
     cp = pytest.importorskip("cupy")
+    if _free_vram_bytes() < _MIN_FREE_VRAM_BYTES:
+        pytest.skip("less than 100 MB of free VRAM for the device shuffle-gen probe")
     from mlframe.feature_selection.filters._permutation_null_resident import gen_target_shuffles_cupy
 
     y = np.random.default_rng(0).integers(0, 7, size=8000).astype(np.int32)
     out = gen_target_shuffles_cupy(y, 32, np.int32, 42)
-    if out is None:
-        pytest.skip("device shuffle-gen unavailable on this host (cupy/VRAM)")
+    assert out is not None, "device shuffle-gen returned None although the device has free VRAM"
     h = cp.asnumpy(out)
     assert h.shape == (32, y.shape[0])
     ys = np.sort(y)

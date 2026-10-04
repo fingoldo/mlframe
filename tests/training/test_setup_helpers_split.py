@@ -26,21 +26,28 @@ def test_setup_helpers_facade_loc_budget():
 
 
 def test_setup_helpers_re_exports_resolve():
-    """All carved symbols importable from the parent (historical public API surface)."""
-    from mlframe.training.core._setup_helpers import (  # noqa: F401
-        _pipeline_disk_cache_path,
-        _pipeline_disk_cache_version_tag,
-        _load_pipeline_disk_cache_into_memory,
-        _persist_pipeline_disk_cache,
-        _PolarsDsPipelineJsonProxy,
-        _polars_ds_pipeline_from_json,
-        _PIPELINE_JSON_ROUNDTRIP_CACHE,
-        _apply_outlier_detection_global,
-        _build_pre_pipelines,
-        _create_initial_metadata,
-        _initialize_training_defaults,
-        _finalize_and_save_metadata,
+    """All carved symbols importable from the parent (historical public API surface), each defined in a ``_setup_helpers*`` module."""
+    from mlframe.training.core import _setup_helpers as parent
+
+    names = (
+        "_pipeline_disk_cache_path",
+        "_pipeline_disk_cache_version_tag",
+        "_load_pipeline_disk_cache_into_memory",
+        "_persist_pipeline_disk_cache",
+        "_PolarsDsPipelineJsonProxy",
+        "_polars_ds_pipeline_from_json",
+        "_apply_outlier_detection_global",
+        "_build_pre_pipelines",
+        "_create_initial_metadata",
+        "_initialize_training_defaults",
+        "_finalize_and_save_metadata",
     )
+    assert names
+    for name in names:
+        symbol = getattr(parent, name)
+        assert callable(symbol), name
+        assert symbol.__module__.startswith("mlframe.training.core._setup_helpers"), (name, symbol.__module__)
+    assert isinstance(parent._PIPELINE_JSON_ROUNDTRIP_CACHE, dict)
 
 
 def test_setup_helpers_identity_pipeline_cache():

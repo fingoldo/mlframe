@@ -406,7 +406,4 @@ def test_m_fh_08_prewarm_dedupes_under_concurrent_callers() -> None:
         release_load.set()
         reg_mod._PREWARM_FUTURES.clear()
         reg_mod._PREWARM_FUTURES.update(saved)
-        try:
-            reg_mod.shutdown_all()
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
+        reg_mod.shutdown_all()

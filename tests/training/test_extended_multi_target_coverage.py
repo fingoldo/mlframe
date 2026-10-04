@@ -181,13 +181,15 @@ class TestNGBoostMulticlass:
 
         # Drill into the fitted model + check Dist is Categorical.
         # k_categorical(K) builds a closure-scoped class named 'Categorical'.
-        for target_models in models.values():
-            for ns_list in target_models.values():
-                for ns in ns_list:
-                    inner = getattr(ns, "model", None)
-                    if inner is not None and hasattr(inner, "Dist"):
-                        dist_name = inner.Dist.__name__
-                        assert dist_name == "Categorical", f"NGB Dist {dist_name!r} expected 'Categorical' (via k_categorical(K))"
+        dist_names = [
+            ns.model.Dist.__name__
+            for target_models in models.values()
+            for ns_list in target_models.values()
+            for ns in ns_list
+            if getattr(ns, "model", None) is not None and hasattr(ns.model, "Dist")
+        ]
+        assert dist_names, "no fitted NGB model exposing a Dist was returned"
+        assert set(dist_names) == {"Categorical"}, f"NGB Dist {set(dist_names)!r} expected 'Categorical' (via k_categorical(K))"
 
 
 # ----------------------------------------------------------------------------

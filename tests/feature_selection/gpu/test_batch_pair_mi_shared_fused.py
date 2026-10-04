@@ -88,6 +88,9 @@ class TestBitIdentity:
     )
     def test_matches_cpu_reference(self, n_samples, n_features, n_pairs, n_classes_y, nbins_range, seed):
         """The shared-fused GPU kernel matches the CPU njit reference within a ~1e-9 FP-reorder tolerance."""
+        widest_joint = nbins_range[1] * nbins_range[1]
+        if shared_fused_kernel_fits_budget(widest_joint, n_classes_y) == 0:
+            pytest.skip(f"max_joint<={widest_joint} n_classes_y={n_classes_y} exceeds this device's opt-in shared-memory budget")
         factors_data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs(
             n_samples,
             n_features,
@@ -97,10 +100,10 @@ class TestBitIdentity:
             seed,
         )
         max_joint = int((nbins[pair_a].astype(np.int64) * nbins[pair_b].astype(np.int64)).max())
-        if shared_fused_kernel_fits_budget(max_joint, n_classes_y) == 0:
-            pytest.skip(f"max_joint={max_joint} n_classes_y={n_classes_y} exceeds this device's opt-in shared-memory budget")
+        assert 0 < max_joint <= widest_joint
         mi_gpu = batch_pair_mi_cuda_shared_fused(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
         mi_cpu = batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
+        assert len(mi_gpu) == len(mi_cpu) == n_pairs
         np.testing.assert_allclose(mi_gpu, mi_cpu, atol=1e-9, rtol=1e-9)
 
 

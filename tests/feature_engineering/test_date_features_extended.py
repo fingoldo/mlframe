@@ -85,15 +85,15 @@ def test_quarter_values_in_1_to_4():
 def test_week_of_year_in_1_to_53():
     """Week of year in 1 to 53."""
     out = create_date_features(_make_year_pd(48), cols=["d"], delete_original_cols=False)
-    weeks = set(int(v) for v in out["d_week_of_year"].values)
-    assert all(1 <= w <= 53 for w in weeks)
+    expected = _make_year_pd(48)["d"].dt.isocalendar().week.to_numpy()
+    np.testing.assert_array_equal(out["d_week_of_year"].to_numpy(), expected)
 
 
 def test_day_of_year_in_1_to_366():
     """Day of year in 1 to 366."""
     out = create_date_features(_make_year_pd(48), cols=["d"], delete_original_cols=False)
-    doy = set(int(v) for v in out["d_day_of_year"].values)
-    assert all(1 <= d <= 366 for d in doy)
+    expected = _make_year_pd(48)["d"].dt.dayofyear.to_numpy()
+    np.testing.assert_array_equal(out["d_day_of_year"].to_numpy(), expected)
 
 
 # --------------------------------------------------------------------------------------
@@ -132,11 +132,16 @@ def test_cyclical_features_dtype_float32():
 def test_cyclical_features_range_minus_one_to_one():
     """Cyclical features range minus one to one."""
     out = add_cyclical_date_features(_make_year_pd(48), cols=["d"])
-    for c in out.columns:
-        if c.endswith("_sin") or c.endswith("_cos"):
-            arr = out[c].to_numpy()
-            assert arr.min() >= -1.0 - 1e-6
-            assert arr.max() <= 1.0 + 1e-6
+    sin_cols = [c for c in out.columns if c.endswith("_sin")]
+    cos_cols = [c for c in out.columns if c.endswith("_cos")]
+    assert sin_cols
+    assert [c[: -len("_sin")] for c in sin_cols] == [c[: -len("_cos")] for c in cos_cols]
+    for s, c in zip(sin_cols, cos_cols):
+        sin_arr = out[s].to_numpy().astype(np.float64)
+        cos_arr = out[c].to_numpy().astype(np.float64)
+        assert sin_arr.min() >= -1.0 - 1e-6
+        assert sin_arr.max() <= 1.0 + 1e-6
+        np.testing.assert_allclose(sin_arr**2 + cos_arr**2, 1.0, atol=1e-5)
 
 
 def test_cyclical_month_jan_dec_adjacent():

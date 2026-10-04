@@ -19,8 +19,11 @@
 from __future__ import annotations
 
 import ast
+import importlib
+import logging
 import pathlib
 
+import numpy as np
 import pytest
 
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection" / "filters"
@@ -92,11 +95,19 @@ class TestTheBlanketExclusionIsGone:
 
     def test_no_handler_bulk_updates_the_exclusion_set(self):
         """`_rr_excl_names.update(_rr_cand_subsumed)` inside an except is the bulk drop."""
-        for h in _handlers(self.PATH):
-            for node in ast.walk(h):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "update":
-                    root = node.func.value
-                    assert not (isinstance(root, ast.Name) and root.id == "_rr_excl_names"), "the blanket exclusion is back"
+        handlers = _handlers(self.PATH)
+        assert handlers, "no except handlers found in the support-assignment tail; this test needs updating"
+        bulk_updates = [
+            node
+            for h in handlers
+            for node in ast.walk(h)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "update"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "_rr_excl_names"
+        ]
+        assert not bulk_updates, "the blanket exclusion is back"
 
     def test_the_outer_handler_warns(self):
         """Its polarity disagreed with the inner one and both were at debug."""
@@ -116,31 +127,95 @@ class TestAMislabelledBasisIsAnnounced:
         assert handlers, "the basis-routing fallback was not found; this test needs updating"
         assert all(_logs_at(h, {"warning", "error"}) for h in handlers)
 
-    def test_the_except_is_narrowed(self):
-        """A bug inside `basis_route_by_moments` must propagate, not be laundered into a default."""
-        handlers = [h for h in _handlers(self.PATH) if any(isinstance(n, ast.Return) and getattr(n.value, "value", None) == "hermite" for n in ast.walk(h))]
-        assert handlers, "the basis-routing fallback was not found; this test needs updating"
-        for h in handlers:
-            assert h.type is not None, "the basis-routing fallback catches bare Exception"
-            names = [n.id for n in ast.walk(h.type) if isinstance(n, ast.Name)]
-            assert "Exception" not in names, f"the basis-routing fallback still catches Exception: {names}"
+    @staticmethod
+    def _run_recipes(monkeypatch, frame_columns):
+        """Build recipes for one winning pair column whose legs are ``a`` and ``b``, with ``frame_columns`` present in the source frame."""
+        import pandas as pd
+
+        from mlframe.feature_selection.filters import _orthogonal_adaptive_arity_fe as mod
+
+        X = pd.DataFrame({c: np.linspace(0.0, 1.0, 12) ** 2 for c in frame_columns})
+        X_aug = X.assign(**{"a*b__He2_T1": 0.0})
+        monkeypatch.setattr(mod, "hybrid_orth_mi_adaptive_arity_fe", lambda *args, **kwargs: (X_aug, pd.DataFrame(), pd.DataFrame()))
+        return mod, mod.hybrid_orth_mi_adaptive_arity_fe_with_recipes(X, np.arange(12) % 2, basis="auto")
+
+    def test_the_except_is_narrowed(self, monkeypatch, caplog):
+        """A column that cannot be read is announced and frozen as 'hermite'; a bug inside `basis_route_by_moments` propagates instead of becoming a default."""
+        with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe"):
+            _, result = self._run_recipes(monkeypatch, ["z"])
+        recipes = result[-1]
+        assert len(recipes) == 1
+        routed = [m for m in caplog.messages if m.startswith("_route_basis: could not route column")]
+        assert len(routed) == 2, f"expected one warning per unroutable leg, got {routed}"
+        assert "'a' (KeyError" in routed[0] and "freezing 'hermite' into the recipe" in routed[0]
+
+        def router_bug(values):
+            """A defect inside the router itself."""
+            raise RuntimeError("router bug")
+
+        from mlframe.feature_selection.filters import _orthogonal_adaptive_arity_fe as mod
+
+        monkeypatch.setattr(mod, "basis_route_by_moments", router_bug)
+        with pytest.raises(RuntimeError, match="router bug"):
+            self._run_recipes(monkeypatch, ["a", "b"])
+
+
+def _failing_gpu_cmi_run(monkeypatch, caplog, repeats):
+    """Call the CMI wrapper ``repeats`` times with the GPU path forced on and raising; return ``(results, cpu_reference, warning messages)``."""
+    from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as mod
+    from mlframe.utils.log_throttle import reset_throttle_counts
+
+    rng = np.random.default_rng(0)
+    x = rng.integers(0, 4, 200)
+    y = (x + rng.integers(0, 2, 200)) % 4
+
+    def _boom(*args, **kwargs):
+        """Stand in for the cupy kernel and fail."""
+        raise RuntimeError("kernel exploded")
+
+    monkeypatch.setattr(mod, "_cmi_gpu_enabled", lambda **kwargs: False)
+    cpu_reference = mod._cmi_from_binned(x, y, None)
+    monkeypatch.setattr(mod, "_cmi_gpu_enabled", lambda **kwargs: True)
+    monkeypatch.setattr(mod, "_cmi_from_binned_cupy", _boom)
+    reset_throttle_counts("cmi_gpu_kernel_fallback")
+    caplog.set_level(logging.WARNING, logger=mod.logger.name)
+    results = [mod._cmi_from_binned(x, y, None) for _ in range(repeats)]
+    return results, cpu_reference, [r.getMessage() for r in caplog.records]
 
 
 class TestTheGpuFallbackNamesItself:
     """ "suppressed: %s" identified nothing."""
 
-    PATH = SRC / "_mi_greedy_cmi_fe.py"
+    def test_the_fallback_names_the_kernel_the_cause_and_the_consequence(self, monkeypatch, caplog):
+        """A failing GPU kernel still returns the CPU answer, and the one warning says which kernel failed, why, at what shape and what happened next."""
+        results, cpu_reference, messages = _failing_gpu_cmi_run(monkeypatch, caplog, repeats=1)
+        assert results == [cpu_reference]
+        assert len(messages) == 1
+        assert "_cmi_from_binned_cupy failed (RuntimeError: kernel exploded) at n=200" in messages[0]
+        assert "recomputing this CMI on the CPU path" in messages[0]
+        assert not any(m.startswith("suppressed:") for m in messages), "the placeholder message is back; it names no cause and no consequence"
 
-    def test_the_uninformative_message_is_gone(self):
-        """The exact string, which named neither kernel nor fallback nor shape."""
-        assert "suppressed: %s" not in _literals(self.PATH), "the placeholder message is back; it names no cause and no consequence"
+    def test_the_fallback_warns_with_a_throttle_key(self, monkeypatch, caplog):
+        """Correctness is preserved by the CPU recomputation, so the cost is the only visible signal: it is throttled per key, not per candidate."""
+        throttle = importlib.import_module("mlframe.utils.log_throttle")
 
-    def test_the_fallback_warns_with_a_throttle_key(self):
-        """Correctness is preserved by the CPU recomputation, so the cost is the only visible signal."""
-        assert _emits(self.PATH, "cmi_gpu_kernel_fallback"), "the throttle key is gone, so the fallback warns once per candidate instead of once per fit"
-        assert _emits(self.PATH, "recomputing this CMI on the CPU path"), "the message no longer says what the fallback actually does"
+        results, cpu_reference, messages = _failing_gpu_cmi_run(monkeypatch, caplog, repeats=12)
+        assert results == [cpu_reference] * 12
+        assert throttle._counts["cmi_gpu_kernel_fallback"] == 12
+        failures = [m for m in messages if "_cmi_from_binned_cupy failed" in m]
+        assert len(failures) == 5, f"expected the warning throttled to 5 occurrences, got {len(failures)}"
+        assert len(messages) == 6
+        assert "cmi_gpu_kernel_fallback: further occurrences suppressed" in messages[-1]
 
-    @pytest.mark.parametrize("rel", sorted(SITES))
+    def test_the_throttle_key_is_distinct_per_site_and_used_by_the_cmi_site(self, monkeypatch, caplog):
+        """The registry keys differ between the two sites, and the CMI fallback really counts under its own key."""
+        throttle = importlib.import_module("mlframe.utils.log_throttle")
+
+        assert len(set(SITES.values())) == len(SITES), "two handlers share a throttle key and would silence each other"
+        _failing_gpu_cmi_run(monkeypatch, caplog, repeats=1)
+        assert throttle._counts[SITES["_mi_greedy_cmi_fe.py"]] == 1
+
+    @pytest.mark.parametrize("rel", ["_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py"])
     def test_the_throttle_key_is_distinct_per_site(self, rel):
         """Two handlers sharing a key would silence each other."""
         assert SITES[rel] in _literals(SRC / rel), f"{rel} no longer carries the throttle key {SITES[rel]!r}"
@@ -148,8 +223,6 @@ class TestTheGpuFallbackNamesItself:
 
 def test_all_four_modules_still_import():
     """The narrowed excepts and new logging calls must not break module load."""
-    import importlib
-
     for mod in (
         "mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group1",
         "mlframe.feature_selection.filters._mrmr_fit_impl._assign_support_tail",

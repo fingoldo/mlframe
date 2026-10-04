@@ -161,15 +161,24 @@ class TestMLPMulticlassEndToEnd:
                 use_mlframe_ensembles=False,
                 verbose=0,
             )
-        # Drill into the trained model
-        for target_models in models.values():
-            for ns_list in target_models.values():
-                for ns in ns_list:
-                    inner = getattr(ns, "model", None)
-                    if inner is not None and hasattr(inner, "classes_"):
-                        assert isinstance(
-                            inner.classes_, np.ndarray
-                        ), f"classes_ for {type(inner).__name__} is {type(inner.classes_).__name__}, expected ndarray"
+        inners = _trained_inner_models(models)
+        assert inners, "the suite returned no trained model"
+        for inner in inners:
+            assert hasattr(inner, "classes_"), f"{type(inner).__name__} has no classes_"
+            assert isinstance(inner.classes_, np.ndarray), f"classes_ for {type(inner).__name__} is {type(inner.classes_).__name__}, expected ndarray"
+            assert len(inner.classes_) == 3
+
+
+def _trained_inner_models(models) -> list:
+    """Every fitted estimator held by the suite's ``{target_type: {target_name: [namespace, ...]}}`` result."""
+    inners = []
+    for target_models in models.values():
+        for ns_list in target_models.values():
+            for ns in ns_list:
+                inner = getattr(ns, "model", None)
+                if inner is not None:
+                    inners.append(inner)
+    return inners
 
 
 # ----------------------------------------------------------------------------
@@ -236,13 +245,11 @@ class TestMLPMultilabelEndToEnd:
                 use_mlframe_ensembles=False,
                 verbose=0,
             )
-        for target_models in models.values():
-            for ns_list in target_models.values():
-                for ns in ns_list:
-                    inner = getattr(ns, "model", None)
-                    if inner is not None:
-                        cls_name = type(inner).__name__
-                        assert cls_name != "MultiOutputClassifier", "MLP got wrapped in MultiOutputClassifier despite supports_native_multilabel=True"
+        inners = _trained_inner_models(models)
+        assert inners, "the suite returned no trained model"
+        for inner in inners:
+            cls_name = type(inner).__name__
+            assert cls_name != "MultiOutputClassifier", "MLP got wrapped in MultiOutputClassifier despite supports_native_multilabel=True"
 
 
 # ----------------------------------------------------------------------------

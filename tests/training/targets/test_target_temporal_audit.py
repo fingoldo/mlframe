@@ -666,8 +666,7 @@ def test_recommended_mask_first_last(synthetic_temporal_df):
         target_col="cl_act_total_hired",
         target_type="binary_classification",
     )
-    if len(result.segments) < 2:
-        pytest.skip("need ≥2 segments for this test")
+    assert len(result.segments) >= 2, "the 3-segment fixture must yield at least two segments"
     mask_first = result.recommended_filter_mask(
         synthetic_temporal_df["job_posted_at"],
         segment="first",

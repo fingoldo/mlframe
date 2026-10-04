@@ -98,4 +98,10 @@ class TestDegenerateInputStillRenders:
     def test_all_zero_margins(self, backend):
         """Zero-length bars are a legitimate drawing; the strips must not divide by a zero span."""
         panel = _panel(matrix=np.zeros((3, 3)), row_margin=np.zeros(3), col_margin=np.zeros(3))
-        get_renderer(backend).render(FigureSpec(panels=((panel,),), figsize=(6.0, 5.0)))
+        fig = get_renderer(backend).render(FigureSpec(panels=((panel,),), figsize=(6.0, 5.0)))
+        if backend == "matplotlib":
+            assert len(fig.get_axes()) >= 3  # grid + two margins
+        else:
+            bars = [t for t in fig.data if t.type == "bar"]
+            assert len(bars) == 2
+            assert all(np.array_equal(np.asarray(t.x if t.orientation == "h" else t.y), np.zeros(3)) for t in bars)

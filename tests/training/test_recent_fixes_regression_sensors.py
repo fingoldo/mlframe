@@ -113,25 +113,58 @@ def test_create_fairness_subgroups_handles_pyarrow_large_string():
 # ---------------------------------------------------------------------------
 
 
-def test_warmup_numba_kernels_does_not_recurse():
-    """Calling _warmup_numba_kernels twice in a row must NOT exhaust the
-    Python recursion limit. The sentinel attribute makes the second
-    forward+reverse traversal a no-op."""
+def test_warmup_numba_kernels_does_not_recurse(monkeypatch):
+    """_warmup_numba_kernels runs its body once per call, skips the body while a call is already in progress, and clears the sentinel afterwards."""
     pytest.importorskip("numba")
-    from mlframe.training.baselines.dummy import _warmup_numba_kernels
+    from mlframe.training.baselines import dummy
 
-    # Two back-to-back calls: previously the second one re-entered the cycle.
-    _warmup_numba_kernels(verbose=False)
-    _warmup_numba_kernels(verbose=False)
+    runs: list = []
+    monkeypatch.setattr(dummy, "_warmup_numba_kernels_body", lambda *a, **k: runs.append(1))
+    dummy._warmup_numba_kernels(verbose=False)
+    dummy._warmup_numba_kernels(verbose=False)
+    assert len(runs) == 2
+    assert dummy._warmup_numba_kernels._in_progress is False
+
+    dummy._warmup_numba_kernels._in_progress = True
+    try:
+        dummy._warmup_numba_kernels(verbose=False)
+    finally:
+        dummy._warmup_numba_kernels._in_progress = False
+    assert len(runs) == 2, "a re-entrant call must not run the body"
+
+    def reenter(*args, **kwargs):
+        """Body that calls back into the warm-up, as the metrics prewarm does."""
+        runs.append(1)
+        dummy._warmup_numba_kernels(verbose=False)
+
+    monkeypatch.setattr(dummy, "_warmup_numba_kernels_body", reenter)
+    dummy._warmup_numba_kernels(verbose=False)
+    assert len(runs) == 3
+    assert dummy._warmup_numba_kernels._in_progress is False
 
 
-def test_prewarm_numba_cache_does_not_recurse():
-    """Symmetric direction: prewarm_numba_cache must not recurse either."""
+def test_prewarm_numba_cache_does_not_recurse(monkeypatch):
+    """prewarm_numba_cache runs its body once per call, skips it while a call is already in progress on the thread, and clears the sentinel afterwards."""
     pytest.importorskip("numba")
-    from mlframe.metrics.core import prewarm_numba_cache
+    from mlframe.metrics import _core_numba_warmup as warm
 
-    prewarm_numba_cache()
-    prewarm_numba_cache()
+    monkeypatch.delenv("MLFRAME_SKIP_NUMBA_PREWARM", raising=False)
+    runs: list = []
+    monkeypatch.setattr(warm, "_prewarm_numba_cache_body", lambda *a, **k: runs.append(1))
+    warm.prewarm_numba_cache()
+    warm.prewarm_numba_cache()
+    assert len(runs) == 2
+    assert warm._REENTRANCY.in_progress is False
+
+    def reenter(*args, **kwargs):
+        """Body that calls back into the prewarm, as the dummy-baselines warm-up does."""
+        runs.append(1)
+        warm.prewarm_numba_cache()
+
+    monkeypatch.setattr(warm, "_prewarm_numba_cache_body", reenter)
+    warm.prewarm_numba_cache()
+    assert len(runs) == 3, "the nested call must be a no-op"
+    assert warm._REENTRANCY.in_progress is False
 
 
 # ---------------------------------------------------------------------------

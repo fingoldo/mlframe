@@ -1304,7 +1304,7 @@ def _cap_rows(X: np.ndarray, y: np.ndarray, cap: Optional[int] = None, seed: int
     return X[idx], y[idx]
 
 
-def _per_dataset_test(loader, name: str) -> None:
+def _per_dataset_test(loader, name: str) -> List[Dict]:
     """Per-dataset test body shared across the parametrised tests below. Process-isolated by virtue of one pytest test per dataset
     (CatBoost / XGBoost leak under repeated fits in the same process; isolating prevents cumulative OOM).
     """
@@ -1317,7 +1317,7 @@ def _per_dataset_test(loader, name: str) -> None:
     records = _run_matrix(X, y, task, name)
     _print_matrix(records)
 
-    _assert_matrix_discriminates(records, name)
+    return records
 
 
 def _assert_matrix_discriminates(records: List[Dict], name: str, max_collapse: float = 0.30) -> None:
@@ -1380,52 +1380,52 @@ def _print_matrix(records: List[Dict]) -> None:
 
 def test_matrix_california():
     """California Housing - regression, smooth target. Boostings already near ceiling on raw; expect transformer-FE to be neutral-to-negative."""
-    _per_dataset_test(_load_california, "California")
+    _assert_matrix_discriminates(_per_dataset_test(_load_california, "California"), "California")
 
 
 def test_matrix_kin8nm():
     """kin8nm - regression, smooth manifold (robot arm dynamics). Expect RFF to lift all three boostings substantially (~5-12% R^2)."""
-    _per_dataset_test(_load_kin8nm, "kin8nm")
+    _assert_matrix_discriminates(_per_dataset_test(_load_kin8nm, "kin8nm"), "kin8nm")
 
 
 def test_matrix_elevators():
     """elevators - regression, aircraft elevator control. Mixed signal."""
-    _per_dataset_test(_load_elevators, "elevators")
+    _assert_matrix_discriminates(_per_dataset_test(_load_elevators, "elevators"), "elevators")
 
 
 def test_matrix_adult():
     """Adult Income - binary classification, mixed numeric+categorical (one-hot encoded). Established benchmark."""
-    _per_dataset_test(_load_adult, "Adult")
+    _assert_matrix_discriminates(_per_dataset_test(_load_adult, "Adult"), "Adult")
 
 
 def test_matrix_phoneme():
     """phoneme - binary classification, 5 features, clear cluster structure - row-attention's structural-signal case."""
-    _per_dataset_test(_load_phoneme, "phoneme")
+    _assert_matrix_discriminates(_per_dataset_test(_load_phoneme, "phoneme"), "phoneme")
 
 
 def test_matrix_electricity():
     """electricity - binary classification, 8 features, strong temporal autocorrelation."""
-    _per_dataset_test(_load_electricity, "electricity")
+    _assert_matrix_discriminates(_per_dataset_test(_load_electricity, "electricity"), "electricity")
 
 
 def test_matrix_pol():
     """OpenML pol - regression, 48 features, often-cited kNN-friendly benchmark."""
-    _per_dataset_test(_load_pol, "pol")
+    _assert_matrix_discriminates(_per_dataset_test(_load_pol, "pol"), "pol")
 
 
 def test_matrix_cpu_act():
     """OpenML cpu_act - regression, 21 features, smooth physical-system signal."""
-    _per_dataset_test(_load_cpu_act, "cpu_act")
+    _assert_matrix_discriminates(_per_dataset_test(_load_cpu_act, "cpu_act"), "cpu_act")
 
 
 def test_matrix_bank32nh():
     """OpenML bank32nh - regression, 32 features, financial simulation."""
-    _per_dataset_test(_load_bank32nh, "bank32nh")
+    _assert_matrix_discriminates(_per_dataset_test(_load_bank32nh, "bank32nh"), "bank32nh")
 
 
 def test_matrix_diabetes():
     """Pima Indians Diabetes - binary classification, 8 features. Small known kNN-friendly benchmark."""
-    _per_dataset_test(_load_diabetes_classification, "diabetes")
+    _assert_matrix_discriminates(_per_dataset_test(_load_diabetes_classification, "diabetes"), "diabetes")
 
 
 # ---------- v2 matrix tests: PLS + multi-scale k + richer aggregates ----------
@@ -1456,6 +1456,8 @@ def test_v2_kin8nm():
     records_v1 = _run_matrix(X, y, task, "kin8nm_v1", builders=FEATURE_BUILDERS)
     records_v2 = _run_matrix(X, y, task, "kin8nm_v2", builders=FEATURE_BUILDERS_V2)
     _print_matrix_compare(records_v1, records_v2, "kin8nm")
+    _assert_matrix_discriminates(records_v1, "kin8nm_v1")
+    _assert_matrix_discriminates(records_v2, "kin8nm_v2")
 
 
 def test_v2_california():
@@ -1466,6 +1468,8 @@ def test_v2_california():
     records_v1 = _run_matrix(X, y, task, "California_v1", builders=FEATURE_BUILDERS)
     records_v2 = _run_matrix(X, y, task, "California_v2", builders=FEATURE_BUILDERS_V2)
     _print_matrix_compare(records_v1, records_v2, "California")
+    _assert_matrix_discriminates(records_v1, "California_v1")
+    _assert_matrix_discriminates(records_v2, "California_v2")
 
 
 def test_v2_knn_target_binary():
@@ -1475,6 +1479,8 @@ def test_v2_knn_target_binary():
     records_v1 = _run_matrix(X, y, task, "KnnTargetBinary_v1", builders=FEATURE_BUILDERS)
     records_v2 = _run_matrix(X, y, task, "KnnTargetBinary_v2", builders=FEATURE_BUILDERS_V2)
     _print_matrix_compare(records_v1, records_v2, "KnnTargetBinary")
+    _assert_matrix_discriminates(records_v1, "KnnTargetBinary_v1")
+    _assert_matrix_discriminates(records_v2, "KnnTargetBinary_v2")
 
 
 def test_v2_knn_target_regression():
@@ -1484,6 +1490,8 @@ def test_v2_knn_target_regression():
     records_v1 = _run_matrix(X, y, task, "KnnTargetRegression_v1", builders=FEATURE_BUILDERS)
     records_v2 = _run_matrix(X, y, task, "KnnTargetRegression_v2", builders=FEATURE_BUILDERS_V2)
     _print_matrix_compare(records_v1, records_v2, "KnnTargetRegression")
+    _assert_matrix_discriminates(records_v1, "KnnTargetRegression_v1")
+    _assert_matrix_discriminates(records_v2, "KnnTargetRegression_v2")
 
 
 # ========== iter 1: boosting-leaf encoding (GBDT+LR pattern) ==========
@@ -1496,6 +1504,7 @@ def test_iter1_kin8nm():
     print(f"\n[iter1-leaf] kin8nm: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "kin8nm_iter1", builders=FEATURE_BUILDERS_ITER1)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "kin8nm_iter1")
 
 
 def test_iter1_knn_target_binary():
@@ -1504,6 +1513,7 @@ def test_iter1_knn_target_binary():
     print(f"\n[iter1-leaf] KnnTargetBinary: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetBinary_iter1", builders=FEATURE_BUILDERS_ITER1)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetBinary_iter1")
 
 
 def test_iter1_knn_target_regression():
@@ -1512,6 +1522,7 @@ def test_iter1_knn_target_regression():
     print(f"\n[iter1-leaf] KnnTargetRegression: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetRegression_iter1", builders=FEATURE_BUILDERS_ITER1)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetRegression_iter1")
 
 
 # ========== iter 2: stacked row-attention (2 layers, label-propagation style) ==========
@@ -1524,6 +1535,7 @@ def test_iter2_kin8nm():
     print(f"\n[iter2-stacked] kin8nm: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "kin8nm_iter2", builders=FEATURE_BUILDERS_ITER2)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "kin8nm_iter2")
 
 
 def test_iter2_knn_target_binary():
@@ -1532,6 +1544,7 @@ def test_iter2_knn_target_binary():
     print(f"\n[iter2-stacked] KnnTargetBinary: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetBinary_iter2", builders=FEATURE_BUILDERS_ITER2)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetBinary_iter2")
 
 
 def test_iter2_knn_target_regression():
@@ -1540,6 +1553,7 @@ def test_iter2_knn_target_regression():
     print(f"\n[iter2-stacked] KnnTargetRegression: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetRegression_iter2", builders=FEATURE_BUILDERS_ITER2)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetRegression_iter2")
 
 
 # ========== iter 3: self-supervised residual attention ==========
@@ -1552,6 +1566,7 @@ def test_iter3_kin8nm():
     print(f"\n[iter3-residual] kin8nm: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "kin8nm_iter3", builders=FEATURE_BUILDERS_ITER3)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "kin8nm_iter3")
 
 
 def test_iter3_knn_target_binary():
@@ -1560,6 +1575,7 @@ def test_iter3_knn_target_binary():
     print(f"\n[iter3-residual] KnnTargetBinary: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetBinary_iter3", builders=FEATURE_BUILDERS_ITER3)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetBinary_iter3")
 
 
 def test_iter3_knn_target_regression():
@@ -1568,6 +1584,7 @@ def test_iter3_knn_target_regression():
     print(f"\n[iter3-residual] KnnTargetRegression: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetRegression_iter3", builders=FEATURE_BUILDERS_ITER3)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetRegression_iter3")
 
 
 # ========== iter 3 verification: does stacked2_pls breakthrough reproduce on other real datasets? ==========
@@ -1587,6 +1604,7 @@ def test_breakthrough_cpu_act():
     print(f"\n[breakthrough] cpu_act: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "cpu_act_brk", builders=FEATURE_BUILDERS_BREAKTHROUGH)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "cpu_act_brk")
 
 
 def test_breakthrough_elevators():
@@ -1596,6 +1614,7 @@ def test_breakthrough_elevators():
     print(f"\n[breakthrough] elevators: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "elevators_brk", builders=FEATURE_BUILDERS_BREAKTHROUGH)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "elevators_brk")
 
 
 def test_breakthrough_california():
@@ -1605,6 +1624,7 @@ def test_breakthrough_california():
     print(f"\n[breakthrough] California: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "California_brk", builders=FEATURE_BUILDERS_BREAKTHROUGH)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "California_brk")
 
 
 def test_breakthrough_diabetes():
@@ -1614,6 +1634,7 @@ def test_breakthrough_diabetes():
     print(f"\n[breakthrough] diabetes: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "diabetes_brk", builders=FEATURE_BUILDERS_BREAKTHROUGH)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "diabetes_brk")
 
 
 def test_breakthrough_phoneme():
@@ -1623,6 +1644,7 @@ def test_breakthrough_phoneme():
     print(f"\n[breakthrough] phoneme: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "phoneme_brk", builders=FEATURE_BUILDERS_BREAKTHROUGH)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "phoneme_brk")
 
 
 def test_breakthrough_puma32H():
@@ -1632,6 +1654,7 @@ def test_breakthrough_puma32H():
     print(f"\n[breakthrough] puma32H: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "puma32H_brk", builders=FEATURE_BUILDERS_BREAKTHROUGH)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "puma32H_brk")
 
 
 def test_breakthrough_delta_ailerons():
@@ -1641,6 +1664,7 @@ def test_breakthrough_delta_ailerons():
     print(f"\n[breakthrough] delta_ailerons: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "delta_ailerons_brk", builders=FEATURE_BUILDERS_BREAKTHROUGH)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "delta_ailerons_brk")
 
 
 def test_breakthrough_abalone():
@@ -1650,6 +1674,7 @@ def test_breakthrough_abalone():
     print(f"\n[breakthrough] abalone: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "abalone_brk", builders=FEATURE_BUILDERS_BREAKTHROUGH)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "abalone_brk")
 
 
 # ========== iter 4: gradient-boosted attention (residual stacking) ==========
@@ -1662,6 +1687,7 @@ def test_iter4_kin8nm():
     print(f"\n[iter4-boosted] kin8nm: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "kin8nm_iter4", builders=FEATURE_BUILDERS_ITER4)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "kin8nm_iter4")
 
 
 def test_iter4_abalone():
@@ -1671,6 +1697,7 @@ def test_iter4_abalone():
     print(f"\n[iter4-boosted] abalone: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "abalone_iter4", builders=FEATURE_BUILDERS_ITER4)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "abalone_iter4")
 
 
 def test_iter4_knn_target_binary():
@@ -1679,6 +1706,7 @@ def test_iter4_knn_target_binary():
     print(f"\n[iter4-boosted] KnnTargetBinary: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetBinary_iter4", builders=FEATURE_BUILDERS_ITER4)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetBinary_iter4")
 
 
 def test_iter4_knn_target_regression():
@@ -1687,6 +1715,7 @@ def test_iter4_knn_target_regression():
     print(f"\n[iter4-boosted] KnnTargetRegression: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetRegression_iter4", builders=FEATURE_BUILDERS_ITER4)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetRegression_iter4")
 
 
 # Verification of rff+boosted3 combo on more smooth-manifold datasets.
@@ -1699,6 +1728,7 @@ def test_iter4_bank8FM():
     print(f"\n[iter4-boosted] bank8FM: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "bank8FM_iter4", builders=FEATURE_BUILDERS_ITER4)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "bank8FM_iter4")
 
 
 def test_iter4_house_8L():
@@ -1708,6 +1738,7 @@ def test_iter4_house_8L():
     print(f"\n[iter4-boosted] house_8L: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "house_8L_iter4", builders=FEATURE_BUILDERS_ITER4)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "house_8L_iter4")
 
 
 def test_iter4_pumadyn_8nh():
@@ -1717,6 +1748,7 @@ def test_iter4_pumadyn_8nh():
     print(f"\n[iter4-boosted] pumadyn-8nh: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "pumadyn_8nh_iter4", builders=FEATURE_BUILDERS_ITER4)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "pumadyn_8nh_iter4")
 
 
 def test_iter4_bodyfat():
@@ -1726,6 +1758,7 @@ def test_iter4_bodyfat():
     print(f"\n[iter4-boosted] bodyfat: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "bodyfat_iter4", builders=FEATURE_BUILDERS_ITER4)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "bodyfat_iter4")
 
 
 # ========== iter 5: enriched boosted + mega combo + per-column RFF ==========
@@ -1738,6 +1771,7 @@ def test_iter5_kin8nm():
     print(f"\n[iter5-rich] kin8nm: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "kin8nm_iter5", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "kin8nm_iter5")
 
 
 def test_iter5_abalone():
@@ -1747,6 +1781,7 @@ def test_iter5_abalone():
     print(f"\n[iter5-rich] abalone: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "abalone_iter5", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "abalone_iter5")
 
 
 def test_iter5_house_8L():
@@ -1756,6 +1791,7 @@ def test_iter5_house_8L():
     print(f"\n[iter5-rich] house_8L: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "house_8L_iter5", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "house_8L_iter5")
 
 
 def test_iter5_diabetes():
@@ -1765,6 +1801,7 @@ def test_iter5_diabetes():
     print(f"\n[iter5-rich] diabetes: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "diabetes_iter5", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "diabetes_iter5")
 
 
 # Iter 6: search for second breakthrough dataset
@@ -1777,6 +1814,7 @@ def test_iter6_friedman1():
     print(f"\n[iter6] Friedman1: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "Friedman1_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "Friedman1_iter6")
 
 
 def test_iter6_compactiv():
@@ -1786,6 +1824,7 @@ def test_iter6_compactiv():
     print(f"\n[iter6] compactiv: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "compactiv_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "compactiv_iter6")
 
 
 def test_iter6_kin32fh():
@@ -1795,6 +1834,7 @@ def test_iter6_kin32fh():
     print(f"\n[iter6] kin32fh: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "kin32fh_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "kin32fh_iter6")
 
 
 def test_iter6_kin8nm_large():
@@ -1804,6 +1844,7 @@ def test_iter6_kin8nm_large():
     print(f"\n[iter6] kin8nm-large: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "kin8nm_large_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "kin8nm_large_iter6")
 
 
 def test_iter6_friedman1_large():
@@ -1812,6 +1853,7 @@ def test_iter6_friedman1_large():
     print(f"\n[iter6] Friedman1-large: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "Friedman1_large_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "Friedman1_large_iter6")
 
 
 def test_iter6_friedman2():
@@ -1820,6 +1862,7 @@ def test_iter6_friedman2():
     print(f"\n[iter6] Friedman2: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "Friedman2_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "Friedman2_iter6")
 
 
 def test_iter6_friedman3():
@@ -1828,6 +1871,7 @@ def test_iter6_friedman3():
     print(f"\n[iter6] Friedman3: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "Friedman3_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "Friedman3_iter6")
 
 
 def test_iter6_wine_quality():
@@ -1836,6 +1880,7 @@ def test_iter6_wine_quality():
     print(f"\n[iter6] wine_quality_red: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "wine_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "wine_iter6")
 
 
 def test_iter6_concrete():
@@ -1844,6 +1889,7 @@ def test_iter6_concrete():
     print(f"\n[iter6] concrete: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "concrete_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "concrete_iter6")
 
 
 def test_iter6_energy():
@@ -1852,6 +1898,7 @@ def test_iter6_energy():
     print(f"\n[iter6] energy: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "energy_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "energy_iter6")
 
 
 # ========== iter 7: local linear regression attention ==========
@@ -1864,6 +1911,7 @@ def test_iter7_kin8nm():
     print(f"\n[iter7-loclr] kin8nm: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "kin8nm_iter7", builders=FEATURE_BUILDERS_ITER7)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "kin8nm_iter7")
 
 
 def test_iter7_abalone():
@@ -1873,6 +1921,7 @@ def test_iter7_abalone():
     print(f"\n[iter7-loclr] abalone: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "abalone_iter7", builders=FEATURE_BUILDERS_ITER7)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "abalone_iter7")
 
 
 def test_iter7_wine():
@@ -1881,6 +1930,7 @@ def test_iter7_wine():
     print(f"\n[iter7-loclr] wine_quality: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "wine_iter7", builders=FEATURE_BUILDERS_ITER7)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "wine_iter7")
 
 
 def test_iter7_knn_target_regression():
@@ -1889,6 +1939,7 @@ def test_iter7_knn_target_regression():
     print(f"\n[iter7-loclr] KnnTargetRegression: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "KnnTargetRegression_iter7", builders=FEATURE_BUILDERS_ITER7)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "KnnTargetRegression_iter7")
 
 
 def test_iter7_friedman1():
@@ -1897,6 +1948,7 @@ def test_iter7_friedman1():
     print(f"\n[iter7-loclr] Friedman1: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "Friedman1_iter7", builders=FEATURE_BUILDERS_ITER7)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "Friedman1_iter7")
 
 
 def test_iter7_concrete():
@@ -1905,6 +1957,7 @@ def test_iter7_concrete():
     print(f"\n[iter7-loclr] concrete: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, "concrete_iter7", builders=FEATURE_BUILDERS_ITER7)
     _print_matrix(records)
+    _assert_matrix_discriminates(records, "concrete_iter7")
 
 
 # ========== iter 8: comprehensive multi-metric matrix on best mechanisms ==========
@@ -2224,77 +2277,77 @@ FEATURE_BUILDERS_BEST_MULTIMETRIC: Dict[str, Callable] = {
 }
 
 
-def _run_multimetric_test(loader, name: str) -> None:
+def _run_multimetric_test(loader, name: str) -> List[Dict]:
     """Run the best-mechanism matrix on a dataset with the full metric panel printed."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[multimetric] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_BEST_MULTIMETRIC)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_multimetric_kin8nm():
     """Multimetric kin8nm."""
-    _run_multimetric_test(_load_kin8nm, "kin8nm")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_kin8nm, "kin8nm"), "kin8nm")
 
 
 def test_multimetric_abalone():
     """Multimetric abalone."""
-    _run_multimetric_test(_load_abalone, "abalone")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_abalone, "abalone"), "abalone")
 
 
 def test_multimetric_house_16H():
     """Multimetric house 16H."""
-    _run_multimetric_test(_load_house_16H, "house_16H")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_house_16H, "house_16H"), "house_16H")
 
 
 def test_multimetric_wind():
     """Multimetric wind."""
-    _run_multimetric_test(_load_wind, "wind")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_wind, "wind"), "wind")
 
 
 def test_multimetric_mv():
     """Multimetric mv."""
-    _run_multimetric_test(_load_mv, "mv")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_mv, "mv"), "mv")
 
 
 def test_multimetric_wine_quality():
     """Multimetric wine quality."""
-    _run_multimetric_test(_load_wine_quality_red, "wine_quality_red")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_wine_quality_red, "wine_quality_red"), "wine_quality_red")
 
 
 def test_multimetric_diabetes():
     """Multimetric diabetes."""
-    _run_multimetric_test(_load_diabetes_classification, "diabetes")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_diabetes_classification, "diabetes"), "diabetes")
 
 
 def test_multimetric_phoneme():
     """Multimetric phoneme."""
-    _run_multimetric_test(_load_phoneme, "phoneme")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_phoneme, "phoneme"), "phoneme")
 
 
 def test_multimetric_spambase():
     """Multimetric spambase."""
-    _run_multimetric_test(_load_spambase, "spambase")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_spambase, "spambase"), "spambase")
 
 
 def test_multimetric_bank_marketing():
     """Multimetric bank marketing."""
-    _run_multimetric_test(_load_bank_marketing, "bank_marketing")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_bank_marketing, "bank_marketing"), "bank_marketing")
 
 
 def test_multimetric_qsar_biodeg():
     """Multimetric qsar biodeg."""
-    _run_multimetric_test(_load_qsar_biodeg, "qsar_biodeg")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_qsar_biodeg, "qsar_biodeg"), "qsar_biodeg")
 
 
 def test_multimetric_breast_cancer():
     """Multimetric breast cancer."""
-    _run_multimetric_test(_load_breast_cancer_wdbc, "breast_cancer_wdbc")
+    _assert_matrix_discriminates(_run_multimetric_test(_load_breast_cancer_wdbc, "breast_cancer_wdbc"), "breast_cancer_wdbc")
 
 
 # ========== iter 9: target-quantile attention ==========
@@ -2320,93 +2373,93 @@ FEATURE_BUILDERS_ITER10: Dict[str, Callable] = {
 }
 
 
-def _run_iter9_test(loader, name: str) -> None:
+def _run_iter9_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter9 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter9-tq] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER9)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter9_kin8nm():
     """Iter9 kin8nm."""
-    _run_iter9_test(_load_kin8nm, "kin8nm_iter9")
+    _assert_matrix_discriminates(_run_iter9_test(_load_kin8nm, "kin8nm_iter9"), "kin8nm_iter9")
 
 
 def test_iter9_abalone():
     """Iter9 abalone."""
-    _run_iter9_test(_load_abalone, "abalone_iter9")
+    _assert_matrix_discriminates(_run_iter9_test(_load_abalone, "abalone_iter9"), "abalone_iter9")
 
 
 def test_iter9_wine():
     """Iter9 wine."""
-    _run_iter9_test(_load_wine_quality_red, "wine_iter9")
+    _assert_matrix_discriminates(_run_iter9_test(_load_wine_quality_red, "wine_iter9"), "wine_iter9")
 
 
 def test_iter9_diabetes():
     """Iter9 diabetes."""
-    _run_iter9_test(_load_diabetes_classification, "diabetes_iter9")
+    _assert_matrix_discriminates(_run_iter9_test(_load_diabetes_classification, "diabetes_iter9"), "diabetes_iter9")
 
 
 def test_iter9_phoneme():
     """Iter9 phoneme."""
-    _run_iter9_test(_load_phoneme, "phoneme_iter9")
+    _assert_matrix_discriminates(_run_iter9_test(_load_phoneme, "phoneme_iter9"), "phoneme_iter9")
 
 
 def test_iter9_qsar():
     """Iter9 qsar."""
-    _run_iter9_test(_load_qsar_biodeg, "qsar_iter9")
+    _assert_matrix_discriminates(_run_iter9_test(_load_qsar_biodeg, "qsar_iter9"), "qsar_iter9")
 
 
 # ========== iter 10: importance-weighted projection ==========
 
 
-def _run_iter10_test(loader, name: str) -> None:
+def _run_iter10_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter10 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter10-imp] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER10)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter10_kin8nm():
     """Iter10 kin8nm."""
-    _run_iter10_test(_load_kin8nm, "kin8nm_iter10")
+    _assert_matrix_discriminates(_run_iter10_test(_load_kin8nm, "kin8nm_iter10"), "kin8nm_iter10")
 
 
 def test_iter10_abalone():
     """Iter10 abalone."""
-    _run_iter10_test(_load_abalone, "abalone_iter10")
+    _assert_matrix_discriminates(_run_iter10_test(_load_abalone, "abalone_iter10"), "abalone_iter10")
 
 
 def test_iter10_phoneme():
     """Iter10 phoneme."""
-    _run_iter10_test(_load_phoneme, "phoneme_iter10")
+    _assert_matrix_discriminates(_run_iter10_test(_load_phoneme, "phoneme_iter10"), "phoneme_iter10")
 
 
 def test_iter10_qsar():
     """Iter10 qsar."""
-    _run_iter10_test(_load_qsar_biodeg, "qsar_iter10")
+    _assert_matrix_discriminates(_run_iter10_test(_load_qsar_biodeg, "qsar_iter10"), "qsar_iter10")
 
 
 def test_iter10_diabetes():
     """Iter10 diabetes."""
-    _run_iter10_test(_load_diabetes_classification, "diabetes_iter10")
+    _assert_matrix_discriminates(_run_iter10_test(_load_diabetes_classification, "diabetes_iter10"), "diabetes_iter10")
 
 
 def test_iter10_wine():
     """Iter10 wine."""
-    _run_iter10_test(_load_wine_quality_red, "wine_iter10")
+    _assert_matrix_discriminates(_run_iter10_test(_load_wine_quality_red, "wine_iter10"), "wine_iter10")
 
 
 # ========== iter 11: verify diabetes breakthrough on more binary datasets ==========
@@ -2414,22 +2467,22 @@ def test_iter10_wine():
 
 def test_iter11_credit_g():
     """Iter11 credit g."""
-    _run_iter10_test(_load_credit_g, "credit_g_iter11")
+    _assert_matrix_discriminates(_run_iter10_test(_load_credit_g, "credit_g_iter11"), "credit_g_iter11")
 
 
 def test_iter11_steel_plates():
     """Iter11 steel plates."""
-    _run_iter10_test(_load_steel_plates, "steel_plates_iter11")
+    _assert_matrix_discriminates(_run_iter10_test(_load_steel_plates, "steel_plates_iter11"), "steel_plates_iter11")
 
 
 def test_iter11_churn():
     """Iter11 churn."""
-    _run_iter10_test(_load_churn, "churn_iter11")
+    _assert_matrix_discriminates(_run_iter10_test(_load_churn, "churn_iter11"), "churn_iter11")
 
 
 def test_iter11_mammography():
     """Iter11 mammography."""
-    _run_iter10_test(_load_mammography, "mammography_iter11")
+    _assert_matrix_discriminates(_run_iter10_test(_load_mammography, "mammography_iter11"), "mammography_iter11")
 
 
 # ========== iter 12: adaptive bandwidth + ULTRA combo ==========
@@ -2444,37 +2497,37 @@ FEATURE_BUILDERS_ITER12: Dict[str, Callable] = {
 }
 
 
-def _run_iter12_test(loader, name: str) -> None:
+def _run_iter12_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter12 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter12-adaptive] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER12)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter12_kin8nm():
     """Iter12 kin8nm."""
-    _run_iter12_test(_load_kin8nm, "kin8nm_iter12")
+    _assert_matrix_discriminates(_run_iter12_test(_load_kin8nm, "kin8nm_iter12"), "kin8nm_iter12")
 
 
 def test_iter12_diabetes():
     """Iter12 diabetes."""
-    _run_iter12_test(_load_diabetes_classification, "diabetes_iter12")
+    _assert_matrix_discriminates(_run_iter12_test(_load_diabetes_classification, "diabetes_iter12"), "diabetes_iter12")
 
 
 def test_iter12_mammography():
     """Iter12 mammography."""
-    _run_iter12_test(_load_mammography, "mammography_iter12")
+    _assert_matrix_discriminates(_run_iter12_test(_load_mammography, "mammography_iter12"), "mammography_iter12")
 
 
 def test_iter12_abalone():
     """Iter12 abalone."""
-    _run_iter12_test(_load_abalone, "abalone_iter12")
+    _assert_matrix_discriminates(_run_iter12_test(_load_abalone, "abalone_iter12"), "abalone_iter12")
 
 
 # ========== iter 13: pred-augmented attention ==========
@@ -2489,37 +2542,37 @@ FEATURE_BUILDERS_ITER13: Dict[str, Callable] = {
 }
 
 
-def _run_iter13_test(loader, name: str) -> None:
+def _run_iter13_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter13 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter13-predaug] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER13)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter13_kin8nm():
     """Iter13 kin8nm."""
-    _run_iter13_test(_load_kin8nm, "kin8nm_iter13")
+    _assert_matrix_discriminates(_run_iter13_test(_load_kin8nm, "kin8nm_iter13"), "kin8nm_iter13")
 
 
 def test_iter13_diabetes():
     """Iter13 diabetes."""
-    _run_iter13_test(_load_diabetes_classification, "diabetes_iter13")
+    _assert_matrix_discriminates(_run_iter13_test(_load_diabetes_classification, "diabetes_iter13"), "diabetes_iter13")
 
 
 def test_iter13_mammography():
     """Iter13 mammography."""
-    _run_iter13_test(_load_mammography, "mammography_iter13")
+    _assert_matrix_discriminates(_run_iter13_test(_load_mammography, "mammography_iter13"), "mammography_iter13")
 
 
 def test_iter13_abalone():
     """Iter13 abalone."""
-    _run_iter13_test(_load_abalone, "abalone_iter13")
+    _assert_matrix_discriminates(_run_iter13_test(_load_abalone, "abalone_iter13"), "abalone_iter13")
 
 
 # ========== iter 14: multi-temperature fusion (extend adaptive bandwidth) ==========
@@ -2535,37 +2588,37 @@ FEATURE_BUILDERS_ITER14: Dict[str, Callable] = {
 }
 
 
-def _run_iter14_test(loader, name: str) -> None:
+def _run_iter14_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter14 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter14-multitemp] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER14)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter14_diabetes():
     """Diabetes — push XGB PR_AUC over +5%."""
-    _run_iter14_test(_load_diabetes_classification, "diabetes_iter14")
+    _assert_matrix_discriminates(_run_iter14_test(_load_diabetes_classification, "diabetes_iter14"), "diabetes_iter14")
 
 
 def test_iter14_mammography():
     """Mammography — push CB AUC over +5%."""
-    _run_iter14_test(_load_mammography, "mammography_iter14")
+    _assert_matrix_discriminates(_run_iter14_test(_load_mammography, "mammography_iter14"), "mammography_iter14")
 
 
 def test_iter14_kin8nm():
     """Iter14 kin8nm."""
-    _run_iter14_test(_load_kin8nm, "kin8nm_iter14")
+    _assert_matrix_discriminates(_run_iter14_test(_load_kin8nm, "kin8nm_iter14"), "kin8nm_iter14")
 
 
 def test_iter14_abalone():
     """Iter14 abalone."""
-    _run_iter14_test(_load_abalone, "abalone_iter14")
+    _assert_matrix_discriminates(_run_iter14_test(_load_abalone, "abalone_iter14"), "abalone_iter14")
 
 
 # ========== iter 15: SHAP-weighted projection (replaces LGB gain importance) ==========
@@ -2580,37 +2633,37 @@ FEATURE_BUILDERS_ITER15: Dict[str, Callable] = {
 }
 
 
-def _run_iter15_test(loader, name: str) -> None:
+def _run_iter15_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter15 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter15-shap] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER15)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter15_diabetes():
     """Iter15 diabetes."""
-    _run_iter15_test(_load_diabetes_classification, "diabetes_iter15")
+    _assert_matrix_discriminates(_run_iter15_test(_load_diabetes_classification, "diabetes_iter15"), "diabetes_iter15")
 
 
 def test_iter15_mammography():
     """Iter15 mammography."""
-    _run_iter15_test(_load_mammography, "mammography_iter15")
+    _assert_matrix_discriminates(_run_iter15_test(_load_mammography, "mammography_iter15"), "mammography_iter15")
 
 
 def test_iter15_kin8nm():
     """Iter15 kin8nm."""
-    _run_iter15_test(_load_kin8nm, "kin8nm_iter15")
+    _assert_matrix_discriminates(_run_iter15_test(_load_kin8nm, "kin8nm_iter15"), "kin8nm_iter15")
 
 
 def test_iter15_abalone():
     """Iter15 abalone."""
-    _run_iter15_test(_load_abalone, "abalone_iter15")
+    _assert_matrix_discriminates(_run_iter15_test(_load_abalone, "abalone_iter15"), "abalone_iter15")
 
 
 # ========== iter 16: anchor-based attention (K-means anchors + softmax similarity + target aggregates) ==========
@@ -2677,37 +2730,37 @@ FEATURE_BUILDERS_ITER16: Dict[str, Callable] = {
 }
 
 
-def _run_iter16_test(loader, name: str) -> None:
+def _run_iter16_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter16 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter16-anchor] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER16)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter16_diabetes():
     """Diabetes — push XGB PR_AUC over +5% via anchor + multitemp combo."""
-    _run_iter16_test(_load_diabetes_classification, "diabetes_iter16")
+    _assert_matrix_discriminates(_run_iter16_test(_load_diabetes_classification, "diabetes_iter16"), "diabetes_iter16")
 
 
 def test_iter16_mammography():
     """Mammography — push CB AUC over +5% via anchor features."""
-    _run_iter16_test(_load_mammography, "mammography_iter16")
+    _assert_matrix_discriminates(_run_iter16_test(_load_mammography, "mammography_iter16"), "mammography_iter16")
 
 
 def test_iter16_kin8nm():
     """Iter16 kin8nm."""
-    _run_iter16_test(_load_kin8nm, "kin8nm_iter16")
+    _assert_matrix_discriminates(_run_iter16_test(_load_kin8nm, "kin8nm_iter16"), "kin8nm_iter16")
 
 
 def test_iter16_abalone():
     """Iter16 abalone."""
-    _run_iter16_test(_load_abalone, "abalone_iter16")
+    _assert_matrix_discriminates(_run_iter16_test(_load_abalone, "abalone_iter16"), "abalone_iter16")
 
 
 # ========== iter 17: RF/GBDT-proximity attention (leaves as DISTANCE, not feature) ==========
@@ -2775,37 +2828,37 @@ FEATURE_BUILDERS_ITER17: Dict[str, Callable] = {
 }
 
 
-def _run_iter17_test(loader, name: str) -> None:
+def _run_iter17_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter17 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter17-rfprox] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER17)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter17_diabetes():
     """Iter17 diabetes."""
-    _run_iter17_test(_load_diabetes_classification, "diabetes_iter17")
+    _assert_matrix_discriminates(_run_iter17_test(_load_diabetes_classification, "diabetes_iter17"), "diabetes_iter17")
 
 
 def test_iter17_mammography():
     """Iter17 mammography."""
-    _run_iter17_test(_load_mammography, "mammography_iter17")
+    _assert_matrix_discriminates(_run_iter17_test(_load_mammography, "mammography_iter17"), "mammography_iter17")
 
 
 def test_iter17_kin8nm():
     """Iter17 kin8nm."""
-    _run_iter17_test(_load_kin8nm, "kin8nm_iter17")
+    _assert_matrix_discriminates(_run_iter17_test(_load_kin8nm, "kin8nm_iter17"), "kin8nm_iter17")
 
 
 def test_iter17_abalone():
     """Iter17 abalone."""
-    _run_iter17_test(_load_abalone, "abalone_iter17")
+    _assert_matrix_discriminates(_run_iter17_test(_load_abalone, "abalone_iter17"), "abalone_iter17")
 
 
 # ========== iter 18: spectral attention (Laplacian eigenvectors of kNN graph) ==========
@@ -2868,37 +2921,37 @@ FEATURE_BUILDERS_ITER18: Dict[str, Callable] = {
 }
 
 
-def _run_iter18_test(loader, name: str) -> None:
+def _run_iter18_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter18 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter18-spectral] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER18)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter18_diabetes():
     """Iter18 diabetes."""
-    _run_iter18_test(_load_diabetes_classification, "diabetes_iter18")
+    _assert_matrix_discriminates(_run_iter18_test(_load_diabetes_classification, "diabetes_iter18"), "diabetes_iter18")
 
 
 def test_iter18_mammography():
     """Iter18 mammography."""
-    _run_iter18_test(_load_mammography, "mammography_iter18")
+    _assert_matrix_discriminates(_run_iter18_test(_load_mammography, "mammography_iter18"), "mammography_iter18")
 
 
 def test_iter18_kin8nm():
     """Iter18 kin8nm."""
-    _run_iter18_test(_load_kin8nm, "kin8nm_iter18")
+    _assert_matrix_discriminates(_run_iter18_test(_load_kin8nm, "kin8nm_iter18"), "kin8nm_iter18")
 
 
 def test_iter18_abalone():
     """Iter18 abalone."""
-    _run_iter18_test(_load_abalone, "abalone_iter18")
+    _assert_matrix_discriminates(_run_iter18_test(_load_abalone, "abalone_iter18"), "abalone_iter18")
 
 
 # ========== iter 19: class-conditional anchor attention (binary only) ==========
@@ -2977,27 +3030,27 @@ FEATURE_BUILDERS_ITER19: Dict[str, Callable] = {
 }
 
 
-def _run_iter19_test(loader, name: str) -> None:
+def _run_iter19_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter19 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter19-cc_anchor] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER19)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter19_mammography():
     """Mammography — push CB AUC over +5% via class-conditional anchors (rare-class structure)."""
-    _run_iter19_test(_load_mammography, "mammography_iter19")
+    _assert_matrix_discriminates(_run_iter19_test(_load_mammography, "mammography_iter19"), "mammography_iter19")
 
 
 def test_iter19_diabetes():
     """Iter19 diabetes."""
-    _run_iter19_test(_load_diabetes_classification, "diabetes_iter19")
+    _assert_matrix_discriminates(_run_iter19_test(_load_diabetes_classification, "diabetes_iter19"), "diabetes_iter19")
 
 
 # ========== iter 20: quantile-regression neighbours ==========
@@ -3062,37 +3115,37 @@ FEATURE_BUILDERS_ITER20: Dict[str, Callable] = {
 }
 
 
-def _run_iter20_test(loader, name: str) -> None:
+def _run_iter20_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter20 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter20-qnn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER20)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter20_mammography():
     """Iter20 mammography."""
-    _run_iter20_test(_load_mammography, "mammography_iter20")
+    _assert_matrix_discriminates(_run_iter20_test(_load_mammography, "mammography_iter20"), "mammography_iter20")
 
 
 def test_iter20_diabetes():
     """Iter20 diabetes."""
-    _run_iter20_test(_load_diabetes_classification, "diabetes_iter20")
+    _assert_matrix_discriminates(_run_iter20_test(_load_diabetes_classification, "diabetes_iter20"), "diabetes_iter20")
 
 
 def test_iter20_kin8nm():
     """Iter20 kin8nm."""
-    _run_iter20_test(_load_kin8nm, "kin8nm_iter20")
+    _assert_matrix_discriminates(_run_iter20_test(_load_kin8nm, "kin8nm_iter20"), "kin8nm_iter20")
 
 
 def test_iter20_abalone():
     """Iter20 abalone."""
-    _run_iter20_test(_load_abalone, "abalone_iter20")
+    _assert_matrix_discriminates(_run_iter20_test(_load_abalone, "abalone_iter20"), "abalone_iter20")
 
 
 # ========== iter 21: per-class spectral attention (binary only) ==========
@@ -3157,27 +3210,27 @@ FEATURE_BUILDERS_ITER21: Dict[str, Callable] = {
 }
 
 
-def _run_iter21_test(loader, name: str) -> None:
+def _run_iter21_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter21 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter21-pc_spectral] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER21)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter21_mammography():
     """Iter21 mammography."""
-    _run_iter21_test(_load_mammography, "mammography_iter21")
+    _assert_matrix_discriminates(_run_iter21_test(_load_mammography, "mammography_iter21"), "mammography_iter21")
 
 
 def test_iter21_diabetes():
     """Iter21 diabetes."""
-    _run_iter21_test(_load_diabetes_classification, "diabetes_iter21")
+    _assert_matrix_discriminates(_run_iter21_test(_load_diabetes_classification, "diabetes_iter21"), "diabetes_iter21")
 
 
 # ========== iter 22: stacked quantile-neighbours ==========
@@ -3242,37 +3295,37 @@ FEATURE_BUILDERS_ITER22: Dict[str, Callable] = {
 }
 
 
-def _run_iter22_test(loader, name: str) -> None:
+def _run_iter22_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter22 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter22-sqnn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER22)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter22_kin8nm():
     """Iter22 kin8nm."""
-    _run_iter22_test(_load_kin8nm, "kin8nm_iter22")
+    _assert_matrix_discriminates(_run_iter22_test(_load_kin8nm, "kin8nm_iter22"), "kin8nm_iter22")
 
 
 def test_iter22_diabetes():
     """Iter22 diabetes."""
-    _run_iter22_test(_load_diabetes_classification, "diabetes_iter22")
+    _assert_matrix_discriminates(_run_iter22_test(_load_diabetes_classification, "diabetes_iter22"), "diabetes_iter22")
 
 
 def test_iter22_mammography():
     """Iter22 mammography."""
-    _run_iter22_test(_load_mammography, "mammography_iter22")
+    _assert_matrix_discriminates(_run_iter22_test(_load_mammography, "mammography_iter22"), "mammography_iter22")
 
 
 def test_iter22_abalone():
     """Iter22 abalone."""
-    _run_iter22_test(_load_abalone, "abalone_iter22")
+    _assert_matrix_discriminates(_run_iter22_test(_load_abalone, "abalone_iter22"), "abalone_iter22")
 
 
 # ========== iter 23: MEGA-combo (concatenate ALL top mechanisms to break mammography CB ceiling) ==========
@@ -3345,27 +3398,27 @@ FEATURE_BUILDERS_ITER23: Dict[str, Callable] = {
 }
 
 
-def _run_iter23_test(loader, name: str) -> None:
+def _run_iter23_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter23 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter23-mega_v2] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER23)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter23_mammography():
     """Push mammography CB AUC over +5% via MEGA-combo of 6 mechanisms."""
-    _run_iter23_test(_load_mammography, "mammography_iter23")
+    _assert_matrix_discriminates(_run_iter23_test(_load_mammography, "mammography_iter23"), "mammography_iter23")
 
 
 def test_iter23_diabetes():
     """Iter23 diabetes."""
-    _run_iter23_test(_load_diabetes_classification, "diabetes_iter23")
+    _assert_matrix_discriminates(_run_iter23_test(_load_diabetes_classification, "diabetes_iter23"), "diabetes_iter23")
 
 
 # ========== iter 24: local lift / PR_AUC / top-1 features (targets CB on imbalanced binary) ==========
@@ -3499,27 +3552,27 @@ FEATURE_BUILDERS_ITER2425: Dict[str, Callable] = {
 }
 
 
-def _run_iter2425_test(loader, name: str) -> None:
+def _run_iter2425_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter2425 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter24-25-loclift-mahcc] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER2425)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter2425_mammography():
     """Targets mammography CB AUC ceiling (+4.67%, need +5%) via local-lift + class-conditional Mahalanobis."""
-    _run_iter2425_test(_load_mammography, "mammography_iter2425")
+    _assert_matrix_discriminates(_run_iter2425_test(_load_mammography, "mammography_iter2425"), "mammography_iter2425")
 
 
 def test_iter2425_diabetes():
     """Iter2425 diabetes."""
-    _run_iter2425_test(_load_diabetes_classification, "diabetes_iter2425")
+    _assert_matrix_discriminates(_run_iter2425_test(_load_diabetes_classification, "diabetes_iter2425"), "diabetes_iter2425")
 
 
 # ========== iter 26: focal-loss aux LGB predictions as features (handles imbalance, binary only) ==========
@@ -3602,27 +3655,27 @@ FEATURE_BUILDERS_ITER26: Dict[str, Callable] = {
 }
 
 
-def _run_iter26_test(loader, name: str) -> None:
+def _run_iter26_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter26 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter26-focal] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER26)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter26_mammography():
     """Focal-loss aux LGB: aimed at the +0.33pp CB AUC mammography gap."""
-    _run_iter26_test(_load_mammography, "mammography_iter26")
+    _assert_matrix_discriminates(_run_iter26_test(_load_mammography, "mammography_iter26"), "mammography_iter26")
 
 
 def test_iter26_diabetes():
     """Iter26 diabetes."""
-    _run_iter26_test(_load_diabetes_classification, "diabetes_iter26")
+    _assert_matrix_discriminates(_run_iter26_test(_load_diabetes_classification, "diabetes_iter26"), "diabetes_iter26")
 
 
 # ========== iter 27: class-distance / quantile-distance attention ==========
@@ -3698,37 +3751,37 @@ FEATURE_BUILDERS_ITER27: Dict[str, Callable] = {
 }
 
 
-def _run_iter27_test(loader, name: str) -> None:
+def _run_iter27_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter27 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter27-cdist] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER27)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter27_mammography():
     """Iter27 mammography."""
-    _run_iter27_test(_load_mammography, "mammography_iter27")
+    _assert_matrix_discriminates(_run_iter27_test(_load_mammography, "mammography_iter27"), "mammography_iter27")
 
 
 def test_iter27_diabetes():
     """Iter27 diabetes."""
-    _run_iter27_test(_load_diabetes_classification, "diabetes_iter27")
+    _assert_matrix_discriminates(_run_iter27_test(_load_diabetes_classification, "diabetes_iter27"), "diabetes_iter27")
 
 
 def test_iter27_abalone():
     """Iter27 abalone."""
-    _run_iter27_test(_load_abalone, "abalone_iter27")
+    _assert_matrix_discriminates(_run_iter27_test(_load_abalone, "abalone_iter27"), "abalone_iter27")
 
 
 def test_iter27_kin8nm():
     """Iter27 kin8nm."""
-    _run_iter27_test(_load_kin8nm, "kin8nm_iter27")
+    _assert_matrix_discriminates(_run_iter27_test(_load_kin8nm, "kin8nm_iter27"), "kin8nm_iter27")
 
 
 # ========== iter 28: density-ratio features (KDE log-ratio at multiple bandwidths) ==========
@@ -3803,32 +3856,32 @@ FEATURE_BUILDERS_ITER28: Dict[str, Callable] = {
 }
 
 
-def _run_iter28_test(loader, name: str) -> None:
+def _run_iter28_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter28 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter28-denrat] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER28)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter28_mammography():
     """Iter28 mammography."""
-    _run_iter28_test(_load_mammography, "mammography_iter28")
+    _assert_matrix_discriminates(_run_iter28_test(_load_mammography, "mammography_iter28"), "mammography_iter28")
 
 
 def test_iter28_diabetes():
     """Iter28 diabetes."""
-    _run_iter28_test(_load_diabetes_classification, "diabetes_iter28")
+    _assert_matrix_discriminates(_run_iter28_test(_load_diabetes_classification, "diabetes_iter28"), "diabetes_iter28")
 
 
 def test_iter28_abalone():
     """Iter28 abalone."""
-    _run_iter28_test(_load_abalone, "abalone_iter28")
+    _assert_matrix_discriminates(_run_iter28_test(_load_abalone, "abalone_iter28"), "abalone_iter28")
 
 
 # ========== iter 29: KS-test + moment-shift attention ==========
@@ -3906,32 +3959,32 @@ FEATURE_BUILDERS_ITER29: Dict[str, Callable] = {
 }
 
 
-def _run_iter29_test(loader, name: str) -> None:
+def _run_iter29_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter29 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter29-ksshift] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER29)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter29_mammography():
     """Targets CB AUC further past +4.75% (iter 28)."""
-    _run_iter29_test(_load_mammography, "mammography_iter29")
+    _assert_matrix_discriminates(_run_iter29_test(_load_mammography, "mammography_iter29"), "mammography_iter29")
 
 
 def test_iter29_diabetes():
     """Iter29 diabetes."""
-    _run_iter29_test(_load_diabetes_classification, "diabetes_iter29")
+    _assert_matrix_discriminates(_run_iter29_test(_load_diabetes_classification, "diabetes_iter29"), "diabetes_iter29")
 
 
 def test_iter29_abalone():
     """Iter29 abalone."""
-    _run_iter29_test(_load_abalone, "abalone_iter29")
+    _assert_matrix_discriminates(_run_iter29_test(_load_abalone, "abalone_iter29"), "abalone_iter29")
 
 
 # ========== iter 30: locally-weighted classifier / regressor per row ==========
@@ -4011,37 +4064,37 @@ FEATURE_BUILDERS_ITER30: Dict[str, Callable] = {
 }
 
 
-def _run_iter30_test(loader, name: str) -> None:
+def _run_iter30_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter30 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter30-loccls] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER30)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter30_mammography():
     """Iter30 mammography."""
-    _run_iter30_test(_load_mammography, "mammography_iter30")
+    _assert_matrix_discriminates(_run_iter30_test(_load_mammography, "mammography_iter30"), "mammography_iter30")
 
 
 def test_iter30_diabetes():
     """Iter30 diabetes."""
-    _run_iter30_test(_load_diabetes_classification, "diabetes_iter30")
+    _assert_matrix_discriminates(_run_iter30_test(_load_diabetes_classification, "diabetes_iter30"), "diabetes_iter30")
 
 
 def test_iter30_abalone():
     """Iter30 abalone."""
-    _run_iter30_test(_load_abalone, "abalone_iter30")
+    _assert_matrix_discriminates(_run_iter30_test(_load_abalone, "abalone_iter30"), "abalone_iter30")
 
 
 def test_iter30_kin8nm():
     """Iter30 kin8nm."""
-    _run_iter30_test(_load_kin8nm, "kin8nm_iter30")
+    _assert_matrix_discriminates(_run_iter30_test(_load_kin8nm, "kin8nm_iter30"), "kin8nm_iter30")
 
 
 # ========== iter 31: multi-scale local-positive-rate / quantile-rate features ==========
@@ -4117,32 +4170,32 @@ FEATURE_BUILDERS_ITER31: Dict[str, Callable] = {
 }
 
 
-def _run_iter31_test(loader, name: str) -> None:
+def _run_iter31_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter31 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter31-msrate] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER31)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter31_mammography():
     """Iter31 mammography."""
-    _run_iter31_test(_load_mammography, "mammography_iter31")
+    _assert_matrix_discriminates(_run_iter31_test(_load_mammography, "mammography_iter31"), "mammography_iter31")
 
 
 def test_iter31_diabetes():
     """Iter31 diabetes."""
-    _run_iter31_test(_load_diabetes_classification, "diabetes_iter31")
+    _assert_matrix_discriminates(_run_iter31_test(_load_diabetes_classification, "diabetes_iter31"), "diabetes_iter31")
 
 
 def test_iter31_abalone():
     """Iter31 abalone."""
-    _run_iter31_test(_load_abalone, "abalone_iter31")
+    _assert_matrix_discriminates(_run_iter31_test(_load_abalone, "abalone_iter31"), "abalone_iter31")
 
 
 # ========== iter 32: multi-aux ensemble (LGB + focal-LGB + XGB) + disagreement ==========
@@ -4220,27 +4273,27 @@ FEATURE_BUILDERS_ITER32: Dict[str, Callable] = {
 }
 
 
-def _run_iter32_test(loader, name: str) -> None:
+def _run_iter32_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter32 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter32-multiaux] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER32)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter32_mammography():
     """Iter32 mammography."""
-    _run_iter32_test(_load_mammography, "mammography_iter32")
+    _assert_matrix_discriminates(_run_iter32_test(_load_mammography, "mammography_iter32"), "mammography_iter32")
 
 
 def test_iter32_diabetes():
     """Iter32 diabetes."""
-    _run_iter32_test(_load_diabetes_classification, "diabetes_iter32")
+    _assert_matrix_discriminates(_run_iter32_test(_load_diabetes_classification, "diabetes_iter32"), "diabetes_iter32")
 
 
 # ========== iter 33: SMOTE-synthetic positive distance features ==========
@@ -4320,27 +4373,27 @@ FEATURE_BUILDERS_ITER33: Dict[str, Callable] = {
 }
 
 
-def _run_iter33_test(loader, name: str) -> None:
+def _run_iter33_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter33 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter33-smote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER33)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter33_mammography():
     """Iter33 mammography."""
-    _run_iter33_test(_load_mammography, "mammography_iter33")
+    _assert_matrix_discriminates(_run_iter33_test(_load_mammography, "mammography_iter33"), "mammography_iter33")
 
 
 def test_iter33_diabetes():
     """Iter33 diabetes."""
-    _run_iter33_test(_load_diabetes_classification, "diabetes_iter33")
+    _assert_matrix_discriminates(_run_iter33_test(_load_diabetes_classification, "diabetes_iter33"), "diabetes_iter33")
 
 
 # ========== iter 34: Borderline-SMOTE distance — synthesize only from boundary positives ==========
@@ -4438,27 +4491,27 @@ FEATURE_BUILDERS_ITER34: Dict[str, Callable] = {
 }
 
 
-def _run_iter34_test(loader, name: str) -> None:
+def _run_iter34_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter34 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter34-blsmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER34)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter34_mammography():
     """Iter34 mammography."""
-    _run_iter34_test(_load_mammography, "mammography_iter34")
+    _assert_matrix_discriminates(_run_iter34_test(_load_mammography, "mammography_iter34"), "mammography_iter34")
 
 
 def test_iter34_diabetes():
     """Iter34 diabetes."""
-    _run_iter34_test(_load_diabetes_classification, "diabetes_iter34")
+    _assert_matrix_discriminates(_run_iter34_test(_load_diabetes_classification, "diabetes_iter34"), "diabetes_iter34")
 
 
 # ========== iter 35: MIXUP-boundary virtual distance ==========
@@ -4524,27 +4577,27 @@ FEATURE_BUILDERS_ITER35: Dict[str, Callable] = {
 }
 
 
-def _run_iter35_test(loader, name: str) -> None:
+def _run_iter35_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter35 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter35-mixup] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER35)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter35_mammography():
     """Iter35 mammography."""
-    _run_iter35_test(_load_mammography, "mammography_iter35")
+    _assert_matrix_discriminates(_run_iter35_test(_load_mammography, "mammography_iter35"), "mammography_iter35")
 
 
 def test_iter35_diabetes():
     """Iter35 diabetes."""
-    _run_iter35_test(_load_diabetes_classification, "diabetes_iter35")
+    _assert_matrix_discriminates(_run_iter35_test(_load_diabetes_classification, "diabetes_iter35"), "diabetes_iter35")
 
 
 # ========== iter 36: CutMix-style hard-swap virtual distance ==========
@@ -4610,27 +4663,27 @@ FEATURE_BUILDERS_ITER36: Dict[str, Callable] = {
 }
 
 
-def _run_iter36_test(loader, name: str) -> None:
+def _run_iter36_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter36 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter36-cutmix] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER36)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter36_mammography():
     """Iter36 mammography."""
-    _run_iter36_test(_load_mammography, "mammography_iter36")
+    _assert_matrix_discriminates(_run_iter36_test(_load_mammography, "mammography_iter36"), "mammography_iter36")
 
 
 def test_iter36_diabetes():
     """Iter36 diabetes."""
-    _run_iter36_test(_load_diabetes_classification, "diabetes_iter36")
+    _assert_matrix_discriminates(_run_iter36_test(_load_diabetes_classification, "diabetes_iter36"), "diabetes_iter36")
 
 
 # ========== iter 37: Fisher LDA axis projection features ==========
@@ -4691,27 +4744,27 @@ FEATURE_BUILDERS_ITER37: Dict[str, Callable] = {
 }
 
 
-def _run_iter37_test(loader, name: str) -> None:
+def _run_iter37_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter37 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter37-lda] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER37)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter37_mammography():
     """Iter37 mammography."""
-    _run_iter37_test(_load_mammography, "mammography_iter37")
+    _assert_matrix_discriminates(_run_iter37_test(_load_mammography, "mammography_iter37"), "mammography_iter37")
 
 
 def test_iter37_diabetes():
     """Iter37 diabetes."""
-    _run_iter37_test(_load_diabetes_classification, "diabetes_iter37")
+    _assert_matrix_discriminates(_run_iter37_test(_load_diabetes_classification, "diabetes_iter37"), "diabetes_iter37")
 
 
 # ========== iter 38: NCA learned-projection features (FIRST BEYOND-FROZEN) ==========
@@ -4774,27 +4827,27 @@ FEATURE_BUILDERS_ITER38: Dict[str, Callable] = {
 }
 
 
-def _run_iter38_test(loader, name: str) -> None:
+def _run_iter38_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter38 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter38-nca] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER38)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter38_mammography():
     """Iter38 mammography."""
-    _run_iter38_test(_load_mammography, "mammography_iter38")
+    _assert_matrix_discriminates(_run_iter38_test(_load_mammography, "mammography_iter38"), "mammography_iter38")
 
 
 def test_iter38_diabetes():
     """Iter38 diabetes."""
-    _run_iter38_test(_load_diabetes_classification, "diabetes_iter38")
+    _assert_matrix_discriminates(_run_iter38_test(_load_diabetes_classification, "diabetes_iter38"), "diabetes_iter38")
 
 
 # ========== iter 39: NCA-projection INSIDE row-attention (true learned attention) ==========
@@ -4865,27 +4918,27 @@ FEATURE_BUILDERS_ITER39: Dict[str, Callable] = {
 }
 
 
-def _run_iter39_test(loader, name: str) -> None:
+def _run_iter39_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter39 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter39-ncaattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER39)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter39_mammography():
     """Iter39 mammography."""
-    _run_iter39_test(_load_mammography, "mammography_iter39")
+    _assert_matrix_discriminates(_run_iter39_test(_load_mammography, "mammography_iter39"), "mammography_iter39")
 
 
 def test_iter39_diabetes():
     """Iter39 diabetes."""
-    _run_iter39_test(_load_diabetes_classification, "diabetes_iter39")
+    _assert_matrix_discriminates(_run_iter39_test(_load_diabetes_classification, "diabetes_iter39"), "diabetes_iter39")
 
 
 # ========== iter 40: Auto-encoder bottleneck features (UNSUPERVISED BEYOND-FROZEN) ==========
@@ -4959,27 +5012,27 @@ FEATURE_BUILDERS_ITER40: Dict[str, Callable] = {
 }
 
 
-def _run_iter40_test(loader, name: str) -> None:
+def _run_iter40_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter40 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter40-ae] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER40)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter40_mammography():
     """Iter40 mammography."""
-    _run_iter40_test(_load_mammography, "mammography_iter40")
+    _assert_matrix_discriminates(_run_iter40_test(_load_mammography, "mammography_iter40"), "mammography_iter40")
 
 
 def test_iter40_diabetes():
     """Iter40 diabetes."""
-    _run_iter40_test(_load_diabetes_classification, "diabetes_iter40")
+    _assert_matrix_discriminates(_run_iter40_test(_load_diabetes_classification, "diabetes_iter40"), "diabetes_iter40")
 
 
 # ========== iter 41: BGM (Bayesian Gaussian Mixture) virtual sampling (BEYOND-FROZEN learned-generative) ==========
@@ -5056,27 +5109,27 @@ FEATURE_BUILDERS_ITER41: Dict[str, Callable] = {
 }
 
 
-def _run_iter41_test(loader, name: str) -> None:
+def _run_iter41_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter41 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter41-bgmm] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER41)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter41_mammography():
     """Iter41 mammography."""
-    _run_iter41_test(_load_mammography, "mammography_iter41")
+    _assert_matrix_discriminates(_run_iter41_test(_load_mammography, "mammography_iter41"), "mammography_iter41")
 
 
 def test_iter41_diabetes():
     """Iter41 diabetes."""
-    _run_iter41_test(_load_diabetes_classification, "diabetes_iter41")
+    _assert_matrix_discriminates(_run_iter41_test(_load_diabetes_classification, "diabetes_iter41"), "diabetes_iter41")
 
 
 # ========== iter 42: Diffusion-noise virtual positives (BEYOND-FROZEN additive) ==========
@@ -5151,27 +5204,27 @@ FEATURE_BUILDERS_ITER42: Dict[str, Callable] = {
 }
 
 
-def _run_iter42_test(loader, name: str) -> None:
+def _run_iter42_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter42 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter42-diffusion] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER42)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter42_mammography():
     """Iter42 mammography."""
-    _run_iter42_test(_load_mammography, "mammography_iter42")
+    _assert_matrix_discriminates(_run_iter42_test(_load_mammography, "mammography_iter42"), "mammography_iter42")
 
 
 def test_iter42_diabetes():
     """Iter42 diabetes."""
-    _run_iter42_test(_load_diabetes_classification, "diabetes_iter42")
+    _assert_matrix_discriminates(_run_iter42_test(_load_diabetes_classification, "diabetes_iter42"), "diabetes_iter42")
 
 
 # ========== iter 43: Pseudo-label-filtered SMOTE virtuals (BEYOND-FROZEN additive) ==========
@@ -5248,27 +5301,27 @@ FEATURE_BUILDERS_ITER43: Dict[str, Callable] = {
 }
 
 
-def _run_iter43_test(loader, name: str) -> None:
+def _run_iter43_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter43 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter43-psmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER43)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter43_mammography():
     """Iter43 mammography."""
-    _run_iter43_test(_load_mammography, "mammography_iter43")
+    _assert_matrix_discriminates(_run_iter43_test(_load_mammography, "mammography_iter43"), "mammography_iter43")
 
 
 def test_iter43_diabetes():
     """Iter43 diabetes."""
-    _run_iter43_test(_load_diabetes_classification, "diabetes_iter43")
+    _assert_matrix_discriminates(_run_iter43_test(_load_diabetes_classification, "diabetes_iter43"), "diabetes_iter43")
 
 
 # ========== iter 44: K-means-cluster-SMOTE (sampling-family additive beyond-frozen) ==========
@@ -5345,27 +5398,27 @@ FEATURE_BUILDERS_ITER44: Dict[str, Callable] = {
 }
 
 
-def _run_iter44_test(loader, name: str) -> None:
+def _run_iter44_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter44 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter44-csmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER44)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter44_mammography():
     """Iter44 mammography."""
-    _run_iter44_test(_load_mammography, "mammography_iter44")
+    _assert_matrix_discriminates(_run_iter44_test(_load_mammography, "mammography_iter44"), "mammography_iter44")
 
 
 def test_iter44_diabetes():
     """Iter44 diabetes."""
-    _run_iter44_test(_load_diabetes_classification, "diabetes_iter44")
+    _assert_matrix_discriminates(_run_iter44_test(_load_diabetes_classification, "diabetes_iter44"), "diabetes_iter44")
 
 
 # ========== iter 45: Multi-scale BGM virtuals (BEYOND-FROZEN, extends iter 41 winner) ==========
@@ -5428,27 +5481,27 @@ FEATURE_BUILDERS_ITER45: Dict[str, Callable] = {
 }
 
 
-def _run_iter45_test(loader, name: str) -> None:
+def _run_iter45_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter45 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter45-bgmms] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER45)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter45_mammography():
     """Iter45 mammography."""
-    _run_iter45_test(_load_mammography, "mammography_iter45")
+    _assert_matrix_discriminates(_run_iter45_test(_load_mammography, "mammography_iter45"), "mammography_iter45")
 
 
 def test_iter45_diabetes():
     """Iter45 diabetes."""
-    _run_iter45_test(_load_diabetes_classification, "diabetes_iter45")
+    _assert_matrix_discriminates(_run_iter45_test(_load_diabetes_classification, "diabetes_iter45"), "diabetes_iter45")
 
 
 # ========== iter 46: Per-class BGM density-ratio features (BEYOND-FROZEN) ==========
@@ -5509,27 +5562,27 @@ FEATURE_BUILDERS_ITER46: Dict[str, Callable] = {
 }
 
 
-def _run_iter46_test(loader, name: str) -> None:
+def _run_iter46_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter46 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter46-bdr] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER46)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter46_mammography():
     """Iter46 mammography."""
-    _run_iter46_test(_load_mammography, "mammography_iter46")
+    _assert_matrix_discriminates(_run_iter46_test(_load_mammography, "mammography_iter46"), "mammography_iter46")
 
 
 def test_iter46_diabetes():
     """Iter46 diabetes."""
-    _run_iter46_test(_load_diabetes_classification, "diabetes_iter46")
+    _assert_matrix_discriminates(_run_iter46_test(_load_diabetes_classification, "diabetes_iter46"), "diabetes_iter46")
 
 
 # ========== iter 47: Multi-scale SMOTE (extend iter 33 by interpolation-scale k_neighbors variants) ==========
@@ -5592,27 +5645,27 @@ FEATURE_BUILDERS_ITER47: Dict[str, Callable] = {
 }
 
 
-def _run_iter47_test(loader, name: str) -> None:
+def _run_iter47_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter47 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter47-mss] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER47)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter47_mammography():
     """Iter47 mammography."""
-    _run_iter47_test(_load_mammography, "mammography_iter47")
+    _assert_matrix_discriminates(_run_iter47_test(_load_mammography, "mammography_iter47"), "mammography_iter47")
 
 
 def test_iter47_diabetes():
     """Iter47 diabetes."""
-    _run_iter47_test(_load_diabetes_classification, "diabetes_iter47")
+    _assert_matrix_discriminates(_run_iter47_test(_load_diabetes_classification, "diabetes_iter47"), "diabetes_iter47")
 
 
 # ========== iter 48: BGM-clustered SMOTE (BEYOND-FROZEN hybrid) ==========
@@ -5677,27 +5730,27 @@ FEATURE_BUILDERS_ITER48: Dict[str, Callable] = {
 }
 
 
-def _run_iter48_test(loader, name: str) -> None:
+def _run_iter48_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter48 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter48-bcs] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER48)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter48_mammography():
     """Iter48 mammography."""
-    _run_iter48_test(_load_mammography, "mammography_iter48")
+    _assert_matrix_discriminates(_run_iter48_test(_load_mammography, "mammography_iter48"), "mammography_iter48")
 
 
 def test_iter48_diabetes():
     """Iter48 diabetes."""
-    _run_iter48_test(_load_diabetes_classification, "diabetes_iter48")
+    _assert_matrix_discriminates(_run_iter48_test(_load_diabetes_classification, "diabetes_iter48"), "diabetes_iter48")
 
 
 # ========== iter 49: Active virtual placement (BEYOND-FROZEN, boundary-uncertain virtuals) ==========
@@ -5762,27 +5815,27 @@ FEATURE_BUILDERS_ITER49: Dict[str, Callable] = {
 }
 
 
-def _run_iter49_test(loader, name: str) -> None:
+def _run_iter49_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter49 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter49-actv] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER49)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter49_mammography():
     """Iter49 mammography."""
-    _run_iter49_test(_load_mammography, "mammography_iter49")
+    _assert_matrix_discriminates(_run_iter49_test(_load_mammography, "mammography_iter49"), "mammography_iter49")
 
 
 def test_iter49_diabetes():
     """Iter49 diabetes."""
-    _run_iter49_test(_load_diabetes_classification, "diabetes_iter49")
+    _assert_matrix_discriminates(_run_iter49_test(_load_diabetes_classification, "diabetes_iter49"), "diabetes_iter49")
 
 
 # ========== iter 50: Density-weighted SMOTE (BEYOND-FROZEN sampling-family) ==========
@@ -5845,38 +5898,38 @@ FEATURE_BUILDERS_ITER50: Dict[str, Callable] = {
 }
 
 
-def _run_iter50_test(loader, name: str) -> None:
+def _run_iter50_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter50 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter50-dwsmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER50)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter50_mammography():
     """Iter50 mammography."""
-    _run_iter50_test(_load_mammography, "mammography_iter50")
+    _assert_matrix_discriminates(_run_iter50_test(_load_mammography, "mammography_iter50"), "mammography_iter50")
 
 
 def test_iter50_diabetes():
     """Iter50 diabetes."""
-    _run_iter50_test(_load_diabetes_classification, "diabetes_iter50")
+    _assert_matrix_discriminates(_run_iter50_test(_load_diabetes_classification, "diabetes_iter50"), "diabetes_iter50")
 
 
 # Iter 50 on REGRESSION datasets (per user feedback: test sampling mechanisms on regression too)
 def test_iter50_kin8nm():
     """Iter50 kin8nm."""
-    _run_iter50_test(_load_kin8nm, "kin8nm_iter50")
+    _assert_matrix_discriminates(_run_iter50_test(_load_kin8nm, "kin8nm_iter50"), "kin8nm_iter50")
 
 
 def test_iter50_abalone():
     """Iter50 abalone."""
-    _run_iter50_test(_load_abalone, "abalone_iter50")
+    _assert_matrix_discriminates(_run_iter50_test(_load_abalone, "abalone_iter50"), "abalone_iter50")
 
 
 # ========== iter 51: ADASYN-style boundary-weighted SMOTE (BEYOND-FROZEN sampling) ==========
@@ -5941,38 +5994,38 @@ FEATURE_BUILDERS_ITER51: Dict[str, Callable] = {
 }
 
 
-def _run_iter51_test(loader, name: str) -> None:
+def _run_iter51_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter51 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter51-adasyn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER51)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter51_mammography():
     """Iter51 mammography."""
-    _run_iter51_test(_load_mammography, "mammography_iter51")
+    _assert_matrix_discriminates(_run_iter51_test(_load_mammography, "mammography_iter51"), "mammography_iter51")
 
 
 def test_iter51_diabetes():
     """Iter51 diabetes."""
-    _run_iter51_test(_load_diabetes_classification, "diabetes_iter51")
+    _assert_matrix_discriminates(_run_iter51_test(_load_diabetes_classification, "diabetes_iter51"), "diabetes_iter51")
 
 
 # Iter 51 on REGRESSION datasets
 def test_iter51_kin8nm():
     """Iter51 kin8nm."""
-    _run_iter51_test(_load_kin8nm, "kin8nm_iter51")
+    _assert_matrix_discriminates(_run_iter51_test(_load_kin8nm, "kin8nm_iter51"), "kin8nm_iter51")
 
 
 def test_iter51_abalone():
     """Iter51 abalone."""
-    _run_iter51_test(_load_abalone, "abalone_iter51")
+    _assert_matrix_discriminates(_run_iter51_test(_load_abalone, "abalone_iter51"), "abalone_iter51")
 
 
 # ========== iter 52: Pure-positive-weighted SMOTE (BEYOND-FROZEN sampling) ==========
@@ -6035,37 +6088,37 @@ FEATURE_BUILDERS_ITER52: Dict[str, Callable] = {
 }
 
 
-def _run_iter52_test(loader, name: str) -> None:
+def _run_iter52_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter52 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter52-ppsmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER52)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter52_mammography():
     """Iter52 mammography."""
-    _run_iter52_test(_load_mammography, "mammography_iter52")
+    _assert_matrix_discriminates(_run_iter52_test(_load_mammography, "mammography_iter52"), "mammography_iter52")
 
 
 def test_iter52_diabetes():
     """Iter52 diabetes."""
-    _run_iter52_test(_load_diabetes_classification, "diabetes_iter52")
+    _assert_matrix_discriminates(_run_iter52_test(_load_diabetes_classification, "diabetes_iter52"), "diabetes_iter52")
 
 
 def test_iter52_kin8nm():
     """Iter52 kin8nm."""
-    _run_iter52_test(_load_kin8nm, "kin8nm_iter52")
+    _assert_matrix_discriminates(_run_iter52_test(_load_kin8nm, "kin8nm_iter52"), "kin8nm_iter52")
 
 
 def test_iter52_abalone():
     """Iter52 abalone."""
-    _run_iter52_test(_load_abalone, "abalone_iter52")
+    _assert_matrix_discriminates(_run_iter52_test(_load_abalone, "abalone_iter52"), "abalone_iter52")
 
 
 # ========== iter 53: Set Transformer inducing-point attention (GENUINELY NEW attention-like) ==========
@@ -6130,37 +6183,37 @@ FEATURE_BUILDERS_ITER53: Dict[str, Callable] = {
 }
 
 
-def _run_iter53_test(loader, name: str) -> None:
+def _run_iter53_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter53 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter53-indattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER53)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter53_mammography():
     """Iter53 mammography."""
-    _run_iter53_test(_load_mammography, "mammography_iter53")
+    _assert_matrix_discriminates(_run_iter53_test(_load_mammography, "mammography_iter53"), "mammography_iter53")
 
 
 def test_iter53_diabetes():
     """Iter53 diabetes."""
-    _run_iter53_test(_load_diabetes_classification, "diabetes_iter53")
+    _assert_matrix_discriminates(_run_iter53_test(_load_diabetes_classification, "diabetes_iter53"), "diabetes_iter53")
 
 
 def test_iter53_kin8nm():
     """Iter53 kin8nm."""
-    _run_iter53_test(_load_kin8nm, "kin8nm_iter53")
+    _assert_matrix_discriminates(_run_iter53_test(_load_kin8nm, "kin8nm_iter53"), "kin8nm_iter53")
 
 
 def test_iter53_abalone():
     """Iter53 abalone."""
-    _run_iter53_test(_load_abalone, "abalone_iter53")
+    _assert_matrix_discriminates(_run_iter53_test(_load_abalone, "abalone_iter53"), "abalone_iter53")
 
 
 # ========== iter 54: Performer linear attention (BEYOND-FROZEN, RFF kernel) ==========
@@ -6220,37 +6273,37 @@ FEATURE_BUILDERS_ITER54: Dict[str, Callable] = {
 }
 
 
-def _run_iter54_test(loader, name: str) -> None:
+def _run_iter54_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter54 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter54-perfattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER54)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter54_mammography():
     """Iter54 mammography."""
-    _run_iter54_test(_load_mammography, "mammography_iter54")
+    _assert_matrix_discriminates(_run_iter54_test(_load_mammography, "mammography_iter54"), "mammography_iter54")
 
 
 def test_iter54_diabetes():
     """Iter54 diabetes."""
-    _run_iter54_test(_load_diabetes_classification, "diabetes_iter54")
+    _assert_matrix_discriminates(_run_iter54_test(_load_diabetes_classification, "diabetes_iter54"), "diabetes_iter54")
 
 
 def test_iter54_kin8nm():
     """Iter54 kin8nm."""
-    _run_iter54_test(_load_kin8nm, "kin8nm_iter54")
+    _assert_matrix_discriminates(_run_iter54_test(_load_kin8nm, "kin8nm_iter54"), "kin8nm_iter54")
 
 
 def test_iter54_abalone():
     """Iter54 abalone."""
-    _run_iter54_test(_load_abalone, "abalone_iter54")
+    _assert_matrix_discriminates(_run_iter54_test(_load_abalone, "abalone_iter54"), "abalone_iter54")
 
 
 # ========== iter 55: Dual-class BGM virtuals (BEYOND-FROZEN, sampling-family extension) ==========
@@ -6317,37 +6370,37 @@ FEATURE_BUILDERS_ITER55: Dict[str, Callable] = {
 }
 
 
-def _run_iter55_test(loader, name: str) -> None:
+def _run_iter55_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter55 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter55-bdc] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER55)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter55_mammography():
     """Iter55 mammography."""
-    _run_iter55_test(_load_mammography, "mammography_iter55")
+    _assert_matrix_discriminates(_run_iter55_test(_load_mammography, "mammography_iter55"), "mammography_iter55")
 
 
 def test_iter55_diabetes():
     """Iter55 diabetes."""
-    _run_iter55_test(_load_diabetes_classification, "diabetes_iter55")
+    _assert_matrix_discriminates(_run_iter55_test(_load_diabetes_classification, "diabetes_iter55"), "diabetes_iter55")
 
 
 def test_iter55_kin8nm():
     """Iter55 kin8nm."""
-    _run_iter55_test(_load_kin8nm, "kin8nm_iter55")
+    _assert_matrix_discriminates(_run_iter55_test(_load_kin8nm, "kin8nm_iter55"), "kin8nm_iter55")
 
 
 def test_iter55_abalone():
     """Iter55 abalone."""
-    _run_iter55_test(_load_abalone, "abalone_iter55")
+    _assert_matrix_discriminates(_run_iter55_test(_load_abalone, "abalone_iter55"), "abalone_iter55")
 
 
 # ========== iter 56: Multi-quantile-band BGM (BEYOND-FROZEN, regression-specialist) ==========
@@ -6412,37 +6465,37 @@ FEATURE_BUILDERS_ITER56: Dict[str, Callable] = {
 }
 
 
-def _run_iter56_test(loader, name: str) -> None:
+def _run_iter56_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter56 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter56-bqb] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER56)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter56_kin8nm():
     """Iter56 kin8nm."""
-    _run_iter56_test(_load_kin8nm, "kin8nm_iter56")
+    _assert_matrix_discriminates(_run_iter56_test(_load_kin8nm, "kin8nm_iter56"), "kin8nm_iter56")
 
 
 def test_iter56_abalone():
     """Iter56 abalone."""
-    _run_iter56_test(_load_abalone, "abalone_iter56")
+    _assert_matrix_discriminates(_run_iter56_test(_load_abalone, "abalone_iter56"), "abalone_iter56")
 
 
 def test_iter56_mammography():
     """Iter56 mammography."""
-    _run_iter56_test(_load_mammography, "mammography_iter56")
+    _assert_matrix_discriminates(_run_iter56_test(_load_mammography, "mammography_iter56"), "mammography_iter56")
 
 
 def test_iter56_diabetes():
     """Iter56 diabetes."""
-    _run_iter56_test(_load_diabetes_classification, "diabetes_iter56")
+    _assert_matrix_discriminates(_run_iter56_test(_load_diabetes_classification, "diabetes_iter56"), "diabetes_iter56")
 
 
 # ========== iter 57: Cross-quantile-band attention (iter 53 softmax + iter 56 quantile bands) ==========
@@ -6505,37 +6558,37 @@ FEATURE_BUILDERS_ITER57: Dict[str, Callable] = {
 }
 
 
-def _run_iter57_test(loader, name: str) -> None:
+def _run_iter57_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter57 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter57-qbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER57)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter57_kin8nm():
     """Iter57 kin8nm."""
-    _run_iter57_test(_load_kin8nm, "kin8nm_iter57")
+    _assert_matrix_discriminates(_run_iter57_test(_load_kin8nm, "kin8nm_iter57"), "kin8nm_iter57")
 
 
 def test_iter57_abalone():
     """Iter57 abalone."""
-    _run_iter57_test(_load_abalone, "abalone_iter57")
+    _assert_matrix_discriminates(_run_iter57_test(_load_abalone, "abalone_iter57"), "abalone_iter57")
 
 
 def test_iter57_mammography():
     """Iter57 mammography."""
-    _run_iter57_test(_load_mammography, "mammography_iter57")
+    _assert_matrix_discriminates(_run_iter57_test(_load_mammography, "mammography_iter57"), "mammography_iter57")
 
 
 def test_iter57_diabetes():
     """Iter57 diabetes."""
-    _run_iter57_test(_load_diabetes_classification, "diabetes_iter57")
+    _assert_matrix_discriminates(_run_iter57_test(_load_diabetes_classification, "diabetes_iter57"), "diabetes_iter57")
 
 
 # ========== iter 58: Multi-temperature band attention (3 softmax temperatures over iter 57 band centroids) ==========
@@ -6598,37 +6651,37 @@ FEATURE_BUILDERS_ITER58: Dict[str, Callable] = {
 }
 
 
-def _run_iter58_test(loader, name: str) -> None:
+def _run_iter58_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter58 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter58-mtqbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER58)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter58_kin8nm():
     """Iter58 kin8nm."""
-    _run_iter58_test(_load_kin8nm, "kin8nm_iter58")
+    _assert_matrix_discriminates(_run_iter58_test(_load_kin8nm, "kin8nm_iter58"), "kin8nm_iter58")
 
 
 def test_iter58_abalone():
     """Iter58 abalone."""
-    _run_iter58_test(_load_abalone, "abalone_iter58")
+    _assert_matrix_discriminates(_run_iter58_test(_load_abalone, "abalone_iter58"), "abalone_iter58")
 
 
 def test_iter58_mammography():
     """Iter58 mammography."""
-    _run_iter58_test(_load_mammography, "mammography_iter58")
+    _assert_matrix_discriminates(_run_iter58_test(_load_mammography, "mammography_iter58"), "mammography_iter58")
 
 
 def test_iter58_diabetes():
     """Iter58 diabetes."""
-    _run_iter58_test(_load_diabetes_classification, "diabetes_iter58")
+    _assert_matrix_discriminates(_run_iter58_test(_load_diabetes_classification, "diabetes_iter58"), "diabetes_iter58")
 
 
 # ========== iter 59: Band-conditional anchor attention (M=4 K-means anchors per y-quintile band → 20 band-tagged anchors) ==========
@@ -6693,37 +6746,37 @@ FEATURE_BUILDERS_ITER59: Dict[str, Callable] = {
 }
 
 
-def _run_iter59_test(loader, name: str) -> None:
+def _run_iter59_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter59 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter59-bcanc] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER59)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter59_kin8nm():
     """Iter59 kin8nm."""
-    _run_iter59_test(_load_kin8nm, "kin8nm_iter59")
+    _assert_matrix_discriminates(_run_iter59_test(_load_kin8nm, "kin8nm_iter59"), "kin8nm_iter59")
 
 
 def test_iter59_abalone():
     """Iter59 abalone."""
-    _run_iter59_test(_load_abalone, "abalone_iter59")
+    _assert_matrix_discriminates(_run_iter59_test(_load_abalone, "abalone_iter59"), "abalone_iter59")
 
 
 def test_iter59_mammography():
     """Iter59 mammography."""
-    _run_iter59_test(_load_mammography, "mammography_iter59")
+    _assert_matrix_discriminates(_run_iter59_test(_load_mammography, "mammography_iter59"), "mammography_iter59")
 
 
 def test_iter59_diabetes():
     """Iter59 diabetes."""
-    _run_iter59_test(_load_diabetes_classification, "diabetes_iter59")
+    _assert_matrix_discriminates(_run_iter59_test(_load_diabetes_classification, "diabetes_iter59"), "diabetes_iter59")
 
 
 # ========== iter 60: Boosting-residual band attention (adaptive bands from |residual| of 1-iter LGB) ==========
@@ -6786,37 +6839,37 @@ FEATURE_BUILDERS_ITER60: Dict[str, Callable] = {
 }
 
 
-def _run_iter60_test(loader, name: str) -> None:
+def _run_iter60_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter60 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter60-rbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER60)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter60_kin8nm():
     """Iter60 kin8nm."""
-    _run_iter60_test(_load_kin8nm, "kin8nm_iter60")
+    _assert_matrix_discriminates(_run_iter60_test(_load_kin8nm, "kin8nm_iter60"), "kin8nm_iter60")
 
 
 def test_iter60_abalone():
     """Iter60 abalone."""
-    _run_iter60_test(_load_abalone, "abalone_iter60")
+    _assert_matrix_discriminates(_run_iter60_test(_load_abalone, "abalone_iter60"), "abalone_iter60")
 
 
 def test_iter60_mammography():
     """Iter60 mammography."""
-    _run_iter60_test(_load_mammography, "mammography_iter60")
+    _assert_matrix_discriminates(_run_iter60_test(_load_mammography, "mammography_iter60"), "mammography_iter60")
 
 
 def test_iter60_diabetes():
     """Iter60 diabetes."""
-    _run_iter60_test(_load_diabetes_classification, "diabetes_iter60")
+    _assert_matrix_discriminates(_run_iter60_test(_load_diabetes_classification, "diabetes_iter60"), "diabetes_iter60")
 
 
 # ========== iter 61: Multi-temperature boosting-residual band attention (iter 60 × 3 temperatures) ==========
@@ -6879,37 +6932,37 @@ FEATURE_BUILDERS_ITER61: Dict[str, Callable] = {
 }
 
 
-def _run_iter61_test(loader, name: str) -> None:
+def _run_iter61_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter61 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter61-mtrbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER61)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter61_kin8nm():
     """Iter61 kin8nm."""
-    _run_iter61_test(_load_kin8nm, "kin8nm_iter61")
+    _assert_matrix_discriminates(_run_iter61_test(_load_kin8nm, "kin8nm_iter61"), "kin8nm_iter61")
 
 
 def test_iter61_abalone():
     """Iter61 abalone."""
-    _run_iter61_test(_load_abalone, "abalone_iter61")
+    _assert_matrix_discriminates(_run_iter61_test(_load_abalone, "abalone_iter61"), "abalone_iter61")
 
 
 def test_iter61_mammography():
     """Iter61 mammography."""
-    _run_iter61_test(_load_mammography, "mammography_iter61")
+    _assert_matrix_discriminates(_run_iter61_test(_load_mammography, "mammography_iter61"), "mammography_iter61")
 
 
 def test_iter61_diabetes():
     """Iter61 diabetes."""
-    _run_iter61_test(_load_diabetes_classification, "diabetes_iter61")
+    _assert_matrix_discriminates(_run_iter61_test(_load_diabetes_classification, "diabetes_iter61"), "diabetes_iter61")
 
 
 # ========== iter 62: Signed-residual band attention (direction-aware error bands) ==========
@@ -6972,37 +7025,37 @@ FEATURE_BUILDERS_ITER62: Dict[str, Callable] = {
 }
 
 
-def _run_iter62_test(loader, name: str) -> None:
+def _run_iter62_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter62 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter62-srbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER62)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter62_kin8nm():
     """Iter62 kin8nm."""
-    _run_iter62_test(_load_kin8nm, "kin8nm_iter62")
+    _assert_matrix_discriminates(_run_iter62_test(_load_kin8nm, "kin8nm_iter62"), "kin8nm_iter62")
 
 
 def test_iter62_abalone():
     """Iter62 abalone."""
-    _run_iter62_test(_load_abalone, "abalone_iter62")
+    _assert_matrix_discriminates(_run_iter62_test(_load_abalone, "abalone_iter62"), "abalone_iter62")
 
 
 def test_iter62_mammography():
     """Iter62 mammography."""
-    _run_iter62_test(_load_mammography, "mammography_iter62")
+    _assert_matrix_discriminates(_run_iter62_test(_load_mammography, "mammography_iter62"), "mammography_iter62")
 
 
 def test_iter62_diabetes():
     """Iter62 diabetes."""
-    _run_iter62_test(_load_diabetes_classification, "diabetes_iter62")
+    _assert_matrix_discriminates(_run_iter62_test(_load_diabetes_classification, "diabetes_iter62"), "diabetes_iter62")
 
 
 # ========== iter 63: Bidirectional residual band attention (|residual| bands + per-band signed-residual mean) ==========
@@ -7065,37 +7118,37 @@ FEATURE_BUILDERS_ITER63: Dict[str, Callable] = {
 }
 
 
-def _run_iter63_test(loader, name: str) -> None:
+def _run_iter63_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter63 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter63-bidrbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER63)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter63_kin8nm():
     """Iter63 kin8nm."""
-    _run_iter63_test(_load_kin8nm, "kin8nm_iter63")
+    _assert_matrix_discriminates(_run_iter63_test(_load_kin8nm, "kin8nm_iter63"), "kin8nm_iter63")
 
 
 def test_iter63_abalone():
     """Iter63 abalone."""
-    _run_iter63_test(_load_abalone, "abalone_iter63")
+    _assert_matrix_discriminates(_run_iter63_test(_load_abalone, "abalone_iter63"), "abalone_iter63")
 
 
 def test_iter63_mammography():
     """Iter63 mammography."""
-    _run_iter63_test(_load_mammography, "mammography_iter63")
+    _assert_matrix_discriminates(_run_iter63_test(_load_mammography, "mammography_iter63"), "mammography_iter63")
 
 
 def test_iter63_diabetes():
     """Iter63 diabetes."""
-    _run_iter63_test(_load_diabetes_classification, "diabetes_iter63")
+    _assert_matrix_discriminates(_run_iter63_test(_load_diabetes_classification, "diabetes_iter63"), "diabetes_iter63")
 
 
 # ========== iter 64: Prediction-quintile band attention (bands by baseline ŷ / p̂ quintiles) ==========
@@ -7158,37 +7211,37 @@ FEATURE_BUILDERS_ITER64: Dict[str, Callable] = {
 }
 
 
-def _run_iter64_test(loader, name: str) -> None:
+def _run_iter64_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter64 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter64-predbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER64)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter64_kin8nm():
     """Iter64 kin8nm."""
-    _run_iter64_test(_load_kin8nm, "kin8nm_iter64")
+    _assert_matrix_discriminates(_run_iter64_test(_load_kin8nm, "kin8nm_iter64"), "kin8nm_iter64")
 
 
 def test_iter64_abalone():
     """Iter64 abalone."""
-    _run_iter64_test(_load_abalone, "abalone_iter64")
+    _assert_matrix_discriminates(_run_iter64_test(_load_abalone, "abalone_iter64"), "abalone_iter64")
 
 
 def test_iter64_mammography():
     """Iter64 mammography."""
-    _run_iter64_test(_load_mammography, "mammography_iter64")
+    _assert_matrix_discriminates(_run_iter64_test(_load_mammography, "mammography_iter64"), "mammography_iter64")
 
 
 def test_iter64_diabetes():
     """Iter64 diabetes."""
-    _run_iter64_test(_load_diabetes_classification, "diabetes_iter64")
+    _assert_matrix_discriminates(_run_iter64_test(_load_diabetes_classification, "diabetes_iter64"), "diabetes_iter64")
 
 
 # ========== iter 65: Hard-row attention (top-K=16 hardest training rows by |residual| as anchors) ==========
@@ -7251,37 +7304,37 @@ FEATURE_BUILDERS_ITER65: Dict[str, Callable] = {
 }
 
 
-def _run_iter65_test(loader, name: str) -> None:
+def _run_iter65_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter65 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter65-hrattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER65)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter65_kin8nm():
     """Iter65 kin8nm."""
-    _run_iter65_test(_load_kin8nm, "kin8nm_iter65")
+    _assert_matrix_discriminates(_run_iter65_test(_load_kin8nm, "kin8nm_iter65"), "kin8nm_iter65")
 
 
 def test_iter65_abalone():
     """Iter65 abalone."""
-    _run_iter65_test(_load_abalone, "abalone_iter65")
+    _assert_matrix_discriminates(_run_iter65_test(_load_abalone, "abalone_iter65"), "abalone_iter65")
 
 
 def test_iter65_mammography():
     """Iter65 mammography."""
-    _run_iter65_test(_load_mammography, "mammography_iter65")
+    _assert_matrix_discriminates(_run_iter65_test(_load_mammography, "mammography_iter65"), "mammography_iter65")
 
 
 def test_iter65_diabetes():
     """Iter65 diabetes."""
-    _run_iter65_test(_load_diabetes_classification, "diabetes_iter65")
+    _assert_matrix_discriminates(_run_iter65_test(_load_diabetes_classification, "diabetes_iter65"), "diabetes_iter65")
 
 
 # ========== iter 66: Class-balanced hard-row attention (K/2 pos + K/2 neg, or K/2 top-y + K/2 bot-y) ==========
@@ -7344,37 +7397,37 @@ FEATURE_BUILDERS_ITER66: Dict[str, Callable] = {
 }
 
 
-def _run_iter66_test(loader, name: str) -> None:
+def _run_iter66_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter66 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter66-cbhrattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER66)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter66_kin8nm():
     """Iter66 kin8nm."""
-    _run_iter66_test(_load_kin8nm, "kin8nm_iter66")
+    _assert_matrix_discriminates(_run_iter66_test(_load_kin8nm, "kin8nm_iter66"), "kin8nm_iter66")
 
 
 def test_iter66_abalone():
     """Iter66 abalone."""
-    _run_iter66_test(_load_abalone, "abalone_iter66")
+    _assert_matrix_discriminates(_run_iter66_test(_load_abalone, "abalone_iter66"), "abalone_iter66")
 
 
 def test_iter66_mammography():
     """Iter66 mammography."""
-    _run_iter66_test(_load_mammography, "mammography_iter66")
+    _assert_matrix_discriminates(_run_iter66_test(_load_mammography, "mammography_iter66"), "mammography_iter66")
 
 
 def test_iter66_diabetes():
     """Iter66 diabetes."""
-    _run_iter66_test(_load_diabetes_classification, "diabetes_iter66")
+    _assert_matrix_discriminates(_run_iter66_test(_load_diabetes_classification, "diabetes_iter66"), "diabetes_iter66")
 
 
 # ========== iter 67: Multi-temp class-balanced hard rows (iter 66 × 3 temperatures) ==========
@@ -7437,37 +7490,37 @@ FEATURE_BUILDERS_ITER67: Dict[str, Callable] = {
 }
 
 
-def _run_iter67_test(loader, name: str) -> None:
+def _run_iter67_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter67 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter67-mtcbhrattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER67)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter67_kin8nm():
     """Iter67 kin8nm."""
-    _run_iter67_test(_load_kin8nm, "kin8nm_iter67")
+    _assert_matrix_discriminates(_run_iter67_test(_load_kin8nm, "kin8nm_iter67"), "kin8nm_iter67")
 
 
 def test_iter67_abalone():
     """Iter67 abalone."""
-    _run_iter67_test(_load_abalone, "abalone_iter67")
+    _assert_matrix_discriminates(_run_iter67_test(_load_abalone, "abalone_iter67"), "abalone_iter67")
 
 
 def test_iter67_mammography():
     """Iter67 mammography."""
-    _run_iter67_test(_load_mammography, "mammography_iter67")
+    _assert_matrix_discriminates(_run_iter67_test(_load_mammography, "mammography_iter67"), "mammography_iter67")
 
 
 def test_iter67_diabetes():
     """Iter67 diabetes."""
-    _run_iter67_test(_load_diabetes_classification, "diabetes_iter67")
+    _assert_matrix_discriminates(_run_iter67_test(_load_diabetes_classification, "diabetes_iter67"), "diabetes_iter67")
 
 
 # ========== iter 68: Multi-baseline hard-row attention (ensemble-disagreement hard rows) ==========
@@ -7530,37 +7583,37 @@ FEATURE_BUILDERS_ITER68: Dict[str, Callable] = {
 }
 
 
-def _run_iter68_test(loader, name: str) -> None:
+def _run_iter68_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter68 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter68-mbhrattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER68)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter68_kin8nm():
     """Iter68 kin8nm."""
-    _run_iter68_test(_load_kin8nm, "kin8nm_iter68")
+    _assert_matrix_discriminates(_run_iter68_test(_load_kin8nm, "kin8nm_iter68"), "kin8nm_iter68")
 
 
 def test_iter68_abalone():
     """Iter68 abalone."""
-    _run_iter68_test(_load_abalone, "abalone_iter68")
+    _assert_matrix_discriminates(_run_iter68_test(_load_abalone, "abalone_iter68"), "abalone_iter68")
 
 
 def test_iter68_mammography():
     """Iter68 mammography."""
-    _run_iter68_test(_load_mammography, "mammography_iter68")
+    _assert_matrix_discriminates(_run_iter68_test(_load_mammography, "mammography_iter68"), "mammography_iter68")
 
 
 def test_iter68_diabetes():
     """Iter68 diabetes."""
-    _run_iter68_test(_load_diabetes_classification, "diabetes_iter68")
+    _assert_matrix_discriminates(_run_iter68_test(_load_diabetes_classification, "diabetes_iter68"), "diabetes_iter68")
 
 
 # ========== iter 69: Baseline-disagreement-as-feature (3 baselines, predictions + disagreement stats per query) ==========
@@ -7619,37 +7672,37 @@ FEATURE_BUILDERS_ITER69: Dict[str, Callable] = {
 }
 
 
-def _run_iter69_test(loader, name: str) -> None:
+def _run_iter69_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter69 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter69-blagreement] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER69)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter69_kin8nm():
     """Iter69 kin8nm."""
-    _run_iter69_test(_load_kin8nm, "kin8nm_iter69")
+    _assert_matrix_discriminates(_run_iter69_test(_load_kin8nm, "kin8nm_iter69"), "kin8nm_iter69")
 
 
 def test_iter69_abalone():
     """Iter69 abalone."""
-    _run_iter69_test(_load_abalone, "abalone_iter69")
+    _assert_matrix_discriminates(_run_iter69_test(_load_abalone, "abalone_iter69"), "abalone_iter69")
 
 
 def test_iter69_mammography():
     """Iter69 mammography."""
-    _run_iter69_test(_load_mammography, "mammography_iter69")
+    _assert_matrix_discriminates(_run_iter69_test(_load_mammography, "mammography_iter69"), "mammography_iter69")
 
 
 def test_iter69_diabetes():
     """Iter69 diabetes."""
-    _run_iter69_test(_load_diabetes_classification, "diabetes_iter69")
+    _assert_matrix_discriminates(_run_iter69_test(_load_diabetes_classification, "diabetes_iter69"), "diabetes_iter69")
 
 
 # ========== iter 70: Disagreement-band attention (bands by 3-baseline std-of-predictions quintile) ==========
@@ -7712,37 +7765,37 @@ FEATURE_BUILDERS_ITER70: Dict[str, Callable] = {
 }
 
 
-def _run_iter70_test(loader, name: str) -> None:
+def _run_iter70_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter70 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter70-dbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER70)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter70_kin8nm():
     """Iter70 kin8nm."""
-    _run_iter70_test(_load_kin8nm, "kin8nm_iter70")
+    _assert_matrix_discriminates(_run_iter70_test(_load_kin8nm, "kin8nm_iter70"), "kin8nm_iter70")
 
 
 def test_iter70_abalone():
     """Iter70 abalone."""
-    _run_iter70_test(_load_abalone, "abalone_iter70")
+    _assert_matrix_discriminates(_run_iter70_test(_load_abalone, "abalone_iter70"), "abalone_iter70")
 
 
 def test_iter70_mammography():
     """Iter70 mammography."""
-    _run_iter70_test(_load_mammography, "mammography_iter70")
+    _assert_matrix_discriminates(_run_iter70_test(_load_mammography, "mammography_iter70"), "mammography_iter70")
 
 
 def test_iter70_diabetes():
     """Iter70 diabetes."""
-    _run_iter70_test(_load_diabetes_classification, "diabetes_iter70")
+    _assert_matrix_discriminates(_run_iter70_test(_load_diabetes_classification, "diabetes_iter70"), "diabetes_iter70")
 
 
 # ========== iter 71: NN target-mean in 3D OOF embedding space (Home Credit 1st-place pattern) ==========
@@ -7803,37 +7856,37 @@ FEATURE_BUILDERS_ITER71: Dict[str, Callable] = {
 }
 
 
-def _run_iter71_test(loader, name: str) -> None:
+def _run_iter71_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter71 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter71-nnoof] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER71)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter71_kin8nm():
     """Iter71 kin8nm."""
-    _run_iter71_test(_load_kin8nm, "kin8nm_iter71")
+    _assert_matrix_discriminates(_run_iter71_test(_load_kin8nm, "kin8nm_iter71"), "kin8nm_iter71")
 
 
 def test_iter71_abalone():
     """Iter71 abalone."""
-    _run_iter71_test(_load_abalone, "abalone_iter71")
+    _assert_matrix_discriminates(_run_iter71_test(_load_abalone, "abalone_iter71"), "abalone_iter71")
 
 
 def test_iter71_mammography():
     """Iter71 mammography."""
-    _run_iter71_test(_load_mammography, "mammography_iter71")
+    _assert_matrix_discriminates(_run_iter71_test(_load_mammography, "mammography_iter71"), "mammography_iter71")
 
 
 def test_iter71_diabetes():
     """Iter71 diabetes."""
-    _run_iter71_test(_load_diabetes_classification, "diabetes_iter71")
+    _assert_matrix_discriminates(_run_iter71_test(_load_diabetes_classification, "diabetes_iter71"), "diabetes_iter71")
 
 
 # ========== iter 72: Local density gradient ||∇log p̂(x)|| (geometric agent #2) ==========
@@ -7894,37 +7947,37 @@ FEATURE_BUILDERS_ITER72: Dict[str, Callable] = {
 }
 
 
-def _run_iter72_test(loader, name: str) -> None:
+def _run_iter72_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter72 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter72-ldgrad] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER72)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter72_kin8nm():
     """Iter72 kin8nm."""
-    _run_iter72_test(_load_kin8nm, "kin8nm_iter72")
+    _assert_matrix_discriminates(_run_iter72_test(_load_kin8nm, "kin8nm_iter72"), "kin8nm_iter72")
 
 
 def test_iter72_abalone():
     """Iter72 abalone."""
-    _run_iter72_test(_load_abalone, "abalone_iter72")
+    _assert_matrix_discriminates(_run_iter72_test(_load_abalone, "abalone_iter72"), "abalone_iter72")
 
 
 def test_iter72_mammography():
     """Iter72 mammography."""
-    _run_iter72_test(_load_mammography, "mammography_iter72")
+    _assert_matrix_discriminates(_run_iter72_test(_load_mammography, "mammography_iter72"), "mammography_iter72")
 
 
 def test_iter72_diabetes():
     """Iter72 diabetes."""
-    _run_iter72_test(_load_diabetes_classification, "diabetes_iter72")
+    _assert_matrix_discriminates(_run_iter72_test(_load_diabetes_classification, "diabetes_iter72"), "diabetes_iter72")
 
 
 # ========== iter 73: Baseline surprise + entropy band (info agent #1) ==========
@@ -7985,37 +8038,37 @@ FEATURE_BUILDERS_ITER73: Dict[str, Callable] = {
 }
 
 
-def _run_iter73_test(loader, name: str) -> None:
+def _run_iter73_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter73 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter73-surprise] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER73)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter73_kin8nm():
     """Iter73 kin8nm."""
-    _run_iter73_test(_load_kin8nm, "kin8nm_iter73")
+    _assert_matrix_discriminates(_run_iter73_test(_load_kin8nm, "kin8nm_iter73"), "kin8nm_iter73")
 
 
 def test_iter73_abalone():
     """Iter73 abalone."""
-    _run_iter73_test(_load_abalone, "abalone_iter73")
+    _assert_matrix_discriminates(_run_iter73_test(_load_abalone, "abalone_iter73"), "abalone_iter73")
 
 
 def test_iter73_mammography():
     """Iter73 mammography."""
-    _run_iter73_test(_load_mammography, "mammography_iter73")
+    _assert_matrix_discriminates(_run_iter73_test(_load_mammography, "mammography_iter73"), "mammography_iter73")
 
 
 def test_iter73_diabetes():
     """Iter73 diabetes."""
-    _run_iter73_test(_load_diabetes_classification, "diabetes_iter73")
+    _assert_matrix_discriminates(_run_iter73_test(_load_diabetes_classification, "diabetes_iter73"), "diabetes_iter73")
 
 
 # ========== iter 74: Local intrinsic dimension via PCA spectrum (geom agent #1) ==========
@@ -8076,37 +8129,37 @@ FEATURE_BUILDERS_ITER74: Dict[str, Callable] = {
 }
 
 
-def _run_iter74_test(loader, name: str) -> None:
+def _run_iter74_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter74 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter74-lid] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER74)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter74_kin8nm():
     """Iter74 kin8nm."""
-    _run_iter74_test(_load_kin8nm, "kin8nm_iter74")
+    _assert_matrix_discriminates(_run_iter74_test(_load_kin8nm, "kin8nm_iter74"), "kin8nm_iter74")
 
 
 def test_iter74_abalone():
     """Iter74 abalone."""
-    _run_iter74_test(_load_abalone, "abalone_iter74")
+    _assert_matrix_discriminates(_run_iter74_test(_load_abalone, "abalone_iter74"), "abalone_iter74")
 
 
 def test_iter74_mammography():
     """Iter74 mammography."""
-    _run_iter74_test(_load_mammography, "mammography_iter74")
+    _assert_matrix_discriminates(_run_iter74_test(_load_mammography, "mammography_iter74"), "mammography_iter74")
 
 
 def test_iter74_diabetes():
     """Iter74 diabetes."""
-    _run_iter74_test(_load_diabetes_classification, "diabetes_iter74")
+    _assert_matrix_discriminates(_run_iter74_test(_load_diabetes_classification, "diabetes_iter74"), "diabetes_iter74")
 
 
 # ========== iter 75: Robustness budget under Gaussian noise (adv agent #3) ==========
@@ -8169,37 +8222,37 @@ FEATURE_BUILDERS_ITER75: Dict[str, Callable] = {
 }
 
 
-def _run_iter75_test(loader, name: str) -> None:
+def _run_iter75_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter75 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter75-robust] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER75)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter75_kin8nm():
     """Iter75 kin8nm."""
-    _run_iter75_test(_load_kin8nm, "kin8nm_iter75")
+    _assert_matrix_discriminates(_run_iter75_test(_load_kin8nm, "kin8nm_iter75"), "kin8nm_iter75")
 
 
 def test_iter75_abalone():
     """Iter75 abalone."""
-    _run_iter75_test(_load_abalone, "abalone_iter75")
+    _assert_matrix_discriminates(_run_iter75_test(_load_abalone, "abalone_iter75"), "abalone_iter75")
 
 
 def test_iter75_mammography():
     """Iter75 mammography."""
-    _run_iter75_test(_load_mammography, "mammography_iter75")
+    _assert_matrix_discriminates(_run_iter75_test(_load_mammography, "mammography_iter75"), "mammography_iter75")
 
 
 def test_iter75_diabetes():
     """Iter75 diabetes."""
-    _run_iter75_test(_load_diabetes_classification, "diabetes_iter75")
+    _assert_matrix_discriminates(_run_iter75_test(_load_diabetes_classification, "diabetes_iter75"), "diabetes_iter75")
 
 
 # ========== iter 76: Pairwise KL/JS divergence between 3 baselines (info agent #2) ==========
@@ -8258,37 +8311,37 @@ FEATURE_BUILDERS_ITER76: Dict[str, Callable] = {
 }
 
 
-def _run_iter76_test(loader, name: str) -> None:
+def _run_iter76_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter76 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter76-pwkl] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER76)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter76_kin8nm():
     """Iter76 kin8nm."""
-    _run_iter76_test(_load_kin8nm, "kin8nm_iter76")
+    _assert_matrix_discriminates(_run_iter76_test(_load_kin8nm, "kin8nm_iter76"), "kin8nm_iter76")
 
 
 def test_iter76_abalone():
     """Iter76 abalone."""
-    _run_iter76_test(_load_abalone, "abalone_iter76")
+    _assert_matrix_discriminates(_run_iter76_test(_load_abalone, "abalone_iter76"), "abalone_iter76")
 
 
 def test_iter76_mammography():
     """Iter76 mammography."""
-    _run_iter76_test(_load_mammography, "mammography_iter76")
+    _assert_matrix_discriminates(_run_iter76_test(_load_mammography, "mammography_iter76"), "mammography_iter76")
 
 
 def test_iter76_diabetes():
     """Iter76 diabetes."""
-    _run_iter76_test(_load_diabetes_classification, "diabetes_iter76")
+    _assert_matrix_discriminates(_run_iter76_test(_load_diabetes_classification, "diabetes_iter76"), "diabetes_iter76")
 
 
 # ========== iter 77: Local curvature via quadratic fit (geom #5) ==========
@@ -8349,37 +8402,37 @@ FEATURE_BUILDERS_ITER77: Dict[str, Callable] = {
 }
 
 
-def _run_iter77_test(loader, name: str) -> None:
+def _run_iter77_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter77 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter77-curv] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER77)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter77_kin8nm():
     """Iter77 kin8nm."""
-    _run_iter77_test(_load_kin8nm, "kin8nm_iter77")
+    _assert_matrix_discriminates(_run_iter77_test(_load_kin8nm, "kin8nm_iter77"), "kin8nm_iter77")
 
 
 def test_iter77_abalone():
     """Iter77 abalone."""
-    _run_iter77_test(_load_abalone, "abalone_iter77")
+    _assert_matrix_discriminates(_run_iter77_test(_load_abalone, "abalone_iter77"), "abalone_iter77")
 
 
 def test_iter77_mammography():
     """Iter77 mammography."""
-    _run_iter77_test(_load_mammography, "mammography_iter77")
+    _assert_matrix_discriminates(_run_iter77_test(_load_mammography, "mammography_iter77"), "mammography_iter77")
 
 
 def test_iter77_diabetes():
     """Iter77 diabetes."""
-    _run_iter77_test(_load_diabetes_classification, "diabetes_iter77")
+    _assert_matrix_discriminates(_run_iter77_test(_load_diabetes_classification, "diabetes_iter77"), "diabetes_iter77")
 
 
 # ========== iter 78: Counterfactual feature substitution (adv #2) ==========
@@ -8440,37 +8493,37 @@ FEATURE_BUILDERS_ITER78: Dict[str, Callable] = {
 }
 
 
-def _run_iter78_test(loader, name: str) -> None:
+def _run_iter78_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter78 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter78-cfact] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER78)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter78_kin8nm():
     """Iter78 kin8nm."""
-    _run_iter78_test(_load_kin8nm, "kin8nm_iter78")
+    _assert_matrix_discriminates(_run_iter78_test(_load_kin8nm, "kin8nm_iter78"), "kin8nm_iter78")
 
 
 def test_iter78_abalone():
     """Iter78 abalone."""
-    _run_iter78_test(_load_abalone, "abalone_iter78")
+    _assert_matrix_discriminates(_run_iter78_test(_load_abalone, "abalone_iter78"), "abalone_iter78")
 
 
 def test_iter78_mammography():
     """Iter78 mammography."""
-    _run_iter78_test(_load_mammography, "mammography_iter78")
+    _assert_matrix_discriminates(_run_iter78_test(_load_mammography, "mammography_iter78"), "mammography_iter78")
 
 
 def test_iter78_diabetes():
     """Iter78 diabetes."""
-    _run_iter78_test(_load_diabetes_classification, "diabetes_iter78")
+    _assert_matrix_discriminates(_run_iter78_test(_load_diabetes_classification, "diabetes_iter78"), "diabetes_iter78")
 
 
 # ========== iter 79: Adversarial flip distance (adv #1) ==========
@@ -8529,37 +8582,37 @@ FEATURE_BUILDERS_ITER79: Dict[str, Callable] = {
 }
 
 
-def _run_iter79_test(loader, name: str) -> None:
+def _run_iter79_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter79 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter79-advflip] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER79)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter79_kin8nm():
     """Iter79 kin8nm."""
-    _run_iter79_test(_load_kin8nm, "kin8nm_iter79")
+    _assert_matrix_discriminates(_run_iter79_test(_load_kin8nm, "kin8nm_iter79"), "kin8nm_iter79")
 
 
 def test_iter79_abalone():
     """Iter79 abalone."""
-    _run_iter79_test(_load_abalone, "abalone_iter79")
+    _assert_matrix_discriminates(_run_iter79_test(_load_abalone, "abalone_iter79"), "abalone_iter79")
 
 
 def test_iter79_mammography():
     """Iter79 mammography."""
-    _run_iter79_test(_load_mammography, "mammography_iter79")
+    _assert_matrix_discriminates(_run_iter79_test(_load_mammography, "mammography_iter79"), "mammography_iter79")
 
 
 def test_iter79_diabetes():
     """Iter79 diabetes."""
-    _run_iter79_test(_load_diabetes_classification, "diabetes_iter79")
+    _assert_matrix_discriminates(_run_iter79_test(_load_diabetes_classification, "diabetes_iter79"), "diabetes_iter79")
 
 
 # ========== iter 80: Gradient direction agreement (adv #4) ==========
@@ -8618,37 +8671,37 @@ FEATURE_BUILDERS_ITER80: Dict[str, Callable] = {
 }
 
 
-def _run_iter80_test(loader, name: str) -> None:
+def _run_iter80_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter80 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter80-graddir] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER80)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter80_kin8nm():
     """Iter80 kin8nm."""
-    _run_iter80_test(_load_kin8nm, "kin8nm_iter80")
+    _assert_matrix_discriminates(_run_iter80_test(_load_kin8nm, "kin8nm_iter80"), "kin8nm_iter80")
 
 
 def test_iter80_abalone():
     """Iter80 abalone."""
-    _run_iter80_test(_load_abalone, "abalone_iter80")
+    _assert_matrix_discriminates(_run_iter80_test(_load_abalone, "abalone_iter80"), "abalone_iter80")
 
 
 def test_iter80_mammography():
     """Iter80 mammography."""
-    _run_iter80_test(_load_mammography, "mammography_iter80")
+    _assert_matrix_discriminates(_run_iter80_test(_load_mammography, "mammography_iter80"), "mammography_iter80")
 
 
 def test_iter80_diabetes():
     """Iter80 diabetes."""
-    _run_iter80_test(_load_diabetes_classification, "diabetes_iter80")
+    _assert_matrix_discriminates(_run_iter80_test(_load_diabetes_classification, "diabetes_iter80"), "diabetes_iter80")
 
 
 # ========== iter 81: Fisher-weighted residual band (info #3) ==========
@@ -8709,37 +8762,37 @@ FEATURE_BUILDERS_ITER81: Dict[str, Callable] = {
 }
 
 
-def _run_iter81_test(loader, name: str) -> None:
+def _run_iter81_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter81 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter81-fishres] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER81)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter81_kin8nm():
     """Iter81 kin8nm."""
-    _run_iter81_test(_load_kin8nm, "kin8nm_iter81")
+    _assert_matrix_discriminates(_run_iter81_test(_load_kin8nm, "kin8nm_iter81"), "kin8nm_iter81")
 
 
 def test_iter81_abalone():
     """Iter81 abalone."""
-    _run_iter81_test(_load_abalone, "abalone_iter81")
+    _assert_matrix_discriminates(_run_iter81_test(_load_abalone, "abalone_iter81"), "abalone_iter81")
 
 
 def test_iter81_mammography():
     """Iter81 mammography."""
-    _run_iter81_test(_load_mammography, "mammography_iter81")
+    _assert_matrix_discriminates(_run_iter81_test(_load_mammography, "mammography_iter81"), "mammography_iter81")
 
 
 def test_iter81_diabetes():
     """Iter81 diabetes."""
-    _run_iter81_test(_load_diabetes_classification, "diabetes_iter81")
+    _assert_matrix_discriminates(_run_iter81_test(_load_diabetes_classification, "diabetes_iter81"), "diabetes_iter81")
 
 
 # ========== iter 82: Predictive info delta (info #5) ==========
@@ -8800,37 +8853,37 @@ FEATURE_BUILDERS_ITER82: Dict[str, Callable] = {
 }
 
 
-def _run_iter82_test(loader, name: str) -> None:
+def _run_iter82_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter82 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter82-pinfo] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER82)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter82_kin8nm():
     """Iter82 kin8nm."""
-    _run_iter82_test(_load_kin8nm, "kin8nm_iter82")
+    _assert_matrix_discriminates(_run_iter82_test(_load_kin8nm, "kin8nm_iter82"), "kin8nm_iter82")
 
 
 def test_iter82_abalone():
     """Iter82 abalone."""
-    _run_iter82_test(_load_abalone, "abalone_iter82")
+    _assert_matrix_discriminates(_run_iter82_test(_load_abalone, "abalone_iter82"), "abalone_iter82")
 
 
 def test_iter82_mammography():
     """Iter82 mammography."""
-    _run_iter82_test(_load_mammography, "mammography_iter82")
+    _assert_matrix_discriminates(_run_iter82_test(_load_mammography, "mammography_iter82"), "mammography_iter82")
 
 
 def test_iter82_diabetes():
     """Iter82 diabetes."""
-    _run_iter82_test(_load_diabetes_classification, "diabetes_iter82")
+    _assert_matrix_discriminates(_run_iter82_test(_load_diabetes_classification, "diabetes_iter82"), "diabetes_iter82")
 
 
 # ========== iter 83: Decision region depth via isotropic probes (adv #5) ==========
@@ -8891,37 +8944,37 @@ FEATURE_BUILDERS_ITER83: Dict[str, Callable] = {
 }
 
 
-def _run_iter83_test(loader, name: str) -> None:
+def _run_iter83_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter83 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter83-drd] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER83)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter83_kin8nm():
     """Iter83 kin8nm."""
-    _run_iter83_test(_load_kin8nm, "kin8nm_iter83")
+    _assert_matrix_discriminates(_run_iter83_test(_load_kin8nm, "kin8nm_iter83"), "kin8nm_iter83")
 
 
 def test_iter83_abalone():
     """Iter83 abalone."""
-    _run_iter83_test(_load_abalone, "abalone_iter83")
+    _assert_matrix_discriminates(_run_iter83_test(_load_abalone, "abalone_iter83"), "abalone_iter83")
 
 
 def test_iter83_mammography():
     """Iter83 mammography."""
-    _run_iter83_test(_load_mammography, "mammography_iter83")
+    _assert_matrix_discriminates(_run_iter83_test(_load_mammography, "mammography_iter83"), "mammography_iter83")
 
 
 def test_iter83_diabetes():
     """Iter83 diabetes."""
-    _run_iter83_test(_load_diabetes_classification, "diabetes_iter83")
+    _assert_matrix_discriminates(_run_iter83_test(_load_diabetes_classification, "diabetes_iter83"), "diabetes_iter83")
 
 
 # ========== iter 84: IB-quantized baseline codes (info #4) ==========
@@ -8980,37 +9033,37 @@ FEATURE_BUILDERS_ITER84: Dict[str, Callable] = {
 }
 
 
-def _run_iter84_test(loader, name: str) -> None:
+def _run_iter84_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter84 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter84-ibcode] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER84)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter84_kin8nm():
     """Iter84 kin8nm."""
-    _run_iter84_test(_load_kin8nm, "kin8nm_iter84")
+    _assert_matrix_discriminates(_run_iter84_test(_load_kin8nm, "kin8nm_iter84"), "kin8nm_iter84")
 
 
 def test_iter84_abalone():
     """Iter84 abalone."""
-    _run_iter84_test(_load_abalone, "abalone_iter84")
+    _assert_matrix_discriminates(_run_iter84_test(_load_abalone, "abalone_iter84"), "abalone_iter84")
 
 
 def test_iter84_mammography():
     """Iter84 mammography."""
-    _run_iter84_test(_load_mammography, "mammography_iter84")
+    _assert_matrix_discriminates(_run_iter84_test(_load_mammography, "mammography_iter84"), "mammography_iter84")
 
 
 def test_iter84_diabetes():
     """Iter84 diabetes."""
-    _run_iter84_test(_load_diabetes_classification, "diabetes_iter84")
+    _assert_matrix_discriminates(_run_iter84_test(_load_diabetes_classification, "diabetes_iter84"), "diabetes_iter84")
 
 
 # ========== iter 85: Geodesic distance via kNN graph (geom #3) ==========
@@ -9069,37 +9122,37 @@ FEATURE_BUILDERS_ITER85: Dict[str, Callable] = {
 }
 
 
-def _run_iter85_test(loader, name: str) -> None:
+def _run_iter85_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter85 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter85-geo] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER85)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter85_kin8nm():
     """Iter85 kin8nm."""
-    _run_iter85_test(_load_kin8nm, "kin8nm_iter85")
+    _assert_matrix_discriminates(_run_iter85_test(_load_kin8nm, "kin8nm_iter85"), "kin8nm_iter85")
 
 
 def test_iter85_abalone():
     """Iter85 abalone."""
-    _run_iter85_test(_load_abalone, "abalone_iter85")
+    _assert_matrix_discriminates(_run_iter85_test(_load_abalone, "abalone_iter85"), "abalone_iter85")
 
 
 def test_iter85_mammography():
     """Iter85 mammography."""
-    _run_iter85_test(_load_mammography, "mammography_iter85")
+    _assert_matrix_discriminates(_run_iter85_test(_load_mammography, "mammography_iter85"), "mammography_iter85")
 
 
 def test_iter85_diabetes():
     """Iter85 diabetes."""
-    _run_iter85_test(_load_diabetes_classification, "diabetes_iter85")
+    _assert_matrix_discriminates(_run_iter85_test(_load_diabetes_classification, "diabetes_iter85"), "diabetes_iter85")
 
 
 # ========== iter 86: Persistence diagram features via gudhi (geom #4) ==========
@@ -9160,37 +9213,37 @@ FEATURE_BUILDERS_ITER86: Dict[str, Callable] = {
 }
 
 
-def _run_iter86_test(loader, name: str) -> None:
+def _run_iter86_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter86 test."""
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: loader failed: {type(exc).__name__}: {exc}")
-        return
+        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter86-pers] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER86)
     _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter86_kin8nm():
     """Iter86 kin8nm."""
-    _run_iter86_test(_load_kin8nm, "kin8nm_iter86")
+    _assert_matrix_discriminates(_run_iter86_test(_load_kin8nm, "kin8nm_iter86"), "kin8nm_iter86")
 
 
 def test_iter86_abalone():
     """Iter86 abalone."""
-    _run_iter86_test(_load_abalone, "abalone_iter86")
+    _assert_matrix_discriminates(_run_iter86_test(_load_abalone, "abalone_iter86"), "abalone_iter86")
 
 
 def test_iter86_mammography():
     """Iter86 mammography."""
-    _run_iter86_test(_load_mammography, "mammography_iter86")
+    _assert_matrix_discriminates(_run_iter86_test(_load_mammography, "mammography_iter86"), "mammography_iter86")
 
 
 def test_iter86_diabetes():
     """Iter86 diabetes."""
-    _run_iter86_test(_load_diabetes_classification, "diabetes_iter86")
+    _assert_matrix_discriminates(_run_iter86_test(_load_diabetes_classification, "diabetes_iter86"), "diabetes_iter86")
 
 
 # ========== iter 87: Variance baseline (predict squared residual, C3) ==========
@@ -9240,31 +9293,32 @@ def _run_iter87_test(loader, name):
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: {exc}")
-        return
+        pytest.skip(f"{name}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter87-varbase] {name}: X.shape={X.shape}, task={task}")
-    _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER87))
+    records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER87)
+    _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter87_kin8nm():
     """Iter87 kin8nm."""
-    _run_iter87_test(_load_kin8nm, "kin8nm_iter87")
+    _assert_matrix_discriminates(_run_iter87_test(_load_kin8nm, "kin8nm_iter87"), "kin8nm_iter87")
 
 
 def test_iter87_abalone():
     """Iter87 abalone."""
-    _run_iter87_test(_load_abalone, "abalone_iter87")
+    _assert_matrix_discriminates(_run_iter87_test(_load_abalone, "abalone_iter87"), "abalone_iter87")
 
 
 def test_iter87_mammography():
     """Iter87 mammography."""
-    _run_iter87_test(_load_mammography, "mammography_iter87")
+    _assert_matrix_discriminates(_run_iter87_test(_load_mammography, "mammography_iter87"), "mammography_iter87")
 
 
 def test_iter87_diabetes():
     """Iter87 diabetes."""
-    _run_iter87_test(_load_diabetes_classification, "diabetes_iter87")
+    _assert_matrix_discriminates(_run_iter87_test(_load_diabetes_classification, "diabetes_iter87"), "diabetes_iter87")
 
 
 # ========== iter 88: Sign-of-residual baseline (C5) ==========
@@ -9314,31 +9368,32 @@ def _run_iter88_test(loader, name):
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: {exc}")
-        return
+        pytest.skip(f"{name}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter88-signres] {name}: X.shape={X.shape}, task={task}")
-    _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER88))
+    records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER88)
+    _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter88_kin8nm():
     """Iter88 kin8nm."""
-    _run_iter88_test(_load_kin8nm, "kin8nm_iter88")
+    _assert_matrix_discriminates(_run_iter88_test(_load_kin8nm, "kin8nm_iter88"), "kin8nm_iter88")
 
 
 def test_iter88_abalone():
     """Iter88 abalone."""
-    _run_iter88_test(_load_abalone, "abalone_iter88")
+    _assert_matrix_discriminates(_run_iter88_test(_load_abalone, "abalone_iter88"), "abalone_iter88")
 
 
 def test_iter88_mammography():
     """Iter88 mammography."""
-    _run_iter88_test(_load_mammography, "mammography_iter88")
+    _assert_matrix_discriminates(_run_iter88_test(_load_mammography, "mammography_iter88"), "mammography_iter88")
 
 
 def test_iter88_diabetes():
     """Iter88 diabetes."""
-    _run_iter88_test(_load_diabetes_classification, "diabetes_iter88")
+    _assert_matrix_discriminates(_run_iter88_test(_load_diabetes_classification, "diabetes_iter88"), "diabetes_iter88")
 
 
 # ========== iter 89: Quantile-spread fan (C1) ==========
@@ -9388,31 +9443,32 @@ def _run_iter89_test(loader, name):
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: {exc}")
-        return
+        pytest.skip(f"{name}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter89-qfan] {name}: X.shape={X.shape}, task={task}")
-    _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER89))
+    records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER89)
+    _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter89_kin8nm():
     """Iter89 kin8nm."""
-    _run_iter89_test(_load_kin8nm, "kin8nm_iter89")
+    _assert_matrix_discriminates(_run_iter89_test(_load_kin8nm, "kin8nm_iter89"), "kin8nm_iter89")
 
 
 def test_iter89_abalone():
     """Iter89 abalone."""
-    _run_iter89_test(_load_abalone, "abalone_iter89")
+    _assert_matrix_discriminates(_run_iter89_test(_load_abalone, "abalone_iter89"), "abalone_iter89")
 
 
 def test_iter89_mammography():
     """Iter89 mammography."""
-    _run_iter89_test(_load_mammography, "mammography_iter89")
+    _assert_matrix_discriminates(_run_iter89_test(_load_mammography, "mammography_iter89"), "mammography_iter89")
 
 
 def test_iter89_diabetes():
     """Iter89 diabetes."""
-    _run_iter89_test(_load_diabetes_classification, "diabetes_iter89")
+    _assert_matrix_discriminates(_run_iter89_test(_load_diabetes_classification, "diabetes_iter89"), "diabetes_iter89")
 
 
 # ========== iter 90: Trust score via OOF correctness density (B2) ==========
@@ -9462,31 +9518,32 @@ def _run_iter90_test(loader, name):
     try:
         X, y, task = loader()
     except Exception as exc:
-        print(f"\n[skip] {name}: {exc}")
-        return
+        pytest.skip(f"{name}: {exc}")
     X, y = _cap_rows(X, y)
     print(f"\n[iter90-trust] {name}: X.shape={X.shape}, task={task}")
-    _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER90))
+    records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER90)
+    _print_matrix_multi_metric(records)
+    return records
 
 
 def test_iter90_kin8nm():
     """Iter90 kin8nm."""
-    _run_iter90_test(_load_kin8nm, "kin8nm_iter90")
+    _assert_matrix_discriminates(_run_iter90_test(_load_kin8nm, "kin8nm_iter90"), "kin8nm_iter90")
 
 
 def test_iter90_abalone():
     """Iter90 abalone."""
-    _run_iter90_test(_load_abalone, "abalone_iter90")
+    _assert_matrix_discriminates(_run_iter90_test(_load_abalone, "abalone_iter90"), "abalone_iter90")
 
 
 def test_iter90_mammography():
     """Iter90 mammography."""
-    _run_iter90_test(_load_mammography, "mammography_iter90")
+    _assert_matrix_discriminates(_run_iter90_test(_load_mammography, "mammography_iter90"), "mammography_iter90")
 
 
 def test_iter90_diabetes():
     """Iter90 diabetes."""
-    _run_iter90_test(_load_diabetes_classification, "diabetes_iter90")
+    _assert_matrix_discriminates(_run_iter90_test(_load_diabetes_classification, "diabetes_iter90"), "diabetes_iter90")
 
 
 # ========== iter 91-101: 11 mechanisms from 3-agent synthesis batch 2+3 ==========
@@ -9534,11 +9591,12 @@ def _make_runner(iter_n: int, prefix: str, builders: Dict[str, Callable]):
         try:
             X, y, task = loader()
         except Exception as exc:
-            print(f"\n[skip] {name}: {exc}")
-            return
+            pytest.skip(f"{name}: {exc}")
         X, y = _cap_rows(X, y)
         print(f"\n[iter{iter_n}-{prefix}] {name}: X.shape={X.shape}, task={task}")
-        _print_matrix_multi_metric(_run_matrix(X, y, task, name, builders=builders))
+        records = _run_matrix(X, y, task, name, builders=builders)
+        _print_matrix_multi_metric(records)
+        return records
 
     return _run
 
@@ -9549,22 +9607,22 @@ _RUN_91 = _make_runner(91, "ccf", _BUILDERS_91)
 
 def test_iter91_kin8nm():
     """Iter91 kin8nm."""
-    _RUN_91(_load_kin8nm, "kin8nm_iter91")
+    _assert_matrix_discriminates(_RUN_91(_load_kin8nm, "kin8nm_iter91"), "kin8nm_iter91")
 
 
 def test_iter91_abalone():
     """Iter91 abalone."""
-    _RUN_91(_load_abalone, "abalone_iter91")
+    _assert_matrix_discriminates(_RUN_91(_load_abalone, "abalone_iter91"), "abalone_iter91")
 
 
 def test_iter91_mammography():
     """Iter91 mammography."""
-    _RUN_91(_load_mammography, "mammography_iter91")
+    _assert_matrix_discriminates(_RUN_91(_load_mammography, "mammography_iter91"), "mammography_iter91")
 
 
 def test_iter91_diabetes():
     """Iter91 diabetes."""
-    _RUN_91(_load_diabetes_classification, "diabetes_iter91")
+    _assert_matrix_discriminates(_RUN_91(_load_diabetes_classification, "diabetes_iter91"), "diabetes_iter91")
 
 
 _BUILDERS_92 = _make_builders(compute_tree_path_boolean_features, "tpath")
@@ -9573,22 +9631,22 @@ _RUN_92 = _make_runner(92, "tpath", _BUILDERS_92)
 
 def test_iter92_kin8nm():
     """Iter92 kin8nm."""
-    _RUN_92(_load_kin8nm, "kin8nm_iter92")
+    _assert_matrix_discriminates(_RUN_92(_load_kin8nm, "kin8nm_iter92"), "kin8nm_iter92")
 
 
 def test_iter92_abalone():
     """Iter92 abalone."""
-    _RUN_92(_load_abalone, "abalone_iter92")
+    _assert_matrix_discriminates(_RUN_92(_load_abalone, "abalone_iter92"), "abalone_iter92")
 
 
 def test_iter92_mammography():
     """Iter92 mammography."""
-    _RUN_92(_load_mammography, "mammography_iter92")
+    _assert_matrix_discriminates(_RUN_92(_load_mammography, "mammography_iter92"), "mammography_iter92")
 
 
 def test_iter92_diabetes():
     """Iter92 diabetes."""
-    _RUN_92(_load_diabetes_classification, "diabetes_iter92")
+    _assert_matrix_discriminates(_RUN_92(_load_diabetes_classification, "diabetes_iter92"), "diabetes_iter92")
 
 
 _BUILDERS_93 = _make_builders(compute_conformal_locally_adaptive_features, "cla")
@@ -9597,22 +9655,22 @@ _RUN_93 = _make_runner(93, "cla", _BUILDERS_93)
 
 def test_iter93_kin8nm():
     """Iter93 kin8nm."""
-    _RUN_93(_load_kin8nm, "kin8nm_iter93")
+    _assert_matrix_discriminates(_RUN_93(_load_kin8nm, "kin8nm_iter93"), "kin8nm_iter93")
 
 
 def test_iter93_abalone():
     """Iter93 abalone."""
-    _RUN_93(_load_abalone, "abalone_iter93")
+    _assert_matrix_discriminates(_RUN_93(_load_abalone, "abalone_iter93"), "abalone_iter93")
 
 
 def test_iter93_mammography():
     """Iter93 mammography."""
-    _RUN_93(_load_mammography, "mammography_iter93")
+    _assert_matrix_discriminates(_RUN_93(_load_mammography, "mammography_iter93"), "mammography_iter93")
 
 
 def test_iter93_diabetes():
     """Iter93 diabetes."""
-    _RUN_93(_load_diabetes_classification, "diabetes_iter93")
+    _assert_matrix_discriminates(_RUN_93(_load_diabetes_classification, "diabetes_iter93"), "diabetes_iter93")
 
 
 _BUILDERS_94 = _make_builders(compute_distributional_moments_features, "distmom")
@@ -9621,22 +9679,22 @@ _RUN_94 = _make_runner(94, "distmom", _BUILDERS_94)
 
 def test_iter94_kin8nm():
     """Iter94 kin8nm."""
-    _RUN_94(_load_kin8nm, "kin8nm_iter94")
+    _assert_matrix_discriminates(_RUN_94(_load_kin8nm, "kin8nm_iter94"), "kin8nm_iter94")
 
 
 def test_iter94_abalone():
     """Iter94 abalone."""
-    _RUN_94(_load_abalone, "abalone_iter94")
+    _assert_matrix_discriminates(_RUN_94(_load_abalone, "abalone_iter94"), "abalone_iter94")
 
 
 def test_iter94_mammography():
     """Iter94 mammography."""
-    _RUN_94(_load_mammography, "mammography_iter94")
+    _assert_matrix_discriminates(_RUN_94(_load_mammography, "mammography_iter94"), "mammography_iter94")
 
 
 def test_iter94_diabetes():
     """Iter94 diabetes."""
-    _RUN_94(_load_diabetes_classification, "diabetes_iter94")
+    _assert_matrix_discriminates(_RUN_94(_load_diabetes_classification, "diabetes_iter94"), "diabetes_iter94")
 
 
 _BUILDERS_95 = _make_builders(compute_cross_feature_reconstruction_features, "xfeat")
@@ -9645,22 +9703,22 @@ _RUN_95 = _make_runner(95, "xfeat", _BUILDERS_95)
 
 def test_iter95_kin8nm():
     """Iter95 kin8nm."""
-    _RUN_95(_load_kin8nm, "kin8nm_iter95")
+    _assert_matrix_discriminates(_RUN_95(_load_kin8nm, "kin8nm_iter95"), "kin8nm_iter95")
 
 
 def test_iter95_abalone():
     """Iter95 abalone."""
-    _RUN_95(_load_abalone, "abalone_iter95")
+    _assert_matrix_discriminates(_RUN_95(_load_abalone, "abalone_iter95"), "abalone_iter95")
 
 
 def test_iter95_mammography():
     """Iter95 mammography."""
-    _RUN_95(_load_mammography, "mammography_iter95")
+    _assert_matrix_discriminates(_RUN_95(_load_mammography, "mammography_iter95"), "mammography_iter95")
 
 
 def test_iter95_diabetes():
     """Iter95 diabetes."""
-    _RUN_95(_load_diabetes_classification, "diabetes_iter95")
+    _assert_matrix_discriminates(_RUN_95(_load_diabetes_classification, "diabetes_iter95"), "diabetes_iter95")
 
 
 _BUILDERS_96 = _make_builders(compute_multi_threshold_ordinal_features, "multthr")
@@ -9669,22 +9727,22 @@ _RUN_96 = _make_runner(96, "multthr", _BUILDERS_96)
 
 def test_iter96_kin8nm():
     """Iter96 kin8nm."""
-    _RUN_96(_load_kin8nm, "kin8nm_iter96")
+    _assert_matrix_discriminates(_RUN_96(_load_kin8nm, "kin8nm_iter96"), "kin8nm_iter96")
 
 
 def test_iter96_abalone():
     """Iter96 abalone."""
-    _RUN_96(_load_abalone, "abalone_iter96")
+    _assert_matrix_discriminates(_RUN_96(_load_abalone, "abalone_iter96"), "abalone_iter96")
 
 
 def test_iter96_mammography():
     """Iter96 mammography."""
-    _RUN_96(_load_mammography, "mammography_iter96")
+    _assert_matrix_discriminates(_RUN_96(_load_mammography, "mammography_iter96"), "mammography_iter96")
 
 
 def test_iter96_diabetes():
     """Iter96 diabetes."""
-    _RUN_96(_load_diabetes_classification, "diabetes_iter96")
+    _assert_matrix_discriminates(_RUN_96(_load_diabetes_classification, "diabetes_iter96"), "diabetes_iter96")
 
 
 _BUILDERS_97 = _make_builders(compute_mdl_binning_pairwise_features, "mdlbin")
@@ -9693,22 +9751,22 @@ _RUN_97 = _make_runner(97, "mdlbin", _BUILDERS_97)
 
 def test_iter97_kin8nm():
     """Iter97 kin8nm."""
-    _RUN_97(_load_kin8nm, "kin8nm_iter97")
+    _assert_matrix_discriminates(_RUN_97(_load_kin8nm, "kin8nm_iter97"), "kin8nm_iter97")
 
 
 def test_iter97_abalone():
     """Iter97 abalone."""
-    _RUN_97(_load_abalone, "abalone_iter97")
+    _assert_matrix_discriminates(_RUN_97(_load_abalone, "abalone_iter97"), "abalone_iter97")
 
 
 def test_iter97_mammography():
     """Iter97 mammography."""
-    _RUN_97(_load_mammography, "mammography_iter97")
+    _assert_matrix_discriminates(_RUN_97(_load_mammography, "mammography_iter97"), "mammography_iter97")
 
 
 def test_iter97_diabetes():
     """Iter97 diabetes."""
-    _RUN_97(_load_diabetes_classification, "diabetes_iter97")
+    _assert_matrix_discriminates(_RUN_97(_load_diabetes_classification, "diabetes_iter97"), "diabetes_iter97")
 
 
 _BUILDERS_98 = _make_builders(compute_apriori_itemsets_features, "apri")
@@ -9717,22 +9775,22 @@ _RUN_98 = _make_runner(98, "apri", _BUILDERS_98)
 
 def test_iter98_kin8nm():
     """Iter98 kin8nm."""
-    _RUN_98(_load_kin8nm, "kin8nm_iter98")
+    _assert_matrix_discriminates(_RUN_98(_load_kin8nm, "kin8nm_iter98"), "kin8nm_iter98")
 
 
 def test_iter98_abalone():
     """Iter98 abalone."""
-    _RUN_98(_load_abalone, "abalone_iter98")
+    _assert_matrix_discriminates(_RUN_98(_load_abalone, "abalone_iter98"), "abalone_iter98")
 
 
 def test_iter98_mammography():
     """Iter98 mammography."""
-    _RUN_98(_load_mammography, "mammography_iter98")
+    _assert_matrix_discriminates(_RUN_98(_load_mammography, "mammography_iter98"), "mammography_iter98")
 
 
 def test_iter98_diabetes():
     """Iter98 diabetes."""
-    _RUN_98(_load_diabetes_classification, "diabetes_iter98")
+    _assert_matrix_discriminates(_RUN_98(_load_diabetes_classification, "diabetes_iter98"), "diabetes_iter98")
 
 
 _BUILDERS_99 = _make_builders(compute_target_kmeans_codebook_features, "tkmc")
@@ -9741,22 +9799,22 @@ _RUN_99 = _make_runner(99, "tkmc", _BUILDERS_99)
 
 def test_iter99_kin8nm():
     """Iter99 kin8nm."""
-    _RUN_99(_load_kin8nm, "kin8nm_iter99")
+    _assert_matrix_discriminates(_RUN_99(_load_kin8nm, "kin8nm_iter99"), "kin8nm_iter99")
 
 
 def test_iter99_abalone():
     """Iter99 abalone."""
-    _RUN_99(_load_abalone, "abalone_iter99")
+    _assert_matrix_discriminates(_RUN_99(_load_abalone, "abalone_iter99"), "abalone_iter99")
 
 
 def test_iter99_mammography():
     """Iter99 mammography."""
-    _RUN_99(_load_mammography, "mammography_iter99")
+    _assert_matrix_discriminates(_RUN_99(_load_mammography, "mammography_iter99"), "mammography_iter99")
 
 
 def test_iter99_diabetes():
     """Iter99 diabetes."""
-    _RUN_99(_load_diabetes_classification, "diabetes_iter99")
+    _assert_matrix_discriminates(_RUN_99(_load_diabetes_classification, "diabetes_iter99"), "diabetes_iter99")
 
 
 _BUILDERS_100 = _make_builders(compute_fca_closed_concepts_features, "fca")
@@ -9765,22 +9823,22 @@ _RUN_100 = _make_runner(100, "fca", _BUILDERS_100)
 
 def test_iter100_kin8nm():
     """Iter100 kin8nm."""
-    _RUN_100(_load_kin8nm, "kin8nm_iter100")
+    _assert_matrix_discriminates(_RUN_100(_load_kin8nm, "kin8nm_iter100"), "kin8nm_iter100")
 
 
 def test_iter100_abalone():
     """Iter100 abalone."""
-    _RUN_100(_load_abalone, "abalone_iter100")
+    _assert_matrix_discriminates(_RUN_100(_load_abalone, "abalone_iter100"), "abalone_iter100")
 
 
 def test_iter100_mammography():
     """Iter100 mammography."""
-    _RUN_100(_load_mammography, "mammography_iter100")
+    _assert_matrix_discriminates(_RUN_100(_load_mammography, "mammography_iter100"), "mammography_iter100")
 
 
 def test_iter100_diabetes():
     """Iter100 diabetes."""
-    _RUN_100(_load_diabetes_classification, "diabetes_iter100")
+    _assert_matrix_discriminates(_RUN_100(_load_diabetes_classification, "diabetes_iter100"), "diabetes_iter100")
 
 
 _BUILDERS_101 = _make_builders(compute_jackknife_endpoint_stability_features, "jkep")
@@ -9789,22 +9847,22 @@ _RUN_101 = _make_runner(101, "jkep", _BUILDERS_101)
 
 def test_iter101_kin8nm():
     """Iter101 kin8nm."""
-    _RUN_101(_load_kin8nm, "kin8nm_iter101")
+    _assert_matrix_discriminates(_RUN_101(_load_kin8nm, "kin8nm_iter101"), "kin8nm_iter101")
 
 
 def test_iter101_abalone():
     """Iter101 abalone."""
-    _RUN_101(_load_abalone, "abalone_iter101")
+    _assert_matrix_discriminates(_RUN_101(_load_abalone, "abalone_iter101"), "abalone_iter101")
 
 
 def test_iter101_mammography():
     """Iter101 mammography."""
-    _RUN_101(_load_mammography, "mammography_iter101")
+    _assert_matrix_discriminates(_RUN_101(_load_mammography, "mammography_iter101"), "mammography_iter101")
 
 
 def test_iter101_diabetes():
     """Iter101 diabetes."""
-    _RUN_101(_load_diabetes_classification, "diabetes_iter101")
+    _assert_matrix_discriminates(_RUN_101(_load_diabetes_classification, "diabetes_iter101"), "diabetes_iter101")
 
 
 # ---------- structural-signal hard test ----------

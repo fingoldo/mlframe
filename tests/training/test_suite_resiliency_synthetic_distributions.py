@@ -627,17 +627,14 @@ def test_scenario08_multilabel_three_binary(tmp_path, caplog):
     df["target"] = [list(row) for row in y_multi]
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.reporting._reporting")
-    try:
-        models, _meta, _recs = _run_resiliency_suite(
-            df,
-            tmp_path,
-            regression=False,
-            target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
-            mlframe_models=("lgb",),
-            caplog=caplog,
-        )
-    except Exception as exc:
-        pytest.fail(f"scenario08: suite crashed on multilabel(K=3) with default params: {type(exc).__name__}: {exc}")
+    models, _meta, _recs = _run_resiliency_suite(
+        df,
+        tmp_path,
+        regression=False,
+        target_type=TargetTypes.MULTILABEL_CLASSIFICATION,
+        mlframe_models=("lgb",),
+        caplog=caplog,
+    )
 
     entries = _flatten_entries(models)
     assert entries, "scenario08: suite returned no model entries on multilabel"

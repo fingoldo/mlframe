@@ -87,7 +87,9 @@ def test_ftc_no_text_features_master_off_passes():
     """The compose-pattern that triggered the bug must still be expressible: a
     later preset can turn off use_text_features as long as the text_features list
     is also cleared. Without that no operator can have a 'no text at all' preset."""
-    FeatureTypesConfig(text_features=None, use_text_features=False)
+    cfg = FeatureTypesConfig(text_features=None, use_text_features=False)
+    assert cfg.text_features is None
+    assert cfg.use_text_features is False
 
 
 # ---- OutputConfig ---------------------------------------------------------
@@ -96,7 +98,9 @@ def test_ftc_no_text_features_master_off_passes():
 def test_oc_bare_defaults_pass():
     """BC: legacy callers using OutputConfig() with default save_charts=True +
     empty data_dir must keep working (silent no-save by design)."""
-    OutputConfig()
+    cfg = OutputConfig()
+    assert cfg.save_charts is True
+    assert cfg.data_dir == ""
 
 
 def test_oc_explicit_save_charts_true_no_data_dir_raises():
@@ -114,7 +118,9 @@ def test_oc_explicit_save_charts_true_with_data_dir_passes():
 
 def test_oc_explicit_save_charts_false_passes():
     """Oc explicit save charts false passes."""
-    OutputConfig(save_charts=False, data_dir="")
+    cfg = OutputConfig(save_charts=False, data_dir="")
+    assert cfg.save_charts is False
+    assert cfg.data_dir == ""
 
 
 # ---- MultilabelDispatchConfig ---------------------------------------------
@@ -161,4 +167,7 @@ def test_mlc_user_strategy_with_matching_count_passes():
 
 def test_mlc_default_random_passes():
     """Mlc default random passes."""
-    MultilabelDispatchConfig()  # bare defaults: strategy='auto', chain_order_strategy='random'
+    cfg = MultilabelDispatchConfig()
+    assert cfg.strategy == "auto"
+    assert cfg.chain_order_strategy == "random"
+    assert cfg.chain_order_user is None

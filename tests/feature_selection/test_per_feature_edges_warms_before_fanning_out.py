@@ -23,6 +23,8 @@ import pytest
 
 from mlframe.feature_selection.filters import _adaptive_nbins
 
+numba = pytest.importorskip("numba")
+
 
 def _numeric_columns(n_cols: int, n_rows: int = 400):
     """An (n_rows, n_cols) frame with enough structure that MDLP recurses instead of bailing at one split."""
@@ -31,12 +33,9 @@ def _numeric_columns(n_cols: int, n_rows: int = 400):
     return np.column_stack([rng.normal(size=n_rows) + y * 1.5 for _ in range(n_cols)]), y
 
 
+@pytest.mark.skipif(numba.config.DISABLE_JIT, reason="the threaded path is gated off when JIT is disabled, so there is nothing to warm")
 def test_the_first_column_is_computed_before_any_pool_thread_starts(monkeypatch):
     """Warming on the calling thread is what keeps numba's compiler single-threaded here."""
-    numba = pytest.importorskip("numba")
-    if numba.config.DISABLE_JIT:
-        pytest.skip("the threaded path is gated off when JIT is disabled, so there is nothing to warm")
-
     cols, y = _numeric_columns(6)
     threads: list[str] = []
     # ``edges_fayyad_irani`` is what the per-column closure calls, and unlike that closure it is a module
@@ -58,12 +57,9 @@ def test_the_first_column_is_computed_before_any_pool_thread_starts(monkeypatch)
     )
 
 
+@pytest.mark.skipif(numba.config.DISABLE_JIT, reason="the threaded path is gated off when JIT is disabled")
 def test_the_threaded_and_serial_paths_still_agree(monkeypatch):
     """Warming must not change a single edge: it moves where the work happens, not what it computes."""
-    numba = pytest.importorskip("numba")
-    if numba.config.DISABLE_JIT:
-        pytest.skip("the threaded path is gated off when JIT is disabled")
-
     cols, y = _numeric_columns(5)
     threaded = _adaptive_nbins.per_feature_edges(cols, y, method="fayyad_irani", n_jobs=4)
     serial = _adaptive_nbins.per_feature_edges(cols, y, method="fayyad_irani", n_jobs=1)

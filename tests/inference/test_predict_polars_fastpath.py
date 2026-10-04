@@ -104,8 +104,8 @@ def test_predict_from_models_polars_fastpath_xgb_keeps_polars():
     # only makes sense when XGB itself can consume polars natively;
     # skip on older XGB so the assertion target reflects production
     # rather than the version constraint.
-    _xgb_ver = tuple(int(x) for x in xgb.__version__.split(".")[:2])
-    if _xgb_ver < (3, 0):
+    xgb_version = tuple(int(x) for x in xgb.__version__.split(".")[:2])
+    if xgb_version < (3, 0):
         pytest.skip(
             f"xgboost {xgb.__version__} QuantileDMatrix iterator does "
             f"not accept polars frames (verified failure on 2.1.4); "

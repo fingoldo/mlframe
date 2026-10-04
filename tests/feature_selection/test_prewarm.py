@@ -66,10 +66,11 @@ class TestPrewarmSmoke:
 
     def test_runs_without_exception(self):
         """prewarm_fs_numba_cache runs without raising."""
-        from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
+        from mlframe.feature_selection.filters import _prewarm as pw
 
         # Must NOT raise even if individual kernels fail (the body wraps each call in try/except).
-        prewarm_fs_numba_cache(verbose=False)
+        assert pw.prewarm_fs_numba_cache(verbose=False) is None
+        assert pw._fs_numba_prewarmed is True
 
     def test_returns_none(self):
         """prewarm_fs_numba_cache returns None."""
@@ -90,12 +91,22 @@ class TestPrewarmSmoke:
         # counting the sweep's own RNG draws, so all this call has to establish is that it does not raise.
         assert prewarm_fs_numba_cache(verbose=False) is None
 
-    def test_verbose_flag_accepts_true(self):
-        """verbose=True emits a log line and does not raise."""
-        # Verbose path emits a log line; must not raise.
-        from mlframe.feature_selection.filters._prewarm import prewarm_fs_numba_cache
+    def test_verbose_flag_accepts_true(self, monkeypatch, caplog):
+        """verbose=True emits the timing log line; verbose=False stays silent."""
+        import logging
 
-        prewarm_fs_numba_cache(verbose=True)
+        from mlframe.feature_selection.filters import _prewarm as pw
+
+        monkeypatch.setattr(pw, "_fs_numba_prewarmed", False)
+        with caplog.at_level(logging.INFO, logger=pw.__name__):
+            pw.prewarm_fs_numba_cache(verbose=False)
+        assert not [r for r in caplog.records if "warmed FS kernels" in r.getMessage()]
+
+        caplog.clear()
+        monkeypatch.setattr(pw, "_fs_numba_prewarmed", False)
+        with caplog.at_level(logging.INFO, logger=pw.__name__):
+            pw.prewarm_fs_numba_cache(verbose=True)
+        assert [r for r in caplog.records if "warmed FS kernels" in r.getMessage()]
 
     def test_regression_module_level_guard_short_circuits_second_call(self, monkeypatch):
         """A second prewarm call short-circuits on the module-level guard instead of re-running the sweep."""

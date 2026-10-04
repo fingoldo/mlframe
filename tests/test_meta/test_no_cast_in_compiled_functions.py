@@ -57,26 +57,41 @@ def _is_cast_call(node: ast.Call) -> bool:
     return False
 
 
+def _cast_violations(tree: ast.AST, rel: object) -> list[str]:
+    """``cast(...)`` calls inside compiled functions of one parsed module, as report lines."""
+    violations: list[str] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not any(_is_compiled_decorator(d) for d in fn.decorator_list):
+            continue
+        for call in ast.walk(fn):
+            if isinstance(call, ast.Call) and _is_cast_call(call):
+                violations.append(f"{rel}:{call.lineno}  {fn.name}() calls cast(...)")
+    return violations
+
+
+def test_cast_detector_catches_cast_in_njit_and_passes_eager_cast():
+    """``cast`` inside an ``@njit`` body is reported; the same call in a plain function is not."""
+    bad = ast.parse("@njit\ndef f(x):\n    return cast(int, x)\n")
+    clean = ast.parse("def f(x):\n    return typing.cast(int, x)\n")
+    assert _cast_violations(bad, "m.py") == ["m.py:3  f() calls cast(...)"]
+    assert _cast_violations(clean, "m.py") == []
+
+
 def test_no_cast_call_in_compiled_functions():
     """No ``cast(...)`` call inside the body of an ``@njit``/``@torch.jit.script`` function (dead at runtime)."""
     violations: list[str] = []
+    scanned = 0
     for path in PKG_ROOT.rglob("*.py"):
         tree = parsed_ast(path)
         if tree is None:
             continue
-        for fn in ast.walk(tree):
-            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            if not any(_is_compiled_decorator(d) for d in fn.decorator_list):
-                continue
-            for call in ast.walk(fn):
-                if isinstance(call, ast.Call) and _is_cast_call(call):
-                    rel = path.relative_to(PKG_ROOT.parent)
-                    violations.append(f"{rel}:{call.lineno}  {fn.name}() calls cast(...)")
-
-    if violations:
-        raise AssertionError(
-            "typing.cast() called inside a compiled (@njit / @torch.jit.script) function -- "
-            "both TorchScript and numba nopython reject it as an unresolvable builtin call. "
-            "cast() is a runtime no-op; drop the wrapper inside the compiled body:\n  " + "\n  ".join(sorted(violations))
-        )
+        scanned += 1
+        violations.extend(_cast_violations(tree, path.relative_to(PKG_ROOT.parent)))
+    assert scanned > 0, "no package sources were scanned"
+    assert not violations, (
+        "typing.cast() called inside a compiled (@njit / @torch.jit.script) function -- "
+        "both TorchScript and numba nopython reject it as an unresolvable builtin call. "
+        "cast() is a runtime no-op; drop the wrapper inside the compiled body:\n  " + "\n  ".join(sorted(violations))
+    )

@@ -72,7 +72,8 @@ def test_check_is_fitted_accepts_full_fit():
     from sklearn.utils.validation import check_is_fitted
 
     sel = _fit_full()
-    check_is_fitted(sel)  # Must not raise.
+    assert check_is_fitted(sel) is None  # Must not raise.
+    assert int(sel.get_support().sum()) >= 1
 
 
 def test_get_support_boolean_mask():

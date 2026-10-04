@@ -433,10 +433,7 @@ class TestRFECVParameters:
 
         rfecv.fit(X, y)
 
-        if keep_estimators:
-            assert len(rfecv.estimators_) > 0
-        else:
-            assert len(rfecv.estimators_) == 0
+        assert (len(rfecv.estimators_) > 0) == keep_estimators, f"keep_estimators={keep_estimators} but {len(rfecv.estimators_)} estimators were kept"
 
     @pytest.mark.parametrize("frac", [None, 0.5, 0.8])
     def test_frac(self, simple_classification_data, frac):

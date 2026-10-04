@@ -187,8 +187,27 @@ class TestTheLearningCurveScorerMatchesTheTask:
         ],
     )
     def test_the_scorer_is_chosen_by_target_type(self, target_type, expected):
-        """A scorer that raises for the task turns the whole diagnostic into a swallowed exception."""
-        src = (pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "reporting" / "_reporting_diagnostics.py").read_text(
-            encoding="utf-8"
-        )
-        assert f'"{expected}"' in src
+        """A scorer that raises for the task turns the whole diagnostic into a swallowed exception, so the curve is built end to end for each task."""
+        import pandas as pd
+        from sklearn.linear_model import LogisticRegression, Ridge
+
+        from mlframe.training.diagnostics.learning_curve import LearningCurveConfig
+        from mlframe.training.reporting._reporting_diagnostics import _build_learning_curve
+
+        rng = np.random.default_rng(0)
+        n = 600
+        X = pd.DataFrame(rng.normal(size=(n, 3)), columns=["a", "b", "c"])
+        signal = 2.0 * X["a"].to_numpy() + rng.normal(scale=0.5, size=n)
+        if expected == "r2":
+            model, y = Ridge(), signal
+        elif expected == "roc_auc_ovr_weighted":
+            model, y = LogisticRegression(max_iter=200), np.digitize(signal, np.quantile(signal, [1 / 3, 2 / 3]))
+        else:
+            model, y = LogisticRegression(max_iter=200), (signal > 0).astype(int)
+        metrics: dict = {}
+        cfg = LearningCurveConfig(enabled=True, sizes=(0.5, 1.0), n_jobs=1)
+        panel = _build_learning_curve(model, X, y, list(X.columns), target_type, cfg, metrics)
+        assert panel is not None
+        assert metrics["learning_curve"]["scorer_name"] == expected
+        assert np.all(np.isfinite(metrics["learning_curve"]["holdout_scores"]))
+        assert len(metrics["learning_curve"]["holdout_scores"]) == 2

@@ -30,14 +30,20 @@ def test_screen_predictors_never_builds_evaluate_candidates_pool(monkeypatch):
     """``MRMR(n_workers=4).fit(...)`` must never construct a ``joblib.Parallel`` pool for the
     ``evaluate_candidates`` dispatch, even though ``n_workers > 1`` is explicitly requested."""
 
+    constructed = []
+
     def _boom(*args, **kwargs):
         """Sensor stub: any call proves the retired evaluate_candidates pool branch fired."""
+        constructed.append(1)
         raise AssertionError("Parallel() must never be constructed for the evaluate_candidates dispatch (site 3, retired)")
 
     monkeypatch.setattr(_sp, "Parallel", _boom)
 
     X, y = _wide_xy()
-    MRMR(n_workers=4, max_runtime_mins=1.0).fit(X, y)
+    m = MRMR(n_workers=4, max_runtime_mins=1.0)
+    m.fit(X, y)
+    assert constructed == []
+    assert {"f0", "f1", "f2"} <= {str(m.feature_names_in_[i]) for i in m.support_}
 
 
 if __name__ == "__main__":

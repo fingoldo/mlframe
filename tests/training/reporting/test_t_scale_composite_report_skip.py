@@ -19,7 +19,10 @@ Detection: ``MTRESID=`` substring in ``model_name`` (stamped by
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
+
+import pytest
 
 
 class TestTScaleCompositeReportSkip:
@@ -58,9 +61,10 @@ class TestTScaleCompositeReportSkip:
         assert self._render(tmp_path / "kept", "cb MTRESID=y-cbrt-x").exists()
 
     def test_opt_in_env_var_keyword(self) -> None:
-        """Opt-out env var name is stable and matches the prefix
-        convention (MLFRAME_*) used by other operator overrides."""
-        from mlframe.training.reporting import _reporting_regression as rep
-
-        src = Path(rep.__file__).read_text(encoding="utf-8")
-        assert src.count("MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS") >= 1
+        """Only a truthy MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS keeps the T-scale chart; ``0`` keeps the default skip."""
+        for value, kept in (("0", False), ("false", False), ("1", True), ("true", True)):
+            with pytest.MonkeyPatch.context() as mp:
+                mp.setenv("MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS", value)
+                with tempfile.TemporaryDirectory() as d:
+                    chart = self._render(Path(d), "cb MTRESID=y-cbrt-x")
+                    assert chart.exists() is kept, f"env value {value!r}"

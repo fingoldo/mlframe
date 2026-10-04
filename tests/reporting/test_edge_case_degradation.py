@@ -55,15 +55,19 @@ _MPL = get_renderer("matplotlib")
 _PLOTLY = get_renderer("plotly")
 
 
-def _render_both(fig: FigureSpec) -> None:
-    """Render the spec on both backends; close mpl handles so the Agg buffer does not leak across cases."""
+def _assert_renders_on_both_backends(fig: FigureSpec) -> None:
+    """Render the spec on both backends and assert the output carries every populated panel (a placeholder counts as one)."""
     assert isinstance(fig, FigureSpec)
+    n_panels = sum(1 for row in fig.panels for cell in row if cell is not None)
+    assert n_panels >= 1, "a degenerate input must still produce at least one (placeholder) panel"
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # degenerate inputs legitimately emit numpy/sklearn RuntimeWarnings
         mpl_fig = _MPL.render(fig)
         try:
+            assert len(mpl_fig.axes) >= n_panels
             plotly_fig = _PLOTLY.render(fig)
             assert plotly_fig is not None
+            assert len(plotly_fig.data) + len(plotly_fig.layout.annotations) + len(plotly_fig.layout.shapes) >= 1
         finally:
             plt.close(mpl_fig)
 
@@ -177,7 +181,7 @@ def test_binary_degenerate(case):
     """Binary degenerate."""
     y, s = _BINARY_CASES[case]
     fig = compose_binary_figure(y, s, panels_template=_BINARY_TEMPLATE)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- MULTICLASS
@@ -225,7 +229,7 @@ def test_multiclass_degenerate(case):
     """Multiclass degenerate."""
     y, P, classes = _mc_case(case)
     fig = compose_multiclass_figure(y, P, classes, panels_template=_MC_TEMPLATE)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- MULTILABEL
@@ -265,7 +269,7 @@ def test_multilabel_degenerate(case):
     Y, P = _ml_case(case)
     K = Y.shape[1]
     fig = compose_multilabel_figure(Y, P, list(range(K)), panels_template=_ML_TEMPLATE)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- LTR
@@ -305,7 +309,7 @@ def test_ltr_degenerate(case):
     """Ltr degenerate."""
     yt, ys, g = _ltr_case(case)
     fig = compose_ltr_figure(yt, ys, g, panels_template=_LTR_TEMPLATE)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- QUANTILE
@@ -347,7 +351,7 @@ def test_quantile_degenerate(case):
     """Quantile degenerate."""
     y, P, alphas = _quant_case(case)
     fig = compose_quantile_figure(y, P, alphas, panels_template=_QUANT_TEMPLATE)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- REGRESSION
@@ -389,7 +393,7 @@ def test_regression_degenerate(case):
     """Regression degenerate."""
     y, p = _reg_case(case)
     fig = compose_regression_figure(y, p, panels_template=_REG_TEMPLATE)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- DECISION CURVE
@@ -400,7 +404,7 @@ def test_decision_curve_degenerate(case):
     """Decision curve degenerate."""
     y, s = _BINARY_CASES[case]
     res = build_decision_curve_spec(y, s)
-    _render_both(_to_result_fig(res))
+    _assert_renders_on_both_backends(_to_result_fig(res))
 
 
 # --------------------------------------------------------------------------- CALIBRATION (build_calibration_spec)
@@ -428,7 +432,7 @@ def test_build_calibration_spec_degenerate(case):
     """Build calibration spec degenerate."""
     fp, ft, hits = _calib_case(case)
     fig = build_calibration_spec(fp, ft, hits)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- CALIBRATION DRIFT
@@ -468,7 +472,7 @@ def test_calibration_drift_degenerate(case):
     res = calibration_drift(y, s, ts)
     assert isinstance(res, CalibrationDriftResult)
     fig = build_calibration_drift_spec(res)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- TRAINING CURVE
@@ -495,7 +499,7 @@ def test_training_curve_degenerate(case):
     """Training curve degenerate."""
     hist = _tc_case(case)
     fig = compose_training_curve_figure(hist)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- MODEL COMPARISON
@@ -538,7 +542,7 @@ def test_model_comparison_degenerate(case):
     """Model comparison degenerate."""
     per_model, task = _mc_compare_case(case)
     fig = compose_model_comparison_figure(per_model, task)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- PDP / ICE
@@ -573,7 +577,7 @@ def test_pdp_degenerate(case):
     """Pdp degenerate."""
     model, X, feats = _pdp_case(case)
     fig = compose_pdp_figure(model, X, feats)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- SLICE FINDER
@@ -610,7 +614,7 @@ def test_slice_finder_degenerate(case):
     X, yt, yp = _slice_case(case)
     res = find_weak_slices(X, yt, yp, task="regression")
     assert isinstance(res, SliceFinderResult)
-    _render_both(_to_result_fig(res))
+    _assert_renders_on_both_backends(_to_result_fig(res))
 
 
 # --------------------------------------------------------------------------- WEAK SEGMENT HEATMAP
@@ -621,7 +625,7 @@ def test_weak_segment_heatmap_degenerate(case):
     """Weak segment heatmap degenerate."""
     X, yt, yp = _slice_case(case)
     res = weak_segment_heatmap(X, yt, yp, task="regression")
-    _render_both(_to_result_fig(res))
+    _assert_renders_on_both_backends(_to_result_fig(res))
 
 
 # --------------------------------------------------------------------------- ERROR BIAS PER FEATURE
@@ -633,7 +637,7 @@ def test_error_bias_per_feature_degenerate(case):
     X, yt, yp = _slice_case(case)
     res = error_bias_per_feature(X, yt, yp)
     assert isinstance(res, ErrorBiasResult)
-    _render_both(_to_result_fig(res))
+    _assert_renders_on_both_backends(_to_result_fig(res))
 
 
 # --------------------------------------------------------------------------- TARGET DIST OVERLAY
@@ -663,7 +667,7 @@ def test_target_dist_overlay_degenerate(case):
     """Target dist overlay degenerate."""
     by_split, task = _tdo_case(case)
     fig = target_dist_overlay(by_split, task=task)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- DRIFT: psi_heatmap
@@ -699,7 +703,7 @@ def test_psi_heatmap_degenerate(case):
     """Psi heatmap degenerate."""
     X, ts = _frame_case(case)
     fig = psi_heatmap(X, ts, n_time_buckets=5)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- DRIFT: residual_vs_time
@@ -734,7 +738,7 @@ def test_residual_vs_time_degenerate(case):
     """Residual vs time degenerate."""
     y, p, ts = _rvt_case(case)
     fig = residual_vs_time(y, p, ts)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- DRIFT: metric_over_time
@@ -772,7 +776,7 @@ def test_metric_over_time_degenerate(case):
     y, p, ts = _mot_case(case)
     min_samples = 10_000_000 if case == "no_buckets" else 10
     fig = metric_over_time(y, p, ts, metric="roc_auc", freq="D", min_samples=min_samples)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)
 
 
 # --------------------------------------------------------------------------- DRIFT: adversarial_validation
@@ -809,4 +813,4 @@ def test_adversarial_validation_degenerate(case):
     pytest.importorskip("lightgbm")
     Xa, Xb = _adv_case(case)
     fig = adversarial_validation(Xa, Xb, n_splits=2, top_features=3)
-    _render_both(fig)
+    _assert_renders_on_both_backends(fig)

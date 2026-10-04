@@ -201,12 +201,9 @@ def test_rfecv_timestamps_kwarg_triggers_time_series_split():
     )
     y = X["a"] * 0.5 + rng.standard_normal(n) * 0.1
     ts = np.arange(n, dtype=np.int64)
-    rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0)
-    try:
-        rfecv.fit(X, y, timestamps=ts)
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # RFECV may early-stop / use other fallbacks; we only assert the splitter is the TSS variant
-        # when it's resolvable. Inspect cv_ if set.
-        pass
-    if hasattr(rfecv, "cv_") and rfecv.cv_ is not None:
-        assert isinstance(rfecv.cv_, TimeSeriesSplit)
+    rfecv = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0, verbose=0)
+    rfecv.fit(X, y, timestamps=ts)
+    assert isinstance(rfecv.cv_, TimeSeriesSplit)
+    plain = RFECV(estimator=Ridge(), cv=3, max_runtime_mins=1.0, verbose=0)
+    plain.fit(X, y)
+    assert not isinstance(plain.cv_, TimeSeriesSplit)

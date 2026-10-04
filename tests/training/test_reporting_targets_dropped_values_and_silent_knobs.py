@@ -71,7 +71,11 @@ class TestTheCalibrationChartsRegisterWhatTheyWrote:
         """The reporting path passes None in some configurations."""
         from mlframe.training.reporting._reporting_probabilistic_calib import _record_chart
 
-        _record_chart(None, "x", "y")  # must not raise
+        assert _record_chart(None, "x", "y") is None
+        assert _record_chart("not a dict", "x", "y") is None
+        metrics: dict = {}
+        _record_chart(metrics, "x", "y")
+        assert metrics["charts"] == {"saved": ["x"], "failed": [], "paths": ["y"]}
 
 
 class TestTheDiagnosticsBudgetSaysWhatItDropped:
@@ -98,11 +102,13 @@ class TestTheDiagnosticsBudgetSaysWhatItDropped:
             b.report()
         assert any("INCOMPLETE" in r.message for r in caplog.records), [r.message for r in caplog.records]
 
-    def test_a_complete_report_stays_silent(self):
+    def test_a_complete_report_stays_silent(self, caplog):
         """ "Silent when nothing was" is the other half of the contract."""
         from mlframe.training.reporting._diagnostics_budget import DiagnosticsBudget
 
-        DiagnosticsBudget(max_seconds=120.0).report()  # must not raise, must not log
+        with caplog.at_level(logging.DEBUG, logger="mlframe.training.reporting._diagnostics_budget"):
+            assert DiagnosticsBudget(max_seconds=120.0).report() is None
+        assert [r.message for r in caplog.records] == []
 
     @pytest.mark.parametrize("bad", ["", "  ", "everything", "Best!"])
     def test_an_unrecognised_mode_warns_and_falls_back(self, bad, caplog):

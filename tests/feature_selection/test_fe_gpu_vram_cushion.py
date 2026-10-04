@@ -173,8 +173,8 @@ def test_permissive_when_cupy_import_fails(monkeypatch, vram):
 
 
 @pytest.mark.gpu
-def test_permissive_when_memgetinfo_raises(monkeypatch, vram):
-    """A probe error must not block the GPU -> permissive True."""
+def test_fails_closed_when_memgetinfo_raises(monkeypatch, vram):
+    """A probe error means free memory is unknown: refuse the GPU path rather than upload blind."""
     pytest.importorskip("cupy")
     import cupy as cp
 
@@ -183,7 +183,7 @@ def test_permissive_when_memgetinfo_raises(monkeypatch, vram):
         raise RuntimeError("simulated memGetInfo failure")
 
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", _boom)
-    assert vram.fe_gpu_has_vram_cushion(0) is True
+    assert vram.fe_gpu_has_vram_cushion(0) is False
 
 
 @pytest.mark.gpu
@@ -320,11 +320,7 @@ def test_regression_guard_declines_gpu_at_low_free(monkeypatch, vram):
     from mlframe.feature_selection.filters.info_theory import _cmi_cuda
 
     # Re-arm any prior GPU-failed poison so the gate is reachable.
-    if hasattr(_cmi_cuda, "reset_cmi_gpu_circuit_breaker"):
-        try:
-            _cmi_cuda.reset_cmi_gpu_circuit_breaker()
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
+    _cmi_cuda.reset_cmi_gpu_circuit_breaker()
     monkeypatch.setattr(_cmi_cuda, "cupy_available", lambda: True)
     _patch_meminfo(monkeypatch, free_b=322 * MB, total_b=4 * GB)  # near-full shared card
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")  # STRICT must NOT bypass the cushion

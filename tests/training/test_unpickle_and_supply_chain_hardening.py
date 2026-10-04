@@ -418,7 +418,10 @@ def test_instantiate_recommended_estimator_refuses_non_mlframe_module():
 
 def test_pyproject_lightning_floor_excludes_vulnerable_release():
     """The lightning requirement for Python >= 3.10 excludes 2.6.5 (PYSEC-2026-3624) while the 3.9 requirement stays satisfiable."""
-    import tomllib
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - python < 3.11
+        import tomli as tomllib  # type: ignore[no-redef]
 
     from packaging.requirements import Requirement
     from packaging.version import Version

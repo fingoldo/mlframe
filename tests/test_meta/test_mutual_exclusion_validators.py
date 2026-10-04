@@ -29,8 +29,7 @@ from __future__ import annotations
 import inspect
 import re
 
-import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
@@ -146,46 +145,57 @@ def _synth_value(annotation):
     return 0.5
 
 
-def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
-    """Mutually exclusive pairs are enforced by a validator."""
+def _mutex_failures(cls: type[BaseModel]) -> list[str]:
+    """One message per documented mutually exclusive pair of ``cls`` that constructs without raising."""
     failures: list[str] = []
-    audited_pairs = 0
-    classes = _config_classes()
-    for cls in classes:
-        pairs = _find_mutex_pairs(cls)
-        if not pairs:
+    sentinels = _required_sentinels(cls)
+    for a, b in _find_mutex_pairs(cls):
+        kwargs = dict(sentinels)
+        kwargs[a] = _synth_value(cls.model_fields[a].annotation)
+        kwargs[b] = _synth_value(cls.model_fields[b].annotation)
+        try:
+            cls(**kwargs)
+        except (ValidationError, ValueError):
+            continue  # Properly rejected.
+        except Exception:  # nosec B112 -- a non-validation error means the synthesised value mismatched the type; inconclusive for this pair
             continue
-        sentinels = _required_sentinels(cls)
-        for a, b in pairs:
-            audited_pairs += 1
-            kwargs = dict(sentinels)
-            kwargs[a] = _synth_value(cls.model_fields[a].annotation)
-            kwargs[b] = _synth_value(cls.model_fields[b].annotation)
-            try:
-                cls(**kwargs)
-            except (ValidationError, ValueError):
-                continue  # Properly rejected.
-            except Exception:  # nosec B112 -- best-effort skip of one iteration on a non-fatal error; the test's own assertions are unaffected
-                # Some other error — likely synth-value type mismatch.
-                # Inconclusive but skip.
-                continue
-            failures.append(f"{cls.__name__}: docstring claims '{a}' and '{b}' are mutually exclusive, but cls({a}=..., {b}=...) succeeded without raising")
+        failures.append(f"{cls.__name__}: docstring claims '{a}' and '{b}' are mutually exclusive, but cls({a}=..., {b}=...) succeeded without raising")
+    return failures
 
-    if audited_pairs == 0:
-        # FYI for future contributors: this meta-test scans every
-        # config class for documented "mutually exclusive" pairs and
-        # verifies each pair has an enforcing validator. Currently
-        # NO config documents such a pair so the test has nothing
-        # to gate. Leaving as a parametrized skip with this explicit
-        # note so future contributors who add a mutex contract via
-        # docstring / Field(description=...) will have the test
-        # gate it automatically; if mutex contracts never appear,
-        # the test should be deleted in a follow-up.
-        pytest.skip(
-            "TODO: no 'mutually exclusive' phrases found in any "
-            "config docstring / field description; test is currently "
-            "inert. Either add mutex docs (test will gate them) or "
-            "delete the file if the contract pattern is not used."
-        )
-    if failures:
-        pytest.fail(f"{len(failures)} mutex-claim(s) without enforcing validator:\n  " + "\n  ".join(failures))
+
+class _MutexEnforced(BaseModel):
+    """``first`` and ``second`` are mutually exclusive."""
+
+    first: float | None = None
+    second: float | None = None
+
+    @model_validator(mode="after")
+    def _exclusive(self) -> "_MutexEnforced":
+        """Reject setting both."""
+        if self.first is not None and self.second is not None:
+            raise ValueError("first and second are mutually exclusive")
+        return self
+
+
+class _MutexUnenforced(BaseModel):
+    """``first`` and ``second`` are mutually exclusive."""
+
+    first: float | None = None
+    second: float | None = None
+
+
+def test_mutex_gate_catches_an_unenforced_claim_and_passes_an_enforced_one():
+    """A documented mutex pair with no validator is reported; the same claim backed by a validator is not."""
+    assert _find_mutex_pairs(_MutexEnforced) == [("first", "second")]
+    assert _mutex_failures(_MutexEnforced) == []
+    assert _mutex_failures(_MutexUnenforced) == [
+        "_MutexUnenforced: docstring claims 'first' and 'second' are mutually exclusive, but cls(first=..., second=...) succeeded without raising"
+    ]
+
+
+def test_mutually_exclusive_pairs_are_enforced_by_a_validator():
+    """Every documented mutually exclusive pair of a config class is enforced by a validator."""
+    classes = _config_classes()
+    assert classes, "no config classes found"
+    failures = [msg for cls in classes for msg in _mutex_failures(cls)]
+    assert not failures, f"{len(failures)} mutex-claim(s) without enforcing validator:\n  " + "\n  ".join(failures)

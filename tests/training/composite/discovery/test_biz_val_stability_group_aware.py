@@ -208,10 +208,8 @@ def test_group_replicates_are_whole_groups():
     assert res.group_aware is True
     assert len(rec) == 6
     _assert_whole_groups(rec, idx, groups)
-    # Each replicate holds ~half the groups (10 of 20), never all/none.
-    for sub in rec:
-        n_g = np.unique(groups[sub]).size
-        assert 1 <= n_g < 20
+    # Each replicate holds exactly half the groups: round(0.5 * 20) = 10 of 20.
+    assert [np.unique(groups[sub]).size for sub in rec] == [10] * 6
 
 
 def test_group_ids_via_explicit_arg_and_column_agree():

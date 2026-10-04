@@ -162,12 +162,9 @@ def test_fix5_int64_downcast_silent_under_verbose0(capsys):
     assert y.dtype == np.int64
 
     m = MRMR(verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
-    try:
-        m.fit(X.copy(), y)
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # We only care about stdout, not the (possibly noisy) fit completing.
-        pass
+    m.fit(X.copy(), y)
     captured = capsys.readouterr()
+    assert len(m.support_) >= 1
     assert "Converted targets from int64 to int16" not in captured.out, f"stdout pollution under verbose=0: {captured.out!r}"
 
 
@@ -176,13 +173,10 @@ def test_fix5_int64_downcast_logged_under_verbose1(caplog):
     X, y = _toy_dataset()
     m = MRMR(verbose=1, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
-        try:
-            m.fit(X.copy(), y)
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
-    # Allow either substring match.
+        m.fit(X.copy(), y)
     msgs = " ".join(r.getMessage() for r in caplog.records)
-    assert "int64" in msgs and "int16" in msgs, f"downcast not logged at INFO: {msgs!r}"
+    assert "Converted targets from int64 to int16." in msgs, f"downcast not logged at INFO: {msgs!r}"
+    assert len(m.support_) >= 1
 
 
 # ----------------------------------------------------------------------

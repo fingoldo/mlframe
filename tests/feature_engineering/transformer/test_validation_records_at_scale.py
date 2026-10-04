@@ -66,7 +66,7 @@ def _validate_scale(loader_fn, builder, target_model, target_metric, claimed_lif
     arr = np.array([l for l in lifts if not np.isnan(l)])
     if arr.size == 0:
         print(f">>> {label}: ALL ERROR")
-        return
+        return float("nan"), float("nan"), lifts
     median = float(np.median(arr))
     iqr = float(np.quantile(arr, 0.75) - np.quantile(arr, 0.25)) if arr.size > 1 else 0.0
     lo = float(arr.min())
@@ -77,14 +77,23 @@ def _validate_scale(loader_fn, builder, target_model, target_metric, claimed_lif
     )
 
 
+def _assert_lifts_finite(result, label):
+    """Every seed must yield a finite lift: a swallowed per-seed error or an all-NaN panel is a failed validation, not a FOLD-NOISE verdict."""
+    median, _iqr, lifts = result
+    assert len(lifts) > 0, f"{label}: no seeds were evaluated"
+    bad = [(seed, lift) for seed, lift in zip(_SCALE_SEEDS, lifts) if not np.isfinite(lift)]
+    assert not bad, f"{label}: seed(s) produced a non-finite lift (error or NaN): {bad}"
+    assert np.isfinite(median), f"{label}: median lift is not finite"
+
+
 def test_scale_iter68_california_lgb_r2():
     """iter68 (multi_baseline_hard_row + RFF) was +11.42% median on kin8nm 8k. Does it hold on California 20k?"""
-    _validate_scale(_load_california, _build_iter68, "lgb", "R2", 0.1142, "iter68_mbhrattn+rff_CA20k")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter68, "lgb", "R2", 0.1142, "iter68_mbhrattn+rff_CA20k"), "iter68_mbhrattn+rff_CA20k")
 
 
 def test_scale_iter69_california_cb_r2():
     """iter69 (baseline_disagreement + cdist) was +2.26% median on abalone 4k. Does it hold on California 20k?"""
-    _validate_scale(_load_california, _build_iter69, "cb", "R2", 0.0226, "iter69_blagreement+cdist_CA20k")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter69, "cb", "R2", 0.0226, "iter69_blagreement+cdist_CA20k"), "iter69_blagreement+cdist_CA20k")
 
 
 def _load_year_100k():
@@ -116,7 +125,7 @@ def test_scale_iter69_year_100k_cb_r2():
     25x larger than abalone (the small-N record dataset). If iter69 still shows positive
     lift at 100k, the mechanism is genuinely general regression-FE, not a small-N artifact.
     """
-    _validate_scale(_load_year_100k, _build_iter69, "cb", "R2", 0.0115, "iter69_blagreement+cdist_Year100k")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter69, "cb", "R2", 0.0115, "iter69_blagreement+cdist_Year100k"), "iter69_blagreement+cdist_Year100k")
 
 
 # ---------- iter102 - baseline_disagreement_v2 (iter69 + ExtraTrees orthogonal baseline) ----------
@@ -157,17 +166,17 @@ def test_iter102_abalone_cb_r2():
     """iter102 on abalone (was iter69 +2.26% median CB R2). Target: match or beat."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter102, "cb", "R2", 0.0226, "iter102_blagreementv2+cdist_abalone")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter102, "cb", "R2", 0.0226, "iter102_blagreementv2+cdist_abalone"), "iter102_blagreementv2+cdist_abalone")
 
 
 def test_iter102_california_cb_r2():
     """iter102 on California (was iter69 +1.15% median CB R2 at 20k). Target: match or beat."""
-    _validate_scale(_load_california, _build_iter102, "cb", "R2", 0.0115, "iter102_blagreementv2+cdist_CA20k")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter102, "cb", "R2", 0.0115, "iter102_blagreementv2+cdist_CA20k"), "iter102_blagreementv2+cdist_CA20k")
 
 
 def test_iter102_year_100k_cb_r2():
     """iter102 on year-prediction 100k (was iter69 +4.92% median CB R2). Target: match or beat."""
-    _validate_scale(_load_year_100k, _build_iter102, "cb", "R2", 0.0492, "iter102_blagreementv2+cdist_Year100k")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter102, "cb", "R2", 0.0492, "iter102_blagreementv2+cdist_Year100k"), "iter102_blagreementv2+cdist_Year100k")
 
 
 # ---------- iter103 - residual_stratified_distance (alone, no cdist) ----------
@@ -205,17 +214,17 @@ def test_iter103_abalone_cb_r2():
     """iter103 on abalone (was iter69 +2.26%, iter102 +2.74%). Target: improve or differ structurally."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter103, "cb", "R2", 0.0274, "iter103_rsd_abalone")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter103, "cb", "R2", 0.0274, "iter103_rsd_abalone"), "iter103_rsd_abalone")
 
 
 def test_iter103_california_cb_r2():
     """iter103 on California 20k (was iter69 +1.15%)."""
-    _validate_scale(_load_california, _build_iter103, "cb", "R2", 0.0115, "iter103_rsd_CA20k")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter103, "cb", "R2", 0.0115, "iter103_rsd_CA20k"), "iter103_rsd_CA20k")
 
 
 def test_iter103_year_100k_cb_r2():
     """iter103 on year-prediction 100k (was iter69 +4.92%, iter102 +4.93%)."""
-    _validate_scale(_load_year_100k, _build_iter103, "cb", "R2", 0.0492, "iter103_rsd_Year100k")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter103, "cb", "R2", 0.0492, "iter103_rsd_Year100k"), "iter103_rsd_Year100k")
 
 
 # ---------- iter104 - iter69 + iter103 additive (does negative-alone iter103 help iter69?) ----------
@@ -275,17 +284,17 @@ def test_iter104_abalone_cb_r2():
     """iter104 on abalone (was iter69 +2.26%, iter102 +2.74%, iter103 -1.39% alone)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter104, "cb", "R2", 0.0274, "iter104_iter69+iter103_abalone")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter104, "cb", "R2", 0.0274, "iter104_iter69+iter103_abalone"), "iter104_iter69+iter103_abalone")
 
 
 def test_iter104_california_cb_r2():
     """iter104 on California 20k (was iter69 +1.15%, iter103 -0.48% alone)."""
-    _validate_scale(_load_california, _build_iter104, "cb", "R2", 0.0115, "iter104_iter69+iter103_CA20k")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter104, "cb", "R2", 0.0115, "iter104_iter69+iter103_CA20k"), "iter104_iter69+iter103_CA20k")
 
 
 def test_iter104_year_100k_cb_r2():
     """iter104 on year-prediction 100k (was iter69 +4.92%, iter103 +0.96% alone)."""
-    _validate_scale(_load_year_100k, _build_iter104, "cb", "R2", 0.0492, "iter104_iter69+iter103_Year100k")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter104, "cb", "R2", 0.0492, "iter104_iter69+iter103_Year100k"), "iter104_iter69+iter103_Year100k")
 
 
 # ---------- iter105 - triple: baseline_disagreement_v2 + cdist + residual_stratified_distance ----------
@@ -347,17 +356,17 @@ def test_iter105_abalone_cb_r2():
     """iter105 triple on abalone (best was iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter105, "cb", "R2", 0.0274, "iter105_triple_abalone")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter105, "cb", "R2", 0.0274, "iter105_triple_abalone"), "iter105_triple_abalone")
 
 
 def test_iter105_california_cb_r2():
     """iter105 triple on California 20k (best was iter69 +1.15%)."""
-    _validate_scale(_load_california, _build_iter105, "cb", "R2", 0.0115, "iter105_triple_CA20k")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter105, "cb", "R2", 0.0115, "iter105_triple_CA20k"), "iter105_triple_CA20k")
 
 
 def test_iter105_year_100k_cb_r2():
     """iter105 triple on year-prediction 100k (best was iter104 +5.25%)."""
-    _validate_scale(_load_year_100k, _build_iter105, "cb", "R2", 0.0525, "iter105_triple_Year100k")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter105, "cb", "R2", 0.0525, "iter105_triple_Year100k"), "iter105_triple_Year100k")
 
 
 # ---------- iter106 - y-quintile-conditioned baseline-prediction-at-kNN (alone, no cdist) ----------
@@ -393,17 +402,17 @@ def test_iter106_abalone_cb_r2():
     """iter106 on abalone (best so far iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter106, "cb", "R2", 0.0274, "iter106_yqbk_abalone")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter106, "cb", "R2", 0.0274, "iter106_yqbk_abalone"), "iter106_yqbk_abalone")
 
 
 def test_iter106_california_cb_r2():
     """iter106 on California 20k (best so far iter69 +1.15%)."""
-    _validate_scale(_load_california, _build_iter106, "cb", "R2", 0.0115, "iter106_yqbk_CA20k")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter106, "cb", "R2", 0.0115, "iter106_yqbk_CA20k"), "iter106_yqbk_CA20k")
 
 
 def test_iter106_year_100k_cb_r2():
     """iter106 on year-prediction 100k (best so far iter104 +5.25%)."""
-    _validate_scale(_load_year_100k, _build_iter106, "cb", "R2", 0.0525, "iter106_yqbk_Year100k")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter106, "cb", "R2", 0.0525, "iter106_yqbk_Year100k"), "iter106_yqbk_Year100k")
 
 
 # ---------- iter107 - bgmm_quantile_bands alone (existing iter56 mechanism, untested under multi-seed-from-start) ----------
@@ -440,17 +449,17 @@ def test_iter107_abalone_cb_r2():
     """iter107 BGM alone on abalone."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter107, "cb", "R2", 0.0274, "iter107_bgm_abalone")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter107, "cb", "R2", 0.0274, "iter107_bgm_abalone"), "iter107_bgm_abalone")
 
 
 def test_iter107_california_cb_r2():
     """iter107 BGM alone on California 20k."""
-    _validate_scale(_load_california, _build_iter107, "cb", "R2", 0.0115, "iter107_bgm_CA20k")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter107, "cb", "R2", 0.0115, "iter107_bgm_CA20k"), "iter107_bgm_CA20k")
 
 
 def test_iter107_year_100k_cb_r2():
     """iter107 BGM alone on year-prediction 100k."""
-    _validate_scale(_load_year_100k, _build_iter107, "cb", "R2", 0.0525, "iter107_bgm_Year100k")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter107, "cb", "R2", 0.0525, "iter107_bgm_Year100k"), "iter107_bgm_Year100k")
 
 
 # ---------- iter108 - iter69 on BINARY classification (task-regime generalisation test) ----------
@@ -476,12 +485,12 @@ def _load_adult_binary():
 
 def test_iter108_adult_lgb_auc():
     """iter69 on Adult 49k binary classification (LGB AUC). Does iter69 generalise from regression to binary?"""
-    _validate_scale(_load_adult_binary, _build_iter69, "lgb", "AUC", 0.0, "iter108_iter69_Adult49k")
+    _assert_lifts_finite(_validate_scale(_load_adult_binary, _build_iter69, "lgb", "AUC", 0.0, "iter108_iter69_Adult49k"), "iter108_iter69_Adult49k")
 
 
 def test_iter108_adult_cb_auc():
     """iter69 on Adult 49k binary classification (CB AUC)."""
-    _validate_scale(_load_adult_binary, _build_iter69, "cb", "AUC", 0.0, "iter108_iter69_Adult49k_cb")
+    _assert_lifts_finite(_validate_scale(_load_adult_binary, _build_iter69, "cb", "AUC", 0.0, "iter108_iter69_Adult49k_cb"), "iter108_iter69_Adult49k_cb")
 
 
 # ---------- iter109 - iter69 on Higgs 98k binary (scale-up of iter108) ----------
@@ -506,12 +515,12 @@ def _load_higgs_binary():
 
 def test_iter109_higgs_cb_auc():
     """iter69 on Higgs 98k binary (CB AUC). Scale-up of iter108's Adult 49k +0.63%."""
-    _validate_scale(_load_higgs_binary, _build_iter69, "cb", "AUC", 0.0063, "iter109_iter69_Higgs98k_cb")
+    _assert_lifts_finite(_validate_scale(_load_higgs_binary, _build_iter69, "cb", "AUC", 0.0063, "iter109_iter69_Higgs98k_cb"), "iter109_iter69_Higgs98k_cb")
 
 
 def test_iter109_higgs_lgb_auc():
     """iter69 on Higgs 98k binary (LGB AUC). LGB barely benefited on Adult; does it scale?"""
-    _validate_scale(_load_higgs_binary, _build_iter69, "lgb", "AUC", 0.0006, "iter109_iter69_Higgs98k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_higgs_binary, _build_iter69, "lgb", "AUC", 0.0006, "iter109_iter69_Higgs98k_lgb"), "iter109_iter69_Higgs98k_lgb")
 
 
 # ---------- iter110 - iter69 + iter66 (class_balanced_hard_row + RFF) on Adult binary ----------
@@ -580,7 +589,7 @@ def _build_iter110(X_tr, X_te, y_tr, task, seed):
 
 def test_iter110_adult_cb_auc():
     """iter110 = iter69 + iter66 on Adult 49k binary (was iter69 alone +0.63%)."""
-    _validate_scale(_load_adult_binary, _build_iter110, "cb", "AUC", 0.0063, "iter110_iter69+iter66_Adult49k_cb")
+    _assert_lifts_finite(_validate_scale(_load_adult_binary, _build_iter110, "cb", "AUC", 0.0063, "iter110_iter69+iter66_Adult49k_cb"), "iter110_iter69+iter66_Adult49k_cb")
 
 
 # ---------- iter111 - iter69 on MAMMOGRAPHY 11k full-N (rare-positive binary stress test) ----------
@@ -595,12 +604,12 @@ def _load_mammography():
 
 def test_iter111_mammography_cb_auc():
     """iter69 on mammography 11k full-N binary (rare-positive 1.3%, CB AUC)."""
-    _validate_scale(_load_mammography, _build_iter69, "cb", "AUC", 0.0063, "iter111_iter69_Mammog11k_cb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter69, "cb", "AUC", 0.0063, "iter111_iter69_Mammog11k_cb"), "iter111_iter69_Mammog11k_cb")
 
 
 def test_iter111_mammography_lgb_auc():
     """iter69 on mammography 11k full-N binary (LGB AUC). iter66 retracted on this dataset under multi-seed."""
-    _validate_scale(_load_mammography, _build_iter69, "lgb", "AUC", -0.0077, "iter111_iter69_Mammog11k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter69, "lgb", "AUC", -0.0077, "iter111_iter69_Mammog11k_lgb"), "iter111_iter69_Mammog11k_lgb")
 
 
 # ---------- iter112 - iter69 with STRATIFIED KFold for binary (fix rare-positive bug) ----------
@@ -695,17 +704,17 @@ def _build_iter69_stratified(X_tr, X_te, y_tr, task, seed):
 
 def test_iter112_mammography_cb_auc():
     """iter69 with StratifiedKFold on mammography 11k (was iter111 -1.05% with regular KFold)."""
-    _validate_scale(_load_mammography, _build_iter69_stratified, "cb", "AUC", -0.0105, "iter112_iter69strat_Mammog11k_cb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter69_stratified, "cb", "AUC", -0.0105, "iter112_iter69strat_Mammog11k_cb"), "iter112_iter69strat_Mammog11k_cb")
 
 
 def test_iter112_mammography_lgb_auc():
     """iter69 with StratifiedKFold on mammography 11k (was iter111 -0.36% with regular KFold)."""
-    _validate_scale(_load_mammography, _build_iter69_stratified, "lgb", "AUC", -0.0036, "iter112_iter69strat_Mammog11k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter69_stratified, "lgb", "AUC", -0.0036, "iter112_iter69strat_Mammog11k_lgb"), "iter112_iter69strat_Mammog11k_lgb")
 
 
 def test_iter112_adult_cb_auc():
     """iter69 with StratifiedKFold on Adult 49k (was iter108 +0.63%). Should match or beat."""
-    _validate_scale(_load_adult_binary, _build_iter69_stratified, "cb", "AUC", 0.0063, "iter112_iter69strat_Adult49k_cb")
+    _assert_lifts_finite(_validate_scale(_load_adult_binary, _build_iter69_stratified, "cb", "AUC", 0.0063, "iter112_iter69strat_Adult49k_cb"), "iter112_iter69strat_Adult49k_cb")
 
 
 # ---------- iter113 - class-balanced baseline disagreement + cdist on rare-positive binary ----------
@@ -772,17 +781,17 @@ def _build_iter113(X_tr, X_te, y_tr, task, seed):
 
 def test_iter113_mammography_cb_auc():
     """iter113 (class-balanced baselines) on mammography 11k (was iter112 -0.70%)."""
-    _validate_scale(_load_mammography, _build_iter113, "cb", "AUC", -0.0070, "iter113_balanced_Mammog11k_cb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter113, "cb", "AUC", -0.0070, "iter113_balanced_Mammog11k_cb"), "iter113_balanced_Mammog11k_cb")
 
 
 def test_iter113_mammography_lgb_auc():
     """iter113 on mammography 11k LGB AUC."""
-    _validate_scale(_load_mammography, _build_iter113, "lgb", "AUC", -0.0184, "iter113_balanced_Mammog11k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter113, "lgb", "AUC", -0.0184, "iter113_balanced_Mammog11k_lgb"), "iter113_balanced_Mammog11k_lgb")
 
 
 def test_iter113_adult_cb_auc():
     """iter113 on Adult 49k (was iter108 +0.63%); regression test that fix doesn't break balanced binary."""
-    _validate_scale(_load_adult_binary, _build_iter113, "cb", "AUC", 0.0063, "iter113_balanced_Adult49k_cb")
+    _assert_lifts_finite(_validate_scale(_load_adult_binary, _build_iter113, "cb", "AUC", 0.0063, "iter113_balanced_Adult49k_cb"), "iter113_balanced_Adult49k_cb")
 
 
 # ---------- iter114 - SMOTE-augmented baselines for rare-positive binary ----------
@@ -849,17 +858,17 @@ def _build_iter114(X_tr, X_te, y_tr, task, seed):
 
 def test_iter114_mammography_cb_auc():
     """iter114 SMOTE on mammography 11k (was iter113 -0.55%; can SMOTE flip to positive?)."""
-    _validate_scale(_load_mammography, _build_iter114, "cb", "AUC", -0.0055, "iter114_smote_Mammog11k_cb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter114, "cb", "AUC", -0.0055, "iter114_smote_Mammog11k_cb"), "iter114_smote_Mammog11k_cb")
 
 
 def test_iter114_mammography_lgb_auc():
     """iter114 SMOTE on mammography 11k LGB AUC."""
-    _validate_scale(_load_mammography, _build_iter114, "lgb", "AUC", -0.0157, "iter114_smote_Mammog11k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter114, "lgb", "AUC", -0.0157, "iter114_smote_Mammog11k_lgb"), "iter114_smote_Mammog11k_lgb")
 
 
 def test_iter114_adult_cb_auc():
     """iter114 on Adult 49k (regression test that SMOTE doesn't break balanced binary)."""
-    _validate_scale(_load_adult_binary, _build_iter114, "cb", "AUC", 0.0063, "iter114_smote_Adult49k_cb")
+    _assert_lifts_finite(_validate_scale(_load_adult_binary, _build_iter114, "cb", "AUC", 0.0063, "iter114_smote_Adult49k_cb"), "iter114_smote_Adult49k_cb")
 
 
 # ---------- iter115 - IsolationForest anomaly-score features (pure-X, no labels) ----------
@@ -943,17 +952,17 @@ def _build_iter115_with_iter69(X_tr, X_te, y_tr, task, seed):
 
 def test_iter115_mammography_cb_auc_alone():
     """iter115 anomaly score alone on mammography 11k binary (iter69 family failed here)."""
-    _validate_scale(_load_mammography, _build_iter115_alone, "cb", "AUC", 0.0, "iter115_anom_alone_Mammog11k_cb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter115_alone, "cb", "AUC", 0.0, "iter115_anom_alone_Mammog11k_cb"), "iter115_anom_alone_Mammog11k_cb")
 
 
 def test_iter115_mammography_cb_auc_with_iter69():
     """iter115 anomaly + iter69 additive on mammography 11k binary."""
-    _validate_scale(_load_mammography, _build_iter115_with_iter69, "cb", "AUC", 0.0, "iter115_anom+iter69_Mammog11k_cb")
+    _assert_lifts_finite(_validate_scale(_load_mammography, _build_iter115_with_iter69, "cb", "AUC", 0.0, "iter115_anom+iter69_Mammog11k_cb"), "iter115_anom+iter69_Mammog11k_cb")
 
 
 def test_iter115_adult_cb_auc_with_iter69():
     """iter115 anomaly + iter69 additive on Adult 49k (does anomaly add to balanced binary?)."""
-    _validate_scale(_load_adult_binary, _build_iter115_with_iter69, "cb", "AUC", 0.0063, "iter115_anom+iter69_Adult49k_cb")
+    _assert_lifts_finite(_validate_scale(_load_adult_binary, _build_iter115_with_iter69, "cb", "AUC", 0.0063, "iter115_anom+iter69_Adult49k_cb"), "iter115_anom+iter69_Adult49k_cb")
 
 
 # ---------- iter116 - test iter69 + iter104 (iter69+RSD) on kin8nm 8k (regression mechanism map completion) ----------
@@ -970,22 +979,22 @@ def _load_kin8nm():
 
 def test_iter116_kin8nm_lgb_r2_iter69():
     """iter69 alone (baseline_disagreement + cdist) on kin8nm 8k LGB R2 (vs kin8nm-record iter68 +11.42% via RFF)."""
-    _validate_scale(_load_kin8nm, _build_iter69, "lgb", "R2", 0.1142, "iter116_iter69_kin8nm_lgb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter69, "lgb", "R2", 0.1142, "iter116_iter69_kin8nm_lgb"), "iter116_iter69_kin8nm_lgb")
 
 
 def test_iter116_kin8nm_cb_r2_iter69():
     """iter69 alone on kin8nm 8k CB R2."""
-    _validate_scale(_load_kin8nm, _build_iter69, "cb", "R2", 0.0, "iter116_iter69_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter69, "cb", "R2", 0.0, "iter116_iter69_kin8nm_cb"), "iter116_iter69_kin8nm_cb")
 
 
 def test_iter116_kin8nm_lgb_r2_iter104():
     """iter104 (iter69 + RSD additive) on kin8nm 8k LGB R2. Best Year-100k mechanism; does it generalize?"""
-    _validate_scale(_load_kin8nm, _build_iter104, "lgb", "R2", 0.1142, "iter116_iter104_kin8nm_lgb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter104, "lgb", "R2", 0.1142, "iter116_iter104_kin8nm_lgb"), "iter116_iter104_kin8nm_lgb")
 
 
 def test_iter116_kin8nm_cb_r2_iter104():
     """iter104 on kin8nm 8k CB R2."""
-    _validate_scale(_load_kin8nm, _build_iter104, "cb", "R2", 0.0, "iter116_iter104_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter104, "cb", "R2", 0.0, "iter116_iter104_kin8nm_cb"), "iter116_iter104_kin8nm_cb")
 
 
 # ---------- iter117 - confirm iter104 LGB-target enhancement + iter102 generalisation tests ----------
@@ -993,27 +1002,27 @@ def test_iter116_kin8nm_cb_r2_iter104():
 
 def test_iter117_california_lgb_r2_iter69():
     """iter69 alone on California 20k LGB R2 (baseline; we only had CB R2 +1.15% before)."""
-    _validate_scale(_load_california, _build_iter69, "lgb", "R2", 0.0, "iter117_iter69_CA20k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter69, "lgb", "R2", 0.0, "iter117_iter69_CA20k_lgb"), "iter117_iter69_CA20k_lgb")
 
 
 def test_iter117_california_lgb_r2_iter104():
     """iter104 on California 20k LGB R2 (does the LGB-target enhancement pattern hold?)."""
-    _validate_scale(_load_california, _build_iter104, "lgb", "R2", 0.0, "iter117_iter104_CA20k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter104, "lgb", "R2", 0.0, "iter117_iter104_CA20k_lgb"), "iter117_iter104_CA20k_lgb")
 
 
 def test_iter117_year100k_lgb_r2_iter69():
     """iter69 alone on Year-100k LGB R2 (Year-100k had +5.25% CB R2; need LGB baseline)."""
-    _validate_scale(_load_year_100k, _build_iter69, "lgb", "R2", 0.0, "iter117_iter69_Year100k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter69, "lgb", "R2", 0.0, "iter117_iter69_Year100k_lgb"), "iter117_iter69_Year100k_lgb")
 
 
 def test_iter117_year100k_lgb_r2_iter104():
     """iter104 on Year-100k LGB R2."""
-    _validate_scale(_load_year_100k, _build_iter104, "lgb", "R2", 0.0, "iter117_iter104_Year100k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter104, "lgb", "R2", 0.0, "iter117_iter104_Year100k_lgb"), "iter117_iter104_Year100k_lgb")
 
 
 def test_iter117_kin8nm_cb_r2_iter102():
     """iter102 on kin8nm 8k CB R2 (ExtraTrees abalone-helper; does it generalise to kin8nm CB?)."""
-    _validate_scale(_load_kin8nm, _build_iter102, "cb", "R2", 0.0, "iter117_iter102_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter102, "cb", "R2", 0.0, "iter117_iter102_kin8nm_cb"), "iter117_iter102_kin8nm_cb")
 
 
 # ---------- iter118 - cross-scale boundary test: iter102 large-N, iter104 small-N ----------
@@ -1028,14 +1037,14 @@ def test_iter118_year100k_cb_r2_iter102():
     2026-05-20 (likely RAM ceiling: each CB fit holds the full 100k frame
     plus the ExtraTrees feature builder side-set). Run sequentially.
     """
-    _validate_scale(_load_year_100k, _build_iter102, "cb", "R2", 0.0525, "iter118_iter102_Year100k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter102, "cb", "R2", 0.0525, "iter118_iter102_Year100k_cb"), "iter118_iter102_Year100k_cb")
 
 
 def test_iter118_abalone_cb_r2_iter104():
     """iter104 (+RSD) on abalone 4k CB R2 (does it beat iter102's +2.74% at small N?)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter104, "cb", "R2", 0.0274, "iter118_iter104_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter104, "cb", "R2", 0.0274, "iter118_iter104_abalone_cb"), "iter118_iter104_abalone_cb")
 
 
 # ---------- iter119 - iter69 + boosting_leaf-index features (orthogonal signal source) ----------
@@ -1097,17 +1106,17 @@ def test_iter119_abalone_cb_r2():
     """iter119 (iter69 + leaf-index) on abalone 4k CB R2 (record iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter119, "cb", "R2", 0.0274, "iter119_iter69+leaf_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter119, "cb", "R2", 0.0274, "iter119_iter69+leaf_abalone_cb"), "iter119_iter69+leaf_abalone_cb")
 
 
 def test_iter119_kin8nm_cb_r2():
     """iter119 on kin8nm 8k CB R2 (record iter102 +6.57%)."""
-    _validate_scale(_load_kin8nm, _build_iter119, "cb", "R2", 0.0657, "iter119_iter69+leaf_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter119, "cb", "R2", 0.0657, "iter119_iter69+leaf_kin8nm_cb"), "iter119_iter69+leaf_kin8nm_cb")
 
 
 def test_iter119_year100k_cb_r2():
     """iter119 on Year-100k CB R2 (record iter104 +5.25%)."""
-    _validate_scale(_load_year_100k, _build_iter119, "cb", "R2", 0.0525, "iter119_iter69+leaf_Year100k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter119, "cb", "R2", 0.0525, "iter119_iter69+leaf_Year100k_cb"), "iter119_iter69+leaf_Year100k_cb")
 
 
 # ---------- iter120 - generalisation test of iter68 (multi_baseline_hard_row + RFF) ----------
@@ -1118,17 +1127,17 @@ def test_iter120_abalone_lgb_r2_iter68():
     """iter68 on abalone 4k LGB R2 (test if iter68 generalises beyond kin8nm)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter68, "lgb", "R2", 0.0, "iter120_iter68_abalone_lgb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter68, "lgb", "R2", 0.0, "iter120_iter68_abalone_lgb"), "iter120_iter68_abalone_lgb")
 
 
 def test_iter120_california_lgb_r2_iter68():
     """iter68 on California 20k LGB R2 (test generalisation; LGB is FLAT on CA for iter69-family)."""
-    _validate_scale(_load_california, _build_iter68, "lgb", "R2", 0.0, "iter120_iter68_CA20k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter68, "lgb", "R2", 0.0, "iter120_iter68_CA20k_lgb"), "iter120_iter68_CA20k_lgb")
 
 
 def test_iter120_year100k_lgb_r2_iter68():
     """iter68 on Year-100k LGB R2 (vs iter104 +3.09% record)."""
-    _validate_scale(_load_year_100k, _build_iter68, "lgb", "R2", 0.0309, "iter120_iter68_Year100k_lgb")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter68, "lgb", "R2", 0.0309, "iter120_iter68_Year100k_lgb"), "iter120_iter68_Year100k_lgb")
 
 
 # ---------- iter121 - iter69 + bgmm_quantile_bands additive (BGM as additive, not alone) ----------
@@ -1190,12 +1199,12 @@ def test_iter121_abalone_cb_r2():
     """iter121 (iter69 + BGM) on abalone 4k CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter121, "cb", "R2", 0.0274, "iter121_iter69+bgm_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter121, "cb", "R2", 0.0274, "iter121_iter69+bgm_abalone_cb"), "iter121_iter69+bgm_abalone_cb")
 
 
 def test_iter121_kin8nm_cb_r2():
     """iter121 on kin8nm 8k CB R2 (vs iter102 record +6.57%)."""
-    _validate_scale(_load_kin8nm, _build_iter121, "cb", "R2", 0.0657, "iter121_iter69+bgm_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter121, "cb", "R2", 0.0657, "iter121_iter69+bgm_kin8nm_cb"), "iter121_iter69+bgm_kin8nm_cb")
 
 
 # ---------- iter122 - iter121 (iter69+BGM) scale test to Year-100k ----------
@@ -1223,7 +1232,7 @@ def _load_year_50k():
 
 def test_iter122_year50k_cb_r2_iter121():
     """iter121 on Year-50k CB R2 (smaller subsample to avoid BGM OOM at 100k)."""
-    _validate_scale(_load_year_50k, _build_iter121, "cb", "R2", 0.0525, "iter122_iter121_Year50k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_50k, _build_iter121, "cb", "R2", 0.0525, "iter122_iter121_Year50k_cb"), "iter122_iter121_Year50k_cb")
 
 
 # ---------- iter123 - baselines at Year-50k for fair comparison with iter122 ----------
@@ -1231,12 +1240,12 @@ def test_iter122_year50k_cb_r2_iter121():
 
 def test_iter123_year50k_cb_r2_iter69():
     """iter69 alone on Year-50k CB R2 (fair scale-baseline for iter122 +4.03%)."""
-    _validate_scale(_load_year_50k, _build_iter69, "cb", "R2", 0.0, "iter123_iter69_Year50k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_50k, _build_iter69, "cb", "R2", 0.0, "iter123_iter69_Year50k_cb"), "iter123_iter69_Year50k_cb")
 
 
 def test_iter123_year50k_cb_r2_iter104():
     """iter104 (iter69+RSD) on Year-50k CB R2 (fair scale-baseline for iter122)."""
-    _validate_scale(_load_year_50k, _build_iter104, "cb", "R2", 0.0, "iter123_iter104_Year50k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_50k, _build_iter104, "cb", "R2", 0.0, "iter123_iter104_Year50k_cb"), "iter123_iter104_Year50k_cb")
 
 
 # ---------- iter124 - does iter121 (iter69+BGM) help binary too? ----------
@@ -1244,7 +1253,7 @@ def test_iter123_year50k_cb_r2_iter104():
 
 def test_iter124_adult_cb_auc_iter121():
     """iter121 (iter69+BGM) on Adult 49k binary CB AUC (vs iter69 alone +0.63%). Does BGM generalise to binary?"""
-    _validate_scale(_load_adult_binary, _build_iter121, "cb", "AUC", 0.0063, "iter124_iter121_Adult49k_cb")
+    _assert_lifts_finite(_validate_scale(_load_adult_binary, _build_iter121, "cb", "AUC", 0.0063, "iter124_iter121_Adult49k_cb"), "iter124_iter121_Adult49k_cb")
 
 
 # ---------- iter125 - compute_row_attention (original transformer-FE backbone) ----------
@@ -1286,12 +1295,12 @@ def _build_iter125_alone(X_tr, X_te, y_tr, task, seed):
 
 def test_iter125_kin8nm_cb_r2_alone():
     """row_attention alone on kin8nm 8k CB R2 (vs iter121 record +7.01%)."""
-    _validate_scale(_load_kin8nm, _build_iter125_alone, "cb", "R2", 0.0701, "iter125_rowattn_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter125_alone, "cb", "R2", 0.0701, "iter125_rowattn_kin8nm_cb"), "iter125_rowattn_kin8nm_cb")
 
 
 def test_iter125_year50k_cb_r2_alone():
     """row_attention alone on Year-50k CB R2 (vs iter104 +4.32%)."""
-    _validate_scale(_load_year_50k, _build_iter125_alone, "cb", "R2", 0.0432, "iter125_rowattn_Year50k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_50k, _build_iter125_alone, "cb", "R2", 0.0432, "iter125_rowattn_Year50k_cb"), "iter125_rowattn_Year50k_cb")
 
 
 # ---------- iter126 - decision_region_depth: probe-based boundary distance features ----------
@@ -1377,19 +1386,19 @@ def test_iter126_abalone_cb_r2_alone():
     """decision_region_depth alone on abalone 4k CB R2."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter126_alone, "cb", "R2", 0.0, "iter126_drd_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter126_alone, "cb", "R2", 0.0, "iter126_drd_abalone_cb"), "iter126_drd_abalone_cb")
 
 
 def test_iter126_abalone_cb_r2_with_iter69():
     """iter69 + decision_region_depth on abalone 4k CB R2 (vs iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter126_with_iter69, "cb", "R2", 0.0274, "iter126_iter69+drd_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter126_with_iter69, "cb", "R2", 0.0274, "iter126_iter69+drd_abalone_cb"), "iter126_iter69+drd_abalone_cb")
 
 
 def test_iter126_kin8nm_cb_r2_with_iter69():
     """iter69 + decision_region_depth on kin8nm 8k CB R2 (vs iter121 +7.01%)."""
-    _validate_scale(_load_kin8nm, _build_iter126_with_iter69, "cb", "R2", 0.0701, "iter126_iter69+drd_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter126_with_iter69, "cb", "R2", 0.0701, "iter126_iter69+drd_kin8nm_cb"), "iter126_iter69+drd_kin8nm_cb")
 
 
 # ---------- iter127 - local_intrinsic_dim (geometric manifold-dim signal, orthogonal to predictions) ----------
@@ -1449,12 +1458,12 @@ def test_iter127_abalone_cb_r2_with_iter69():
     """iter69 + local_intrinsic_dim on abalone 4k CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter127_with_iter69, "cb", "R2", 0.0274, "iter127_iter69+lid_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter127_with_iter69, "cb", "R2", 0.0274, "iter127_iter69+lid_abalone_cb"), "iter127_iter69+lid_abalone_cb")
 
 
 def test_iter127_year50k_cb_r2_with_iter69():
     """iter69 + local_intrinsic_dim on Year-50k CB R2 (vs iter104 +4.32%)."""
-    _validate_scale(_load_year_50k, _build_iter127_with_iter69, "cb", "R2", 0.0432, "iter127_iter69+lid_Year50k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_50k, _build_iter127_with_iter69, "cb", "R2", 0.0432, "iter127_iter69+lid_Year50k_cb"), "iter127_iter69+lid_Year50k_cb")
 
 
 # ---------- iter128 - local_lift (kNN target rate; memory-light) ----------
@@ -1516,12 +1525,12 @@ def test_iter128_abalone_cb_r2_with_iter69():
     """iter69 + local_lift on abalone 4k CB R2 (vs iter102 record +2.74%, iter69 baseline +2.26%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter128_with_iter69, "cb", "R2", 0.0274, "iter128_iter69+loclift_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter128_with_iter69, "cb", "R2", 0.0274, "iter128_iter69+loclift_abalone_cb"), "iter128_iter69+loclift_abalone_cb")
 
 
 def test_iter128_kin8nm_cb_r2_with_iter69():
     """iter69 + local_lift on kin8nm 8k CB R2 (vs iter121 record +7.01%)."""
-    _validate_scale(_load_kin8nm, _build_iter128_with_iter69, "cb", "R2", 0.0701, "iter128_iter69+loclift_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter128_with_iter69, "cb", "R2", 0.0701, "iter128_iter69+loclift_kin8nm_cb"), "iter128_iter69+loclift_kin8nm_cb")
 
 
 # ---------- iter129 - scale local_lift additive to other datasets/targets ----------
@@ -1529,12 +1538,12 @@ def test_iter128_kin8nm_cb_r2_with_iter69():
 
 def test_iter129_year50k_cb_r2_with_iter69():
     """iter69 + local_lift on Year-50k CB R2 (vs iter104 +4.32%). Does local_lift scale to medium-N?"""
-    _validate_scale(_load_year_50k, _build_iter128_with_iter69, "cb", "R2", 0.0432, "iter129_iter69+loclift_Year50k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_50k, _build_iter128_with_iter69, "cb", "R2", 0.0432, "iter129_iter69+loclift_Year50k_cb"), "iter129_iter69+loclift_Year50k_cb")
 
 
 def test_iter129_kin8nm_lgb_r2_with_iter69():
     """iter69 + local_lift on kin8nm 8k LGB R2 (vs iter68 record +11.42%). Does local_lift help LGB-target too?"""
-    _validate_scale(_load_kin8nm, _build_iter128_with_iter69, "lgb", "R2", 0.1142, "iter129_iter69+loclift_kin8nm_lgb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter128_with_iter69, "lgb", "R2", 0.1142, "iter129_iter69+loclift_kin8nm_lgb"), "iter129_iter69+loclift_kin8nm_lgb")
 
 
 # ---------- iter130 - iter69 + local_lift + BGM on kin8nm CB (does the triple compose?) ----------
@@ -1611,7 +1620,7 @@ def _build_iter130(X_tr, X_te, y_tr, task, seed):
 
 def test_iter130_kin8nm_cb_r2():
     """iter69 + local_lift + BGM on kin8nm 8k CB R2 (vs iter128 record +8.06%)."""
-    _validate_scale(_load_kin8nm, _build_iter130, "cb", "R2", 0.0806, "iter130_iter69+loclift+bgm_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter130, "cb", "R2", 0.0806, "iter130_iter69+loclift+bgm_kin8nm_cb"), "iter130_iter69+loclift+bgm_kin8nm_cb")
 
 
 # ---------- iter131 - quadruple combo on kin8nm + iter102+local_lift on abalone ----------
@@ -1740,14 +1749,14 @@ def _build_iter131_iter102_plus_loclift(X_tr, X_te, y_tr, task, seed):
 
 def test_iter131_kin8nm_cb_r2_quadruple():
     """iter69_v2 (with ExtraTrees) + local_lift + BGM on kin8nm CB R2 (vs iter130 record +8.31%)."""
-    _validate_scale(_load_kin8nm, _build_iter131_quadruple, "cb", "R2", 0.0831, "iter131_quadruple_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter131_quadruple, "cb", "R2", 0.0831, "iter131_quadruple_kin8nm_cb"), "iter131_quadruple_kin8nm_cb")
 
 
 def test_iter131_abalone_cb_r2_iter102plusloclift():
     """iter102 + local_lift on abalone CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter131_iter102_plus_loclift, "cb", "R2", 0.0274, "iter131_iter102+loclift_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter131_iter102_plus_loclift, "cb", "R2", 0.0274, "iter131_iter102+loclift_abalone_cb"), "iter131_iter102+loclift_abalone_cb")
 
 
 # ---------- iter132 - does iter130's triple combo generalise beyond kin8nm? ----------
@@ -1757,12 +1766,12 @@ def test_iter132_abalone_cb_r2_triple():
     """iter130 triple (iter69+loclift+BGM) on abalone CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter130, "cb", "R2", 0.0274, "iter132_triple_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter130, "cb", "R2", 0.0274, "iter132_triple_abalone_cb"), "iter132_triple_abalone_cb")
 
 
 def test_iter132_year50k_cb_r2_triple():
     """iter130 triple on Year-50k CB R2 (vs iter104 record +4.32%)."""
-    _validate_scale(_load_year_50k, _build_iter130, "cb", "R2", 0.0432, "iter132_triple_Year50k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_50k, _build_iter130, "cb", "R2", 0.0432, "iter132_triple_Year50k_cb"), "iter132_triple_Year50k_cb")
 
 
 # ---------- iter133 - iter130 triple on Year-100k CB R2 ----------
@@ -1770,7 +1779,7 @@ def test_iter132_year50k_cb_r2_triple():
 
 def test_iter133_year100k_cb_r2_triple():
     """iter130 triple on Year-100k CB R2 (vs iter104 record +5.25%)."""
-    _validate_scale(_load_year_100k, _build_iter130, "cb", "R2", 0.0525, "iter133_triple_Year100k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter130, "cb", "R2", 0.0525, "iter133_triple_Year100k_cb"), "iter133_triple_Year100k_cb")
 
 
 # ---------- iter134 - iter128 (iter69+local_lift, NO BGM) on Year-100k CB R2 ----------
@@ -1778,7 +1787,7 @@ def test_iter133_year100k_cb_r2_triple():
 
 def test_iter134_year100k_cb_r2_iter128():
     """iter128 (iter69+local_lift, no BGM) on Year-100k CB R2 (vs iter104 +5.25%; memory-lighter than iter130 triple)."""
-    _validate_scale(_load_year_100k, _build_iter128_with_iter69, "cb", "R2", 0.0525, "iter134_iter128_Year100k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_100k, _build_iter128_with_iter69, "cb", "R2", 0.0525, "iter134_iter128_Year100k_cb"), "iter134_iter128_Year100k_cb")
 
 
 # ---------- iter135 - iter102 + local_lift (no BGM) on kin8nm CB R2 ----------
@@ -1838,14 +1847,14 @@ def _build_iter135(X_tr, X_te, y_tr, task, seed):
 
 def test_iter135_kin8nm_cb_r2():
     """iter102 + local_lift (no BGM) on kin8nm 8k CB R2 (vs iter130 record +8.31%)."""
-    _validate_scale(_load_kin8nm, _build_iter135, "cb", "R2", 0.0831, "iter135_iter102+loclift_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter135, "cb", "R2", 0.0831, "iter135_iter102+loclift_kin8nm_cb"), "iter135_iter102+loclift_kin8nm_cb")
 
 
 def test_iter135_abalone_cb_r2():
     """iter102 + local_lift on abalone 4k CB R2 (vs iter102 record +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter135, "cb", "R2", 0.0274, "iter135_iter102+loclift_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter135, "cb", "R2", 0.0274, "iter135_iter102+loclift_abalone_cb"), "iter135_iter102+loclift_abalone_cb")
 
 
 # ---------- iter136 - does iter135 (iter102+loclift) generalise to Year-50k CB R2? ----------
@@ -1853,12 +1862,12 @@ def test_iter135_abalone_cb_r2():
 
 def test_iter136_year50k_cb_r2():
     """iter135 mechanism on Year-50k CB R2 (vs iter104 record +4.32%). Does iter102+loclift beat iter104?"""
-    _validate_scale(_load_year_50k, _build_iter135, "cb", "R2", 0.0432, "iter136_iter102+loclift_Year50k_cb")
+    _assert_lifts_finite(_validate_scale(_load_year_50k, _build_iter135, "cb", "R2", 0.0432, "iter136_iter102+loclift_Year50k_cb"), "iter136_iter102+loclift_Year50k_cb")
 
 
 def test_iter136_california_cb_r2():
     """iter135 mechanism on California 20k CB R2 (vs iter69 +1.15%). Does iter102+loclift beat iter69 on California?"""
-    _validate_scale(_load_california, _build_iter135, "cb", "R2", 0.0115, "iter136_iter102+loclift_CA20k_cb")
+    _assert_lifts_finite(_validate_scale(_load_california, _build_iter135, "cb", "R2", 0.0115, "iter136_iter102+loclift_CA20k_cb"), "iter136_iter102+loclift_CA20k_cb")
 
 
 # ---------- iter137 - iter69 + quantile_spread_fan additive (different uncertainty signal) ----------
@@ -1916,11 +1925,11 @@ def _build_iter137(X_tr, X_te, y_tr, task, seed):
 
 def test_iter137_kin8nm_cb_r2():
     """iter69 + quantile_spread_fan on kin8nm CB R2 (vs iter130 +8.31%)."""
-    _validate_scale(_load_kin8nm, _build_iter137, "cb", "R2", 0.0831, "iter137_iter69+qfan_kin8nm_cb")
+    _assert_lifts_finite(_validate_scale(_load_kin8nm, _build_iter137, "cb", "R2", 0.0831, "iter137_iter69+qfan_kin8nm_cb"), "iter137_iter69+qfan_kin8nm_cb")
 
 
 def test_iter137_abalone_cb_r2():
     """iter69 + quantile_spread_fan on abalone CB R2 (vs iter102 +2.74%)."""
     from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_abalone
 
-    _validate_scale(_load_abalone, _build_iter137, "cb", "R2", 0.0274, "iter137_iter69+qfan_abalone_cb")
+    _assert_lifts_finite(_validate_scale(_load_abalone, _build_iter137, "cb", "R2", 0.0274, "iter137_iter69+qfan_abalone_cb"), "iter137_iter69+qfan_abalone_cb")

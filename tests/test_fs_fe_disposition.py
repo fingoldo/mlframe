@@ -242,25 +242,18 @@ def test_fe4_cb_ordinal_cat_features_warns(caplog):
     ft_cfg = FeatureTypesConfig()
 
     caplog.set_level(logging.WARNING, logger="mlframe.training.core._phase_helpers")
-    try:
-        _phase_fit_pipeline(
-            train_df=train,
-            val_df=None,
-            test_df=None,
-            mlframe_models=["cb"],
-            pipeline_config=pipe_cfg,
-            preprocessing_config=prep_cfg,
-            feature_types_config=ft_cfg,
-            preprocessing_extensions=None,
-            metadata={},
-            verbose=True,
-        )
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # Even if a downstream step fails on this synthetic frame, the WARN
-        # must have already fired before the failure (the check is at the
-        # very top of _phase_fit_pipeline, right after categorical-encoding
-        # auto-detection).
-        pass
+    _phase_fit_pipeline(
+        train_df=train,
+        val_df=None,
+        test_df=None,
+        mlframe_models=["cb"],
+        pipeline_config=pipe_cfg,
+        preprocessing_config=prep_cfg,
+        feature_types_config=ft_cfg,
+        preprocessing_extensions=None,
+        metadata={},
+        verbose=True,
+    )
 
     msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     matched = [m for m in msgs if "CatBoost" in m and "mlframe_models" in m and "ordinal" in m]

@@ -57,14 +57,14 @@ def test_add_ohlcv_ratios_custom_lags(lags):
 
 
 @given(st.booleans(), st.booleans())
+@settings(max_examples=4, deadline=None)
 def test_add_ohlcv_ratios_options(add_ratios, add_rlags):
     """Test different ratio/rlag options."""
     df = create_sample_ohlcv(30)
     result = add_ohlcv_ratios_rlags(df, add_ratios=add_ratios, add_rlags=add_rlags)
 
-    if not add_ratios and not add_rlags:
-        # Should return original columns
-        assert len(result.columns) == len(df.columns)
+    expected_added = {(True, True): 34, (True, False): 14, (False, True): 6, (False, False): 0}[(add_ratios, add_rlags)]
+    assert len(result.columns) == len(df.columns) + expected_added
 
 
 def test_add_ohlcv_ratios_no_nans_in_added():
@@ -72,13 +72,11 @@ def test_add_ohlcv_ratios_no_nans_in_added():
     df = create_sample_ohlcv(100)
     result = add_ohlcv_ratios_rlags(df, nans_filler=0.0)
 
-    # After first few rows (due to lags), shouldn't have NaNs
-    for col in result.columns:
-        if col not in df.columns:
-            # New columns should be filled
-            nan_count = result[col].null_count()
-            # Allow some nulls due to lag initialization
-            assert nan_count <= 5, f"Column {col} has {nan_count} nulls"
+    new_cols = [c for c in result.columns if c not in df.columns]
+    assert len(new_cols) == 34
+    for col in new_cols:
+        nan_count = result[col].null_count()
+        assert nan_count <= 2, f"Column {col} has {nan_count} nulls"
 
 
 @given(st.lists(st.integers(min_value=2, max_value=20), min_size=1, max_size=3, unique=True))
@@ -122,11 +120,11 @@ def test_add_ohlcv_ratios_cast_f64_to_f32():
     df = create_sample_ohlcv(30)
     result = add_ohlcv_ratios_rlags(df, cast_f64_to_f32=True)
 
-    # Check that numeric columns are float32
-    for col in result.columns:
-        dtype = result[col].dtype
-        if dtype in [pl.Float64, pl.Float32]:
-            assert dtype == pl.Float32, f"Column {col} is {dtype}, expected Float32"
+    float_cols = [c for c in result.columns if result[c].dtype in (pl.Float64, pl.Float32)]
+    assert len(float_cols) > 10
+    assert all(result[c].dtype == pl.Float32 for c in float_cols)
+    uncast = add_ohlcv_ratios_rlags(df, cast_f64_to_f32=False)
+    assert any(uncast[c].dtype == pl.Float64 for c in uncast.columns)
 
 
 def test_add_ohlcv_ratios_exclude_fields():

@@ -17,7 +17,7 @@ import numba
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_engineering._welford_njit import welford_push, welford_std
+from mlframe._welford_njit import welford_push, welford_std
 
 logger = logging.getLogger(__name__)
 

@@ -11,27 +11,11 @@ the True/False values diverge on a polars input when polars-ds is unavailable.
 
 from __future__ import annotations
 
-import pathlib
-
 import pandas as pd
 import polars as pl
 
-import mlframe
 from mlframe.training.configs import PreprocessingBackendConfig
 from mlframe.training.pipeline import _pipeline_fit_transform
-
-
-def _src_root() -> pathlib.Path:
-    """Src root."""
-    return pathlib.Path(mlframe.__file__).resolve().parent
-
-
-def test_fallback_to_sklearn_is_consumed_at_dispatch_site():
-    """Sensor: the dispatch module reads ``config.fallback_to_sklearn``. Zero
-    consumers would mean the knob regressed back to dead -- fail loudly if so.
-    """
-    text = pathlib.Path(_pipeline_fit_transform.__file__).read_text(encoding="utf-8", errors="ignore")
-    assert "config.fallback_to_sklearn" in text, "fallback_to_sklearn is no longer read at the dispatch site -- the knob regressed to dead."
 
 
 def _force_no_polarsds(monkeypatch):
@@ -45,6 +29,17 @@ def _force_no_polarsds(monkeypatch):
 def _toy_polars_frame() -> pl.DataFrame:
     """Toy polars frame."""
     return pl.DataFrame({"a": [1.0, 2.0, 3.0, 4.0], "b": [10.0, 20.0, 30.0, 40.0]})
+
+
+def test_fallback_to_sklearn_is_consumed_at_dispatch_site(monkeypatch):
+    """The two values of ``fallback_to_sklearn`` produce different outputs for the same polars input when polars-ds is unavailable."""
+    _force_no_polarsds(monkeypatch)
+    outputs = {}
+    for flag in (True, False):
+        cfg = PreprocessingBackendConfig(prefer_polarsds=True, fallback_to_sklearn=flag, scaler_name=None, imputer_strategy=None, categorical_encoding=None)
+        outputs[flag] = _pipeline_fit_transform.fit_and_transform_pipeline(_toy_polars_frame(), None, None, cfg, ensure_float32=False, verbose=0)[0]
+    assert isinstance(outputs[True], pd.DataFrame)
+    assert isinstance(outputs[False], pl.DataFrame)
 
 
 def test_fallback_engages_when_true_and_backend_unavailable(monkeypatch):

@@ -233,7 +233,7 @@ def run_in_big_stack_thread(
 # wasted I/O.
 _FIT_MEMMAP_CACHE_MAX_ENTRIES = 8
 _FIT_MEMMAP_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()  # content key -> (read-only memmap, backing path)
-_FIT_MEMMAP_LOCK = threading.Lock()
+_FIT_MEMMAP_LOCK = threading.RLock()
 # Evicted entries a caller still holds (a Parallel call dispatching tasks by filename) wait here; each sweep releases the ones no longer referenced.
 _FIT_MEMMAP_RETIRED: "list[tuple]" = []
 
@@ -266,11 +266,12 @@ def _sweep_retired_locked() -> None:
 
 def _evict_one_locked() -> None:
     """Pop the LRU entry; unlink it now, or park it in the retired list while a caller still references its view."""
-    _, (view, path) = _FIT_MEMMAP_CACHE.popitem(last=False)
-    if _view_in_use(view):
-        _FIT_MEMMAP_RETIRED.append((view, path))
-    else:
-        _release_fit_constant_entry(view, path)
+    with _FIT_MEMMAP_LOCK:
+        _, (view, path) = _FIT_MEMMAP_CACHE.popitem(last=False)
+        if _view_in_use(view):
+            _FIT_MEMMAP_RETIRED.append((view, path))
+        else:
+            _release_fit_constant_entry(view, path)
 
 
 def _release_fit_constant_entry(view, path: str) -> None:

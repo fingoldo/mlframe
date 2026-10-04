@@ -20,6 +20,7 @@ the clamp actually happens.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 try:
@@ -47,17 +48,28 @@ def test_fix_random_seed_accepts_large_seed():
     huge_seed = 4_414_703_545  # > 2**32, the exact value observed in prod
     # The shim is installed by the session autouse fixture. If it's
     # not in effect, this raises.
-    _thinc_util.fix_random_seed(huge_seed)  # must not raise
+    _thinc_util.fix_random_seed(huge_seed)
+    first = np.random.random()
+    _thinc_util.fix_random_seed(huge_seed % 2**32)
+    assert np.random.random() == first
 
 
 def test_fix_random_seed_normal_seed_still_works():
     """False-positive sensor: the shim must not break small seeds."""
     _thinc_util.fix_random_seed(42)
+    first = np.random.random()
+    _thinc_util.fix_random_seed(42)
+    assert np.random.random() == first
+    _thinc_util.fix_random_seed(43)
+    assert np.random.random() != first
 
 
 def test_fix_random_seed_zero_still_works():
     """Edge: seed=0 is valid. Pre-clamp or post-clamp, must succeed."""
     _thinc_util.fix_random_seed(0)
+    first = np.random.random()
+    _thinc_util.fix_random_seed(0)
+    assert np.random.random() == first
 
 
 def test_shim_is_wrapper_not_original():

@@ -55,17 +55,26 @@ class TestEarlyStopFires:
     def test_early_stop_reduces_compute_when_high_threshold_breached(
         self,
         laplace_residual_dataset,
+        monkeypatch,
     ) -> None:
-        """With a small ``early_stop_threshold``, the partial-mean bound triggers and the run finishes earlier.
+        """With a small ``early_stop_threshold``, the partial-mean bound triggers and later folds are not fitted.
 
-        Measure wall-time savings on a 3-fold serial fit. Hard assertion: early-stop run wall time < full run wall time. The exact reduction depends on data, but the partial-mean bound MUST cut at least one fold.
+        Counts the fold fits actually performed on a 3-fold serial run instead of timing it: the full run fits every fold, the early-stopped
+        run stops after the first fold, and the value it returns is the partial mean, above the threshold.
         """
-        import time
+        from mlframe.training.composite.discovery import _screening_tiny_perbin as perbin
 
         y, base, x, params, transform = laplace_residual_dataset
+        fits: list = []
+        real_fit_fold_model = perbin._fit_fold_model
 
-        t0 = time.perf_counter()
-        _tiny_cv_rmse_y_scale(
+        def counting_fit_fold_model(*args, **kwargs):
+            """Count one fold fit, then fit it."""
+            fits.append(1)
+            return real_fit_fold_model(*args, **kwargs)
+
+        monkeypatch.setattr(perbin, "_fit_fold_model", counting_fit_fold_model)
+        kwargs = dict(
             y_train=y,
             base_train=base,
             transform=transform,
@@ -79,35 +88,15 @@ class TestEarlyStopFires:
             random_state=0,
             n_jobs=1,
         )
-        full_time = time.perf_counter() - t0
+        full = _tiny_cv_rmse_y_scale(**kwargs)
+        assert len(fits) == 3
 
-        # Set threshold WAY below the expected full RMSE so fold 1 triggers abort.
-        # Heavy-tail Cauchy noise -> RMSE in the 100s. Threshold = 1.0 forces abort.
-        t0 = time.perf_counter()
-        _ = _tiny_cv_rmse_y_scale(
-            y_train=y,
-            base_train=base,
-            transform=transform,
-            fitted_params=params,
-            x_train_matrix=x,
-            family="lgb",
-            n_estimators=50,
-            num_leaves=16,
-            learning_rate=0.1,
-            cv_folds=3,
-            random_state=0,
-            n_jobs=1,
-            early_stop_threshold=1.0,
-        )
-        es_time = time.perf_counter() - t0
-
-        from tests.conftest import running_under_xdist
-
-        if running_under_xdist():
-            pytest.skip("wall-clock comparison flakes under -n contention; behaviour covered by the inf-threshold parity test")
-
-        # Early-stop must finish in <70% of full time (rough threshold; LightGBM init dominates on small N so the bound is tight).
-        assert es_time < full_time, f"early-stop did not save time: full={full_time:.3f}s, early_stop={es_time:.3f}s"
+        # Threshold WAY below the expected full RMSE: heavy-tail Cauchy noise gives RMSE in the 100s, so fold 1 already breaches it.
+        fits.clear()
+        early = _tiny_cv_rmse_y_scale(**kwargs, early_stop_threshold=1.0)
+        assert len(fits) == 1
+        assert early > 1.0
+        assert np.isfinite(full) and np.isfinite(early)
 
     def test_early_stop_threshold_inf_returns_same_value(
         self,

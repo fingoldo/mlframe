@@ -77,32 +77,45 @@ def _build_offending_set() -> set[str]:
         tree = parsed_ast(py)
         if tree is None:
             continue
-        rel = py.relative_to(MLFRAME_DIR).as_posix()
-        for func_node in ast.walk(tree):
-            if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            risky_names: set[str] = set()
-            for node in ast.walk(func_node):
-                if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and _is_to_numpy_call_without_copy(node.value):
-                    for target in node.targets:
-                        if isinstance(target, ast.Name):
-                            risky_names.add(target.id)
-            for node in ast.walk(func_node):
-                if not isinstance(node, ast.Call):
-                    continue
-                target_name = _is_np_inplace_mutator_call(node)
-                if target_name is not None and target_name in risky_names:
-                    out.add(f"{rel}:{node.lineno}")
+        out |= _offending_in_tree(tree, py.relative_to(MLFRAME_DIR).as_posix())
     return out
+
+
+def _offending_in_tree(tree: ast.AST, rel: str) -> set[str]:
+    """``{rel:lineno}`` for each in-place mutator call on an uncopied ``.to_numpy()`` result in one parsed module."""
+    out: set[str] = set()
+    for func_node in ast.walk(tree):
+        if not isinstance(func_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        risky_names: set[str] = set()
+        for node in ast.walk(func_node):
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and _is_to_numpy_call_without_copy(node.value):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        risky_names.add(target.id)
+        for node in ast.walk(func_node):
+            if not isinstance(node, ast.Call):
+                continue
+            target_name = _is_np_inplace_mutator_call(node)
+            if target_name is not None and target_name in risky_names:
+                out.add(f"{rel}:{node.lineno}")
+    return out
+
+
+def test_readonly_mutation_detector_catches_an_uncopied_view_and_passes_a_copy():
+    """``np.fill_diagonal`` on an uncopied ``to_numpy()`` is reported; with ``copy=True`` it is not."""
+    bad = ast.parse("def f(df):\n    a = df.to_numpy()\n    np.fill_diagonal(a, 0)\n")
+    clean = ast.parse("def f(df):\n    a = df.to_numpy(copy=True)\n    np.fill_diagonal(a, 0)\n")
+    assert _offending_in_tree(bad, "m.py") == {"m.py:3"}
+    assert _offending_in_tree(clean, "m.py") == set()
 
 
 def test_no_new_readonly_to_numpy_mutation():
     """No new in-place mutation of an uncopied ``.to_numpy()`` result beyond the frozen baseline."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"readonly-to_numpy-mutation baseline refreshed at {_BASELINE_PATH.name} ({len(current)} site(s))")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"readonly-to_numpy-mutation baseline refreshed at {_BASELINE_PATH.name}")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

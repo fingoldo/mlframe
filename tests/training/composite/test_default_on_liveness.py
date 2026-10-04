@@ -83,16 +83,15 @@ def _test_node(node_id: str) -> ast.AST | None:
     return None
 
 
-def _test_source(node_id: str) -> str | None:
-    """Source of the test function (or class) a ``path::name`` node id names, or None when it does not exist."""
+def _test_node(node_id: str) -> ast.AST | None:
+    """Syntax tree of the test function (or class) a ``path::name`` node id names, or None when it does not exist."""
     path, name = node_id.split("::", 1)
     file = _ROOT / path
     if not file.exists():
         return None
-    text = file.read_text(encoding="utf-8")
-    for node in ast.walk(ast.parse(text)):
+    for node in ast.walk(ast.parse(file.read_bytes())):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
-            return ast.get_source_segment(text, node)
+            return node
     return None
 
 
@@ -105,10 +104,10 @@ def test_every_default_on_knob_is_accounted_for():
     assert not listed - knobs, f"entries for knobs that no longer default on: {sorted(listed - knobs)}"
 
 
-def _config_calls_with_knob_off(src: str, knob: str) -> tuple[int, int]:
-    """Config-building calls in ``src``: how many there are, and how many of them set ``knob=False``."""
+def _config_calls_with_knob_off(tree: ast.AST, knob: str) -> tuple[int, int]:
+    """Config-building calls in ``tree``: how many there are, and how many of them set ``knob=False``."""
     total = off = 0
-    for node in ast.walk(ast.parse(src)):
+    for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         fn = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
@@ -122,9 +121,9 @@ def _config_calls_with_knob_off(src: str, knob: str) -> tuple[int, int]:
 @pytest.mark.parametrize("knob", sorted(DEFAULT_ON_MECHANISMS))
 def test_the_liveness_test_exists_and_keeps_the_knob_on(knob: str):
     """The named test exists and builds at least one configuration with the knob on; an OFF run is allowed only as its control."""
-    src = _test_source(DEFAULT_ON_MECHANISMS[knob])
-    assert src is not None, f"{knob}: {DEFAULT_ON_MECHANISMS[knob]} does not exist"
-    total, off = _config_calls_with_knob_off(src, knob)
+    tree = _test_node(DEFAULT_ON_MECHANISMS[knob])
+    assert tree is not None, f"{knob}: {DEFAULT_ON_MECHANISMS[knob]} does not exist"
+    total, off = _config_calls_with_knob_off(tree, knob)
     assert not (off and off == total), f"{knob}: every configuration its liveness test builds turns the knob off"
 
 
@@ -132,8 +131,8 @@ def test_the_knob_check_sees_an_all_off_test():
     """Canary: a test whose only configuration switches the knob off is caught; an off control beside an on run is not."""
     only_off = "def t():\n    run(make_config(x_enabled=False))\n"
     with_control = "def t():\n    run(make_config(x_enabled=False))\n    run(make_config())\n"
-    assert _config_calls_with_knob_off(only_off, "x_enabled") == (1, 1)
-    assert _config_calls_with_knob_off(with_control, "x_enabled") == (2, 1)
+    assert _config_calls_with_knob_off(ast.parse(only_off), "x_enabled") == (1, 1)
+    assert _config_calls_with_knob_off(ast.parse(with_control), "x_enabled") == (2, 1)
 
 
 @pytest.mark.parametrize("name", sorted(MECHANISMS_WITHOUT_A_KNOB))

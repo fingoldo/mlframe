@@ -95,4 +95,8 @@ def test_field_groups_valid_exact_partition_does_not_raise():
     X = rng.normal(size=(20, 4)).astype(np.float32)
     y = np.zeros(20, dtype=np.float32)
     field_groups = {"A": [0, 1], "B": [2, 3]}
-    FieldGroupedMLPRegressor(field_groups=field_groups, n_epochs=1).fit(X, y)  # must not raise
+    model = FieldGroupedMLPRegressor(field_groups=field_groups, n_epochs=1).fit(X, y)
+    assert sorted(model.model_.field_encoders) == ["A", "B"]
+    preds = model.predict(X)
+    assert preds.shape == (20,)
+    assert np.all(np.isfinite(preds))

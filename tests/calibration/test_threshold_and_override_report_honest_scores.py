@@ -159,17 +159,37 @@ class TestMultiplicityIsCorrectable:
         with pytest.raises(ValueError, match="positive integer"):
             triage_cv_delta(self.FOLDS_A, self.FOLDS_B, change_source="feature_engineering", n_comparisons=0)
 
-    def test_compare_cv_schemes_passes_the_family_size(self):
-        """The caller that most obviously needs it: one test per non-winning scheme against a chosen winner.
+    def test_compare_cv_schemes_passes_the_family_size(self, monkeypatch):
+        """The caller that most obviously needs it: one test per non-winning scheme against a chosen winner."""
+        from sklearn.linear_model import LinearRegression
+        from sklearn.model_selection import KFold
 
-        Checked structurally on the call site rather than by running `compare_cv_schemes`, which needs a
-        model factory, a metric and an out-of-time holdout to reach this line -- and rather than by matching
-        source text, which would pass for a literal sitting in a comment.
-        """
-        import ast
-        import pathlib as _pl
+        import importlib
 
-        src = (_pl.Path(__file__).resolve().parents[2] / "src" / "mlframe" / "evaluation" / "compare_cv_schemes.py").read_text(encoding="utf-8")
-        calls = [n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "triage_cv_delta"]
-        assert calls, "the significance call was not found; this test needs updating"
-        assert all(any(kw.arg == "n_comparisons" for kw in c.keywords) for c in calls), "a significance test runs without a family-size correction"
+        ccs = importlib.import_module("mlframe.evaluation.compare_cv_schemes")
+
+        seen: list = []
+        real = ccs.triage_cv_delta
+
+        def spy(*args, **kwargs):
+            """Record the family size handed to each significance test, then run the real one."""
+            seen.append(kwargs.get("n_comparisons"))
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(ccs, "triage_cv_delta", spy)
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(300, 3))
+        y = X[:, 0] + rng.normal(0, 0.5, 300)
+        hist = np.arange(240)
+        schemes = {f"kf{seed}": [(hist[tr], hist[te]) for tr, te in KFold(4, shuffle=True, random_state=seed).split(hist)] for seed in range(3)}
+        result = ccs.compare_cv_schemes(
+            X,
+            y,
+            schemes=schemes,
+            ooo_time_idx=(hist, np.arange(240, 300)),
+            model_factory=LinearRegression,
+            metric_fn=lambda a, b: float(np.sqrt(np.mean((a - b) ** 2))),
+            significance_alpha=0.05,
+        )
+        assert result["best_scheme"] in schemes
+        assert seen == [2, 2]

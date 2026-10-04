@@ -36,7 +36,7 @@ except ImportError:  # pragma: no cover
     XGBClassifier = XGBRegressor = None  # type: ignore[assignment,misc]
 
 from ._predict_guards import _CB_VAL_POOL_CACHE  # noqa: F401
-from ._oof_fold_policy import cap_early_stopping_clone, iid_oof_splitter
+from ._oof_fold_policy import apply_feature_roles_to_clone, cap_early_stopping_clone, iid_oof_splitter
 from mlframe.training.pipeline.shared import (  # noqa: F401
     PRE_PIPELINE_CACHE as _PRE_PIPELINE_CACHE,
     PRE_PIPELINE_CACHE_LOCK as _PRE_PIPELINE_CACHE_LOCK,
@@ -194,6 +194,7 @@ def _compute_oof_preds(
     sample_weight=None,
     timestamps=None,
     diagnostics: Optional[dict] = None,
+    fit_params: Optional[dict] = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """Compute K-fold OOF predictions for level-1 stacking. Returns (oof_preds, oof_probs) or (None, None) on skip.
 
@@ -252,6 +253,7 @@ def _compute_oof_preds(
         return _skip(f"estimator not clonable ({exc})")
 
     cap_early_stopping_clone(estimator, model, diag)
+    apply_feature_roles_to_clone(estimator, fit_params, getattr(train_df, "columns", None))
 
     method = "predict_proba" if is_classifier_model and hasattr(estimator, "predict_proba") else "predict"
 

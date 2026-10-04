@@ -70,10 +70,13 @@ def test_prepare_df_for_catboost_surfaces_skipped_columns():
     assert out["b"].dtype != "category"
 
 
-def test_list_cluster_members_empty_labels_no_raise():
+def test_list_cluster_members_empty_labels_no_raise(capsys):
     # Pre-fix: max([]) -> ValueError on empty labels.
-    """List cluster members empty labels no raise."""
-    cluster_mod.list_cluster_members(np.array([], dtype=int), [])
+    """List cluster members empty labels prints nothing and returns None."""
+    assert cluster_mod.list_cluster_members(np.array([], dtype=int), []) is None
+    assert capsys.readouterr().out == ""
+    cluster_mod.list_cluster_members(np.array([0, 1, 0]), ["a", "b", "c"])
+    assert capsys.readouterr().out == "['a', 'c']\n['b']\n"
 
 
 def test_clusterize_does_not_leak_figures():

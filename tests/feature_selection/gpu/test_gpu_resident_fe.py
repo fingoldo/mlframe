@@ -827,15 +827,19 @@ def test_gpu_apply_prewarp_resolves_clenshaw_dict_after_carve():
     from mlframe.feature_selection.filters._gpu_resident_fe import _gpu_apply_prewarp
     from mlframe.feature_selection.filters._gpu_resident_basis import _PREWARP_CLENSHAW_GPU
 
-    x = cp.asarray(np.linspace(0.2, 1.0, 16))
+    from mlframe.feature_selection.filters.hermite_fe import _POLY_BASES, apply_operand_prewarp
+
+    x_host = np.linspace(0.2, 1.0, 64)
+    x = cp.asarray(x_host)
+    assert len(_PREWARP_CLENSHAW_GPU) == 4
     for basis in _PREWARP_CLENSHAW_GPU:  # chebyshev / legendre / hermite / laguerre
-        spec = {"basis": basis, "preprocess": {}, "coef": [1.0, 0.0, 0.0]}
-        try:
-            _gpu_apply_prewarp(cp, x, spec)
-        except NameError as e:  # the carved-dict reference must resolve
-            pytest.fail(f"_gpu_apply_prewarp NameError on basis {basis!r}: {e}")
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass  # incomplete minimal spec may raise KeyError/ValueError downstream -- not the bug under test
+        _z, preprocess = _POLY_BASES[basis]["fit"](x_host)
+        spec = {"basis": basis, "preprocess": preprocess, "coef": [0.3, -0.5, 0.7]}
+        got = cp.asnumpy(_gpu_apply_prewarp(cp, x, spec))
+        want = apply_operand_prewarp(x_host, spec)
+        assert got.shape == want.shape == x_host.shape, basis
+        assert np.isfinite(got).all(), basis
+        np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-10, err_msg=f"device prewarp differs from host replay on basis {basis!r}")
 
 
 def test_fe_materialise_cm_bit_identical():

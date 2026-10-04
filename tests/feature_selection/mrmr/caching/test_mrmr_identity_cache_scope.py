@@ -44,14 +44,9 @@ def test_mrmr_uses_override_dict_when_stamped():
 
     # Snapshot the module-global cache to verify it's untouched.
     global_snapshot = dict(mrmr_module._MRMR_IDENTITY_FP_CACHE)
-    try:
-        inst.fit(X, y)
-    except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-        # MRMR may fail on tiny inputs; we only care about cache routing semantics, not full fit success.
-        pass
+    inst.fit(X, y)
 
-    # The override cache may or may not be populated depending on whether the fit reached the
-    # post-fit cache-store branch. Either way the module-level cache must NOT have grown from this fit.
+    assert len(ctx_cache) == 1, "the fit must store its identity-cache entry in the stamped override dict"
     assert mrmr_module._MRMR_IDENTITY_FP_CACHE == global_snapshot
 
 

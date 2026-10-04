@@ -44,8 +44,10 @@ def test_api14_two_value_float_regression_with_classification_false_treated_as_r
         sel.fit(X, y)
 
 
-def test_api14_classification_none_warns_on_ambiguous_float_target():
-    """Api14 classification none warns on ambiguous float target."""
+def test_api14_classification_none_warns_on_ambiguous_float_target(monkeypatch):
+    """The ambiguous-float warning fires for classification=None and stays silent when the caller confirms classification=True."""
+    import warnings
+
     from mlframe.feature_selection.hybrid_selector import HybridSelector
     import pandas as pd
 
@@ -54,13 +56,24 @@ def test_api14_classification_none_warns_on_ambiguous_float_target():
     # Float values {1.0, 2.0} sniff as 'binary' via type_of_target -> the ambiguous-float warning must fire.
     y = np.where(rng.random(30) > 0.5, 1.0, 2.0).astype(np.float64)
 
-    sel = HybridSelector(classification=None)
-    with pytest.warns(UserWarning, match="float but was value-sniffed"):
-        # The warning fires before any heavy fitting; we only assert the warning, swallow downstream errors.
-        try:
-            sel.fit(X, y)
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
+    class _StopAfterTargetCheck(Exception):
+        """Raised by the stubbed first fit stage so only the target-type validation runs."""
+
+    def _stop(self, X, y):
+        """Stub for the first fit stage."""
+        raise _StopAfterTargetCheck
+
+    monkeypatch.setattr(HybridSelector, "_run_mrmr", _stop)
+
+    with pytest.warns(UserWarning, match="float but was value-sniffed as a classification target"):
+        with pytest.raises(_StopAfterTargetCheck):
+            HybridSelector(classification=None).fit(X, y)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(_StopAfterTargetCheck):
+            HybridSelector(classification=True).fit(X, y)
+    assert not [w for w in caught if "value-sniffed" in str(w.message)]
 
 
 # --------------------------------------------------------------------------- API33

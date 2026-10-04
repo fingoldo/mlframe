@@ -77,5 +77,5 @@ def test_premerge_reexpands_accepted_cluster_members():
     b, _X = _fit(premerge=True)
     inf0_cluster = {"inf_0", "red_0_0", "red_0_1", "red_0_2", "red_0_3"}
     sel = set(b.selected_features_)
-    if inf0_cluster & sel:  # the cluster was accepted
-        assert len(inf0_cluster & sel) >= 2, "accepted cluster should re-expand to multiple members"
+    assert inf0_cluster & sel, f"the strong inf_0 cluster must be accepted; selected={sorted(sel)}"
+    assert len(inf0_cluster & sel) >= 2, "accepted cluster should re-expand to multiple members"

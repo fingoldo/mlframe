@@ -28,20 +28,16 @@ class TestSingleRowFit:
         X = pd.DataFrame({"a": [1.0], "b": [2.0]})
         y = pd.Series([0])
         m = MRMR(**_kw())
-        try:
+        with pytest.raises(ValueError, match="cannot fit on a single row"):
             m.fit(X, y)
-        except (ValueError, RuntimeError):
-            pass  # a clear, documented exception is an acceptable outcome for n=1
 
     def test_regression_single_row_does_not_crash(self):
         """Same contract as the classification case, for a single-row regression target."""
         X = pd.DataFrame({"a": [1.0], "b": [2.0]})
         y = pd.Series([3.14])
         m = MRMR(**_kw())
-        try:
+        with pytest.raises(ValueError, match="cannot fit on a single row"):
             m.fit(X, y)
-        except (ValueError, RuntimeError):
-            pass
 
 
 class TestAllNaNColumn:

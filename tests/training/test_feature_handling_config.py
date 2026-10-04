@@ -216,8 +216,10 @@ class TestCompatMatrixValidation:
         register_model_axis_support("__test_model__", Axis.TEXT, ["tfidf", "drop"])
         # Re-registering same set is a no-op.
         register_model_axis_support("__test_model__", Axis.TEXT, ["tfidf", "drop"])
-        # Now validates against new entry.
-        validate_handler_for_model("__test_model__", Axis.TEXT, "tfidf")
+        # Now validates against new entry, and only against it.
+        assert validate_handler_for_model("__test_model__", Axis.TEXT, "tfidf") is None
+        with pytest.raises(ValueError, match=r"valid methods: \['drop', 'tfidf'\]"):
+            validate_handler_for_model("__test_model__", Axis.TEXT, "hashing")
 
     def test_register_model_axis_support_conflict_raises(self):
         """Register model axis support conflict raises."""
@@ -238,7 +240,10 @@ class TestFhcValidateAgainstModels:
         fhc = FeatureHandlingConfig(
             default_text=[TextHandlerSpec(method="tfidf", params=TfidfParams())],
         )
-        fhc.validate_against_models(["xgb"])  # should not raise
+        assert fhc.validate_against_models(["xgb"]) is None
+        bad = FeatureHandlingConfig(default_text=[TextHandlerSpec(method="learnable_text_embedding", params=LearnableEmbeddingParams())])
+        with pytest.raises(ValueError, match="requires a neural model"):
+            bad.validate_against_models(["xgb"])
 
     def test_combined_error_lists_all_mismatches(self):
         # mlp: cat="native" not allowed (mlp cat must be embedding/ordinal/onehot/drop)

@@ -4,7 +4,7 @@ Feeds ~150 unique, pairwise-covering combos through the suite and records
 every combo's outcome to ``_fuzz_results.jsonl`` for later analysis.
 
 Known-bug xfail rules live in ``_fuzz_combo.KNOWN_XFAIL_RULES`` and are
-applied automatically per combo via ``pytest.mark.xfail`` in the test
+applied automatically per combo via ``known_gap`` in the test
 function — new bugs discovered by fuzzing should be added there once
 they're traced to a specific combo predicate.
 """
@@ -29,6 +29,7 @@ from tests.training._fuzz_combo import (
     log_combo_outcome,
     xfail_reason,
 )
+from tests._known_gap import known_gap
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 # 2026-04-27: train_mlframe_models_suite signature collapsed several
@@ -51,6 +52,19 @@ from mlframe.training import (
 # seeds × 150 combos each without the parent process sharing state).
 _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
 COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_SEED)
+
+# LTR combos train native rankers only; a combo whose sampled models contain none has nothing to run, which is known from the combo alone.
+_LTR_NATIVE_RANKER_MODELS = frozenset({"cb", "xgb", "lgb", "mlp"})
+
+
+def _combo_marks(combo: FuzzCombo) -> list:
+    """Skip marker for an LTR combo none of whose models has a native ranker (need cb/xgb/lgb/mlp)."""
+    if combo.target_type == "learning_to_rank" and not [m for m in combo.models if m.lower() in _LTR_NATIVE_RANKER_MODELS]:
+        return [pytest.mark.skip(reason=f"LTR combo {combo.short_id()}: requested models {combo.models} have no native ranker (need cb/xgb/lgb/mlp)")]
+    return []
+
+
+_COMBO_PARAMS = [pytest.param(c, id=c.pytest_id(), marks=_combo_marks(c)) for c in COMBOS]
 
 
 # Non-test helpers carved into a sibling module so this stays a lean
@@ -127,8 +141,8 @@ def _fuzz_combo_cleanup():
 @pytest.mark.slow
 @pytest.mark.slow_only
 @pytest.mark.timeout(900)
-@pytest.mark.parametrize("combo", COMBOS, ids=[c.pytest_id() for c in COMBOS])
-def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
+@pytest.mark.parametrize("combo", _COMBO_PARAMS)
+def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
     """Run ``train_mlframe_models_suite`` on one random combo; log the outcome.
 
     FUZZ-1 (2026-05-23) -- when ``MLFRAME_FUZZ_PERF_MODE`` env var is set
@@ -166,15 +180,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         combo = _dataclasses.replace(combo, n_rows=int(_forced_n_rows))
     _skip_if_deps_missing(combo.models)
 
-    # Apply xfail automatically for known bugs. pytest's runtime-xfail marker
-    # works via ``request.node.add_marker``.
+    # Known-bug rules: a failing run is recorded as the open gap, a passing run fails the test so the fixed rule is removed from KNOWN_XFAIL_RULES.
     reason = xfail_reason(combo)
-    if reason is not None:
-        # strict=True so an XPASS (combo now passes because the underlying fix landed) is a
-        # visible regression -- the developer must remove the rule from KNOWN_XFAIL_RULES.
-        # Pre-fix this was strict=False, which silently greened combos whether they passed or
-        # failed and lost track of fix landings.
-        request.node.add_marker(pytest.mark.xfail(reason=reason, strict=True))
 
     df, target_col, _cat_names = build_frame_for_combo(combo)
 
@@ -278,9 +285,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
     if _is_ltr:
         _supported = {"cb", "xgb", "lgb", "mlp"}  # 2026-05-07: MLP via RankNet/ListNet
         _filtered = [m for m in combo.models if m.lower() in _supported]
-        if not _filtered:
-            # No supported model in this combo -- skip; not a real bug.
-            pytest.skip(f"LTR combo {combo.short_id()}: requested models {combo.models} have no native ranker (need cb/xgb/lgb/mlp)")
+        assert _filtered, f"LTR combo {combo.short_id()} reached the run without a native ranker model: {combo.models}"
         _ltr_models = _filtered
         from mlframe.training.configs import LearningToRankConfig
 
@@ -443,7 +448,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             if _logging is not None:
                 _fhc_kw["logging"] = _logging
             _fhc = FeatureHandlingConfig(**_safe_cfg_kwargs(FeatureHandlingConfig, **_fhc_kw))
-        except Exception:
+        except (ImportError, AttributeError, TypeError, ValueError):
             _fhc = None  # tolerate import / construction failure
     # P0-4 precomputed: build the trainset_features_stats bundle. The
     # other slots (dummy_baselines, composite_target_specs) raise
@@ -455,7 +460,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             from mlframe.training.helpers import precompute_all
 
             _precomputed = precompute_all(df_input if not isinstance(df_input, str) else df, target_by_type=None)
-        except Exception:
+        except (TypeError, ValueError, KeyError, AttributeError, NotImplementedError):
             _precomputed = None  # tolerate parquet-path / FTE-shape edge cases
 
     t0 = time.perf_counter()
@@ -655,33 +660,28 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         # each failure in ``metadata['failed_models']``. Any other
         # empty-trained outcome is a bug — the suite should have
         # either raised or produced ≥1 model.
-        if not trained:
-            if combo.continue_on_model_failure and _meta is not None and _meta.get("failed_models"):
-                pass  # graceful skip of a configurably-failing combo
-            else:
-                raise AssertionError(
-                    f"empty models dict for combo {combo.short_id()} "
-                    f"(continue_on_failure={combo.continue_on_model_failure}, "
-                    f"failed_models={(_meta or {}).get('failed_models')})"
-                )
+        graceful_empty = bool(combo.continue_on_model_failure and _meta is not None and _meta.get("failed_models"))
+        assert trained or graceful_empty, (
+            f"empty models dict for combo {combo.short_id()} "
+            f"(continue_on_failure={combo.continue_on_model_failure}, "
+            f"failed_models={(_meta or {}).get('failed_models')})"
+        )
 
         # --- Post-train invariants (free on every combo) ---
         # #16 no caller-frame mutation (skip for parquet-path).
-        if combo.input_storage == "memory" and frame_cols_before is not None:
-            assert tuple(df.columns) == frame_cols_before, f"caller-frame columns mutated: before={frame_cols_before} after={tuple(df.columns)}"
-            shape_after = getattr(df, "shape", None)
-            assert shape_after == frame_shape_before, f"caller-frame shape mutated: before={frame_shape_before} after={shape_after}"
+        frame_tracked = combo.input_storage == "memory" and frame_cols_before is not None
+        assert not frame_tracked or tuple(df.columns) == frame_cols_before, f"caller-frame columns mutated: before={frame_cols_before} after={tuple(df.columns)}"
+        shape_after = getattr(df, "shape", None)
+        assert not frame_tracked or shape_after == frame_shape_before, f"caller-frame shape mutated: before={frame_shape_before} after={shape_after}"
         # #20 metadata schema: load-bearing keys present.
         # ``model_schemas`` is only populated when at least one model
         # successfully trained — combos that legitimately degrade to
         # an empty trained dict (continue_on_failure=True + all models
         # failed) won't have it. Check the always-present keys
         # unconditionally; model_schemas only when trained non-empty.
-        if _meta is not None:
-            for k in ("columns", "cat_features", "outlier_detection"):
-                assert k in _meta, f"metadata missing load-bearing key {k!r}; keys={list(_meta)[:20]}"
-            if trained:
-                assert "model_schemas" in _meta, f"metadata missing 'model_schemas' despite non-empty trained dict; keys={list(_meta)[:20]}"
+        _missing_meta_keys = [k for k in ("columns", "cat_features", "outlier_detection") if _meta is not None and k not in _meta]
+        assert not _missing_meta_keys, f"metadata missing load-bearing key(s) {_missing_meta_keys}; keys={list(_meta or {})[:20]}"
+        assert not trained or _meta is None or "model_schemas" in _meta, f"metadata missing 'model_schemas' despite non-empty trained dict; keys={list(_meta)[:20]}"
 
         # --- Fix C property invariants (cheap, per-combo) ---
         # Catches silent degeneracy that a "no exception" assertion misses:
@@ -702,6 +702,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
             error_class=err_class,
             error_summary=err_summary,
         )
+        if reason is not None:
+            known_gap(reason, gap_closed=False)
         raise
 
     log_combo_outcome(
@@ -709,6 +711,8 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path, request):
         outcome,
         duration_s=time.perf_counter() - t0,
     )
+    if reason is not None:
+        known_gap(reason, gap_closed=True)
 
 
 # ---------------------------------------------------------------------------

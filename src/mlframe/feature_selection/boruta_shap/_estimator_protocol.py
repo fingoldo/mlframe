@@ -42,10 +42,9 @@ SCRATCH_FITTED_ATTRS = frozenset(
 
 
 class _LegacyAlias:
-    """Data descriptor mapping the historical bare attribute name onto its trailing-underscore storage."""
+    """Data descriptor mapping the historical bare attribute name onto its trailing-underscore storage (``<name>_``)."""
 
     def __init__(self, name: str) -> None:
-        """Remember the bare name; storage is ``<name>_``."""
         self._storage = name + "_"
         self.__doc__ = f"Alias of ``{self._storage}``, kept for callers written against the pre-sklearn-convention names."
 

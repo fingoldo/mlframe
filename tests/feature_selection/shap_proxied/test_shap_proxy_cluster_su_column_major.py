@@ -100,6 +100,14 @@ def test_parity_column_major_matches_serial():
     assert np.array_equal(serial, parallel), "column-major kernel diverges from serial loop at width=120 (threshold=0.35)"
 
 
+def _numba_thread_count() -> int:
+    """Threads numba reports for parallel kernels."""
+    import numba
+
+    return int(numba.get_num_threads())
+
+
+@pytest.mark.skipif(_numba_thread_count() < 2, reason="numba reports a single thread; the cache-locality win needs >=2 cores")
 def test_column_major_speedup_vs_row_major_reference():
     """At width=800, column-major beats a verbatim row-major reference kernel >=2x.
 
@@ -107,11 +115,7 @@ def test_column_major_speedup_vs_row_major_reference():
     inner-loop memory access pattern, not a wall-clock anchored against the
     landed code (which already uses the new layout).
     """
-    import numba
     from numba import njit, prange
-
-    if numba.get_num_threads() < 2:
-        pytest.skip(f"numba reports {numba.get_num_threads()} thread(s); cache-locality win needs >=2 cores")
 
     @njit(parallel=True, nogil=True, cache=False, fastmath=False)
     def _row_major_kernel(

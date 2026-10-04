@@ -868,7 +868,7 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
     """Hypothesis property test: RFECV must complete cleanly across
     a random sweep of (n, p_signal, p_noise, cv, seed)."""
     pytest.importorskip("hypothesis")
-    from hypothesis import given, settings, strategies as st
+    from hypothesis import HealthCheck, given, settings, strategies as st
 
     pytest.importorskip("sklearn")
     from sklearn.ensemble import RandomForestClassifier
@@ -878,6 +878,8 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
         as_df,
     )
 
+    outcomes = []
+
     @given(
         n=st.integers(min_value=300, max_value=500),
         p_signal=st.integers(min_value=2, max_value=3),
@@ -885,10 +887,10 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
         cv=st.integers(min_value=2, max_value=3),
         seed=st.integers(min_value=0, max_value=50),
     )
-    @settings(max_examples=5, deadline=None)
+    @settings(max_examples=5, deadline=None, suppress_health_check=[HealthCheck.too_slow])
     def _property(n, p_signal, p_noise, cv, seed):
-        """Test helper: X, y, _ = make_signal_plus_noise(n=n, p_signal=p_signal, ...; df, _ys = as_df(X, y); sel = RFECV(estimator=RandomForestClassifier(random_state...."""
-        X, y, _ = make_signal_plus_noise(
+        """Fit RFECV on one random config and record the selected indices against the true signal columns."""
+        X, y, signal = make_signal_plus_noise(
             n=n,
             p_signal=p_signal,
             p_noise=p_noise,
@@ -906,8 +908,12 @@ def test_biz_val_rfecv_property_no_crash_on_random_configs():
         sel.fit(df, y)
         idx = _support_indices(sel)
         assert 1 <= len(idx) <= df.shape[1]
+        outcomes.append((idx, signal))
 
     _property()
+    assert outcomes, "the property test generated no examples"
+    for idx, signal in outcomes:
+        assert set(idx) & set(signal), f"selection {idx} contains none of the true signal columns {signal}"
 
 
 @pytest.mark.parametrize("leakage_thr", [0.85, 0.95, 0.99])

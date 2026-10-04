@@ -76,27 +76,40 @@ def _build_offending_set() -> set[str]:
         tree = parsed_ast(py)
         if tree is None:
             continue
-        rel = py.relative_to(MLFRAME_DIR).as_posix()
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            param_names = _param_names(node)
-            if not param_names:
-                continue
-            for sub in ast.walk(node):
-                if isinstance(sub, ast.Return) and _return_contains_noop_copy(sub, param_names):
-                    out.add(f"{rel}:{sub.lineno}")
+        out |= _noop_copy_sites(tree, py.relative_to(MLFRAME_DIR).as_posix())
     return out
+
+
+def _noop_copy_sites(tree: ast.AST, rel: str) -> set[str]:
+    """``{rel:lineno}`` for every no-op-copy return in one parsed module."""
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        param_names = _param_names(node)
+        if not param_names:
+            continue
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Return) and _return_contains_noop_copy(sub, param_names):
+                out.add(f"{rel}:{sub.lineno}")
+    return out
+
+
+def test_noop_copy_detector_catches_a_param_copy_return_and_passes_a_real_copy_use():
+    """``return df.copy(), 1`` is reported; a function that mutates the copy before returning it is not."""
+    bad = ast.parse("def f(df):\n    return df.copy(), 1\n")
+    clean = ast.parse("def f(df):\n    out = df.copy()\n    out['a'] = 1\n    return out\n")
+    assert _noop_copy_sites(bad, "m.py") == {"m.py:2"}
+    assert _noop_copy_sites(clean, "m.py") == set()
 
 
 def test_no_new_fe_noop_copy_returns():
     """No new FE-family function returns its own untouched input parameter via ``.copy()``, beyond the
     frozen baseline."""
-    current = _build_offending_set()
-
     if _refresh_requested() or not _BASELINE_PATH.exists():
-        _BASELINE_PATH.write_text(orjson.dumps(sorted(current), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
-        pytest.skip(f"fe-noop-copy baseline refreshed at {_BASELINE_PATH.name} ({len(current)} site(s))")
+        _BASELINE_PATH.write_text(orjson.dumps(sorted(_build_offending_set()), option=orjson.OPT_INDENT_2).decode("utf-8"), encoding="utf-8")
+        pytest.skip(f"fe-noop-copy baseline refreshed at {_BASELINE_PATH.name}")
+    current = _build_offending_set()
 
     baseline = set(orjson.loads(_BASELINE_PATH.read_bytes()))
     new = sorted(current - baseline)

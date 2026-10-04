@@ -79,8 +79,8 @@ def _logreg():
     return LogisticRegression(max_iter=500, solver="lbfgs", C=1.0)
 
 
-def _augment_auc(compute_fn, X, y, *, floor: float, name: str, **kwargs) -> None:
-    """Compute Mode-A leakage-safe features on a fresh splitter, concat with raw, and assert CV-AUC delta >= floor."""
+def _augment_auc(compute_fn, X, y, *, name: str, **kwargs) -> tuple[float, float]:
+    """Compute Mode-A leakage-safe features on a fresh splitter, concat with raw, and return (raw CV-AUC, augmented CV-AUC)."""
     auc_raw = _cv_auc(_logreg, X, y, n_splits=5, seed=42)
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
     feats = compute_fn(X_train=X, y_train=y, X_query=None, splitter=splitter, seed=0, **kwargs)
@@ -88,8 +88,7 @@ def _augment_auc(compute_fn, X, y, *, floor: float, name: str, **kwargs) -> None
     feats_arr = np.nan_to_num(feats_arr, nan=0.0, posinf=50.0, neginf=-50.0)
     X_aug = np.concatenate([X, feats_arr], axis=1)
     auc_aug = _cv_auc(_logreg, X_aug, y, n_splits=5, seed=42)
-    delta = auc_aug - auc_raw
-    assert delta >= floor, f"{name} must lift linear CV AUC by >={floor}; raw={auc_raw:.4f}, aug={auc_aug:.4f}, delta={delta:.4f}"
+    return auc_raw, auc_aug
 
 
 def test_biz_val_aux_mlp_lifts_linear_auc_on_xor_blobs():
@@ -97,7 +96,8 @@ def test_biz_val_aux_mlp_lifts_linear_auc_on_xor_blobs():
     from mlframe.feature_engineering.transformer.aux_mlp import compute_aux_mlp_features
 
     X, y = _xor_blobs_binary(n=1200, seed=0)
-    _augment_auc(compute_aux_mlp_features, X, y, floor=0.20, name="aux_mlp", task="binary", hidden_size=16, max_iter=400)
+    auc_raw, auc_aug = _augment_auc(compute_aux_mlp_features, X, y, name="aux_mlp", task="binary", hidden_size=16, max_iter=400)
+    assert auc_aug - auc_raw >= 0.20, f"aux_mlp must lift linear CV AUC by >=0.20; raw={auc_raw:.4f}, aug={auc_aug:.4f}, delta={auc_aug - auc_raw:.4f}"
 
 
 def test_biz_val_class_mahalanobis_lifts_linear_auc_on_diff_covariance():
@@ -105,7 +105,8 @@ def test_biz_val_class_mahalanobis_lifts_linear_auc_on_diff_covariance():
     from mlframe.feature_engineering.transformer.class_mahalanobis import compute_class_mahalanobis_features
 
     X, y = _diff_covariance_binary(n=1200, seed=0)
-    _augment_auc(compute_class_mahalanobis_features, X, y, floor=0.15, name="class_mahalanobis", standardize=True)
+    auc_raw, auc_aug = _augment_auc(compute_class_mahalanobis_features, X, y, name="class_mahalanobis", standardize=True)
+    assert auc_aug - auc_raw >= 0.15, f"class_mahalanobis must lift linear CV AUC by >=0.15; raw={auc_raw:.4f}, aug={auc_aug:.4f}, delta={auc_aug - auc_raw:.4f}"
 
 
 def test_biz_val_local_classifier_lifts_linear_auc_on_xor_blobs():
@@ -113,7 +114,8 @@ def test_biz_val_local_classifier_lifts_linear_auc_on_xor_blobs():
     from mlframe.feature_engineering.transformer.local_classifier import compute_local_classifier_features
 
     X, y = _xor_blobs_binary(n=1200, seed=0)
-    _augment_auc(compute_local_classifier_features, X, y, floor=0.15, name="local_classifier", task="binary", k=32, standardize=True)
+    auc_raw, auc_aug = _augment_auc(compute_local_classifier_features, X, y, name="local_classifier", task="binary", k=32, standardize=True)
+    assert auc_aug - auc_raw >= 0.15, f"local_classifier must lift linear CV AUC by >=0.15; raw={auc_raw:.4f}, aug={auc_aug:.4f}, delta={auc_aug - auc_raw:.4f}"
 
 
 def test_biz_val_rf_proximity_lifts_linear_auc_on_xor_blobs():
@@ -121,4 +123,5 @@ def test_biz_val_rf_proximity_lifts_linear_auc_on_xor_blobs():
     from mlframe.feature_engineering.transformer.rf_proximity import compute_rf_proximity_attention
 
     X, y = _xor_blobs_binary(n=1200, seed=0)
-    _augment_auc(compute_rf_proximity_attention, X, y, floor=0.15, name="rf_proximity", task="binary", n_aux_trees=200, k=32)
+    auc_raw, auc_aug = _augment_auc(compute_rf_proximity_attention, X, y, name="rf_proximity", task="binary", n_aux_trees=200, k=32)
+    assert auc_aug - auc_raw >= 0.15, f"rf_proximity must lift linear CV AUC by >=0.15; raw={auc_raw:.4f}, aug={auc_aug:.4f}, delta={auc_aug - auc_raw:.4f}"

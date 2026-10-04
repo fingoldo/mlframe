@@ -107,16 +107,19 @@ class TestMultiBaseAutoPromotion:
         )
         disc = CompositeTargetDiscovery(cfg)
         disc.fit(df=df, target_col="y", feature_cols=feature_cols, train_idx=np.arange(len(df)))
+        assert disc.specs_, "expected at least one spec after discovery"
         multi_specs = [s for s in disc.specs_ if s.transform_name == "linear_residual_multi"]
-        for spec in multi_specs:
-            full_bases = (spec.base_column, *spec.extra_base_columns)
-            # If b1 is anywhere in the final base set, no noise base should ALSO be there (b1 alone explains the signal; adding noise wouldn't clear the 2% gain gate).
-            if "b1" in full_bases:
-                noise_bases = [b for b in full_bases if b.startswith("noise_")]
-                assert len(noise_bases) <= 1, (
-                    f"too many noise bases ({noise_bases}) alongside b1 in spec: {full_bases}. "
-                    "After b1 is in the spec, additional bases beyond the seed should not clear the 2% marginal gain gate."
-                )
+        # If b1 is anywhere in the final base set, no noise base should ALSO be there (b1 alone explains the signal; adding noise wouldn't clear the 2% gain gate).
+        crowded = [
+            (spec.base_column, *spec.extra_base_columns)
+            for spec in multi_specs
+            if "b1" in (spec.base_column, *spec.extra_base_columns)
+            and len([b for b in (spec.base_column, *spec.extra_base_columns) if b.startswith("noise_")]) > 1
+        ]
+        assert not crowded, (
+            f"too many noise bases alongside b1 in spec(s): {crowded}. "
+            "After b1 is in the spec, additional bases beyond the seed should not clear the 2% marginal gain gate."
+        )
 
 
 class TestConfigDefaults:

@@ -308,6 +308,8 @@ class TestBridgeNoObjectDtypes:
             ("enum", pl.Enum(["a", "b", "c", "d"]), lambda v: ["a", "b", "c", "d"][v % 4]),
         ]
 
+        checked_schemas: list = []
+
         @given(
             n_rows=hst.integers(min_value=3, max_value=30),
             schema_pick=hst.lists(
@@ -345,8 +347,11 @@ class TestBridgeNoObjectDtypes:
                 f"schema — tree backends will reject. Columns: {object_cols!r}. "
                 f"Input schema: {dict(pl_df.schema)!r}"
             )
+            checked_schemas.append(dict(pl_df.schema))
 
         _runner()
+        assert len(checked_schemas) > 0
+        assert any(len(schema) > 1 for schema in checked_schemas)
 
 
 # =====================================================================
@@ -495,7 +500,6 @@ class TestTrainerPolarsContract:
         pl_df = pl.DataFrame({"x": [1.0, 2.0, 3.0], "y": [0.1, 0.2, 0.3]})
         y = np.array([0, 1, 0])
 
-        failures = []
         for strategy_name in non_native:
             model_type_name = self._strategy_model_type_name(strategy_name)
 
@@ -509,7 +513,7 @@ class TestTrainerPolarsContract:
             # terminating quickly instead of hanging on a real model.
             fake.fit = lambda *a, **kw: None
 
-            try:
+            with pytest.raises(RuntimeError) as info:
                 _train_model_with_fallback(
                     model=fake,
                     model_obj=fake,
@@ -519,14 +523,4 @@ class TestTrainerPolarsContract:
                     fit_params={},
                     verbose=False,
                 )
-            except RuntimeError as exc:
-                # Good — contract held. Message must mention pipeline_cache
-                # so the next engineer can trace upstream.
-                if "pipeline_cache" not in str(exc).lower():
-                    failures.append(f"{strategy_name} ({model_type_name}): raised but message doesn't point at pipeline_cache: {exc!r}")
-            except Exception as exc:
-                failures.append(f"{strategy_name} ({model_type_name}): raised wrong exception type {type(exc).__name__}: {exc!r}")
-            else:
-                failures.append(f"{strategy_name} ({model_type_name}): did NOT raise on pl.DataFrame — trainer contract broken, silent self-heal regression.")
-
-        assert not failures, "Trainer polars-contract violations:\n  " + "\n  ".join(failures)
+            assert "pipeline_cache" in str(info.value).lower(), f"{strategy_name} ({model_type_name}): message doesn't point at pipeline_cache: {info.value!r}"
