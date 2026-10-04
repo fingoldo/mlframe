@@ -96,7 +96,7 @@ def bootstrap_metrics_clustered(
         if groups is not None:
             idx = cluster_resample_indices(rng, order, offsets)
         else:
-            idx = block_resample_indices(rng, n, int(block_length or default_block_length(n)))
+            idx = block_resample_indices(rng, n, int(block_length if block_length is not None and block_length > 0 else default_block_length(n)))
         yt, yp = y_true[idx], y_pred[idx]
         for name in points:
             try:
@@ -131,10 +131,9 @@ def bootstrap_metric_clustered(
 
     ``block_length=0`` selects :func:`default_block_length`.
     """
-    n = int(np.asarray(y_true).shape[0])
     res = bootstrap_metrics_clustered(
         y_true, y_pred, {"m": metric_fn}, groups=groups,
-        block_length=(block_length or default_block_length(n)) if block_length is not None else None,
+        block_length=block_length,
         n_bootstrap=n_bootstrap, alpha=alpha, random_state=random_state,
     )["m"]
     if "error" in res:

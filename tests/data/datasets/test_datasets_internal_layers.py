@@ -41,6 +41,7 @@ def test_realize_latent_without_private_part_gives_exact_standardised_copies():
     """With distinct_sd=0 and noise_sd=0 every reflection is the latent itself, standardised, and the group is rank-1 exact."""
     real = realize_latent(_latent(), N, root_seed=3, spec_name="ds")
     assert real.deltas == {}
+    assert real.reflections, "the latent spec must produce at least one reflection"
     for name, column in real.reflections.items():
         assert column.shape == (N,)
         assert float(column.mean()) == pytest.approx(0.0, abs=1e-9)

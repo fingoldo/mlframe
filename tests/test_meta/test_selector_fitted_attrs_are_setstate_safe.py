@@ -71,6 +71,7 @@ def test_setstate_backfills_the_whole_roster_on_a_fitted_legacy_pickle(label, pa
     est.__setstate__({marker: [True]})
     missing = [name for name in roster._SETSTATE_LEGACY_DEFAULTS if name not in est.__dict__]
     assert not missing, f"{label}.__setstate__ left {missing} unset on a fitted legacy pickle"
+    assert roster._SETSTATE_LEGACY_DEFAULTS, "the legacy-default roster must not be empty"
     for name, default in roster._SETSTATE_LEGACY_DEFAULTS.items():
         assert est.__dict__[name] == default
 

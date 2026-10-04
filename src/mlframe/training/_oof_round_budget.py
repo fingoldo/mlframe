@@ -42,7 +42,7 @@ def deployed_round_budget(model: Any) -> Optional[int]:
 
 def apply_round_budget(estimator: Any, rounds: Optional[int]) -> Optional[str]:
     """Set the round-count hyperparameter of the unfitted OOF clone to ``rounds``; return the parameter name set, else ``None``."""
-    if not rounds:
+    if rounds is None or rounds <= 0:
         return None
     try:
         params = estimator.get_params(deep=False)
