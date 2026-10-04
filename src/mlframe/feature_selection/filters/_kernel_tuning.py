@@ -22,8 +22,6 @@ import threading
 import time
 from typing import Any, Optional
 
-from ._hw_fingerprint_guard import install_hw_fingerprint_guard
-
 logger = logging.getLogger(__name__)
 
 _CACHE_SINGLETON: Optional[object] = None  # KernelTuningCache | False sentinel
@@ -165,8 +163,18 @@ def _reset_for_tests() -> None:
         _DEFAULTS_REGISTERED = False
 
 
-# Installed before the first fingerprint is resolved so a GPU-less run cannot persist a no-gpu hardware fingerprint (see _hw_fingerprint_guard).
-install_hw_fingerprint_guard()
+def _register_gpu_opt_out() -> None:
+    """Tell pyutilz which runs opted out of the GPU, so they neither read nor write the persisted GPU hardware fingerprint."""
+    try:
+        from pyutilz.performance.kernel_tuning.cache import register_gpu_opt_out
+
+        from ._gpu_policy import gpu_globally_disabled
+    except ImportError:
+        return
+    register_gpu_opt_out(gpu_globally_disabled)
+
+
+_register_gpu_opt_out()
 
 # Register the anonymized default-tuning cache once, at import. This module is
 # imported by ``mlframe.feature_selection.filters.__init__`` (the FS package init

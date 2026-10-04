@@ -86,7 +86,7 @@ jobs:
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: b919005bbe25bef27ca439c5e54c9cac5564a8db  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: d64ac2c2a2cf121c24c8c093126fe8f9553f03a7  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
@@ -180,7 +180,7 @@ jobs:
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: b919005bbe25bef27ca439c5e54c9cac5564a8db  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: d64ac2c2a2cf121c24c8c093126fe8f9553f03a7  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
