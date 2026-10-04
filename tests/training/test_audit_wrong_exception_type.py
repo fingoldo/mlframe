@@ -163,29 +163,41 @@ def test_neural_base_period_type_is_typeerror() -> None:
     assert 'raise TypeError(f"period must be an int' in src, "neural/base.py: PeriodicLearningRateFinder.period type check should raise TypeError"
 
 
-def test_neural_flat_validation_uses_typeerror_and_valueerror() -> None:
-    """Neural flat validation uses typeerror and valueerror."""
-    src = _read("training/neural/flat.py")
-    # TypeError sites for isinstance failures.
-    type_error_phrases = [
-        'raise TypeError(f"nlayers must be an int',
-        'raise TypeError(f"min_layer_neurons must be an int',
-        'raise TypeError(f"num_classes must be None or an int',
-        'raise TypeError(f"first_layer_num_neurons must be an int',
-    ]
-    assert type_error_phrases, "nothing to check: the loop below would pass without running"
-    for phrase in type_error_phrases:
-        assert phrase in src, f"neural/flat.py: expected {phrase!r}"
-    # ValueError sites for range failures (must coexist).
-    value_error_phrases = [
-        'raise ValueError(f"nlayers must be >= 1',
-        'raise ValueError(f"min_layer_neurons must be >= 1',
-        'raise ValueError(f"num_classes must be >= 0',
-        "raise ValueError(",  # first_layer_num_neurons range
-    ]
-    assert value_error_phrases, "nothing to check: the loop below would pass without running"
-    for phrase in value_error_phrases:
-        assert phrase in src, f"neural/flat.py: expected ValueError site {phrase!r}"
+@pytest.mark.parametrize(
+    "kwargs,exc,match",
+    [
+        # isinstance failures -> TypeError
+        (dict(nlayers=2.0), TypeError, "nlayers must be an int"),
+        (dict(nlayers=True), TypeError, "nlayers must be an int"),
+        (dict(min_layer_neurons=1.5), TypeError, "min_layer_neurons must be an int"),
+        (dict(num_classes=2.5), TypeError, "num_classes must be None or an int"),
+        (dict(num_classes=True), TypeError, "num_classes must be None or an int"),
+        (dict(first_layer_num_neurons=5.0), TypeError, "first_layer_num_neurons must be an int"),
+        # range failures -> ValueError
+        (dict(nlayers=0), ValueError, "nlayers must be >= 1"),
+        (dict(min_layer_neurons=0), ValueError, "min_layer_neurons must be >= 1"),
+        (dict(num_classes=-1), ValueError, "num_classes must be >= 0"),
+        (dict(first_layer_num_neurons=2, min_layer_neurons=3), ValueError, "first_layer_num_neurons must be >= min_layer_neurons"),
+    ],
+)
+def test_neural_flat_validation_uses_typeerror_and_valueerror(kwargs, exc, match) -> None:
+    """generate_mlp rejects a wrong-typed argument with TypeError and an out-of-range one with ValueError."""
+    pytest.importorskip("torch")
+    from mlframe.training.neural.flat import generate_mlp
+
+    call = dict(num_features=4, num_classes=1)
+    call.update(kwargs)
+    with pytest.raises(exc, match=match) as info:
+        generate_mlp(**call)
+    assert type(info.value) is exc, f"{kwargs}: expected exactly {exc.__name__}, got {type(info.value).__name__}"
+
+
+def test_neural_flat_validation_accepts_valid_arguments() -> None:
+    """Control: the same validators let a well-formed call through."""
+    pytest.importorskip("torch")
+    from mlframe.training.neural.flat import generate_mlp
+
+    assert generate_mlp(num_features=4, num_classes=2, nlayers=2, first_layer_num_neurons=8, min_layer_neurons=2) is not None
 
 
 def test_neural_flat_batch_format_is_typeerror() -> None:

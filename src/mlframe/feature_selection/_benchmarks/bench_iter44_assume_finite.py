@@ -1,7 +1,7 @@
 """iter44: measure the per-call NaN-scan fraction of discretize_2d_quantile_batch, and verify
 the assume_finite fast path is bit-identical to the default (NaN-free buffer).
 
-The main FE-chunk caller (_pairs_core.py:1115) scrubs the buffer with np.nan_to_num(copy=False)
+The main FE-chunk caller (``check_prospective_fe_pairs`` in _pairs_core.py) scrubs the buffer with np.nan_to_num(copy=False)
 on the line immediately before the call, so the buffer is GUARANTEED NaN-free -- yet
 discretize_2d_quantile_batch still runs ``np.isnan(arr2d).any()`` (a full O(n*k) pass + a full
 bool-array allocation) on every call. ``assume_finite=True`` skips that scan; bit-identical by

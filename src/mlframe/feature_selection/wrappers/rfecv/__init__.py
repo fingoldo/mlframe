@@ -205,7 +205,7 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         std_perf_weight: float = 0.1,
         feature_cost: float = 0.0,
         smooth_perf: int = 0,
-        # stopping conditions
+        # stopping conditions. Budgets follow mlframe.utils.budgets: max_runtime_mins / max_refits of 0 or None = no limit; negatives are rejected.
         max_runtime_mins: Union[float, None] = None,
         max_refits: Union[int, None] = None,
         best_desired_score: Union[float, None] = None,
@@ -503,9 +503,9 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
             if verbose:
                 logger.info("Using %s fraction of the training dataset.", frac)
 
-        # max_refits=0 would be silently ignored by ``if max_refits and ...`` (0 is falsy). Reject explicitly.
-        if max_refits is not None and max_refits < 1:
-            raise ValueError(f"max_refits must be >= 1 (or None for unlimited); got {max_refits}. " f"To run zero iterations, just don't call fit().")
+        # 0 = None = no refit limit (mlframe.utils.budgets); a negative count is a mistake, not a limit.
+        if max_refits is not None and max_refits < 0:
+            raise ValueError(f"max_refits must be >= 0 (0 or None = unlimited); got {max_refits}.")
 
         # cv=1 is degenerate (no train/test split possible).
         if isinstance(cv, int) and cv < 2:

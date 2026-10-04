@@ -34,3 +34,18 @@ def parsed_ast(path: Path) -> ast.Module | None:
         return ast.parse(src, filename=str(path))
     except SyntaxError:
         return None
+
+
+_NODE_LISTS: dict[int, tuple[ast.AST, list[ast.AST]]] = {}
+
+
+def walk_cached(tree: ast.AST) -> list[ast.AST]:
+    """``list(ast.walk(tree))`` computed once per tree object and shared by every scanner that walks the same cached module.
+
+    The tree is stored beside its node list so the ``id`` key can never be reused by a different, later-allocated tree.
+    """
+    hit = _NODE_LISTS.get(id(tree))
+    if hit is None or hit[0] is not tree:
+        hit = (tree, list(ast.walk(tree)))
+        _NODE_LISTS[id(tree)] = hit
+    return hit[1]

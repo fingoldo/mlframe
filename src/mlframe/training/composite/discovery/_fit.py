@@ -8,9 +8,7 @@ sites that invoke ``disc.fit(...)`` continue to work unchanged.
 
 from __future__ import annotations
 
-import logging
 import os
-import threading
 from timeit import default_timer as timer
 from typing import TYPE_CHECKING, Any, Sequence
 
@@ -20,30 +18,18 @@ if TYPE_CHECKING:
     from . import CompositeTargetDiscovery
 
 from .screening import (
-    _aggregate_mi_per_feature,
-    _aggregate_mi_per_feature_excluding,
     _extract_column_array,
     _is_polars_df,
     _mi_per_feature_knn,
     _mi_per_feature_prebinned,
-    _mi_to_target,
-    _mi_to_target_prebinned,
     _prebin_feature_columns_cached,
     _prebin_feature_columns_lazy,
     _sample_indices,
 )
-from ..transforms import UnknownTransformError, get_transform
-from ._skew_gate import left_skewed_right_tail_skips
 from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _process_mem_mb re-exported for back-compat
-from ._eval import build_unary_base_context, eval_one_transform, release_context_matrices
 from ._fit_helpers import maybe_boost_mi_strata_for_heavy_tail, no_base_candidates_report_entry, take_screen_matrix
-from ._fit_multibase import apply_multi_base_forward_stepwise
-from ._per_base_x import release_fold_caches
-from ._eval_stats import near_collinear_keep_mask
-from mlframe.utils.log_throttle import log_throttle
 from mlframe.utils.env_flags import env_flag
-
-logger = logging.getLogger(__name__)
+from types import SimpleNamespace as _SimpleNamespace
 
 # Sentinel base key for the dedicated UNARY (``requires_base=False``)
 # evaluation context. Unary transforms ignore the base column entirely, so they
@@ -51,224 +37,19 @@ logger = logging.getLogger(__name__)
 # bound to an arbitrary first base. The empty string is also the
 # ``CompositeTargetEstimator`` default ``base_column`` for base-less specs, and
 # ``compose_target_name(..., base="")`` renders the base-free 2-segment name.
-_UNARY_BASE_SENTINEL = ""
-
-
-def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_features, train_idx, y_full, _honest_holdout_idx, _ram_profiler_on, _ram_state, _phase_ram_report):
-    """Run the holdout RMSE gate on the selection rows, then stamp the honest gain from the report rows.
-
-    The gate drops specs, so it reads only the selection half; the stamped number comes from rows no gate saw, which
-    is what keeps it free of the winner's curse. A holdout too small to halve gives both stages the whole of it.
-    """
-    # Honest-holdout OOS predictive-error gate. MI (and the MI-based honest re-score below) is
-    # monotone-invariant, so a spec can raise MI while WORSENING the y-scale OOS RMSE (canonical case:
-    # a ratio dividing by a small noisy base amplifies noise). Replicate the real prediction objective
-    # on the never-touched holdout with a tiny model and DROP specs whose y-scale holdout RMSE loses to
-    # raw y. This is the only OOS predictive gate on the ``screening="mi"`` path. Runs before the MI
-    # re-score so the heavier per-spec MI pass only touches survivors (``honest_rmse_gate_enabled``).
-    if kept_specs and getattr(self.config, "honest_rmse_gate_enabled", True):
-        from ._honest_rmse_gate import apply_honest_rmse_gate
-
-        # The SELECTION half: this gate drops specs, so it must not read the rows the reported honest number comes from.
-        _select_idx = getattr(self, "honest_holdout_select_idx_", _honest_holdout_idx)
-        # Both passes share their fit rows and read the two halves of one holdout: gather each once, fit each model once.
-        self._honest_gate_memo = {"key": (id(df), tuple(usable_features)), "mats": {}, "fits": {},
-                                  "holdout": None if _honest_holdout_idx is None else np.sort(np.asarray(_honest_holdout_idx)), "holdout_x": None}
-        try:
-            kept_specs = apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _select_idx, y_full)
-            # The exported RMSE gain comes from the report half: the one above is conditioned on having passed the gate.
-            _report_idx = getattr(self, "honest_holdout_report_idx_", None)
-            if kept_specs and _report_idx is not None and _select_idx is not None and not np.array_equal(_report_idx, _select_idx):
-                apply_honest_rmse_gate(self, df, target_col, kept_specs, usable_features, train_idx, _report_idx, y_full, record_only=True)
-        finally:
-            self._honest_gate_memo = None
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "honest_rmse_gate_done")
-
-    # Honest holdout re-score (SA27). The winner set is now FINAL; re-score ONLY these
-    # survivors on the holdout the discovery never touched (see ``apply_honest_holdout``).
-    if kept_specs and _honest_holdout_idx is not None and _honest_holdout_idx.size:
-        from ._honest_holdout import apply_honest_holdout
-
-        # The REPORT half: no gate or ranking reads these rows, so the stamped gain is free of the winner's curse the
-        # carve exists to remove (with a holdout too small to halve, both roles share it and this is the old behaviour).
-        apply_honest_holdout(
-            self, df, target_col, kept_specs, usable_features,
-            train_idx, getattr(self, "honest_holdout_report_idx_", _honest_holdout_idx), y_full,
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "honest_holdout_rescore_done")
-    return kept_specs
-
-
-def _evaluate_work_items(self, base_candidates, _base_contexts, _skip_right_tail, _unary_evaluated, _unary_context_available, y_train, y_screen, target_col) -> list:
-    """Score every (base, transform) pair against its base context, in (base, transform) order.
-
-    Unary transforms go to the full-X sentinel context once each; base transforms run per base. The dispatch is a
-    threading pool, so the large per-base matrices are shared by reference rather than pickled.
-    """
-    _work_items: list[tuple[str, str, Any]] = []
-    for base in base_candidates:
-        if base not in _base_contexts:
-            continue
-        for transform_name in self.config.transforms:
-            if transform_name in _skip_right_tail:
-                continue
-            try:
-                transform = get_transform(transform_name)
-            except UnknownTransformError as exc:
-                log_throttle(
-                    logger, "composite_discovery_fit_unknown_transform", logging.WARNING,
-                    "[CompositeTargetDiscovery] %s; skipping.",
-                    exc,
-                )
-                continue
-            if not transform.requires_base:
-                if transform_name in _unary_evaluated:
-                    continue
-                _unary_evaluated.add(transform_name)
-                # Score the unary against the FULL-X sentinel context, not the
-                # current loop's ``base``. Fall back to the real base only if
-                # the sentinel context could not be built (degenerate empty
-                # feature matrix) so the unary still gets evaluated.
-                _unary_base = _UNARY_BASE_SENTINEL if _unary_context_available else base
-                _work_items.append((_unary_base, transform_name, transform))
-                continue
-            _work_items.append((base, transform_name, transform))
-
-    # A base's gathered matrices live from its first scored transform to its last: the work list is in base order, so
-    # only the bases in flight hold copies.
-    _pending: dict = {}
-    for _b, _tn, _t in _work_items:
-        _pending[_b] = _pending.get(_b, 0) + 1
-    _pending_lock = threading.Lock()
-
-    def _eval_and_release(_b, _tn, _t):
-        """Evaluate one transform, then free the base's matrices once its last pending transform is done."""
-        try:
-            return eval_one_transform(self, _b, _tn, _t, base_contexts=_base_contexts, y_train=y_train, y_screen=y_screen, target_col=target_col)
-        finally:
-            with _pending_lock:
-                _pending[_b] -= 1
-                _last = _pending[_b] == 0
-            if _last:
-                release_context_matrices(_base_contexts[_b])
-
-    # Single parallel dispatch over the flat
-    # ``_work_items`` list. Joblib preserves input order so
-    # ``candidates`` ends up in (base, transform) iteration order
-    # identical to the legacy nested-loop serial path. joblib
-    # threading backend keeps closure capture cheap (no pickling),
-    # which is critical for the large ``x_remaining_matrix`` /
-    # ``_x_prebinned`` arrays the body reads. Most of the compute
-    # (transform.fit / transform.forward / _mi_to_target_prebinned
-    # / bootstrap MI loop) is numpy / numba which releases the GIL,
-    # so threading scales close to linearly up to cpu_count.
-    # 0 = auto: cap at the number of work items and cpu_count. 1 = serial.
-    _n_jobs_raw = getattr(self.config, "discovery_n_jobs", 0)
-    _n_jobs_raw = 1 if _n_jobs_raw is None else int(_n_jobs_raw)
-    if _n_jobs_raw == 0:
-        _n_jobs_disc = max(1, min(len(_work_items), os.cpu_count() or 1))
-    else:
-        _n_jobs_disc = max(1, _n_jobs_raw)
-    if _n_jobs_disc > 1 and len(_work_items) > 1:
-        from joblib import Parallel as _Parallel, delayed as _delayed
-
-        _results = _Parallel(
-            n_jobs=_n_jobs_disc,
-            backend="threading",
-            prefer="threads",
-        )(_delayed(_eval_and_release)(_b, _tn, _t) for _b, _tn, _t in _work_items)
-    else:
-        _results = [_eval_and_release(_b, _tn, _t) for _b, _tn, _t in _work_items]
-    return [c for _r in _results if _r for c in _r]
-
-
-def _mi_y_baseline(self, *, x_prebinned, per_feat_y_full, surviving_orig_idx, base, col_index, drop_idx, mi_aggregation,
-                   per_feat_y_knn_full, x_remaining_matrix, y_screen, mi_kwargs) -> float:
-    """MI(y, X_remaining) for one base, over exactly the columns MI(T, X_remaining) will see."""
-    if x_prebinned is not None:
-        if per_feat_y_full is not None and surviving_orig_idx is not None:
-            # Aggregate over exactly the columns MI(T, X) sees: the base dropped AND the near-duplicates the dedup pruned.
-            # Averaging MI(y, X) over every column let a high-MI duplicate block inflate mi_y and bias mi_gain low for
-            # the bases the dedup exists for (the knn branch below was already pruned in lockstep).
-            return _aggregate_mi_per_feature(per_feat_y_full[surviving_orig_idx], mi_aggregation)
-        elif per_feat_y_full is not None and base in col_index:
-            # Decompose: aggregate the precomputed per-feature MI over all
-            # features except the base column (bit-identical to re-MI'ing
-            # x_remaining vs y, since per-feature MI is base-invariant). The
-            # exclude-aware aggregate masks out the base entry in place, so
-            # no per-base (n, F-1) np.delete copy is materialised for the
-            # baseline -- only the held-alive transform-consumer matrices remain.
-            return _aggregate_mi_per_feature_excluding(
-                per_feat_y_full,
-                mi_aggregation,
-                drop_idx,
-            )
-        elif per_feat_y_full is not None:
-            return _aggregate_mi_per_feature(
-                per_feat_y_full,
-                mi_aggregation,
-            )
-        else:
-            return _mi_to_target_prebinned(
-                x_prebinned,
-                y_screen,
-                **mi_kwargs,
-            )
-    elif per_feat_y_knn_full is not None and surviving_orig_idx is not None:
-        # knn baseline from the precomputed base-invariant per-feature vector: aggregate over the surviving
-        # original-column indices. Bit-identical to _mi_to_target(x_remaining_matrix, y_screen, knn) -- the same
-        # set of single-column MI(y, x_j) values (each on its own per-pair-finite rows), aggregated in the same
-        # mean/sum reduction -- without re-running ~50 Kraskov estimators per base.
-        return _aggregate_mi_per_feature(
-            per_feat_y_knn_full[surviving_orig_idx],
-            mi_aggregation,
-        )
-    else:
-        return _mi_to_target(
-            x_remaining_matrix,
-            y_screen,
-            n_neighbors=self.config.mi_n_neighbors,
-            random_state=self.config.random_state,
-            estimator=self.config.mi_estimator,
-            **mi_kwargs,
-        )
-
-
-def _point_mass_skips_logged(y_train) -> set:
-    """Curved y-compressors to skip because the target is a point mass, logging the skip when there is one.
-
-    Their convex inverse cannot reconstruct spread from a point mass -- a production run measured pred_std at 1.3-1.8%
-    of target_std for log/cbrt on a zero-inflated amount, after paying for the fits.
-    """
-    from ._point_mass_gate import point_mass_curved_inverse_skips, point_mass_fraction
-
-    _skip_curved = point_mass_curved_inverse_skips(y_train)
-    if _skip_curved:
-        logger.info(
-            "[CompositeTargetDiscovery] %.0f%% of the target sits on a single value; skipping curved y-compressors %s "
-            "(their convex inverse cannot reconstruct spread from a point mass -- a production run measured "
-            "pred_std at 1.3-1.8%% of target_std for log/cbrt on a zero-inflated amount, after paying for the fits). "
-            "Clipping-style y-transforms keep a piecewise-linear inverse and stay.",
-            100.0 * point_mass_fraction(y_train), sorted(_skip_curved),
-        )
-    return set(_skip_curved)
-
-
-def _reason_from_ledger(self, spec_name: Any) -> str:
-    """The rejecting stage and reason the ledger recorded last for ``spec_name``, or the list of gates when it recorded none.
-
-    Every gate downstream of the MI gate appends its verdict to the rejection ledger, so the spec's own stage is known;
-    the report used to print one fixed list of gate names for all of them, which named neither the y-scale holdout gate,
-    the honest RMSE gate, the honest-OOF floor nor the structural-fragility gate that drop the most specs today.
-    """
-    rows = [r for r in (getattr(self, "rejection_ledger_", None) or []) if r.get("spec_name") == str(spec_name)]
-    if rows:
-        last = rows[-1]
-        reason = str(last.get("reason") or "").strip()
-        return f"rejected at the {last.get('stage')} stage" + (f": {reason}" if reason else "")
-    return "dropped after the MI gate by a filter that records no per-spec verdict " "(top_k_after_mi trim / multi-base dedup)"
+from ._fit_steps import (  # noqa: F401  -- carved helpers
+    logger,
+    _UNARY_BASE_SENTINEL,
+    _apply_honest_holdout_stages,
+    _evaluate_work_items,
+    _mi_y_baseline,
+    _point_mass_skips_logged,
+    _reason_from_ledger,
+    _fit_step1_strict_no_op,
+    _fit_step2_full_column_count,
+    _fit_step3_opt_discovery_steps,
+    _fit_step4_seed_entry_recorded,
+)
 
 
 def _screen_matrices(self, df, _usable_features_list, train_idx_screen, *, _bin_estimator, _dedup_x_remaining, _ram_state):
@@ -372,6 +153,7 @@ def fit(
         temporal data. ``None`` keeps the legacy base-monotonicity
         auto-detection.
     """
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     if not self.config.enabled:
         self.specs_ = []
         self.report_ = []
@@ -433,9 +215,9 @@ def fit(
     # every group's rows to split by group and carve ITS OWN per-group honest holdout -- reusing the
     # already-carved outer/global screening pool would either starve small groups or leak the outer
     # holdout rows into a per-group screen).
-    _orig_train_idx = train_idx
+    st._orig_train_idx = train_idx
 
-    train_idx, _honest_holdout_idx = carve_screening_holdout(self, train_idx)
+    train_idx, st._honest_holdout_idx = carve_screening_holdout(self, train_idx)
 
     if train_idx.size < 50:
         logger.warning(
@@ -446,27 +228,27 @@ def fit(
         self.report_ = []
         return self
 
-    t0 = timer()
+    st.t0 = timer()
     # Per-fit() RAM telemetry state. Each sub-phase report logs delta vs
     # prev + cumulative vs entry; opt out by setting
     # MLFRAME_DISCOVERY_RAM_PROFILER=0 (the helper checks the env once at
     # entry so the rest of the fit() body never tests the flag again).
-    _ram_state: dict = {}
-    _ram_profiler_on = env_flag("MLFRAME_DISCOVERY_RAM_PROFILER", default=True)
-    if _ram_profiler_on:
-        _phase_ram_report(_ram_state, "entry")
+    st._ram_state = {}
+    st._ram_profiler_on = env_flag("MLFRAME_DISCOVERY_RAM_PROFILER", default=True)
+    if st._ram_profiler_on:
+        _phase_ram_report(st._ram_state, "entry")
 
     # Pull target on train rows. We never touch val/test.
-    y_full = _extract_column_array(df, target_col)
-    y_train = y_full[train_idx]
+    st.y_full = _extract_column_array(df, target_col)
+    st.y_train = st.y_full[train_idx]
 
     # Auto-boost mi_n_strata on heavy-tail y (skew/kurtosis); carved to _fit_helpers to keep this module under 1k LOC.
-    maybe_boost_mi_strata_for_heavy_tail(self, y_train)
+    maybe_boost_mi_strata_for_heavy_tail(self, st.y_train)
 
     # Filter feature_cols by name patterns AND constancy on train.
-    usable_features = self._filter_features(df, feature_cols, y_train, train_idx)
-    if _ram_profiler_on:
-        _phase_ram_report(_ram_state, "filter_features_done")
+    st.usable_features = self._filter_features(df, feature_cols, st.y_train, train_idx)
+    if st._ram_profiler_on:
+        _phase_ram_report(st._ram_state, "filter_features_done")
 
     # knn-MI cost guard, BEFORE base resolution (auto-base ranking + its permutation null is ~21 knn sweeps per column):
     # probe the Kraskov cost on a screen-sized sample and downgrade knn -> bin (warning) when the extrapolated sweep exceeds
@@ -474,41 +256,41 @@ def fit(
     if self.config.mi_estimator == "knn" and getattr(self.config, "knn_mi_auto_downgrade", True):
         from ._knn_budget import maybe_downgrade_knn_estimator
 
-        maybe_downgrade_knn_estimator(self, df, usable_features, train_idx, y_train)
+        maybe_downgrade_knn_estimator(self, df, st.usable_features, train_idx, st.y_train)
 
     # Resolve base candidates.
-    base_candidates = self._resolve_base_candidates(
+    st.base_candidates = self._resolve_base_candidates(
         df,
         target_col,
-        usable_features,
-        y_train,
+        st.usable_features,
+        st.y_train,
         train_idx,
     )
-    if _ram_profiler_on:
-        _phase_ram_report(_ram_state, "resolve_base_candidates_done")
+    if st._ram_profiler_on:
+        _phase_ram_report(st._ram_state, "resolve_base_candidates_done")
 
     # Pre-discovery base-target leakage guard (config.detect_base_leakage); see _fit_temporal.apply_base_leakage_guard.
     # Seeded unconditionally so a caller can tell "the guard was inert" from "fit never reached the guard".
     self._base_leakage_guard_ran_ = False
     self._leaky_bases_dropped_ = []
-    if getattr(self.config, "detect_base_leakage", True) and time_ordering is not None and base_candidates:
+    if getattr(self.config, "detect_base_leakage", True) and time_ordering is not None and st.base_candidates:
         from ._fit_temporal import apply_base_leakage_guard
 
-        base_candidates = apply_base_leakage_guard(self, df, base_candidates, train_idx, y_train, time_ordering)
+        st.base_candidates = apply_base_leakage_guard(self, df, st.base_candidates, train_idx, st.y_train, time_ordering)
 
     # Add strictly-causal per-group lag / trailing / expanding bases of y AFTER the leakage guard (causal by construction,
     # must not be stripped as leakage); adds to usable_features + base_candidates. No-op unless a group key is configured.
     from ._grouped_causal_bases import maybe_add_grouped_causal_bases
-    df, usable_features, base_candidates = maybe_add_grouped_causal_bases(
-        self, df, target_col, usable_features, base_candidates, train_idx,
+    df, st.usable_features, st.base_candidates = maybe_add_grouped_causal_bases(
+        self, df, target_col, st.usable_features, st.base_candidates, train_idx,
     )
     # Interaction bases (a*b beating both parents on MI) become base candidates here, before screening, so a composite on
     # one is selected and gated like any other base; outside discovery the name resolves from its parents.
     from ._interaction_specs import add_interaction_bases
-    df, usable_features, base_candidates = add_interaction_bases(self, df, usable_features, base_candidates, train_idx, y_train)
+    df, st.usable_features, st.base_candidates = add_interaction_bases(self, df, st.usable_features, st.base_candidates, train_idx, st.y_train)
     self._df_ref = df  # engineered columns must be visible to downstream gates that read self._df_ref.
 
-    if not base_candidates:
+    if not st.base_candidates:
         logger.warning(
             "[CompositeTargetDiscovery] no usable base candidates after " "forbidden-pattern / corr / ptp / numeric filters. " "Discovery yields no specs."
         )
@@ -519,15 +301,15 @@ def fit(
 
     # Down-sample for MI screening. Stratified-quantile when
     # configured -- guarantees per-bin coverage on heavy-tail y.
-    sample_idx = _sample_indices(
+    st.sample_idx = _sample_indices(
         train_idx.size,
         self.config.mi_sample_n,
         self.config.random_state,
         strategy=getattr(self.config, "mi_sample_strategy", "stratified_quantile"),
-        y=y_train,
+        y=st.y_train,
         n_strata=getattr(self.config, "mi_n_strata", 10),
     )
-    train_idx_screen = train_idx[sample_idx]
+    st.train_idx_screen = train_idx[st.sample_idx]
 
     # Time-awareness: when the caller supplies an explicit ``time_ordering``,
     # SORT the screening sample into time order so the downstream tiny-model CV
@@ -538,18 +320,18 @@ def fit(
     # stepwise tiny-CV time-correct without per-call ordering logic.
     from ._fit_temporal import order_screen_by_time
 
-    train_idx_screen, sample_idx, self._screen_time_ordered_ = order_screen_by_time(train_idx_screen, sample_idx, time_ordering)
+    st.train_idx_screen, st.sample_idx, self._screen_time_ordered_ = order_screen_by_time(st.train_idx_screen, st.sample_idx, time_ordering)
     # Keep the key itself, not just the flag: consumers that draw their OWN sample (the tiny rerank, the drift gate)
     # must re-apply the order, otherwise they run a "forward walk" over whatever order their rows happen to be in.
     self._time_ordering_ = time_ordering
-    y_screen = y_full[train_idx_screen]
+    st.y_screen = st.y_full[st.train_idx_screen]
 
     # Bin-MI floors every value to 0.0 when the screening sample has fewer than
     # 5*nbins finite rows (joint-histogram cells too sparse), so top-K ranking
     # silently degenerates to the rerank/alphabetical tiebreaker. Warn rather
     # than auto-shrink nbins (which would change the MI numerics).
     if self.config.mi_estimator == "bin":
-        _eff_n = int(train_idx_screen.size)
+        _eff_n = int(st.train_idx_screen.size)
         _min_n = 5 * int(self.config.mi_nbins)
         if _eff_n < _min_n:
             logger.warning(
@@ -572,9 +354,9 @@ def fit(
 
     # Score each (base, transform).
     # Unary y-transforms (``requires_base=False``) ignore the base column, so each routes through ONE dedicated context (``_UNARY_BASE_SENTINEL``) scored against the FULL feature matrix (no base dropped) with an empty-string, base-free spec name -- not bound to / scored against / named after an arbitrary "first" base as before (which made the unary's mi_gain shift with irrelevant auto-base ranking and claim a nonexistent base dependence). The set tracks which unary names are already evaluated so later base-loop iterations skip the redundant re-fit; bivariate + chain transforms still iterate per base.
-    _unary_evaluated: set[str] = set()
+    st._unary_evaluated = set()
 
-    candidates: list[dict[str, Any]] = []
+    st.candidates = []
 
     # Hoist the per-base setup OUT of the candidate
     # evaluation loop so a single parallel dispatch can span all
@@ -591,10 +373,10 @@ def fit(
     # column extraction (and 10x prebinning if mi_estimator='bin') on the same
     # usable_features set. The polars columns themselves don't change between
     # iterations - only the choice of which one is the "base" does.
-    _usable_features_list = list(usable_features)
-    _col_index = {c: i for i, c in enumerate(_usable_features_list)}
-    _bin_estimator = self.config.mi_estimator == "bin"
-    _dedup_x_remaining = bool(getattr(self.config, "dedup_x_remaining_for_mi_baseline", True))
+    st._usable_features_list = list(st.usable_features)
+    st._col_index = {c: i for i, c in enumerate(st._usable_features_list)}
+    st._bin_estimator = self.config.mi_estimator == "bin"
+    st._dedup_x_remaining = bool(getattr(self.config, "dedup_x_remaining_for_mi_baseline", True))
     # Lazy-prebin gate: on the bin estimator the downstream MI uses only the
     # int16/int32 CODE matrix -- the float32 (n, F) plane feeds nothing but the
     # prebinning itself (and dedup, when on). On a POLARS carrier large enough
@@ -605,9 +387,9 @@ def fit(
     # bin + polars + a size floor; ndarray / small / knn inputs keep the eager path. Dedup runs on a row-block Gram
     # (``_lazy_dedup.StreamedCollinearity``) instead of the float plane. Override via
     # MLFRAME_DISCOVERY_LAZY_PREBIN=0|1 (force off / on; ignores the gate).
-    _use_lazy_prebin, _full_x_matrix, _full_x_prebinned, _streamed_dedup = _screen_matrices(
-        self, df, _usable_features_list, train_idx_screen, _bin_estimator=_bin_estimator, _dedup_x_remaining=_dedup_x_remaining,
-        _ram_state=_ram_state if _ram_profiler_on else None,
+    st._use_lazy_prebin, st._full_x_matrix, st._full_x_prebinned, st._streamed_dedup = _screen_matrices(
+        self, df, st._usable_features_list, st.train_idx_screen, _bin_estimator=st._bin_estimator, _dedup_x_remaining=st._dedup_x_remaining,
+        _ram_state=st._ram_state if st._ram_profiler_on else None,
     )
 
     # Per-feature MI(y, x_j) is INDEPENDENT of which base column is excluded, so
@@ -616,14 +398,14 @@ def fit(
     # re-binning + re-MI'ing the shared columns per base candidate. Bit-identical
     # on BOTH the prebinned (mi_estimator='bin') path (_per_feat_y_full below) and
     # the knn path (_per_feat_y_knn_full below).
-    _mi_aggregation = getattr(self.config, "mi_aggregation", "mean")
-    _per_feat_y_full = (
+    st._mi_aggregation = getattr(self.config, "mi_aggregation", "mean")
+    st._per_feat_y_full = (
         _mi_per_feature_prebinned(
-            _full_x_prebinned,
-            y_screen,
+            st._full_x_prebinned,
+            st.y_screen,
             nbins=int(self.config.mi_nbins),
         )
-        if _full_x_prebinned is not None
+        if st._full_x_prebinned is not None
         else None
     )
     # knn analogue: per-column MI(y, x_j) is likewise base-invariant, but the Kraskov estimator dominates
@@ -631,14 +413,14 @@ def fit(
     # candidate is the dominant redundant cost on the knn path. Compute the vector ONCE over the full float
     # matrix and derive each base's mi_y by aggregating over its surviving (base-dropped, dedup-kept) original
     # column indices -- bit-identical because each column's MI is independent of which others are present.
-    _per_feat_y_knn_full = (
+    st._per_feat_y_knn_full = (
         _mi_per_feature_knn(
-            _full_x_matrix,
-            y_screen,
+            st._full_x_matrix,
+            st.y_screen,
             n_neighbors=self.config.mi_n_neighbors,
             random_state=self.config.random_state,
         )
-        if (not _bin_estimator and _full_x_matrix is not None)
+        if (not st._bin_estimator and st._full_x_matrix is not None)
         else None
     )
 
@@ -651,315 +433,32 @@ def fit(
     # decomposed per-feature MI vector so both halves of ``mi_gain`` score the
     # same de-duplicated feature set. Gated + threshold-tunable via config; a
     # strict no-op when no surviving pair exceeds the threshold.
-    _dedup_corr_thr = float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99))
-    _base_contexts: Any = {}
-    for base in base_candidates:
-        base_train = _extract_column_array(df, base)[train_idx]
-        self._auto_base_pool[base] = base_train
-        base_screen = base_train[sample_idx]
-        # A synthetic interaction base is not a feature; its parents carry it, so they leave x_remaining as a base does.
-        from .._synthetic_bases import dropped_columns
-
-        _dropped = dropped_columns(base, _col_index)
-        if _dropped:
-            _drop_idx: int | list[int] = _col_index[base] if base in _col_index else [_col_index[c] for c in _dropped]
-            _x_prebinned = np.delete(_full_x_prebinned, _drop_idx, axis=1) if _full_x_prebinned is not None else None
-            if _use_lazy_prebin:
-                # No float plane on the lazy path -- the base-dropped float matrix
-                # is never read by the bin-estimator eval (it consumes only the
-                # prebinned codes). Carry a zero-row float32 proxy of the right
-                # WIDTH so the ``x_remaining_matrix.shape[1]`` index/empty checks
-                # and the eval body's shape reads stay correct without allocating
-                # the (n, F-1) plane. Dedup reads the streamed Gram, not these
-                # values.
-                _rem_cols = _x_prebinned.shape[1] if _x_prebinned is not None else 0
-                x_remaining_matrix: Any = np.empty((0, _rem_cols), dtype=np.float32)
-            else:
-                assert _full_x_matrix is not None  # built above whenever not _use_lazy_prebin
-                x_remaining_matrix = np.delete(_full_x_matrix, _drop_idx, axis=1)
-            # Original-column indices that survive base-drop (used to derive the knn mi_y baseline from the
-            # precomputed base-invariant per-feature vector); dedup prunes this in lockstep with x_remaining_matrix.
-            _surviving_orig_idx = np.delete(np.arange(len(_usable_features_list)), _drop_idx)
-            _ctx_keep = None
-            if _dedup_x_remaining and x_remaining_matrix.shape[1] > 1:
-                _keep = _streamed_dedup.keep_mask(_drop_idx) if _use_lazy_prebin else near_collinear_keep_mask(
-                    x_remaining_matrix,
-                    corr_threshold=_dedup_corr_thr,
-                )
-                if not _keep.all():
-                    x_remaining_matrix = x_remaining_matrix[:, _keep]
-                    if _x_prebinned is not None:
-                        _x_prebinned = _x_prebinned[:, _keep]
-                    if _surviving_orig_idx is not None:
-                        _surviving_orig_idx = _surviving_orig_idx[_keep]
-                    _ctx_keep = _keep
-        else:
-            # Invariant: every base in usable_features is in _col_index, so this arm is unreachable; keeping the base in its own x_remaining would leak it into the MI baseline, so skip rather than mis-score.
-            log_throttle(
-                logger, "composite_discovery_fit_base_not_in_usable_features", logging.ERROR,
-                "[CompositeTargetDiscovery] invariant violated: base %r not in usable_features index; skipping (would leak base into its own x_remaining).",
-                base,
-            )
-            continue
-        if x_remaining_matrix.shape[1] == 0:
-            continue
-        _mi_kwargs: dict[str, Any] = dict(
-            nbins=int(self.config.mi_nbins),
-            aggregation=getattr(self.config, "mi_aggregation", "mean"),
-        )
-        mi_y_for_base = _mi_y_baseline(
-            self, x_prebinned=_x_prebinned, per_feat_y_full=_per_feat_y_full, surviving_orig_idx=_surviving_orig_idx, base=base,
-            col_index=_col_index, drop_idx=_drop_idx, mi_aggregation=_mi_aggregation, per_feat_y_knn_full=_per_feat_y_knn_full,
-            x_remaining_matrix=x_remaining_matrix, y_screen=y_screen, mi_kwargs=_mi_kwargs,
-        )
-        # The context keeps the surviving column indices, not the (rows x features) copies: every base's copies held at
-        # once were the discovery peak. The evaluator gathers them when the base's first transform runs and drops them
-        # after its last (``discovery._eval.context_matrices``); a gather equals the delete-then-keep build byte for byte.
-        _base_contexts[base] = dict(
-            base_train=base_train,
-            base_screen=base_screen,
-            x_remaining_matrix=None,
-            _x_prebinned=None,
-            _cols=(_drop_idx, _ctx_keep),
-            mi_y_for_base=mi_y_for_base,
-            _mi_kwargs=_mi_kwargs,
-            # Shrunk-domain ``mi_y_compare`` memo shared by all transforms on this base (they share the ``valid_screen`` mask); lock guards the eval threads.
-            _mi_y_compare_memo={},
-            _mi_y_compare_memo_lock=threading.Lock(),
-        )
-
-    # Dedicated UNARY context (full feature matrix, sentinel base) so unary
-    # (``requires_base=False``) transforms are scored ONCE against full X and
-    # their mi_gain is invariant to auto-base ranking order. Built in the
-    # ``_eval`` sibling to keep this module under the LOC threshold; see
-    # ``build_unary_base_context`` for the full rationale.
-    # On the lazy path the float plane is None; the unary context (bin
-    # estimator) reads ``full_x_matrix`` only for its ``.shape[1]`` width guard
-    # and the dead ``x_remaining_matrix`` store, so hand it a zero-row proxy of
-    # the full column count -- never read for values on this gate.
-    _unary_full_x = _full_x_matrix
-    if _full_x_prebinned is not None:  # the bin estimator reads only codes: the float plane is dead from here on
-        _full_width = _full_x_prebinned.shape[1] if _full_x_prebinned is not None else 0
-        _unary_full_x = np.empty((0, _full_width), dtype=np.float32)
-    assert _unary_full_x is not None  # built above whenever not _use_lazy_prebin
-    _unary_ctx = build_unary_base_context(
-        full_x_matrix=_unary_full_x,
-        full_x_prebinned=_full_x_prebinned,
-        per_feat_y_full=_per_feat_y_full,
-        y_screen=y_screen,
-        n_train=train_idx.size,
-        sample_idx=sample_idx,
-        mi_aggregation=_mi_aggregation,
-        mi_nbins=int(self.config.mi_nbins),
-        mi_n_neighbors=self.config.mi_n_neighbors,
-        random_state=self.config.random_state,
-        mi_estimator=self.config.mi_estimator,
-    )
-    if _unary_ctx is not None:
-        _base_contexts[_UNARY_BASE_SENTINEL] = _unary_ctx
-    _full_views = {"x": None if _full_x_prebinned is not None else _full_x_matrix, "pb": _full_x_prebinned}
-    x_remaining_matrix = _x_prebinned = _unary_full_x = None
-    if _full_x_prebinned is not None:
-        _full_x_matrix = None
-    for _ctx in _base_contexts.values():
-        if "_cols" in _ctx:
-            _ctx["_full_views"] = _full_views
-            _ctx["_matrices_lock"] = threading.Lock()
-
-    # Build flat (base, transform_name, transform) work list. Base-dependent
-    # transforms iterate per base normally. Unary (``requires_base=False``)
-    # transforms route to the dedicated ``_UNARY_BASE_SENTINEL`` context exactly
-    # ONCE (full-X scoring, base-free name) instead of being bound to whichever
-    # real base they happened to pair with first. ``_unary_evaluated`` still
-    # dedups so each unary appears once. Keeping the build serial outside the
-    # parallel dispatch preserves deterministic (base, transform) ordering.
-    _unary_context_available = _UNARY_BASE_SENTINEL in _base_contexts
-    _skip_right_tail = left_skewed_right_tail_skips(y_train)
-    if _skip_right_tail:
-        logger.info(
-            "[CompositeTargetDiscovery] target is left-skewed; skipping right-tail compressors %s (they would deepen the "
-            "skew). yeo_johnson_y stays: it fits lambda > 1 for a left tail.", sorted(_skip_right_tail),
-        )
-    candidates.extend(_evaluate_work_items(
-        self, base_candidates, _base_contexts, _skip_right_tail | _point_mass_skips_logged(y_train), _unary_evaluated, _unary_context_available, y_train, y_screen, target_col,
-    ))
-    # The per-base float and prebinned copies and the full matrices are read by nothing past this point; holding them
-    # kept (bases + 1) x rows x features x 6 bytes resident through the rerank, the holdout gates and the re-score.
-    _base_contexts = _full_x_matrix = _full_x_prebinned = _unary_full_x = _unary_ctx = x_remaining_matrix = _x_prebinned = self._screen_matrix_stash = None
-    if _ram_profiler_on:
-        _phase_ram_report(_ram_state, "transforms_evaluated")
-
-    # FDR control + eps_mi_gain gate + top-k sort + alpha-drift gate + linear_residual/diff
-    # collapse + structural-fragility gate (lifted to ``_filter_and_gate`` to keep this file
-    # under the monolith threshold).
-    from ._filter_and_gate import filter_sort_and_gate_candidates
-
-    kept_specs = filter_sort_and_gate_candidates(
-        self, candidates, df=df, train_idx=train_idx, y_full=y_full, y_train=y_train,
-        extract_column_array=_extract_column_array,
-    )
-
-    # Phase B: tiny-model rerank. Re-rank the MI-survivors by
-    # CV-RMSE on the y-scale (the actual prediction objective).
-    # Skip when ``screening == "mi"`` -- callers who want only
-    # MI ranking pay zero rerank cost.
-    if kept_specs and self.config.screening in ("tiny_model", "hybrid") and self.config.tiny_screening_models in ("single_lgbm", "per_family"):
-        kept_specs = self._tiny_model_rerank(
-            kept_specs=kept_specs,
-            df=df,
-            target_col=target_col,
-            usable_features=usable_features,
-            train_idx=train_idx,
-            y_full=y_full,
-        )
-        release_fold_caches()
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "tiny_model_rerank_done")
-
-    if not kept_specs:
-        mode = self.config.fail_on_no_gain
-        msg = f"[CompositeTargetDiscovery] no candidate cleared mi_gain > " f"{self.config.eps_mi_gain} on target='{target_col}'."
-        if mode == "raise":
-            raise RuntimeError(msg)
-        logger.warning("%s (fail_on_no_gain=%r)", msg, mode)
-
-    # Multi-base forward-stepwise auto-promotion of linear_residual specs; carved to
-    # ``_fit_multibase`` to keep this module under the 1k-LOC monolith threshold.
-    _kept_specs_before_multibase = kept_specs
-    kept_specs = apply_multi_base_forward_stepwise(self, kept_specs, df, target_col, train_idx, y_train)
-    if kept_specs is not _kept_specs_before_multibase and _ram_profiler_on:
-        _phase_ram_report(_ram_state, "forward_stepwise_done")
+    st._dedup_corr_thr = float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99))
+    st._base_contexts = {}
+    _fit_step1_strict_no_op(self, st, df, train_idx)
+    _fit_step2_full_column_count(self, st, train_idx, target_col, df)
 
     # Opt-in discovery steps (region-adaptive / interaction-base / auto-chain). Gated by config flags defaulting True (each has test-confirmed value); set all False for a no-op leaving kept_specs byte-identical to the pre-hook flow. Heavy logic lives in the ``_opt_in_steps`` sibling (LOC threshold); it returns extra appendable specs (auto-chain) + stashes per-step artefacts on the instance. The cheap gate check + no-op artefact init both live in the sibling.
-    if kept_specs and (
-        getattr(self.config, "region_adaptive_enabled", False)
-        or getattr(self.config, "interaction_base_discovery_enabled", True)
-        or getattr(self.config, "auto_chain_discovery_enabled", True)
-    ):
-        from ._opt_in_steps import run_optional_discovery_steps
-
-        _extra = run_optional_discovery_steps(self, df, target_col, usable_features, train_idx, kept_specs, self.config)
-        kept_specs = list(kept_specs) + list(_extra) if _extra else kept_specs
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "opt_in_steps_done")
-        # Re-run the structural-fragility gate on the auto-chain-DISCOVERED specs: the early pass (before the rerank)
-        # could not see them (auto_chain surfaces chains only here), so a base-additive chain like
-        # ``chain_monotonic_residual_yj`` on a per-group-level base slipped through to the val-split gate, which
-        # (val != test) let it survive and collapse to R^2<0 on test. This pass is idempotent for the already-passed
-        # specs and cheap (30k sample); it runs only when auto-chain actually appended new specs.
-        if _extra and kept_specs and getattr(self.config, "structural_fragility_gate_enabled", True):
-            from ._yscale_holdout_gate import apply_structural_fragility_gate
-
-            kept_specs = apply_structural_fragility_gate(self, df, kept_specs, train_idx, y_full)
-
-    # y-scale group-aware holdout gate. Drop specs whose predict-T -> invert-to-y pipeline collapses
-    # on a group-disjoint holdout (the prod failure the forward-only MI / i.i.d. honest-holdout never
-    # sees). No-op without group ids. Runs BEFORE the honest re-score so the (heavier) MI re-score only
-    # touches survivors. (The structural-fragility gate now runs earlier, before the tiny-rerank.)
-    if kept_specs and getattr(self.config, "yscale_holdout_gate_enabled", True):
-        from ._yscale_holdout_gate import apply_yscale_holdout_gate
-
-        kept_specs = apply_yscale_holdout_gate(
-            self, df, target_col, kept_specs, usable_features, train_idx, y_full,
-            val_df=val_df, val_y=val_y,
-        )
-        if _ram_profiler_on:
-            _phase_ram_report(_ram_state, "yscale_holdout_gate_done")
-
-    kept_specs = _apply_honest_holdout_stages(
-        self, df, target_col, kept_specs, usable_features, train_idx, y_full,
-        _honest_holdout_idx, _ram_profiler_on, _ram_state, _phase_ram_report,
-    )
-
-    elapsed = timer() - t0
-    logger.info(
-        "[CompositeTargetDiscovery] target='%s' discovered %d spec(s) " "from %d candidate(s) in %.2fs",
-        target_col,
-        len(kept_specs),
-        len(candidates),
-        elapsed,
-    )
-    if _ram_profiler_on:
-        _phase_ram_report(_ram_state, "fit_exit")
-
-    # Alpha-drift WARNINGs only for the SURVIVING specs. Inline emits during scoring are at DEBUG; the user sees a single, actionable warning at the end of discovery rather than a wall of warnings for specs that the raw-y baseline gate / Wilcoxon filter dropped anyway.
-    _drift_flags = getattr(self, "_alpha_drift_flags", {})
-    if _drift_flags and kept_specs:
-        _drift_threshold = float(
-            getattr(
-                self.config,
-                "alpha_drift_z_threshold",
-                3.0,
-            )
-        )
-        _surviving_drift = [
-            (s.name, _drift_flags[s.name]) for s in kept_specs if s.name in _drift_flags and _drift_flags[s.name].get("z_score", 0.0) > _drift_threshold
-        ]
-        if _surviving_drift:
-            for _spec_name, _info in _surviving_drift:
-                log_throttle(
-                    logger, "composite_discovery_fit_alpha_drift_detected", logging.WARNING,
-                    "[CompositeTargetDiscovery] alpha drift "
-                    "detected for KEPT spec=%s (alpha first-half="
-                    "%.4f, second-half=%.4f, z=%.2f > %.2f). "
-                    "Concept drift -- linear_residual may "
-                    "underperform on test. Set "
-                    "reject_on_alpha_drift=True in "
-                    "CompositeTargetDiscoveryConfig to drop "
-                    "automatically.",
-                    _spec_name,
-                    _info["alpha_first_half"],
-                    _info["alpha_second_half"],
-                    _info["z_score"],
-                    _drift_threshold,
-                )
-
-    # Reconcile the report ``kept`` flag against the FINAL surviving specs.
-    # ``entry['kept']`` is stamped True at the eps_mi_gain gate, but the specs
-    # then pass through top_k_after_mi trim, the alpha-drift gate, the
-    # linear_residual->diff collapse, the tiny-model rerank, and multi-base
-    # name-swaps -- none of which write back to the candidate entries. Without
-    # this pass ``report()`` claims kept=True for specs that were actually
-    # dropped (or renamed) downstream, contradicting its "all evaluated
-    # candidates with their final disposition" contract. Reconcile by spec name
-    # against ``kept_specs``; a multi-base upgrade swaps a seed
-    # ``linear_residual`` for a ``linear_residual_multi`` of a NEW name, so its
-    # seed entry is recorded as upgraded (not silently dropped).
-    _final_kept_names = {getattr(s, "name", None) for s in kept_specs}
-    _multi_seed_primaries = {s.base_column for s in kept_specs if s.transform_name == "linear_residual_multi"}
-    for _entry in candidates:
-        _espec = _entry.get("spec")
-        if _espec is None:
-            continue  # already a reject row; reason already set.
-        _ename = getattr(_espec, "name", None)
-        if _ename in _final_kept_names:
-            _entry["kept"] = True
-            continue
-        # Spec did NOT survive to the final set. Flip kept and record why,
-        # unless the eps gate already rejected it (kept was never set True).
-        if _entry.get("kept"):
-            if _espec.transform_name == "linear_residual" and _espec.base_column in _multi_seed_primaries:
-                _entry["reason"] = "upgraded into a linear_residual_multi spec " "(multi-base forward-stepwise)"
-            else:
-                _entry["reason"] = _reason_from_ledger(self, _ename)
-            _entry["kept"] = False
+    _fit_step3_opt_discovery_steps(self, st, df, target_col, train_idx, val_df, val_y)
+    st._multi_seed_primaries = {s.base_column for s in st.kept_specs if s.transform_name == "linear_residual_multi"}
+    _fit_step4_seed_entry_recorded(self, st)
 
     # The data signature the specs were fit on is read only by ``discover_incremental``, but it cost 84-308 ms at 200k x 50
     # (seconds on wide polars frames) on every fit, stability replicate and per-group fit. Record what it needs and let
     # ``fit_data_signature()`` compute it on first use; pickling computes it before the frame reference is dropped. The row count lets it re-score only appended rows.
     # A signature the caller already computed on this very frame, target and feature list is taken as is.
-    _seed = getattr(self, "_fit_data_signature_seed", None)
-    _seed_ok = _seed is not None and _seed[0] == id(df) and _seed[1] == target_col and _seed[2] == tuple(feature_cols)
-    self._fit_data_signature = _seed[3] if (_seed is not None and _seed_ok) else None
+    st._seed = getattr(self, "_fit_data_signature_seed", None)
+    st._seed_ok = st._seed is not None and st._seed[0] == id(df) and st._seed[1] == target_col and st._seed[2] == tuple(feature_cols)
+    self._fit_data_signature = st._seed[3] if (st._seed is not None and st._seed_ok) else None
     self._fit_data_signature_seed = None
     self._fit_data_signature_inputs, self._fit_n_rows = (target_col, list(feature_cols)), len(df)
 
     # Bookkeeping. (target_col + df_ref + train_idx already stashed.)
-    self.specs_ = kept_specs
-    self.report_ = [self._entry_to_report(e) for e in candidates]
+    self.specs_ = st.kept_specs
+    self.report_ = [self._entry_to_report(e) for e in st.candidates]
     self.val_idx_ = val_idx
     self.test_idx_ = test_idx
-    self.elapsed_seconds_ = elapsed
+    self.elapsed_seconds_ = st.elapsed
 
     # Opt-in per-group/per-cluster discovery (reopened REJECTED decision -- see the module docstring
     # near the "Per-cluster composite" comment in ``discovery/__init__.py``). Runs AFTER the global fit
@@ -975,7 +474,7 @@ def fit(
             df,
             target_col,
             feature_cols,
-            _orig_train_idx,
+            st._orig_train_idx,
             val_idx,
             test_idx,
             time_ordering,

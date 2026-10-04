@@ -394,17 +394,7 @@ def get_feature_importances(
     to impurity (speed) where it is the only affordable option. Pass importance_getter='feature_importances_'
     to force impurity, or 'permutation' to force it regardless of size.
     """
-    if importance_getter is None:
-        importance_getter = "auto"
-    if importance_getter == "auto" and target is not None and data is not None:
-        try:
-            _shape = getattr(data, "shape", None)
-            _cells = int(_shape[0]) * (int(_shape[1]) if len(_shape) > 1 else 1) if _shape else 0
-        except Exception as e:
-            logger.debug("cell-count computation failed: %s", e)
-            _cells = 0
-        if 0 < _cells <= _PERM_AUTO_CELL_CAP:
-            importance_getter = "permutation"  # accuracy winner; below the cost cap
+    importance_getter = _get_feature_importan_step1_importance_getter_none(importance_getter, target, data)
     if isinstance(importance_getter, str):
         if importance_getter == "permutation":
             if target is None:
@@ -744,6 +734,22 @@ def get_feature_importances(
             n_nan, res_arr.size, type(model).__name__,
         )
     return {feature_index: feature_importance for feature_index, feature_importance in zip(current_features, res)}
+
+
+def _get_feature_importan_step1_importance_getter_none(importance_getter, target, data):
+    """Step 1 of get_feature_importances: lines starting at ``if importance_getter is None:``."""
+    if importance_getter is None:
+        importance_getter = "auto"
+    if importance_getter == "auto" and target is not None and data is not None:
+        try:
+            _shape = getattr(data, "shape", None)
+            _cells = int(_shape[0]) * (int(_shape[1]) if len(_shape) > 1 else 1) if _shape else 0
+        except Exception as e:
+            logger.debug("cell-count computation failed: %s", e)
+            _cells = 0
+        if 0 < _cells <= _PERM_AUTO_CELL_CAP:
+            importance_getter = "permutation"  # accuracy winner; below the cost cap
+    return importance_getter
 
 
 def select_appropriate_feature_importances(

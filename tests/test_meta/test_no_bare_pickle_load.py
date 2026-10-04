@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from tests.test_meta._shared_ast_cache import parsed_ast
+from tests.test_meta._shared_ast_cache import parsed_ast, walk_cached
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent  # mlframe/
 _SRC_ROOT = _REPO_ROOT / "src" / "mlframe"
@@ -71,9 +71,14 @@ def _find_pickle_load_calls(path: Path) -> list[tuple[int, str, str]]:
     if tree is None:
         return []
 
+    nodes = walk_cached(tree)
+    # Cheap exit: most modules have no ``<x>.load`` / ``<x>.loads`` call at all, so skip the enclosing-function pass.
+    if not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("load", "loads") for n in nodes):
+        return []
+
     # Track which module names refer to pickle by walking the import statements.
     pickle_aliases: set[str] = {"pickle"}
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name in ("pickle", "_pickle"):
@@ -81,7 +86,7 @@ def _find_pickle_load_calls(path: Path) -> list[tuple[int, str, str]]:
 
     # Innermost enclosing function per call, so the whitelist can name a function instead of a line.
     enclosing: dict[int, str] = {}
-    for fn in ast.walk(tree):
+    for fn in nodes:
         if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for inner in ast.walk(fn):
                 if isinstance(inner, ast.Call):
@@ -90,7 +95,7 @@ def _find_pickle_load_calls(path: Path) -> list[tuple[int, str, str]]:
                         enclosing[id(inner)] = (fn.lineno, fn.name)
 
     hits: list[tuple[int, str, str]] = []
-    for node in ast.walk(tree):
+    for node in nodes:
         if not isinstance(node, ast.Call):
             continue
         func = node.func

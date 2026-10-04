@@ -252,3 +252,49 @@ def test_guard_pickles_to_an_inactive_copy():
     assert clone.monitor is None and clone.model_type_name == "CatBoostClassifier"
     clone.set_fit_running(True)
     assert clone._fit_running
+
+
+def _budget_monitor(d, clock, budget, asked):
+    """A monitor polled by hand with the given ``time_budget_s`` and an ``on_limit`` that records its requests."""
+    return m.CatBoostGpuFitMonitor(d, interval_s=60, label="CB", time_budget_s=budget, clock=clock, gpu_probe=lambda: None, on_limit=lambda r: asked.append(r) or True)
+
+
+@pytest.mark.parametrize("budget", [None, 0, 0.0])
+def test_zero_or_none_time_budget_means_no_limit(tmp_path, budget):
+    """``time_budget_s`` of 0 behaves exactly like None (``mlframe.utils.budgets``): however long the fit runs, no budget warning and no stop request."""
+    d = str(tmp_path)
+    clock = _Clock()
+    asked: list = []
+    mon = _budget_monitor(d, clock, budget, asked)
+    _write_rows(d, [(10, 1000, 1000)])
+    clock.t += 3600
+    mon.poll_once()
+    assert not any("time budget" in w for w in mon.warnings)
+    assert asked == []
+
+
+def test_positive_time_budget_still_stops(tmp_path):
+    """A positive budget is exceeded once elapsed passes it: warned once and ``on_limit`` asked to stop."""
+    d = str(tmp_path)
+    clock = _Clock()
+    asked: list = []
+    mon = _budget_monitor(d, clock, 30.0, asked)
+    _write_rows(d, [(10, 1000, 1000)])
+    clock.t += 60
+    mon.poll_once()
+    assert sum("EXCEEDED the configured time budget" in w for w in mon.warnings) == 1
+    assert asked and "time budget" in asked[0]
+
+
+def test_zero_time_budget_mins_on_a_callback_means_no_limit():
+    """A stripped callback's ``time_budget_mins`` of 0 carries no budget, like None; a positive one is converted to seconds."""
+
+    class _Cb:
+        """Callback stub carrying a time budget."""
+
+        def __init__(self, mins):
+            self.time_budget_mins = mins
+
+    assert m._time_budget_from_callbacks([_Cb(0)]) is None
+    assert m._time_budget_from_callbacks([_Cb(None)]) is None
+    assert m._time_budget_from_callbacks([_Cb(2)]) == 120.0

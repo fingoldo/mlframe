@@ -101,6 +101,8 @@ def _read(rel: str) -> str:
             "_mrmr_fit_impl/_helpers.py",
             "_mrmr_fe_step/_step_core.py",
             "_mrmr_fe_step/_step_score.py",
+            "_mrmr_fe_step/_step_score_parts.py",
+            "_mrmr_fe_step/_step_score_parts2.py",
             "_mrmr_fe_step/_helpers.py",
             "_mrmr_validate_transform.py",
         ):

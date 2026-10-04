@@ -175,16 +175,50 @@ def test_f3_helpers_apply_now_imports_byte_budget_symbols():
     assert callable(pha._approx_entry_bytes)
 
 
-def test_f3_populate_call_site_source_references_byte_budget():
-    """The inline insert/evict block at the real populate call site must reference the byte-budget
-    constant, not just the entry-count cap (would have caught F3 before any behavioral test could)."""
-    import inspect
+def test_f3_populate_call_site_enforces_byte_budget(monkeypatch):
+    """The real populate call site must evict by the byte budget, not just the entry-count cap.
 
-    from mlframe.training.pipeline import _pipeline_helpers_apply
+    With the entry-count cap wide open and a 1-byte budget, a populate that adds a second entry has to evict the
+    older one; a populate honouring only the count cap would keep both (would have caught F3).
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
 
-    src = inspect.getsource(_pipeline_helpers_apply._apply_pre_pipeline_transforms)
-    assert "_PRE_PIPELINE_CACHE_MAX_BYTES" in src
-    assert "_approx_entry_bytes" in src
+    from mlframe.training.pipeline import _pipeline_helpers_apply as pha
+
+    cache = pha._PRE_PIPELINE_CACHE
+    saved = list(cache.items())
+    monkeypatch.setattr(pha, "_PRE_PIPELINE_CACHE_MAX_BYTES", 1)
+    monkeypatch.setattr(pha, "_PRE_PIPELINE_CACHE_MAX", 100)
+    try:
+        cache.clear()
+        old = pd.DataFrame({"a": np.arange(50_000, dtype=np.float64)})
+        cache[("older-entry",)] = (old, old, None)
+
+        rng = np.random.default_rng(0)
+        train_df = pd.DataFrame({"x": rng.normal(size=60), "y": rng.normal(size=60)})
+        y = rng.integers(0, 2, 60)
+        out_train, _ = pha._apply_pre_pipeline_transforms(
+            LogisticRegression(),
+            Pipeline([("scaler", StandardScaler())]),
+            train_df,
+            None,
+            y,
+            skip_pre_pipeline_transform=False,
+            skip_preprocessing=False,
+            use_cache=False,
+            model_file_name="",
+            verbose=0,
+        )
+        assert out_train.shape == train_df.shape
+        assert ("older-entry",) not in cache, "populate ignored the byte budget: the older entry survived a 1-byte cap"
+        assert len(cache) == 1, "the byte-budget eviction must keep the freshly populated entry"
+        ((_, (cached_train, _cached_val, cached_pipe)),) = cache.items()
+        assert cached_train is out_train and cached_pipe is not None
+    finally:
+        cache.clear()
+        cache.update(saved)
 
 
 # ---------------------------------------------------------------------------

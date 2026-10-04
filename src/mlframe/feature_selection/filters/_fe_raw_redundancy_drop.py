@@ -66,7 +66,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Optional, Sequence, cast, Any
 
 import numpy as np
 
@@ -85,6 +85,7 @@ from ._fe_usability_signal import (  # shared leaf |corr| (numpy-only, no cycle)
     abs_pearson as _abs_pearson,
     _crit_np_dtype,  # MLFRAME_CRIT_DTYPE_RELAXED-aware dtype for the usability-corr casts
 )
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -252,14 +253,13 @@ def drop_redundant_raw_operands(
     Degenerate (too few rows, no engineered survivors, no raw operands): returns
     ``selected_cols_idx`` unchanged.
     """
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     import os as _os
 
-    from ._mi_greedy_cmi_fe import _renumber_joint
-
-    sel = list(selected_cols_idx)
-    n_rows = int(np.asarray(y_binned).shape[0])
-    if n_rows < _MIN_ROWS or len(sel) < 2:
-        return sel, []
+    st.sel = list(selected_cols_idx)
+    st.n_rows = int(np.asarray(y_binned).shape[0])
+    if st.n_rows < _MIN_ROWS or len(st.sel) < 2:
+        return st.sel, []
 
     # DEVICE-BORN candidate-code residency (default ON under fe_gpu_strict_resident_enabled; env opt-out
     # MLFRAME_FE_GATE_RESIDENT_CANDS=0), mirroring the CMI-redundancy gate (409d63fe). The raw-redundancy
@@ -274,23 +274,23 @@ def drop_redundant_raw_operands(
     # (the ``_renumber_joint`` support build, where the same column serves as a CONDITIONING z / sibling). A
     # non-finite column or any cupy fault falls back per-candidate to the host ``_quantile_bin`` (no resident
     # code -> that candidate's device sites re-upload the host code, exactly as before this change).
-    _gate_resident = False
+    st._gate_resident = False
     if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
         try:
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
 
-            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=n_rows, p=len(sel)))
+            st._gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=st.n_rows, p=len(st.sel)))
         except Exception as e:
             logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
-            _gate_resident = False
+            st._gate_resident = False
 
     from ._fe_raw_redundancy_anchors import build_raw_redundancy_anchors
 
-    _ctx = build_raw_redundancy_anchors(
+    st._ctx = build_raw_redundancy_anchors(
         data=data,
         cols=list(cols),
-        sel=sel,
+        sel=st.sel,
         raw_name_set=raw_name_set,
         y_binned=y_binned,
         y_continuous=y_continuous,
@@ -300,33 +300,142 @@ def drop_redundant_raw_operands(
         raw_X=raw_X,
         seed=seed,
         verbose=verbose,
-        n_rows=n_rows,
-        gate_resident=_gate_resident,
+        n_rows=st.n_rows,
+        gate_resident=st._gate_resident,
     )
-    _early_return: Optional[tuple[list, list]] = _ctx.early_return
-    if _early_return is not None:
-        return _early_return
+    st._early_return = st._ctx.early_return
+    if st._early_return is not None:
+        return cast(tuple[list[Any], list[Any]], st._early_return)
 
-    eng_consumers = _ctx.eng_consumers
-    y_arr = _ctx.y_arr
-    eng_bin = _ctx.eng_bin
-    eng_bin_dev = _ctx.eng_bin_dev
-    eng_anchor_excess = _ctx.eng_anchor_excess
-    _eng_signal_parents = _ctx.eng_signal_parents
-    _clean_subexpr_bin = _ctx.clean_subexpr_bin
-    _clean_subexpr_bin_dev = _ctx.clean_subexpr_bin_dev
-    _clean_subexpr_leaf_pair = _ctx.clean_subexpr_leaf_pair
-    _raw_marginal = _ctx.raw_marginal
-    _raw_codes = _ctx.raw_codes
-    _raw_dev = _ctx.raw_dev
-    _join_dev = _ctx.join_dev
-    raw_sel_idx = _ctx.raw_sel_idx
+    st.eng_consumers = st._ctx.eng_consumers
+    st.y_arr = st._ctx.y_arr
+    st.eng_bin = st._ctx.eng_bin
+    st.eng_bin_dev = st._ctx.eng_bin_dev
+    st.eng_anchor_excess = st._ctx.eng_anchor_excess
+    st._eng_signal_parents = st._ctx.eng_signal_parents
+    st._clean_subexpr_bin = st._ctx.clean_subexpr_bin
+    st._clean_subexpr_bin_dev = st._ctx.clean_subexpr_bin_dev
+    st._clean_subexpr_leaf_pair = st._ctx.clean_subexpr_leaf_pair
+    _raw_marginal = st._ctx.raw_marginal
+    st._raw_codes = st._ctx.raw_codes
+    st._raw_dev = st._ctx.raw_dev
+    st._join_dev = st._ctx.join_dev
+    st.raw_sel_idx = st._ctx.raw_sel_idx
 
-    drop_names: list[str] = []
-    drop_idx_set: set[int] = set()
-    for ri in raw_sel_idx:
+    st.drop_names = []
+    st.drop_idx_set = set()
+    _drop_redundant_raw_o_step1_ri_st_raw(st, cols, verbose, seed, _raw_marginal, floor_margin_mult, linear_usability_keep, raw_X, data, y_continuous, engineered_continuous, tail_subsume_enable, tail_subsume_min_corr, tail_subsume_rank_frac)
+
+    # bench-attempt-rejected (2026-07-02): a NON-OPERAND redundant-raw pass here (test each still-selected
+    # non-operand raw against the best-MI survivor subexpression via raw_retains_signal_given_genuine_children)
+    # did NOT fix the F6_decoy ab_log survival and showed no other benefit. Root cause of ab_log surviving is
+    # NOT this operand-redundancy sweep: (a) the sweep's own drops here are reverted by the downstream no-harm
+    # Ridge guard because the nonlinear compound is LINEARLY LOSSY (kept-set held-out R2 0.89 << raw-only 0.99,
+    # so the raw operands carry linear signal the child loses); (b) ab_log is re-attached AFTERWARDS by the
+    # usability-aware raw-retention device (it is linearly usable and statistically indistinguishable from a
+    # genuine linear term). Dropping it would risk genuine linearly-usable raws + violate the no-harm contract.
+    # So the redundancy sweep is the wrong lever; the F6_decoy cell stays a documented class-4 xfail.
+    if not st.drop_idx_set:
+        return st.sel, []
+
+    # DOWNSTREAM NO-HARM GUARD (2026-07-01). The per-raw CMI/rank-MI verdict can DROP a raw whose engineered
+    # child is LINEARLY LOSSY on skewed terrain: a prewarp/product ENTANGLES its operands so a linear (or tree)
+    # model cannot recover the raw's private contribution - e.g. dropping ``b`` beside ``mul(sqr(a),prewarp(b))``
+    # on lognormal costs ~0.23 held-out R^2 (the I4b/I5 no-harm violation). A per-raw linear-usability probe
+    # cannot separate this from a genuinely-subsumed operand (the product masks b's per-raw residual), so verify
+    # the drop at the OUTCOME level against the SAME reference the contract measures: does the KEPT set's HELD-OUT
+    # linear fit (StandardScaler+Ridge) fall materially below the RAW-ONLY baseline (all raw features)? If so,
+    # revert the whole drop. The baseline is ALL RAWS, NOT kept+dropped - the latter is over-sensitive (adding
+    # any column rarely lowers held-out Ridge, so it reverts even a delta-neutral cosmetic drop and re-breaks the
+    # strict-drop check on uniform terrain, measured). On well-behaved terrain the child captures the raw linearly
+    # so the kept set matches raw-only and the drop stands; only a genuinely lossy child drops the kept set below
+    # raw-only and reverts. Regression-only (needs continuous y); best-effort. ``_RAW_DROP_NO_HARM_EPS`` is the
+    # held-out-R^2 shortfall below raw-only tolerated before reverting (well inside the contract's 0.05 bar).
+    # GROUP-AWARE LEAK EXEMPTION. Under ``group_aware_mi=True`` a raw operand can be a pure
+    # between-group-level "leak" (high global MI, ~0 within-group signal) that this linear no-harm
+    # guard would otherwise happily REVERT-restore: a leak correlates strongly with y GLOBALLY (that is
+    # exactly what makes it a leak), so it inflates both the raw-only Ridge baseline and the revert
+    # trigger below - defeating the entire point of group-aware relevance (a feature judged
+    # non-generalising per-group must not be let back in because it looks good on a naive linear fit).
+    # Identify leak names among this batch's drop candidates via the SAME group-blocked MI check the FE
+    # producers use, and NEVER revert-restore them regardless of the Ridge outcome - they stay dropped;
+    # only genuinely-lossy NON-leak raws remain eligible for the no-harm revert below. No-op (empty set)
+    # when group_aware_mi is off / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
+    st._group_leak_names = set()
+    try:
+        from mlframe.feature_selection.filters.info_theory.shared import get_group_mi
+
+        st._gmi_payload = get_group_mi()
+    except Exception as e:
+        logger.debug("get_group_mi() failed: %s", e)
+        st._gmi_payload = None
+    _drop_redundant_raw_o_step2_st_gmi_payload(st, y_binned, cols, data, verbose)
+
+    st._yv = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else None
+    st._guard_on = (
+        st._yv is not None
+        and st._yv.shape[0] == st.n_rows
+        and len(np.unique(st._yv)) >= _MIN_TARGET_DISTINCT_FOR_GUARD  # regression only (see constant)
+        and _os.environ.get("MLFRAME_FE_DROP_NO_HARM", "1").strip().lower() in ("1", "true", "on", "yes")
+    )
+    if st._guard_on:
+        assert st._yv is not None  # _guard_on requires _yv is not None
+        try:
+
+            def _cont_of(i):
+                """Continuous (unbinned) values for kept column ``i``, for the downstream no-harm Ridge R2
+                probe: raw columns read from ``raw_X``, engineered survivors from the continuous fit-time
+                snapshot, and anything else falls back to the (lossy, but only-available) binned ``data`` codes."""
+                nm = cols[i]
+                if nm in raw_name_set and raw_X is not None and hasattr(raw_X, "columns") and nm in raw_X.columns:
+                    return np.asarray(raw_X[nm], dtype=np.float64).ravel()
+                if engineered_continuous and nm in engineered_continuous:
+                    return np.asarray(engineered_continuous[nm], dtype=np.float64).ravel()
+                return np.asarray(data[:, i], dtype=np.float64).ravel()
+
+            _kept_idx = [i for i in st.sel if i not in st.drop_idx_set]
+            # The raw-only baseline EXCLUDES group-aware leak names: a leak's inflated global correlation
+            # would otherwise make even a genuinely-lossy NON-leak drop look artificially fine by
+            # comparison (or vice versa), and it must never be the reference that revert-restores it.
+            _raw_names = [c for c in raw_X.columns if c in raw_name_set and c not in st._group_leak_names] if (raw_X is not None and hasattr(raw_X, "columns")) else []
+            if _kept_idx and _raw_names and st._yv.shape[0] == st.n_rows:
+                _X_kept = np.column_stack([_cont_of(i) for i in _kept_idx])
+                _X_rawonly = np.column_stack([np.asarray(raw_X[c], dtype=np.float64).ravel() for c in _raw_names])
+                _r_kept = _heldout_ridge_r2(_X_kept, st._yv)
+                _r_rawonly = _heldout_ridge_r2(_X_rawonly, st._yv)
+                if _r_kept is not None and _r_rawonly is not None and _r_kept < _r_rawonly - _RAW_DROP_NO_HARM_EPS:
+                    # Partial revert: restore every dropped raw EXCEPT the group-aware leaks, which stay
+                    # dropped regardless of the linear outcome (see the leak-exemption comment above).
+                    _final_drop_names = [n for n in st.drop_names if n in st._group_leak_names]
+                    if verbose:
+                        logger.info(
+                            "raw-redundancy: REVERT drop of %s -- kept-set held-out Ridge R2 %.4f is below raw-only "
+                            "%.4f by %.4f > %.4f eps (the engineered child is linearly lossy); keep the raws%s.",
+                            [n for n in st.drop_names if n not in st._group_leak_names],
+                            _r_kept,
+                            _r_rawonly,
+                            _r_rawonly - _r_kept,
+                            _RAW_DROP_NO_HARM_EPS,
+                            f" (except the group-aware leak(s) {_final_drop_names}, which stay dropped)" if _final_drop_names else "",
+                        )
+                    _name_to_idx2 = {cols[i]: i for i in range(len(cols))}
+                    _final_drop_idx = {_name_to_idx2[n] for n in _final_drop_names if n in _name_to_idx2}
+                    return [i for i in st.sel if i not in _final_drop_idx], _final_drop_names
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("raw-redundancy: held-out Ridge R2 no-harm re-check failed: %s", e)
+            pass
+
+    st.kept = [i for i in st.sel if i not in st.drop_idx_set]
+    return st.kept, st.drop_names
+
+
+def _drop_redundant_raw_o_step1_ri_st_raw(st, cols, verbose, seed, _raw_marginal, floor_margin_mult, linear_usability_keep, raw_X, data, y_continuous, engineered_continuous, tail_subsume_enable, tail_subsume_min_corr, tail_subsume_rank_frac):
+    """Step 1 of drop_redundant_raw_operands: lines starting at ``for ri in st.raw_sel_idx:``."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint
+
+    for ri in st.raw_sel_idx:
         rname = cols[ri]
-        all_consumers = eng_consumers.get(rname)
+        all_consumers = st.eng_consumers.get(rname)
         if not all_consumers:
             continue  # raw not consumed by any survivor -> genuine, keep
         # DPI-TRAP GUARD: restrict the conditioning / anchor set to engineered children
@@ -351,7 +460,7 @@ def drop_redundant_raw_operands(
         # consumes the raw (the exclusion set is empty). A raw FULLY subsumed by a genuine ``a**2/b``
         # child still drops (that child stays); a raw whose ONLY consumers are pseudo re-mixes is no
         # longer spuriously dropped (no genuine subsumer remains -> the DPI-empty guard below keeps it).
-        consumers = [ei for ei in all_consumers if (len(_eng_signal_parents.get(ei, set()) - {rname}) >= 1) and not _is_pseudo_remix_child(cols[ei])]
+        consumers = [ei for ei in all_consumers if (len(st._eng_signal_parents.get(ei, set()) - {rname}) >= 1) and not _is_pseudo_remix_child(cols[ei])]
         if not consumers:
             if verbose:
                 logger.debug(
@@ -365,12 +474,12 @@ def drop_redundant_raw_operands(
         # the raw at the resolution the selector saw, no residual inflation), up-resolved from continuous to
         # _eng_card ONLY when the fit binning is COARSER than the survivors' resolution (the coarse-nbins
         # washout fix), never finer than _eng_card (the prior finer-binning inflation concern is honoured).
-        rb = _raw_codes(cols[ri], ri)
+        rb = st._raw_codes(cols[ri], ri)
         # RESIDENT candidate code for the raw scored below (byte-identical to ``rb``): threaded into every
         # ``_excess_and_floor(rb, ...)`` scoring call so the raw operand never re-crosses H2D at the
         # ``cmi_cand_x`` / ``card_cand_x`` / ``permnull_cand_x`` sites; the host ``rb`` still builds the
         # ``_renumber_joint`` conditioning support (siblings). ``None`` -> host codes are scored (as before).
-        rb_dev = _raw_dev(cols[ri], ri)
+        rb_dev = st._raw_dev(cols[ri], ri)
         rb_cand = rb_dev if rb_dev is not None else rb
         # Per-consumer conditioning column: prefer the CLEAN nested ``rname``-containing
         # sub-expression (BUG1) when it was successfully isolated/replayed above, else the
@@ -381,14 +490,14 @@ def drop_redundant_raw_operands(
         # LEAF-PAIR gate: True iff EVERY consumer conditions this raw on the tightest possible
         # subsumption evidence - a DIRECT elementary sub-expression over exactly {rname, one other
         # raw}, not a further-nested composite. See ``_LEAF_PAIR_RETAIN_FRAC`` below.
-        _all_leaf_pair = bool(consumers) and all(_clean_subexpr_leaf_pair.get((rname, ei), False) for ei in consumers)
-        _cond_bins = [_clean_subexpr_bin.get((rname, ei), eng_bin[ei]) for ei in consumers]
+        _all_leaf_pair = bool(consumers) and all(st._clean_subexpr_leaf_pair.get((rname, ei), False) for ei in consumers)
+        _cond_bins = [st._clean_subexpr_bin.get((rname, ei), st.eng_bin[ei]) for ei in consumers]
         # RESIDENT twin of each conditioning column (clean sub-expr dev if that column used one, else eng dev),
         # for the device-born support join. None-safe: any missing twin -> host support scored.
-        _cond_bins_dev = [(_clean_subexpr_bin_dev.get((rname, ei)) if (rname, ei) in _clean_subexpr_bin else eng_bin_dev.get(ei)) for ei in consumers]
+        _cond_bins_dev = [(st._clean_subexpr_bin_dev.get((rname, ei)) if (rname, ei) in st._clean_subexpr_bin else st.eng_bin_dev.get(ei)) for ei in consumers]
         z_support, _zcard = _renumber_joint(*_cond_bins)  # _renumber_joint returns the occupied cardinality
-        z_support_dev = _join_dev(*_cond_bins_dev)
-        cmi, floor, excess = _excess_and_floor(rb_cand, y_arr, z_support, seed=seed, z_support_dev=z_support_dev, kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
+        z_support_dev = st._join_dev(*_cond_bins_dev)
+        cmi, floor, excess = _excess_and_floor(rb_cand, st.y_arr, z_support, seed=seed, z_support_dev=z_support_dev, kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
         # SIBLING-OPERAND CONDITIONING (non-invertible-fusion subsumer). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
         # form that is not invertible from the composite alone - e.g. ``add(a, sin(c))``
@@ -429,97 +538,7 @@ def drop_redundant_raw_operands(
         # GENUINE private term (its residual is high under EVERY conditioning) but collapses an operand the
         # full composite already captures. Byte-identical when no clean sub-expr was substituted (the
         # full-composite bin IS ``_cond_bins`` then).
-        for ei in consumers:
-            # SELECTION-EXACT short-circuit. The debiased ``excess`` is the MIN across conditionings
-            # and ``_excess_and_floor`` clamps it >= 0. The blocks below refine it ONLY on a strict ``_excess_f <
-            # excess``, so once a CHEAPER conditioning (the base clean-subexpr / low-card support) has already
-            # driven ``excess`` to 0 no further conditioning can lower it and no update can fire - the remaining
-            # full-composite / sibling perm-nulls (which land on a near-unique HIGH-cardinality support, kz~n,
-            # the degenerate df<=0 case) are pure wasted compute. Skipping them is bit-for-bit identical to the
-            # verdict (MIN(0, x>=0) == 0, same accompanying cmi/floor), not just selection-equivalent.
-            if excess <= 0.0:
-                break
-            _clean = _clean_subexpr_bin.get((rname, ei))
-            if _clean is not None:
-                _z_full, _k_full = _renumber_joint(eng_bin[ei])
-                _z_full_dev = _join_dev(eng_bin_dev.get(ei))
-                _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb_cand, y_arr, _z_full, seed=seed, z_support_dev=_z_full_dev, kz=int(_k_full))
-                if _excess_f < excess:
-                    cmi, floor, excess = _cmi_f, _floor_f, _excess_f
-        _sibling_names: list = []
-        for ei in consumers:
-            for _sib in _eng_signal_parents.get(ei, set()) - {rname}:
-                if _sib not in _sibling_names:
-                    _sibling_names.append(_sib)
-        if _sibling_names and excess > 0.0:  # same selection-exact short-circuit: excess already 0 -> no update possible
-            _sibling_names.sort(key=lambda nm: -_raw_marginal(nm)[2])
-            _budget = max(1, n_rows // _SUPPORT_FRAG_DIVISOR)
-            _sib_cond = list(_cond_bins)
-            _sib_cond_dev = list(_cond_bins_dev)  # parallel resident twins for the device-born support join
-            _added = False
-            for _sn in _sibling_names:
-                try:
-                    _sidx = cols.index(_sn)
-                except ValueError:
-                    continue
-                _sb = _raw_codes(_sn, _sidx)
-                _, _trial_card = _renumber_joint(*_sib_cond, _sb)
-                if _trial_card > _budget:
-                    continue  # adding this sibling would over-fragment the joint strata
-                _sib_cond.append(_sb)
-                _sib_cond_dev.append(_raw_dev(_sn, _sidx))  # resident twin (None if host-fallback -> host z)
-                _added = True
-            if _added:
-                _z_sib, _k_sib = _renumber_joint(*_sib_cond)
-                _z_sib_dev = _join_dev(*_sib_cond_dev)
-                _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev, kz=int(_k_sib))
-                # Take the conditioning that gives the SMALLEST debiased excess - the
-                # strongest evidence of subsumption - carrying its own (cmi, floor) so the
-                # floor check below stays consistent with the chosen conditioning.
-                if _excess_s < excess:
-                    cmi, floor, excess = _cmi_s, _floor_s, _excess_s
-        # Raw's OWN marginal debiased excess - the reference scale for both keep legs.
-        _r_mcmi, _r_mfloor, raw_marg_excess = _raw_marginal(rname)
-        # Strongest consuming engineered survivor's own debiased marginal excess.
-        max_anchor = max(eng_anchor_excess[ei] for ei in consumers)
-        # KEEP RULE (simplification of an earlier two-leg form). The raw
-        # survives the redundancy drop iff it carries a SIGNIFICANT INDEPENDENT RESIDUAL
-        # given the combination child(ren): its conditional CMI clears the within-stratum
-        # permutation floor AND its debiased conditional excess retains >=
-        # RAW_SELF_RETAIN_FRAC of its OWN marginal excess. A genuine private LINEAR term
-        # (``x_a``/``x_b`` keep ~6-11% of their marginal given the x_a*x_b product) clears
-        # this; a fully-subsumed ratio operand (``a`` / ``b`` in ``a**2/b``, ~0.3-2%) does
-        # not, so it DROPS.
-        #
-        # The former leg B (``max_anchor <= RAW_SUPERSET_MULT x raw_marg_excess`` ->
-        # KEEP "the child is only a re-expression, not a superset") is REMOVED. It was
-        # Introduced to protect a raw whose engineered child merely
-        # RE-EXPRESSES it through a monotone unary paired with a NOISE operand
-        # (``add(exp(x0),sign(x3))``, x3 noise). But that protection is ALREADY supplied,
-        # and supplied CORRECTLY, by the DPI-TRAP CONSUMER FILTER (step 0): a child whose
-        # only signal-bearing parent is the raw itself is dropped from ``consumers``, so
-        # such a raw never even reaches the keep legs (``test_redundancy_drop_keeps_signal_
-        # raw_paired_with_noise_operand`` is satisfied by the DPI guard, not leg B -
-        # verified). By the time the keep rule runs, EVERY consumer is a genuine
-        # multi-source combination, so leg B's premise ("the child is not a superset") is
-        # false by construction. Its only live effect was a FALSE KEEP of a DOMINANT raw
-        # operand: when the raw's marginal excess is large (``a`` in ``a**2/b`` carries
-        # the bulk of the target's variance -> marg_excess ~0.54), ``3.0 x marg_excess``
-        # exceeds any realistic child anchor, so leg B rescued ``a`` even though it is
-        # FULLY subsumed by the ``a**2/b`` child (leg A correctly failed at ~1.4%
-        # retention). That is the BUG1 spurious-raw-kept regression. Dropping leg B lets a
-        # conditionally-subsumed dominant operand drop while leg A + the DPI guard keep
-        # every genuine private-term raw.
-        # ``floor_margin_mult`` (>1.0) tightens the significance leg: the conditional CMI must
-        # clear the within-stratum permutation floor by that multiple, not merely exceed it. The
-        # default 1.0 is the historical bare ``cmi > floor`` (byte-identical for every existing
-        # caller). A caller running the sweep on the FINAL selection (post-retention) passes a
-        # margin > 1.0 to separate a genuine private residual (clears the floor robustly, ratio
-        # >> 1) from a WEAK operand whose tiny conditional excess merely grazes the floor - the
-        # latter is a finite-sample / non-invertible-unary-binning artifact, not private signal,
-        # and is the operand a multi-operand survivor structurally subsumes (I4b: ``b`` inside
-        # ``sin(b)`` of ``div(qubed(a),sin(b))``, cmi 0.0023 vs floor 0.0018 -> ratio 1.28).
-        passes_floor = cmi > floor * float(floor_margin_mult)
+        cmi, excess, floor, max_anchor, passes_floor, raw_marg_excess = _drop_redundant_raw_o_step1_full_composite_bin(consumers, excess, st, rname, rb_cand, seed, _raw_marginal, _cond_bins, _cond_bins_dev, cols, floor_margin_mult, cmi, floor)
         # LEAF-PAIR TIGHTENED RETENTION BAR. When the ONLY conditioning evidence available for this
         # raw is the tightest possible subsumption anchor - a direct elementary sub-expression fusing
         # rname with exactly ONE other raw (e.g. ``mul(log(c),sin(d))``, not a further-nested
@@ -538,57 +557,7 @@ def drop_redundant_raw_operands(
         # profile's equivalent leaf-pair raw stays comfortably under 5% (heavy_tailed 4.3%, mixed
         # 1.8%, uniform 1.7%, scaled_1_5 0%), so the tightened bar only changes the verdict in the
         # adversarial multi-contamination regime this constant was never validated against.
-        _retain_frac = _LEAF_PAIR_RETAIN_FRAC if _all_leaf_pair else RAW_SELF_RETAIN_FRAC
-        keep = passes_floor and (excess >= _retain_frac * max(0.0, raw_marg_excess))
-        # LINEAR-USABILITY KEEP-LEG (variant-3). The CMI legs above DROP a raw whose
-        # conditional excess collapses given the engineered children - correct in FULL FE mode
-        # (the caller opted into replacing subsumed raws with engineered survivors: I4b drops
-        # ``a`` in ``a**2/b``), but WRONG in SIMPLE mode where the user wants a robust raw set and
-        # the engineered children are spurious nonlinear nestings of a fundamentally linear signal
-        # (``s0`` in ``y=2*s0-1.3*s1+0.8*s2`` is info-subsumed by a complex child yet still the
-        # right feature for a downstream model). Statistically the two cases are indistinguishable
-        # per-raw (a subsumed monotone operand is as linearly usable as a genuine linear term), so
-        # this leg was originally gated to simple mode only. It now runs in FULL mode too, under
-        # ``fe_keep_linearly_usable_raw_operands``: gating it off cost real downstream accuracy on
-        # exactly the shape the comment above describes. On the 5-signal/15-noise ranking benchmark
-        # -- y linear in five raws with DIFFERENT coefficients, folded into one additive composite --
-        # the drop took selection to 2 features and downstream AUC to 0.8969 against a 0.9648
-        # five-raw baseline; with this leg active it selects 5 and scores 0.9649. The composite is
-        # lossy with respect to its operands (it preserves the sum and destroys the individual
-        # contributions), so "info-subsumed" and "usable by the downstream model" genuinely differ
-        # here. Compactness is preserved -- 5 features, not the 25 that disabling the whole drop
-        # sweep yields -- because the leg is selective rather than a blanket off-switch. Uses a
-        # permutation-floored partial rank-correlation given the children (n-invariant); a pure
-        # noise raw has ~0 residual -> stays dropped either way.
-        if not keep and linear_usability_keep:
-            try:
-                _lin_raw = None
-                if raw_X is not None and rname in getattr(raw_X, "columns", []):
-                    _lin_raw = np.asarray(raw_X[rname], dtype=np.float64).ravel()
-                if _lin_raw is None:
-                    _lin_raw = np.asarray(data[:, ri], dtype=np.float64).ravel()
-                _lin_y = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else np.asarray(y_arr, dtype=np.float64).ravel()
-                _lin_children = []
-                for _ei in consumers:
-                    _enm = cols[_ei]
-                    if engineered_continuous and _enm in engineered_continuous:
-                        _lin_children.append(np.asarray(engineered_continuous[_enm], dtype=np.float64).ravel())
-                    else:
-                        _lin_children.append(np.asarray(data[:, _ei], dtype=np.float64).ravel())
-                if raw_retains_linear_signal_given_children(_lin_raw, _lin_y, _lin_children, seed=seed):
-                    keep = True
-                    if verbose:
-                        logger.debug(
-                            "raw-redundancy: KEEP %s via LINEAR-USABILITY leg (CMI collapsed "
-                            "cond_excess=%.5f but raw retains significant private linear signal "
-                            "given %s -- nonlinear child is not a linear equivalent)",
-                            rname,
-                            excess,
-                            [cols[e] for e in consumers],
-                        )
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("raw-redundancy: linear-usability-leg probe failed: %s", e)
-                pass
+        keep = _drop_redundant_raw_o_step2_adversarial_multi_contamination(_all_leaf_pair, passes_floor, excess, raw_marg_excess, linear_usability_keep, raw_X, rname, data, ri, y_continuous, st, consumers, cols, engineered_continuous, seed, verbose)
         # TAIL-CONCENTRATION CONTINUOUS-SUBSUMPTION DROP. The binned-CMI keep legs above KEEP a
         # raw whose conditional excess given its engineered children does NOT collapse - but under heavy
         # outliers a ratio operand (``a`` inside ``div(sqr(a),abs(b))`` of the selected compound) is
@@ -603,48 +572,7 @@ def drop_redundant_raw_operands(
         # rank-collapse leg -> FALSE for BALANCED canonical / the 4 passing F2 profiles (there the raw's rank and
         # linear AGREE, so this never fires and the existing binned-CMI verdict stands byte-identically; those
         # profiles already drop ``a`` via CMI anyway). Best-effort: any error keeps the binned-CMI verdict.
-        if keep and tail_subsume_enable and y_continuous is not None:
-            try:
-                _uc_dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) - |corr| is wide-margin
-                _yc = np.asarray(y_continuous, dtype=_uc_dt).ravel()
-                _rc = None
-                if raw_X is not None and hasattr(raw_X, "columns") and rname in getattr(raw_X, "columns", []):
-                    _rc = np.asarray(raw_X[rname], dtype=_uc_dt).ravel()
-                if _rc is None:
-                    _rc = np.asarray(data[:, ri], dtype=_uc_dt).ravel()
-                if _rc.shape[0] == _yc.shape[0] and _yc.shape[0] >= 3:
-                    # raw's best single-operand LINEAR usability (raw and its square) ...
-                    _r_lin = max(_abs_pearson(_yc, _rc), _abs_pearson(_yc, _rc * _rc))
-                    # ... and its RANK association (max over the same two forms - conservative: a strong rank
-                    # association on EITHER form blocks the drop, so only a genuine tail collapse fires it).
-                    _ry = _rank_transform(_yc)
-                    _r_rank = max(
-                        _abs_pearson(_ry, _rank_transform(_rc)),
-                        _abs_pearson(_ry, _rank_transform(_rc * _rc)),
-                    )
-                    # strongest subsuming (replayable, selected) survivor's continuous |corr(y)|.
-                    _s_lin = 0.0
-                    for _ei in consumers:
-                        _enm = cols[_ei]
-                        _sv = np.asarray(engineered_continuous[_enm], dtype=_uc_dt).ravel() if (engineered_continuous and _enm in engineered_continuous) else None
-                        if _sv is not None and _sv.shape[0] == _yc.shape[0]:
-                            _s_lin = max(_s_lin, _abs_pearson(_yc, _sv))
-                    if _s_lin >= float(tail_subsume_min_corr) and _r_lin < _s_lin and _r_rank <= float(tail_subsume_rank_frac) * _r_lin:
-                        keep = False
-                        if verbose:
-                            logger.info(
-                                "raw-redundancy: DROP %s via TAIL-CONCENTRATION continuous-subsumption "
-                                "(raw rank|corr(y)|=%.3f collapsed vs raw linear|corr|=%.3f while the subsuming "
-                                "survivor's |corr(y)|=%.3f -- binned CMI kept it on phantom tail signal): %s",
-                                rname,
-                                _r_rank,
-                                _r_lin,
-                                _s_lin,
-                                [cols[e] for e in consumers],
-                            )
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("raw-redundancy: tail-concentration continuous-subsumption probe failed: %s", e)
-                pass
+        keep = _drop_redundant_raw_o_step3_profiles_already_drop(keep, tail_subsume_enable, y_continuous, raw_X, rname, data, ri, consumers, cols, engineered_continuous, tail_subsume_min_corr, tail_subsume_rank_frac, verbose)
         if keep:
             if verbose:
                 logger.debug(
@@ -658,8 +586,8 @@ def drop_redundant_raw_operands(
                     [cols[e] for e in consumers],
                 )
             continue
-        drop_names.append(rname)
-        drop_idx_set.add(ri)
+        st.drop_names.append(rname)
+        st.drop_idx_set.add(ri)
         if verbose:
             logger.info(
                 "raw-redundancy: DROP %s (cmi=%.4f floor=%.4f cond_excess=%.5f "
@@ -674,58 +602,219 @@ def drop_redundant_raw_operands(
                 [cols[e] for e in consumers],
             )
 
-    # bench-attempt-rejected (2026-07-02): a NON-OPERAND redundant-raw pass here (test each still-selected
-    # non-operand raw against the best-MI survivor subexpression via raw_retains_signal_given_genuine_children)
-    # did NOT fix the F6_decoy ab_log survival and showed no other benefit. Root cause of ab_log surviving is
-    # NOT this operand-redundancy sweep: (a) the sweep's own drops here are reverted by the downstream no-harm
-    # Ridge guard because the nonlinear compound is LINEARLY LOSSY (kept-set held-out R2 0.89 << raw-only 0.99,
-    # so the raw operands carry linear signal the child loses); (b) ab_log is re-attached AFTERWARDS by the
-    # usability-aware raw-retention device (it is linearly usable and statistically indistinguishable from a
-    # genuine linear term). Dropping it would risk genuine linearly-usable raws + violate the no-harm contract.
-    # So the redundancy sweep is the wrong lever; the F6_decoy cell stays a documented class-4 xfail.
-    if not drop_idx_set:
-        return sel, []
 
-    # DOWNSTREAM NO-HARM GUARD (2026-07-01). The per-raw CMI/rank-MI verdict can DROP a raw whose engineered
-    # child is LINEARLY LOSSY on skewed terrain: a prewarp/product ENTANGLES its operands so a linear (or tree)
-    # model cannot recover the raw's private contribution - e.g. dropping ``b`` beside ``mul(sqr(a),prewarp(b))``
-    # on lognormal costs ~0.23 held-out R^2 (the I4b/I5 no-harm violation). A per-raw linear-usability probe
-    # cannot separate this from a genuinely-subsumed operand (the product masks b's per-raw residual), so verify
-    # the drop at the OUTCOME level against the SAME reference the contract measures: does the KEPT set's HELD-OUT
-    # linear fit (StandardScaler+Ridge) fall materially below the RAW-ONLY baseline (all raw features)? If so,
-    # revert the whole drop. The baseline is ALL RAWS, NOT kept+dropped - the latter is over-sensitive (adding
-    # any column rarely lowers held-out Ridge, so it reverts even a delta-neutral cosmetic drop and re-breaks the
-    # strict-drop check on uniform terrain, measured). On well-behaved terrain the child captures the raw linearly
-    # so the kept set matches raw-only and the drop stands; only a genuinely lossy child drops the kept set below
-    # raw-only and reverts. Regression-only (needs continuous y); best-effort. ``_RAW_DROP_NO_HARM_EPS`` is the
-    # held-out-R^2 shortfall below raw-only tolerated before reverting (well inside the contract's 0.05 bar).
-    # GROUP-AWARE LEAK EXEMPTION. Under ``group_aware_mi=True`` a raw operand can be a pure
-    # between-group-level "leak" (high global MI, ~0 within-group signal) that this linear no-harm
-    # guard would otherwise happily REVERT-restore: a leak correlates strongly with y GLOBALLY (that is
-    # exactly what makes it a leak), so it inflates both the raw-only Ridge baseline and the revert
-    # trigger below - defeating the entire point of group-aware relevance (a feature judged
-    # non-generalising per-group must not be let back in because it looks good on a naive linear fit).
-    # Identify leak names among this batch's drop candidates via the SAME group-blocked MI check the FE
-    # producers use, and NEVER revert-restore them regardless of the Ridge outcome - they stay dropped;
-    # only genuinely-lossy NON-leak raws remain eligible for the no-harm revert below. No-op (empty set)
-    # when group_aware_mi is off / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
-    _group_leak_names: set = set()
-    try:
-        from mlframe.feature_selection.filters.info_theory.shared import get_group_mi
+def _drop_redundant_raw_o_step1_full_composite_bin(consumers, excess, st, rname, rb_cand, seed, _raw_marginal, _cond_bins, _cond_bins_dev, cols, floor_margin_mult, cmi, floor):
+    """Step 1 of _drop_redundant_raw_o_step1_ri_st_raw: lines starting at ``for ei in consumers:``."""
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint
 
-        _gmi_payload = get_group_mi()
-    except Exception as e:
-        logger.debug("get_group_mi() failed: %s", e)
-        _gmi_payload = None
-    if _gmi_payload is not None and drop_names:
+    for ei in consumers:
+        # SELECTION-EXACT short-circuit. The debiased ``excess`` is the MIN across conditionings
+        # and ``_excess_and_floor`` clamps it >= 0. The blocks below refine it ONLY on a strict ``_excess_f <
+        # excess``, so once a CHEAPER conditioning (the base clean-subexpr / low-card support) has already
+        # driven ``excess`` to 0 no further conditioning can lower it and no update can fire - the remaining
+        # full-composite / sibling perm-nulls (which land on a near-unique HIGH-cardinality support, kz~n,
+        # the degenerate df<=0 case) are pure wasted compute. Skipping them is bit-for-bit identical to the
+        # verdict (MIN(0, x>=0) == 0, same accompanying cmi/floor), not just selection-equivalent.
+        if excess <= 0.0:
+            break
+        _clean = st._clean_subexpr_bin.get((rname, ei))
+        if _clean is not None:
+            _z_full, _k_full = _renumber_joint(st.eng_bin[ei])
+            _z_full_dev = st._join_dev(st.eng_bin_dev.get(ei))
+            _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb_cand, st.y_arr, _z_full, seed=seed, z_support_dev=_z_full_dev, kz=int(_k_full))
+            if _excess_f < excess:
+                cmi, floor, excess = _cmi_f, _floor_f, _excess_f
+    _sibling_names: list = []
+    for ei in consumers:
+        for _sib in st._eng_signal_parents.get(ei, set()) - {rname}:
+            if _sib not in _sibling_names:
+                _sibling_names.append(_sib)
+    if _sibling_names and excess > 0.0:  # same selection-exact short-circuit: excess already 0 -> no update possible
+        _sibling_names.sort(key=lambda nm: -_raw_marginal(nm)[2])
+        _budget = max(1, st.n_rows // _SUPPORT_FRAG_DIVISOR)
+        _sib_cond = list(_cond_bins)
+        _sib_cond_dev = list(_cond_bins_dev)  # parallel resident twins for the device-born support join
+        _added = False
+        for _sn in _sibling_names:
+            try:
+                _sidx = cols.index(_sn)
+            except ValueError:
+                continue
+            _sb = st._raw_codes(_sn, _sidx)
+            _, _trial_card = _renumber_joint(*_sib_cond, _sb)
+            if _trial_card > _budget:
+                continue  # adding this sibling would over-fragment the joint strata
+            _sib_cond.append(_sb)
+            _sib_cond_dev.append(st._raw_dev(_sn, _sidx))  # resident twin (None if host-fallback -> host z)
+            _added = True
+        if _added:
+            _z_sib, _k_sib = _renumber_joint(*_sib_cond)
+            _z_sib_dev = st._join_dev(*_sib_cond_dev)
+            _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, st.y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev, kz=int(_k_sib))
+            # Take the conditioning that gives the SMALLEST debiased excess - the
+            # strongest evidence of subsumption - carrying its own (cmi, floor) so the
+            # floor check below stays consistent with the chosen conditioning.
+            if _excess_s < excess:
+                cmi, floor, excess = _cmi_s, _floor_s, _excess_s
+    # Raw's OWN marginal debiased excess - the reference scale for both keep legs.
+    _r_mcmi, _r_mfloor, raw_marg_excess = _raw_marginal(rname)
+    # Strongest consuming engineered survivor's own debiased marginal excess.
+    max_anchor = max(st.eng_anchor_excess[ei] for ei in consumers)
+    # KEEP RULE (simplification of an earlier two-leg form). The raw
+    # survives the redundancy drop iff it carries a SIGNIFICANT INDEPENDENT RESIDUAL
+    # given the combination child(ren): its conditional CMI clears the within-stratum
+    # permutation floor AND its debiased conditional excess retains >=
+    # RAW_SELF_RETAIN_FRAC of its OWN marginal excess. A genuine private LINEAR term
+    # (``x_a``/``x_b`` keep ~6-11% of their marginal given the x_a*x_b product) clears
+    # this; a fully-subsumed ratio operand (``a`` / ``b`` in ``a**2/b``, ~0.3-2%) does
+    # not, so it DROPS.
+    #
+    # The former leg B (``max_anchor <= RAW_SUPERSET_MULT x raw_marg_excess`` ->
+    # KEEP "the child is only a re-expression, not a superset") is REMOVED. It was
+    # Introduced to protect a raw whose engineered child merely
+    # RE-EXPRESSES it through a monotone unary paired with a NOISE operand
+    # (``add(exp(x0),sign(x3))``, x3 noise). But that protection is ALREADY supplied,
+    # and supplied CORRECTLY, by the DPI-TRAP CONSUMER FILTER (step 0): a child whose
+    # only signal-bearing parent is the raw itself is dropped from ``consumers``, so
+    # such a raw never even reaches the keep legs (``test_redundancy_drop_keeps_signal_
+    # raw_paired_with_noise_operand`` is satisfied by the DPI guard, not leg B -
+    # verified). By the time the keep rule runs, EVERY consumer is a genuine
+    # multi-source combination, so leg B's premise ("the child is not a superset") is
+    # false by construction. Its only live effect was a FALSE KEEP of a DOMINANT raw
+    # operand: when the raw's marginal excess is large (``a`` in ``a**2/b`` carries
+    # the bulk of the target's variance -> marg_excess ~0.54), ``3.0 x marg_excess``
+    # exceeds any realistic child anchor, so leg B rescued ``a`` even though it is
+    # FULLY subsumed by the ``a**2/b`` child (leg A correctly failed at ~1.4%
+    # retention). That is the BUG1 spurious-raw-kept regression. Dropping leg B lets a
+    # conditionally-subsumed dominant operand drop while leg A + the DPI guard keep
+    # every genuine private-term raw.
+    # ``floor_margin_mult`` (>1.0) tightens the significance leg: the conditional CMI must
+    # clear the within-stratum permutation floor by that multiple, not merely exceed it. The
+    # default 1.0 is the historical bare ``cmi > floor`` (byte-identical for every existing
+    # caller). A caller running the sweep on the FINAL selection (post-retention) passes a
+    # margin > 1.0 to separate a genuine private residual (clears the floor robustly, ratio
+    # >> 1) from a WEAK operand whose tiny conditional excess merely grazes the floor - the
+    # latter is a finite-sample / non-invertible-unary-binning artifact, not private signal,
+    # and is the operand a multi-operand survivor structurally subsumes (I4b: ``b`` inside
+    # ``sin(b)`` of ``div(qubed(a),sin(b))``, cmi 0.0023 vs floor 0.0018 -> ratio 1.28).
+    passes_floor = cmi > floor * float(floor_margin_mult)
+    return cmi, excess, floor, max_anchor, passes_floor, raw_marg_excess
+
+
+def _drop_redundant_raw_o_step2_adversarial_multi_contamination(_all_leaf_pair, passes_floor, excess, raw_marg_excess, linear_usability_keep, raw_X, rname, data, ri, y_continuous, st, consumers, cols, engineered_continuous, seed, verbose):
+    """Step 2 of _drop_redundant_raw_o_step1_ri_st_raw: lines starting at ``_retain_frac = _LEAF_PAIR_RETAIN_FRAC if _all_leaf_pair else RAW_SELF_``."""
+    _retain_frac = _LEAF_PAIR_RETAIN_FRAC if _all_leaf_pair else RAW_SELF_RETAIN_FRAC
+    keep = passes_floor and (excess >= _retain_frac * max(0.0, raw_marg_excess))
+    # LINEAR-USABILITY KEEP-LEG (variant-3). The CMI legs above DROP a raw whose
+    # conditional excess collapses given the engineered children - correct in FULL FE mode
+    # (the caller opted into replacing subsumed raws with engineered survivors: I4b drops
+    # ``a`` in ``a**2/b``), but WRONG in SIMPLE mode where the user wants a robust raw set and
+    # the engineered children are spurious nonlinear nestings of a fundamentally linear signal
+    # (``s0`` in ``y=2*s0-1.3*s1+0.8*s2`` is info-subsumed by a complex child yet still the
+    # right feature for a downstream model). Statistically the two cases are indistinguishable
+    # per-raw (a subsumed monotone operand is as linearly usable as a genuine linear term), so
+    # this leg was originally gated to simple mode only. It now runs in FULL mode too, under
+    # ``fe_keep_linearly_usable_raw_operands``: gating it off cost real downstream accuracy on
+    # exactly the shape the comment above describes. On the 5-signal/15-noise ranking benchmark
+    # -- y linear in five raws with DIFFERENT coefficients, folded into one additive composite --
+    # the drop took selection to 2 features and downstream AUC to 0.8969 against a 0.9648
+    # five-raw baseline; with this leg active it selects 5 and scores 0.9649. The composite is
+    # lossy with respect to its operands (it preserves the sum and destroys the individual
+    # contributions), so "info-subsumed" and "usable by the downstream model" genuinely differ
+    # here. Compactness is preserved -- 5 features, not the 25 that disabling the whole drop
+    # sweep yields -- because the leg is selective rather than a blanket off-switch. Uses a
+    # permutation-floored partial rank-correlation given the children (n-invariant); a pure
+    # noise raw has ~0 residual -> stays dropped either way.
+    if not keep and linear_usability_keep:
+        try:
+            _lin_raw = None
+            if raw_X is not None and rname in getattr(raw_X, "columns", []):
+                _lin_raw = np.asarray(raw_X[rname], dtype=np.float64).ravel()
+            if _lin_raw is None:
+                _lin_raw = np.asarray(data[:, ri], dtype=np.float64).ravel()
+            _lin_y = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else np.asarray(st.y_arr, dtype=np.float64).ravel()
+            _lin_children = []
+            for _ei in consumers:
+                _enm = cols[_ei]
+                if engineered_continuous and _enm in engineered_continuous:
+                    _lin_children.append(np.asarray(engineered_continuous[_enm], dtype=np.float64).ravel())
+                else:
+                    _lin_children.append(np.asarray(data[:, _ei], dtype=np.float64).ravel())
+            if raw_retains_linear_signal_given_children(_lin_raw, _lin_y, _lin_children, seed=seed):
+                keep = True
+                if verbose:
+                    logger.debug(
+                        "raw-redundancy: KEEP %s via LINEAR-USABILITY leg (CMI collapsed "
+                        "cond_excess=%.5f but raw retains significant private linear signal "
+                        "given %s -- nonlinear child is not a linear equivalent)",
+                        rname,
+                        excess,
+                        [cols[e] for e in consumers],
+                    )
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("raw-redundancy: linear-usability-leg probe failed: %s", e)
+            pass
+    return keep
+
+
+def _drop_redundant_raw_o_step3_profiles_already_drop(keep, tail_subsume_enable, y_continuous, raw_X, rname, data, ri, consumers, cols, engineered_continuous, tail_subsume_min_corr, tail_subsume_rank_frac, verbose):
+    """Step 3 of _drop_redundant_raw_o_step1_ri_st_raw: lines starting at ``if keep and tail_subsume_enable and y_continuous is not None:``."""
+    if keep and tail_subsume_enable and y_continuous is not None:
+        try:
+            _uc_dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) - |corr| is wide-margin
+            _yc = np.asarray(y_continuous, dtype=_uc_dt).ravel()
+            _rc = None
+            if raw_X is not None and hasattr(raw_X, "columns") and rname in getattr(raw_X, "columns", []):
+                _rc = np.asarray(raw_X[rname], dtype=_uc_dt).ravel()
+            if _rc is None:
+                _rc = np.asarray(data[:, ri], dtype=_uc_dt).ravel()
+            if _rc.shape[0] == _yc.shape[0] and _yc.shape[0] >= 3:
+                # raw's best single-operand LINEAR usability (raw and its square) ...
+                _r_lin = max(_abs_pearson(_yc, _rc), _abs_pearson(_yc, _rc * _rc))
+                # ... and its RANK association (max over the same two forms - conservative: a strong rank
+                # association on EITHER form blocks the drop, so only a genuine tail collapse fires it).
+                _ry = _rank_transform(_yc)
+                _r_rank = max(
+                    _abs_pearson(_ry, _rank_transform(_rc)),
+                    _abs_pearson(_ry, _rank_transform(_rc * _rc)),
+                )
+                # strongest subsuming (replayable, selected) survivor's continuous |corr(y)|.
+                _s_lin = 0.0
+                for _ei in consumers:
+                    _enm = cols[_ei]
+                    _sv = np.asarray(engineered_continuous[_enm], dtype=_uc_dt).ravel() if (engineered_continuous and _enm in engineered_continuous) else None
+                    if _sv is not None and _sv.shape[0] == _yc.shape[0]:
+                        _s_lin = max(_s_lin, _abs_pearson(_yc, _sv))
+                if _s_lin >= float(tail_subsume_min_corr) and _r_lin < _s_lin and _r_rank <= float(tail_subsume_rank_frac) * _r_lin:
+                    keep = False
+                    if verbose:
+                        logger.info(
+                            "raw-redundancy: DROP %s via TAIL-CONCENTRATION continuous-subsumption "
+                            "(raw rank|corr(y)|=%.3f collapsed vs raw linear|corr|=%.3f while the subsuming "
+                            "survivor's |corr(y)|=%.3f -- binned CMI kept it on phantom tail signal): %s",
+                            rname,
+                            _r_rank,
+                            _r_lin,
+                            _s_lin,
+                            [cols[e] for e in consumers],
+                        )
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            logger.debug("raw-redundancy: tail-concentration continuous-subsumption probe failed: %s", e)
+            pass
+    return keep
+
+
+def _drop_redundant_raw_o_step2_st_gmi_payload(st, y_binned, cols, data, verbose):
+    """Step 2 of drop_redundant_raw_operands: lines starting at ``if st._gmi_payload is not None and st.drop_names:``."""
+    if st._gmi_payload is not None and st.drop_names:
         try:
             from mlframe.feature_selection.filters.info_theory.shared import group_blocked_mi
 
-            _gsi, _goff, _gmr, _gsw = _gmi_payload
+            _gsi, _goff, _gmr, _gsw = st._gmi_payload
             _yb_arr = np.asarray(y_binned)
             _g_n_bins_y = int(_yb_arr.max()) + 1
             _name_to_idx = {cols[i]: i for i in range(len(cols))}
-            for _dname in drop_names:
+            for _dname in st.drop_names:
                 _didx = _name_to_idx.get(_dname)
                 if _didx is None:
                     continue
@@ -745,71 +834,14 @@ def drop_redundant_raw_operands(
                     use_mm=True,
                 )
                 if _grp_mi == _grp_mi and _grp_mi <= 0.0:  # not nan and exactly zero within-group signal
-                    _group_leak_names.add(_dname)
-            if _group_leak_names and verbose:
+                    st._group_leak_names.add(_dname)
+            if st._group_leak_names and verbose:
                 logger.info(
                     "raw-redundancy: %s flagged as between-group-only leak(s) under group_aware_mi -- " "exempt from the no-harm Ridge revert below (stay dropped regardless of linear outcome).",
-                    sorted(_group_leak_names),
+                    sorted(st._group_leak_names),
                 )
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("raw-redundancy: group-aware leak check failed: %s", e)
-
-    _yv = np.asarray(y_continuous, dtype=np.float64).ravel() if y_continuous is not None else None
-    _guard_on = (
-        _yv is not None
-        and _yv.shape[0] == n_rows
-        and len(np.unique(_yv)) >= _MIN_TARGET_DISTINCT_FOR_GUARD  # regression only (see constant)
-        and _os.environ.get("MLFRAME_FE_DROP_NO_HARM", "1").strip().lower() in ("1", "true", "on", "yes")
-    )
-    if _guard_on:
-        assert _yv is not None  # _guard_on requires _yv is not None
-        try:
-
-            def _cont_of(i):
-                """Continuous (unbinned) values for kept column ``i``, for the downstream no-harm Ridge R2
-                probe: raw columns read from ``raw_X``, engineered survivors from the continuous fit-time
-                snapshot, and anything else falls back to the (lossy, but only-available) binned ``data`` codes."""
-                nm = cols[i]
-                if nm in raw_name_set and raw_X is not None and hasattr(raw_X, "columns") and nm in raw_X.columns:
-                    return np.asarray(raw_X[nm], dtype=np.float64).ravel()
-                if engineered_continuous and nm in engineered_continuous:
-                    return np.asarray(engineered_continuous[nm], dtype=np.float64).ravel()
-                return np.asarray(data[:, i], dtype=np.float64).ravel()
-
-            _kept_idx = [i for i in sel if i not in drop_idx_set]
-            # The raw-only baseline EXCLUDES group-aware leak names: a leak's inflated global correlation
-            # would otherwise make even a genuinely-lossy NON-leak drop look artificially fine by
-            # comparison (or vice versa), and it must never be the reference that revert-restores it.
-            _raw_names = [c for c in raw_X.columns if c in raw_name_set and c not in _group_leak_names] if (raw_X is not None and hasattr(raw_X, "columns")) else []
-            if _kept_idx and _raw_names and _yv.shape[0] == n_rows:
-                _X_kept = np.column_stack([_cont_of(i) for i in _kept_idx])
-                _X_rawonly = np.column_stack([np.asarray(raw_X[c], dtype=np.float64).ravel() for c in _raw_names])
-                _r_kept = _heldout_ridge_r2(_X_kept, _yv)
-                _r_rawonly = _heldout_ridge_r2(_X_rawonly, _yv)
-                if _r_kept is not None and _r_rawonly is not None and _r_kept < _r_rawonly - _RAW_DROP_NO_HARM_EPS:
-                    # Partial revert: restore every dropped raw EXCEPT the group-aware leaks, which stay
-                    # dropped regardless of the linear outcome (see the leak-exemption comment above).
-                    _final_drop_names = [n for n in drop_names if n in _group_leak_names]
-                    if verbose:
-                        logger.info(
-                            "raw-redundancy: REVERT drop of %s -- kept-set held-out Ridge R2 %.4f is below raw-only "
-                            "%.4f by %.4f > %.4f eps (the engineered child is linearly lossy); keep the raws%s.",
-                            [n for n in drop_names if n not in _group_leak_names],
-                            _r_kept,
-                            _r_rawonly,
-                            _r_rawonly - _r_kept,
-                            _RAW_DROP_NO_HARM_EPS,
-                            f" (except the group-aware leak(s) {_final_drop_names}, which stay dropped)" if _final_drop_names else "",
-                        )
-                    _name_to_idx2 = {cols[i]: i for i in range(len(cols))}
-                    _final_drop_idx = {_name_to_idx2[n] for n in _final_drop_names if n in _name_to_idx2}
-                    return [i for i in sel if i not in _final_drop_idx], _final_drop_names
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("raw-redundancy: held-out Ridge R2 no-harm re-check failed: %s", e)
-            pass
-
-    kept = [i for i in sel if i not in drop_idx_set]
-    return kept, drop_names
 
 
 __all__ = [

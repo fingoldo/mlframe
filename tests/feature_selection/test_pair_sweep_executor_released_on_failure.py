@@ -7,114 +7,169 @@ OutOfMemoryError, a kernel launch failure, a KeyboardInterrupt -- skipped the sh
 interpreter exit, and a still-pending future held the shared double buffer with it: at a 2M-row chunk over
 40 operands that is 640 MB per buffer, 1.28 GB for the pair, retained for the rest of the process.
 
-Driving the real failure needs the GPU-strict chunk pipeline, which needs cupy and a device, so this checks
-the containment structurally instead -- but on the parse tree rather than on the source text, and asking
-the question that matters: is the shutdown inside a `finally` that ENCLOSES the construction. The shared
-`py_ci_shared.resource_release_paths` check does not cover this: it accepts any `try/finally` anywhere in
-the module that mentions the release, and this module already had `_ex0.shutdown(wait=False)` inside an
-`except`, which satisfied it. Verified against the pre-fix revision: it reported nothing.
+The real chunk pipeline needs cupy and a device, so these tests drive the code paths on CPU instead:
+
+* the setup helper is run for real with its GPU gates faked open, proving it is what installs the executor
+  and the double buffer into ``chunk_state`` (the contract the sweep test below relies on), and that its own
+  ``except`` shuts a half-built executor down;
+* ``check_prospective_fe_pairs`` is run for real with the pair scorer forced to raise mid-loop while a
+  pending prefetch future is outstanding; the executor must come out shut down, the future must have run to
+  completion, and the buffers must be dropped from ``chunk_state``.
 """
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
+import threading
+import types
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
+import numpy as np
+import pandas as pd
 import pytest
 
-MODULE = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection" / "filters" / "_feature_engineering_pairs" / "_pairs_core.py"
+from mlframe.feature_selection.filters import _fe_gpu_strict, _gpu_resident_fe
+from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_core, _pairs_core_helpers
 
 
-def _tree() -> ast.Module:
-    """Parse the module under test."""
-    return ast.parse(MODULE.read_bytes().decode("utf-8"))
+def _open_pipeline_gates(monkeypatch) -> None:
+    """Make the setup helper believe the strict GPU-resident path is on, without a GPU."""
+    monkeypatch.setenv("MLFRAME_FE_PIPELINE_CHUNKS", "1")
+    monkeypatch.setattr(_fe_gpu_strict, "fe_gpu_strict_enabled", lambda **kw: True)
+    monkeypatch.setitem(__import__("sys").modules, "cupy", types.ModuleType("cupy"))
+    monkeypatch.setattr(_gpu_resident_fe, "_resident_operand_table", lambda cp, tv: None, raising=False)
 
 
-def _enclosing_function(tree: ast.Module, lineno: int) -> ast.FunctionDef:
-    """The innermost function containing `lineno`."""
-    best = None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.lineno <= lineno <= node.end_lineno:
-            if best is None or node.lineno > best.lineno:
-                best = node
-    assert best is not None, f"no function encloses line {lineno}"
-    return best
+def _run_setup(chunk_state: dict) -> None:
+    """Run the real pipeline-setup helper with a two-chunk plan, as the sweep does."""
+    buf = np.zeros((8, 3), dtype=np.float32)
+    _pairs_core_helpers._check_prospective__read_weakref_cache_no(True, buf, [[(0, 1)], [(0, 2)]], np.zeros((8, 3)), 3, np.zeros((8, 3)), chunk_state, 0)
 
 
-def _construction_line(tree: ast.Module) -> int:
-    """Where the pipeline executor is built."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "ThreadPoolExecutor":
-            return node.lineno
-    pytest.fail("no ThreadPoolExecutor construction found; this test has lost its subject")
+def test_setup_installs_the_executor_and_double_buffer(monkeypatch):
+    """The helper the sweep calls is what builds the worker thread and the two buffers it shares."""
+    _open_pipeline_gates(monkeypatch)
+    state: dict = {}
+    _run_setup(state)
+    try:
+        assert isinstance(state.get("pipeline_ex"), ThreadPoolExecutor), "the pipeline executor is no longer built by the setup helper"
+        assert len(state["pipeline_buffers"]) == 2
+        assert state["pipeline_futures"] == {}
+    finally:
+        ex = state.get("pipeline_ex")
+        if ex is not None:
+            ex.shutdown(wait=True)
 
 
-def _blocking_shutdowns(tree: ast.Module) -> list[ast.Call]:
-    """Every `.shutdown(wait=True)` call -- the release that must be guaranteed."""
-    out = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "shutdown":
-            for kw in node.keywords:
-                if kw.arg == "wait" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
-                    out.append(node)
-    return out
+class _FailsAfterExecutorBuilt(dict):
+    """A chunk_state whose write right after the executor construction fails, as a mid-setup error would."""
+
+    built: list = []
+
+    def __setitem__(self, key, value):
+        """Record the executor, then fail on the write that follows its construction."""
+        if key == "pipeline_ex":
+            type(self).built.append(value)
+        if key == "pipeline_futures":
+            raise RuntimeError("simulated failure after the executor was built")
+        super().__setitem__(key, value)
 
 
-def test_the_blocking_shutdown_sits_in_a_finally_that_covers_the_construction():
-    """Presence of a try/finally somewhere is not enough; it has to enclose the site that creates the thread."""
-    tree = _tree()
-    built_at = _construction_line(tree)
-    shutdowns = _blocking_shutdowns(tree)
-    assert shutdowns, "no blocking shutdown found; the executor would outlive the sweep"
+def test_the_construction_is_still_guarded_by_its_own_setup_except(monkeypatch):
+    """A setup failure after the executor exists must shut it down and leave no half-built state behind."""
+    _open_pipeline_gates(monkeypatch)
+    _FailsAfterExecutorBuilt.built = []
+    state = _FailsAfterExecutorBuilt()
+    _run_setup(state)  # the helper's own except swallows the error and falls back to the synchronous path
+    assert len(_FailsAfterExecutorBuilt.built) == 1, "the simulated failure did not hit after construction; the test lost its subject"
+    ex = _FailsAfterExecutorBuilt.built[0]
+    assert ex._shutdown, "the setup-failure path no longer shuts down a partially built executor"
+    assert "pipeline_ex" not in state and "pipeline_buffers" not in state
 
-    covered = False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Try) or not node.finalbody:
-            continue
-        finally_span = range(node.finalbody[0].lineno, node.finalbody[-1].end_lineno + 1)
-        try_span = range(node.body[0].lineno, node.body[-1].end_lineno + 1)
-        if built_at in try_span or built_at < try_span.start:
-            if any(call.lineno in finally_span for call in shutdowns):
-                covered = True
-                break
-    assert covered, (
-        f"the executor is built at line {built_at} but no `finally` covering that point calls "
-        f"shutdown(wait=True) (found at lines {[c.lineno for c in shutdowns]}); an exception in the pair "
-        "loop leaks the worker thread and the double chunk buffer it holds"
+
+def _sweep_inputs():
+    """Small real inputs for check_prospective_fe_pairs (one prospective pair)."""
+    from mlframe.feature_selection.filters.discretization import discretize_array
+    from mlframe.feature_selection.filters.feature_engineering import create_binary_transformations, create_unary_transformations
+    from mlframe.feature_selection.filters.info_theory import merge_vars
+
+    rng = np.random.default_rng(0)
+    n = 200
+    df = pd.DataFrame({"a": rng.uniform(0.5, 5.0, n), "b": rng.uniform(-2.0, 2.0, n), "c": rng.uniform(0.1, 1.0, n)}).astype(np.float32)
+    data = np.column_stack([discretize_array(df[c].to_numpy(), n_bins=4, method="quantile", dtype=np.int32) for c in "abc"])
+    target = ((df["a"].to_numpy() > df["a"].mean()) ^ (df["b"].to_numpy() > df["b"].mean())).astype(np.int32)
+    data = np.column_stack([data, target])
+    classes_y, freqs_y, _ = merge_vars(
+        factors_data=data,
+        vars_indices=np.array([3], dtype=np.int64),
+        var_is_nominal=None,
+        factors_nbins=np.array([4, 4, 4, 2], dtype=np.int64),
+        dtype=np.int32,
+    )
+    return dict(
+        prospective_pairs={((0, 1), 1.0): 1.5},
+        X=df,
+        unary_transformations=create_unary_transformations(preset="minimal"),
+        binary_transformations=create_binary_transformations(preset="minimal"),
+        classes_y=classes_y,
+        classes_y_safe=classes_y.copy(),
+        freqs_y=freqs_y,
+        num_fs_steps=0,
+        cols=["a", "b", "c"],
+        original_cols={0: 0, 1: 1, 2: 2},
+        fe_max_steps=1,
+        fe_npermutations=1,
+        fe_max_pair_features=2,
+        fe_print_best_mis_only=True,
+        fe_min_nonzero_confidence=0.0,
+        fe_min_engineered_mi_prevalence=0.0,
+        fe_good_to_best_feature_mi_threshold=0.5,
+        fe_max_external_validation_factors=0,
+        numeric_vars_to_consider=[0, 1, 2],
+        quantization_nbins=4,
+        quantization_method="quantile",
+        quantization_dtype=np.int32,
+        times_spent=defaultdict(float),
+        verbose=0,
     )
 
 
-def test_the_shared_buffers_are_dropped_alongside_the_executor():
-    """The buffers are what the leaked thread holds, so the same `finally` has to release the reference."""
-    tree = _tree()
-    finally_lines: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Try) and node.finalbody:
-            finally_lines.update(range(node.finalbody[0].lineno, node.finalbody[-1].end_lineno + 1))
+def test_the_blocking_shutdown_runs_when_the_pair_loop_raises(monkeypatch):
+    """An exception in the pair loop must not leak the worker thread or the buffers its pending future holds."""
+    captured: dict = {}
+    release = threading.Event()
+    finished = threading.Event()
 
-    dropped = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "pop"
-            and node.lineno in finally_lines
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-        ):
-            dropped.add(node.args[0].value)
-    assert "pipeline_buffers" in dropped, "the double chunk buffer is not released with the executor"
+    def _prefetch():
+        """A pending prefetch that only completes once the loop has failed."""
+        release.wait(5.0)
+        finished.set()
 
+    def _fake_setup(_chunk_global_batch, _chunk_buffer, _fe_chunks, X, _chunk_buf_width, transformed_vars, chunk_state, verbose):
+        """Install the executor, buffers and a pending future the way the real setup does."""
+        # Same contract as the real helper (pinned by test_setup_installs_the_executor_and_double_buffer),
+        # plus an unconsumed prefetch so shutdown(wait=True) has something to wait for.
+        ex = ThreadPoolExecutor(max_workers=1)
+        chunk_state["pipeline_buffers"] = [np.zeros(4), np.zeros(4)]
+        chunk_state["pipeline_ex"] = ex
+        chunk_state["pipeline_futures"] = {1: ex.submit(_prefetch)}
+        captured["ex"] = ex
+        captured["state"] = chunk_state
 
-def test_the_construction_is_still_guarded_by_its_own_setup_except():
-    """The setup's own `except` -- which shuts the half-built executor down -- must survive the rewrite."""
-    tree = _tree()
-    non_blocking = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "shutdown"
-        and any(kw.arg == "wait" and isinstance(kw.value, ast.Constant) and kw.value.value is False for kw in node.keywords)
-    ]
-    assert non_blocking, "the setup-failure path no longer shuts down a partially built executor"
+    def _raising_scorer(**kwargs):
+        """Fail mid-loop, releasing the prefetch shortly after."""
+        threading.Timer(0.2, release.set).start()
+        raise MemoryError("simulated device OOM in the pair loop")
+
+    monkeypatch.setattr(_pairs_core, "_check_prospective__read_weakref_cache_no", _fake_setup)
+    monkeypatch.setattr(_pairs_core, "_score_one_pair", _raising_scorer)
+
+    with pytest.raises(MemoryError, match="simulated device OOM"):
+        _pairs_core.check_prospective_fe_pairs(**_sweep_inputs())
+
+    assert "ex" in captured, "the sweep no longer calls the pipeline setup; the test lost its subject"
+    assert captured["ex"]._shutdown, "an exception in the pair loop leaked the pipeline executor's worker thread"
+    assert finished.is_set(), "the executor was not shut down with wait=True; the pending prefetch was abandoned"
+    assert "pipeline_ex" not in captured["state"]
+    assert "pipeline_buffers" not in captured["state"], "the double chunk buffer is not released with the executor"
+    assert "pipeline_futures" not in captured["state"]

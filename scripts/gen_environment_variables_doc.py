@@ -69,8 +69,15 @@ def _delegated_reads(files: list[Path]) -> dict[str, tuple[Path, int, str | None
     out: dict[str, tuple[Path, int, str | None]] = {}
     for path in files:
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError, OSError):
+            text = path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        # a file that never spells a delegating keyword cannot contribute, so skip the parse and walk
+        if not any(keyword in text for keyword in DELEGATED_KEYWORDS):
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
             continue
         consts = _module_constants(tree)
         for node in ast.walk(tree):

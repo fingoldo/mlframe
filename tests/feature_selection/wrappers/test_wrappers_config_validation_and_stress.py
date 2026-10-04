@@ -242,10 +242,21 @@ class TestG33_RandomStateDeterminism:
 # ----------------------------------------------------------------------------
 class TestF25_MaxRefitsValidation:
     """Groups tests covering TestF25_MaxRefitsValidation."""
-    def test_max_refits_zero_raises(self):
-        """Max refits zero raises."""
+    def test_max_refits_zero_is_accepted_as_no_limit(self):
+        """max_refits=0 is accepted and means no refit limit, exactly like None (mlframe.utils.budgets)."""
+        X = pd.DataFrame(np.random.default_rng(0).standard_normal((200, 5)), columns=list("abcde"))
+        y = (X["a"] > 0).astype(int)
+        steps = {}
+        for refits in (None, 0):
+            sel = RFECV(estimator=LogisticRegression(), max_refits=refits, cv=3, verbose=0, leakage_corr_threshold=None, random_state=0)
+            sel.fit(X, y)
+            steps[refits] = len(sel.selected_features_)
+        assert steps[0] == steps[None] > 1, steps
+
+    def test_max_refits_negative_raises(self):
+        """A negative refit count is still rejected."""
         with pytest.raises(ValueError, match="max_refits"):
-            RFECV(estimator=LogisticRegression(), max_refits=0)
+            RFECV(estimator=LogisticRegression(), max_refits=-1)
 
 
 class TestF27_CvOneValidation:

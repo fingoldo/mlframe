@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import mlframe
 
 MLFRAME_DIR = Path(mlframe.__file__).resolve().parent
@@ -22,5 +20,6 @@ _EXCLUDE = ("__pycache__", "/legacy/", "/profiling/", "/explore/", "/_benchmarks
 
 def test_no_unconditional_stream_restore_in_the_library():
     """Every swap of sys.stdout/sys.stderr under src/ restores only while its own stream is still installed."""
-    gate = pytest.importorskip("py_ci_shared.standard_stream_restore", reason="needs py-ci-shared with the standard_stream_restore gate")
+    from py_ci_shared import standard_stream_restore as gate
+
     gate.assert_standard_streams_restored_only_if_still_ours([MLFRAME_DIR], exclude=_EXCLUDE, min_files=500)

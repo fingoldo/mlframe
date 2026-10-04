@@ -15,7 +15,46 @@ them from sys.argv as before.
 
 from __future__ import annotations
 
+import ast
+
 import pytest
+
+# Every meta-test scans the same few thousand source files, each with its own ``ast.parse`` and ``ast.walk`` of the whole module.
+# Parsing a given file's text once and walking each tree once for the whole run serves all of them, including the shared
+# py_ci_shared / pyutilz scanners that call ``ast.parse`` themselves. Only module-sized sources are shared; the small snippets
+# detector tests parse stay private, so a test that rewrites its own tree never touches a shared one.
+_SHARE_MIN_CHARS = 2000
+_real_parse = ast.parse
+_real_walk = ast.walk
+_PARSED: dict[str, ast.AST] = {}
+_SHARED_IDS: set[int] = set()
+_WALKS: dict[int, list[ast.AST]] = {}
+
+
+def _shared_parse(source, filename="<unknown>", mode="exec", *, type_comments=False, feature_version=None, **kwargs):
+    """``ast.parse`` that returns the same tree for the same module text (exec mode, default flags)."""
+    if mode == "exec" and isinstance(source, str) and len(source) >= _SHARE_MIN_CHARS and not type_comments and feature_version is None and not kwargs:
+        tree = _PARSED.get(source)
+        if tree is None:
+            tree = _real_parse(source, filename)
+            _PARSED[source] = tree
+            _SHARED_IDS.add(id(tree))
+        return tree
+    return _real_parse(source, filename, mode, type_comments=type_comments, feature_version=feature_version, **kwargs)
+
+
+def _shared_walk(node):
+    """``ast.walk`` that walks a shared module tree once and replays the node list afterwards."""
+    if id(node) in _SHARED_IDS:
+        nodes = _WALKS.get(id(node))
+        if nodes is None:
+            nodes = _WALKS[id(node)] = list(_real_walk(node))
+        return iter(nodes)
+    return _real_walk(node)
+
+
+ast.parse = _shared_parse
+ast.walk = _shared_walk
 
 _REFRESH_FLAGS = [
     "--refresh-api-snapshot",

@@ -56,10 +56,26 @@ def test_sibling_owns_the_moved_symbol() -> None:
 
 
 def test_sibling_resolves_parent_helpers_at_runtime() -> None:
-    """The sibling's top-level imports of _canonical_multilabel_y and
-    _maybe_display must resolve to the parent's definitions (not local
-    shadows)."""
-    from mlframe.training.reporting import _reporting, _reporting_probabilistic
+    """Every probabilistic-report sibling that uses _canonical_multilabel_y or _maybe_display must resolve
+    it to the parent's definition (not a local shadow).
 
-    assert _reporting_probabilistic._canonical_multilabel_y is _reporting._canonical_multilabel_y
-    assert _reporting_probabilistic._maybe_display is _reporting._maybe_display
+    Later complexity splits carved report bodies further (``_maybe_display`` is now used from
+    ``_reporting_probabilistic_helpers``), so the check follows the helpers to whichever sibling holds them
+    and requires each helper to be held by at least one sibling, keeping the test's subject.
+    """
+    import importlib
+    import pkgutil
+
+    from mlframe.training import reporting as _pkg
+    from mlframe.training.reporting import _reporting
+
+    holders: dict[str, list[str]] = {"_canonical_multilabel_y": [], "_maybe_display": []}
+    for info in pkgutil.iter_modules(_pkg.__path__):
+        if not info.name.startswith("_reporting_probabilistic"):
+            continue
+        mod = importlib.import_module(f"{_pkg.__name__}.{info.name}")
+        for name in holders:
+            if name in vars(mod):
+                assert getattr(mod, name) is getattr(_reporting, name), f"{info.name}.{name} shadows the parent's definition"
+                holders[name].append(info.name)
+    assert all(holders.values()), f"a parent helper is no longer used by any probabilistic-report sibling: {holders}"

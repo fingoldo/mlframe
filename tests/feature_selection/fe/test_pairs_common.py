@@ -57,7 +57,7 @@ def test_times_spent_lock_is_a_real_mutex():
 def test_lock_and_logger_are_shared_by_identity_across_importers():
     """Every submodule that imports ``_TIMES_SPENT_LOCK`` / ``_module_logger`` gets the SAME object
     (not a fresh copy per import), which is the entire point of hoisting them to this shared leaf."""
-    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_score
+    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_score_helpers
 
-    assert _pairs_score._TIMES_SPENT_LOCK is _TIMES_SPENT_LOCK
-    assert _pairs_score._TIMES_SPENT_LOCK is _pairs_common._TIMES_SPENT_LOCK
+    assert _pairs_score_helpers._TIMES_SPENT_LOCK is _TIMES_SPENT_LOCK
+    assert _pairs_score_helpers._TIMES_SPENT_LOCK is _pairs_common._TIMES_SPENT_LOCK
