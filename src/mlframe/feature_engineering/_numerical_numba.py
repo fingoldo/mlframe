@@ -39,6 +39,262 @@ import numba
 import numpy as np
 
 
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _signed_cbrt(x):  # pragma: no cover
+    """Sign-preserving cube root: a bare ``(-x)**(1/3)`` is NaN, so route through abs()+sign."""
+    return np.sign(x) * np.abs(x) ** (1 / 3)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _scaled_power_means(arr, minimum, maximum, size):  # pragma: no cover
+    """Overflow-safe (LAPACK dlassq-style) quadratic and cubic means, keyed on max|x|; ``(0, 0)`` for an all-zero column."""
+    _scale = max(abs(minimum), abs(maximum))
+    if _scale > 0.0:
+        _inv = 1.0 / _scale
+        _ssq, _scube = 0.0, 0.0
+        for _v in arr:
+            _xs = _v * _inv
+            _xs2 = _xs * _xs
+            _ssq += _xs2
+            _scube += _xs2 * _xs
+        _qm = _scube / size
+        return _scale * np.sqrt(_ssq / size), _scale * np.sign(_qm) * np.abs(_qm) ** (1 / 3)
+    return 0.0, 0.0
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _scaled_weighted_power_means(arr, weights, minimum, maximum, sum_weights, size):  # pragma: no cover
+    """Weighted counterpart of ``_scaled_power_means``."""
+    _scale = max(abs(minimum), abs(maximum))
+    if _scale > 0.0:
+        _inv = 1.0 / _scale
+        _wssq, _wscube = 0.0, 0.0
+        for _i in range(size):
+            _xs = arr[_i] * _inv
+            _xs2 = _xs * _xs
+            _wssq += weights[_i] * _xs2
+            _wscube += weights[_i] * _xs2 * _xs
+        _wqm = _wscube / sum_weights
+        return _scale * np.sqrt(_wssq / sum_weights), _scale * np.sign(_wqm) * np.abs(_wqm) ** (1 / 3)
+    return 0.0, 0.0
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _finish_power_means(arr, quadratic_sum, qubic_sum, minimum, maximum, size):  # pragma: no cover
+    """Quadratic and cubic means from their raw sums; the naive sums of x^2 / x^3 overflow to inf for extreme-scale columns (|x|~1e154 -> x^2,
+    |x|~1e103 -> x^3) even though the true power-mean is finite, so that rare case is recomputed via the scaled pass. The common finite path is the
+    naive one, with no added cost when nothing overflowed."""
+    if not np.isfinite(quadratic_sum) or not np.isfinite(qubic_sum):
+        return _scaled_power_means(arr, minimum, maximum, size)
+    return np.sqrt(quadratic_sum / size), _signed_cbrt(qubic_sum / size)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _finish_weighted_power_means(arr, weights, quadratic_sum, qubic_sum, minimum, maximum, sum_weights, size):  # pragma: no cover
+    """Weighted ``_finish_power_means``; a zero-sum weights vector gives NaN instead of dividing by 0."""
+    if sum_weights == 0.0:
+        return np.nan, np.nan
+    if not np.isfinite(quadratic_sum) or not np.isfinite(qubic_sum):
+        return _scaled_weighted_power_means(arr, weights, minimum, maximum, sum_weights, size)
+    return np.sqrt(quadratic_sum / sum_weights), _signed_cbrt(qubic_sum / sum_weights)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _geometric_mean_step(geometric_mean, weighted_geometric_mean, next_value, next_weight, has_weights, geomean_log_mode):  # pragma: no cover
+    """Fold one positive sample into the (weighted) running geometric mean; flips to log mode once either product leaves the safe range.
+
+    Returns ``(geometric_mean, weighted_geometric_mean, geomean_log_mode)``.
+    """
+    if geomean_log_mode:
+        addend = np.log(next_value)
+        geometric_mean += addend
+        if has_weights:
+            weighted_geometric_mean += next_weight * addend
+        return geometric_mean, weighted_geometric_mean, geomean_log_mode
+    geometric_mean *= next_value
+    if has_weights:
+        weighted_geometric_mean *= next_value**next_weight
+    # Check BOTH unweighted and weighted products: either can underflow / overflow independently.
+    # A weighted product can hit the tail much faster when |next_weight| > 1.
+    unweighted_oor = geometric_mean >= GEOMEAN_OVERFLOW_HI or geometric_mean <= GEOMEAN_OVERFLOW_LO
+    weighted_oor = has_weights and (weighted_geometric_mean >= GEOMEAN_OVERFLOW_HI or weighted_geometric_mean <= GEOMEAN_OVERFLOW_LO)
+    if unweighted_oor or weighted_oor:
+        # convert to log mode (geometric_mean strictly positive here; log is finite)
+        geomean_log_mode = True
+        geometric_mean = np.log(float(geometric_mean)) if geometric_mean > 0 else -np.inf
+        if has_weights:
+            weighted_geometric_mean = np.log(float(weighted_geometric_mean)) if weighted_geometric_mean > 0 else -np.inf
+    return geometric_mean, weighted_geometric_mean, geomean_log_mode
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _finish_geometric_mean(geometric_mean, geomean_log_mode, n):  # pragma: no cover
+    """Geometric mean from its running product (or log-sum) over ``n`` samples (``size`` or the weights sum)."""
+    if not geomean_log_mode:
+        return geometric_mean ** (1 / n)
+    return np.exp(geometric_mean / n)
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _crossing_step(next_value, last, has_prev_d, prev_d, n_last_crossings, n_last_touches):  # pragma: no cover
+    """Count one sample's crossing / touching of the ``last`` level: a sign change of ``(x - last)`` between consecutive samples is a crossing, a zero
+    product (or the first sample equal to ``last``) a touch. Returns the updated ``(n_last_crossings, n_last_touches)``."""
+    if has_prev_d:
+        mul = (next_value - last) * prev_d
+        if mul < 0:
+            n_last_crossings += 1
+        elif mul == 0.0:
+            n_last_touches += 1
+    elif next_value == last:
+        n_last_touches += 1
+    return n_last_crossings, n_last_touches
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _drawdown_step(i, dd, start_idx, dds, durs):  # pragma: no cover
+    """Record sample ``i``'s drawdown ``dd`` and its duration since the last zero-drawdown index; returns the (possibly advanced) start index."""
+    dds[i] = dd
+    if dd == 0.0:
+        start_idx = i
+    durs[i] = i - start_idx
+    return start_idx
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _whiten(quadratic_mean, qubic_mean, geometric_mean, harmonic_mean, arithmetic_mean):  # pragma: no cover
+    """The four exotic means expressed relative to the arithmetic mean."""
+    return quadratic_mean - arithmetic_mean, qubic_mean - arithmetic_mean, geometric_mean - arithmetic_mean, harmonic_mean - arithmetic_mean
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _nonzero_step(next_value, next_weight, has_weights, return_exotic_means, return_n_zer_pos_int, harmonic_mean, weighted_harmonic_mean, ninteger):  # pragma: no cover
+    """Fold one nonzero sample into the running (weighted) harmonic-mean sum and the integer-valued count; returns ``(harmonic_mean, weighted_harmonic_mean, ninteger)``."""
+    if return_exotic_means:
+        addend = 1 / next_value
+        harmonic_mean += addend
+        if has_weights:
+            weighted_harmonic_mean += next_weight * addend
+    if return_n_zer_pos_int:
+        # Was `next_value % 1` -- robust for positive floats but fragile around negative
+        # values and denormals. `np.floor(x) == x` is the exact integer check.
+        if np.floor(next_value) == next_value:
+            ninteger = ninteger + 1
+    return harmonic_mean, weighted_harmonic_mean, ninteger
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _finish_harmonic_mean(harmonic_sum, n):  # pragma: no cover
+    """Harmonic mean from the running sum of reciprocals over ``n`` samples (or the weights sum); NaN when the sum is zero."""
+    if harmonic_sum:
+        return n / harmonic_sum
+    return np.nan
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _finish_weighted_geometric_mean(weighted_geometric_mean, geomean_log_mode, sum_weights, npositive):  # pragma: no cover
+    """Weighted geometric mean; NaN without positive samples or with a zero weights sum, and an overflow to inf is reported as 0."""
+    if npositive and sum_weights != 0.0:
+        weighted_geometric_mean = _finish_geometric_mean(weighted_geometric_mean, geomean_log_mode, sum_weights)
+        if weighted_geometric_mean == np.inf:
+            weighted_geometric_mean = 0.0
+        return weighted_geometric_mean
+    return np.nan
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _ratio_stats(arithmetic_mean, first, minimum, maximum, last_to_first):  # pragma: no cover
+    """Mean, first and minimum expressed as ratios (LARGE_CONST-signed when the denominator is zero), plus the already computed last/first."""
+    return (
+        arithmetic_mean / first if first else LARGE_CONST * np.sign(arithmetic_mean),
+        first / maximum if maximum else LARGE_CONST * np.sign(first),
+        minimum / first if first else LARGE_CONST * np.sign(minimum),
+        last_to_first,
+    )
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _relative_extrema_positions(min_index, max_index, size):  # pragma: no cover
+    """Positions of the minimum and maximum as a fraction of the series length."""
+    return (min_index + 1) / size if size else 0, (max_index + 1) / size if size else 0
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _profit_factor(sum_positive, sum_negative):  # pragma: no cover
+    """Gross profit over gross loss; 0 with no activity, LARGE_CONST with profit and no loss."""
+    if sum_negative != 0.0:
+        return sum_positive / -sum_negative
+    return 0.0 if sum_positive == 0.0 else LARGE_CONST
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _assemble_aggregates(  # pragma: no cover
+    has_weights, arithmetic_mean, weighted_arithmetic_mean, first, minimum, maximum, last_to_first, min_index, max_index, size,
+    nmaxupdates, nminupdates, n_last_crossings, n_last_touches, quadratic_mean, qubic_mean, geometric_mean, harmonic_mean,
+    cnt_nonzero, npositive, ninteger, weighted_quadratic_mean, weighted_qubic_mean, weighted_geometric_mean, weighted_harmonic_mean,
+    sum_positive, sum_negative, return_unsorted_stats, return_exotic_means, return_n_zer_pos_int, return_profit_factor,
+):
+    """Lay the computed aggregates out in the fixed order ``get_basic_feature_names`` relies on; which groups appear depends only on the flags."""
+    res = [arithmetic_mean]
+    if has_weights:
+        res.append(weighted_arithmetic_mean)
+    res.extend(
+        (
+            minimum,
+            maximum,
+        )
+    )  # can't combine with the next statement as it's failing on integer inputs due to tuple dtypes mismatch
+    res.extend(_ratio_stats(arithmetic_mean, first, minimum, maximum, last_to_first))
+
+    if return_unsorted_stats:  # must be false for arrays known to be sorted
+        res.extend(_relative_extrema_positions(min_index, max_index, size))
+        res.extend((nmaxupdates, nminupdates, n_last_crossings, n_last_touches - 1))
+
+    if return_exotic_means:
+        res.extend((quadratic_mean, qubic_mean, geometric_mean, harmonic_mean))
+
+    if return_n_zer_pos_int:
+        res.extend((cnt_nonzero, npositive, ninteger))
+
+    if has_weights:
+        if return_exotic_means:
+            res.extend((weighted_quadratic_mean, weighted_qubic_mean, weighted_geometric_mean, weighted_harmonic_mean))
+
+    if return_profit_factor:
+        res.append(_profit_factor(sum_positive, sum_negative))
+    return res
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _extrema_step(i, next_value, minimum, min_index, nminupdates, maximum, max_index, nmaxupdates):  # pragma: no cover
+    """Update the running minimum / maximum, their indices and refresh counts with sample ``i``."""
+    # Independent checks (not if/elif): elif would mean a sample equal to minimum can never
+    # update maximum, producing inconsistent min_index/max_index on degenerate inputs.
+    if next_value < minimum:
+        minimum = next_value
+        min_index = i
+        nminupdates += 1
+    if next_value > maximum:
+        maximum = next_value
+        max_index = i
+        nmaxupdates += 1
+    return minimum, min_index, nminupdates, maximum, max_index, nmaxupdates
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _power_sums_step(next_value, next_weight, has_weights, quadratic_sum, qubic_sum, weighted_quadratic_sum, weighted_qubic_sum):  # pragma: no cover
+    """Fold one sample's square and cube into the running (weighted) sums."""
+    temp_value = next_value * next_value
+    quadratic_sum += temp_value
+    if has_weights:
+        weighted_quadratic_sum += temp_value * next_weight
+
+    temp_value = temp_value * next_value
+    qubic_sum += temp_value
+    if has_weights:
+        weighted_qubic_sum += temp_value * next_weight
+    return quadratic_sum, qubic_sum, weighted_quadratic_sum, weighted_qubic_sum
+
+
 # cache=False overrides NUMBA_NJIT_PARAMS for this kernel only: numba's AOT
 # cache for functions with many bool kwargs corrupts on Windows (Python 3.11
 # + numba 0.59) -- a fresh process that calls this with all kwargs explicit
@@ -125,6 +381,7 @@ def compute_numerical_aggregates_numba(
 
     arithmetic_mean, quadratic_mean, qubic_mean, harmonic_mean = 0.0, 0.0, 0.0, 0.0
     weighted_arithmetic_mean = 0.0
+    weighted_geometric_mean = weighted_quadratic_mean = weighted_qubic_mean = weighted_harmonic_mean = 0.0
     if weights is not None:
         weighted_geometric_mean, weighted_arithmetic_mean, weighted_quadratic_mean, weighted_qubic_mean, weighted_harmonic_mean = (
             geometric_mean,
@@ -160,103 +417,58 @@ def compute_numerical_aggregates_numba(
         if weights is not None:
             next_weight = weights[i]
             sum_weights += weights[i]
-            if weights is not None:
-                weighted_arithmetic_mean += next_value * next_weight
+            weighted_arithmetic_mean += next_value * next_weight
 
         if return_unsorted_stats:
-            d = next_value - last
-            if has_prev_d:
-                mul = d * prev_d
-                if mul < 0:
-                    n_last_crossings += 1
-                elif mul == 0.0:
-                    n_last_touches += 1
-            else:
-                if next_value == last:
-                    n_last_touches += 1
-            prev_d = d
+            n_last_crossings, n_last_touches = _crossing_step(next_value, last, has_prev_d, prev_d, n_last_crossings, n_last_touches)
+            prev_d = next_value - last
             has_prev_d = True
 
         arithmetic_mean += next_value
 
         if return_exotic_means:
-            temp_value = next_value * next_value
-            quadratic_mean += temp_value
             if weights is not None:
-                weighted_quadratic_mean += temp_value * next_weight
-
-            temp_value = temp_value * next_value
-            qubic_mean += temp_value
-            if weights is not None:
-                weighted_qubic_mean += temp_value * next_weight
+                quadratic_mean, qubic_mean, weighted_quadratic_mean, weighted_qubic_mean = _power_sums_step(
+                    next_value, next_weight, True, quadratic_mean, qubic_mean, weighted_quadratic_mean, weighted_qubic_mean
+                )
+            else:
+                quadratic_mean, qubic_mean, _unused_wq, _unused_wc = _power_sums_step(next_value, 0.0, False, quadratic_mean, qubic_mean, 0.0, 0.0)
 
         # Independent checks (not if/elif): elif would mean a sample equal to minimum can never
         # update maximum, producing inconsistent min_index/max_index on degenerate inputs.
-        if next_value < minimum:
-            minimum = next_value
-            min_index = i
-            nminupdates += 1
-        if next_value > maximum:
-            maximum = next_value
-            max_index = i
-            nmaxupdates += 1
+        minimum, min_index, nminupdates, maximum, max_index, nmaxupdates = _extrema_step(
+            i, next_value, minimum, min_index, nminupdates, maximum, max_index, nmaxupdates
+        )
 
         # ----------------------------------------------------------------------------------------------------------------------------
         # Drawdowns
         # ----------------------------------------------------------------------------------------------------------------------------
 
         if return_drawdown_stats:
-            # pos
-            dd = maximum - next_value
-            pos_dds[i] = dd
-            if dd == 0.0:
-                pos_dd_start_idx = i
-            pos_dd_durs[i] = i - pos_dd_start_idx
-
-            # neg
-            dd = next_value - minimum
-            neg_dds[i] = dd
-            if dd == 0.0:
-                neg_dd_start_idx = i
-            neg_dd_durs[i] = i - neg_dd_start_idx
+            pos_dd_start_idx = _drawdown_step(i, maximum - next_value, pos_dd_start_idx, pos_dds, pos_dd_durs)
+            neg_dd_start_idx = _drawdown_step(i, next_value - minimum, neg_dd_start_idx, neg_dds, neg_dd_durs)
 
         if next_value:
             cnt_nonzero = cnt_nonzero + 1
-            if return_exotic_means:
-                addend = 1 / next_value
-                harmonic_mean += addend
-                if weights is not None:
-                    weighted_harmonic_mean += next_weight * addend
-
-            if return_n_zer_pos_int:
-                # Was `next_value % 1` — robust for positive floats but fragile around negative
-                # values and denormals. `np.floor(x) == x` is the exact integer check.
-                if np.floor(next_value) == next_value:
-                    ninteger = ninteger + 1
+            if weights is not None:
+                harmonic_mean, weighted_harmonic_mean, ninteger = _nonzero_step(
+                    next_value, next_weight, True, return_exotic_means, return_n_zer_pos_int, harmonic_mean, weighted_harmonic_mean, ninteger
+                )
+            else:
+                harmonic_mean, _unused_whm, ninteger = _nonzero_step(
+                    next_value, 0.0, False, return_exotic_means, return_n_zer_pos_int, harmonic_mean, 0.0, ninteger
+                )
 
             if next_value > 0:
                 npositive = npositive + 1
                 sum_positive += next_value
                 if return_exotic_means:
-                    if not geomean_log_mode:
-                        geometric_mean *= next_value
-                        if weights is not None:
-                            weighted_geometric_mean *= next_value**next_weight
-                        # Check BOTH unweighted and weighted products: either can underflow / overflow independently.
-                        # A weighted product can hit the tail much faster when |next_weight| > 1.
-                        unweighted_oor = geometric_mean >= GEOMEAN_OVERFLOW_HI or geometric_mean <= GEOMEAN_OVERFLOW_LO
-                        weighted_oor = (weights is not None) and (weighted_geometric_mean >= GEOMEAN_OVERFLOW_HI or weighted_geometric_mean <= GEOMEAN_OVERFLOW_LO)
-                        if unweighted_oor or weighted_oor:
-                            # convert to log mode (geometric_mean strictly positive here; log is finite)
-                            geomean_log_mode = True
-                            geometric_mean = np.log(float(geometric_mean)) if geometric_mean > 0 else -np.inf
-                            if weights is not None:
-                                weighted_geometric_mean = np.log(float(weighted_geometric_mean)) if weighted_geometric_mean > 0 else -np.inf
+                    if weights is not None:
+                        geometric_mean, weighted_geometric_mean, geomean_log_mode = _geometric_mean_step(
+                            geometric_mean, weighted_geometric_mean, next_value, next_weight, True, geomean_log_mode
+                        )
                     else:
-                        addend = np.log(next_value)
-                        geometric_mean += addend
-                        if weights is not None:
-                            weighted_geometric_mean += next_weight * addend
+                        geometric_mean, _unused_wgm, geomean_log_mode = _geometric_mean_step(geometric_mean, 0.0, next_value, 0.0, False, geomean_log_mode)
             else:
                 sum_negative += next_value
 
@@ -270,135 +482,38 @@ def compute_numerical_aggregates_numba(
             weighted_arithmetic_mean = weighted_arithmetic_mean / sum_weights
 
     if return_exotic_means:
-        # The naive sum of x^2 / x^3 overflows to inf for extreme-scale columns (|x|~1e154 -> x^2,
-        # |x|~1e103 -> x^3) even though the true power-mean is finite. Detect that (rare) case and recompute
-        # ONLY those two means via a scaled (LAPACK dlassq-style) pass keyed on max|x|; the common finite
-        # path is the original naive one, so there is no added cost when nothing overflowed.
-        if not np.isfinite(quadratic_mean) or not np.isfinite(qubic_mean):
-            _scale = max(abs(minimum), abs(maximum))
-            if _scale > 0.0:
-                _inv = 1.0 / _scale
-                _ssq, _scube = 0.0, 0.0
-                for _v in arr:
-                    _xs = _v * _inv
-                    _xs2 = _xs * _xs
-                    _ssq += _xs2
-                    _scube += _xs2 * _xs
-                quadratic_mean = _scale * np.sqrt(_ssq / size)
-                _qm = _scube / size
-                qubic_mean = _scale * np.sign(_qm) * np.abs(_qm) ** (1 / 3)
-            else:
-                quadratic_mean, qubic_mean = 0.0, 0.0
-        else:
-            quadratic_mean = np.sqrt(quadratic_mean / size)
-            # Sign-preserving cube root: qubic_mean is the mean of cubes and is negative for net-negative
-            # columns (common for returns/residuals); a bare ``(-x)**(1/3)`` returns NaN, so route through
-            # abs()+sign.
-            _qm = qubic_mean / size
-            qubic_mean = np.sign(_qm) * np.abs(_qm) ** (1 / 3)
-        if npositive:
-            if not geomean_log_mode:
-                geometric_mean = geometric_mean ** (1 / size)
-            else:
-                geometric_mean = np.exp(geometric_mean / size)
-        else:
-            geometric_mean = np.nan
-        if harmonic_mean:
-            harmonic_mean = size / harmonic_mean
-        else:
-            harmonic_mean = np.nan
+        # qubic_mean is the mean of cubes and is negative for net-negative columns (common for returns/residuals), hence the signed cube root.
+        quadratic_mean, qubic_mean = _finish_power_means(arr, quadratic_mean, qubic_mean, minimum, maximum, size)
+        geometric_mean = _finish_geometric_mean(geometric_mean, geomean_log_mode, size) if npositive else np.nan
+        harmonic_mean = _finish_harmonic_mean(harmonic_mean, size)
 
         if weights is not None:
-            # Same sum_weights==0 guard as above.
-            if sum_weights == 0.0:
-                weighted_quadratic_mean = np.nan
-                weighted_qubic_mean = np.nan
-            elif not np.isfinite(weighted_quadratic_mean) or not np.isfinite(weighted_qubic_mean):
-                # Overflow-safe scaled recompute (rare extreme-scale case), mirroring the unweighted path.
-                _scale = max(abs(minimum), abs(maximum))
-                if _scale > 0.0:
-                    _inv = 1.0 / _scale
-                    _wssq, _wscube = 0.0, 0.0
-                    for _i in range(size):
-                        _xs = arr[_i] * _inv
-                        _xs2 = _xs * _xs
-                        _wssq += weights[_i] * _xs2
-                        _wscube += weights[_i] * _xs2 * _xs
-                    weighted_quadratic_mean = _scale * np.sqrt(_wssq / sum_weights)
-                    _wqm = _wscube / sum_weights
-                    weighted_qubic_mean = _scale * np.sign(_wqm) * np.abs(_wqm) ** (1 / 3)
-                else:
-                    weighted_quadratic_mean, weighted_qubic_mean = 0.0, 0.0
-            else:
-                weighted_quadratic_mean = np.sqrt(weighted_quadratic_mean / sum_weights)
-                _wqm = weighted_qubic_mean / sum_weights
-                weighted_qubic_mean = np.sign(_wqm) * np.abs(_wqm) ** (1 / 3)
-            if npositive and sum_weights != 0.0:
-                if not geomean_log_mode:
-                    weighted_geometric_mean = weighted_geometric_mean ** (1 / sum_weights)
-                else:
-                    weighted_geometric_mean = np.exp(weighted_geometric_mean / sum_weights)
-                if weighted_geometric_mean == np.inf:
-                    weighted_geometric_mean = 0.0
-            else:
-                weighted_geometric_mean = np.nan
-            if weighted_harmonic_mean:
-                weighted_harmonic_mean = sum_weights / weighted_harmonic_mean
-            else:
-                weighted_harmonic_mean = np.nan
+            weighted_quadratic_mean, weighted_qubic_mean = _finish_weighted_power_means(
+                arr, weights, weighted_quadratic_mean, weighted_qubic_mean, minimum, maximum, sum_weights, size
+            )
+            weighted_geometric_mean = _finish_weighted_geometric_mean(weighted_geometric_mean, geomean_log_mode, sum_weights, npositive)
+            weighted_harmonic_mean = _finish_harmonic_mean(weighted_harmonic_mean, sum_weights)
 
         if whiten_means:
-            quadratic_mean = quadratic_mean - arithmetic_mean
-            qubic_mean = qubic_mean - arithmetic_mean
-            geometric_mean = geometric_mean - arithmetic_mean
-            harmonic_mean = harmonic_mean - arithmetic_mean
+            quadratic_mean, qubic_mean, geometric_mean, harmonic_mean = _whiten(quadratic_mean, qubic_mean, geometric_mean, harmonic_mean, arithmetic_mean)
             if weights is not None:
-                weighted_quadratic_mean = weighted_quadratic_mean - weighted_arithmetic_mean
-                weighted_qubic_mean = weighted_qubic_mean - weighted_arithmetic_mean
-                weighted_geometric_mean = weighted_geometric_mean - weighted_arithmetic_mean
-                weighted_harmonic_mean = weighted_harmonic_mean - weighted_arithmetic_mean
+                weighted_quadratic_mean, weighted_qubic_mean, weighted_geometric_mean, weighted_harmonic_mean = _whiten(
+                    weighted_quadratic_mean, weighted_qubic_mean, weighted_geometric_mean, weighted_harmonic_mean, weighted_arithmetic_mean
+                )
 
-    res = [arithmetic_mean]
-    if weights is not None:
-        res.append(weighted_arithmetic_mean)
-    res.extend(
-        (
-            minimum,
-            maximum,
-        )
-    )  # can't combine with the next statement as it's failing on integer inputs due to tuple dtypes mismatch
-    res.extend(
-        (
-            arithmetic_mean / first if first else LARGE_CONST * np.sign(arithmetic_mean),
-            first / maximum if maximum else LARGE_CONST * np.sign(first),
-            minimum / first if first else LARGE_CONST * np.sign(minimum),
-            last_to_first,
-        )
+    res = _assemble_aggregates(
+        weights is not None, arithmetic_mean, weighted_arithmetic_mean, first, minimum, maximum, last_to_first, min_index, max_index, size,
+        nmaxupdates, nminupdates, n_last_crossings, n_last_touches, quadratic_mean, qubic_mean, geometric_mean, harmonic_mean,
+        cnt_nonzero, npositive, ninteger, weighted_quadratic_mean, weighted_qubic_mean, weighted_geometric_mean, weighted_harmonic_mean,
+        sum_positive, sum_negative, return_unsorted_stats, return_exotic_means, return_n_zer_pos_int, return_profit_factor,
     )
 
-    if return_unsorted_stats:  # must be false for arrays known to be sorted
-        res.extend(((min_index + 1) / size if size else 0, (max_index + 1) / size if size else 0))
-        res.extend((nmaxupdates, nminupdates, n_last_crossings, n_last_touches - 1))
-
-    if return_exotic_means:
-        res.extend((quadratic_mean, qubic_mean, geometric_mean, harmonic_mean))
-
-    if return_n_zer_pos_int:
-        res.extend((cnt_nonzero, npositive, ninteger))
-
-    if weights is not None:
-        if return_exotic_means:
-            res.extend((weighted_quadratic_mean, weighted_qubic_mean, weighted_geometric_mean, weighted_harmonic_mean))
-
-    if return_profit_factor:
-        profit_factor = sum_positive / -sum_negative if sum_negative != 0.0 else (0.0 if sum_positive == 0.0 else LARGE_CONST)
-        res.append(profit_factor)
-
     if return_drawdown_stats:
+        _weights_tail = weights if weights is None else weights[1:]
         res.extend(
             compute_numerical_aggregates_numba(
                 arr=pos_dds[1:],
-                weights=weights if weights is None else weights[1:],
+                weights=_weights_tail,
                 geomean_log_mode=geomean_log_mode,
                 directional_only=directional_only,
                 whiten_means=whiten_means,
@@ -412,7 +527,7 @@ def compute_numerical_aggregates_numba(
         res.extend(
             compute_numerical_aggregates_numba(
                 arr=pos_dd_durs[1:] / (size - 1),
-                weights=weights if weights is None else weights[1:],
+                weights=_weights_tail,
                 geomean_log_mode=geomean_log_mode,
                 directional_only=directional_only,
                 whiten_means=whiten_means,
@@ -426,7 +541,7 @@ def compute_numerical_aggregates_numba(
         res.extend(
             compute_numerical_aggregates_numba(
                 arr=neg_dds[1:],
-                weights=weights if weights is None else weights[1:],
+                weights=_weights_tail,
                 geomean_log_mode=geomean_log_mode,
                 directional_only=directional_only,
                 whiten_means=whiten_means,
@@ -440,7 +555,7 @@ def compute_numerical_aggregates_numba(
         res.extend(
             compute_numerical_aggregates_numba(
                 arr=neg_dd_durs[1:] / (size - 1),
-                weights=weights if weights is None else weights[1:],
+                weights=_weights_tail,
                 geomean_log_mode=geomean_log_mode,
                 directional_only=directional_only,
                 whiten_means=whiten_means,
@@ -453,6 +568,83 @@ def compute_numerical_aggregates_numba(
         )
 
     return res
+
+
+# The helpers below are inlined (``inline="always"``) into the moments kernel, so they are compiled under the caller's fastmath setting -- a separately
+# compiled helper has its own and changes the fast variant's rounding. They are module-level rather than closure-captured because a kernel that closes over
+# other dispatchers cannot be reloaded from numba's on-disk cache ("No module named '<dynamic>'").
+@numba.njit(inline="always", **NUMBA_NJIT_PARAMS)
+def _kahan_add(kahan, total, comp, inc):  # pragma: no cover
+    """``total + inc`` with the running compensation ``comp`` updated when ``kahan`` (a compile-time constant in the kernel, so the fast variant is a plain
+    add and ``comp`` passes through untouched); returns ``(total, comp)``."""
+    if kahan:
+        _t = total + inc
+        if abs(total) >= abs(inc):
+            comp += (total - _t) + inc
+        else:
+            comp += (inc - _t) + total
+        return _t, comp
+    return total + inc, comp
+
+
+@numba.njit(inline="always", **NUMBA_NJIT_PARAMS)
+def _standardise_moments(skew, kurt, std, n):  # pragma: no cover
+    """Skewness and excess kurtosis from the raw third / fourth central-moment sums over ``n`` samples (or the weights sum); ``(0, 0)`` for a
+    constant column, and the sums are returned unchanged when the scale factor is zero."""
+    if std == 0:
+        return 0.0, 0.0
+    factor = n * std**3
+    if factor:
+        skew = skew / factor
+
+        factor = factor * std
+        kurt = kurt / factor - 3.0
+    return skew, kurt
+
+
+@numba.njit(inline="always", **NUMBA_NJIT_PARAMS)
+def _linear_trend_stats(arr, xvals, mean_value, xvals_mean, slope_over, slope_under, r_sum, std, size, return_lintrend_approx_stats):  # pragma: no cover
+    """OLS slope / intercept / correlation of ``arr`` against ``xvals`` from the accumulated sums, the number of sign changes of the residuals, and
+    (optionally) the residual vector. A degenerate x spread gives ``r=0`` and NaN everywhere else.
+
+    Returns ``(slope, intercept, r, n_lintrend_crossings, lintrend_data_diffs)``.
+    """
+    if np.isclose(slope_under, 0) or np.isnan(slope_under):
+        return np.nan, np.nan, 0.0, np.nan, None
+    slope = slope_over / slope_under
+
+    # R-value
+    if np.isclose(std, 0):
+        r = 0.0
+    else:
+        r = r_sum / (np.sqrt(slope_under) * std * np.sqrt(size))
+        # Test for numerical error propagation (make sure -1 < r < 1)
+        if r > 1.0:
+            r = 1.0
+        elif r < -1.0:
+            r = -1.0
+
+    # slope crossings & trend approximation errors
+    has_prev_d = False
+    prev_d = 0.0
+    intercept = mean_value - slope * xvals_mean
+    n_lintrend_crossings = 0.0
+
+    if return_lintrend_approx_stats:
+        lintrend_data_diffs = np.empty_like(arr)
+    else:
+        lintrend_data_diffs = None
+
+    for i, next_value in enumerate(arr):
+        d = next_value - (slope * xvals[i] + intercept)
+        if has_prev_d:
+            if d * prev_d < 0:
+                n_lintrend_crossings += 1
+        prev_d = d
+        has_prev_d = True
+        if return_lintrend_approx_stats:
+            lintrend_data_diffs[i] = d  # type: ignore[index]  # allocated iff return_lintrend_approx_stats, same guard as here
+    return slope, intercept, r, n_lintrend_crossings, lintrend_data_diffs
 
 
 def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
@@ -515,166 +707,69 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
 
             # slope_over += sl_x * next_value
             _inc = sl_x * next_value
-            if KAHAN:
-                _t = slope_over + _inc
-                if abs(slope_over) >= abs(_inc):
-                    slope_over_c += (slope_over - _t) + _inc
-                else:
-                    slope_over_c += (_inc - _t) + slope_over
-                slope_over = _t
-            else:
-                slope_over += _inc
+            slope_over, slope_over_c = _kahan_add(KAHAN, slope_over, slope_over_c, _inc)
 
             # slope_under += sl_x**2
             _inc = sl_x * sl_x
-            if KAHAN:
-                _t = slope_under + _inc
-                if abs(slope_under) >= abs(_inc):
-                    slope_under_c += (slope_under - _t) + _inc
-                else:
-                    slope_under_c += (_inc - _t) + slope_under
-                slope_under = _t
-            else:
-                slope_under += _inc
+            slope_under, slope_under_c = _kahan_add(KAHAN, slope_under, slope_under_c, _inc)
 
             d = next_value - mean_value
 
             # r_sum += sl_x * d
             _inc = sl_x * d
-            if KAHAN:
-                _t = r_sum + _inc
-                if abs(r_sum) >= abs(_inc):
-                    r_sum_c += (r_sum - _t) + _inc
-                else:
-                    r_sum_c += (_inc - _t) + r_sum
-                r_sum = _t
-            else:
-                r_sum += _inc
+            r_sum, r_sum_c = _kahan_add(KAHAN, r_sum, r_sum_c, _inc)
 
-            if has_prev_d:
-                if d * prev_d < 0:
-                    n_mean_crossings += 1
+            if has_prev_d and d * prev_d < 0:
+                n_mean_crossings += 1
             prev_d = d
             has_prev_d = True
 
             # mad += abs(d)
             _inc = abs(d)
-            if KAHAN:
-                _t = mad + _inc
-                if abs(mad) >= abs(_inc):
-                    mad_c += (mad - _t) + _inc
-                else:
-                    mad_c += (_inc - _t) + mad
-                mad = _t
-            else:
-                mad += _inc
+            mad, mad_c = _kahan_add(KAHAN, mad, mad_c, _inc)
 
             if weights is not None:
                 next_weight = weights[i]
                 w_d = next_value - weighted_mean_value
 
                 # sum_weights += next_weight
-                if KAHAN:
-                    _t = sum_weights + next_weight
-                    if abs(sum_weights) >= abs(next_weight):
-                        sum_weights_c += (sum_weights - _t) + next_weight
-                    else:
-                        sum_weights_c += (next_weight - _t) + sum_weights
-                    sum_weights = _t
-                else:
-                    sum_weights += next_weight
+                sum_weights, sum_weights_c = _kahan_add(KAHAN, sum_weights, sum_weights_c, next_weight)
 
                 # weighted_mad += abs(w_d) * next_weight
                 _inc = abs(w_d) * next_weight
-                if KAHAN:
-                    _t = weighted_mad + _inc
-                    if abs(weighted_mad) >= abs(_inc):
-                        weighted_mad_c += (weighted_mad - _t) + _inc
-                    else:
-                        weighted_mad_c += (_inc - _t) + weighted_mad
-                    weighted_mad = _t
-                else:
-                    weighted_mad += _inc
+                weighted_mad, weighted_mad_c = _kahan_add(KAHAN, weighted_mad, weighted_mad_c, _inc)
 
             summand = d * d
             # std += summand
-            if KAHAN:
-                _t = std + summand
-                if abs(std) >= abs(summand):
-                    std_c += (std - _t) + summand
-                else:
-                    std_c += (summand - _t) + std
-                std = _t
-            else:
-                std += summand
+            std, std_c = _kahan_add(KAHAN, std, std_c, summand)
 
             if weights is not None:
                 w_summand = w_d * w_d
                 # weighted_std += w_summand * next_weight
                 _inc = w_summand * next_weight
-                if KAHAN:
-                    _t = weighted_std + _inc
-                    if abs(weighted_std) >= abs(_inc):
-                        weighted_std_c += (weighted_std - _t) + _inc
-                    else:
-                        weighted_std_c += (_inc - _t) + weighted_std
-                    weighted_std = _t
-                else:
-                    weighted_std += _inc
+                weighted_std, weighted_std_c = _kahan_add(KAHAN, weighted_std, weighted_std_c, _inc)
 
             if not directional_only:
 
                 summand = summand * d
                 # skew += summand (d^3)
-                if KAHAN:
-                    _t = skew + summand
-                    if abs(skew) >= abs(summand):
-                        skew_c += (skew - _t) + summand
-                    else:
-                        skew_c += (summand - _t) + skew
-                    skew = _t
-                else:
-                    skew += summand
+                skew, skew_c = _kahan_add(KAHAN, skew, skew_c, summand)
 
                 if weights is not None:
                     w_summand = w_summand * w_d
                     # weighted_skew += w_summand * next_weight
                     _inc = w_summand * next_weight
-                    if KAHAN:
-                        _t = weighted_skew + _inc
-                        if abs(weighted_skew) >= abs(_inc):
-                            weighted_skew_c += (weighted_skew - _t) + _inc
-                        else:
-                            weighted_skew_c += (_inc - _t) + weighted_skew
-                        weighted_skew = _t
-                    else:
-                        weighted_skew += _inc
+                    weighted_skew, weighted_skew_c = _kahan_add(KAHAN, weighted_skew, weighted_skew_c, _inc)
 
                 # kurt += summand * d (d^4)
                 _inc = summand * d
-                if KAHAN:
-                    _t = kurt + _inc
-                    if abs(kurt) >= abs(_inc):
-                        kurt_c += (kurt - _t) + _inc
-                    else:
-                        kurt_c += (_inc - _t) + kurt
-                    kurt = _t
-                else:
-                    kurt += _inc
+                kurt, kurt_c = _kahan_add(KAHAN, kurt, kurt_c, _inc)
 
                 if weights is not None:
                     # Was `weighted_skew +=` here in the original buggy version: double-
                     # accumulating skew while weighted_kurt stayed 0 -> constant -3.0 feature.
                     _inc = w_summand * w_d * next_weight
-                    if KAHAN:
-                        _t = weighted_kurt + _inc
-                        if abs(weighted_kurt) >= abs(_inc):
-                            weighted_kurt_c += (weighted_kurt - _t) + _inc
-                        else:
-                            weighted_kurt_c += (_inc - _t) + weighted_kurt
-                        weighted_kurt = _t
-                    else:
-                        weighted_kurt += _inc
+                    weighted_kurt, weighted_kurt_c = _kahan_add(KAHAN, weighted_kurt, weighted_kurt_c, _inc)
 
         # Apply Kahan corrections once at the end. DCE'd when KAHAN=False.
         if KAHAN:
@@ -704,15 +799,7 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
         if not directional_only:
             mad = mad / size
 
-            if std == 0:
-                skew, kurt = 0.0, 0.0
-            else:
-                factor = size * std**3
-                if factor:
-                    skew = skew / factor
-
-                    factor = factor * std
-                    kurt = kurt / factor - 3.0
+            skew, kurt = _standardise_moments(skew, kurt, std, size)
 
             if weights is not None:
                 # Same sum_weights==0 guard.
@@ -736,46 +823,9 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
                         factor = factor * weighted_std
                         weighted_kurt = weighted_kurt / factor - 3.0
 
-        if np.isclose(slope_under, 0) or np.isnan(slope_under):
-            r = 0.0
-            slope = np.nan
-            intercept = np.nan
-            n_lintrend_crossings = np.nan
-        else:
-            slope = slope_over / slope_under
-
-            # R-value
-            if np.isclose(std, 0):
-                r = 0
-            else:
-                r = r_sum / (np.sqrt(slope_under) * std * np.sqrt(size))
-                # Test for numerical error propagation (make sure -1 < r < 1)
-                if r > 1.0:
-                    r = 1.0
-                elif r < -1.0:
-                    r = -1.0
-
-            # slope crossings & trend approximation errors
-
-            has_prev_d = False
-            prev_d = 0.0
-            intercept = mean_value - slope * xvals_mean
-            n_lintrend_crossings = 0.0
-
-            if return_lintrend_approx_stats:
-                lintrend_data_diffs = np.empty_like(arr)
-            else:
-                lintrend_data_diffs = None
-
-            for i, next_value in enumerate(arr):
-                d = next_value - (slope * xvals[i] + intercept)
-                if has_prev_d:
-                    if d * prev_d < 0:
-                        n_lintrend_crossings += 1
-                prev_d = d
-                has_prev_d = True
-                if return_lintrend_approx_stats:
-                    lintrend_data_diffs[i] = d  # type: ignore[index]  # allocated iff return_lintrend_approx_stats, same guard as here
+        slope, intercept, r, n_lintrend_crossings, lintrend_data_diffs = _linear_trend_stats(
+            arr, xvals, mean_value, xvals_mean, slope_over, slope_under, r_sum, std, size, return_lintrend_approx_stats
+        )
 
         res: list = []
         if not directional_only:

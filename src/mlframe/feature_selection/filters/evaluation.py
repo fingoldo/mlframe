@@ -141,6 +141,58 @@ _EVALUATE_GAIN_DISK_CACHE = os.environ.get("CI", "").strip().lower() not in ("1"
 
 
 @njit(cache=_EVALUATE_GAIN_DISK_CACHE)
+def _jmim_additional_knowledge(X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only):
+    """JMIM joint MI ``I({X, Z}; Y)`` for one ``(X, Z)`` pair, read from / written to the JMIM cache, with the ``nexisting`` exponent applied.
+
+    The aggregator branch of ``evaluate_gain``, split out as its own njit function; the cache arguments may be None (a direct caller without the
+    cache wired), which numba narrows below exactly as it did inside ``evaluate_gain``.
+    """
+    # Build the joint variable index multiset {X, Z} for JMIM's
+    # I({X, Z}; Y). np.concatenate is supported in @njit but the
+    # numba type-inferencer can fail to unify dtypes when X and Z
+    # come from different upstream call paths; coerce both sides
+    # to int64 explicitly so the unification is bit-identical to
+    # mi()'s internal x = np.asarray(x, dtype=np.int64) cast.
+    _x_int = np.asarray(X, dtype=np.int64)
+    _z_int = np.asarray(Z, dtype=np.int64)
+    xz_combined = np.unique(np.concatenate((_x_int, _z_int)))
+    # JMIM joint-MI cache. The multiset {X} u Z recurs
+    # across greedy rounds (and across (X, Z) swaps within a round),
+    # so memoise the raw mi({X,Z}; y) keyed on arr2str(xz_combined).
+    # Stored RAW; nexisting exponent applied below at read time, as
+    # the plain-CMI branch does. ``y`` is fixed per fit -> not in key.
+    # Independent of the cond-MI cache so JMIM and CMI values never
+    # collide under the same arr2str(X)+"|"+arr2str(Z) key.
+    # ``cached_jmim_MIs`` / ``jmim_hit_counter`` may be None when a
+    # direct caller invokes evaluate_gain without the cache wired
+    # (e.g. focused unit tests). Guard with ``is not None`` - numba
+    # narrows the Optional so the typed-dict ``in``/index ops only
+    # type-check on the non-None branch; the uncached fallback just
+    # recomputes mi() every time (pre-cache behaviour).
+    _jmim_key = arr2str(xz_combined)
+    if (not confidence_mode) and (cached_jmim_MIs is not None) and (_jmim_key in cached_jmim_MIs):
+        additional_knowledge = cached_jmim_MIs[_jmim_key]
+        if jmim_hit_counter is not None:
+            jmim_hit_counter[0] += 1
+    else:
+        additional_knowledge = mi(
+            factors_data=factors_data,
+            x=xz_combined, y=y,
+            factors_nbins=factors_nbins, dtype=dtype,
+        )
+        if (not confidence_mode) and (cached_jmim_MIs is not None):
+            cached_jmim_MIs[_jmim_key] = additional_knowledge
+    if nexisting > 0:
+        _disc = additional_knowledge ** (nexisting + 1)
+        if jmim_discount_only and _disc > additional_knowledge:
+            # joint MI > 1 -> the exponent would amplify; clamp to discount-only (never increase the joint MI).
+            pass
+        else:
+            additional_knowledge = _disc
+    return additional_knowledge
+
+
+@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
 def evaluate_gain(
     current_gain: float,
     last_checked_k: int,
@@ -274,49 +326,9 @@ def evaluate_gain(
                             # evaluate_gain) - the njit kernel cannot read the Python thread-locals
                             # at runtime (IMPORT_NAME / dynamic Python call are unsupported in @njit).
                             if use_jmim:
-                                # Build the joint variable index multiset {X, Z} for JMIM's
-                                # I({X, Z}; Y). np.concatenate is supported in @njit but the
-                                # numba type-inferencer can fail to unify dtypes when X and Z
-                                # come from different upstream call paths; coerce both sides
-                                # to int64 explicitly so the unification is bit-identical to
-                                # mi()'s internal x = np.asarray(x, dtype=np.int64) cast.
-                                _x_int = np.asarray(X, dtype=np.int64)
-                                _z_int = np.asarray(Z, dtype=np.int64)
-                                xz_combined = np.unique(np.concatenate((_x_int, _z_int)))
-                                # JMIM joint-MI cache. The multiset {X} u Z recurs
-                                # across greedy rounds (and across (X, Z) swaps within a round),
-                                # so memoise the raw mi({X,Z}; y) keyed on arr2str(xz_combined).
-                                # Stored RAW; nexisting exponent applied below at read time, as
-                                # the plain-CMI branch does. ``y`` is fixed per fit -> not in key.
-                                # Independent of the cond-MI cache so JMIM and CMI values never
-                                # collide under the same arr2str(X)+"|"+arr2str(Z) key.
-                                # ``cached_jmim_MIs`` / ``jmim_hit_counter`` may be None when a
-                                # direct caller invokes evaluate_gain without the cache wired
-                                # (e.g. focused unit tests). Guard with ``is not None`` - numba
-                                # narrows the Optional so the typed-dict ``in``/index ops only
-                                # type-check on the non-None branch; the uncached fallback just
-                                # recomputes mi() every time (pre-cache behaviour).
-                                _jmim_key = arr2str(xz_combined)
-                                if (not confidence_mode) and (cached_jmim_MIs is not None) and (_jmim_key in cached_jmim_MIs):
-                                    additional_knowledge = cached_jmim_MIs[_jmim_key]
-                                    if jmim_hit_counter is not None:
-                                        jmim_hit_counter[0] += 1
-                                    key_found = True
-                                else:
-                                    additional_knowledge = mi(
-                                        factors_data=factors_data,
-                                        x=xz_combined, y=y,
-                                        factors_nbins=factors_nbins, dtype=dtype,
-                                    )
-                                    if (not confidence_mode) and (cached_jmim_MIs is not None):
-                                        cached_jmim_MIs[_jmim_key] = additional_knowledge
-                                if nexisting > 0:
-                                    _disc = additional_knowledge ** (nexisting + 1)
-                                    if jmim_discount_only and _disc > additional_knowledge:
-                                        # joint MI > 1 -> the exponent would amplify; clamp to discount-only (never increase the joint MI).
-                                        pass
-                                    else:
-                                        additional_knowledge = _disc
+                                additional_knowledge = _jmim_additional_knowledge(
+                                    X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only,
+                                )
                             elif use_su:
                                 additional_knowledge = conditional_symmetric_uncertainty(
                                     factors_data=factors_data, x=X, y=y, z=Z,

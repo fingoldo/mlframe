@@ -179,6 +179,21 @@ def _zero_crossings_kernel(wins: np.ndarray, center_code: int) -> np.ndarray:
     return out
 
 
+@njit(cache=True, fastmath=False)
+def _entropy_of_counts(counts: np.ndarray) -> float:
+    """Shannon entropy (nats) of the non-empty cells of ``counts``, summing the cells in order (the order the binned-entropy kernel always used)."""
+    total = 0
+    for b in range(counts.shape[0]):
+        total += counts[b]
+    e = 0.0
+    for b in range(counts.shape[0]):
+        cb = counts[b]
+        if cb > 0:
+            p = cb / total
+            e -= p * np.log(p)
+    return e
+
+
 @njit(cache=True, fastmath=False, parallel=True)
 def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strategy: bool) -> np.ndarray:
     """Per-window binned Shannon entropy over the rows of a sliding-window matrix.
@@ -246,16 +261,7 @@ def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strat
                 if b >= nu - 1:
                     b = nu - 2  # closed last bin (x == right edge)
                 counts[b] += 1
-            total = 0
-            for b in range(nu - 1):
-                total += counts[b]
-            e = 0.0
-            for b in range(nu - 1):
-                cb = counts[b]
-                if cb > 0:
-                    p = cb / total
-                    e -= p * np.log(p)
-            ent[r] = e
+            ent[r] = _entropy_of_counts(counts)
         else:
             lo_v = fin[0]
             hi_v = fin[m - 1]
@@ -273,16 +279,7 @@ def _shannon_entropy_binned_kernel(wins: np.ndarray, n_bins: int, quantile_strat
                 elif b >= n_bins:
                     b = n_bins - 1
                 counts[b] += 1
-            total = 0
-            for b in range(n_bins):
-                total += counts[b]
-            e = 0.0
-            for b in range(n_bins):
-                cb = counts[b]
-                if cb > 0:
-                    p = cb / total
-                    e -= p * np.log(p)
-            ent[r] = e
+            ent[r] = _entropy_of_counts(counts)
     return ent
 
 
