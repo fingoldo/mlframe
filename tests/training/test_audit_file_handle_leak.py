@@ -80,10 +80,11 @@ def test_deserialize_materialises_arrays_before_close() -> None:
     np.testing.assert_array_equal(results[0], dense)
     assert (results[1] != sparse).nnz == 0
     for arr in (results[0], results[1].data, results[1].indices, results[1].indptr):
-        assert not isinstance(arr, np.memmap)
-        assert not isinstance(arr.base, np.memmap)
+        owner = arr
+        while owner is not None:
+            assert not isinstance(owner, np.memmap), "an array handed to the caller still maps the cache file"
+            owner = getattr(owner, "base", None)
         assert arr.flags.writeable
-        assert arr.flags.owndata
 
 
 def test_deserialize_roundtrip_does_not_leak_handles_on_windows() -> None:

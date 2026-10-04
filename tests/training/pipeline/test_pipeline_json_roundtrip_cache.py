@@ -76,6 +76,7 @@ def test_pipeline_json_roundtrip_cache_skips_second_validation(tmp_path, monkeyp
             wrapped.append(ctx.metadata["pipeline"])
 
         assert call_count["n"] == 1
+        assert len(wrapped) == 2
         assert all(isinstance(w, _PolarsDsPipelineJsonProxy) for w in wrapped)
         assert sh._PIPELINE_JSON_ROUNDTRIP_CACHE[pipeline_json_cache_key(fake_js)] is True
     finally:

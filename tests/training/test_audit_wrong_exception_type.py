@@ -292,7 +292,9 @@ def test_neural_flat_validation_accepts_valid_arguments() -> None:
     pytest.importorskip("torch")
     from mlframe.training.neural.flat import generate_mlp
 
-    assert generate_mlp(num_features=4, num_classes=2, nlayers=2, first_layer_num_neurons=8, min_layer_neurons=2) is not None
+    model = generate_mlp(num_features=4, num_classes=2, nlayers=2, first_layer_num_neurons=8, min_layer_neurons=2)
+    model.eval()
+    assert tuple(model(model.example_input_array).shape) == (1, 2)
 
 
 def test_neural_flat_batch_format_is_typeerror() -> None:

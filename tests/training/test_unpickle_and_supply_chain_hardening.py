@@ -394,6 +394,7 @@ def test_mist_model_loaded_at_pinned_revision(monkeypatch):
     nm._get_mist_hf_model("mse", "cpu")
     nm._get_mist_hf_model("qr", "cpu")
     assert seen == [("grgera/MIST", nm.MIST_PINNED_REVISIONS["grgera/MIST"]), ("grgera/MIST-QR", nm.MIST_PINNED_REVISIONS["grgera/MIST-QR"])]
+    assert seen, "no model was loaded"
     assert all(rev and len(rev) == 40 for _, rev in seen)
 
 

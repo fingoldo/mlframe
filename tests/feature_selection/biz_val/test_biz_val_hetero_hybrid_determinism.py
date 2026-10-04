@@ -16,10 +16,8 @@ Three legs:
       -> identical ``raw_selected_``, ``member_selections_`` and ``fi_`` keys. Because every member runs with
       ``n_jobs=-1`` internally, this is also a de-facto n_jobs-stability sensor (a thread-order-dependent
       reduction would surface as a same-seed mismatch).
-  (c) HybridSelector column order: fit on X vs X[reversed cols] (fresh seeded instances). The selection is
-      NOT order-invariant (the composed members' positional tie-breaks / cluster-rep picks depend on column
-      order); this is the documented reproducibility gap, mirrored from the contract suite's
-      ``column_order_invariant=False`` spec -> xfail(strict=False), never a weakened assertion.
+  (c) HybridSelector column order: fit on X vs X[reversed cols] (fresh seeded instances) selects the same
+      RAW feature set.
 
 Seeds fixed everywhere. The HybridSelector fits run the real MRMR + ShapProxiedFS + BorutaShap members
 (~10-20 s), so the heavy legs carry @pytest.mark.slow with a smaller fast representative kept via
@@ -34,7 +32,6 @@ import pytest
 
 from mlframe.feature_selection.hetero_vote import heterogeneous_relevance_vote
 from mlframe.feature_selection.hybrid_selector import HybridSelector
-from tests._known_gap import known_gap
 
 # ---------------------------------------------------------------------------
 # Synthetic frames.
@@ -159,25 +156,20 @@ def test_hybrid_selector_same_seed_deterministic_fast():
 
 
 # ===========================================================================
-# (c) HybridSelector column-order: documented reproducibility gap -> xfail(strict=False).
+# (c) HybridSelector column-order invariance.
 # ===========================================================================
 
 
 @pytest.mark.slow
 @pytest.mark.timeout(900)
 def test_hybrid_selector_column_order_invariant():
-    """Fitting on X vs X[reversed columns] (fresh seeded instances) should select the same RAW feature set.
-
-    It does NOT today -- the composition's order-sensitive tie-breaks change which equivalent columns survive
-    (measured: forward keeps {inf_0, noise_1}; reversed keeps {red_2, noise_2}). The recorded gap fails this test
-    once HybridSelector becomes column-order invariant, so the entry gets removed.
-    """
+    """Fitting on X vs X[reversed columns] (fresh seeded instances) selects the same RAW feature set."""
     X, y = _linear_dataset(n=1200, seed=0)
     rev = list(X.columns)[::-1]
     h_fwd = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X, y)
     h_rev = HybridSelector(use_fe=False, use_tree_member=False, random_state=0).fit(X[rev], y)
-    known_gap(
-        "HybridSelector selection depends on input column order: the composed members' positional tie-breaks and corr-cluster representative picks "
-        f"are order-sensitive (fwd={sorted(h_fwd.raw_selected_)} rev={sorted(h_rev.raw_selected_)})",
-        gap_closed=set(h_fwd.raw_selected_) == set(h_rev.raw_selected_),
-    )
+    signal_prefixes = ("inf_", "red_")
+    assert h_fwd.raw_selected_ and h_rev.raw_selected_, "HybridSelector selected nothing on one of the column orders"
+    assert any(c.startswith(signal_prefixes) for c in h_fwd.raw_selected_), f"forward order lost all signal: {sorted(h_fwd.raw_selected_)}"
+    assert any(c.startswith(signal_prefixes) for c in h_rev.raw_selected_), f"reversed order lost all signal: {sorted(h_rev.raw_selected_)}"
+    assert set(h_fwd.raw_selected_) == set(h_rev.raw_selected_), f"fwd={sorted(h_fwd.raw_selected_)} rev={sorted(h_rev.raw_selected_)}"

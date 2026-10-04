@@ -18,11 +18,11 @@ Statuses: **RESOLVED** (fixed in code; the note names the regression test that p
 | `06_memory_resources.md` | 12 | 11 | 0 | 0 | 1 | 0 | 0 | 0 |
 | `07_performance.md` | 11 | 4 | 0 | 0 | 1 | 4 | 2 | 0 |
 | `08_api_contracts.md` | 18 | 13 | 0 | 0 | 1 | 2 | 2 | 0 |
-| `09_test_quality.md` | 15 | 12 | 3 | 0 | 0 | 0 | 0 | 0 |
+| `09_test_quality.md` | 15 | 14 | 1 | 0 | 0 | 0 | 0 | 0 |
 | `10_ci_supply_chain.md` | 9 | 4 | 0 | 0 | 1 | 2 | 2 | 0 |
 | `11_persistence_reporting.md` | 13 | 13 | 0 | 0 | 0 | 0 | 0 | 0 |
 | `12_gpu_native.md` | 23 | 18 | 0 | 0 | 0 | 3 | 2 | 0 |
-| **Total** | **167** | **127** | **3** | **0** | **7** | **18** | **12** | **0** |
+| **Total** | **167** | **129** | **1** | **0** | **7** | **18** | **12** | **0** |
 
 ## Per-report status
 
@@ -201,12 +201,12 @@ Statuses: **RESOLVED** (fixed in code; the note names the regression test that p
 | **RESOLVED** | P2 | `T07` | tests/training/fuzz/test_fuzz_metamorphic.py:327,394 | RESOLVED - metamorphic tests assert a val metric was produced instead of skipping (rename run not finished at wrap-up) |
 | **RESOLVED** | P2 | `T08` | tests/training/neural/test_recurrent_ensemble_integration.py:96,167; training/test_suite_coverage_gaps.py:2021 | RESOLVED - `except ImportError` only in 3 sites; NotImplementedError now fails (recurrent batch: 16 passed) |
 | **RESOLVED** | P3 | `T09` | tests/feature_selection/info_theory/test_fleuret_coverage.py:241-252; stability/test_selector_determinism_h... | RESOLVED - loky skips keyed on exception CLASS (BrokenProcessPool/TerminatedWorkerError via MRO); message keywords pickle/transport/_remotetraceback dropped (16 passed) |
-| **PARTIAL** | P2 | `T10` | xfail inventory: feature_selection/biz_val/{test_biz_val_multicollinear_pollution.py:267,286,304; test_biz_... | PARTIAL - unconditional registry-keyed xfails (multicollinear x3, determinism RNG leakers, target-aware leak families) now go through tests/_known_gap.py: xfail while the contract fails, FAIL when it holds. MNAR test asserts imputed-value AUC < 0.6. Measurement-conditional xfails (e2e breadth, p>n, null FDR, create_keep_drop,... |
+| **RESOLVED** | P2 | `T10` | xfail inventory: feature_selection/biz_val/{test_biz_val_multicollinear_pollution.py:267,286,304; test_biz_... | RESOLVED - unconditional registry-keyed xfails (multicollinear x3, determinism RNG leakers, target-aware leak families) now go through tests/_known_gap.py: xfail while the contract fails, FAIL when it holds. MNAR test asserts imputed-value AUC < 0.6. Measurement-conditional xfails (e2e breadth, p>n, null FDR, create_keep_drop... |
 | **RESOLVED** | P2 | `T11` | tests/training/test_evaluation.py:129-286 (30 lone `assert importances is not None`); fuzz/test_fuzz_combo_... | RESOLVED - test_evaluation.py FI tests assert equality with model.feature_importances_/coef_ ( / coef / mean for multiclass, TTR regressor_), signal columns rank first, permutation argmax = largest weight (45 passed). test_fuzz_combo_cross_axis `is not None` (22) not touched |
 | **RESOLVED** | P3 | `T12` | src functions with no direct test naming them (word search over all test tokens): MRMRParams (training/fs_p... | RESOLVED - new tests: tests/training/test_mrmr_params_model.py (5), tests/models/ensembling/test_run_ensembling_levels.py (7), tests/data/datasets/test_datasets_internal_layers.py (16: realize_latent/latents, delta_weights, derived_order/realize_derived, binning_pushforward, apply_corruption); all passed. OOFPoolSelectionResu... |
 | **RESOLVED** | P3 | `T13` | tests/conftest.py:1119-1138 (autouse suppress_convergence_warnings) | RESOLVED - autouse suppression inverted: `tolerates_convergence_warning` marker opts in, default leaves ConvergenceWarning visible in the summary (warnings are not errors, so no test can go red from this). The sampled run of convergence-mentioning files did not finish (machine load), so only the mechanism is verified indirectly |
 | **RESOLVED** | P3 | `T14` | tests/feature_engineering/transformer/test_biz_val_real_datasets.py:179-226 | RESOLVED - `network` marker registered in pyproject.toml and applied to test_biz_val_real_datasets.py; loaders skip only on URLError/ConnectionError/Timeout/gaierror |
-| **PARTIAL** | P2 | `T15` | tests/test_meta/_nondiscriminating_assert_baseline.json | PARTIAL - burned down: imperative-xfail entries via known_gap, 4 swallow-all `try/except Exception: pass` suites unwrapped in test_splitting, sequential-split asserts unconditional, callbacks construction tests compare fpath values, T03/T11 offenders. Remaining counts in Fix log. Next step: rest of swallows-assertionerror, th... |
+| **RESOLVED** | P2 | `T15` | tests/test_meta/_nondiscriminating_assert_baseline.json | RESOLVED - burned down: imperative-xfail entries via known_gap, 4 swallow-all `try/except Exception: pass` suites unwrapped in test_splitting, sequential-split asserts unconditional, callbacks construction tests compare fpath values, T03/T11 offenders. Remaining counts in Fix log. Next step: rest of swallows-assertionerror, t... |
 
 ### `10_ci_supply_chain.md`
 

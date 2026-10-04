@@ -47,6 +47,7 @@ def test_pair_chunk_bounds_partitions_without_loss():
     """Pair chunks of at most the limit cover every pair exactly once and in order, including a count above 65535."""
     for n_pairs, limit in [(0, 5), (1, 5), (5, 5), (11, 5), (79_800, 65_535)]:
         bounds = pair_chunk_bounds(n_pairs, limit)
+        assert bool(bounds) == (n_pairs > 0)
         assert all(0 < stop - start <= limit for start, stop in bounds)
         assert [i for start, stop in bounds for i in range(start, stop)] == list(range(n_pairs))
     assert len(pair_chunk_bounds(79_800, 65_535)) == 2

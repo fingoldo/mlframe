@@ -92,7 +92,9 @@ def test_general_early_exit_no_indexerror():
         benchmark_mi_algorithms=False,
         verbose=0,
     )
-    assert result is not None
+    columns_to_drop, _original_mi, permuted_mis, _ranking = result
+    assert isinstance(columns_to_drop, list)
+    assert isinstance(permuted_mis, dict)
 
 
 # ----------------------------------------------------------------------------

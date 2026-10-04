@@ -170,7 +170,11 @@ def build_hnsw_index(
     # intermediate neighbour graphs, which blows up at 16 workers x ~50 MB each = 800 MB just for scratch; low_memory=True uses the iterative algorithm with
     # ~1/4 the peak memory at ~30% lower build throughput. Acceptable trade for stability.
     # Cap n_jobs at 4 for the same reason; pynndescent threading speedup tops out around 4 workers anyway.
-    capped_n_jobs = min(n_threads, 4)
+    # numba.set_num_threads (called by NNDescent) raises when asked for more threads than the pool NUMBA_NUM_THREADS allows, so a user capping numba at 2
+    # threads on a many-core host would crash the build.
+    import numba
+
+    capped_n_jobs = max(1, min(n_threads, 4, int(numba.config.NUMBA_NUM_THREADS)))
     t0 = time.perf_counter()
     index = pynndescent.NNDescent(
         k_proj, metric=pynnd_metric, n_neighbors=max(M + 5, 16),

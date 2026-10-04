@@ -270,7 +270,9 @@ def _fit_step1_strict_no_op(self, st, df, train_idx):
         from mlframe.training.composite._synthetic_bases import dropped_columns
 
         _dropped = dropped_columns(base, st._col_index)
-        if _dropped:
+        # A base the user named explicitly past the corr filter is not among the usable features, so nothing leaves x_remaining for it.
+        _readmitted_by_name = bool(base) and not _dropped and base in (getattr(self, "_corr_filtered_bases_", None) or {})
+        if _dropped or _readmitted_by_name:
             _drop_idx: int | list[int] = st._col_index[base] if base in st._col_index else [st._col_index[c] for c in _dropped]
             st._x_prebinned = np.delete(st._full_x_prebinned, _drop_idx, axis=1) if st._full_x_prebinned is not None else None
             if st._use_lazy_prebin:

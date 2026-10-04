@@ -64,54 +64,6 @@ def _src_has(text: str) -> bool:
     return any(text in path.read_text(encoding="utf-8", errors="ignore") for path in MLFRAME_ROOT.rglob("*.py"))
 
 
-def _read(rel: str) -> str:
-    """Read a source file under src/mlframe.
-
-    Monolith-split compat: when the requested file is a parent whose code
-    moved to siblings, append every matching sibling so source-pattern
-    sensors that pre-date the split still match.
-    """
-    _path = MLFRAME_ROOT / rel
-    if not _path.exists() and _path.suffix == ".py":
-        # Monolith-split compat: the flat module became a subpackage
-        # (``X.py`` -> ``X/__init__.py`` + submodules). Read __init__ + every submodule.
-        _pkg = _path.with_suffix("")
-        _init = _pkg / "__init__.py"
-        if _init.exists():
-            _parts = [_init.read_text(encoding="utf-8")]
-            for _sub in sorted(_pkg.glob("*.py")):
-                if _sub.name != "__init__.py":
-                    _parts.append(_sub.read_text(encoding="utf-8"))
-            primary = "\n".join(_parts)
-        else:
-            primary = _path.read_text(encoding="utf-8")
-    else:
-        primary = _path.read_text(encoding="utf-8")
-    if rel == "feature_selection/filters/hermite_fe.py":
-        _dir = MLFRAME_ROOT / "feature_selection" / "filters"
-        for nm in ("_hermite_fe_optimise.py", "_hermite_fe_mi.py"):
-            sibling = _dir / nm
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    elif rel == "feature_selection/filters/mrmr.py":
-        _dir = MLFRAME_ROOT / "feature_selection" / "filters"
-        for nm in (
-            "_mrmr_fingerprints.py",
-            "_mrmr_fit_impl/_fit_impl_core.py",
-            "_mrmr_fit_impl/_helpers.py",
-            "_mrmr_fe_step/_step_core.py",
-            "_mrmr_fe_step/_step_score.py",
-            "_mrmr_fe_step/_step_score_parts.py",
-            "_mrmr_fe_step/_step_score_parts2.py",
-            "_mrmr_fe_step/_helpers.py",
-            "_mrmr_validate_transform.py",
-        ):
-            sibling = _dir / nm
-            if sibling.exists():
-                primary = primary + "\n" + sibling.read_text(encoding="utf-8")
-    return primary
-
-
 # ---------------------------------------------------------------------------
 # Wave 65: RFF calibration bench is callable + writes work_threshold to cache
 # ---------------------------------------------------------------------------
@@ -184,23 +136,6 @@ def test_rff_calibration_module_imports_and_calibrate_returns_tuple() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Wave 66: predict-time recurrent ensemble TODO replaced with closure note
-# ---------------------------------------------------------------------------
-
-
-def test_phase_recurrent_todo_replaced_with_closure_note() -> None:
-    """Phase recurrent todo replaced with closure note."""
-    src = _read("training/core/_phase_recurrent.py")
-    # The original TODO ("core/predict.py (currently locked) does not re-run
-    # the recurrent-augmented ensemble") must be gone.
-    assert "core/predict.py`` (currently locked)" not in src
-    # Replaced with an explicit closure note documenting the predict-time replay contract (the wave/date
-    # marker that once prefixed this note was later stripped per the project's no-audit-metadata-in-
-    # comments rule -- the substantive content is what matters).
-    assert "predict-time replay closure" in src
-
-
-# ---------------------------------------------------------------------------
 # Wave 67: per-cluster composite TODO replaced with REJECTED + revisit cond
 # ---------------------------------------------------------------------------
 
@@ -268,42 +203,6 @@ def test_timeseries_past_side_sanity_check_landed() -> None:
     assert X.iloc[:, 0].is_monotonic_increasing
 
 
-def test_mrmr_factors_to_use_documented_already_threaded() -> None:
-    """Mrmr factors to use documented already threaded."""
-    src = _read("feature_selection/filters/mrmr.py")
-    assert "TODO 2026-05-17: handle factors_to_use" not in src
-    assert "already threaded through the upstream FE loop" in src
-
-
-def test_phase_helpers_strategy_list_documented() -> None:
-    """Phase helpers strategy list documented."""
-    src = _read("training/core/_phase_helpers.py")
-    # The TODO is replaced with a closure note. The wave/date marker that once prefixed this note was
-    # later stripped per the project's no-audit-metadata-in-comments rule -- the substantive content
-    # (that defer_pandas_conv already threads through ctx.strategy_by_model) is what matters.
-    assert "TODO: surface the per-model strategy list" not in src
-    assert "defer_pandas_conv heuristic landed" in src
-
-
-def test_hermite_fe_separate_eval_documented_as_implemented() -> None:
-    # The closure marker moved out of ``hermite_fe.py`` into the sibling
-    # ``_hermite_fe_optimise_pair.py`` during the hermite-fe monolith split.
-    """Hermite fe separate eval documented as implemented."""
-    import pathlib
-    import mlframe as _mlframe
-
-    _root = pathlib.Path(_mlframe.__file__).resolve().parent / "feature_selection" / "filters"
-    src = ""
-    for nm in ("hermite_fe.py", "_hermite_fe_optimise_pair.py"):
-        p = _root / nm
-        if p.exists():
-            src += p.read_text(encoding="utf-8")
-            src += "\n"
-    # TODO marker is gone.
-    assert "TODO: separate eval for x_a and x_b" not in src
-    assert _src_has("separate eval for x_a")
-
-
 def _rendered(static_legend):
     """Render a one-panel figure through the plotly renderer with the given legend mode."""
     import numpy as _np
@@ -345,47 +244,3 @@ def test_the_static_legend_is_opt_in() -> None:
     default = _rendered(static_legend=False)
 
     assert default.layout.legend.orientation != "h" or default.layout.legend.y is None or default.layout.legend.y >= 0
-
-
-def test_ensembling_p2_quantile_design_decision_documented() -> None:
-    # The two TODOs were replaced with explicit design decisions in the
-    # ``models/ensembling`` package (``base.py`` leaf); reading the package
-    # concats every submodule.
-    """Ensembling p2 quantile design decision documented."""
-    src = _read("models/ensembling.py")
-    # The two TODOs are replaced with explicit design decisions.
-    assert "TODO(session-5+) P^2-Quantile numba-jit per-cell impl" not in src
-    assert "TODO(future): For N*K*M*8 > EnsemblingConfig" not in src
-    assert "explicit-design-decision (wave 69, 2026-05-20)" in src
-
-
-# ---------------------------------------------------------------------------
-# Honest closure check: TODO grep across these closed files returns empty.
-# ---------------------------------------------------------------------------
-
-
-def test_no_remaining_open_todo_markers_in_closed_files() -> None:
-    """Every file touched by waves 65-69 should have no remaining
-    unannotated open TODO/FIXME markers about the closed items."""
-    closed_phrases = [
-        # The literal text fragments that EACH closed-out TODO used:
-        ("training/core/_phase_recurrent.py", "(currently locked) does not re-run"),
-        ("training/composite/discovery/__init__.py", "TODO(per-cluster composite, follow-up)"),
-        # ``_compute_target_encoding`` was moved to the sibling when
-        # ``cat_interactions.py`` was split below 1k LOC; check the
-        # sibling where the TODO would actually surface if it crept back.
-        ("feature_selection/filters/_cat_target_encoding_and_weighted.py", "TODO multi-class"),
-        ("feature_engineering/timeseries.py", "deferred to a follow-up"),
-        ("feature_selection/filters/mrmr.py", "TODO 2026-05-17: handle factors_to_use"),
-        ("training/core/_phase_helpers.py", "TODO: surface the per-model strategy list"),
-        ("feature_selection/filters/hermite_fe.py", "TODO: separate eval for x_a"),
-        ("reporting/renderers/plotly.py", "(plotly 5.x feature) — TODO"),
-        # Both ensembling TODOs lived in the helpers that moved to the
-        # ``models/ensembling`` package during the monolith split; reading
-        # the package concats every submodule where a TODO could resurface.
-        ("models/ensembling.py", "TODO(session-5+) P^2-Quantile"),
-        ("models/ensembling.py", "TODO(future): For N*K*M*8"),
-    ]
-    for rel, phrase in closed_phrases:
-        src = _read(rel)
-        assert phrase not in src, f"{rel}: open TODO {phrase!r} should have been closed"

@@ -274,27 +274,19 @@ def test_perf_mi_direct_gpu_at_n100k():
     # unbatched ``mi_direct_gpu`` — at lower N the sync dominates and observed speedup drops to ~1.3x.
     # Calibrated on dev box: ~3-4x speedup at N=500 (1.5s CPU vs 0.4s GPU).
     N_PERMS = 500
-    t0 = time.perf_counter()
-    mi_direct(
-        factors,
-        (0,),
-        (1,),
-        factors_nbins,
-        npermutations=N_PERMS,
-        parallelism="none",
-    )
-    t_cpu = time.perf_counter() - t0
+    def _best_of(fn, repeats=3):
+        """Best wall time of ``repeats`` runs of ``fn`` (one measurement on a shared runner can be perturbed 2x-3x)."""
+        best = float("inf")
+        for _ in range(repeats):
+            started = time.perf_counter()
+            fn()
+            best = min(best, time.perf_counter() - started)
+        return best
+
+    t_cpu = _best_of(lambda: mi_direct(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, parallelism="none"))
 
     # Time GPU.
-    t0 = time.perf_counter()
-    mi_direct_gpu(
-        factors,
-        (0,),
-        (1,),
-        factors_nbins,
-        npermutations=N_PERMS,
-    )
-    t_gpu = time.perf_counter() - t0
+    t_gpu = _best_of(lambda: mi_direct_gpu(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS))
 
     speedup = t_cpu / max(t_gpu, 1e-6)
     # Floor history:

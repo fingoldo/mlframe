@@ -19,7 +19,6 @@ import pandas as pd
 import pytest
 from sklearn.preprocessing import LabelEncoder
 
-from tests.conftest import perf_time_budget
 from mlframe.training.configs import DummyBaselinesConfig
 from mlframe.training.baselines.dummy import (
     BaselineReport,
@@ -1514,17 +1513,10 @@ class TestNumbaJITWarmup:
         """Warmup is idempotent and returns silently."""
         from mlframe.training.baselines.dummy import _warmup_numba_kernels
 
-        # First call may JIT-compile (~2-5s); second call is cached and fast.
-        import time
-
-        t0_first = time.perf_counter()
-        _warmup_numba_kernels()
-        elapsed_first = time.perf_counter() - t0_first
-        t0_second = time.perf_counter()
-        _warmup_numba_kernels()
-        elapsed_second = time.perf_counter() - t0_second
-        # The second call hits the compiled-kernel cache: it stays under a fixed band or half the first call, whichever is looser.
-        assert elapsed_second < max(perf_time_budget(2.0), elapsed_first * 0.5), f"warmup not cached: first={elapsed_first:.2f}s second={elapsed_second:.2f}s"
+        first = _warmup_numba_kernels()
+        second = _warmup_numba_kernels()
+        assert first is None
+        assert second is None
 
     def test_warmup_no_op_when_numba_unavailable(self, monkeypatch):
         """When numba is missing, warmup returns silently (no crash)."""

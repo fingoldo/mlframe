@@ -631,20 +631,27 @@ class TestCACHE_P1_7_SizeSafetyFactor:
 
 class TestCACHE_P2_1_OrderingNote:
     """Groups tests covering c a c h e p2 1 ordering note."""
-    def test_ordering_comment_present(self) -> None:
-        # 2026-05-22 split: train_mlframe_models_suite body moved to
-        # ``_main_train_suite.py``; the ordering comment migrated with it.
-        # Read both files so the docstring/comment sensor still matches.
-        """Ordering comment present."""
-        import pathlib
-        import mlframe.training.core.main as m
+    def test_trainset_stats_are_computed_before_the_pandas_conversion_phase(self) -> None:
+        """The suite computes train-set feature stats while ``train_df`` is still polars, i.e. before the pandas conversion phase.
 
-        _dir = pathlib.Path(m.__file__).resolve().parent
-        src = open(m.__file__, encoding="utf-8").read()
-        sibling = _dir / "_main_train_suite.py"
-        if sibling.exists():
-            src += "\n" + sibling.read_text(encoding="utf-8")
-        assert "MUST run BEFORE _phase_pandas_conversion_and_cat_prep" in src
+        Converting first would silently degrade the polars fastpath to pandas. The order is a property of the call sequence
+        inside ``train_mlframe_models_suite``, read off the syntax tree rather than from any comment.
+        """
+        import ast
+        import pathlib
+
+        import mlframe.training.core._main_train_suite as m
+
+        tree = ast.parse(pathlib.Path(m.__file__).read_text(encoding="utf-8"))
+        first_call_line: dict[str, int] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                line = first_call_line.get(node.func.id)
+                first_call_line[node.func.id] = node.lineno if line is None else min(line, node.lineno)
+
+        assert "compute_or_fetch_trainset_features_stats" in first_call_line
+        assert "_phase_pandas_conversion_and_cat_prep" in first_call_line
+        assert first_call_line["compute_or_fetch_trainset_features_stats"] < first_call_line["_phase_pandas_conversion_and_cat_prep"]
 
 
 # ---------------------------------------------------------------------------

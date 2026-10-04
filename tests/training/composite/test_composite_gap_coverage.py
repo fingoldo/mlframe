@@ -134,13 +134,29 @@ class TestA34StackedPass2Training:
         assert bad.name in flagged, "spec whose base is an ephemeral _oof_ column must be flagged unrebuildable"
         assert good.name not in flagged, "spec on a real feature column must NOT be flagged"
 
-    def test_residual_stacked_warns_on_residual_fitted_specs(self, caplog) -> None:
+    def test_residual_stacked_warns_on_residual_fitted_specs(self, caplog, monkeypatch) -> None:
         """A7: pass-2 specs discovered on the RESIDUAL target carry residual-
         fitted params but the suite has no residual-aware training route, so the
         merge into specs_ must emit a loud warning (training would apply the
-        residual-fitted params against raw y)."""
+        residual-fitted params against raw y).
+
+        Pass 1 is the real discovery. The residual pass is stubbed to return one spec, because the honest-holdout
+        gate rightly drops every residual candidate on this linear frame (the ridge stack already absorbs the signal),
+        and the contract under test is the merge, flag and warning for a spec that does survive."""
+        import dataclasses
+
         from mlframe.training.composite.discovery import CompositeTargetDiscovery
 
+        real_fit = CompositeTargetDiscovery.fit
+
+        def _fit(self, df, target_col, *args, **kwargs):
+            """Real fit for the raw target; on the residual target return a single spec, as a pass that found one."""
+            if target_col.startswith("__y_residual__"):
+                self.specs_ = [dataclasses.replace(self.specs_[0], name="y_resid_pass2_spec")]
+                return self
+            return real_fit(self, df, target_col, *args, **kwargs)
+
+        monkeypatch.setattr(CompositeTargetDiscovery, "fit", _fit)
         df = _two_signal_frame()
         n = len(df)
         with caplog.at_level(logging.WARNING):
@@ -154,13 +170,11 @@ class TestA34StackedPass2Training:
                 n_oof_folds=2,
                 max_pass1_specs_to_aggregate=2,
             )
-        # The two-signal frame gives pass 2 residual structure to find; every merged residual spec must carry the
-        # discovered_on_residual flag, and the A7 warning must be emitted.
-        new_residual = [s for s in disc.specs_ if getattr(s, "discovered_on_residual", False)]
-        assert new_residual, "pass 2 found no residual specs on a frame built to have residual signal"
-        assert any(
-            "discovered on the RESIDUAL target" in rec.message for rec in caplog.records
-        ), "residual-fitted pass-2 specs were merged without the A7 residual-vs-raw warning"
+        new_residual = [s.name for s in disc.specs_ if getattr(s, "discovered_on_residual", False)]
+        assert new_residual == ["y_resid_pass2_spec"]
+        warned = [rec.message for rec in caplog.records if "discovered on the RESIDUAL target" in rec.message]
+        assert warned, "residual-fitted pass-2 specs were merged without the A7 residual-vs-raw warning"
+        assert "y_resid_pass2_spec" in warned[0]
 
 
 # ===========================================================================

@@ -35,7 +35,7 @@ pytest.importorskip("sklearn")
 # exceeds the fast-mode --timeout=60. Mark slow_only so --fast skips it.
 pytestmark = [pytest.mark.slow_only, pytest.mark.biz_transformer]
 
-from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_california
+from tests.feature_engineering.transformer.test_biz_val_real_datasets import _load_california, _load_or_skip
 from tests.feature_engineering.transformer.test_validation_records import (
     _build_iter68,
     _build_iter69,
@@ -52,7 +52,7 @@ _SCALE_SEEDS = (0, 17, 42)
 
 def _validate_scale(loader_fn, builder, target_model, target_metric, claimed_lift, label):
     """Helper: Validate scale."""
-    X_full, y_full, task = loader_fn()
+    X_full, y_full, task = _load_or_skip(loader_fn, label)
     print(f"\n  Dataset shape: {X_full.shape}  task: {task}")
     lifts = []
     for seed in _SCALE_SEEDS:
@@ -75,6 +75,7 @@ def _validate_scale(loader_fn, builder, target_model, target_metric, claimed_lif
     print(
         f">>> {label} {target_model} {target_metric}: median={median:+.4f} IQR={iqr:.4f} min={lo:+.4f} max={hi:+.4f} | small-N claimed={claimed_lift:+.4f} | {survives}"
     )
+    return median, iqr, lifts
 
 
 def _assert_lifts_finite(result, label):

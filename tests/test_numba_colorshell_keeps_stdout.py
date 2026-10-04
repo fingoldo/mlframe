@@ -13,13 +13,13 @@ import sys
 
 import pytest
 
+errors = pytest.importorskip("numba.core.errors")
+initialise = pytest.importorskip("colorama.initialise")
 
+
+@pytest.mark.skipif(not hasattr(errors, "ColorShell"), reason="numba built without colorama support: no ColorShell")
 def test_numba_colorshell_exit_leaves_a_swapped_stdout_in_place(monkeypatch):
     """Entering and leaving numba's ColorShell keeps a swapped-in ``sys.stdout`` installed and writes nothing to colorama's recorded stream."""
-    errors = pytest.importorskip("numba.core.errors")
-    initialise = pytest.importorskip("colorama.initialise")
-    if not hasattr(errors, "ColorShell"):
-        pytest.skip("numba built without colorama support: no ColorShell")
     # What an earlier colorama.init() leaves behind: a recorded "original" stream deinit() would restore.
     recorded = io.StringIO()
     monkeypatch.setattr(initialise, "orig_stdout", recorded)

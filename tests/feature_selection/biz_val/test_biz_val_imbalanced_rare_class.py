@@ -227,6 +227,7 @@ def test_biz_val_rfecv_prunes_noise_at_severe_imbalance():
     carries most of the noise. Pinned as an explicit GAP, not weakened."""
     recs, nsels = _majority_recovery(_make_rfecv, 0.01, 4000, (0, 1, 2))
     print(f"RFECV prune@1pct recov={recs} nsel={nsels}")
+    assert min(recs) >= 3, f"RFECV lost signal at 1% imbalance: recov={recs}"
     known_gap(
         "FS GAP: RFECV does not prune noise columns under severe imbalance -- at a 1% positive rate it selects 6-11 of 11 columns (8 are pure noise); "
         f"the rare-class CV score barely separates signal from noise so the backward elimination cannot shrink the set (nsel={nsels}).",

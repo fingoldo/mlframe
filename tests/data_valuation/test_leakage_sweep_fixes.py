@@ -45,6 +45,7 @@ def test_dro_reweight_fit_groups_make_oof_folds_group_disjoint():
     grouped = run(gid)
     assert sum(1 for s in grouped if s < n_groups) == 2 * 5
     iid = run(None)
+    assert len(iid) > 0
     assert all(s == n_groups for s in iid)
 
 

@@ -37,6 +37,13 @@ _TEST_META_DIR = Path(__file__).resolve().parent
 # Imports of a production private symbol from a meta-test that are
 # legitimate. Each entry is "test_meta_filename::imported_dotted_name".
 _PERMITTED_PRIVATE_IMPORTS: set[str] = {
+    # The swallowed-failure meta-tests drive the handlers of these private FE modules directly: the handler IS the surface under audit
+    # and no public entry point reaches one except branch without a whole fit.
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mi_greedy_cmi_fe",
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe",
+    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._binned_numeric_agg_fe",
+    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._fe_batched_mi",
+    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._mi_greedy_cmi_fe",
     # mlframe meta-tests touching internal helpers — these are the
     # surface under audit, so importing the underscore-prefixed name
     # is part of the test's purpose.

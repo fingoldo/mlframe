@@ -362,6 +362,7 @@ def test_biz_val_bootstrap_stability_mrmr_beats_mi_redundant_cluster():
         p = Xnp.shape[1]
         sm = nogueira_stability(mrmr_masks, p)
         si = nogueira_stability(mi_masks, p)
+        assert sm >= 0.45, f"MRMR bootstrap stability below its own floor on seed {seed}: {sm:.4f}"
         deltas.append(round(sm - si, 4))
         if sm >= si + 0.10:
             wins += 1
@@ -381,6 +382,7 @@ def test_biz_val_bootstrap_stability_control_within_epsilon_of_mi():
     p = Xnp.shape[1]
     sm = nogueira_stability(mrmr_masks, p)
     si = nogueira_stability(mi_masks, p)
+    assert sm >= 0.2 and si >= 0.2, f"bootstrap stability collapsed: stab_mrmr={sm:.4f} stab_mi={si:.4f}"
     # measured delta -0.048 against the -0.05 bound is inside noise, so only a non-negative delta closes the gap
     known_gap(
         "REFUTED VALUE PROOF: bizvalue_value_proofs-04 proposed MRMR is within epsilon of MI (>= -0.05 Nogueira) on bootstrap selection stability on the "

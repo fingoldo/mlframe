@@ -45,8 +45,5 @@ def test_votenrank_stability_pic_leaves_no_open_figure(tmp_path):
     rng = np.random.default_rng(0)
     exp_range = np.linspace(0.0, 0.2, 5)
     exp_res = {m: rng.random((5, 3)).mean(axis=1) for m in ("a", "b", "c", "d")}
-    try:
-        create_exp_pic(exp_range, exp_res, filename=str(tmp_path / "s.pdf"))
-    except (TypeError, ValueError) as exc:
-        pytest.skip(f"seaborn version rejects the legacy ci argument: {exc}")
+    create_exp_pic(exp_range, exp_res, filename=str(tmp_path / "s.pdf"))
     assert len(plt.get_fignums()) == 0

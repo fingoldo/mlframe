@@ -169,6 +169,7 @@ def test_f45_cudnn_autotune_skipped_pre_ampere(monkeypatch):
     """F45 cudnn autotune skipped pre ampere."""
     monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "get_device_capability", lambda *args, **kwargs: (6, 1))
+    monkeypatch.setattr(torch.backends.cudnn, "deterministic", False)
     prev = torch.backends.cudnn.benchmark
     try:
         torch.backends.cudnn.benchmark = False

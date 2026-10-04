@@ -107,17 +107,21 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
     factors, factors_nbins = _make_signal(n=10_000, seed=42)
     N_PERMS = 500
 
-    t0 = time.perf_counter()
+    def _best_of(fn, repeats=3):
+        """Best wall time of ``repeats`` runs of ``fn`` (one measurement on a shared runner can be perturbed 2x-3x)."""
+        best = float("inf")
+        for _ in range(repeats):
+            started = time.perf_counter()
+            fn()
+            best = min(best, time.perf_counter() - started)
+        return best
+
     # ``prefer_gpu=False`` keeps the legacy CPU njit permutation kernel
     # (commit ba78f04 added a transparent GPU route at npermutations>=32
     # that would otherwise hijack this CPU baseline call and break the
     # GPU-vs-CPU comparison this test is asserting).
-    mi_direct(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, parallelism="none", prefer_gpu=False)
-    t_cpu = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, batch_size=64)
-    t_gpu = time.perf_counter() - t0
+    t_cpu = _best_of(lambda: mi_direct(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, parallelism="none", prefer_gpu=False))
+    t_gpu = _best_of(lambda: mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, batch_size=64))
 
     speedup = t_cpu / max(t_gpu, 1e-6)
     # Two-tier sensor: a catastrophic ratio is a real regression (kernel decompile / H2D sync storm); the 0.02-0.5x band is the shared-GPU /
@@ -146,9 +150,11 @@ def test_biz_val_gpu_mi_batched_scales_to_n200k():
     factors, factors_nbins = _make_signal(n=200_000, seed=42)
     N_PERMS = 500
 
-    t0 = time.perf_counter()
-    mi, conf = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, batch_size=64)
-    t_gpu = time.perf_counter() - t0
+    t_gpu = float("inf")
+    for _ in range(2):
+        started = time.perf_counter()
+        mi, conf = mi_direct_gpu_batched(factors, (0,), (1,), factors_nbins, npermutations=N_PERMS, batch_size=64)
+        t_gpu = min(t_gpu, time.perf_counter() - started)
     assert t_gpu < 30.0, f"GPU batched MI must complete n=200k within 30s; got {t_gpu:.1f}s"
     # The return contract: ``(mi_or_zero, confidence)``. On strong
     # signal the kernel must complete and emit a valid tuple. ``mi``

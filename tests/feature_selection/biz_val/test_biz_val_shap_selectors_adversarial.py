@@ -244,6 +244,17 @@ def test_biz_val_boruta_exact_duplicate_measured_behavior():
 # --------------------------------------------------------------- Adversarial: confounder + genuine signals
 
 
+def _holdout_auc(X, y, columns):
+    """Held-out ROC AUC of a logistic regression on ``columns`` (60/40 split, fixed seed)."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score
+    from sklearn.model_selection import train_test_split
+
+    x_tr, x_te, y_tr, y_te = train_test_split(X[columns], y, test_size=0.4, random_state=0, stratify=y)
+    model = LogisticRegression(max_iter=1000).fit(x_tr, y_tr)
+    return float(roc_auc_score(y_te, model.predict_proba(x_te)[:, 1]))
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", SEEDS)
 def test_biz_val_spfs_confounder_retains_genuine_signals(seed):
@@ -265,6 +276,8 @@ def test_biz_val_spfs_confounder_retains_genuine_signals(seed):
     got = _names(sel)
     inf_kept = got & {"inf0", "inf1"}
     assert len(inf_kept) >= 1, f"seed {seed}: SPFS dropped genuine signals: kept {sorted(got)}"
+    auc_selected, auc_oracle = _holdout_auc(X, y, sorted(got)), _holdout_auc(X, y, ["inf0", "inf1"])
+    assert auc_selected >= auc_oracle - 0.05, f"seed {seed}: selection {sorted(got)} lost {auc_oracle - auc_selected:.3f} AUC against the true pair"
 
 
 @pytest.mark.slow

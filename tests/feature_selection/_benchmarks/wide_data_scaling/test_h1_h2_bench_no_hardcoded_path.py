@@ -51,7 +51,7 @@ def test_no_dev_machine_hardcoded_path_remains(fname):
     assert str(real_src) in inserted, f"{fname} inserted {inserted}, expected the real src directory {real_src}"
     for entry in inserted:
         assert Path(entry).is_dir(), f"{fname} inserts {entry}, which does not exist on this machine"
-        assert not entry.replace("\\", "/").startswith("D:/Upd"), f"{fname} inserts the dev-machine path {entry}"
+        assert Path(entry).resolve().is_relative_to(real_src.parent), f"{fname} inserts {entry}, a path outside this checkout"
 
 
 def test_derived_src_dir_matches_the_real_src_directory():

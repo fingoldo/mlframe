@@ -69,6 +69,7 @@ def test_biz_val_diversity_recommendations_surfaces_diverse_weaker_member():
     assert {entry["model"] for entry in shortlist} <= {"SimpleNamespace#4", "SimpleNamespace#5", "SimpleNamespace#6"}
     assert [entry["recommended_rank"] for entry in shortlist] == list(range(1, len(shortlist) + 1))
     gains = [entry["ablation_improvement"] for entry in shortlist]
+    assert gains, "no ablation gains were reported"
     assert all(g > 0.0 for g in gains)
     assert gains == sorted(gains, reverse=True)
     assert all(entry["max_correlation"] < 0.85 for entry in shortlist)

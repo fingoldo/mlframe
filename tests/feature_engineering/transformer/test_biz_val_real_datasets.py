@@ -175,6 +175,30 @@ def _aggressive_gc_between_tests():
 
 _NETWORK_ERRORS = (urllib.error.URLError, ConnectionError, TimeoutError, socket.timeout, socket.gaierror)
 
+
+class _LoaderFailure:
+    """A dataset loader raised: carries the exception so the caller can skip outside any block that runs code under test."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self.exc = exc
+
+
+def _call_loader(loader, errors):
+    """Run only the dataset loader; return its result, or a ``_LoaderFailure`` when it raises one of ``errors``."""
+    try:
+        return loader()
+    except errors as exc:
+        return _LoaderFailure(exc)
+
+
+def _load_or_skip(loader, name: str, errors=Exception):
+    """Return ``loader()``; skip the test only when the data itself is unavailable (the loader raised ``errors``)."""
+    result = _call_loader(loader, errors)
+    if isinstance(result, _LoaderFailure):
+        pytest.skip(f"{name}: dataset unavailable: {type(result.exc).__name__}: {result.exc}")
+    return result
+
+
 # ---------- dataset loaders ----------
 
 
@@ -1308,10 +1332,7 @@ def _per_dataset_test(loader, name: str) -> List[Dict]:
     """Per-dataset test body shared across the parametrised tests below. Process-isolated by virtue of one pytest test per dataset
     (CatBoost / XGBoost leak under repeated fits in the same process; isolating prevents cumulative OOM).
     """
-    try:
-        X, y, task = loader()
-    except _NETWORK_ERRORS as exc:
-        pytest.skip(f"{name}: dataset download unavailable offline: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name, _NETWORK_ERRORS)
     X, y = _cap_rows(X, y)
     print(f"\n[run] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name)
@@ -2279,10 +2300,7 @@ FEATURE_BUILDERS_BEST_MULTIMETRIC: Dict[str, Callable] = {
 
 def _run_multimetric_test(loader, name: str) -> List[Dict]:
     """Run the best-mechanism matrix on a dataset with the full metric panel printed."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[multimetric] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_BEST_MULTIMETRIC)
@@ -2375,10 +2393,7 @@ FEATURE_BUILDERS_ITER10: Dict[str, Callable] = {
 
 def _run_iter9_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter9 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter9-tq] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER9)
@@ -2421,10 +2436,7 @@ def test_iter9_qsar():
 
 def _run_iter10_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter10 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter10-imp] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER10)
@@ -2499,10 +2511,7 @@ FEATURE_BUILDERS_ITER12: Dict[str, Callable] = {
 
 def _run_iter12_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter12 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter12-adaptive] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER12)
@@ -2544,10 +2553,7 @@ FEATURE_BUILDERS_ITER13: Dict[str, Callable] = {
 
 def _run_iter13_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter13 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter13-predaug] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER13)
@@ -2590,10 +2596,7 @@ FEATURE_BUILDERS_ITER14: Dict[str, Callable] = {
 
 def _run_iter14_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter14 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter14-multitemp] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER14)
@@ -2635,10 +2638,7 @@ FEATURE_BUILDERS_ITER15: Dict[str, Callable] = {
 
 def _run_iter15_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter15 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter15-shap] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER15)
@@ -2732,10 +2732,7 @@ FEATURE_BUILDERS_ITER16: Dict[str, Callable] = {
 
 def _run_iter16_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter16 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter16-anchor] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER16)
@@ -2830,10 +2827,7 @@ FEATURE_BUILDERS_ITER17: Dict[str, Callable] = {
 
 def _run_iter17_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter17 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter17-rfprox] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER17)
@@ -2923,10 +2917,7 @@ FEATURE_BUILDERS_ITER18: Dict[str, Callable] = {
 
 def _run_iter18_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter18 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter18-spectral] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER18)
@@ -3032,10 +3023,7 @@ FEATURE_BUILDERS_ITER19: Dict[str, Callable] = {
 
 def _run_iter19_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter19 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter19-cc_anchor] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER19)
@@ -3117,10 +3105,7 @@ FEATURE_BUILDERS_ITER20: Dict[str, Callable] = {
 
 def _run_iter20_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter20 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter20-qnn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER20)
@@ -3212,10 +3197,7 @@ FEATURE_BUILDERS_ITER21: Dict[str, Callable] = {
 
 def _run_iter21_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter21 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter21-pc_spectral] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER21)
@@ -3297,10 +3279,7 @@ FEATURE_BUILDERS_ITER22: Dict[str, Callable] = {
 
 def _run_iter22_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter22 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter22-sqnn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER22)
@@ -3400,10 +3379,7 @@ FEATURE_BUILDERS_ITER23: Dict[str, Callable] = {
 
 def _run_iter23_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter23 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter23-mega_v2] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER23)
@@ -3554,10 +3530,7 @@ FEATURE_BUILDERS_ITER2425: Dict[str, Callable] = {
 
 def _run_iter2425_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter2425 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter24-25-loclift-mahcc] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER2425)
@@ -3657,10 +3630,7 @@ FEATURE_BUILDERS_ITER26: Dict[str, Callable] = {
 
 def _run_iter26_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter26 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter26-focal] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER26)
@@ -3753,10 +3723,7 @@ FEATURE_BUILDERS_ITER27: Dict[str, Callable] = {
 
 def _run_iter27_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter27 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter27-cdist] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER27)
@@ -3858,10 +3825,7 @@ FEATURE_BUILDERS_ITER28: Dict[str, Callable] = {
 
 def _run_iter28_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter28 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter28-denrat] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER28)
@@ -3961,10 +3925,7 @@ FEATURE_BUILDERS_ITER29: Dict[str, Callable] = {
 
 def _run_iter29_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter29 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter29-ksshift] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER29)
@@ -4066,10 +4027,7 @@ FEATURE_BUILDERS_ITER30: Dict[str, Callable] = {
 
 def _run_iter30_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter30 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter30-loccls] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER30)
@@ -4172,10 +4130,7 @@ FEATURE_BUILDERS_ITER31: Dict[str, Callable] = {
 
 def _run_iter31_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter31 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter31-msrate] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER31)
@@ -4275,10 +4230,7 @@ FEATURE_BUILDERS_ITER32: Dict[str, Callable] = {
 
 def _run_iter32_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter32 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter32-multiaux] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER32)
@@ -4375,10 +4327,7 @@ FEATURE_BUILDERS_ITER33: Dict[str, Callable] = {
 
 def _run_iter33_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter33 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter33-smote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER33)
@@ -4493,10 +4442,7 @@ FEATURE_BUILDERS_ITER34: Dict[str, Callable] = {
 
 def _run_iter34_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter34 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter34-blsmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER34)
@@ -4579,10 +4525,7 @@ FEATURE_BUILDERS_ITER35: Dict[str, Callable] = {
 
 def _run_iter35_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter35 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter35-mixup] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER35)
@@ -4665,10 +4608,7 @@ FEATURE_BUILDERS_ITER36: Dict[str, Callable] = {
 
 def _run_iter36_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter36 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter36-cutmix] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER36)
@@ -4746,10 +4686,7 @@ FEATURE_BUILDERS_ITER37: Dict[str, Callable] = {
 
 def _run_iter37_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter37 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter37-lda] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER37)
@@ -4829,10 +4766,7 @@ FEATURE_BUILDERS_ITER38: Dict[str, Callable] = {
 
 def _run_iter38_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter38 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter38-nca] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER38)
@@ -4920,10 +4854,7 @@ FEATURE_BUILDERS_ITER39: Dict[str, Callable] = {
 
 def _run_iter39_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter39 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter39-ncaattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER39)
@@ -5014,10 +4945,7 @@ FEATURE_BUILDERS_ITER40: Dict[str, Callable] = {
 
 def _run_iter40_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter40 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter40-ae] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER40)
@@ -5111,10 +5039,7 @@ FEATURE_BUILDERS_ITER41: Dict[str, Callable] = {
 
 def _run_iter41_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter41 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter41-bgmm] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER41)
@@ -5206,10 +5131,7 @@ FEATURE_BUILDERS_ITER42: Dict[str, Callable] = {
 
 def _run_iter42_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter42 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter42-diffusion] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER42)
@@ -5303,10 +5225,7 @@ FEATURE_BUILDERS_ITER43: Dict[str, Callable] = {
 
 def _run_iter43_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter43 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter43-psmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER43)
@@ -5400,10 +5319,7 @@ FEATURE_BUILDERS_ITER44: Dict[str, Callable] = {
 
 def _run_iter44_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter44 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter44-csmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER44)
@@ -5483,10 +5399,7 @@ FEATURE_BUILDERS_ITER45: Dict[str, Callable] = {
 
 def _run_iter45_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter45 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter45-bgmms] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER45)
@@ -5564,10 +5477,7 @@ FEATURE_BUILDERS_ITER46: Dict[str, Callable] = {
 
 def _run_iter46_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter46 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter46-bdr] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER46)
@@ -5647,10 +5557,7 @@ FEATURE_BUILDERS_ITER47: Dict[str, Callable] = {
 
 def _run_iter47_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter47 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter47-mss] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER47)
@@ -5732,10 +5639,7 @@ FEATURE_BUILDERS_ITER48: Dict[str, Callable] = {
 
 def _run_iter48_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter48 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter48-bcs] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER48)
@@ -5817,10 +5721,7 @@ FEATURE_BUILDERS_ITER49: Dict[str, Callable] = {
 
 def _run_iter49_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter49 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter49-actv] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER49)
@@ -5900,10 +5801,7 @@ FEATURE_BUILDERS_ITER50: Dict[str, Callable] = {
 
 def _run_iter50_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter50 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter50-dwsmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER50)
@@ -5996,10 +5894,7 @@ FEATURE_BUILDERS_ITER51: Dict[str, Callable] = {
 
 def _run_iter51_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter51 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter51-adasyn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER51)
@@ -6090,10 +5985,7 @@ FEATURE_BUILDERS_ITER52: Dict[str, Callable] = {
 
 def _run_iter52_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter52 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter52-ppsmote] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER52)
@@ -6185,10 +6077,7 @@ FEATURE_BUILDERS_ITER53: Dict[str, Callable] = {
 
 def _run_iter53_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter53 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter53-indattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER53)
@@ -6275,10 +6164,7 @@ FEATURE_BUILDERS_ITER54: Dict[str, Callable] = {
 
 def _run_iter54_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter54 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter54-perfattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER54)
@@ -6372,10 +6258,7 @@ FEATURE_BUILDERS_ITER55: Dict[str, Callable] = {
 
 def _run_iter55_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter55 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter55-bdc] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER55)
@@ -6467,10 +6350,7 @@ FEATURE_BUILDERS_ITER56: Dict[str, Callable] = {
 
 def _run_iter56_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter56 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter56-bqb] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER56)
@@ -6560,10 +6440,7 @@ FEATURE_BUILDERS_ITER57: Dict[str, Callable] = {
 
 def _run_iter57_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter57 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter57-qbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER57)
@@ -6653,10 +6530,7 @@ FEATURE_BUILDERS_ITER58: Dict[str, Callable] = {
 
 def _run_iter58_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter58 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter58-mtqbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER58)
@@ -6748,10 +6622,7 @@ FEATURE_BUILDERS_ITER59: Dict[str, Callable] = {
 
 def _run_iter59_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter59 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter59-bcanc] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER59)
@@ -6841,10 +6712,7 @@ FEATURE_BUILDERS_ITER60: Dict[str, Callable] = {
 
 def _run_iter60_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter60 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter60-rbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER60)
@@ -6934,10 +6802,7 @@ FEATURE_BUILDERS_ITER61: Dict[str, Callable] = {
 
 def _run_iter61_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter61 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter61-mtrbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER61)
@@ -7027,10 +6892,7 @@ FEATURE_BUILDERS_ITER62: Dict[str, Callable] = {
 
 def _run_iter62_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter62 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter62-srbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER62)
@@ -7120,10 +6982,7 @@ FEATURE_BUILDERS_ITER63: Dict[str, Callable] = {
 
 def _run_iter63_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter63 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter63-bidrbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER63)
@@ -7213,10 +7072,7 @@ FEATURE_BUILDERS_ITER64: Dict[str, Callable] = {
 
 def _run_iter64_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter64 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter64-predbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER64)
@@ -7306,10 +7162,7 @@ FEATURE_BUILDERS_ITER65: Dict[str, Callable] = {
 
 def _run_iter65_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter65 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter65-hrattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER65)
@@ -7399,10 +7252,7 @@ FEATURE_BUILDERS_ITER66: Dict[str, Callable] = {
 
 def _run_iter66_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter66 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter66-cbhrattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER66)
@@ -7492,10 +7342,7 @@ FEATURE_BUILDERS_ITER67: Dict[str, Callable] = {
 
 def _run_iter67_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter67 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter67-mtcbhrattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER67)
@@ -7585,10 +7432,7 @@ FEATURE_BUILDERS_ITER68: Dict[str, Callable] = {
 
 def _run_iter68_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter68 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter68-mbhrattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER68)
@@ -7674,10 +7518,7 @@ FEATURE_BUILDERS_ITER69: Dict[str, Callable] = {
 
 def _run_iter69_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter69 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter69-blagreement] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER69)
@@ -7767,10 +7608,7 @@ FEATURE_BUILDERS_ITER70: Dict[str, Callable] = {
 
 def _run_iter70_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter70 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter70-dbattn] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER70)
@@ -7858,10 +7696,7 @@ FEATURE_BUILDERS_ITER71: Dict[str, Callable] = {
 
 def _run_iter71_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter71 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter71-nnoof] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER71)
@@ -7949,10 +7784,7 @@ FEATURE_BUILDERS_ITER72: Dict[str, Callable] = {
 
 def _run_iter72_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter72 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter72-ldgrad] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER72)
@@ -8040,10 +7872,7 @@ FEATURE_BUILDERS_ITER73: Dict[str, Callable] = {
 
 def _run_iter73_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter73 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter73-surprise] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER73)
@@ -8131,10 +7960,7 @@ FEATURE_BUILDERS_ITER74: Dict[str, Callable] = {
 
 def _run_iter74_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter74 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter74-lid] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER74)
@@ -8224,10 +8050,7 @@ FEATURE_BUILDERS_ITER75: Dict[str, Callable] = {
 
 def _run_iter75_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter75 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter75-robust] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER75)
@@ -8313,10 +8136,7 @@ FEATURE_BUILDERS_ITER76: Dict[str, Callable] = {
 
 def _run_iter76_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter76 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter76-pwkl] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER76)
@@ -8404,10 +8224,7 @@ FEATURE_BUILDERS_ITER77: Dict[str, Callable] = {
 
 def _run_iter77_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter77 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter77-curv] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER77)
@@ -8495,10 +8312,7 @@ FEATURE_BUILDERS_ITER78: Dict[str, Callable] = {
 
 def _run_iter78_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter78 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter78-cfact] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER78)
@@ -8584,10 +8398,7 @@ FEATURE_BUILDERS_ITER79: Dict[str, Callable] = {
 
 def _run_iter79_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter79 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter79-advflip] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER79)
@@ -8673,10 +8484,7 @@ FEATURE_BUILDERS_ITER80: Dict[str, Callable] = {
 
 def _run_iter80_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter80 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter80-graddir] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER80)
@@ -8764,10 +8572,7 @@ FEATURE_BUILDERS_ITER81: Dict[str, Callable] = {
 
 def _run_iter81_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter81 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter81-fishres] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER81)
@@ -8855,10 +8660,7 @@ FEATURE_BUILDERS_ITER82: Dict[str, Callable] = {
 
 def _run_iter82_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter82 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter82-pinfo] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER82)
@@ -8946,10 +8748,7 @@ FEATURE_BUILDERS_ITER83: Dict[str, Callable] = {
 
 def _run_iter83_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter83 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter83-drd] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER83)
@@ -9035,10 +8834,7 @@ FEATURE_BUILDERS_ITER84: Dict[str, Callable] = {
 
 def _run_iter84_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter84 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter84-ibcode] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER84)
@@ -9124,10 +8920,7 @@ FEATURE_BUILDERS_ITER85: Dict[str, Callable] = {
 
 def _run_iter85_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter85 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter85-geo] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER85)
@@ -9215,10 +9008,7 @@ FEATURE_BUILDERS_ITER86: Dict[str, Callable] = {
 
 def _run_iter86_test(loader, name: str) -> List[Dict]:
     """Helper: Run iter86 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: loader failed: {type(exc).__name__}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter86-pers] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER86)
@@ -9290,10 +9080,7 @@ FEATURE_BUILDERS_ITER87: Dict[str, Callable] = {
 
 def _run_iter87_test(loader, name):
     """Helper: Run iter87 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter87-varbase] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER87)
@@ -9365,10 +9152,7 @@ FEATURE_BUILDERS_ITER88: Dict[str, Callable] = {
 
 def _run_iter88_test(loader, name):
     """Helper: Run iter88 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter88-signres] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER88)
@@ -9440,10 +9224,7 @@ FEATURE_BUILDERS_ITER89: Dict[str, Callable] = {
 
 def _run_iter89_test(loader, name):
     """Helper: Run iter89 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter89-qfan] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER89)
@@ -9515,10 +9296,7 @@ FEATURE_BUILDERS_ITER90: Dict[str, Callable] = {
 
 def _run_iter90_test(loader, name):
     """Helper: Run iter90 test."""
-    try:
-        X, y, task = loader()
-    except Exception as exc:
-        pytest.skip(f"{name}: {exc}")
+    X, y, task = _load_or_skip(loader, name)
     X, y = _cap_rows(X, y)
     print(f"\n[iter90-trust] {name}: X.shape={X.shape}, task={task}")
     records = _run_matrix(X, y, task, name, builders=FEATURE_BUILDERS_ITER90)
@@ -9588,10 +9366,7 @@ def _make_runner(iter_n: int, prefix: str, builders: Dict[str, Callable]):
     """Helper: Make runner."""
     def _run(loader, name):
         """Helper: Run."""
-        try:
-            X, y, task = loader()
-        except Exception as exc:
-            pytest.skip(f"{name}: {exc}")
+        X, y, task = _load_or_skip(loader, name)
         X, y = _cap_rows(X, y)
         print(f"\n[iter{iter_n}-{prefix}] {name}: X.shape={X.shape}, task={task}")
         records = _run_matrix(X, y, task, name, builders=builders)
