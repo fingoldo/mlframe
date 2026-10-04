@@ -74,7 +74,7 @@ def test_find_sample_starts_at_5_percent_not_10_percent():
     try:
         preds = np.linspace(0.0, 1.0, 400)
         stub = _Stub(preds)
-        expected_sizes = stub.get_5_percent_splits(stub.X.shape[0])
+        expected_sizes = stub.get_5_percent_splits(stub.X_.shape[0])
         stub.find_sample()
     finally:
         ss.choice = orig_choice
@@ -89,7 +89,7 @@ def test_find_sample_no_indexerror_on_tiny_frame():
     size[element] in that case."""
     preds = np.array([0.5])
     stub = _Stub(preds)
-    assert stub.get_5_percent_splits(stub.X.shape[0]).size == 0, "sanity: this fixture must exercise the empty-size-array path"
+    assert stub.get_5_percent_splits(stub.X_.shape[0]).size == 0, "sanity: this fixture must exercise the empty-size-array path"
     result = stub.find_sample()
     assert isinstance(result, pd.DataFrame)
     assert result.shape[0] == stub.X_boruta_.shape[0]

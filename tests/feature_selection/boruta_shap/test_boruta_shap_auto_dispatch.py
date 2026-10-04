@@ -86,7 +86,7 @@ def test_auto_fit_pins_resolution_and_diagnostics_noisy():
     assert b._resolved_importance_measure_ == "permutation"
     assert b.auto_dispatch_diagnostics_["resolved_measure"] == "permutation"
     # permutation branch carved the held-out split it reads.
-    assert getattr(b, "X_boruta_test", None) is not None
+    assert getattr(b, "X_boruta_test_", None) is not None
 
 
 def test_auto_fit_pins_gini_on_clean_and_keeps_train_split():

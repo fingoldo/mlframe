@@ -24,7 +24,7 @@ def test_tree_models_run_with_gini(make):
     """Before fit the property raises NotFittedError, so hasattr() said "no importances" and every such model was refused."""
     X, y = _xy()
     selector = BorutaShap(model=make(), importance_measure="gini", classification=True, n_trials=2, random_state=0).fit(X, y)
-    assert hasattr(selector, "accepted"), "the fit must complete and publish its decisions"
+    assert hasattr(selector, "accepted_"), "the fit must complete and publish its decisions"
 
 
 def test_a_model_without_importances_is_still_refused():

@@ -69,7 +69,7 @@ def test_biz_val_boruta_shap_optimistic_recovers_tentative_tail():
     # The optimistic superset must recover at least as much of the informative set.
     assert len(set(opt.selected_features_) & inf) >= len(set(cons.selected_features_) & inf)
     # If anything was tentative, optimistic strictly grows the selection -- the load-bearing behavioural delta.
-    if len(opt.tentative) > 0:
+    if len(opt.tentative_) > 0:
         assert len(opt.selected_features_) > len(
             cons.selected_features_
         ), "with a non-empty tentative tail, optimistic must select strictly more than conservative"

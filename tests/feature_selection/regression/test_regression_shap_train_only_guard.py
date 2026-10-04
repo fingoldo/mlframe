@@ -83,13 +83,13 @@ def test_d1_p2_8_shap_explainer_uses_train_only_basis(boruta_train_basis_captor,
         columns=["shadow_" + c for c in X_train_df.columns],
         index=X_train_df.index,
     )
-    bs.X = X_train_df.copy()
-    bs.X_boruta = pd.concat([X_train_df, shadow], axis=1)
-    bs.y = y_train
+    bs.X_ = X_train_df.copy()
+    bs.X_boruta_ = pd.concat([X_train_df, shadow], axis=1)
+    bs.y_ = y_train
     # ``model_`` is the sklearn fitted-surrogate attribute explain() reads
     # (fit() resolves + fits it from the ``model`` template); set it directly here.
     bs.model_ = RandomForestClassifier(n_estimators=10, random_state=42, n_jobs=1)
-    bs.model_.fit(bs.X_boruta, bs.y)
+    bs.model_.fit(bs.X_boruta_, bs.y_)
 
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.boruta_shap._fit_explain"):
         bs.explain()
@@ -127,9 +127,9 @@ def test_d1_p2_8_shap_explainer_assertion_fires_on_size_mismatch():
         verbose=False,
         sample=False,
     )
-    bs.X = X_train_df
-    bs.X_boruta = X_bad_boruta
-    bs.y = pd.Series(y_full[:60])
+    bs.X_ = X_train_df
+    bs.X_boruta_ = X_bad_boruta
+    bs.y_ = pd.Series(y_full[:60])
     bs.model_ = RandomForestClassifier(n_estimators=5, random_state=42, n_jobs=1)
     bs.model_.fit(X_bad_boruta, pd.Series(y_full))
     with pytest.raises(ValueError, match="SHAP background row count"):

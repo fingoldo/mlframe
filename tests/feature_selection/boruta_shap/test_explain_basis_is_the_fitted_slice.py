@@ -36,4 +36,4 @@ def test_the_explained_rows_are_the_training_slice(monkeypatch):
     )
     selector.fit(X, y)
     assert seen, "the explainer was never called"
-    assert seen["rows"] == len(selector.X_boruta_train), "the explanation must run on the rows the model was fitted on"
+    assert seen["rows"] == len(selector.X_boruta_train_), "the explanation must run on the rows the model was fitted on"

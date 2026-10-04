@@ -319,16 +319,16 @@ def test_f10_io_plot_uses_explicit_copy():
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     bs = BorutaShap(verbose=False)
-    bs.history_x = pd.DataFrame({"f0": [0.1, 0.2, 0.3], "f1": [0.4, 0.5, 0.6]})
-    bs.rejected = []
-    bs.tentative = []
-    bs.accepted = ["f0", "f1"]
+    bs.history_x_ = pd.DataFrame({"f0": [0.1, 0.2, 0.3], "f1": [0.4, 0.5, 0.6]})
+    bs.rejected_ = []
+    bs.tentative_ = []
+    bs.accepted_ = ["f0", "f1"]
 
-    history_x_before = bs.history_x.copy(deep=True)
+    history_x_before = bs.history_x_.copy(deep=True)
     bs.plot(display=False)
 
-    pd.testing.assert_frame_equal(bs.history_x, history_x_before)
-    assert "index" not in bs.history_x.columns
+    pd.testing.assert_frame_equal(bs.history_x_, history_x_before)
+    assert "index" not in bs.history_x_.columns
 
 
 # ----------------------------------------------------------------------

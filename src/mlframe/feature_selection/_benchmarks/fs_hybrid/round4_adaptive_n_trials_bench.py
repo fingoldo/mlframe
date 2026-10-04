@@ -21,7 +21,7 @@ FALSIFIABLE QUESTIONS (the whole idea lives or dies on these):
       at a DECISION-EQUIVALENT accepted set (Jaccard ~ 1.0)?
 
 METHOD (cheap, fit-once): run prod BorutaShap once at a HIGH n_trials cap with verbose history; the
-  class stores ``history_hits`` (cumulative hits per trial). Replay the exact prod decision rule
+  class stores ``history_hits_`` (cumulative hits per trial). Replay the exact prod decision rule
   (binomial H0 + Bonferroni, test_features) offline per trial to reconstruct the accepted/tentative
   trajectory, find prod's actual all-decided stop trial, and the A4-5 stop trial (accepted set stable
   for W). Compare accepted-set Jaccard(A4-5 stop vs full-cap) and trial savings. No extra model fits.
@@ -146,8 +146,8 @@ def run_bed(name, X, y, n_trials_cap=120, seed=0):
     b.fit(Xtr, ytr)
     wall = time.time() - t0
     n_run = int(getattr(b, "n_trials_run_", n_trials_cap))
-    n_cols = int(b.ncols)
-    hh = np.asarray(b.history_hits)  # (n_run+1, n_cols)
+    n_cols = int(b.ncols_)
+    hh = np.asarray(b.history_hits_)  # (n_run+1, n_cols)
     traj = replay_decisions(hh, n_cols)
     prod_stop = prod_alldecided_stop(traj, n_cols)  # 0-based traj idx
     a45_stop = a45_stop_trial(traj, W=10)

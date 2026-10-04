@@ -49,7 +49,7 @@ def _orchestrate_with_stub(self, X, y, accepted_for, base_seed=0):
         k = int(sub_self.random_state) - base_seed - 1
         # list.append is atomic under the CPython GIL, safe under the threading backend.
         calls.append({"n_rows": len(Xk), "stratify": getattr(sub_self, "stratify", None), "k": k})
-        sub_self.accepted = list(accepted_for(k, sub_self))
+        sub_self.accepted_ = list(accepted_for(k, sub_self))
         return sub_self
 
     orig_fit = BorutaShap.fit
@@ -141,8 +141,8 @@ def test_intersection_mode_drops_submajority_even_when_optimistic():
         return out
 
     self, _ = _orchestrate_with_stub(sel, X, y, accepted_for=accepted_for)
-    assert "sig" in self.accepted
-    assert "spurious" in self.tentative, "setup invariant: spurious must be sub-majority (tentative)"
+    assert "sig" in self.accepted_
+    assert "spurious" in self.tentative_, "setup invariant: spurious must be sub-majority (tentative)"
     # The fix: intersection mode keeps ONLY all-accept features regardless of optimistic.
     assert set(self.selected_features_) == {"sig"}
     assert "spurious" not in self.selected_features_
@@ -178,8 +178,8 @@ def test_majority_mode_still_honors_optimistic():
         return out
 
     self, _ = _orchestrate_with_stub(sel, X, y, accepted_for=accepted_for)
-    assert "sig" in self.accepted
-    assert "weak" in self.tentative
+    assert "sig" in self.accepted_
+    assert "weak" in self.tentative_
     # Majority mode + optimistic re-adds tentative.
     assert set(self.selected_features_) == {"sig", "weak"}
 

@@ -119,8 +119,8 @@ def test_margin_gated_stop_is_decision_equivalent_and_saves_trials():
 
     # Decision-equivalence: the accepted set is IDENTICAL (the margin gate refuses to stop while any tentative
     # feature could still cross, so no accept is missed), and the rejected set matches within the recipe's bar.
-    assert set(on.accepted) == set(off.accepted), f"margin-gated accepted set diverged: on={sorted(on.accepted)} off={sorted(off.accepted)}"
-    assert _jac(on.rejected, off.rejected) >= 0.84, f"rejected Jaccard {_jac(on.rejected, off.rejected):.3f} below recipe bar 0.84"
+    assert set(on.accepted_) == set(off.accepted_), f"margin-gated accepted set diverged: on={sorted(on.accepted_)} off={sorted(off.accepted_)}"
+    assert _jac(on.rejected_, off.rejected_) >= 0.84, f"rejected Jaccard {_jac(on.rejected_, off.rejected_):.3f} below recipe bar 0.84"
     # selected_features_ (accepted + tentative when optimistic) tracks the accepted set + preserved tail.
     assert _jac(on.selected_features_, off.selected_features_) >= 0.84
 
@@ -137,9 +137,9 @@ def test_default_off_is_byte_identical_to_baseline():
     b.fit(X, y)
 
     assert a.n_trials_run_ == b.n_trials_run_
-    assert set(a.accepted) == set(b.accepted)
-    assert set(a.rejected) == set(b.rejected)
-    assert set(a.tentative) == set(b.tentative)
+    assert set(a.accepted_) == set(b.accepted_)
+    assert set(a.rejected_) == set(b.rejected_)
+    assert set(a.tentative_) == set(b.tentative_)
     assert np.array_equal(a.support_, b.support_)
     assert list(a.selected_features_) == list(b.selected_features_)
 

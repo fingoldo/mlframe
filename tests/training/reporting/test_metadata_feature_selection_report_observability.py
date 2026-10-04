@@ -208,13 +208,13 @@ def test_build_report_for_rfecv_emits_scores_and_rank():
 
 
 def test_build_report_for_boruta_shap_emits_history_means_and_reasons():
-    """BorutaShap's ``history_x`` mean column gives the per-feature score; accepted/rejected/tentative -> reason."""
+    """BorutaShap's ``history_x_`` mean column gives the per-feature score; accepted/rejected/tentative -> reason."""
     from mlframe.training.core._phase_train_one_target import _build_feature_selection_report
 
     class BorutaShap:
         """Groups tests covering boruta shap."""
-        all_columns = np.array(["a", "b", "c", "d"])
-        history_x = pd.DataFrame(
+        all_columns_ = np.array(["a", "b", "c", "d"])
+        history_x_ = pd.DataFrame(
             np.array(
                 [
                     [0.1, 0.2, 0.3, 0.05],
@@ -223,9 +223,9 @@ def test_build_report_for_boruta_shap_emits_history_means_and_reasons():
             ),
             columns=["a", "b", "c", "d"],
         )
-        accepted = ["a", "c"]
-        rejected = ["d"]
-        tentative = ["b"]
+        accepted_ = ["a", "c"]
+        rejected_ = ["d"]
+        tentative_ = ["b"]
         support_ = np.array([True, False, True, False])
 
         def get_params(self, deep=False):

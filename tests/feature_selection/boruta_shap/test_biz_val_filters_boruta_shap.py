@@ -113,7 +113,7 @@ def test_biz_val_boruta_early_stop_tentative_is_no_harm_to_accepted_set():
     on.fit(X, y)
 
     assert on.n_trials_run_ <= off.n_trials_run_, f"early-stop must never run more trials than the cap path: on={on.n_trials_run_} off={off.n_trials_run_}"
-    assert set(on.accepted) == set(off.accepted), f"early-stop accepted set diverged: on={sorted(on.accepted)} off={sorted(off.accepted)}"
+    assert set(on.accepted_) == set(off.accepted_), f"early-stop accepted set diverged: on={sorted(on.accepted_)} off={sorted(off.accepted_)}"
 
 
 def test_biz_val_boruta_shadow_min_pad_reduces_noise_false_accept_on_narrow_frame():
@@ -139,7 +139,7 @@ def test_biz_val_boruta_shadow_min_pad_reduces_noise_false_accept_on_narrow_fram
         for pad, is_pad in ((0, False), (5, True)):
             sel = BorutaShap(importance_measure="gini", classification=True, n_trials=25, random_state=seed, verbose=False, shadow_min_pad=pad)
             sel.fit(X, pd.Series(y))
-            acc = set(sel.accepted)
+            acc = set(sel.accepted_)
             if is_pad:
                 inf_kept_pad += "inf" in acc
                 noise_fa_pad += "noise" in acc

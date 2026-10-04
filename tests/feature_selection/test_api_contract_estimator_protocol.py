@@ -13,6 +13,7 @@ from sklearn.exceptions import NotFittedError
 from sklearn.linear_model import LinearRegression, LogisticRegression
 
 from mlframe.feature_selection.boruta_shap import BorutaShap
+from mlframe.feature_selection.boruta_shap._estimator_protocol import PRE_RENAME_ATTRS
 from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 from mlframe.feature_selection.wrappers.rfecv import RFECV
 
@@ -56,13 +57,13 @@ def test_rfecv_refit_on_a_regression_task_re_resolves_the_default_scorer(clf_dat
 
 
 def test_boruta_shap_fitted_state_uses_trailing_underscores(fitted_boruta):
-    """The results and history live under underscore names, and the bare legacy names stay readable aliases of them."""
+    """The results and history live under underscore names, and the bare historical names are not attributes at all."""
     bs = fitted_boruta
     for name in ("accepted_", "rejected_", "tentative_", "history_x_", "hits_", "order_"):
         assert name in vars(bs), name
-    for bare in ("accepted", "rejected", "tentative", "history_x", "hits", "order", "X", "y", "X_shadow"):
+    for bare in PRE_RENAME_ATTRS:
         assert bare not in vars(bs), bare
-    assert bs.accepted is bs.accepted_
+        assert not hasattr(bs, bare), bare
     assert set(bs.accepted_) <= set(bs.selected_features_)
 
 
@@ -73,7 +74,7 @@ def test_boruta_shap_pickle_drops_training_data_copies(fitted_boruta, clf_data):
     for name in ("X_", "y_", "starting_X_", "X_shadow_", "X_boruta_", "shap_values_"):
         assert name not in vars(restored), name
     assert list(restored.transform(X).columns) == list(fitted_boruta.transform(X).columns)
-    assert sorted(restored.accepted) == sorted(fitted_boruta.accepted)
+    assert sorted(restored.accepted_) == sorted(fitted_boruta.accepted_)
     assert hasattr(fitted_boruta, "X_")
 
 
@@ -106,14 +107,17 @@ def test_boruta_shap_loads_a_pickle_that_stored_the_bare_attribute_names(fitted_
     """A pickle from before the rename keys its state by the bare names; loading it must expose them through the new names."""
     state = fitted_boruta.__getstate__()
     legacy = dict(state)
-    legacy["accepted"] = legacy.pop("accepted_")
-    legacy["history_x"] = legacy.pop("history_x_")
+    for name in PRE_RENAME_ATTRS:
+        if name + "_" in legacy:
+            legacy[name] = legacy.pop(name + "_")
+    assert "accepted" in legacy and "history_x" in legacy and "accepted_" not in legacy
     legacy.pop("auto_dispatch_diagnostics_", None)
     restored = BorutaShap.__new__(BorutaShap)
     restored.__setstate__(legacy)
     assert restored.accepted_ == fitted_boruta.accepted_
     assert restored.history_x_ is legacy["history_x"]
     assert restored.auto_dispatch_diagnostics_ is None
+    assert not any(hasattr(restored, name) for name in PRE_RENAME_ATTRS)
 
 
 def test_rfecv_setstate_backfills_auxiliary_fitted_attributes_but_not_core_state(clf_data):

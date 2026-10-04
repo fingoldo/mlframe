@@ -330,12 +330,12 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed: %s", e)
                 pass
-        accepted = getattr(inner, "accepted", None)  # BorutaShap: kept col names
+        accepted = getattr(inner, "accepted_", None)  # BorutaShap: kept col names
         if accepted is not None:
             pos = {str(c): i for i, c in enumerate(columns)}
             return np.array([pos[str(c)] for c in accepted if str(c) in pos], dtype=np.int64)
         raise AttributeError(
-            f"{type(inner).__name__} exposes no support_/get_support()/accepted; " f"CorrelatedFeaturesSelector cannot map its selection back to clusters."
+            f"{type(inner).__name__} exposes no support_/get_support()/accepted_; " f"CorrelatedFeaturesSelector cannot map its selection back to clusters."
         )
 
     @staticmethod
@@ -541,19 +541,19 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
     get_feature_names_out = get_feature_names_out_support_based
 
     @property
-    def accepted(self):
-        """BorutaShap report contract: the training suite reads ``accepted``
+    def accepted_(self):
+        """BorutaShap report contract: the training suite reads ``accepted_``
         (kept column NAMES) for BorutaShap diagnostics. Return the EXPANDED
         selection (cluster members of accepted medoids) - i.e. the same set
         ``support_`` / ``transform`` / ``get_feature_names_out`` expose - so the
         report agrees with what actually feeds training, NOT the inner's
         medoid-only accepted list. Falls through (AttributeError -> __getattr__ ->
-        inner) when the wrapper isn't fitted or the inner has no ``accepted``.
+        inner) when the wrapper isn't fitted or the inner has no ``accepted_``.
         """
         inner = self.__dict__.get("estimator_")
-        if inner is not None and hasattr(inner, "accepted") and "support_" in self.__dict__:
+        if inner is not None and hasattr(inner, "accepted_") and "support_" in self.__dict__:
             return list(self.get_feature_names_out())
-        raise AttributeError("accepted")
+        raise AttributeError("accepted_")
 
     def __getattr__(self, name):
         """Transparently expose the fitted inner selector's attributes (e.g. the

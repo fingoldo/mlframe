@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional
 
 from sklearn.utils import check_random_state, check_X_y
 from sklearn.base import TransformerMixin, BaseEstimator
-from mlframe.feature_selection.boruta_shap._estimator_protocol import BorutaShapProtocolMixin, install_legacy_aliases
+from mlframe.feature_selection.boruta_shap._estimator_protocol import BorutaShapProtocolMixin
 from mlframe.utils.misc import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
@@ -901,4 +901,3 @@ BorutaShap.symetric_difference_between_two_arrays = staticmethod(_symetric_diffe
 BorutaShap.find_index_of_true_in_array = staticmethod(_find_index_of_true_func)
 BorutaShap.bonferoni_corrections = staticmethod(_bonferoni_corrections_func)
 BorutaShap.test_features = _test_features_func
-install_legacy_aliases(BorutaShap)

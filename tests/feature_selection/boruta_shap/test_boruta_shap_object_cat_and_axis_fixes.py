@@ -58,13 +58,13 @@ def test_b3_bonferroni_base_is_full_feature_count():
     which weakens the correction once rejections start dropping columns."""
     bs = BorutaShap(random_state=0, verbose=False)
     n_full = 20
-    bs.all_columns = np.array([f"f{i}" for i in range(n_full)])
-    bs.columns = np.array([f"f{i}" for i in range(5)])  # already shrunk to 5 live columns
-    bs.hits = np.zeros(n_full)
-    bs.hits[0] = 30  # a clearly-accepted feature after 30 trials
+    bs.all_columns_ = np.array([f"f{i}" for i in range(n_full)])
+    bs.columns_ = np.array([f"f{i}" for i in range(5)])  # already shrunk to 5 live columns
+    bs.hits_ = np.zeros(n_full)
+    bs.hits_[0] = 30  # a clearly-accepted feature after 30 trials
     bs.pvalue = 0.05
-    bs.rejected_columns = []
-    bs.accepted_columns = []
+    bs.rejected_columns_ = []
+    bs.accepted_columns_ = []
 
     captured = {}
     orig = bs.bonferoni_corrections
@@ -88,7 +88,7 @@ def test_b5_single_class_target_empty_accept_warns(caplog):
     bs = BorutaShap(importance_measure="gini", classification=True, n_trials=4, random_state=0, verbose=False)
     with caplog.at_level(logging.WARNING):
         bs.fit(X, y)
-    assert bs.accepted == []
+    assert bs.accepted_ == []
     assert any("accepted 0 features" in r.message and "single class" in r.message for r in caplog.records)
 
 
@@ -100,7 +100,7 @@ def test_b5_nonempty_accept_does_not_warn(caplog):
     bs = BorutaShap(importance_measure="gini", classification=True, n_trials=20, random_state=1, verbose=False)
     with caplog.at_level(logging.WARNING):
         bs.fit(X, y)
-    assert len(bs.accepted) >= 1
+    assert len(bs.accepted_) >= 1
     assert not any("accepted 0 features" in r.message for r in caplog.records)
 
 
@@ -110,11 +110,11 @@ def test_b7_shadow_pad_widens_null_on_narrow_frame():
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((100, 2)), columns=["a", "b"])
     bs = BorutaShap(random_state=0, verbose=False, shadow_min_pad=5)
-    bs.X = X
+    bs.X_ = X
     bs.create_shadow_features()
-    assert bs.X_shadow.shape[1] >= 5  # padded
-    assert bs.X_boruta.shape[1] == X.shape[1] + bs.X_shadow.shape[1]
-    assert len(set(bs.X_shadow.columns)) == bs.X_shadow.shape[1]  # unique names
+    assert bs.X_shadow_.shape[1] >= 5  # padded
+    assert bs.X_boruta_.shape[1] == X.shape[1] + bs.X_shadow_.shape[1]
+    assert len(set(bs.X_shadow_.columns)) == bs.X_shadow_.shape[1]  # unique names
 
 
 def test_b7_shadow_pad_opt_out_is_legacy_one_per_column():
@@ -122,9 +122,9 @@ def test_b7_shadow_pad_opt_out_is_legacy_one_per_column():
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((100, 2)), columns=["a", "b"])
     bs = BorutaShap(random_state=0, verbose=False, shadow_min_pad=0)
-    bs.X = X
+    bs.X_ = X
     bs.create_shadow_features()
-    assert bs.X_shadow.shape[1] == 2  # no pad
+    assert bs.X_shadow_.shape[1] == 2  # no pad
 
 
 def test_b7_wide_frame_unaffected_by_pad():
@@ -132,18 +132,18 @@ def test_b7_wide_frame_unaffected_by_pad():
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((100, 8)), columns=[f"f{i}" for i in range(8)])
     bs = BorutaShap(random_state=0, verbose=False, shadow_min_pad=5)
-    bs.X = X
+    bs.X_ = X
     bs.create_shadow_features()
-    assert bs.X_shadow.shape[1] == 8  # already wider than pad -> untouched
+    assert bs.X_shadow_.shape[1] == 8  # already wider than pad -> untouched
 
 
 def test_b6_tentative_rough_fix_logs_not_prints(capsys, caplog):
     """B6 tentative rough fix logs not prints."""
     bs = BorutaShap(random_state=0, verbose=False)
-    bs.history_x = pd.DataFrame({"a": [10.0, 11.0], "b": [0.0, 0.1], "c": [9.0, 9.5], "Max_Shadow": [1.0, 1.0]})
-    bs.tentative = ["a", "b", "c"]
-    bs.rejected = []
-    bs.accepted = []
+    bs.history_x_ = pd.DataFrame({"a": [10.0, 11.0], "b": [0.0, 0.1], "c": [9.0, 9.5], "Max_Shadow": [1.0, 1.0]})
+    bs.tentative_ = ["a", "b", "c"]
+    bs.rejected_ = []
+    bs.accepted_ = []
     with caplog.at_level(logging.INFO):
         bs.TentativeRoughFix()
     out = capsys.readouterr().out

@@ -130,3 +130,38 @@ def _run_fe_step_impl_joblib_branch_already_drained(self, _rej_from_res, num_fs_
                 threshold=_rr.get("threshold", float("nan")),
                 reason=_rr.get("reason", ""), step=int(num_fs_steps),
             )
+
+
+def _resolve_prevalence_and_stratify_knobs(self, classes_y, fe_min_pair_mi_prevalence):
+    """Resolve, once per FE step, the subsample-stratify flag and the "auto" pair / synergy prevalence bars.
+
+    Returns ``(fe_subsample_stratify, prevalence_debias_auto, fe_min_pair_mi_prevalence, synergy_prev_resolved)``.
+    """
+    import numpy as np
+
+    from .._fe_subsample import _resolve_fe_subsample_stratify as _resolve_strat
+    from .._fe_accuracy_gate import infer_classification as _infer_clf
+    strat_knob = getattr(self, "fe_subsample_stratify", None)
+    strat_yc = getattr(self, "_fe_prewarp_y_continuous_", None)
+    if strat_yc is not None and len(strat_yc) == len(classes_y):
+        fe_subsample_stratify = _resolve_strat(strat_knob, np.asarray(strat_yc), is_clf=bool(_infer_clf(np.asarray(strat_yc))))
+    else:
+        fe_subsample_stratify = _resolve_strat(strat_knob, np.asarray(classes_y), is_clf=True)
+
+    prevalence_debias_auto = isinstance(fe_min_pair_mi_prevalence, str) and fe_min_pair_mi_prevalence.strip().lower() == "auto"
+    if prevalence_debias_auto:
+        fe_min_pair_mi_prevalence = 1.05
+    # SYNERGY prevalence "auto": the synergy-pair bar
+    # (``max(fe_min_pair_mi_prevalence, fe_synergy_min_prevalence)``, default 1.5) gates the
+    # bootstrap-added synergy operands. "auto" activates the SAME MM-debias mechanism for the
+    # prevalence comparison and resolves the bar to its 1.5 default float - so a synergy pair is
+    # admitted only when its DEBIASED joint MI clears 1.5x the marginal sum, tightening against the
+    # finite-sample noise that a fixed 1.5 on the RAW MI lets through. ``_synergy_prev_resolved`` is
+    # the float used at the gate; an explicit float (incl. the 1.15/1.5 defaults) is honoured verbatim.
+    synergy_prev_raw = getattr(self, "fe_synergy_min_prevalence", 1.15)
+    if isinstance(synergy_prev_raw, str) and synergy_prev_raw.strip().lower() == "auto":
+        prevalence_debias_auto = True  # share the prevalence-comparison debias (consistent mechanism)
+        synergy_prev_resolved = 1.5
+    else:
+        synergy_prev_resolved = float(synergy_prev_raw)
+    return fe_subsample_stratify, prevalence_debias_auto, fe_min_pair_mi_prevalence, synergy_prev_resolved

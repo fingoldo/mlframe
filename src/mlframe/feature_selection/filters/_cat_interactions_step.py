@@ -105,6 +105,13 @@ def enumerate_candidate_pairs(candidate_idxs_arr: np.ndarray, nbins: np.ndarray,
     keep = (nb_prod <= int(max_combined)) & (nb_prod < 2**31)
     return i_arr[keep], j_arr[keep]
 
+def _skipped(st, verbose, message, *args):
+    """Log (when verbose) why cat-FE did nothing and return the ORIGINAL arrays with the empty state, which is what every early exit yields."""
+    if verbose:
+        logger.info(message, *args)
+    return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+
+
 def run_cat_interaction_step(
     *,
     data: np.ndarray,
@@ -157,12 +164,7 @@ def run_cat_interaction_step(
     if target_indices.size == 0:
         raise ValueError("cat-FE: empty target_indices; cannot compute MI(X;Y).")
     if st.n_samples < cfg.min_n_samples:
-        if verbose:
-            logger.info(
-                "cat-FE skipped: n_samples=%d < cfg.min_n_samples=%d",
-                st.n_samples, cfg.min_n_samples,
-            )
-        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+        return _skipped(st, verbose, "cat-FE skipped: n_samples=%d < cfg.min_n_samples=%d", st.n_samples, cfg.min_n_samples)
 
     # ---- Memmap detection ----
     _run_cat_interactio_memmap_detection(data)
@@ -186,12 +188,7 @@ def run_cat_interaction_step(
         n_samples=st.n_samples,
     )
     if len(st.candidate_idxs) < 2:
-        if verbose:
-            logger.info(
-                "cat-FE skipped: only %d eligible candidate columns after validation",
-                len(st.candidate_idxs),
-            )
-        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+        return _skipped(st, verbose, "cat-FE skipped: only %d eligible candidate columns after validation", len(st.candidate_idxs))
 
     # ---- Marginal MI screen ----
     st.candidate_idxs_arr = np.asarray(st.candidate_idxs, dtype=np.int64)
@@ -220,9 +217,7 @@ def run_cat_interaction_step(
         st.candidate_idxs_arr = st.candidate_idxs_arr[keep_mask]
         st.candidate_mi = st.candidate_mi[keep_mask]
     if len(st.candidate_idxs_arr) < 2:
-        if verbose:
-            logger.info("cat-FE skipped: %d cols cleared marginal_floor", len(st.candidate_idxs_arr))
-        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+        return _skipped(st, verbose, "cat-FE skipped: %d cols cleared marginal_floor", len(st.candidate_idxs_arr))
 
     # Build a marginal-MI lookup keyed by COLUMN INDEX (into data), so the pair kernel can look up by index without re-running the screen.
     marginal_mi_full = np.full(data.shape[1], np.nan, dtype=np.float64)
@@ -242,9 +237,7 @@ def run_cat_interaction_step(
     # that guard.
     pairs_a, pairs_b = enumerate_candidate_pairs(st.candidate_idxs_arr, nbins, max_combined)
     if pairs_a.size == 0:
-        if verbose:
-            logger.info("cat-FE skipped: 0 pairs cleared cardinality budget %d", max_combined)
-        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+        return _skipped(st, verbose, "cat-FE skipped: 0 pairs cleared cardinality budget %d", max_combined)
     if verbose:
         logger.info(
             "cat-FE: pair search over %d candidate pairs (cardinality budget %d)",
@@ -284,9 +277,7 @@ def run_cat_interaction_step(
         cfg=cfg, n_samples=st.n_samples,
     )
     if len(st.selected_idx) == 0:
-        if verbose:
-            logger.info("cat-FE: 0 pairs cleared min_interaction_information; no engineered cols")
-        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+        return _skipped(st, verbose, "cat-FE: 0 pairs cleared min_interaction_information; no engineered cols")
     if verbose:
         logger.info("cat-FE: %d pair(s) selected for materialisation", len(st.selected_idx))
 
@@ -308,9 +299,7 @@ def run_cat_interaction_step(
     st.keep = _selection_keep_mask(cfg, st.ii_arr, st.selected_idx, st.floor)
     st.selected_idx = st.selected_idx[st.keep]
     if len(st.selected_idx) == 0:
-        if verbose:
-            logger.info("cat-FE: 0 pairs survived MM re-rank floor; no engineered cols")
-        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+        return _skipped(st, verbose, "cat-FE: 0 pairs survived MM re-rank floor; no engineered cols")
 
     # ---- Anti-redundancy re-rank (opt-in via anti_redundancy_beta>0) ----
     # Adjusts each survivor's score by ``beta * mean_z I(merged; Z)`` where Z ranges over already-selected features in ``selected_so_far``. No-op when beta=0 or selected_so_far is empty.
@@ -327,9 +316,7 @@ def run_cat_interaction_step(
         st.keep = _selection_keep_mask(cfg, st.ii_arr, st.selected_idx, st.floor)
         st.selected_idx = st.selected_idx[st.keep]
         if len(st.selected_idx) == 0:
-            if verbose:
-                logger.info("cat-FE: 0 pairs survived anti-redundancy floor")
-            return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+            return _skipped(st, verbose, "cat-FE: 0 pairs survived anti-redundancy floor")
 
     # ---- K-fold II stability filter (opt-in via n_folds_stability>0) ----
     # Drops pairs whose II is unstable across K folds (signal driven by outlier rows). Runs BEFORE permutation so we don't pay perm budget on pairs that fail stability.
@@ -345,9 +332,7 @@ def run_cat_interaction_step(
     if st.per_fold_ii_dict:
         st.state.ii_stability.update(st.per_fold_ii_dict)
     if len(st.selected_idx) == 0:
-        if verbose:
-            logger.info("cat-FE: 0 pairs survived K-fold stability filter")
-        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+        return _skipped(st, verbose, "cat-FE: 0 pairs survived K-fold stability filter")
 
     # ---- Permutation confirmation + FWER correction ----
     # Runs only when ``cfg.full_npermutations > 0`` (default 100). Tests joint-independence null; failed pairs are dropped from ``selected_idx``. The resulting
@@ -373,9 +358,7 @@ def run_cat_interaction_step(
     # Bandit UCB1 budget allocation overrides the fixed path when cfg.perm_budget_strategy='bandit_ucb1' (and full_npermutations>0 AND not using full WY which has its own coordination).
     st.confidence_dict, st.selected_idx = _run_cat_interactio_bandit_ucb1_budget_allocation(cfg, st.use_full_wy, use_weights, data, pairs_a, pairs_b, st.selected_idx, st.ii_arr, nbins, classes_y, freqs_y, dtype, verbose, weights, marginal_mi_full)
     if len(st.selected_idx) == 0:
-        if verbose:
-            logger.info("cat-FE: 0 pairs cleared permutation confirmation")
-        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+        return _skipped(st, verbose, "cat-FE: 0 pairs cleared permutation confirmation")
 
     # ---- Bootstrap CIs on II (opt-in via bootstrap_ci_n_replicates>0) ----
     st.bootstrap_ci_dict = _bootstrap_ii_cis(
@@ -392,9 +375,7 @@ def run_cat_interaction_step(
         _run_cat_interactio_drop_survivors_whose_lower(st.selected_idx, pairs_a, pairs_b, st.bootstrap_ci_dict, floor_ci, kept_after_ci, verbose)
         st.selected_idx = np.asarray(kept_after_ci, dtype=st.selected_idx.dtype)
         if len(st.selected_idx) == 0:
-            if verbose:
-                logger.info("cat-FE: 0 pairs survived bootstrap CI floor")
-            return st.orig_data, st.orig_cols, st.orig_nbins, st.state
+            return _skipped(st, verbose, "cat-FE: 0 pairs survived bootstrap CI floor")
 
     # ---- K-way greedy expansion (opt-in via max_kway_order > 2) ----
     # HYBRID seeding - first try only the top-K confirmed pairs, which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100. If that produces ZERO k-way results

@@ -57,7 +57,7 @@ def high_conf_core(Xtr, ytr):
     core = set()
     try:
         bs = S.BorutaSel(); bs.fit(Xtr, ytr)
-        core |= set(c for c in bs.b_.accepted if c in Xtr.columns)
+        core |= set(c for c in bs.b_.accepted_ if c in Xtr.columns)
     except Exception as e:
         logger.debug("boruta core failed: %s: %s", type(e).__name__, e)
         print(f"  (boruta core skip: {type(e).__name__})", flush=True)

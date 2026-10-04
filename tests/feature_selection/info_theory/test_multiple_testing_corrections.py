@@ -286,18 +286,18 @@ class TestBorutaNullHitCalibration:
 
         all_cols = _np.array([f"f{i}" for i in range(n_features)])
         self = SimpleNamespace(
-            hits=hits,
+            hits_=hits,
             percentile=percentile,
             pvalue=0.05,
-            all_columns=all_cols,
+            all_columns_=all_cols,
             binomial_H0_test=_binom,
             bonferoni_corrections=_shadow_stats.bonferoni_corrections,
             find_index_of_true_in_array=_shadow_stats.find_index_of_true_in_array,
-            rejected_columns=[],
-            accepted_columns=[],
+            rejected_columns_=[],
+            accepted_columns_=[],
         )
         _shadow_stats.test_features(self, iteration=n_trials)
-        n_accepted = len(self.accepted_columns[-1])
+        n_accepted = len(self.accepted_columns_[-1])
         # Calibrated test: pure-noise features should almost never be (falsely) accepted.
         assert n_accepted <= 1, f"Calibrated null accepts too many noise features ({n_accepted}); p not percentile-derived"
 

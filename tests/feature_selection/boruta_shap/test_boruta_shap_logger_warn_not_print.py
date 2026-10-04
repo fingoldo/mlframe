@@ -37,8 +37,8 @@ def test_check_missing_values_logs_warning_not_print(capsys, caplog):
         verbose=False,
     )
     # Directly populate ``X``/``y`` so we hit ``check_missing_values`` without running the full fit (which does a real shap explainer).
-    sel.X = pd.DataFrame({"a": [1.0, np.nan, 3.0], "b": [1.0, 2.0, 3.0]})
-    sel.y = pd.Series([0, 1, 0])
+    sel.X_ = pd.DataFrame({"a": [1.0, np.nan, 3.0], "b": [1.0, 2.0, 3.0]})
+    sel.y_ = pd.Series([0, 1, 0])
 
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.boruta_shap"):
         sel.check_missing_values()

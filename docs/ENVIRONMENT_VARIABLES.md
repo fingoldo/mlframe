@@ -45,7 +45,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_CB_GPU_RUNAWAY_FACTOR` | `3.0` | [src/mlframe/training/cb/_cb_gpu_budget.py](../src/mlframe/training/cb/_cb_gpu_budget.py#L51) |
 | `MLFRAME_CB_GPU_SNAPSHOT_S` | `120.0` | [src/mlframe/training/cb/_cb_gpu_budget.py](../src/mlframe/training/cb/_cb_gpu_budget.py#L45) |
 | `MLFRAME_CB_POOL_CACHE_MAX_BYTES` | — | [src/mlframe/training/cb/_cb_pool_budget.py](../src/mlframe/training/cb/_cb_pool_budget.py#L45) |
-| `MLFRAME_CMI_ANALYTIC_NULL_MIN_N` | `''` | [src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py](../src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py#L28) |
+| `MLFRAME_CMI_ANALYTIC_NULL_MIN_N` | `''` | [src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py](../src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py#L27) |
 | `MLFRAME_CMI_FORDER` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L89) |
 | `MLFRAME_CMI_FORDER_MAX_MB` | `'4096'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L82) |
 | `MLFRAME_CMI_GPU` | `''` | [src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe_steps.py](../src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe_steps.py#L544) |

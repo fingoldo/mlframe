@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore")
 def _boruta(Xtr, ytr):
     bs = BorutaShap(importance_measure="gini", classification=True, n_trials=25, verbose=False, random_state=0)
     bs.fit(Xtr, ytr)
-    return list(bs.accepted)
+    return list(bs.accepted_)
 
 
 def _auc(Xtr, ytr, Xte, yte, cols):

@@ -238,10 +238,24 @@ _FIT_MEMMAP_LOCK = threading.RLock()
 _FIT_MEMMAP_RETIRED: "list[tuple]" = []
 
 
+def _view_refcount(view) -> int:
+    """``sys.getrefcount`` of ``view`` as seen from inside a function that received it as a parameter (the parameter holds a reference of its own)."""
+    return sys.getrefcount(view)
+
+
+def _idle_probe(view) -> int:
+    """Same shape as ``_view_in_use`` (one parameter level, then ``_view_refcount``), so its count is comparable with what ``_view_in_use`` sees."""
+    return _view_refcount(view)
+
+
 def _idle_refcount() -> int:
-    """Reference count of an object held by exactly one local variable, as ``_view_in_use`` observes it."""
+    """Reference count of an object held by exactly one local variable, measured through the same call chain ``_view_in_use`` uses.
+
+    Measuring ``sys.getrefcount`` directly on a local gives a smaller number than ``_view_in_use`` sees for an equally idle view (each call level
+    adds a parameter reference), which made every evicted view look in use, parked it in the retired list for good and left its file on disk.
+    """
     probe = object()
-    return sys.getrefcount(probe)
+    return _idle_probe(probe)
 
 
 _IDLE_REFCOUNT = _idle_refcount()
@@ -249,7 +263,7 @@ _IDLE_REFCOUNT = _idle_refcount()
 
 def _view_in_use(view) -> bool:
     """True when something besides the caller's single local still references ``view`` (a Parallel call, a slice of it)."""
-    return sys.getrefcount(view) > _IDLE_REFCOUNT
+    return _view_refcount(view) > _IDLE_REFCOUNT
 
 
 def _sweep_retired_locked() -> None:

@@ -50,11 +50,11 @@ class _SupportIndexSelector:
 
 
 class _AcceptedSelector:
-    """Pre-fitted BorutaShap style: .accepted name list, no get_feature_names_out."""
+    """Pre-fitted BorutaShap style: .accepted_ name list, no get_feature_names_out."""
 
     def __init__(self, names, kept):
         self.feature_names_in_ = np.asarray(names, dtype=object)
-        self.accepted = list(kept)
+        self.accepted_ = list(kept)
 
 
 class _UnavailableSelector:

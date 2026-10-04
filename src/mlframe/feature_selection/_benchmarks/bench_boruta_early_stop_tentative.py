@@ -116,10 +116,10 @@ def main():
                 off_trials=int(off.n_trials_run_), on_trials=int(on.n_trials_run_),
                 off_wall=round(off_wall, 3), on_wall=round(on_wall, 3),
                 wall_saved_pct=round(100.0 * (off_wall - on_wall) / off_wall, 1) if off_wall else 0.0,
-                jaccard_accepted=round(_jac(on.accepted, off.accepted), 4),
-                jaccard_rejected=round(_jac(on.rejected, off.rejected), 4),
+                jaccard_accepted=round(_jac(on.accepted_, off.accepted_), 4),
+                jaccard_rejected=round(_jac(on.rejected_, off.rejected_), 4),
                 jaccard_selected=round(_jac(on.selected_features_, off.selected_features_), 4),
-                off_n_tentative=len(off.tentative),
+                off_n_tentative=len(off.tentative_),
             )
             cells.append(cell)
             print(

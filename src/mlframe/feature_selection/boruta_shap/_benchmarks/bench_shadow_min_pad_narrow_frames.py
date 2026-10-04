@@ -62,7 +62,7 @@ def run(seeds=range(12), configs=((1, 1), (2, 1), (3, 2), (4, 2)), n=600, n_tria
                     random_state=seed, verbose=False, shadow_min_pad=pad,
                 )
                 bs.fit(X, y)
-                accepted = set(bs.accepted)
+                accepted = set(bs.accepted_)
                 recalls.append(_jaccard(accepted, truth))
                 false_accepts.append(len(accepted & noise) / max(1, len(noise)))
             results.append({

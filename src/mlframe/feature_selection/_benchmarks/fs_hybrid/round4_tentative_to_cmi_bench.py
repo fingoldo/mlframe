@@ -112,8 +112,8 @@ def run_bed(name, X, y, truth, weak_key, seed=0):
     t0 = time.time()
     bs = S.BorutaSel(); bs.fit(Xtr, ytr)
     b = bs.b_
-    accepted = [c for c in getattr(b, "accepted", []) if c in Xtr.columns]
-    tentative = [c for c in getattr(b, "tentative", []) if c in Xtr.columns]
+    accepted = [c for c in getattr(b, "accepted_", []) if c in Xtr.columns]
+    tentative = [c for c in getattr(b, "tentative_", []) if c in Xtr.columns]
     fit_s = round(time.time() - t0, 1)
     print(f"  boruta {fit_s}s: accepted={len(accepted)} tentative={len(tentative)} "
           f"(weak in accepted={block_recall(accepted, weak)}/{len(weak)}, "

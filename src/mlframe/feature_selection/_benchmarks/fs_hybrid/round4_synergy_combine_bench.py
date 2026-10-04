@@ -60,8 +60,8 @@ class SynergyHybrid(HybridSelector):
             for r in names:
                 out.extend(rep_members.get(r, [r]))
             return [c for c in dict.fromkeys(out) if c in X.columns]
-        accepted = [c for c in getattr(b, "accepted", []) if c in reps]
-        tentative = [c for c in list(getattr(b, "tentative", [])) if c in reps]
+        accepted = [c for c in getattr(b, "accepted_", []) if c in reps]
+        tentative = [c for c in list(getattr(b, "tentative_", [])) if c in reps]
         self._boruta_accepted_ = set(_expand(accepted))
         self._boruta_tentative_ = set(_expand(tentative))
         return _expand(accepted)

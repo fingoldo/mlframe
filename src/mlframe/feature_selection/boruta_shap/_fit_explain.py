@@ -218,7 +218,7 @@ def _fit_with_subsample_stability(self, X, y):
             sub_params["stratify"] = _stratify_arr[idx]
         sub = self.__class__(**sub_params)
         sub.fit(Xk, yk)
-        return list(getattr(sub, "accepted", []) or [])
+        return list(getattr(sub, "accepted_", []) or [])
 
     # The n_sub sub-fits are fully independent (distinct row-subsamples, distinct seeds, own cloned model)
     # and each is a full BorutaShap run (the dominant FS cost: up to n_trials model fits + a SHAP

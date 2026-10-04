@@ -62,7 +62,7 @@ def test_borutashap_early_terminates_when_no_tentatives():
     )
     sel.fit(X, pd.Series(y))
     assert sel.n_trials_run_ < 150, f"expected early stop, ran all {sel.n_trials_run_} trials"
-    assert len(sel.tentative) == 0  # early stop only triggers when nothing is tentative
+    assert len(sel.tentative_) == 0  # early stop only triggers when nothing is tentative
 
 
 def test_borutashap_is_sklearn_cloneable():
@@ -116,12 +116,12 @@ def test_stability_runs_subfits_votes_and_keeps_signal():
     # Strong signal features must survive the vote.
     assert len(signal) > 0
     for s in signal:
-        assert s in sel.accepted, f"signal feature {s} not accepted by stability vote"
+        assert s in sel.accepted_, f"signal feature {s} not accepted by stability vote"
     # sklearn-style outputs stay consistent.
     assert len(sel.support_) == X.shape[1]
     # Intersection mode (threshold==1.0) keeps ONLY all-accept features; optimistic does NOT re-add the
     # sub-majority 'tentative' bucket (that is the draw-level-spurious bucket intersection exists to drop).
-    assert set(sel.selected_features_) == set(sel.accepted)
+    assert set(sel.selected_features_) == set(sel.accepted_)
 
 
 def test_stability_accepts_no_more_noise_than_single_fit():
@@ -146,6 +146,6 @@ def test_stability_accepts_no_more_noise_than_single_fit():
     single.fit(X, y)
     stable = mk(stability_subsamples=8, stability_subsample_fraction=0.75, stability_threshold=1.0)
     stable.fit(X, y)
-    n_noise_single = len(set(single.accepted) & noise_set)
-    n_noise_stable = len(set(stable.accepted) & noise_set)
+    n_noise_single = len(set(single.accepted_) & noise_set)
+    n_noise_stable = len(set(stable.accepted_) & noise_set)
     assert n_noise_stable <= n_noise_single, f"stability accepted {n_noise_stable} noise vs single-fit {n_noise_single}; gate must not loosen"

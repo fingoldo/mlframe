@@ -38,29 +38,29 @@ def test_single_drop_matches_loop_columns_and_order():
     ref = _loop_drop(base, to_remove)
 
     bs = BorutaShap.__new__(BorutaShap)  # no __init__ needed; method only touches self.X / self.features_to_remove
-    bs.X = base.copy()
-    bs.features_to_remove = to_remove
+    bs.X_ = base.copy()
+    bs.features_to_remove_ = to_remove
     bs.remove_features_if_rejected()
 
-    assert list(bs.X.columns) == list(ref.columns), f"surviving column ORDER diverged: opt={list(bs.X.columns)} ref={list(ref.columns)}"
-    assert bs.X.equals(ref), "surviving values diverged from the loop reference"
+    assert list(bs.X_.columns) == list(ref.columns), f"surviving column ORDER diverged: opt={list(bs.X_.columns)} ref={list(ref.columns)}"
+    assert bs.X_.equals(ref), "surviving values diverged from the loop reference"
 
 
 def test_single_drop_ignores_already_removed():
     """A name in features_to_remove that is no longer present must NOT raise (prior except-KeyError parity)."""
     base = pd.DataFrame({"a": [1, 2], "b": [3, 4], "c": [5, 6]})
     bs = BorutaShap.__new__(BorutaShap)
-    bs.X = base.copy()
-    bs.features_to_remove = ["b", "zzz_not_here", "a"]  # zzz_not_here was 'dropped in a prior loop'
+    bs.X_ = base.copy()
+    bs.features_to_remove_ = ["b", "zzz_not_here", "a"]  # zzz_not_here was 'dropped in a prior loop'
     bs.remove_features_if_rejected()  # must not raise
-    assert list(bs.X.columns) == ["c"]
+    assert list(bs.X_.columns) == ["c"]
 
 
 def test_single_drop_empty_list_is_noop():
     """Single drop empty list is noop."""
     base = pd.DataFrame({"a": [1], "b": [2]})
     bs = BorutaShap.__new__(BorutaShap)
-    bs.X = base.copy()
-    bs.features_to_remove = []
+    bs.X_ = base.copy()
+    bs.features_to_remove_ = []
     bs.remove_features_if_rejected()
-    assert list(bs.X.columns) == ["a", "b"]
+    assert list(bs.X_.columns) == ["a", "b"]

@@ -152,10 +152,69 @@ class MBHOptimizer:
         if model_params is None:
             model_params = {"iterations": 150}
 
-        # Wave 31 (2026-05-20): converted the 6-assert "Params checks" block
-        # to explicit ValueError. Under -O the whole block disappeared and
-        # invalid user config (e.g. quantile=0, empty search_space) slipped
-        # into the surrogate-model fit and crashed deeper with opaque messages.
+        self._validate_params(search_space, quantile, acquisition_method, skip_best_candidate_prob, dist_scaling_coefficient, exploitation_probability)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Save params
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        params = get_parent_func_args()
+        # postfix="" -- see mlframe.calibration.post's identical fix comment: this class reads
+        # attributes back by their bare param name, but store_params_in_object()'s default postfix
+        # changed to "_param_" without every caller being updated.
+        store_params_in_object(obj=self, params=params, postfix="")
+
+        self._init_rngs(random_state)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Inits
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        known_candidates = self._init_known_data(known_candidates, known_evaluations)
+        self._init_search_state(suggestions_cache_max_age_sec)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Let's establish initial dataset to fit our surrogate self.model
+        # First use pre-seeded values. they must be evaluated strictly in given order.
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        pre_seeded_candidates: list = []
+        if len(seeded_inputs) > 0:
+            for x in seeded_inputs:
+                if x not in known_candidates and x not in pre_seeded_candidates:
+                    pre_seeded_candidates.append(x)
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Now sample additional points from across the definition range with some simple algo
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        if init_num_samples > 0:
+            sampled_inputs = self._sample_initial_inputs(search_space, init_num_samples, init_sampling_method, seeded_inputs, init_evaluate_ascending, init_evaluate_descending)
+            # actual evaluation of initial samples
+            for x in sampled_inputs:
+                if x not in known_candidates and x not in pre_seeded_candidates:
+                    pre_seeded_candidates.append(x)
+
+        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix the empty
+        # list slipped past under -O and reached the surrogate-model fit
+        # with no inputs -> opaque downstream crash.
+        if len(pre_seeded_candidates) == 0:
+            raise ValueError("MBHOptimizer: pre_seeded_candidates is empty after sampling; " "increase init_num_samples or provide non-empty seeded_inputs.")
+        self.pre_seeded_candidates = pre_seeded_candidates
+
+        # ----------------------------------------------------------------------------------------------------------------------------
+        # Init of the surrogate model
+        # ----------------------------------------------------------------------------------------------------------------------------
+
+        self._init_surrogate_model(model_params, quantile)
+
+    @staticmethod
+    def _validate_params(search_space: np.ndarray, quantile: float, acquisition_method: str, skip_best_candidate_prob: float, dist_scaling_coefficient: float, exploitation_probability: float) -> None:
+        """Reject invalid constructor settings with explicit ``ValueError``s (Wave 31, 2026-05-20).
+
+        The 6-assert "Params checks" block became ``ValueError``: under ``-O`` the whole block disappeared and invalid user config (e.g. quantile=0,
+        empty search_space) slipped into the surrogate-model fit and crashed deeper with opaque messages.
+        """
         if not (0.0 < quantile < 0.5):
             raise ValueError(f"quantile must be in (0, 0.5); got {quantile!r}.")
         if len(search_space) <= 0:
@@ -169,25 +228,15 @@ class MBHOptimizer:
         if not (0.0 <= exploitation_probability <= 1.0):
             raise ValueError(f"exploitation_probability must be in [0, 1]; got {exploitation_probability!r}.")
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Save params
-        # ----------------------------------------------------------------------------------------------------------------------------
+    def _init_rngs(self, random_state: Union[int, np.random.Generator, None]) -> None:
+        """Seed-threadable randomness: ``self._rng`` (numpy) and ``self._stdlib_rng`` as two independent streams.
 
-        params = get_parent_func_args()
-        # postfix="" -- see mlframe.calibration.post's identical fix comment: this class reads
-        # attributes back by their bare param name, but store_params_in_object()'s default postfix
-        # changed to "_param_" without every caller being updated.
-        store_params_in_object(obj=self, params=params, postfix="")
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # RNG discipline — seed-threadable randomness
-        # ----------------------------------------------------------------------------------------------------------------------------
-
-        # Two independent children of the SAME SeedSequence, not one RNG seeding the other: deriving _stdlib_rng's
-        # seed from a value DRAWN from _rng makes the derived seed depend on the exact order/count of every other
-        # _rng-consuming line in this constructor, so inserting/removing/reordering any of them silently changes
-        # every _stdlib_rng.random() decision for all future runs at the same random_state. spawn() instead gives
-        # each stream its own seed from the root SeedSequence, immune to how many draws the other stream makes.
+        Two independent children of the SAME SeedSequence, not one RNG seeding the other: deriving _stdlib_rng's
+        seed from a value DRAWN from _rng makes the derived seed depend on the exact order/count of every other
+        _rng-consuming line in this constructor, so inserting/removing/reordering any of them silently changes
+        every _stdlib_rng.random() decision for all future runs at the same random_state. spawn() instead gives
+        each stream its own seed from the root SeedSequence, immune to how many draws the other stream makes.
+        """
         if isinstance(random_state, np.random.Generator):
             # Caller already handed us a live Generator: reuse it verbatim, and spawn _stdlib_rng's seed from
             # its own SeedSequence (exposed by every numpy BitGenerator) so it stays independent of any draw order.
@@ -198,14 +247,12 @@ class MBHOptimizer:
             self._rng = np.random.default_rng(_seed_seq.spawn(1)[0])  # nosec B311 - non-cryptographic sampling/jitter, not a security-sensitive use
         if _seed_seq is not None:
             (_stdlib_seed,) = _seed_seq.spawn(1)
-            self._stdlib_rng = _stdlib_random.Random(int(_stdlib_seed.generate_state(1, dtype=np.uint64)[0]))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+            self._stdlib_rng = _stdlib_random.Random(int(_stdlib_seed.generate_state(1, dtype=np.uint64)[0]))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/s
         else:
             self._stdlib_rng = _stdlib_random.Random(int(self._rng.integers(0, 2**32 - 1)))  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Inits
-        # ----------------------------------------------------------------------------------------------------------------------------
-
+    def _init_known_data(self, known_candidates: Any, known_evaluations: Any) -> np.ndarray:
+        """Store the known candidates / evaluations as arrays on ``self`` and return the candidates array."""
         if not isinstance(known_candidates, np.ndarray):
             known_candidates = np.array(known_candidates)
         if not isinstance(known_evaluations, np.ndarray):
@@ -220,7 +267,10 @@ class MBHOptimizer:
             known_evaluations = known_evaluations.astype(np.float64)
         self.known_candidates = known_candidates
         self.known_evaluations = known_evaluations
+        return known_candidates
 
+    def _init_search_state(self, suggestions_cache_max_age_sec: int) -> None:
+        """Best / worst bookkeeping and the counters, caches and placeholders the suggestion loop updates."""
         self.best_candidate, self.worst_candidate = None, None
         if self.direction == OptimizationDirection.Maximize:
             self.best_evaluation = -BIG_VALUE
@@ -246,75 +296,55 @@ class MBHOptimizer:
         self.y_pred = None
         self.y_std = None
 
-        pre_seeded_candidates = []
+    def _sample_initial_inputs(
+        self,
+        search_space: np.ndarray,
+        init_num_samples: Union[float, int],
+        init_sampling_method: CandidateSamplingMethod,
+        seeded_inputs: Sequence,
+        init_evaluate_ascending: bool,
+        init_evaluate_descending: bool,
+    ) -> list:
+        """Sample the initial points across the search space, minus the seeded ones, in the evaluation order the caller asked for."""
+        if isinstance(init_num_samples, float) and init_num_samples < 1.0:
+            init_num_samples = int(len(search_space) * init_num_samples)
+        else:
+            init_num_samples = int(init_num_samples)
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Let's establish initial dataset to fit our surrogate self.model
-        # First use pre-seeded values. they must be evaluated strictly in given order.
-        # ----------------------------------------------------------------------------------------------------------------------------
+        sampled_inputs: Any
+        if init_sampling_method == CandidateSamplingMethod.Random:
+            sampled_inputs = self._rng.choice(search_space, size=min(init_num_samples, len(search_space)), replace=False)
+        elif init_sampling_method == CandidateSamplingMethod.Equidistant:
+            sampled_indices = np.linspace(0, len(search_space) - 1, init_num_samples).astype(int)
+            sampled_inputs = np.array(search_space)[sampled_indices[:init_num_samples]]
+        elif init_sampling_method in (CandidateSamplingMethod.Fibonacci, CandidateSamplingMethod.ReversedFibonacci):
+            # Fibo!
+            fibo_sequence = generate_fibonacci(2 + init_num_samples)[2:]
+            fibo_sequence_indices = (fibo_sequence * (len(search_space) - 1) / fibo_sequence.max()).astype(np.int64)
+            if init_sampling_method == CandidateSamplingMethod.ReversedFibonacci:
+                fibo_sequence_indices = len(search_space) - 1 - fibo_sequence_indices
+            sampled_inputs = np.array(search_space)[fibo_sequence_indices[:init_num_samples]]
+        else:
+            raise ValueError(f"Sampling method {init_sampling_method} not supported.")
 
-        if len(seeded_inputs) > 0:
-            for x in seeded_inputs:
-                if x not in known_candidates and x not in pre_seeded_candidates:
-                    pre_seeded_candidates.append(x)
+        # let's remove intersection with already checked seeded elements, if any
+        sampled_inputs = set(sampled_inputs) - set(seeded_inputs)
 
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Now sample additional points from across the definition range with some simple algo
-        # ----------------------------------------------------------------------------------------------------------------------------
+        # sometimes it's required to process samples in certain order (like in FE/RFECV tasks, it's better to start with higher number of features, to have more accurate e
+        # Wave 61 (2026-05-20): user-seeded inputs may be heterogeneous;
+        # str-key fallback so mixed-type sets don't TypeError on sort.
+        def _sort_key(v):
+            """Sort key that tolerates mixed-type values: ``None`` last, everything else by its string form."""
+            return (v is None, str(v))
 
-        if init_num_samples > 0:
-            if isinstance(init_num_samples, float) and init_num_samples < 1.0:
-                init_num_samples = int(len(search_space) * init_num_samples)
-            else:
-                init_num_samples = int(init_num_samples)
+        if init_evaluate_ascending:
+            return sorted(sampled_inputs, key=_sort_key)
+        if init_evaluate_descending:
+            return sorted(sampled_inputs, key=_sort_key)[::-1]
+        return list(sampled_inputs)
 
-            sampled_inputs: Any
-            if init_sampling_method == CandidateSamplingMethod.Random:
-                sampled_inputs = self._rng.choice(search_space, size=min(init_num_samples, len(search_space)), replace=False)
-            elif init_sampling_method == CandidateSamplingMethod.Equidistant:
-                sampled_indices = np.linspace(0, len(search_space) - 1, init_num_samples).astype(int)
-                sampled_inputs = np.array(search_space)[sampled_indices[:init_num_samples]]
-            elif init_sampling_method in (CandidateSamplingMethod.Fibonacci, CandidateSamplingMethod.ReversedFibonacci):
-                # Fibo!
-                fibo_sequence = generate_fibonacci(2 + init_num_samples)[2:]
-                fibo_sequence_indices = (fibo_sequence * (len(search_space) - 1) / fibo_sequence.max()).astype(np.int64)
-                if init_sampling_method == CandidateSamplingMethod.ReversedFibonacci:
-                    fibo_sequence_indices = len(search_space) - 1 - fibo_sequence_indices
-                sampled_inputs = np.array(search_space)[fibo_sequence_indices[:init_num_samples]]
-            else:
-                raise ValueError(f"Sampling method {init_sampling_method} not supported.")
-
-            # let's remove intersection with already checked seeded elements, if any
-            sampled_inputs = set(sampled_inputs) - set(seeded_inputs)
-
-            # sometimes it's required to process samples in certain order (like in FE/RFECV tasks, it's better to start with higher number of features, to have more accurate estimates)
-            # Wave 61 (2026-05-20): user-seeded inputs may be heterogeneous;
-            # str-key fallback so mixed-type sets don't TypeError on sort.
-            def _sort_key(v):
-                return (v is None, str(v))
-            if init_evaluate_ascending:
-                sampled_inputs = sorted(sampled_inputs, key=_sort_key)
-            else:
-                if init_evaluate_descending:
-                    sampled_inputs = sorted(sampled_inputs, key=_sort_key)[::-1]
-
-            # actual evaluation of initial samples
-            if len(sampled_inputs) > 0:
-                for x in sampled_inputs:
-                    if x not in known_candidates and x not in pre_seeded_candidates:
-                        pre_seeded_candidates.append(x)
-
-        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix the empty
-        # list slipped past under -O and reached the surrogate-model fit
-        # with no inputs -> opaque downstream crash.
-        if len(pre_seeded_candidates) == 0:
-            raise ValueError("MBHOptimizer: pre_seeded_candidates is empty after sampling; " "increase init_num_samples or provide non-empty seeded_inputs.")
-        self.pre_seeded_candidates = pre_seeded_candidates
-
-        # ----------------------------------------------------------------------------------------------------------------------------
-        # Init of the surrogate model
-        # ----------------------------------------------------------------------------------------------------------------------------
-
+    def _init_surrogate_model(self, model_params: dict, quantile: float) -> None:
+        """Build the surrogate regressor named by ``self.model_name`` (``'CBQ'`` / ``'CB'`` / ``'ETR'``)."""
         if self.model_name == "CBQ":
             quantiles: Sequence = [quantile, 0.5, 1 - quantile]
             loss_function = "MultiQuantile:alpha=" + ",".join(map(str, quantiles))

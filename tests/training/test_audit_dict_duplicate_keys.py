@@ -50,10 +50,10 @@ def test_boruta_shap_rejects_dup_columns() -> None:
     from mlframe.feature_selection import boruta_shap as bs_mod
 
     inst = bs_mod.BorutaShap.__new__(bs_mod.BorutaShap)
-    inst.X = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "a"])
+    inst.X_ = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "a"])
     with pytest.raises(ValueError, match=r"duplicate column name.*deduplicate before fit\(\) to avoid silently dropping shadow indices"):
         inst.create_mapping_between_cols_and_indices()
-    inst.X = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "c"])
+    inst.X_ = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "c"])
     assert inst.create_mapping_between_cols_and_indices() == {"a": 0, "b": 1, "c": 2}
 
 
@@ -137,6 +137,6 @@ def test_boruta_shap_raises_on_dup_input_columns() -> None:
     # Build a minimal instance with X having duplicate column names.
     inst = bs_mod.BorutaShap.__new__(bs_mod.BorutaShap)
     # pd.DataFrame allows non-unique columns via list-based ctor.
-    inst.X = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "a"])
+    inst.X_ = pd.DataFrame(np.zeros((3, 3)), columns=["a", "b", "a"])
     with pytest.raises(ValueError, match="duplicate column name"):
         inst.create_mapping_between_cols_and_indices()

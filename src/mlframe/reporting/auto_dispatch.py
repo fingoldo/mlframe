@@ -22,7 +22,6 @@ import logging
 from typing import Any, Callable, List, Optional, Sequence
 
 import numpy as np
-from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +139,217 @@ def _compose_and_render(
         return False
 
 
+class _PanelRender:
+    """The arguments every branch shares when it renders its figure: output selection, location, title and failure bookkeeping."""
+
+    def __init__(
+        self,
+        *,
+        plot_dpi: Optional[int],
+        plot_outputs: str,
+        base_path: str,
+        panel_failures: Optional[List[str]],
+        suptitle: str,
+        max_cols: int,
+    ) -> None:
+        self.plot_dpi = plot_dpi
+        self.plot_outputs = plot_outputs
+        self.base_path = base_path
+        self.panel_failures = panel_failures
+        self.suptitle = suptitle
+        self.max_cols = max_cols
+
+    def run(self, compose: Callable[[], Any], branch: str, label: str) -> bool:
+        """Compose and save one branch's figure; ``True`` when something was written."""
+        return _compose_and_render(
+            compose, branch, f"_{branch}_panels", label=label,
+            plot_dpi=self.plot_dpi, plot_outputs=self.plot_outputs, base_path=self.base_path, panel_failures=self.panel_failures,
+        )
+
+
+# Returned by a branch that does not apply, so the dispatcher moves on to the next one.
+_CONTINUE: Any = object()
+
+
+def _target_type_opts_out(tt: str, binary_panels: Optional[str], ltr_panels: Optional[str], quantile_panels: Optional[str], multilabel_panels: Optional[str], multiclass_panels: Optional[str]) -> bool:
+    """True when the authoritative ``target_type`` rules out every panel set: regression, or a type whose own panel template is empty.
+
+    Regression has its own dedicated report charts (scatter / residual panels); this dispatcher's panels would be redundant there. Each remaining
+    target_type maps to exactly one branch. When the matching panel template is empty, nothing is rendered silently (operator opted out of that
+    target_type's panels).
+    """
+    if not tt:
+        return False
+    if tt == "regression":
+        return True
+    templates = {
+        "binary_classification": binary_panels,
+        "learning_to_rank": ltr_panels,
+        "quantile_regression": quantile_panels,
+        "multilabel_classification": multilabel_panels,
+        "multiclass_classification": multiclass_panels,
+    }
+    return tt in templates and not templates[tt]
+
+
+def _try_ltr(render: _PanelRender, tt: str, targets_arr: Optional[np.ndarray], preds: Optional[np.ndarray], probs: Optional[np.ndarray], group_ids: Optional[np.ndarray], ltr_panels: Optional[str]) -> Optional[str]:
+    """LTR: opt-in via group_ids + 1-D score (preds for rankers). When ``target_type`` is provided, gate strictly on it; otherwise the back-compat
+    shape heuristic fires (note: misfires for regression-with-group_ids -- pass target_type to avoid). ``None`` means the branch did not render."""
+    if not (tt in ("", "learning_to_rank") and group_ids is not None and ltr_panels and targets_arr is not None):
+        return None
+    scores = preds if preds is not None else probs
+    if scores is None or np.ndim(scores) != 1:
+        return None
+
+    def _compose_ltr():
+        """Deferred so the composer import only happens on the branch that is actually taken."""
+        from mlframe.reporting.charts.ltr import compose_ltr_figure
+
+        return compose_ltr_figure(
+            targets_arr, np.asarray(scores), np.asarray(group_ids),
+            panels_template=ltr_panels, suptitle=render.suptitle, max_cols=render.max_cols,
+        )
+
+    return "ltr" if render.run(_compose_ltr, "ltr", "LTR") else None
+
+
+def _try_quantile(render: _PanelRender, tt: str, targets_arr: Optional[np.ndarray], preds: Optional[np.ndarray], quantile_alphas: Optional[Sequence[float]], quantile_panels: Optional[str]) -> Optional[str]:
+    """Quantile regression: opt-in via quantile_alphas + 2-D preds. Like LTR, this is order-sensitive vs the multilabel branch (multilabel also wants
+    2-D preds), so check QR FIRST and fall through if the caller didn't supply quantile_alphas. ``None`` means the branch did not render."""
+    if not (tt in ("", "quantile_regression") and quantile_panels and quantile_alphas is not None and preds is not None and targets_arr is not None):
+        return None
+    preds_arr_q = np.asarray(preds)
+    if preds_arr_q.ndim != 2 or targets_arr.ndim != 1:
+        return None
+
+    def _compose_quantile():
+        """Deferred so the composer import only happens on the branch that is actually taken."""
+        from mlframe.reporting.charts.quantile import compose_quantile_figure
+
+        return compose_quantile_figure(
+            targets_arr, preds_arr_q, quantile_alphas,
+            panels_template=quantile_panels, suptitle=render.suptitle, max_cols=render.max_cols,
+        )
+
+    return "quantile" if render.run(_compose_quantile, "quantile", "Quantile") else None
+
+
+def _try_multilabel(render: _PanelRender, tt: str, targets_arr: np.ndarray, probs_arr: np.ndarray, classes: Optional[Sequence[Any]], multilabel_panels: Optional[str]) -> Any:
+    """Multilabel: 2-D targets aligned with 2-D probs. Returns ``"multilabel"`` / ``None`` (final) or ``_CONTINUE`` when the branch does not apply."""
+    if not (tt in ("", "multilabel_classification") and targets_arr.ndim == 2 and probs_arr.ndim == 2 and multilabel_panels):
+        return _CONTINUE
+    if targets_arr.shape != probs_arr.shape:
+        logger.warning(
+            "render_multi_target_panels: multilabel targets %s != probs %s; " "skipping multilabel panels.",
+            targets_arr.shape,
+            probs_arr.shape,
+        )
+        return None
+
+    def _compose_multilabel():
+        """Deferred so the composer import only happens on the branch that is actually taken."""
+        from mlframe.reporting.charts.multilabel import compose_multilabel_figure
+
+        labels = list(classes) if classes is not None else [f"label_{i}" for i in range(probs_arr.shape[1])]
+        return compose_multilabel_figure(
+            targets_arr, probs_arr, labels,
+            panels_template=multilabel_panels, suptitle=render.suptitle, max_cols=render.max_cols,
+        )
+
+    return "multilabel" if render.run(_compose_multilabel, "multilabel", "Multilabel") else None
+
+
+def _try_multiclass(render: _PanelRender, tt: str, targets_arr: np.ndarray, probs_arr: np.ndarray, classes: Optional[Sequence[Any]], multiclass_panels: Optional[str]) -> Any:
+    """Multiclass: 1-D targets, K>=3 classes in the proba matrix. Returns ``"multiclass"`` / ``None`` (final) or ``_CONTINUE`` when the branch does not apply."""
+    shape_ok = targets_arr.ndim == 1 and probs_arr.ndim == 2 and probs_arr.shape[1] >= 3
+    if tt == "multiclass_classification" and multiclass_panels and not shape_ok:
+        # target_type authoritatively selects this branch, but the actual shapes don't satisfy its
+        # contract -- log and bail rather than silently falling through to "Regression" at the bottom,
+        # matching the multilabel branch's shape-mismatch warning above.
+        logger.warning(
+            "render_multi_target_panels: multiclass_classification target_type but targets %s / probs %s "
+            "don't satisfy the multiclass shape contract (1-D targets, probs (n, K>=3)); skipping multiclass panels.",
+            targets_arr.shape,
+            probs_arr.shape,
+        )
+        return None
+    if not (tt in ("", "multiclass_classification") and shape_ok and multiclass_panels):
+        return _CONTINUE
+
+    def _compose_multiclass():
+        """Deferred so the composer import only happens on the branch that is actually taken."""
+        from mlframe.reporting.charts.multiclass import compose_multiclass_figure
+
+        classes_seq = list(classes) if classes is not None else list(range(probs_arr.shape[1]))
+        return compose_multiclass_figure(
+            targets_arr, probs_arr, classes_seq,
+            panels_template=multiclass_panels, suptitle=render.suptitle, max_cols=render.max_cols,
+        )
+
+    return "multiclass" if render.run(_compose_multiclass, "multiclass", "Multiclass") else None
+
+
+def _try_binary(
+    render: _PanelRender, tt: str, targets_arr: np.ndarray, probs_arr: np.ndarray, binary_panels: Optional[str], *,
+    threshold: float, cost_ratio: Optional[Any], panel_emphasis: str, binary_panels_is_default: bool, emphasis_imbalance_lo: float, emphasis_imbalance_hi: float,
+) -> Optional[str]:
+    """Binary classification: 1-D targets, 1-class-or-2-column probs. The score is the positive-class column (probs[:, 1] for a 2-column proba matrix,
+    else the 1-D probs / preds). Regression is already excluded by the authoritative target_type gate; the shape heuristic here is the binary
+    back-compat path for callers that do not pass target_type. ``None`` means nothing was rendered."""
+    if tt == "binary_classification" and binary_panels and targets_arr.ndim != 1:
+        # target_type authoritatively selects binary, but targets aren't 1-D -- log and bail, matching
+        # the multilabel branch's shape-mismatch warning above (same reasoning as the multiclass guard).
+        logger.warning(
+            "render_multi_target_panels: binary_classification target_type but targets shape %s is not " "1-D; skipping binary panels.",
+            targets_arr.shape,
+        )
+        return None
+    if not (tt in ("", "binary_classification") and binary_panels and targets_arr.ndim == 1):
+        return None
+    y_score = _binary_score_column(probs_arr)
+    if y_score is None:
+        if tt == "binary_classification":
+            # target_type authoritatively selects binary, targets are 1-D, but probs' shape doesn't
+            # resolve to a usable score column -- log and bail rather than silently falling through.
+            logger.warning(
+                "render_multi_target_panels: binary_classification target_type but probs shape %s doesn't "
+                "resolve to a usable score column ((n,), (n,1), or (n,2)); skipping binary panels.",
+                probs_arr.shape,
+            )
+        return None
+    # Data-aware emphasis only when the operator left binary_panels at its
+    # default; an explicit custom template is never reordered/dropped.
+    effective_binary_panels = binary_panels
+    if panel_emphasis == "data_aware" and binary_panels_is_default:
+        effective_binary_panels = select_binary_emphasis_panels(
+            targets_arr, binary_panels, emphasis="data_aware",
+            imbalance_lo=emphasis_imbalance_lo, imbalance_hi=emphasis_imbalance_hi,
+        )
+
+    def _compose_binary():
+        """Deferred so the composer import only happens on the branch that is actually taken."""
+        from mlframe.reporting.charts.binary import compose_binary_figure
+
+        return compose_binary_figure(
+            targets_arr, np.asarray(y_score),
+            panels_template=effective_binary_panels, threshold=threshold,
+            cost_ratio=cost_ratio, suptitle=render.suptitle, max_cols=render.max_cols,
+        )
+
+    return "binary" if render.run(_compose_binary, "binary", "Binary") else None
+
+
+def _binary_score_column(probs_arr: np.ndarray) -> Optional[np.ndarray]:
+    """The positive-class score column of a proba array: ``(n, 2)`` -> column 1, ``(n,)`` as is, ``(n, 1)`` raveled; ``None`` for any other shape."""
+    if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
+        return probs_arr[:, 1]
+    if probs_arr.ndim == 1:
+        return probs_arr
+    if probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
+        return probs_arr.ravel()
+    return None
+
+
 def render_multi_target_panels(
     *,
     targets: Optional[np.ndarray],
@@ -192,7 +402,6 @@ def render_multi_target_panels(
     for grouped CV splits, NOT for ranking). Always pass ``target_type``
     when available.
     """
-    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     if not base_path or not plot_outputs:
         return None
 
@@ -206,203 +415,34 @@ def render_multi_target_panels(
     # computation per split. Authoritative target_type fixes this:
     # regression / binary / quantile_regression / multilabel /
     # multiclass / learning_to_rank each gate exactly one branch.
-    st.tt = (target_type or "").lower()
-    if st.tt:
-        # Regression has its own dedicated report charts (scatter / residual
-        # panels); this dispatcher's panels would be redundant there.
-        if st.tt == "regression":
-            return None
-        # Each remaining target_type maps to exactly one branch.
-        # When the matching panel template is empty, return None
-        # silently (operator opted out of that target_type's panels).
-        if st.tt == "binary_classification" and not binary_panels:
-            return None
-        if st.tt == "learning_to_rank" and not ltr_panels:
-            return None
-        if st.tt == "quantile_regression" and not quantile_panels:
-            return None
-        if st.tt == "multilabel_classification" and not multilabel_panels:
-            return None
-        if st.tt == "multiclass_classification" and not multiclass_panels:
-            return None
+    tt = (target_type or "").lower()
+    if _target_type_opts_out(tt, binary_panels, ltr_panels, quantile_panels, multilabel_panels, multiclass_panels):
+        return None
 
-    # LTR: opt-in via group_ids + 1-D score (preds for rankers). When
-    # ``target_type`` is provided, gate strictly on it; otherwise the
-    # back-compat shape heuristic fires (note: misfires for
-    # regression-with-group_ids -- pass target_type to avoid).
-    st._ltr_allowed = st.tt == "" or st.tt == "learning_to_rank"
-    if st._ltr_allowed and group_ids is not None and ltr_panels and targets_arr is not None:
-        scores = preds if preds is not None else probs
-        if scores is not None and np.ndim(scores) == 1:
-            def _compose_ltr():
-                """Deferred so the composer import only happens on the branch that is actually taken."""
-                from mlframe.reporting.charts.ltr import compose_ltr_figure
+    render = _PanelRender(plot_dpi=plot_dpi, plot_outputs=plot_outputs, base_path=base_path, panel_failures=panel_failures, suptitle=suptitle, max_cols=max_cols)
 
-                return compose_ltr_figure(
-                    targets_arr, np.asarray(scores), np.asarray(group_ids),
-                    panels_template=ltr_panels, suptitle=suptitle, max_cols=max_cols,
-                )
-
-            if _compose_and_render(
-                _compose_ltr, "ltr", "_ltr_panels", label="LTR",
-                plot_dpi=plot_dpi, plot_outputs=plot_outputs, base_path=base_path, panel_failures=panel_failures,
-            ):
-                return "ltr"
-            # Fall through -- still try multiclass/multilabel below.
-
-    # Quantile regression: opt-in via quantile_alphas + 2-D preds. Like
-    # LTR, this is order-sensitive vs the multilabel branch (multilabel
-    # also wants 2-D preds), so check QR FIRST and fall through if the
-    # caller didn't supply quantile_alphas.
-    st._quantile_allowed = st.tt == "" or st.tt == "quantile_regression"
-    if st._quantile_allowed and quantile_panels and quantile_alphas is not None and preds is not None and targets_arr is not None:
-        preds_arr_q = np.asarray(preds)
-        if preds_arr_q.ndim == 2 and targets_arr.ndim == 1:
-            def _compose_quantile():
-                """Deferred so the composer import only happens on the branch that is actually taken."""
-                from mlframe.reporting.charts.quantile import compose_quantile_figure
-
-                return compose_quantile_figure(
-                    targets_arr, preds_arr_q, quantile_alphas,
-                    panels_template=quantile_panels, suptitle=suptitle, max_cols=max_cols,
-                )
-
-            if _compose_and_render(
-                _compose_quantile, "quantile", "_quantile_panels", label="Quantile",
-                plot_dpi=plot_dpi, plot_outputs=plot_outputs, base_path=base_path, panel_failures=panel_failures,
-            ):
-                return "quantile"
-            # Fall through.
+    # LTR and quantile regression fall through to the classification branches when they do not render.
+    rendered = _try_ltr(render, tt, targets_arr, preds, probs, group_ids, ltr_panels) or _try_quantile(render, tt, targets_arr, preds, quantile_alphas, quantile_panels)
+    if rendered:
+        return rendered
 
     if probs is None or targets_arr is None:
         return None
 
     probs_arr = np.asarray(probs)
-
-    # Multilabel: 2-D targets aligned with 2-D probs.
-    st._ml_allowed = st.tt == "" or st.tt == "multilabel_classification"
-    if st._ml_allowed and targets_arr.ndim == 2 and probs_arr.ndim == 2 and multilabel_panels:
-        if targets_arr.shape != probs_arr.shape:
-            logger.warning(
-                "render_multi_target_panels: multilabel targets %s != probs %s; " "skipping multilabel panels.",
-                targets_arr.shape,
-                probs_arr.shape,
-            )
-            return None
-        def _compose_multilabel():
-            """Deferred so the composer import only happens on the branch that is actually taken."""
-            from mlframe.reporting.charts.multilabel import compose_multilabel_figure
-
-            labels = list(classes) if classes is not None else [f"label_{i}" for i in range(probs_arr.shape[1])]
-            return compose_multilabel_figure(
-                targets_arr, probs_arr, labels,
-                panels_template=multilabel_panels, suptitle=suptitle, max_cols=max_cols,
-            )
-
-        if _compose_and_render(
-            _compose_multilabel, "multilabel", "_multilabel_panels", label="Multilabel",
-            plot_dpi=plot_dpi, plot_outputs=plot_outputs, base_path=base_path, panel_failures=panel_failures,
-        ):
-            return "multilabel"
-        return None
-
-    # Multiclass: 1-D targets, K>=3 classes in the proba matrix.
-    st._mc_allowed = st.tt == "" or st.tt == "multiclass_classification"
-    st._mc_shape_ok = targets_arr.ndim == 1 and probs_arr.ndim == 2 and probs_arr.shape[1] >= 3
-    if st.tt == "multiclass_classification" and multiclass_panels and not st._mc_shape_ok:
-        # target_type authoritatively selects this branch, but the actual shapes don't satisfy its
-        # contract -- log and bail rather than silently falling through to "Regression" at the bottom,
-        # matching the multilabel branch's shape-mismatch warning above.
-        logger.warning(
-            "render_multi_target_panels: multiclass_classification target_type but targets %s / probs %s "
-            "don't satisfy the multiclass shape contract (1-D targets, probs (n, K>=3)); skipping multiclass panels.",
-            targets_arr.shape,
-            probs_arr.shape,
-        )
-        return None
-    if st._mc_allowed and st._mc_shape_ok and multiclass_panels:
-        def _compose_multiclass():
-            """Deferred so the composer import only happens on the branch that is actually taken."""
-            from mlframe.reporting.charts.multiclass import compose_multiclass_figure
-
-            classes_seq = list(classes) if classes is not None else list(range(probs_arr.shape[1]))
-            return compose_multiclass_figure(
-                targets_arr, probs_arr, classes_seq,
-                panels_template=multiclass_panels, suptitle=suptitle, max_cols=max_cols,
-            )
-
-        if _compose_and_render(
-            _compose_multiclass, "multiclass", "_multiclass_panels", label="Multiclass",
-            plot_dpi=plot_dpi, plot_outputs=plot_outputs, base_path=base_path, panel_failures=panel_failures,
-        ):
-            return "multiclass"
-        return None
-
-    # Binary classification: 1-D targets, 1-class-or-2-column probs. The score
-    # is the positive-class column (probs[:, 1] for a 2-column proba matrix,
-    # else the 1-D probs / preds). Regression is already excluded above by the
-    # authoritative target_type gate; the shape heuristic here is the binary
-    # back-compat path for callers that do not pass target_type.
-    st._bin_allowed = st.tt == "" or st.tt == "binary_classification"
-    if st.tt == "binary_classification" and binary_panels and (targets_arr is None or targets_arr.ndim != 1):
-        # target_type authoritatively selects binary, but targets aren't 1-D -- log and bail, matching
-        # the multilabel branch's shape-mismatch warning above (same reasoning as the multiclass guard).
-        logger.warning(
-            "render_multi_target_panels: binary_classification target_type but targets shape %s is not " "1-D; skipping binary panels.",
-            None if targets_arr is None else targets_arr.shape,
-        )
-        return None
-    if st._bin_allowed and binary_panels and targets_arr is not None and targets_arr.ndim == 1:
-        y_score = None
-        y_score = _render_multi_targe_probs_arr_ndim_probs(probs_arr, y_score)
-        if y_score is None and st.tt == "binary_classification":
-            # target_type authoritatively selects binary, targets are 1-D, but probs' shape doesn't
-            # resolve to a usable score column -- log and bail rather than silently falling through.
-            logger.warning(
-                "render_multi_target_panels: binary_classification target_type but probs shape %s doesn't "
-                "resolve to a usable score column ((n,), (n,1), or (n,2)); skipping binary panels.",
-                probs_arr.shape,
-            )
-            return None
-        if y_score is not None:
-            # Data-aware emphasis only when the operator left binary_panels at its
-            # default; an explicit custom template is never reordered/dropped.
-            effective_binary_panels = binary_panels
-            if panel_emphasis == "data_aware" and binary_panels_is_default:
-                effective_binary_panels = select_binary_emphasis_panels(
-                    targets_arr, binary_panels, emphasis="data_aware",
-                    imbalance_lo=emphasis_imbalance_lo, imbalance_hi=emphasis_imbalance_hi,
-                )
-            def _compose_binary():
-                """Deferred so the composer import only happens on the branch that is actually taken."""
-                from mlframe.reporting.charts.binary import compose_binary_figure
-
-                return compose_binary_figure(
-                    targets_arr, np.asarray(y_score),
-                    panels_template=effective_binary_panels, threshold=threshold,
-                    cost_ratio=cost_ratio, suptitle=suptitle, max_cols=max_cols,
-                )
-
-            if _compose_and_render(
-                _compose_binary, "binary", "_binary_panels", label="Binary",
-                plot_dpi=plot_dpi, plot_outputs=plot_outputs, base_path=base_path, panel_failures=panel_failures,
-            ):
-                return "binary"
-            return None
-
+    for branch in (
+        lambda: _try_multilabel(render, tt, targets_arr, probs_arr, classes, multilabel_panels),
+        lambda: _try_multiclass(render, tt, targets_arr, probs_arr, classes, multiclass_panels),
+    ):
+        outcome = branch()
+        if outcome is not _CONTINUE:
+            return outcome
+    return _try_binary(
+        render, tt, targets_arr, probs_arr, binary_panels,
+        threshold=threshold, cost_ratio=cost_ratio, panel_emphasis=panel_emphasis, binary_panels_is_default=binary_panels_is_default,
+        emphasis_imbalance_lo=emphasis_imbalance_lo, emphasis_imbalance_hi=emphasis_imbalance_hi,
+    )
     # Regression -- existing reporting paths cover it.
-    return None
-
-
-def _render_multi_targe_probs_arr_ndim_probs(probs_arr, y_score):
-    """Block of render_multi_target_panels starting at ``if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:``."""
-    if probs_arr.ndim == 2 and probs_arr.shape[1] == 2:
-        y_score = probs_arr[:, 1]
-    elif probs_arr.ndim == 1:
-        y_score = probs_arr
-    elif probs_arr.ndim == 2 and probs_arr.shape[1] == 1:
-        y_score = probs_arr.ravel()
-    return y_score
 
 
 __all__ = ["render_multi_target_panels", "select_binary_emphasis_panels"]

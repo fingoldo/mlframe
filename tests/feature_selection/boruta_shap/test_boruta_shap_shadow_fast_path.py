@@ -30,10 +30,10 @@ def _apply_reference(X: pd.DataFrame, seed: int) -> pd.DataFrame:
 def _run_create_shadow(X: pd.DataFrame, seed: int) -> pd.DataFrame:
     """Run create shadow."""
     bs = BorutaShap.__new__(BorutaShap)
-    bs.X = X.copy()
+    bs.X_ = X.copy()
     bs._rng = np.random.default_rng(seed)
     bs.create_shadow_features()
-    return bs.X_shadow
+    return bs.X_shadow_
 
 
 def _assert_identical(ref: pd.DataFrame, got: pd.DataFrame, label: str):

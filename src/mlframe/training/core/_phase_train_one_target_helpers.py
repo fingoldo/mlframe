@@ -43,7 +43,7 @@ def _build_feature_selection_report(
         score is the mean of its per-fold importance across every run it appears in. ``ranking_`` (when
         present) gives the eliminated-order; we surface it as a per-feature reason
         ("kept@rank=N" / "dropped@rank=N").
-      * BorutaShap: ``history_x`` is a DataFrame of per-iteration shap importances (one row per
+      * BorutaShap: ``history_x_`` is a DataFrame of per-iteration shap importances (one row per
         iteration, one column per feature); mean across rows is the canonical "average importance"
         score. Reason: "accepted" / "rejected" / "tentative" via ``self.accepted`` / ``self.rejected``
         / ``self.tentative`` (set when ``calculate_rejected_accepted_tentative`` ran).
@@ -168,11 +168,11 @@ def _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector):
             logger.debug("suppressed: %s", e)
             pass
     elif _kind == "BorutaShap":
-        # ``history_x`` columns map 1:1 to ``all_columns``; the per-feature score is the mean
-        # historical SHAP importance across all Boruta iterations. ``accepted`` / ``rejected`` /
-        # ``tentative`` carry the final per-feature verdicts.
+        # ``history_x_`` columns map 1:1 to ``all_columns_``; the per-feature score is the mean
+        # historical SHAP importance across all Boruta iterations. ``accepted_`` / ``rejected_`` /
+        # ``tentative_`` carry the final per-feature verdicts.
         try:
-            _history = getattr(selector, "history_x", None)
+            _history = getattr(selector, "history_x_", None)
             if _history is not None and hasattr(_history, "mean"):
                 _means = _history.mean(axis=0)
                 if hasattr(_means, "to_dict"):
@@ -181,10 +181,10 @@ def _mrmr_selection_report(_kind, _report, _all_in, kept_columns, selector):
             logger.debug("computing mean-history scores failed: %s", e)
             _report["scores"] = None
         try:
-            _accepted = set(getattr(selector, "accepted", None) or [])
-            _rejected = set(getattr(selector, "rejected", None) or [])
-            _tentative = set(getattr(selector, "tentative", None) or [])
-            _all_cols_attr = getattr(selector, "all_columns", None)
+            _accepted = set(getattr(selector, "accepted_", None) or [])
+            _rejected = set(getattr(selector, "rejected_", None) or [])
+            _tentative = set(getattr(selector, "tentative_", None) or [])
+            _all_cols_attr = getattr(selector, "all_columns_", None)
             _iter = list(_all_cols_attr) if _all_cols_attr is not None else (_all_in or [])
             if _iter:
                 _reasons = {}

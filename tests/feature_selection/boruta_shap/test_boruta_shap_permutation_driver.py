@@ -109,9 +109,9 @@ def test_held_out_mode_populates_the_split_used_by_permutation():
         random_state=0,
     )
     b.fit(X, y)
-    assert getattr(b, "X_boruta_test", None) is not None and getattr(b, "y_test", None) is not None
+    assert getattr(b, "X_boruta_test_", None) is not None and getattr(b, "y_test_", None) is not None
     # holdout is ~30% of the rows it was fit on.
-    assert 0.2 * len(X) <= len(b.X_boruta_test) <= 0.4 * len(X)
+    assert 0.2 * len(X) <= len(b.X_boruta_test_) <= 0.4 * len(X)
 
 
 def test_unknown_importance_measure_lists_permutation():

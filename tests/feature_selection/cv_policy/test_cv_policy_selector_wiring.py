@@ -216,12 +216,12 @@ def test_boruta_shap_holdout_is_newest_rows_under_temporal_policy():
 
     X, y = _frame()
     bs = BorutaShap(model=RandomForestClassifier(n_estimators=5, random_state=0), importance_measure="gini", classification=True, train_or_test="test", random_state=0)
-    bs.X_boruta, bs.y = X, pd.Series(y)
+    bs.X_boruta_, bs.y_ = X, pd.Series(y)
     bs.Train_model = lambda Xt, yt: None
     bs._mlframe_cv_policy_ = _temporal_policy()
     bs.Check_if_chose_train_or_test_and_train_model()
-    assert bs.X_boruta_train["a"].max() < bs.X_boruta_test["a"].min()
-    assert len(bs.X_boruta_test) == round(0.3 * N) and len(bs.y_test) == len(bs.X_boruta_test)
+    assert bs.X_boruta_train_["a"].max() < bs.X_boruta_test_["a"].min()
+    assert len(bs.X_boruta_test_) == round(0.3 * N) and len(bs.y_test_) == len(bs.X_boruta_test_)
 
 
 def test_shap_proxied_fs_holdout_and_oof_partition_follow_temporal_policy(monkeypatch):

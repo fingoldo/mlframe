@@ -78,10 +78,10 @@ def extract_boruta_shap_golden(bs) -> dict:
     """Bit-identity golden: accept/reject/tentative sets + per-feature hit vector + trials run + selection,
     extracted from a fitted BorutaShap -- shared by the profile_boruta_shap bench pair."""
     return {
-        "accepted": sorted(bs.accepted),
-        "rejected": sorted(bs.rejected),
-        "tentative": sorted([str(t) for t in bs.tentative]),
-        "hits": [float(h) for h in bs.hits],
+        "accepted": sorted(bs.accepted_),
+        "rejected": sorted(bs.rejected_),
+        "tentative": sorted([str(t) for t in bs.tentative_]),
+        "hits": [float(h) for h in bs.hits_],
         "n_trials_run": int(bs.n_trials_run_),
         "selected_features": sorted(bs.selected_features_),
     }

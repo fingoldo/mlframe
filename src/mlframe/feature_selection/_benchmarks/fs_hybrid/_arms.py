@@ -818,7 +818,7 @@ class RFECVArm(BaseArm):
 class BorutaShapArm(BaseArm):
     """``boruta_shap.BorutaShap`` driven BARE (the registry factory wraps it in ``CorrelatedFeaturesSelector``).
 
-    ``history_x`` accumulates one per-trial SHAP-importance row per column (NaN-padded once a column is
+    ``history_x_`` accumulates one per-trial SHAP-importance row per column (NaN-padded once a column is
     dropped from the run), so a per-feature ``nanmean`` is a real continuous score with full coverage.
     """
 
@@ -848,15 +848,15 @@ class BorutaShapArm(BaseArm):
             random_state=self.random_state,
         )
         model.fit(X, pd.Series(np.asarray(y)))
-        history = getattr(model, "history_x", None)
+        history = getattr(model, "history_x_", None)
         if not isinstance(history, pd.DataFrame) or not set(names).issubset(set(map(str, history.columns))):
-            raise ValueError("BorutaShap.history_x is missing or does not cover every input feature; a 'continuous' arm may not fall back to a synthesised score.")
+            raise ValueError("BorutaShap.history_x_ is missing or does not cover every input feature; a 'continuous' arm may not fall back to a synthesised score.")
         hist = history.iloc[1:] if len(history) > 1 else history
         with np.errstate(invalid="ignore"):
             means = {str(c): float(np.nan_to_num(np.nanmean(np.asarray(hist[c], dtype=np.float64)), nan=0.0)) for c in names}
         score = np.array([means[n] for n in names], dtype=np.float64)
         selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in set(names)]
-        return {"support": _mask_from_names(names, selected), "score": score, "n_model_fits": self.n_trials, "provenance": {"n_trials": self.n_trials, "n_tentative": len(getattr(model, "tentative", []) or [])}}
+        return {"support": _mask_from_names(names, selected), "score": score, "n_model_fits": self.n_trials, "provenance": {"n_trials": self.n_trials, "n_tentative": len(getattr(model, "tentative_", []) or [])}}
 
 
 class ShapProxiedArm(BaseArm):

@@ -31,10 +31,10 @@ def _run_create_shadow(X: pd.DataFrame, seed: int) -> pd.DataFrame:
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
     bs = BorutaShap.__new__(BorutaShap)
-    bs.X = X.copy()
+    bs.X_ = X.copy()
     bs._rng = np.random.default_rng(seed)
     bs.create_shadow_features()
-    return bs.X_shadow
+    return bs.X_shadow_
 
 
 # ---------------------------------------------------------------------------------------------------------------

@@ -103,13 +103,13 @@ def extract_selected(selector: Any, feature_names: Sequence[str]) -> List[str]:
         # integer indices into names_in
         return [str(names_in[int(i)]) for i in support]
 
-    # 4) BorutaShap-style accepted list
-    accepted = getattr(selector, "accepted", None)
+    # 4) BorutaShap-style accepted_ list
+    accepted = getattr(selector, "accepted_", None)
     if accepted is not None:
         return [str(c) for c in list(accepted)]
 
     raise AttributeError(
-        f"{type(selector).__name__} exposes no recognised support accessor " "(get_feature_names_out / selected_features_ / support_ / accepted)"
+        f"{type(selector).__name__} exposes no recognised support accessor " "(get_feature_names_out / selected_features_ / support_ / accepted_)"
     )
 
 

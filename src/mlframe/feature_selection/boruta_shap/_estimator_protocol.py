@@ -1,16 +1,16 @@
-"""sklearn protocol plumbing for ``BorutaShap``: legacy attribute aliases, lean pickling, old-pickle migration and ``get_feature_names_out``."""
+"""sklearn protocol plumbing for ``BorutaShap``: lean pickling, old-pickle migration and ``get_feature_names_out``."""
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 from sklearn.exceptions import NotFittedError
 
 from mlframe.feature_selection._legacy_state import backfill_legacy_state
 
-# Fitted/working attributes now stored under a trailing-underscore name. The bare name stays as a read/write alias for existing callers.
-LEGACY_ALIASED_ATTRS = (
+# Fitted/working attributes, stored under ``<name>_``. Estimators pickled by earlier releases keyed them by the bare name; ``__setstate__`` migrates those.
+PRE_RENAME_ATTRS = (
     "X", "y", "starting_X", "X_shadow", "X_boruta", "X_boruta_train", "X_boruta_test", "y_train", "y_test", "X_categorical",
     "X_feature_import", "Shadow_feature_import", "preds", "shap_values", "features_to_remove", "columns", "all_columns", "ncols", "order",
     "hits", "accepted_columns", "rejected_columns", "history_shadow", "history_hits", "history_x", "accepted", "rejected", "tentative",
@@ -34,43 +34,15 @@ _SETSTATE_LEGACY_DEFAULTS: dict = {
 CORE_FITTED_ATTRS = frozenset({"selected_features_", "support_", "feature_names_in_", "n_features_in_", "model_"})
 
 # Attributes assigned during fit that need no backfill: fit-internal scratch re-derived at the start of each fit, plus the renamed
-# working/result state, which ``__setstate__`` migrates from its bare legacy keys.
+# working/result state, which ``__setstate__`` migrates from its bare pre-rename keys.
 SCRATCH_FITTED_ATTRS = frozenset(
     {"_current_trial_", "_premerge_active_", "_premerge_original_cols_", "_resolved_importance_measure_", "_train_or_test_"}
-    | {name + "_" for name in LEGACY_ALIASED_ATTRS}
+    | {name + "_" for name in PRE_RENAME_ATTRS}
 )
 
 
-class _LegacyAlias:
-    """Data descriptor mapping the historical bare attribute name onto its trailing-underscore storage (``<name>_``)."""
-
-    def __init__(self, name: str) -> None:
-        self._storage = name + "_"
-        self.__doc__ = f"Alias of ``{self._storage}``, kept for callers written against the pre-sklearn-convention names."
-
-    def __get__(self, obj: Any, objtype: Optional[type] = None) -> Any:
-        """Return the stored value, or the descriptor itself on class access."""
-        if obj is None:
-            return self
-        try:
-            return obj.__dict__[self._storage]
-        except KeyError:
-            raise AttributeError(f"{type(obj).__name__!r} object has no attribute {self._storage[:-1]!r}") from None
-
-    def __set__(self, obj: Any, value: Any) -> None:
-        """Store ``value`` under the trailing-underscore name."""
-        obj.__dict__[self._storage] = value
-
-    def __delete__(self, obj: Any) -> None:
-        """Delete the stored value."""
-        try:
-            del obj.__dict__[self._storage]
-        except KeyError:
-            raise AttributeError(self._storage[:-1]) from None
-
-
 class BorutaShapProtocolMixin:
-    """Aliases, pickling and feature-name protocol for ``BorutaShap``; sits before ``BaseEstimator`` in the MRO."""
+    """Pickling and feature-name protocol for ``BorutaShap``; sits before ``BaseEstimator`` in the MRO."""
 
     def __getstate__(self) -> dict:
         """Pickle state without the training-data copies (X, y, shadow frames, SHAP values) that ``fit`` leaves on the instance."""
@@ -82,7 +54,7 @@ class BorutaShapProtocolMixin:
     def __setstate__(self, state: dict) -> None:
         """Restore state, migrating pre-rename bare keys and backfilling attributes older releases did not have."""
         state = dict(state)
-        for name in LEGACY_ALIASED_ATTRS:
+        for name in PRE_RENAME_ATTRS:
             if name in state and name + "_" not in state:
                 state[name + "_"] = state.pop(name)
         super().__setstate__(backfill_legacy_state(state, _SETSTATE_LEGACY_DEFAULTS, "selected_features_"))  # type: ignore[misc]
@@ -96,9 +68,3 @@ class BorutaShapProtocolMixin:
             if n_in is not None and len(list(input_features)) != int(n_in):
                 raise ValueError(f"input_features has {len(list(input_features))} elements, expected {n_in} (n_features_in_).")
         return np.asarray(list(self.selected_features_), dtype=object)
-
-
-def install_legacy_aliases(cls: type) -> None:
-    """Attach a ``_LegacyAlias`` descriptor to ``cls`` for every name in ``LEGACY_ALIASED_ATTRS``."""
-    for name in LEGACY_ALIASED_ATTRS:
-        setattr(cls, name, _LegacyAlias(name))

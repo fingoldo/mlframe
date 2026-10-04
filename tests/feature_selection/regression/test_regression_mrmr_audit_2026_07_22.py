@@ -1252,7 +1252,9 @@ def test_regression_bayesian_blocks_default_subsample_threshold_is_safe():
 
     from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
-    src = inspect.getsource(inspect.getmodule(per_feature_edges))
+    from mlframe.feature_selection.filters import _adaptive_nbins_columns
+
+    src = inspect.getsource(inspect.getmodule(per_feature_edges)) + inspect.getsource(_adaptive_nbins_columns)
     # The contract is a BOUNDED default, not the literal it was first set to: 0 restores the unbounded
     # O(N^2) DP, which is the regression. The value has since moved from 2000 to 5000, so assert the
     # property against the constant the code actually reads.

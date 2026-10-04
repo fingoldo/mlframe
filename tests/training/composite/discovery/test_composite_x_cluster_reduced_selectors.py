@@ -115,7 +115,7 @@ class TestRegistryClusterReducedSelectorsEndToEnd:
         sel.fit(X, y)
         names = self._assert_wrapped_and_consistent(sel, X)
         # accepted (suite BorutaShap report contract) must equal the expanded set.
-        assert set(sel.accepted) == set(names)
+        assert set(sel.accepted_) == set(names)
 
         # Composite discovery is regression-only but must not crash on the
         # BorutaShap-selected subset of a binary target (treats {0,1} as continuous).
