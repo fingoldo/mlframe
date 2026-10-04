@@ -26,6 +26,7 @@ import pandas as pd
 from sklearn.base import BaseEstimator, clone
 
 from .ensemble.feature_stacking import composite_oof_predictions
+from .post_shim import _model_fit_accepts_sample_weight
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +154,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         self.quantile_transformers_: dict[str, Any] = {}
         meta_cols: dict[str, np.ndarray] = {}
         use_proba = self.use_predict_proba or {}
+        sample_weight_arr = None if sample_weight is None else np.asarray(sample_weight)
 
         for aux_name, factory in self.stage1_estimator_factories.items():
             wants_proba = bool(use_proba.get(aux_name, False))
@@ -161,7 +163,12 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
             # decides whether that predict() call returns a hard label or a positive-class probability.
             effective_factory = (lambda f=factory: _ProbaAsPredictWrapper(f())) if wants_proba else factory
             y_aux = np.asarray(y_auxiliary[aux_name])
-            oof_pred = composite_oof_predictions(effective_factory, X, y_aux, n_splits=self.n_splits, random_state=self.random_state)
+            stage1_fit_kwargs: dict[str, Any] = {}
+            if sample_weight_arr is not None and _model_fit_accepts_sample_weight(factory()):
+                stage1_fit_kwargs["sample_weight"] = sample_weight_arr
+            oof_pred = composite_oof_predictions(
+                effective_factory, X, y_aux, n_splits=self.n_splits, random_state=self.random_state, fit_kwargs=stage1_fit_kwargs or None,
+            )
             if self.quantile_transform:
                 from sklearn.preprocessing import QuantileTransformer
                 n_quantiles = min(1000, max(10, oof_pred.shape[0]))
@@ -178,7 +185,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
 
             # Refit on the FULL training set so predict() on new rows has a real model to call.
             full_model = effective_factory()
-            full_model.fit(X, y_aux)
+            full_model.fit(X, y_aux, **stage1_fit_kwargs)
             self.stage1_models_[aux_name] = full_model
 
         X_meta = self._concat_meta(X, meta_cols)

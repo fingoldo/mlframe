@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import functools
 import os
 from typing import Any
 
@@ -435,6 +436,7 @@ def _train_mlframe_rank_save_dir(save_dir, model_name, flavor_order, models_dict
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
         import joblib
+        from mlframe.training.io import atomic_write_bytes
         # Wave 46 (2026-05-20): raw caller-supplied model_name plumbed into a path
         # basename is a traversal vector (e.g. model_name="../../evil" produces
         # "save_dir/../../evil_cb.joblib" which os.path.join leaves traversable).
@@ -442,7 +444,8 @@ def _train_mlframe_rank_save_dir(save_dir, model_name, flavor_order, models_dict
         _safe_model_name = _slugify(model_name)
         for flavor in flavor_order:
             artefact_path = os.path.join(save_dir, f"{_safe_model_name}_{flavor}.joblib")
-            joblib.dump(models_dict[flavor]["model"], artefact_path)
+            _model_obj = models_dict[flavor]["model"]
+            atomic_write_bytes(artefact_path, functools.partial(joblib.dump, _model_obj))
             # Wave 19 P0 #3: write the .meta.json sidecar that records the
             # booster + mlframe library versions at save time. Without this,
             # the agent's analysis: "CB/LGB/XGB minor upgrades silently

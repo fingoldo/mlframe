@@ -46,7 +46,7 @@ def _importance(est, X, y, *, n_perm_repeats: int = 3, random_state: int = 0) ->
     return np.asarray(pi.importances_mean, dtype=float)
 
 
-def _default_panel(classification: bool):
+def _default_panel(classification: bool, random_state: int = 0):
     """Default 3-member cross-model panel (tree / linear / distance geometry) used when the caller
     doesn't supply its own estimators. Deliberately spans structurally-different decision surfaces so a
     noise column that fools one geometry (e.g. tree overfit to a spurious split) rarely fools the others."""
@@ -57,12 +57,12 @@ def _default_panel(classification: bool):
     from sklearn.pipeline import make_pipeline
     if classification:
         return {
-            "tree": RandomForestClassifier(n_estimators=120, n_jobs=-1, random_state=0),
+            "tree": RandomForestClassifier(n_estimators=120, n_jobs=-1, random_state=random_state),
             "linear": make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
             "distance": make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)),
         }
     return {
-        "tree": RandomForestRegressor(n_estimators=120, n_jobs=-1, random_state=0),
+        "tree": RandomForestRegressor(n_estimators=120, n_jobs=-1, random_state=random_state),
         "linear": make_pipeline(StandardScaler(), Ridge()),
         "distance": make_pipeline(StandardScaler(), KNeighborsRegressor(n_neighbors=25)),
     }
@@ -146,7 +146,7 @@ def heterogeneous_relevance_vote(
     if classification and np.unique(yv).size < 2:
         # The main vote path fits LogisticRegression, which raises an opaque "needs >= 2 classes" deep in the panel loop; reject single-class y at entry with a clear message.
         raise ValueError(f"heterogeneous_relevance_vote requires y with >= 2 classes for classification; got {np.unique(yv).size}.")
-    panel = models if models is not None else _default_panel(classification)
+    panel = models if models is not None else _default_panel(classification, random_state)
     # The shadow seed (random_state + tr) is model-INDEPENDENT, so every panel member redraws the same
     # n_shadow_trials shadow matrices from scratch. Build each [X | shadow] once and reuse across the panel:
     # bit-identical (same seed -> same permutation), removing (n_models-1)/n_models of the shadow work.

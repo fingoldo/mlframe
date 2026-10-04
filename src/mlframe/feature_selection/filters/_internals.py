@@ -293,11 +293,11 @@ def njit_functions_dict(
                 if ck is not None:
                     cached = _NJIT_DISPATCHER_CACHE.get(ck)
                     if cached is None:
-                        cached = njit(func)
+                        cached = njit(cache=True)(func)
                         _NJIT_DISPATCHER_CACHE[ck] = cached
                     dict_[key] = cached
                 else:
-                    dict_[key] = njit(func)
+                    dict_[key] = njit(cache=True)(func)
             except Exception as e:  # nosec B110 - best-effort path
                 logger.debug("njit-wrapping %r failed, leaving it un-cached: %s", key, e)
 

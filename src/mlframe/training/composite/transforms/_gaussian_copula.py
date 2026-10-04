@@ -36,26 +36,36 @@ def _gaussian_copula_residual_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Store train ECDF knots for ``y`` and ``base`` plus the OLS (alpha, beta) of the normal-scores regression ``z_y ~ alpha * z_b + beta``."""
-    y_knots, y_cdf = _ecdf_knots(y)
-    base_knots, base_cdf = _ecdf_knots(base)
+    """Store train ECDF knots for ``y`` and ``base`` plus the OLS (alpha, beta) of the normal-scores regression ``z_y ~ alpha * z_b + beta``.
+
+    ``sample_weight`` weights both ECDFs and the normal-scores regression.
+    """
+    y_knots, y_cdf = _ecdf_knots(y, sample_weight)
+    base_knots, base_cdf = _ecdf_knots(base, sample_weight)
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
     finite = np.isfinite(y_f) & np.isfinite(base_f)
+    w: Optional[np.ndarray] = None
+    if sample_weight is not None:
+        w_all = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        finite &= np.isfinite(w_all) & (w_all > 0.0)
+        w = w_all[finite]
     z_y = _copula_z(y_f[finite], y_knots, y_cdf)
     z_b = _copula_z(base_f[finite], base_knots, base_cdf)
     if z_y.size < 3:
         alpha, beta = 0.0, 0.0
     else:
-        zb_mean = float(z_b.mean())
+        zb_mean = float(np.average(z_b, weights=w))
+        zy_mean = float(np.average(z_y, weights=w))
         zb_c = z_b - zb_mean
-        denom = float(np.dot(zb_c, zb_c))
+        denom = float(np.dot(zb_c, zb_c) if w is None else np.dot(w * zb_c, zb_c))
         if denom <= 0:
             alpha = 0.0
-            beta = float(z_y.mean())
+            beta = zy_mean
         else:
-            alpha = float(np.dot(zb_c, z_y - z_y.mean()) / denom)
-            beta = float(z_y.mean() - alpha * zb_mean)
+            num = float(np.dot(zb_c, z_y - zy_mean) if w is None else np.dot(w * zb_c, z_y - zy_mean))
+            alpha = num / denom
+            beta = float(zy_mean - alpha * zb_mean)
     return {
         "y_knots": y_knots, "y_cdf": y_cdf,
         "base_knots": base_knots, "base_cdf": base_cdf,

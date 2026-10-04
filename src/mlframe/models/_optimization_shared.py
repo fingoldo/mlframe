@@ -125,6 +125,25 @@ def generate_fibonacci(n: int) -> np.ndarray:
     return np.array(fibonacci_sequence, dtype=np.int64)
 
 
+def _with_font_rc(fn):
+    """Run ``fn`` inside ``plt.rc_context`` with its ``font_size`` argument so the global rcParams are never mutated."""
+    import functools
+    import inspect
+
+    sig = inspect.signature(fn)
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        """Bind the call, then execute under a font-size rc_context."""
+        bound = sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+        with plt.rc_context({"font.size": bound.arguments["font_size"]}):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
+
+@_with_font_rc
 def plot_search_state(
     search_space: Union[Sequence, np.ndarray],
     next_cand: int,
@@ -158,7 +177,6 @@ def plot_search_state(
     # Plot expected fitness of the points
     # ---------------------------------------------------------------------------------------------------------------
 
-    plt.rcParams.update({"font.size": font_size})
     fig, axMain = plt.subplots(sharex=True, figsize=figsize, layout="tight")
     axExpectedFitness = axMain.twinx()
 

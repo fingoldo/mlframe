@@ -87,6 +87,8 @@ def npnbArrayMinMax(x):
 ################################################################################################
 # ARRAY SORTING
 ################################################################################################
+# The counting-sort / counting-argsort family below has no production caller in src/mlframe; it stays as the tested reference implementation of a
+# bucket-based integer argsort, with value-range guards so a stray value cannot write outside its bucket array.
 @njit(fastmath=True, cache=True)
 def arrayCountingSort(array, maxval):
     """O(n + maxval) counting sort for a non-negative-integer array with known upper bound ``maxval``; faster than comparison sort when the value range is small relative to n."""
@@ -94,6 +96,8 @@ def arrayCountingSort(array, maxval):
     m = maxval + 1
     count = np.zeros(m, np.int32)
     for a in array:
+        if a < 0 or a >= m:
+            raise ValueError("arrayCountingSort: value outside [0, maxval]")
         count[a] += 1  # count occurrences
     i = 0
     for a in range(m):  # emit
@@ -112,6 +116,25 @@ def emptyListOfInts():
     return [i for i in range(0)]
 
 
+@njit(cache=True)
+def _validate_counting_inputs(array, mask, m):
+    """Raise ``ValueError`` unless every (mask-selected) value lies in ``[0, m)`` and every mask index lies inside ``array``.
+
+    The threaded kernels bucket inside a ``prange`` region, where an exception does not stop the other chunks, so the check runs serially up front.
+    """
+    if len(mask) > 0:
+        for i in range(len(mask)):
+            ind = mask[i]
+            if ind < 0 or ind >= len(array):
+                raise ValueError("counting sort: mask index outside the array")
+            if array[ind] < 0 or array[ind] >= m:
+                raise ValueError("counting sort: value outside [0, maxval]")
+    else:
+        for i in range(len(array)):
+            if array[i] < 0 or array[i] >= m:
+                raise ValueError("counting sort: value outside [0, maxval]")
+
+
 @njit(fastmath=True, cache=True)
 def BinByUniqueValues(array, lo, r, m, mask):
     """Bucket the (optionally ``mask``-selected) indices of ``array[lo:r]`` into ``m`` lists keyed by value, i.e. one bucket per possible integer value 0..m-1. Building block for the counting-argsort kernels below."""
@@ -120,12 +143,20 @@ def BinByUniqueValues(array, lo, r, m, mask):
         i = lo
         while i < r:
             ind = mask[i]
-            groupedIndices[array[ind]].append(ind)
+            if ind < 0 or ind >= len(array):
+                raise ValueError("BinByUniqueValues: mask index outside the array")
+            v = array[ind]
+            if v < 0 or v >= m:
+                raise ValueError("BinByUniqueValues: value outside [0, m)")
+            groupedIndices[v].append(ind)
             i += 1
     else:
         i = lo
         while i < r:
-            groupedIndices[array[i]].append(i)
+            v = array[i]
+            if v < 0 or v >= m:
+                raise ValueError("BinByUniqueValues: value outside [0, m)")
+            groupedIndices[v].append(i)
             i += 1
     return groupedIndices
     # cGrowthFactor=2
@@ -199,6 +230,7 @@ def arrayCountingArgSortThreaded(array, maxval, mask=_EMPTY_INT32_MASK, maxThrea
     else:
         arrayLen = len(array)
     argsorted = np.empty(arrayLen, np.int32)
+    _validate_counting_inputs(array, mask, m)
 
     # Group indices of same values
     effectiveSize = int(m * 3)
@@ -236,6 +268,7 @@ def arrayCountingArgSortAndUniqueValuesThreaded(array, maxval, mask=_EMPTY_INT32
     else:
         arrayLen = len(array)
     argsorted = np.empty(arrayLen, np.int32)
+    _validate_counting_inputs(array, mask, m)
 
     # Group indices of same values
     effectiveSize = int(m * 3)

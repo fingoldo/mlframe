@@ -27,6 +27,13 @@ from mlframe.calibration.quality import make_custom_calibration_plot as show_cus
 from mlframe.metrics.core import format_classification_report
 
 
+def _hard_labels_from_probs(probs: np.ndarray, nclasses: int) -> np.ndarray:
+    """Hard class labels: positive-class column thresholded at 0.5 for binary, argmax otherwise (full-width ints, so >127 classes never wrap)."""
+    if nclasses == 2:
+        return (probs[:, 1] > 0.5).astype(np.int8)
+    return np.asarray(np.argmax(probs, axis=1))
+
+
 def init_model_instance(model_class: Any, params: dict) -> Any:
     """Instantiate ``model_class`` with ``params``, recursing into each step's params when it is an imblearn ``Pipeline``."""
     # imblearn is optional, and importing it drags in the whole sampler tree - which fails outright when the installed
@@ -209,10 +216,7 @@ def compute_shap_on_cv(
         nclasses = probs.shape[1]
         if show_classification_report:
             # Binary: threshold the positive-class column at 0.5; multiclass: take the argmax class.
-            if nclasses == 2:
-                hard_pred = (probs[:, 1] > 0.5).astype(np.int8)
-            else:
-                hard_pred = np.argmax(probs, axis=1).astype(np.int8)
+            hard_pred = _hard_labels_from_probs(probs, nclasses)
             classification_report_text = format_classification_report(all_true_values, hard_pred, nclasses=nclasses, target_names=list(display_labels.values()))
             logger.info(classification_report_text)
         show_custom_calibration_plot(

@@ -57,6 +57,7 @@ from typing import Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._fold_cell_stats import fold_cell_sum_cnt
 from ._target_encoding_fe import _column_to_str, _smooth
 
 logger = logging.getLogger(__name__)
@@ -410,10 +411,7 @@ def _kfold_target_encode_codes(
         train_mask = fold_ids != f
         if not train_mask.any():
             continue
-        cell_sum = np.zeros(n_cells, dtype=np.float64)
-        cell_cnt = np.zeros(n_cells, dtype=np.float64)
-        np.add.at(cell_sum, codes64[train_mask], y_arr[train_mask])
-        np.add.at(cell_cnt, codes64[train_mask], 1.0)
+        cell_sum, cell_cnt = fold_cell_sum_cnt(codes64, y_arr, fold_ids, f, n_cells)
         means = np.full(n_cells, global_mean, dtype=np.float64)
         nz = cell_cnt > 0.0
         if nz.any():
@@ -423,10 +421,7 @@ def _kfold_target_encode_codes(
         test_mask = ~train_mask
         oof[test_mask] = means[codes64[test_mask]]
 
-    full_sum = np.zeros(n_cells, dtype=np.float64)
-    full_cnt = np.zeros(n_cells, dtype=np.float64)
-    np.add.at(full_sum, codes64, y_arr)
-    np.add.at(full_cnt, codes64, 1.0)
+    full_sum, full_cnt = fold_cell_sum_cnt(codes64, y_arr, fold_ids, -1, n_cells)
     lookup: dict[int, float] = {}
     for c in range(n_cells):
         if full_cnt[c] > 0.0:

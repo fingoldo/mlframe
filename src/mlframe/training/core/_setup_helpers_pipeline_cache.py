@@ -227,16 +227,15 @@ def _persist_pipeline_disk_cache() -> None:
             "version_tag": _pipeline_disk_cache_version_tag(),
             "entries": {str(k): bool(v) for k, v in entries.items()},
         }
-        tmp_path = path + ".tmp"
+        from mlframe.training.io import atomic_write_bytes
+
         try:
             import orjson as _orjson
-            with open(tmp_path, "wb") as fh:
-                fh.write(_orjson.dumps(payload))
+            _data = _orjson.dumps(payload)
         except ImportError:
             import json as _json
-            with open(tmp_path, "w", encoding="utf-8") as fh:
-                _json.dump(payload, fh)
-        os.replace(tmp_path, path)
+            _data = _json.dumps(payload).encode("utf-8")
+        atomic_write_bytes(path, lambda fh: fh.write(_data))
     except Exception as e:  # nosec B110 - best-effort persistence, must never break the live training path
         # Promoted from DEBUG (invisible by default) to WARNING with a traceback: a CI-only failure of
         # this exact persist call (test_pipeline_json_disk_cache_roundtrip found no file on disk right

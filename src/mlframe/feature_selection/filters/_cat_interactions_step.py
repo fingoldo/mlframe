@@ -280,20 +280,9 @@ def run_cat_interaction_step(
         else:
             if verbose:
                 logger.info("cat-FE: pair search on GPU over %d pairs", len(pairs_a))
-            joint_mi_arr = mi_direct_gpu_batched_pairs(
-                factors_data=data,
-                pairs_a=pairs_a, pairs_b=pairs_b,
-                factors_nbins=nbins,
-                classes_y=classes_y, freqs_y=freqs_y,
-                dtype=dtype,
+            use_gpu, ii_arr, joint_mi_arr, n_uniq_arr = _gpu_pair_search_or_none(
+                cfg, mi_direct_gpu_batched_pairs, data, pairs_a, pairs_b, nbins, classes_y, freqs_y, dtype, marginal_mi_full,
             )
-            ii_arr = np.zeros(len(pairs_a), dtype=np.float64)
-            n_uniq_arr = np.zeros(len(pairs_a), dtype=np.int64)
-            for k in range(len(pairs_a)):
-                i = int(pairs_a[k])
-                j = int(pairs_b[k])
-                ii_arr[k] = joint_mi_arr[k] - marginal_mi_full[i] - marginal_mi_full[j]
-                n_uniq_arr[k] = int(nbins[i]) * int(nbins[j])
     ii_arr, joint_mi_arr, n_uniq_arr = _run_cat_interactio_use_gpu(use_gpu, use_weights, verbose, data, pairs_a, pairs_b, marginal_mi_full, nbins, classes_y, weights, dtype, freqs_y, ii_arr, joint_mi_arr, n_uniq_arr)
 
     # ---- Top-K selection ----
@@ -768,6 +757,31 @@ def _run_cat_interactio_use_weights(use_weights, weights, data, candidate_idxs_a
         )
         for _k, _idx in enumerate(candidate_idxs_arr):
             marginal_mi_full[int(_idx)] = candidate_mi[_k]
+
+
+def _gpu_pair_search_or_none(cfg, gpu_fn, data, pairs_a, pairs_b, nbins, classes_y, freqs_y, dtype, marginal_mi_full):
+    """GPU pair search -> ``(used_gpu, ii_arr, joint_mi_arr, n_uniq_arr)``.
+
+    Under ``backend="auto"`` any GPU failure (allocation, launch, size guard) returns ``(False, None, None, None)`` so the caller runs the CPU kernel;
+    an explicit ``backend="gpu"`` re-raises.
+    """
+    try:
+        joint_mi_arr = gpu_fn(
+            factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b, factors_nbins=nbins, classes_y=classes_y, freqs_y=freqs_y, dtype=dtype,
+        )
+    except Exception as exc:
+        if cfg.backend != "auto":
+            raise
+        logger.warning("cat-FE: GPU pair search failed (%s: %s); falling back to the CPU kernel", type(exc).__name__, exc)
+        return False, None, None, None
+    ii_arr = np.zeros(len(pairs_a), dtype=np.float64)
+    n_uniq_arr = np.zeros(len(pairs_a), dtype=np.int64)
+    for k in range(len(pairs_a)):
+        i = int(pairs_a[k])
+        j = int(pairs_b[k])
+        ii_arr[k] = joint_mi_arr[k] - marginal_mi_full[i] - marginal_mi_full[j]
+        n_uniq_arr[k] = int(nbins[i]) * int(nbins[j])
+    return True, ii_arr, joint_mi_arr, n_uniq_arr
 
 
 def _run_cat_interactio_use_gpu(use_gpu, use_weights, verbose, data, pairs_a, pairs_b, marginal_mi_full, nbins, classes_y, weights, dtype, freqs_y, ii_arr, joint_mi_arr, n_uniq_arr):

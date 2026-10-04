@@ -285,7 +285,7 @@ def _persist_shard_history(
             records.append({"iter": it, "shard_idx": sh, "score": float(v), "metric_name": monitor_metric_name})
     df = pd.DataFrame.from_records(records)
     path = f"{base_stem}.shard_history.parquet"
-    tmp = path + ".tmp"
-    df.to_parquet(tmp, index=False)
-    os.replace(tmp, path)
+    from mlframe.training.io import atomic_write_bytes
+
+    atomic_write_bytes(path, lambda fh: df.to_parquet(fh, index=False))
     return path

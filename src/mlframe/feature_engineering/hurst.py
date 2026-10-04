@@ -1,6 +1,10 @@
 """Compute the Hurst Exponent of a 1D array via R/S analysis.
 
 https://en.wikipedia.org/wiki/Hurst_exponent
+
+The single-window kernels (``dfa_alpha``, ``higuchi_fd``, ``dfa_alpha2_quadratic``, ``multifractal_dfa``, ``_hurst_rs_single``) are compiled with the full
+``fastmath=True`` flag set, which assumes finite input: a window holding NaN returns a finite sentinel (0.0) from some of them instead of NaN. The rolling
+wrappers replace non-finite values with 0 before calling them; callers of the single-window functions must pass finite data.
 """
 
 from __future__ import annotations

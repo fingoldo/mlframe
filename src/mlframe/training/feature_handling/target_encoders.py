@@ -227,7 +227,7 @@ class LeakageSafeEncoder:
                 raise ValueError("method='woe' requires binary {0, 1} target; got " f"{sorted(unique_y)[:5]}")
             self._woe_pos, self._woe_neg = self._compute_woe_per_category(cats, y_arr, sw_arr)
         elif self.method == "target_james_stein":
-            self._js_sigma2, self._js_tau2 = self._fit_james_stein_variance_params(cats, y_arr, self._category_counts, self._category_means)
+            self._js_sigma2, self._js_tau2 = self._fit_james_stein_variance_params(cats, y_arr, self._category_counts, self._category_means, sw_arr)
 
         self._is_fitted = True
         return self
@@ -281,7 +281,7 @@ class LeakageSafeEncoder:
         if self.method == "woe":
             self._woe_pos, self._woe_neg = self._compute_woe_per_category(cats, y_arr, sw_arr)
         elif self.method == "target_james_stein":
-            self._js_sigma2, self._js_tau2 = self._fit_james_stein_variance_params(cats, y_arr, self._category_counts, self._category_means)
+            self._js_sigma2, self._js_tau2 = self._fit_james_stein_variance_params(cats, y_arr, self._category_counts, self._category_means, sw_arr)
 
         self._is_fitted = True
         return out
@@ -366,6 +366,7 @@ class LeakageSafeEncoder:
         y: np.ndarray,
         counts: Dict[str, Any],
         means: Dict[str, float],
+        sample_weight: np.ndarray | None = None,
     ) -> tuple:
         """Estimate (sigma2, tau2) for variance-aware James-Stein shrinkage of category means toward the
         prior -- the classic one-way random-effects (Efron-Morris / empirical-Bayes) formulation.
@@ -382,6 +383,9 @@ class LeakageSafeEncoder:
         dominates between-category signal, and barely at all when the reverse holds. Falls back to
         ``sigma2=1.0, tau2=1e12`` (shrink -> 0, i.e. trust the raw sample mean) when there's too little
         structure to estimate variance from (fewer than 2 categories, or every category singleton).
+
+        With ``sample_weight`` the ``counts`` are weighted masses (frequency-weight semantics): the total is their sum rather than the row count,
+        and the pooled residual variance is weighted, so unit weights reproduce the unweighted estimates exactly.
         """
         cats_with_data = [c for c in counts if counts[c] > 0]
         K = len(cats_with_data)
@@ -389,6 +393,12 @@ class LeakageSafeEncoder:
         if K < 2 or n_total < 2:
             return 1.0, 1e12
         n_arr = np.array([counts[c] for c in cats_with_data], dtype=np.float64)
+        w_rows = None
+        if sample_weight is not None:
+            n_total = float(np.sum(n_arr))
+            if n_total <= 0.0:
+                return 1.0, 1e12
+            w_rows = np.asarray(sample_weight, dtype=np.float64)
         m_arr = np.array([means[c] for c in cats_with_data], dtype=np.float64)
         grand_mean = float(np.sum(n_arr * m_arr) / n_total)
 
@@ -399,13 +409,14 @@ class LeakageSafeEncoder:
         cat_mean_lookup = means
         residuals = np.array([y_i - cat_mean_lookup.get(c, grand_mean) for c, y_i in zip(cats, y)], dtype=np.float64)
         dof = n_total - K
+        sq_resid = residuals**2 if w_rows is None else w_rows * residuals**2
         if dof <= 0:
             # Every category is a singleton (n_c == 1 everywhere) -- no within-category residual d.f.
             # to estimate sigma2 from directly; fall back to the (unbiased) TOTAL variance of y as the
             # noise estimate instead.
             sigma2 = float(np.var(y, ddof=1)) if n_total > 1 else 1.0
         else:
-            sigma2 = float(np.sum(residuals**2) / dof)
+            sigma2 = float(np.sum(sq_resid) / dof)
         sigma2 = max(sigma2, 1e-12)
 
         # Between-category variance, unbalanced-design ANOVA method-of-moments estimator (Searle et al.):
@@ -536,7 +547,7 @@ class LeakageSafeEncoder:
                     q_safe = float(min(max(q, 1e-12), 1.0 - 1e-12))
                     out[j] = float(np.log(p_safe) - np.log(q_safe))
             elif self.method == "target_james_stein":
-                sigma2_t, tau2_t = self._fit_james_stein_variance_params(cats_train, y_train, counts_t, means_t)
+                sigma2_t, tau2_t = self._fit_james_stein_variance_params(cats_train, y_train, counts_t, means_t, sw_train)
                 for j, c in zip(val_idx, cats_val):
                     n_c = counts_t.get(c, 0)
                     m_c = means_t.get(c, prior_t)

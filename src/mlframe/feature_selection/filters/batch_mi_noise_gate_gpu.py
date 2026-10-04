@@ -116,6 +116,7 @@ def batch_mi_with_noise_gate_cupy_v1(
     fe_mi = np.zeros(K, dtype=np.float64)
     if K == 0 or n == 0:
         return fe_mi
+    _screen_host_codes(disc_2d, factors_nbins, classes_y, freqs_y, "batch_mi_with_noise_gate_cupy_v1")
 
     K_y = int(freqs_y.shape[0])
     nbins_arr = np.asarray(factors_nbins, dtype=np.int64)
@@ -210,11 +211,11 @@ def batch_mi_with_noise_gate_cupy(
         raise RuntimeError("cupy is not available on this host")
     cp = cupy()
 
-    n = int(disc_2d.shape[0])
-    K = int(disc_2d.shape[1])
+    n, K = int(disc_2d.shape[0]), int(disc_2d.shape[1])
     fe_mi = np.zeros(K, dtype=np.float64)
     if K == 0 or n == 0:
         return fe_mi
+    _screen_host_codes(disc_2d, factors_nbins, classes_y, freqs_y, "batch_mi_with_noise_gate_cupy")
 
     K_y = int(freqs_y.shape[0])
     nbins_arr = np.asarray(factors_nbins, dtype=np.int64)
@@ -678,24 +679,34 @@ def batch_mi_with_noise_gate_cuda_resident(
     return _gate_from_mi(original_mi, perm_mis, nperm, min_nonzero_confidence)
 
 
-def _bin_range_for_host_discrete(d_disc_resident, disc_2d, factors_nbins, classes_y, freqs_y):
-    """Derive the host-side discrete value range when no resident device copy exists."""
-    if d_disc_resident is None:
-        _dmin = int(disc_2d.min()); _dmax = int(disc_2d.max())
-        _kx_max = int(np.asarray(factors_nbins, dtype=np.int64).max())
-        if _dmin < 0 or _dmax >= _kx_max:
+def _screen_host_codes(disc_2d, factors_nbins, classes_y, freqs_y, who):
+    """Raise ``ValueError`` unless every column ``k`` of ``disc_2d`` holds codes in ``[0, factors_nbins[k])`` and ``classes_y`` lies in ``[0, K_y)``.
+
+    The histogram kernels (and the flat ``bincount`` index of the cupy twins) place a code at ``offset[k] + code * K_y + y``, so a code at or above its own
+    column's cardinality lands in the NEXT column's slice (silent wrong MI) or past the buffer (illegal address). A global ``max(nbins)`` bound misses that
+    for mixed-cardinality frames, hence the per-column comparison.
+    """
+    if disc_2d.size:
+        nb = np.asarray(factors_nbins, dtype=np.int64)
+        lo = disc_2d.min(axis=0).astype(np.int64)
+        hi = disc_2d.max(axis=0).astype(np.int64)
+        bad = np.flatnonzero((lo < 0) | (hi >= nb))
+        if bad.size:
+            c = int(bad[0])
             raise ValueError(
-                "batch_mi_with_noise_gate_cuda_resident disc_2d codes out of range "
-                "(min=%d, max=%d) for nbins max=%d; a -1 sentinel or over-range code would index "
-                "outside the device histogram (illegal address)." % (_dmin, _dmax, _kx_max)
+                "%s disc_2d codes out of range in column %d (min=%d, max=%d) for nbins=%d; a -1 sentinel or over-range code would index "
+                "outside its histogram slice." % (who, c, int(lo[c]), int(hi[c]), int(nb[c]))
             )
-        if classes_y.size:
-            _cy_min = int(classes_y.min()); _cy_max = int(classes_y.max())
-            _ky = int(freqs_y.shape[0])
-            if _cy_min < 0 or _cy_max >= _ky:
-                raise ValueError(
-                    "batch_mi_with_noise_gate_cuda_resident classes_y out of range " "(min=%d, max=%d) for K_y=%d (illegal address)." % (_cy_min, _cy_max, _ky)
-                )
+    if classes_y.size:
+        cy_min, cy_max, k_y = int(classes_y.min()), int(classes_y.max()), int(freqs_y.shape[0])
+        if cy_min < 0 or cy_max >= k_y:
+            raise ValueError("%s classes_y out of range (min=%d, max=%d) for K_y=%d (illegal address)." % (who, cy_min, cy_max, k_y))
+
+
+def _bin_range_for_host_discrete(d_disc_resident, disc_2d, factors_nbins, classes_y, freqs_y):
+    """Screen the host codes unless a resident device copy (binner-produced, dense by contract) is the one consumed."""
+    if d_disc_resident is None:
+        _screen_host_codes(disc_2d, factors_nbins, classes_y, freqs_y, "batch_mi_with_noise_gate_cuda_resident")
 
 
 def batch_mi_with_noise_gate_cuda(
@@ -741,6 +752,7 @@ def batch_mi_with_noise_gate_cuda(
     fe_mi = np.zeros(K, dtype=np.float64)
     if K == 0 or n == 0:
         return fe_mi
+    _screen_host_codes(disc_2d, factors_nbins, classes_y, freqs_y, "batch_mi_with_noise_gate_cuda")
 
     K_y = int(freqs_y.shape[0])
     nbins_arr = np.asarray(factors_nbins, dtype=np.int64)

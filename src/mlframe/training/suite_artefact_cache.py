@@ -34,13 +34,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-try:
-    import orjson
-    _HAS_ORJSON = True
-except ImportError:  # pragma: no cover - orjson is a project dep but allow fallback
-    import json as _json_fallback
-    orjson = None  # type: ignore[assignment]
-    _HAS_ORJSON = False
+from mlframe.training._canonical_json import canonical_json_bytes
 
 from mlframe.utils.safe_pickle import (
     PickleVerificationError,
@@ -95,13 +89,8 @@ def _default_bytes_limit() -> int:
 
 
 def _canonical_dump(payload: Any) -> bytes:
-    """Sort-keyed JSON bytes -- the input to the cache key blake2b. Mirrors the JSON_HASH_MUST_SORT_KEYS rule already enforced in ``compute_config_signature_v1`` / ``_full_y_content_hash``.
-
-    ``orjson`` wins by ~3-5x over stdlib on dict-of-strings payloads (the common config-shape) but falls back to stdlib if absent. Non-string keys are stringified by ``default=str`` so the call NEVER raises on unhashable / non-JSON-serialisable subfields -- a stable digest beats a precise one for cache keys.
-    """
-    if _HAS_ORJSON:
-        return orjson.dumps(payload, default=str, option=orjson.OPT_SORT_KEYS)
-    return _json_fallback.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    """Sort-keyed canonical JSON bytes, the input to the cache key blake2b. Never raises; non-str keys, NaN vs None and ints beyond 64 bits stay distinct."""
+    return canonical_json_bytes(payload)
 
 
 class SuiteKeyBuilder:

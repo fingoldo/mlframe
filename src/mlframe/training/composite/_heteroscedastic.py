@@ -48,6 +48,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from .estimator import CompositeTargetEstimator
+from .post_shim import _model_fit_accepts_sample_weight
 from .transforms import get_transform
 from mlframe.training.composite.transforms.shared import call_transform
 
@@ -197,7 +198,10 @@ class HeteroscedasticCompositeEstimator(RegressorMixin, BaseEstimator):
             floor = self.residual_floor_rel * max(float(np.var(resid[finite])) if finite.any() else 0.0, 1e-30)
             log_sq = np.log(np.maximum(resid[finite] ** 2, floor))
             X_valid = X if bool(finite.all()) else mean._subset_rows(X, finite)
-            var_inner.fit(X_valid, log_sq)
+            if sample_weight is not None and _model_fit_accepts_sample_weight(var_inner):
+                var_inner.fit(X_valid, log_sq, sample_weight=np.asarray(sample_weight, dtype=np.float64).reshape(-1)[finite])
+            else:
+                var_inner.fit(X_valid, log_sq)
             self.variance_estimator_ = var_inner
             sigma_train = np.exp(0.5 * np.asarray(var_inner.predict(X), dtype=np.float64).reshape(-1))
 
@@ -211,7 +215,8 @@ class HeteroscedasticCompositeEstimator(RegressorMixin, BaseEstimator):
             finite_cal = np.isfinite(t_target_cal) & np.isfinite(t_hat_cal) & np.isfinite(sigma_cal)
             self.sigma_calibration_ = self._fit_calibration(resid_cal[finite_cal], sigma_cal[finite_cal])
         else:
-            self.sigma_calibration_ = self._fit_calibration(resid[finite], sigma_train[finite])
+            w_cal = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64).reshape(-1)[finite]
+            self.sigma_calibration_ = self._fit_calibration(resid[finite], sigma_train[finite], w_cal)
 
         ref_names = getattr(mean, "feature_names_in_", None)
         if ref_names is not None:
@@ -239,14 +244,21 @@ class HeteroscedasticCompositeEstimator(RegressorMixin, BaseEstimator):
         return np.asarray(getattr(dist, "scale"), dtype=np.float64).reshape(-1)
 
     @staticmethod
-    def _fit_calibration(resid: np.ndarray, sigma: np.ndarray) -> float:
-        """Global factor ``c`` so ``resid / (c*sigma)`` has unit variance -- corrects the log-chi-square / scale bias."""
+    def _fit_calibration(resid: np.ndarray, sigma: np.ndarray, sample_weight: np.ndarray | None = None) -> float:
+        """Global factor ``c`` so ``resid / (c*sigma)`` has unit variance (weighted when ``sample_weight`` is given) -- corrects the log-chi-square / scale bias."""
         s = np.asarray(sigma, dtype=np.float64).reshape(-1)
         r = np.asarray(resid, dtype=np.float64).reshape(-1)
         ok = np.isfinite(s) & np.isfinite(r) & (s > 0)
+        w = None
+        if sample_weight is not None:
+            w_all = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+            ok &= np.isfinite(w_all) & (w_all >= 0.0)
+            w = w_all[ok]
+            if not ok.any() or float(w.sum()) <= 0.0:
+                return 1.0
         if not ok.any():
             return 1.0
-        c = float(np.sqrt(np.mean((r[ok] / s[ok]) ** 2)))
+        c = float(np.sqrt(np.average((r[ok] / s[ok]) ** 2, weights=w)))
         return c if np.isfinite(c) and c > 0 else 1.0
 
     # ------------------------------------------------------------------

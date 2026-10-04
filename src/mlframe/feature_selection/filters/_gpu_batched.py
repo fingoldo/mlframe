@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 import numpy as np
 
+from ._gpu_host_permutations import host_perm_batch_cap, host_permuted_y_batch
 from ._internals import GPU_MAX_BLOCK_SIZE
 from .info_theory import compute_mi_from_classes, merge_vars
 
@@ -32,6 +33,17 @@ def _gpu_batched_bytes_per_perm(n: int) -> int:
     The prior formula used ``n * 4`` (only ``perms_y``), a ~5x undercount of actual peak VRAM need for a
     given ``batch_size``."""
     return int(n) * 20
+
+
+_MAX_GRID_Y = 65535
+
+
+def cap_batch_size(batch_size: int, free_bytes: int, n: int) -> int:
+    """Largest permutation batch not above ``batch_size`` that fits half of ``free_bytes`` on the device, the host permutation staging budget, and
+    the 65535 limit on gridDim.y (the batch index rides on it)."""
+    bytes_per_perm = _gpu_batched_bytes_per_perm(n)
+    safe = max(1, min(int(free_bytes // 2 // bytes_per_perm), host_perm_batch_cap(n), _MAX_GRID_Y))
+    return min(int(batch_size), safe)
 
 
 def _mi_from_counts_cupy(cp, counts_2d, n, nbins_x, nbins_y, outer_safe):
@@ -115,10 +127,7 @@ def mi_direct_gpu_batched(
         )
     # OOM guard: cap batch_size to half of available free GPU memory.
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
-    bytes_per_perm = _gpu_batched_bytes_per_perm(n)
-    safe_batch = max(1, int(free_bytes // 2 // bytes_per_perm))
-    if batch_size > safe_batch:
-        batch_size = safe_batch
+    batch_size = cap_batch_size(batch_size, free_bytes, n)
 
     # RESIDENT UPLOAD: ``classes_y``/``freqs_y`` are the MRMR TARGET - fit-constant across
     # every candidate this function is called for in the greedy screening loop (``mi_direct_gpu`` fans out
@@ -202,17 +211,10 @@ def mi_direct_gpu_batched(
     batch_failures = []  # list of CuPy 0-d arrays
     nchecked = 0
     remaining = npermutations
-    # Use the modern cupy Generator (XORWOW) rather than the legacy global cp.random.uniform: the legacy
-    # host-API cuRAND generator fails to initialise (CURAND_STATUS_INITIALIZATION_FAILED) on some
-    # driver/lib combos where the Generator API works fine - and the streamed twin already uses default_rng.
-    _rng = cp.random.default_rng(base_seed)
+    # Permutations come from the host LCG stream the CPU kernels use, so the null does not depend on the backend that evaluates it.
     while remaining > 0:
         b = min(batch_size, remaining)
-        # ``cp.argsort(random((b, n)))`` is statistically equivalent to Fisher-Yates for permutation tests (argsort of distinct floats is a bijection).
-        rand = _rng.random((b, n), dtype=cp.float64)
-        perm_idx = cp.argsort(rand, axis=1)  # (b, n) int64
-        # Gather classes_y at these indices -> shuffled copies.
-        perms_y = classes_y_gpu[perm_idx].astype(cp.int32)
+        perms_y = cp.asarray(host_permuted_y_batch(classes_y, base_seed, nchecked, b))
 
         joint_counts_batch = cp.zeros((b, nbins_x * nbins_y), dtype=cp.int32)
         if use_shared_hist:
@@ -359,10 +361,7 @@ def mi_direct_gpu_batched_streamed(
         )
 
     free_bytes, _ = cp.cuda.runtime.memGetInfo()
-    bytes_per_perm = _gpu_batched_bytes_per_perm(n)
-    safe_batch = max(1, int(free_bytes // 2 // bytes_per_perm))
-    if batch_size > safe_batch:
-        batch_size = safe_batch
+    batch_size = cap_batch_size(batch_size, free_bytes, n)
 
     # RESIDENT UPLOAD: mirrors the non-streamed twin above - ``classes_y``/``freqs_y`` are
     # the fit-constant MRMR target, ``classes_x``/``freqs_x`` genuinely vary per candidate call.
@@ -421,13 +420,6 @@ def mi_direct_gpu_batched_streamed(
     original_mi_gpu = _mi_from_counts_cupy(cp, _id_counts, n, nbins_x, nbins_y, outer_safe)  # (1,) device scalar for the gate comparison below
 
     streams = [cp.cuda.Stream(non_blocking=True) for _ in range(max(1, n_streams))]
-    # B1 fix: cp.random.uniform uses a singleton device-side RandomState
-    # whose curandState advance is NOT safe under concurrent stream access.
-    # One Generator per stream avoids the race; each generator's Philox
-    # state advance stays serial within its own stream.
-    # seed each stream's Generator off ``base_seed`` (offset per stream so they
-    # don't all draw the identical permutation batch) when given; None preserves the legacy unseeded behaviour.
-    rngs = [cp.random.default_rng(None if base_seed is None else int(base_seed) + _i) for _i in range(len(streams))]
     batch_failures = []
     nchecked = 0
     remaining = npermutations
@@ -435,13 +427,9 @@ def mi_direct_gpu_batched_streamed(
     while remaining > 0:
         b = min(batch_size, remaining)
         stream = streams[iter_idx % len(streams)]
-        rng = rngs[iter_idx % len(rngs)]
+        host_perms = host_permuted_y_batch(classes_y, base_seed, nchecked, b)
         with stream:
-            # ``rng.random`` (per-stream) replaces the legacy global
-            # ``cp.random.uniform`` to stay race-free across streams.
-            rand = rng.random(size=(b, n), dtype=cp.float64)
-            perm_idx = cp.argsort(rand, axis=1)
-            perms_y = classes_y_gpu[perm_idx].astype(cp.int32)
+            perms_y = cp.asarray(host_perms)
 
             joint_counts_batch = cp.zeros((b, joint_size), dtype=cp.int32)
             if use_shared_hist:

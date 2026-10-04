@@ -13,8 +13,7 @@ This module carves the same computation into a ``numba.njit(parallel=True)`` ker
 column-loop accumulating that column's mean, variance and cross-product against the
 pre-centred ``y`` in a single pass -- with NO (n, F) centred temporary. The public
 entry point is :func:`safe_abs_corr_all_dispatch`, a size-aware dispatcher that
-routes small inputs to the numpy reference (the JIT / thread-spawn overhead never
-amortises there per the numba ladder) and large inputs (``n >= _MIN_ROWS`` AND
+routes tiny inputs to the numpy reference and everything else (``n >= _MIN_ROWS`` AND
 ``F >= _MIN_COLS``) to the kernel.
 
 Numerical-equivalence contract
@@ -54,13 +53,10 @@ except ImportError:  # pragma: no cover - numba is a hard dep; allow graceful sk
     _numba = None
     _HAS_NUMBA = False
 
-# Numba wins the per-column variance + cross-product walk only once BOTH the row
-# count and the column count are large enough to amortise the prange thread-spawn
-# (~50us) + one-shot JIT compile vs numpy's single vectorised matmul. Below these the
-# numpy reference's lower per-call overhead wins. Gates per the numba ladder: the
-# kernel is the default ONLY for n >= _MIN_ROWS AND F >= _MIN_COLS.
-_MIN_ROWS: int = 20_000
-_MIN_COLS: int = 64
+# Measured warm best-of-N (bench_composite_corr_crossover.py, 2 threads): the kernel beats the numpy reference at every
+# (n, F) cell from n=500, F=2 up to n=100k, F=128 (1.4x to 8.4x), so the fallback gate only excludes degenerate inputs.
+_MIN_ROWS: int = 256
+_MIN_COLS: int = 1
 
 # Half-width of the "borderline" band: a column whose kernel |corr| lands within this
 # of the reference is re-decided with the exact numpy single-column primitive so a

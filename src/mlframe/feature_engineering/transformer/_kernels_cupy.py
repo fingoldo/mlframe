@@ -227,6 +227,10 @@ def rff_matmul_cupy(
     m = W.shape[1]
     assert out.shape == (n, 2 * m), f"out must have shape (N, 2*m); got {out.shape} vs ({n}, {2 * m})"  # nosec B101 - internal invariant check in src/mlframe/feature_engineering/transformer, not reachable with untrusted input
 
+    if n == 0:
+        return
+    batch_rows = max(1, min(int(batch_rows), n))
+
     # One-shot upload of W and b - they're tiny (a few MB at most) and reused across all batches.
     W_dev = cp.asarray(W)
     b_dev = cp.asarray(b)
@@ -239,30 +243,35 @@ def rff_matmul_cupy(
     y_pinned = [_get_pinned_buffer(f"rff_y_{i}", (batch_rows, 2 * m), W.dtype) for i in range(2)]
 
     batches = [(r, min(r + batch_rows, n)) for r in range(0, n, batch_rows)]
-    for bi, (r0, r1) in enumerate(batches):
-        slot = bi & 1
-        bs = r1 - r0
-        with streams[slot]:
-            # H2D: copy this batch's input into pinned staging, then async to device. For the final partial batch (bs < batch_rows) we still use the full-size
-            # buffers but slice into the first ``bs`` rows.
-            x_pinned[slot][:bs] = X[r0:r1]
-            x_dev[slot][:bs].set(x_pinned[slot][:bs])
-            # Compute: angles = X @ W + b; then cos / sin separately into the two output halves.
-            angles = x_dev[slot][:bs] @ W_dev
-            angles += b_dev
-            cp.cos(angles, out=y_dev[slot][:bs, :m])
-            cp.sin(angles, out=y_dev[slot][:bs, m:])
-            y_dev[slot][:bs] *= scale
-            # D2H back through pinned staging.
-            y_dev[slot][:bs].get(out=y_pinned[slot][:bs])
-        # Synchronise this slot only before we overwrite its buffers two iterations later. The simplest correct pattern is to sync the slot we're about to reuse,
-        # which means stream ``slot`` from two iterations back. For the simpler double-buffer pattern we sync inline at the boundary:
-        if bi >= 1:
-            streams[1 - slot].synchronize()
-            prev_r0, prev_r1 = batches[bi - 1]
-            prev_bs = prev_r1 - prev_r0
-            prev_slot = 1 - slot
-            out[prev_r0:prev_r1] = y_pinned[prev_slot][:prev_bs]
+    try:
+        for bi, (r0, r1) in enumerate(batches):
+            slot = bi & 1
+            bs = r1 - r0
+            with streams[slot]:
+                # H2D: copy this batch's input into pinned staging, then async to device. For the final partial batch (bs < batch_rows) we still use the full-size
+                # buffers but slice into the first ``bs`` rows.
+                x_pinned[slot][:bs] = X[r0:r1]
+                x_dev[slot][:bs].set(x_pinned[slot][:bs])
+                # Compute: angles = X @ W + b; then cos / sin separately into the two output halves.
+                angles = x_dev[slot][:bs] @ W_dev
+                angles += b_dev
+                cp.cos(angles, out=y_dev[slot][:bs, :m])
+                cp.sin(angles, out=y_dev[slot][:bs, m:])
+                y_dev[slot][:bs] *= scale
+                # D2H back through pinned staging.
+                y_dev[slot][:bs].get(out=y_pinned[slot][:bs])
+            # Synchronise this slot only before we overwrite its buffers two iterations later. The simplest correct pattern is to sync the slot we're about to reuse,
+            # which means stream ``slot`` from two iterations back. For the simpler double-buffer pattern we sync inline at the boundary:
+            if bi >= 1:
+                streams[1 - slot].synchronize()
+                prev_r0, prev_r1 = batches[bi - 1]
+                prev_bs = prev_r1 - prev_r0
+                prev_slot = 1 - slot
+                out[prev_r0:prev_r1] = y_pinned[prev_slot][:prev_bs]
+    except BaseException:
+        for s in streams:
+            s.synchronize()
+        raise
     # Final batch: sync and copy.
     streams[(len(batches) - 1) & 1].synchronize()
     final_r0, final_r1 = batches[-1]

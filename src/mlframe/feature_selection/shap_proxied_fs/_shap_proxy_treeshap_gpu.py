@@ -61,13 +61,13 @@ void treeshap(const float* X, const int n, const int f,
     const int n_levels = max_path + 2;
     // Per-thread path scratch (local memory). MAXW / MAXSP are injected #defines derived from the Python
     // ``_MAX_SUPPORTED_DEPTH`` cap (T1) so the buffer sizes can never drift out of sync with the host cap.
-    long pf_feat[MAXW * MAXW];
+    int pf_feat[MAXW * MAXW];
     double pf_zero[MAXW * MAXW];
     double pf_one[MAXW * MAXW];
     double pweight[MAXW * MAXW];
 
-    const float* xi = X + (long)i * f;
-    double* phi_i = phi + (long)i * f;
+    const float* xi = X + (long long)i * f;
+    double* phi_i = phi + (long long)i * f;
 
     // Explicit stack replacing recursion: each frame is (node, level, unique_depth, zero, one, feat).
     int   st_node[MAXSP];
@@ -85,11 +85,11 @@ void treeshap(const float* X, const int n, const int f,
             sp--;
             int node=st_node[sp]; int level=st_level[sp]; int ud=st_ud[sp];
             double zfrac=st_zero[sp]; double ofrac=st_one[sp]; int fin=st_feat[sp];
-            long off = (long)level * width;
+            long long off = (long long)level * width;
 
             // Copy parent's path window into this level, then EXTEND.
             if (level > 0){
-                long poff = (long)(level-1) * width;
+                long long poff = (long long)(level-1) * width;
                 for (int k=0;k<ud;k++){
                     pf_feat[off+k]=pf_feat[poff+k]; pf_zero[off+k]=pf_zero[poff+k];
                     pf_one[off+k]=pf_one[poff+k];   pweight[off+k]=pweight[poff+k];

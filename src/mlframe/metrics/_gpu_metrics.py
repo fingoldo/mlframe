@@ -214,6 +214,15 @@ def _get_cupy_sse_kernel():
     return _CUPY_SSE_PER_COL
 
 
+_MAX_GRID_Y = 65535
+
+
+def column_slabs(n_cols: int, limit: int) -> list:
+    """``[(start, stop), ...]`` column slabs of at most ``limit`` columns; the column index rides on gridDim.y, which CUDA caps at 65535."""
+    step = max(1, int(limit))
+    return [(c, min(c + step, int(n_cols))) for c in range(0, int(n_cols), step)]
+
+
 def _get_numba_rmse_kernel():
     """Build (or return cached) numba.cuda kernel that computes per-block, per-column SSE via atomic.add. Final reduction + sqrt happens in cupy."""
     global _NUMBA_RMSE_KERNEL
@@ -296,15 +305,19 @@ def gpu_multiple_rmse_scores(actual, predicted):
             logger.debug("kernel_tuning_cache lookup for rmse_partial_sum block_n failed, using the default 256: %s", e)
             BLOCK_N = 256
         grid_x = (N + BLOCK_N - 1) // BLOCK_N
-        partial = cp.zeros((grid_x, M), dtype=cp.float64)
-        kernel[(grid_x, M), BLOCK_N](
-            cuda.as_cuda_array(actual),
-            cuda.as_cuda_array(predicted),
-            cuda.as_cuda_array(partial),
-            N,
-            M,
-        )
-        return cp.sqrt(cp.sum(partial, axis=0) / N)
+        actual_nb = cuda.as_cuda_array(actual)
+        sums = []
+        for c0, c1 in column_slabs(M, _MAX_GRID_Y):
+            partial = cp.zeros((grid_x, c1 - c0), dtype=cp.float64)
+            kernel[(grid_x, c1 - c0), BLOCK_N](
+                actual_nb,
+                cuda.as_cuda_array(predicted[:, c0:c1]),
+                cuda.as_cuda_array(partial),
+                N,
+                c1 - c0,
+            )
+            sums.append(cp.sum(partial, axis=0))
+        return cp.sqrt((sums[0] if len(sums) == 1 else cp.concatenate(sums)) / N)
 
     if actual.ndim == 1:
         actual = actual[:, cp.newaxis]

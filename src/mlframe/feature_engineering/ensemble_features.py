@@ -25,7 +25,8 @@ All functions take a 2-D ``preds`` array of shape ``(n_rows, n_preds)``
 and return either a 1-D ``(n_rows,)`` or a 2-D ``(n_rows, n_pairs)``
 array of per-row features. NaN-safe: non-finite predictions are
 coerced to the row's median before computation so a single failing
-predictor doesn't NaN-propagate to all features.
+predictor doesn't NaN-propagate to all features; the histogram features (entropy, top2 gap) instead
+exclude non-finite predictors and are NaN for a row with none valid.
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ import numba
 
 @numba.njit(parallel=True, cache=True)
 def _row_bin_histogram_njit(binned: np.ndarray, n_bins: int) -> np.ndarray:
-    """Per-row histogram of small integer bin labels: ``counts[r, binned[r, j]] += 1``.
+    """Per-row histogram of small integer bin labels: ``counts[r, binned[r, j]] += 1``; negative labels (missing cells) are skipped.
 
     Single fused prange pass over rows replaces the per-predictor ``np.add.at`` scatter loop (the slowest possible
     unbuffered scatter, ~27x slower than this kernel at 10M rows). Bit-identical: integer counts in float64.
@@ -61,7 +62,9 @@ def _row_bin_histogram_njit(binned: np.ndarray, n_bins: int) -> np.ndarray:
     counts = np.zeros((n, n_bins), dtype=np.float64)
     for r in numba.prange(n):
         for j in range(k):
-            counts[r, binned[r, j]] += 1.0
+            b = binned[r, j]
+            if b >= 0:
+                counts[r, b] += 1.0
     return counts
 
 
@@ -136,31 +139,45 @@ def predictor_pairwise_abs_diffs(preds: np.ndarray) -> np.ndarray:
 
 
 def _bin_counts(arr: np.ndarray, n_bins: int) -> np.ndarray:
-    """Per-row equal-width histogram counts over ``[row_min, row_max]`` (the max lands in the last bin).
+    """Per-row equal-width histogram counts over the finite ``[row_min, row_max]`` (the max lands in the last bin).
 
-    Shared by ``predictor_consensus_entropy`` and ``predictor_top2_mode_gap`` so the
-    builder computes the (identical) binning + scatter exactly once instead of twice.
+    Non-finite cells are excluded from the counts, so a row's counts sum to its number of valid predictors (0 for an all-missing row).
+    Shared by ``predictor_consensus_entropy`` and ``predictor_top2_mode_gap`` so the binning + scatter runs once.
     """
-    lo = arr.min(axis=1, keepdims=True)
-    span = arr.max(axis=1, keepdims=True) - lo
+    arr = np.asarray(arr, dtype=np.float64)
+    valid = np.isfinite(arr)
+    lo = np.where(valid, arr, np.inf).min(axis=1, keepdims=True)
+    hi = np.where(valid, arr, -np.inf).max(axis=1, keepdims=True)
+    has = valid.any(axis=1, keepdims=True)
+    lo = np.where(has, lo, 0.0)
+    span = np.where(has, hi, 0.0) - lo
     span = np.where(span > 0.0, span, 1.0)
-    binned = np.clip(
-        ((arr - lo) / span * n_bins).astype(np.int32),
-        0, n_bins - 1,
-    )
+    scaled = np.where(valid, (arr - lo) / span * n_bins, 0.0)
+    binned = np.where(valid, np.clip(scaled.astype(np.int32), 0, n_bins - 1), -1).astype(np.int32)
     return np.asarray(_row_bin_histogram_njit(np.ascontiguousarray(binned), n_bins))
 
 
+def _mask_nonfinite(preds: np.ndarray) -> np.ndarray:
+    """Predictor matrix as float64 with non-finite cells set to NaN (no imputation), for the histogram-based features."""
+    arr = np.array(preds, dtype=np.float64, order="C")
+    arr[~np.isfinite(arr)] = np.nan
+    return arr
+
+
 def _entropy_from_counts(counts: np.ndarray) -> np.ndarray:
-    """Per-row Shannon entropy of a histogram-counts matrix (normalizes each row to a probability distribution first)."""
-    probs = counts / counts.sum(axis=1, keepdims=True)
-    return np.asarray(-np.sum(probs * np.log(probs + 1e-12), axis=1))
+    """Per-row Shannon entropy of a histogram-counts matrix; rows with no counts (all predictors missing) give NaN."""
+    totals = counts.sum(axis=1, keepdims=True)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        probs = np.where(totals > 0, counts / totals, np.nan)
+        return np.asarray(-np.sum(probs * np.log(probs + 1e-12), axis=1))
 
 
-def _top2_gap_from_counts(counts: np.ndarray, k: int) -> np.ndarray:
-    """Per-row gap between the two largest bin counts, normalized by ``k`` predictors -- how dominant the modal bin is over the runner-up."""
+def _top2_gap_from_counts(counts: np.ndarray) -> np.ndarray:
+    """Per-row gap between the two largest bin counts, normalized by the row's valid predictor count; NaN when none are valid."""
     sorted_counts = -np.sort(-counts, axis=1)
-    return np.asarray((sorted_counts[:, 0] - sorted_counts[:, 1]) / float(k))
+    totals = counts.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.asarray(np.where(totals > 0, (sorted_counts[:, 0] - sorted_counts[:, 1]) / totals, np.nan))
 
 
 def predictor_consensus_entropy(
@@ -173,8 +190,8 @@ def predictor_consensus_entropy(
     ``H = -sum(p_i * log(p_i + eps))``. High = disagreement; low =
     consensus on a narrow range.
     """
-    arr = _coerce_preds(preds)
-    return _entropy_from_counts(_bin_counts(arr, n_bins))
+    _coerce_preds(preds)
+    return _entropy_from_counts(_bin_counts(_mask_nonfinite(preds), n_bins))
 
 
 def predictor_top2_mode_gap(
@@ -186,8 +203,8 @@ def predictor_top2_mode_gap(
     ``(c_top1 - c_top2) / N`` per row. Large = one bin dominates
     (high consensus); small = two bins tied (multimodal disagreement).
     """
-    arr = _coerce_preds(preds)
-    return _top2_gap_from_counts(_bin_counts(arr, n_bins), arr.shape[1])
+    _coerce_preds(preds)
+    return _top2_gap_from_counts(_bin_counts(_mask_nonfinite(preds), n_bins))
 
 
 def predictor_weighted_consensus(
@@ -350,13 +367,13 @@ def predictor_disagreement_features(
         ])
     """
     arr = _coerce_preds(preds)
-    counts = _bin_counts(arr, n_bins)  # shared by entropy + top2_gap; identical binning, computed once
+    counts = _bin_counts(_mask_nonfinite(preds), n_bins)  # shared by entropy + top2_gap; identical binning, computed once
     out = {
         "mean": predictor_consensus_mean(arr),
         "iqr": predictor_disagreement_iqr(arr),
         "var": predictor_disagreement_var(arr),
         "entropy": _entropy_from_counts(counts),
-        "top2_gap": _top2_gap_from_counts(counts, arr.shape[1]),
+        "top2_gap": _top2_gap_from_counts(counts),
     }
     if emit_pairs:
         out["pairs"] = predictor_pairwise_abs_diffs(arr)

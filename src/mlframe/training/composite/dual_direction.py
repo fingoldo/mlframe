@@ -66,7 +66,7 @@ class DualDirectionCompositeEstimator(RegressorMixin, BaseEstimator):
         diagnose the scale stage (e.g. correlate against a known ground-truth scale) without re-running
         ``cross_val_predict`` themselves.
     oof_scale_score_
-        ``r2_score(scale_y, oof_scale_predictions_)`` -- an honest (leakage-free) quality signal for the
+        ``r2_score(scale_y, oof_scale_predictions_)`` (sample-weighted when ``fit`` got ``sample_weight``) -- an honest (leakage-free) quality signal for the
         scale stage alone. Low/negative values flag a scale model too weak to support the shape*scale
         decomposition even before looking at end-to-end ``y`` error.
     shape_transform_target_
@@ -119,7 +119,7 @@ class DualDirectionCompositeEstimator(RegressorMixin, BaseEstimator):
         # Public diagnostic attributes: these are already computed as part of the OOF-then-refit-on-full
         # pipeline above -- exposing them costs O(n) (a division + an r2_score call), not a second CV pass.
         self.oof_scale_predictions_ = oof_scale_pred
-        self.oof_scale_score_ = float(fast_r2_score(scale_y_arr, oof_scale_pred))
+        self.oof_scale_score_ = float(fast_r2_score(scale_y_arr, oof_scale_pred, sample_weight=None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)))
         with np.errstate(divide="ignore", invalid="ignore"):
             shape_transform_target = y_arr / oof_scale_pred
         shape_transform_target[oof_scale_pred <= 0] = np.nan

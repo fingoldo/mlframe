@@ -478,3 +478,8 @@ def __getattr__(name: str):
             _lazy_toplevel_cache[name] = getattr(module, attr_name)
         return _lazy_toplevel_cache[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+# No kernel module is imported above, and numba picks its cache locator when a ``cache=True`` kernel is decorated, so this is early enough.
+from mlframe import _numba_cache_deps
+
+_numba_cache_deps.install()

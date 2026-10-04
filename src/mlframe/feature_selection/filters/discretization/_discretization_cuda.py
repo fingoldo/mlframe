@@ -325,14 +325,14 @@ extern "C" __global__ void searchsorted_right_2d(
     const double* __restrict__ arr,    // (n_rows, n_cols) C-order
     const double* __restrict__ cuts,    // (n_cols, n_cuts) C-order
     int* __restrict__ out,              // (n_rows, n_cols)
-    const int n_rows, const int n_cols, const int n_cuts
+    const long long n_rows, const long long n_cols, const int n_cuts
 ){
-    int gid = blockIdx.x * blockDim.x + threadIdx.x;
-    int total = n_rows * n_cols;
+    long long gid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long total = n_rows * n_cols;
     if (gid >= total) return;
-    int row = gid / n_cols;
-    int col = gid % n_cols;
-    double v = arr[row * n_cols + col];
+    long long row = gid / n_cols;
+    long long col = gid % n_cols;
+    double v = arr[gid];
     // searchsorted side='right': bin = first index i s.t. cuts[i] > v,
     // OR n_cuts if every cut <= v.
     int lo = 0, hi = n_cuts;
@@ -341,7 +341,7 @@ extern "C" __global__ void searchsorted_right_2d(
         if (cuts[col * n_cuts + mid] > v) hi = mid;
         else lo = mid + 1;
     }
-    out[row * n_cols + col] = lo;
+    out[gid] = lo;
 }
 """
 _searchsorted_right_2d_cuda = None
@@ -372,6 +372,21 @@ def _get_searchsorted_right_2d_kernel():
         return module._searchsorted_right_2d_cuda
 
 
+_MAX_GRID_X_BLOCKS = 2**31 - 1
+
+
+def _searchsorted_launch_blocks(n_rows: int, n_cols: int, threads: int = 256) -> int:
+    """Grid size covering every ``n_rows * n_cols`` cell with ``threads`` threads per block.
+
+    Raises ``ValueError`` when the grid would exceed the 1-D grid limit: a launch that cannot cover all cells would
+    leave part of the (uninitialised) output buffer unwritten with no error.
+    """
+    blocks = (int(n_rows) * int(n_cols) + threads - 1) // threads
+    if blocks > _MAX_GRID_X_BLOCKS:
+        raise ValueError(f"searchsorted launch needs {blocks} blocks (> {_MAX_GRID_X_BLOCKS}) for {n_rows}x{n_cols} cells; chunk the rows")
+    return blocks
+
+
 def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
     """Fused per-column searchsorted via cupy RawKernel.
 
@@ -391,9 +406,9 @@ def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
     out_int32 = cp.empty((n_rows, n_cols), dtype=cp.int32)
     kernel = _get_searchsorted_right_2d_kernel()
     threads = 256
-    blocks = (n_rows * n_cols + threads - 1) // threads
+    blocks = _searchsorted_launch_blocks(n_rows, n_cols, threads)
     kernel((blocks,), (threads,), (
         d_arr.astype(cp.float64, copy=False), cuts.astype(cp.float64, copy=False),
-        out_int32, np.int32(n_rows), np.int32(n_cols), np.int32(n_bins - 1),
+        out_int32, np.int64(n_rows), np.int64(n_cols), np.int32(n_bins - 1),
     ))
     return out_int32.astype(out_cp_dtype, copy=False)

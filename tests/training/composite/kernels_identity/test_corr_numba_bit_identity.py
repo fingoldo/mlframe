@@ -108,8 +108,9 @@ class TestCorrNumbaBitIdentity:
         """Below the gate the public entry must equal the numpy reference exactly
         (it IS the reference -- no kernel)."""
         rng = np.random.default_rng(0)
-        X = rng.normal(size=(1000, 8))  # below both gates
-        y = X[:, 0] + rng.normal(size=1000)
+        n_tiny = max(_MIN_ROWS - 1, 8)
+        X = rng.normal(size=(n_tiny, 8))  # below the row gate
+        y = X[:, 0] + rng.normal(size=n_tiny)
         got = _safe_abs_corr_all(y, X)
         ref = _safe_abs_corr_all_numpy(y, X)
         np.testing.assert_array_equal(got, ref)

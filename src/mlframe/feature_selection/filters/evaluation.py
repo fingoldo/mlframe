@@ -5,6 +5,7 @@ See ``screen.py`` for the screening orchestrator that calls these functions.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Sequence, Tuple, Any
 
 import numba
@@ -134,18 +135,12 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
 # ``from .evaluation import ...`` call site is unchanged.
 from ._evaluation_candidate import get_candidate_name, handle_best_candidate, should_skip_candidate  # noqa: F401  (re-export for external callers)
 
+# Disk caching is off only under CI: a restore-keys prefix fallback there restored a NUMBA_CACHE_DIR from a different source-tree state and the
+# kernel then failed with a stale-cache TypingError. Locally the cache is on, saving ~40 s of cold compile per process on a default MRMR fit.
+_EVALUATE_GAIN_DISK_CACHE = os.environ.get("CI", "").strip().lower() not in ("1", "true", "yes")
 
-@njit(cache=False)  # Disk caching disabled for THIS kernel only: CI recurrently failed with a numba
-# TypingError ("Unknown attribute 'astype' of type reflected list(int64)" on the
-# selected_vars.astype call below) even though every real call site (fleuret.py, this file's own
-# recursive call) converts selected_vars to a real ndarray before calling in -- confirmed by
-# grepping every call site, not assumed. Never reproduced locally; the CI job logs show
-# "Cache hit for restore-key" (GitHub Actions' own wording for a restore-keys PREFIX fallback, not
-# an exact primary-key hit) immediately before the failure -- NUMBA_CACHE_DIR was restored from a
-# DIFFERENT source-tree state than the checked-out one, and numba's own per-function source-hash
-# cache invalidation evidently didn't catch it for this kernel under that fallback. Still gets
-# in-process compile caching within one Python process; only cross-process disk persistence is
-# affected, so the fix is scoped to this kernel rather than the CI-wide caching strategy.
+
+@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
 def evaluate_gain(
     current_gain: float,
     last_checked_k: int,

@@ -24,6 +24,19 @@ from mlframe.metrics.core import fast_roc_auc, fast_brier_score_loss
 
 
 @njit(cache=True, nogil=True)
+def _bin_offset(freq: float, bin_offsets: np.ndarray, nbins: int) -> float:
+    """Per-bin offset for an event frequency, clamped into ``[0, nbins-1]``; a NaN frequency (NaN outcome in the chunk) gets no offset and stays NaN."""
+    pos = freq * nbins
+    if pos != pos:
+        return 0.0
+    if pos >= nbins:
+        return float(bin_offsets[nbins - 1])
+    if pos < 0.0:
+        return float(bin_offsets[0])
+    return float(bin_offsets[int(pos)])
+
+
+@njit(cache=True, nogil=True)
 def _generate_probs_from_outcomes_kernel(
     outcomes: np.ndarray,
     indices: np.ndarray,
@@ -61,12 +74,8 @@ def _generate_probs_from_outcomes_kernel(
         r = (idx + 1) * chunk_size  # right border
         freq = outcomes[lo:r].mean()  # find real event occurring frequency in current chunk of observation
 
-        # add pregenerated offset for particular bin. Clamp bin_idx to nbins-1 so that
-        # freq==1.0 (int(1.0*nbins) == nbins) does not index out of bounds.
-        bin_idx = int(freq * nbins)
-        if bin_idx >= nbins:
-            bin_idx = nbins - 1
-        freq = freq + bin_offsets[bin_idx]
+        # add pregenerated offset for particular bin (clamped so freq==1.0 does not index past the last bin).
+        freq = freq + _bin_offset(freq, bin_offsets, nbins)
 
         # add small symmetric random noise. it must be higher when freq approaches [0;1] borders.
         probs[lo:r] = freq + (noise[lo:r] - 0.5) * scale * np.abs(freq - 0.5)
@@ -76,10 +85,7 @@ def _generate_probs_from_outcomes_kernel(
     # Residual tail rows ``[lo:n]`` the chunked loop skipped when ``n % chunk_size != 0``.
     if lo < n:
         freq = outcomes[lo:n].mean()
-        bin_idx = int(freq * nbins)
-        if bin_idx >= nbins:
-            bin_idx = nbins - 1
-        freq = freq + bin_offsets[bin_idx]
+        freq = freq + _bin_offset(freq, bin_offsets, nbins)
         probs[lo:n] = freq + (noise[lo:n] - 0.5) * scale * np.abs(freq - 0.5)
 
     return np.clip(probs, 0.0, 1.0)

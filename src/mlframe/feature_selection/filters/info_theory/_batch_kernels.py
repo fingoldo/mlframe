@@ -61,6 +61,173 @@ def check_joint_cardinality(*cards: int, cap: "int | None" = None, what: str = "
         prod *= c
 
 
+# Joint cells (nb_a*nb_b*n_classes_y for pairs, nb_a*nb_b*nb_c for triples) a pair/triple may have and still run inside the ``prange`` region. Every worker
+# thread allocates its own histogram, so an unbounded per-iteration buffer costs ``n_threads * cap`` and a failed allocation inside ``prange`` aborts the
+# process. Larger (rare) pairs run afterwards one at a time, which keeps the result independent of the thread count and bounds the peak at one buffer.
+PARALLEL_JOINT_CELLS = 4_000_000
+
+
+@njit(nogil=True, cache=True)
+def _pair_mi_scalar(factors_data, a, b, nb_a, nb_b, classes_y, freqs_y, n_samples, n_classes_y):
+    """Plug-in MI of the (a, b) joint against ``classes_y`` (one pair of :func:`batch_pair_mi_prange`)."""
+    joint_card = nb_a * nb_b
+    joint_counts = np.zeros((joint_card, n_classes_y), dtype=np.int64)
+    freqs_x_int = np.zeros(joint_card, dtype=np.int64)
+
+    for i in range(n_samples):
+        va = int(factors_data[i, a])
+        vb = int(factors_data[i, b])
+        cls_x = va * nb_b + vb
+        cls_y = int(classes_y[i])
+        joint_counts[cls_x, cls_y] += 1
+        freqs_x_int[cls_x] += 1
+
+    total = 0.0
+    inv_n = 1.0 / n_samples
+    for i in range(joint_card):
+        fx = freqs_x_int[i]
+        if fx == 0:
+            continue
+        prob_x = fx * inv_n
+        for j in range(n_classes_y):
+            jc = joint_counts[i, j]
+            if jc == 0:
+                continue
+            jf = jc * inv_n
+            prob_y = freqs_y[j]
+            if prob_y > 0.0:
+                total += jf * math.log(jf / (prob_x * prob_y))
+    return total
+
+
+@njit(nogil=True, cache=True)
+def _pair_mi_perm_scalar(factors_data, a, b, nb_a, nb_b, y_perms, freqs_y, n, K, p, out):
+    """Per-shuffle MI of the (a, b) joint for every row of ``y_perms``, written to ``out[:, p]``."""
+    n_classes_y = freqs_y.shape[0]
+    inv_n = 1.0 / n
+    joint_card = nb_a * nb_b
+    cls_x = np.empty(n, dtype=np.int64)  # invariant pair-joint code per row - built once, reused across shuffles
+    freqs_x_int = np.zeros(joint_card, dtype=np.int64)
+    for i in range(n):
+        c = int(factors_data[i, a]) * nb_b + int(factors_data[i, b])
+        cls_x[i] = c
+        freqs_x_int[c] += 1
+    # Hoist the (joint_card x k_y) histogram alloc out of the K-loop: allocate ONCE per pair and
+    # zero-and-reuse across the K shuffles (was K*n_pairs allocs -> n_pairs). ~1.03x, bit-identical
+    # (max|d|=0). The scatter itself stays memory-bandwidth-bound - see bench_pair_maxt_kernel_hoist.py.
+    joint_counts = np.empty((joint_card, n_classes_y), dtype=np.int64)
+    for k in range(K):
+        joint_counts[:, :] = 0
+        for i in range(n):
+            joint_counts[cls_x[i], int(y_perms[k, i])] += 1
+        total = 0.0
+        for ci in range(joint_card):
+            fx = freqs_x_int[ci]
+            if fx == 0:
+                continue
+            prob_x = fx * inv_n
+            for cj in range(n_classes_y):
+                jc = joint_counts[ci, cj]
+                if jc == 0:
+                    continue
+                jf = jc * inv_n
+                prob_y = freqs_y[cj]
+                if prob_y > 0.0:
+                    total += jf * math.log(jf / (prob_x * prob_y))
+        out[k, p] = total
+
+
+@njit(nogil=True, cache=True)
+def _triple_mi_scalar(factors_data, a, b, c, nb_a, nb_b, nb_c, classes_y, freqs_y, n_samples, n_classes_y):
+    """Plug-in joint MI of the dense-renumbered (a, b, c) joint against ``classes_y`` (one triple of :func:`batch_triple_mi_prange`)."""
+    raw_card = nb_a * nb_b * nb_c
+    raw_codes = np.empty(n_samples, dtype=np.int64)
+    remap = np.full(raw_card, -1, dtype=np.int64)  # raw code -> dense id (-1 = unseen)
+    n_dense = 0
+    for i in range(n_samples):
+        va = int(factors_data[i, a])
+        vb = int(factors_data[i, b])
+        vc = int(factors_data[i, c])
+        rc = (va * nb_b + vb) * nb_c + vc
+        raw_codes[i] = rc
+        if remap[rc] == -1:
+            remap[rc] = n_dense
+            n_dense += 1
+
+    # Dense joint-with-y counts + dense-x marginal (cardinality n_dense <= n).
+    joint_counts = np.zeros((n_dense, n_classes_y), dtype=np.int64)
+    freqs_x_int = np.zeros(n_dense, dtype=np.int64)
+    for i in range(n_samples):
+        dx = remap[raw_codes[i]]
+        cy = int(classes_y[i])
+        joint_counts[dx, cy] += 1
+        freqs_x_int[dx] += 1
+
+    total = 0.0
+    inv_n = 1.0 / n_samples
+    for i in range(n_dense):
+        fx = freqs_x_int[i]
+        if fx == 0:
+            continue
+        prob_x = fx * inv_n
+        for j in range(n_classes_y):
+            jc = joint_counts[i, j]
+            if jc == 0:
+                continue
+            jf = jc * inv_n
+            prob_y = freqs_y[j]
+            if prob_y > 0.0:
+                total += jf * math.log(jf / (prob_x * prob_y))
+    return total
+
+
+@njit(nogil=True, cache=True)
+def _triple_mi_perm_scalar(factors_data, a, b, c, nb_a, nb_b, nb_c, y_perms, freqs_y, n, K, p, out):
+    """Per-shuffle joint MI of the dense-renumbered (a, b, c) joint for every row of ``y_perms``, written to ``out[:, p]``."""
+    n_classes_y = freqs_y.shape[0]
+    inv_n = 1.0 / n
+    raw_card = nb_a * nb_b * nb_c
+    dense_x = np.empty(n, dtype=np.int64)  # invariant dense triple-joint code per row - built once, reused across shuffles
+    remap = np.full(raw_card, -1, dtype=np.int64)
+    n_dense = 0
+    for i in range(n):
+        va = int(factors_data[i, a])
+        vb = int(factors_data[i, b])
+        vc = int(factors_data[i, c])
+        rc = (va * nb_b + vb) * nb_c + vc
+        r = remap[rc]
+        if r == -1:
+            r = n_dense
+            remap[rc] = r
+            n_dense += 1
+        dense_x[i] = r
+
+    freqs_x_int = np.zeros(n_dense, dtype=np.int64)
+    for i in range(n):
+        freqs_x_int[dense_x[i]] += 1
+
+    joint_counts = np.empty((n_dense, n_classes_y), dtype=np.int64)
+    for k in range(K):
+        joint_counts[:, :] = 0
+        for i in range(n):
+            joint_counts[dense_x[i], int(y_perms[k, i])] += 1
+        total = 0.0
+        for di in range(n_dense):
+            fx = freqs_x_int[di]
+            if fx == 0:
+                continue
+            prob_x = fx * inv_n
+            for cj in range(n_classes_y):
+                jc = joint_counts[di, cj]
+                if jc == 0:
+                    continue
+                jf = jc * inv_n
+                prob_y = freqs_y[cj]
+                if prob_y > 0.0:
+                    total += jf * math.log(jf / (prob_x * prob_y))
+        out[k, p] = total
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def batch_pair_mi_prange(
     factors_data: np.ndarray,
@@ -112,6 +279,7 @@ def batch_pair_mi_prange(
         out[:] = 0.0
         return out
 
+    deferred = np.zeros(n_pairs, dtype=np.bool_)
     for p in prange(n_pairs):
         a = pair_a[p]
         b = pair_b[p]
@@ -128,40 +296,16 @@ def batch_pair_mi_prange(
         if nb_a <= 0 or nb_b <= 0 or n_classes_y <= 0 or nb_b > cap // n_classes_y or nb_a > cap // (nb_b * n_classes_y):
             out[p] = 0.0
             continue
-        joint_card = nb_a * nb_b
+        if nb_a * nb_b * n_classes_y > PARALLEL_JOINT_CELLS:
+            deferred[p] = True
+            continue
+        out[p] = _pair_mi_scalar(factors_data, a, b, nb_a, nb_b, classes_y, freqs_y, n_samples, n_classes_y)
 
-        # Thread-local buffers. numba allocates these per-prange-iteration on the
-        # worker thread's stack so there's no cross-thread aliasing.
-        joint_counts = np.zeros((joint_card, n_classes_y), dtype=np.int64)
-        freqs_x_int = np.zeros(joint_card, dtype=np.int64)
-
-        for i in range(n_samples):
-            va = int(factors_data[i, a])
-            vb = int(factors_data[i, b])
-            cls_x = va * nb_b + vb
-            cls_y = int(classes_y[i])
-            joint_counts[cls_x, cls_y] += 1
-            freqs_x_int[cls_x] += 1
-
-        # Direct MI computation (inlined compute_mi_from_classes core to avoid a
-        # cross-kernel call that would require classes_x to be materialised as a
-        # 1-D array).
-        total = 0.0
-        inv_n = 1.0 / n_samples
-        for i in range(joint_card):
-            fx = freqs_x_int[i]
-            if fx == 0:
-                continue
-            prob_x = fx * inv_n
-            for j in range(n_classes_y):
-                jc = joint_counts[i, j]
-                if jc == 0:
-                    continue
-                jf = jc * inv_n
-                prob_y = freqs_y[j]
-                if prob_y > 0.0:
-                    total += jf * math.log(jf / (prob_x * prob_y))
-        out[p] = total
+    for p in range(n_pairs):
+        if deferred[p]:
+            a = pair_a[p]
+            b = pair_b[p]
+            out[p] = _pair_mi_scalar(factors_data, a, b, int(nbins[a]), int(nbins[b]), classes_y, freqs_y, n_samples, n_classes_y)
 
     return out
 
@@ -190,7 +334,7 @@ def batch_pair_mi_perm_batched(
     if n == 0:
         out[:, :] = 0.0
         return out
-    inv_n = 1.0 / n
+    deferred = np.zeros(n_pairs, dtype=np.bool_)
     for p in prange(n_pairs):
         a = pair_a[p]
         b = pair_b[p]
@@ -201,36 +345,16 @@ def batch_pair_mi_perm_batched(
             for k in range(K):
                 out[k, p] = 0.0
             continue
-        joint_card = nb_a * nb_b
-        cls_x = np.empty(n, dtype=np.int64)  # invariant pair-joint code per row - built once, reused across shuffles
-        freqs_x_int = np.zeros(joint_card, dtype=np.int64)
-        for i in range(n):
-            c = int(factors_data[i, a]) * nb_b + int(factors_data[i, b])
-            cls_x[i] = c
-            freqs_x_int[c] += 1
-        # Hoist the (joint_card x k_y) histogram alloc out of the K-loop: allocate ONCE per pair and
-        # zero-and-reuse across the K shuffles (was K*n_pairs allocs -> n_pairs). ~1.03x, bit-identical
-        # (max|d|=0). The scatter itself stays memory-bandwidth-bound - see bench_pair_maxt_kernel_hoist.py.
-        joint_counts = np.empty((joint_card, n_classes_y), dtype=np.int64)
-        for k in range(K):
-            joint_counts[:, :] = 0
-            for i in range(n):
-                joint_counts[cls_x[i], int(y_perms[k, i])] += 1
-            total = 0.0
-            for ci in range(joint_card):
-                fx = freqs_x_int[ci]
-                if fx == 0:
-                    continue
-                prob_x = fx * inv_n
-                for cj in range(n_classes_y):
-                    jc = joint_counts[ci, cj]
-                    if jc == 0:
-                        continue
-                    jf = jc * inv_n
-                    prob_y = freqs_y[cj]
-                    if prob_y > 0.0:
-                        total += jf * math.log(jf / (prob_x * prob_y))
-            out[k, p] = total
+        if nb_a * nb_b * n_classes_y > PARALLEL_JOINT_CELLS:
+            deferred[p] = True
+            continue
+        _pair_mi_perm_scalar(factors_data, a, b, nb_a, nb_b, y_perms, freqs_y, n, K, p, out)
+
+    for p in range(n_pairs):
+        if deferred[p]:
+            a = pair_a[p]
+            b = pair_b[p]
+            _pair_mi_perm_scalar(factors_data, a, b, int(nbins[a]), int(nbins[b]), y_perms, freqs_y, n, K, p, out)
     return out
 
 
@@ -284,6 +408,7 @@ def batch_triple_mi_prange(
         out[:] = 0.0
         return out
 
+    deferred = np.zeros(n_triples, dtype=np.bool_)
     for p in prange(n_triples):
         a = triple_a[p]
         b = triple_b[p]
@@ -299,47 +424,19 @@ def batch_triple_mi_prange(
         if nb_a <= 0 or nb_b <= 0 or nb_c <= 0 or nb_b > cap // nb_c or nb_a > cap // (nb_b * nb_c):
             out[p] = 0.0
             continue
-        raw_card = nb_a * nb_b * nb_c
+        if nb_a * nb_b * nb_c > PARALLEL_JOINT_CELLS:
+            deferred[p] = True
+            continue
+        out[p] = _triple_mi_scalar(factors_data, a, b, c, nb_a, nb_b, nb_c, classes_y, freqs_y, n_samples, n_classes_y)
 
-        # Thread-local per-row raw 3-way codes + a direct-address remap table.
-        raw_codes = np.empty(n_samples, dtype=np.int64)
-        remap = np.full(raw_card, -1, dtype=np.int64)  # raw code -> dense id (-1 = unseen)
-        n_dense = 0
-        for i in range(n_samples):
-            va = int(factors_data[i, a])
-            vb = int(factors_data[i, b])
-            vc = int(factors_data[i, c])
-            rc = (va * nb_b + vb) * nb_c + vc
-            raw_codes[i] = rc
-            if remap[rc] == -1:
-                remap[rc] = n_dense
-                n_dense += 1
-
-        # Dense joint-with-y counts + dense-x marginal (cardinality n_dense <= n).
-        joint_counts = np.zeros((n_dense, n_classes_y), dtype=np.int64)
-        freqs_x_int = np.zeros(n_dense, dtype=np.int64)
-        for i in range(n_samples):
-            dx = remap[raw_codes[i]]
-            cy = int(classes_y[i])
-            joint_counts[dx, cy] += 1
-            freqs_x_int[dx] += 1
-
-        total = 0.0
-        inv_n = 1.0 / n_samples
-        for i in range(n_dense):
-            fx = freqs_x_int[i]
-            if fx == 0:
-                continue
-            prob_x = fx * inv_n
-            for j in range(n_classes_y):
-                jc = joint_counts[i, j]
-                if jc == 0:
-                    continue
-                jf = jc * inv_n
-                prob_y = freqs_y[j]
-                if prob_y > 0.0:
-                    total += jf * math.log(jf / (prob_x * prob_y))
-        out[p] = total
+    for p in range(n_triples):
+        if deferred[p]:
+            a = triple_a[p]
+            b = triple_b[p]
+            c = triple_c[p]
+            out[p] = _triple_mi_scalar(
+                factors_data, a, b, c, int(nbins[a]), int(nbins[b]), int(nbins[c]), classes_y, freqs_y, n_samples, n_classes_y,
+            )
 
     return out
 
@@ -365,12 +462,11 @@ def batch_triple_mi_perm_batched(
     n = factors_data.shape[0]
     n_triples = triple_a.shape[0]
     K = y_perms.shape[0]
-    n_classes_y = freqs_y.shape[0]
     out = np.empty((K, n_triples), dtype=np.float64)
     if n == 0:
         out[:, :] = 0.0
         return out
-    inv_n = 1.0 / n
+    deferred = np.zeros(n_triples, dtype=np.bool_)
     for p in prange(n_triples):
         a = triple_a[p]
         b = triple_b[p]
@@ -382,47 +478,17 @@ def batch_triple_mi_perm_batched(
             for k in range(K):
                 out[k, p] = 0.0
             continue
-        raw_card = nb_a * nb_b * nb_c
+        if nb_a * nb_b * nb_c > PARALLEL_JOINT_CELLS:
+            deferred[p] = True
+            continue
+        _triple_mi_perm_scalar(factors_data, a, b, c, nb_a, nb_b, nb_c, y_perms, freqs_y, n, K, p, out)
 
-        dense_x = np.empty(n, dtype=np.int64)  # invariant dense triple-joint code per row - built once, reused across shuffles
-        remap = np.full(raw_card, -1, dtype=np.int64)
-        n_dense = 0
-        for i in range(n):
-            va = int(factors_data[i, a])
-            vb = int(factors_data[i, b])
-            vc = int(factors_data[i, c])
-            rc = (va * nb_b + vb) * nb_c + vc
-            r = remap[rc]
-            if r == -1:
-                r = n_dense
-                remap[rc] = r
-                n_dense += 1
-            dense_x[i] = r
-
-        freqs_x_int = np.zeros(n_dense, dtype=np.int64)
-        for i in range(n):
-            freqs_x_int[dense_x[i]] += 1
-
-        joint_counts = np.empty((n_dense, n_classes_y), dtype=np.int64)
-        for k in range(K):
-            joint_counts[:, :] = 0
-            for i in range(n):
-                joint_counts[dense_x[i], int(y_perms[k, i])] += 1
-            total = 0.0
-            for di in range(n_dense):
-                fx = freqs_x_int[di]
-                if fx == 0:
-                    continue
-                prob_x = fx * inv_n
-                for cj in range(n_classes_y):
-                    jc = joint_counts[di, cj]
-                    if jc == 0:
-                        continue
-                    jf = jc * inv_n
-                    prob_y = freqs_y[cj]
-                    if prob_y > 0.0:
-                        total += jf * math.log(jf / (prob_x * prob_y))
-            out[k, p] = total
+    for p in range(n_triples):
+        if deferred[p]:
+            a = triple_a[p]
+            b = triple_b[p]
+            c = triple_c[p]
+            _triple_mi_perm_scalar(factors_data, a, b, c, int(nbins[a]), int(nbins[b]), int(nbins[c]), y_perms, freqs_y, n, K, p, out)
     return out
 
 

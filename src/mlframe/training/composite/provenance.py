@@ -98,7 +98,7 @@ class CompositeProvenance:
                 "fitted_params": spec.fitted_params,
             },
             sort_keys=True,
-            default=lambda o: o.tolist() if isinstance(o, np.ndarray) else str(o),
+            default=lambda o: o.tolist() if isinstance(o, (np.ndarray, np.generic)) else str(o),
         )
         composite_id = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
 

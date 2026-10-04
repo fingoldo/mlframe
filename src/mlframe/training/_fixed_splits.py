@@ -153,16 +153,17 @@ def _sequential_start(ts: Optional[pd.Series], split_idx: np.ndarray, earlier_id
 
 def _write_json(path: str, payload: dict) -> None:
     """Write ``payload`` as sorted, indented JSON, via orjson when installed else the stdlib."""
+    from mlframe.training.io import atomic_write_bytes
+
     try:
         import orjson
 
-        with open(path, "wb") as f:
-            f.write(orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2))
+        data = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2)
     except ImportError:
         import json
 
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, sort_keys=True, indent=2)
+        data = json.dumps(payload, sort_keys=True, indent=2).encode("utf-8")
+    atomic_write_bytes(path, lambda f: f.write(data))
 
 
 def _read_json(path: str) -> Optional[dict]:
@@ -234,7 +235,9 @@ def record_split_membership(
     _order = np.argsort(_pos, kind="stable")
     _frame = pd.DataFrame({id_column: np.asarray(row_ids)[_pos[_order]], "split": _lab[_order]})
     path = join(split_dir, SPLIT_IDS_FILENAME)
-    _frame.to_parquet(path, index=False, compression="zstd")
+    from mlframe.training.io import atomic_write_bytes
+
+    atomic_write_bytes(path, lambda fh: _frame.to_parquet(fh, index=False, compression="zstd"))
     _write_json(sidecar_path_for(path), {"id_column": id_column, "counts": counts, "holdout_starts": holdout_starts})
     entry["path"] = path
     logger.info("Split membership (%s) written to %s: %s.", id_column, path, counts)

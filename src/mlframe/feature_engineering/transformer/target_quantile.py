@@ -47,6 +47,9 @@ def _bucket_sums_counts(X_pool: np.ndarray, y_pool: np.ndarray, edges: np.ndarra
     private accumulators (float64) reduced at the end. Bucket semantics are identical: ``searchsorted(edges, y, side='right')-1`` reproduces the half-open
     ``[lo, hi)`` membership the old code used, with the first/last bucket clamped (matching the old ``b==K-1`` inclusive upper edge and below-min rows landing in
     bucket 0). float64 accumulation makes the centroid means at least as accurate as numpy's float32 reduction; observed divergence ~5.8e-8 (single float32 ULP).
+
+    The per-thread partial sums are reduced in thread-id order but the rows each thread receives depend on the thread count and schedule, so centroids can differ
+    in the last bits across ``NUMBA_NUM_THREADS`` values and runs (no race: every thread writes only its own slot).
     """
     n, d = X_pool.shape
     K = edges.shape[0] - 1

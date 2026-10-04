@@ -184,9 +184,9 @@ def init_kernels() -> None:
         int batch_id = blockIdx.y;
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
         if (tid < n) {
-            int cy = perms_y[batch_id * n + tid];
+            int cy = perms_y[(long long)batch_id * n + tid];
             int cx = classes_x[tid];
-            atomicAdd(&joint_counts_batch[batch_id * (nbins_x * nbins_y) + cx * nbins_y + cy], 1);
+            atomicAdd(&joint_counts_batch[(long long)batch_id * (nbins_x * nbins_y) + cx * nbins_y + cy], 1);
         }
     }
     """,
@@ -230,7 +230,7 @@ def init_kernels() -> None:
         // Grid-strided read of n_samples (only the block's slice).
         int my_row = gid_offset + tid;
         if (my_row < n) {
-            int cy = perms_y[batch_id * n + my_row];
+            int cy = perms_y[(long long)batch_id * n + my_row];
             int cx = classes_x[my_row];
             atomicAdd(&sm_hist[cx * nbins_y + cy], 1);
         }
@@ -240,7 +240,7 @@ def init_kernels() -> None:
         // global output. Block-level atomicAdd into global is still atomic
         // (many blocks may have this batch_id), so we use atomicAdd here too.
         for (int i = tid; i < joint_size; i += nthreads) {
-            atomicAdd(&joint_counts_batch[batch_id * joint_size + i], sm_hist[i]);
+            atomicAdd(&joint_counts_batch[(long long)batch_id * joint_size + i], sm_hist[i]);
         }
     }
     """,
@@ -277,8 +277,8 @@ def init_kernels() -> None:
         int col_a = pairs_a[pid];
         int col_b = pairs_b[pid];
         int nba = nbins_a[pid];
-        int va = factors_data_T[col_a * n_rows + row];
-        int vb = factors_data_T[col_b * n_rows + row];
+        int va = factors_data_T[(long long)col_a * n_rows + row];
+        int vb = factors_data_T[(long long)col_b * n_rows + row];
         int cy = classes_y[row];
         // Merged (a, b) code = va + vb * nba. Joint cell = merged * nbins_y + cy.
         int merged = va + vb * nba;
@@ -335,8 +335,8 @@ def init_kernels() -> None:
 
         int row = blockIdx.x * nthreads + tid;
         if (row < n_rows) {
-            int va = factors_data_T[col_a * n_rows + row];
-            int vb = factors_data_T[col_b * n_rows + row];
+            int va = factors_data_T[(long long)col_a * n_rows + row];
+            int vb = factors_data_T[(long long)col_b * n_rows + row];
             int cy = classes_y[row];
             int merged = va + vb * nba;
             atomicAdd(&sm_hist[merged * nbins_y + cy], 1);
@@ -453,6 +453,8 @@ from ._gpu_batched import (  # noqa: F401
     mi_direct_gpu_batched_streamed,
 )
 
+from ._gpu_host_permutations import host_permuted_y_batch
+
 # Permutation MIs are staged on the device and read back in chunks of this many, so D2H traffic scales as
 # npermutations/chunk instead of once per permutation. 32 mirrors the crossover mi_direct_gpu_batched
 # already documents for its own batch granularity.
@@ -521,11 +523,9 @@ def mi_direct_gpu(
     the saved launch overhead, but documented so callers depending
     on exact-perm-counts know).
 
-    ``base_seed``: when given, seeds the CuPy permutation Generator
-    (``cp.random.default_rng(base_seed)``) so the shuffle stream is reproducible across calls/hosts -
-    ``None`` (default) preserves the legacy unseeded-entropy behaviour. Not expected to be bit-identical to
-    the CPU ``mi_direct(base_seed=...)`` path (different RNG algorithms, XORWOW vs the CPU LCG scheme); the
-    contract is "each path is internally reproducible under a seed", not cross-backend bit-parity.
+    ``base_seed`` selects the permutation stream, which is the host LCG stream the CPU ``mi_direct`` kernels use
+    (``None`` means 0, the ``mi_direct`` default). The permutations are identical on both backends, so the
+    exceedance count differs only through floating-point rounding of the MI reduction.
     """
     import cupy as cp
 
@@ -650,12 +650,9 @@ def mi_direct_gpu(
             freqs_x = freqs_x_gpu
             nfailed = 0
             _i = 0
-            # Modern Generator (XORWOW) rather than legacy cp.random.shuffle: the legacy global cuRAND host
-            # generator fails to init (CURAND_STATUS_INITIALIZATION_FAILED) on some driver/lib combos. cupy's
-            # Generator has no .shuffle, so shuffle in-place via argsort(random) (a permutation of distinct
-            # floats is a bijection) - preserving the pooled buffer identity downstream consumers rely on.
-            _shuf_rng = cp.random.default_rng(base_seed)
-            _shuf_n = classes_y_safe.shape[0]
+            # Permutations come from the host LCG stream shared with the CPU kernels (see _gpu_host_permutations),
+            # copied into the pooled buffer so downstream consumers keep its identity.
+            _y_host = np.asarray(classes_y)
             # Per-permutation ``totals.get()`` cost one FULL device sync per permutation, so D2H traffic scaled
             # linearly with the permutation budget and each read stalled the pipeline behind the next launch.
             # The MIs are instead staged into a small device buffer (device-to-device, no sync) and read back one
@@ -671,8 +668,9 @@ def mi_direct_gpu(
             _stop = False
             while _done < npermutations and not _stop:
                 _m = min(_chunk, npermutations - _done)
+                _perm_rows = cp.asarray(host_permuted_y_batch(_y_host, base_seed, _done, _m))
                 for _j in range(_m):
-                    classes_y_safe[:] = classes_y_safe[cp.argsort(_shuf_rng.random(_shuf_n))]
+                    classes_y_safe[:] = _perm_rows[_j]
                     joint_counts.fill(0)
                     compute_joint_hist_cuda(
                         (grid_size,),

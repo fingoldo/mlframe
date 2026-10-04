@@ -32,6 +32,8 @@ import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
+from .post_shim import _model_fit_accepts_sample_weight
+
 logger = logging.getLogger(__name__)
 
 
@@ -101,7 +103,13 @@ class ChainedWindowForecaster(RegressorMixin, BaseEstimator):
             stage1_y = np.asarray(y_curr, dtype=np.float64)
 
         self.stage1_model_ = clone(self.stage1_estimator)
-        self.stage1_model_.fit(stage1_X, stage1_y)
+        stage1_kwargs: dict[str, Any] = {}
+        if sample_weight is not None and _model_fit_accepts_sample_weight(self.stage1_model_):
+            w1 = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+            if X_prev_extra is not None:
+                w1 = np.concatenate([w1, np.ones(len(stage1_y) - w1.size, dtype=np.float64)])
+            stage1_kwargs["sample_weight"] = w1
+        self.stage1_model_.fit(stage1_X, stage1_y, **stage1_kwargs)
 
         chained_pred = np.asarray(self.stage1_model_.predict(X_curr), dtype=np.float64)
         X2 = self._concat_chained(X_curr, chained_pred)

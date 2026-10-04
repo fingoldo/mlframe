@@ -117,7 +117,8 @@ def paired_one_se_pick(
         from sklearn.model_selection import KFold, StratifiedKFold
 
         y_all = np.concatenate([np.asarray(y_search), np.asarray(y_holdout)])
-        splitter = StratifiedKFold(n_folds, shuffle=True, random_state=0) if classification else KFold(n_folds, shuffle=True, random_state=0)
+        split_seed = 0 if seed is None else int(seed) % (2**32)
+        splitter = StratifiedKFold(n_folds, shuffle=True, random_state=split_seed) if classification else KFold(n_folds, shuffle=True, random_state=split_seed)
         folds = list(splitter.split(np.zeros(len(y_all)), y_all))
         X_parts = (X_search, X_holdout)
         ref_pred = _oof_predictions(model_template, X_parts, y_all, _expand(chosen["features"], unit_to_members), folds, classification, seed, n_estimators_cap)

@@ -59,7 +59,7 @@ void treeshap_interactions(const float* X, const int n, const int P,
     // Per-thread path scratch (local memory). MAXW / MAXLVL / MAXP are injected #defines derived from the
     // Python ``_MAX_SUPPORTED_DEPTH`` / ``_MAX_SUPPORTED_FEATURES`` caps (T1) so they cannot drift from the
     // host caps; the +3 levels mirror the numba kernel's n_levels = max_path + 3 (conditioned child deeper).
-    long   pf_feat[MAXW * MAXLVL];
+    int    pf_feat[MAXW * MAXLVL];
     double pf_zero[MAXW * MAXLVL];
     double pf_one [MAXW * MAXLVL];
     double pweight[MAXW * MAXLVL];
@@ -78,9 +78,9 @@ void treeshap_interactions(const float* X, const int n, const int P,
     double phi_on [MAXP];
     double phi_off[MAXP];
 
-    const float* xi = X + (long)i * P;
-    double* Phi_i = Phi + (long)i * P * P;
-    double* phi_i = phi_main + (long)i * P;
+    const float* xi = X + (long long)i * P;
+    double* Phi_i = Phi + (long long)i * P * P;
+    double* phi_i = phi_main + (long long)i * P;
 
     // ----- pass 0: unconditioned main effect -> phi_unc -----
     for (int p = 0; p < P; p++) phi_unc[p] = 0.0;
@@ -100,21 +100,21 @@ void treeshap_interactions(const float* X, const int n, const int P,
                       -1, j, pf_feat, pf_zero, pf_one, pweight,
                       st_node, st_level, st_ud, st_zero, st_one, st_feat, st_cfrac);
         for (int p = 0; p < P; p++)
-            if (p != j) Phi_i[(long)p * P + j] = 0.5 * (phi_on[p] - phi_off[p]);
+            if (p != j) Phi_i[(long long)p * P + j] = 0.5 * (phi_on[p] - phi_off[p]);
     }
 
     // Symmetrise the off-diagonal in place, THEN fill the diagonal from the row-sum identity.
     for (int a = 0; a < P; a++){
         for (int b = a + 1; b < P; b++){
-            double avg = 0.5 * (Phi_i[(long)a * P + b] + Phi_i[(long)b * P + a]);
-            Phi_i[(long)a * P + b] = avg;
-            Phi_i[(long)b * P + a] = avg;
+            double avg = 0.5 * (Phi_i[(long long)a * P + b] + Phi_i[(long long)b * P + a]);
+            Phi_i[(long long)a * P + b] = avg;
+            Phi_i[(long long)b * P + a] = avg;
         }
     }
     for (int j = 0; j < P; j++){
         double row_sum = 0.0;
-        for (int p = 0; p < P; p++) if (p != j) row_sum += Phi_i[(long)j * P + p];
-        Phi_i[(long)j * P + j] = phi_i[j] - row_sum;
+        for (int p = 0; p < P; p++) if (p != j) row_sum += Phi_i[(long long)j * P + p];
+        Phi_i[(long long)j * P + j] = phi_i[j] - row_sum;
     }
 }
 """
@@ -129,7 +129,7 @@ __device__ void treeshap_scan(
         const int* feat, const float* thr, const double* val, const double* cover,
         const int* roots, const int n_trees, const int width,
         const int condition, const int condition_feature,
-        long* pf_feat, double* pf_zero, double* pf_one, double* pweight,
+        int* pf_feat, double* pf_zero, double* pf_one, double* pweight,
         int* st_node, int* st_level, int* st_ud, double* st_zero, double* st_one,
         int* st_feat, double* st_cfrac){
     for (int t = 0; t < n_trees; t++){
@@ -142,13 +142,13 @@ __device__ void treeshap_scan(
             int node=st_node[sp]; int level=st_level[sp]; int ud=st_ud[sp];
             double parent_zero=st_zero[sp]; double parent_one=st_one[sp];
             int parent_feat=st_feat[sp]; double cond_frac=st_cfrac[sp];
-            long off = (long)level * width;
+            long long off = (long long)level * width;
 
             if (cond_frac == 0.0) continue;   // pruned conditioned branch
 
             // Copy parent's path prefix (ud+1 entries, mirroring the numba copy), then maybe EXTEND.
             if (level > 0){
-                long poff = (long)(level-1) * width;
+                long long poff = (long long)(level-1) * width;
                 for (int k=0;k<=ud;k++){
                     pf_feat[off+k]=pf_feat[poff+k]; pf_zero[off+k]=pf_zero[poff+k];
                     pf_one[off+k]=pf_one[poff+k];   pweight[off+k]=pweight[poff+k];

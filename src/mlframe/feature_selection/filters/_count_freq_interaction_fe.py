@@ -47,6 +47,7 @@ from typing import Callable, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._fold_cell_stats import fold_cell_sum_cnt
 from ._target_encoding_fe import _column_to_str, _smooth
 
 logger = logging.getLogger(__name__)
@@ -337,11 +338,7 @@ def cat_num_interaction_fit(
         if not train_mask.any():
             continue
         # Per-category sum / count from rows in folds != f (and finite num).
-        cell_sum = np.zeros(n_cats, dtype=np.float64)
-        cell_cnt = np.zeros(n_cats, dtype=np.float64)
-        # Vectorized via np.add.at: O(n_train) without an explicit Python loop.
-        np.add.at(cell_sum, inv_arr[train_mask], num_vals[train_mask])
-        np.add.at(cell_cnt, inv_arr[train_mask], 1.0)
+        cell_sum, cell_cnt = fold_cell_sum_cnt(inv_arr, num_vals, fold_ids, f, n_cats, valid=finite_mask)
         cell_means_fold = np.full(n_cats, global_mean, dtype=np.float64)
         nz = cell_cnt > 0.0
         if nz.any():
@@ -358,10 +355,7 @@ def cat_num_interaction_fit(
 
     # Full-data lookup for transform-time replay (smoothed per-category mean
     # of num computed on the entire training set).
-    full_sum = np.zeros(n_cats, dtype=np.float64)
-    full_cnt = np.zeros(n_cats, dtype=np.float64)
-    np.add.at(full_sum, inv_arr[finite_mask], num_vals[finite_mask])
-    np.add.at(full_cnt, inv_arr[finite_mask], 1.0)
+    full_sum, full_cnt = fold_cell_sum_cnt(inv_arr, num_vals, fold_ids, -1, n_cats, valid=finite_mask)
     lookup: dict[str, float] = {}
     for cat_idx in range(n_cats):
         if full_cnt[cat_idx] > 0.0:

@@ -309,12 +309,9 @@ def compute_model_input_fingerprint(
         order-stable list of ``{"name": str, "dtype": str, "role":
         cat|text|embedding|numeric}`` records used to build the hash.
 
-    The hash now folds in: column row count, target column name, a
-    digest of the preprocessing config, a digest of the pipeline config,
-    model family, random_seed, and a digest of the train/val split
-    indices. Previously the hash was schema-only, so two runs that
-    differed in (e.g.) target column or preprocessing would collide on
-    the same model filename. The extra fields close that gap.
+    The hash folds in the schema, row count and whichever of the optional context arguments the caller passes: target column name,
+    preprocessing / pipeline config digests, model family, random_seed and the train/val split indices. Callers that pass only the
+    feature lists get a schema-level hash; the context arguments are not filled in implicitly.
 
     Canonical JSON via ``orjson.dumps(..., option=OPT_SORT_KEYS)`` -- required
     by the user's memory rule ``feedback_json_hash_sort_keys`` so the hash is
@@ -322,6 +319,7 @@ def compute_model_input_fingerprint(
     """
     import hashlib
     import orjson
+    from mlframe.training._canonical_json import canonical_json_bytes
 
     if df_at_fit is None:
         # CACHE-Low-1: marker length must equal SHA-256 prefix length (10) so
@@ -355,11 +353,10 @@ def compute_model_input_fingerprint(
             role = "numeric"
         schema.append({"name": col, "dtype": _canonical_dtype_str(dt), "role": role})
 
-    # Extra context dimensions. None is serialised stably; pydantic configs
-    # are reduced via ``model_dump``; ndarrays / lists are summarised by
-    # (length, first/middle/last) to keep the hash O(1).
+    # Extra context dimensions. None is serialised stably; pydantic configs are reduced via ``model_dump``;
+    # ndarrays / lists are digested over their full content so distinct splits never collide.
     def _idx_digest(idx) -> str:
-        """Summarise an index-like array as ``n<size>:first:mid:last`` in O(1), avoiding a full-array hash."""
+        """Digest an index-like array as ``n<size>:<blake2b of the full content>``."""
         if idx is None:
             return "none"
         try:
@@ -367,8 +364,11 @@ def compute_model_input_fingerprint(
             n = int(arr.size)
             if n == 0:
                 return "empty"
-            picks = [int(arr[0]), int(arr[n // 2]), int(arr[-1])]
-            return f"n{n}:{picks[0]}:{picks[1]}:{picks[2]}"
+            if arr.dtype.kind in "biuf":
+                raw = np.ascontiguousarray(arr).tobytes()
+            else:
+                raw = "\x1f".join(map(str, arr.tolist())).encode("utf-8", "backslashreplace")
+            return f"n{n}:{hashlib.blake2b(raw, digest_size=8).hexdigest()}"
         except Exception as e:
             logger.debug("failed to digest index-like object of type %s for the fit fingerprint: %s", type(idx).__name__, e)
             return f"unhashable_{type(idx).__name__}"
@@ -386,13 +386,10 @@ def compute_model_input_fingerprint(
                 payload = cfg
             else:
                 payload = repr(cfg)
-            return hashlib.blake2b(
-                orjson.dumps(payload, default=str, option=orjson.OPT_SORT_KEYS),
-                digest_size=8,
-            ).hexdigest()
         except Exception as e:
-            logger.debug("failed to digest a config object for the fit fingerprint, using placeholder 'uncached': %s", e)
-            return "uncached"
+            logger.debug("failed to dump a config object for the fit fingerprint, digesting its repr instead: %s", e)
+            payload = repr(cfg)
+        return hashlib.blake2b(canonical_json_bytes(payload), digest_size=8).hexdigest()
 
     try:
         n_rows = len(df_at_fit)
@@ -936,10 +933,12 @@ def save_series_or_df(
             obj = obj.to_frame(name=name)
         else:
             obj = obj.to_frame()
+    from mlframe.training.io import atomic_write_bytes
+
     if isinstance(obj, pd.DataFrame):
-        obj.to_parquet(file, compression=compression)
+        atomic_write_bytes(file, lambda fh: obj.to_parquet(fh, compression=compression))
     elif pl is not None and isinstance(obj, pl.DataFrame):
-        obj.write_parquet(file, compression=compression)  # type: ignore[arg-type]  # compression is a validated free-form str at the public API boundary; polars narrows to a Literal set at runtime
+        atomic_write_bytes(file, lambda fh: obj.write_parquet(fh, compression=compression))  # type: ignore[arg-type]  # compression is a validated free-form str at the public API boundary; polars narrows to a Literal set at runtime
 
 
 from ._nan_processing import _process_special_values, process_nans, process_nulls, process_infinities, get_numeric_columns, get_categorical_columns, remove_constant_columns  # noqa: F401

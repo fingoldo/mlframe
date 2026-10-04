@@ -80,12 +80,11 @@ void pair_mi_shared_fused(
     // Dynamic shared int32 histogram: [0:max_joint*n_classes_y) joint counts, then [.. +max_joint)
     // marginal (fx) counts - same flat layout as the row-chunked kernel's shared-staged variant.
     extern __shared__ int sh[];
-    __shared__ double mi_accum;
+    __shared__ double warp_sums[32];
     int n_joint_cells = max_joint * n_classes_y;
     int total_cells = n_joint_cells + max_joint;
     int tid = threadIdx.x, nt = blockDim.x;
     for (int i = tid; i < total_cells; i += nt) sh[i] = 0;
-    if (tid == 0) mi_accum = 0.0;
     __syncthreads();
 
     int p = blockIdx.x;
@@ -107,8 +106,9 @@ void pair_mi_shared_fused(
     // over up to ~8800+ cells including a log() call per occupied cell - the single largest cost in an
     // earlier version of this kernel, measured ~6x slower end-to-end than doing the histogram-accumulate
     // phase alone would suggest; see bench_batch_pair_mi_shared_fused.py). Every thread strides over a
-    // disjoint subset of cells and atomically accumulates its partial sum into a shared double - cells
-    // are typically sparse (few threads hit a nonzero cell), so contention on ``mi_accum`` stays low.
+    // disjoint subset of cells; partials combine by a fixed-order warp shuffle tree and a serial sum over
+    // warps, so the result is bit-identical run to run (a shared atomicAdd on a double is order-dependent).
+    double loc = 0.0;
     for (int idx = tid; idx < n_joint_cells; idx += nt) {
         int jc = sh[idx];
         if (jc == 0) continue;
@@ -120,12 +120,37 @@ void pair_mi_shared_fused(
         if (prob_y <= 0.0) continue;
         double prob_x = (double)fx * inv_n;
         double jf = (double)jc * inv_n;
-        atomicAdd(&mi_accum, jf * log(jf / (prob_x * prob_y)));
+        loc += jf * log(jf / (prob_x * prob_y));
     }
+    for (int off = 16; off > 0; off >>= 1) loc += __shfl_down_sync(0xffffffffu, loc, off);
+    if ((tid & 31) == 0) warp_sums[tid >> 5] = loc;
     __syncthreads();
-    if (tid == 0) mi_out[p] = mi_accum;
+    if (tid == 0) {
+        double total = 0.0;
+        for (int w = 0; w < (nt >> 5); ++w) total += warp_sums[w];
+        mi_out[p] = total;
+    }
 }
 """
+
+
+def validate_pair_codes(factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, n_classes_y: int) -> None:
+    """Raise ``ValueError`` unless every referenced column holds codes in ``[0, nbins[col])`` and ``classes_y`` lies in ``[0, n_classes_y)``.
+
+    The kernel indexes a shared-memory histogram with the raw codes, so a stray code is an out-of-bounds shared write that poisons the CUDA context.
+    """
+    for col in np.unique(np.concatenate([np.asarray(pair_a), np.asarray(pair_b)])):
+        c = int(col)
+        values = factors_data[:, c]
+        if values.size == 0:
+            continue
+        lo, hi = int(values.min()), int(values.max())
+        if lo < 0 or hi >= int(nbins[c]):
+            raise ValueError(f"factors_data[:, {c}] holds codes in [{lo}, {hi}] outside [0, nbins={int(nbins[c])})")
+    if classes_y.size:
+        lo, hi = int(classes_y.min()), int(classes_y.max())
+        if lo < 0 or hi >= n_classes_y:
+            raise ValueError(f"classes_y values must be in [0, n_classes_y={n_classes_y}); got [min={lo}, max={hi}]")
 
 
 def _opt_in_shared_mem_budget() -> int:
@@ -180,8 +205,8 @@ def batch_pair_mi_cuda_shared_fused(
 
     Bit-identical to :func:`batch_pair_mi_cuda_row_chunked`/:func:`batch_pair_mi_njit_prange` (same
     ``sum jf*log(jf/(px*py))`` reduction over occupied cells, same iteration order i-then-j) up to ~1e-15
-    ULP floating-point reduction-order noise from the atomic-add accumulation order across threads -
-    verified in ``tests/feature_selection/gpu/test_batch_pair_mi_shared_fused.py``.
+    ULP floating-point reduction-order difference vs those backends (this kernel's own reduction order is fixed, so repeated
+    launches are bit-identical) - verified in ``tests/feature_selection/gpu/test_batch_pair_mi_shared_fused.py``.
     """
     if not _CUPY_AVAIL:
         raise RuntimeError("cupy is not available on this host")
@@ -189,6 +214,9 @@ def batch_pair_mi_cuda_shared_fused(
     n_pairs = int(pair_a.shape[0])
     if n_pairs == 0:
         return np.empty(0, dtype=np.float64)
+
+    if threads_per_block % 32 != 0 or not 32 <= threads_per_block <= 1024:
+        raise ValueError(f"threads_per_block must be a multiple of 32 in [32, 1024]; got {threads_per_block}")
 
     n_samples = int(factors_data.shape[0])
     n_features = int(factors_data.shape[1])
@@ -205,6 +233,8 @@ def batch_pair_mi_cuda_shared_fused(
         bad = int(np.argmin(joint_cards))
         raise ValueError(f"degenerate pair ({int(pair_a[bad])}, {int(pair_b[bad])}): joint cardinality {int(joint_cards[bad])} < 1")
     max_joint = int(joint_cards.max())
+
+    validate_pair_codes(factors_data, pair_a, pair_b, nbins_i, classes_y, n_classes_y)
 
     shared_bytes = shared_fused_kernel_fits_budget(max_joint, n_classes_y)
     if shared_bytes == 0:

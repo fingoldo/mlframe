@@ -278,16 +278,11 @@ def save_key_bank(
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
     final_dir = cache_dir / fingerprint
-    # Wave 48 (2026-05-20): rmtree+rename was a TOCTOU race -- two writers could
-    # both wipe final_dir and the loser's rename would fail. Wrap both in
-    # try/except OSError: caches are content-addressable so the loser silently
-    # discards its tmp_dir (the winner's bytes are equivalent).
+    # Content-addressed: an already published dir holds equivalent bytes and may be mid-load by a reader, so it is never removed.
     if final_dir.exists():
         import shutil
-        try:
-            shutil.rmtree(final_dir, ignore_errors=True)
-        except OSError:
-            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return
     try:
         tmp_dir.rename(final_dir)
     except OSError as _rn_err:

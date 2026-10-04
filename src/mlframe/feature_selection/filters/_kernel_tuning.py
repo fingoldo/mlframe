@@ -22,6 +22,8 @@ import threading
 import time
 from typing import Any, Optional
 
+from ._hw_fingerprint_guard import install_hw_fingerprint_guard
+
 logger = logging.getLogger(__name__)
 
 _CACHE_SINGLETON: Optional[object] = None  # KernelTuningCache | False sentinel
@@ -162,6 +164,9 @@ def _reset_for_tests() -> None:
     with _DEFAULTS_LOCK:
         _DEFAULTS_REGISTERED = False
 
+
+# Installed before the first fingerprint is resolved so a GPU-less run cannot persist a no-gpu hardware fingerprint (see _hw_fingerprint_guard).
+install_hw_fingerprint_guard()
 
 # Register the anonymized default-tuning cache once, at import. This module is
 # imported by ``mlframe.feature_selection.filters.__init__`` (the FS package init

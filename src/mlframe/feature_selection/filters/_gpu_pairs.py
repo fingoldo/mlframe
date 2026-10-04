@@ -23,6 +23,15 @@ logger = logging.getLogger(__name__)
 # under-provisioning that launch's kernel (OOB shared-memory read/write). This lock makes the set+launch atomic.
 _SHARED_MEM_SET_LOCK = threading.Lock()
 
+# CUDA gridDim.y is capped at 65535, and the pair index rides on gridDim.y.
+_MAX_PAIRS_PER_LAUNCH = 65535
+
+
+def pair_chunk_bounds(n_pairs: int, limit: int) -> list:
+    """``[(start, stop), ...]`` slices of ``range(n_pairs)`` holding at most ``limit`` pairs each."""
+    step = max(1, int(limit))
+    return [(s, min(s + step, int(n_pairs))) for s in range(0, int(n_pairs), step)]
+
 
 def joint_mi_from_flat_counts(
     joint_counts_host: np.ndarray,
@@ -97,12 +106,12 @@ def mi_direct_gpu_batched_pairs(
     if n_pairs == 0:
         return np.zeros(0, dtype=np.float64)
 
-    # E1 fix: CUDA gridDim.y maxes at 65535 on cc 6.x (still 65535 on cc 7+;
-    # only x can go up to 2^31-1). At n_pairs > 65535 the launch fails with
-    # an opaque InvalidConfiguration. Validate host-side with a clear
-    # error so callers know to chunk.
-    if n_pairs > 65535:
-        raise ValueError(f"mi_direct_gpu_batched_pairs: n_pairs={n_pairs} exceeds CUDA " f"gridDim.y limit of 65535; chunk the call host-side.")
+    if n_pairs > _MAX_PAIRS_PER_LAUNCH:
+        pa, pb = np.asarray(pairs_a), np.asarray(pairs_b)
+        return np.concatenate([
+            mi_direct_gpu_batched_pairs(factors_data, pa[s:e], pb[s:e], factors_nbins, classes_y, freqs_y, dtype=dtype)
+            for s, e in pair_chunk_bounds(n_pairs, _MAX_PAIRS_PER_LAUNCH)
+        ])
 
     # A5 fix (Critic 1): validate factors_data values are within their
     # declared bin range. Out-of-range values produce a ``merged`` index

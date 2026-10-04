@@ -322,16 +322,32 @@ extern "C" __global__
 void transpose_f32(const float* __restrict__ in, float* __restrict__ out,
                    const long long n, const int K) {
     __shared__ float tile[32][33];               // +1 pad column: no shared-bank conflict on the write
-    long long row = (long long)blockIdx.y * 32 + threadIdx.y;   // index into n (rows of the (n,K) input)
-    int col = blockIdx.x * 32 + threadIdx.x;                    // index into K
+    const int tiles_k = (K + 31) / 32;
+    const int bx = (int)(blockIdx.x % tiles_k);
+    const long long by = blockIdx.x / tiles_k;
+    long long row = by * 32 + threadIdx.y;   // index into n (rows of the (n,K) input)
+    int col = bx * 32 + threadIdx.x;                    // index into K
     if (row < n && col < K) tile[threadIdx.y][threadIdx.x] = in[row * (long long)K + col];
     __syncthreads();
-    int orow = blockIdx.x * 32 + threadIdx.y;                   // index into K (rows of the (K,n) output)
-    long long ocol = (long long)blockIdx.y * 32 + threadIdx.x;  // index into n
+    int orow = bx * 32 + threadIdx.y;                   // index into K (rows of the (K,n) output)
+    long long ocol = by * 32 + threadIdx.x;  // index into n
     if (orow < K && ocol < n) out[(long long)orow * n + ocol] = tile[threadIdx.x][threadIdx.y];
 }
 """
 _TRANSPOSE_F32_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
+
+_MAX_GRID_X_BLOCKS = 2**31 - 1
+
+
+def tiled_transpose_blocks(n: int, K: int) -> int:
+    """1-D grid size for the tiled transpose kernels: one block per 32x32 tile, tiles linearised on gridDim.x.
+
+    A 2-D grid put ``n / 32`` tiles on gridDim.y, which is capped at 65535 and so failed to launch above 2,097,120 rows.
+    """
+    blocks = ((int(n) + 31) // 32) * ((int(K) + 31) // 32)
+    if blocks > _MAX_GRID_X_BLOCKS:
+        raise ValueError(f"tiled transpose of {n}x{K} needs {blocks} blocks (> {_MAX_GRID_X_BLOCKS})")
+    return blocks
 
 # f64 twin (2026-07-02, nsys-driven): the F2 1M trace's single LONGEST GPU op was a 1.69s
 # cupy_copy__float64_float64 - the (200k, 527) float64 conditional-gate candidate matrix hitting the
@@ -342,12 +358,15 @@ extern "C" __global__
 void transpose_f64(const double* __restrict__ in, double* __restrict__ out,
                    const long long n, const int K) {
     __shared__ double tile[32][33];
-    long long row = (long long)blockIdx.y * 32 + threadIdx.y;
-    int col = blockIdx.x * 32 + threadIdx.x;
+    const int tiles_k = (K + 31) / 32;
+    const int bx = (int)(blockIdx.x % tiles_k);
+    const long long by = blockIdx.x / tiles_k;
+    long long row = by * 32 + threadIdx.y;
+    int col = bx * 32 + threadIdx.x;
     if (row < n && col < K) tile[threadIdx.y][threadIdx.x] = in[row * (long long)K + col];
     __syncthreads();
-    int orow = blockIdx.x * 32 + threadIdx.y;
-    long long ocol = (long long)blockIdx.y * 32 + threadIdx.x;
+    int orow = bx * 32 + threadIdx.y;
+    long long ocol = by * 32 + threadIdx.x;
     if (orow < K && ocol < n) out[(long long)orow * n + ocol] = tile[threadIdx.x][threadIdx.y];
 }
 """
@@ -388,8 +407,7 @@ def _transpose_to_cm(cand_gpu):
         return cp.ascontiguousarray(cand_gpu.T)
     try:
         out = cp.empty((K, n), dtype=_dt)
-        grid = ((K + 31) // 32, int((n + 31) // 32))
-        _ker((grid[0], grid[1]), (32, 32), (cand_gpu, out, np.int64(n), np.int32(K)))
+        _ker((tiled_transpose_blocks(n, K),), (32, 32), (cand_gpu, out, np.int64(n), np.int32(K)))
         return out
     except Exception:
         import logging
@@ -410,10 +428,7 @@ def _transpose_cm_to_rm(cm_gpu):
         return cp.ascontiguousarray(cm_gpu.T)
     try:
         out = cp.empty((nc, Kr), dtype=cp.float32)  # (n, K)
-        # The kernel treats the input as (n_rows=Kr, K_cols=nc); grid.x spans the K_cols (=nc), grid.y the
-        # n_rows (=Kr) - mirror _transpose_to_cm's ((K+31)//32, (n+31)//32) with n:=Kr, K:=nc.
-        grid = ((nc + 31) // 32, int((Kr + 31) // 32))
-        _get_transpose_f32_kernel()((grid[0], grid[1]), (32, 32), (cm_gpu, out, np.int64(Kr), np.int32(nc)))
+        _get_transpose_f32_kernel()((tiled_transpose_blocks(Kr, nc),), (32, 32), (cm_gpu, out, np.int64(Kr), np.int32(nc)))
         return out
     except Exception:
         import logging
@@ -437,12 +452,15 @@ extern "C" __global__
 void transpose_i8(const signed char* __restrict__ in, signed char* __restrict__ out,
                   const long long n, const int K) {
     __shared__ signed char tile[32][33];           // +1 pad column: no shared-bank conflict on the write
-    long long row = (long long)blockIdx.y * 32 + threadIdx.y;   // index into n (rows of the (n,K) input)
-    int col = blockIdx.x * 32 + threadIdx.x;                    // index into K
+    const int tiles_k = (K + 31) / 32;
+    const int bx = (int)(blockIdx.x % tiles_k);
+    const long long by = blockIdx.x / tiles_k;
+    long long row = by * 32 + threadIdx.y;   // index into n (rows of the (n,K) input)
+    int col = bx * 32 + threadIdx.x;                    // index into K
     if (row < n && col < K) tile[threadIdx.y][threadIdx.x] = in[row * (long long)K + col];
     __syncthreads();
-    int orow = blockIdx.x * 32 + threadIdx.y;                   // index into K (rows of the (K,n) output)
-    long long ocol = (long long)blockIdx.y * 32 + threadIdx.x;  // index into n
+    int orow = bx * 32 + threadIdx.y;                   // index into K (rows of the (K,n) output)
+    long long ocol = by * 32 + threadIdx.x;  // index into n
     if (orow < K && ocol < n) out[(long long)orow * n + ocol] = tile[threadIdx.x][threadIdx.y];
 }
 """
@@ -479,8 +497,7 @@ def transpose_codes_to_cm(disc_gpu: Any) -> Any:
         return cp.ascontiguousarray(disc_gpu.T)
     try:
         out = cp.empty((K, n), dtype=disc_gpu.dtype)
-        grid = ((K + 31) // 32, int((n + 31) // 32))
-        _get_transpose_int_kernel(itemsize)((grid[0], grid[1]), (32, 32), (disc_gpu, out, np.int64(n), np.int32(K)))
+        _get_transpose_int_kernel(itemsize)((tiled_transpose_blocks(n, K),), (32, 32), (disc_gpu, out, np.int64(n), np.int32(K)))
         return out
     except Exception:
         import logging

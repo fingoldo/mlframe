@@ -19,6 +19,15 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.calibration.post")  # matches the pre-carve logger name (post.py); preserves log-filter/caplog compatibility for existing callers/tests
 
 
+def _publish_calibrator(calibrator: Any, path: str) -> None:
+    """Atomically write a fitted calibrator bundle and its ``.sha256`` sidecar."""
+    from mlframe.training.io import atomic_write_bytes
+    from mlframe.utils.safe_pickle import write_sidecar
+
+    atomic_write_bytes(path, lambda fh: joblib.dump(calibrator, fh, compress=("lzma", 6)))
+    write_sidecar(path)
+
+
 def train_postcalibrators(
     models: dict,
     model_name: str,
@@ -190,7 +199,7 @@ def train_postcalibrators(
     for calib_name, calibrator in test_calibrators.items():
         ens_name = f"ens_{_resolved_method}"
         calib_fpath = join(final_models_dir, f"{ens_name}_postcalibrator_{slugify(calib_name)}.dump")
-        joblib.dump(calibrator, calib_fpath, compress=("lzma", 6))
+        _publish_calibrator(calibrator, calib_fpath)
         # Write the .meta.json sidecar so calibrator-loaders surface mlframe-version drift. Calibrator classes
         # (_PerClassIsotonicCalibrator / _PostHocMultiCalibratedModel) carry
         # attributes (n_classes, is_exclusive, _target_type) whose semantics

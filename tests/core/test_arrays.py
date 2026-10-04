@@ -194,3 +194,34 @@ class TestTopkByPartition:
         ref_ind = np.argsort(-arr.ravel())[:k]
         assert (ind == ref_ind).all()
         assert np.allclose(val, arr.ravel()[ref_ind])
+
+
+class TestCountingKernelsRejectOutOfRangeValues:
+    """The counting-sort family indexes its bucket arrays with the raw values, so a stray value must raise instead of writing past them."""
+
+    @pytest.mark.parametrize("bad", [7, -1])
+    def test_counting_sort_rejects_value_outside_range(self, bad):
+        """arrayCountingSort refuses values outside [0, maxval]."""
+        x = np.array([0, 3, bad, 2], dtype=np.int64)
+        with pytest.raises(ValueError):
+            m.arrayCountingSort(x, 5)
+
+    @pytest.mark.parametrize("fn", ["arrayCountingArgSort", "arrayCountingArgSortAndUniqueValues", "arrayCountingArgSortThreaded", "arrayCountingArgSortAndUniqueValuesThreaded"])
+    @pytest.mark.parametrize("bad", [9, -2])
+    def test_counting_argsort_rejects_value_outside_range(self, fn, bad):
+        """Every counting-argsort variant refuses values outside [0, maxval]."""
+        x = np.array([1, 2, bad, 0, 3, 3], dtype=np.int64)
+        with pytest.raises(ValueError):
+            getattr(m, fn)(x, 5)
+
+    def test_counting_argsort_rejects_mask_index_outside_array(self):
+        """A mask pointing past the array raises instead of reading out of bounds."""
+        x = np.array([1, 2, 0], dtype=np.int64)
+        with pytest.raises(ValueError):
+            m.arrayCountingArgSort(x, 5, np.array([0, 5], dtype=np.int32))
+
+    def test_valid_input_is_unchanged(self):
+        """In-range values still sort exactly as before."""
+        x = np.array([3, 1, 2, 1, 0, 3], dtype=np.int64)
+        assert (m.arrayCountingSort(x, 3) == np.sort(x)).all()
+        assert (x[m.arrayCountingArgSort(x, 3)] == np.sort(x)).all()

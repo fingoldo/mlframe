@@ -111,3 +111,15 @@ def test_boolean_pair_interactions_default_unchanged_when_prune_not_supplied():
     baseline = boolean_pair_interactions(df, operators=("and", "or", "xor"))
     default_call = boolean_pair_interactions(df, operators=("and", "or", "xor"), prune_against_target=None)
     pd.testing.assert_frame_equal(baseline, default_call)
+
+
+def test_nonzero_values_beyond_int8_range_stay_true() -> None:
+    """A value such as 256 is truthy: the int8 cast wrapped it to 0 and made AND/OR silently wrong."""
+    import pandas as pd
+
+    from mlframe.feature_engineering.boolean_pair_interactions import boolean_pair_interactions
+
+    df = pd.DataFrame({"a": [0, 256, 256, 1], "b": [0, 0, 1, 1]})
+    out = boolean_pair_interactions(df, columns=["a", "b"], operators=("and", "or"))
+    assert out["a__and__b"].tolist() == [0, 0, 1, 1]
+    assert out["a__or__b"].tolist() == [0, 1, 1, 1]

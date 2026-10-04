@@ -576,8 +576,8 @@ def _plot_cv_performance(show_plot, plot_file, font_size, figsize, checked_nfeat
     if show_plot or plot_file:
         import matplotlib.pyplot as plt  # deferred: matplotlib import costs ~0.15s and is only needed when plotting
 
-        plt.rcParams.update({"font.size": font_size})
-        _fig, ax1 = plt.subplots(figsize=figsize)
+        with plt.rc_context({"font.size": font_size}):
+            _fig, ax1 = plt.subplots(figsize=figsize)
         try:
             ax2 = ax1.twinx()
 
@@ -587,7 +587,7 @@ def _plot_cv_performance(show_plot, plot_file, font_size, figsize, checked_nfeat
             ax1.errorbar(checked_nfeatures, cv_mean_perf, yerr=cv_std_perf, c="b", alpha=0.4)
 
             ax2.plot(checked_nfeatures, ultimate_perf, c="g")
-            ax1.plot(checked_nfeatures[best_idx], base_perf[best_idx], "ro")
+            ax1.plot(checked_nfeatures[best_idx], cv_mean_perf[best_idx], "ro")
             ax2.set_ylabel("Adj CV score", c="g")
 
             plt.title("Performance by nfeatures")

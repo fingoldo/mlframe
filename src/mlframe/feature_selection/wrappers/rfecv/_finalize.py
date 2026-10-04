@@ -242,6 +242,17 @@ def _expand_support_by_feature_groups(self, verbose):
             self.n_features_ = int(support_mask.sum())
 
 
+def _dump_atomic(obj, path: str) -> None:
+    """Publish ``obj`` at ``path`` through a temp file + replace and pair it with a ``.sha256`` sidecar."""
+    import joblib
+
+    from mlframe.training.io import atomic_write_bytes
+    from mlframe.utils.safe_pickle import write_sidecar
+
+    atomic_write_bytes(path, lambda fh: joblib.dump(obj, fh))
+    write_sidecar(path)
+
+
 def _persist_fitted_estimators(self, *, estimator, fitted_estimators, verbose):
     """Persist the fitted estimators + a required-features/metrics summary to ``self.estimators_save_path`` (documented ctor knob).
 
@@ -253,7 +264,6 @@ def _persist_fitted_estimators(self, *, estimator, fitted_estimators, verbose):
         return
 
     import os
-    import joblib
 
     from sklearn.pipeline import Pipeline
 
@@ -266,16 +276,13 @@ def _persist_fitted_estimators(self, *, estimator, fitted_estimators, verbose):
             "n_features": int(getattr(self, "n_features_", len(required_features))),
             "cv_results": getattr(self, "cv_results_", None),
         }
-        joblib.dump(summary, os.path.join(save_path, "required_features.dump"))
+        _dump_atomic(summary, os.path.join(save_path, "required_features.dump"))
 
         if getattr(self, "keep_estimators", False) and fitted_estimators:
             estimator_type = type(estimator.steps[-1][1]).__name__ if isinstance(estimator, Pipeline) else type(estimator).__name__
             est_dir = os.path.join(save_path, estimator_type)
             os.makedirs(est_dir, exist_ok=True)
             for key, est in fitted_estimators.items():
-                joblib.dump(est, os.path.join(est_dir, f"{key}.dump"))
+                _dump_atomic(est, os.path.join(est_dir, f"{key}.dump"))
     except Exception as exc:
-        if verbose:
-            logger.warning("RFECV: estimators_save_path persistence failed (%s); continuing.", exc)
-        else:
-            logger.debug("RFECV: estimators_save_path persistence failed (%s); continuing.", exc)
+        logger.warning("RFECV: estimators_save_path persistence failed (%s: %s); continuing.", type(exc).__name__, exc)

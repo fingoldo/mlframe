@@ -386,7 +386,7 @@ def run_polynom_pair_fe(
                     coef_range=(fe_min_polynom_coeff, fe_max_polynom_coeff),
                     l2_penalty=fe_hermite_l2_penalty,
                     n_neighbors=None,
-                    seed=42 + seed_offset,
+                    seed=subsample_seed + seed_offset,
                     sweep_degrees=True,
                     basis=fe_polynomial_basis,
                     mi_estimator=fe_mi_estimator,

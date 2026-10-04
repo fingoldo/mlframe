@@ -144,10 +144,10 @@ def _safe_abs_corr_all(
 ) -> np.ndarray:
     """Vectorised ``|corr(y, X[:, j])|`` for all j, size-aware backend dispatch.
 
-    Public entry point: for large feature matrices (``n >= 20k`` AND ``F >= 64``,
-    per the numba ladder) this dispatches to a ``numba.njit(parallel=True)`` kernel
+    Public entry point: for every non-degenerate matrix (``n >= 256``,
+    measured crossover) this dispatches to a ``numba.njit(parallel=True)`` kernel
     (``_corr_numba.safe_abs_corr_all_dispatch``) that walks each column in registers
-    with no (n, F) centred temporary; small inputs use the numpy reference below
+    with no (n, F) centred temporary; tiny inputs use the numpy reference below
     (``_safe_abs_corr_all_numpy``). The kernel is numerically equivalent to the
     reference within ~1e-9 everywhere and ~1e-12 in the near-1 leak-threshold region
     (borderline columns re-decided with the exact numpy primitive -- see

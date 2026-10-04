@@ -188,7 +188,7 @@ def _get_kernel():
             for (int i = tid; i < joint_size; i += nthreads) sm[i] = 0;
             __syncthreads();
 
-            const int *xrow = Xc + (long)cand * n;
+            const int *xrow = Xc + (long long)cand * n;
             // merged id = cz + cx*nbz + cy*(nbx*nbz)  -> Z fastest, then X, then Y.
             for (int r = tid; r < n; r += nthreads) {
                 int cx = xrow[r];
@@ -199,7 +199,7 @@ def _get_kernel():
             }
             __syncthreads();
 
-            int *out = joint_counts + (long)cand * joint_size;
+            int *out = joint_counts + (long long)cand * joint_size;
             for (int i = tid; i < joint_size; i += nthreads) {
                 if (sm[i] != 0) out[i] = sm[i];
             }
@@ -254,7 +254,7 @@ def _get_cmi_from_joint_kernel():
             for (int i = tid; i < nyz; i += nt) m_yz[i] = 0;
             for (int i = tid; i < nbz; i += nt) m_z[i] = 0;
             __syncthreads();
-            const int* J = joint + (long)cand * joint_size;
+            const int* J = joint + (long long)cand * joint_size;
             double hxyz_loc = 0.0;
             for (int i = tid; i < joint_size; i += nt) {
                 int c = J[i];

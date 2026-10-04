@@ -15,6 +15,7 @@ from sklearn.feature_selection import mutual_info_classif, mutual_info_regressio
 
 from mlframe.feature_selection.filters._hermite_fe_diverse import _select_diverse_topm
 from mlframe.utils.log_throttle import log_throttle
+from .fe_baselines import ksg_random_state
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
@@ -58,7 +59,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
                      n_neighbors, discrete_target, l2_penalty,
                      l2_penalty_saturation=None,
                      direction_only=False, eval_func_b=None,
-                     B_a=None, B_b=None):
+                     B_a=None, B_b=None, random_state=42):
     """Shared inner objective: evaluate one (c_a, c_b) pair across all binary funcs; return best (regularised score, raw MI, bf idx).
 
     ``eval_func_b`` defaults to ``eval_func`` (single-eval). Factory bases like RBF need per-feature preprocess fns, so the caller passes a separate
@@ -172,10 +173,10 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
             mi_arr = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X_batch), y_njit, plugin_n_bins)
     else:  # ksg
         if discrete_target:
-            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
+            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
         else:
             mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors,
-                                             random_state=42, discrete_features=False)
+                                             random_state=ksg_random_state(random_state), discrete_features=False)
     penalty = 0.0 if direction_only else _l2_penalty_value(
         coef_a, coef_b, l2_penalty, l2_penalty_saturation,
     )
@@ -196,7 +197,7 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
                            n_neighbors, discrete_target, l2_penalty,
                            l2_penalty_saturation=None,
                            direction_only=False, eval_func_b=None,
-                           B_a=None, B_b=None):
+                           B_a=None, B_b=None, random_state=42):
     """Batched eval over ``P`` coefficient candidates simultaneously.
 
     Args:
@@ -346,9 +347,9 @@ def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables
             mi_arr = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X_batch.T), y_njit, plugin_n_bins)
     else:  # ksg
         if discrete_target:
-            mi_arr = mutual_info_classif(X_batch.T, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
+            mi_arr = mutual_info_classif(X_batch.T, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
         else:
-            mi_arr = mutual_info_regression(X_batch.T, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False)
+            mi_arr = mutual_info_regression(X_batch.T, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
 
     # Phase 4: per-candidate l2 penalty + best-bf selection
     penalties = np.zeros(P, dtype=np.float64)
@@ -757,7 +758,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     return (best_coefs[0], best_coefs[1], best_idx, best_raw, n_evals)
 
 
-def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool, n_neighbors: int = 3, mi_estimator: str = "plugin", plugin_n_bins: int = 20) -> float:
+def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool, n_neighbors: int = 3, mi_estimator: str = "plugin", plugin_n_bins: int = 20, random_state: int = 42) -> float:
     """Identity baseline: MI of (x_a, x_b) vs target. Plug-in is 1-D-x by design so we use max(MI(x_a, y), MI(x_b, y)) (lower bound on joint MI); KSG path uses sklearn's multi-D estimator."""
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
@@ -780,8 +781,8 @@ def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool, n_neighbors: int = 
         return float(max(mi_a, mi_b))
     Xn = np.column_stack([x_a, x_b])
     if discrete_target:
-        return float(mutual_info_classif(Xn, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False).max())
-    return float(mutual_info_regression(Xn, y, n_neighbors=n_neighbors, random_state=42, discrete_features=False).max())
+        return float(mutual_info_classif(Xn, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False).max())
+    return float(mutual_info_regression(Xn, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False).max())
 
 
 def optimise_pair_multimode(
@@ -874,7 +875,7 @@ def optimise_pair_multimode(
     bf_names_global = list(bin_funcs.keys())
     bf_callables_global = [bin_funcs[n] for n in bf_names_global]
 
-    baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+    baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, random_state=seed)
 
     # Aggregate history across degrees, then apply diverse top-M.
     full_history = []
@@ -890,7 +891,7 @@ def optimise_pair_multimode(
             y=y, y_njit=y_njit,
             mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
             n_neighbors=n_neighbors, discrete_target=discrete_target,
-            l2_penalty=l2_penalty,
+            l2_penalty=l2_penalty, random_state=seed,
         )
         warm_seeds: list = []
         if warm_start:

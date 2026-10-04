@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .hermite_fe import HermiteResult
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from mlframe.utils.log_throttle import log_throttle
+from .fe_baselines import ksg_random_state
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
 
@@ -244,7 +245,7 @@ def optimise_hermite_pair(
     if precomputed_identity_baseline is not None:
         baseline = float(precomputed_identity_baseline)
     else:
-        baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins)
+        baseline = _baseline_mi_pair(z_a, z_b, y, discrete_target=discrete_target, n_neighbors=n_neighbors, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, random_state=seed)
     logger.debug("baseline MI(pair, y) = %.4f", baseline)
 
     # Stronger gate than the identity max(MI(x_a, y), MI(x_b, y)): try trivial pair-feature transforms
@@ -266,7 +267,7 @@ def optimise_hermite_pair(
                 discrete_target=discrete_target,
                 mi_estimator=mi_estimator,
                 plugin_n_bins=plugin_n_bins,
-                n_neighbors=n_neighbors,
+                n_neighbors=n_neighbors, random_state=seed,
             )
             if trivial is not None:
                 trivial_baseline_name, _, trivial_mi = trivial
@@ -402,9 +403,9 @@ def optimise_hermite_pair(
                         mi_arr = _plugin_mi_regression_batch_njit(X_batch, kw["y_njit"], kw["plugin_n_bins"])
                 else:
                     if kw["discrete_target"]:
-                        mi_arr = mutual_info_classif(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
+                        mi_arr = mutual_info_classif(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=ksg_random_state(kw["random_state"]), discrete_features=False)
                     else:
-                        mi_arr = mutual_info_regression(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=42, discrete_features=False)
+                        mi_arr = mutual_info_regression(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=ksg_random_state(kw["random_state"]), discrete_features=False)
                 penalty = 0.0 if kw.get("direction_only") else _l2_penalty_value(coef_a, coef_b, kw["l2_penalty"], float(kw["l2_penalty_saturation"]))
                 best_score = -np.inf
                 best_raw = 0.0
@@ -428,7 +429,7 @@ def optimise_hermite_pair(
             y=y_search_any, y_njit=y_search,
             mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
             n_neighbors=n_neighbors, discrete_target=discrete_target,
-            l2_penalty=l2_penalty,
+            l2_penalty=l2_penalty, random_state=seed,
             l2_penalty_saturation=l2_penalty_saturation,
             # Precomputed basis matrices for BLAS GEMV fastpath, PRE-TRUNCATED to (ca_size, cb_size) above
             # (None when factory-based basis or polynomial basis not in registry). _eval_coef_pair(_batch) no

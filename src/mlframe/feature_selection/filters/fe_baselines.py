@@ -50,8 +50,16 @@ def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
     return feats
 
 
-def _mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, mi_estimator: str = "plugin", plugin_n_bins: int = 20, n_neighbors: int = 3) -> float:
-    """1-D MI(x, y) using the configured estimator (fast plug-in or slower KSG)."""
+def ksg_random_state(seed: int) -> int:
+    """Map an arbitrary integer seed onto the non-negative 32-bit range sklearn's ``random_state`` accepts."""
+    return int(seed) % (2**32)
+
+
+def _mi_1d(
+    x: np.ndarray, y: np.ndarray, *, discrete_target: bool, mi_estimator: str = "plugin", plugin_n_bins: int = 20, n_neighbors: int = 3,
+    random_state: int = 42,
+) -> float:
+    """1-D MI(x, y) using the configured estimator (fast plug-in or slower KSG; ``random_state`` seeds the KSG jitter)."""
     if not np.all(np.isfinite(x)):
         return 0.0
     if mi_estimator == "plugin":
@@ -72,11 +80,11 @@ def _mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, mi_estimator:
         if discrete_target:
             return float(mutual_info_classif(
                 x.reshape(-1, 1), y, n_neighbors=n_neighbors,
-                random_state=42, discrete_features=False,
+                random_state=ksg_random_state(random_state), discrete_features=False,
             )[0])
         return float(mutual_info_regression(
             x.reshape(-1, 1), y, n_neighbors=n_neighbors,
-            random_state=42, discrete_features=False,
+            random_state=ksg_random_state(random_state), discrete_features=False,
         )[0])
 
 
@@ -86,6 +94,7 @@ def score_trivial_baselines(
     mi_estimator: str = "plugin",
     plugin_n_bins: int = 20,
     n_neighbors: int = 3,
+    random_state: int = 42,
 ) -> dict:
     """Return ``{trivial_feature_name: mi_value}`` sorted descending.
 
@@ -131,7 +140,7 @@ def score_trivial_baselines(
             scores[name] = _mi_1d(
                 f, y, discrete_target=discrete_target,
                 mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
-                n_neighbors=n_neighbors,
+                n_neighbors=n_neighbors, random_state=random_state,
             )
     # Secondary key on name; tied MIs no longer make
     # next(iter(...)) winner depend on dict insertion order.
@@ -143,7 +152,8 @@ def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
                             mi_estimator: str = "plugin",
                             plugin_n_bins: int = 20,
                             n_neighbors: int = 3,
-                            min_uplift: float = 1.05) -> dict:
+                            min_uplift: float = 1.05,
+                            random_state: int = 42) -> dict:
     """Probe a small set of unary transforms (log, sqrt, 1/x, exp clipping) and return ``{name: (transformed_x, mi)}`` for those that beat
     the identity ``MI(x, y)`` by ``min_uplift``.
 
@@ -164,14 +174,14 @@ def auto_unary_transforms(x: np.ndarray, y: np.ndarray, *,
         "cube": x * x * x,
         "tanh": np.tanh(x),
     }
-    base = _mi_1d(x, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
+    base = _mi_1d(x, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors, random_state=random_state)
     out = {}
     for name, arr in transforms.items():
         if not np.all(np.isfinite(arr)):
             continue
         # "identity" is the literal same input already scored as ``base`` above - reuse it
         # instead of recomputing an identical _mi_1d call.
-        mi = base if name == "identity" else _mi_1d(arr, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
+        mi = base if name == "identity" else _mi_1d(arr, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors, random_state=random_state)
         if name == "identity" or mi >= base * min_uplift:
             out[name] = (arr, float(mi))
     return out
@@ -206,7 +216,8 @@ def triplet_pair_features(x_a: np.ndarray, x_b: np.ndarray, x_c: np.ndarray) -> 
 
 
 def score_triplet_baselines(
-    x_a, x_b, x_c, y, *, discrete_target: bool = True, mi_estimator: str = "plugin", plugin_n_bins: int = 20, n_neighbors: int = 3
+    x_a, x_b, x_c, y, *, discrete_target: bool = True, mi_estimator: str = "plugin", plugin_n_bins: int = 20, n_neighbors: int = 3,
+    random_state: int = 42,
 ) -> dict:
     """Rank 3-way trivial features by MI."""
     feats = triplet_pair_features(x_a, x_b, x_c)
@@ -214,7 +225,7 @@ def score_triplet_baselines(
     for name, f in feats.items():
         if not np.all(np.isfinite(f)):
             continue
-        scores[name] = _mi_1d(f, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors)
+        scores[name] = _mi_1d(f, y, discrete_target=discrete_target, mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins, n_neighbors=n_neighbors, random_state=random_state)
     # Secondary key on name; tied MIs no longer make
     # next(iter(...)) winner depend on dict insertion order.
     return dict(sorted(scores.items(), key=lambda kv: (-kv[1], kv[0])))
@@ -226,6 +237,7 @@ def best_trivial_pair(
     mi_estimator: str = "plugin",
     plugin_n_bins: int = 20,
     n_neighbors: int = 3,
+    random_state: int = 42,
 ) -> tuple | None:
     """Return ``(name, feature_array, mi_value)`` for the best trivial pair feature. ``None`` if all trivial features are non-finite.
 
@@ -278,7 +290,7 @@ def best_trivial_pair(
         mi = _mi_1d(
             f, y, discrete_target=discrete_target,
             mi_estimator=mi_estimator, plugin_n_bins=plugin_n_bins,
-            n_neighbors=n_neighbors,
+            n_neighbors=n_neighbors, random_state=random_state,
         )
         if mi > best_mi or (mi == best_mi and best_name is not None and str(name) < str(best_name)):  # same tie rule as above
             best_mi = mi

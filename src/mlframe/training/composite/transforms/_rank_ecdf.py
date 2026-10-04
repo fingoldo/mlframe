@@ -46,14 +46,21 @@ _ECDF_MAX_KNOTS: int = 2048
 """Upper bound on stored ECDF knots per axis."""
 
 
-def _ecdf_knots(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _ecdf_knots(x: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> tuple[np.ndarray, np.ndarray]:
     """Sorted-unique knots + strictly-increasing plotting-position CDF ``u``.
 
     Ties collapse to the last occurrence so ``knots -> u`` is one-to-one and the
-    inverse ``u -> knots`` interpolation is exact at every knot.
+    inverse ``u -> knots`` interpolation is exact at every knot. With ``sample_weight`` the CDF is the weighted one
+    (cumulative weight minus half the row's own weight, over the total); rows with a non-finite or non-positive weight carry no mass and are dropped.
     """
     x_f = np.asarray(x, dtype=np.float64).reshape(-1)
-    x_f = x_f[np.isfinite(x_f)]
+    ok = np.isfinite(x_f)
+    w_f = None
+    if sample_weight is not None:
+        w_all = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
+        ok &= np.isfinite(w_all) & (w_all > 0.0)
+        w_f = w_all[ok]
+    x_f = x_f[ok]
     n = x_f.size
     if n == 0:
         return np.array([0.0]), np.array([0.5])
@@ -61,7 +68,11 @@ def _ecdf_knots(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     xs = x_f[order]
     # Midrank CDF at each sorted position; collapse to last-occurrence per unique
     # value so a tied plateau maps to a single strictly-increasing knot.
-    u_full = (np.arange(n, dtype=np.float64) + 0.5) / n
+    if w_f is None:
+        u_full = (np.arange(n, dtype=np.float64) + 0.5) / n
+    else:
+        w_sorted = w_f[order]
+        u_full = (np.cumsum(w_sorted) - 0.5 * w_sorted) / float(w_sorted.sum())
     # Keep the LAST occurrence of each unique value so the knot's CDF equals
     # P(X <= value) and the ``knots -> u`` map is strictly increasing.
     keep = np.ones(xs.size, dtype=bool)
@@ -87,9 +98,9 @@ def _rank_ecdf_residual_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
-    """Store train ECDF knots for ``y`` (invertible) and ``base`` (forward-only)."""
-    y_knots, y_cdf = _ecdf_knots(y)
-    base_knots, base_cdf = _ecdf_knots(base)
+    """Store train ECDF knots for ``y`` (invertible) and ``base`` (forward-only); both ECDFs honour ``sample_weight``."""
+    y_knots, y_cdf = _ecdf_knots(y, sample_weight)
+    base_knots, base_cdf = _ecdf_knots(base, sample_weight)
     return {
         "y_knots": y_knots,
         "y_cdf": y_cdf,

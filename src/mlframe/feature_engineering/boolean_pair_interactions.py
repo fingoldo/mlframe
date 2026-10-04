@@ -84,9 +84,9 @@ def boolean_pair_interactions(
     out: Dict[str, np.ndarray] = {}
     raw = {c: df[c].to_numpy(dtype=np.float64) for c in columns}
     nan_masks = {c: np.isnan(raw[c]) for c in columns}
-    # NaN positions filled with 0 before the int8 cast so the bitwise ops below never touch a garbage
-    # sentinel value; any row this fill actually affects is overwritten with NaN afterward (see nan_row below).
-    arrs = {c: np.where(nan_masks[c], 0, raw[c]).astype(np.int8) for c in columns}
+    # NaN positions are treated as 0 so the bitwise ops below never touch a garbage sentinel value; any row this fill actually affects is
+    # overwritten with NaN afterward (see nan_row below). Truthiness (not an int8 cast) so a value such as 256 stays True instead of wrapping to 0.
+    arrs = {c: ((raw[c] != 0) & ~nan_masks[c]).astype(np.int8) for c in columns}
 
     def _propagate_nan(result_i8: np.ndarray, nan_row: np.ndarray) -> np.ndarray:
         """Casts to float32 and overwrites rows flagged in ``nan_row`` with NaN; no-ops (int8, no copy) if none are flagged."""

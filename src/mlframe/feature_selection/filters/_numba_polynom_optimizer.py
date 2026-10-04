@@ -123,7 +123,12 @@ def _polyeval_dispatch_njit(basis_id: int, x: np.ndarray, c: np.ndarray) -> np.n
     return np.asarray(_lagval_njit(x, c))
 
 
-@njit(cache=True, fastmath=True, parallel=True)
+# The two finiteness gates below must keep NaN/inf visible: the full ``fastmath=True`` flag set asserts no NaN/inf (nnan/ninf), which lets LLVM fold
+# ``isfinite`` / ``v == v`` to True and wave every non-finite column through. The remaining flags keep the arithmetic fusion.
+_NAN_SAFE_FASTMATH = {"nsz", "arcp", "contract", "afn", "reassoc"}
+
+
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, parallel=True)
 def _fill_bf_batch_njit(ha_arr: np.ndarray, hb_arr: np.ndarray, cand_valid: np.ndarray, bf_ids: np.ndarray, x_rows: np.ndarray, finite: np.ndarray) -> None:
     """Fill the (P*n_bf, n) row-major bf-combination batch in ONE parallel njit call: row r = candidate
     r//n_bf x bf r%n_bf, computed via ``_bf_dispatch_njit`` (bit-parity with the numpy callables) with the
@@ -188,7 +193,7 @@ def _bf_dispatch_njit(bf_id: int, a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return out
 
 
-@njit(cache=True, fastmath=True)
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH)
 def _all_finite_njit(arr: np.ndarray) -> bool:
     """Sequential isfinite scan; bails on first non-finite. Faster than
     ``np.all(np.isfinite(arr))`` on the common all-finite case because
