@@ -50,6 +50,7 @@ from ._step_core_helpers import (
     _run_fe_step_impl_accumulators_during_merge_loop,
     _run_fe_step_impl_joblib_branch_already_drained,
 )
+from types import SimpleNamespace as _SimpleNamespace
 
 
 def _should_serialize_fe_pair_check(n_prospective_pairs: int, gpu_fe_active: bool, serial_min_pairs_per_worker: int) -> bool:
@@ -198,6 +199,7 @@ def _run_fe_step_impl(
     # FE-step entry, so the pool cannot grow unbounded and eat a shared 4 GB card (starving the next launch / other
     # processes). Idempotent + best-effort (no-op without cupy); on exhaustion cupy raises OutOfMemoryError which
     # the GPU-FE try/excepts catch -> graceful CPU. Cheap: the once-flag short-circuits every call after the first.
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     try:
         from .._fe_gpu_vram import ensure_fe_gpu_pool_limit as _ensure_fe_gpu_pool_limit
         _ensure_fe_gpu_pool_limit()
@@ -263,15 +265,15 @@ def _run_fe_step_impl(
     # OFF -> byte-identical legacy uniform draw.
     from .._fe_subsample import _resolve_fe_subsample_stratify as _resolve_strat
     from .._fe_accuracy_gate import infer_classification as _infer_clf
-    _strat_knob = getattr(self, "fe_subsample_stratify", None)
-    _strat_yc = getattr(self, "_fe_prewarp_y_continuous_", None)
-    if _strat_yc is not None and len(_strat_yc) == len(classes_y):
-        _fe_subsample_stratify = _resolve_strat(_strat_knob, np.asarray(_strat_yc), is_clf=bool(_infer_clf(np.asarray(_strat_yc))))
+    st._strat_knob = getattr(self, "fe_subsample_stratify", None)
+    st._strat_yc = getattr(self, "_fe_prewarp_y_continuous_", None)
+    if st._strat_yc is not None and len(st._strat_yc) == len(classes_y):
+        st._fe_subsample_stratify = _resolve_strat(st._strat_knob, np.asarray(st._strat_yc), is_clf=bool(_infer_clf(np.asarray(st._strat_yc))))
     else:
-        _fe_subsample_stratify = _resolve_strat(_strat_knob, np.asarray(classes_y), is_clf=True)
+        st._fe_subsample_stratify = _resolve_strat(st._strat_knob, np.asarray(classes_y), is_clf=True)
 
-    _prevalence_debias_auto = isinstance(fe_min_pair_mi_prevalence, str) and fe_min_pair_mi_prevalence.strip().lower() == "auto"
-    if _prevalence_debias_auto:
+    st._prevalence_debias_auto = isinstance(fe_min_pair_mi_prevalence, str) and fe_min_pair_mi_prevalence.strip().lower() == "auto"
+    if st._prevalence_debias_auto:
         fe_min_pair_mi_prevalence = 1.05
     # SYNERGY prevalence "auto": the synergy-pair bar
     # (``max(fe_min_pair_mi_prevalence, fe_synergy_min_prevalence)``, default 1.5) gates the
@@ -280,12 +282,12 @@ def _run_fe_step_impl(
     # admitted only when its DEBIASED joint MI clears 1.5x the marginal sum, tightening against the
     # finite-sample noise that a fixed 1.5 on the RAW MI lets through. ``_synergy_prev_resolved`` is
     # the float used at the gate; an explicit float (incl. the 1.15/1.5 defaults) is honoured verbatim.
-    _synergy_prev_raw = getattr(self, "fe_synergy_min_prevalence", 1.15)
-    if isinstance(_synergy_prev_raw, str) and _synergy_prev_raw.strip().lower() == "auto":
-        _prevalence_debias_auto = True  # share the prevalence-comparison debias (consistent mechanism)
-        _synergy_prev_resolved = 1.5
+    st._synergy_prev_raw = getattr(self, "fe_synergy_min_prevalence", 1.15)
+    if isinstance(st._synergy_prev_raw, str) and st._synergy_prev_raw.strip().lower() == "auto":
+        st._prevalence_debias_auto = True  # share the prevalence-comparison debias (consistent mechanism)
+        st._synergy_prev_resolved = 1.5
     else:
-        _synergy_prev_resolved = float(_synergy_prev_raw)
+        st._synergy_prev_resolved = float(st._synergy_prev_raw)
     # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
     # binding -> any top-level ``from .mrmr import ...`` here creates a hard
     # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.
@@ -299,7 +301,7 @@ def _run_fe_step_impl(
     if verbose:
         logger.info("MRMR+ selected %d out of %d features before the Feature Engineering step.", len(selected_vars), self.n_features_in_)
 
-    _screening_returned_empty = False
+    st._screening_returned_empty = False
     if len(selected_vars) == 0:
         if self.fe_fallback_to_all:
             logger.info("Proceeding with all features though (fe_fallback_to_all=True).")
@@ -330,7 +332,7 @@ def _run_fe_step_impl(
             # aggregate). Flag this so the smart-polynom optimiser does NOT treat
             # the raw-seeded pool as "speculative synergy" to withhold (which
             # would exclude EVERY pair and the polynom search would never fire).
-            _screening_returned_empty = True
+            st._screening_returned_empty = True
         elif _synergy_bootstrap_can_supply_pool(self, num_fs_steps, data):
             # INTERACTION-ONLY SIGNAL: screening returned 0 features because every operand of a pure-interaction target (a*b + c*d + ...) has ~0 MARGINAL MI - and the
             # empirical-null debiasing (Fix B) now correctly demotes those near-zero marginals to exactly 0, so even the weak pre-debiasing marginal that used to slip one operand
@@ -343,7 +345,7 @@ def _run_fe_step_impl(
                 "(fe_synergy_screen_max_features>0); running the FE pair / smart-polynom search anyway.",
             )
             selected_vars = np.array([], dtype=np.int64)  # Match the ndarray type the fe_fallback_to_all branch (and the normal caller-provided path) use.
-            _screening_returned_empty = True
+            st._screening_returned_empty = True
         else:
             logger.info("Skipping Feature Engineering (screening returned 0 features and fe_fallback_to_all=False).")
             return None
@@ -358,14 +360,14 @@ def _run_fe_step_impl(
     if num_fs_steps == 0:
         _capture_prefe_screened_raw(self, cols, selected_vars)
 
-    n_recommended_features = 0
+    st.n_recommended_features = 0
     if verbose >= 2:
         logger.info("Computing prospective FE pairs...")
 
     # FE operand-pool construction (carved to _step_pool.py): builds numeric_vars_to_consider
     # from selected_vars + runs the synergy / GBM / gradient seeders. Selection is byte-for-byte identical.
     from ._step_pool import build_fe_operand_pool
-    numeric_vars_to_consider, _synergy_added_idx = build_fe_operand_pool(
+    st.numeric_vars_to_consider, st._synergy_added_idx = build_fe_operand_pool(
         self,
         selected_vars=selected_vars,
         categorical_vars=categorical_vars,
@@ -381,15 +383,15 @@ def _run_fe_step_impl(
     # state; selection is byte-for-byte identical.
     from ._step_pairmi import compute_pair_mis_and_floor
     (
-        numeric_vars_to_consider, _eng_cap, _pair_maxt_floor, _pair_mm_bias, _prevalence_debias_auto,
+        st.numeric_vars_to_consider, st._eng_cap, st._pair_maxt_floor, st._pair_mm_bias, st._prevalence_debias_auto,
     ) = compute_pair_mis_and_floor(
         self,
         data=data, cols=cols, nbins=nbins, X=X,
         classes_y=classes_y, classes_y_safe=classes_y_safe, freqs_y=freqs_y,
         target_indices=target_indices,
         cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs,
-        numeric_vars_to_consider=numeric_vars_to_consider,
-        _prevalence_debias_auto=_prevalence_debias_auto,
+        numeric_vars_to_consider=st.numeric_vars_to_consider,
+        _prevalence_debias_auto=st._prevalence_debias_auto,
         n_jobs=n_jobs, prefetch_factor=prefetch_factor, parallel_kwargs=parallel_kwargs,
         fe_min_nonzero_confidence=fe_min_nonzero_confidence, fe_npermutations=fe_npermutations,
         fe_min_pair_mi=fe_min_pair_mi, fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
@@ -403,17 +405,17 @@ def _run_fe_step_impl(
     # _step_pairs_rank.py). Returns the prospective_pairs ranking dict + the prevalence-failed synergy
     # rescue ledger; selection is byte-for-byte identical.
     from ._step_pairs_rank import score_prospective_pairs
-    prospective_pairs, _prevalence_failed_synergy = score_prospective_pairs(
+    st.prospective_pairs, st._prevalence_failed_synergy = score_prospective_pairs(
         self,
         cached_MIs=cached_MIs,
-        numeric_vars_to_consider=numeric_vars_to_consider,
+        numeric_vars_to_consider=st.numeric_vars_to_consider,
         checked_pairs=checked_pairs,
-        _pair_mm_bias=_pair_mm_bias,
-        _pair_maxt_floor=_pair_maxt_floor,
-        _synergy_added_idx=_synergy_added_idx,
+        _pair_mm_bias=st._pair_mm_bias,
+        _pair_maxt_floor=st._pair_maxt_floor,
+        _synergy_added_idx=st._synergy_added_idx,
         fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
-        _synergy_prev_resolved=_synergy_prev_resolved,
-        _prevalence_debias_auto=_prevalence_debias_auto,
+        _synergy_prev_resolved=st._synergy_prev_resolved,
+        _prevalence_debias_auto=st._prevalence_debias_auto,
         data=data,
         classes_y=classes_y,
         X=X,
@@ -448,15 +450,15 @@ def _run_fe_step_impl(
     # STRONG synergy (synthetic synergy II +0.55 vs additive +0.03 below floor) and stays an
     # opt-in; see the default-off rationale in ``mrmr.py`` (fe_ii_routing_enable). The call
     # below is a structural no-op while disabled (returns the un-routed pairs unchanged).
-    prospective_pairs = apply_interaction_information_routing(
+    st.prospective_pairs = apply_interaction_information_routing(
         self,
-        prospective_pairs=prospective_pairs,
+        prospective_pairs=st.prospective_pairs,
         cached_MIs=cached_MIs,
         nbins=nbins,
         freqs_y=freqs_y,
         classes_y=classes_y,
         data=data,
-        synergy_added_idx=_synergy_added_idx,
+        synergy_added_idx=st._synergy_added_idx,
         verbose=verbose,
     )
 
@@ -465,11 +467,11 @@ def _run_fe_step_impl(
     # pairs before the expensive per-pair search, so a noise-heavy frame cannot
     # flood ``check_prospective_fe_pairs``. Selected-selected pairs are kept in
     # full. ``key`` is ``(raw_vars_pair, pair_mi)``; rank synergy pairs by pair_mi.
-    _run_fe_step_impl_full_key_raw_vars(self, _synergy_added_idx, prospective_pairs, verbose)
+    _run_fe_step_impl_full_key_raw_vars(self, st._synergy_added_idx, st.prospective_pairs, verbose)
 
     # Now need to sort prospective_pairs by the uplift, to check most promising pairs within the time budget.
     # Also need to sort them by their members usage frequency+members ids sum. this way, their splitting will benefit more from caching.
-    prospective_pairs = order_prospective_pairs(prospective_pairs)  # reuse-counter ties break by pair MI: strongest of a tie group first
+    st.prospective_pairs = order_prospective_pairs(st.prospective_pairs)  # reuse-counter ties break by pair MI: strongest of a tie group first
 
     # SUCCESSIVE-HALVING / RUNG-SCHEDULE FE-search budget.
     # ON by default. Before the EXPENSIVE per-pair operator search below
@@ -485,13 +487,13 @@ def _run_fe_step_impl(
     # the whole pool). Measured 1.7-2.2x at keep_frac=0.5 with NO genuine signal pair
     # dropped (n=5000/p=40 canonical fixture + noise, 5 seeds). Self-gates to a no-op
     # below ``fe_rung_min_pairs`` pairs / all-zero pair_mi (byte-identical flat sweep).
-    prospective_pairs = _run_fe_step_impl_below_fe_rung_min(self, prospective_pairs, data, verbose)
+    st.prospective_pairs = _run_fe_step_impl_below_fe_rung_min(self, st.prospective_pairs, data, verbose)
 
     # cols-space indices of polynom-pair engineered columns appended by the
     # ``run_polynom_pair_fe`` block below; promoted into ``selected_vars``
     # alongside the unary/binary indices so a polynom feature that cleared the
     # FE gates actually reaches ``support_`` (see promotion at the bottom).
-    _polynom_engineered_indices: list[int] = []
+    st._polynom_engineered_indices = []
     if fe_smart_polynom_iters:
         # Orthogonal-polynomial pair FE: Chebyshev default basis (empirically robust); tight coef range [-2, 2],
         # fixed degree per study, L2 regularisation, identity-baseline filter. Override basis via
@@ -513,7 +515,7 @@ def _run_fe_step_impl(
         # (sign_prod, gauss_prod, ratio_abs, ...) is recovered by the standard
         # mul/div search, NOT a _polynom_ cell, so withholding synergy pairs from
         # the optimiser loses no recovery while keeping the pure-noise control clean.
-        _prospective_for_polynom = prospective_pairs
+        _prospective_for_polynom = st.prospective_pairs
         # Withhold SPECULATIVE synergy pairs from the powerful poly optimiser
         # (it can fit a high-MI cell to pure noise on a noise-operand pair) -
         # but ONLY when there was a genuine selected pool to augment. When
@@ -523,7 +525,7 @@ def _run_fe_step_impl(
         # case keep the pairs: they ARE the signal, and the synergy max-pairs cap
         # + the downstream pair-MI / engineered-MI / uplift gates already bound
         # the pure-noise risk.
-        _prospective_for_polynom = _run_fe_step_impl_pure_noise_risk(_synergy_added_idx, _screening_returned_empty, prospective_pairs, _prospective_for_polynom)
+        _prospective_for_polynom = _run_fe_step_impl_pure_noise_risk(st._synergy_added_idx, st._screening_returned_empty, st.prospective_pairs, _prospective_for_polynom)
         # None / 0 / negative all map to "no subsample" (use full data).
         _subsample_raw = getattr(self, "fe_smart_polynom_subsample_n", 0)
         _subsample_n = int(_subsample_raw) if _subsample_raw and _subsample_raw > 0 else 0
@@ -533,11 +535,11 @@ def _run_fe_step_impl(
         # target; the helper returns None at small n (<= unified screen size) -> legacy per-call draw.
         try:
             from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
-            _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
+            st._shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
         except Exception as _sub_exc:
             # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
             logger.warning("mrmr: shared FE subsample resolution failed in FE step; running at FULL n: %r", _sub_exc, exc_info=True)
-            _shared_fe_idx = None
+            st._shared_fe_idx = None
         # Capture cols width before the polynom block so we can promote the
         # polynom-injected engineered column indices into ``selected_vars``
         # below (the same promotion the unary/binary block does for
@@ -578,8 +580,8 @@ def _run_fe_step_impl(
             n_jobs=int(n_jobs) if n_jobs and n_jobs > 0 else 1,
             verbose=int(verbose),
             subsample_n=_subsample_n,
-            fe_subsample_stratify=_fe_subsample_stratify,
-            shared_subsample_idx=_shared_fe_idx,
+            fe_subsample_stratify=st._fe_subsample_stratify,
+            shared_subsample_idx=st._shared_fe_idx,
             # Cheap-first dispatch: skip the expensive CMA/Optuna search for pairs
             # whose trivial baseline already saturates the joint-MI ceiling. getattr
             # default keeps the knob optional (no ctor flag required); 1.0 disables.
@@ -591,7 +593,7 @@ def _run_fe_step_impl(
         )
         # Columns appended by the polynom block (its own gates already accepted
         # them). Promote into selected_vars below so they reach support_.
-        _polynom_engineered_indices = list(range(_n_cols_before_polynom, len(cols)))
+        st._polynom_engineered_indices = list(range(_n_cols_before_polynom, len(cols)))
 
     # The standard check_prospective_fe_pairs path used to live in
     # ``else:`` of the Hermite block, which meant enabling
@@ -602,13 +604,13 @@ def _run_fe_step_impl(
     # ``fe_unary_preset='medium'`` regardless of whether Hermite ran.
     # feature_names_in_ is an ndarray (sklearn convention) - list() once so .index() works (ndarray has none)
     # and the comprehension below doesn't rebuild it per element.
-    _fni_list = list(self.feature_names_in_)
+    st._fni_list = list(self.feature_names_in_)
     # name -> index map built once (O(F)) instead of an ``in`` test + ``.index()`` rescan of
     # ``_fni_list`` per ``col`` (O(F) each) - turns the O(K*F) lookup below into O(K+F).
-    _fni_idx = {nm: i for i, nm in enumerate(_fni_list)}
-    original_cols = {i: _fni_idx[col] for i, col in enumerate(cols) if col in _fni_idx}
+    st._fni_idx = {nm: i for i, nm in enumerate(st._fni_list)}
+    st.original_cols = {i: st._fni_idx[col] for i, col in enumerate(cols) if col in st._fni_idx}
     if verbose >= 1:
-        logger.debug("Checking %d most prospective_pairs for feature engineering...", len(prospective_pairs))
+        logger.debug("Checking %d most prospective_pairs for feature engineering...", len(st.prospective_pairs))
 
     # PER-OPERAND PRE-WARP: read the opt-in flag + knobs off the
     # MRMR instance (getattr keeps _run_fe_step's signature stable, mirroring
@@ -617,27 +619,27 @@ def _run_fe_step_impl(
     # to ``check_prospective_fe_pairs`` so it can fit a learned 1-D pre-warp
     # per operand; ``_prewarp_specs`` collects the fitted coeffs (by cols-space
     # var index) for leak-safe recipe construction. Default OFF.
-    _prewarp_enable = bool(getattr(self, "fe_pair_prewarp_enable", False))
+    st._prewarp_enable = bool(getattr(self, "fe_pair_prewarp_enable", False))
     # CONTINUOUS ALS RECONSTRUCTION TARGET: the raw continuous y
     # stashed by ``_fit_impl`` so the rank-1 ALS warp reconstructs against the
     # faithful continuous target instead of the coarse target-rebin-guard codes.
     # Aligned to the FE-step row count (full-n; ``check_prospective_fe_pairs``
     # handles any internal subsample). None -> ALS falls back to ``classes_y``.
-    _prewarp_y_cont = None
-    _prewarp_y_cont = _run_fe_step_impl_handles_any_internal_subsample(self, _prewarp_enable, classes_y, _prewarp_y_cont)
+    st._prewarp_y_cont = None
+    st._prewarp_y_cont = _run_fe_step_impl_handles_any_internal_subsample(self, st._prewarp_enable, classes_y, st._prewarp_y_cont)
     # LINEAR-USABILITY GUARD TARGET: the leader tie-break + noise-wrap |corr|
     # guard must score against CONTINUOUS y regardless of prewarp - the binned ``classes_y``
     # fallback INVERTS linear usability on heavy-tailed targets (picks ``a/sqrt(b)`` over
     # ``a**2/b``). Threaded unconditionally; None for classification/non-numeric y (correct
     # ``classes_y`` fallback inside ``check_prospective_fe_pairs``).
-    _usab_y_cont = None
-    _uyc = getattr(self, "_fe_prewarp_y_continuous_", None)
-    if _uyc is not None and len(_uyc) == len(classes_y):
-        _usab_y_cont = _uyc
-    _prewarp_basis = str(getattr(self, "fe_pair_prewarp_basis", "chebyshev"))
-    _prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
-    _prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
-    _prewarp_min_val_corr = float(getattr(self, "fe_pair_prewarp_min_val_corr", 0.08))
+    st._usab_y_cont = None
+    st._uyc = getattr(self, "_fe_prewarp_y_continuous_", None)
+    if st._uyc is not None and len(st._uyc) == len(classes_y):
+        st._usab_y_cont = st._uyc
+    st._prewarp_basis = str(getattr(self, "fe_pair_prewarp_basis", "chebyshev"))
+    st._prewarp_max_degree = int(getattr(self, "fe_pair_prewarp_max_degree", 4))
+    st._prewarp_uplift = float(getattr(self, "fe_pair_prewarp_uplift_threshold", 1.20))
+    st._prewarp_min_val_corr = float(getattr(self, "fe_pair_prewarp_min_val_corr", 0.08))
     # PREWARP-SPEC PERSISTENCE. ``_mrmr_fe_step`` is re-entered
     # once per FE-bearing MRMR iteration, and each call's ``check_prospective_fe_pairs``
     # fits prewarp specs ONLY for the operands of THIS iteration's prospective pairs
@@ -653,10 +655,10 @@ def _run_fe_step_impl(
     # spec fit in any prior iteration stays available for recipe construction. Seeded
     # from the accumulator and written back after each call; specs are keyed by
     # cols-space var index, which is stable across iterations (no cat reorder mid-fit).
-    _prewarp_specs: dict | None = getattr(self, "_prewarp_specs_accum_", None)
-    if _prewarp_specs is None:
-        _prewarp_specs = {}
-        self._prewarp_specs_accum_ = _prewarp_specs
+    st._prewarp_specs = getattr(self, "_prewarp_specs_accum_", None)
+    if st._prewarp_specs is None:
+        st._prewarp_specs = {}
+        self._prewarp_specs_accum_ = st._prewarp_specs
 
     # PER-OPERAND MEDIAN GATE: opt-in flag off the MRMR instance
     # (getattr keeps the signature stable, mirroring the prewarp wiring). When
@@ -666,18 +668,18 @@ def _run_fe_step_impl(
     # construction. Default OFF -> byte-identical legacy path. Same cross-iteration
     # persistence as the prewarp specs above (a gate_med operand selected in an
     # earlier iteration must keep its median available for recipe replay).
-    _gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
+    st._gate_med_enable = bool(getattr(self, "fe_gate_med_enable", False))
     # MULTI-CANDIDATE DIVERSE EMISSION: per pair, emit up to this many
     # DISTINCT engineered forms (MI is rank-blind to linear usability, so a single
     # MI-winner can be tree-friendly-but-linearly-useless while a lower-MI form is the
     # linearly-usable one; both should survive for the downstream model to choose).
-    _multi_emit_max = int(getattr(self, "fe_multi_emit_max_per_pair", 1))
-    _multi_emit_floor = float(getattr(self, "fe_multi_emit_mi_floor", 0.5))
-    _multi_emit_div_corr = float(getattr(self, "fe_multi_emit_diversity_corr", 0.90))
-    _gate_med_specs: dict | None = getattr(self, "_gate_med_specs_accum_", None)
-    if _gate_med_specs is None:
-        _gate_med_specs = {}
-        self._gate_med_specs_accum_ = _gate_med_specs
+    st._multi_emit_max = int(getattr(self, "fe_multi_emit_max_per_pair", 1))
+    st._multi_emit_floor = float(getattr(self, "fe_multi_emit_mi_floor", 0.5))
+    st._multi_emit_div_corr = float(getattr(self, "fe_multi_emit_diversity_corr", 0.90))
+    st._gate_med_specs = getattr(self, "_gate_med_specs_accum_", None)
+    if st._gate_med_specs is None:
+        st._gate_med_specs = {}
+        self._gate_med_specs_accum_ = st._gate_med_specs
 
     # SERIAL-vs-JOBLIB DISPATCH. The ``else`` branch
     # spreads the prospective PAIRS across ``n_jobs`` joblib ``backend="threading"``
@@ -705,7 +707,7 @@ def _run_fe_step_impl(
     # parallelism + chunk-merge differ, both byte-identical). The pair-count crossover
     # subsumes the old fixed ``len(X) < 50000`` row gate - a tall narrow frame now
     # takes the all-cores path it always should have.
-    _fe_serial_min_pairs_per_worker = max(2, int(n_jobs) if n_jobs and n_jobs > 0 else 1)
+    st._fe_serial_min_pairs_per_worker = max(2, int(n_jobs) if n_jobs and n_jobs > 0 else 1)
     # GPU-FE SERIALIZE: when the per-pair candidate materialise/binning runs on the
     # GPU, the single device is the bottleneck resource - spreading the pair-chunks across joblib
     # ``backend="threading"`` workers does NOT parallelize the GPU work, it just makes every worker
@@ -722,23 +724,23 @@ def _run_fe_step_impl(
     # helper caches on the instance keyed by n, so this is idempotent - same cached draw, no re-draw.
     try:
         from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
-        _shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
+        st._shared_fe_idx = _get_shared_fe_subsample_idx(self, np.asarray(classes_y), int(getattr(X, "shape", [len(X)])[0]))
     except Exception as _sub_exc:
         # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
         logger.warning("mrmr: shared FE subsample resolution failed in FE step; running at FULL n: %r", _sub_exc, exc_info=True)
-        _shared_fe_idx = None
+        st._shared_fe_idx = None
     try:
         from .._feature_engineering_pairs._pairs_core import _fe_gpu_discretize_enabled as _fe_gpu_disc_gate
         # Representative candidate-count for the gate's n*K crossover (a pair generates dozens-to-
         # hundreds of unary/binary candidates); the auto gate is CUDA-presence-gated internally.
-        _gpu_fe_active = bool(_fe_gpu_disc_gate(int(getattr(X, "shape", [0])[0] or 0), 256))
+        st._gpu_fe_active = bool(_fe_gpu_disc_gate(int(getattr(X, "shape", [0])[0] or 0), 256))
     except Exception as exc:
         # Correct but slower path; say so, as the full-n fallback just above does.
         logger.warning("mrmr: GPU-FE-active probe failed (%s: %s); using the serial pair-check dispatch", type(exc).__name__, exc)
-        _gpu_fe_active = False
-    if _should_serialize_fe_pair_check(len(prospective_pairs), _gpu_fe_active, _fe_serial_min_pairs_per_worker):
-        prospective_additions = check_prospective_fe_pairs(
-            prospective_pairs,
+        st._gpu_fe_active = False
+    if _should_serialize_fe_pair_check(len(st.prospective_pairs), st._gpu_fe_active, st._fe_serial_min_pairs_per_worker):
+        st.prospective_additions = check_prospective_fe_pairs(
+            st.prospective_pairs,
             X,
             unary_transformations,
             binary_transformations,
@@ -747,7 +749,7 @@ def _run_fe_step_impl(
             freqs_y,
             num_fs_steps,
             cols,
-            original_cols,
+            st.original_cols,
             fe_max_steps,
             fe_npermutations,
             fe_max_pair_features,
@@ -756,7 +758,7 @@ def _run_fe_step_impl(
             fe_min_engineered_mi_prevalence,
             fe_good_to_best_feature_mi_threshold,
             fe_max_external_validation_factors,
-            numeric_vars_to_consider,
+            st.numeric_vars_to_consider,
             self.quantization_nbins,
             self.quantization_method,
             self.quantization_dtype,
@@ -764,25 +766,25 @@ def _run_fe_step_impl(
             verbose,
             subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
             subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-            fe_subsample_stratify=_fe_subsample_stratify,
-            shared_subsample_idx=_shared_fe_idx,
-            prewarp_enable=_prewarp_enable,
-            prewarp_y=classes_y if _prewarp_enable else None,
-            prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
-            usability_y_continuous=_usab_y_cont,
-            prewarp_basis=_prewarp_basis,
-            prewarp_max_degree=_prewarp_max_degree,
-            prewarp_uplift_threshold=_prewarp_uplift,
-            prewarp_min_val_corr=_prewarp_min_val_corr,
-            prewarp_specs_out=_prewarp_specs,
-            fe_gate_med_enable=_gate_med_enable,
-            fe_multi_emit_max_per_pair=_multi_emit_max,
-            fe_multi_emit_mi_floor=_multi_emit_floor,
-            fe_multi_emit_diversity_corr=_multi_emit_div_corr,
+            fe_subsample_stratify=st._fe_subsample_stratify,
+            shared_subsample_idx=st._shared_fe_idx,
+            prewarp_enable=st._prewarp_enable,
+            prewarp_y=classes_y if st._prewarp_enable else None,
+            prewarp_y_continuous=st._prewarp_y_cont if st._prewarp_enable else None,
+            usability_y_continuous=st._usab_y_cont,
+            prewarp_basis=st._prewarp_basis,
+            prewarp_max_degree=st._prewarp_max_degree,
+            prewarp_uplift_threshold=st._prewarp_uplift,
+            prewarp_min_val_corr=st._prewarp_min_val_corr,
+            prewarp_specs_out=st._prewarp_specs,
+            fe_gate_med_enable=st._gate_med_enable,
+            fe_multi_emit_max_per_pair=st._multi_emit_max,
+            fe_multi_emit_mi_floor=st._multi_emit_floor,
+            fe_multi_emit_diversity_corr=st._multi_emit_div_corr,
             fe_pair_usability_admission_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
             fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
             fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
-            gate_med_specs_out=_gate_med_specs,
+            gate_med_specs_out=st._gate_med_specs,
             # THIS is the serial-main-thread branch - the whole FE
             # search runs here with NO joblib threads (the ``else`` below is the
             # ``len(X) >= 50000`` joblib ``backend="threading"`` path). On this branch a
@@ -796,7 +798,7 @@ def _run_fe_step_impl(
             # pool); the pool already excludes them in that case. ``engineered_operand_values``
             # supplies the CONTINUOUS engineered values so the composite is built on them
             # rather than the lossy bin codes.
-            allow_engineered_operands=(_eng_cap != 0),
+            allow_engineered_operands=(st._eng_cap != 0),
             engineered_operand_values=getattr(self, "_engineered_continuous_", None),
             # MILLER-MADOW DEBIAS: debias the joint-prevalence
             # ratio gate (see check_prospective_fe_pairs). Co-updated with the maxT
@@ -806,21 +808,21 @@ def _run_fe_step_impl(
         )
     else:
 
-        prospective_additions = {}
-        desired_nitems = max(1, len(prospective_pairs) // (n_jobs * prefetch_factor))
+        st.prospective_additions = {}
+        desired_nitems = max(1, len(st.prospective_pairs) // (n_jobs * prefetch_factor))
 
         jobs_list: list[Any] = []
 
         nitems = 0
         cur_dict: dict[Any, Any] = {}
-        cur_dict = _run_fe_step_impl_key_value_prospective_pairs(prospective_pairs, nitems, cur_dict, desired_nitems, jobs_list)
+        cur_dict = _run_fe_step_impl_key_value_prospective_pairs(st.prospective_pairs, nitems, cur_dict, desired_nitems, jobs_list)
         if cur_dict:
             jobs_list.append(cur_dict)
 
         if verbose:
             logger.debug(
                 "Using %d items per thread for checking %d prospective_pairs with gain>%.2f.",
-                desired_nitems, len(prospective_pairs), fe_min_pair_mi_prevalence,
+                desired_nitems, len(st.prospective_pairs), fe_min_pair_mi_prevalence,
             )
 
         dicts = parallel_run(
@@ -835,7 +837,7 @@ def _run_fe_step_impl(
                     freqs_y,
                     num_fs_steps,
                     cols,
-                    original_cols,
+                    st.original_cols,
                     fe_max_steps,
                     fe_npermutations,
                     fe_max_pair_features,
@@ -844,7 +846,7 @@ def _run_fe_step_impl(
                     fe_min_engineered_mi_prevalence,
                     fe_good_to_best_feature_mi_threshold,
                     fe_max_external_validation_factors,
-                    numeric_vars_to_consider,
+                    st.numeric_vars_to_consider,
                     self.quantization_nbins,
                     self.quantization_method,
                     self.quantization_dtype,
@@ -852,27 +854,27 @@ def _run_fe_step_impl(
                     verbose,
                     subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
                     subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                    fe_subsample_stratify=_fe_subsample_stratify,
-                    shared_subsample_idx=_shared_fe_idx,
-                    prewarp_enable=_prewarp_enable,
-                    prewarp_y=classes_y if _prewarp_enable else None,
-                    prewarp_y_continuous=_prewarp_y_cont if _prewarp_enable else None,
-                    usability_y_continuous=_usab_y_cont,
-                    prewarp_basis=_prewarp_basis,
-                    prewarp_max_degree=_prewarp_max_degree,
-                    prewarp_uplift_threshold=_prewarp_uplift,
-                    prewarp_min_val_corr=_prewarp_min_val_corr,
+                    fe_subsample_stratify=st._fe_subsample_stratify,
+                    shared_subsample_idx=st._shared_fe_idx,
+                    prewarp_enable=st._prewarp_enable,
+                    prewarp_y=classes_y if st._prewarp_enable else None,
+                    prewarp_y_continuous=st._prewarp_y_cont if st._prewarp_enable else None,
+                    usability_y_continuous=st._usab_y_cont,
+                    prewarp_basis=st._prewarp_basis,
+                    prewarp_max_degree=st._prewarp_max_degree,
+                    prewarp_uplift_threshold=st._prewarp_uplift,
+                    prewarp_min_val_corr=st._prewarp_min_val_corr,
                     prewarp_specs_out=None,  # loky: recovered from result dict below
-                    fe_gate_med_enable=_gate_med_enable,
-                    fe_multi_emit_max_per_pair=_multi_emit_max,
-                    fe_multi_emit_mi_floor=_multi_emit_floor,
-                    fe_multi_emit_diversity_corr=_multi_emit_div_corr,
+                    fe_gate_med_enable=st._gate_med_enable,
+                    fe_multi_emit_max_per_pair=st._multi_emit_max,
+                    fe_multi_emit_mi_floor=st._multi_emit_floor,
+                    fe_multi_emit_diversity_corr=st._multi_emit_div_corr,
                     fe_pair_usability_admission_enable=bool(getattr(self, "fe_pair_usability_admission_enable", True)),
                     fe_pair_usability_admission_min_corr=float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6)),
                     fe_pair_usability_admission_pairness_margin=float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05)),
                     gate_med_specs_out=None,  # loky: recovered from result dict below
                     # ENGINEERED-OPERAND FEED-FORWARD: see the serial branch above.
-                    allow_engineered_operands=(_eng_cap != 0),
+                    allow_engineered_operands=(st._eng_cap != 0),
                     engineered_operand_values=getattr(self, "_engineered_continuous_", None),
                     # MILLER-MADOW DEBIAS: see the serial branch above.
                     fe_mm_debias_prevalence=bool(getattr(self, "fe_mm_debias_prevalence", False)),
@@ -916,7 +918,7 @@ def _run_fe_step_impl(
         # dropped). Fix: MERGE each chunk's reserved spec payload into the
         # accumulators DURING the merge loop, before ``update`` overwrites the key.
         from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
-        _run_fe_step_impl_accumulators_during_merge_loop(self, dicts, _prewarp_specs, _gate_med_specs, num_fs_steps, prospective_additions)
+        _run_fe_step_impl_accumulators_during_merge_loop(self, dicts, st._prewarp_specs, st._gate_med_specs, num_fs_steps, st.prospective_additions)
 
     # Extract any reserved pre-warp / gate-med spec entry the SERIAL path may have
     # left in ``prospective_additions`` (the serial branch returns a single dict that
@@ -924,17 +926,17 @@ def _run_fe_step_impl(
     # treats it as a ``raw_vars_pair``. The joblib branch already drained the key
     # per-chunk above; this pop is then a harmless no-op.
     from .._feature_engineering_pairs import _PREWARP_SPECS_RESULT_KEY, _GATE_MED_SPECS_RESULT_KEY, _FE_REJECTION_RESULT_KEY
-    _pw_from_res = prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
-    if _pw_from_res:
-        _prewarp_specs.update(_pw_from_res)
+    st._pw_from_res = st.prospective_additions.pop(_PREWARP_SPECS_RESULT_KEY, None)
+    if st._pw_from_res:
+        st._prewarp_specs.update(st._pw_from_res)
     # Same recovery for the per-operand TRAIN medians (loky-parallel path).
-    _gm_from_res = prospective_additions.pop(_GATE_MED_SPECS_RESULT_KEY, None)
-    if _gm_from_res:
-        _gate_med_specs.update(_gm_from_res)
+    st._gm_from_res = st.prospective_additions.pop(_GATE_MED_SPECS_RESULT_KEY, None)
+    if st._gm_from_res:
+        st._gate_med_specs.update(st._gm_from_res)
     # REJECTION LEDGER (additive): drain the SERIAL path's per-pair-gate drops (the
     # joblib branch already drained per-chunk above, so this pop is then a no-op).
-    _rej_from_res = prospective_additions.pop(_FE_REJECTION_RESULT_KEY, None)
-    _run_fe_step_impl_joblib_branch_already_drained(self, _rej_from_res, num_fs_steps)
+    st._rej_from_res = st.prospective_additions.pop(_FE_REJECTION_RESULT_KEY, None)
+    _run_fe_step_impl_joblib_branch_already_drained(self, st._rej_from_res, num_fs_steps)
 
     # Per-candidate scoring / quantile-discretization materialise stage (carved to
     # _step_score.py to bring _step_core.py under the 1k-LOC ceiling). Threads the loop locals
@@ -942,21 +944,21 @@ def _run_fe_step_impl(
     # engineered_recipes are mutated in place. Selection is byte-for-byte identical.
     from ._step_score import materialise_and_finalise_fe_candidates
     (
-        prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features,
+        st.prospective_additions, data, cols, nbins, X, selected_vars, st.n_recommended_features,
     ) = materialise_and_finalise_fe_candidates(
         self,
-        prospective_additions=prospective_additions,
-        prospective_pairs=prospective_pairs,
-        _prevalence_failed_synergy=_prevalence_failed_synergy,
-        _pair_maxt_floor=_pair_maxt_floor,
-        _polynom_engineered_indices=_polynom_engineered_indices,
+        prospective_additions=st.prospective_additions,
+        prospective_pairs=st.prospective_pairs,
+        _prevalence_failed_synergy=st._prevalence_failed_synergy,
+        _pair_maxt_floor=st._pair_maxt_floor,
+        _polynom_engineered_indices=st._polynom_engineered_indices,
         data=data, cols=cols, nbins=nbins, X=X,
         classes_y=classes_y,
         selected_vars=selected_vars,
         engineered_features=engineered_features,
         engineered_recipes=engineered_recipes,
         checked_pairs=checked_pairs,
-        n_recommended_features=n_recommended_features,
+        n_recommended_features=st.n_recommended_features,
         num_fs_steps=num_fs_steps,
         fe_max_steps=fe_max_steps,
         fe_unary_preset=fe_unary_preset,
@@ -970,9 +972,9 @@ def _run_fe_step_impl(
     )
 
     log_fe_summary(
-        prospective_pairs=prospective_pairs,
-        prospective_additions=prospective_additions,
-        n_recommended_features=n_recommended_features,
+        prospective_pairs=st.prospective_pairs,
+        prospective_additions=st.prospective_additions,
+        n_recommended_features=st.n_recommended_features,
         fe_min_pair_mi_prevalence=fe_min_pair_mi_prevalence,
         fe_min_engineered_mi_prevalence=fe_min_engineered_mi_prevalence,
         fe_min_nonzero_confidence=fe_min_nonzero_confidence,
@@ -981,7 +983,7 @@ def _run_fe_step_impl(
         verbose=verbose,
     )
 
-    data, cols, nbins, X, selected_vars, n_recommended_features = run_cluster_aggregate_emission(
+    data, cols, nbins, X, selected_vars, st.n_recommended_features = run_cluster_aggregate_emission(
         self,
         data=data,
         cols=cols,
@@ -992,7 +994,7 @@ def _run_fe_step_impl(
         cached_MIs=cached_MIs,
         engineered_recipes=engineered_recipes,
         selected_vars=selected_vars,
-        n_recommended_features=n_recommended_features,
+        n_recommended_features=st.n_recommended_features,
         num_fs_steps=num_fs_steps,
         _is_polars_input=_is_polars_input,
         verbose=verbose,
@@ -1008,4 +1010,4 @@ def _run_fe_step_impl(
     # (moved into a try/finally in the ``_run_fe_step`` wrapper above this function, so it
     # also runs on the exception path - this was previously the only call site and skipped on any raise.)
 
-    return data, cols, nbins, X, selected_vars, n_recommended_features
+    return data, cols, nbins, X, selected_vars, st.n_recommended_features

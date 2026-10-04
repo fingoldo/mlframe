@@ -1,7 +1,7 @@
 {
   "src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_core.py": 1034,
   "src/mlframe/feature_selection/filters/_gpu_resident_fe.py": 1241,
-  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py": 1011,
+  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py": 1013,
   "src/mlframe/feature_selection/filters/discretization/__init__.py": 1086,
   "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py": 4180
 }

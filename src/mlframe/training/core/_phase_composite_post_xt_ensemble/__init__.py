@@ -330,7 +330,7 @@ def _build_cross_target_ensemble_for_target(
         # OOF residuals so redundancy is measured on the same surface the stacker fits.
         _build_cross_target_e_step2_oof_residuals_redundancy(composite_target_discovery_config, st, _orig_tname)
 
-    _stack_without_oof = False
+    st._stack_without_oof = False
     try:
         _build_cross_target_e_step1_oof_residuals_redundancy(_ce_strategy, st, composite_target_discovery_config, _orig_tname, filtered_train_idx, filtered_train_df, _get_train_pred, metadata, _tt_e)
         # OOF validation gate: fall back to best single if ensemble holdout RMSE > best-single holdout RMSE.
@@ -403,9 +403,9 @@ def _build_cross_target_e_step1_oof_residuals_redundancy(_ce_strategy, st, compo
                         _gate_err,
                     )
         else:
-            _stack_without_oof = True
+            st._stack_without_oof = True
             note_stack_without_oof(metadata, _tt_e, _orig_tname, _ce_strategy)
-        if _stack_without_oof:
+        if st._stack_without_oof:
             st._ensemble = _CrossEns.from_uniform_weights(component_models=st._oof_components, component_names=st._oof_names)
         elif _ce_strategy == "linear_stack":
             st._ensemble = _CrossEns.from_linear_stack(

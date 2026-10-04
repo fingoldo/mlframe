@@ -2,15 +2,16 @@
 
 The per-kind ``_apply_*`` helpers live in cohesive sibling submodules (numeric
 pair, factorize, hermite/cluster/target-encoding) and in the heavier FE siblings
-one package level up. ``apply_recipe`` lazy-imports each helper inside its branch
-so this dispatcher stays a thin, dependency-light routing table with no top-level
-import cycle against the appliers (which themselves recurse back here for
-nested-engineered operands).
+one package level up. Each kind has a small handler in ``_KIND_HANDLERS`` that
+lazy-imports its helper at call time, so this dispatcher stays a thin,
+dependency-light routing table with no top-level import cycle against the
+appliers (which themselves recurse back here for nested-engineered operands).
 """
 
 from __future__ import annotations
 
-from typing import Any
+import importlib
+from typing import Any, Callable
 
 import numpy as np
 
@@ -21,6 +22,249 @@ except ImportError:  # pragma: no cover
 
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
+
+_Handler = Callable[[EngineeredRecipe, Any, "dict[str, np.ndarray] | None", "dict[tuple, np.ndarray] | None"], np.ndarray]
+
+
+def _routed(module: str, func: str, *, col_cache: bool = False, basis_cache: bool = False) -> _Handler:
+    """Handler that lazy-imports ``func`` from ``module`` (relative to this package) and calls it as ``func(recipe, X[, col_cache=][, basis_cache=])``.
+
+    The import happens at call time, inside the handler, exactly where the original if-chain imported it, so a patch of the helper on its own module
+    is seen and the module keeps no top-level import of the heavier FE siblings (some of which import this dispatcher back).
+    """
+
+    def _handler(recipe: EngineeredRecipe, X: Any, cc: "dict[str, np.ndarray] | None", bc: "dict[tuple, np.ndarray] | None") -> np.ndarray:
+        """Resolve the helper now and replay ``recipe`` with the caches this kind accepts."""
+        helper = getattr(importlib.import_module(module, __package__), func)
+        kwargs: dict[str, Any] = {}
+        if col_cache:
+            kwargs["col_cache"] = cc
+        if basis_cache:
+            kwargs["basis_cache"] = bc
+        return helper(recipe, X, **kwargs)
+
+    return _handler
+
+
+def _missingness(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Layer 37 lazy import: the helpers live alongside the encoders that build them."""
+    from .._missingness_fe import (
+        _apply_missing_indicator_recipe,
+        _apply_missingness_count_recipe,
+        _apply_missingness_pattern_recipe,
+    )
+
+    if recipe.kind == "missing_indicator":
+        return _apply_missing_indicator_recipe(recipe, X)
+    if recipe.kind == "missingness_count":
+        return _apply_missingness_count_recipe(recipe, X)
+    return _apply_missingness_pattern_recipe(recipe, X)
+
+
+def _ratio_delta(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Layer 38 lazy import: the replay helpers live with the ratio / delta generators."""
+    from .._ratio_delta_fe import (
+        _apply_pairwise_ratio_recipe,
+        _apply_grouped_delta_recipe,
+        _apply_lagged_diff_recipe,
+    )
+
+    if recipe.kind == "pairwise_ratio":
+        return _apply_pairwise_ratio_recipe(recipe, X)
+    if recipe.kind == "grouped_delta":
+        return _apply_grouped_delta_recipe(recipe, X)
+    return _apply_lagged_diff_recipe(recipe, X)
+
+
+def _cat_cross(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Layer 89 / 94 lazy import: cat x cat (and cat x cat x cat) synergy cross; the replay helper lives with the generator.
+
+    A pandas frame is passed through untouched; any other container is rebuilt as a frame of just the source columns.
+    """
+    names = tuple(recipe.src_names)
+    frame = X if (pd is not None and isinstance(X, pd.DataFrame)) else pd.DataFrame({n: _extract_column(X, n, col_cache=cc) for n in names})
+    mapping = {tuple(k): int(v) for k, v in recipe.extra["mapping"]}
+    extras = {
+        "encoding": str(recipe.extra.get("encoding", "raw")),
+        "te_lookup": {int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])},
+        "global_mean": float(recipe.extra.get("global_mean", 0.0)),
+    }
+    if recipe.kind == "cat_pair_cross":
+        from .._cat_pair_fe import apply_cat_pair_cross
+
+        cat_i, cat_j = names
+        return apply_cat_pair_cross(frame, cat_i, cat_j, mapping, **extras)
+    from .._cat_triple_fe import apply_cat_triple_cross
+
+    cat_a, cat_b, cat_c = names
+    return apply_cat_triple_cross(frame, cat_a, cat_b, cat_c, mapping, **extras)
+
+
+def _numeric_decompose(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Layer 90: numeric decomposition (multi-precision rounding + decimal-digit extraction).
+
+    Pure arithmetic on the single source column - no y reference.
+    """
+    vals = _extract_column(X, recipe.src_names[0], col_cache=cc)
+    if recipe.kind == "numeric_rounding":
+        from .._numeric_decompose_fe import apply_rounding
+
+        return apply_rounding(vals, float(recipe.extra["precision"]))
+    from .._numeric_decompose_fe import apply_digit_extract
+
+    return apply_digit_extract(vals, int(recipe.extra["digit_position"]))
+
+
+def _modular(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Layer 95 PART A: periodic / modular decomposition (x mod period + sin/cos phase) on the single source column; no y reference."""
+    from .._periodic_fe import apply_modular
+
+    vals = _extract_column(X, recipe.src_names[0], col_cache=cc)
+    return apply_modular(vals, float(recipe.extra["period"]), str(recipe.extra["op"]))
+
+
+def _pairwise_modular(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Pairwise / n-way modular residue: combine the source columns (sum/diff/prod/sum3/self) then take mod modulus.
+
+    Pure integer arithmetic on X, no y reference -> leak-free, train/test exact.
+    """
+    from .._pairwise_modular_fe import apply_pairwise_modular
+
+    return apply_pairwise_modular(X, str(recipe.extra["op"]), recipe.src_names, int(recipe.extra["modulus"]))
+
+
+def _integer_lattice(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Pairwise integer-lattice column: cast both source columns to int then apply gcd / lcm / bitwise_and.
+
+    Pure integer arithmetic on X, no y reference -> leak-free, train/test exact.
+    """
+    from .._integer_lattice_fe import apply_integer_lattice
+
+    return apply_integer_lattice(X, str(recipe.extra["op"]), recipe.src_names)
+
+
+def _row_argmax(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Row-argmax: the integer index of the row-maximum over the source columns. Pure function of X, no y -> leak-free."""
+    from .._conditional_gate_fe import apply_row_argmax
+
+    return apply_row_argmax(X, recipe.src_names)
+
+
+def _conditional_gate(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Conditional-gate: c>tau ? a : b (select) / 1[c>tau]*a (mask), with the FROZEN tau. Pure function of X, no y -> leak-free."""
+    from .._conditional_gate_fe import apply_conditional_gate
+
+    return apply_conditional_gate(X, str(recipe.extra["mode"]), recipe.src_names, float(recipe.extra["tau"]))
+
+
+def _temporal(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Layer 92: leak-safe temporal aggregations.
+
+    Replay computes each test row's expanding / rolling / lag stat against the stored TRAIN per-entity history plus earlier within-test rows - never
+    the row's own future, never train labels.
+    """
+    from .._temporal_agg_fe import (
+        apply_temporal_expanding,
+        apply_temporal_rolling,
+        apply_temporal_lag,
+    )
+
+    if recipe.kind == "temporal_expanding":
+        return apply_temporal_expanding(X, dict(recipe.extra))
+    if recipe.kind == "temporal_rolling":
+        return apply_temporal_rolling(X, dict(recipe.extra))
+    return apply_temporal_lag(X, dict(recipe.extra))
+
+
+def _grouped_quantile(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Layer 88 lazy import: per-group distributional FE (percentile-rank + spread + target-aware supervised bins); replay helpers live with the generator."""
+    from .._grouped_quantile_fe import (
+        _apply_grouped_quantile_recipe,
+        _apply_target_aware_group_bin_recipe,
+    )
+
+    if recipe.kind == "grouped_quantile":
+        return _apply_grouped_quantile_recipe(recipe, X)
+    return _apply_target_aware_group_bin_recipe(recipe, X)
+
+
+def _binned_numeric_agg(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray:
+    """Grouped aggregation over quantile-binned numeric cells: replay bins the raw group column through the stored quantile edges and gathers the per-cell
+    statistic; reads only X."""
+    from .._binned_numeric_agg_fe import apply_binned_numeric_agg
+
+    return apply_binned_numeric_agg(X, dict(recipe.extra))
+
+
+# kind -> handler. Notes kept from the branches this table replaced:
+#   orth_diff_basis        Layer 59: the apply helper lives in the sibling FE module, which keeps this module under the LOC ceiling.
+#   orth_cluster_basis     Layer 61: per-cluster shared-basis FE; replay recomputes the aggregate from the stored member tuple via the recipe-stored
+#                          aggregator (mean_z / median_z / pc1), then evaluates the same basis_degree - bit-exact round-trip from fit to transform.
+#   orth_quadruplet_cross  Layer 77: 4-way cross-basis FE; closed-form over the four source columns via the recipe-stored (basis, deg) tuple.
+#   hinge_basis            Backlog #11: closed-form max(x-tau,0) / max(tau-x,0) / 1[x>tau] from the stored {tau, side}; a pure function of the source column.
+#   orth_wavelet           Backlog #13: Haar wavelet; closed-form dyadic indicator psi_{j,k}(clip((x-lo)/span,0,1)) from the stored {j, k, lo, span}.
+#   composite_group_agg    Layer 93: composite (multi-column) group-key aggregate; the replay helper lives with the generator.
+#   group_distance         Layer 95 PART B: per-group distribution-distance FE; replay maps a row's group key through the stored per-group scalar lookup.
+#   rare_category          Layer 104: rare-category indicator / frequency-band via the stored per-category frequency lookup.
+#   conditional_residual   Layer 104: x_i - E[x_i | bin(x_j)] with the stored quantile edges and per-bin mean of x_i.
+#   conditional_dispersion Family D: conditional z-score / |z| / z^2 from the stored per-bin (mu_hat, sigma_hat) of x_i.
+#   rankgauss              Layer 104: interpolates each test value's rank against the stored sorted fit values and maps to a Gaussian quantile.
+_KIND_HANDLERS: dict[str, _Handler] = {
+    "unary_binary": _routed("._recipe_unary_binary", "_apply_unary_binary", col_cache=True),
+    "factorize": _routed("._recipe_factorize", "_apply_factorize", col_cache=True),
+    "target_encoding": _routed("._recipe_poly_cluster", "_apply_target_encoding", col_cache=True),
+    "hermite_pair": _routed("._recipe_poly_cluster", "_apply_hermite_pair", col_cache=True),
+    "cluster_aggregate": _routed("._recipe_poly_cluster", "_apply_cluster_aggregate", col_cache=True),
+    "orth_univariate": _routed("._orth_basis_recipes", "_apply_orth_univariate", col_cache=True, basis_cache=True),
+    "orth_pair_cross": _routed("._orth_basis_recipes", "_apply_orth_pair_cross", col_cache=True, basis_cache=True),
+    "orth_diff_basis": _routed(".._orthogonal_diff_basis_fe", "_apply_orth_diff_basis"),
+    "orth_cluster_basis": _routed(".._orthogonal_cluster_basis_fe", "_apply_orth_cluster_basis"),
+    "orth_triplet_cross": _routed(".._orthogonal_triplet_fe_recipes", "_apply_orth_triplet_cross"),
+    "orth_quadruplet_cross": _routed(".._orthogonal_quadruplet_fe_recipes", "_apply_orth_quadruplet_cross"),
+    "orth_spline": _routed("._orth_basis_recipes", "_apply_orth_spline", col_cache=True),
+    "orth_fourier": _routed("._orth_basis_recipes", "_apply_orth_fourier", col_cache=True),
+    "hinge_basis": _routed(".._hinge_basis_fe", "_apply_hinge_basis"),
+    "orth_wavelet": _routed(".._wavelet_basis_fe_recipes", "_apply_orth_wavelet"),
+    "mi_greedy_transform": _routed("._missingness_ratio_recipes", "_apply_mi_greedy_transform"),
+    "kfold_target_encoded": _routed("._encoding_recipes", "_apply_kfold_target_encoded", col_cache=True),
+    "count_encoded": _routed("._encoding_recipes", "_apply_count_encoded", col_cache=True),
+    "frequency_encoded": _routed("._encoding_recipes", "_apply_frequency_encoded", col_cache=True),
+    "cat_num_residual": _routed("._encoding_recipes", "_apply_cat_num_residual", col_cache=True),
+    "missing_indicator": _missingness,
+    "missingness_count": _missingness,
+    "missingness_pattern": _missingness,
+    "pairwise_ratio": _ratio_delta,
+    "grouped_delta": _ratio_delta,
+    "lagged_diff": _ratio_delta,
+    "grouped_agg": _routed(".._grouped_agg_fe", "_apply_grouped_agg_recipe"),
+    "composite_group_agg": _routed(".._composite_group_agg_fe", "_apply_composite_group_agg_recipe"),
+    "cat_pair_cross": _cat_cross,
+    "cat_triple_cross": _cat_cross,
+    "numeric_rounding": _numeric_decompose,
+    "digit_extract": _numeric_decompose,
+    "modular": _modular,
+    "pairwise_modular": _pairwise_modular,
+    "pairwise_integer_lattice": _integer_lattice,
+    "row_argmax": _row_argmax,
+    "conditional_gate": _conditional_gate,
+    "group_distance": _routed(".._group_distance_fe", "_apply_group_distance_recipe"),
+    "rare_category": _routed(".._extra_fe_families", "_apply_rare_category_recipe"),
+    "conditional_residual": _routed(".._extra_fe_families", "_apply_conditional_residual_recipe"),
+    "conditional_dispersion": _routed(".._extra_fe_families", "_apply_conditional_dispersion_recipe"),
+    "rankgauss": _routed(".._extra_fe_families", "_apply_rankgauss_recipe"),
+    "temporal_expanding": _temporal,
+    "temporal_rolling": _temporal,
+    "temporal_lag": _temporal,
+    "grouped_quantile": _grouped_quantile,
+    "target_aware_group_bin": _grouped_quantile,
+    "binned_numeric_agg": _binned_numeric_agg,
+    "conditional_quantile_rank": _routed(".._conditional_quantile_rank_fe", "_apply_conditional_quantile_rank_recipe"),
+    "ordinal_pattern_te": _routed(".._ordinal_pattern_fe", "_apply_ordinal_pattern_te_recipe"),
+    "random_fourier": _routed(".._random_fourier_features_fe", "_apply_random_fourier_recipe"),
+    "sir_direction": _routed(".._sliced_inverse_regression_fe", "_apply_sir_direction_recipe"),
+    "lof_score": _routed(".._lof_fe", "_apply_lof_recipe"),
+    "mahalanobis_density": _routed(".._mahalanobis_density_fe", "_apply_mahalanobis_density_recipe"),
+}
 
 
 def apply_recipe(
@@ -36,281 +280,7 @@ def apply_recipe(
     per recipe); ``basis_cache`` dedupes the orth-basis polynomial evaluation for a hub operand shared by sibling ``orth_pair_cross``/``orth_univariate``
     recipes. Both default to ``None`` (current always-recompute behaviour) so every EXISTING caller (none of which construct these dicts yet) is
     unaffected; a caller opts in by passing the SAME dict across its whole recipe-list replay loop."""
-    if recipe.kind == "unary_binary":
-        from ._recipe_unary_binary import _apply_unary_binary
-        return _apply_unary_binary(recipe, X, col_cache=col_cache)
-    if recipe.kind == "factorize":
-        from ._recipe_factorize import _apply_factorize
-        return _apply_factorize(recipe, X, col_cache=col_cache)
-    if recipe.kind == "target_encoding":
-        from ._recipe_poly_cluster import _apply_target_encoding
-        return _apply_target_encoding(recipe, X, col_cache=col_cache)
-    if recipe.kind == "hermite_pair":
-        from ._recipe_poly_cluster import _apply_hermite_pair
-        return _apply_hermite_pair(recipe, X, col_cache=col_cache)
-    if recipe.kind == "cluster_aggregate":
-        from ._recipe_poly_cluster import _apply_cluster_aggregate
-        return _apply_cluster_aggregate(recipe, X, col_cache=col_cache)
-    if recipe.kind == "orth_univariate":
-        from ._orth_basis_recipes import _apply_orth_univariate
-        return _apply_orth_univariate(recipe, X, col_cache=col_cache, basis_cache=basis_cache)
-    if recipe.kind == "orth_pair_cross":
-        from ._orth_basis_recipes import _apply_orth_pair_cross
-        return _apply_orth_pair_cross(recipe, X, col_cache=col_cache, basis_cache=basis_cache)
-    if recipe.kind == "orth_diff_basis":
-        # Layer 59: lazy import keeps this module under the
-        # ~1.8k-LOC ceiling; the apply helper lives in the sibling FE module.
-        from .._orthogonal_diff_basis_fe import _apply_orth_diff_basis
-        return _apply_orth_diff_basis(recipe, X)
-    if recipe.kind == "orth_cluster_basis":
-        # Layer 61: per-cluster shared-basis FE. Replay
-        # recomputes the aggregate from the stored member tuple via the
-        # recipe-stored aggregator (mean_z / median_z / pc1), then evaluates
-        # the same basis_degree - bit-exact round-trip from fit to transform.
-        from .._orthogonal_cluster_basis_fe import _apply_orth_cluster_basis
-        return _apply_orth_cluster_basis(recipe, X)
-    if recipe.kind == "orth_triplet_cross":
-        from .._orthogonal_triplet_fe_recipes import _apply_orth_triplet_cross
-        return _apply_orth_triplet_cross(recipe, X)
-    if recipe.kind == "orth_quadruplet_cross":
-        # Layer 77: 4-way cross-basis FE. Replay is closed-form
-        # over the four source columns via the recipe-stored (basis, deg) tuple.
-        from .._orthogonal_quadruplet_fe_recipes import _apply_orth_quadruplet_cross
-        return _apply_orth_quadruplet_cross(recipe, X)
-    if recipe.kind == "orth_spline":
-        from ._orth_basis_recipes import _apply_orth_spline
-        return _apply_orth_spline(recipe, X, col_cache=col_cache)
-    if recipe.kind == "orth_fourier":
-        from ._orth_basis_recipes import _apply_orth_fourier
-        return _apply_orth_fourier(recipe, X, col_cache=col_cache)
-    if recipe.kind == "hinge_basis":
-        # Backlog #11: hinge / piecewise-linear change-point basis.
-        # Replay is closed-form ``max(x-tau,0)`` / ``max(tau-x,0)`` / ``1[x>tau]``
-        # from the stored ``{tau, side}`` - a pure function of the source column,
-        # no y reference. Lazy import keeps this dispatcher dependency-light; the
-        # apply helper lives with the hinge generator one package level up.
-        from .._hinge_basis_fe import _apply_hinge_basis
-        return _apply_hinge_basis(recipe, X)
-    if recipe.kind == "orth_wavelet":
-        # Backlog #13: Haar wavelet / localized multiresolution basis.
-        # Replay is the closed-form dyadic indicator ``psi_{j,k}(clip((x-lo)/span,
-        # 0,1))`` from the stored ``{j, k, lo, span}`` - a pure function of the
-        # source column, no y reference (structurally like orth_spline). Lazy
-        # import keeps this dispatcher dependency-light; the apply helper lives
-        # with the wavelet generator one package level up.
-        from .._wavelet_basis_fe_recipes import _apply_orth_wavelet
-        return _apply_orth_wavelet(recipe, X)
-    if recipe.kind == "mi_greedy_transform":
-        from ._missingness_ratio_recipes import _apply_mi_greedy_transform
-        return _apply_mi_greedy_transform(recipe, X)
-    if recipe.kind == "kfold_target_encoded":
-        from ._encoding_recipes import _apply_kfold_target_encoded
-        return _apply_kfold_target_encoded(recipe, X, col_cache=col_cache)
-    if recipe.kind == "count_encoded":
-        from ._encoding_recipes import _apply_count_encoded
-        return _apply_count_encoded(recipe, X, col_cache=col_cache)
-    if recipe.kind == "frequency_encoded":
-        from ._encoding_recipes import _apply_frequency_encoded
-        return _apply_frequency_encoded(recipe, X, col_cache=col_cache)
-    if recipe.kind == "cat_num_residual":
-        from ._encoding_recipes import _apply_cat_num_residual
-        return _apply_cat_num_residual(recipe, X, col_cache=col_cache)
-    if recipe.kind in ("missing_indicator", "missingness_count", "missingness_pattern"):
-        # Layer 37 lazy import: keeps engineered_recipes.py under the 1k-LOC
-        # ceiling (mlframe sibling-split rule). The helpers live alongside
-        # the encoders that build them.
-        from .._missingness_fe import (
-            _apply_missing_indicator_recipe,
-            _apply_missingness_count_recipe,
-            _apply_missingness_pattern_recipe,
-        )
-        if recipe.kind == "missing_indicator":
-            return _apply_missing_indicator_recipe(recipe, X)
-        if recipe.kind == "missingness_count":
-            return _apply_missingness_count_recipe(recipe, X)
-        return _apply_missingness_pattern_recipe(recipe, X)
-    if recipe.kind in ("pairwise_ratio", "grouped_delta", "lagged_diff"):
-        # Layer 38 lazy import: same rationale as Layer 37 - keep this module
-        # under the 1k-LOC ceiling.
-        from .._ratio_delta_fe import (
-            _apply_pairwise_ratio_recipe,
-            _apply_grouped_delta_recipe,
-            _apply_lagged_diff_recipe,
-        )
-        if recipe.kind == "pairwise_ratio":
-            return _apply_pairwise_ratio_recipe(recipe, X)
-        if recipe.kind == "grouped_delta":
-            return _apply_grouped_delta_recipe(recipe, X)
-        return _apply_lagged_diff_recipe(recipe, X)
-    if recipe.kind == "grouped_agg":
-        # Layer 87 lazy import: keep this module under the LOC ceiling; the
-        # apply helper lives alongside the grouped-agg generator.
-        from .._grouped_agg_fe import _apply_grouped_agg_recipe
-        return _apply_grouped_agg_recipe(recipe, X)
-    if recipe.kind == "composite_group_agg":
-        # Layer 93 lazy import: composite (multi-column) group-key aggregate;
-        # replay helper lives with the generator. Keeps this module under the
-        # LOC ceiling.
-        from .._composite_group_agg_fe import _apply_composite_group_agg_recipe
-        return _apply_composite_group_agg_recipe(recipe, X)
-    if recipe.kind == "cat_pair_cross":
-        # Layer 89 lazy import: cat x cat synergy cross; replay helper lives
-        # with the generator. Keeps this module under the LOC ceiling.
-        from .._cat_pair_fe import apply_cat_pair_cross
-        cat_i, cat_j = recipe.src_names
-        return apply_cat_pair_cross(
-            X if (pd is not None and isinstance(X, pd.DataFrame))
-            else pd.DataFrame({
-                cat_i: _extract_column(X, cat_i, col_cache=col_cache),
-                cat_j: _extract_column(X, cat_j, col_cache=col_cache),
-            }),
-            cat_i, cat_j,
-            {tuple(k): int(v) for k, v in recipe.extra["mapping"]},
-            encoding=str(recipe.extra.get("encoding", "raw")),
-            te_lookup={int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])},
-            global_mean=float(recipe.extra.get("global_mean", 0.0)),
-        )
-    if recipe.kind == "cat_triple_cross":
-        # Layer 94 lazy import: cat x cat x cat synergy cross; replay helper
-        # lives with the generator. Keeps this module under the LOC ceiling.
-        from .._cat_triple_fe import apply_cat_triple_cross
-        cat_a, cat_b, cat_c = recipe.src_names
-        return apply_cat_triple_cross(
-            X if (pd is not None and isinstance(X, pd.DataFrame))
-            else pd.DataFrame({
-                cat_a: _extract_column(X, cat_a, col_cache=col_cache),
-                cat_b: _extract_column(X, cat_b, col_cache=col_cache),
-                cat_c: _extract_column(X, cat_c, col_cache=col_cache),
-            }),
-            cat_a, cat_b, cat_c,
-            {tuple(k): int(v) for k, v in recipe.extra["mapping"]},
-            encoding=str(recipe.extra.get("encoding", "raw")),
-            te_lookup={int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])},
-            global_mean=float(recipe.extra.get("global_mean", 0.0)),
-        )
-    if recipe.kind in ("numeric_rounding", "digit_extract"):
-        # Layer 90: numeric decomposition (multi-precision
-        # rounding + decimal-digit extraction). Pure arithmetic on the single
-        # source column - no lazy import needed, no y reference.
-        src_name = recipe.src_names[0]
-        vals = _extract_column(X, src_name, col_cache=col_cache)
-        if recipe.kind == "numeric_rounding":
-            from .._numeric_decompose_fe import apply_rounding
-            return apply_rounding(vals, float(recipe.extra["precision"]))
-        from .._numeric_decompose_fe import apply_digit_extract
-        return apply_digit_extract(vals, int(recipe.extra["digit_position"]))
-    if recipe.kind == "modular":
-        # Layer 95 PART A: periodic / modular decomposition.
-        # Pure arithmetic (x mod period + sin/cos phase) on the single source
-        # column - no lazy import needed, no y reference.
-        from .._periodic_fe import apply_modular
-        src_name = recipe.src_names[0]
-        vals = _extract_column(X, src_name, col_cache=col_cache)
-        return apply_modular(
-            vals, float(recipe.extra["period"]), str(recipe.extra["op"]),
-        )
-    if recipe.kind == "pairwise_modular":
-        # Pairwise / n-way modular residue: combine the source columns (sum/diff/prod/sum3/self) then take mod modulus.
-        # Pure integer arithmetic on X, no y reference -> leak-free, train/test exact.
-        from .._pairwise_modular_fe import apply_pairwise_modular
-        return apply_pairwise_modular(
-            X, str(recipe.extra["op"]), recipe.src_names, int(recipe.extra["modulus"]),
-        )
-    if recipe.kind == "pairwise_integer_lattice":
-        # Pairwise integer-lattice column: cast both source columns to int then apply gcd / lcm / bitwise_and.
-        # Pure integer arithmetic on X, no y reference -> leak-free, train/test exact.
-        from .._integer_lattice_fe import apply_integer_lattice
-        return apply_integer_lattice(X, str(recipe.extra["op"]), recipe.src_names)
-    if recipe.kind == "row_argmax":
-        # Row-argmax: the integer index of the row-maximum over the source columns. Pure function of X, no y -> leak-free.
-        from .._conditional_gate_fe import apply_row_argmax
-        return apply_row_argmax(X, recipe.src_names)
-    if recipe.kind == "conditional_gate":
-        # Conditional-gate: c>tau ? a : b (select) / 1[c>tau]*a (mask), with the FROZEN tau. Pure function of X, no y -> leak-free.
-        from .._conditional_gate_fe import apply_conditional_gate
-        return apply_conditional_gate(X, str(recipe.extra["mode"]), recipe.src_names, float(recipe.extra["tau"]))
-    if recipe.kind == "group_distance":
-        # Layer 95 PART B: per-group distribution-distance FE
-        # (group-level z / KL / Wasserstein-1 from the global distribution).
-        # Replay maps a row's group key through the stored per-group scalar
-        # lookup; reads only X. Lazy import keeps this module dependency-light.
-        from .._group_distance_fe import _apply_group_distance_recipe
-        return _apply_group_distance_recipe(recipe, X)
-    if recipe.kind == "rare_category":
-        # Layer 104: rare-category indicator / frequency-band.
-        # Replay maps a row's category through the stored per-category frequency
-        # lookup; reads only X. Lazy import keeps this module dependency-light.
-        from .._extra_fe_families import _apply_rare_category_recipe
-        return _apply_rare_category_recipe(recipe, X)
-    if recipe.kind == "conditional_residual":
-        # Layer 104: NUM x NUM conditional residual
-        # x_i - E[x_i | bin(x_j)]. Replay digitises x_j with the stored quantile
-        # edges and subtracts the stored per-bin mean of x_i; reads only X.
-        from .._extra_fe_families import _apply_conditional_residual_recipe
-        return _apply_conditional_residual_recipe(recipe, X)
-    if recipe.kind == "conditional_dispersion":
-        # Family D: NUM x NUM conditional DISPERSION /
-        # 2nd-moment. Replay digitises x_j with the stored quantile edges, looks
-        # up the per-bin (mu_hat, sigma_hat) of x_i, and computes the conditional
-        # z-score / |z| / z^2 closed-form; reads only X. Extends Family B's
-        # bin_mean payload with bin_std.
-        from .._extra_fe_families import _apply_conditional_dispersion_recipe
-        return _apply_conditional_dispersion_recipe(recipe, X)
-    if recipe.kind == "rankgauss":
-        # Layer 104: rank-Gaussianisation (RankGauss). Replay
-        # interpolates each test value's rank against the stored sorted fit
-        # values and maps to a Gaussian quantile; reads only X. Monotone ->
-        # MI-invariant by the DPI; value is downstream (linear / NN).
-        from .._extra_fe_families import _apply_rankgauss_recipe
-        return _apply_rankgauss_recipe(recipe, X)
-    if recipe.kind in ("temporal_expanding", "temporal_rolling", "temporal_lag"):
-        # Layer 92: leak-safe temporal aggregations. Replay
-        # computes each test row's expanding / rolling / lag stat against the
-        # stored TRAIN per-entity history plus earlier within-test rows - never
-        # the row's own future, never train labels. Lazy import keeps this
-        # module under the LOC ceiling.
-        from .._temporal_agg_fe import (
-            apply_temporal_expanding,
-            apply_temporal_rolling,
-            apply_temporal_lag,
-        )
-        if recipe.kind == "temporal_expanding":
-            return apply_temporal_expanding(X, dict(recipe.extra))
-        if recipe.kind == "temporal_rolling":
-            return apply_temporal_rolling(X, dict(recipe.extra))
-        return apply_temporal_lag(X, dict(recipe.extra))
-    if recipe.kind in ("grouped_quantile", "target_aware_group_bin"):
-        # Layer 88 lazy import: per-group distributional FE (percentile-rank +
-        # spread + target-aware supervised bins); replay helpers live with the
-        # generator. Keeps this module under the LOC ceiling.
-        from .._grouped_quantile_fe import (
-            _apply_grouped_quantile_recipe,
-            _apply_target_aware_group_bin_recipe,
-        )
-        if recipe.kind == "grouped_quantile":
-            return _apply_grouped_quantile_recipe(recipe, X)
-        return _apply_target_aware_group_bin_recipe(recipe, X)
-    if recipe.kind == "binned_numeric_agg":
-        # Grouped aggregation over quantile-binned numeric cells: replay bins the raw group
-        # column through the stored quantile edges and gathers the per-cell statistic; reads only X.
-        from .._binned_numeric_agg_fe import apply_binned_numeric_agg
-        return apply_binned_numeric_agg(X, dict(recipe.extra))
-    if recipe.kind == "conditional_quantile_rank":
-        from .._conditional_quantile_rank_fe import _apply_conditional_quantile_rank_recipe
-        return _apply_conditional_quantile_rank_recipe(recipe, X)
-    if recipe.kind == "ordinal_pattern_te":
-        from .._ordinal_pattern_fe import _apply_ordinal_pattern_te_recipe
-        return _apply_ordinal_pattern_te_recipe(recipe, X)
-    if recipe.kind == "random_fourier":
-        from .._random_fourier_features_fe import _apply_random_fourier_recipe
-        return _apply_random_fourier_recipe(recipe, X)
-    if recipe.kind == "sir_direction":
-        from .._sliced_inverse_regression_fe import _apply_sir_direction_recipe
-        return _apply_sir_direction_recipe(recipe, X)
-    if recipe.kind == "lof_score":
-        from .._lof_fe import _apply_lof_recipe
-        return _apply_lof_recipe(recipe, X)
-    if recipe.kind == "mahalanobis_density":
-        from .._mahalanobis_density_fe import _apply_mahalanobis_density_recipe
-        return _apply_mahalanobis_density_recipe(recipe, X)
-    raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
+    handler = _KIND_HANDLERS.get(recipe.kind)
+    if handler is None:
+        raise ValueError(f"Unknown recipe kind: {recipe.kind!r}")
+    return handler(recipe, X, col_cache, basis_cache)
