@@ -31,6 +31,7 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import _uf_labels
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu_tuning import SU_FALLBACK_MIN_FEATURES, su_gpu_pays_off
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_joint import (
     DENSE_JOINT_CELLS_PER_ROW,
     DENSE_JOINT_MIN_CELLS,
@@ -57,14 +58,10 @@ def _resolve_parallel_min_features(default: int = 50) -> int:
     return default
 
 
-GPU_MIN_FEATURES: int = 500
-"""Smallest feature count at which the GPU pairwise SU path is preferred over the CPU prange kernel.
-
-Below this width the cupy/CUDA launch overhead + onehot-pack allocation dwarfs even the
-parallel CPU kernel's wall (~0.14s at f=500 / n_bins=10 / n=1500 on iter69's bench).
-
-A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-API - removed as dead, always-``default``-returning code."""
+GPU_MIN_FEATURES: int = SU_FALLBACK_MIN_FEATURES
+"""Pre-sweep fallback width at which the GPU pairwise SU path is preferred over the CPU prange kernel (see ``_shap_proxy_gpu_tuning``: the real per-host
+decision is a measured sweep). Below it the cupy/CUDA launch overhead + onehot-pack allocation dwarfs even the parallel CPU kernel's wall (~0.14s at
+f=500 / n_bins=10 / n=1500)."""
 
 
 _GPU_AVAILABLE_CACHE: bool | None = None
@@ -142,15 +139,18 @@ def _should_route_su_gpu(
 
     Three gates, all must pass:
       1. cupy + CUDA device available (``cluster_su_gpu_available()``).
-      2. ``n_features >= gpu_min_features`` (kernel_tuning_cache-tunable; default 500).
+      2. ``n_features >= gpu_min_features`` when given, else the measured per-host CPU-vs-GPU choice (kernel_tuning_cache
+         ``shap_proxy_cluster_su_gpu``; fallback width 500 before a sweep has run).
       3. One-hot working set ``n_features * max_n_bins * n_samples * 4`` bytes fits in
          ``memory_safety_factor`` of free GPU memory. The 0.5 default leaves headroom for
          the joint-matrix tensor and cuBLAS scratch.
     """
     if not cluster_su_gpu_available():
         return False
-    gmin = gpu_min_features if gpu_min_features is not None else GPU_MIN_FEATURES
-    if n_features < int(gmin):
+    if gpu_min_features is not None:
+        if n_features < int(gpu_min_features):
+            return False
+    elif not su_gpu_pays_off(n_features, n_samples):
         return False
     onehot_bytes = int(n_features) * int(max_n_bins) * int(n_samples) * 4
     # 2026-06-03 (audit shap-proxy-clustering-3): the gate previously sized ONLY

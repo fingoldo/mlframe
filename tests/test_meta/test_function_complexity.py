@@ -3,7 +3,7 @@
 Complexity is ruff's C901 number, keyed by ``path::Qual.name`` (py_ci_shared.function_complexity). The threshold is
 this codebase's measured distribution (median 2, p90 9, p95 13, p99 30) read against the functions a reader actually
 struggles with, not a copied default. The baseline holds the functions over it today, each a tracked refactor in
-audits/full_audit_2026-09-20/complexity_refactor.md; a refactor that lowers one must lower or drop its ceiling:
+audits/implemented/full_audit_2026-09-20/complexity_refactor.md; a refactor that lowers one must lower or drop its ceiling:
 ``python tests/test_meta/regen_baselines.py``.
 """
 
