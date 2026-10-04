@@ -15,7 +15,7 @@ What lives here:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 import pandas as pd
@@ -523,7 +523,7 @@ def _fallback_metric_fn(primary_metric: str, y: np.ndarray) -> Callable[[np.ndar
                 return float(fast_root_mean_squared_error(yi, pi))
             return fn
         if "MAE" in primary_metric:
-            def fn(yi, pi):  # type: ignore[no-redef]  # one def per metric branch, exactly one of which is returned
+            def fn(yi, pi):
                 """Per-resample MAE fallback when the numba kernel is unavailable or raised."""
                 return float(fast_mean_absolute_error(yi, pi))
             return fn
@@ -534,7 +534,7 @@ def _fallback_metric_fn(primary_metric: str, y: np.ndarray) -> Callable[[np.ndar
         if "log_loss" in primary_metric:
             from sklearn.metrics import log_loss as _ll
             # 1D label, 1D or 2D pred
-            def fn(yi, pi):  # type: ignore[no-redef]  # one def per metric branch, exactly one of which is returned
+            def fn(yi, pi):
                 """Per-resample log-loss fallback for non-macro log_loss variants."""
                 return float(_ll(yi, pi))
             return fn
@@ -584,7 +584,7 @@ def _bootstrap_ci_for_metric(primary_metric: str, y: np.ndarray, p: np.ndarray, 
     for fast_path in (_numba_ci, _vectorized_logloss_ci):
         ci = fast_path(primary_metric, y, p, n_resamples, seed)
         if ci is not _UNHANDLED:
-            return ci
+            return cast("tuple[float, float, float] | None", ci)
     fn = _fallback_metric_fn(primary_metric, y)
     if fn is None:
         return None

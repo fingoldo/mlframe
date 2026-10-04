@@ -11,7 +11,7 @@ appliers (which themselves recurse back here for nested-engineered operands).
 from __future__ import annotations
 
 import importlib
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 
@@ -41,7 +41,7 @@ def _routed(module: str, func: str, *, col_cache: bool = False, basis_cache: boo
             kwargs["col_cache"] = cc
         if basis_cache:
             kwargs["basis_cache"] = bc
-        return helper(recipe, X, **kwargs)
+        return cast(np.ndarray, helper(recipe, X, **kwargs))
 
     return _handler
 
@@ -84,7 +84,7 @@ def _cat_cross(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray
     names = tuple(recipe.src_names)
     frame = X if (pd is not None and isinstance(X, pd.DataFrame)) else pd.DataFrame({n: _extract_column(X, n, col_cache=cc) for n in names})
     mapping = {tuple(k): int(v) for k, v in recipe.extra["mapping"]}
-    extras = {
+    extras: dict[str, Any] = {
         "encoding": str(recipe.extra.get("encoding", "raw")),
         "te_lookup": {int(k): float(v) for k, v in recipe.extra.get("te_lookup", [])},
         "global_mean": float(recipe.extra.get("global_mean", 0.0)),
