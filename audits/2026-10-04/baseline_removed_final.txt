@@ -61,3 +61,5 @@ nondisc:test_meta/test_public_annotations.py:test_no_new_unannotated_public_func
 nondisc:training/fuzz/test_fuzz_3way_suite.py:test_fuzz_3way_train_mlframe_models_suite:all-asserts-conditional,pass-body-if,imperative-xfail
 nondisc:training/fuzz/test_fuzz_metamorphic.py:test_metamorphic_column_rename_invariance:late-skip
 nondisc:training/fuzz/test_fuzz_metamorphic.py:test_metamorphic_duplicate_rows_stable:late-skip
+nondisc:training/test_biz_val_pysr_integration.py:test_biz_val_pysr_pipeline_improves_downstream_model:late-skip
+nondisc:training/test_extended_multi_target_coverage.py:test_ngb_multiclass_via_suite:all-asserts-conditional

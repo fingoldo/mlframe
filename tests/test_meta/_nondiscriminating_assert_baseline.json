@@ -1,4 +1,2 @@
 [
-  "training/test_biz_val_pysr_integration.py:test_biz_val_pysr_pipeline_improves_downstream_model:late-skip",
-  "training/test_extended_multi_target_coverage.py:test_ngb_multiclass_via_suite:all-asserts-conditional"
 ]

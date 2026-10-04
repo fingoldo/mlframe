@@ -51,7 +51,44 @@ _RETAINED_KERNELS = {
 _SCANNER_LAG = {"_fill_bf_batch_njit"}
 
 #: Looked up by name in ``sys.modules`` (``_fit_scoped_release._RELEASERS``) so a never-imported module is not imported to be cleared.
-_NAME_DISPATCHED = {"clear_gpu_operand_table_caches"}
+#: The recipe replay helpers are named by string in ``engineered_recipes/_recipe_dispatch.py`` (``_routed(module, name)`` resolves them
+#: lazily with importlib), so no call expression exists for the scanner to see.
+_NAME_DISPATCHED = {
+    "clear_gpu_operand_table_caches",
+    "_apply_cat_num_residual",
+    "_apply_cluster_aggregate",
+    "_apply_composite_group_agg_recipe",
+    "_apply_conditional_dispersion_recipe",
+    "_apply_conditional_quantile_rank_recipe",
+    "_apply_conditional_residual_recipe",
+    "_apply_count_encoded",
+    "_apply_factorize",
+    "_apply_frequency_encoded",
+    "_apply_group_distance_recipe",
+    "_apply_grouped_agg_recipe",
+    "_apply_hermite_pair",
+    "_apply_hinge_basis",
+    "_apply_kfold_target_encoded",
+    "_apply_lof_recipe",
+    "_apply_mahalanobis_density_recipe",
+    "_apply_mi_greedy_transform",
+    "_apply_ordinal_pattern_te_recipe",
+    "_apply_orth_cluster_basis",
+    "_apply_orth_diff_basis",
+    "_apply_orth_fourier",
+    "_apply_orth_pair_cross",
+    "_apply_orth_quadruplet_cross",
+    "_apply_orth_spline",
+    "_apply_orth_triplet_cross",
+    "_apply_orth_univariate",
+    "_apply_orth_wavelet",
+    "_apply_random_fourier_recipe",
+    "_apply_rankgauss_recipe",
+    "_apply_rare_category_recipe",
+    "_apply_sir_direction_recipe",
+    "_apply_target_encoding",
+    "_apply_unary_binary",
+}
 
 
 def _production_files() -> list[Path]:

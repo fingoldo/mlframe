@@ -113,6 +113,9 @@ def test_biz_val_gpu_mi_batched_at_least_1_5x_faster_than_cpu_at_n10k():
         for _ in range(repeats):
             started = time.perf_counter()
             fn()
+            import cupy as cp
+
+            cp.cuda.Device().synchronize()
             best = min(best, time.perf_counter() - started)
         return best
 

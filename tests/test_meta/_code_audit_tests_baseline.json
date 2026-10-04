@@ -521,7 +521,6 @@
   "wall_clock_assertion::feature_selection/discretization/test_mdlp_validated_split_fast.py::887bcf2f0ac9",
   "wall_clock_assertion::feature_selection/fe/adaptive/test_fe_rung_schedule.py::60ab7e863ea4",
   "wall_clock_assertion::feature_selection/filters/test_qs_mah_edge_stress.py::9e65d78bd47f",
-  "wall_clock_assertion::feature_selection/gpu/test_biz_val_filters_gpu.py::c161555f36a6",
   "wall_clock_assertion::feature_selection/gpu/test_per_feature_edges_parallel.py::d8467cc1c19d",
   "wall_clock_assertion::feature_selection/info_theory/test_analytic_mi_null.py::ac498b955467",
   "wall_clock_assertion::feature_selection/info_theory/test_imbalance_mi.py::97a67e681b82",

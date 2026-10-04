@@ -280,6 +280,9 @@ def test_perf_mi_direct_gpu_at_n100k():
         for _ in range(repeats):
             started = time.perf_counter()
             fn()
+            import cupy as cp
+
+            cp.cuda.Device().synchronize()
             best = min(best, time.perf_counter() - started)
         return best
 
