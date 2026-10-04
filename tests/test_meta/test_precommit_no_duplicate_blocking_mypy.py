@@ -43,9 +43,10 @@ def test_mypy_full_manual_is_not_blocking_on_every_commit():
     )
 
 
-def test_mypy_full_still_runs_blocking_on_every_commit():
-    """Sanity: the whole-project mypy-full hook (the actual coverage-providing one) must still be blocking."""
+def test_mypy_full_still_blocks_every_push():
+    """Sanity: the whole-project mypy-full hook (the actual coverage-providing one) must still be blocking, at pre-push
+    (moved off the per-commit stage 2026-10-04: it runs for minutes, which the per-commit budget cannot afford)."""
     config = _load_precommit_config()
     hook = _find_hook(config, "mypy-full")
     assert hook is not None, "mypy-full hook not found in .pre-commit-config.yaml"
-    assert hook.get("stages") == ["pre-commit", "pre-merge-commit"]
+    assert hook.get("stages") == ["pre-push"]

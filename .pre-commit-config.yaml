@@ -290,6 +290,7 @@ repos:
 
   - repo: local
     hooks:
+      # Moved pre-commit/pre-merge-commit -> pre-push 2026-10-04: whole-project mypy runs well over 8 min on a loaded box, which no per-commit hook can afford; it still blocks every push.
       - id: mypy-full
         name: "mypy (whole project, blocking -- mirrors CI's mypy-full.yml)"
         # The strict-mode beachhead hook above only covers a handful of already-well-typed
@@ -314,7 +315,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-        stages: [pre-commit, pre-merge-commit]
+        stages: [pre-push]
 
       - id: mlframe-meta-tests
         name: "mlframe meta-tests (config / strategy / metric invariants)"
@@ -387,6 +388,7 @@ repos:
   # cross-file blind spot for symbols used only from those directories).
   - repo: local
     hooks:
+      # Moved manual -> pre-push 2026-10-04: CI blocks on this scan, and pre-push (not per-commit) is where ~100 s is affordable.
       - id: vulture-blocking
         name: "vulture dead-code scan (blocking)"
         entry: python -m vulture src/mlframe scripts/vulture_whitelist.py --min-confidence 80
@@ -399,7 +401,7 @@ repos:
         # this exact whole-repo scan on every push, so dead code still can't reach master. Run
         # explicitly via ``pre-commit run --hook-stage manual vulture-blocking`` before pushing,
         # or let CI catch it.
-        stages: [manual]
+        stages: [pre-push]
 
   # Docstring-coverage gate: 100% (see [tool.interrogate] in pyproject.toml). Blocking since
   # 2026-07-09, mirroring the CI lint-blocking job.
@@ -570,6 +572,8 @@ repos:
   # in tight inner-loop work.
   - repo: local
     hooks:
+      # Manual: the whole tests/test_meta directory takes about 30 minutes serial on a loaded box (the repo-wide audit scans alone exceed
+      # 25 minutes), which no push hook can afford. CI runs it; the config/CI parity subset below runs at pre-push.
       - id: mlframe-meta-tests-static-only
         name: "mlframe meta-tests (static checks only — skip Hypothesis)"
         entry: pytest tests/test_meta/ --no-cov -p no:randomly -q -x --deselect tests/test_meta/test_metric_invariants.py --deselect tests/test_meta/test_utility_fuzz.py --deselect tests/test_meta/test_config_round_trip.py
@@ -578,6 +582,16 @@ repos:
         pass_filenames: false
         always_run: false
         stages: [manual]
+
+      # Pre-push: the three meta-tests that keep THIS file honest against CI (about 40 s of tests plus 2 to 3 minutes of conftest start-up on a
+      # loaded box): every blocking mypy hook is unique, the hook set covers CI's scope, and the baseline files agree with their registry.
+      - id: mlframe-hook-config-parity-on-push
+        name: "meta-tests: hook config vs CI parity (push only; the other tests/test_meta checks are left to CI)"
+        entry: python -m pytest tests/test_meta/test_precommit_no_duplicate_blocking_mypy.py tests/test_meta/test_precommit_ci_scope_parity.py tests/test_meta/test_baseline_registry_consistency.py --no-cov -p no:randomly -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
 
   # Keep the committed anonymized default kernel-tuning JSON in sync. On commit
   # this runs --check ONLY (skip_existing): it reads every kernel's live
@@ -652,3 +666,16 @@ repos:
         # speedup on repeat commits within one worktree, it just no longer crosses worktree
         # boundaries. See reference_mlframe_shared_mypy_cache_dir memory note.
         args: ['--cache-dir=.mypy_cache_precommit_manual']
+
+  # Pre-push smoke tests: tests/calibration only (about 135 s at -n 2). CI runs the whole suite sharded across the OS/Python/sklearn matrix
+  # with the coverage floor; per the repo owner's rule broad local suite runs are CI's job, so everything else
+  # (full tests/, Hypothesis meta-tests, coverage, GPU, macOS/Linux legs, CodeQL, docs, build) is left to CI.
+  - repo: local
+    hooks:
+      - id: pytest-smoke-on-push
+        name: "smoke tests: tests/calibration (push only; full suite + matrix left to CI)"
+        entry: python -m pytest tests/calibration --no-cov -p no:randomly -n 2 -x -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]

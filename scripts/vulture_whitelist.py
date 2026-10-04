@@ -186,3 +186,6 @@ _sha256_of_file
 # the existing blocks), but callers still pass it and a test pins that they may; the module comment says so at its
 # own definition. ---
 allow_large_frame_copy
+
+# --- feature_selection/boruta_shap/_estimator_protocol.py _LegacyAlias.__get__: ``objtype`` is the second argument of the descriptor protocol; Python passes it, the body has no use for it. ---
+objtype
