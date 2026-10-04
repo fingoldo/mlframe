@@ -41,6 +41,7 @@ from ._step_pair_order import order_prospective_pairs
 
 
 from ._step_core_helpers import (
+    _resolve_prevalence_and_stratify_knobs,
     logger,
     _run_fe_step_impl_full_key_raw_vars,
     _run_fe_step_impl_below_fe_rung_min,
@@ -263,31 +264,7 @@ def _run_fe_step_impl(
     # heuristic see the real distribution), else the discrete ``classes_y`` codes (classification).
     # Default-None auto-ON fires only on a small rare-class fraction / heavy-tailed target; otherwise
     # OFF -> byte-identical legacy uniform draw.
-    from .._fe_subsample import _resolve_fe_subsample_stratify as _resolve_strat
-    from .._fe_accuracy_gate import infer_classification as _infer_clf
-    st._strat_knob = getattr(self, "fe_subsample_stratify", None)
-    st._strat_yc = getattr(self, "_fe_prewarp_y_continuous_", None)
-    if st._strat_yc is not None and len(st._strat_yc) == len(classes_y):
-        st._fe_subsample_stratify = _resolve_strat(st._strat_knob, np.asarray(st._strat_yc), is_clf=bool(_infer_clf(np.asarray(st._strat_yc))))
-    else:
-        st._fe_subsample_stratify = _resolve_strat(st._strat_knob, np.asarray(classes_y), is_clf=True)
-
-    st._prevalence_debias_auto = isinstance(fe_min_pair_mi_prevalence, str) and fe_min_pair_mi_prevalence.strip().lower() == "auto"
-    if st._prevalence_debias_auto:
-        fe_min_pair_mi_prevalence = 1.05
-    # SYNERGY prevalence "auto": the synergy-pair bar
-    # (``max(fe_min_pair_mi_prevalence, fe_synergy_min_prevalence)``, default 1.5) gates the
-    # bootstrap-added synergy operands. "auto" activates the SAME MM-debias mechanism for the
-    # prevalence comparison and resolves the bar to its 1.5 default float - so a synergy pair is
-    # admitted only when its DEBIASED joint MI clears 1.5x the marginal sum, tightening against the
-    # finite-sample noise that a fixed 1.5 on the RAW MI lets through. ``_synergy_prev_resolved`` is
-    # the float used at the gate; an explicit float (incl. the 1.15/1.5 defaults) is honoured verbatim.
-    st._synergy_prev_raw = getattr(self, "fe_synergy_min_prevalence", 1.15)
-    if isinstance(st._synergy_prev_raw, str) and st._synergy_prev_raw.strip().lower() == "auto":
-        st._prevalence_debias_auto = True  # share the prevalence-comparison debias (consistent mechanism)
-        st._synergy_prev_resolved = 1.5
-    else:
-        st._synergy_prev_resolved = float(st._synergy_prev_raw)
+    st._fe_subsample_stratify, st._prevalence_debias_auto, fe_min_pair_mi_prevalence, st._synergy_prev_resolved = _resolve_prevalence_and_stratify_knobs(self, classes_y, fe_min_pair_mi_prevalence)
     # Lazy import: ``.mrmr`` re-imports this module at its bottom for method
     # binding -> any top-level ``from .mrmr import ...`` here creates a hard
     # import cycle that ``tests/test_meta/test_no_import_cycles.py`` flags.

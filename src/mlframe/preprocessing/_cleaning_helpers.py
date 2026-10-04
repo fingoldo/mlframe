@@ -217,6 +217,26 @@ def _analyse_and_clean__m_step1_st_simplenamespace_long(df, exclude_mask, update
     return iterable_columns, st
 
 
+def _binary_column_replacement_value(real_val: Any, col_is_numeric: bool, col_is_boolean: bool) -> Any:
+    """The value that replaces NaN in a column whose only other option is ``real_val``: ``"not <option>"`` for a string, ``-real_val`` (``1.0`` for 0)
+    for a number, ``not real_val`` for a boolean, else ``-real_val`` when the type supports negation and a ``"not <value>"`` sentinel when it does not."""
+    if isinstance(real_val, str):
+        return "not " + real_val
+    if col_is_numeric:
+        if float(real_val) == 0.0:
+            return 1.0
+        return real_val * -1
+    if col_is_boolean:
+        return not real_val
+    # Neither str/numeric/boolean (e.g. decimal.Decimal, pd.Timestamp): negate
+    # if the type supports arithmetic negation (covers Decimal), else fall back
+    # to a distinguishing string sentinel (mirrors the str branch's "not X" naming).
+    try:
+        return -real_val
+    except TypeError:
+        return f"not {real_val}"
+
+
 def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, verbose, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, cont_max_allowed_outliers_percent, potentially_outlying_features, min_fewlyvalued_rows_per_value, fewlyvalued_features, analyse_mask, potentially_categorical_features, exclude_columns, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning, max_rarevals_imbalance, default_na_val, features_transforms, default_float_type, features_dtypes, update_data, features_unique_values, features_ranges):
     """Step 2 of _analyse_and_clean__manyvalued_features_set: lines starting at ``for col in iterable_columns: # head.select_dtypes(include=["category",``."""
     from mlframe.preprocessing.cleaning import _update_sub_df_col
@@ -338,24 +358,7 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                 na_val = True
                 na_val, real_val = _analyse_and_clean__category_option_name(col_unique_values, na_val, real_val)
                 if (real_val is not None) and (na_val is not True):
-                    if isinstance(real_val, str):
-                        repl_value: Any = "not " + real_val
-                    else:
-                        if col_is_numeric:
-                            if float(real_val) == 0.0:
-                                repl_value = 1.0
-                            else:
-                                repl_value = real_val * -1
-                        elif col_is_boolean:
-                            repl_value = not real_val
-                        else:
-                            # Neither str/numeric/boolean (e.g. decimal.Decimal, pd.Timestamp): negate
-                            # if the type supports arithmetic negation (covers Decimal), else fall back
-                            # to a distinguishing string sentinel (mirrors the str branch's "not X" naming).
-                            try:
-                                repl_value = -real_val
-                            except TypeError:
-                                repl_value = f"not {real_val}"
+                    repl_value = _binary_column_replacement_value(real_val, col_is_numeric, col_is_boolean)
 
                     if verbose:
                         logger.info("feature %s: %s->%s in %s.", col, na_val, repl_value, col_unique_values)

@@ -133,6 +133,7 @@
   "default_via_or::models/ensembling/quality_gate.py::47a926d37b14",
   "default_via_or::preprocessing/sibling_group_cold_start_fill.py::5d2910f157e7",
   "default_via_or::reporting/_diagnostics_dispatch_extra.py::4d009d14eafd",
+  "default_via_or::reporting/auto_dispatch.py::9b35bf274063",
   "default_via_or::reporting/charts/calibration.py::2beff3ceb23b",
   "default_via_or::reporting/charts/calibration_by_feature.py::13188fb203a0",
   "default_via_or::reporting/charts/calibration_heatmap_2d.py::13188fb203a0",
