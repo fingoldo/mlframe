@@ -40,6 +40,7 @@ from mlframe.core.stats import get_tukey_fences_multiplier_for_quantile
 
 from mlframe.config import THOUSANDS_SEPARATOR
 from mlframe.utils.log_throttle import log_throttle
+from types import SimpleNamespace as _SimpleNamespace
 
 # *****************************************************************************************************************************************************
 # INITS
@@ -160,18 +161,31 @@ def _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_
 
 def _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, cat_vars_clean_fcn, obj_vars_clean_fcn, cat_vars_replace, obj_vars_replace, verbose, analyse_mask, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, cont_max_allowed_outliers_percent, potentially_outlying_features, min_fewlyvalued_rows_per_value, fewlyvalued_features, potentially_categorical_features, exclude_columns, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning, max_rarevals_imbalance, default_na_val, features_transforms, default_float_type, features_dtypes, features_unique_values, features_ranges):
     """Block of _analyse_and_clean__manyvalued_features_set starting at ``manyvalued_features = set()``."""
-    from .cleaning import _clean_cat_and_obj_columns, _update_sub_df_col  # lazy: the original module owns these (monkeypatch-visible)
-    sub_df: Any = None
-    col: Any = None
-    manyvalued_features = set()
-    constant_features = set()
+    iterable_columns, st = _analyse_and_clean__m_step1_st_simplenamespace_long(df, exclude_mask, update_data, cat_vars_clean_fcn, obj_vars_clean_fcn, cat_vars_replace, obj_vars_replace, verbose, analyse_mask)
 
-    continuous_features: set[Any] = set()
-    discrete_features: set[Any] = set()
+    _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, verbose, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, cont_max_allowed_outliers_percent, potentially_outlying_features, min_fewlyvalued_rows_per_value, fewlyvalued_features, analyse_mask, potentially_categorical_features, exclude_columns, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning, max_rarevals_imbalance, default_na_val, features_transforms, default_float_type, features_dtypes, update_data, features_unique_values, features_ranges)
 
-    head = df.head(1)
+    _analyse_and_clean__constant_features(st.constant_features, update_data, df)
 
-    exclude_mask_regexp = None if not exclude_mask else re.compile(exclude_mask)
+    if verbose:
+        logger.info("Analyzing & cleaning finished.")
+    return st.constant_features, st.continuous_features, st.discrete_features, st.manyvalued_features
+
+
+def _analyse_and_clean__m_step1_st_simplenamespace_long(df, exclude_mask, update_data, cat_vars_clean_fcn, obj_vars_clean_fcn, cat_vars_replace, obj_vars_replace, verbose, analyse_mask):
+    """Step 1 of _analyse_and_clean__manyvalued_features_set: lines starting at ``st = _SimpleNamespace() # long-lived locals of this function (see the ``."""
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    from mlframe.preprocessing.cleaning import _clean_cat_and_obj_columns  # lazy: the original module owns these (monkeypatch-visible)
+    st.sub_df = None
+    st.manyvalued_features = set()
+    st.constant_features = set()
+
+    st.continuous_features = set()
+    st.discrete_features = set()
+
+    st.head = df.head(1)
+
+    st.exclude_mask_regexp = None if not exclude_mask else re.compile(exclude_mask)
 
     if update_data:
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -183,7 +197,7 @@ def _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, c
             obj_vars_clean_fcn=obj_vars_clean_fcn,
             cat_vars_replace=cat_vars_replace,
             obj_vars_replace=obj_vars_replace,
-            head=head,
+            head=st.head,
             verbose=verbose,
         )
         collect()
@@ -195,50 +209,41 @@ def _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, c
         iterable_columns = tqdmu(iterable_columns, desc=mes, leave=True)
 
     if analyse_mask is None:
-        sub_df = df
+        st.sub_df = df
     else:
-        sub_df = df.loc[analyse_mask, :]
+        st.sub_df = df.loc[analyse_mask, :]
 
-    nrows = len(sub_df)
+    st.nrows = len(st.sub_df)
+    return iterable_columns, st
+
+
+def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, verbose, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, cont_max_allowed_outliers_percent, potentially_outlying_features, min_fewlyvalued_rows_per_value, fewlyvalued_features, analyse_mask, potentially_categorical_features, exclude_columns, clean_nonnumeric_rarevals, clean_numeric_continuous_rarevals, max_cont_col_nuniques_for_rarevals_cleaning, clean_numeric_discrete_rarevals, max_discrete_col_nuniques_for_rarevals_cleaning, max_rarevals_imbalance, default_na_val, features_transforms, default_float_type, features_dtypes, update_data, features_unique_values, features_ranges):
+    """Step 2 of _analyse_and_clean__manyvalued_features_set: lines starting at ``for col in iterable_columns: # head.select_dtypes(include=["category",``."""
+    from mlframe.preprocessing.cleaning import _update_sub_df_col
 
     for col in iterable_columns:  # head.select_dtypes(include=["category", "object", "number", "boolean"])
 
         col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
 
-        col_unique_values = sub_df[col].value_counts(dropna=False)
+        col_unique_values = st.sub_df[col].value_counts(dropna=False)
         nunique = len(col_unique_values)
 
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
         # 2. Divides numeric and date(time) features into discrete and continuous.
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        col_is_continuous, col_is_discrete = _analyse_and_clean__block(col_is_numeric, col_is_datetime, sub_df, col, verbose, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, continuous_features, cont_max_allowed_outliers_percent, potentially_outlying_features, discrete_features)
+        col_is_continuous, col_is_discrete = _analyse_and_clean__block(col_is_numeric, col_is_datetime, st.sub_df, col, verbose, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, st.continuous_features, cont_max_allowed_outliers_percent, potentially_outlying_features, st.discrete_features)
 
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
         # Decides if a col is fewly- or manyvalued.
         # -----------------------------------------------------------------------------------------------------------------------------------------------------
-        col_is_manyvalued = nrows < min_fewlyvalued_rows_per_value * nunique
-        if col_is_manyvalued:
-            manyvalued_features.add(col)
-        else:
-            fewlyvalued_features.add(col)
-            if col_is_object:
-                # ---------------------------------------------------------------------------------------------------------------------------------------------
-                # 3. Converts fewly-valued (ie sparse. say, >=100 rows per unique value on avg) object features into categorical, to save space &
-                # increase processing speed.
-                # ---------------------------------------------------------------------------------------------------------------------------------------------
-                df[col] = df[col].astype("category")
-                if verbose:
-                    logger.info("Feature  %s converted to category type.", col)
-                col_unique_values, nunique = _update_sub_df_col(
-                    df=df, sub_df=sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
-                )
-                col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
+        col_is_manyvalued = st.nrows < min_fewlyvalued_rows_per_value * nunique
+        col_is_boolean, col_is_categorical, col_is_datetime, col_is_numeric, col_unique_values, nunique = _analyse_and_clean__m_step1_block(col_is_manyvalued, st, col, fewlyvalued_features, col_is_object, df, verbose, analyse_mask, col_unique_values, nunique, col_is_boolean, col_is_categorical, col_is_datetime, col_is_numeric)
 
         # 4. All discrete or fewly-valued (nrows/nunique_vals>=,say,100) features are potentially categorical.
         if col_is_discrete or col_is_categorical or not col_is_manyvalued:
             if not col_is_categorical:
                 potentially_categorical_features.add(col)
-            if (col in exclude_columns) or (exclude_mask_regexp and exclude_mask_regexp.search(col)):
+            if (col in exclude_columns) or (st.exclude_mask_regexp and st.exclude_mask_regexp.search(col)):
                 continue
             # 5. Optionally merges all under-presented categories into one RARE category (usually a NaN). Should this be a transformer suitable for a pipeline?
             if (
@@ -256,7 +261,7 @@ def _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, c
                     and (max_discrete_col_nuniques_for_rarevals_cleaning <= 0 or max_discrete_col_nuniques_for_rarevals_cleaning >= nunique)
                 )
             ):
-                to_be_merged = col_unique_values[col_unique_values * nunique * max_rarevals_imbalance < nrows]
+                to_be_merged = col_unique_values[col_unique_values * nunique * max_rarevals_imbalance < st.nrows]
                 nan_vals_already_in_index = col_unique_values.index.isna().astype(int).sum()
                 nmerged = len(to_be_merged)
                 if nmerged >= (nunique - nan_vals_already_in_index):
@@ -267,7 +272,7 @@ def _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, c
                             nunique,
                             col_unique_values.head(),
                         )
-                    constant_features.add(col)
+                    st.constant_features.add(col)
                     continue  # next col
                 else:
                     if nmerged > 0:
@@ -281,8 +286,8 @@ def _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, c
                                     col,
                                     default_na_val,
                                     format(nrows_merged, THOUSANDS_SEPARATOR + "d"),
-                                    format(nrows, THOUSANDS_SEPARATOR + "d"),
-                                    round(nrows_merged / nrows * 100, 4),
+                                    format(st.nrows, THOUSANDS_SEPARATOR + "d"),
+                                    round(nrows_merged / st.nrows * 100, 4),
                                     to_be_merged.index.to_list(),
                                 )
                             repl_instructions = {}
@@ -320,7 +325,7 @@ def _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, c
                                 rare_mask = df[col].isin(list(repl_instructions.keys()))
                                 df[col] = df[col].mask(rare_mask, default_na_val).astype(the_type)
                                 col_unique_values, nunique = _update_sub_df_col(
-                                    df=df, sub_df=sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
+                                    df=df, sub_df=st.sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
                                 )
                                 col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
                         else:
@@ -358,30 +363,47 @@ def _analyse_and_clean__manyvalued_features_set(df, exclude_mask, update_data, c
                     repl_instructions = {na_val: repl_value}
 
                     features_transforms[col].update(repl_instructions)
-                    features_dtypes.setdefault(col, head[col].dtype.name)
+                    features_dtypes.setdefault(col, st.head[col].dtype.name)
                     if update_data:
                         if col_is_categorical:
                             df[col] = df[col].astype("object")
-                        df[col] = df[col].replace(repl_instructions).astype(head[col].dtype.name)
+                        df[col] = df[col].replace(repl_instructions).astype(st.head[col].dtype.name)
                         col_unique_values, nunique = _update_sub_df_col(
-                            df=df, sub_df=sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
+                            df=df, sub_df=st.sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
                         )
                         col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
                 else:
-                    _analyse_and_clean__real_val_none(real_val, verbose, col, col_unique_values, constant_features)
+                    _analyse_and_clean__real_val_none(real_val, verbose, col, col_unique_values, st.constant_features)
             if nunique == 1:
                 # 7. Vars having only one unique value, after all, are constant and must be dropped.
-                constant_features.add(col)
+                st.constant_features.add(col)
 
-        _analyse_and_clean__vars_having_only_one(col, constant_features, manyvalued_features, col_is_numeric, col_unique_values, features_unique_values, features_ranges)
+        _analyse_and_clean__vars_having_only_one(col, st.constant_features, st.manyvalued_features, col_is_numeric, col_unique_values, features_unique_values, features_ranges)
 
         collect()
 
-    _analyse_and_clean__constant_features(constant_features, update_data, df)
 
-    if verbose:
-        logger.info("Analyzing & cleaning finished.")
-    return constant_features, continuous_features, discrete_features, manyvalued_features
+def _analyse_and_clean__m_step1_block(col_is_manyvalued, st, col, fewlyvalued_features, col_is_object, df, verbose, analyse_mask, col_unique_values, nunique, col_is_boolean, col_is_categorical, col_is_datetime, col_is_numeric):
+    """Step 1 of _analyse_and_clean__m_step2_col_iterable_columns: lines starting at ``if col_is_manyvalued:``."""
+    from mlframe.preprocessing.cleaning import _update_sub_df_col
+
+    if col_is_manyvalued:
+        st.manyvalued_features.add(col)
+    else:
+        fewlyvalued_features.add(col)
+        if col_is_object:
+            # ---------------------------------------------------------------------------------------------------------------------------------------------
+            # 3. Converts fewly-valued (ie sparse. say, >=100 rows per unique value on avg) object features into categorical, to save space &
+            # increase processing speed.
+            # ---------------------------------------------------------------------------------------------------------------------------------------------
+            df[col] = df[col].astype("category")
+            if verbose:
+                logger.info("Feature  %s converted to category type.", col)
+            col_unique_values, nunique = _update_sub_df_col(
+                df=df, sub_df=st.sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
+            )
+            col_is_boolean, col_is_object, col_is_datetime, col_is_categorical, col_is_numeric = classify_column_types(df=df, col=col)
+    return col_is_boolean, col_is_categorical, col_is_datetime, col_is_numeric, col_unique_values, nunique
 
 
 def _analyse_and_clean__block(col_is_numeric, col_is_datetime, sub_df, col, verbose, cont_use_quantile, cont_max_scarceness, cont_max_fract_digits, cont_min_fract_level_increase_perecent, continuous_features, cont_max_allowed_outliers_percent, potentially_outlying_features, discrete_features):

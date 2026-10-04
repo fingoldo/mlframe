@@ -45,10 +45,10 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_CB_GPU_RUNAWAY_FACTOR` | `3.0` | [src/mlframe/training/cb/_cb_gpu_budget.py](../src/mlframe/training/cb/_cb_gpu_budget.py#L51) |
 | `MLFRAME_CB_GPU_SNAPSHOT_S` | `120.0` | [src/mlframe/training/cb/_cb_gpu_budget.py](../src/mlframe/training/cb/_cb_gpu_budget.py#L45) |
 | `MLFRAME_CB_POOL_CACHE_MAX_BYTES` | — | [src/mlframe/training/cb/_cb_pool_budget.py](../src/mlframe/training/cb/_cb_pool_budget.py#L45) |
-| `MLFRAME_CMI_ANALYTIC_NULL_MIN_N` | `''` | [src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py](../src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py#L27) |
+| `MLFRAME_CMI_ANALYTIC_NULL_MIN_N` | `''` | [src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py](../src/mlframe/feature_selection/filters/_fe_cmi_redundancy_null.py#L28) |
 | `MLFRAME_CMI_FORDER` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L89) |
 | `MLFRAME_CMI_FORDER_MAX_MB` | `'4096'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L82) |
-| `MLFRAME_CMI_GPU` | `''` | [src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py](../src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py#L992) |
+| `MLFRAME_CMI_GPU` | `''` | [src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe_steps.py](../src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe_steps.py#L544) |
 | `MLFRAME_CMI_NULL_MAX_ROWS` | `'100000'` | [src/mlframe/feature_selection/filters/_fe_raw_redundancy_helpers.py](../src/mlframe/feature_selection/filters/_fe_raw_redundancy_helpers.py#L33) |
 | `MLFRAME_CMI_PARALLEL_MIN_CANDS` | `'8'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L63) |
 | `MLFRAME_CMI_RESIDENT_CACHE` | `'1'` | [src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py](../src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py#L368) |
@@ -95,7 +95,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_DEDUP_MAX_CORR_ROWS` | `100000` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_dedup.py#L35) |
 | `MLFRAME_FE_DROP_NO_HARM` | `'1'` | [src/mlframe/feature_selection/filters/_fe_raw_redundancy_drop.py](../src/mlframe/feature_selection/filters/_fe_raw_redundancy_drop.py#L379) |
 | `MLFRAME_FE_EDGE_BINNING` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py#L78) |
-| `MLFRAME_FE_FUSION_AB` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_resident_materialise.py](../src/mlframe/feature_selection/filters/_gpu_resident_materialise.py#L874) |
+| `MLFRAME_FE_FUSION_AB` | `'1'` | [src/mlframe/feature_selection/filters/_gpu_resident_materialise.py](../src/mlframe/feature_selection/filters/_gpu_resident_materialise.py#L866) |
 | `MLFRAME_FE_FUSION_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py](../src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py#L200) |
 | `MLFRAME_FE_GATE_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py#L103) |
 | `MLFRAME_FE_GATE_RESIDENT_CANDS` | `'1'` | [src/mlframe/feature_selection/filters/_conditional_gate_fe.py](../src/mlframe/feature_selection/filters/_conditional_gate_fe.py#L250) |
@@ -145,7 +145,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_MATRIX_P0` | `''` | [src/mlframe/feature_selection/filters/_fe_matrix_io.py](../src/mlframe/feature_selection/filters/_fe_matrix_io.py#L55) |
 | `MLFRAME_FE_MIN_FREE_RAM_GB` | — | [src/mlframe/feature_selection/filters/_feature_engineering_mem_budget.py](../src/mlframe/feature_selection/filters/_feature_engineering_mem_budget.py#L201) |
 | `MLFRAME_FE_MI_SPLIT` | — | [src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/_auto_tune_sweeps_b.py](../src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/_auto_tune_sweeps_b.py#L734) |
-| `MLFRAME_FE_NOISE_FLOOR_MAX_ROWS` | `'30000'` | [src/mlframe/feature_selection/filters/_hermite_fe_optimise_pair.py](../src/mlframe/feature_selection/filters/_hermite_fe_optimise_pair.py#L788) |
+| `MLFRAME_FE_NOISE_FLOOR_MAX_ROWS` | `'30000'` | [src/mlframe/feature_selection/filters/_hermite_fe_optimise_pair.py](../src/mlframe/feature_selection/filters/_hermite_fe_optimise_pair.py#L246) |
 | `MLFRAME_FE_OPERAND_CACHE_MAX_MB` | — | [src/mlframe/feature_selection/filters/_gpu_resident_materialise.py](../src/mlframe/feature_selection/filters/_gpu_resident_materialise.py#L383) |
 | `MLFRAME_FE_PAIR_MAXT_MAX_ROWS` | `''` | [src/mlframe/feature_selection/filters/_permutation_null.py](../src/mlframe/feature_selection/filters/_permutation_null.py#L69) |
 | `MLFRAME_FE_PAIR_MAXT_PERM_NULL_GPU` | `'1'` | [src/mlframe/feature_selection/filters/_permutation_null_pair_resident.py](../src/mlframe/feature_selection/filters/_permutation_null_pair_resident.py#L244) |
@@ -181,7 +181,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_KEEP_BROKEN_CUPY` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L201) |
 | `MLFRAME_KEEP_COLORAMA_REINIT` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L296) |
 | `MLFRAME_KEEP_PREDICTION_DATAMODULE` | — | [src/mlframe/training/neural/base/_base_fit_helpers.py](../src/mlframe/training/neural/base/_base_fit_helpers.py#L520) |
-| `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS` | — | [src/mlframe/training/reporting/_reporting_regression/__init__.py](../src/mlframe/training/reporting/_reporting_regression/__init__.py#L456) |
+| `MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS` | — | [src/mlframe/training/reporting/_reporting_regression/__init__.py](../src/mlframe/training/reporting/_reporting_regression/__init__.py#L415) |
 | `MLFRAME_KSG_GPU_N` | `50000` | [src/mlframe/feature_selection/filters/_ksg.py](../src/mlframe/feature_selection/filters/_ksg.py#L60) |
 | `MLFRAME_KTC_ONLINE_LEARN` | `''` | [src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/dispatch.py](../src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/dispatch.py#L179) |
 | `MLFRAME_LGB_CACHE_DISABLE` | — | [src/mlframe/training/_lgb_shim_helpers.py](../src/mlframe/training/_lgb_shim_helpers.py#L221) |

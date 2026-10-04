@@ -22,6 +22,7 @@ import logging
 from typing import Any, Callable, List, Optional, Sequence
 
 import numpy as np
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +192,7 @@ def render_multi_target_panels(
     for grouped CV splits, NOT for ranking). Always pass ``target_type``
     when available.
     """
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     if not base_path or not plot_outputs:
         return None
 
@@ -204,32 +206,32 @@ def render_multi_target_panels(
     # computation per split. Authoritative target_type fixes this:
     # regression / binary / quantile_regression / multilabel /
     # multiclass / learning_to_rank each gate exactly one branch.
-    tt = (target_type or "").lower()
-    if tt:
+    st.tt = (target_type or "").lower()
+    if st.tt:
         # Regression has its own dedicated report charts (scatter / residual
         # panels); this dispatcher's panels would be redundant there.
-        if tt == "regression":
+        if st.tt == "regression":
             return None
         # Each remaining target_type maps to exactly one branch.
         # When the matching panel template is empty, return None
         # silently (operator opted out of that target_type's panels).
-        if tt == "binary_classification" and not binary_panels:
+        if st.tt == "binary_classification" and not binary_panels:
             return None
-        if tt == "learning_to_rank" and not ltr_panels:
+        if st.tt == "learning_to_rank" and not ltr_panels:
             return None
-        if tt == "quantile_regression" and not quantile_panels:
+        if st.tt == "quantile_regression" and not quantile_panels:
             return None
-        if tt == "multilabel_classification" and not multilabel_panels:
+        if st.tt == "multilabel_classification" and not multilabel_panels:
             return None
-        if tt == "multiclass_classification" and not multiclass_panels:
+        if st.tt == "multiclass_classification" and not multiclass_panels:
             return None
 
     # LTR: opt-in via group_ids + 1-D score (preds for rankers). When
     # ``target_type`` is provided, gate strictly on it; otherwise the
     # back-compat shape heuristic fires (note: misfires for
     # regression-with-group_ids -- pass target_type to avoid).
-    _ltr_allowed = tt == "" or tt == "learning_to_rank"
-    if _ltr_allowed and group_ids is not None and ltr_panels and targets_arr is not None:
+    st._ltr_allowed = st.tt == "" or st.tt == "learning_to_rank"
+    if st._ltr_allowed and group_ids is not None and ltr_panels and targets_arr is not None:
         scores = preds if preds is not None else probs
         if scores is not None and np.ndim(scores) == 1:
             def _compose_ltr():
@@ -252,8 +254,8 @@ def render_multi_target_panels(
     # LTR, this is order-sensitive vs the multilabel branch (multilabel
     # also wants 2-D preds), so check QR FIRST and fall through if the
     # caller didn't supply quantile_alphas.
-    _quantile_allowed = tt == "" or tt == "quantile_regression"
-    if _quantile_allowed and quantile_panels and quantile_alphas is not None and preds is not None and targets_arr is not None:
+    st._quantile_allowed = st.tt == "" or st.tt == "quantile_regression"
+    if st._quantile_allowed and quantile_panels and quantile_alphas is not None and preds is not None and targets_arr is not None:
         preds_arr_q = np.asarray(preds)
         if preds_arr_q.ndim == 2 and targets_arr.ndim == 1:
             def _compose_quantile():
@@ -278,8 +280,8 @@ def render_multi_target_panels(
     probs_arr = np.asarray(probs)
 
     # Multilabel: 2-D targets aligned with 2-D probs.
-    _ml_allowed = tt == "" or tt == "multilabel_classification"
-    if _ml_allowed and targets_arr.ndim == 2 and probs_arr.ndim == 2 and multilabel_panels:
+    st._ml_allowed = st.tt == "" or st.tt == "multilabel_classification"
+    if st._ml_allowed and targets_arr.ndim == 2 and probs_arr.ndim == 2 and multilabel_panels:
         if targets_arr.shape != probs_arr.shape:
             logger.warning(
                 "render_multi_target_panels: multilabel targets %s != probs %s; " "skipping multilabel panels.",
@@ -305,9 +307,9 @@ def render_multi_target_panels(
         return None
 
     # Multiclass: 1-D targets, K>=3 classes in the proba matrix.
-    _mc_allowed = tt == "" or tt == "multiclass_classification"
-    _mc_shape_ok = targets_arr.ndim == 1 and probs_arr.ndim == 2 and probs_arr.shape[1] >= 3
-    if tt == "multiclass_classification" and multiclass_panels and not _mc_shape_ok:
+    st._mc_allowed = st.tt == "" or st.tt == "multiclass_classification"
+    st._mc_shape_ok = targets_arr.ndim == 1 and probs_arr.ndim == 2 and probs_arr.shape[1] >= 3
+    if st.tt == "multiclass_classification" and multiclass_panels and not st._mc_shape_ok:
         # target_type authoritatively selects this branch, but the actual shapes don't satisfy its
         # contract -- log and bail rather than silently falling through to "Regression" at the bottom,
         # matching the multilabel branch's shape-mismatch warning above.
@@ -318,7 +320,7 @@ def render_multi_target_panels(
             probs_arr.shape,
         )
         return None
-    if _mc_allowed and _mc_shape_ok and multiclass_panels:
+    if st._mc_allowed and st._mc_shape_ok and multiclass_panels:
         def _compose_multiclass():
             """Deferred so the composer import only happens on the branch that is actually taken."""
             from mlframe.reporting.charts.multiclass import compose_multiclass_figure
@@ -341,8 +343,8 @@ def render_multi_target_panels(
     # else the 1-D probs / preds). Regression is already excluded above by the
     # authoritative target_type gate; the shape heuristic here is the binary
     # back-compat path for callers that do not pass target_type.
-    _bin_allowed = tt == "" or tt == "binary_classification"
-    if tt == "binary_classification" and binary_panels and (targets_arr is None or targets_arr.ndim != 1):
+    st._bin_allowed = st.tt == "" or st.tt == "binary_classification"
+    if st.tt == "binary_classification" and binary_panels and (targets_arr is None or targets_arr.ndim != 1):
         # target_type authoritatively selects binary, but targets aren't 1-D -- log and bail, matching
         # the multilabel branch's shape-mismatch warning above (same reasoning as the multiclass guard).
         logger.warning(
@@ -350,10 +352,10 @@ def render_multi_target_panels(
             None if targets_arr is None else targets_arr.shape,
         )
         return None
-    if _bin_allowed and binary_panels and targets_arr is not None and targets_arr.ndim == 1:
+    if st._bin_allowed and binary_panels and targets_arr is not None and targets_arr.ndim == 1:
         y_score = None
         y_score = _render_multi_targe_probs_arr_ndim_probs(probs_arr, y_score)
-        if y_score is None and tt == "binary_classification":
+        if y_score is None and st.tt == "binary_classification":
             # target_type authoritatively selects binary, targets are 1-D, but probs' shape doesn't
             # resolve to a usable score column -- log and bail rather than silently falling through.
             logger.warning(

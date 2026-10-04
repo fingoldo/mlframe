@@ -37,13 +37,6 @@ _TEST_META_DIR = Path(__file__).resolve().parent
 # Imports of a production private symbol from a meta-test that are
 # legitimate. Each entry is "test_meta_filename::imported_dotted_name".
 _PERMITTED_PRIVATE_IMPORTS: set[str] = {
-    # The swallowed-failure meta-tests drive the handlers of these private FE modules directly: the handler IS the surface under audit
-    # and no public entry point reaches one except branch without a whole fit.
-    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mi_greedy_cmi_fe",
-    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe",
-    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._binned_numeric_agg_fe",
-    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._fe_batched_mi",
-    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._mi_greedy_cmi_fe",
     # mlframe meta-tests touching internal helpers — these are the
     # surface under audit, so importing the underscore-prefixed name
     # is part of the test's purpose.
@@ -71,6 +64,14 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # The value an except handler substitutes is observable only by driving that handler, and this helper's
     # failure branch is not reachable through any public entry point.
     "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._group_distance_fe._wasserstein_quantile_approx",
+    # These tests force the failing branch INSIDE the module that swallows (a patched kernel or probe), then read the
+    # warning that module logs or the value its handler substitutes; the swallow site has no public entry that reaches
+    # it without a full fit, and the module object is what gets patched and logged under.
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mi_greedy_cmi_fe",
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe",
+    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._binned_numeric_agg_fe",
+    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._fe_batched_mi",
+    "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._mi_greedy_cmi_fe",
     # The registration flag is module-level state; the contract under test is that a TRANSIENT registration
     # failure leaves it unset so a later call retries, which cannot be seen from the cache's public getter.
     "test_transient_faults_do_not_latch_a_downgrade::mlframe.feature_selection.filters._kernel_tuning",

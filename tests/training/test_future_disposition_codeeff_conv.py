@@ -32,6 +32,7 @@ def _read(rel: str) -> str:
         _core_dir = repo_root / "src" / "mlframe" / "training" / "core"
         for _sib_name in (
             "_phase_train_one_target_body.py",
+            "_phase_train_one_target_steps.py",
             "_phase_train_one_target_ensembling.py",
             "_phase_train_one_target_polars_fastpath.py",
             "_phase_train_one_target_pre_screen.py",
@@ -114,7 +115,7 @@ def _fingerprint_calls_for(tmp_path, monkeypatch, weight_schemas) -> int:
 
     pytest.importorskip("lightgbm")
     from mlframe.training import OutputConfig
-    from mlframe.training.core import _phase_train_one_target_body as body
+    from mlframe.training.core import _phase_train_one_target_steps as body
     from mlframe.training.core import train_mlframe_models_suite
     from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 

@@ -806,6 +806,7 @@ _DECLARED_NARROWINGS: dict[str, str] = {
     r"pre-commit::bandit-blocking::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
     r"pre-commit::interrogate-blocking::--fail-under=100": "100 is the strictest bar, not a lowered one",
     r"pre-commit::interrogate-blocking::exclude=(^|/)(tests|scripts|legacy|benchmarks|_benchmarks|profiling)/": _NON_PRODUCT,
+    r"pre-commit::vulture-blocking::--min-confidence=80": "the confidence floor CI's lint-blocking vulture run uses too",
     r"pre-commit::black-filtered-tests-blocking::files=^tests/": "the tests twin of the src hook",
     r"pre-commit::bandit-tests-blocking::files=^tests/": "the tests twin of the src hook",
     r"pre-commit::interrogate-tests-blocking::files=^tests/": "the tests twin of the src hook",

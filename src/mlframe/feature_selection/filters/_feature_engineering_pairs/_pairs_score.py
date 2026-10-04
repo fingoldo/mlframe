@@ -251,7 +251,15 @@ def _score_one_pair(
     if quantization_method == "quantile":
         st._use_batch_disc = _deferred_chunk_entry if final_transformed_vals is None else True
 
+    st._fe_defer_float = _fe_defer_float
+    st._pair_defer_state = None
     _score_one_pair_step3_resolve_col_treat(st, final_transformed_vals, _op_code_arr, binary_transformations, vars_transformations, _PREWARP_UNARY, quantization_nbins, quantization_dtype, transformed_vars, _fe_gpu_discretize_enabled, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, discretize_2d_quantile_batch, serial_main_thread, batch_mi_with_noise_gate, _fe_env_gate, _need_recompute_map, _config_by_i, fe_print_best_mis_only, verbose, pair_mi, discretize_array, quantization_method, mi_direct)
+    if st._pair_defer_state is not None:
+        # The GPU fused materialise left the float candidate matrix on the device: nothing is copied to the host, and the survivor / usability / emit reads below
+        # take the same deferred path a deferred chunk does, re-materialising only the columns they touch.
+        final_transformed_vals = None
+        _this_chunk_deferred = True
+        _resolve_col = _score_one_pair_step2_def_resolve_col(None, st._pair_defer_state, transformed_vars)
 
     # Merge this pair's per-bin_func timings into the shared accumulator in
     # ONE locked pass (the increment was previously locked per inner

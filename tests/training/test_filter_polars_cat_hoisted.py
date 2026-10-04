@@ -15,30 +15,54 @@ from pathlib import Path
 
 
 def _read_phase_body() -> str:
-    """Read phase body."""
-    p = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_train_one_target_body.py"
+    """Read the module holding the per-model / per-weight stage helpers, where the weight loop lives."""
+    p = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_train_one_target_steps.py"
     return p.read_text(encoding="utf-8")
 
 
 def test_S47_filter_polars_cat_features_by_dtype_hoisted_above_weight_loop():
-    """The ``_filter_polars_cat_features_by_dtype`` call must appear BEFORE the weight loop
-    (``for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items()``). Behavioural
-    proxy: line numbers measured against the same source file.
+    """The ``_filter_polars_cat_features_by_dtype`` call must run BEFORE the weight loop
+    (``for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items()``). The call may sit in a stage helper
+    carved out of the loop's function: then it is that helper's call SITE that has to precede the loop header.
     """
-    src = _read_phase_body()
-    lines = src.splitlines()
-    # Find the indices.
-    weight_loop_lines = [i for i, line in enumerate(lines) if "for weight_name, weight_values in tqdmu_lazy_start(weight_schemas.items()" in line]
-    filter_call_lines = [i for i, line in enumerate(lines) if "_filter_polars_cat_features_by_dtype(prepared_train" in line]
-    assert weight_loop_lines, "could not locate weight_schemas loop in _phase_train_one_target_body.py"
-    assert filter_call_lines, "could not locate _filter_polars_cat_features_by_dtype call site"
-    # Every filter call must be above the weight loop header.
-    for fl in filter_call_lines:
-        assert fl < min(weight_loop_lines), (
-            f"_filter_polars_cat_features_by_dtype at line {fl + 1} appears AT or BELOW the weight loop "
-            f"header at line {min(weight_loop_lines) + 1}; the filter must be hoisted above the loop "
-            f"to avoid per-weight invocations."
-        )
+    import ast
+
+    tree = ast.parse(_read_phase_body())
+    weight_loops = [
+        n.lineno
+        for n in ast.walk(tree)
+        if isinstance(n, ast.For) and isinstance(n.iter, ast.Call) and "weight_schemas.items()" in ast.unparse(n.iter)
+    ]
+    assert weight_loops, "could not locate weight_schemas loop in _phase_train_one_target_steps.py"
+    loop_line = min(weight_loops)
+
+    def _calls(name):
+        """Lines where ``name(...)`` is called."""
+        return [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == name]
+
+    def _enclosing(lineno):
+        """Innermost function containing ``lineno``."""
+        best = None
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.lineno <= lineno <= n.end_lineno and (best is None or n.lineno > best.lineno):
+                best = n
+        return best
+
+    filter_calls = _calls("_filter_polars_cat_features_by_dtype")
+    assert filter_calls, "could not locate _filter_polars_cat_features_by_dtype call site"
+    for fl in filter_calls:
+        owner = _enclosing(fl)
+        loop_owner = _enclosing(loop_line)
+        if owner is not None and owner is not loop_owner:
+            positions = _calls(owner.name)
+            assert positions, f"{owner.name}, which holds the cat-feature filter, is never called"
+        else:
+            positions = [fl]
+        for pos in positions:
+            assert pos < loop_line, (
+                f"_filter_polars_cat_features_by_dtype (via line {pos}) is reached AT or BELOW the weight loop header at line "
+                f"{loop_line}; the filter must be hoisted above the loop to avoid per-weight invocations."
+            )
 
 
 def _assigns_subscript(tree, container: str, key: str):
@@ -80,14 +104,36 @@ def test_S47_cb_extra_fit_invariant_carries_filter_result_into_loop():
     assert id(stores[0]) not in loop_nodes, "the filter result must be stored before the weight loop"
 
     merges = _assigns_subscript(tree, "current_model_params", "fit_params")
-    merged_in_loop = [
+    merged = [
         m
         for m in merges
-        if id(m) in loop_nodes
-        and isinstance(m.value, ast.Dict)
+        if isinstance(m.value, ast.Dict)
         and any(k is None and isinstance(v, ast.Name) and v.id == "_cb_extra_fit_invariant" for k, v in zip(m.value.keys, m.value.values))
     ]
-    assert len(merged_in_loop) == 1
+    assert len(merged) == 1
+
+    def _enclosing_function(node):
+        """Innermost function containing ``node``."""
+        best = None
+        for n in ast.walk(tree):
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.lineno <= node.lineno <= n.end_lineno and (best is None or n.lineno > best.lineno):
+                best = n
+        return best
+
+    # the stitch happens per weight: either inside the loop itself or in a stage helper the loop body calls
+    owner = _enclosing_function(merged[0])
+    in_loop = id(merged[0]) in loop_nodes
+    called_from_loop = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == owner.name for n in ast.walk(weight_loops[0]))
+    stage_helpers_called_from_loop = {
+        n.func.id for n in ast.walk(weight_loops[0]) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    transitive = any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == owner.name
+        for fn in ast.walk(tree)
+        if isinstance(fn, ast.FunctionDef) and fn.name in stage_helpers_called_from_loop
+        for n in ast.walk(fn)
+    )
+    assert in_loop or called_from_loop or transitive, "the merge into fit_params must run once per weight iteration"
 
 
 def test_S47_ngb_fallback_snapshot_cached_outside_loop():

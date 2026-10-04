@@ -47,6 +47,7 @@ from .._reporting import (
     DEFAULT_REPORT_NDIGITS,
     _maybe_display,
 )
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,7 @@ def report_regression_model_perf(
     tuple
         (preds, None) - predictions and None (no probabilities for regression).
     """
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     RMSE: Any = None
     R2: Any = None
     MaxError: Any = None
@@ -173,8 +175,8 @@ def report_regression_model_perf(
     # (1-D / 2-D, sample_weight, multioutput), but the FUSED block this call site uses on the
     # common 1-D path (fast_regression_metrics_block_extended, below) does not thread
     # sample_weight through -- see that branch for which metrics are actually weight-aware here.
-    targets_arr = np.asarray(targets)
-    preds_arr = np.asarray(preds)
+    st.targets_arr = np.asarray(targets)
+    st.preds_arr = np.asarray(preds)
 
     # F-34 (2026-05-31): MULTI_TARGET_REGRESSION gate. This reporter
     # assumes 1-D targets + 1-D preds for the scatter/histogram chart,
@@ -189,10 +191,10 @@ def report_regression_model_perf(
     #     render_and_save pipeline (same as the single-target chart,
     #     just looped K times). Fairness / MASE / prediction-envelope
     #     clip stay skipped (they assume 1-D y).
-    if targets_arr.ndim == 2 and targets_arr.shape[1] >= 2:
+    if st.targets_arr.ndim == 2 and st.targets_arr.shape[1] >= 2:
         from ._mtr import render_mtr_report
         return render_mtr_report(
-            targets_arr, preds_arr, model_name,
+            st.targets_arr, st.preds_arr, model_name,
             metrics=metrics, print_report=print_report,
             plot_outputs=plot_outputs, plot_file=plot_file,
             figsize=figsize, plot_sample_size=plot_sample_size,
@@ -201,8 +203,8 @@ def report_regression_model_perf(
     # Generic prediction-envelope clip (carved to _sensors.py). Bounds preds to a sigma window around the train (or
     # eval-fallback) target range BEFORE metrics + chart; catches catastrophic extrapolation on group-aware splits.
     from ._sensors import apply_prediction_envelope_clip
-    preds_arr = apply_prediction_envelope_clip(
-        preds_arr, targets_arr,
+    st.preds_arr = apply_prediction_envelope_clip(
+        st.preds_arr, st.targets_arr,
         y_train_min=y_train_min, y_train_max=y_train_max, y_train_std=y_train_std,
         model_name=model_name, report_title=report_title,
     )
@@ -213,8 +215,8 @@ def report_regression_model_perf(
     # guard against, the title/metrics would show a plausible clipped R2 while the chart/audit/returned
     # predictions (later stored as entry.test_preds and consumed throughout the rest of the reporting
     # pipeline) silently showed the raw, unclipped values.
-    preds = preds_arr
-    if targets_arr.ndim > 1 and targets_arr.shape[1] > 1:
+    preds = st.preds_arr
+    if st.targets_arr.ndim > 1 and st.targets_arr.shape[1] > 1:
         # WARN-loud when this multioutput path
         # fires. Multilabel classification SHOULD route to
         # ``report_probabilistic_model_perf`` via the
@@ -230,7 +232,7 @@ def report_regression_model_perf(
             "estimator. The metrics will compute per-output but the "
             "dispatch should route to report_probabilistic_model_perf "
             "instead.",
-            targets_arr.shape,
+            st.targets_arr.shape,
         )
     # 2026-05-22: fused single-pass kernel for the 1-D regression-reporting case.
     # On 1-D inputs the 4 separate ``fast_*`` calls each re-touched (y_true, y_pred)
@@ -241,7 +243,7 @@ def report_regression_model_perf(
     # 2-D / multioutput regression keeps the legacy per-output dispatch since the
     # multioutput aggregation has a non-trivial dispatch and fusing one target's
     # pass doesn't compose cleanly across outputs.
-    if targets_arr.ndim == 1 and preds_arr.ndim == 1 and sample_weight is None:
+    if st.targets_arr.ndim == 1 and st.preds_arr.ndim == 1 and sample_weight is None:
         # 2026-05-28 audit batch: switched from fast_regression_metrics_block
         # (4 metrics: MAE/RMSE/MaxError/R2) to the EXTENDED block that lands
         # 12 metrics in the SAME 2 numba passes. 5.8-10.5x faster than the
@@ -249,7 +251,7 @@ def report_regression_model_perf(
         # ``mlframe.metrics._regression_extras`` for measured speedups.
         # Only reachable when sample_weight is None: the fused kernel has no weighted variant.
         from mlframe.metrics.core import fast_regression_metrics_block_extended
-        _block = fast_regression_metrics_block_extended(targets_arr, preds_arr)
+        _block = fast_regression_metrics_block_extended(st.targets_arr, st.preds_arr)
         MAE = _block["MAE"]
         RMSE = _block["RMSE"]
         MaxError = _block["MaxError"]
@@ -272,20 +274,20 @@ def report_regression_model_perf(
         # 2-D-path behavior) rather than silently mixing weighted and unweighted numbers in one report.
         _ext_MBE = _ext_MAPE_mean = _ext_SMAPE = _ext_wMAPE = np.nan
         _ext_CV_RMSE = _ext_NSE = _ext_Pearson = _ext_EV = np.nan
-        MAE = fast_mean_absolute_error(targets_arr, preds_arr, sample_weight=sample_weight)
+        MAE = fast_mean_absolute_error(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
         # 2-D max_error returns per-output array; the existing reporting
         # contract is a single scalar (overall max), so reduce explicitly.
         # No weighted variant exists (matches sklearn's own unweighted max_error).
-        _max_err = fast_max_error(targets_arr, preds_arr)
+        _max_err = fast_max_error(st.targets_arr, st.preds_arr)
         MaxError = float(np.max(_max_err)) if isinstance(_max_err, np.ndarray) else _max_err
-        R2 = fast_r2_score(targets_arr, preds_arr, sample_weight=sample_weight)
-        RMSE = fast_root_mean_squared_error(targets_arr, preds_arr, sample_weight=sample_weight)
+        R2 = fast_r2_score(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
+        RMSE = fast_root_mean_squared_error(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
 
     # Prediction-collapse / extrapolation / mean-shift / out-of-envelope sensor (carved to _sensors.py). Logs a HARD
     # WARNING when predictions look pathological so operators see it in the run log instead of eyeballing scatters.
     from ._sensors import run_collapse_sensor
     run_collapse_sensor(
-        preds_arr, targets_arr, R2,
+        st.preds_arr, st.targets_arr, R2,
         model_name=model_name,
         y_train_min=y_train_min, y_train_max=y_train_max, y_train_std=y_train_std,
     )
@@ -301,55 +303,12 @@ def report_regression_model_perf(
     _ext_Kendall = np.nan
     _ext_Cindex = np.nan
     _ext_Huber = np.nan
-    _ext_MASE = np.nan
-    _ext_RMSPE = np.nan
-    _ext_LogCosh = np.nan
-    if targets_arr.ndim == 1 and preds_arr.ndim == 1:
-        try:
-            from mlframe.metrics.core import (
-                fast_rmsle, fast_mdape, fast_spearman_corr,
-                fast_kendall_tau, fast_concordance_index, fast_huber_loss,
-            )
-            from mlframe.metrics.regression import fast_rmspe, fast_logcosh_loss
-            # RMSLE only on non-negative targets; otherwise NaN is the right
-            # signal (the metric isn't defined and the kernel warns).
-            if (targets_arr >= 0).all() and (preds_arr >= 0).all():
-                _ext_RMSLE = fast_rmsle(targets_arr, preds_arr)
-            _ext_MdAPE = fast_mdape(targets_arr, preds_arr)
-            _ext_Spearman = fast_spearman_corr(targets_arr, preds_arr)
-            # Kendall + C-index are O(N log N) (scipy fallback for N>5000);
-            # cap at 50k rows to bound the report cost - above that they
-            # dominate the whole evaluation pass.
-            if targets_arr.shape[0] <= 50_000:
-                _ext_Kendall = fast_kendall_tau(targets_arr, preds_arr)
-                # C-index is NOT (tau_b + 1) / 2 once preds carry ties (common for tree-ensemble
-                # scores): tau-b's denominator is the geometric mean of pairs-not-tied-in-targets
-                # and pairs-not-tied-in-preds, while the C-index denominator is pairs-not-tied-in-
-                # targets alone -- the two formulas only coincide in the fully tie-free case. Call
-                # fast_concordance_index directly (its own O(N log N) Fenwick-tree kernel, same
-                # complexity class as fast_kendall_tau's scipy fallback, so no perf regression).
-                _ext_Cindex = fast_concordance_index(targets_arr, preds_arr)
-            # Huber loss: delta=1.0 default (callers can override via
-            # ReportingConfig in a future iteration). Pure 1-pass kernel.
-            _ext_Huber = fast_huber_loss(targets_arr, preds_arr, delta=1.0)
-            # RMSPE (Rossmann metric): scale-free squared-relative error over non-zero targets. LogCosh: overflow-safe
-            # smooth loss. Both are (y_true, y_pred)-only kernels, so they slot in beside the other non-fused extras.
-            _ext_RMSPE = fast_rmspe(targets_arr, preds_arr)
-            _ext_LogCosh = fast_logcosh_loss(targets_arr, preds_arr)
-            # MASE: only when the caller pre-supplied the train-fold naive-MAE
-            # scale (we don't have the full y_train array here, only summary
-            # stats). Scale is MAE_naive(y_train, seasonality); the caller
-            # MUST compute it on TRAIN ONLY to keep the scaling honest.
-            if mase_naive_mae is not None and mase_naive_mae > 0:
-                _ext_MASE = float(np.mean(np.abs(targets_arr - preds_arr))) / float(mase_naive_mae)
-        except (ValueError, TypeError, FloatingPointError) as _ext_err:
-            logger.warning(
-                "regression metric extras failed for '%s': %s. " "Continuing with the core block only.",
-                model_name,
-                _ext_err,
-            )
+    st._ext_MASE = np.nan
+    st._ext_RMSPE = np.nan
+    st._ext_LogCosh = np.nan
+    _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman = _report_regression_mo_step1_st_targets_arr(st, mase_naive_mae, model_name, _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman)
 
-    current_metrics = dict(
+    st.current_metrics = dict(
         MAE=MAE,
         MaxError=MaxError,
         R2=R2,
@@ -372,20 +331,20 @@ def report_regression_model_perf(
         Kendall=_ext_Kendall,
         ConcordanceIndex=_ext_Cindex,
         Huber=_ext_Huber,
-        MASE=_ext_MASE,
+        MASE=st._ext_MASE,
         MASE_seasonality=int(mase_seasonality) if mase_seasonality is not None else None,
-        RMSPE=_ext_RMSPE,
-        LogCosh=_ext_LogCosh,
+        RMSPE=st._ext_RMSPE,
+        LogCosh=st._ext_LogCosh,
     )
     if metrics is not None:
-        metrics.update(current_metrics)
+        metrics.update(st.current_metrics)
 
     # Compute residual audit ONCE (used by both the chart and the print-report block; cheap thanks to internal sampling).
     # ``behavior_config.report_residual_audit`` is a LOG-ONLY toggle. When False we MUST still compute the audit so the chart's hist + resid-vs-pred panels stay populated -- only the multi-line verdict text in the log is suppressed. Multi-output targets still skip the audit (no scalar residuals to fit a distribution to).
-    _residual_audit = None
+    st._residual_audit = None
     from ...evaluation import _get_residual_audit_enabled  # lazy: breaks cycle with .evaluation
-    _audit_log_enabled = bool(_get_residual_audit_enabled())
-    _residual_audit = _report_regression__targets_arr_ndim_targets(targets_arr, preds_arr, targets, preds, metrics, model_name, _residual_audit)
+    st._audit_log_enabled = bool(_get_residual_audit_enabled())
+    st._residual_audit = _report_regression__targets_arr_ndim_targets(st.targets_arr, st.preds_arr, targets, preds, metrics, model_name, st._residual_audit)
 
     # Short-circuit when there is NO consumer for the chart.
     # Same logic as ``mlframe.metrics.core.show_calibration_plot``: in a script /
@@ -459,7 +418,7 @@ def report_regression_model_perf(
                 report_title,
                 model_name,
             )
-            return preds_arr, None
+            return st.preds_arr, None
         _scale_tag = " [T-scale residual]" if _is_t_scale_composite_chart else ""
         header_str = report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + _scale_tag
         from ..._format import format_metric as _fmt
@@ -479,71 +438,133 @@ def report_regression_model_perf(
         _reg_tokens = DEFAULT_REGRESSION_TITLE_TOKENS
         _reg_tokens = _report_regression__try(reporting_config, _reg_tokens)
 
-        def _render_regression_token(token: str) -> str:
-            """Formats one metric title token (e.g. "MAE", "RMSE") as its ``name=value`` chart-title fragment; "" if not finite/recognized."""
-            if token == "MAE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return f"MAE={_fmt(MAE, report_ndigits)}"
-            if token == "RMSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return f"RMSE={_fmt(RMSE, report_ndigits)}"
-            if token == "MaxError":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return f"MaxError={_fmt(MaxError, report_ndigits)}"
-            if token == "R2":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return f"R2={_fmt(R2, report_ndigits)}"
-            if token == "MBE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_MBE) else f"MBE={_fmt(_ext_MBE, report_ndigits)}"
-            if token == "MAPE_mean":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_MAPE_mean) else f"MAPE={_ext_MAPE_mean * 100:.{max(0, report_ndigits-1)}f}%"
-            if token == "SMAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_SMAPE) else f"SMAPE={_ext_SMAPE * 50:.{max(0, report_ndigits-1)}f}%"
-            if token == "wMAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_wMAPE) else f"wMAPE={_ext_wMAPE * 100:.{max(0, report_ndigits-1)}f}%"
-            if token == "CV_RMSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_CV_RMSE) else f"CV_RMSE={_ext_CV_RMSE * 100:.{max(0, report_ndigits-1)}f}%"
-            if token == "Pearson":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_Pearson) else f"Pearson={_fmt(_ext_Pearson, report_ndigits)}"
-            if token == "Spearman":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_Spearman) else f"Spearman={_fmt(_ext_Spearman, report_ndigits)}"
-            if token == "Kendall":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_Kendall) else f"Kendall={_fmt(_ext_Kendall, report_ndigits)}"
-            if token == "ExplainedVariance":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_EV) else f"EV={_fmt(_ext_EV, report_ndigits)}"
-            if token == "NSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_NSE) else f"NSE={_fmt(_ext_NSE, report_ndigits)}"
-            if token == "RMSLE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_RMSLE) else f"RMSLE={_fmt(_ext_RMSLE, report_ndigits)}"
-            if token == "MdAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_MdAPE) else f"MdAPE={_ext_MdAPE * 100:.{max(0, report_ndigits-1)}f}%"
-            if token == "ConcordanceIndex":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_Cindex) else f"C-idx={_fmt(_ext_Cindex, report_ndigits)}"
-            if token == "Huber":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
-                return "" if not np.isfinite(_ext_Huber) else f"Huber={_fmt(_ext_Huber, report_ndigits)}"
-            return ""
+        _render_regression_token = _report_regression_mo_step1_def_render_regression(MAE, report_ndigits, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_Pearson, _ext_Spearman, _ext_Kendall, _ext_EV, _ext_NSE, _ext_RMSLE, _ext_MdAPE, _ext_Cindex, _ext_Huber)
 
-        _frags = [_render_regression_token(t) for t in _reg_tokens]
-        metrics_str = " ".join(f for f in _frags if f)
-        if _is_t_scale_composite_chart:
-            # Make the scale obvious in the metric block too -- a glance
-            # at the chart should not let RMSE=6 on T-space register as
-            # "competitive with leaderboard" when y-scale RMSE may be 100x.
-            metrics_str = f"(T-scale) {metrics_str}"
-        # ``title`` retained for the (deprecated) print-report path that still concatenates everything for stdout. Charts use the split.
-        title = header_str + "\n " + metrics_str  # noqa: F841 -- see comment above
+        _report_regression_mo_step2_frags_render_regression(_reg_tokens, _render_regression_token, _is_t_scale_composite_chart, header_str, st, print_report, plot_outputs, plot_file, reporting_config, targets, preds, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart)
 
-        # For (N, K) multilabel-as-regression
-        # targets the scatter plot below would do
-        # ``np.argsort(preds[idx])`` on a 2-D array (which sorts rows
-        # element-wise instead of by-row), then ``plt.scatter`` would
-        # emit K overlapping point clouds with no visual separation.
-        # Skip the plot when targets are 2-D -- title metrics already
-        # carry the per-output-aggregated MAE/RMSE/R2.
-        _is_multioutput = (targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)
-        _report_regression__carry_per_output_aggregated(_is_multioutput, print_report, targets_arr, _residual_audit, plot_outputs, plot_file, reporting_config, targets, preds, header_str, metrics_str, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart)
-
-    _report_regression__print_report(print_report, model_name, report_title, MAE, report_ndigits, RMSE, MaxError, R2, _residual_audit, _audit_log_enabled)
+    _report_regression__print_report(print_report, model_name, report_title, MAE, report_ndigits, RMSE, MaxError, R2, st._residual_audit, st._audit_log_enabled)
 
     _report_regression__cleanly_under_one_record(subgroups, subset_index, targets, preds, print_report, metrics)
 
     return preds, None
+
+
+def _report_regression_mo_step1_def_render_regression(MAE, report_ndigits, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_Pearson, _ext_Spearman, _ext_Kendall, _ext_EV, _ext_NSE, _ext_RMSLE, _ext_MdAPE, _ext_Cindex, _ext_Huber):
+    """Step 1 of report_regression_model_perf: lines starting at ``def _render_regression_token(token: str) -> str:``."""
+    from mlframe.training._format import format_metric as _fmt
+
+    def _render_regression_token(token: str) -> str:
+        """Formats one metric title token (e.g. "MAE", "RMSE") as its ``name=value`` chart-title fragment; "" if not finite/recognized."""
+        if token == "MAE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return f"MAE={_fmt(MAE, report_ndigits)}"
+        if token == "RMSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return f"RMSE={_fmt(RMSE, report_ndigits)}"
+        if token == "MaxError":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return f"MaxError={_fmt(MaxError, report_ndigits)}"
+        if token == "R2":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return f"R2={_fmt(R2, report_ndigits)}"
+        if token == "MBE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_MBE) else f"MBE={_fmt(_ext_MBE, report_ndigits)}"
+        if token == "MAPE_mean":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_MAPE_mean) else f"MAPE={_ext_MAPE_mean * 100:.{max(0, report_ndigits-1)}f}%"
+        if token == "SMAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_SMAPE) else f"SMAPE={_ext_SMAPE * 50:.{max(0, report_ndigits-1)}f}%"
+        if token == "wMAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_wMAPE) else f"wMAPE={_ext_wMAPE * 100:.{max(0, report_ndigits-1)}f}%"
+        if token == "CV_RMSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_CV_RMSE) else f"CV_RMSE={_ext_CV_RMSE * 100:.{max(0, report_ndigits-1)}f}%"
+        if token == "Pearson":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_Pearson) else f"Pearson={_fmt(_ext_Pearson, report_ndigits)}"
+        if token == "Spearman":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_Spearman) else f"Spearman={_fmt(_ext_Spearman, report_ndigits)}"
+        if token == "Kendall":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_Kendall) else f"Kendall={_fmt(_ext_Kendall, report_ndigits)}"
+        if token == "ExplainedVariance":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_EV) else f"EV={_fmt(_ext_EV, report_ndigits)}"
+        if token == "NSE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_NSE) else f"NSE={_fmt(_ext_NSE, report_ndigits)}"
+        if token == "RMSLE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_RMSLE) else f"RMSLE={_fmt(_ext_RMSLE, report_ndigits)}"
+        if token == "MdAPE":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_MdAPE) else f"MdAPE={_ext_MdAPE * 100:.{max(0, report_ndigits-1)}f}%"
+        if token == "ConcordanceIndex":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_Cindex) else f"C-idx={_fmt(_ext_Cindex, report_ndigits)}"
+        if token == "Huber":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
+            return "" if not np.isfinite(_ext_Huber) else f"Huber={_fmt(_ext_Huber, report_ndigits)}"
+        return ""
+    return _render_regression_token
+
+
+def _report_regression_mo_step2_frags_render_regression(_reg_tokens, _render_regression_token, _is_t_scale_composite_chart, header_str, st, print_report, plot_outputs, plot_file, reporting_config, targets, preds, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart):
+    """Step 2 of report_regression_model_perf: lines starting at ``_frags = [_render_regression_token(t) for t in _reg_tokens]``."""
+    _frags = [_render_regression_token(t) for t in _reg_tokens]
+    metrics_str = " ".join(f for f in _frags if f)
+    if _is_t_scale_composite_chart:
+        # Make the scale obvious in the metric block too -- a glance
+        # at the chart should not let RMSE=6 on T-space register as
+        # "competitive with leaderboard" when y-scale RMSE may be 100x.
+        metrics_str = f"(T-scale) {metrics_str}"
+    # ``title`` retained for the (deprecated) print-report path that still concatenates everything for stdout. Charts use the split.
+    title = header_str + "\n " + metrics_str  # noqa: F841 -- see comment above
+
+    # For (N, K) multilabel-as-regression
+    # targets the scatter plot below would do
+    # ``np.argsort(preds[idx])`` on a 2-D array (which sorts rows
+    # element-wise instead of by-row), then ``plt.scatter`` would
+    # emit K overlapping point clouds with no visual separation.
+    # Skip the plot when targets are 2-D -- title metrics already
+    # carry the per-output-aggregated MAE/RMSE/R2.
+    _is_multioutput = (st.targets_arr.ndim > 1 and st.targets_arr.shape[1] > 1) or (st.preds_arr.ndim > 1 and st.preds_arr.shape[1] > 1)
+    _report_regression__carry_per_output_aggregated(_is_multioutput, print_report, st.targets_arr, st._residual_audit, plot_outputs, plot_file, reporting_config, targets, preds, header_str, metrics_str, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart)
+
+
+def _report_regression_mo_step1_st_targets_arr(st, mase_naive_mae, model_name, _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman):
+    """Step 1 of report_regression_model_perf: lines starting at ``if st.targets_arr.ndim == 1 and st.preds_arr.ndim == 1:``."""
+    if st.targets_arr.ndim == 1 and st.preds_arr.ndim == 1:
+        try:
+            from mlframe.metrics.core import (
+                fast_rmsle, fast_mdape, fast_spearman_corr,
+                fast_kendall_tau, fast_concordance_index, fast_huber_loss,
+            )
+            from mlframe.metrics.regression import fast_rmspe, fast_logcosh_loss
+            # RMSLE only on non-negative targets; otherwise NaN is the right
+            # signal (the metric isn't defined and the kernel warns).
+            if (st.targets_arr >= 0).all() and (st.preds_arr >= 0).all():
+                _ext_RMSLE = fast_rmsle(st.targets_arr, st.preds_arr)
+            _ext_MdAPE = fast_mdape(st.targets_arr, st.preds_arr)
+            _ext_Spearman = fast_spearman_corr(st.targets_arr, st.preds_arr)
+            # Kendall + C-index are O(N log N) (scipy fallback for N>5000);
+            # cap at 50k rows to bound the report cost - above that they
+            # dominate the whole evaluation pass.
+            if st.targets_arr.shape[0] <= 50_000:
+                _ext_Kendall = fast_kendall_tau(st.targets_arr, st.preds_arr)
+                # C-index is NOT (tau_b + 1) / 2 once preds carry ties (common for tree-ensemble
+                # scores): tau-b's denominator is the geometric mean of pairs-not-tied-in-targets
+                # and pairs-not-tied-in-preds, while the C-index denominator is pairs-not-tied-in-
+                # targets alone -- the two formulas only coincide in the fully tie-free case. Call
+                # fast_concordance_index directly (its own O(N log N) Fenwick-tree kernel, same
+                # complexity class as fast_kendall_tau's scipy fallback, so no perf regression).
+                _ext_Cindex = fast_concordance_index(st.targets_arr, st.preds_arr)
+            # Huber loss: delta=1.0 default (callers can override via
+            # ReportingConfig in a future iteration). Pure 1-pass kernel.
+            _ext_Huber = fast_huber_loss(st.targets_arr, st.preds_arr, delta=1.0)
+            # RMSPE (Rossmann metric): scale-free squared-relative error over non-zero targets. LogCosh: overflow-safe
+            # smooth loss. Both are (y_true, y_pred)-only kernels, so they slot in beside the other non-fused extras.
+            st._ext_RMSPE = fast_rmspe(st.targets_arr, st.preds_arr)
+            st._ext_LogCosh = fast_logcosh_loss(st.targets_arr, st.preds_arr)
+            # MASE: only when the caller pre-supplied the train-fold naive-MAE
+            # scale (we don't have the full y_train array here, only summary
+            # stats). Scale is MAE_naive(y_train, seasonality); the caller
+            # MUST compute it on TRAIN ONLY to keep the scaling honest.
+            if mase_naive_mae is not None and mase_naive_mae > 0:
+                st._ext_MASE = float(np.mean(np.abs(st.targets_arr - st.preds_arr))) / float(mase_naive_mae)
+        except (ValueError, TypeError, FloatingPointError) as _ext_err:
+            logger.warning(
+                "regression metric extras failed for '%s': %s. " "Continuing with the core block only.",
+                model_name,
+                _ext_err,
+            )
+    return _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman
 
 
 def _report_regression__targets_arr_ndim_targets(targets_arr, preds_arr, targets, preds, metrics, model_name, _residual_audit):

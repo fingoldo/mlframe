@@ -52,7 +52,7 @@ def main():
         codes = rng.integers(0, k, n)
         y = rng.normal(size=n)
         if not np.array_equal(_old_oof(codes, y), _kfold_target_encode_codes(codes, y)[0]):
-            raise AssertionError(f"new target-encode path differs from the reference at n={n} cells={k}")
+            raise AssertionError(f"old and new OOF target encodings differ for n={n} cells={k}")
         told = tnew = 1e9
         for _ in range(3):
             told = min(told, _best(lambda: _old_oof(codes, y), 3))

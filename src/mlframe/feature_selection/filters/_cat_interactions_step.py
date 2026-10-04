@@ -16,6 +16,7 @@ import numpy as np
 from ._fe_gpu_strict import _STRICT_MIN_CALL_P
 from .cat_fe_state import CatFEConfig, CatFEState
 from .engineered_recipes import EngineeredRecipe
+from types import SimpleNamespace as _SimpleNamespace
 
 logger = logging.getLogger(__name__)
 
@@ -144,23 +145,24 @@ def run_cat_interaction_step(
     # Lazy import of parent-resident helpers: ``.predict`` re-imports
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
-    from .cat_interactions import _anti_redundancy_rerank, _bootstrap_ii_cis, _greedy_expand_one_seed, _kfold_stability_filter, _materialize_pairs, _maybe_rerank_with_mm, _refine_kway_coordinate_ascent, _select_candidate_indices, _select_top_k_pairs, resolve_max_combined_nbins, resolve_min_interaction_information
-    state = CatFEState()
-    n_samples = data.shape[0]
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    from .cat_interactions import _anti_redundancy_rerank, _bootstrap_ii_cis, _kfold_stability_filter, _materialize_pairs, _maybe_rerank_with_mm, _select_candidate_indices, _select_top_k_pairs, resolve_max_combined_nbins, resolve_min_interaction_information
+    st.state = CatFEState()
+    st.n_samples = data.shape[0]
     # Every early return below yields these ORIGINAL arrays; ``include_numeric`` (further down) shadows
     # data/cols/nbins with a transient working pool, so the originals are pinned here once.
-    orig_data, orig_cols, orig_nbins = data, cols, nbins
+    st.orig_data, st.orig_cols, st.orig_nbins = data, cols, nbins
 
     # ---- Pathological-input gates ----
     if target_indices.size == 0:
         raise ValueError("cat-FE: empty target_indices; cannot compute MI(X;Y).")
-    if n_samples < cfg.min_n_samples:
+    if st.n_samples < cfg.min_n_samples:
         if verbose:
             logger.info(
                 "cat-FE skipped: n_samples=%d < cfg.min_n_samples=%d",
-                n_samples, cfg.min_n_samples,
+                st.n_samples, cfg.min_n_samples,
             )
-        return orig_data, orig_cols, orig_nbins, state
+        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
     # ---- Memmap detection ----
     _run_cat_interactio_memmap_detection(data)
@@ -172,63 +174,63 @@ def run_cat_interaction_step(
     # numeric columns' own (MDLP) codes that flow to downstream screening are UNCHANGED - only the engineered
     # cross columns are appended. The per-column quantile edges are stamped into each recipe (below) so
     # ``transform`` reproduces identical bin codes from raw test values (leak-free, no train/serve skew).
-    numeric_candidate_idxs: list = []
-    numeric_edges_by_name: dict = {}
-    cols, data, nbins = _run_cat_interactio_transform_reproduces_identical_bin(cfg, numeric_raw_values, n_samples, cols, state, numeric_candidate_idxs, data, numeric_edges_by_name, nbins, verbose)
+    st.numeric_candidate_idxs = []
+    st.numeric_edges_by_name = {}
+    cols, data, nbins = _run_cat_interactio_transform_reproduces_identical_bin(cfg, numeric_raw_values, st.n_samples, cols, st.state, st.numeric_candidate_idxs, data, st.numeric_edges_by_name, nbins, verbose)
 
     # ---- Column-level validation ----
-    candidate_idxs = _select_candidate_indices(
+    st.candidate_idxs = _select_candidate_indices(
         nbins=nbins,
-        categorical_vars=list(categorical_vars) + numeric_candidate_idxs,
-        cfg=cfg, state=state,
-        n_samples=n_samples,
+        categorical_vars=list(categorical_vars) + st.numeric_candidate_idxs,
+        cfg=cfg, state=st.state,
+        n_samples=st.n_samples,
     )
-    if len(candidate_idxs) < 2:
+    if len(st.candidate_idxs) < 2:
         if verbose:
             logger.info(
                 "cat-FE skipped: only %d eligible candidate columns after validation",
-                len(candidate_idxs),
+                len(st.candidate_idxs),
             )
-        return orig_data, orig_cols, orig_nbins, state
+        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
     # ---- Marginal MI screen ----
-    candidate_idxs_arr = np.asarray(candidate_idxs, dtype=np.int64)
+    st.candidate_idxs_arr = np.asarray(st.candidate_idxs, dtype=np.int64)
     if verbose:
-        logger.info("cat-FE: marginal MI screen over %d candidate columns", len(candidate_idxs))
+        logger.info("cat-FE: marginal MI screen over %d candidate columns", len(st.candidate_idxs))
 
     # Streaming cache check. If enabled AND cache provided, reuse cached marginal MIs for columns whose distribution hasn't drifted (KL < threshold).
-    cache_active = getattr(cfg, "enable_streaming_cache", False) and streaming_cache is not None and streaming_cache  # non-empty
+    st.cache_active = getattr(cfg, "enable_streaming_cache", False) and streaming_cache is not None and streaming_cache  # non-empty
     # Content signature of the (discretized) target - gates cache reuse so a changed Y invalidates the
     # cached MI(X;Y) even when X's distribution is unchanged.
     from .cat_interactions import _target_signature
-    target_sig = _target_signature(data[:, target_indices])
-    new_signatures: dict = {}
-    candidate_mi, new_signatures = _run_cat_interactio_cache_active(cache_active, streaming_cache, data, candidate_idxs_arr, nbins, cfg, target_sig, verbose, classes_y, freqs_y, dtype, new_signatures)
+    st.target_sig = _target_signature(data[:, target_indices])
+    st.new_signatures = {}
+    st.candidate_mi, st.new_signatures = _run_cat_interactio_cache_active(st.cache_active, streaming_cache, data, st.candidate_idxs_arr, nbins, cfg, st.target_sig, verbose, classes_y, freqs_y, dtype, st.new_signatures)
 
     # Persist updated cache for next fit() call
     if getattr(cfg, "enable_streaming_cache", False):
-        state.streaming_cache_out = {
-            "target_sig": target_sig,
-            "col_signatures": new_signatures,
-            "marginal_mis": {int(candidate_idxs_arr[k]): float(candidate_mi[k]) for k in range(len(candidate_idxs_arr))},
+        st.state.streaming_cache_out = {
+            "target_sig": st.target_sig,
+            "col_signatures": st.new_signatures,
+            "marginal_mis": {int(st.candidate_idxs_arr[k]): float(st.candidate_mi[k]) for k in range(len(st.candidate_idxs_arr))},
         }
     # marginal_floor prune
     if cfg.marginal_floor > 0:
-        keep_mask = candidate_mi > cfg.marginal_floor
-        candidate_idxs_arr = candidate_idxs_arr[keep_mask]
-        candidate_mi = candidate_mi[keep_mask]
-    if len(candidate_idxs_arr) < 2:
+        keep_mask = st.candidate_mi > cfg.marginal_floor
+        st.candidate_idxs_arr = st.candidate_idxs_arr[keep_mask]
+        st.candidate_mi = st.candidate_mi[keep_mask]
+    if len(st.candidate_idxs_arr) < 2:
         if verbose:
-            logger.info("cat-FE skipped: %d cols cleared marginal_floor", len(candidate_idxs_arr))
-        return orig_data, orig_cols, orig_nbins, state
+            logger.info("cat-FE skipped: %d cols cleared marginal_floor", len(st.candidate_idxs_arr))
+        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
     # Build a marginal-MI lookup keyed by COLUMN INDEX (into data), so the pair kernel can look up by index without re-running the screen.
     marginal_mi_full = np.full(data.shape[1], np.nan, dtype=np.float64)
-    for k, idx in enumerate(candidate_idxs_arr):
-        marginal_mi_full[int(idx)] = candidate_mi[k]
+    for k, idx in enumerate(st.candidate_idxs_arr):
+        marginal_mi_full[int(idx)] = st.candidate_mi[k]
 
     # ---- Pair enumeration with cardinality budget ----
-    max_combined = resolve_max_combined_nbins(cfg, n_samples)
+    max_combined = resolve_max_combined_nbins(cfg, st.n_samples)
     # VECTORIZED: ``np.triu_indices`` enumerates every unordered (ii, jj) pair in one call
     # instead of a pure-Python nested loop (~125K iterations at p~500 per the audit) - the cardinality-
     # budget filter is then a single boolean mask over the whole pair set rather than an if/continue per
@@ -238,11 +240,11 @@ def run_cat_interaction_step(
     # ``nb_prod`` is computed in int64 (not numpy's default-width product) so a wide-cardinality pair
     # cannot silently wrap before the ``>= 2**31`` overflow check gets to see it - the whole point of
     # that guard.
-    pairs_a, pairs_b = enumerate_candidate_pairs(candidate_idxs_arr, nbins, max_combined)
+    pairs_a, pairs_b = enumerate_candidate_pairs(st.candidate_idxs_arr, nbins, max_combined)
     if pairs_a.size == 0:
         if verbose:
             logger.info("cat-FE skipped: 0 pairs cleared cardinality budget %d", max_combined)
-        return orig_data, orig_cols, orig_nbins, state
+        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
     if verbose:
         logger.info(
             "cat-FE: pair search over %d candidate pairs (cardinality budget %d)",
@@ -254,7 +256,7 @@ def run_cat_interaction_step(
     # - "cpu": always njit prange
     # - "gpu": always GPU dispatch (raises if CuPy missing)
     # - "auto": GPU only at large-N regime (N>=200 cols AND n>=500k rows)
-    use_gpu = False
+    st.use_gpu = False
     # The pair-search GPU gate used to consult only cupy
     # importability + is_gpu_available()'s own probe, never the project's canonical gpu_globally_disabled()
     # (MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="") - a user forcing CPU-only via that env convention
@@ -263,99 +265,89 @@ def run_cat_interaction_step(
     # silently using GPU), matching the pattern already used elsewhere in this package (_fe_gpu_strict.py,
     # _usability_gpu.py, batch_pair_mi_gpu.py/friend_graph_gpu.py).
     from ._gpu_policy import gpu_globally_disabled
-    _gpu_disabled = gpu_globally_disabled()
-    use_gpu = _run_cat_interactio_usability_gpu_py_batch(cfg, _gpu_disabled, candidate_idxs_arr, n_samples, verbose, use_gpu)
+    st._gpu_disabled = gpu_globally_disabled()
+    st.use_gpu = _run_cat_interactio_usability_gpu_py_batch(cfg, st._gpu_disabled, st.candidate_idxs_arr, st.n_samples, verbose, st.use_gpu)
 
     # Choose weighted vs unweighted kernel. Use weighted only when weights are actually non-uniform; uniform weights are equivalent to unweighted and the weighted
     # kernel costs extra ops, so skip in that case.
     use_weights = False
-    use_weights, weights = _run_cat_interactio_kernel_costs_extra_ops(weights, n_samples, use_weights)
-    _run_cat_interactio_use_weights(use_weights, weights, data, candidate_idxs_arr, nbins, classes_y, dtype, marginal_mi_full)
-    ii_arr = joint_mi_arr = n_uniq_arr = None  # set by the GPU path below; the CPU helper fills them when the GPU path did not run
-    if use_gpu:
-        from .gpu import mi_direct_gpu_batched_pairs
-        if use_weights:
-            logger.warning("cat-FE: sample weights ignored on GPU path; " "falling back to CPU weighted kernel.")
-            use_gpu = False
-        else:
-            if verbose:
-                logger.info("cat-FE: pair search on GPU over %d pairs", len(pairs_a))
-            use_gpu, ii_arr, joint_mi_arr, n_uniq_arr = _gpu_pair_search_or_none(
-                cfg, mi_direct_gpu_batched_pairs, data, pairs_a, pairs_b, nbins, classes_y, freqs_y, dtype, marginal_mi_full,
-            )
-    ii_arr, joint_mi_arr, n_uniq_arr = _run_cat_interactio_use_gpu(use_gpu, use_weights, verbose, data, pairs_a, pairs_b, marginal_mi_full, nbins, classes_y, weights, dtype, freqs_y, ii_arr, joint_mi_arr, n_uniq_arr)
+    use_weights, weights = _run_cat_interactio_kernel_costs_extra_ops(weights, st.n_samples, use_weights)
+    _run_cat_interactio_use_weights(use_weights, weights, data, st.candidate_idxs_arr, nbins, classes_y, dtype, marginal_mi_full)
+    st.ii_arr = st.joint_mi_arr = st.n_uniq_arr = None  # set by the GPU path below; the CPU helper fills them when the GPU path did not run
+    _run_cat_interaction__step1_kernel_costs_extra(st, use_weights, verbose, pairs_a, cfg, data, pairs_b, nbins, classes_y, freqs_y, dtype, marginal_mi_full)
+    st.ii_arr, st.joint_mi_arr, st.n_uniq_arr = _run_cat_interactio_use_gpu(st.use_gpu, use_weights, verbose, data, pairs_a, pairs_b, marginal_mi_full, nbins, classes_y, weights, dtype, freqs_y, st.ii_arr, st.joint_mi_arr, st.n_uniq_arr)
 
     # ---- Top-K selection ----
-    selected_idx = _select_top_k_pairs(
-        ii_arr=ii_arr,
+    st.selected_idx = _select_top_k_pairs(
+        ii_arr=st.ii_arr,
         pairs_a=pairs_a, pairs_b=pairs_b,
-        cfg=cfg, n_samples=n_samples,
+        cfg=cfg, n_samples=st.n_samples,
     )
-    if len(selected_idx) == 0:
+    if len(st.selected_idx) == 0:
         if verbose:
             logger.info("cat-FE: 0 pairs cleared min_interaction_information; no engineered cols")
-        return orig_data, orig_cols, orig_nbins, state
+        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
     if verbose:
-        logger.info("cat-FE: %d pair(s) selected for materialisation", len(selected_idx))
+        logger.info("cat-FE: %d pair(s) selected for materialisation", len(st.selected_idx))
 
     # ---- Miller-Madow re-rank on top-K survivors ----
     # Only top-K pay the 5x merge_vars cost; saves N^2-scale compute while catching high-cardinality bias-driven false positives. The re-rank may shuffle the heap;
     # ``selected_idx`` order matters for downstream ``_materialize_pairs`` because it determines which engineered cols are added first (relevant when ``top_k_pairs``
     # cap binds).
-    ii_arr, selected_idx = _maybe_rerank_with_mm(
+    st.ii_arr, st.selected_idx = _maybe_rerank_with_mm(
         factors_data=data,
         pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, ii_arr=ii_arr,
+        selected_idx=st.selected_idx, ii_arr=st.ii_arr,
         nbins=nbins, target_indices=target_indices,
         classes_y=classes_y, freqs_y=freqs_y,
         cfg=cfg, dtype=dtype, verbose=verbose,
         weights=weights if use_weights else None,
     )
     # After MM re-rank, some pairs may drop below the floor; re-filter.
-    floor = resolve_min_interaction_information(cfg, n_samples)
-    keep = _selection_keep_mask(cfg, ii_arr, selected_idx, floor)
-    selected_idx = selected_idx[keep]
-    if len(selected_idx) == 0:
+    st.floor = resolve_min_interaction_information(cfg, st.n_samples)
+    st.keep = _selection_keep_mask(cfg, st.ii_arr, st.selected_idx, st.floor)
+    st.selected_idx = st.selected_idx[st.keep]
+    if len(st.selected_idx) == 0:
         if verbose:
             logger.info("cat-FE: 0 pairs survived MM re-rank floor; no engineered cols")
-        return orig_data, orig_cols, orig_nbins, state
+        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
     # ---- Anti-redundancy re-rank (opt-in via anti_redundancy_beta>0) ----
     # Adjusts each survivor's score by ``beta * mean_z I(merged; Z)`` where Z ranges over already-selected features in ``selected_so_far``. No-op when beta=0 or selected_so_far is empty.
     if selected_so_far:
-        ii_arr, selected_idx = _anti_redundancy_rerank(
+        st.ii_arr, st.selected_idx = _anti_redundancy_rerank(
             factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
-            selected_idx=selected_idx, ii_arr=ii_arr,
+            selected_idx=st.selected_idx, ii_arr=st.ii_arr,
             nbins=nbins, selected_so_far=selected_so_far,
             classes_y=classes_y, cfg=cfg, dtype=dtype, verbose=verbose,
             weights=weights if use_weights else None,
         )
         # Re-apply the floor after anti-redundancy correction
-        floor = resolve_min_interaction_information(cfg, n_samples)
-        keep = _selection_keep_mask(cfg, ii_arr, selected_idx, floor)
-        selected_idx = selected_idx[keep]
-        if len(selected_idx) == 0:
+        st.floor = resolve_min_interaction_information(cfg, st.n_samples)
+        st.keep = _selection_keep_mask(cfg, st.ii_arr, st.selected_idx, st.floor)
+        st.selected_idx = st.selected_idx[st.keep]
+        if len(st.selected_idx) == 0:
             if verbose:
                 logger.info("cat-FE: 0 pairs survived anti-redundancy floor")
-            return orig_data, orig_cols, orig_nbins, state
+            return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
     # ---- K-fold II stability filter (opt-in via n_folds_stability>0) ----
     # Drops pairs whose II is unstable across K folds (signal driven by outlier rows). Runs BEFORE permutation so we don't pay perm budget on pairs that fail stability.
-    selected_idx, per_fold_ii_dict = _kfold_stability_filter(
+    st.selected_idx, st.per_fold_ii_dict = _kfold_stability_filter(
         factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx, nbins=nbins,
+        selected_idx=st.selected_idx, nbins=nbins,
         target_indices=target_indices,
         cfg=cfg, dtype=dtype, verbose=verbose,
         weights=weights if use_weights else None,
     )
     # Surface fold IIs into the state UNCONDITIONALLY - even when 0 pairs survived, the per-fold values are useful diagnostics (user can see WHY the pair was rejected).
     # Must happen BEFORE the early return.
-    if per_fold_ii_dict:
-        state.ii_stability.update(per_fold_ii_dict)
-    if len(selected_idx) == 0:
+    if st.per_fold_ii_dict:
+        st.state.ii_stability.update(st.per_fold_ii_dict)
+    if len(st.selected_idx) == 0:
         if verbose:
             logger.info("cat-FE: 0 pairs survived K-fold stability filter")
-        return orig_data, orig_cols, orig_nbins, state
+        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
     # ---- Permutation confirmation + FWER correction ----
     # Runs only when ``cfg.full_npermutations > 0`` (default 100). Tests joint-independence null; failed pairs are dropped from ``selected_idx``. The resulting
@@ -364,7 +356,7 @@ def run_cat_interaction_step(
     # Full Westfall-Young requires the per-shuffle max-II across ALL search pairs, materially more expensive than per-survivor permutation. To get the full WY
     # behaviour, we substitute the per-pair p-values from the joint-independence test with the WY-corrected versions BEFORE the orchestrator applies the floor.
     # Memory budget: full WY pre-merges m * n int32 cells; if that exceeds e.g. 500 MB we fall back to Bonferroni-on-survivors via the _apply_fwer_correction path.
-    use_full_wy = cfg.fwer_correction == "westfall_young" and cfg.full_npermutations > 0 and len(pairs_a) * n_samples * 4 < 500 * 1024 * 1024
+    st.use_full_wy = cfg.fwer_correction == "westfall_young" and cfg.full_npermutations > 0 and len(pairs_a) * st.n_samples * 4 < 500 * 1024 * 1024
 
     # perm_budget_strategy defaults to "bandit_ucb1" (not
     # "fixed"), and the bandit allocator's bulk-shuffle kernels have no weighted variant - so the DEFAULT
@@ -379,39 +371,106 @@ def run_cat_interaction_step(
             "weighted fit. Set perm_budget_strategy='fixed' explicitly to silence this message."
         )
     # Bandit UCB1 budget allocation overrides the fixed path when cfg.perm_budget_strategy='bandit_ucb1' (and full_npermutations>0 AND not using full WY which has its own coordination).
-    confidence_dict, selected_idx = _run_cat_interactio_bandit_ucb1_budget_allocation(cfg, use_full_wy, use_weights, data, pairs_a, pairs_b, selected_idx, ii_arr, nbins, classes_y, freqs_y, dtype, verbose, weights, marginal_mi_full)
-    if len(selected_idx) == 0:
+    st.confidence_dict, st.selected_idx = _run_cat_interactio_bandit_ucb1_budget_allocation(cfg, st.use_full_wy, use_weights, data, pairs_a, pairs_b, st.selected_idx, st.ii_arr, nbins, classes_y, freqs_y, dtype, verbose, weights, marginal_mi_full)
+    if len(st.selected_idx) == 0:
         if verbose:
             logger.info("cat-FE: 0 pairs cleared permutation confirmation")
-        return orig_data, orig_cols, orig_nbins, state
+        return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
     # ---- Bootstrap CIs on II (opt-in via bootstrap_ci_n_replicates>0) ----
-    bootstrap_ci_dict = _bootstrap_ii_cis(
+    st.bootstrap_ci_dict = _bootstrap_ii_cis(
         factors_data=data, pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx,
+        selected_idx=st.selected_idx,
         nbins=nbins, classes_y=classes_y, freqs_y=freqs_y,
         cfg=cfg, dtype=dtype, verbose=verbose,
         weights=weights if use_weights else None,
     )
-    if bootstrap_ci_dict:
+    if st.bootstrap_ci_dict:
         # Drop survivors whose lower-CI < floor (unstable signal)
-        floor_ci = resolve_min_interaction_information(cfg, n_samples)
+        floor_ci = resolve_min_interaction_information(cfg, st.n_samples)
         kept_after_ci: list[Any] = []
-        _run_cat_interactio_drop_survivors_whose_lower(selected_idx, pairs_a, pairs_b, bootstrap_ci_dict, floor_ci, kept_after_ci, verbose)
-        selected_idx = np.asarray(kept_after_ci, dtype=selected_idx.dtype)
-        if len(selected_idx) == 0:
+        _run_cat_interactio_drop_survivors_whose_lower(st.selected_idx, pairs_a, pairs_b, st.bootstrap_ci_dict, floor_ci, kept_after_ci, verbose)
+        st.selected_idx = np.asarray(kept_after_ci, dtype=st.selected_idx.dtype)
+        if len(st.selected_idx) == 0:
             if verbose:
                 logger.info("cat-FE: 0 pairs survived bootstrap CI floor")
-            return orig_data, orig_cols, orig_nbins, state
+            return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
     # ---- K-way greedy expansion (opt-in via max_kway_order > 2) ----
     # HYBRID seeding - first try only the top-K confirmed pairs, which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100. If that produces ZERO k-way results
     # (the pure-k-way-XOR case where all 2-way IIs are noise around 0 and top-K is random), fall back to seeding from ALL pairs. This avoids the quadratic cost
     # when the signal is detectable from top-K, but preserves the all-pairs path for pathological niches.
     kway_results: list = []
+    kway_results = _run_cat_interaction__step2_signal_detectable_top(cfg, st, pairs_a, pairs_b, data, nbins, classes_y, freqs_y, marginal_mi_full, max_combined, dtype, use_weights, weights, kway_results, verbose)
+
+    # ---- Materialise pair survivors (single concat) ----
+    st.new_data_block, st.new_names, st.new_nbins, st.new_recipes = _materialize_pairs(
+        factors_data=data,
+        pairs_a=pairs_a, pairs_b=pairs_b,
+        selected_idx=st.selected_idx,
+        nbins=nbins,
+        cols=cols,
+        dtype=dtype,
+        unknown_strategy=cfg.unknown_strategy,
+    )
+
+    # ---- Materialise k-way survivors (alongside pairs) ----
+    st.new_data_block = _run_cat_interactio_materialise_way_survivors_alongside(kway_results, data, nbins, cols, dtype, cfg, st.new_data_block, st.new_names, st.new_nbins, st.new_recipes, st.n_samples, st.state)
+    # Diagnostics (always cheap, gated by cfg).
+    _run_cat_interactio_diagnostics_always_cheap_gated(cfg, st.selected_idx, pairs_a, pairs_b, st.ii_arr, st.joint_mi_arr, marginal_mi_full, st.n_uniq_arr, cols, st.n_samples, st.confidence_dict, st.bootstrap_ci_dict, st.state, st.new_names)
+
+    st.state.recipes.extend(st.new_recipes)
+
+    # ---- Target encoding emit (opt-in) ----
+    # For each pair recipe, additionally emit a target-encoded col with OOF CV-aware shrinkage. Recipes carry ``kind="target_encoding"`` with the global cell-means table for transform() replay.
+    _run_cat_interactio_each_pair_recipe_additionally(cfg, st.selected_idx, pairs_a, pairs_b, data, target_indices, classes_y, nbins, dtype, cols, st.new_names, st.new_recipes, st.state, verbose)
+
+    # ---- Stamp quantile bin edges onto recipes built from numeric sources (leak-safe transform replay) ----
+    # Without this, ``_apply_factorize`` / ``_apply_target_encoding`` would ``astype(int64)`` a raw numeric test
+    # value (3.7 -> 3) instead of binning it through the fit-time quantile edges -> a silent train/serve skew.
+    _run_cat_interactio_value_instead_binning_through(st.numeric_edges_by_name, st.state)
+
+    # ---- Single concat onto data / cols / nbins ----
+    # Restore the ORIGINAL arrays: the engineered cross block is appended to them, NOT to the include_numeric
+    # working pool (whose transient quantile-coded numeric columns must never reach downstream screening).
+    data, cols, nbins = st.orig_data, st.orig_cols, st.orig_nbins
+    st.data_out = np.concatenate([data, st.new_data_block], axis=1)
+    st.cols_out = list(cols) + st.new_names
+    st.nbins_out = np.concatenate([nbins, np.asarray(st.new_nbins, dtype=nbins.dtype)])
+
+    # ---- Build engineered_lineage map ----
+    # Engineered cols land at indices [n_orig, n_orig + len(new_names)). For each, record the parent indices (in the ORIGINAL data layout) so screen_predictors
+    # can skip ``(orig_parent, engineered_col)`` k-way candidates - they're redundant by construction.
+    st.n_orig = data.shape[1]
+    st.name_to_idx = {n: i for i, n in enumerate(cols)}  # original col name -> idx
+    st.state.lineage = {}
+    _run_cat_interactio_out_name_enumerate_new(st.new_names, st.n_orig, st.new_recipes, st.name_to_idx, st.state)
+
+    return st.data_out, st.cols_out, st.nbins_out, st.state
+
+
+def _run_cat_interaction__step1_kernel_costs_extra(st, use_weights, verbose, pairs_a, cfg, data, pairs_b, nbins, classes_y, freqs_y, dtype, marginal_mi_full):
+    """Step 1 of run_cat_interaction_step: lines starting at ``if st.use_gpu:``."""
+    if st.use_gpu:
+        from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_pairs
+        if use_weights:
+            logger.warning("cat-FE: sample weights ignored on GPU path; " "falling back to CPU weighted kernel.")
+            st.use_gpu = False
+        else:
+            if verbose:
+                logger.info("cat-FE: pair search on GPU over %d pairs", len(pairs_a))
+            st.use_gpu, st.ii_arr, st.joint_mi_arr, st.n_uniq_arr = _gpu_pair_search_or_none(
+                cfg, mi_direct_gpu_batched_pairs, data, pairs_a, pairs_b, nbins, classes_y, freqs_y, dtype, marginal_mi_full,
+            )
+
+
+def _run_cat_interaction__step2_signal_detectable_top(cfg, st, pairs_a, pairs_b, data, nbins, classes_y, freqs_y, marginal_mi_full, max_combined, dtype, use_weights, weights, kway_results, verbose):
+    """Step 2 of run_cat_interaction_step: lines starting at ``if cfg.max_kway_order > 2:``."""
+    from mlframe.feature_selection.filters.cat_interactions import _greedy_expand_one_seed, _refine_kway_coordinate_ascent, resolve_min_interaction_information
+
     if cfg.max_kway_order > 2:
-        min_inc_ii = resolve_min_interaction_information(cfg, n_samples)
-        candidate_pool_arr = candidate_idxs_arr
+        min_inc_ii = resolve_min_interaction_information(cfg, st.n_samples)
+        candidate_pool_arr = st.candidate_idxs_arr
         seen_kway: set = set()
 
         def _expand_seeds(seed_pair_indices):
@@ -441,8 +500,8 @@ def run_cat_interaction_step(
                 kway_results.append(extension)
 
         # Phase 1: top-K seeds (cheap, ~O(top_k * N) merge_vars)
-        _expand_seeds(list(selected_idx))
-        _run_cat_interactio_phase_top_seeds_cheap(kway_results, pairs_a, selected_idx, verbose, _expand_seeds)
+        _expand_seeds(list(st.selected_idx))
+        _run_cat_interactio_phase_top_seeds_cheap(kway_results, pairs_a, st.selected_idx, verbose, _expand_seeds)
 
         # Sort k-way results by joint_MI desc and cap by top_k_pairs.
         # Secondary key on the var-index tuple so tied
@@ -459,58 +518,14 @@ def run_cat_interaction_step(
         if cfg.refine_passes > 0 and kway_results:
             kway_results = _refine_kway_coordinate_ascent(
                 factors_data=data, kway_results=kway_results,
-                candidate_pool=candidate_idxs_arr, nbins=nbins,
+                candidate_pool=st.candidate_idxs_arr, nbins=nbins,
                 classes_y=classes_y, freqs_y=freqs_y,
                 max_combined_nbins=max_combined,
                 n_passes=cfg.refine_passes,
                 dtype=dtype, verbose=verbose,
                 weights=weights if use_weights else None,
             )
-
-    # ---- Materialise pair survivors (single concat) ----
-    new_data_block, new_names, new_nbins, new_recipes = _materialize_pairs(
-        factors_data=data,
-        pairs_a=pairs_a, pairs_b=pairs_b,
-        selected_idx=selected_idx,
-        nbins=nbins,
-        cols=cols,
-        dtype=dtype,
-        unknown_strategy=cfg.unknown_strategy,
-    )
-
-    # ---- Materialise k-way survivors (alongside pairs) ----
-    new_data_block = _run_cat_interactio_materialise_way_survivors_alongside(kway_results, data, nbins, cols, dtype, cfg, new_data_block, new_names, new_nbins, new_recipes, n_samples, state)
-    # Diagnostics (always cheap, gated by cfg).
-    _run_cat_interactio_diagnostics_always_cheap_gated(cfg, selected_idx, pairs_a, pairs_b, ii_arr, joint_mi_arr, marginal_mi_full, n_uniq_arr, cols, n_samples, confidence_dict, bootstrap_ci_dict, state, new_names)
-
-    state.recipes.extend(new_recipes)
-
-    # ---- Target encoding emit (opt-in) ----
-    # For each pair recipe, additionally emit a target-encoded col with OOF CV-aware shrinkage. Recipes carry ``kind="target_encoding"`` with the global cell-means table for transform() replay.
-    _run_cat_interactio_each_pair_recipe_additionally(cfg, selected_idx, pairs_a, pairs_b, data, target_indices, classes_y, nbins, dtype, cols, new_names, new_recipes, state, verbose)
-
-    # ---- Stamp quantile bin edges onto recipes built from numeric sources (leak-safe transform replay) ----
-    # Without this, ``_apply_factorize`` / ``_apply_target_encoding`` would ``astype(int64)`` a raw numeric test
-    # value (3.7 -> 3) instead of binning it through the fit-time quantile edges -> a silent train/serve skew.
-    _run_cat_interactio_value_instead_binning_through(numeric_edges_by_name, state)
-
-    # ---- Single concat onto data / cols / nbins ----
-    # Restore the ORIGINAL arrays: the engineered cross block is appended to them, NOT to the include_numeric
-    # working pool (whose transient quantile-coded numeric columns must never reach downstream screening).
-    data, cols, nbins = orig_data, orig_cols, orig_nbins
-    data_out = np.concatenate([data, new_data_block], axis=1)
-    cols_out = list(cols) + new_names
-    nbins_out = np.concatenate([nbins, np.asarray(new_nbins, dtype=nbins.dtype)])
-
-    # ---- Build engineered_lineage map ----
-    # Engineered cols land at indices [n_orig, n_orig + len(new_names)). For each, record the parent indices (in the ORIGINAL data layout) so screen_predictors
-    # can skip ``(orig_parent, engineered_col)`` k-way candidates - they're redundant by construction.
-    n_orig = data.shape[1]
-    name_to_idx = {n: i for i, n in enumerate(cols)}  # original col name -> idx
-    state.lineage = {}
-    _run_cat_interactio_out_name_enumerate_new(new_names, n_orig, new_recipes, name_to_idx, state)
-
-    return data_out, cols_out, nbins_out, state
+    return kway_results
 
 
 def _run_cat_interactio_bandit_ucb1_budget_allocation(cfg, use_full_wy, use_weights, data, pairs_a, pairs_b, selected_idx, ii_arr, nbins, classes_y, freqs_y, dtype, verbose, weights, marginal_mi_full):

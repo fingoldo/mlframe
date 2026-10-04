@@ -52,6 +52,7 @@ _POLY_CHEAP_SKIP = "__poly_cheap_skip__"
 
 
 from ._fe_family_timing import fe_timed
+from types import SimpleNamespace as _SimpleNamespace
 
 
 @fe_timed("smart_polynom")
@@ -153,7 +154,8 @@ def run_polynom_pair_fe(
     ``feature_names_in`` is used only to deduce existing column names; not
     mutated.
     """
-    X_ndarr: Any = None
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    st.X_ndarr = None
     if not fe_smart_polynom_iters:
         return data, nbins, cols, X
     pl: Any = None
@@ -162,18 +164,17 @@ def run_polynom_pair_fe(
 
     # ``prospective_pairs`` is keyed by ``(raw_vars_pair, _pair_mi)`` composite
     # tuples; the polynom-FE body only needs ``raw_vars_pair`` itself.
-    _pair_keys = [k[0] for k in prospective_pairs.keys()]
+    st._pair_keys = [k[0] for k in prospective_pairs.keys()]
     # Last-line numeric guard: the Hermite / polynomial basis (np.isfinite, z-score,
     # minmax) raises ``ufunc 'isfinite' not supported`` / ``unsupported operand`` on a
     # string column. Drop any pair whose operand column is non-numeric in X - a string
     # categorical operand can slip through the upstream pool filter via a cached pair or
     # a synergy-kept operand. Indices are positional into X (``X_ndarr[:, idx]`` below).
-    _numeric_pos = None
-    _numeric_pos = _run_polynom_pair_f_synergy_kept_operand_indices(X, _numeric_pos)
-    if _numeric_pos is not None:
-        _pair_keys = [p for p in _pair_keys if int(p[0]) in _numeric_pos and int(p[1]) in _numeric_pos]
-    _n_pairs_to_eval = len(_pair_keys)
-    if _n_pairs_to_eval == 0:
+    st._numeric_pos = None
+    st._numeric_pos = _run_polynom_pair_f_synergy_kept_operand_indices(X, st._numeric_pos)
+    _run_polynom_pair_fe_step1_synergy_kept_operand(st)
+    st._n_pairs_to_eval = len(st._pair_keys)
+    if st._n_pairs_to_eval == 0:
         return data, nbins, cols, X
     # Cheap-first dispatch: per-pair joint-MI ceiling (``pair_mi`` from the key)
     # so ``_eval_one_pair_impl`` can skip the expensive optimiser when the cheap
@@ -181,12 +182,12 @@ def run_polynom_pair_fe(
     _pair_mi_ceiling: dict[Any, Any] = {}
     _run_polynom_pair_f_trivial_baseline_already_captures(prospective_pairs, _pair_mi_ceiling)
 
-    _polynom_n_jobs = int(n_jobs) if n_jobs and n_jobs > 0 else 1
+    st._polynom_n_jobs = int(n_jobs) if n_jobs and n_jobs > 0 else 1
     logger.info(
         "Polynomial-pair FE starting: %d pair(s) x %d Optuna restart(s) x "
         "%d trial(s) per restart, n_jobs=%d backend=loky.",
-        _n_pairs_to_eval, fe_smart_polynom_iters,
-        fe_smart_polynom_optimization_steps, _polynom_n_jobs,
+        st._n_pairs_to_eval, fe_smart_polynom_iters,
+        fe_smart_polynom_optimization_steps, st._polynom_n_jobs,
     )
 
     # 2026-05-22 loky-memmap fix: convert X to a single contiguous ndarray
@@ -199,9 +200,9 @@ def run_polynom_pair_fe(
     # Per-pair tasks then index into the shared X_ndarr by column number
     # without pulling a fresh copy.
     if is_polars_input:
-        X_ndarr = X.to_numpy()  # polars -> (N, F) contiguous ndarray
+        st.X_ndarr = X.to_numpy()  # polars -> (N, F) contiguous ndarray
     else:
-        X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
+        st.X_ndarr = X.values if hasattr(X, "values") else np.asarray(X)
     # A frame with ANY non-numeric column makes the WHOLE .values array object-dtype (the per-pair worker's
     # own docstring documents this trap) - and an object ndarray can neither be memmapped by joblib NOR
     # content-hashed by fit_constant_memmap, so it was CLOUDPICKLED WHOLESALE into the pool on every call:
@@ -210,15 +211,44 @@ def run_polynom_pair_fe(
     # become NaN placeholders and their positions are recorded so the per-pair guard skips exactly the
     # same pairs the old per-worker ValueError/TypeError path skipped.
     _uncoercible: Optional[np.ndarray] = None
-    X_ndarr, _uncoercible = _run_polynom_pair_f_same_pairs_old_per(X_ndarr, _uncoercible)
+    st.X_ndarr, _uncoercible = _run_polynom_pair_f_same_pairs_old_per(st.X_ndarr, _uncoercible)
     # run_polynom_pair_fe is called once per FE round (up to fe_max_steps times per fit) with the SAME
     # X content each time - a fresh Parallel(...) call below re-triggers joblib's memmapping reducer's
     # OWN dump of X_ndarr per call (it only dedups WITHIN one Parallel() invocation's tasks, not ACROSS
     # separate calls). fit_constant_memmap (shared with _step_pairmi.py's identical fix) dumps content
     # ONCE per process and hands back the read-only memmap on every subsequent round - joblib passes an
     # existing np.memmap to loky workers by filename with no re-dump at all.
-    X_ndarr = fit_constant_memmap(X_ndarr)
+    st.X_ndarr = fit_constant_memmap(st.X_ndarr)
 
+    _eval_one_pair_impl = _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample_idx, subsample_n, subsample_seed, fe_subsample_stratify, fe_mi_estimator, poly_cheap_skip_ratio, _pair_mi_ceiling, poly_cheap_skip_min_corr, fe_polynomial_basis, fe_smart_polynom_iters, fe_max_polynom_degree, fe_min_polynom_degree, fe_smart_polynom_optimization_steps, fe_min_polynom_coeff, fe_max_polynom_coeff, fe_hermite_l2_penalty, fe_optimizer, fe_warm_start, fe_multi_fidelity)
+
+    def _eval_one_pair(raw_vars_pair, X_arr, y_arr, fe_deadline=None):
+        """Worker entry point: runs :func:`_eval_one_pair_impl` on a big-stack sub-thread to dodge the Windows loky 1MB-stack numba crash."""
+        # Windows loky workers have a 1MB main-thread stack - numba's
+        # JIT cache load runs an llvmlite finalize chain that needs
+        # ~2-3MB and crashes the worker. Running the impl in a sub-thread
+        # with 8MB stack avoids the overflow; pass-through no-op on Linux.
+        return run_in_big_stack_thread(
+            _eval_one_pair_impl, raw_vars_pair, X_arr, y_arr, fe_deadline,
+        )
+
+    # Read on the MAIN thread, where the thread-local actually lives, and passed down explicitly from here.
+    from ._fe_deadline import _state as _fe_deadline_state
+
+    st._fe_deadline_value = getattr(_fe_deadline_state, "deadline", None)
+
+    X, cols, data, nbins = _run_polynom_pair_f_poly_t0_time_perf(st._polynom_n_jobs, st._n_pairs_to_eval, verbose, st._pair_keys, _eval_one_pair, st.X_ndarr, classes_y, st._fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio)
+    return data, nbins, cols, X
+
+
+def _run_polynom_pair_fe_step1_synergy_kept_operand(st):
+    """Step 1 of run_polynom_pair_fe: lines starting at ``if st._numeric_pos is not None:``."""
+    if st._numeric_pos is not None:
+        st._pair_keys = [p for p in st._pair_keys if int(p[0]) in st._numeric_pos and int(p[1]) in st._numeric_pos]
+
+
+def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample_idx, subsample_n, subsample_seed, fe_subsample_stratify, fe_mi_estimator, poly_cheap_skip_ratio, _pair_mi_ceiling, poly_cheap_skip_min_corr, fe_polynomial_basis, fe_smart_polynom_iters, fe_max_polynom_degree, fe_min_polynom_degree, fe_smart_polynom_optimization_steps, fe_min_polynom_coeff, fe_max_polynom_coeff, fe_hermite_l2_penalty, fe_optimizer, fe_warm_start, fe_multi_fidelity):
+    """Step 2 of run_polynom_pair_fe: lines starting at ``def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr, fe_deadline=None)``."""
     def _eval_one_pair_impl(raw_vars_pair, X_arr, y_arr, fe_deadline=None):
         """Search + fit the best polynomial-basis feature for one raw variable pair; runs inside a worker.
 
@@ -270,7 +300,7 @@ def run_polynom_pair_fe(
             if fe_subsample_stratify and hasattr(y_arr, "__getitem__"):
                 # ``classes_y`` (y_arr) is the discrete target the inner MI scores against -> classification
                 # stratification keeps the rare class in every per-pair subsample.
-                from ._fe_subsample import stratified_subsample_idx
+                from mlframe.feature_selection.filters._fe_subsample import stratified_subsample_idx
                 _ss_idx = stratified_subsample_idx(_ss_rng, np.asarray(y_arr), int(subsample_n), is_clf=True)
             else:
                 _ss_idx = _ss_rng.choice(len(vals_a_full), size=subsample_n, replace=False)
@@ -292,7 +322,7 @@ def run_polynom_pair_fe(
         _trivial_name = None
         _trivial_feat = None
         try:
-            from .fe_baselines import best_trivial_pair as _best_trivial_pair
+            from mlframe.feature_selection.filters.fe_baselines import best_trivial_pair as _best_trivial_pair
             _t = _best_trivial_pair(
                 np.asarray(vals_a_sub, dtype=np.float64),
                 np.asarray(vals_b_sub, dtype=np.float64),
@@ -361,7 +391,7 @@ def run_polynom_pair_fe(
             )
 
         best_res = None
-        from ._fe_deadline import fe_deadline_passed, fe_deadline_scope
+        from mlframe.feature_selection.filters._fe_deadline import fe_deadline_passed, fe_deadline_scope
 
         # Scoped, not just published: this runs in a loky worker, and loky REUSES its worker processes across
         # `Parallel(...)` invocations. A deadline written here and left behind outlives the call, so once that
@@ -406,24 +436,7 @@ def run_polynom_pair_fe(
         # Return FULL arrays so the injection step applies the polynomial
         # to all rows (subsampling was only for the optimiser's MI loop).
         return (raw_vars_pair, best_res, vals_a_full, vals_b_full)
-
-    def _eval_one_pair(raw_vars_pair, X_arr, y_arr, fe_deadline=None):
-        """Worker entry point: runs :func:`_eval_one_pair_impl` on a big-stack sub-thread to dodge the Windows loky 1MB-stack numba crash."""
-        # Windows loky workers have a 1MB main-thread stack - numba's
-        # JIT cache load runs an llvmlite finalize chain that needs
-        # ~2-3MB and crashes the worker. Running the impl in a sub-thread
-        # with 8MB stack avoids the overflow; pass-through no-op on Linux.
-        return run_in_big_stack_thread(
-            _eval_one_pair_impl, raw_vars_pair, X_arr, y_arr, fe_deadline,
-        )
-
-    # Read on the MAIN thread, where the thread-local actually lives, and passed down explicitly from here.
-    from ._fe_deadline import _state as _fe_deadline_state
-
-    _fe_deadline_value = getattr(_fe_deadline_state, "deadline", None)
-
-    X, cols, data, nbins = _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio)
-    return data, nbins, cols, X
+    return _eval_one_pair_impl
 
 
 def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio):

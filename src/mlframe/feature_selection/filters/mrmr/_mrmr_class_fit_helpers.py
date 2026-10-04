@@ -53,6 +53,11 @@ class _MRMRFitHelpersMixin:
     MRO's real implementations are never shadowed) so mypy resolves them on ``self``.
     """
 
+    # fit-body stage methods that the concrete ``MRMR`` class defines and the moved stages call through ``self``
+    _fit_body_clone_pickle_repeated_fit: Any
+    _fit_body_fast_search_saved: Any
+    _fit_body_frame_none_names: Any
+
     if TYPE_CHECKING:
         get_params: Callable[..., dict]
         fit: Callable[..., "MRMR"]
@@ -622,3 +627,145 @@ class _MRMRFitHelpersMixin:
         populate_fe_provenance(self)
         populate_fe_rejection_ledger(self)
         return cast("MRMR", self)
+
+    def _fit_body_step1_no_resample_case(self, groups, X, _restore_toggles_snapshot_and_raise, sample_weight, st):
+        """Step 1 of _fit_body: lines starting at ``if getattr(self, "group_aware_mi", False) and groups is not None:``."""
+        from ._mrmr_class import _prepare_group_segments  # resolved on the class module so patches of its names reach this method
+        if getattr(self, "group_aware_mi", False) and groups is not None:
+            _g_arr = np.asarray(groups)
+            _n_rows = X.shape[0] if hasattr(X, "shape") else len(X)
+            # 09_error_messages_ux.md: a groups-length mismatch is almost certainly a caller bug (wrong
+            # array passed, stale groups from a differently-shaped prior call), not a "gracefully degrade
+            # and move on" situation - raise instead of silently disabling group-aware MI for the fit.
+            if _g_arr.shape[0] != _n_rows:
+                _restore_toggles_snapshot_and_raise(ValueError(f"MRMR.fit: groups length {_g_arr.shape[0]} != X rows {_n_rows}; groups must have one entry per row of X."))
+            if sample_weight is not None:
+                # 09_error_messages_ux.md: this is functionally identical to the ``groups``-ignored
+                # situation (line ~3014's ``warnings.warn(UserWarning)``) - an on-by-request feature
+                # silently disabled for the fit - so it uses the SAME guaranteed-visible channel instead
+                # of a logger.warning a plain-script user with default logging would never see.
+                warnings.warn(
+                    "MRMR.fit: group_aware_mi disabled this fit because sample_weight is non-uniform "
+                    "(resampling rows would misalign them against groups). Pass sample_weight=None or "
+                    "group_aware_mi=False to silence this warning.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                logger.warning("[MRMR] group_aware_mi disabled this fit: non-uniform sample_weight resamples rows and would misalign groups; pass sample_weight=None or group_aware_mi=False.")
+            else:
+                _si, _off = _prepare_group_segments(_g_arr)
+                _size_weighted = getattr(self, "group_mi_aggregate", "size") == "size"
+                st._gmi_payload = (_si, _off, int(getattr(self, "group_mi_min_rows", 20)), _size_weighted)
+                self.groups_ignored_ = False
+
+    def _fit_body_step1_anything_below_reads(self, X):
+        """Step 1 of _fit_body: lines starting at ``try:``."""
+        from ._mrmr_class import _record_provenance  # resolved on the class module so patches of its names reach this method
+        try:
+            _n_rows = int(X.shape[0]) if hasattr(X, "shape") else None
+            # ``_effective_random_seed`` resolves both the canonical ``random_state`` and the
+            # deprecated ``random_seed`` alias, whichever is set.
+            _seed_resolved = self._effective_random_seed()
+            _seed_for_provenance = int(_seed_resolved) if _seed_resolved is not None else None
+            _record_provenance(
+                getattr(self, "_provenance_sink_", None),
+                "mrmr",
+                source="train_only",
+                n_rows=_n_rows,
+                seed=_seed_for_provenance,
+                extra={"n_features_in": int(X.shape[1]) if hasattr(X, "shape") and len(X.shape) > 1 else None},
+            )
+            self.provenance_ = {
+                "step": "mrmr",
+                "source": "train_only",
+                "n_rows": _n_rows,
+                "seed": _seed_for_provenance,
+            }
+        except Exception as exc:
+            logger.debug("mrmr: provenance_ metadata build failed (diagnostic only): %r", exc, exc_info=True)
+
+    def _fit_body_step2_prev_restore_evaluation(self, _toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_nbins_strategy, _orig_quantization_nbins, _fe_auto_restore):
+        """Step 2 of _fit_body: lines starting at ``_su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0 = _toggl``."""
+        from ._mrmr_class import _UNSET, _hashable_params_signature, _safe_restore, _set_dcd_active, _set_group_mi, set_bur_lambda, set_cmi_perm_stop, set_cpt_test, set_jmim_aggregator, set_mi_chao_shen, set_mi_miller_madow, set_pid_synergy_bonus, set_relaxmrmr_alpha, set_su_normalization  # resolved on the class module so patches of its names reach this method
+        _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0 = _toggles_snapshot
+
+        def _restore_synergy_bonuses() -> None:
+            """Restore RelaxMRMR/PID/CMI-perm/CPT thread-locals to their fit-entry snapshot."""
+            set_relaxmrmr_alpha(_relax0)
+            set_pid_synergy_bonus(_pid0)
+            set_cmi_perm_stop(_cmi0[0], _cmi0[1], _cmi0[2])
+            set_cpt_test(_cpt0[0], _cpt0[1])
+
+        def _make_fe_budget_restorer(_a: str, _v: int) -> Callable[[], None]:
+            """Bind (attr, value) at definition time so the restore closure isn't a late-binding loop-variable trap."""
+
+            def _restore() -> None:
+                """Restore the bound attribute to its bound original value."""
+                setattr(self, _a, _v)
+
+            return _restore
+
+        for _attr, _orig_val in st._fe_budget_quota_snapshot.items():
+            _safe_restore(_make_fe_budget_restorer(_attr, _orig_val), f"fe_budget_learning quota override ({_attr})")
+        _safe_restore(lambda: set_su_normalization(_su0), "SU normalization thread-local")
+        _safe_restore(lambda: set_jmim_aggregator(_jmim0), "JMIM aggregator thread-local")
+        _safe_restore(lambda: set_bur_lambda(_bur0), "BUR lambda thread-local")
+        _safe_restore(lambda: set_mi_miller_madow(_mm0), "Miller-Madow thread-local")
+        _safe_restore(lambda: set_mi_chao_shen(_cs0), "Chao-Shen thread-local")
+        _safe_restore(lambda: _set_group_mi(None), "group-aware MI thread-local")
+        _safe_restore(_restore_synergy_bonuses, "RelaxMRMR/PID/CMI-perm/CPT synergy thread-locals")
+        # reset DCD thread-local and restore cluster_aggregate_enable to its constructor value
+        # (Critic2 fix: missing reset in v1 plan).
+        _safe_restore(lambda: _set_dcd_active(False), "DCD active thread-local")
+        _safe_restore(lambda: setattr(self, "cluster_aggregate_enable", _orig_cluster_aggregate_enable), "cluster_aggregate_enable")
+        _safe_restore(lambda: self.__dict__.pop("_pre_fit_ctor_params_snapshot_", None), "pre-fit ctor-params snapshot")
+        # Restore the lazily-reconciled ctor aliases so ``get_params`` / ``clone`` see the unmodified
+        # user-supplied values (sklearn round-trip contract). ``_UNSET`` => never overridden.
+        if st._orig_random_seed is not _UNSET:
+            # cast: narrowed by the is-not-_UNSET sentinel check above; mypy can't track object-identity narrowing.
+            self.random_seed = cast(Optional[int], st._orig_random_seed)
+        if st._orig_skip_content is not _UNSET:
+            self.skip_retraining_on_same_content = cast(bool, st._orig_skip_content)
+        # Restore the adaptive_nbins_large_n_reg gate's in-place overwrite of
+        # nbins_strategy/quantization_nbins so clone()/get_params()/a subsequent .fit() on this same
+        # instance see the constructor's original values, not whatever the gate last computed.
+        _safe_restore(lambda: setattr(self, "nbins_strategy", _orig_nbins_strategy), "nbins_strategy (adaptive_nbins_large_n_reg gate)")
+        _safe_restore(lambda: setattr(self, "quantization_nbins", _orig_quantization_nbins), "quantization_nbins (adaptive_nbins_large_n_reg gate)")
+        # restore the fast-search profile overrides (constructor-arg stability).
+        # Restore the default screen-subsample knobs to their pre-fit (constructor) values so
+        # clone / pickle / repeated-fit see unchanged constructor-arg semantics.
+        self._fit_body_clone_pickle_repeated_fit(st._default_screen_saved)
+        self._fit_body_fast_search_saved(st._fast_search_saved)
+
+        def _restore_fe_auto_flags() -> None:
+            """Restore every fe_*_enable flag fe_auto flipped ON back to its pre-fit value."""
+            for _flag, _orig in _fe_auto_restore.items():
+                setattr(self, _flag, _orig)
+
+        # restore any fe_*_enable flags fe_auto flipped ON, so the
+        # constructor-arg semantics are stable across fits / clone / pickle.
+        _safe_restore(_restore_fe_auto_flags, "fe_auto-flipped fe_*_enable flags")
+        frame = getattr(self, "_pandas_frame_for_target_cleanup", None)
+        names = getattr(self, "_target_names_for_cleanup", None)
+        self._fit_body_frame_none_names(frame, names)
+        self._pandas_frame_for_target_cleanup = None
+        self._target_names_for_cleanup = None
+
+        def _refresh_signature_params_post_restore() -> None:
+            """Re-stamp ``self.signature``'s params component from a LIVE ``get_params()`` read taken
+            AFTER every restore above has completed (bug found while testing the re-entrancy
+            guard). ``_fit_impl`` (``_fit_impl_core.py``) already
+            does an analogous "refresh with post-fit values before storing" step so a param genuinely
+            normalised IN PLACE during the fit (e.g. RFECV's ``scoring`` resolution) still matches the
+            NEXT fit's freshly-read params - but that refresh runs BEFORE this method's OWN transient
+            overrides (cluster_aggregate_enable, fast-search profile, default-screen-subsample, ...)
+            are restored, so it captured their TRANSIENT mid-fit values, permanently breaking the
+            same-content-skip match for the common default config. This second, later refresh runs
+            after every override above is undone, so it reflects the true, stable, post-fit-and-
+            restore state - exactly what the NEXT fit's pre-override snapshot will read."""
+            _sig = getattr(self, "signature", None)
+            if _sig is None:
+                return
+            self.signature = (*_sig[:-1], _hashable_params_signature(self.get_params(deep=True)))
+
+        _safe_restore(_refresh_signature_params_post_restore, "post-restore signature params refresh")

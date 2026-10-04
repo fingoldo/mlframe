@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import logging
 import zlib
-from typing import TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
 from ._dcd_metrics import _binarize_aggregate
+from types import SimpleNamespace as _SimpleNamespace
 
 if TYPE_CHECKING:
     from . import DCDState, SwapDecision
@@ -224,13 +225,14 @@ def evaluate_swap_candidate(
     decision (Critic1/B-2 pre-confirmation guarantee).
     """
     # ``SwapDecision`` lives in the DCD parent; lazy-import to avoid the parent<->swap import cycle.
-    rep_relevance: Any = None
-    rep_binned: Any = None
+    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    st.rep_relevance = None
+    st.rep_binned = None
     from . import SwapDecision
-    cluster = state.cluster_anchors.get(anchor, set())
-    if len(cluster) < max(int(state.min_cluster_size), int(state.cluster_size_threshold)):
+    st.cluster = state.cluster_anchors.get(anchor, set())
+    if len(st.cluster) < max(int(state.min_cluster_size), int(state.cluster_size_threshold)):
         return SwapDecision(accept=False)
-    members = [anchor, *sorted(cluster)]
+    members = [anchor, *sorted(st.cluster)]
     if X_raw is None:
         X_raw = state.X_raw_ref
     if X_raw is None:
@@ -275,7 +277,7 @@ def evaluate_swap_candidate(
         M = M[:, finite_mask]
         members = [m for m, keep_col in zip(members, finite_mask) if keep_col]
         member_names = [n for n, keep_col in zip(member_names, finite_mask) if keep_col]
-        Z, mean, std, signs = _standardize_align(M, ref_col=0)
+        Z, st.mean, st.std, st.signs = _standardize_align(M, ref_col=0)
         # 2026-05-31 Layer 43 (PART B): ``auto`` swap method.
         # Run a K-fold (n_folds=5) OOF MI bake-off over the three linear-
         # combiner methods and pick the per-cluster winner. The chosen method
@@ -284,30 +286,30 @@ def evaluate_swap_candidate(
         # state._auto_method_cache keyed by tuple(member_names) so successive
         # re-evaluations of the same cluster reuse the bake-off.
         if str(state.swap_method) == "auto":
-            chosen_method, kfold_scores = _select_swap_method_auto(
+            st.chosen_method, st.kfold_scores = _select_swap_method_auto(
                 state=state, Z=Z, target_y=target_y,
                 member_names=tuple(member_names),
             )
         else:
-            chosen_method = str(state.swap_method)
-            kfold_scores = None
+            st.chosen_method = str(state.swap_method)
+            st.kfold_scores = None
         # Layer 44: route all non-linear / row-reduction methods through the
         # shared ``_apply_method_nonlinear`` (median / median_z / signed_max_abs
         # / signed_l2_sum). Linear methods stay on the ``Z @ weights`` fast path.
         from .._cluster_aggregate import (
             _apply_method_nonlinear, _NONLINEAR_METHODS,
         )
-        if chosen_method in _NONLINEAR_METHODS:
-            weights = None
-            rep_continuous = _apply_method_nonlinear(Z, chosen_method).astype(np.float64)
+        if st.chosen_method in _NONLINEAR_METHODS:
+            st.weights = None
+            st.rep_continuous = _apply_method_nonlinear(Z, st.chosen_method).astype(np.float64)
         else:
-            weights = _derive_weights(Z, chosen_method)
-            if weights is None:
+            st.weights = _derive_weights(Z, st.chosen_method)
+            if st.weights is None:
                 return SwapDecision(accept=False)
-            rep_continuous = (Z @ weights).astype(np.float64)
+            st.rep_continuous = (Z @ st.weights).astype(np.float64)
         # Bin the rep via quantile/uniform to integer codes.
-        rep_binned = _binarize_aggregate(
-            rep_continuous, method=state.quantization_method,
+        st.rep_binned = _binarize_aggregate(
+            st.rep_continuous, method=state.quantization_method,
             n_bins=state.quantization_nbins, dtype=state.quantization_dtype,
         )
     except Exception as exc:
@@ -315,11 +317,11 @@ def evaluate_swap_candidate(
         return SwapDecision(accept=False)
     # Build a candidate matrix with rep appended.
     assert state.factors_data is not None, "DCD swap candidate scoring requires a populated DCDState.factors_data"
-    new_col_idx = int(state.factors_data.shape[1])
-    data_with_rep = np.column_stack([state.factors_data, rep_binned])
-    nbins_with_rep = np.concatenate([
+    st.new_col_idx = int(state.factors_data.shape[1])
+    st.data_with_rep = np.column_stack([state.factors_data, st.rep_binned])
+    st.nbins_with_rep = np.concatenate([
         np.asarray(state.factors_nbins, dtype=np.int64),
-        [int(rep_binned.max()) + 1 if rep_binned.size else int(state.quantization_nbins)],
+        [int(st.rep_binned.max()) + 1 if st.rep_binned.size else int(state.quantization_nbins)],
     ])
     # Relevance comparison: conditional MI against Selected − {anchor}.
     target = state.target_indices if state.target_indices is not None and state.target_indices.size > 0 else target_y
@@ -330,17 +332,17 @@ def evaluate_swap_candidate(
     try:
         from ..info_theory import mi, conditional_mi
         if S_minus_anchor:
-            rep_relevance = float(conditional_mi(
-                factors_data=data_with_rep,
-                x=np.array([new_col_idx], dtype=np.int64),
+            st.rep_relevance = float(conditional_mi(
+                factors_data=st.data_with_rep,
+                x=np.array([st.new_col_idx], dtype=np.int64),
                 y=np.asarray(target, dtype=np.int64),
                 z=np.array(S_minus_anchor, dtype=np.int64),
                 var_is_nominal=None,
-                factors_nbins=nbins_with_rep,
+                factors_nbins=st.nbins_with_rep,
                 entropy_cache=entropy_cache,
                 can_use_x_cache=False, can_use_y_cache=True,
             ))
-            anchor_rel = float(conditional_mi(
+            st.anchor_rel = float(conditional_mi(
                 factors_data=state.factors_data,
                 x=np.array([int(anchor)], dtype=np.int64),
                 y=np.asarray(target, dtype=np.int64),
@@ -352,11 +354,11 @@ def evaluate_swap_candidate(
             ))
         else:
             # First-selected case: use unconditional MI.
-            rep_relevance = float(mi(
-                data_with_rep, np.array([new_col_idx], dtype=np.int64),
-                np.asarray(target, dtype=np.int64), nbins_with_rep,
+            st.rep_relevance = float(mi(
+                st.data_with_rep, np.array([st.new_col_idx], dtype=np.int64),
+                np.asarray(target, dtype=np.int64), st.nbins_with_rep,
             ))
-            anchor_rel = float(mi(
+            st.anchor_rel = float(mi(
                 state.factors_data, np.array([int(anchor)], dtype=np.int64),
                 np.asarray(target, dtype=np.int64), state.factors_nbins,
             ))
@@ -376,11 +378,11 @@ def evaluate_swap_candidate(
     # viable swap target on its own. The final branch is whichever of
     # ``aggregate`` / ``best_member`` has the higher CMI - both have to
     # individually beat the anchor by ``swap_gain_threshold``.
-    member_relevances: dict = {}
-    best_member_idx = -1
-    best_member_rel = float("-inf")
-    target_arr = np.asarray(target, dtype=np.int64)
-    _sorted_cluster = sorted(cluster)
+    st.member_relevances = {}
+    st.best_member_idx = -1
+    st.best_member_rel = float("-inf")
+    st.target_arr = np.asarray(target, dtype=np.int64)
+    st._sorted_cluster = sorted(st.cluster)
     # BATCHED: one parallel call scoring every cluster member (bounded by max_cluster_size,
     # default 12) against the SAME (y, Selected-anchor) instead of a per-member Python loop - see
     # ``_dcd_member_rank_batch.py`` for why the public ``conditional_mi_batched_dispatch``/``_cpu_cmi_loop``
@@ -388,8 +390,8 @@ def evaluate_swap_candidate(
     # and why the one real call site's ``entropy_cache`` was never actually live to lose. Any failure
     # (shape mismatch, degenerate cardinality, ...) falls back to the exact original per-member loop with
     # its own per-member fail-to-0.0 semantics, unchanged.
-    best_member_idx, best_member_rel = _evaluate_swap_cand_its_own_per_member(state, _sorted_cluster, target_arr, S_minus_anchor, member_relevances, best_member_rel, entropy_cache, best_member_idx)
-    gain_factor = 1.0 + float(state.swap_gain_threshold)
+    st.best_member_idx, st.best_member_rel = _evaluate_swap_cand_its_own_per_member(state, st._sorted_cluster, st.target_arr, S_minus_anchor, st.member_relevances, st.best_member_rel, entropy_cache, st.best_member_idx)
+    st.gain_factor = 1.0 + float(state.swap_gain_threshold)
     # Cheap pre-filter ahead of the (potentially expensive) permutation null below. When a null
     # will actually run (``full_npermutations > 0``), soften this to plain dominance - the
     # candidate merely needs to beat the anchor's point estimate - and let the null's p-value be
@@ -398,26 +400,26 @@ def evaluate_swap_candidate(
     # aggregate beat anchor by 3.3%, short of the 5% default margin, despite the underlying
     # improvement being real). When no null is requested (``full_npermutations <= 0``, so no
     # statistical backstop is available), keep the stricter margin as the sole heuristic gate.
-    _null_will_run = int(full_npermutations or 0) > 0
-    if _null_will_run:
-        aggregate_gate = rep_relevance > anchor_rel
-        member_gate = best_member_idx >= 0 and best_member_rel > anchor_rel
+    st._null_will_run = int(full_npermutations or 0) > 0
+    if st._null_will_run:
+        st.aggregate_gate = st.rep_relevance > st.anchor_rel
+        st.member_gate = st.best_member_idx >= 0 and st.best_member_rel > st.anchor_rel
     else:
-        aggregate_gate = rep_relevance > anchor_rel * gain_factor
-        member_gate = best_member_idx >= 0 and best_member_rel > anchor_rel * gain_factor
-    if not aggregate_gate and not member_gate:
+        st.aggregate_gate = st.rep_relevance > st.anchor_rel * st.gain_factor
+        st.member_gate = st.best_member_idx >= 0 and st.best_member_rel > st.anchor_rel * st.gain_factor
+    if not st.aggregate_gate and not st.member_gate:
         # Branch A: no swap candidate beats the anchor.
         return SwapDecision(
             accept=False,
-            rep_relevance=rep_relevance,
-            anchor_relevance_in_ctx=anchor_rel,
+            rep_relevance=st.rep_relevance,
+            anchor_relevance_in_ctx=st.anchor_rel,
             branch="none",
-            member_col_idx=best_member_idx,
-            member_relevance=(best_member_rel if best_member_idx >= 0 else 0.0),
+            member_col_idx=st.best_member_idx,
+            member_relevance=(st.best_member_rel if st.best_member_idx >= 0 else 0.0),
         )
     # Both gates active -> pick the higher CMI as the candidate branch.
     # When only one is active, that one wins by definition.
-    prefer_aggregate = aggregate_gate and (not member_gate or rep_relevance >= best_member_rel)
+    st.prefer_aggregate = st.aggregate_gate and (not st.member_gate or st.rep_relevance >= st.best_member_rel)
     # 2026-06-03 (audit dcd-core-1 / dcd-swap-null-1/2): resolve the effective
     # permutation-null draw count. ``full_npermutations`` (the screening
     # confidence, default 3) acts ONLY as the on/off switch - 0 means the
@@ -426,7 +428,7 @@ def evaluate_swap_candidate(
     # ceil(1/swap_alpha) so 1/(B+1) < swap_alpha holds; otherwise the gate is
     # arithmetically un-passable (B=3 -> min-p 0.25 >> 0.05) and every swap is
     # silently rejected. Both the aggregate and member nulls use this B_eff.
-    B_eff = _evaluate_swap_cand_silently_rejected_both_aggregate(full_npermutations, state)
+    st.B_eff = _evaluate_swap_cand_silently_rejected_both_aggregate(full_npermutations, state)
     # When the caller requested a permutation null (``full_npermutations > 0``), apply the SAME null to the member
     # candidate too. The point-CMI gate is upward-biased on small/noisy data; if the swap is firing on pure noise
     # the null catches it for the aggregate path - the member branch must not be a side door that bypasses it.
@@ -444,37 +446,37 @@ def evaluate_swap_candidate(
             state=state, member_idx=int(member_idx), member_rel=float(member_rel), B_=int(B_),
             anchor=int(anchor), target=target, S_minus_anchor=S_minus_anchor, logger=logger,
         )
-    if not prefer_aggregate:
+    if not st.prefer_aggregate:
         # Branch B: member swap. Apply permutation null when requested
         # (B>0) - otherwise this branch silently bypasses the check the
         # caller asked for on the swap as a whole.
-        member_p = _run_member_null(int(best_member_idx), float(best_member_rel), B_eff)
-        if B_eff > 0 and member_p >= float(state.swap_alpha):
+        member_p = _run_member_null(int(st.best_member_idx), float(st.best_member_rel), st.B_eff)
+        if st.B_eff > 0 and member_p >= float(state.swap_alpha):
             return SwapDecision(
                 accept=False,
-                rep_relevance=rep_relevance,
-                anchor_relevance_in_ctx=anchor_rel,
+                rep_relevance=st.rep_relevance,
+                anchor_relevance_in_ctx=st.anchor_rel,
                 perm_p_value=member_p,
                 branch="none",
-                member_col_idx=int(best_member_idx),
-                member_relevance=float(best_member_rel),
+                member_col_idx=int(st.best_member_idx),
+                member_relevance=float(st.best_member_rel),
             )
         return SwapDecision(
             accept=True,
-            new_col_idx=int(best_member_idx),
+            new_col_idx=int(st.best_member_idx),
             aggregate_name="",
             binned_rep=None,
             new_nbins=0,
             recipe_obj=None,
-            rep_relevance=rep_relevance,
-            anchor_relevance_in_ctx=anchor_rel,
+            rep_relevance=st.rep_relevance,
+            anchor_relevance_in_ctx=st.anchor_rel,
             perm_p_value=member_p,
             branch="member",
-            member_col_idx=int(best_member_idx),
-            member_relevance=float(best_member_rel),
+            member_col_idx=int(st.best_member_idx),
+            member_relevance=float(st.best_member_rel),
         )
     # Branch C continues - aggregate must still pass the permutation null.
-    deterministic_gate = aggregate_gate
+    st.deterministic_gate = st.aggregate_gate
     # Permutation null on rep.
     # The deterministic point-MI gate is upward-biased on small / noisy data
     # because rep (a continuous PC1 projection re-binned with quantization_nbins
@@ -485,51 +487,51 @@ def evaluate_swap_candidate(
     # Null hypothesis: rep_binned has no real conditional dependence on y
     # given Selected\{anchor}. Reject when observed rep_relevance lies in
     # the upper tail of the shuffled-rep distribution.
-    perm_p_value = 0.0
-    B = B_eff
-    perm_p_value = _evaluate_swap_cand_upper_tail_shuffled_rep(B, state, anchor, target, S_minus_anchor, data_with_rep, nbins_with_rep, new_col_idx, rep_binned, rep_relevance, conditional_mi, mi, perm_p_value)
-    accept = deterministic_gate and (B <= 0 or perm_p_value < float(state.swap_alpha))
-    if not accept:
+    st.perm_p_value = 0.0
+    st.B = st.B_eff
+    st.perm_p_value = _evaluate_swap_cand_upper_tail_shuffled_rep(st.B, state, anchor, target, S_minus_anchor, st.data_with_rep, st.nbins_with_rep, st.new_col_idx, st.rep_binned, st.rep_relevance, conditional_mi, mi, st.perm_p_value)
+    st.accept = st.deterministic_gate and (st.B <= 0 or st.perm_p_value < float(state.swap_alpha))
+    if not st.accept:
         # Layer 45: aggregate failed its permutation null. If the
         # best-member gate also held (member_gate True), fall through to
         # the member-swap branch - but apply the SAME permutation null
         # the caller requested via ``full_npermutations``. Wave 9.1 iter-3
         # follow-up: the prior bypass made the member branch a side door
         # past the null on pure-noise candidates.
-        if member_gate and best_member_idx >= 0:
-            member_p2 = _run_member_null(int(best_member_idx), float(best_member_rel), B_eff)
-            if B_eff > 0 and member_p2 >= float(state.swap_alpha):
+        if st.member_gate and st.best_member_idx >= 0:
+            member_p2 = _run_member_null(int(st.best_member_idx), float(st.best_member_rel), st.B_eff)
+            if st.B_eff > 0 and member_p2 >= float(state.swap_alpha):
                 return SwapDecision(
                     accept=False,
-                    rep_relevance=rep_relevance,
-                    anchor_relevance_in_ctx=anchor_rel,
-                    perm_p_value=max(perm_p_value, member_p2),
+                    rep_relevance=st.rep_relevance,
+                    anchor_relevance_in_ctx=st.anchor_rel,
+                    perm_p_value=max(st.perm_p_value, member_p2),
                     branch="none",
-                    member_col_idx=int(best_member_idx),
-                    member_relevance=float(best_member_rel),
+                    member_col_idx=int(st.best_member_idx),
+                    member_relevance=float(st.best_member_rel),
                 )
             return SwapDecision(
                 accept=True,
-                new_col_idx=int(best_member_idx),
+                new_col_idx=int(st.best_member_idx),
                 aggregate_name="",
                 binned_rep=None,
                 new_nbins=0,
                 recipe_obj=None,
-                rep_relevance=rep_relevance,
-                anchor_relevance_in_ctx=anchor_rel,
+                rep_relevance=st.rep_relevance,
+                anchor_relevance_in_ctx=st.anchor_rel,
                 perm_p_value=member_p2,
                 branch="member",
-                member_col_idx=int(best_member_idx),
-                member_relevance=float(best_member_rel),
+                member_col_idx=int(st.best_member_idx),
+                member_relevance=float(st.best_member_rel),
             )
         return SwapDecision(
             accept=False,
-            rep_relevance=rep_relevance,
-            anchor_relevance_in_ctx=anchor_rel,
-            perm_p_value=perm_p_value,
+            rep_relevance=st.rep_relevance,
+            anchor_relevance_in_ctx=st.anchor_rel,
+            perm_p_value=st.perm_p_value,
             branch="none",
-            member_col_idx=best_member_idx,
-            member_relevance=(best_member_rel if best_member_idx >= 0 else 0.0),
+            member_col_idx=st.best_member_idx,
+            member_relevance=(st.best_member_rel if st.best_member_idx >= 0 else 0.0),
         )
     aggregate_name = f"_dcd_pc1_{'_'.join(str(cols[m])[:6] for m in members[:3])}" f"_n{len(members)}_a{anchor}"
     # 2026-05-31 Layer 43 (PART B): record the chosen method (the actual
@@ -538,30 +540,30 @@ def evaluate_swap_candidate(
     # chosen method is the K-fold OOF winner; when a specific method was
     # pinned, chosen_method == state.swap_method. Replay reads recipe.method
     # so the transform-time aggregate is bit-identical with fit.
-    recipe_obj = {
-        "method": chosen_method, "members": members,
-        "mean": mean.tolist(), "std": std.tolist(),
-        "signs": signs.tolist(),
+    st.recipe_obj = {
+        "method": st.chosen_method, "members": members,
+        "mean": st.mean.tolist(), "std": st.std.tolist(),
+        "signs": st.signs.tolist(),
     }
-    if weights is not None:
-        recipe_obj["weights"] = weights.tolist()
-    if kfold_scores is not None:
-        recipe_obj["kfold_scores"] = {k: float(v) for k, v in kfold_scores.items()}
-        recipe_obj["auto_winner"] = chosen_method
+    if st.weights is not None:
+        st.recipe_obj["weights"] = st.weights.tolist()
+    if st.kfold_scores is not None:
+        st.recipe_obj["kfold_scores"] = {k: float(v) for k, v in st.kfold_scores.items()}
+        st.recipe_obj["auto_winner"] = st.chosen_method
     return SwapDecision(
         accept=True,
-        new_col_idx=new_col_idx,
+        new_col_idx=st.new_col_idx,
         aggregate_name=aggregate_name,
-        binned_rep=rep_binned,
-        new_nbins=int(nbins_with_rep[-1]),
-        recipe_obj=recipe_obj,
-        rep_relevance=rep_relevance,
-        anchor_relevance_in_ctx=anchor_rel,
-        perm_p_value=perm_p_value,
+        binned_rep=st.rep_binned,
+        new_nbins=int(st.nbins_with_rep[-1]),
+        recipe_obj=st.recipe_obj,
+        rep_relevance=st.rep_relevance,
+        anchor_relevance_in_ctx=st.anchor_rel,
+        perm_p_value=st.perm_p_value,
         branch="aggregate",
-        member_col_idx=best_member_idx,
-        member_relevance=(best_member_rel if best_member_idx >= 0 else 0.0),
-        rep_continuous=rep_continuous,
+        member_col_idx=st.best_member_idx,
+        member_relevance=(st.best_member_rel if st.best_member_idx >= 0 else 0.0),
+        rep_continuous=st.rep_continuous,
     )
 
 

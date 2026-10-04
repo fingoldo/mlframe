@@ -48,8 +48,13 @@ def _should_demote_prewarp(pw_corr, clean_corr) -> bool:
     return bool(clean_corr >= 0.0 and pw_corr < clean_corr * 1.05)
 
 
-def _score_one_pair_fe_gpu_binning_enabled(_K, _fe_gpu_binning_enabled, final_transformed_vals, quantization_nbins, quantization_dtype, transformed_vars, _a_cols, _b_cols, _ops, _gpu_cands, _name_list, _local_times, _batch_candidates, _disc_2d, _gpu_fused_done):
-    """Block of _score_one_pair starting at ``if _K > 0 and _fe_gpu_binning_enabled(final_transformed_vals.shape[0],``."""
+def _score_one_pair_fe_gpu_binning_enabled(_K, _fe_gpu_binning_enabled, final_transformed_vals, quantization_nbins, quantization_dtype, transformed_vars, _a_cols, _b_cols, _ops, _gpu_cands, _name_list, _local_times, _batch_candidates, _disc_2d, _gpu_fused_done, _defer_float=False):
+    """Block of _score_one_pair starting at ``if _K > 0 and _fe_gpu_binning_enabled(final_transformed_vals.shape[0],``.
+
+    With ``_defer_float`` the (n, K) float candidate matrix is NOT copied to the host: the caller gets the (a_col, b_col, op_code) arrays back and re-materialises only
+    the columns it reads on the GPU, with the same kernel that would have filled the buffer.
+    """
+    _defer_meta = None
     if _K > 0 and _fe_gpu_binning_enabled(final_transformed_vals.shape[0], _K):
         _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)
         _start = timer()
@@ -61,15 +66,17 @@ def _score_one_pair_fe_gpu_binning_enabled(_K, _fe_gpu_binning_enabled, final_tr
             np.asarray(_ops, dtype=np.int8),
             int(quantization_nbins),
             dtype=_code_dtype,
-            out_cand=final_transformed_vals[:, :_K],
+            out_cand=None if _defer_float else final_transformed_vals[:, :_K],
         )
+        if _defer_float:
+            _defer_meta = (np.asarray(_a_cols, dtype=np.int64), np.asarray(_b_cols, dtype=np.int64), np.asarray(_ops, dtype=np.int8))
         _batch_candidates = _gpu_cands
         # Attribute the fused materialise time across the bin_funcs (one event per pair).
         _dt_each = (timer() - _start) / max(1, len(_name_list))
         for bin_func_name in _name_list:
             _local_times[bin_func_name] = _local_times.get(bin_func_name, 0.0) + _dt_each
         _gpu_fused_done = True
-    return _batch_candidates, _disc_2d, _gpu_fused_done
+    return _batch_candidates, _disc_2d, _gpu_fused_done, _defer_meta
 
 
 def _score_one_pair_gpu_fused_done(_gpu_fused_done, combs, vars_transformations, transformed_vars, _PREWARP_UNARY, binary_transformations, final_transformed_vals, _local_times, _batch_candidates, i):
