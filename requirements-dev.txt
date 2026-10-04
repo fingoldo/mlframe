@@ -58,4 +58,5 @@
 # Bumped 2026-09-24 from a5f2154 to 6a8e382 (v1.17.0): one pin for this file, every workflow `uses:` ref, the reusable workflows'
 # py-ci-shared-ref input and the pre-commit rev; 1.17.0 fails a missing baseline, an unparsable file and an empty scan.
 # Bumped 2026-10-03 from f6aa24a to 9779e9f (still v1.18.0: f6aa24a plus the black_filtered_apply --check speed-up that keeps the tests/ Black job under its 15-minute limit; the 1.19-1.20 gates are not adopted yet), same set of pins.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@559f720832f4b5151e555c9f57f7a020a41e6bf9  # v1.21.0  # pragma: allowlist secret
+# Bumped 2026-10-05 from v1.21.0 (559f720) to 41ada19: v1.21.0 plus the deferred_drift empty-list fix, the psycopg2 dev extra and the empty-module coverage fix; every pin moves together.
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@41ada1914549c74e92cb6fb162d6d1bba436a400  # v1.21.0+fixes  # pragma: allowlist secret
