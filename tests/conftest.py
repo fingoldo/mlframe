@@ -1065,8 +1065,13 @@ def _neutralize_colorama_init() -> None:
         import numba.core.errors as _numba_errors
     except ImportError:
         return
-    if hasattr(_numba_errors, "init"):
-        _numba_errors.init = _no_init
+    # ``ColorShell.__exit__`` calls ``deinit()``, which sets ``sys.stdout = colorama.initialise.orig_stdout`` whenever ANY earlier
+    # ``colorama.init()`` (another library, before this ran) recorded one: the real stream. A NumbaWarning formatted while doctest
+    # has swapped in its capture then sends every later example's output to the console ("Expected: True / Got nothing"), in
+    # whichever module first compiles a warning-raising kernel, so it depended on test order. ``reinit`` is the matching re-wrap.
+    for _name in ("init", "reinit", "deinit"):
+        if hasattr(_numba_errors, _name):
+            setattr(_numba_errors, _name, _no_init)
 
 
 _neutralize_colorama_init()

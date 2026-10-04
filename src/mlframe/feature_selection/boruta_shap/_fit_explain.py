@@ -5,6 +5,8 @@ Methods are bound onto the ``BorutaShap`` class in the package ``__init__`` so `
 
 from __future__ import annotations
 
+from mlframe.utils.budgets import active_budget
+
 from typing import Any
 
 from mlframe.feature_selection._selection_log import logs_fit
@@ -525,7 +527,7 @@ def fit(self, X, y):
             # trial so the just-completed trial's state is valid (>=1 trial always runs): an over-budget
             # or stop-flagged run returns the features decided so far rather than starting the next
             # (dominant-cost) trial. ``n_trials_run_`` was set above to the count completed.
-            if _max_runtime_mins and (_budget_timer() - _fit_start_t) > _max_runtime_mins * 60.0:
+            if (minutes := active_budget(_max_runtime_mins)) is not None and (_budget_timer() - _fit_start_t) > minutes * 60.0:
                 if self.verbose:
                     logger.info("BorutaShap: runtime budget %.1f min exceeded after trial %d/%d; stopping with features decided so far.", _max_runtime_mins, trial + 1, self.n_trials)
                 break

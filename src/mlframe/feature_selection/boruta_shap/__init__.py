@@ -282,8 +282,8 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
 
         # Control/safety knobs mirroring MRMR / RFECV: a wall-clock budget and a
         # filesystem stop-flag, both honoured inside the trial loop (see ``_fit_func``
-        # in ``_fit_explain``). ``max_runtime_mins=None`` disables the time
-        # budget; ``stop_file`` is checked for existence each trial (touch it to abort
+        # in ``_fit_explain``). ``max_runtime_mins`` of 0 or None = no limit
+        # (``mlframe.utils.budgets``); ``stop_file`` is checked for existence each trial (touch it to abort
         # the run cleanly, returning the features classified so far).
         self.max_runtime_mins = max_runtime_mins
         self.stop_file = stop_file

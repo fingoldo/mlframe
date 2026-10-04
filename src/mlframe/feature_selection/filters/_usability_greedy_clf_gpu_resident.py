@@ -191,202 +191,11 @@ def usability_greedy_clf_gpu_resident(
             sd = cp.where(sd < 1e-12, 1.0, sd)
             return (Xtr - mu) / sd, [(Xo - mu) / sd for Xo in Xother]
 
-        def _fit_binary(Xs, yb):
-            """L2 Newton for binary logistic on standardized design ``Xs`` (intercept appended,
-            unpenalised). ``yb`` is a resident {0,1} float vector. Returns w (k+1,) or raises."""
-            nn, k = Xs.shape
-            A = cp.empty((nn, k + 1), dtype=cp.float64)
-            A[:, :k] = Xs
-            A[:, k] = 1.0
-            wv = cp.zeros(k + 1, dtype=cp.float64)
-            reg = cp.ones(k + 1, dtype=cp.float64)
-            reg[k] = 0.0
-            lam = 1.0 / _C
-            for _ in range(_NEWTON_MAX_ITER):
-                z = A @ wv
-                p = 1.0 / (1.0 + cp.exp(-z))
-                Wd = p * (1.0 - p)
-                grad = A.T @ (p - yb) + lam * reg * wv
-                H = (A * Wd[:, None]).T @ A
-                H[cp.arange(k + 1), cp.arange(k + 1)] += lam * reg
-                try:
-                    step = cp.linalg.solve(H, grad)
-                except Exception:
-                    raise _ResidentClfFallbackError()
-                wv = wv - step
-                if not bool(cp.all(cp.isfinite(wv))):
-                    raise _ResidentClfFallbackError()
-                if float(cp.max(cp.abs(step))) < _NEWTON_TOL:
-                    break
-            else:
-                raise _ResidentClfFallbackError()  # did not converge -> defer to CPU
-            return wv
+        _fit_binary, _fit_multinomial, _logloss, _proba_binary, _proba_multinomial = _usability_greedy_clf_step1_def_fit_binary(cp, n_classes)
 
-        def _proba_binary(Xs, wv):
-            """Sigmoid positive-class probability from the fitted binary weight vector ``wv`` (last entry
-            is the unpenalised intercept) evaluated on the standardized design ``Xs``."""
-            k = Xs.shape[1]
-            z = Xs @ wv[:k] + wv[k]
-            return 1.0 / (1.0 + cp.exp(-z))
+        _abscorr_batch, _fit_proba = _usability_greedy_clf_step2_def_fit_proba(n_classes, cp, _fit_binary, _proba_binary, _fit_multinomial, _proba_multinomial, Vdev, P)
 
-        def _fit_multinomial(Xs, yc):
-            """Symmetric multinomial L2 Newton (full block Hessian) on standardized design. ``yc`` is a
-            resident int code vector. Returns W (k+1, C) or raises. sklearn 1.x multinomial default.
-
-            RETAINED REJECTED PROTOTYPE (bench-attempt-rejected 2026-06-28): unreachable - the >2-class
-            guard above returns ``None`` BEFORE any fit. Kept (per the keep-all-kernel-versions policy) as
-            the documented symmetric attempt: its block Hessian is SINGULAR in the unpenalised-intercept
-            null direction, so ``cp.linalg.solve`` returns a garbage step and the fit blows up to NaN (re-
-            measured 2026-06-28). The non-singular reduced (C-1) alternative converges but flips 9/24
-            multiclass selections by the gauge alone - see the >2-class guard's evidence block. Do not wire
-            either into the dispatch; multiclass stays on the exact CPU sklearn path."""
-            nn, k = Xs.shape
-            d = k + 1
-            A = cp.empty((nn, d), dtype=cp.float64)
-            A[:, :k] = Xs
-            A[:, k] = 1.0
-            Y = cp.zeros((nn, n_classes), dtype=cp.float64)
-            Y[cp.arange(nn), yc] = 1.0
-            Wm = cp.zeros((d, n_classes), dtype=cp.float64)
-            reg = cp.ones(d, dtype=cp.float64)
-            reg[k] = 0.0
-            lam = 1.0 / _C
-            regdiag = lam * cp.diag(reg)
-            for _ in range(_NEWTON_MAX_ITER):
-                Z = A @ Wm
-                Z = Z - Z.max(axis=1, keepdims=True)
-                E = cp.exp(Z)
-                Pm = E / E.sum(axis=1, keepdims=True)
-                G = A.T @ (Pm - Y) + lam * (reg[:, None] * Wm)
-                grad = G.reshape(-1)
-                Hbig = cp.zeros((d * n_classes, d * n_classes), dtype=cp.float64)
-                for c in range(n_classes):
-                    for c2 in range(n_classes):
-                        wgt = Pm[:, c] * ((1.0 if c == c2 else 0.0) - Pm[:, c2])
-                        blk = (A * wgt[:, None]).T @ A
-                        if c == c2:
-                            blk = blk + regdiag
-                        Hbig[c * d : (c + 1) * d, c2 * d : (c2 + 1) * d] = blk
-                try:
-                    step = cp.linalg.solve(Hbig, grad)
-                except Exception:
-                    raise _ResidentClfFallbackError()
-                Wm = Wm - step.reshape(d, n_classes)
-                if not bool(cp.all(cp.isfinite(Wm))):
-                    raise _ResidentClfFallbackError()
-                if float(cp.max(cp.abs(step))) < _NEWTON_TOL:
-                    break
-            else:
-                raise _ResidentClfFallbackError()
-            return Wm
-
-        def _proba_multinomial(Xs, Wm):
-            """Softmax class-probability matrix from the fitted symmetric weight matrix ``Wm`` (last row is
-            the unpenalised intercept), row-max-shifted for numerical stability before the exponential."""
-            nn, k = Xs.shape
-            A = cp.empty((nn, k + 1), dtype=cp.float64)
-            A[:, :k] = Xs
-            A[:, k] = 1.0
-            Z = A @ Wm
-            Z = Z - Z.max(axis=1, keepdims=True)
-            E = cp.exp(Z)
-            return E / E.sum(axis=1, keepdims=True)
-
-        def _logloss(yc_dev, proba):
-            """CV-logloss over ALL ``labels_dev`` classes (mirrors sklearn ``log_loss(..., labels)``).
-            ``proba`` is (m,) for binary positive-class prob or (m, C) for multinomial."""
-            if proba.ndim == 1:
-                p1 = cp.clip(proba, _LOGLOSS_EPS, 1.0 - _LOGLOSS_EPS)
-                p = cp.stack([1.0 - p1, p1], axis=1)
-            else:
-                p = cp.clip(proba, _LOGLOSS_EPS, 1.0)
-                p = p / p.sum(axis=1, keepdims=True)
-            m = int(yc_dev.shape[0])
-            ll = -cp.mean(cp.log(p[cp.arange(m), yc_dev]))
-            return float(ll)
-
-        def _fit_proba(Xtr_s, Xeval_list, ytr_codes_dev):
-            """Fit on standardized train design, return list of eval-set probabilities (positive-class
-            (m,) for binary, (m,C) for multinomial). Raises _ResidentClfFallbackError on a bad fit."""
-            if n_classes == 2:
-                yb = (ytr_codes_dev == 1).astype(cp.float64)
-                wv = _fit_binary(Xtr_s, yb)
-                return [_proba_binary(Xe, wv) for Xe in Xeval_list]
-            Wm = _fit_multinomial(Xtr_s, ytr_codes_dev)
-            return [_proba_multinomial(Xe, Wm) for Xe in Xeval_list]
-
-        # ---------------- shortlist (residual-aware pre-rank), fully resident ----------------
-        def _abscorr_batch(resid_dev, rows_mask) -> np.ndarray:
-            """Resident |Pearson correlation| of the current residual against every pool candidate column at once
-            (a single (m, P) reduction), restricted to ``rows_mask`` when given. Degenerate (near-zero-variance
-            residual or candidate) entries return 0.0 instead of NaN so the shortlist score stays well-defined."""
-            M = Vdev if rows_mask is None else Vdev[rows_mask]
-            out = cp.zeros(P, dtype=cp.float64)
-            m = int(M.shape[0])
-            if m == 0:
-                return np.asarray(cp.asnumpy(out))
-            if float(resid_dev.std()) < 1e-12:
-                return np.asarray(cp.asnumpy(out))
-            vm = resid_dev - resid_dev.mean()
-            ssv = float(cp.dot(vm, vm))
-            if ssv <= 0.0:
-                return np.asarray(cp.asnumpy(out))
-            Mc = M - M.mean(axis=0, keepdims=True)
-            num = Mc.T @ vm
-            ssc = (Mc * Mc).sum(axis=0)
-            denom = cp.sqrt(ssc * ssv)
-            col_std = M.std(axis=0)
-            valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
-            r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
-            r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
-            return np.asarray(cp.asnumpy(r))
-
-        def _shortlist(sel_idx) -> list:
-            """Residual-aware pre-rank of the not-yet-selected pool candidates, mirroring the CPU path's
-            shortlist: with an empty ``sel_idx`` the residual is the positive-class indicator centered on its
-            own mean; otherwise it's the fold-0 holdout residual of the current selection's fitted probability.
-            Each candidate scores ``(1-w)*mi/mi_max + w*|corr(resid)|`` and the top ``shortlist`` indices (by
-            that blended score) are returned for the next round's per-candidate CV refit."""
-            if sel_idx:
-                ho = va_masks[0]
-                tr = tr_masks[0]
-                if int(np.unique(y_enc[tr_masks_h[0]]).size) >= 2:
-                    Xtr = Vdev[tr][:, sel_idx]
-                    Xho = Vdev[ho][:, sel_idx]
-                    Xtr_s, (Xho_s,) = _standardize(Xtr, [Xho])
-                    proba = _fit_proba(Xtr_s, [Xho_s], yenc_dev[tr])[0]
-                    if proba.ndim == 1:
-                        phat = proba  # binary: P(class 1) == P(pos)
-                    else:
-                        phat = proba[:, pos_cls]  # multiclass: P(majority)
-                    resid = pos_dev[ho] - phat
-                else:
-                    resid = pos_dev[ho] - pos_dev[tr].mean()
-                uses = _abscorr_batch(resid, ho)
-            else:
-                resid = pos_dev - pos_dev.mean()
-                uses = _abscorr_batch(resid, None)
-            sel_set = set(sel_idx)
-            scored = []
-            for i in range(P):
-                if i in sel_set:
-                    continue
-                scored.append((i, (1.0 - w) * (mi_host[i] / mi_max) + w * float(uses[i])))
-            scored.sort(key=lambda t: t[1], reverse=True)
-            # Diversity filter (mirrors the CPU usability_greedy._shortlist and the regression resident
-            # twin): reject a candidate near-duplicate (|corr| > shortlist_diversity_corr) of one already
-            # kept, so several algebraically-redundant views of the same signal cannot crowd out a
-            # genuinely different candidate. One GEMV per kept candidate via _abscorr_batch, resident.
-            out_idx: list[int] = []
-            corr_vs_kept: list[np.ndarray] = []
-            for i, _s in scored:
-                if any(float(cvk[i]) > shortlist_diversity_corr for cvk in corr_vs_kept):
-                    continue
-                out_idx.append(i)
-                if len(out_idx) >= max(1, shortlist):
-                    break
-                corr_vs_kept.append(_abscorr_batch(Vdev[:, i], None))
-            return out_idx
+        _shortlist = _usability_greedy_clf_step3_def_shortlist_sel(va_masks, tr_masks, y_enc, tr_masks_h, Vdev, _standardize, _fit_proba, yenc_dev, pos_cls, pos_dev, _abscorr_batch, P, w, mi_host, mi_max, shortlist_diversity_corr, shortlist)
 
         # ---------------- per-fold CV-logloss, fully resident ----------------
         def _cv_baseline() -> np.ndarray:
@@ -431,6 +240,215 @@ def usability_greedy_clf_gpu_resident(
     except Exception as e:
         logger.debug("usability_greedy_clf_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
         return None
+
+
+def _usability_greedy_clf_step1_def_fit_binary(cp, n_classes):
+    """Step 1 of usability_greedy_clf_gpu_resident: lines starting at ``def _fit_binary(Xs, yb):``."""
+    def _fit_binary(Xs, yb):
+        """L2 Newton for binary logistic on standardized design ``Xs`` (intercept appended,
+        unpenalised). ``yb`` is a resident {0,1} float vector. Returns w (k+1,) or raises."""
+        nn, k = Xs.shape
+        A = cp.empty((nn, k + 1), dtype=cp.float64)
+        A[:, :k] = Xs
+        A[:, k] = 1.0
+        wv = cp.zeros(k + 1, dtype=cp.float64)
+        reg = cp.ones(k + 1, dtype=cp.float64)
+        reg[k] = 0.0
+        lam = 1.0 / _C
+        for _ in range(_NEWTON_MAX_ITER):
+            z = A @ wv
+            p = 1.0 / (1.0 + cp.exp(-z))
+            Wd = p * (1.0 - p)
+            grad = A.T @ (p - yb) + lam * reg * wv
+            H = (A * Wd[:, None]).T @ A
+            H[cp.arange(k + 1), cp.arange(k + 1)] += lam * reg
+            try:
+                step = cp.linalg.solve(H, grad)
+            except Exception:
+                raise _ResidentClfFallbackError()
+            wv = wv - step
+            if not bool(cp.all(cp.isfinite(wv))):
+                raise _ResidentClfFallbackError()
+            if float(cp.max(cp.abs(step))) < _NEWTON_TOL:
+                break
+        else:
+            raise _ResidentClfFallbackError()  # did not converge -> defer to CPU
+        return wv
+
+    def _proba_binary(Xs, wv):
+        """Sigmoid positive-class probability from the fitted binary weight vector ``wv`` (last entry
+        is the unpenalised intercept) evaluated on the standardized design ``Xs``."""
+        k = Xs.shape[1]
+        z = Xs @ wv[:k] + wv[k]
+        return 1.0 / (1.0 + cp.exp(-z))
+
+    def _fit_multinomial(Xs, yc):
+        """Symmetric multinomial L2 Newton (full block Hessian) on standardized design. ``yc`` is a
+        resident int code vector. Returns W (k+1, C) or raises. sklearn 1.x multinomial default.
+
+        RETAINED REJECTED PROTOTYPE (bench-attempt-rejected 2026-06-28): unreachable - the >2-class
+        guard above returns ``None`` BEFORE any fit. Kept (per the keep-all-kernel-versions policy) as
+        the documented symmetric attempt: its block Hessian is SINGULAR in the unpenalised-intercept
+        null direction, so ``cp.linalg.solve`` returns a garbage step and the fit blows up to NaN (re-
+        measured 2026-06-28). The non-singular reduced (C-1) alternative converges but flips 9/24
+        multiclass selections by the gauge alone - see the >2-class guard's evidence block. Do not wire
+        either into the dispatch; multiclass stays on the exact CPU sklearn path."""
+        nn, k = Xs.shape
+        d = k + 1
+        A = cp.empty((nn, d), dtype=cp.float64)
+        A[:, :k] = Xs
+        A[:, k] = 1.0
+        Y = cp.zeros((nn, n_classes), dtype=cp.float64)
+        Y[cp.arange(nn), yc] = 1.0
+        Wm = cp.zeros((d, n_classes), dtype=cp.float64)
+        reg = cp.ones(d, dtype=cp.float64)
+        reg[k] = 0.0
+        lam = 1.0 / _C
+        regdiag = lam * cp.diag(reg)
+        for _ in range(_NEWTON_MAX_ITER):
+            Z = A @ Wm
+            Z = Z - Z.max(axis=1, keepdims=True)
+            E = cp.exp(Z)
+            Pm = E / E.sum(axis=1, keepdims=True)
+            G = A.T @ (Pm - Y) + lam * (reg[:, None] * Wm)
+            grad = G.reshape(-1)
+            Hbig = cp.zeros((d * n_classes, d * n_classes), dtype=cp.float64)
+            for c in range(n_classes):
+                for c2 in range(n_classes):
+                    wgt = Pm[:, c] * ((1.0 if c == c2 else 0.0) - Pm[:, c2])
+                    blk = (A * wgt[:, None]).T @ A
+                    if c == c2:
+                        blk = blk + regdiag
+                    Hbig[c * d : (c + 1) * d, c2 * d : (c2 + 1) * d] = blk
+            try:
+                step = cp.linalg.solve(Hbig, grad)
+            except Exception:
+                raise _ResidentClfFallbackError()
+            Wm = Wm - step.reshape(d, n_classes)
+            if not bool(cp.all(cp.isfinite(Wm))):
+                raise _ResidentClfFallbackError()
+            if float(cp.max(cp.abs(step))) < _NEWTON_TOL:
+                break
+        else:
+            raise _ResidentClfFallbackError()
+        return Wm
+
+    def _proba_multinomial(Xs, Wm):
+        """Softmax class-probability matrix from the fitted symmetric weight matrix ``Wm`` (last row is
+        the unpenalised intercept), row-max-shifted for numerical stability before the exponential."""
+        nn, k = Xs.shape
+        A = cp.empty((nn, k + 1), dtype=cp.float64)
+        A[:, :k] = Xs
+        A[:, k] = 1.0
+        Z = A @ Wm
+        Z = Z - Z.max(axis=1, keepdims=True)
+        E = cp.exp(Z)
+        return E / E.sum(axis=1, keepdims=True)
+
+    def _logloss(yc_dev, proba):
+        """CV-logloss over ALL ``labels_dev`` classes (mirrors sklearn ``log_loss(..., labels)``).
+        ``proba`` is (m,) for binary positive-class prob or (m, C) for multinomial."""
+        if proba.ndim == 1:
+            p1 = cp.clip(proba, _LOGLOSS_EPS, 1.0 - _LOGLOSS_EPS)
+            p = cp.stack([1.0 - p1, p1], axis=1)
+        else:
+            p = cp.clip(proba, _LOGLOSS_EPS, 1.0)
+            p = p / p.sum(axis=1, keepdims=True)
+        m = int(yc_dev.shape[0])
+        ll = -cp.mean(cp.log(p[cp.arange(m), yc_dev]))
+        return float(ll)
+    return _fit_binary, _fit_multinomial, _logloss, _proba_binary, _proba_multinomial
+
+
+def _usability_greedy_clf_step2_def_fit_proba(n_classes, cp, _fit_binary, _proba_binary, _fit_multinomial, _proba_multinomial, Vdev, P):
+    """Step 2 of usability_greedy_clf_gpu_resident: lines starting at ``def _fit_proba(Xtr_s, Xeval_list, ytr_codes_dev):``."""
+    def _fit_proba(Xtr_s, Xeval_list, ytr_codes_dev):
+        """Fit on standardized train design, return list of eval-set probabilities (positive-class
+        (m,) for binary, (m,C) for multinomial). Raises _ResidentClfFallbackError on a bad fit."""
+        if n_classes == 2:
+            yb = (ytr_codes_dev == 1).astype(cp.float64)
+            wv = _fit_binary(Xtr_s, yb)
+            return [_proba_binary(Xe, wv) for Xe in Xeval_list]
+        Wm = _fit_multinomial(Xtr_s, ytr_codes_dev)
+        return [_proba_multinomial(Xe, Wm) for Xe in Xeval_list]
+
+    # ---------------- shortlist (residual-aware pre-rank), fully resident ----------------
+    def _abscorr_batch(resid_dev, rows_mask) -> np.ndarray:
+        """Resident |Pearson correlation| of the current residual against every pool candidate column at once
+        (a single (m, P) reduction), restricted to ``rows_mask`` when given. Degenerate (near-zero-variance
+        residual or candidate) entries return 0.0 instead of NaN so the shortlist score stays well-defined."""
+        M = Vdev if rows_mask is None else Vdev[rows_mask]
+        out = cp.zeros(P, dtype=cp.float64)
+        m = int(M.shape[0])
+        if m == 0:
+            return np.asarray(cp.asnumpy(out))
+        if float(resid_dev.std()) < 1e-12:
+            return np.asarray(cp.asnumpy(out))
+        vm = resid_dev - resid_dev.mean()
+        ssv = float(cp.dot(vm, vm))
+        if ssv <= 0.0:
+            return np.asarray(cp.asnumpy(out))
+        Mc = M - M.mean(axis=0, keepdims=True)
+        num = Mc.T @ vm
+        ssc = (Mc * Mc).sum(axis=0)
+        denom = cp.sqrt(ssc * ssv)
+        col_std = M.std(axis=0)
+        valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
+        r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
+        r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
+        return np.asarray(cp.asnumpy(r))
+    return _abscorr_batch, _fit_proba
+
+
+def _usability_greedy_clf_step3_def_shortlist_sel(va_masks, tr_masks, y_enc, tr_masks_h, Vdev, _standardize, _fit_proba, yenc_dev, pos_cls, pos_dev, _abscorr_batch, P, w, mi_host, mi_max, shortlist_diversity_corr, shortlist):
+    """Step 3 of usability_greedy_clf_gpu_resident: lines starting at ``def _shortlist(sel_idx) -> list:``."""
+    def _shortlist(sel_idx) -> list:
+        """Residual-aware pre-rank of the not-yet-selected pool candidates, mirroring the CPU path's
+        shortlist: with an empty ``sel_idx`` the residual is the positive-class indicator centered on its
+        own mean; otherwise it's the fold-0 holdout residual of the current selection's fitted probability.
+        Each candidate scores ``(1-w)*mi/mi_max + w*|corr(resid)|`` and the top ``shortlist`` indices (by
+        that blended score) are returned for the next round's per-candidate CV refit."""
+        if sel_idx:
+            ho = va_masks[0]
+            tr = tr_masks[0]
+            if int(np.unique(y_enc[tr_masks_h[0]]).size) >= 2:
+                Xtr = Vdev[tr][:, sel_idx]
+                Xho = Vdev[ho][:, sel_idx]
+                Xtr_s, (Xho_s,) = _standardize(Xtr, [Xho])
+                proba = _fit_proba(Xtr_s, [Xho_s], yenc_dev[tr])[0]
+                if proba.ndim == 1:
+                    phat = proba  # binary: P(class 1) == P(pos)
+                else:
+                    phat = proba[:, pos_cls]  # multiclass: P(majority)
+                resid = pos_dev[ho] - phat
+            else:
+                resid = pos_dev[ho] - pos_dev[tr].mean()
+            uses = _abscorr_batch(resid, ho)
+        else:
+            resid = pos_dev - pos_dev.mean()
+            uses = _abscorr_batch(resid, None)
+        sel_set = set(sel_idx)
+        scored = []
+        for i in range(P):
+            if i in sel_set:
+                continue
+            scored.append((i, (1.0 - w) * (mi_host[i] / mi_max) + w * float(uses[i])))
+        scored.sort(key=lambda t: t[1], reverse=True)
+        # Diversity filter (mirrors the CPU usability_greedy._shortlist and the regression resident
+        # twin): reject a candidate near-duplicate (|corr| > shortlist_diversity_corr) of one already
+        # kept, so several algebraically-redundant views of the same signal cannot crowd out a
+        # genuinely different candidate. One GEMV per kept candidate via _abscorr_batch, resident.
+        out_idx: list[int] = []
+        corr_vs_kept: list[np.ndarray] = []
+        for i, _s in scored:
+            if any(float(cvk[i]) > shortlist_diversity_corr for cvk in corr_vs_kept):
+                continue
+            out_idx.append(i)
+            if len(out_idx) >= max(1, shortlist):
+                break
+            corr_vs_kept.append(_abscorr_batch(Vdev[:, i], None))
+        return out_idx
+    return _shortlist
 
 
 def _usability_greedy_c_range_min(K, P, _shortlist, selected, cur, folds_cur, _cv_candidate, min_improving_folds, mae_improve_rel):

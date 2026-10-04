@@ -15,7 +15,7 @@ import pandas as pd
 
 def test_a_serial_screen_holds_one_bases_matrices_at_a_time(monkeypatch):
     """A serial screen releases each base's matrices before building the next base's, so no other base's are ever live."""
-    import mlframe.training.composite.discovery._fit as fit_mod
+    import mlframe.training.composite.discovery._fit_steps as fit_mod
     from mlframe.training.composite.discovery import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 

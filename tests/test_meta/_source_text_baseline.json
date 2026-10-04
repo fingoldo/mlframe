@@ -428,10 +428,6 @@
       "count": 1,
       "note": ""
     },
-    "training/test_audit_stable_sort_cluster_followup.py::test_hermite_history_uses_secondary_bf_idx::text held in `src`": {
-      "count": 1,
-      "note": ""
-    },
     "training/test_audit_stable_sort_cluster_followup.py::test_hermite_results_uses_secondary_keys::text held in `src`": {
       "count": 1,
       "note": ""

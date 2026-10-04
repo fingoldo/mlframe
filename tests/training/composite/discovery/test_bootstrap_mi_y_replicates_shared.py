@@ -27,7 +27,7 @@ def _frame(n: int = 1500, seed: int = 0) -> pd.DataFrame:
 
 def _fit(df, monkeypatch) -> dict:
     """A discovery fit with the opt-in bootstrap on; returns each candidate's (LCB, bootstrap p-value)."""
-    import mlframe.training.composite.discovery._fit as fit_mod
+    import mlframe.training.composite.discovery._fit_steps as fit_mod
 
     captured: dict = {}
     real_eval = fit_mod.eval_one_transform

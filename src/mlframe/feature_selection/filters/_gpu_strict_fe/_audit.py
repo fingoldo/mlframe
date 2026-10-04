@@ -25,6 +25,43 @@ BULK_BYTES = 8192
 # stale value - silently corrupting the surviving region's byte tally with no error. Serialize entry
 # so only one region's monkeypatch is ever installed at a time.
 _AUDIT_LOCK = threading.RLock()  # RLock: a same-thread nested residency_audit() must not deadlock
+_TAG = threading.local()
+_NESTED = threading.local()  # set while cp.asnumpy runs, because it calls ndarray.get itself and must not be tallied twice
+_EXEMPT_TAG = "__exempt__"
+
+
+@contextlib.contextmanager
+def audit_tag(name: str) -> Iterator[None]:
+    """Transfers made inside this block (on this thread) are tallied under ``name`` in ``ResidencyReport.tagged``, not as bulk traffic.
+
+    For transfers the product makes on purpose and documents, so the resident-FE contract can still be asserted on everything else: the float
+    candidate block copied to host for the downstream survivor reads is one, the benchmark sweeps of :func:`audit_exempt` another.
+    """
+    prev = getattr(_TAG, "name", None)
+    _TAG.name = name
+    try:
+        yield
+    finally:
+        _TAG.name = prev
+
+
+def audit_exempt() -> contextlib.AbstractContextManager:
+    """Transfers made inside this block are not tallied at all.
+
+    For code whose job is to MEASURE transfers, such as the kernel-tuning sweeps that time a numpy variant against a cupy one and pay the
+    round trip on purpose: that traffic is benchmark input, not the production data path the residency contract is about, and which
+    fit it lands in depends on whether the tuning cache already holds a region for the shape.
+    """
+    return audit_tag(_EXEMPT_TAG)
+
+
+def _record(rep: "ResidencyReport", direction: list, nbytes: int) -> None:
+    """File ``nbytes`` under the active tag when there is one (dropped for the exempt tag), else in ``direction``."""
+    tag = getattr(_TAG, "name", None)
+    if tag is None:
+        direction.append(nbytes)
+    elif tag != _EXEMPT_TAG:
+        rep.tagged.setdefault(tag, []).append(nbytes)
 
 
 class ResidencyReport:
@@ -34,6 +71,7 @@ class ResidencyReport:
     def __init__(self):
         self.h2d = []  # list of byte sizes
         self.d2h = []
+        self.tagged: dict = {}  # tag -> byte sizes of transfers filed under :func:`audit_tag`
 
     @property
     def bulk_h2d(self):
@@ -78,7 +116,7 @@ def residency_audit() -> Iterator[ResidencyReport]:
         """Monkeypatched ``cp.asarray``: records host-array byte size as an H2D transfer, then delegates unchanged."""
         try:
             if isinstance(obj, np.ndarray):
-                rep.h2d.append(int(obj.nbytes))
+                _record(rep, rep.h2d, int(obj.nbytes))
         except Exception as e:  # nosec B110 - best-effort path
             logger.debug("residency_audit: recording an H2D transfer failed: %s", e)
         return _orig_asarray(obj, *a, **k)
@@ -88,15 +126,21 @@ def residency_audit() -> Iterator[ResidencyReport]:
         try:
             nb = int(getattr(obj, "nbytes", 0))
             if nb:
-                rep.d2h.append(nb)
+                _record(rep, rep.d2h, nb)
         except Exception as e:  # nosec B110 - best-effort path
             logger.debug("residency_audit: recording a D2H transfer (asnumpy) failed: %s", e)
-        return _orig_asnumpy(obj, *a, **k)
+        outer = getattr(_NESTED, "in_asnumpy", False)
+        _NESTED.in_asnumpy = True
+        try:
+            return _orig_asnumpy(obj, *a, **k)
+        finally:
+            _NESTED.in_asnumpy = outer
 
     def _get(self, *a, **k):
         """Monkeypatched ``cupy.ndarray.get``: records ``self``'s byte size as a D2H transfer, then delegates unchanged."""
         try:
-            rep.d2h.append(int(self.nbytes))
+            if not getattr(_NESTED, "in_asnumpy", False):
+                _record(rep, rep.d2h, int(self.nbytes))
         except Exception as e:  # nosec B110 - best-effort path
             logger.debug("residency_audit: recording a D2H transfer (ndarray.get) failed: %s", e)
         return _orig_get(self, *a, **k)

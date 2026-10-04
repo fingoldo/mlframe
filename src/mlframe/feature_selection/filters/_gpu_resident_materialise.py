@@ -713,6 +713,16 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     return cp.ascontiguousarray(g), n_gpu, n_cpu
 
 
+_LOG = logging.getLogger(__name__)
+
+
+def _candidate_float_audit_tag():
+    """Residency-audit tag for the float candidate block copied to host for the downstream survivor reads (filed apart from the codes the audit forbids)."""
+    from ._gpu_strict_fe._audit import audit_tag  # local: the strict-FE package imports this module
+
+    return audit_tag("candidate_floats")
+
+
 def gpu_materialise_discretize_codes_host(
     transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray,
     nbins: int, *, dtype: Any = np.int8, out_cand: np.ndarray | None = None,
@@ -794,8 +804,7 @@ def gpu_materialise_discretize_codes_host(
         try:
             _copy_stream = cp.cuda.Stream(non_blocking=True)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).debug("non-blocking copy stream creation failed, falling back to synchronous copy: %s", e)
+            _LOG.debug("non-blocking copy stream creation failed, falling back to synchronous copy: %s", e)
             _copy_stream = None
 
     def _drain_pending():
@@ -816,40 +825,39 @@ def gpu_materialise_discretize_codes_host(
             tv_gpu, a_cols[start:stop], b_cols[start:stop], op_codes[start:stop], return_cm=True
         )  # resident (n, blk) float32 - bit-equal to _materialise_chunk_njit
         if out_cand is not None:
-            # Float candidate D2H for the downstream survivor/usability reads. Stage through a PERSISTENT
-            # PINNED host buffer (full PCIe bandwidth) then host->host memcpy into the caller's pageable
-            # slice - 1.6x faster than cp.asnumpy's pageable bounce-buffer path even WITH the added memcpy
-            # (see _pinned_view note). Bit-identical bytes. ASYNC double-buffered when the copy stream is up
-            # (see the loop-head note): enqueue this block's copy, drain the previous one, keep going - the
-            # binning below overlaps the transfer. Falls back to the synchronous path on any fault.
-            _done_async = False
-            if _copy_stream is not None:
-                try:
-                    hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype, slot=_db_slot)
-                    _mat_done = cp.cuda.Event(disable_timing=True)
-                    _mat_done.record()  # materialise finished on the default stream
-                    _copy_stream.wait_event(_mat_done)  # copy starts only after cand is fully written
-                    cand.get(out=hv, stream=_copy_stream, blocking=False)
-                    _cp_done = cp.cuda.Event(disable_timing=True)
-                    _cp_done.record(_copy_stream)
-                    _drain_pending()  # previous block's copy -> out_cand (overlaps GPU)
-                    _db_pending = (_cp_done, hv, slice(start, stop), cand)  # cand kept alive until drained
-                    _db_slot ^= 1
-                    _done_async = True
-                except Exception:
-                    import logging
-                    logging.getLogger(__name__).debug("async D2H pipeline failed; sync fallback", exc_info=True)
-                    _copy_stream = None
-                    _drain_pending()
-            if not _done_async:
-                try:
-                    hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype)
-                    cand.get(out=hv)
-                    out_cand[:, start:stop] = hv
-                except Exception:
-                    import logging
-                    logging.getLogger(__name__).debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
-                    out_cand[:, start:stop] = cp.asnumpy(cand)
+            with _candidate_float_audit_tag():
+                # Float candidate D2H for the downstream survivor/usability reads. Stage through a PERSISTENT
+                # PINNED host buffer (full PCIe bandwidth) then host->host memcpy into the caller's pageable
+                # slice - 1.6x faster than cp.asnumpy's pageable bounce-buffer path even WITH the added memcpy
+                # (see _pinned_view note). Bit-identical bytes. ASYNC double-buffered when the copy stream is up
+                # (see the loop-head note): enqueue this block's copy, drain the previous one, keep going - the
+                # binning below overlaps the transfer. Falls back to the synchronous path on any fault.
+                _done_async = False
+                if _copy_stream is not None:
+                    try:
+                        hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype, slot=_db_slot)
+                        _mat_done = cp.cuda.Event(disable_timing=True)
+                        _mat_done.record()  # materialise finished on the default stream
+                        _copy_stream.wait_event(_mat_done)  # copy starts only after cand is fully written
+                        cand.get(out=hv, stream=_copy_stream, blocking=False)
+                        _cp_done = cp.cuda.Event(disable_timing=True)
+                        _cp_done.record(_copy_stream)
+                        _drain_pending()  # previous block's copy -> out_cand (overlaps GPU)
+                        _db_pending = (_cp_done, hv, slice(start, stop), cand)  # cand kept alive until drained
+                        _db_slot ^= 1
+                        _done_async = True
+                    except Exception:
+                        _LOG.debug("async D2H pipeline failed; sync fallback", exc_info=True)
+                        _copy_stream = None
+                        _drain_pending()
+                if not _done_async:
+                    try:
+                        hv = _pinned_view(cand.nbytes, cand.shape, cand.dtype)
+                        cand.get(out=hv)
+                        out_cand[:, start:stop] = hv
+                    except Exception:
+                        _LOG.debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
+                        out_cand[:, start:stop] = cp.asnumpy(cand)
         # Bin the candidate RESIDENT at its native float32 (the FE buffer dtype) - no f64 up-cast: the
         # cand already IS float32 (bit-equal to _materialise_chunk_njit), so binning in f32 removes a needless
         # cast AND halves the bandwidth-bound percentile sort, while preserving the FE selection. The exact

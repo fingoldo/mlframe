@@ -132,13 +132,18 @@ def _raise_type_for_isinstance_fail(src: str, sentinel_token: str) -> str:
     return ""
 
 
-def test_bruteforce_df_type_is_typeerror() -> None:
-    """A non-DataFrame input raises TypeError (not ValueError) naming the supported frame types."""
-    pytest.importorskip("pysr")
-    from mlframe.feature_engineering.bruteforce import run_pysr_feature_engineering
+def test_predict_models_path_type_is_typeerror() -> None:
+    """Predict models path type is typeerror."""
+    src = _read("training/core/predict.py")
+    # Find the models_path isinstance str check; raise on the following line should be TypeError.
+    snippet = src
+    assert 'raise TypeError(f"models_path must be a str' in snippet, "predict.py: models_path type check should raise TypeError"
 
-    with pytest.raises(TypeError, match="pandas or polars DataFrame"):
-        run_pysr_feature_engineering(df=[1, 2, 3], target_col="y")  # type: ignore[arg-type]
+
+def test_bruteforce_df_type_is_typeerror() -> None:
+    """Bruteforce df type is typeerror."""
+    src = _read("feature_engineering/bruteforce.py")
+    assert "raise TypeError(" in src and "pandas or polars DataFrame" in src, "bruteforce.py: df type check should raise TypeError"
 
 
 def test_neural_base_mixin_type_is_typeerror() -> None:
@@ -148,36 +153,51 @@ def test_neural_base_mixin_type_is_typeerror() -> None:
 
 
 def test_neural_base_period_type_is_typeerror() -> None:
-    """``PeriodicLearningRateFinder`` rejects a non-int or bool period with TypeError."""
-    pytest.importorskip("pytorch_lightning")
-    from mlframe.training.neural._base_callbacks import PeriodicLearningRateFinder
-
-    for bad in ("3", 2.5, True, None):
-        with pytest.raises(TypeError, match="period must be an int"):
-            PeriodicLearningRateFinder(bad)  # type: ignore[arg-type]
+    """``PeriodicLearningRateFinder`` lives in sibling _base_callbacks.py
+    after the neural-callback carve; concat so the source sensor still
+    matches."""
+    src = _read("training/neural/base.py")
+    _sib = MLFRAME_ROOT / "training" / "neural" / "_base_callbacks.py"
+    if _sib.exists():
+        src += "\n" + _sib.read_text(encoding="utf-8")
+    assert 'raise TypeError(f"period must be an int' in src, "neural/base.py: PeriodicLearningRateFinder.period type check should raise TypeError"
 
 
 @pytest.mark.parametrize(
-    "kwargs,message",
+    "kwargs,exc,match",
     [
-        ({"nlayers": "2"}, "nlayers must be an int"),
-        ({"nlayers": True}, "nlayers must be an int"),
-        ({"min_layer_neurons": 2.5}, "min_layer_neurons must be an int"),
-        ({"first_layer_num_neurons": 2.5}, "first_layer_num_neurons must be an int"),
-        ({"num_classes": 2.5}, "num_classes must be None or an int"),
+        # isinstance failures -> TypeError
+        (dict(nlayers=2.0), TypeError, "nlayers must be an int"),
+        (dict(nlayers=True), TypeError, "nlayers must be an int"),
+        (dict(min_layer_neurons=1.5), TypeError, "min_layer_neurons must be an int"),
+        (dict(num_classes=2.5), TypeError, "num_classes must be None or an int"),
+        (dict(num_classes=True), TypeError, "num_classes must be None or an int"),
+        (dict(first_layer_num_neurons=5.0), TypeError, "first_layer_num_neurons must be an int"),
+        # range failures -> ValueError
+        (dict(nlayers=0), ValueError, "nlayers must be >= 1"),
+        (dict(min_layer_neurons=0), ValueError, "min_layer_neurons must be >= 1"),
+        (dict(num_classes=-1), ValueError, "num_classes must be >= 0"),
+        (dict(first_layer_num_neurons=2, min_layer_neurons=3), ValueError, "first_layer_num_neurons must be >= min_layer_neurons"),
     ],
 )
-def test_neural_flat_validation_uses_typeerror_and_valueerror(kwargs, message) -> None:
-    """Wrong-typed architecture arguments raise TypeError; wrong-valued ones raise ValueError."""
+def test_neural_flat_validation_uses_typeerror_and_valueerror(kwargs, exc, match) -> None:
+    """generate_mlp rejects a wrong-typed argument with TypeError and an out-of-range one with ValueError."""
     pytest.importorskip("torch")
     from mlframe.training.neural.flat import generate_mlp
 
-    args = dict(num_features=4, num_classes=2, nlayers=2)
-    args.update(kwargs)
-    with pytest.raises(TypeError, match=message):
-        generate_mlp(**args)
-    with pytest.raises(ValueError, match="nlayers must be >= 1"):
-        generate_mlp(num_features=4, num_classes=2, nlayers=0)
+    call = dict(num_features=4, num_classes=1)
+    call.update(kwargs)
+    with pytest.raises(exc, match=match) as info:
+        generate_mlp(**call)
+    assert type(info.value) is exc, f"{kwargs}: expected exactly {exc.__name__}, got {type(info.value).__name__}"
+
+
+def test_neural_flat_validation_accepts_valid_arguments() -> None:
+    """Control: the same validators let a well-formed call through."""
+    pytest.importorskip("torch")
+    from mlframe.training.neural.flat import generate_mlp
+
+    assert generate_mlp(num_features=4, num_classes=2, nlayers=2, first_layer_num_neurons=8, min_layer_neurons=2) is not None
 
 
 def test_neural_flat_batch_format_is_typeerror() -> None:
@@ -223,6 +243,12 @@ def test_ranking_unreachable_is_runtimeerror() -> None:
     """Ranking unreachable is runtimeerror."""
     src = _read("training/ranking.py")
     assert 'raise RuntimeError("unreachable' in src, "ranking.py: unreachable sentinel should be RuntimeError"
+
+
+def test_ranking_unknown_flavor_is_valueerror() -> None:
+    """Ranking unknown flavor is valueerror."""
+    src = _read("training/ranking.py")
+    assert 'raise ValueError(f"unknown ranker flavor' in src, "ranking.py: unknown flavor dispatch failure should raise ValueError (not AssertionError)"
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score import _beats_the_larger_operand
+from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_operand_floor import _beats_the_larger_operand
 
 _MARGINALS = {0: 0.50, 1: 0.05}
 
