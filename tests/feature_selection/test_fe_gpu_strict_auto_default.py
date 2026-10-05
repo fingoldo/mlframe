@@ -230,3 +230,14 @@ def test_column_aware_gate_respects_explicit_off(monkeypatch):
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "0")
     S.set_auto_fit_n(79_237, 544)
     assert S.fe_gpu_strict_enabled() is False
+
+
+def test_per_call_floor_admits_mid_sized_candidate_pools_but_not_late_round_remnants(monkeypatch):
+    """A 14-18 column candidate pool over a large n runs on the GPU (the host column_stack + CPU MI it used to take lost 5-13% of a strict fit); 2-7
+    candidates stay on the CPU, and the work floor still binds."""
+    _with_cuda(monkeypatch, True)
+    S.set_auto_fit_n(4_000_000)
+    assert S.fe_gpu_strict_enabled(n=300_000, p=14) is True
+    assert S.fe_gpu_strict_enabled(n=100_000, p=18) is True
+    assert S.fe_gpu_strict_enabled(n=4_000_000, p=7) is False
+    assert S.fe_gpu_strict_enabled(n=50_000, p=8) is False  # 400k cells: under the work floor

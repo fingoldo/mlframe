@@ -193,8 +193,9 @@ def score_pair_combos_table_resident(
             # inputs -> sharing the buffer across pairs is safe; values are byte-identical either way.
             d_x1 = resident_operand(x1, "usability_pool_operand", dtype=np.float64)
             d_x2 = resident_operand(x2, "usability_pool_operand", dtype=np.float64)
-            # Both operand nanmin shifts in one D2H (was two float() syncs per pair).
-            xmin_a, xmin_b = (float(_m) for _m in cp.asnumpy(cp.stack([cp.nanmin(d_x1), cp.nanmin(d_x2)]))) if n else (0.0, 0.0)
+            # The operands are host arrays that were just uploaded: their nanmin shifts are a numpy reduction of a column already in memory, instead of two
+            # device nanmin kernels plus a blocking read per pair (cupy's nanmin was ~15 ms a call here, almost all of it waiting on the queued work).
+            xmin_a, xmin_b = (float(np.nanmin(x1)), float(np.nanmin(x2))) if n else (0.0, 0.0)
             # (nu, n) column-major stacks: each operand's nu unaries applied ONCE (reused across all combos).
             ua_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x1, ua_codes_l[ia], xmin_a) for ia in range(nu)]))
             ub_stack = cp.ascontiguousarray(cp.stack([_gpu_apply_unary(d_x2, ub_codes_l[ib], xmin_b) for ib in range(nu)]))

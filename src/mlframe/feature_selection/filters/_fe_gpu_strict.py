@@ -106,7 +106,14 @@ _DEFAULT_AUTO_MIN_N = 100_000
 # not pass shape (the other STRICT-forced dispatch points listed in this module's docstring) keep the
 # fit-level-only gate unchanged.
 _STRICT_MIN_CALL_WORK = 1_000_000
-_STRICT_MIN_CALL_P = 64
+_STRICT_MIN_CALL_P = 64  # FIT-level column floor (see _auto_gate_passes) and the CMI-bootstrap crossover it mirrors
+
+# PER-CALL column floor. The 64 above is the CMI-bootstrap crossover, where every column is its own reduction; it is the wrong bar for the candidate
+# pools the FE scans score (k ~ 14-18 columns of 100k-300k rows), which it sent to the host: a numpy column_stack of the candidates plus the CPU batch MI.
+# A/B on novel-data strict F2 fits, warm wall paired and alternated: n=300k 9.63 s -> 8.40 s (-13%), n=100k 7.02 s -> 6.64 s (-5.5%), same selected
+# feature; floors 2, 4, 8 and 16 gave the same wall, so 8 is the middle of the flat range. The n * p work floor above still binds, and a late-round
+# remnant of 2-7 candidates stays on the CPU.
+_STRICT_MIN_CALL_P_SHAPE = 8
 
 # FIT-LEVEL column-aware AUTO relaxation. ``_DEFAULT_AUTO_MIN_N`` (100k) was a pure ROW-count
 # threshold with no column term at all - a fit with hundreds of columns (real production shape: mlframe's own
@@ -259,7 +266,7 @@ def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: 
         # it to p >= 64 forced every nperm<=24 null onto the CPU for the whole fit (wellbore-100k GPU-strict
         # profile: 2232 _conditional_perm_null calls / ~261s on CPU). Such callers pass min_p=2; the n*p
         # total-work leg still binds either way.
-        p_floor = _STRICT_MIN_CALL_P if min_p is None else int(min_p)
+        p_floor = _STRICT_MIN_CALL_P_SHAPE if min_p is None else int(min_p)
         return (int(n) * int(p)) >= _STRICT_MIN_CALL_WORK and int(p) >= p_floor
 
     raw = os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower()
