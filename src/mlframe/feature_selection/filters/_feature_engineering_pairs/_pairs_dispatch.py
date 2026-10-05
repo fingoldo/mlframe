@@ -337,7 +337,9 @@ def _dispatch_batch_mi_with_noise_gate_impl(
     # still wins); a no-op without CUDA. Any GPU failure still falls through to the CPU njit kernel below.
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
-        if fe_gpu_strict_enabled(n=int(n), p=int(K)):
+        # Resident codes skip the per-call work floor: the floor guards the upload + launch cost of a small HOST matrix, but when the codes are already on
+        # the device the only price of the CPU kernel is copying all of them back to the host first.
+        if fe_gpu_strict_enabled() if device_codes is not None else fe_gpu_strict_enabled(n=int(n), p=int(K)):
             backend = "gpu"
     except Exception as e:  # nosec B110 - optional dependency import guard
         _module_logger.debug("fe_gpu_strict_enabled() check failed, leaving the backend choice untouched: %s", e)

@@ -334,7 +334,7 @@ _RESIDENT_CODES_HANDOFF_MAX = 8
 # the exact bytes the eager D2H produced -> selection unchanged. Keyed on ``id(out)`` like the handoff (same
 # host array flows producer -> dispatch synchronously). Module-level singleton -> never on pickled state.
 # Per-host-array deferred fill (was a single slot; see _RESIDENT_CODES_HANDOFF). Keyed by id(host_codes).
-_DEFERRED_HOST_FILL: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (host_codes, device_codes, shape, dtype, filled[list[bool]])
+_DEFERRED_HOST_FILL: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (weakref(host_codes), device_codes, shape, dtype, filled[list[bool]])
 _DEFERRED_HOST_FILL_MAX = 8
 # The FE pair scoring binds codes on several threads at once, each of which then waits on the numba kernel lock, so
 # more than _DEFERRED_HOST_FILL_MAX unfilled buffers can be in flight. Evicting one used to drop its record, after which
@@ -345,9 +345,11 @@ _DEFERRED_HOST_FILL_LOCK = threading.Lock()
 
 
 def _fill_deferred(entry) -> None:
-    """D2H one registry entry's device codes into its host buffer, once."""
-    host, dev, _shape, _dtype, filled = entry
-    if not filled[0]:
+    """D2H one registry entry's device codes into its host buffer, once. An entry whose host buffer has been garbage-collected has no reader left
+    and is skipped: filling it would copy the whole (n, K) codes matrix to a buffer nobody can read."""
+    host_ref, dev, _shape, _dtype, filled = entry
+    host = host_ref()
+    if host is not None and not filled[0]:
         dev.get(out=host)
         filled[0] = True
 
@@ -370,10 +372,14 @@ def _stash_deferred_host_fill(host_codes, device_codes) -> None:
     the record so device memory is not pinned past the dispatch."""
     with _DEFERRED_HOST_FILL_LOCK:
         c = _DEFERRED_HOST_FILL
-        c[id(host_codes)] = (host_codes, device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype), [False])
+        # Records whose host buffer is gone (the dispatch that owned it ended without a host read) would otherwise pin their device codes until
+        # evicted, and eviction used to copy them back to a buffer nobody can read.
+        for _dead in [k for k, e in c.items() if e[0]() is None]:
+            del c[_dead]
+        c[id(host_codes)] = (weakref.ref(host_codes), device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype), [False])
         c.move_to_end(id(host_codes))
         while len(c) > _DEFERRED_HOST_FILL_MAX:
-            # A buffer is never dropped unfilled: its owner may still be waiting to read it.
+            # A buffer whose owner is alive is never dropped unfilled: the owner may still be waiting to read it.
             _fill_deferred(c.popitem(last=False)[1])
 
 
@@ -387,7 +393,8 @@ def ensure_host_codes_filled(host_codes) -> None:
         h = _DEFERRED_HOST_FILL.get(id(host_codes))
         if h is None:
             return
-        host, _dev, shape, dtype, _filled = h
+        host_ref, _dev, shape, dtype, _filled = h
+        host = host_ref()
         if host is not host_codes or tuple(host_codes.shape) != shape or np.dtype(host_codes.dtype) != dtype:
             return
         # D2H the resident device codes into the caller's host buffer (the exact bytes the eager path produced).

@@ -221,13 +221,19 @@ def _emit_pair_features_step1_comment_check_prospective(verbose, leading_feature
 
 def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method, _narrow_code_dtype, quantization_nbins, quantization_dtype, _ev_op_codes, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels, serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct, valid_pairs_perf):
     """Step 2 of _emit_pair_features: lines starting at ``for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_``."""
+    from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_enabled
+
     for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
+        _pa_dev = None
         if final_transformed_vals is not None:
             param_a = final_transformed_vals[:, i]
         elif _this_chunk_deferred:
             # DEFERRED-float GPU path: re-materialise the survivor column on the GPU
             # (bit-identical to the buffer -> the external-validation MI is unchanged).
-            param_a = _resolve_col(i)
+            # Under the strict-resident path the column stays on the device (the ext-val candidates are built from it there); the host copy is only
+            # taken below if a host branch actually needs it.
+            _pa_dev = getattr(_resolve_col, "device", lambda *_: None)(i) if _ev_resident_enabled() else None
+            param_a = None if _pa_dev is not None else _resolve_col(i)
         else:
             # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
             # (a_key, b_key, bin_func_name) metadata. transformed_vars is small
@@ -324,10 +330,12 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                 if _ev_use_dev:
                     from mlframe.feature_selection.filters._gpu_resident_extval import gpu_materialise_extval_codes_host
                     _ev_disc = gpu_materialise_extval_codes_host(
-                        param_a, _ev_param_bs, _ev_op_codes, int(quantization_nbins), dtype=_ev_code_dtype,
+                        param_a, _ev_param_bs, _ev_op_codes, int(quantization_nbins), dtype=_ev_code_dtype, defer_host_fill=True, param_a_dev=_pa_dev,
                     )
             if _ev_disc is None:
                 # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
+                if param_a is None:
+                    param_a = _resolve_col(i)
                 _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
                 if _ev_op_codes is not None:
                     # NJIT materialise: ALL (ext x op) candidate columns in one nogil
@@ -404,6 +412,8 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
             if _ev_mi is not None and len(_ev_mi):
                 best_valid_mi = float(np.max(_ev_mi))
         else:
+            if param_a is None:
+                param_a = _resolve_col(i)
             for _pb_vals in _ev_param_bs:
                 param_b = _pb_vals
                 for valid_bin_func in binary_transformations.values():
@@ -511,6 +521,7 @@ def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols
     # a higher-MI form; trees are rank-indifferent so this cannot hurt the tree list.
     st._leader_usability = {}
     if len(leading_features) > 1 and _corr_y_cont is not None:
+        _corr_y_cont_finite = np.isfinite(_corr_y_cont)
         for _lc in leading_features:
             try:
                 _li = _lc[2]
@@ -519,6 +530,10 @@ def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols
                 elif _this_chunk_deferred:
                     # DEFERRED-float GPU path: re-materialise the leader column on the GPU
                     # (bit-identical to the buffer -> same linear-usability tie-break).
+                    _dev_corr = getattr(_resolve_col, "abs_corr", lambda *_: None)(_li, _corr_y_cont, _corr_y_cont_finite)
+                    if _dev_corr is not None:
+                        st._leader_usability[_lc] = _dev_corr
+                        continue
                     _lvals = _resolve_col(_li)
                 elif _config_by_i is not None and _li in _config_by_i:
                     # Recompute fallback (no hoisted buffer): rebuild the leader's
@@ -535,7 +550,7 @@ def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols
                     _lvals = None
                 if _lvals is not None:
                     st._leader_usability[_lc] = _safe_abs_corr(_lvals)
-            except Exception as e:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            except Exception as e:  # nosec B112 - best-effort path
                 logger.debug("leader usability computation for %r failed, skipping: %s", _lc, e)
                 continue
     return _cached_name, _name_cache, leading_features, st

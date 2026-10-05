@@ -46,6 +46,7 @@ from ._recipe_extract import (
 
 # The ``apply_recipe`` dispatcher.
 from ._recipe_dispatch import apply_recipe
+from ._recipe_unary_binary_gpu import apply_unary_binary_gpu_resident  # public facade re-export for device-resident consumers
 
 # Numeric pair-FE (unary_binary) builder + replay + the orjson preprocess helper.
 from ._recipe_unary_binary import (

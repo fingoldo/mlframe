@@ -245,6 +245,19 @@ def _materialise_recipe_gpu(recipe: EngineeredRecipe, X: Any, cp, dt, col_cache:
     return cp.where(cp.isfinite(out_gpu), out_gpu, cp.asarray(0.0, dtype=out_gpu.dtype))
 
 
+def apply_unary_binary_gpu_resident(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> Any:
+    """GPU-resident replay of a ``unary_binary`` recipe that STAYS on the device: the scrubbed engineered column as a cupy 1-D array, or ``None`` when
+    the recipe is not GPU-eligible (same eligibility as :func:`apply_unary_binary_gpu`). For consumers that bin or score the column on the device, so the
+    values never take the host round trip."""
+    if len(recipe.src_names) != 2 or len(recipe.unary_names) != 2:
+        return None
+
+    import cupy as cp
+
+    dt = cp.float32 if _vram_f32() else cp.float64
+    return _materialise_recipe_gpu(recipe, X, cp, dt, col_cache=col_cache)
+
+
 def apply_unary_binary_gpu(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> Optional[np.ndarray]:
     """GPU-resident replay of a ``unary_binary`` recipe -> host 1-D ``np.ndarray``.
 

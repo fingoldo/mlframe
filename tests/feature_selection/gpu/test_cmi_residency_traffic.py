@@ -289,7 +289,16 @@ def _run_pair_search_audit():
             cnt["gate_no_devcodes"] += 1
         return _o_bg(*a_, **k_)
 
+    # The ext-val producer resolves ``_stash_resident_codes`` from ``_gpu_resident_fe`` at call time, so that binding is counted too.
+    _o_stash_fe = _FE._stash_resident_codes
+
+    def _stash_fe(h, dv):
+        """Wraps _gpu_resident_fe._stash_resident_codes to count the ext-val producer's stash events."""
+        cnt["stash"] += 1
+        return _o_stash_fe(h, dv)
+
     _RM._stash_resident_codes = _stash
+    _FE._stash_resident_codes = _stash_fe
     _FE.take_resident_codes = _take
     _RM._resident_operand_table = _rot
     _DI._batch_mi_with_noise_gate_gpu = _bg
@@ -303,6 +312,7 @@ def _run_pair_search_audit():
         return names, cnt, rep, n
     finally:
         _RM._stash_resident_codes = _o_stash
+        _FE._stash_resident_codes = _o_stash_fe
         _FE.take_resident_codes = _o_take
         _RM._resident_operand_table = _o_rot
         _DI._batch_mi_with_noise_gate_gpu = _o_bg
@@ -398,6 +408,16 @@ def test_pair_search_residency_no_nk_codes_bulk_d2h(pair_search_audit):
         f"unexpected (n, K)-scale bulk D2H on the strict pair-search path (codes/float buffer should stay "
         f"resident): {sorted(big, reverse=True)} (threshold {nk_threshold} = 64*n); {rep.summary()}"
     )
+
+
+def test_strict_fit_copies_back_only_result_columns(pair_search_audit):
+    """The whole strict F2 fit (pair search, redundancy gates, retention, additive fusion) copies back to the host only its RESULTS: the engineered
+    columns that are written out, small score tables and scalars. Every intermediate (candidate codes, binned operands, conditioning supports,
+    replayed sub-expressions) stays on the device. The budget is ~25 columns of n float64 - the measured traffic is under 6 - while the earlier
+    behaviour (host mirrors of every device code array, replays copied back and re-uploaded) moved ~30x that."""
+    _names, _cnt, rep, n = pair_search_audit
+    budget = 25 * n * 8
+    assert sum(rep.d2h) <= budget, f"strict fit copied {sum(rep.d2h)} B back to the host (budget {budget} B = 25 columns): {rep.summary()}"
 
 
 def test_pair_search_residency_operand_table_uploaded_bounded(pair_search_audit):

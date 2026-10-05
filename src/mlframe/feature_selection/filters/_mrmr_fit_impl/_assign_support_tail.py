@@ -130,7 +130,7 @@ def _assign_support_tai_f_step1_identical_seed_iloc(self, X, verbose, _retention
         # survivor to condition on.
         if _retain_extra:
             try:
-                from mlframe.feature_selection.filters._fe_retention_subsumption import retention_form_is_subsumed
+                from mlframe.feature_selection.filters._fe_retention_subsumption import replay_candidate_continuous, retention_form_is_subsumed
                 from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _ret_apply
                 _inc_names = [str(_n) for _n in (self._engineered_features_ or [])]
                 _inc_cont: list[Any] = []
@@ -151,8 +151,7 @@ def _assign_support_tai_f_step1_identical_seed_iloc(self, X, verbose, _retention
                     _kept_extra = []
                     for _r_recipe, _r_name in _retain_extra:
                         try:
-                            _cv = np.asarray(_ret_apply(_r_recipe, X), dtype=np.float64).ravel()
-                            _cv = np.nan_to_num(_cv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+                            _cv = replay_candidate_continuous(_r_recipe, X, _ret_apply)
                         except Exception as exc:
                             # transform() replays with the same call, so an unreplayable recipe here would ship a column that fails at predict.
                             log_throttle(logger, f"mrmr_retain_replay_failed:{_r_name}", logging.WARNING, "mrmr: recipe %r failed to replay for the subsumption check (%r); not retained.", _r_name, exc)

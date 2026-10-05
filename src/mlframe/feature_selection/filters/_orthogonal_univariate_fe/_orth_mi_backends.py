@@ -381,8 +381,11 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
 
-        if fe_gpu_strict_enabled(n=int(X.shape[0]), p=int(X.shape[1]) if X.ndim > 1 else 1):
-            import cupy as cp
+        import cupy as cp
+
+        # A candidate matrix that is ALREADY on the device skips the per-call work floor: that floor guards the H2D + launch cost of a small host
+        # matrix, but here the only cost of declining is copying the whole matrix back to run the CPU kernel.
+        if fe_gpu_strict_enabled() if isinstance(X, cp.ndarray) else fe_gpu_strict_enabled(n=int(X.shape[0]), p=int(X.shape[1]) if X.ndim > 1 else 1):
 
             from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_cuda_resident as _plugin_mi_classif_batch_cuda_resident
 

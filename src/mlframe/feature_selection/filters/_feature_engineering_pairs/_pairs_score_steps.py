@@ -5,10 +5,12 @@ from typing import Any
 
 import logging
 from timeit import default_timer as timer
+from functools import partial
 
 import numpy as np
 
 from ._pairs_operand_floor import _beats_the_larger_operand
+from ._pairs_abs_corr_gpu import abs_corr_or_none, candidate_abs_corr
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 from ._pairs_materialise import (
@@ -148,6 +150,36 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
         chunk_state["resolved_cols"][_buf_col] = _col
         del _cand
         return _col
+
+    def _device_col(_buf_col):
+        """Candidate column ``_buf_col`` as a float32 DEVICE array (same kernel and bytes as ``_resolve_col``, no copy back), or ``None`` when the
+        column is host-resident or the device path faults."""
+        if final_transformed_vals is not None:
+            return None
+        try:
+            import cupy as cp
+            from mlframe.feature_selection.filters._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals() from _gpu_resident_materialise
+
+            if chunk_state["tv_gpu"] is None:
+                chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)
+            _a, _b, _ops = chunk_state["defer_meta"]
+            return _fe_materialise_block_gpu(chunk_state["tv_gpu"], _a[_buf_col:_buf_col + 1], _b[_buf_col:_buf_col + 1], _ops[_buf_col:_buf_col + 1])[:, 0]
+        except Exception as e:
+            logger.debug("device candidate column failed, falling back to the host column: %s", e)
+            return None
+
+    def _abs_corr(_buf_col, _y, _y_finite):
+        """|corr(y)| of candidate column ``_buf_col`` computed ON the device (only the scalar crosses to the host), or ``None`` when the column is
+        already on the host or the device path faults (the caller then reads ``_resolve_col``)."""
+        if final_transformed_vals is not None or chunk_state["resolved_cols"].get(_buf_col) is not None:
+            return None
+        from ._pairs_abs_corr_gpu import abs_corr_or_none
+
+        _col_dev = _device_col(_buf_col)
+        return None if _col_dev is None else abs_corr_or_none(_col_dev, _y, _y_finite)
+
+    _resolve_col.abs_corr = _abs_corr  # type: ignore[attr-defined]  # optional capabilities probed with getattr by the emit step
+    _resolve_col.device = _device_col  # type: ignore[attr-defined]
     return _resolve_col
 
 
@@ -481,6 +513,9 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
                         # DEFERRED-float GPU path: re-materialise this column on the GPU (bit-identical
                         # to the bulk buffer -> the clean-form demotion uses the EXACT same |corr| it
                         # would have under the host buffer; a numpy recompute here flips it at ULP).
+                        _dev_corr = candidate_abs_corr(_resolve_col, _safe_abs_corr, _ci)
+                        if _dev_corr is not None:
+                            return _dev_corr
                         _v = _resolve_col(_ci)
                     elif _config_by_i is not None and _ci in _config_by_i:
                         _ak, _bk, _bn = _config_by_i[_ci]
@@ -700,12 +735,29 @@ def _score_one_pair_step5_any_error_leaves(fe_pair_usability_admission_enable, _
             st._usability_primary = False
 
 
+def _zerofill_corr_dev(win_dev, _unused_win_host, operand_host) -> float:
+    """``_abs_corr_zerofill_njit``-shaped callable that scores the DEVICE winner column against a host operand (the host winner slot is unused)."""
+    from ._pairs_abs_corr_gpu import abs_corr_zerofill_gpu
+
+    return abs_corr_zerofill_gpu(win_dev, operand_host)
+
+
 def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _safe_abs_corr, vars_transformations, _transformed_operand_abs_corr, _raw_operand_abs_corr, raw_vars_pair, _NOISE_WRAP_MIN_OPERAND_CORR, _NOISE_WRAP_CORR_COLLAPSE_FRAC, verbose, transformed_vars):
     """Step 6 of _score_one_pair: lines starting at ``if (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift``."""
     if (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept) and _corr_y_cont is not None and st.best_config is not None:
         try:
-            _win_vals = _resolve_col(st.best_config[2]) if (final_transformed_vals is not None or _this_chunk_deferred) else None
-            _win_corr = _safe_abs_corr(_win_vals) if _win_vals is not None else None
+            # DEFERRED-float GPU path: score the winner against the target and its operands ON the device (``_win_dev``); the host column is only read
+            # when the device path is unavailable.
+            _win_dev = getattr(_resolve_col, "device", lambda *_: None)(st.best_config[2]) if (final_transformed_vals is None and _this_chunk_deferred) else None
+            _win_vals = None
+            _win_corr = None
+            if _win_dev is not None:
+                _tgt = getattr(_safe_abs_corr, "target", None)
+                if _tgt is not None and _tgt[0] is not None:
+                    _win_corr = abs_corr_or_none(_win_dev, _tgt[0], _tgt[1])
+            if _win_corr is None and (final_transformed_vals is not None or _this_chunk_deferred):
+                _win_vals = _resolve_col(st.best_config[2])
+                _win_corr = _safe_abs_corr(_win_vals)
             # Compare against the strongest CLEAN per-operand column the winner actually used: each operand
             # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` - raw ``a`` is ~0 corr
             # for an even target like ``exp(-a**2)``), falling back to the raw operand value. This is the
@@ -738,12 +790,16 @@ def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transform
             # to EACH operand's chosen-unary continuous values: if it is ~= ONE operand (|corr| >= 0.999) the
             # pair adds nothing a single warped operand does not - veto so the clean single-source form wins.
             # A genuine 2-var pair (a/b, a*b) sits FAR below 0.999 with EITHER operand and is untouched.
-            if (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept) and _win_vals is not None:
+            if (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept) and (_win_vals is not None or _win_dev is not None):
                 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _abs_corr_zerofill_njit
                 _tp2 = st.best_config[0]
                 _max_single_op_corr = 0.0
-                _win_vals_f64 = np.asarray(_win_vals, dtype=np.float64)
-                _max_single_op_corr = _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr_zerofill_njit, _win_vals_f64, _max_single_op_corr)
+                if _win_dev is not None:
+                    _corr_fn = partial(_zerofill_corr_dev, _win_dev)
+                    _max_single_op_corr = _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _corr_fn, None, _max_single_op_corr)
+                else:
+                    _win_vals_f64 = np.asarray(_win_vals, dtype=np.float64)
+                    _max_single_op_corr = _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr_zerofill_njit, _win_vals_f64, _max_single_op_corr)
                 if _max_single_op_corr >= _DEGENERATE_PAIR_SINGLE_OPERAND_CORR:
                     st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = False
                     st._usability_accept = st._usability_primary = False

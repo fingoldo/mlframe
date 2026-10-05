@@ -500,7 +500,7 @@ def find_underdelivering_pairs(
         """Return column ``name``'s quantile-bin encoding, computing and memoizing it on first use."""
         c = _qbin_memo.get(name)
         if c is None:
-            c = _quantile_bin(x[sl], nbins=nbq).astype(np.int64)
+            c = _quantile_bin(x[sl], nbins=nbq, host_only=True).astype(np.int64)
             _qbin_memo[name] = c
         return c
 
@@ -535,7 +535,7 @@ def find_underdelivering_pairs(
             best_mi, best_codes, best_vals = -1.0, None, None
             for j in range(min(len(ncols_names), int(tvals.shape[1]))):
                 vj = np.asarray(tvals[sl, j], dtype=np.float64)
-                cj = _quantile_bin(vj, nbins=nbq).astype(np.int64)
+                cj = _quantile_bin(vj, nbins=nbq, host_only=True).astype(np.int64)
                 mij = float(_cmi_from_binned(cj, y_dense, None))
                 if mij > best_mi:
                     best_mi, best_codes, best_vals = mij, cj, vj
@@ -552,7 +552,7 @@ def find_underdelivering_pairs(
                 continue
             # Leg 3 - discretisation-residual control (see docstring): the capture's
             # OWN finer-binning refinement bounds the leftover a COMPLETE capture shows.
-            cap_fine = _quantile_bin(best_vals, nbins=2 * nbq).astype(np.int64)
+            cap_fine = _quantile_bin(best_vals, nbins=2 * nbq, host_only=True).astype(np.int64)
             leftover_self = max(0.0, float(_cmi_from_binned(cap_fine, y_dense, best_codes)))
             if leftover > self_ratio * leftover_self:
                 out.append((pair, pair_mi))
@@ -580,7 +580,7 @@ def _slice_admitted_pool(admitted_pool: dict, idx, classes_y_sub, nbins: int) ->
     out: dict = {}
     for name, (values, _full_frame_marginal) in admitted_pool.items():
         sliced = np.asarray(values)[idx]
-        out[name] = (sliced, float(_cmi_from_binned(_quantile_bin(np.asarray(sliced, dtype=np.float64), nbins=nbins), y_dense, None)))
+        out[name] = (sliced, float(_cmi_from_binned(_quantile_bin(np.asarray(sliced, dtype=np.float64), nbins=nbins, host_only=True), y_dense, None)))
     return out
 
 
@@ -780,7 +780,7 @@ def run_fe_auto_escalation(
         _propose_fourier_both_warps(x_a, x_b, na, nb, y_pair, min_val_corr, max_freqs, pair_cands)
         # Score by the SAME MM-debiased plug-in MI the gates use; cap per pair.
         for c in pair_cands:
-            vb = _quantile_bin(np.asarray(c["values"], dtype=np.float64), nbins=nbins)
+            vb = _quantile_bin(np.asarray(c["values"], dtype=np.float64), nbins=nbins, host_only=True)
             c["_binned"] = vb
             c["mi"] = float(_cmi_from_binned(vb, y_dense, None))
         pair_cands.sort(key=lambda c: c["mi"], reverse=True)
@@ -923,7 +923,7 @@ def _pairwise_control_matrix(_cv, n_rows, y_f, y_pair):
             _r = np.asarray(y_f, dtype=np.float64).copy()
             _nb_res = int(min(32, max(8, n_rows // 64)))
             for _j in range(_A.shape[1]):
-                _cb = _quantile_bin(np.nan_to_num(_A[:, _j], nan=0.0, posinf=0.0, neginf=0.0), nbins=_nb_res).astype(np.int64)
+                _cb = _quantile_bin(np.nan_to_num(_A[:, _j], nan=0.0, posinf=0.0, neginf=0.0), nbins=_nb_res, host_only=True).astype(np.int64)
                 _cnt = np.maximum(np.bincount(_cb, minlength=int(_cb.max()) + 1), 1)
                 _means = np.bincount(_cb, weights=_r, minlength=int(_cb.max()) + 1) / _cnt
                 _r = _r - _means[_cb]

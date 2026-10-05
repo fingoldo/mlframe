@@ -52,14 +52,16 @@ def _extval_op_gpu(cp, op: int, a, b):
 
 def gpu_materialise_extval_codes_host(
     param_a: np.ndarray, param_b_list: Sequence[np.ndarray], op_codes: np.ndarray, nbins: int,
-    *, dtype: Any = np.int8,
+    *, dtype: Any = np.int8, defer_host_fill: bool = False, param_a_dev: Any = None,
 ) -> Optional[np.ndarray]:
     """Device twin of ``_materialise_extval_njit`` + discretise. Materialises ``out[:, e*n_ops+o] =
     op_o(param_a, param_b_list[e])`` RESIDENT in float64 (ext-outer/op-inner order, matching the njit column
     layout), quantile-bins it resident, and returns the ``(n, K)`` host codes of ``dtype``. The candidate VALUES
     never cross H2D - only ``param_a`` + the external-factor columns upload (once, small). Returns ``None`` on
     any cupy/device fault (caller keeps the host path). ``op_codes`` are the ``_NJIT_BINARY_OP_CODES`` in
-    bin_func-registry order (the SAME array the njit kernel walks)."""
+    bin_func-registry order (the SAME array the njit kernel walks). ``defer_host_fill=True`` (the caller feeds the codes straight to the resident
+    noise gate) returns an unfilled host buffer with the device codes registered for in-place consumption instead of copying them back. ``param_a_dev`` is ``param_a`` already on the device (``param_a`` itself may then be ``None``), which skips the copy back
+    and re-upload of the survivor column."""
     # Codes live in [0, nbins-1]; the default int8 is C signed char (-128..127) so nbins>128 wraps the top
     # bins negative. A dtype/nbins contract violation is a programming error, not a device fault - raise it
     # BEFORE the cupy try (which swallows to None) so it surfaces instead of masquerading as a GPU-miss.
@@ -70,12 +72,18 @@ def gpu_materialise_extval_codes_host(
         import cupy as cp
         from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # same binner as gpu_discretize_codes_host
         from ._fe_resident_operands import resident_operand  # content-keyed device cache (dedups repeated operands)
+        from ._gpu_resident_fe import (
+            _stash_deferred_host_fill,
+            _stash_resident_codes,
+            fe_gpu_defer_host_codes_enabled,
+            fe_gpu_resident_codes_enabled,
+        )
     except ImportError:
         return None
     try:
         # param_a + each external-factor column ride the content-keyed resident cache: the SAME ext-factor
         # content reused across pairs uploads ONCE (dedup), and each is a f64 device array here.
-        pa = resident_operand(param_a, ("extval_pa",), dtype=np.float64).ravel()
+        pa = resident_operand(param_a, ("extval_pa",), dtype=np.float64).ravel() if param_a_dev is None else param_a_dev.astype(cp.float64, copy=False).ravel()
         n = int(pa.shape[0])
         _ops = np.asarray(op_codes).ravel()
         n_ops = int(_ops.shape[0])
@@ -100,6 +108,14 @@ def gpu_materialise_extval_codes_host(
                 out_dev[:, _base + _o] = _extval_op_gpu(cp, int(_ops[_o]), pa, b)
         codes_dev = _gpu_resident_discretize_codes(out_dev, int(nbins))  # NaN/inf -> rightmost bin (searchsorted)
         codes_dev = codes_dev.astype(cp.dtype(_cd), copy=False) if codes_dev.dtype != _cd else codes_dev
+        if defer_host_fill and fe_gpu_resident_codes_enabled() and fe_gpu_defer_host_codes_enabled():
+            # The codes stay RESIDENT: the noise gate consumes the device copy in place (take_resident_codes) and never reads the host array, so the
+            # (n, K) D2H is skipped. ``out`` is UNFILLED; a host-reading consumer (analytic / CPU / non-resident gate) fills it on demand via
+            # ensure_host_codes_filled, with exactly the bytes the eager D2H below would have produced.
+            out = np.empty((n, K), dtype=_cd)
+            _stash_resident_codes(out, codes_dev)
+            _stash_deferred_host_fill(out, codes_dev)
+            return out
         return np.asarray(cp.asnumpy(codes_dev))
     except Exception as e:
         logger.debug("device-resident extval materialise+discretize failed, caller falls back to the host njit + upload path: %s", e)

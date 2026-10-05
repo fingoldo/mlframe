@@ -71,11 +71,18 @@ def _is_pseudo_remix_child(name: str) -> bool:
     return any(nm.startswith(p) for p in _PSEUDO_CHILD_PREFIXES)
 
 
+def _resident_to_host(codes_dev) -> np.ndarray:
+    """Host copy of a device code array, for the branches that cannot run on the device."""
+    import cupy as cp
+
+    return np.asarray(cp.asnumpy(codes_dev))
+
+
 def raw_retains_signal_given_genuine_children(
     *,
-    raw_bin: np.ndarray,
+    raw_bin: Optional[np.ndarray],
     y_bin: np.ndarray,
-    genuine_child_bins: Sequence[np.ndarray],
+    genuine_child_bins: Optional[Sequence[Optional[np.ndarray]]],
     self_retain_frac: float = RAW_SELF_RETAIN_FRAC,
     allow_linear_usability: bool = False,
     seed: int = 0,
@@ -95,11 +102,16 @@ def raw_retains_signal_given_genuine_children(
     A genuine private LINEAR term keeps ~50% given its true ratio child; a fully-
     subsumed ``a**2/b`` operand keeps ~0.6% - the 0.05 bar separates them with >8x
     margin (measured user fixture, n=40000). With NO genuine child (the conditioning
-    set is empty) it returns True (cannot prove subsumption -> retention stands)."""
+    set is empty) it returns True (cannot prove subsumption -> retention stands).
+
+    ``raw_bin`` / ``genuine_child_bins`` may be ``None`` when ``raw_bin_dev`` / ``genuine_child_bins_dev`` carry the codes on the device: the host copies
+    are then only fetched on the rare branches that need them (a failed device join, the linear-usability leg), instead of being copied back for every call."""
     from ._mi_greedy_cmi_fe import _renumber_joint
 
-    _gc = [g for g in genuine_child_bins if g is not None]
-    rb = np.asarray(raw_bin).astype(np.int64).ravel()
+    _gc = [g for g in (genuine_child_bins or ()) if g is not None]
+    _gcd = [g for g in genuine_child_bins_dev if g is not None] if genuine_child_bins_dev is not None else []
+    _n_children = len(_gc) if _gc else len(_gcd)
+    rb = None if raw_bin is None else np.asarray(raw_bin).astype(np.int64).ravel()
     yb = np.asarray(y_bin).astype(np.int64).ravel()
     # DEVICE-BORN candidate residency (same contract as ``drop_redundant_raw_operands``; opt-out
     # MLFRAME_FE_GATE_RESIDENT_CANDS=0). The raw ``rb`` is scored (marginal + conditional) but never
@@ -120,9 +132,12 @@ def raw_retains_signal_given_genuine_children(
         except Exception as e:
             logger.debug("resident_code_operand for rb failed, using the host codes: %s", e)
             _rb_cand = rb
-    _rb_kx = int(rb.max()) + 1 if getattr(rb, "size", 0) else 1  # host raw codes -> free cardinality
+    if rb is not None:
+        _rb_kx = int(rb.max()) + 1 if getattr(rb, "size", 0) else 1  # host raw codes -> free cardinality
+    else:
+        _rb_kx = int(raw_bin_dev.max()) + 1 if int(raw_bin_dev.size) else 1  # one scalar read of the resident codes
     _, _, marg_excess = _excess_and_floor(_rb_cand, yb, None, seed=seed, kx=_rb_kx)
-    if not _gc:
+    if not _n_children:
         return True  # no genuine subsumer survives -> the raw cannot be proven redundant
     # DEVICE-BORN conditioning support when the caller hands resident child codes: join them on device
     # (``_renumber_joint_gpu``, same partition -> selection-identical) so the support never crosses H2D (cmi_z +
@@ -130,8 +145,7 @@ def raw_retains_signal_given_genuine_children(
     z_support_dev = None
     _zcard = 0  # occupied cardinality of the conditioning support (from whichever join runs) -> kz, no device read
     if genuine_child_bins_dev is not None:
-        _gcd = [g for g in genuine_child_bins_dev if g is not None]
-        if _gcd and len(_gcd) == len(_gc):
+        if _gcd and len(_gcd) == _n_children:
             try:
                 from ._mi_greedy_cmi_fe import _renumber_joint_gpu
                 z_support_dev, _zcard = _renumber_joint_gpu(*_gcd)
@@ -144,6 +158,8 @@ def raw_retains_signal_given_genuine_children(
     # unique SORT per gate call - a measurable host sink that was paid even when the device join was used.
     z_support = None
     if z_support_dev is None:
+        if not _gc:
+            _gc = [_resident_to_host(g) for g in _gcd]
         z_support, _zcard = _renumber_joint(*_gc)
     cmi, floor, excess = _excess_and_floor(_rb_cand, yb, z_support, seed=seed, z_support_dev=z_support_dev, kx=_rb_kx, kz=int(_zcard))
     if (cmi > floor) and (excess >= self_retain_frac * max(0.0, marg_excess)):
@@ -154,6 +170,10 @@ def raw_retains_signal_given_genuine_children(
     # from a genuine linear term - must still drop (I4b). See the drop-sweep twin leg.
     if not allow_linear_usability:
         return False
+    if rb is None:
+        rb = _resident_to_host(raw_bin_dev).astype(np.int64).ravel()
+    if not _gc:
+        _gc = [_resident_to_host(g) for g in _gcd]
     return raw_retains_linear_signal_given_children(rb, yb, _gc, seed=seed)
 
 

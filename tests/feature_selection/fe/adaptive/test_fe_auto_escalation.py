@@ -432,11 +432,11 @@ def test_find_underdelivering_pairs_memoizes_per_column_quantile_bin():
     calls = {"n": 0, "arrays": []}
     _orig = mgcf._quantile_bin
 
-    def _counting_qbin(col, nbins):
-        """Counting qbin."""
+    def _counting_qbin(col, nbins, **kwargs):
+        """Counting qbin; forwards the binner's keyword options (``host_only``) untouched."""
         calls["n"] += 1
         calls["arrays"].append(np.asarray(col))
-        return _orig(col, nbins)
+        return _orig(col, nbins, **kwargs)
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(esc, "_quantile_bin", _counting_qbin, raising=False)

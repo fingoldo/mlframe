@@ -132,13 +132,17 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     max_n = max(n_rows) if n_rows else 1
     fitting = [k for k in n_cols if max_n * int(k) * 8 * 3 <= budget]
     n_cols = fitting or [min(n_cols)]  # always keep at least the smallest column
-    return cast(list, sweep_backend_grid(
-        variants,
-        {"n_rows": n_rows, "n_cols": n_cols},
-        _make_batch_mi_noise_gate_inputs,
-        reference="cpu",
-        repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
-    ))
+    from ._gpu_strict_fe._audit import audit_exempt
+
+    # the sweep copies its GPU variants' results back to compare them: timing input, not residency traffic of the fit that triggered it
+    with audit_exempt():
+        return cast(list, sweep_backend_grid(
+            variants,
+            {"n_rows": n_rows, "n_cols": n_cols},
+            _make_batch_mi_noise_gate_inputs,
+            reference="cpu",
+            repeats=3, equiv_rtol=1e-9, equiv_atol=1e-12,
+        ))
 
 
 def _batch_mi_noise_gate_code_version():
