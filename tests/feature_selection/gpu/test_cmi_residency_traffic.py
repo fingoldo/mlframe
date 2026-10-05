@@ -413,11 +413,11 @@ def test_pair_search_residency_no_nk_codes_bulk_d2h(pair_search_audit):
 def test_strict_fit_copies_back_only_result_columns(pair_search_audit):
     """The whole strict F2 fit (pair search, redundancy gates, retention, additive fusion) copies back to the host only its RESULTS: the engineered
     columns that are written out, small score tables and scalars. Every intermediate (candidate codes, binned operands, conditioning supports,
-    replayed sub-expressions) stays on the device. The budget is ~25 columns of n float64 - the measured traffic is under 6 - while the earlier
+    replayed sub-expressions) stays on the device. The budget is ~10 columns of n float64 - the measured traffic is about 3 - while the earlier
     behaviour (host mirrors of every device code array, replays copied back and re-uploaded) moved ~30x that."""
     _names, _cnt, rep, n = pair_search_audit
-    budget = 25 * n * 8
-    assert sum(rep.d2h) <= budget, f"strict fit copied {sum(rep.d2h)} B back to the host (budget {budget} B = 25 columns): {rep.summary()}"
+    budget = 10 * n * 8
+    assert sum(rep.d2h) <= budget, f"strict fit copied {sum(rep.d2h)} B back to the host (budget {budget} B = 10 columns): {rep.summary()}"
 
 
 def test_pair_search_residency_operand_table_uploaded_bounded(pair_search_audit):

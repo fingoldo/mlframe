@@ -28,6 +28,43 @@ from types import SimpleNamespace as _SimpleNamespace
 logger = logging.getLogger(__name__)
 
 
+def _survivor_device_column(resolve_col, buf_col):
+    """The survivor column ``buf_col`` as a scrubbed float32 DEVICE array when the deferred-float path can produce it there, else ``None`` (the caller then
+    takes the host column from ``resolve_col``)."""
+    return getattr(resolve_col, "device", lambda *_: None)(buf_col)
+
+
+def _survivor_std(col) -> float:
+    """Standard deviation of a survivor column held on the host or the device (one scalar read for a device column)."""
+    if type(col).__module__.split(".", 1)[0] == "cupy":
+        import cupy as cp
+
+        return float(cp.std(col.astype(cp.float64)))
+    return float(np.std(col))
+
+
+def _stack_survivor_columns(cols, n_rows: int):
+    """The kept survivor columns as one float64 ``(n_rows, k)`` matrix: a device-backed lazy matrix when every column is on the device (nothing is copied
+    back until a host consumer reads it), else the plain host buffer."""
+    if cols and all(type(c).__module__.split(".", 1)[0] == "cupy" for c in cols):
+        import cupy as cp
+
+        from mlframe.feature_selection.filters._lazy_host_codes import LazyHostCodes
+
+        return LazyHostCodes(cp.stack([c.astype(cp.float64, copy=False) for c in cols], axis=1), np.float64)
+    buf = np.empty(shape=(n_rows, len(cols)), dtype=np.float64)
+    for ci, cv in enumerate(cols):
+        buf[:, ci] = cv if type(cv).__module__.split(".", 1)[0] != "cupy" else _device_to_host(cv)
+    return buf
+
+
+def _device_to_host(col) -> np.ndarray:
+    """Host copy of one device survivor column, for the mixed host/device fallback."""
+    import cupy as cp
+
+    return np.asarray(cp.asnumpy(col))
+
+
 def _finalize_survivor_column(col_full: np.ndarray) -> np.ndarray:
     """Return the survivor column produced by any of the ``_col_full`` branches (rebuild / buffer-view /
     GPU-resolve / recompute-fallback) unchanged, WITHOUT a second NaN/Inf scrub or a forced float64 upcast.
@@ -44,7 +81,7 @@ def _finalize_survivor_column(col_full: np.ndarray) -> np.ndarray:
     was float32, an exact no-op when it was already float64); the caller then assigns each column into a
     float64 ``transformed_vals`` buffer via plain elementwise ``__setitem__``, which upcasts correctly
     regardless of the source dtype, so no consumer needs this intermediate forced to any particular dtype."""
-    return np.asarray(col_full)
+    return col_full if type(col_full).__module__.split(".", 1)[0] == "cupy" else np.asarray(col_full)
 
 
 def _emit_pair_features(
@@ -688,7 +725,11 @@ def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe
                     # re-materialise the survivor column on the GPU (bit-identical to the buffer,
                     # full-n directly). The subsample case took the _rebuild_full_survivor_col
                     # branch above (full-n rebuild from raw), so this only handles full-n fits.
-                    _col_full = _resolve_col(i)
+                    # Under the strict-resident path the survivor stays a DEVICE column: the downstream stage bins it, derives the recipe edges and
+                    # stores its continuous values from the device, and only copies back what a host consumer actually reads.
+                    _col_full = _survivor_device_column(_resolve_col, i)
+                    if _col_full is None:
+                        _col_full = _resolve_col(i)
                 else:
                     # CRITICAL #2 recompute-fallback (no subsample, tight RAM): rebuild
                     # the survivor column from its (a_key, b_key, bin_func_name)
@@ -717,11 +758,10 @@ def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe
                 # downstream quantile discretiser produce the full nbins
                 # codes and the recipe pin correct edges.
                 _col_arr = _finalize_survivor_column(_col_full)
-                if float(np.std(_col_arr)) <= 1e-9:
+                _col_std = _survivor_std(_col_arr)
+                if _col_std <= 1e-9:
                     if verbose:
-                        messages.append(
-                            f"{new_feature_name} dropped at materialisation: dead column " f"(std={float(np.std(_col_arr)):.2e}, non-constant guard)."
-                        )
+                        messages.append(f"{new_feature_name} dropped at materialisation: dead column " f"(std={_col_std:.2e}, non-constant guard).")
                     continue
                 _kept_cols_vals.append(_col_arr)
             _kept_configs.append((config, j))
@@ -734,9 +774,7 @@ def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe
         if fe_max_steps >= 1 and _kept_cols_vals:
             # float buffer: holds RAW engineered values (discretised to
             # codes downstream; see the non-constant-guard comment above).
-            st.transformed_vals = np.empty(shape=(_full_n_rows, len(_kept_cols_vals)), dtype=np.float64)
-            for _ci, _cv in enumerate(_kept_cols_vals):
-                st.transformed_vals[:, _ci] = _cv
+            st.transformed_vals = _stack_survivor_columns(_kept_cols_vals, _full_n_rows)
             st.new_nbins = [quantization_nbins] * len(_kept_cols_vals)
         else:
             st.transformed_vals, st.new_nbins = None, []

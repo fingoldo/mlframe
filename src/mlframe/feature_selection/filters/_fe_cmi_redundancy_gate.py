@@ -330,15 +330,16 @@ def apply_cmi_redundancy_gate(
     cand_bins: dict = {}
     cand_bins_dev: dict = {}
     for nm in names:
-        vals = np.asarray(candidates[nm][0], dtype=np.float64)
+        vals = candidates[nm][0]
+        if not hasattr(vals, "dev"):  # a device-backed candidate stays on the device unless the host binner below needs it
+            vals = np.asarray(vals, dtype=np.float64)
         _dev = None
         _dev = _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _dev)
         if _dev is not None:
-            import cupy as _cp
             cand_bins_dev[nm] = _dev
             cand_bins[nm] = LazyHostCodes(_dev, np.int64)  # host view of the SAME resident partition, copied only if a host site reads it
         else:
-            cand_bins[nm] = _quantile_bin(vals, nbins=nbins)
+            cand_bins[nm] = _quantile_bin(np.asarray(vals, dtype=np.float64), nbins=nbins)
     marg = {nm: float(candidates[nm][1]) for nm in names}
 
     # PARTITION DEDUP: a monotone/linear remap of an admitted feature
@@ -613,7 +614,17 @@ def _apply_cmi_redundan_yhit_none(_yhit, y_arr, _yk):
 
 def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _dev):
     """Block of apply_cmi_redundancy_gate starting at ``if _gate_resident and np.isfinite(vals).all():``."""
-    if _gate_resident and np.isfinite(vals).all():
+    if _gate_resident and hasattr(vals, "dev"):
+        try:
+            import cupy as cp
+
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe_binning import _quantile_bin_device
+            if bool(cp.isfinite(vals.dev).all()):
+                _dev = _quantile_bin_device(vals.dev, nbins)
+        except Exception as e:
+            logger.debug("device binning of a device-backed candidate failed, falling back to the host path: %s", e)
+            _dev = None
+    elif _gate_resident and np.isfinite(vals).all():
         try:
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
             _dev = _quantile_bin_gpu_resident(vals, nbins)

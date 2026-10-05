@@ -71,7 +71,9 @@ class LazyHostCodes:
         return self.shape[0]
 
     def __getitem__(self, key: Any) -> Any:
-        """Indexing reads the host copy."""
+        """Indexing reads the host copy, except a (row-slice, column) pick of a 2-D array (``[:, j]``, ``[::k, j]``), which stays a lazy device view."""
+        if self._host is None and len(self.shape) == 2 and isinstance(key, tuple) and len(key) == 2 and isinstance(key[0], slice) and isinstance(key[1], (int, np.integer)):
+            return LazyHostCodes(self._dev[key[0], int(key[1])], self._dtype)
         return self.host()[key]
 
     def __getattr__(self, name: str) -> Any:
@@ -79,3 +81,12 @@ class LazyHostCodes:
         if name.startswith("__"):
             raise AttributeError(name)
         return getattr(self.host(), name)
+
+
+def strided(values: Any, stride: int) -> Any:
+    """Every ``stride``-th row of a host array or a lazy device-backed one, keeping the latter on the device."""
+    if stride <= 1:
+        return values
+    if isinstance(values, LazyHostCodes):
+        return LazyHostCodes(values.dev[::stride], values.dtype)
+    return values[::stride]

@@ -55,6 +55,8 @@ from typing import Any
 
 import numpy as np
 
+from ._lazy_host_codes import LazyHostCodes
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
@@ -167,7 +169,8 @@ def propose_additive_fusions_gpu(
         vals = engineered_continuous.get(nm)
         if rec is None or vals is None:
             continue
-        vals = np.asarray(vals, dtype=np.float64).ravel()
+        # A device-backed engineered column stays a device array: it is stacked into the (n, H) matrix below without a host round trip.
+        vals = vals if hasattr(vals, "dev") else np.asarray(vals, dtype=np.float64).ravel()
         if vals.shape[0] != n_rows:
             continue
         toks = _bare_tokens(nm, raw_name_set)
@@ -183,11 +186,15 @@ def propose_additive_fusions_gpu(
 
     H = len(_names)
     # ---- ONE bulk H2D: the (n, H) half-values matrix + the y codes. Everything below stays resident. ----
-    vals_host = np.empty((n_rows, H), dtype=np.float64)
-    for j in range(H):
-        vals_host[:, j] = _vals_cols[j]
-    vals_host = np.nan_to_num(vals_host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    vals_dev = cp.asarray(vals_host)  # (n, H) resident - FULL n (output values)
+    if all(hasattr(c, "dev") for c in _vals_cols):
+        _stk = cp.stack([c.dev.astype(cp.float64, copy=False).ravel() for c in _vals_cols], axis=1)
+        vals_dev = cp.where(cp.isfinite(_stk), _stk, cp.asarray(0.0, dtype=_stk.dtype))  # (n, H) built on the device - FULL n (output values)
+    else:
+        vals_host = np.empty((n_rows, H), dtype=np.float64)
+        for j in range(H):
+            vals_host[:, j] = _vals_cols[j] if not hasattr(_vals_cols[j], "dev") else np.asarray(_vals_cols[j]).ravel()
+        vals_host = np.nan_to_num(vals_host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        vals_dev = cp.asarray(vals_host)  # (n, H) resident - FULL n (output values)
     y_dev = cp.asarray(y_dense)  # (n,) resident
 
     # SCORING SUBSAMPLE. The fusion stage only DECIDES which disjoint half-pairs to fuse (per-half
@@ -327,7 +334,8 @@ def propose_additive_fusions_gpu(
             _fb = vals_dev[:, hb["col"]]
             _tfull = (_fa - _fb) if _binary == "sub" else (_fa + _fb)
             _fused_full = cp.where(cp.isfinite(_tfull), _tfull, cp.asarray(0.0, dtype=_tfull.dtype))
-            fused_vals = cp.asnumpy(_fused_full)
+            # Stays on the device: the recipe edges are fitted there and the consumer bins / stores it from there; a host reader copies it back (once) on demand.
+            fused_vals = LazyHostCodes(_fused_full.astype(cp.float64, copy=False), np.float64)
             name = f"{_binary}({ha['name']},{hb['name']})"
             base = name
             k = 2

@@ -40,6 +40,27 @@ def _cached_binary_transformations(preset: str) -> "dict[str, Callable]":
     return cast("dict[str, Callable]", create_binary_transformations(preset=preset))
 
 
+def _device_fit_edges(values: Any, method: str, nbins: int) -> "np.ndarray | None":
+    """Fit-time bin edges of ``values`` computed on the device when it is a device-backed lazy column (the continuous values never cross to the host);
+    ``None`` for a host array or on any device fault, so the host formulation runs. Same linear-interpolation quantiles / min-max grid as the host."""
+    if not hasattr(values, "dev"):
+        return None
+    try:
+        import cupy as cp
+
+        x = values.dev.astype(cp.float64, copy=False).ravel()
+        if method == "quantile":
+            return np.asarray(cp.percentile(x, cp.asarray(np.linspace(0.0, 100.0, nbins + 1))).get(), dtype=np.float64)
+        finite = x[cp.isfinite(x)]
+        if int(finite.size) == 0:
+            return np.linspace(0.0, 0.0, nbins + 1)
+        lo, hi = (float(v) for v in cp.stack([finite.min(), finite.max()]).get())
+        return np.linspace(lo, hi, nbins + 1)
+    except Exception as e:
+        logger.debug("device fit-edge computation failed, using the host values: %s", e)
+        return None
+
+
 def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
     """Replay a ``unary_binary`` recipe: reconstruct ``binary(unary_a(X[a]), unary_b(X[b]))`` (including the
     ``prewarp`` / ``gate_med`` / ``poly_`` pseudo-unaries and nested-engineered operands) and return the
@@ -286,8 +307,11 @@ def build_unary_binary_recipe(
         }
         # Persist fit-time edges so replay never re-quantiles on test data.
         if fit_values_for_edges is not None:
-            _arr = np.asarray(fit_values_for_edges, dtype=np.float64).ravel()
-            if quantization["method"] == "quantile":
+            _edges = _device_fit_edges(fit_values_for_edges, quantization["method"], int(quantization_nbins))
+            _arr = np.empty(0, dtype=np.float64) if _edges is not None else np.asarray(fit_values_for_edges, dtype=np.float64).ravel()
+            if _edges is not None:
+                pass  # computed on the device: only the nbins + 1 edges crossed to the host
+            elif quantization["method"] == "quantile":
                 _q = np.linspace(0.0, 100.0, int(quantization_nbins) + 1)
                 _edges = np.nanpercentile(_arr, _q)
             else:  # uniform

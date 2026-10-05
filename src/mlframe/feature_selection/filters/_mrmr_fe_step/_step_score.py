@@ -22,6 +22,7 @@ import numpy as np
 
 
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+from .._lazy_host_codes import strided
 
 
 from ._step_score_parts import (  # noqa: F401  -- carved helpers
@@ -125,9 +126,10 @@ def materialise_and_finalise_fe_candidates(
                 for _jc, _cname in enumerate(_ncols):
                     if _tvals.shape[1] <= _jc:
                         continue
-                    _v = np.asarray(_tvals[:, _jc], dtype=np.float64)
+                    _v = _tvals[:, _jc]
+                    _v = _v if hasattr(_v, "dev") else np.asarray(_v, dtype=np.float64)  # a device-backed survivor stays on the device
                     _b_names.append(_cname)
-                    _b_vals.append(_v[::_gate_stride] if _gate_stride > 1 else _v)
+                    _b_vals.append(strided(_v, _gate_stride))
             _b_mi = batched_device_marginals(_b_vals, _y_dense_g, int(self.quantization_nbins))
             if _b_mi is not None:
                 st._cmi_cands = {_nm: (_vv, _mm) for _nm, _vv, _mm in zip(_b_names, _b_vals, _b_mi)}

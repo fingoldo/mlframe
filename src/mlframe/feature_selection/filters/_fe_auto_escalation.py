@@ -534,8 +534,10 @@ def find_underdelivering_pairs(
             tvals, ncols_names = v[1], v[2]
             best_mi, best_codes, best_vals = -1.0, None, None
             for j in range(min(len(ncols_names), int(tvals.shape[1]))):
-                vj = np.asarray(tvals[sl, j], dtype=np.float64)
-                cj = _quantile_bin(vj, nbins=nbq, host_only=True).astype(np.int64)
+                vj = tvals[sl, j]
+                if not hasattr(vj, "dev"):
+                    vj = np.asarray(vj, dtype=np.float64)
+                cj = _codes_of(vj, nbq, _quantile_bin)
                 mij = float(_cmi_from_binned(cj, y_dense, None))
                 if mij > best_mi:
                     best_mi, best_codes, best_vals = mij, cj, vj
@@ -552,7 +554,7 @@ def find_underdelivering_pairs(
                 continue
             # Leg 3 - discretisation-residual control (see docstring): the capture's
             # OWN finer-binning refinement bounds the leftover a COMPLETE capture shows.
-            cap_fine = _quantile_bin(best_vals, nbins=2 * nbq, host_only=True).astype(np.int64)
+            cap_fine = _codes_of(best_vals, 2 * nbq, _quantile_bin)
             leftover_self = max(0.0, float(_cmi_from_binned(cap_fine, y_dense, best_codes)))
             if leftover > self_ratio * leftover_self:
                 out.append((pair, pair_mi))
@@ -560,6 +562,23 @@ def find_underdelivering_pairs(
             logger.debug("swallowed exception in _fe_auto_escalation.py: %s", e)
             continue
     return out
+
+
+def _codes_of(values, nbins: int, quantile_bin) -> np.ndarray:
+    """Host int64 equi-frequency codes of ``values``. A device-backed column is binned ON the device and only the narrow int8 codes are copied back (an
+    eighth of the float64 column); a host column takes the host binner."""
+    if hasattr(values, "dev") and nbins <= 127:
+        try:
+            import cupy as cp
+
+            from ._mi_greedy_cmi_fe_binning import _quantile_bin_device
+
+            x = values.dev
+            if bool(cp.isfinite(x).all()):
+                return np.asarray(cp.asnumpy(_quantile_bin_device(x, nbins).astype(cp.int8))).astype(np.int64)
+        except Exception as e:
+            logger.debug("device binning of the escalation capture failed, binning on the host: %s", e)
+    return quantile_bin(np.asarray(values, dtype=np.float64), nbins=nbins, host_only=True).astype(np.int64)
 
 
 def _slice_admitted_pool(admitted_pool: dict, idx, classes_y_sub, nbins: int) -> dict:
