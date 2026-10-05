@@ -228,6 +228,14 @@ def _dispatch_batch_mi_with_noise_gate_impl(
         except Exception as e:
             _module_logger.debug("analytic_null applicability check failed, skipping the analytic gate: %s", e)
             _an_ok = False
+        if _an_ok and device_codes is not None and env_gate.resident_gate_on and not env_gate.gpu_opted_out:
+            # Resident codes: the observed MI and the occupied-bin counts are one device pass each, so the (n, K) codes are neither copied back nor
+            # scanned on the CPU (that scan was ~80% of a strict 100k-row fit). Any device fault returns None and the host path below runs.
+            from ._pairs_analytic_gpu import resident_analytic_gate
+
+            _resident_res = resident_analytic_gate(device_codes, classes_y, _by_occ, int(n), float(min_nonzero_confidence))
+            if _resident_res is not None:
+                return np.asarray(_resident_res)
         if _an_ok:
             try:
                 _need_host_codes()  # analytic gate reads host codes -> materialise the deferred D2H now
