@@ -67,3 +67,14 @@ def test_resident_gate_equals_the_host_gate_and_moves_only_vectors():
     assert not rep.bulk_d2h
     np.testing.assert_array_equal(got > 0, expected > 0)
     np.testing.assert_allclose(got, expected, rtol=1e-10, atol=1e-12)
+
+
+@pytest.mark.parametrize("dtype, nbins, ny", [(np.int32, 10, 20), (np.int8, 40, 20), (np.int8, 100, 40)])
+def test_other_dtypes_and_large_histograms_agree_with_the_host_kernels(dtype, nbins, ny):
+    """An int32 matrix takes the generic path, a wide histogram a smaller kernel tile or the generic path: the same MI and occupied counts either way."""
+    n, k = 26000, 20
+    codes, y = _inputs(n, k, nbins, ny, 3)
+    cpu_mi, _ = _cpu_observed(codes, y, nbins)
+    gpu_mi, gpu_bins = resident_observed_mi_and_bins(cp.asarray(codes.astype(dtype)), y, ny)
+    np.testing.assert_allclose(gpu_mi, cpu_mi, rtol=1e-10, atol=1e-12)
+    np.testing.assert_array_equal(gpu_bins, _occupied_bins_per_col(np.ascontiguousarray(codes), numba.get_num_threads()))
