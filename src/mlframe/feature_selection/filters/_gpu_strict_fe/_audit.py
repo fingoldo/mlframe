@@ -71,6 +71,9 @@ class ResidencyReport:
     def __init__(self):
         self.h2d = []  # list of byte sizes
         self.d2h = []
+        # Implicit scalar syncs: ``float(dev)`` / ``int(dev)`` / ``bool(dev)`` / ``dev.item()`` read one value back and BLOCK the stream, but never show up as
+        # an explicit ``.get()``. One entry per call, the value is the element size in bytes.
+        self.scalar_syncs: list = []
         self.tagged: dict = {}  # tag -> byte sizes of transfers filed under :func:`audit_tag`
 
     @property
@@ -91,7 +94,8 @@ class ResidencyReport:
     def summary(self) -> str:
         """One-line ``"H2D: N ops (B bulk, T B); D2H: ..."`` string for logging / assertion messages."""
         return (f"H2D: {len(self.h2d)} ops ({len(self.bulk_h2d)} bulk, {sum(self.h2d)} B); "
-                f"D2H: {len(self.d2h)} ops ({len(self.bulk_d2h)} bulk, {self.scalar_d2h_bytes} B scalar)")
+                f"D2H: {len(self.d2h)} ops ({len(self.bulk_d2h)} bulk, {self.scalar_d2h_bytes} B scalar); "
+                f"implicit scalar syncs: {len(self.scalar_syncs)}")
 
 
 @contextlib.contextmanager
@@ -145,9 +149,32 @@ def residency_audit() -> Iterator[ResidencyReport]:
             logger.debug("residency_audit: recording a D2H transfer (ndarray.get) failed: %s", e)
         return _orig_get(self, *a, **k)
 
+    _sync_names = ("item", "__float__", "__int__", "__bool__")
+    _orig_sync = {}
+
+    def _wrap_sync(name, orig):
+        """Counting wrapper for one implicit scalar-read method."""
+        def _w(self, *a, **k):
+            """Record one scalar sync (unless inside an explicit transfer already counted), then delegate."""
+            if not getattr(_NESTED, "in_asnumpy", False):
+                try:
+                    rep.scalar_syncs.append(int(self.dtype.itemsize))
+                except Exception as e:  # nosec B110 - best-effort path
+                    logger.debug("residency_audit: recording a scalar sync failed: %s", e)
+            return orig(self, *a, **k)
+
+        return _w
+
     with _AUDIT_LOCK:
         cp.asarray = _asarray
         cp.asnumpy = _asnumpy
+        for _n in _sync_names:
+            try:
+                _orig_sync[_n] = getattr(cp.ndarray, _n)
+                setattr(cp.ndarray, _n, _wrap_sync(_n, _orig_sync[_n]))
+            except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-method fault isolation
+                _orig_sync.pop(_n, None)
+                logger.debug("residency_audit: patching cupy.ndarray.%s failed, those syncs won't be tracked: %s", _n, e)
         try:
             cp.ndarray.get = _get  # may be read-only on some cupy builds; guarded
         except Exception as e:  # nosec B110 - best-effort path
@@ -157,6 +184,11 @@ def residency_audit() -> Iterator[ResidencyReport]:
         finally:
             cp.asarray = _orig_asarray
             cp.asnumpy = _orig_asnumpy
+            for _n, _o in _orig_sync.items():
+                try:
+                    setattr(cp.ndarray, _n, _o)
+                except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-method fault isolation
+                    logger.debug("residency_audit: restoring cupy.ndarray.%s failed: %s", _n, e)
             try:
                 cp.ndarray.get = _orig_get
             except Exception as e:  # nosec B110 - best-effort path

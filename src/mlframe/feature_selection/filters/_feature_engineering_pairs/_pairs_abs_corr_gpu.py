@@ -27,17 +27,21 @@ def abs_corr_finite_gpu(a_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: 
     y_dev = resident_operand(y, ("abs_corr_y",), dtype=np.float64).ravel()
     fin_dev = resident_operand(np.asarray(y_finite, dtype=np.uint8), ("abs_corr_yfin",), dtype=np.uint8).ravel() != 0
     a = a_dev.astype(cp.float64, copy=False).ravel()
+    # Masked sums instead of boolean-index compaction: ``a[mask]`` and ``int(count_nonzero)`` each block the stream on a device read, and this runs per
+    # candidate. Everything stays on the device and ONE small vector comes back at the end.
     mask = fin_dev & cp.isfinite(a)
-    n = int(cp.count_nonzero(mask))
-    if n < min_n:
+    m = mask.astype(cp.float64)
+    n = m.sum()
+    a0 = cp.where(mask, a, 0.0)
+    y0 = cp.where(mask, y_dev, 0.0)
+    da = (a0 - (a0 * m).sum() / n) * m
+    dy = (y0 - (y0 * m).sum() / n) * m
+    stats = cp.stack([n, (da * da).sum(), (dy * dy).sum(), (da * dy).sum(), cp.abs(a0).max(), cp.abs(y0).max()]).get()
+    cnt, va, vy, cay, amax, ymax = (float(v) for v in stats)
+    if cnt < min_n:
         return 0.0
-    am = a[mask]
-    ym = y_dev[mask]
-    da = am - am.sum() / n
-    dy = ym - ym.sum() / n
-    stats = cp.stack([(da * da).sum(), (dy * dy).sum(), (da * dy).sum(), cp.abs(am).max(), cp.abs(ym).max()]).get()
-    va, vy, cay, amax, ymax = (float(v) for v in stats)
-    if va <= n * (_DEGENERATE_REL_TOL * amax) ** 2 or vy <= n * (_DEGENERATE_REL_TOL * ymax) ** 2:
+    n_i = int(cnt)
+    if va <= n_i * (_DEGENERATE_REL_TOL * amax) ** 2 or vy <= n_i * (_DEGENERATE_REL_TOL * ymax) ** 2:
         return 0.0
     denom = (va * vy) ** 0.5
     if denom <= 0.0:

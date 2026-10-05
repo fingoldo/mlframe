@@ -64,3 +64,14 @@ def test_device_zerofill_corr_matches_the_host_kernel(n, seed, nan_frac):
     host = float(_abs_corr_zerofill_njit(a, b))
     assert abs_corr_zerofill_gpu(cp.asarray(a), b) == pytest.approx(host, rel=1e-9, abs=1e-12)
     assert abs_corr_zerofill_gpu(cp.full(n, 2.0), b) == 0.0
+
+
+def test_device_abs_corr_blocks_the_stream_only_once():
+    """No implicit scalar reads (``int(count)``, boolean-mask compaction): the statistics come back in a single explicit transfer."""
+    a, y, fin = _case(50_000, 5, 0.02)
+    a_dev = cp.asarray(a)
+    abs_corr_finite_gpu(a_dev, y, fin, 8)  # warm: uploads the target once
+    with residency_audit() as rep:
+        abs_corr_finite_gpu(a_dev, y, fin, 8)
+    assert rep.scalar_syncs == []
+    assert len(rep.d2h) == 1

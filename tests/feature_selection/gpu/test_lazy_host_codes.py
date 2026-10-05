@@ -32,3 +32,14 @@ def test_first_real_read_copies_once_and_matches_the_eager_copy():
         np.testing.assert_array_equal(lazy[10:20], codes[10:20])
         assert lazy.astype(np.int32).dtype == np.int32 and int(lazy.sum()) == int(codes.sum())
     assert len(rep.d2h) == 1
+
+
+def test_residency_audit_counts_implicit_scalar_syncs():
+    """``float()`` / ``int()`` / ``bool()`` / ``.item()`` on a device scalar are recorded as syncs, so a regression to per-candidate scalar reads is visible."""
+    x = cp.arange(10.0)
+    with residency_audit() as rep:
+        float(x.sum())
+        int(x.max())
+        bool(x.any())
+        x.sum().item()
+    assert len(rep.scalar_syncs) == 4
