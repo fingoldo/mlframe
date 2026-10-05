@@ -200,18 +200,17 @@ def _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P):
         if m == 0:
             return np.asarray(cp.asnumpy(out))
         col_std = M.std(axis=0)  # (P,)
-        v_std = float(rv.std())
-        if v_std < 1e-12:
-            return np.asarray(cp.asnumpy(out))
+        # The two degenerate-residual guards are folded into the device mask instead of read back as Python floats (two stream stalls per call, ~100 per
+        # fit): a flat or zero-energy residual zeroes every score, exactly as the early returns did.
+        v_std = rv.std()
         vm = rv - rv.mean()
-        ssv = float(cp.dot(vm, vm))
-        if ssv <= 0.0:
-            return np.asarray(cp.asnumpy(out))
+        ssv = cp.dot(vm, vm)
+        resid_ok = (v_std >= 1e-12) & (ssv > 0.0)
         Mc = M - M.mean(axis=0, keepdims=True)
         num = Mc.T @ vm  # (P,) centered dot
         ssc = (Mc * Mc).sum(axis=0)  # (P,)
         denom = cp.sqrt(ssc * ssv)
-        valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0)
+        valid = (col_std >= 1e-12) & (ssc > 0.0) & (denom > 0.0) & resid_ok
         r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
         r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
         return np.asarray(cp.asnumpy(r))
