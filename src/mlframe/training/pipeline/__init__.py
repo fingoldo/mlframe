@@ -234,10 +234,11 @@ class PySRTransformer:
     pickling of the underlying ``PySRRegressor`` handles Julia-side state via
     PySR's own ``__getstate__``; subclassing BaseEstimator would force a
     get_params/set_params contract we don't need here.
+
+    Store the fitted PySR model, its column->equation-index map, and optional equation strings.
     """
 
     def __init__(self, model, col_to_index: Dict[str, int], equations: Optional[Dict[str, str]] = None):
-        """Store the fitted PySR model, its column->equation-index map, and optional equation strings."""
         self.model = model
         self.col_to_index = dict(col_to_index)
         self.equations = dict(equations) if equations else {}
@@ -269,10 +270,11 @@ class PreprocessingExtensionsBundle:
     Attributes are optional; absent stages are ``None``. ``_apply_extensions_pipeline``
     detects this type and dispatches per-stage; legacy persisted shapes
     (raw dict / raw sklearn Pipeline) are unchanged for backward compatibility.
+
+    Store the optional per-stage extensions (PySR / TF-IDF / sklearn Pipeline).
     """
 
     def __init__(self, pysr=None, tfidf=None, sklearn_pipe=None):
-        """Store the optional per-stage extensions (PySR / TF-IDF / sklearn Pipeline)."""
         self.pysr = pysr
         self.tfidf = tfidf
         self.sklearn_pipe = sklearn_pipe

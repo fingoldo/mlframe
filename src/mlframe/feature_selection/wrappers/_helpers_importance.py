@@ -575,6 +575,9 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     identical Leaderboard scores (very common on tree FI with many zeros),
     fall back to lexicographic ordering by feature name so the output is
     fully deterministic across Python set/dict iteration orders.
+
+    Returns:
+        Features ordered best to worst by the chosen voting rule; an empty list when ``feature_importances`` is empty.
     """
     if not feature_importances:
         # No run ever produced FI (e.g. every CV fold was skipped upstream, such as a

@@ -65,6 +65,13 @@ def configurations() -> List[Tuple[str, str]]:
 def run_one(bed: str, seed: int, rule: str, policy: str, rows: int) -> Dict[str, Any]:
     """Fit RFECV under one configuration on one seed of one bed and score what it recovered.
 
+    Args:
+        bed: Name of the synthetic causal bed to build.
+        seed: Seed for both the bed draw and the RFECV model.
+        rule: RFECV votes-aggregation method (the voting rule).
+        policy: RFECV missing-importance policy applied when a fold reports no importance for a feature.
+        rows: Number of samples in the bed.
+
     Returns:
         A record carrying the configuration, the recovered set's precision and recall against the bed's
         declared answer key, and the size of the selection. Selection size is kept because a configuration

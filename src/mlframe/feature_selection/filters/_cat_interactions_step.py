@@ -133,13 +133,22 @@ def run_cat_interaction_step(
     """One cat-FE iteration. Augments ``data`` / ``cols`` / ``nbins`` with new ordinal-encoded columns capturing pair (and k-way) synergies. Returns the augmented arrays
     plus a fresh ``CatFEState`` holding recipes + diagnostics.
 
-    Inputs:
-    - ``data``: ordinal-encoded ``(n_samples, n_cols)`` produced by ``categorize_dataset``.
-    - ``cols``: list of column names matching ``data`` shape.
-    - ``nbins``: cardinality per column.
-    - ``target_indices``, ``classes_y``, ``freqs_y``: precomputed by caller (avoids re-binning Y for every MI call).
-    - ``categorical_vars``: indices into ``data`` of categorical (or pre-discretized numeric, when ``cfg.include_numeric=True``) columns to consider.
-    - ``cfg``: the cat-FE config; ``cfg.enable=True`` is the user's opt-in switch (caller checks before calling us).
+    Args:
+        data: ordinal-encoded ``(n_samples, n_cols)`` produced by ``categorize_dataset``.
+        cols: list of column names matching ``data`` shape.
+        nbins: cardinality per column.
+        target_indices: precomputed by caller (avoids re-binning Y for every MI call).
+        classes_y: precomputed class codes of Y, supplied by the caller.
+        classes_y_safe: class codes of Y supplied by the caller; this step does not read it.
+        freqs_y: precomputed class frequencies of Y, supplied by the caller.
+        categorical_vars: indices into ``data`` of categorical (or pre-discretized numeric, when ``cfg.include_numeric=True``) columns to consider.
+        cfg: the cat-FE config; ``cfg.enable=True`` is the user's opt-in switch (caller checks before calling us).
+        selected_so_far: already-selected features used to re-rank survivors by their information with those features; empty or None skips it.
+        weights: per-row sample weights; None means uniform. The weighted kernel is used only when the weights are non-uniform.
+        streaming_cache: prior-fit cache whose marginal MIs are reused for columns whose distribution has not drifted; None disables reuse.
+        numeric_raw_values: ``{orig_col_idx: raw float values}`` used to quantile-bin numeric columns when ``cfg.include_numeric`` is set.
+        dtype: integer dtype of the code arrays passed to the MI kernels.
+        verbose: when truthy, log progress and the reason for any early exit.
 
     Returns:
     - ``data_out``: augmented ``(n_samples, n_cols + n_engineered)``

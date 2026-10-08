@@ -291,6 +291,8 @@ class DiskCache:
     that was, in fact, written correctly by the last writer). This mirrors
     ``pyutilz.core.safe_pickle.safe_dump``'s per-path lock. Across processes
     the contract is unchanged: atomic rename means a partial write never wins.
+
+    Create (or reuse) a disk cache rooted at ``cache_dir`` with an LRU cap of ``max_size_bytes``.
     """
 
     def __init__(
@@ -298,7 +300,6 @@ class DiskCache:
         cache_dir: Union[str, Path],
         max_size_bytes: int = _DEFAULT_MAX_SIZE_BYTES,
     ):
-        """Create (or reuse) a disk cache rooted at ``cache_dir`` with an LRU cap of ``max_size_bytes``."""
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.max_size_bytes = int(max_size_bytes)

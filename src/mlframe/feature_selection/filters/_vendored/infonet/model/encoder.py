@@ -53,10 +53,14 @@ class Encoder(nn.Module):
         ])
 
     def forward(self, x: torch.Tensor, attention_mask: Optional[torch.Tensor] = None):
-        """
+        """Encode the inputs into the latent array.
+
         Args:
             x: (B, M, C)
             attention_mask: (B, M)
+
+        Returns:
+            Latent array after the cross-attention block and the stacked self-attention blocks.
         """
 
         b, *_ = x.shape

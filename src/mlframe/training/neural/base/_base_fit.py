@@ -501,7 +501,7 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
 
         return self
 
-    def fit(self, X, y, sample_weight=None, **fit_params):
+    def fit(self, X: Any, y: Any, sample_weight: Optional[Any] = None, **fit_params: Any) -> Any:
         """Fit the model to the data.
 
         Args:
@@ -511,6 +511,9 @@ class _FitMixin(_FitCommonHelpersMixin, _FitPrepMixin):
             **fit_params: Additional parameters including:
                 - eval_set: Tuple of (X_val, y_val) for validation
                 - eval_sample_weight: Optional validation sample weights
+
+        Returns:
+            The result of ``_fit_common``, i.e. the fitted estimator (``self``).
         """
         eval_set = fit_params.get("eval_set", (None, None))
         # Support sample_weight both as parameter and in fit_params

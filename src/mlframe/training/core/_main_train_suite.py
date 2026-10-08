@@ -168,7 +168,6 @@ def train_mlframe_models_suite(
             Optional: when None, a ``SimpleFeaturesAndTargetsExtractor`` is built from ``target_name``,
             with the task type (regression vs classification) inferred from the target column's
             dtype/cardinality. Pass an explicit extractor to override.
-
         mlframe_models: List of model types to train (cb, lgb, xgb, mlp, hgb, linear, ridge, etc.)
         recurrent_models: List of recurrent model types to train (lstm, gru, rnn, transformer).
             These models handle sequential data and support variable-length sequences.
@@ -179,26 +178,13 @@ def train_mlframe_models_suite(
             extracted automatically using extractor.get_sequences().
         use_ordinary_models: Whether to train regular models
         use_mlframe_ensembles: Whether to create ensembles
-
+        target_type: Explicit ``TargetTypes`` override. None auto-detects from the extractor;
+            LEARNING_TO_RANK routes to the ranker suite. See ``TargetTypes``.
+        ranking_config: LTR-only dispatch knobs (objectives, eval cutoffs, rank fusion). See ``LearningToRankConfig``.
         preprocessing_config: Preprocessing configuration. Holds custom transformer overrides
             (``scaler``, ``imputer``, ``category_encoder``).
         split_config: Train/val/test split configuration
         pipeline_config: Pipeline configuration
-
-        feature_selection_config: Holds ``use_mrmr_fs``, ``mrmr_kwargs``, ``rfecv_models``,
-            ``rfecv_kwargs``, ``custom_pre_pipelines``.
-
-        hyperparams_config: Model hyperparameters (iterations, learning rate, per-model kwargs).
-        behavior_config: Training behavior flags (GPU preference, calibration, fairness).
-
-        reporting_config: Calibration / training-report look. Holds figure size, chart toggles,
-            title-metrics template, histogram subplot toggles, inline population labels, FI plot config.
-        output_config: Filesystem destinations - ``data_dir``, ``models_dir``, ``plot_file``, ``save_charts``.
-        outlier_detection_config: Outlier-detector + ``apply_to_val``.
-
-        target_type: Explicit ``TargetTypes`` override. None auto-detects from the extractor;
-            LEARNING_TO_RANK routes to the ranker suite. See ``TargetTypes``.
-        ranking_config: LTR-only dispatch knobs (objectives, eval cutoffs, rank fusion). See ``LearningToRankConfig``.
         preprocessing_extensions: Optional FE-extension transforms (PySR, polynomial, etc.). See ``PreprocessingExtensionsConfig``.
         auxiliary_events_df: Optional separate reference table (e.g. an entity x item interaction
             log distinct from the row-per-sample training frame) consumed by
@@ -206,10 +192,18 @@ def train_mlframe_models_suite(
             ``nearest_past_join``. None (default) is a genuine no-op for both.
         feature_types_config: Numeric/categorical/text type-detection overrides. See ``FeatureTypesConfig``.
         linear_model_config: Linear-model family hyperparameters. See ``LinearModelConfig``.
+        hyperparams_config: Model hyperparameters (iterations, learning rate, per-model kwargs).
+        behavior_config: Training behavior flags (GPU preference, calibration, fairness).
         training_config: Aggregate ``TrainingConfig`` carrier; supplies ``linear_model_config`` /
             ``behavior_config`` defaults from its ``.linear_config`` / ``.behavior`` sub-configs
             when those explicit kwargs are left as None (an explicit kwarg always wins).
         multilabel_dispatch_config: Multilabel-only strategy (wrapper/chain/native). See ``MultilabelDispatchConfig``.
+        reporting_config: Calibration / training-report look. Holds figure size, chart toggles,
+            title-metrics template, histogram subplot toggles, inline population labels, FI plot config.
+        output_config: Filesystem destinations - ``data_dir``, ``models_dir``, ``plot_file``, ``save_charts``.
+        outlier_detection_config: Outlier-detector + ``apply_to_val``.
+        feature_selection_config: Holds ``use_mrmr_fs``, ``mrmr_kwargs``, ``rfecv_models``,
+            ``rfecv_kwargs``, ``custom_pre_pipelines``.
         confidence_analysis_config: SHAP-based confidence-of-correct-prediction analysis. See ``ConfidenceAnalysisConfig``.
         baseline_diagnostics_config: Baseline ablation / quick-model diagnostics. See ``BaselineDiagnosticsConfig``.
         dummy_baselines_config: Per-target dummy-baseline computation. See ``DummyBaselinesConfig``.
@@ -219,9 +213,16 @@ def train_mlframe_models_suite(
         regression_calibration_config: point recalibration, OFF by default; its apply_confidence_shrinkage is ON by default and always applies.
         composite_target_discovery_config: Composite-target (diff/ratio/linres) discovery. ``MLFRAME_DISABLE_COMPOSITE=1`` forces off. See ``CompositeTargetDiscoveryConfig``.
         feature_handling_config: Feature-handling / caching config bundle (advanced). See the feature_handling package.
+        precomputed: Opt-in ``TrainMlframeSuitePrecomputed`` bundle for repeated-suite-on-same-train
+            benchmarking. When supplied, each non-None field skips the matching in-suite compute step:
+            ``trainset_features_stats`` (skips the stats pass), ``dummy_baselines`` (skips the per-target
+            dummy-baseline pass by short-circuiting via ``dummy_baselines_config.enabled=False`` and
+            pre-seeding ``metadata["dummy_baselines"]``), ``composite_target_specs`` (skips the
+            composite discovery phase and pre-seeds ``metadata["composite_target_specs"]``). Build the
+            bundle via ``mlframe.training.helpers.precompute_all`` or by hand from a prior run's
+            metadata. None (default) preserves legacy behaviour: every step computes inline.
         enable_target_distribution_analyzer: When True (default), run the mini-HPT target-distribution analyzer
             (heavy-tail / multi-modal / strong-AR / imbalance detection) and merge gap-fill hyperparameter recommendations.
-
         verbose: Verbosity level (0=silent, 1=info, 2=debug). Mapped to a root logging level at entry
             (1->INFO, 2->DEBUG); per-site gates still distinguish only silent vs non-silent.
 
@@ -234,15 +235,6 @@ def train_mlframe_models_suite(
         ``import mlframe.training`` does NOT patch anything (the patches are lazy, applied on first suite call).
         Where mlframe controls the call site, prefer the ``make_pool`` / ``make_dmatrix`` / ``make_lgb_dataset``
         factories in ``_model_factories`` over the global constructor wrapping.
-
-        precomputed: Opt-in ``TrainMlframeSuitePrecomputed`` bundle for repeated-suite-on-same-train
-            benchmarking. When supplied, each non-None field skips the matching in-suite compute step:
-            ``trainset_features_stats`` (skips the stats pass), ``dummy_baselines`` (skips the per-target
-            dummy-baseline pass by short-circuiting via ``dummy_baselines_config.enabled=False`` and
-            pre-seeding ``metadata["dummy_baselines"]``), ``composite_target_specs`` (skips the
-            composite discovery phase and pre-seeds ``metadata["composite_target_specs"]``). Build the
-            bundle via ``mlframe.training.helpers.precompute_all`` or by hand from a prior run's
-            metadata. None (default) preserves legacy behaviour: every step computes inline.
 
     Returns:
         A ``SuiteResult`` — a NamedTuple that is fully back-compatible with the historical

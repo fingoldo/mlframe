@@ -105,6 +105,13 @@ def feature_matrix(frame: pd.DataFrame, columns: List[str]) -> np.ndarray:
     follow that ranking, and silently re-sorting into frame order would change what a downstream model
     with a column-order-sensitive tie-break does.
 
+    Args:
+        frame: Source frame.
+        columns: Names of the columns to extract, in the desired order.
+
+    Returns:
+        Dense float matrix of shape ``(len(frame), len(columns))``.
+
     Raises:
         KeyError: If a name is not in the frame, so a typo fails here rather than producing a matrix one
             column narrower than the caller believes.

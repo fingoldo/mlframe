@@ -10,7 +10,7 @@ from __future__ import annotations
 
 
 import logging
-from typing import Callable, Optional, Union
+from typing import Any, Callable, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -69,7 +69,27 @@ def _try_astype_float32(series: pd.Series) -> tuple[pd.Series, bool]:
 
 
 class TorchDataset(Dataset):
-    """PyTorch ``Dataset`` wrapping feature/label/sample-weight arrays; eager-converts small inputs to tensors up front and defers per-batch conversion for large inputs to bound peak RAM (see the module's byte-size gate)."""
+    """PyTorch ``Dataset`` wrapping feature/label/sample-weight arrays; eager-converts small inputs to tensors up front and defers per-batch conversion for large inputs to bound peak RAM (see the module's byte-size gate).
+
+    ``share_memory``: when True (default) AND the dataset eager-converts the feature/label tensors to CPU memory, call ``tensor.share_memory_()``
+    so PyTorch DataLoader child workers (``num_workers > 0``) attach to the same backing buffer instead of each pickling+receiving a fresh copy.
+
+    Rationale (Yuxin Wu, 2022, "Demystify RAM Usage in Multi-Process Data Loaders"): the naive multi-worker DataLoader pattern leaks memory across
+    workers because Linux copy-on-write fails for Python objects - accessing ANY Python attribute increments its refcount, which is a write, which
+    triggers a per-process copy of the page. The standard mitigation is to put the dataset's hot buffers into ``torch.Tensor`` so PyTorch's custom
+    ``ForkingPickler`` moves them to ``/dev/shm`` (Linux) or a SharedMemoryManager handle (Windows) instead of serialising bytes. ``share_memory_()``
+    does that promotion eagerly so the first worker access is zero-copy from the start.
+
+    Disable (``False``) only for tests or for special tensor types (sparse, MPS) where ``share_memory_()`` raises. Negligible cost at
+    ``num_workers=0``; with ``num_workers >= 2`` and a 1 GB feature buffer the net RAM saving is ``num_workers * 1 GB``.
+
+    Multi-GPU note: this dataset is single-process / single-GPU. For multi-GPU DDP, designate rank-0 to load data once, then pass the shared-memory
+    tensor handle to ranks 1..N-1 via ``ForkingPickler``.
+
+    Note on pinning: PyTorch DataLoader's own ``pin_memory=True`` kwarg performs per-batch pinning (already wired via
+    ``_create_dataloader: dl_params["pin_memory"] = on_gpu``). Pinning the WHOLE feature tensor once would lock the buffer's RAM permanently - only
+    worth it for small frames AND a GPU target.
+    """
 
     def __init__(
         self,
@@ -82,25 +102,6 @@ class TorchDataset(Dataset):
         batch_size: int = 0,
         share_memory: bool = True,
     ):
-        """``share_memory``: when True (default) AND the dataset eager-converts the feature/label tensors to CPU memory, call ``tensor.share_memory_()``
-        so PyTorch DataLoader child workers (``num_workers > 0``) attach to the same backing buffer instead of each pickling+receiving a fresh copy.
-
-        Rationale (Yuxin Wu, 2022, "Demystify RAM Usage in Multi-Process Data Loaders"): the naive multi-worker DataLoader pattern leaks memory across
-        workers because Linux copy-on-write fails for Python objects - accessing ANY Python attribute increments its refcount, which is a write, which
-        triggers a per-process copy of the page. The standard mitigation is to put the dataset's hot buffers into ``torch.Tensor`` so PyTorch's custom
-        ``ForkingPickler`` moves them to ``/dev/shm`` (Linux) or a SharedMemoryManager handle (Windows) instead of serialising bytes. ``share_memory_()``
-        does that promotion eagerly so the first worker access is zero-copy from the start.
-
-        Disable (``False``) only for tests or for special tensor types (sparse, MPS) where ``share_memory_()`` raises. Negligible cost at
-        ``num_workers=0``; with ``num_workers >= 2`` and a 1 GB feature buffer the net RAM saving is ``num_workers * 1 GB``.
-
-        Multi-GPU note: this dataset is single-process / single-GPU. For multi-GPU DDP, designate rank-0 to load data once, then pass the shared-memory
-        tensor handle to ranks 1..N-1 via ``ForkingPickler``.
-
-        Note on pinning: PyTorch DataLoader's own ``pin_memory=True`` kwarg performs per-batch pinning (already wired via
-        ``_create_dataloader: dl_params["pin_memory"] = on_gpu``). Pinning the WHOLE feature tensor once would lock the buffer's RAM permanently - only
-        worth it for small frames AND a GPU target.
-        """
         # Wave 56 (2026-05-20): forward to torch Dataset base for forward-compat
         # (currently a no-op; reserves the hook for future torch state).
         super().__init__()
@@ -285,8 +286,9 @@ class TorchDataset(Dataset):
 
 
 class TorchDataModule(LightningDataModule):
-    """
-    Improved Lightning DataModule with support for train/val/test/predict dataloaders.
+    """Improved Lightning DataModule with support for train/val/test/predict dataloaders.
+
+    Data pre-loading in the constructor allows automatic sharing between spawned processes via shared memory when using 'ddp_spawn'.
 
     Features:
     - Supports reading from file for multi-GPU workloads
@@ -298,8 +300,10 @@ class TorchDataModule(LightningDataModule):
     Args:
         train_features: Training features (DataFrame, array, or file path)
         train_labels: Training labels (DataFrame, array, or file path)
+        train_sample_weight: Optional per-sample weights for the training set
         val_features: Validation features (DataFrame, array, or file path)
         val_labels: Validation labels (DataFrame, array, or file path)
+        val_sample_weight: Optional per-sample weights for the validation set
         test_features: Optional test features (DataFrame, array, or file path)
         test_labels: Optional test labels (DataFrame, array, or file path)
         read_fcn: Optional function to read data from file paths
@@ -325,9 +329,6 @@ class TorchDataModule(LightningDataModule):
         labels_dtype: torch.dtype = torch.int64,
         dataloader_params: Optional[dict] = None,
     ):
-        """
-        Initialize DataModule. Data pre-loading here allows automatic sharing between spawned processes via shared memory when using 'ddp_spawn'.
-        """
         super().__init__()
 
         if data_placement_device is not None:
@@ -422,6 +423,9 @@ class TorchDataModule(LightningDataModule):
 
         Args:
             var_names: List of attribute names to check and load
+
+        Returns:
+            None. The named attributes are replaced in place with the data returned by ``read_fcn``.
         """
         if not self.read_fcn:
             return
@@ -506,9 +510,9 @@ class TorchDataModule(LightningDataModule):
 
     def _create_dataloader(
         self,
-        features,
-        labels=None,
-        sample_weight=None,
+        features: Any,
+        labels: Optional[Any] = None,
+        sample_weight: Optional[Any] = None,
         shuffle: bool = False,
         drop_last: bool = False,
         split_name: str = "data",

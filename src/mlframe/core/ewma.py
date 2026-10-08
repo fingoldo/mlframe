@@ -7,6 +7,7 @@ from __future__ import annotations
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ def _ewma_numba_adjust(x: np.ndarray, alpha: float) -> np.ndarray:
     return out
 
 
-def ewma(x, alpha: float, adjust: bool = False) -> np.ndarray:
+def ewma(x: Any, alpha: float, adjust: bool = False) -> np.ndarray:
     """Returns the exponentially weighted moving average of x.
 
     O(n) time, O(n) memory (output only). Matches pandas' Series.ewm.
@@ -69,11 +70,16 @@ def ewma(x, alpha: float, adjust: bool = False) -> np.ndarray:
     >>> bool(np.allclose(ewma(x, alpha, adjust=True), pd.Series(x).ewm(alpha=alpha, adjust=True).mean()))
     True
 
-    Parameters:
-    -----------
-    x : array-like
-    alpha : float {0 <= alpha <= 1}
-    adjust : bool — if True, use pandas' default adjusted formula; else recurrence.
+    Args:
+        x: Input values; converted to a contiguous array.
+        alpha: Smoothing weight, must satisfy 0 <= alpha <= 1.
+        adjust: If True, use pandas' default adjusted formula; otherwise the plain recurrence.
+
+    Returns:
+        Array of exponentially weighted averages with the same length as ``x``.
+
+    Raises:
+        ValueError: If ``alpha`` is NaN or outside [0, 1].
     """
     alpha = float(alpha)
     # alpha is the smoothing weight; outside [0, 1] (or NaN) the recurrence diverges / poisons every output with no error.

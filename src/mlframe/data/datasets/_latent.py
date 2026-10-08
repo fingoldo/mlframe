@@ -37,18 +37,17 @@ __all__ = ["LatentRealization", "delta_weights", "realize_latent", "realize_late
 
 
 class LatentRealization:
-    """One realised latent factor: the factor itself, its reflections, and their private parts."""
+    """One realised latent factor: the factor itself, its reflections, and their private parts.
+
+    Args:
+        name: The latent's name.
+        values: The latent factor, one value per row.
+        reflections: Observed columns generated from the latent.
+        deltas: Each reflection's private deviation, empty when ``distinct_sd`` was zero.
+        scales: Pre-standardisation scale per reflection.
+    """
 
     def __init__(self, name: str, values: np.ndarray, reflections: Dict[str, np.ndarray], deltas: Dict[str, np.ndarray], scales: Dict[str, float]) -> None:
-        """Store the realised arrays.
-
-        Args:
-            name: The latent's name.
-            values: The latent factor, one value per row.
-            reflections: Observed columns generated from the latent.
-            deltas: Each reflection's private deviation, empty when ``distinct_sd`` was zero.
-            scales: Pre-standardisation scale per reflection.
-        """
         self.name = name
         self.values = values
         self.reflections = reflections

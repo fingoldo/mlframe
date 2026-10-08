@@ -54,7 +54,8 @@ def _i_ccs_redundancy_njit(joint_xyz: np.ndarray) -> float:
     Args:
         joint_xyz: (K_x1, K_x2, K_y) joint count tensor.
 
-    Returns: redundant information in nats; floored at 0.
+    Returns:
+        redundant information in nats; floored at 0.
     """
     K_x1, K_x2, K_y = joint_xyz.shape
     N = 0.0
@@ -207,7 +208,8 @@ def pid_decomposition(x1: np.ndarray, x2: np.ndarray, y: np.ndarray, K_x1: int, 
         K_x2: cardinality of ``x2``.
         K_y: cardinality of ``y``.
 
-    Returns: dict with keys ``redundant``, ``unique_x1``, ``unique_x2``,
+    Returns:
+        dict with keys ``redundant``, ``unique_x1``, ``unique_x2``,
         ``synergistic``, ``total`` - all in nats.
     """
     x1 = np.asarray(x1, dtype=np.int64).ravel()

@@ -49,10 +49,11 @@ class _ParquetStore:
     Aggregation: rows with the same ``(fn_name, host, fp_bucket_json,
     param_combo_json)`` are folded to a single row whose ``objective_json``
     holds the per-key MEDIAN and ``n_obs`` the total observation count.
+
+    Bind the store to ``store_path``, creating its parent directory.
     """
 
     def __init__(self, store_path: str):
-        """Bind the store to ``store_path``, creating its parent directory."""
         self._path = store_path
         os.makedirs(os.path.dirname(os.path.abspath(store_path)), exist_ok=True)
 

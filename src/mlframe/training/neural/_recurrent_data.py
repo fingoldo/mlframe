@@ -16,11 +16,19 @@ from ._recurrent_config import InputMode  # noqa: F401  # re-exported for caller
 
 
 class RecurrentDataset(Dataset):
-    """
-    Dataset for variable-length sequences with optional auxiliary features.
+    """Dataset for variable-length sequences with optional auxiliary features.
 
     Handles variable-length sequences and optional tabular features.
     Supports both classification (integer labels) and regression (float labels).
+
+    Initialize dataset.
+
+    Args:
+        sequences: list of (seq_len, n_features) arrays, or None
+        aux_features: (n_samples, n_features) array, or None
+        labels: (n_samples,) array of labels
+        sample_weights: (n_samples,) array of weights, or None
+        is_regression: whether this is a regression task (affects label dtype)
     """
 
     __slots__ = ("_has_sequences", "_is_regression", "aux_features", "labels", "sample_weights", "sequences")
@@ -33,16 +41,6 @@ class RecurrentDataset(Dataset):
         sample_weights: np.ndarray | None = None,
         is_regression: bool = False,
     ) -> None:
-        """
-        Initialize dataset.
-
-        Args:
-            sequences: list of (seq_len, n_features) arrays, or None
-            aux_features: (n_samples, n_features) array, or None
-            labels: (n_samples,) array of labels
-            sample_weights: (n_samples,) array of weights, or None
-            is_regression: whether this is a regression task (affects label dtype)
-        """
         self.sequences = sequences
         self._has_sequences = sequences is not None
         self._is_regression = is_regression
@@ -160,8 +158,7 @@ def recurrent_collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torc
 
 
 class RecurrentDataModule(LightningDataModule):
-    """
-    Lightning DataModule for recurrent models with sequence data.
+    """Lightning DataModule for recurrent models with sequence data.
 
     Handles train/val/test/predict stages with proper sequence handling.
 
@@ -171,6 +168,31 @@ class RecurrentDataModule(LightningDataModule):
     stratified-sampler logic. Only test files construct this class today. A fix to the sampler logic
     (label-set construction, weighting, etc.) in one copy is NOT automatically reflected in the other --
     check both when changing either.
+
+    Initialize DataModule.
+
+    Args:
+        train_sequences: training sequences (list of variable-length arrays)
+        train_features: training tabular features
+        train_labels: training labels
+        train_sample_weight: training sample weights
+        val_sequences: validation sequences
+        val_features: validation tabular features
+        val_labels: validation labels
+        val_sample_weight: validation sample weights
+        test_sequences: test sequences
+        test_features: test tabular features
+        test_labels: test labels
+        batch_size: batch size for DataLoaders
+        num_workers: number of workers for DataLoaders
+        is_regression: whether this is a regression task
+        use_stratified_sampler: use weighted sampling for imbalanced data
+        accelerator: Trainer accelerator ("auto"/"cpu"/"gpu"/...); drives the ``pin_memory``
+            auto-detection below when ``pin_memory`` is left unset.
+        prefetch_factor: DataLoader prefetch factor; only takes effect when ``num_workers > 0``.
+        pin_memory: Whether DataLoaders page-lock host memory for faster H2D transfer. ``None``
+            (default) auto-tracks ``accelerator`` (on for GPU, off for CPU); an explicit
+            ``True``/``False`` always wins over the auto-detection.
     """
 
     def __init__(
@@ -194,32 +216,6 @@ class RecurrentDataModule(LightningDataModule):
         prefetch_factor: int = 4,
         pin_memory: Optional[bool] = None,
     ):
-        """
-        Initialize DataModule.
-
-        Args:
-            train_sequences: training sequences (list of variable-length arrays)
-            train_features: training tabular features
-            train_labels: training labels
-            train_sample_weight: training sample weights
-            val_sequences: validation sequences
-            val_features: validation tabular features
-            val_labels: validation labels
-            val_sample_weight: validation sample weights
-            test_sequences: test sequences
-            test_features: test tabular features
-            test_labels: test labels
-            batch_size: batch size for DataLoaders
-            num_workers: number of workers for DataLoaders
-            is_regression: whether this is a regression task
-            use_stratified_sampler: use weighted sampling for imbalanced data
-            accelerator: Trainer accelerator ("auto"/"cpu"/"gpu"/...); drives the ``pin_memory``
-                auto-detection below when ``pin_memory`` is left unset.
-            prefetch_factor: DataLoader prefetch factor; only takes effect when ``num_workers > 0``.
-            pin_memory: Whether DataLoaders page-lock host memory for faster H2D transfer. ``None``
-                (default) auto-tracks ``accelerator`` (on for GPU, off for CPU); an explicit
-                ``True``/``False`` always wins over the auto-detection.
-        """
         super().__init__()
         self.train_sequences = train_sequences
         self.train_features = train_features

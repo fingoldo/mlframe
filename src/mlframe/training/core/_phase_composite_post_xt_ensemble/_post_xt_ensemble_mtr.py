@@ -114,7 +114,7 @@ class MTRPerColumnEqualMeanEnsemble:
         Defensive copy."""
         return np.asarray(self._weights.copy())
 
-    def fit(self, X, y) -> "MTRPerColumnEqualMeanEnsemble":
+    def fit(self, X: Any, y: Any) -> "MTRPerColumnEqualMeanEnsemble":
         """E3: fit per-column NNLS weights from a held-out (X, y) set.
 
         For each target column k, solves:
@@ -134,7 +134,8 @@ class MTRPerColumnEqualMeanEnsemble:
             y: held-out targets (n_holdout, n_targets) or (n_holdout,)
                for K=1.
 
-        Returns: self (sklearn convention).
+        Returns:
+            self (sklearn convention).
         """
         if self._strategy == "equal_mean":
             return self  # no-op

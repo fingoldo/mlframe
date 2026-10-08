@@ -191,18 +191,23 @@ def find_best_mps_sequence(
     shift: int = 0,
     dtype: type = np.float64,
 ):  # pragma: no cover
-    """
-    prices: 1D numpy array float64 (closing prices)
-    tc: transaction cost parameter (if tc_mode_is_fraction True -> fraction of price per trade,
-        else fixed currency per trade)
-    tc_mode_is_fraction: boolean (True => fraction-of-price, False => fixed)
-    shift: shift the reconstructed positions this many steps to the LEFT (positions[:-shift] = positions[shift:]),
-        backfilling the vacated left tail from the first remaining value -- use to compensate for a known
-        signal-availability lag (e.g. positions decided from data only available `shift` steps after the
-        interval they'd apply to). 0 (default) leaves positions unshifted.
+    """Find the position sequence that maximises profit after transaction costs, by dynamic programming.
+
+    Args:
+        prices: 1D float64 array of prices the position decisions are optimised on (closing prices).
+        raw_prices: 1D array of prices used to compute the reported per-interval profits.
+        tc: Transaction cost parameter (a fraction of price per trade if ``tc_mode_is_fraction`` is True, else a fixed currency amount per trade).
+        tc_mode_is_fraction: True for fraction-of-price costs, False for fixed costs.
+        optimize_consecutive_regions: If True, zero (flat) positions are backfilled from the neighbouring non-zero positions, right then left.
+        shift: Shift the reconstructed positions this many steps to the LEFT (positions[:-shift] = positions[shift:]),
+            backfilling the vacated left tail from the first remaining value -- use to compensate for a known
+            signal-availability lag (e.g. positions decided from data only available `shift` steps after the
+            interval they'd apply to). 0 (default) leaves positions unshifted.
+        dtype: Floating dtype of the internal profit arrays.
+
     Returns:
-      positions: int8 array length (n-1) with values -1,0,1 representing position held on interval t->t+1
-      profits: float64 array length (n-1) of per-interval profit (after transaction costs)
+        Tuple of ``(positions, profits)``: ``positions`` is an int8 array of length n-1 with values -1, 0, 1 for the position held on
+        interval t->t+1, and ``profits`` is a float array of length n-1 with per-interval profit (after transaction costs).
     """
     if shift < 0:
         # numba njit exception messages must be compile-time constants -- no f-string/dynamic value here.
@@ -287,19 +292,16 @@ def find_best_mps_sequence(
 
 
 @numba.njit(fastmath=True, cache=True)
-def backfill_zeros(arr, direction="right"):  # pragma: no cover
+def backfill_zeros(arr: np.ndarray, direction: str = "right") -> np.ndarray:  # pragma: no cover
     """
     Backfill zeros in an array from either right or left based on direction parameter.
 
-    Parameters:
-    arr : numpy.ndarray
-        Input array containing zeros to be backfilled
-    direction : str
-        Direction of backfill, either 'right' or 'left'
+    Args:
+        arr: Input array containing zeros to be backfilled.
+        direction: Direction of backfill, either 'right' or 'left'.
 
     Returns:
-    numpy.ndarray
-        Array with zeros backfilled from specified direction
+        Array with zeros backfilled from specified direction.
 
     Examples:
     >>> a = np.array([0, 0, 1, 0, 0, -1, 0, 0])
@@ -309,7 +311,7 @@ def backfill_zeros(arr, direction="right"):  # pragma: no cover
     [ 0  0  1  1  1 -1 -1 -1]
     """
     arr = np.asarray(arr)
-    out = arr.copy()
+    out: np.ndarray = arr.copy()
 
     if direction == "right":
         # Go from right to left, filling zeros with the last seen non-zero
@@ -409,49 +411,28 @@ def plot_positions(
     """
     Plot price with position background colors using either Plotly or Matplotlib.
 
-    Parameters:
-    -----------
-    prices : np.ndarray or list
-        Price data to plot
-    positions : np.ndarray or list
-        Position data (1=long/green, -1=short/red, 0=flat/black)
-    raw_prices : np.ndarray, optional
-        Raw price data to plot with different style/color. If None, not plotted.
-    profits : np.ndarray, optional
-        Profit data for tooltips (only used in Plotly mode). If None, no profit tooltips shown.
-    use_plotly : bool, default=True
-        If True, use Plotly; if False, use Matplotlib
-    figsize : tuple of int, default=(10, 6)
-        Figure size (width, height)
-    title : str
-        Plot title
-    xlabel : str, default="Time step"
-        X-axis label
-    ylabel : str, default="Price"
-        Y-axis label
-    price_label : str, default="Price"
-        Label for main price line
-    raw_price_label : str, default="Raw Price"
-        Label for raw price line
-    price_line_width : float, default=1.5
-        Width of main price line
-    raw_price_line_width : float, default=1.0
-        Width of raw price line
-    price_line_color : str, default="black"
-        Color of main price line
-    raw_price_line_color : str, default="gray"
-        Color of raw price line
-    raw_price_opacity : float, default=0.7
-        Opacity of raw price line
-    background_opacity : float, default=0.2
-        Opacity of position background colors
-    plotly_size_multiplier : int, default=80
-        Multiplier to convert figsize to pixels for Plotly
+    Args:
+        prices: Price data to plot.
+        positions: Position data (1=long/green, -1=short/red, 0=flat/black).
+        raw_prices: Raw price data to plot with different style/color. If None, not plotted.
+        profits: Profit data for tooltips (only used in Plotly mode). If None, no profit tooltips shown.
+        use_plotly: If True, use Plotly; if False, use Matplotlib.
+        figsize: Figure size (width, height).
+        title: Plot title.
+        xlabel: X-axis label.
+        ylabel: Y-axis label.
+        price_label: Label for main price line.
+        raw_price_label: Label for raw price line.
+        price_line_width: Width of main price line.
+        raw_price_line_width: Width of raw price line.
+        price_line_color: Color of main price line.
+        raw_price_line_color: Color of raw price line.
+        raw_price_opacity: Opacity of raw price line.
+        background_opacity: Opacity of position background colors.
+        plotly_size_multiplier: Multiplier to convert figsize to pixels for Plotly.
 
     Returns:
-    --------
-    fig : matplotlib.figure.Figure or plotly.graph_objects.Figure
-        The created figure object
+        The created matplotlib or plotly figure object.
     """
 
     # Common data preparation

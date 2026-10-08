@@ -229,13 +229,12 @@ def release_large_working_frames(self: Any) -> None:
             setattr(self, name, None)
 
 
-def calculate_Zscore(array):
+def calculate_Zscore(array: Any) -> np.ndarray:
     """
     Calculates the Z-score of an array
 
-    Parameters
-     ----------
-    array: array_like
+    Args:
+        array: Array-like of numbers, converted to float64.
 
     Returns:
         normalised array
@@ -243,27 +242,22 @@ def calculate_Zscore(array):
     array = np.asarray(array, dtype=np.float64)
     mean_value = np.mean(array)
     std_value = float(guarded_scale(np.std(array), np.abs(array).max()))
-    return (array - mean_value) / std_value
+    zscores: np.ndarray = (array - mean_value) / std_value
+    return zscores
 
-def feature_importance(self, normalize):
+def feature_importance(self: Any, normalize: bool) -> Any:
     """
     Calculates the feature importances scores of the model
 
-    Parameters
-    ----------
-    importance_measure: string
-        allows the user to choose either the Shap or Gini importance metrics
-
-    normalize: boolean
-        if true the importance values will be normalized using the z-score formula
+    Args:
+        self: The BorutaShap instance; its importance measure (``importance_measure`` or the resolved auto choice) selects the metric.
+        normalize: If true the importance values will be normalized using the z-score formula.
 
     Returns:
         array of normalized feature importance scores for both the shadow and original features.
 
-    Raise
-    ----------
-        ValueError:
-            If no Importance measure was specified
+    Raises:
+        ValueError: If no Importance measure was specified.
     """
 
     _measure = self._active_importance_measure() if hasattr(self, "_active_importance_measure") else str(self.importance_measure).lower()

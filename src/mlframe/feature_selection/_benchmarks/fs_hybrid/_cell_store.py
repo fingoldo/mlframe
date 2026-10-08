@@ -71,6 +71,9 @@ class JsonlCellStore:
     def assert_single_schema_version(self) -> int:
         """Return the file's one schema version, or raise when it mixes several.
 
+        Returns:
+            The single schema version found, or the current ``SCHEMA_VERSION`` when the file holds no records.
+
         Raises:
             SchemaVersionMismatchError: When the file holds more than one version, or a version this code does
                 not know how to read. Both cases make every aggregate over the file a mixture, so they

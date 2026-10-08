@@ -35,6 +35,12 @@ def discretize_2d_array_cuda(
     for the CPU prange path on the same workload at fit-time on a
     GTX 1050 Ti / cc 6.1).
 
+    Args:
+        arr: 2-D numeric array, one column per feature.
+        n_bins: number of quantile bins per column.
+        method: discretisation method; only ``"quantile"`` is supported.
+        dtype: integer dtype of the returned bin codes.
+
     Returns:
         ``np.ndarray`` of shape ``arr.shape`` with the requested ``dtype``.
         ``copy_to_host`` happens at the end - callers see plain numpy.

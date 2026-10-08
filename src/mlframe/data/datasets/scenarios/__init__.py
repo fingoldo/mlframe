@@ -425,6 +425,12 @@ scenario_names = names
 def get(name: str) -> Scenario:
     """Return one scenario by name.
 
+    Args:
+        name: Registered scenario name.
+
+    Returns:
+        The matching registered scenario.
+
     Raises:
         KeyError: If no scenario carries that name, listing what is registered so a typo is one read away
             from being fixed.

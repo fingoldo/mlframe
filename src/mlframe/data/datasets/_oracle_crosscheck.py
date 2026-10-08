@@ -222,6 +222,11 @@ def reference_crosscheck(n_levels: Tuple[int, ...] = (2, 5, 17, 64), n_samples: 
     the exact identity at several level counts, which no registered bed is shaped for, and pinning it to a
     fixed seed makes the manifest's number comparable between runs.
 
+    Args:
+        n_levels: Level counts of the discrete probe columns, one column per entry.
+        n_samples: Rows drawn for the probe.
+        seed: Seed of the probe's random generator.
+
     Returns:
         A record naming the third-party estimator, how many columns agreed and the worst gap; or one
         stating plainly that the check did NOT run, with the reason, when `dit` is not installed. It never

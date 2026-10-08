@@ -14,7 +14,7 @@ What lives here:
 from __future__ import annotations
 
 import bisect
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 from numba import njit
@@ -272,7 +272,7 @@ def _build_kway_chained_lookup(
     idx_tuple: tuple,  # k indices in sorted order
     nbins: np.ndarray,
     unknown_strategy: Literal["clip", "sentinel", "raise"],
-    dtype,
+    dtype: Any,
 ) -> tuple:
     """Build a chain of ``k - 1`` pair lookup tables that together replay the full k-way merge on test data.
 
@@ -283,6 +283,13 @@ def _build_kway_chained_lookup(
     Step 2: lookup_2[intermediate_1 + c3_val * n_uniq_step_1] -> intermediate_class_2
     ...
     Step k-1: lookup_{k-1}[intermediate_{k-2} + ck_val * n_uniq_step_{k-2}] -> final_class
+
+    Args:
+        factors_data: ordinal-encoded ``(n_samples, n_cols)`` matrix the k columns are taken from.
+        idx_tuple: the k column indices, in sorted order.
+        nbins: cardinality per column of ``factors_data``.
+        unknown_strategy: how a transform-time value outside the fit-time range is handled: ``'clip'``, ``'sentinel'`` or ``'raise'``.
+        dtype: integer dtype used for the intermediate class codes.
 
     Returns:
     - ``lookups``: list of (k-1) int64 ndarrays, each a flat lookup table

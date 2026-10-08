@@ -279,7 +279,7 @@ class CellPool:
                 generator is a pure function of the two.
 
         Yields:
-            One :class:`PoolOutcome` per job, in completion order rather than submission order.
+            PoolOutcome: One outcome per job, in completion order rather than submission order.
 
         Raises:
             ValueError: When a job asks for the GPU and the pool was built without a GPU slot. Running it

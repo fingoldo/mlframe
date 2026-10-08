@@ -219,6 +219,9 @@ def edges_qs(x: np.ndarray, alpha: float = 0.30) -> np.ndarray:
         x: 1-D continuous data.
         alpha: Sample-fraction parameter in ``[0.25, 0.35]``; data-independent
             per Gupta 2021 empirics.
+
+    Returns:
+        1-D float64 array of the inner quantile edges; empty when fewer than two distinct bins result.
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     x = x[np.isfinite(x)]
@@ -267,6 +270,9 @@ def edges_knuth(x: np.ndarray, edge_type: str = "uniform", m_max_cap: int = MAX_
         m_max_cap: ``MAX_ADAPTIVE_NBINS`` (256) shared adaptive-bin-count ceiling by default | ``64``
             audit recommendation to stay in low plug-in bias regime on small val-folds | ``500``
             legacy pre-unification default.
+
+    Returns:
+        1-D float64 array of the inner bin edges (outer boundaries dropped); empty when no interior edge exists.
     """
     full_edges = _knuth_bin_edges(np.asarray(x), edge_type=edge_type, m_max_cap=int(m_max_cap))
     if full_edges.size <= 2:
@@ -287,6 +293,9 @@ def edges_bayesian_blocks(
         m_max_cap: bound on returned block count, default ``MAX_ADAPTIVE_NBINS`` (256) - see
             ``_bayesian_blocks_bin_edges`` docstring (unbounded DP output on near-continuous real
             data blows up downstream pairwise-MI cost).
+
+    Returns:
+        1-D float64 array of the inner block edges (outer boundaries dropped); empty when no interior edge exists.
     """
     full_edges = _bayesian_blocks_bin_edges(
         np.asarray(x), p0=p0, edge_placement=edge_placement, subsample_threshold=int(subsample_threshold), m_max_cap=int(m_max_cap),
@@ -321,8 +330,6 @@ def edges_fayyad_irani(
         y: the discrete target used to supervise the split search.
         max_depth: maximum recursive split depth.
         min_split_size: minimum samples on either side of a candidate split.
-        max_y_classes: cardinality cap on ``y`` before the target is treated as too wide to bin against.
-        n_permutations: permutation-null draws for the validated-splitting significance test.
         backend: ``'njit'`` (default; audit-recommended 10-30x speedup over
             the legacy pure-Python path) | ``'python'`` (legacy fallback
             kept for A/B testing). Sibling ``mdlp_bin_edges`` already
@@ -340,12 +347,17 @@ def edges_fayyad_irani(
             uses its own njit kernel regardless of ``backend``.
         scaled_min_split: ``False`` legacy | ``True`` audit fix
             (``max(5, 0.02*N)``).
+        max_y_classes: cardinality cap on ``y`` before the target is treated as too wide to bin against.
         fast_mode: ``False`` DEFAULT (2026-07-19 user decision, accuracy over speed) -
             significance-gated validated splitting; ``True`` - classic in-sample MDL
             threshold + depth cap, 20-80x cheaper. See ``mdlp_bin_edges`` docstring.
         alpha: forwarded to ``mdlp_bin_edges``'s validated-splitting significance test (ignored when ``fast_mode=True``).
+        n_permutations: permutation-null draws for the validated-splitting significance test.
         bonferroni: forwarded to ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
         validated_seed: forwarded to ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
+
+    Returns:
+        1-D float64 array of the finite inner cut points (outer boundaries dropped); empty when no split was accepted.
     """
     full_edges = mdlp_bin_edges(
         np.asarray(x), np.asarray(y), max_depth=max_depth, min_split_size=min_split_size, backend=backend, scaled_min_split=scaled_min_split,
@@ -394,6 +406,10 @@ def edges_optimal_joint(
             treated as one discrete class per distinct value: confirmed to SEGFAULT the process
             (oversized ``(K_x, K_y)`` dense joint-count allocation in ``_plug_in_mi_njit``) at
             n=50000 with ~50k unique int64 values. Same bug class as MDLP's ``max_y_classes``.
+
+    Returns:
+        1-D float64 array of inner bin edges for the winning bin count, built on the full finite data; falls back to
+        Freedman-Diaconis edges when there is too little data to cross-validate.
     """
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y).ravel()
@@ -528,6 +544,10 @@ def _bin_y_for_mi(y: np.ndarray, max_y_classes: int = 64) -> "tuple[np.ndarray, 
             target silently blows up an internal per-class computation. Fix: int/bool ``y`` with more
             unique values than this cap is treated as continuous and routed through the same 10-quantile
             regression-binning as float ``y``, instead of one class per distinct integer.
+
+    Returns:
+        Tuple ``(y_codes, K_y)`` of int64 class codes and the number of classes; an empty array and 0 when the quantile
+        binning of a continuous ``y`` degenerates to a single value.
     """
     if y.dtype.kind not in "iub" or np.unique(y).size > max_y_classes:
         q = np.quantile(y.astype(np.float64), np.linspace(0, 1, 11))
@@ -555,6 +575,9 @@ def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False,
             pre-2026-05-29 leaderboard baseline; opt-in via flag.
         max_y_classes: Forwarded to :func:`_bin_y_for_mi` - caps int/bool ``y`` cardinality before it
             is treated as class labels (see that function's docstring for the segfault this guards).
+
+    Returns:
+        Plug-in mutual information in nats (floored at zero); 0.0 for empty or degenerate input.
     """
     if x_binned.size == 0:
         return 0.0

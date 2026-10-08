@@ -293,7 +293,16 @@ def evaluate_candidates(
         set_group_mi(_prev_gmi)
 
 
-def _hoist_round_shared_columns(*, selected_vars, y, factors_data, factors_nbins, dtype, use_simple_mode: bool, mrmr_relevance_algo):
+def _hoist_round_shared_columns(
+    *,
+    selected_vars: Any,
+    y: Any,
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    dtype: Any,
+    use_simple_mode: bool,
+    mrmr_relevance_algo: Any,
+) -> tuple:
     """Materialise the round's target column and selected-set columns once, for every knob that would otherwise rebuild them.
 
     Carved out of ``_evaluate_candidates_inner`` to keep it under its length ceiling. Any failure here falls through to per-candidate

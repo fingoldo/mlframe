@@ -45,10 +45,11 @@ class HeavyDiagnosticsPolicy:
     every flavour returned the same test AUC and Brier to two decimals, so the SHAP and PDP surfaces were
     redrawn five times to describe the same model. Restricting them to one model is a change of scope, not of
     budget: the metrics and calibration panels, which exist precisely to compare members, still run for all.
+
+    ``mode`` is "best" (heavy diagnostics on the primary model only) or "all" (the previous behaviour).
     """
 
     def __init__(self, mode: str = "best", is_primary: bool = True) -> None:
-        """``mode`` is "best" (heavy diagnostics on the primary model only) or "all" (the previous behaviour)."""
         # A caller passing "" -- or "ALL " with a stray space, or any typo -- is asking for something this
         # cannot honour, and silently turning it into "best" hides the mistake. The comment above this line used
         # to claim that was surfaced; nothing was, so an unrecognised mode quietly got the RESTRICTIVE behaviour.
@@ -74,6 +75,12 @@ class DiagnosticsBudget:
 
     ``max_seconds <= 0`` disables the gate entirely, which is the escape hatch for a caller who wants the full
     report regardless of cost.
+
+    Start the clock. ``policy`` decides scope (which diagnostics apply here); the budget decides time.
+
+    ``charts``, the report's ``metrics["charts"]`` dict, receives every diagnostic this budget drops under
+    ``charts["skipped"]`` with the reason. The log line alone left a truncated report looking identical to a
+    complete one to anything reading ``charts``.
     """
 
     def __init__(
@@ -86,12 +93,6 @@ class DiagnosticsBudget:
         split: "str | None" = None,
         split_rules: "Mapping[str, Sequence[str]] | None" = None,
     ) -> None:
-        """Start the clock. ``policy`` decides scope (which diagnostics apply here); the budget decides time.
-
-        ``charts``, the report's ``metrics["charts"]`` dict, receives every diagnostic this budget drops under
-        ``charts["skipped"]`` with the reason. The log line alone left a truncated report looking identical to a
-        complete one to anything reading ``charts``.
-        """
         self.charts = charts
         # ``split_rules`` maps a diagnostic name to the splits it may run on ("val", "test", ...); a name with no rule runs on every
         # split, which is the behaviour when the knob is unset.

@@ -116,6 +116,54 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
     permutation there and tied/won permutation on noisy beds, but did NOT beat the static gini default
     on a REPLICATED majority of scenarios+seeds, so auto remains opt-in (see _benchmarks bench). See
     ``_auto_dispatch.py``.
+
+    Args:
+        model: Estimator used to score importances. If None, a base Random Forest is built at fit time.
+        importance_measure: Which importance measure to use: "Shap", "gini"/"gain", "permutation", or "auto". "auto" runs a cheap
+            noise/overfit probe on (X, y) at fit start and routes to permutation on noisy/small-n-per-feature beds and
+            gini on clean/large-n beds (resolution stored on auto_dispatch_diagnostics_; see _auto_dispatch.py).
+            Permutation uses sklearn's permutation_importance on the held-out 30% split when train_or_test="test" (debiased
+            held-out degradation, the signal that beat impurity/SHAP in the importance shootout), else falls back to
+            in-bag permutation on the full data. permutation_n_repeats controls its repeat count.
+        permutation_n_repeats: Number of shuffles per feature used by the permutation importance measure.
+        classification: If True the problem is binary or multiclass classification, otherwise regression.
+        percentile: Integer in 0-100 selecting which percentile of the shadow importances is the bar a real feature must beat.
+            Lowering it makes the algorithm more lenient.
+        pvalue: Significance level of the binomial test on per-trial hits. Increasing it makes the algorithm more lenient; decreasing it
+            makes it stricter, so fewer features are accepted or rejected and more stay tentative.
+        n_trials: Maximum number of shadow-comparison trials.
+        random_state: Seed of the independent Generator used for shadow permutations and sampling.
+        sample: If True, an isolation forest scores the rows (stored as preds_) after the importance history is built.
+        train_or_test: Whether importances are computed on the training split ("train") or on the held-out split ("test").
+        resample_holdout_per_trial: If True, the holdout split is redrawn on every trial instead of once.
+        premerge_clusters: If True, collapse clusters of raw |corr| >= premerge_corr_thr to one representative before the shadow gate and
+            re-expand accepted representatives to their members afterwards.
+        premerge_corr_thr: Absolute correlation threshold defining the clusters merged when premerge_clusters is True.
+        normalize: If True, importance values are normalized with the z-score formula.
+        verbose: If True, progress and the auto-dispatch resolution are logged.
+        stratify: Stratification labels passed to the train/test split, or None for no stratification.
+        optimistic: If True, still-tentative features are kept in the selected set alongside the accepted ones.
+        fit_params: Extra keyword arguments passed to the model's fit call, or None for none.
+        stability_subsamples: Number of row-subsamples (drawn without replacement) for the cross-subsample stability gate; values
+            of 1 or less disable it and run a single fit.
+        stability_subsample_fraction: Fraction of rows in each stability subsample.
+        stability_threshold: Fraction of subsamples in which a feature must be accepted to be kept; 1.0 is the intersection.
+        early_stop_tentative: Opt-in margin-gated adaptive trial-stop for the residual tentative tail. Default OFF, so behaviour is
+            byte-identical to the prior fixed-cap run. When True the trial loop stops early (before the n_trials cap)
+            once the tail is provably stuck: the accepted set has been unchanged for ``early_stop_patience`` trials AND
+            no still-tentative feature is within ``early_stop_margin`` of crossing either binomial decision threshold.
+            This is decision-equivalent to running the full cap (the tail never resolves) but reclaims the dominant
+            per-trial model-fit cost. NOT the naive accepted-set-stability stop (that is a measured correctness trap).
+        early_stop_patience: Number of consecutive trials the accepted set must stay unchanged before the margin gate is evaluated.
+        early_stop_margin: Relative slack on the binomial decision threshold. A still-tentative feature counts as "near a boundary"
+            (so the stop is refused) when its Bonferroni-corrected accept- or reject-p-value < ``pvalue * (1 + margin)``.
+        max_runtime_mins: Wall-clock budget in minutes for the trial loop; None or 0 means no limit.
+        stop_file: Path checked for existence on each trial; creating it aborts the run cleanly with the features classified so far.
+        shadow_min_pad: Minimum number of shadow attributes the information system is extended by (the canonical Boruta >=5 pad).
+            On frames with fewer real columns the shadow side is padded with recycled real columns (each independently
+            re-permuted, so still uncorrelated with y) up to this count, so the per-trial shadow-importance MAX (the
+            gate threshold) is estimated from a well-populated null rather than 1-2 noisy draws. Wide frames
+            (n_features >= shadow_min_pad) are unaffected. Set 0 for the legacy exactly-one-shadow-per-column null.
     """
 
     # history_x accumulates as an ndarray across trials (run()), then is promoted to a DataFrame
@@ -159,57 +207,6 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
         stop_file: str = "stop",
         shadow_min_pad: int = 5,
     ):
-        """
-        Parameters
-        ----------
-        model: Model Object
-            If no model specified then a base Random Forest will be returned otherwise the specified model will
-            be returned.
-
-        importance_measure: String
-            Which importance measure to use: "Shap", "gini"/"gain", "permutation", or "auto". "auto" runs a cheap
-            noise/overfit probe on (X, y) at fit start and routes to permutation on noisy/small-n-per-feature beds and
-            gini on clean/large-n beds (resolution stored on auto_dispatch_diagnostics_; see _auto_dispatch.py).
-            Permutation uses sklearn's
-            permutation_importance on the held-out 30% split when train_or_test="test" (debiased held-out
-            degradation, the signal that beat impurity/SHAP in the importance shootout), else falls back to
-            in-bag permutation on the full data. permutation_n_repeats controls its repeat count.
-
-        classification: Boolean
-            if true then the problem is either a binary or multiclass problem otherwise if false then it is regression
-
-        percentile: Int
-            An integer ranging from 0-100 it changes the value of the max shadow importance values. Thus, lowering its value
-            would make the algorithm more lenient.
-
-        pvalue: float
-            A float used as a significance level again if the p-value is increased the algorithm will be more lenient making it smaller
-            would make it more strict also by making the model more strict could impact runtime making it slower. As it will be less likely
-            to reject and accept features.
-
-        early_stop_tentative: bool (default False)
-            Opt-in margin-gated adaptive trial-stop for the residual tentative tail. Default OFF, so behaviour is
-            byte-identical to the prior fixed-cap run. When True the trial loop stops early (before the n_trials cap)
-            once the tail is provably stuck: the accepted set has been unchanged for ``early_stop_patience`` trials AND
-            no still-tentative feature is within ``early_stop_margin`` of crossing either binomial decision threshold.
-            This is decision-equivalent to running the full cap (the tail never resolves) but reclaims the dominant
-            per-trial model-fit cost. NOT the naive accepted-set-stability stop (that is a measured correctness trap).
-
-        early_stop_patience: int (default 20)
-            Number of consecutive trials the accepted set must stay unchanged before the margin gate is evaluated.
-
-        early_stop_margin: float (default 0.15)
-            Relative slack on the binomial decision threshold. A still-tentative feature counts as "near a boundary"
-            (so the stop is refused) when its Bonferroni-corrected accept- or reject-p-value < ``pvalue * (1 + margin)``.
-
-        shadow_min_pad: int (default 5)
-            Minimum number of shadow attributes the information system is extended by (the canonical Boruta >=5 pad).
-            On frames with fewer real columns the shadow side is padded with recycled real columns (each independently
-            re-permuted, so still uncorrelated with y) up to this count, so the per-trial shadow-importance MAX (the
-            gate threshold) is estimated from a well-populated null rather than 1-2 noisy draws. Wide frames
-            (n_features >= shadow_min_pad) are unaffected. Set 0 for the legacy exactly-one-shadow-per-column null.
-
-        """
         # sklearn contract: __init__ stores params VERBATIM (no mutation / validation), so the estimator is
         # clone-able (GridSearchCV / Pipeline). importance_measure is lowercased at its comparison sites, fit_params
         # defaults to {} at use, and model defaulting + validation (check_model) is deferred to fit().

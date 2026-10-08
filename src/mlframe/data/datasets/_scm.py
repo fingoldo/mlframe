@@ -71,6 +71,20 @@ class CausalGraph:
     Not a frozen dataclass despite being immutable in practice: it precomputes adjacency maps in
     ``__init__``, and a frozen dataclass would need ``object.__setattr__`` for each of them, which buys
     nothing here (the class is internal and never hashed).
+
+    Construction builds adjacency maps and validates that the graph is acyclic.
+
+    Args:
+        edges: The arrows of the model.
+        target: Name of the target node.
+        observed: Names of the observed feature columns, in the order the frame presents them; roles
+            and target sets are reported in this order so an answer key is stable.
+        latents: Names of unobserved nodes.
+
+    Raises:
+        ValueError: If the target is not a node of the graph, an observed name is also declared latent,
+            or the edges contain a directed cycle (an SCM must be a DAG for any of these queries to be
+            well defined).
     """
 
     def __init__(
@@ -80,20 +94,6 @@ class CausalGraph:
         observed: Sequence[str],
         latents: Sequence[str] = (),
     ) -> None:
-        """Build adjacency maps and validate that the graph is acyclic.
-
-        Args:
-            edges: The arrows of the model.
-            target: Name of the target node.
-            observed: Names of the observed feature columns, in the order the frame presents them; roles
-                and target sets are reported in this order so an answer key is stable.
-            latents: Names of unobserved nodes.
-
-        Raises:
-            ValueError: If the target is not a node of the graph, an observed name is also declared latent,
-                or the edges contain a directed cycle (an SCM must be a DAG for any of these queries to be
-                well defined).
-        """
         self.edges: Tuple[Edge, ...] = tuple(edges)
         self.target = target
         self.observed: Tuple[str, ...] = tuple(observed)

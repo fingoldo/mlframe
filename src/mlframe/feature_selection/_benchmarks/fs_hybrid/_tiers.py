@@ -177,6 +177,13 @@ SOURCES: Tuple[str, ...] = ("scm", "adversarial", "real", "default")
 def scenarios_for(source: str, n_samples: int = 0) -> List[Tuple[str, Any]]:
     """Return ``[(name, generator)]`` for one bed library.
 
+    Args:
+        source: Bed library name, one of ``SOURCES``.
+        n_samples: Row count for the ``scm`` library; 0 keeps that library's default.
+
+    Returns:
+        List of ``(scenario name, generator taking a seed)`` pairs.
+
     Raises:
         ValueError: On an unknown source, so a typo cannot quietly fall through to the smallest library.
     """
@@ -201,6 +208,12 @@ def scenarios_for(source: str, n_samples: int = 0) -> List[Tuple[str, Any]]:
 
 def get_tier(name: str) -> Tier:
     """Return one tier by name.
+
+    Args:
+        name: Tier name.
+
+    Returns:
+        The matching tier.
 
     Raises:
         KeyError: On an unknown name, listing what exists. A typo'd tier that silently fell back to a

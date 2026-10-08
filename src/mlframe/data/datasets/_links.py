@@ -78,6 +78,14 @@ def parity_term(operands: Sequence[np.ndarray]) -> np.ndarray:
 def additive_score(coefficients: Mapping[str, float], columns: Mapping[str, np.ndarray], n: int) -> np.ndarray:
     """Return the weighted sum of the named columns.
 
+    Args:
+        coefficients: Weight per column name.
+        columns: Column arrays keyed by name.
+        n: Number of rows of the result.
+
+    Returns:
+        Float array of length ``n`` holding the weighted sum.
+
     Raises:
         KeyError: If a coefficient names a column that does not exist, which is a scenario typo that would
             otherwise silently drop a term and change what the scenario tests.

@@ -282,6 +282,12 @@ def _summary_batched_kernel(
     plus k-free MRR, accumulated across all groups in a single numba
     kernel.
 
+    Args:
+        sorted_y_true: relevance labels, rows grouped by query and sorted by descending score within each group.
+        sorted_y_score: scores aligned with ``sorted_y_true``.
+        group_starts: start offset of each group in the sorted arrays, followed by the total length.
+        eval_ks: cutoffs k at which NDCG@k and MAP@k are computed.
+
     Returns:
         ndcg_sums : (K,) per-k sum of NDCG@k over valid groups
         ndcg_counts : (K,) per-k count of valid groups

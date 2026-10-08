@@ -104,10 +104,15 @@ def _dispatch_tables(tree: ast.AST) -> Dict[str, Set[str]]:
 
 
 class Package:
-    """The parsed call graph of one source tree."""
+    """The parsed call graph of one source tree.
+
+    Construction parses every production module under the given root.
+
+    Args:
+        root: Directory searched recursively for ``*.py`` modules to parse.
+    """
 
     def __init__(self, root: Path) -> None:
-        """Parse every production module under ``root``."""
         self.kernels: Set[str] = set()
         self.calls: Dict[Tuple[Path, str], Set[str]] = {}
         self.where: Dict[str, List[Path]] = {}

@@ -125,20 +125,20 @@ class PipelineCache:
     Size discipline (CLAUDE.md "Caching and batching: use both, but never assume a frame fits in RAM"): the cache enforces a byte-budget (default 2 GB; override via ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` env var). On insert overflow, least-recently-used entries are evicted until under the cap; each ``get`` promotes the touched key to most-recently-used. Per-entry size is estimated via ``_estimate_slot_nbytes`` (pandas ``memory_usage``, polars ``estimated_size``, numpy ``nbytes``, ``sys.getsizeof`` fallback) so the cap reflects actual buffer occupancy, not container overhead.
 
     Not thread-safe; designed for sequential use within a single training run.
+
+    Construct a pre-pipeline cache.
+
+    ``verbose=True`` is the new default: HIT/MISS lines are emitted at ``logger.info`` and routinely needed when triaging "why-did-this-suite-re-fit" tickets. The lines are throttled by the per-call HIT vs MISS branch (one log per get) and add no measurable overhead vs the dict lookup itself, so the cost of leaving them on by default is negligible against the diagnostic value of having them already on when the operator wants them. Pass ``verbose=False`` to silence in tight unit-test loops.
+
+    ``bytes_limit=None`` (default) reads ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` from env, falling back to 2_000_000_000 (2 GB). Pass an explicit int to override per-instance (useful in tests).
+
+    ``ram_budget_fraction`` is this cache's share of host RAM, carried on the instance rather than published into
+    ``os.environ``: the suite used to export it process-globally and only when unset, so a second suite in the same
+    process silently kept the first one's budget and two concurrent suites raced the same variable. An operator's
+    own ``MLFRAME_PIPELINE_CACHE_RAM_FRACTION`` / ``_BYTES_LIMIT`` still wins over it.
     """
 
     def __init__(self, verbose: bool = True, bytes_limit: Optional[int] = None, ram_budget_fraction: Optional[float] = None):
-        """Construct a pre-pipeline cache.
-
-        ``verbose=True`` is the new default: HIT/MISS lines are emitted at ``logger.info`` and routinely needed when triaging "why-did-this-suite-re-fit" tickets. The lines are throttled by the per-call HIT vs MISS branch (one log per get) and add no measurable overhead vs the dict lookup itself, so the cost of leaving them on by default is negligible against the diagnostic value of having them already on when the operator wants them. Pass ``verbose=False`` to silence in tight unit-test loops.
-
-        ``bytes_limit=None`` (default) reads ``MLFRAME_PIPELINE_CACHE_BYTES_LIMIT`` from env, falling back to 2_000_000_000 (2 GB). Pass an explicit int to override per-instance (useful in tests).
-
-        ``ram_budget_fraction`` is this cache's share of host RAM, carried on the instance rather than published into
-        ``os.environ``: the suite used to export it process-globally and only when unset, so a second suite in the same
-        process silently kept the first one's budget and two concurrent suites raced the same variable. An operator's
-        own ``MLFRAME_PIPELINE_CACHE_RAM_FRACTION`` / ``_BYTES_LIMIT`` still wins over it.
-        """
         # OrderedDict so ``move_to_end`` (LRU promotion on get) and ``popitem(last=False)`` (LRU eviction on overflow) are explicit. Plain dict happens to preserve insertion order in CPython 3.7+ but the LRU contract demands the explicit type.
         self._cache: "OrderedDict[str, Tuple[Any, Any, Any]]" = OrderedDict()
         self._entry_sizes: Dict[str, int] = {}

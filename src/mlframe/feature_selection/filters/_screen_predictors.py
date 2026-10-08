@@ -259,18 +259,66 @@ def screen_predictors(
     ``max_confirmation_cand_nbins=None`` falls back to the module constant for backward compat; ``MRMR.fit`` overrides explicitly. ``fe_fallback_to_all`` is consumed
     by ``MRMR.fit`` and only threaded here for caller pass-through.
 
-    Parameters:
-        full_npermutations: when computing every MI, repeat calculations with randomly shuffled indices that many times
+    Args:
+        factors_data: n-by-m array of ordinal-encoded integer factor columns.
+        factors_nbins: number of bins (cardinality) of each factor column.
+        factors_names: names of the factor columns; generated when None.
+        factors_names_to_use: restrict screening to these column names.
+        factors_to_use: restrict screening to these column indices.
+        targets_data: integer-encoded target columns; built from ``y`` when None.
+        targets_nbins: number of bins of each target column.
+        y: indices of the target columns inside ``factors_data``.
+        mrmr_relevance_algo: relevance scheme.
+            "fleuret": max(min(I(X,Y|Z)),max(I(X,Y|Z)-I(X,Y))) Possible to use n-way interactions here.
+            "pld": I(X,Y)
+        mrmr_redundancy_algo: redundancy scheme.
+            "fleuret": 0 ('cause redundancy already accounted for)
+            "pld_max": max(I(veterane,cand)) Possible to use n-way interactions here.
+            "pld_mean": mean(I(veterane,cand)) Possible to use n-way interactions here.
+        reduce_gain_on_subelement_chosen: reduce a candidate's gain when one of its sub-elements was already chosen.
+        extra_x_shuffling: also shuffle the candidate column in permutation tests.
+        dtype: integer dtype used for the working copy of the data.
+        random_seed: seeds numpy, numba and (with ``use_gpu``) cupy for the duration of the screen; None leaves RNG state untouched.
+        subsample_idx: row indices of one shared FE subsample on which the order-1 sweep and its maxT floor are computed; None means full n.
+        use_gpu: run the MI kernels on the GPU.
+        n_workers: number of joblib workers for candidate evaluation.
+        min_occupancy: minimum rows per occupied cell for a candidate to be considered; None disables the check.
         min_nonzero_confidence: if in random permutation tests this or higher % of cases had worse current_gain than original, current_gain value is considered valid, otherwise, it's set to zero.
+        full_npermutations: when computing every MI, repeat calculations with randomly shuffled indices that many times
+        baseline_npermutations: number of permutations used for the cheaper baseline (order-1) significance checks.
+        fe_confirm_undersample_rows_per_cell: rows per occupied conditioning cell below which confirmation falls back to a marginal-MI permutation test; 0.0 always uses the strict conditional test.
+        min_relevance_gain: absolute gain below which selection stops.
+        min_relevance_gain_relative_to_first: stop once a candidate's gain drops below this fraction of the first selected feature's gain; 0.0 disables.
+        cardinality_bias_correction: subtract the Miller-Madow bias from gains at the floor comparison (the raw gains stay unmodified).
+        raw_cardinality_cols: names of columns whose bin count is a raw level count and so eligible for the cardinality ceiling; None judges every column by bin count.
+        max_consec_unconfirmed: stop after this many consecutive candidates fail confirmation.
+        max_runtime_mins: wall-clock budget in minutes; None means unlimited.
+        interactions_min_order: smallest interaction order enumerated.
+        interactions_max_order: largest interaction order enumerated.
+        interactions_order_reversed: enumerate interaction orders from largest to smallest.
+        max_veteranes_interactions_order: maximum interaction order evaluated against already selected features.
         only_unknown_interactions: True for speed, False for completeness of higher order interactions discovery.
+        max_confirmation_cand_nbins: confirmation-step cardinality cutoff; None falls back to ``MAX_CONFIRMATION_CAND_NBINS``.
+        fe_fallback_to_all: consumed by ``MRMR.fit``; only passed through here.
         verbose: int  1=log only important info,>1=also log additional details
-        mrmr_relevance_algo:str
-                        "fleuret": max(min(I(X,Y|Z)),max(I(X,Y|Z)-I(X,Y))) Possible to use n-way interactions here.
-                        "pld": I(X,Y)
-        mrmr_redundancy_algo:str
-                        "fleuret": 0 ('cause redundancy already accounted for)
-                        "pld_max": max(I(veterane,cand)) Possible to use n-way interactions here.
-                        "pld_mean": mean(I(veterane,cand)) Possible to use n-way interactions here.
+        ndigits: decimals used when logging numeric values.
+        parallel_kwargs: extra keyword arguments for the joblib ``Parallel`` pool.
+        stop_file: path of a file whose existence requests an early stop.
+        use_simple_mode: True selects the faster dedup-free path on very wide pools instead of the full Fleuret conditional-MI redundancy.
+        engineered_lineage: mapping ``{engineered_col_idx: frozenset(parent_indices)}`` used to skip combinations of an engineered column with its own parents.
+        dcd_config: Dynamic Cluster Discovery configuration; None leaves DCD off.
+        engineered_recipes: host ``engineered_recipes`` dict (name to recipe) into which DCD aggregates are registered.
+        raw_feature_names: original (pre-FE) input column names; candidates outside it are treated as engineered for the near-tie preference.
+        prefer_engineered_rel_eps: relative gain tolerance within which an engineered candidate is preferred over a raw one; 0.0 restores pure-index tie-breaking.
+        screen_fdr_null_permutations: number of y shuffles for the maxT permutation-null gain floor; 0 disables it.
+        screen_fdr_null_quantile: quantile of the per-shuffle maximum used as the floor.
+        screen_fdr_min_features: pool width at which the maxT floor is applied.
+        screen_fdr_target_oversplit_ratio: target-cardinality ratio that triggers the floor on narrow pools.
+        screen_fdr_min_rows_per_joint_cell: minimum rows per (X, y) joint cell for the narrow-pool floor to be considered reliable.
+        existing_dcd_state: DCD state from the prior screening pass, so cluster discovery accumulates across passes.
+        seed_caches: 4-tuple ``(entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)`` from a prior call in the same fit; None starts with empty caches.
+        seed_maxt_floor_cache: caller-owned dict caching the maxT floor across calls, mutated in place; None disables caching.
+        seed_workers_pool: warmed joblib ``Parallel`` pool from a prior call, reused when ``n_workers`` > 1; None builds a fresh pool.
 
     Returns:
         1) best set of non-redundant single features influencing the target

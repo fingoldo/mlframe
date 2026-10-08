@@ -233,10 +233,13 @@ else:
     # __init__ don't crash; users on those environments stick with flat kwargs.
 
     class SearchConfig:  # type: ignore[no-redef]
-        """No-op fallback for environments without pydantic: a plain attribute bag, no field validation or defaults."""
+        """No-op fallback for environments without pydantic: a plain attribute bag, no field validation or defaults.
 
-        def __init__(self, **kwargs):
-            """Stores every keyword argument as an instance attribute (no validation, unlike the pydantic model it replaces)."""
+        Args:
+            **kwargs: stored as instance attributes verbatim (no validation, unlike the pydantic model it replaces).
+        """
+
+        def __init__(self, **kwargs: Any) -> None:
             for k, v in kwargs.items():
                 setattr(self, k, v)
 

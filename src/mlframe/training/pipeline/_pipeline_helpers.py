@@ -15,6 +15,7 @@ Key functions:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -285,7 +286,7 @@ def _prepare_test_split(
     return test_df, test_target, columns
 
 
-def _extract_feature_selector(pre_pipeline):
+def _extract_feature_selector(pre_pipeline: Any) -> Any:
     """Extract the feature selector ('pre' step) from a sklearn Pipeline.
 
     Feature selectors are added as the 'pre' step in pipelines built by
@@ -308,7 +309,7 @@ def _extract_feature_selector(pre_pipeline):
     return None
 
 
-def _is_fitted(estimator):
+def _is_fitted(estimator: Any) -> bool:
     """Check if an sklearn estimator is already fitted.
 
     Uses sklearn's check_is_fitted() to determine if the estimator has been

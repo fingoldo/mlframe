@@ -132,6 +132,9 @@ def assert_memo_drained() -> MemoDrain:
     unverifiable drain means the number about to be produced is meaningless and should not be produced at
     all.
 
+    Returns:
+        The verified drain record.
+
     Raises:
         RuntimeError: When the drain could not be verified.
     """

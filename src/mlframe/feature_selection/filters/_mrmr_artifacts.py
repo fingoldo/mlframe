@@ -71,7 +71,7 @@ ARTIFACT_SCHEMA_VERSION = 1
 
 def _fill_marginals_and_su(
     *,
-    feature_names_in,
+    feature_names_in: Any,
     name_to_data_col: dict,
     data: np.ndarray,
     nbins: np.ndarray,
@@ -83,7 +83,7 @@ def _fill_marginals_and_su(
     retain_bins: bool,
     bins_dict: dict | None,
     nbins_dict: dict | None,
-    dtype,
+    dtype: Any,
 ) -> None:
     """Fill ``mi_to_target`` and ``su_to_target`` in place, and the export dicts when ``retain_bins`` is set.
 

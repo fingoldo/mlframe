@@ -28,7 +28,21 @@ logger = logging.getLogger(__name__)
 
 
 class IntegralCalibrationError:
-    """``compute_probabilistic_multiclass_error`` bound to one suite's calibration configuration."""
+    """``compute_probabilistic_multiclass_error`` bound to one suite's calibration configuration.
+
+    Args:
+        method: error estimation method passed to ``compute_probabilistic_multiclass_error``.
+        mae_weight: weight of the calibration MAE term.
+        std_weight: weight of the calibration spread (std) term.
+        brier_loss_weight: weight of the Brier loss term.
+        roc_auc_weight: weight of the ROC AUC term.
+        pr_auc_weight: weight of the PR AUC term.
+        min_roc_auc: ROC AUC floor below which ``roc_auc_penalty`` applies.
+        roc_auc_penalty: penalty applied when ROC AUC falls under ``min_roc_auc``.
+        use_weighted_calibration: weight calibration bins by their occupancy.
+        weight_by_class_npositives: weight per-class errors by each class's positive count.
+        nbins: number of calibration bins.
+    """
     # xgboost reads ``eval_metric.__name__`` to label the metric and raises AttributeError without it -- the
     # same reason the original code noted that functools.partial "won't work with xgboost". A class attribute is enough: the type keeps its own __name__.
     __name__ = "integral_calibration_error"
@@ -62,7 +76,6 @@ class IntegralCalibrationError:
         weight_by_class_npositives: bool,
         nbins: int,
     ) -> None:
-        """Store the configuration the metric is evaluated under."""
         self.method = method
         self.mae_weight = mae_weight
         self.std_weight = std_weight
@@ -180,7 +193,13 @@ class NegOvrRocAuc:
 
 
 class SubgroupAveragedMetric:
-    """``robust_mlperf_metric`` applied to a metric across fixed subgroups."""
+    """``robust_mlperf_metric`` applied to a metric across fixed subgroups.
+
+    Args:
+        metric: inner metric callable ``(y_true, y_score)``.
+        subgroups: subgroup definition passed to ``robust_mlperf_metric``.
+        higher_is_better: whether a larger metric value is better.
+    """
     # xgboost reads ``eval_metric.__name__`` to label the metric and raises AttributeError without it -- the
     # same reason the original code noted that functools.partial "won't work with xgboost". Wrappers keep the inner metric name so logs stay comparable.
     __name__ = "integral_calibration_error"
@@ -188,7 +207,6 @@ class SubgroupAveragedMetric:
     __slots__ = ("higher_is_better", "metric", "subgroups")
 
     def __init__(self, metric: Callable, subgroups: Any, *, higher_is_better: bool = False) -> None:
-        """Bind the inner metric and the subgroup definition."""
         self.metric = metric
         self.subgroups = subgroups
         self.higher_is_better = higher_is_better
@@ -222,6 +240,15 @@ class RobustTimeSplitMetric:
 
     Falls back to the full-data metric when there is not enough data, or not enough valid splits, for the
     robustness estimate to mean anything.
+
+    Args:
+        metric_fn: inner metric callable ``(y_true, y_score)``.
+        num_splits: maximum number of consecutive time splits.
+        std_coeff: multiple of the across-split std added to (or subtracted from) the mean.
+        greater_is_better: whether a larger metric value is better.
+        min_samples_per_split: minimum rows per split; below it the full-data metric is used.
+        ensure_enough_classes: require enough classes in each split for it to count as valid.
+        verbose: log fallbacks to the full-data metric when truthy.
     """
     # xgboost reads ``eval_metric.__name__`` to label the metric and raises AttributeError without it -- the
     # same reason the original code noted that functools.partial "won't work with xgboost". Wrappers keep the inner metric name so logs stay comparable.
@@ -239,7 +266,6 @@ class RobustTimeSplitMetric:
         ensure_enough_classes: bool = False,
         verbose: int = 0,
     ) -> None:
-        """Bind the inner metric and the split policy."""
         self.metric_fn = metric_fn
         self.num_splits = num_splits
         self.std_coeff = std_coeff
@@ -305,7 +331,13 @@ class RobustTimeSplitMetric:
 
 
 class LightGBMMetricAdapter:
-    """Adapts a plain metric to LightGBM's custom-metric contract: ``(name, value, higher_is_better)``."""
+    """Adapts a plain metric to LightGBM's custom-metric contract: ``(name, value, higher_is_better)``.
+
+    Args:
+        metric: inner metric callable ``(y_true, y_score)``.
+        metric_name: name LightGBM will print for the metric.
+        higher_is_better: whether a larger metric value is better.
+    """
     # xgboost reads ``eval_metric.__name__`` to label the metric and raises AttributeError without it -- the
     # same reason the original code noted that functools.partial "won't work with xgboost". LightGBM names the metric from the returned tuple, but keep it consistent.
     __name__ = "lgbm_integral_calibration_error"
@@ -313,7 +345,6 @@ class LightGBMMetricAdapter:
     __slots__ = ("higher_is_better", "metric", "metric_name")
 
     def __init__(self, metric: Callable, metric_name: str = "integral_calibration_error", higher_is_better: bool = False) -> None:
-        """Bind the metric and the name LightGBM will print."""
         self.metric = metric
         self.metric_name = metric_name
         self.higher_is_better = higher_is_better

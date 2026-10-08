@@ -194,6 +194,9 @@ def generate_mlp(
         spectral_norm_n_power_iterations: Power-iteration count for ``spectral_norm``'s singular
             value estimate; only used when ``spectral_norm=True``.
         verbose: If 1, logs the network architecture (e.g., 100->50->25->1 [R, n=176, w=7.6k])
+
+    Returns:
+        The assembled ``nn.Sequential`` network, with ``example_input_array`` set to a single zero row of the raw input width.
     """
 
     layer: Any = None

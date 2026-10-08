@@ -130,7 +130,7 @@ MODEL_STRATEGIES: Dict[str, ModelPipelineStrategy] = {
 }
 
 
-def get_strategy(model_name) -> ModelPipelineStrategy:
+def get_strategy(model_name: Any) -> ModelPipelineStrategy:
     """
     Get the appropriate pipeline strategy for a model type.
 
@@ -141,6 +141,9 @@ def get_strategy(model_name) -> ModelPipelineStrategy:
 
     For non-string inputs dispatch is delegated to
     :func:`_strategy_for_estimator` (MRO-based).
+
+    Args:
+        model_name: String alias, estimator instance, or ``(name, estimator)`` tuple identifying the model.
 
     Returns:
         ModelPipelineStrategy instance for the model type.

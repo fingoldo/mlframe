@@ -47,14 +47,25 @@ def compute_local_linear_attention(
     Output features per row: [intercept, slope_per_input_column, optionally r2].
     Total cols = ``d + 1 + (1 if return_r2 else 0)``.
 
-    Parameters:
-        ``k`` - number of neighbours in each local fit. Must exceed d+1 for a non-degenerate fit.
-        ``ridge_alpha`` - L2 regularisation to keep OLS stable when neighbours are nearly co-linear. Small value (1e-3) preserves the linear-regression interpretation while preventing singular matrices.
-        ``standardize`` - RobustScaler on X before neighbour search and regression. Otherwise high-variance features dominate distances.
-        ``return_r2`` - if True, append the local R² of the linear fit as the last feature.
-
-    Mode A (X_query=None): OOF for X_train — each row's local fit uses non-self neighbours (per splitter folds).
+    Mode A (X_query=None): OOF for X_train - each row's local fit uses non-self neighbours (per splitter folds).
     Mode B (X_query!=None): full-train bank.
+
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target, one value per row of ``X_train``.
+        X_query: Query feature matrix (Mode B), or None for Mode A.
+        splitter: Splitter defining the folds for Mode A.
+        seed: Random seed.
+        k: Number of neighbours in each local fit. Must exceed d+1 for a non-degenerate fit.
+        ridge_alpha: L2 regularisation to keep OLS stable when neighbours are nearly co-linear. Small value (1e-3) preserves the linear-regression
+            interpretation while preventing singular matrices.
+        standardize: RobustScaler on X before neighbour search and regression. Otherwise high-variance features dominate distances.
+        return_r2: If True, append the local R² of the linear fit as the last feature.
+        column_prefix: Prefix of the output column names.
+        dtype: Floating dtype of the computation and output.
+
+    Returns:
+        Polars DataFrame with the local-fit features for each row.
     """
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import RobustScaler

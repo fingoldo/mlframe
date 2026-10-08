@@ -35,6 +35,11 @@ def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.n
     """
     Compute overall AUCs and per-group AUCs efficiently.
 
+    Args:
+        y_true: binary 0/1 labels, one per row.
+        y_score: predicted scores, one per row; higher means more likely positive.
+        group_ids: integer group label per row.
+
     Returns:
         - Overall ROC AUC
         - Overall PR AUC

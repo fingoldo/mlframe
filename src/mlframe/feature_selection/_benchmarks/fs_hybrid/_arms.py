@@ -212,6 +212,10 @@ class BaseArm:
     def _compute(self, X: pd.DataFrame, y: np.ndarray) -> Dict[str, Any]:
         """Run the underlying selector and return the ``ArmResult`` payload fields (minus timings).
 
+        Args:
+            X: Feature frame the selector is fitted on.
+            y: Target array aligned with the rows of ``X``.
+
         Returns:
             A dict with keys ``support`` (required) and optionally ``score``, ``ranked_prefix``,
             ``selection_score``, ``n_model_fits``, ``provenance``.

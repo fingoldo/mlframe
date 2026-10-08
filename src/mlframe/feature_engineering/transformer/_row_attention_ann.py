@@ -116,18 +116,21 @@ def build_hnsw_index(
     """Build an ANN index over a single head's projected K-bank. Function name kept ``build_hnsw_index`` for back-compat; the underlying backend is
     ``pynndescent`` by default (Windows-safe; numpy-2 compatible). Pass ``ann_backend='hnswlib'`` if you have a working hnswlib wheel.
 
-    Shapes: ``k_proj`` is (n_train, head_dim), expected float32 (cast on the fly if not). Returns an opaque ``_AnnIndex`` wrapper that ``query_topk`` knows how
-    to query.
+    Shapes: ``k_proj`` is (n_train, head_dim), expected float32 (cast on the fly if not).
 
-    Parameters:
-        ``space``           - cosine / l2 / ip; default cosine matches the L2-normalised projections.
-        ``M``               - graph degree at construction. For hnswlib this is the standard M; for pynndescent it maps to ``n_neighbors`` (we use ``M+5`` to
-                              match hnswlib recall at typical k=32).
-        ``ef_construction`` - search width during build (hnswlib only; pynndescent doesn't expose an equivalent knob).
-        ``num_threads``     - None -> physical cores; explicit override otherwise.
-        ``progress_log_every`` - 0 = no progress logging (hnswlib only; pynndescent is one-shot).
-        ``ann_backend``     - "auto" (= pynndescent), "pynndescent", or "hnswlib".
-        ``random_state``    - reproducibility seed for pynndescent (ignored by hnswlib).
+    Args:
+        k_proj: Projected K-bank of one head, shape (n_train, head_dim).
+        space: cosine / l2 / ip; default cosine matches the L2-normalised projections.
+        M: Graph degree at construction. For hnswlib this is the standard M; for pynndescent it maps to ``n_neighbors`` (we use ``M+5`` to
+            match hnswlib recall at typical k=32).
+        ef_construction: Search width during build (hnswlib only; pynndescent doesn't expose an equivalent knob).
+        num_threads: None -> physical cores; explicit override otherwise.
+        progress_log_every: 0 = no progress logging (hnswlib only; pynndescent is one-shot).
+        ann_backend: "auto" (= pynndescent), "pynndescent", or "hnswlib".
+        random_state: Reproducibility seed for pynndescent (ignored by hnswlib).
+
+    Returns:
+        The opaque index wrapper that ``query_topk`` knows how to query.
     """
     n_train, head_dim = k_proj.shape
     backend = _resolve_backend(ann_backend, n_train=n_train)

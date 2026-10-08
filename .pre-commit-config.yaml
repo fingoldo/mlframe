@@ -553,19 +553,18 @@ repos:
         verbose: true
         stages: [manual]
 
-  # Docstring-consistency advisory check. Added 2026-07-18 CI/CD architecture review -- manual-only
-  # (same posture as vulture-blocking and lint-advisory-warn above): no triaged 0-findings baseline
-  # yet (858 findings across the existing codebase), so running it on every commit would be pure
-  # noise. Mirrors lint-advisory.yml's own advisory (continue-on-error) posture for this tool.
+  # Docstring-versus-signature consistency, blocking. The backlog is paid down to zero findings, the meta test
+  # tests/test_meta/test_pydoclint_baseline.py runs the same command with an empty baseline in CI, and the
+  # baseline file is on the zero-tolerance list. Same invocation as that test and as the CI advisory report.
   - repo: local
     hooks:
-      - id: pydoclint-warn
-        name: "pydoclint (docstring-vs-signature consistency, advisory)"
+      - id: pydoclint-blocking
+        name: "pydoclint (docstring-vs-signature consistency, blocking)"
         entry: pydoclint --style=google src/mlframe
         language: system
+        types: [python]
+        files: ^src/mlframe/
         pass_filenames: false
-        verbose: true
-        stages: [manual]
 
   # Optional: a "fast" alias that runs the static (non-Hypothesis) meta-
   # tests only — useful for ``pre-commit run --hook-stage=manual fast-meta``

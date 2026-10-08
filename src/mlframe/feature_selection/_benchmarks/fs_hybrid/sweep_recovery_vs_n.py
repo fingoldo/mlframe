@@ -56,6 +56,12 @@ DEFAULT_BED = "linear_gaussian_lowdim_n200"
 def run_point(bed: str, arm_name: str, n_samples: int, seed: int) -> Dict[str, Any]:
     """Fit one arm on one size of one bed and score what it recovered.
 
+    Args:
+        bed: Name of the synthetic causal bed to build.
+        arm_name: Key of the arm in the roster built for this bed's width.
+        n_samples: Number of samples in the bed.
+        seed: Seed for the bed draw and the arm roster.
+
     Returns:
         A record with the recovered share of the answer key, the precision, and the selection size. A cell
         that fails records its error rather than disappearing, for the same reason the main runner does:

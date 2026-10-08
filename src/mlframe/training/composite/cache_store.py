@@ -43,6 +43,35 @@ class DiscoveryCache:
     Values are pickled with stdlib ``pickle`` (safe: stored objects are dataclass-derived dicts). Files live under ``<cache_dir>/<key>.pkl`` with one file per key for easy invalidation / cleanup.
 
     Concurrency: value writes are crash-safe via atomic ``os.replace`` (tmp-file + fsync + rename), the LRU sidecar and eviction sweep are guarded by a cross-process ``filelock`` (when ``filelock`` is installed), and ``invalidate`` is idempotent under concurrent callers. ``filelock`` is optional: without it the LRU/eviction read-modify-write can race between processes sharing ``cache_dir`` (a stale-snapshot save may overwrite a fresh access timestamp), though the value files themselves stay consistent.
+
+    Construct a disk-backed discovery cache.
+
+    Parameters
+    ----------
+    cache_dir
+        Directory hosting one ``<key>.pkl`` per entry.
+    max_entries
+        Hard cap on the number of cached entries. When ``set()`` would
+        push the count above the cap, the least-recently-accessed
+        entries are evicted to fit. Default 1000 - protects against
+        unbounded R&D growth. Pass ``None`` to disable count-based
+        eviction explicitly.
+    max_size_mb
+        Soft cap on the total cache footprint in megabytes. Evaluated
+        after the count cap. Default 2000 MB. Pass ``None`` to disable.
+
+    LRU tracking uses a sidecar ``<cache_dir>/.lru`` JSON file rather
+    than ``os.path.getatime``: Windows / NTFS frequently mounts with
+    noatime semantics so atime is unreliable; the sidecar gives us a
+    portable monotonic-time access ledger that survives process exit.
+
+    The cache directory is wrapped through
+    :func:`mlframe.training.feature_handling.system.long_path_safe`
+    on Windows so deep cache trees (>= 260 chars) survive
+    ``os.replace`` in ``set()``. ``LocalDiskBackend`` already did
+    this; ``DiscoveryCache`` did not, so a deep run-name + nested
+    artifact path crashed on Windows even though the same directory
+    worked under ``LocalDiskBackend``.
     """
 
     def __init__(
@@ -52,35 +81,6 @@ class DiscoveryCache:
         max_entries: Optional[int] = 1000,
         max_size_mb: Optional[float] = 2000.0,
     ) -> None:
-        """Construct a disk-backed discovery cache.
-
-        Parameters
-        ----------
-        cache_dir
-            Directory hosting one ``<key>.pkl`` per entry.
-        max_entries
-            Hard cap on the number of cached entries. When ``set()`` would
-            push the count above the cap, the least-recently-accessed
-            entries are evicted to fit. Default 1000 - protects against
-            unbounded R&D growth. Pass ``None`` to disable count-based
-            eviction explicitly.
-        max_size_mb
-            Soft cap on the total cache footprint in megabytes. Evaluated
-            after the count cap. Default 2000 MB. Pass ``None`` to disable.
-
-        LRU tracking uses a sidecar ``<cache_dir>/.lru`` JSON file rather
-        than ``os.path.getatime``: Windows / NTFS frequently mounts with
-        noatime semantics so atime is unreliable; the sidecar gives us a
-        portable monotonic-time access ledger that survives process exit.
-
-        The cache directory is wrapped through
-        :func:`mlframe.training.feature_handling.system.long_path_safe`
-        on Windows so deep cache trees (>= 260 chars) survive
-        ``os.replace`` in ``set()``. ``LocalDiskBackend`` already did
-        this; ``DiscoveryCache`` did not, so a deep run-name + nested
-        artifact path crashed on Windows even though the same directory
-        worked under ``LocalDiskBackend``.
-        """
         from ..feature_handling.system import long_path_safe
         self.cache_dir = long_path_safe(os.path.abspath(str(cache_dir)))
         os.makedirs(self.cache_dir, exist_ok=True)

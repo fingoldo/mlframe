@@ -42,7 +42,56 @@ _copyreg.pickle(_contextvars.ContextVar, _reduce_contextvar)
 
 
 class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
-    """LightningModule wrapping an arbitrary torch network with mlframe's loss/metric/predict-accel mixins."""
+    """LightningModule wrapping an arbitrary torch network with mlframe's loss/metric/predict-accel mixins.
+
+    PyTorch Lightning module for MLP training.
+
+    Args:
+        loss_fn: Loss function callable
+        metrics: List of MetricSpec objects for evaluation
+        network: The neural network module
+        learning_rate: Learning rate for optimizer
+        l1_alpha: L1 regularization coefficient (0.0 = no regularization)
+        optimizer: Optimizer class (default: AdamW)
+        optimizer_kwargs: Additional kwargs for optimizer
+        lr_scheduler: Learning rate scheduler class. Recommended choices
+            for tabular MLP fits:
+              * ``torch.optim.lr_scheduler.OneCycleLR`` -- best for short
+                fits (<50 epochs), single LR cycle. Special-cased here:
+                ``total_steps`` auto-computed from ``trainer.max_epochs * steps_per_epoch``.
+              * ``torch.optim.lr_scheduler.CosineAnnealingWarmRestarts`` --
+                best for longer fits (50+ epochs). Pass ``T_0`` (epochs
+                per first cycle) and ``T_mult`` (cycle-growth ratio) via
+                ``lr_scheduler_kwargs``. Matches RealMLP-TD's default
+                (Holzmuller 2024) and gives better final minima than a
+                single OneCycle on the 50-100 epoch range.
+              * ``torch.optim.lr_scheduler.ReduceLROnPlateau`` -- value-
+                driven; requires ``lr_scheduler_monitor`` (e.g. ``"val_loss"``).
+        lr_scheduler_kwargs: Additional kwargs for scheduler
+        compile_network: torch.compile mode (e.g., 'max-autotune', 'reduce-overhead')
+        compute_trainset_metrics: Whether to compute metrics on training set
+        lr_scheduler_interval: 'epoch' or 'step'
+        lr_scheduler_monitor: Metric to monitor for scheduler (e.g., 'val_loss')
+        load_best_weights_on_train_end: Load best checkpoint weights after training
+        log_lr: Log the current learning rate as a metric each step.
+        task_type: Optional task-type hint (e.g. classification vs. regression) stored for
+            downstream mixins that branch on it.
+        use_lookahead: Wrap the optimizer with Lookahead (Zhang et al. 2019) -- periodically
+            syncs a slow set of weights toward the fast optimizer's trajectory.
+        lookahead_k: Lookahead's fast-step count between slow-weight syncs; only used when
+            ``use_lookahead=True``.
+        lookahead_alpha: Lookahead's slow-weight interpolation factor; only used when
+            ``use_lookahead=True``.
+        use_mixup: Apply mixup augmentation (convex-combine random training-batch pairs) during
+            training; a no-op in eval mode or on a batch of size < 2.
+        mixup_alpha: Beta-distribution concentration parameter for the mixup interpolation
+            weight; only used when ``use_mixup=True``.
+        use_sam: Wrap the optimizer with Sharpness-Aware Minimization (SAM), which perturbs
+            weights toward the local worst case before the real gradient step.
+        sam_rho: SAM's perturbation-neighborhood radius; only used when ``use_sam=True``.
+        sam_adaptive: Scale SAM's perturbation by parameter magnitude (ASAM variant) instead of
+            a flat radius; only used when ``use_sam=True``.
+    """
 
     def __init__(
         self,
@@ -71,55 +120,6 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         sam_rho: float = 0.05,
         sam_adaptive: bool = False,
     ):
-        """
-        PyTorch Lightning module for MLP training.
-
-        Args:
-            loss_fn: Loss function callable
-            metrics: List of MetricSpec objects for evaluation
-            network: The neural network module
-            learning_rate: Learning rate for optimizer
-            l1_alpha: L1 regularization coefficient (0.0 = no regularization)
-            optimizer: Optimizer class (default: AdamW)
-            optimizer_kwargs: Additional kwargs for optimizer
-            lr_scheduler: Learning rate scheduler class. Recommended choices
-                for tabular MLP fits:
-                  * ``torch.optim.lr_scheduler.OneCycleLR`` -- best for short
-                    fits (<50 epochs), single LR cycle. Special-cased here:
-                    ``total_steps`` auto-computed from ``trainer.max_epochs * steps_per_epoch``.
-                  * ``torch.optim.lr_scheduler.CosineAnnealingWarmRestarts`` --
-                    best for longer fits (50+ epochs). Pass ``T_0`` (epochs
-                    per first cycle) and ``T_mult`` (cycle-growth ratio) via
-                    ``lr_scheduler_kwargs``. Matches RealMLP-TD's default
-                    (Holzmuller 2024) and gives better final minima than a
-                    single OneCycle on the 50-100 epoch range.
-                  * ``torch.optim.lr_scheduler.ReduceLROnPlateau`` -- value-
-                    driven; requires ``lr_scheduler_monitor`` (e.g. ``"val_loss"``).
-            lr_scheduler_kwargs: Additional kwargs for scheduler
-            compile_network: torch.compile mode (e.g., 'max-autotune', 'reduce-overhead')
-            compute_trainset_metrics: Whether to compute metrics on training set
-            lr_scheduler_interval: 'epoch' or 'step'
-            lr_scheduler_monitor: Metric to monitor for scheduler (e.g., 'val_loss')
-            load_best_weights_on_train_end: Load best checkpoint weights after training
-            log_lr: Log the current learning rate as a metric each step.
-            task_type: Optional task-type hint (e.g. classification vs. regression) stored for
-                downstream mixins that branch on it.
-            use_lookahead: Wrap the optimizer with Lookahead (Zhang et al. 2019) -- periodically
-                syncs a slow set of weights toward the fast optimizer's trajectory.
-            lookahead_k: Lookahead's fast-step count between slow-weight syncs; only used when
-                ``use_lookahead=True``.
-            lookahead_alpha: Lookahead's slow-weight interpolation factor; only used when
-                ``use_lookahead=True``.
-            use_mixup: Apply mixup augmentation (convex-combine random training-batch pairs) during
-                training; a no-op in eval mode or on a batch of size < 2.
-            mixup_alpha: Beta-distribution concentration parameter for the mixup interpolation
-                weight; only used when ``use_mixup=True``.
-            use_sam: Wrap the optimizer with Sharpness-Aware Minimization (SAM), which perturbs
-                weights toward the local worst case before the real gradient step.
-            sam_rho: SAM's perturbation-neighborhood radius; only used when ``use_sam=True``.
-            sam_adaptive: Scale SAM's perturbation by parameter magnitude (ASAM variant) instead of
-                a flat radius; only used when ``use_sam=True``.
-        """
         super().__init__()
 
         if network is None:

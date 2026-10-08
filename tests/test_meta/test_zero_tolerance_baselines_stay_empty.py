@@ -38,6 +38,7 @@ ZERO_TOLERANCE_BASELINES: tuple[str, ...] = (
     "_logger_lazy_baseline.json",
     "_module_level_logging_disable_baseline.json",
     "_nondiscriminating_assert_baseline.json",
+    "_pydoclint_baseline.json",
     "_numba_config_env_mutation_baseline.json",
     "_readonly_to_numpy_mutation_baseline.json",
     "_tick_isinstance_baseline.json",

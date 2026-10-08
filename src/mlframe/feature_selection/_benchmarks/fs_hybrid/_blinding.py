@@ -68,6 +68,13 @@ def apply_blinding(records: Sequence[Dict[str, Any]], mapping: Dict[str, str]) -
     Copies rather than in-place edits: the caller keeps the real records, and an analysis that accidentally
     reached for them would then be visibly reading unblinded data rather than silently doing so.
 
+    Args:
+        records: Result records, each carrying an ``arm`` key.
+        mapping: Real arm name to blinded label.
+
+    Returns:
+        New records identical to the input except for the blinded ``arm`` value.
+
     Raises:
         KeyError: If a record names an arm the mapping does not cover, which means the mapping was built
             from a different run and the blinding would be inconsistent across the table.

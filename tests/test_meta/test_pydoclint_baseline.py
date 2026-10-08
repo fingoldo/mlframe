@@ -1,11 +1,11 @@
-"""L4.4 (audits/ci_review_2026-09-08/_TRACKER.md): pydoclint stays advisory-only in ``lint-advisory.yml``
-because a straight flip to blocking would red the schedule on the ~1000-finding pre-existing backlog
-rather than on a regression. This baselines that backlog the same way ``_source_text_baseline.json`` and
-every other ``py_ci_shared.baseline_ratchet`` consumer in this directory do: the check fails only on a
-finding absent from the frozen set, so a NEW docstring/signature mismatch is caught immediately while the
-backlog is paid down separately (or not at all).
+"""pydoclint (docstring versus signature consistency, ``--style=google``, the project's ``[tool.pydoclint]`` options) is blocking.
 
-Refresh after fixing (or deliberately accepting) findings::
+The baseline is empty and ``_pydoclint_baseline.json`` is on the zero-tolerance list, so any finding fails the build; the
+same command runs as the ``pydoclint`` pre-commit hook. The invocation must match that hook: the earlier version of this
+test ran pydoclint without ``--style=google`` and so tracked about a thousand findings in a style nothing else used.
+
+Accepting a finding on purpose means adding it to the baseline with a note, and the zero-tolerance list then has to be
+amended in the same change::
 
     pytest tests/test_meta/test_pydoclint_baseline.py --refresh-pydoclint-baseline
 """
@@ -29,7 +29,7 @@ REFRESH_FLAG = "--refresh-pydoclint-baseline"
 
 
 def _run_pydoclint() -> dict[str, str]:
-    """Run ``pydoclint src/mlframe`` and parse its text report into ``{path::symbol:code: message}``.
+    """Run ``pydoclint --style=google src/mlframe`` (the invocation of the pre-commit hook and CI) and parse its text report into ``{path::symbol:code: message}``.
 
     Keyed on the function/class the message names, not the line: a line number goes stale on any edit above the
     docstring, which reported every moved finding as new. A symbol with the same code twice in one file gets ``#2``.
@@ -45,7 +45,7 @@ def _run_pydoclint() -> dict[str, str]:
         # console-script entry point, not a runnable `python -m pydoclint` package.
         pydoclint_exe = str(Path(sys.executable).with_name("pydoclint"))
     proc = subprocess.run(
-        [pydoclint_exe, "src/mlframe"],
+        [pydoclint_exe, "--style=google", "src/mlframe"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

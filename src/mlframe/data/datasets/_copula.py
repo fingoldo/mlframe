@@ -44,6 +44,13 @@ COPULA_FAMILIES: Tuple[str, ...] = ("gaussian", "t", "clayton")
 def _equicorrelation(dim: int, rho: float) -> np.ndarray:
     """Return a ``dim x dim`` equicorrelation matrix, checked for positive definiteness.
 
+    Args:
+        dim: Number of columns, at least 2.
+        rho: Common off-diagonal correlation.
+
+    Returns:
+        The ``dim x dim`` matrix with ones on the diagonal and ``rho`` elsewhere.
+
     Raises:
         ValueError: If ``rho`` is outside the range that keeps the matrix a valid correlation matrix. For
             equicorrelation the lower bound is ``-1/(dim-1)``, not ``-1``, and a caller who passes -0.9 for
@@ -99,6 +106,18 @@ def clayton_copula(rng: np.random.Generator, n: int, dim: int, theta: float = 2.
 
 def sample_copula(rng: np.random.Generator, n: int, dim: int, family: str = "gaussian", rho: float = 0.7, df: float = 4.0, theta: float = 2.0) -> np.ndarray:
     """Dispatch to one copula family, returning ``n x dim`` uniform margins.
+
+    Args:
+        rng: Random generator all draws come from.
+        n: Number of rows to sample.
+        dim: Number of columns.
+        family: One of ``COPULA_FAMILIES``.
+        rho: Correlation parameter used by the Gaussian and t families.
+        df: Degrees of freedom of the t family.
+        theta: Dependence parameter of the Clayton family.
+
+    Returns:
+        Array of shape ``(n, dim)`` with uniform margins.
 
     Raises:
         ValueError: On an unknown family, so a typo cannot silently fall back to the Gaussian control -- the

@@ -56,22 +56,27 @@ def compute_boosting_leaf_features(
     Mode B (``X_query is not None``): single-pass — fits one LightGBM on full `(X_train, y_train)`, extracts leaves for `X_query`. The train output is also returned
     on the same logic (Mode A pattern for `X_train`, Mode B for `X_query`); call the function twice if you only need one side.
 
-    Parameters:
-        ``task``         - "auto" (infer from y), "regression", or "binary". Auto: binary iff y has exactly 2 unique values.
-        ``n_estimators`` - number of trees in the auxiliary boosting. Small (50) is right: we want a diverse-from-downstream signal, not an over-fitted clone.
-        ``max_depth``    - depth cap. depth=4 → max 16 leaves per tree → cluster granularity comparable to a typical kNN k=16-32.
-        ``encoding``     - "ordinal" (default, return raw leaf indices as float; LGB/CB/XGB all handle these as categorical implicitly) or "onehot" (explode to
-                           binary indicator matrix; faster for linear downstream models, ballooning for tree downstream so default is ordinal).
-        ``n_splits``     - KFold n_splits for OOF leaf extraction on train, used only when ``splitter`` is omitted. 5 is standard.
-        ``splitter``     - Optional pre-built sklearn-compatible splitter for Mode A's OOF leaf extraction (overrides ``n_splits``'s internal ``KFold``), so an
-                           orchestrating pipeline can align this mechanism's fold boundaries with its own outer fold structure -- every other Mode-A/B transformer
-                           in this cluster accepts one. ``None`` (default) keeps the prior internal ``KFold(n_splits, shuffle=True, random_state=seed)`` behavior
-                           unchanged.
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target, one value per row of ``X_train``.
+        X_query: Query feature matrix (Mode B), or None for Mode A.
+        seed: Random seed for the boosting and the default KFold.
+        task: "auto" (infer from y), "regression", or "binary". Auto: binary iff y has exactly 2 unique values.
+        n_estimators: Number of trees in the auxiliary boosting. Small (50) is right: we want a diverse-from-downstream signal, not an over-fitted clone.
+        max_depth: Depth cap. depth=4 gives max 16 leaves per tree, cluster granularity comparable to a typical kNN k=16-32.
+        learning_rate: Shrinkage of the auxiliary boosting.
+        n_splits: KFold n_splits for OOF leaf extraction on train, used only when ``splitter`` is omitted. 5 is standard.
+        splitter: Optional pre-built sklearn-compatible splitter for Mode A's OOF leaf extraction (overrides ``n_splits``'s internal ``KFold``), so an
+            orchestrating pipeline can align this mechanism's fold boundaries with its own outer fold structure. ``None`` (default) uses
+            ``KFold(n_splits, shuffle=True, random_state=seed)``.
+        encoding: "ordinal" (default, return raw leaf indices as float; LGB/CB/XGB all handle these as categorical implicitly) or "onehot" (explode to
+            binary indicator matrix; faster for linear downstream models, ballooning for tree downstream so default is ordinal).
+        column_prefix: Prefix of the output column names.
+        dtype: Floating dtype of the output.
 
-    Output: polars DataFrame ``(N, n_estimators)`` for ordinal encoding (one column per tree, named ``{column_prefix}_t{tree_id}``) or
-    ``(N, sum_per_tree_leaves)`` for onehot. Row order matches the relevant input.
-
-    Returns features for the X_query input if provided, else for X_train (OOF).
+    Returns:
+        Polars DataFrame of shape ``(N, n_estimators)`` for ordinal encoding (one column per tree, named ``{column_prefix}_t{tree_id}``) or
+        ``(N, sum_per_tree_leaves)`` for onehot. Rows are for the X_query input if provided, else for X_train (OOF); row order matches that input.
     """
     import lightgbm as lgb
     seed = require_seed(seed)
