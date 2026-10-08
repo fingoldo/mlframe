@@ -69,6 +69,9 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # it without a full fit, and the module object is what gets patched and logged under.
     "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mi_greedy_cmi_fe",
     "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe",
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._fallback_probe",
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mrmr_fit_impl._assign_support_tail",
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group1._raw_is_significant_or_permissive",
     "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._binned_numeric_agg_fe",
     "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._fe_batched_mi",
     "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._mi_greedy_cmi_fe",

@@ -160,7 +160,8 @@ def _structure_part(df: Any, attr: str) -> str:
     try:
         value = getattr(df, attr)
         return repr(list(value)) if attr == "columns" else repr(tuple(value))
-    except Exception:
+    except Exception as exc:
+        logger.warning("cache: could not read the frame %s for the signature (%s); its part of the key is '?'", attr, exc)
         return "?"
 
 

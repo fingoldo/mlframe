@@ -14,12 +14,14 @@ import numpy as np
 
 
 class LazyHostCodes:
-    """Deferred ``cp.asnumpy(dev).astype(dtype)`` of a device code array."""
+    """Deferred ``cp.asnumpy(dev).astype(dtype)`` of a device code array.
+
+    Construction remembers the device array and the host dtype; nothing is copied until the host view is first read.
+    """
 
     __slots__ = ("_dev", "_dtype", "_host", "shape")
 
     def __init__(self, dev: Any, dtype: Any = np.int64) -> None:
-        """Remember the device array and the host dtype; nothing is copied yet."""
         self._dev = dev
         self._dtype = np.dtype(dtype)
         self._host: np.ndarray | None = None

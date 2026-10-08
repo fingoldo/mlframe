@@ -18,10 +18,10 @@ def kernels():
     from mlframe.feature_selection.filters import gpu as g
 
     try:
-        g._ensure_kernels_inited()
         cp.cuda.runtime.getDeviceCount()
-    except Exception as exc:  # no device or driver
+    except cp.cuda.runtime.CUDARuntimeError as exc:  # no device or driver
         pytest.skip(f"CUDA unavailable: {exc}")
+    g._ensure_kernels_inited()
     return g
 
 

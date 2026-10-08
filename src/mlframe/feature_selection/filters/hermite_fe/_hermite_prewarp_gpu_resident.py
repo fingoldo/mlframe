@@ -117,24 +117,11 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
     return B
 
 
-def _als_solve_gpu(cp, A, b):
-    """Resident normal-equations solve ``solve(AtA, At b)`` with an exact ``lstsq``
-    fallback on a singular ``AtA`` - GPU twin of the CPU inner ``_als_solve``.
-    ``A`` (n x d) and ``b`` (n,) are resident (f64 - the design recurrence keeps f64 for stability); the
-    returned coefficient (d,) stays resident. Mirrors the CPU least-norm / normal-eq equivalence for a
-    full-column-rank system (the orthogonal-poly basis scaled by g_norm/f_norm stays well-conditioned), falling
-    back to SVD lstsq bit-for-bit as the CPU path does."""
-    AtA = A.T @ A
-    try:
-        return cp.linalg.solve(AtA, A.T @ b)
-    except Exception as e:
-        logger.debug("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
-        coef = cp.linalg.lstsq(A, b, rcond=None)[0]
-        return coef
-
-
 def _als_solve_weighted_gpu(cp, B, w, b):
-    """``_als_solve_gpu(B * w[:, None], b)`` without materialising the weighted design (``w=None`` solves on ``B`` itself)."""
+    """Resident normal-equations solve of ``(B * w[:, None], b)`` without materialising the weighted design (``w=None`` solves on ``B`` itself).
+
+    Falls back to an exact ``lstsq`` on a singular normal matrix, as the CPU inner ``_als_solve`` does; the coefficient (d,) stays resident.
+    """
     from ._als_kernels_gpu import weighted_gram
 
     AtA, Atb = weighted_gram(cp, B, w, b)
