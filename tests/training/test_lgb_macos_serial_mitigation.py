@@ -20,12 +20,11 @@ pytest.importorskip("lightgbm")
 
 
 def _reload_lgb_shim(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest, platform: str, allow_multithread: str | None = None):
-    """Reload lgb_shim.py with a patched sys.platform / env var, mirroring how the
-    module's own module-level _MACOS_LGB_FORCE_SERIAL is computed once at import time.
+    """Patch sys.platform / the opt-out env var for this test and return the lgb_shim module.
 
-    Registers its own restore via ``request.addfinalizer`` (reachable from this same function
-    scope, not a separate autouse fixture the static reload-safety scanner cannot trace into) so
-    the patched module never leaks into a later test.
+    The macOS decision is made per call, so nothing is reloaded: a reload would mint new class objects that every
+    model trained later in the process carries by value, and the restricted model loader refuses those. ``monkeypatch``
+    restores the platform and environment itself; ``request`` is kept only so the call sites keep their shape.
     """
     import mlframe.training.lgb_shim as lgb_shim
 
@@ -34,15 +33,13 @@ def _reload_lgb_shim(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureReq
         monkeypatch.delenv("MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD", raising=False)
     else:
         monkeypatch.setenv("MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD", allow_multithread)
-    reloaded = importlib.reload(lgb_shim)
-    request.addfinalizer(lambda: importlib.reload(lgb_shim))
-    return reloaded
+    return lgb_shim
 
 
 def test_lgb_default_n_jobs_forces_serial_on_darwin(monkeypatch, request):
     """On darwin, every n_jobs request (-1, None, or explicit) resolves to 1."""
     m = _reload_lgb_shim(monkeypatch, request, "darwin")
-    assert m._MACOS_LGB_FORCE_SERIAL is True
+    assert m._macos_lgb_force_serial() is True
     assert m.lgb_default_n_jobs(-1) == 1
     assert m.lgb_default_n_jobs(None) == 1
     assert m.lgb_default_n_jobs(4) == 1
@@ -54,7 +51,7 @@ def test_lgb_default_n_jobs_unaffected_on_linux_and_windows(monkeypatch, request
 
     for plat in ("linux", "win32"):
         m = _reload_lgb_shim(monkeypatch, request, plat)
-        assert m._MACOS_LGB_FORCE_SERIAL is False
+        assert m._macos_lgb_force_serial() is False
         assert m.lgb_default_n_jobs(-1) == (os.cpu_count() or 1)
         assert m.lgb_default_n_jobs(None) == (os.cpu_count() or 1)
         assert m.lgb_default_n_jobs(4) == 4
@@ -65,7 +62,7 @@ def test_lgb_default_n_jobs_escape_hatch_env_var(monkeypatch, request):
     on macOS, for a host/libomp build that doesn't hit the fault.
     """
     m = _reload_lgb_shim(monkeypatch, request, "darwin", allow_multithread="1")
-    assert m._MACOS_LGB_FORCE_SERIAL is False
+    assert m._macos_lgb_force_serial() is False
     assert m.lgb_default_n_jobs(4) == 4
 
 
@@ -128,3 +125,17 @@ def test_helpers_training_configs_lgb_general_params_serial_on_darwin(monkeypatc
     # this test must see the SAME darwin-serial-n_jobs behaviour reloaded_h itself just proved.
     helpers_facade.get_training_configs = reloaded_h.get_training_configs
     assert reloaded_h.lgb_default_n_jobs(-1) == 1
+
+
+def test_patching_the_platform_keeps_the_shim_classes_picklable_by_reference(monkeypatch, request):
+    """Switching the platform must not re-create the shim classes: a model pickled afterwards would carry them by value, which the restricted loader refuses."""
+    import dill  # nosec B403 - pickling an object this test just built
+
+    import mlframe.training.lgb_shim as lgb_shim
+
+    cls_before = lgb_shim.LGBMClassifierWithDatasetReuse
+    m = _reload_lgb_shim(monkeypatch, request, "darwin")
+    assert m is lgb_shim
+    assert m.LGBMClassifierWithDatasetReuse is cls_before
+    payload = dill.dumps(cls_before(n_estimators=2, verbose=-1))
+    assert b"_create_type" not in payload
