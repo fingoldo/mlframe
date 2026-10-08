@@ -116,7 +116,7 @@ def test_perf_screen_n1000_under_threshold():
 
     # 5.0s = ~250x observed warm time (~20ms). Generous to absorb CI variance + tqdm overhead. Regressions of
     # the hot path that matter (>2x algorithmic slowdown, kernel decompile, lost cache) will blow past this floor.
-    threshold = 5.0
+    threshold = perf_time_budget(5.0)
     assert elapsed < threshold, f"screen_predictors warm call took {elapsed:.3f}s, threshold {threshold:.2f}s. Possible regression on the screening hot path."
 
 

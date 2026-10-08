@@ -353,7 +353,12 @@ def perf_speedup_floor(base_ratio: float, *, xdist_factor: float = 0.6) -> float
     """Speedup-ratio floors compress under ``-n`` contention. A ratio is measured from two arms run back-to-back in the
     same process, so contention hits both and the ratio is more load-robust than an absolute time -- but small absolute
     times still add noise. Relax the floor under xdist so a real win still passes; standalone keeps the full ratio.
-    Never drops below 1.0x: a speedup test must still prove the fast path is at least not slower under load."""
+    Never drops below 1.0x: a speedup test must still prove the fast path is at least not slower under load.
+
+    Skips the calling test under ``NUMBA_DISABLE_JIT=1`` (the nightly kernel-body coverage run), where the "fast" arm is interpreted.
+    """
+    if os.environ.get("NUMBA_DISABLE_JIT") == "1":
+        pytest.skip("a speedup ratio has no valid answer under NUMBA_DISABLE_JIT=1: the compiled arm runs interpreted")
     if not running_under_xdist():
         return base_ratio
     return max(1.0, base_ratio * xdist_factor)

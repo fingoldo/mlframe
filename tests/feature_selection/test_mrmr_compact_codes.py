@@ -10,6 +10,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
+from tests.conftest import skip_scale_test_under_numba_disabled_jit
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -24,7 +25,7 @@ def _fit_selection(X, y, compact: str, monkeypatch, **kw):
     return list(m.get_feature_names_out())
 
 
-@pytest.mark.parametrize("fe_max_steps", [0, 1])
+@pytest.mark.parametrize("fe_max_steps", [0, pytest.param(1, marks=skip_scale_test_under_numba_disabled_jit)])
 def test_compact_codes_selection_equivalent(monkeypatch, fe_max_steps):
     """Selection with compact codes ON must equal OFF -- including when FE engineers + appends columns (the append
     path must preserve the narrow dtype without changing which features are picked)."""

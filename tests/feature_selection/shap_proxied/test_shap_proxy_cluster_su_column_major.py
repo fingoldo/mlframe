@@ -19,6 +19,7 @@ import time
 
 import numpy as np
 import pytest
+from tests.conftest import skip_under_numba_disabled_jit
 
 from tests.conftest import perf_speedup_floor
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
@@ -108,6 +109,7 @@ def _numba_thread_count() -> int:
 
 
 @pytest.mark.skipif(_numba_thread_count() < 2, reason="numba reports a single thread; the cache-locality win needs >=2 cores")
+@skip_under_numba_disabled_jit
 def test_column_major_speedup_vs_row_major_reference():
     """At width=800, column-major beats a verbatim row-major reference kernel >=2x.
 

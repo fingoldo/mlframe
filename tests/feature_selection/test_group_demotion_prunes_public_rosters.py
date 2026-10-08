@@ -30,7 +30,8 @@ def _fit(X, y, groups):
     """Group-aware fit with FE on and the fit cache off, so a monkeypatch between fits takes effect."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m = MRMR(max_runtime_mins=2, verbose=0, fit_cache_max=0, fe_max_steps=1, group_aware_mi=True)
+        # The budget only has to outlast the fit on the slowest runner: a run-out stops FE early and leaves no survivor to demote.
+        m = MRMR(max_runtime_mins=20, verbose=0, fit_cache_max=0, fe_max_steps=1, group_aware_mi=True)
         m.fit(X, y, groups=groups)
     return m
 

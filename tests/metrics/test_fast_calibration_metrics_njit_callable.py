@@ -20,6 +20,7 @@ threshold.
 """
 
 import numpy as np
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def test_fast_calibration_metrics_is_njit_callable_and_matches_dispatcher():
@@ -48,6 +49,7 @@ def test_fast_calibration_metrics_is_njit_callable_and_matches_dispatcher():
     assert out == ref, f"fast_calibration_metrics output {out} != dispatcher path {ref}"
 
 
+@skip_under_numba_disabled_jit
 def test_prewarm_numba_cache_completes_without_aborting(monkeypatch):
     """The metric-kernel prewarm must run to completion. Pre-fix the
     ``fast_calibration_metrics`` call in the first prewarm loop raised

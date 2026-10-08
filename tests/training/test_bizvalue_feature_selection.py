@@ -39,6 +39,7 @@ import time
 import numpy as np
 import pandas as pd
 import pytest
+from tests.conftest import skip_under_numba_disabled_jit
 
 from tests.conftest import running_under_xdist
 
@@ -327,6 +328,7 @@ def test_mrmr_preserves_auroc_and_speeds_up_wide_training(tmp_path, seed):
 # ---------------------------------------------------------------------------
 
 
+@skip_under_numba_disabled_jit
 def test_selected_features_surface_for_inspection(tmp_path):
     """Users must be able to enumerate which features the selector kept."""
     df, _ = _make_noisy_classification(n=800, k_noise=30, seed=42)

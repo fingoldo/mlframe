@@ -5,10 +5,12 @@ threaded into the recipe (poly_<side>_coef in extra) and replayed via hermval, a
 """
 
 import numpy as np
+from tests.conftest import skip_scale_test_under_numba_disabled_jit
 import pandas as pd
 import warnings
 
 
+@skip_scale_test_under_numba_disabled_jit
 def test_fe_max_polynoms_fit_transform_no_keyerror():
     """Fe max polynoms fit transform no keyerror."""
     from mlframe.feature_selection.filters.mrmr import MRMR
