@@ -17,10 +17,8 @@ def kernels():
     """The lazily compiled joint-histogram kernels, skipped when no usable CUDA device exists."""
     from mlframe.feature_selection.filters import gpu as g
 
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except cp.cuda.runtime.CUDARuntimeError as exc:  # no device or driver
-        pytest.skip(f"CUDA unavailable: {exc}")
+    if not cp.cuda.is_available():
+        pytest.skip("CUDA unavailable: no usable device or driver")
     g._ensure_kernels_inited()
     return g
 

@@ -72,7 +72,7 @@
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairmi.py::compute_pair_mis_and_floor": 439,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py::score_prospective_pairs": 344,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pool.py::build_fe_operand_pool": 228,
-  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py::materialise_and_finalise_fe_candidates": 237,
+  "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py::materialise_and_finalise_fe_candidates": 235,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py::_materialise_and_fina_step3_cols_space_index": 188,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step_helpers.py::apply_synergy_bootstrap": 168,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support.py::_assign_support": 387,
