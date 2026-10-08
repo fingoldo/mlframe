@@ -27,7 +27,7 @@ pytest.importorskip("lightgbm")
 pytest.importorskip("sklearn")
 # hnswlib required at call time; collection-time skip lives in conftest.py to avoid crashing pytest if the wheel segfaults at import.
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from mlframe.feature_engineering.transformer import compute_row_attention
 
 pytestmark = [pytest.mark.fast, pytest.mark.biz_transformer]

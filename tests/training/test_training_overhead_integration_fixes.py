@@ -230,6 +230,7 @@ def test_fix5_upfront_filter_preserves_valid_group_aucs():
         assert (np.isnan(p0) and np.isnan(p1)) or np.isclose(p0, p1)
 
 
+@pytest.mark.hang_guard
 def test_fix5_upfront_filter_faster_on_skewed_workload():
     """95 %-NaN workload: upfront filter is faster than letting numba iterate
     every group. Uses a large synthetic frame; tolerance generous — this is

@@ -294,6 +294,7 @@ def test_bizvalue_selection_identical_canonical():
 
 
 @pytest.mark.slow
+@pytest.mark.perf
 def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
     """On a WIDE noisy pool (many gate-passing pairs), the rung schedule is FASTER
     (wall-time) than the flat sweep while keeping the same engineered selection.

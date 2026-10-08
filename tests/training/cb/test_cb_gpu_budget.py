@@ -50,9 +50,12 @@ def test_time_budget_stops_fit_and_keeps_model(caplog):
     """Budget exceeded -> interrupted -> resumed from snapshot: a FITTED model, far fewer trees, original params restored."""
     Xt, yt, Xv, yv = _data()
     reference = catboost.CatBoostRegressor(iterations=300, learning_rate=0.02, depth=8, verbose=0, thread_count=2)
-    t0 = time.perf_counter()
-    reference.fit(Xt, yt)
-    trees_per_second = 300 / (time.perf_counter() - t0)
+    reference_wall = float("inf")
+    for _ in range(2):
+        t0 = time.perf_counter()
+        reference.fit(Xt, yt)
+        reference_wall = min(reference_wall, time.perf_counter() - t0)
+    trees_per_second = 300 / reference_wall
     budget_s = 5.0
     expected_trees = trees_per_second * budget_s
     model = catboost.CatBoostRegressor(iterations=100_000, learning_rate=0.02, depth=8, od_type="Iter", od_wait=90_000,

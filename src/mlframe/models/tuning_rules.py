@@ -22,8 +22,6 @@ from scipy.stats import randint
 from scipy.stats._distn_infrastructure import rv_continuous_frozen, rv_discrete_frozen
 from sklearn.model_selection import ParameterSampler, train_test_split, cross_validate, KFold
 
-from pyutilz import db
-
 import random as _stdlib_random
 import pandas as pd, numpy as np
 from mlframe._optional_imports import import_optional
@@ -270,6 +268,8 @@ def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.Data
     are dropped, and categorical columns are NaN-filled via ``preprocess_df``. Returns an empty dataframe and
     empty cat_features list when no matching trials exist yet.
     """
+    from pyutilz import db  # needs the database extra (sqlalchemy); only this DB-backed path pays for it
+
     logger.info("Getting trials for experiment %s...", experiment_name)
     res = []
     for _id, _node, params, results in db.safe_execute("select id,node,params,results from experiments where  project=%s", (experiment_name,)):

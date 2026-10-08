@@ -14,6 +14,7 @@ call doesn't pay the cold-start. This test asserts the warm completed.
 import time
 
 import numpy as np
+import pytest
 
 
 def _ensure_prewarmed():
@@ -23,6 +24,7 @@ def _ensure_prewarmed():
     prewarm_numba_cache()
 
 
+@pytest.mark.hang_guard
 def test_polars_group_by_warm_after_prewarm():
     """After prewarm, a production-size polars group_by + agg on Enum-dtype
     must run in well under the ~2.5s fresh-process cold-start cost."""
@@ -68,6 +70,7 @@ def test_polars_group_by_warm_after_prewarm():
     )
 
 
+@pytest.mark.hang_guard
 def test_polars_join_warm_after_prewarm():
     """The join path is also exercised by ``_per_group_predict_polars._predict``
     (left-joins side_X against stats_df). Warm it alongside the group_by."""

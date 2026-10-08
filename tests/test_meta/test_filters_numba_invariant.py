@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 
 FILTERS_DIR = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection" / "filters"
 ALLOWED_HOST = "_numba_utils"

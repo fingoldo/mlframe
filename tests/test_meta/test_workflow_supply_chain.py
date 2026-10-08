@@ -15,14 +15,14 @@ import re
 import shutil
 import subprocess
 import sys
-import textwrap
-from importlib import metadata
 from pathlib import Path
 from typing import Any, Dict, List, Set, Tuple
 
 import pytest
 import yaml
 from packaging.requirements import Requirement
+from py_ci_shared.ci_default_branch_never_cancelled import assert_ci_default_branch_never_cancelled
+from py_ci_shared.ci_install_covers_entry_imports import assert_ci_install_covers_entry_imports, assert_entry_imports_without_extras
 
 try:
     import tomllib
@@ -100,38 +100,6 @@ def _expand_extras(requested: Set[str], optional: Dict[str, List[str]]) -> Set[s
     return dists
 
 
-def _import_names(dist_names: Set[str]) -> Set[str]:
-    """Top-level import names of the installed distributions among ``dist_names``."""
-    names: Set[str] = set()
-    for top, owners in metadata.packages_distributions().items():
-        if any(owner.lower().replace("_", "-") in dist_names for owner in owners):
-            names.add(top)
-    return names
-
-
-_BLOCKER = textwrap.dedent(
-    """
-    import importlib.abc, runpy, sys
-
-    BLOCKED = set(sys.argv[1].split(","))
-    MODULE = sys.argv[2]
-    del sys.argv[1:3]
-
-    class Blocker(importlib.abc.MetaPathFinder):
-        def find_spec(self, fullname, path=None, target=None):
-            if fullname.split(".")[0] in BLOCKED:
-                raise ModuleNotFoundError("blocked: " + fullname, name=fullname)
-            return None
-
-    sys.meta_path.insert(0, Blocker())
-    if MODULE == "-":
-        import mlframe
-    else:
-        runpy.run_module(MODULE, run_name="__main__", alter_sys=True)
-    """
-)
-
-
 def _dry_run_entry_points(doc: Dict[Any, Any]) -> List[List[str]]:
     """``python -m mlframe...`` invocations of the workflow that carry ``--dry-run``, as argv lists (expressions read as ``nightly``)."""
     found: List[List[str]] = []
@@ -179,25 +147,28 @@ def test_the_benchmark_workflow_installs_the_signal_extra_wavelet_code_needs() -
 
 @pytest.mark.parametrize("workflow", ["fs-benchmark-nightly.yml", "deep-nightly.yml", "ci.yml"])
 def test_workflow_install_is_enough_to_import_mlframe_and_run_its_dry_run_entry(workflow: str) -> None:
-    """With every extra-only module the workflow does NOT install blocked, ``import mlframe`` and its dry-run entry still work."""
+    """With every extra the workflow does NOT install unimportable, ``import mlframe`` and its dry-run entry still start."""
     doc = _load_workflow(workflow)
     optional = _pyproject()["project"]["optional-dependencies"]
-    installed = _expand_extras(_workflow_extras(doc), optional)
-    extra_only = _expand_extras(set(optional), optional) - installed
-    core = {Requirement(spec).name.lower().replace("_", "-") for spec in _pyproject()["project"]["dependencies"]}
-    blocked = _import_names(extra_only - core)
-    assert blocked, "nothing to block; the test would pass vacuously"
-    runs: List[List[str]] = [["-"], *_dry_run_entry_points(doc)]
-    for argv in runs:
-        proc = subprocess.run(
-            [sys.executable, "-c", _BLOCKER, ",".join(sorted(blocked)), *argv],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=600,
-            check=False,
-        )
-        assert proc.returncode == 0, f"{workflow} {argv}: {proc.stderr[-1500:]}"
+    installed_dists = _expand_extras(_workflow_extras(doc), optional)
+    # An extra shares no distribution with the install exactly when blocking its libraries cannot break something the job provides.
+    blocked_extras = sorted(extra for extra in optional if not _expand_extras({extra}, optional) & installed_dists)
+    assert blocked_extras, "nothing to block; the test would pass vacuously"
+    assert_entry_imports_without_extras(REPO_ROOT, ["mlframe", *_dry_run_entry_points(doc)], blocked_extras=blocked_extras)
+
+
+def test_every_workflow_installs_what_the_modules_it_runs_import() -> None:
+    """The extras a job installs cover the module-level imports of each entry command (python -m, python script.py).
+
+    Test files are not entries here: following every one of them multiplies the import walk several times over, and the extras a test
+    module needs are already judged by the conftest install gate and by importorskip in the tests themselves.
+    """
+    assert_ci_install_covers_entry_imports(REPO_ROOT, include_pytest=False, min_files=10)
+
+
+def test_no_workflow_that_runs_on_a_master_push_cancels_its_own_master_runs() -> None:
+    """Every workflow that fires on a push to master either cancels pull requests only or says why it may cancel."""
+    assert_ci_default_branch_never_cancelled(REPO_ROOT, default_branches=["master"], min_files=10)
 
 
 def test_self_hosted_runners_are_reachable_only_by_manual_dispatch() -> None:

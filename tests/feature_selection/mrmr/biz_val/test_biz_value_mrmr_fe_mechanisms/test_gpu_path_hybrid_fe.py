@@ -272,17 +272,18 @@ class TestGPUSpeedup:
         monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "cuda")
         _ = polyeval_dispatch("chebyshev", x[:1024], c)
 
-        # Time forced njit_par.
-        monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "njit_par")
-        t0 = time.perf_counter()
-        _ = polyeval_dispatch("chebyshev", x, c)
-        t_par = time.perf_counter() - t0
+        def _best_wall(backend: str) -> float:
+            """Best-of-3 wall seconds of the forced backend (the cuda timing includes H2D + D2H)."""
+            monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", backend)
+            walls = []
+            for _ in range(3):
+                t0 = time.perf_counter()
+                polyeval_dispatch("chebyshev", x, c)
+                walls.append(time.perf_counter() - t0)
+            return min(walls)
 
-        # Time forced cuda (includes H2D + D2H).
-        monkeypatch.setenv("MLFRAME_POLYEVAL_BACKEND", "cuda")
-        t0 = time.perf_counter()
-        _ = polyeval_dispatch("chebyshev", x, c)
-        t_cuda = time.perf_counter() - t0
+        t_par = _best_wall("njit_par")
+        t_cuda = _best_wall("cuda")
 
         # Cuda <= 10x njit_par -- per this test class's docstring intent
         # ("catch a regression where the CUDA path became 10x slower").

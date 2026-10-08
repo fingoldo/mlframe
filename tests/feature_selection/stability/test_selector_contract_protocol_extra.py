@@ -42,7 +42,7 @@ import pytest
 from sklearn.base import clone
 from sklearn.datasets import make_classification, make_regression
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.feature_selection._selector_factories import (
     SELECTOR_SPECS,
     selected_mask,
@@ -173,7 +173,7 @@ class TestGetFeatureNamesOutInputFeatures:
         except (AttributeError, TypeError, KeyError):
             sel = None
         if spec.name in _REJECTS_NDARRAY_FIT:
-            known_gap(f"{spec.name}: fit requires a DataFrame, rejects bare ndarray (no ndarray-fit name-injection path -- declared parity gap)", gap_closed=sel is not None)
+            known_gap(f"(KG-8) {spec.name}: fit requires a DataFrame, rejects bare ndarray (no ndarray-fit name-injection path -- declared parity gap)", gap_closed=sel is not None)
         assert sel is not None, f"{spec.name}: fit rejected a bare ndarray"
         n_in = int(sel.n_features_in_)
         user = [f"u{i}" for i in range(n_in)]
@@ -181,7 +181,7 @@ class TestGetFeatureNamesOutInputFeatures:
         # The RAW survivors (those mapping to original positions) must carry the user-injected name when the selector honours input_features.
         propagated = any(nm in set(user) for nm in out)
         if spec.name in _GFNO_DROPS_USER_NAMES_AFTER_NDARRAY_FIT:
-            known_gap(f"{spec.name}: ndarray-fit get_feature_names_out kept synthesized placeholders, ignored user names (declared parity gap)", gap_closed=propagated)
+            known_gap(f"(KG-8) {spec.name}: ndarray-fit get_feature_names_out kept synthesized placeholders, ignored user names (declared parity gap)", gap_closed=propagated)
         assert propagated, f"{spec.name}: ndarray-fit gfno(user_names) did not propagate any user name into the selected raw columns -- got {out[:8]}"
 
 
@@ -199,7 +199,7 @@ class TestSetOutputPandas:
         sel = spec.make("binary")
         has_set_output = callable(getattr(sel, "set_output", None))
         if spec.name in _NO_SET_OUTPUT:
-            known_gap(f"{spec.name}: no set_output (not a _SetOutputMixin transformer -- parity gap)", gap_closed=has_set_output)
+            known_gap(f"(KG-8) {spec.name}: no set_output (not a _SetOutputMixin transformer -- parity gap)", gap_closed=has_set_output)
         assert has_set_output, f"{spec.name}: set_output missing"
         sel.set_output(transform="pandas")
         try:
@@ -207,7 +207,7 @@ class TestSetOutputPandas:
         except (AttributeError, TypeError, KeyError):
             sel = None
         if spec.name in _REJECTS_NDARRAY_FIT:
-            known_gap(f"{spec.name}: fit requires a DataFrame, rejects bare ndarray (declared parity gap)", gap_closed=sel is not None)
+            known_gap(f"(KG-8) {spec.name}: fit requires a DataFrame, rejects bare ndarray (declared parity gap)", gap_closed=sel is not None)
         assert sel is not None, f"{spec.name}: fit rejected a bare ndarray"
         out = sel.transform(_BINARY_X.values)
         assert isinstance(out, pd.DataFrame), (

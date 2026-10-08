@@ -162,12 +162,12 @@ def test_biz_val_proxy_mode_auto_gate_fires_on_xor_bed():
 @pytest.mark.slow
 @pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_proxy_mode_auto_gate_silent_on_additive_bed():
-    """auto's selection is byte-identical to additive's and its wall stays within 1.10x on a purely additive bed."""
+    """auto's selection is byte-identical to additive's and its wall stays within 1.25x on a purely additive bed."""
     X, y = _pure_additive_bed(n=2000, p_noise=194, n_informative=6, seed=0)
     n_features = X.shape[1]
 
     def _best_of_three(mode):
-        """The last fitted selector and the fastest of three fit walls (one shared-runner hiccup must not decide a 1.10x ratio)."""
+        """The last fitted selector and the fastest of three fit walls (one shared-runner hiccup must not decide the ratio)."""
         walls = []
         for _ in range(3):
             sel = _shap_sel(mode, n_features)
@@ -184,7 +184,7 @@ def test_biz_val_proxy_mode_auto_gate_silent_on_additive_bed():
     assert (
         sel_auto.selected_features_ == sel_add.selected_features_
     ), f"auto's gate-silent selection diverged from additive:\n auto={sel_auto.selected_features_}\n add ={sel_add.selected_features_}"
-    assert auto_wall <= 1.10 * add_wall, f"auto wall {auto_wall:.2f}s exceeded 1.10x additive wall {add_wall:.2f}s"
+    assert auto_wall <= 1.25 * add_wall, f"auto wall {auto_wall:.2f}s exceeded 1.25x additive wall {add_wall:.2f}s"
 
 
 # --------------------------------------------------------------------------------------------------

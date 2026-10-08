@@ -75,7 +75,7 @@ import pytest
 
 from sklearn.metrics import mutual_info_score
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.conftest import perf_time_budget, running_under_xdist
 
 warnings.filterwarnings("ignore")

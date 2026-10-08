@@ -46,7 +46,6 @@ UNGUARDED: set[str] = {
     "test_no_module_level_logging_disable.py",
     "test_no_nondiscriminating_assert.py",
     "test_no_numba_config_env_restore_footgun.py",
-    "test_no_single_shot_timing_assertion.py",
     "test_no_sklearn_metrics_in_production.py",
     "test_no_stale_not_wired_docstrings.py",
     "test_no_stale_source_line_citations.py",

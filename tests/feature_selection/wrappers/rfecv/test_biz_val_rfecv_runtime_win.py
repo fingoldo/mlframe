@@ -55,7 +55,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
 from mlframe.feature_selection.wrappers import RFECV as MlframeRFECV
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.conftest import running_under_xdist
 from tests.feature_selection.conftest import is_fast_mode
 

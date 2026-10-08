@@ -116,12 +116,16 @@ def test_narrow_frame_no_regression():
     """
     X = _make_X(20000, 50, seed=2)
     y = _make_y(X, seed=2)
-    t0 = time.perf_counter()
-    serial = per_feature_edges(X, y=y, method="mdlp", n_jobs=1)
-    t_serial = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    par = per_feature_edges(X, y=y, method="mdlp", n_jobs=-1)
-    t_par = time.perf_counter() - t0
+    def _run(n_jobs: int):
+        """One edge computation and its wall seconds."""
+        t0 = time.perf_counter()
+        out = per_feature_edges(X, y=y, method="mdlp", n_jobs=n_jobs)
+        return out, time.perf_counter() - t0
+
+    serial, t_serial = _run(1)
+    par, t_par = _run(-1)
+    t_serial = min(t_serial, _run(1)[1])
+    t_par = min(t_par, _run(-1)[1])
     _assert_edges_identical(serial, par, "narrow")
     print(f"\n[narrow p=50] serial={t_serial:.3f}s n_jobs=-1={t_par:.3f}s (gated to serial, no regression expected)")
     # Tolerate noise: parallel path must not be dramatically slower.

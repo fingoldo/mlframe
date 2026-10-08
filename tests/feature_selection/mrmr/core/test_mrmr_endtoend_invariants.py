@@ -46,7 +46,7 @@ import sys
 
 import pytest
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.feature_selection._mrmr_realistic_data import default_fuzz_grid
 
 # These are heavy integration fits at realistic n (see _DEFAULT_CASE_N): a single

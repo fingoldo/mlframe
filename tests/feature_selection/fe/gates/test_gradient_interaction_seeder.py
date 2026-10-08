@@ -267,6 +267,7 @@ def test_biz_value_proposing_saddle_improves_accuracy():
 # ============================ cProfile ============================
 
 
+@pytest.mark.hang_guard
 def test_cprofile_core_cost_hotspot(capsys):
     """Profile the routed-default core (surrogate fit + analytic energy, NO null) on the
     n=2000/p=60 fixture; report the cost the dispatcher pays per FE step and the top hotspots."""

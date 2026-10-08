@@ -468,6 +468,7 @@ class TestQuantileReliabilityPerf:
         for k, a in enumerate(alphas):
             assert float(np.mean(np.abs(panel.y[k] - a))) < 0.05
 
+    @pytest.mark.hang_guard
     def test_corp_decomp_capped_fast_at_large_n(self):
         # Regression sensor for the uncapped-CORP perf bug (243s -> sub-second at n=1e6 via cap).
         """Corp decomp capped fast at large n."""

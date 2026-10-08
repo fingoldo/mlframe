@@ -531,6 +531,7 @@ class TestArgmaxAndGateTargetTypeRobustness:
         )
 
     @pytest.mark.parametrize("kind", ["quantile", "count"])
+    @pytest.mark.hang_guard
     def test_row_argmax_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
         """Row argmax specific on smooth continuous target no crash or hang."""
         import time
@@ -540,12 +541,11 @@ class TestArgmaxAndGateTargetTypeRobustness:
         assert bool(m.fe_row_argmax_enable) is True
         t0 = time.time()
         m.fit(df, y)
-        assert (
-            time.time() - t0 < 300.0
-        ), f"row-argmax fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16) after a full-matrix CI run under heavy shared-runner contention blew 30s on a fit that finishes in ~9-16s locally
+        assert time.time() - t0 < 300.0, f"row-argmax fit on {kind} exceeded 300s wall (hang-class bug)"
         assert list(m.row_argmax_features_) == [], f"row-argmax FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
+    @pytest.mark.hang_guard
     def test_row_argmax_skipped_on_2d_target_no_crash_or_hang(self, kind):
         """Row argmax skipped on 2d target no crash or hang."""
         import time
@@ -554,12 +554,11 @@ class TestArgmaxAndGateTargetTypeRobustness:
         m = self._mrmr(fe_row_argmax_enable=True, fe_conditional_gate_enable=False)
         t0 = time.time()
         m.fit(df, y)
-        assert (
-            time.time() - t0 < 300.0
-        ), f"row-argmax fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16) after a full-matrix CI run under heavy shared-runner contention blew 30s on a fit that finishes in ~9-16s locally
+        assert time.time() - t0 < 300.0, f"row-argmax fit on {kind} exceeded 300s wall (hang-class bug)"
         assert list(m.row_argmax_features_) == [], f"row-argmax FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     @pytest.mark.parametrize("kind", ["quantile", "count"])
+    @pytest.mark.hang_guard
     def test_conditional_gate_specific_on_smooth_continuous_target_no_crash_or_hang(self, kind):
         """Conditional gate specific on smooth continuous target no crash or hang."""
         import time
@@ -569,12 +568,11 @@ class TestArgmaxAndGateTargetTypeRobustness:
         assert bool(m.fe_conditional_gate_enable) is True
         t0 = time.time()
         m.fit(df, y)
-        assert (
-            time.time() - t0 < 300.0
-        ), f"conditional-gate fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16), same CI-contention class as the row-argmax budget above
+        assert time.time() - t0 < 300.0, f"conditional-gate fit on {kind} exceeded 300s wall (hang-class bug)"
         assert list(m.conditional_gate_features_) == [], f"conditional-gate FE must emit nothing on a SMOOTH continuous {kind} target (specificity on binned y)"
 
     @pytest.mark.parametrize("kind", ["multilabel", "multitarget"])
+    @pytest.mark.hang_guard
     def test_conditional_gate_skipped_on_2d_target_no_crash_or_hang(self, kind):
         """Conditional gate skipped on 2d target no crash or hang."""
         import time
@@ -583,9 +581,7 @@ class TestArgmaxAndGateTargetTypeRobustness:
         m = self._mrmr(fe_row_argmax_enable=False, fe_conditional_gate_enable=True)
         t0 = time.time()
         m.fit(df, y)
-        assert (
-            time.time() - t0 < 300.0
-        ), f"conditional-gate fit on {kind} exceeded 300s wall (hang-class bug)"  # hang-detector, not a perf budget; raised 30->300 (2026-08-16), same CI-contention class as the row-argmax budget above
+        assert time.time() - t0 < 300.0, f"conditional-gate fit on {kind} exceeded 300s wall (hang-class bug)"
         assert list(m.conditional_gate_features_) == [], f"conditional-gate FE must clean-skip on 2D {kind} y (class-MI floor undefined on a label matrix)"
 
     def test_row_argmax_detects_on_argmax_regression_target(self):

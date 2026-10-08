@@ -325,15 +325,17 @@ def test_biz_val_mrmr_use_simple_mode_faster_on_redundant_data():
     # mode appends engineered cols to the input frame in place.
     MRMR(verbose=0, random_seed=42, use_simple_mode=False).fit(df.copy(), ys)
 
-    t0 = time.perf_counter()
-    sel_simple = MRMR(verbose=0, random_seed=42, use_simple_mode=True)
-    sel_simple.fit(df.copy(), ys)
-    t_simple = time.perf_counter() - t0
+    def _fit_timed(simple: bool):
+        """The fitted selector and the wall seconds of its fit."""
+        t0 = time.perf_counter()
+        sel = MRMR(verbose=0, random_seed=42, use_simple_mode=simple)
+        sel.fit(df.copy(), ys)
+        return sel, time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    sel_full = MRMR(verbose=0, random_seed=42, use_simple_mode=False)
-    sel_full.fit(df.copy(), ys)
-    t_full = time.perf_counter() - t0
+    sel_simple, t_simple = _fit_timed(True)
+    sel_full, t_full = _fit_timed(False)
+    t_simple = min(t_simple, _fit_timed(True)[1])
+    t_full = min(t_full, _fit_timed(False)[1])
 
     k_simple = len(sel_simple.support_)
     k_full = len(sel_full.support_)
@@ -367,15 +369,17 @@ def test_biz_val_mrmr_full_npermutations_low_value_faster_same_topk():
     # to the input frame in place, which would otherwise bleed across fits.
     MRMR(verbose=0, random_seed=42).fit(df.copy(), ys)
 
-    t0 = time.perf_counter()
-    sel_low = MRMR(verbose=0, random_seed=42, full_npermutations=1)
-    sel_low.fit(df.copy(), ys)
-    t_low = time.perf_counter() - t0
+    def _fit_timed(n_perm: int):
+        """The fitted selector and the wall seconds of its fit."""
+        t0 = time.perf_counter()
+        sel = MRMR(verbose=0, random_seed=42, full_npermutations=n_perm)
+        sel.fit(df.copy(), ys)
+        return sel, time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    sel_high = MRMR(verbose=0, random_seed=42, full_npermutations=10)
-    sel_high.fit(df.copy(), ys)
-    t_high = time.perf_counter() - t0
+    sel_low, t_low = _fit_timed(1)
+    sel_high, t_high = _fit_timed(10)
+    t_low = min(t_low, _fit_timed(1)[1])
+    t_high = min(t_high, _fit_timed(10)[1])
 
     # Re-baselined for full-mode default: top-3 signal recovery credits
     # engineered combos that reference the signal columns (raw indices are

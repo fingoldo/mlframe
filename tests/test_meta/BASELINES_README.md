@@ -43,7 +43,6 @@ Run from the repository root. The script re-runs each meta-test in
 - `_orth_fe_recipes_no_freeze_baseline.json` - orthogonal-FE recipes missing a freeze step
 - `_readme_env_var_baseline.json` - env vars in the source that README does not document
 - `_readonly_to_numpy_mutation_baseline.json` - writes through a read-only `to_numpy()` view
-- `_single_shot_timing_baseline.json` - assertions on a single un-repeated timing measurement
 - `_source_text_baseline.json` - tests asserting on source text rather than behaviour (py_ci_shared.source_text_claims)
 - `_pydoclint_baseline.json` - pydoclint docstring-vs-signature findings (py_ci_shared.baseline_ratchet), refresh with `--refresh-pydoclint-baseline`
 - `_stale_comment_baseline.json` - comments describing code that no longer exists
@@ -65,3 +64,6 @@ Run from the repository root. The script re-runs each meta-test in
 - `_function_complexity_baseline.json` - per-function McCabe (ruff C901) ceilings for functions over complexity 25 (py_ci_shared.function_complexity, `regen_baselines.py`)
 - `_cross_module_dict_mutation_baseline.json` - grandfathered cross-module dict mutations (`--refresh-cross-module-dict-mutation-baseline`)
 - `_value_bearing_asserts_baseline.json` - production asserts that check a value, which `python -O` deletes (`regen_baselines.py`)
+- `_committed_line_endings_baseline.json` - blobs committed with CRLF before the gate (py-ci-shared `committed_line_endings`)
+- `_drifted_duplicate_literals_baseline.json` - numeric tuples written in several modules, each with its reason (`drifted_duplicate_literals`)
+- `_unresolved_module_attributes_baseline.json` - `module.NAME` reads the gate cannot resolve (`unresolved_module_attributes`)

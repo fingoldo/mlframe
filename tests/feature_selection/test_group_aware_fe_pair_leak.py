@@ -31,7 +31,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 
 
 def _nonlinear_panel(seed: int, G: int = 60, per: int = 50):

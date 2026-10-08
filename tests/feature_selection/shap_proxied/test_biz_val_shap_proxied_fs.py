@@ -246,6 +246,7 @@ def test_biz_val_fast_prefilter_does_not_worsen_recovery_vs_model():
 
 
 @pytest.mark.slow
+@pytest.mark.perf
 @pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_prefilter_cap_faster_with_preserved_recovery():
     """Iter10 win: cap the prefilter's ranking booster (``prefilter_n_estimators``) so the
@@ -609,6 +610,7 @@ def test_biz_val_zipf_cardinality_preserves_recovery_no_catastrophic_spearman_dr
 
 
 @pytest.mark.slow
+@pytest.mark.perf
 @pytest.mark.timeout(perf_time_budget(900))
 def test_biz_val_oof_shap_cap_faster_with_preserved_recovery():
     """Iter19 win: cap the per-fold OOF-SHAP booster (``oof_shap_n_estimators``) so the

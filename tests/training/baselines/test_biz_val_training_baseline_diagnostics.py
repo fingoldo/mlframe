@@ -219,6 +219,7 @@ def test_biz_val_baseline_diagnostics_n_estimators_100_is_faster():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.hang_guard
 def test_biz_val_baseline_diagnostics_sample_n_caps_runtime():
     """``sample_n=500`` must keep runtime under 30s on a 50_000-row
     dataset. The sample_n parameter is the headline speedup: without
@@ -281,15 +282,17 @@ def test_biz_val_baseline_diagnostics_disabled_returns_quickly():
         }
     )
     diag = BaselineDiagnostics(_make_config(enabled=False))
-    t0 = time.perf_counter()
-    diag.fit_and_report(
-        train_df=df,
-        train_target=df["y"],
-        feature_cols=["x1", "x2"],
-        target_type="regression",
-        target_name="y",
-    )
-    dt = time.perf_counter() - t0
+    dt = float("inf")
+    for _ in range(3):
+        t0 = time.perf_counter()
+        diag.fit_and_report(
+            train_df=df,
+            train_target=df["y"],
+            feature_cols=["x1", "x2"],
+            target_type="regression",
+            target_name="y",
+        )
+        dt = min(dt, time.perf_counter() - t0)
     assert dt < 1.0, f"enabled=False must short-circuit; got {dt:.2f}s"
 
 

@@ -153,10 +153,15 @@ def test_cprofile_cost_is_replay_not_refit():
     # Single-fit baseline. Use a DISTINCT seed so the MRMR fit-cache (content-hash
     # short-circuit) cannot return a near-free cached replay -- we want the true
     # cost of one genuine MRMR fit to compare K screen-replays against.
-    X, y = _tiny_canonical(seed=98765)
-    t0 = timer()
-    _mrmr(random_seed=12345).fit(X, y)
-    single_fit = timer() - t0
+
+    def _single_fit_time(seed: int) -> float:
+        """Wall seconds of one genuine MRMR fit."""
+        X_s, y_s = _tiny_canonical(seed=seed)
+        t0 = timer()
+        _mrmr(random_seed=12345).fit(X_s, y_s)
+        return timer() - t0
+
+    single_fit = min(_single_fit_time(98765), _single_fit_time(98766))
 
     prof = cProfile.Profile()
     prof.enable()
@@ -170,9 +175,11 @@ def test_cprofile_cost_is_replay_not_refit():
     # No MRMR refit re-entry inside the report.
     assert "_fit_impl" not in out, "report must not re-enter MRMR._fit_impl (would be a refit)"
 
-    t0 = timer()
-    sel.selection_stability_report(n_boot=K, as_text=False)
-    report_time = timer() - t0
+    report_time = float("inf")
+    for _ in range(3):
+        t0 = timer()
+        sel.selection_stability_report(n_boot=K, as_text=False)
+        report_time = min(report_time, timer() - t0)
 
     # K replays must be far cheaper than K refits. Even one single fit dwarfs the
     # whole K-replay report.

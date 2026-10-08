@@ -44,6 +44,7 @@ WALL_BUDGET_S = 500.0
 
 
 @skip_scale_test_under_numba_disabled_jit
+@pytest.mark.hang_guard
 @pytest.mark.parametrize("p", [1000, 2000])
 def test_mrmr_core_filter_completes_wide(p):
     """MRMR core filter fit must RETURN (not hang / OOM) on a wide frame and emit a non-empty selection."""
@@ -61,6 +62,7 @@ def test_mrmr_core_filter_completes_wide(p):
     assert len(sel) >= 1, "MRMR returned an empty selection on the wide frame"
 
 
+@pytest.mark.hang_guard
 @pytest.mark.parametrize("p", [1000, 2000])
 def test_rfecv_wide_data_fi_fallback_engages(p):
     """RFECV with the default permutation importance_getter on a wide frame must FIRE the wide_data_fi_fallback
@@ -96,6 +98,7 @@ def test_rfecv_wide_data_fi_fallback_engages(p):
     assert applied.get("n_candidates", 0) > applied.get("threshold", 1e9)
 
 
+@pytest.mark.hang_guard
 @pytest.mark.parametrize("p", [1000, 2000])
 def test_hybrid_selector_completes_and_narrows_wide(p):
     """HybridSelector.fit must complete on a wide frame WITHOUT materializing the full p x p correlation matrix.

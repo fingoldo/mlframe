@@ -50,7 +50,7 @@ warnings.filterwarnings("ignore")
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names, spec_params
 
 # --------------------------------------------------------------------------- fixtures / metrics
@@ -263,7 +263,7 @@ def test_does_not_keep_whole_high_vif_cluster(spec):
     print(f"[vif-cluster] {spec.name}: kept-of-5 per seed={keeps} median={median_keep}")
 
     if spec.name in _CLUSTER_KEEP_GAP:
-        known_gap(f"FS GAP: {spec.name} keeps a majority of the high-VIF cluster (median {median_keep}/5)", gap_closed=median_keep <= 2)
+        known_gap(f"(KG-2) FS GAP: {spec.name} keeps a majority of the high-VIF cluster (median {median_keep}/5)", gap_closed=median_keep <= 2)
     assert (
         median_keep <= 2
     ), f"{spec.name} kept {median_keep}/5 of the high-VIF cluster (per-seed {keeps}); a multicollinearity-aware selector should keep a representative (<=2)"
@@ -283,7 +283,7 @@ def test_recovers_linear_combo_signal(spec):
 
     if spec.name in _RECOVERY_GAP:
         known_gap(
-            f"FS GAP: {spec.name} collapses onto the rank-deficient surrogate and loses the x1+x2 signal (AUC {auc:.3f})",
+            f"(KG-2) FS GAP: {spec.name} collapses onto the rank-deficient surrogate and loses the x1+x2 signal (AUC {auc:.3f})",
             gap_closed=bool(np.isfinite(auc) and auc >= base - 0.05),
         )
     assert np.isfinite(auc), f"{spec.name} selected an empty/untransformable subset"
@@ -303,7 +303,7 @@ def test_reduces_multicollinearity(spec):
     print(f"[vif-reduce] {spec.name}: post max-VIF={post_vif} on {cols}")
 
     if spec.name in _VIF_REDUCE_GAP:
-        known_gap(f"FS GAP: {spec.name} leaves a rank-deficient / high-VIF subset (post max-VIF {post_vif})", gap_closed=bool(np.isfinite(post_vif) and post_vif < 20.0))
+        known_gap(f"(KG-2) FS GAP: {spec.name} leaves a rank-deficient / high-VIF subset (post max-VIF {post_vif})", gap_closed=bool(np.isfinite(post_vif) and post_vif < 20.0))
     assert np.isfinite(post_vif), f"{spec.name} kept a rank-deficient subset (singular Gram, max-VIF inf); it did not break the collinearity"
     assert (
         post_vif < 20.0

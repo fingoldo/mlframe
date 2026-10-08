@@ -185,6 +185,7 @@ def test_pool_runs_every_job_and_returns_each_outcome() -> None:
 
 
 @pytest.mark.slow
+@pytest.mark.hang_guard
 def test_pool_stops_a_cell_that_exceeds_its_budget_and_records_it() -> None:
     """`Future.cancel()` does nothing to a started task, so a timeout has to kill the process to mean anything.
 

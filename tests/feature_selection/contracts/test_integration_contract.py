@@ -188,18 +188,28 @@ def test_mrmr_fit_cache_shared_across_instances(small_classification_df):
             n_jobs=1,
         )
 
+    def _timed_fit(est) -> float:
+        """Wall seconds of one fit."""
+        t0 = time.perf_counter()
+        _fit_quiet(est, X, y)
+        return time.perf_counter() - t0
+
+    def _cold_fit_time() -> float:
+        """Wall seconds of a fit against an empty cache."""
+        MRMR._FIT_CACHE.clear()
+        return _timed_fit(_new_mrmr())
+
+    t_first = min(_cold_fit_time() for _ in range(2))
     first = _new_mrmr()
-    t0 = time.perf_counter()
+    MRMR._FIT_CACHE.clear()
     _fit_quiet(first, X, y)
-    t_first = time.perf_counter() - t0
 
     # Cache populated exactly once.
     assert len(MRMR._FIT_CACHE) == 1
 
     second = _new_mrmr()
-    t0 = time.perf_counter()
+    t_second = min(_timed_fit(_new_mrmr()) for _ in range(2))
     _fit_quiet(second, X, y)
-    t_second = time.perf_counter() - t0
 
     # Identical support_.
     assert list(np.asarray(first.support_)) == list(np.asarray(second.support_))

@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 
 warnings.filterwarnings("ignore")
 
@@ -254,7 +254,7 @@ class TestLayer45_ScenarioB_MemberSwap:
         # swap demotes a better member either.
         if not member_entries:
             known_gap(
-                "end-to-end fit on scenario B forms no member swap (swap_log empty); the member branch is pinned by the direct evaluate_swap_candidate tests",
+                "(KG-5) end-to-end fit on scenario B forms no member swap (swap_log empty); the member branch is pinned by the direct evaluate_swap_candidate tests",
                 gap_closed=bool(member_entries),
             )
         assert member_entries, f"no member-swap entry fired; swap_log={swap_log}"

@@ -59,7 +59,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
