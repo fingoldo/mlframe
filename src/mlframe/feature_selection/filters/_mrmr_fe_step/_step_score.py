@@ -107,7 +107,6 @@ def materialise_and_finalise_fe_candidates(
     if st._fe_acceptance == "conditional_mi" and prospective_additions:
         from .._fe_cmi_redundancy_gate import apply_cmi_redundancy_gate
         from ..mrmr import discretize_array  # already imported above; re-bind for clarity
-        from ._step_class_codes import dense_class_codes
 
         # Build the surviving-candidate pool: {engineered_col_name -> (continuous_vals,
         # marginal_mi)}. The continuous values are the pair search's ``transformed_vals``
@@ -115,6 +114,8 @@ def materialise_and_finalise_fe_candidates(
         # values via the same plug-in primitive (z=None) so the seed/relative-bar anchor
         # matches the production CMI estimator - no separate MI kernel.
         # y codes: reuse the discretised target the MI sweep scored against.
+        from ._step_class_codes import dense_class_codes
+
         _y_dense = dense_class_codes(classes_y)
 
         # GATE SCORING SUBSAMPLE. The conditional-MI redundancy gate only DECIDES which engineered

@@ -40,7 +40,7 @@ from ._binned_agg_cheap_mi import (  # noqa: F401  -- carved sibling, re-exporte
     compute_mi_from_codes,
     quantile_edges,
 )
-from ._binned_numeric_agg_cands import DeviceOofCandidates, HostCandidates, device_born_candidates
+from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -584,7 +584,7 @@ def binned_numeric_agg_with_recipes(
 
     feat_df = None
     raw = None
-    _dev_cands: "Optional[DeviceOofCandidates]" = None
+    _dev_cands = None
     state = "unavailable"
     if _device_binagg:
         state, raw, feat_df, _dev_cands = device_born_candidates(

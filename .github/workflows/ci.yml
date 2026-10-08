@@ -251,7 +251,7 @@ jobs:
       # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`. Extracted 2026-07-18
       # to py-ci-shared's install-pyutilz composite action -- this exact clone+uv-install pair was
       # duplicated near-verbatim across 6 workflows in this repo.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -408,7 +408,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
         # (success() || failure()): a test failure in this shard (even one unrelated to coverage, e.g. a
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
@@ -494,7 +494,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -625,16 +625,16 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
     with:
       # C901 is gated by the baselined ratchet tests/test_meta/test_function_complexity.py (limit 25); a plain ruff run
       # would fail on the 193 tracked functions over it.
-      py-ci-shared-ref: b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+      py-ci-shared-ref: b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
       ignore: "C901"
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -668,9 +668,9 @@ jobs:
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+      py-ci-shared-ref: b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
       source-path: src/mlframe
       # import-linter's two contracts are now real blocking meta-tests
       # (test_no_sibling_backimport_to_facade.py, test_no_inbound_edge_to_benchmarking.py); the
@@ -686,22 +686,22 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+      py-ci-shared-ref: b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
       check-path: tests
       ignore: "C901"
 
   tests-black-filtered:
     name: Black tests/ (filtered, blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+      py-ci-shared-ref: b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
       check-path: tests
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.21.0+fixes  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
     with:
       source-path: tests
       codespell-paths: tests

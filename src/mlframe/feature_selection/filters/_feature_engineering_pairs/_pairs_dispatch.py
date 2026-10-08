@@ -358,7 +358,53 @@ def _dispatch_batch_mi_with_noise_gate_impl(
             backend = "gpu"
     except Exception as e:  # nosec B110 - optional dependency import guard
         _module_logger.debug("fe_gpu_strict_enabled() check failed, leaving the backend choice untouched: %s", e)
-    return backend
+
+    # GPU region: route to the bit-identical GPU twin. Any failure (cupy/cuda
+    # unavailable, OOM, shape edge) returns None / raises and falls through to the
+    # always-correct CPU njit kernel below (mirrors mi_direct's GPU fastpath).
+    if backend in ("gpu", "cupy", "cuda"):
+        try:
+            _res = _batch_mi_with_noise_gate_gpu(
+                disc_2d=disc_2d,
+                factors_nbins=factors_nbins,
+                classes_y=classes_y,
+                classes_y_safe=classes_y_safe,
+                freqs_y=freqs_y,
+                npermutations=npermutations,
+                min_nonzero_confidence=min_nonzero_confidence,
+                use_su=use_su,
+                force_backend=(backend if backend in ("cupy", "cuda") else None),
+                device_codes=device_codes,
+                ensure_host_codes=_need_host_codes,
+                env_gate=env_gate,
+            )
+            if _res is not None:
+                return np.asarray(_res)
+        except Exception as _exc:  # pragma: no cover - GPU optional
+            _module_logger.debug(
+                "batch_mi_with_noise_gate GPU path failed (%s: %s); CPU fallback",
+                type(_exc).__name__, _exc,
+            )
+
+    # CPU njit-prange kernel (the required win and always-correct fallback).
+    _need_host_codes()  # CPU kernel reads host codes -> materialise the deferred D2H now
+    return np.asarray(_cpu_kernel(
+        disc_2d=disc_2d,
+        factors_nbins=factors_nbins,
+        classes_y=classes_y,
+        classes_y_safe=classes_y_safe,
+        freqs_y=freqs_y,
+        npermutations=int(npermutations),
+        base_seed=np.uint64(0),
+        min_nonzero_confidence=float(min_nonzero_confidence),
+        use_su=bool(use_su),
+        dtype=np.int32,
+        # OPT-B: size the (n, K) densified-code buffer to disc_2d's (now narrow) width - the
+        # dense codes live in the SAME [0, n_bins) range, so int8/int16 is value-identical and
+        # cuts both the alloc (the 589MiB->147MiB classes_dense that OOM'd RAM-tight hosts) and
+        # the per-permutation strided gather bandwidth. joint_counts (the real counter) stays int32.
+        classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
+    ))
 
 
 def _batch_mi_with_noise_gate_gpu(

@@ -223,7 +223,7 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
         _zmap_cache = {}  # z-map cache is per OPERAND (different column -> different z)
         if float(np.std(xraw)) < 1e-12 or float(np.std(y_tr)) < 1e-12:
             continue
-        # ONE heavy-tail memo scope per operand (2026-07-02, cProfile-driven): _basis_block fits each escalation
+        # ONE heavy-tail memo scope per operand (cProfile-driven): _basis_block fits each escalation
         # basis on the SAME x_tr, and every basis preprocess re-runs the robust heavy-tail np.median/MAD detect
         # on that identical column. Wrapping the per-basis probe in one nesting-safe, identity-verified scope
         # collapses the ~5 detects/operand to 1 (bit-identical: the memo returns a cached verdict only when the
