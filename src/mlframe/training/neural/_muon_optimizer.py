@@ -34,7 +34,7 @@ from typing import List, cast
 import torch
 from torch.optim import Optimizer
 
-from ._muon_triton_kernel import maybe_newton_schulz_triton
+from ._muon_triton_kernel import NS5_COEFFS, maybe_newton_schulz_triton
 
 
 def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tensor:
@@ -47,7 +47,7 @@ def _zeropower_via_newtonschulz5(G: torch.Tensor, steps: int = 5) -> torch.Tenso
     GEMM speed; final result is cast back to G's dtype.
     """
     assert G.ndim == 2, f"Newton-Schulz requires 2D input; got shape {tuple(G.shape)}"  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
-    a, b, c = (3.4445, -4.7750, 2.0315)
+    a, b, c = NS5_COEFFS
     X = G.to(torch.bfloat16) if G.is_cuda else G.to(torch.float32)
     # Iterate on the smaller-dim side (faster), then transpose back.
     transposed = X.size(-2) > X.size(-1)

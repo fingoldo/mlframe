@@ -220,9 +220,9 @@ def _xgboost_base_score_patched_config_json(model: Any) -> Optional[str]:
     if booster is None or not hasattr(booster, "save_config"):
         return None
     try:
-        import json
+        import orjson
 
-        cfg = json.loads(booster.save_config())
+        cfg = orjson.loads(booster.save_config())
         param = cfg["learner"]["learner_model_param"]
         base_score = param.get("base_score")
         if not isinstance(base_score, str):
@@ -230,11 +230,11 @@ def _xgboost_base_score_patched_config_json(model: Any) -> Optional[str]:
         stripped = base_score.strip()
         if not (stripped.startswith("[") and stripped.endswith("]")):
             return None
-        values = json.loads(stripped)
+        values = orjson.loads(stripped)
         if len(values) != 1:
             return None
         param["base_score"] = repr(float(values[0]))
-        return json.dumps(cfg)
+        return orjson.dumps(cfg).decode("utf-8")
     except Exception as e:
         logger.debug("XGBoost base_score config patch skipped (%s: %s)", type(e).__name__, e)
         return None

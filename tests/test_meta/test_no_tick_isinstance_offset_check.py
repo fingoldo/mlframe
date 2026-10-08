@@ -58,20 +58,24 @@ def _isinstance_tick_calls(tree: ast.Module) -> list[tuple[int, str]]:
     return out
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(py for scan_dir in _SCAN_DIRS for py in scan_dir.rglob("*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{"relpath:lineno:what", ...}`` for every ``isinstance(..., Tick)``-shaped call under the scanned dirs."""
     out: set[str] = set()
-    for scan_dir in _SCAN_DIRS:
-        for py in scan_dir.rglob("*.py"):
-            if "__pycache__" in py.parts:
-                continue
-            try:
-                tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
-            except (SyntaxError, OSError):
-                continue
-            rel = py.relative_to(_REPO_ROOT).as_posix()
-            for lineno, what in _isinstance_tick_calls(tree):
-                out.add(f"{rel}:{lineno}:{what}")
+    for py in _candidate_files():
+        if "__pycache__" in py.parts:
+            continue
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+        except (SyntaxError, OSError):
+            continue
+        rel = py.relative_to(_REPO_ROOT).as_posix()
+        for lineno, what in _isinstance_tick_calls(tree):
+            out.add(f"{rel}:{lineno}:{what}")
     return out
 
 

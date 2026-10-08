@@ -139,7 +139,7 @@ def score_specs_in_processes(tasks: list[dict], n_jobs: int) -> list[tuple]:
     try:
         return list(Parallel(n_jobs=n_jobs, backend="loky")(delayed(score_spec)(t) for t in tasks))
     except Exception as exc:
-        from joblib.externals.loky.process_executor import BrokenProcessPool
+        from joblib.externals.loky.process_executor import BrokenProcessPool  # vendored-ok: the class joblib's loky backend raises
 
         # BrokenProcessPool covers a worker that died (TerminatedWorkerError is its subclass) and a task a worker could not
         # un-serialize, which a paging-file shortage on Windows produces; either way the pool is gone and the specs are not.

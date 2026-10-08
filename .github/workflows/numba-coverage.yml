@@ -87,7 +87,7 @@ jobs:
       (github.event_name != 'workflow_dispatch' || inputs.run) &&
       (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     name: pytest with NUMBA_DISABLE_JIT=1 (kernel-body coverage) (shard ${{ matrix.group }}/16)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 340 (near the 360min hosted-runner hard ceiling): under NUMBA_DISABLE_JIT=1, kernel-heavy
     # fixtures (permutation-null loops, discretization, orthogonal-basis FE) run 10-1000x slower
     # than under normal JIT, since the whole point of the run is to make @njit bodies visible to
@@ -257,7 +257,7 @@ jobs:
       (github.event_name != 'workflow_dispatch' || inputs.run) &&
       (github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     name: pytest with NUMBA_DISABLE_JIT=1 (test_core.py, serial, group ${{ matrix.group }}/4)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     strategy:
       fail-fast: false
@@ -315,7 +315,7 @@ jobs:
     concurrency:
       group: test-durations-commit
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: numba-disabled-coverage
     if: |
       always() && (

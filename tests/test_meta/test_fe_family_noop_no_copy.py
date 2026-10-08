@@ -67,10 +67,15 @@ def _return_contains_noop_copy(ret: ast.Return, param_names: set[str]) -> bool:
     return any(_is_noop_copy_of_param(c, param_names) for c in candidates)
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(_FILTERS_DIR.rglob("*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{relpath:lineno}`` for every ``return <param>.copy(), ...`` no-op-copy return under ``filters/``."""
     out: set[str] = set()
-    for py in _FILTERS_DIR.rglob("*.py"):
+    for py in _candidate_files():
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         tree = parsed_ast(py)

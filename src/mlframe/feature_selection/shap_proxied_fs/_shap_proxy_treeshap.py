@@ -31,7 +31,7 @@ SHAP *interaction* values have their own shared-tensor kernel in ``_shap_proxy_t
 
 from __future__ import annotations
 
-import json
+import orjson
 import logging
 import re
 from dataclasses import dataclass
@@ -92,7 +92,7 @@ def _resolve_split_feature(split, fmap) -> int:
 
 def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
     """Parse an xgboost booster's JSON dump into flat per-node tensors (done once per fit)."""
-    cfg = json.loads(booster.save_config())
+    cfg = orjson.loads(booster.save_config())
     lp = cfg["learner"]["learner_model_param"]
     # base_score is serialised like "[3E-1]"; strip the brackets.
     base_raw = str(lp.get("base_score", "0")).strip("[]")
@@ -122,7 +122,7 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
     max_depth = 0
 
     for raw in dumps:
-        root = json.loads(raw)
+        root = orjson.loads(raw)
         base = len(cl)
         tree_roots.append(base)
         # Flatten this tree depth-first; map local nodeid -> global id via a per-tree dict.
@@ -565,7 +565,7 @@ def is_supported_xgboost(estimator) -> bool:
         return False
     # Multiclass (num_class > 2) is out of scope for v1 (single-output coalition margin).
     try:
-        cfg = json.loads(booster.save_config())
+        cfg = orjson.loads(booster.save_config())
         n_class = int(cfg["learner"]["learner_model_param"].get("num_class", "0"))
         if n_class > 2:
             return False

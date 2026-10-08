@@ -75,10 +75,15 @@ def _unprotected_treeexplainer_lines(tree: ast.Module) -> list[int]:
     return out
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(_TESTS_DIR.rglob("test_*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{"relpath:lineno", ...}`` for every unprotected TreeExplainer(...) call under ``tests/``."""
     out: set[str] = set()
-    for py in _TESTS_DIR.rglob("test_*.py"):
+    for py in _candidate_files():
         if "__pycache__" in py.parts:
             continue
         try:

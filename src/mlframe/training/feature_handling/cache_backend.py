@@ -255,12 +255,13 @@ class LocalDiskBackend:
 
     def _load_lru(self) -> "dict[str, float]":
         """Load the ``.lru`` sidecar (key -> last-access timestamp), tolerating a missing or corrupt file by returning an empty ledger."""
-        import json
+        import orjson
+
         if not os.path.exists(self._lru_path):
             return {}
         try:
-            with open(self._lru_path, "r", encoding="utf-8") as f:
-                d = json.load(f)
+            with open(self._lru_path, "rb") as f:
+                d = orjson.loads(f.read())
             if isinstance(d, dict):
                 return {str(k): float(v) for k, v in d.items()}
         except (OSError, ValueError):
@@ -269,10 +270,11 @@ class LocalDiskBackend:
 
     def _save_lru(self, lru: "dict[str, float]") -> None:
         """Atomically overwrite the ``.lru`` sidecar with ``lru``, serialised with sorted keys for deterministic diffs."""
-        import json
+        import orjson
+
         atomic_write_bytes(
             self._lru_path,
-            lambda f: f.write(json.dumps(lru, sort_keys=True).encode("utf-8")),
+            lambda f: f.write(orjson.dumps(lru, option=orjson.OPT_SORT_KEYS)),
         )
 
     def _touch_lru(self, key: str) -> None:

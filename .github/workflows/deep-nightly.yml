@@ -64,7 +64,7 @@ jobs:
       UV_NO_SOURCES: "1"
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
     name: RuntimeWarning census (advisory)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 300
     continue-on-error: true
     steps:
@@ -128,7 +128,7 @@ jobs:
   deep:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run }}
     name: deep suite (shard ${{ matrix.group }}/20)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         shell: bash

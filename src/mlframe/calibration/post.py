@@ -568,7 +568,7 @@ def compare_postcalibrators(
                 r"""
                 config_context needed here to avoid:
 
-                R:\ProgramData\anaconda3\Lib\site-packages\netcal\binning\IsotonicRegression.py:183, in IsotonicRegression.transform(self, X)
+                ...\site-packages\netcal\binning\IsotonicRegression.py:183, in IsotonicRegression.transform(self, X)
                     179     calibrated = self._iso.transform(X)
                     181 # add clipping to [0, 1] to avoid exceeding due to numerical issues
                     182 # https://github.com/EFS-OpenSource/calibration-framework/issues/54

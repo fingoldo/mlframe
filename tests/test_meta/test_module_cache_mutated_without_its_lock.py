@@ -109,10 +109,15 @@ def _offending_in_tree(tree: ast.Module) -> set[tuple[int, str, str]]:
     return out
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(MLFRAME_DIR.rglob("*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{"relpath:lineno:func:CACHE", ...}`` for each unlocked mutation site in a lock-aware module."""
     out: set[str] = set()
-    for py in MLFRAME_DIR.rglob("*.py"):
+    for py in _candidate_files():
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS) or py.name.endswith(".py.old"):
             continue
         tree = parsed_ast(py)

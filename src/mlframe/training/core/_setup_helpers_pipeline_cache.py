@@ -168,14 +168,10 @@ def _load_pipeline_disk_cache_into_memory() -> None:
     if not os.path.exists(path):
         return
     try:
-        try:
-            import orjson as _orjson  # 3-10x faster on the hot read path
-            with open(path, "rb") as fh:
-                data = _orjson.loads(fh.read())
-        except ImportError:
-            import json as _json
-            with open(path, "r", encoding="utf-8") as fh:
-                data = _json.load(fh)
+        import orjson as _orjson  # 3-10x faster on the hot read path
+
+        with open(path, "rb") as fh:
+            data = _orjson.loads(fh.read())
     except Exception as exc:
         logger.debug("pipeline disk cache: load failed, treating as absent: %s", exc)
         return  # corrupt file: ignore, will be overwritten on next save
@@ -229,12 +225,9 @@ def _persist_pipeline_disk_cache() -> None:
         }
         from mlframe.training.io import atomic_write_bytes
 
-        try:
-            import orjson as _orjson
-            _data = _orjson.dumps(payload)
-        except ImportError:
-            import json as _json
-            _data = _json.dumps(payload).encode("utf-8")
+        import orjson as _orjson
+
+        _data = _orjson.dumps(payload)
         atomic_write_bytes(path, lambda fh: fh.write(_data))
     except Exception as e:  # nosec B110 - best-effort persistence, must never break the live training path
         # Promoted from DEBUG (invisible by default) to WARNING with a traceback: a CI-only failure of

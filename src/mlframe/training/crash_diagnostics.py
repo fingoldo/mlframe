@@ -209,7 +209,9 @@ def _thread_excepthook(args, _prev=None):
             )
     except Exception as e:
         logger.debug("crash-diagnostics threading.excepthook could not log the exception: %s", e)
-    prev = _prev or threading.__excepthook__
+    prev = _prev or getattr(threading, "__excepthook__", None)
+    if prev is None:
+        return
     try:
         prev(args)
     except Exception as e:

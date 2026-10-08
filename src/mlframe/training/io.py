@@ -417,10 +417,9 @@ def _write_save_meta_sidecar(bundle_path: str, *, durable: bool = False) -> None
     not yet readable the field is omitted rather than written as a placeholder
     -- callers downstream can detect absence vs. mismatch unambiguously.
     """
-    # stdlib json (not orjson): this .meta.json sidecar is human-readable and
-    # written with indent=2 for operator inspection, which orjson does not support.
-    import json
     import datetime as _dt
+    import orjson
+
     payload: Dict[str, Any] = {
         "sidecar_version": _SIDECAR_META_VERSION,
         "saved_at_utc": _dt.datetime.now(_dt.timezone.utc).isoformat(),
@@ -429,7 +428,7 @@ def _write_save_meta_sidecar(bundle_path: str, *, durable: bool = False) -> None
     digest = _bundle_sha256(bundle_path)
     if digest is not None:
         payload["bundle_sha256"] = digest
-    meta_bytes = json.dumps(payload, sort_keys=True, indent=2).encode("utf-8")
+    meta_bytes = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2)
 
     def _writer(f):
         """Write the pre-serialized meta-sidecar JSON bytes to the atomic-write temp file handle."""
@@ -446,14 +445,15 @@ def load_save_meta_sidecar(bundle_path: str) -> Optional[Dict[str, Any]]:
     callers should fall through to back-compat semantics rather than fail
     the whole load.
     """
-    import json
+    import orjson
+
     sidecar = _meta_sidecar_path(bundle_path)
     # the prior exists-then-open was a redundant TOCTOU check;
     # the except below already handles missing sidecar. Drop the precheck so the
     # race window collapses to zero.
     try:
-        with open(sidecar, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        with open(sidecar, "rb") as f:
+            data = orjson.loads(f.read())
         if not isinstance(data, dict):
             logger.warning(
                 "load_save_meta_sidecar: %s is not a JSON object; ignoring.",
@@ -463,7 +463,7 @@ def load_save_meta_sidecar(bundle_path: str) -> Optional[Dict[str, Any]]:
         return data
     except FileNotFoundError:
         return None
-    except (OSError, json.JSONDecodeError) as _e:
+    except (OSError, orjson.JSONDecodeError) as _e:
         logger.warning(
             "load_save_meta_sidecar: failed to read %s: %s. Falling back "
             "to back-compat (no version validation).", sidecar, _e,

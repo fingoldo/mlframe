@@ -468,14 +468,15 @@ def _train_mlframe_rank_save_dir(save_dir, model_name, flavor_order, models_dict
             if verbose:
                 logger.info("  saved %s -> %s", flavor, artefact_path)
         # Metadata json
-        import json
+        import orjson
+
         meta_path = os.path.join(save_dir, f"{_safe_model_name}_metadata.json")
-        with open(meta_path, "w", encoding="utf-8") as f:
+        with open(meta_path, "wb") as f:
             # numpy types aren't json-serialisable; coerce.
             # NOTE: no shared numpy->json coercer exists in mlframe.utils or
             # pyutilz today; not worth a new util for this single call site.
             def _coerce(o):
-                """``json.dump`` ``default=`` hook: coerce numpy scalar/array types to plain Python int/float/list so the ranker run metadata serialises."""
+                """``orjson.dumps`` ``default=`` hook: coerce numpy scalar/array types to plain Python int/float/list so the ranker run metadata serialises."""
                 if isinstance(o, (np.integer,)):
                     return int(o)
                 if isinstance(o, (np.floating,)):
@@ -483,6 +484,6 @@ def _train_mlframe_rank_save_dir(save_dir, model_name, flavor_order, models_dict
                 if isinstance(o, np.ndarray):
                     return o.tolist()
                 return o
-            json.dump(metadata, f, indent=2, default=_coerce)
+            f.write(orjson.dumps(metadata, option=orjson.OPT_INDENT_2, default=_coerce))
         if verbose:
             logger.info("  saved metadata -> %s", meta_path)

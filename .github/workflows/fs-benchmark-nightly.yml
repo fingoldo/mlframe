@@ -46,7 +46,7 @@ concurrency:
 jobs:
   benchmark:
     name: tier-2 benchmark (${{ inputs.tier || 'nightly' }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 330
     env:
       # [tool.uv.sources] points pyutilz at git while install-pyutilz installs it from a local clone; without this uv refuses on

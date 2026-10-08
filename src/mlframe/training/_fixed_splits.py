@@ -155,14 +155,9 @@ def _write_json(path: str, payload: dict) -> None:
     """Write ``payload`` as sorted, indented JSON, via orjson when installed else the stdlib."""
     from mlframe.training.io import atomic_write_bytes
 
-    try:
-        import orjson
+    import orjson
 
-        data = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2)
-    except ImportError:
-        import json
-
-        data = json.dumps(payload, sort_keys=True, indent=2).encode("utf-8")
+    data = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2)
     atomic_write_bytes(path, lambda f: f.write(data))
 
 
@@ -170,16 +165,10 @@ def _read_json(path: str) -> Optional[dict]:
     """Read a JSON sidecar, returning None when the file does not exist."""
     if not os.path.exists(path):
         return None
-    try:
-        import orjson
+    import orjson
 
-        with open(path, "rb") as f:
-            return cast(Optional[dict], orjson.loads(f.read()))
-    except ImportError:
-        import json
-
-        with open(path, "r", encoding="utf-8") as f:
-            return cast(Optional[dict], json.load(f))
+    with open(path, "rb") as f:
+        return cast(Optional[dict], orjson.loads(f.read()))
 
 
 def split_dir_for(data_dir: Optional[str], models_dir: Optional[str], target_name: str, model_name: str) -> Optional[str]:
