@@ -133,22 +133,35 @@ def _als_solve_gpu(cp, A, b):
         return coef
 
 
+def _als_solve_weighted_gpu(cp, B, w, b):
+    """``_als_solve_gpu(B * w[:, None], b)`` without materialising the weighted design (``w=None`` solves on ``B`` itself)."""
+    from ._als_kernels_gpu import weighted_gram
+
+    AtA, Atb = weighted_gram(cp, B, w, b)
+    try:
+        return cp.linalg.solve(AtA, Atb)
+    except Exception as e:
+        logger.debug("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
+        return cp.linalg.lstsq(B if w is None else B * w[:, None], b, rcond=None)[0]
+
+
 def _als_sweep_gpu(cp, Ba, Bb, yc, iters) -> tuple:
     """Resident alternating sweep shared by both entry points. ``Ba``/``Bb``/``yc``
     are resident; returns the two host coefficient vectors (or ``(None, None)``)."""
+    from ._als_kernels_gpu import design_matvec
+
     # Initialise g(b) from a plain 1-D least-squares fit on the b-basis (resident).
-    cb = _als_solve_gpu(cp, Bb, yc)
-    g = Bb @ cb
+    cb = _als_solve_weighted_gpu(cp, Bb, None, yc)
+    g = design_matvec(cp, Bb, cb)
     ca = None
     for _ in range(max(1, int(iters))):
-        # cp.std(...) kept as a device 0-dim scalar (no float()): it is only a broadcast divisor, so the host
-        # roundtrip was pure waste - the divide stays fully resident and the result is bit-identical.
+        # cp.std(...) kept as a device 0-dim scalar (no float()): it is only a broadcast divisor.
         g_norm = g / guarded_scale(cp.std(g), cp.abs(g).max(), xp=cp)
-        ca = _als_solve_gpu(cp, Ba * g_norm[:, None], yc)
-        f = Ba @ ca
+        ca = _als_solve_weighted_gpu(cp, Ba, g_norm, yc)
+        f = design_matvec(cp, Ba, ca)
         f_norm = f / guarded_scale(cp.std(f), cp.abs(f).max(), xp=cp)
-        cb = _als_solve_gpu(cp, Bb * f_norm[:, None], yc)
-        g = Bb @ cb
+        cb = _als_solve_weighted_gpu(cp, Bb, f_norm, yc)
+        g = design_matvec(cp, Bb, cb)
     if ca is None:
         return None, None
     # Bring the two tiny coefficient vectors back (degree+1 floats each, far below BULK_BYTES).
