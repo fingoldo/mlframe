@@ -44,11 +44,14 @@ def batched_binned_mi_gpu(code_cols: np.ndarray, y_codes: np.ndarray, kx_per_col
     """
     import cupy as cp
 
-    C = cp.asarray(np.ascontiguousarray(code_cols).astype(np.int64))
+    # Resident inputs stay resident: ``binned_mi_from_codes_gpu`` hands its device code matrix here when the (Kx, Ky) histogram does not fit shared memory,
+    # and the unconditional ``np.ascontiguousarray`` raised "Implicit conversion to a NumPy array is not allowed" - which the caller turned into a silent
+    # sklearn fallback (or, in the FE stages, into "continuing without ... columns").
+    C = code_cols.astype(cp.int64, copy=False) if isinstance(code_cols, cp.ndarray) else cp.asarray(np.ascontiguousarray(code_cols).astype(np.int64))
     if C.ndim == 1:
         C = C[:, None]
     n, K = int(C.shape[0]), int(C.shape[1])
-    y = cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
+    y = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
     Ky = int(ky) if ky > 0 else int(y.max()) + 1
     # Per-column cardinality -> a single padded Kx so the flat index layout is uniform across columns.
     if kx_per_col is not None:
