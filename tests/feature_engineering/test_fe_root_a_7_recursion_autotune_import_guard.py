@@ -20,11 +20,13 @@ def test_module_reload_survives_missing_kernel_tuner(monkeypatch):
         raise ImportError("synthetic: kernel_tuner unavailable")
 
     monkeypatch.setattr(registry_module, "kernel_tuner", _raise)
+    saved = dict(_recursion_autotune_module.__dict__)
     try:
         reloaded = importlib.reload(_recursion_autotune_module)
         assert hasattr(reloaded, "ensure_recursion_tuning")
     finally:
-        # Restore the real kernel_tuner and re-reload so later tests in the same process see the
-        # normal, correctly-registered module state (module-level singletons must not leak).
+        # Put the pre-test namespace back: reloading again would mint a third set of function objects instead
+        # of restoring the ones every importer of this module already holds.
         monkeypatch.undo()
-        importlib.reload(_recursion_autotune_module)
+        _recursion_autotune_module.__dict__.clear()
+        _recursion_autotune_module.__dict__.update(saved)
