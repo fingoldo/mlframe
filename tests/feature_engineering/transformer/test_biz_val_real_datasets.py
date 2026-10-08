@@ -356,10 +356,10 @@ def _load_house_8L() -> Tuple[np.ndarray, np.ndarray, str]:
 
 
 def _load_pumadyn_8nh() -> Tuple[np.ndarray, np.ndarray, str]:
-    """OpenML pumadyn-8nh: pumadyn 8-input nonlinear high-noise variant. Similar physics to kin8nm but harder."""
+    """OpenML puma8NH (Delve pumadyn-8nh): pumadyn 8-input nonlinear high-noise variant. Similar physics to kin8nm but harder."""
     from sklearn.datasets import fetch_openml
 
-    bunch = fetch_openml(name="pumadyn-8nh", version=1, as_frame=True, parser="auto")
+    bunch = fetch_openml(name="puma8NH", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
     return X, y, "regression"
@@ -585,21 +585,21 @@ def _load_energy_efficiency() -> Tuple[np.ndarray, np.ndarray, str]:
     return X, y, "regression"
 
 
-def _load_compactiv() -> Tuple[np.ndarray, np.ndarray, str]:
-    """OpenML compactiv: 8192 rows, 21 features, regression. CPU activity dataset, similar to cpu_act but smoother."""
+def _load_cpu_small() -> Tuple[np.ndarray, np.ndarray, str]:
+    """OpenML cpu_small: 8192 rows, 12 features, regression. The reduced-attribute variant of the cpu_act CPU activity data."""
     from sklearn.datasets import fetch_openml
 
-    bunch = fetch_openml(name="compactiv", version=1, as_frame=True, parser="auto")
+    bunch = fetch_openml(name="cpu_small", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
     return X, y, "regression"
 
 
-def _load_kin32fh() -> Tuple[np.ndarray, np.ndarray, str]:
-    """OpenML kin32fh: kin family 32-feature far high-noise variant. Similar physics to kin8nm but more features and harder."""
+def _load_pumadyn32nh() -> Tuple[np.ndarray, np.ndarray, str]:
+    """OpenML pumadyn32nh: 8192 rows, 32 features, pumadyn nonlinear high-noise variant. Same robot-arm family as kin8nm but more features and harder."""
     from sklearn.datasets import fetch_openml
 
-    bunch = fetch_openml(name="kin32fh", version=1, as_frame=True, parser="auto")
+    bunch = fetch_openml(name="pumadyn32nh", version=2, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
     y = bunch.target.to_numpy(dtype=np.float32)
     return X, y, "regression"
@@ -1838,24 +1838,24 @@ def test_iter6_friedman1():
     _assert_matrix_discriminates(records, "Friedman1_iter6")
 
 
-def test_iter6_compactiv():
-    """compactiv - CPU activity, slightly different from cpu_act."""
-    X, y, task = _load_compactiv()
+def test_iter6_cpu_small():
+    """cpu_small - CPU activity with fewer attributes than cpu_act."""
+    X, y, task = _load_cpu_small()
     X, y = _cap_rows(X, y)
-    print(f"\n[iter6] compactiv: X.shape={X.shape}, task={task}")
-    records = _run_matrix(X, y, task, "compactiv_iter6", builders=FEATURE_BUILDERS_ITER5)
+    print(f"\n[iter6] cpu_small: X.shape={X.shape}, task={task}")
+    records = _run_matrix(X, y, task, "cpu_small_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
-    _assert_matrix_discriminates(records, "compactiv_iter6")
+    _assert_matrix_discriminates(records, "cpu_small_iter6")
 
 
-def test_iter6_kin32fh():
-    """kin32fh - 32-feature kin family member, harder than kin8nm."""
-    X, y, task = _load_kin32fh()
+def test_iter6_pumadyn32nh():
+    """pumadyn32nh - 32-feature pumadyn family member, harder than kin8nm."""
+    X, y, task = _load_pumadyn32nh()
     X, y = _cap_rows(X, y)
-    print(f"\n[iter6] kin32fh: X.shape={X.shape}, task={task}")
-    records = _run_matrix(X, y, task, "kin32fh_iter6", builders=FEATURE_BUILDERS_ITER5)
+    print(f"\n[iter6] pumadyn32nh: X.shape={X.shape}, task={task}")
+    records = _run_matrix(X, y, task, "pumadyn32nh_iter6", builders=FEATURE_BUILDERS_ITER5)
     _print_matrix(records)
-    _assert_matrix_discriminates(records, "kin32fh_iter6")
+    _assert_matrix_discriminates(records, "pumadyn32nh_iter6")
 
 
 def test_iter6_kin8nm_large():
