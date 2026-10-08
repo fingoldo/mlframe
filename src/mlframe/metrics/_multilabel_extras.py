@@ -507,6 +507,10 @@ def fast_multilabel_classification_metrics_block(
 ) -> dict:
     """Compute all label-based multilabel metrics in 2 fused passes.
 
+    Args:
+        y_true: ``(N, K)`` binary indicator matrix of true labels.
+        y_pred: ``(N, K)`` binary indicator matrix of predicted labels.
+
     Returns:
         hamming_loss, subset_accuracy,
         precision_macro, recall_macro, f1_macro,

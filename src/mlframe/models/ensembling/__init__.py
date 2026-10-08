@@ -82,10 +82,14 @@ class EnsembleLeaderboard:
     REG-RRF-DROPPED: regression suites still pass through here; classification-only methods are
     discovered automatically (the source flavour names use the same internal naming convention as
     ``_process_single_ensemble_method``) and rank-fusion entries are excluded when ``is_regression``.
+
+    Args:
+        table: per-flavour metric table.
+        lb: fitted ``votenrank.Leaderboard`` built from ``table``.
+        is_regression: regression/classification flag.
     """
 
     def __init__(self, table: "pd.DataFrame", lb: Any, is_regression: bool) -> None:
-        """Store the per-flavour metric table, the fitted `votenrank.Leaderboard`, and the regression/classification flag."""
         self.table = table
         self.lb = lb
         self.is_regression = bool(is_regression)

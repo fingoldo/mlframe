@@ -169,9 +169,12 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False
             points, which gives ``count_within_eps -> 0`` and ``digamma(0)``
             blow-up. Bench regression: discrete_low_card mean MI 0.0000 (bug)
             -> ~0.50 (signal-tracking) with this fix.
-        seed: RNG seed for jitter.
         max_input_n: cap on input size; a caller passing more rows is subsampled to this many
             before the O(N log N) kNN search, bounding worst-case cost on very large inputs.
+        seed: RNG seed for jitter.
+
+    Returns:
+        Estimated I(X; Y) in nats, clamped at 0.
 
     Reference: Gao, W., Kannan, S., Oh, S., Viswanath, P. (2017),
     "Estimating Mutual Information for Discrete-Continuous Mixtures",
@@ -244,6 +247,9 @@ def _lnc_correction_v2(knn_xy: np.ndarray, log_d_x: float, log_d_y: float, alpha
             classical KSG box at this point.
         log_d_y: same for Y axis.
         alpha: gate threshold (NPEET_LNC default 0.25 per Gao 2015 sec. 4 for d=2).
+
+    Returns:
+        The non-negative correction ``log_knn_dist - V_rect`` for this point, or 0.0 when the gate fires or fewer than 3 neighbours exist.
 
     Pipeline (matches reference lines 141-200):
       1. 2x2 covariance of knn_xy (already centered to the point, NOT to
@@ -376,6 +382,9 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
             calibrated for discrete-mixed data (LNC otherwise inflates the no-signal floor).
         min_y_unique_frac: the unique-value-fraction threshold used by ``low_entropy_skip``.
         seed: RNG seed for tie-breaking noise.
+
+    Returns:
+        Estimated I(X; Y) in nats; 0.0 when there are too few samples.
 
     Reference: Gao, S., Ver Steeg, G., Galstyan, A. (2015),
     "Efficient Estimation of Mutual Information for Strongly Dependent Variables",

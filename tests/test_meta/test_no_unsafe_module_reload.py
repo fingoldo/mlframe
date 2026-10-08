@@ -14,7 +14,7 @@ from py_ci_shared.module_reload_safety import assert_no_unpaired_reloads
 TESTS_DIR = Path(__file__).resolve().parents[1]
 
 # Files that reload only non-mlframe stub modules, where rebinding splits no mlframe class identity.
-_KNOWN_STUB_ONLY_FILES = ("training/pipeline/test_pipeline_json_roundtrip_cache.py",)
+_KNOWN_STUB_ONLY_FILES = ("training/pipeline/test_pipeline_json_roundtrip_cache.py", "test_reload_guard.py")
 
 # Modules owning a mutable singleton (cache, registry, lock): a __dict__ restore does not rebuild an object
 # importers captured by reference, so an unpaired reload of one is reported as needing a subprocess.

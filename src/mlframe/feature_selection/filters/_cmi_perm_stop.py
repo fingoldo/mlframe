@@ -82,6 +82,17 @@ def cmi_permutation_stop(x_cand: np.ndarray, y: np.ndarray,
     significant iff it exceeds the ``(1 - alpha)`` quantile of the
     permutation distribution.
 
+    Args:
+        x_cand: integer-coded candidate column.
+        y: integer-coded target.
+        selected_cols: integer-coded columns of the already-selected set Z; empty reduces the test to a plain MI test.
+        nbins_x: number of bins of ``x_cand``.
+        nbins_y: number of bins of ``y``.
+        nbins_selected: number of bins of each column in ``selected_cols``.
+        n_permutations: number of permutations of ``x_cand`` forming the null.
+        alpha: significance level; the candidate passes when its CMI exceeds the ``(1 - alpha)`` null quantile.
+        seed: seed of the permutation generator.
+
     Returns:
         is_significant: True if the candidate is significantly relevant.
         observed_cmi: I(X_cand; Y | Z) plug-in estimate.
@@ -172,7 +183,8 @@ def uaed_elbow(curve: np.ndarray, sensitivity: float = 1.0) -> int:
         sensitivity: ``> 1.0`` favours earlier elbows; ``< 1.0`` later. Default
             1.0 picks the canonical knee.
 
-    Returns: integer index of the elbow.
+    Returns:
+        integer index of the elbow.
 
     Reference: Llorente, F., Martino, L., Read, J., Delgado, D. (2023),
     "A novel approach to feature selection: Spectral Information Criterion

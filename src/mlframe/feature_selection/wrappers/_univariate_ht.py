@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Tuple
+from typing import Any, Tuple
 
 import numpy as np
 import pandas as pd
@@ -577,7 +577,7 @@ def _chi2_independence_p(x_cat: np.ndarray, y_cat: np.ndarray) -> float:
 
 def calculate_relevance_table(
     X: pd.DataFrame,
-    y,
+    y: Any,
     *,
     ml_task: str = "auto",
     fdr_level: float = 0.05,

@@ -574,7 +574,6 @@ def mdlp_bin_edges_validated(
         max_y_classes: cardinality cap on ``y`` before it is treated as too wide to bin against.
         alpha: significance threshold for the permutation-null split-acceptance test.
         n_permutations: permutation-null draws used to test each candidate split.
-        seed: RNG seed for the permutation draws.
         bonferroni: Depth-decay correction ``alpha / 2**depth`` - assumes a perfectly balanced
             binary tree (exactly ``2**depth`` nodes at depth ``d``), which the data-dependent
             recursion here rarely produces exactly, so it over- or under-corrects depending on
@@ -590,6 +589,10 @@ def mdlp_bin_edges_validated(
             bound rather than the exact node count actually visited), by design - see
             ``_benchmarks/bench_mdlp_adversarial_suite.py``'s multi-comparisons-defeat sweep for the
             measured empirical tree-wide false-discovery rate under this mode vs depth-decay vs off.
+        seed: RNG seed for the permutation draws.
+
+    Returns:
+        Sorted 1-D array of bin edges including the ``-inf`` and ``+inf`` sentinels, as ``mdlp_bin_edges`` does.
     """
     x = np.asarray(x).ravel()
     _y_arr = np.asarray(y).ravel()
@@ -802,19 +805,22 @@ def mdlp_bin_edges_oos_validated(
         x: the 1-D numeric column to bin.
         y: the discrete target used to supervise the split search.
         min_split_size: minimum train-side samples on either side of a candidate split.
+        val_min_split_size: Floor on holdout-side samples per child node, separate from the
+            train-side ``min_split_size`` - defaults to ``min_split_size`` when not given (a split
+            confirmed on too few held-out rows on one side is not meaningfully validated even if
+            the train side comfortably clears its own floor).
         max_depth: maximum recursive split depth.
         max_y_classes: cardinality cap on ``y`` before it is treated as too wide to bin against.
-        seed: RNG seed for the train/holdout split.
         oos_tolerance: Minimum fraction of the training gain the SAME cut must reproduce on the
             held-out fold to be accepted. ``0.3`` is a forgiving generalization bar (noise alone
             would rarely reproduce even 30% of an in-sample-optimized gain); raise for a stricter
             criterion.
         holdout_frac: Fraction of rows set aside as the single held-out fold. ``0.3`` balances
             leaving enough rows in each fold as the recursion narrows to small nodes.
-        val_min_split_size: Floor on holdout-side samples per child node, separate from the
-            train-side ``min_split_size`` - defaults to ``min_split_size`` when not given (a split
-            confirmed on too few held-out rows on one side is not meaningfully validated even if
-            the train side comfortably clears its own floor).
+        seed: RNG seed for the train/holdout split.
+
+    Returns:
+        Sorted 1-D array of bin edges including the ``-inf`` and ``+inf`` sentinels, as ``mdlp_bin_edges`` does.
     """
     x = np.asarray(x).ravel()
     _y_arr = np.asarray(y).ravel()

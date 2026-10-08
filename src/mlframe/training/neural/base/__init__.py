@@ -155,6 +155,8 @@ from ._base_predict import _PredictMixin, _ClassifierPredictMixin
 class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
     """Wrapper that allows Pytorch Lightning model, datamodule and trainer to participate in sklearn pipelines.
     Supports early stopping (via eval_set in fit_params).
+
+    Store every constructor parameter as a direct attribute (sklearn's ``get_params``/``clone`` contract).
     """
 
     def __getstate__(self) -> dict:
@@ -212,7 +214,6 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         use_learnable_cat_embeddings: bool = True,
         categorical_embed_dim: Optional[int] = None,
     ):
-        """Store every constructor parameter as a direct attribute (sklearn's ``get_params``/``clone`` contract)."""
         # ``random_state``: sklearn-canonical seed parameter (F-06, 2026-05-30).
         # When set to an integer, ``_fit_common`` seeds torch / numpy / Python
         # random + the Lightning DataLoader worker seed at fit() entry, so two

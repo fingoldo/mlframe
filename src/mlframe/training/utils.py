@@ -288,7 +288,7 @@ def _canonical_dtype_str(dtype) -> str:
 
 
 def compute_model_input_fingerprint(
-    df_at_fit,
+    df_at_fit: pd.DataFrame | pl.DataFrame,
     cat_features: list | None = None,
     text_features: list | None = None,
     embedding_features: list | None = None,
@@ -303,6 +303,19 @@ def compute_model_input_fingerprint(
 ) -> tuple[str, list]:
     """Compute a 10-char SHA256 fingerprint of a model's fit-time input
     schema PLUS the surrounding training context.
+
+    Args:
+        df_at_fit: Frame the model is fit on; its columns, dtypes and row count feed the schema hash.
+        cat_features: Names of categorical feature columns.
+        text_features: Names of text feature columns.
+        embedding_features: Names of embedding feature columns.
+        target_name: Target column name folded into the hash.
+        preprocessing_config: Preprocessing config whose digest is folded into the hash.
+        pipeline_config: Pipeline config whose digest is folded into the hash.
+        model_family: Model family label folded into the hash.
+        random_seed: Random seed folded into the hash.
+        train_idx: Train split indices folded into the hash.
+        val_idx: Validation split indices folded into the hash.
 
     Returns:
         (schema_hash, input_schema) where input_schema is the

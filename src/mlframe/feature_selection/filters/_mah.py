@@ -268,6 +268,9 @@ def _greedy_merge_with_history(joint: np.ndarray):
     """Identical SCI-greedy merge to ``_greedy_merge_bins`` but ALSO records
     which row/col positions got merged at each step.
 
+    Args:
+        joint: ``(K_x, K_y)`` joint count matrix to merge; it is copied, not modified.
+
     Returns:
         merged (K_x', K_y'): the post-merge joint table.
         row_merges (list[int]): at each step the CURRENT-matrix row index
@@ -387,6 +390,9 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
             discrete-continuous regime; continuous y is quantile-binned to K).
         initial_k: starting bin count. Marx 2021 uses K=16; greedy merge
             adapts down.
+
+    Returns:
+        1-D float64 array of the surviving inner bin edges of ``x``; empty when fewer than 16 samples or no edge survives.
 
     Reference: Marx, Yang, van Leeuwen (2021), SDM 2021. arXiv:2101.05009.
     """

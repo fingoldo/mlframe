@@ -38,6 +38,9 @@ def exact_redundancy_spec(n_copies: int = 5, n_noise: int = 30, n_samples: int =
         n_samples: Rows.
         correlation: How tightly the copies track the latent; the residual noise is derived from it.
         seed: Root seed.
+
+    Returns:
+        The dataset spec of the exact-redundancy bed.
     """
     if not 0.0 < correlation < 1.0:
         raise ValueError(f"correlation must lie strictly inside (0, 1); got {correlation}")
@@ -76,6 +79,9 @@ def private_delta_spec(n_members: int = 3, n_noise: int = 30, n_samples: int = 5
         n_samples: Rows.
         distinct_sd: Size of each member's private component; zero collapses this into exact redundancy.
         seed: Root seed.
+
+    Returns:
+        The dataset spec of the private-delta bed.
     """
     members = tuple(f"r{i}" for i in range(n_members))
     features = (*(FeatureSpec(name=name) for name in members), *(FeatureSpec(name=f"n{i:03d}") for i in range(n_noise)))

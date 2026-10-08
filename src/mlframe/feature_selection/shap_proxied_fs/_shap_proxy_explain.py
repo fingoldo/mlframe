@@ -578,10 +578,12 @@ class _StreamingPhiVariance:
 
     Welford's update keeps the deviation, never the square of the value, so nothing large is subtracted from
     anything large.
+
+    Args:
+        shape: shape of the phi arrays the empty accumulator will fold in.
     """
 
     def __init__(self, shape: tuple) -> None:
-        """Start an empty accumulator for arrays of ``shape``."""
         self.count = 0
         self.mean = np.zeros(shape, dtype=np.float64)
         self.m2 = np.zeros(shape, dtype=np.float64)

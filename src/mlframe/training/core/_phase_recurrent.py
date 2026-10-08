@@ -23,7 +23,7 @@ from __future__ import annotations
 import inspect
 import logging
 from types import SimpleNamespace
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -34,6 +34,9 @@ from ..configs import TargetTypes
 from ..utils import log_phase
 from ._misc_helpers import _compute_neural_max_time
 from mlframe.utils.log_throttle import log_throttle
+
+if TYPE_CHECKING:
+    from ._training_context import TrainingContext
 
 logger = logging.getLogger(__name__)
 
@@ -243,11 +246,11 @@ def _validate_member_shape_uniformity(members: list, *, target_name: str) -> boo
 
 def _apply_recurrent_to_ensemble(
     *,
-    ctx,
+    ctx: TrainingContext,
     ensemble_dict: dict,
-    target_type,
+    target_type: Any,
     target_name: str,
-    target_values,
+    target_values: Any,
 ) -> dict:
     """Idempotent helper that re-runs the score_ensemble step with recurrent members included.
 

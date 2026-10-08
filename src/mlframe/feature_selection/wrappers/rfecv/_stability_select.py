@@ -8,7 +8,7 @@ call sites resolve unchanged.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional, Sequence
 
 from mlframe._output_paths import ensure_parent_dir
 import numpy as np
@@ -29,7 +29,7 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
-def _sklearn_ranking_vector(feature_names, ordered_names, support) -> np.ndarray:
+def _sklearn_ranking_vector(feature_names: Sequence[Any], ordered_names: Optional[Sequence[Any]], support: Any) -> np.ndarray:
     """Build sklearn's ``ranking_`` contract: an integer vector aligned to ``feature_names``, survivors at 1.
 
     This class advertises the sklearn ``RFECV`` surface, and ``ranking_ == 1`` is the canonical way callers ask

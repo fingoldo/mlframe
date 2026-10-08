@@ -1187,3 +1187,12 @@ def _purge_stale_test_caches():
         except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
             pass
     yield
+
+
+@pytest.fixture(autouse=True)
+def _restore_reloaded_mlframe_modules():
+    """Put the original bindings of any mlframe module a test reloaded back at teardown (see ``tests/_reload_guard.py``)."""
+    from tests._reload_guard import reload_guard
+
+    with reload_guard():
+        yield

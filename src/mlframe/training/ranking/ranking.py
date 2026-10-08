@@ -40,6 +40,12 @@ def qid_to_group_sizes(group_ids: np.ndarray) -> np.ndarray:
     query are adjacent). For arbitrary qid arrays, sort by group first.
     Uses ``np.diff(np.flatnonzero(...))`` for an O(N) pass.
 
+    Args:
+        group_ids: Per-row query id array, contiguous by query.
+
+    Returns:
+        Integer array with the number of rows in each consecutive query; empty when ``group_ids`` is empty.
+
     Example:
         group_ids = [0, 0, 0, 1, 1, 2, 2, 2, 2]
         returns      [3, 2, 4]

@@ -22,7 +22,25 @@ class CatboostParamsOptimizer(ParamsOptimizer):
 
     Builds a large parameter-distribution search space spanning CatBoost's float/int/categorical/bool
     hyperparameters plus CTR (categorical-feature encoding) config, along with the full drop/skip/allow rule
-    set encoding CatBoost's real parameter-compatibility constraints. See ``__init__`` for the details.
+    set encoding CatBoost's real parameter-compatibility constraints.
+
+    Populates ``self.params`` with distributions spanning CatBoost's float/int/categorical/bool
+    hyperparameters (device-gated where CPU/GPU support differs) plus randomly-generated CTR encoding
+    strings (``simple_ctr``/``combinations_ctr`` via ``create_ctr_params``), then ``params_override``
+    (merged on top) and ``delete_params`` (removed) are applied. Also builds ``self.drop_if_rules``,
+    ``self.drop_if_not_rules``, ``self.skip_if_values_or``, ``self.allow_if_values_or`` and
+    ``self.allow_if_values_and``, encoding CatBoost's real parameter-compatibility constraints (e.g.
+    ``posterior_sampling`` requires Constant Model Shrink Mode + Langevin boosting; MVS bootstrap supports
+    only per-object sampling; Newton leaf estimation is unsupported for MAE/MAPE/Quantile losses).
+
+    Args:
+        GPU_ENABLED: build the GPU-compatible search space instead of the CPU one.
+        groups: the task uses group ids (ranking-style losses and group-aware options are enabled).
+        need_training_continuation: restrict to parameters that allow continuing training from an existing model.
+        task: ML task type the search space is built for.
+        params_override: parameter distributions merged on top of the defaults.
+        delete_params: parameter names removed from the search space.
+        random_state: seed or generator for the random CTR strings and parameter sampling.
     """
 
     def __init__(
@@ -35,18 +53,6 @@ class CatboostParamsOptimizer(ParamsOptimizer):
         delete_params: Optional[Sequence] = None,
         random_state: Union[int, np.random.Generator, None] = None,
     ):
-        """Build the CatBoost hyperparameter search space + compatibility rule set.
-
-        Populates ``self.params`` with distributions spanning CatBoost's float/int/categorical/bool
-        hyperparameters (device-gated where CPU/GPU support differs) plus randomly-generated CTR encoding
-        strings (``simple_ctr``/``combinations_ctr`` via ``create_ctr_params``), then ``params_override``
-        (merged on top) and ``delete_params`` (removed) are applied. Also builds ``self.drop_if_rules``,
-        ``self.drop_if_not_rules``, ``self.skip_if_values_or``, ``self.allow_if_values_or`` and
-        ``self.allow_if_values_and``, encoding CatBoost's real parameter-compatibility constraints (e.g.
-        ``posterior_sampling`` requires Constant Model Shrink Mode + Langevin boosting; MVS bootstrap supports
-        only per-object sampling; Newton leaf estimation is unsupported for MAE/MAPE/Quantile losses).
-        """
-
         super().__init__(random_state=random_state)
         if params_override is None:
             params_override = {}

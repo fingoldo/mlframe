@@ -87,13 +87,25 @@ def compute_target_quantile_attention(
 
     Output shape: ``(N, n_quantiles)``. Each column is the similarity to one target-quantile cluster's X-centroid.
 
-    Parameters:
-        ``n_quantiles`` - number of buckets to split y into. 10 is standard; can be lower (e.g. 4) for small N where each bucket needs enough rows for a stable centroid.
-        ``similarity`` - "cosine" (default, requires L2-normalised X) or "rbf" (Gaussian kernel; needs ``rbf_gamma`` or it defaults to ``1 / d``).
-        ``standardize`` - RobustScaler on X before similarity computation.
+    For binary classification, y has only 2 unique values, so we still bucket via quantiles but effectively get 2 clusters (one per class). Use
+    ``n_quantiles=2`` or leave default; the function still works but with fewer effective clusters.
 
-    For binary classification, y has only 2 unique values → we still bucket via quantiles, but effectively get 2 clusters (one per class). Use ``n_quantiles=2`` or
-    leave default; the function still works but with fewer effective clusters.
+    Args:
+        X_train: Training feature matrix.
+        y_train: Training target, one value per row of ``X_train``.
+        X_query: Query feature matrix (Mode B), or None for Mode A.
+        splitter: Splitter defining the folds for Mode A.
+        seed: Random seed.
+        n_quantiles: Number of buckets to split y into. 10 is standard; can be lower (e.g. 4) for small N where each bucket needs enough rows for a
+            stable centroid.
+        similarity: "cosine" (default, requires L2-normalised X) or "rbf" (Gaussian kernel; needs ``rbf_gamma`` or it defaults to ``1 / d``).
+        rbf_gamma: Gaussian kernel coefficient for ``similarity="rbf"``; None means ``1 / d``.
+        standardize: RobustScaler on X before similarity computation.
+        column_prefix: Prefix of the output column names.
+        dtype: Floating dtype of the computation and output.
+
+    Returns:
+        Polars DataFrame of shape ``(N, n_quantiles)``.
     """
     from sklearn.preprocessing import RobustScaler
     seed = require_seed(seed)

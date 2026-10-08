@@ -106,6 +106,14 @@ def compose_target_name(
       irrelevant base-iteration order. Passing ``base=None`` or
       ``base=""`` yields the base-free 2-segment name.
 
+    Args:
+        target_col: Name of the original target column; the first segment of the result.
+        transform_name: Full transform name, mapped to its short alias via ``TRANSFORM_NAME_SHORT``.
+        base: Base column name for base-dependent transforms; ``None`` or ``""`` yields the base-free 2-segment name.
+
+    Returns:
+        The composite target name, ``{target}-{alias}`` or ``{target}-{alias}-{base}``.
+
     Examples:
         compose_target_name('y', 'linear_residual', 'lag1')
             -> 'y-linres-lag1'

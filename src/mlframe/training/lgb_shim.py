@@ -84,14 +84,19 @@ logger = logging.getLogger(__name__)
 # libomp fix exists, so LightGBM is forced single-threaded on this platform
 # by default -- serial init never opens the parallel region that crashes.
 # Escape hatch for a host/libomp build that doesn't hit this fault.
-_MACOS_LGB_FORCE_SERIAL = _sys.platform == "darwin" and _os.environ.get("MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD", "0").strip().lower() not in (
-    "1",
-    "true",
-    "yes",
-    "on",
-)
+def _macos_lgb_force_serial() -> bool:
+    """True on macOS unless ``MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD`` opts out.
 
-if _MACOS_LGB_FORCE_SERIAL:
+    Evaluated per call, not once at import, so the answer follows the platform and environment of the moment and
+    nothing has to reload this module (a reload mints new class objects, and a model pickled afterwards then carries
+    them by value, which the restricted loader refuses).
+    """
+    if _sys.platform != "darwin":
+        return False
+    return _os.environ.get("MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD", "0").strip().lower() not in ("1", "true", "yes", "on")
+
+
+if _macos_lgb_force_serial():
     # LightGBM's own ``num_threads``/``n_jobs`` config does not gate every internal call site
     # (round 9, audits/ci_review_2026-09-08/_TRACKER.md, X5: the crash still reproduced with the
     # estimator's own n_jobs=1). The real fix is the OS env var set at ``import mlframe`` time
@@ -112,7 +117,7 @@ def lgb_default_n_jobs(requested: int | None) -> int:
     ``os.cpu_count()`` straight through, so the macOS libomp mitigation
     above applies everywhere LightGBM is constructed, not just here.
     """
-    if _MACOS_LGB_FORCE_SERIAL:
+    if _macos_lgb_force_serial():
         return 1
     if requested is None or requested == -1:
         return _os.cpu_count() or 1

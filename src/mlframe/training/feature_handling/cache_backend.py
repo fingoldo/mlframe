@@ -82,6 +82,14 @@ class LocalDiskBackend:
     containing a path separator, ``..`` segment, or absolute path, so
     a caller bypassing the cache layer's own hashing cannot escape
     ``root``.
+
+    Construct the local-disk backend.
+
+    ``max_entries`` / ``max_size_mb`` are optional LRU caps. When set,
+    a successful ``write()`` evicts the least-recently-accessed
+    ``.bin`` entries (tracked via the sidecar ``<root>/.lru``) to fit
+    the cap. ``None`` (default) preserves the pre-cap behaviour - no
+    eviction, suitable for the v1 solo-greenfield workload.
     """
 
     def __init__(
@@ -91,14 +99,6 @@ class LocalDiskBackend:
         max_entries: "int | None" = None,
         max_size_mb: "float | None" = None,
     ):
-        """Construct the local-disk backend.
-
-        ``max_entries`` / ``max_size_mb`` are optional LRU caps. When set,
-        a successful ``write()`` evicts the least-recently-accessed
-        ``.bin`` entries (tracked via the sidecar ``<root>/.lru``) to fit
-        the cap. ``None`` (default) preserves the pre-cap behaviour - no
-        eviction, suitable for the v1 solo-greenfield workload.
-        """
         self.root = long_path_safe(os.path.abspath(root))
         os.makedirs(self.root, mode=0o700, exist_ok=True)
         self._locks_dir = os.path.join(self.root, ".locks")

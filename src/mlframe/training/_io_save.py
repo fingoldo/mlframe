@@ -127,6 +127,17 @@ def save_mlframe_model(
         zstd_kwargs: Optional compression parameters for zstandard.
             Defaults to level=4, with checksum and content size.
         verbose: Verbosity level. If > 0, logs the file size.
+        lean: When True, strip inference-irrelevant heavy fields
+            (train_preds/val_preds/test_preds/probs/target, train_od_idx,
+            val_od_idx, trainset_features_stats) from a SHALLOW COPY of the
+            namespace before serialization. This is the same field set
+            handled by :func:`clean_mlframe_model`. The caller's object is
+            not mutated. Default False preserves the historical
+            "save-everything" behaviour for forensics/round-trip parity;
+            callers that only need inference-ready bundles (the harness, prod
+            serving) can flip it to skip the dill descent through the
+            heaviest numpy attrs (observed 30x save speedup on cb+xgb
+            multi-model bundles).
         durable: Default ``False`` (flipped 2026-05-20 per accuracy/perf-
             over-legacy policy). When True, the underlying
             ``atomic_write_bytes`` issues a per-file ``os.fsync`` so the
@@ -142,17 +153,6 @@ def save_mlframe_model(
             "re-train" (recoverable), so the default favours speed.
             Pass ``durable=True`` explicitly when writing irreplaceable
             state.
-        lean: When True, strip inference-irrelevant heavy fields
-            (train_preds/val_preds/test_preds/probs/target, train_od_idx,
-            val_od_idx, trainset_features_stats) from a SHALLOW COPY of the
-            namespace before serialization. This is the same field set
-            handled by :func:`clean_mlframe_model`. The caller's object is
-            not mutated. Default False preserves the historical
-            "save-everything" behaviour for forensics/round-trip parity;
-            callers that only need inference-ready bundles (the harness, prod
-            serving) can flip it to skip the dill descent through the
-            heaviest numpy attrs (observed 30x save speedup on cb+xgb
-            multi-model bundles).
         auto_lean_retry: When True (default) and ``lean=False``, a first save attempt that fails
             AND whose payload is a SimpleNamespace is retried once with ``lean=True`` (the retry
             call passes ``auto_lean_retry=False`` to avoid recursing). Pass ``False`` to fail hard

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import pandas as pd
 import polars as pl
@@ -166,7 +166,7 @@ class TrainMlframeSuitePrecomputed:
 
 
 def precompute_composite_target_specs(
-    train_df=None,
+    train_df: Optional[Union[pd.DataFrame, pl.DataFrame]] = None,
     target_by_type: Optional[dict] = None,
     config: Optional[Any] = None,
 ) -> dict:
@@ -183,6 +183,14 @@ def precompute_composite_target_specs(
     the bundle's skip-when-supplied gate is content-truthy, not just non-None, so an empty dict will
     NOT disable the in-suite compute (see ``train_mlframe_models_suite`` for the gate).
 
+    Args:
+        train_df: training frame; unused because the helper always raises.
+        target_by_type: targets keyed by task type; unused because the helper always raises.
+        config: composite-target configuration; unused because the helper always raises.
+
+    Returns:
+        Nothing; the function always raises.
+
     Raises:
         NotImplementedError: always. Use ``TrainMlframeSuitePrecomputed(composite_target_specs=<dict from prior run>)`` instead.
     """
@@ -193,7 +201,7 @@ def precompute_composite_target_specs(
 
 
 def precompute_dummy_baselines(
-    train_df,
+    train_df: Union[pd.DataFrame, pl.DataFrame],
     target_by_type: dict,
     config: Optional[Any] = None,
 ) -> dict:
@@ -210,6 +218,14 @@ def precompute_dummy_baselines(
     skip-when-supplied gate is content-truthy, so an empty dict will NOT silently disable the
     per-target in-suite compute.
 
+    Args:
+        train_df: training frame; unused because the helper always raises.
+        target_by_type: targets keyed by task type; unused because the helper always raises.
+        config: dummy-baseline configuration; unused because the helper always raises.
+
+    Returns:
+        Nothing; the function always raises.
+
     Raises:
         NotImplementedError: always. Use ``TrainMlframeSuitePrecomputed(dummy_baselines=<dict from prior run>)`` instead.
     """
@@ -219,7 +235,7 @@ def precompute_dummy_baselines(
     )
 
 
-def precompute_trainset_features_stats(train_df, max_ncats_to_track: int = 1000) -> dict:
+def precompute_trainset_features_stats(train_df: Union[pd.DataFrame, pl.DataFrame], max_ncats_to_track: int = 1000) -> dict:
     """Compute the trainset_features_stats dict the suite would compute inline.
 
     Dispatches to the polars or pandas backend based on the input type so the output dict is
@@ -242,7 +258,7 @@ def precompute_trainset_features_stats(train_df, max_ncats_to_track: int = 1000)
 
 
 def precompute_all(
-    train_df,
+    train_df: Union[pd.DataFrame, pl.DataFrame],
     target_by_type: Optional[dict] = None,
     *,
     fs_config: Optional[Any] = None,

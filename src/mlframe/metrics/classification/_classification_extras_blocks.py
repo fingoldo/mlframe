@@ -42,6 +42,10 @@ def fast_binary_confusion_metrics_block(
 ) -> dict:
     """Compute 11 confusion-matrix metrics in ONE pass over (y_true, y_pred).
 
+    Args:
+        y_true: binary 0/1 true labels.
+        y_pred: binary 0/1 predicted labels, same length as ``y_true``.
+
     Returns:
         accuracy, balanced_accuracy, MCC, Cohen_kappa,
         F1, F0_5, F2, precision, recall, specificity, NPV,
@@ -208,6 +212,10 @@ def fast_binary_probability_metrics_block(
 ) -> dict:
     """Compute 6 probabilistic-binary metrics in ONE pass over (y_true, y_score).
 
+    Args:
+        y_true: binary 0/1 true labels.
+        y_score: predicted probabilities of the positive class, same length as ``y_true``.
+
     Returns:
         Brier, log_loss, base_rate, BSS,
         Spiegelhalter_Z, Spiegelhalter_p
@@ -268,6 +276,11 @@ def fast_multiclass_confusion_metrics_block(
     y_true: np.ndarray, y_pred: np.ndarray, n_classes: int,
 ) -> dict:
     """Compute multiclass confusion-derived metrics in ONE pass.
+
+    Args:
+        y_true: integer class labels in ``[0, n_classes)``.
+        y_pred: integer predicted class labels, same length as ``y_true``.
+        n_classes: number of classes K (size of the confusion matrix).
 
     Returns:
         accuracy, balanced_accuracy, MCC_multiclass,

@@ -55,6 +55,13 @@ class BenchResult:
 def make_xor_collinear_dataset(n: int = 4000, n_collinear: int = 10, n_pure_noise: int = 10, noise_level: float = 0.1, seed: int = 0) -> tuple:
     """Synthesise the agent B test bed.
 
+    Args:
+        n: Number of rows.
+        n_collinear: Number of columns that are noisy copies of the XOR signal columns.
+        n_pure_noise: Number of independent noise columns.
+        noise_level: Scale of the Gaussian noise added to the signal and collinear columns.
+        seed: Seed of the random generator.
+
     Returns:
         X: pandas DataFrame with columns
             ``[x_a, x_b, z_1..z_n_collinear, n_1..n_pure_noise]``.

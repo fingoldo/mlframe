@@ -6,7 +6,7 @@ These accessors read only fitted ``self.*_`` state (``cv_results_``, ``feature_i
 
 from __future__ import annotations
 
-from typing import Union
+from typing import Any, Union
 
 import numpy as np
 import pandas as pd
@@ -23,11 +23,12 @@ def cv_results_df_(self) -> "pd.DataFrame":
     return pd.DataFrame(self.cv_results_)
 
 
-def selection_stability_(self, metric: str = "jaccard") -> float:
+def selection_stability_(self: Any, metric: str = "jaccard") -> float:
     """Mean pairwise feature-selection stability across CV folds at the chosen ``n_features_``. Free signal extracted from
     feature_importances_, no extra fits required.
 
     Args:
+        self: fitted RFECV instance.
         metric: 'jaccard' (default), 'dice', or 'kuncheva'.
 
     Returns:

@@ -33,7 +33,7 @@ class _PredictMixin:
     datamodule_params: dict
     _apply_cat_codes: Any
 
-    def _predict_raw(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
+    def _predict_raw(self, X: Any, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
         Internal method for memory-efficient batched prediction using Lightning's trainer.predict().
 
@@ -320,7 +320,7 @@ class _PredictMixin:
                 _batch_source = "fallback train batch_size"
         return _batch_source, pred_batch_size
 
-    def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
+    def predict(self, X: Any, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
         Predict using the model with memory-efficient batched processing.
 
@@ -369,7 +369,7 @@ class _ClassifierPredictMixin:
     _label_encoder: Any
     classes_: Any
 
-    def predict(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
+    def predict(self, X: Any, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
         Predict class labels for samples in X.
 
@@ -419,7 +419,7 @@ class _ClassifierPredictMixin:
             return np.asarray(self.classes_[idx])
         return np.asarray(idx)
 
-    def predict_proba(self, X, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
+    def predict_proba(self, X: Any, device: Optional[str] = None, precision: Optional[str] = None, batch_size: Optional[int] = None) -> np.ndarray:
         """
         Predict class probabilities for samples in X.
 

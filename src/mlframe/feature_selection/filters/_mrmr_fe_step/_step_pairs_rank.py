@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any, Callable, Optional
 
 import numpy as np
 from collections import defaultdict, OrderedDict
@@ -432,7 +433,7 @@ def _prepass_gate_and_usability_candidates(
     return _gate_cache, _need_usability
 
 
-def _make_cached_operand(self, X, cols, *, max_entries: int):
+def _make_cached_operand(self: Any, X: Any, cols: Any, *, max_entries: int) -> Callable[[int], Optional[np.ndarray]]:
     """Build the per-call memo for an operand's continuous usability value, with least-recently-used eviction.
 
     Carved out of ``score_prospective_pairs`` to keep it under its length ceiling. The prescan is capped, but the gate-failure path asks

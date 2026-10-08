@@ -30,7 +30,7 @@ dominate sub-ms workloads).
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 
@@ -325,7 +325,7 @@ def gpu_multiple_rmse_scores(actual, predicted):
     return cp.sqrt(sse / N)
 
 
-def gpu_multiple_roc_auc_scores(actual, predicted):
+def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
     """Vectorized ROC AUC across columns on GPU (cupy), tie-correct.
 
     Computes ROC AUC via Mann-Whitney U with fractional (average) ranks on
@@ -390,7 +390,7 @@ def gpu_multiple_roc_auc_scores(actual, predicted):
     return aucs
 
 
-def gpu_multiple_pr_auc_scores(actual, predicted):
+def gpu_multiple_pr_auc_scores(actual: Any, predicted: Any) -> Any:
     """Vectorized PR AUC (Average Precision) across columns on GPU.
 
     Computes Riemann-sum AP matching ``sklearn.metrics.average_precision_score``

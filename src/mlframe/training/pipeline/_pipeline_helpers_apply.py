@@ -15,6 +15,7 @@ Key functions:
 from __future__ import annotations
 
 import logging
+from typing import Any, Optional
 from timeit import default_timer as timer
 
 from sklearn.exceptions import NotFittedError
@@ -60,22 +61,22 @@ from ._pipeline_helpers import (  # noqa: F401
 )
 
 def _apply_pre_pipeline_transforms(
-    model,
-    pre_pipeline,
-    train_df,
-    val_df,
-    train_target,
-    skip_pre_pipeline_transform,
-    skip_preprocessing,
-    use_cache,
-    model_file_name,
-    verbose,
-    selector_passthrough_cols=None,
+    model: Any,
+    pre_pipeline: Any,
+    train_df: Any,
+    val_df: Any,
+    train_target: Any,
+    skip_pre_pipeline_transform: bool,
+    skip_preprocessing: bool,
+    use_cache: bool,
+    model_file_name: Optional[str],
+    verbose: Any,
+    selector_passthrough_cols: Optional[Any] = None,
     target_name: str | None = None,
     cache_max: int | None = None,
-    groups=None,
-    sample_weight=None,
-):
+    groups: Optional[Any] = None,
+    sample_weight: Optional[Any] = None,
+) -> tuple:
     """Apply pre-pipeline transformations to train and validation DataFrames.
 
     Args:
@@ -101,6 +102,9 @@ def _apply_pre_pipeline_transforms(
             (fix audit row FS-P1-1).
         sample_weight: Optional per-row sample weights, forwarded to selector fit calls and folded
             into the pipeline cache key.
+
+    Returns:
+        Tuple ``(train_df, val_df)`` after the pre-pipeline transforms; both unchanged when there is no model or no pre-pipeline, or when the transform is skipped.
     """
     if model is not None and pre_pipeline:
         t0_pre = timer()

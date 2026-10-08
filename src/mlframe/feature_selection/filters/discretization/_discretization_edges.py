@@ -116,6 +116,9 @@ def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile", m_max_cap: int 
             MI plug-in in the low-bias regime on small val-folds while not
             disturbing posterior shape on small data.
 
+    Returns:
+        1-D array of bin edges at the posterior-optimal bin count M.
+
     Reference: Knuth, K.H. (2006) "Optimal data-based binning for histograms",
     arXiv:physics/0605197.
     """
@@ -256,6 +259,9 @@ def _bayesian_blocks_bin_edges(
             while bounding downstream cost the same way ``knuth``'s cap does. ``500``
             matches ``edges_knuth``'s legacy default for consistency between the two
             uncapped-by-construction strategies.
+
+    Returns:
+        1-D array of Bayesian Blocks bin edges.
     """
     a = np.asarray(a, dtype=np.float64).ravel()
     a = a[np.isfinite(a)]

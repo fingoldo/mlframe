@@ -178,15 +178,15 @@ class _PerClassIsotonicCalibrator:
     Wrapped in _PostHocCalibratedModel for transparent predict_proba /
     predict delegation. Stored as a dict {class_idx: IsotonicRegression}
     plus a boolean mode flag (exclusive vs independent).
-    """
 
-    def __init__(self, calibrators, is_exclusive: bool, n_classes: int):
-        """
+    Args:
         calibrators: dict {class_idx: per-class calibrator (.predict(col) API) or None (identity skip)}.
             Each entry is a _SigmoidLogitAdapter (default method) or an IsotonicRegression (method='isotonic').
         is_exclusive: True for MULTICLASS softmax, False for MULTILABEL sigmoid
         n_classes: K
-        """
+    """
+
+    def __init__(self, calibrators: dict, is_exclusive: bool, n_classes: int) -> None:
         self.calibrators = calibrators
         self.is_exclusive = is_exclusive
         self.n_classes = n_classes

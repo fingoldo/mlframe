@@ -29,7 +29,7 @@ can audit/bench it against AdamW directly without an external dep.
 """
 from __future__ import annotations
 
-from typing import List, cast
+from typing import Iterable, List, Tuple, cast
 
 import torch
 from torch.optim import Optimizer
@@ -97,7 +97,7 @@ class Muon(Optimizer):
 
     def __init__(
         self,
-        params,
+        params: Iterable[torch.nn.Parameter],
         lr: float = 0.02,
         momentum: float = 0.95,
         nesterov: bool = True,
@@ -156,8 +156,12 @@ class MuonAdamWHybrid(Optimizer):
         params: Full parameter iterable (e.g. ``model.parameters()``).
         lr: Forwarded to AdamW (Muon uses ``muon_lr`` below).
         muon_lr: Muon step size (typically 10x AdamW's lr).
-        betas / eps / weight_decay: AdamW kwargs.
-        momentum / nesterov / ns_steps: Muon kwargs.
+        betas: AdamW exponential decay rates for the first and second moment estimates.
+        eps: AdamW numerical stability term added to the denominator.
+        weight_decay: AdamW decoupled weight decay coefficient.
+        momentum: Muon SGD momentum coefficient.
+        nesterov: Whether Muon uses Nesterov momentum.
+        ns_steps: Muon Newton-Schulz iteration count.
 
     Notes:
         The hybrid intentionally does NOT inspect MODULE identity (e.g.
@@ -171,10 +175,10 @@ class MuonAdamWHybrid(Optimizer):
 
     def __init__(
         self,
-        params,
+        params: Iterable[torch.nn.Parameter],
         lr: float = 1e-3,
         muon_lr: float = 0.02,
-        betas: tuple = (0.9, 0.95),
+        betas: Tuple[float, float] = (0.9, 0.95),
         eps: float = 1e-8,
         weight_decay: float = 1e-2,
         momentum: float = 0.95,

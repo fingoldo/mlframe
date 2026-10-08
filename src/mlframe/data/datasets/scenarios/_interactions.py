@@ -34,6 +34,9 @@ def parity_spec(order: int = 3, n_noise: int = 30, n_samples: int = 6000, ceilin
         n_samples: Rows.
         ceiling: Achievable AUC to calibrate to.
         seed: Root seed.
+
+    Returns:
+        The dataset spec of the parity bed.
     """
     if order < 2:
         raise ValueError(f"parity needs at least two operands; got {order}")

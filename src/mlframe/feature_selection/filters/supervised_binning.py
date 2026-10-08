@@ -132,6 +132,9 @@ def mdlp_bin_edges(
             per decision, not a whole-tree multiplicity correction; benched both ways,
             no consistent accuracy difference observed, left off to match that convention.
         validated_seed: RNG seed for the permutation-null fallback (default path only).
+
+    Returns:
+        Sorted 1-D array of bin edges, including the ``-inf`` / ``+inf`` sentinels.
     """
     x = np.asarray(x).ravel()
     # Handle non-numeric y

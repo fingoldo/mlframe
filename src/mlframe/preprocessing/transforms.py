@@ -296,6 +296,8 @@ def prepare_df_for_xgboost(
             ``inplace=False``, to the caller's list when ``inplace=True``).
         ensure_categorical: If True, cast any column in cat_features that
             isn't yet pd.CategoricalDtype to ``category`` dtype.
+        inplace: When True, mutate the caller's ``df`` / ``cat_features`` in
+            place (legacy). Default False = leave the caller's objects alone.
         category_domains: ``{column: [categories, ...]}`` fixed at fit time. XGBoost splits on the category CODES,
             and a bare ``astype("category")`` derives them from each frame's own value set: ``['a','b','c']`` codes
             ``c`` as 2 while ``['a','c']`` codes it as 1, so a model fitted on the first frame read the second one's
@@ -303,8 +305,6 @@ def prepare_df_for_xgboost(
             domain becomes missing rather than silently taking another category's code.
         out_category_domains: When given (a dict), receives the domain actually used for each categorical column,
             so the training call can hand exactly these to every later call.
-        inplace: When True, mutate the caller's ``df`` / ``cat_features`` in
-            place (legacy). Default False = leave the caller's objects alone.
 
     Returns:
         The (possibly new) DataFrame with categorical dtypes ensured. Use the

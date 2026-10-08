@@ -85,6 +85,13 @@ def ordinal_probabilities(score: np.ndarray, cut_points: np.ndarray) -> np.ndarr
     which is what makes the classes ordered; an unsorted set would produce negative probabilities and a
     bed that is neither ordinal nor multiclass.
 
+    Args:
+        score: Latent score per row.
+        cut_points: Strictly increasing cut points, one fewer than the number of classes.
+
+    Returns:
+        Array of shape ``(n, K)`` whose rows sum to one.
+
     Raises:
         ValueError: If the cut points are not strictly increasing.
     """

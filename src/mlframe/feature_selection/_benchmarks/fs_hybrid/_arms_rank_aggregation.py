@@ -121,6 +121,13 @@ def aggregate_ranks(table: pd.DataFrame, rule: str = "borda") -> Tuple[pd.Series
 
     Higher is better in the returned series, matching every other arm's score convention.
 
+    Args:
+        table: Rank table with one row per feature and one column per base scorer.
+        rule: Voting rule, one of ``VOTING_RULES``.
+
+    Returns:
+        The per-feature aggregate scores and the name of the rule actually applied (``borda`` when copeland is too wide to run).
+
     Raises:
         ValueError: On an unknown rule. A typo falling back to a default would report one aggregation
             under another's name, which is the whole thing this arm exists to compare.

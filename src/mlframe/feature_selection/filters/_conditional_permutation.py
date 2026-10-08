@@ -40,6 +40,7 @@ Confounders", *J. R. Statist. Soc. B* 82(1):175-197.
 from __future__ import annotations
 
 import logging
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -49,7 +50,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 def conditional_permutation_test(
     x: np.ndarray, y: np.ndarray, z: np.ndarray,
     nbins_x: int, nbins_y: int, nbins_z: int,
-    statistic_fn=None,
+    statistic_fn: Optional[Callable[[np.ndarray, np.ndarray, np.ndarray], float]] = None,
     n_permutations: int = 200,
     seed: int = 0,
 ) -> tuple[float, float]:

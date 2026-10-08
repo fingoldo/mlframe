@@ -67,10 +67,18 @@ def compute_per_column_rff(
 
     Output shape: ``(N, d_input * 2 * d_embed_per_column)``.
 
-    Parameters:
-        ``d_embed_per_column`` - number of (cos, sin) pairs per input column. 4 gives 8 RFF features per column → for d=8 input that's 64 output features.
-        ``sigma_scale`` - bandwidth multiplier. 1.0 → unit bandwidth per column (assumes data is already roughly standardised); set to ``median_pairwise_distance`` per column for the classical heuristic.
-        ``standardize`` - if True, RobustScaler-normalise each input column first (recommended for raw data).
+    Args:
+        X: Input matrix or polars DataFrame of numeric columns.
+        seed: Random seed for the projections.
+        d_embed_per_column: Number of (cos, sin) pairs per input column. 4 gives 8 RFF features per column, so 64 output features for d=8 input.
+        sigma_scale: Bandwidth multiplier. 1.0 gives unit bandwidth per column (assumes data is already roughly standardised); set to
+            ``median_pairwise_distance`` per column for the classical heuristic.
+        standardize: If True, RobustScaler-normalise each input column first (recommended for raw data).
+        dtype: Floating dtype of the computation and output.
+        column_prefix: Prefix of the output column names.
+
+    Returns:
+        Polars DataFrame of shape ``(N, d_input * 2 * d_embed_per_column)``.
     """
     from sklearn.preprocessing import RobustScaler
     seed = require_seed(seed)

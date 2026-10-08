@@ -29,7 +29,7 @@ _REL_TOL = 32.0 * np.finfo(np.float64).eps
 # preferred column of any colliding cluster is always already kept when the others arrive, so it is never evicted by a weaker one.
 # ``_eng_dedup_prefer`` reports False both ways when MI is unavailable, which sorts as equal and leaves those columns in emission order,
 # exactly the previous behaviour for an unscored cluster.
-def _strongest_first_cmp(_a: str, _b: str, _eng_dedup_prefer) -> int:
+def _strongest_first_cmp(_a: str, _b: str, _eng_dedup_prefer: Callable[[str, str], bool]) -> int:
     """Order two candidates strongest-first, treating an unscored pair as equal so the sort stays stable.
 
     Args:

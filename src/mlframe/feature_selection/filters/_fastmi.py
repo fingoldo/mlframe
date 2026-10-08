@@ -169,6 +169,9 @@ def fastmi(
         random_seed: seed for the MISE sub-sample draw when N > 1000; ``None`` maps to 0 so the default call
             stays deterministic while distinct seeds give independent replicates.
 
+    Returns:
+        Estimated mutual information in nats; 0.0 when fewer than 16 samples are given.
+
     Reference: Purkayastha, S., Song, P.X.-K. (2024), "fastMI: a fast and
     consistent copula-based nonparametric estimator of mutual information",
     *J. Multivariate Analysis* 201:105270. arXiv:2212.10268.

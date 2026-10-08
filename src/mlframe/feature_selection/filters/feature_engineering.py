@@ -10,7 +10,7 @@ Public functions:
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -328,12 +328,19 @@ _GPU_UNARY_OPS = {
 
 
 def apply_gpu_unary_batched(
-    cols_data,
+    cols_data: Any,
     column_indices: Sequence[int],
     transformation_name: str,
-):
-    """Apply a unary transformation to a batch of columns on GPU. Returns a CuPy 2-D array with shape ``(n_samples, len(column_indices))``. Only safe for names in
-    ``gpu_compatible_unary_names()``.
+) -> Any:
+    """Apply a unary transformation to a batch of columns on GPU. Only safe for names in ``gpu_compatible_unary_names()``.
+
+    Args:
+        cols_data: 2-D column container (anything with ``to_numpy`` or array-like), one column per feature.
+        column_indices: indices of the columns to transform.
+        transformation_name: name of the unary transformation, one of ``gpu_compatible_unary_names()``.
+
+    Returns:
+        CuPy 2-D float32 array with shape ``(n_samples, len(column_indices))``.
 
     Raises:
         ValueError: if the transformation is not GPU-compatible.

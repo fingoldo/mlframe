@@ -296,6 +296,9 @@ def _canonicalise_metric_name(name: str) -> str:
 def metric_name_higher_is_better(name: str) -> Optional[bool]:
     """Target-type-agnostic direction lookup for a metric name.
 
+    Args:
+        name: Metric name, possibly with a split prefix or ``@k`` suffix (e.g. ``"val_NDCG@10"``); canonicalised before lookup.
+
     Returns:
         True if the metric is in the known higher-is-better set.
         False if the metric is in the known lower-is-better set.

@@ -99,7 +99,8 @@ def genie_weights(estimator_bias_rates: Sequence[float], estimator_variance: Seq
         estimator_variance: variance proxies per estimator (K,).
         ridge: small Tikhonov term on the bias constraint.
 
-    Returns: weights of shape (K,), summing to 1.
+    Returns:
+        weights of shape (K,), summing to 1.
     """
     b = np.asarray(estimator_bias_rates, dtype=np.float64).ravel()
     v = np.asarray(estimator_variance, dtype=np.float64).ravel()

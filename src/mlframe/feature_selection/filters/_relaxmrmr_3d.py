@@ -81,7 +81,8 @@ def relax_mrmr_score(
         selected_prechecked: the caller already range-checked ``y`` and ``selected_cols`` (via
             ``assert_relax_inputs_in_range``), so the per-candidate call skips re-reading columns that do not change.
 
-    Returns: scalar score with full 3-way correction; higher = better.
+    Returns:
+        Scalar score with full 3-way correction; higher = better.
 
     Cost: ``O(|S|^2)`` 3-D plug-in MIs per candidate; on large selected
     sets enable the dispatcher only after the per-screen filter has pruned

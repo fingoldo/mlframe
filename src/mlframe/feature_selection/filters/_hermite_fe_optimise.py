@@ -9,6 +9,7 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
@@ -192,12 +193,29 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
             best_idx = k
     return best_score, best_raw, best_idx
 
-def _eval_coef_pair_batch(coefs_a, coefs_b, *, z_a, z_b, eval_func, bf_callables,
-                           bf_names, y, y_njit, mi_estimator, plugin_n_bins,
-                           n_neighbors, discrete_target, l2_penalty,
-                           l2_penalty_saturation=None,
-                           direction_only=False, eval_func_b=None,
-                           B_a=None, B_b=None, random_state=42):
+def _eval_coef_pair_batch(
+    coefs_a: np.ndarray,
+    coefs_b: np.ndarray,
+    *,
+    z_a: np.ndarray,
+    z_b: np.ndarray,
+    eval_func: Callable[..., Any],
+    bf_callables: Sequence[Callable[..., Any]],
+    bf_names: Sequence[str],
+    y: np.ndarray,
+    y_njit: np.ndarray,
+    mi_estimator: str,
+    plugin_n_bins: int,
+    n_neighbors: int,
+    discrete_target: bool,
+    l2_penalty: float,
+    l2_penalty_saturation: Optional[float] = None,
+    direction_only: bool = False,
+    eval_func_b: Optional[Callable[..., Any]] = None,
+    B_a: Optional[np.ndarray] = None,
+    B_b: Optional[np.ndarray] = None,
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Batched eval over ``P`` coefficient candidates simultaneously.
 
     Args:

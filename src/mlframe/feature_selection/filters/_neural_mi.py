@@ -152,7 +152,7 @@ def mine_mi(
         x: 1-D array, the first variable.
         y: 1-D array of equal length to ``x``, the second variable.
         hidden_dim: width of the 2-hidden-layer ELU statistics network.
-        n_epochs: number of full-batch passes; default 500 typically converges
+        n_epochs: number of full-batch passes; default 600 typically converges
             on N<=10k. Set ``verbose=True`` to see the per-epoch MI trace.
         batch_size: minibatch size for the DV objective.
         lr: Adam learning rate.
@@ -163,6 +163,9 @@ def mine_mi(
         device: ``'auto'`` (CUDA if available), ``'cuda'``, or ``'cpu'``.
         seed: per-call RNG seed for reproducibility.
         verbose: print the per-epoch MI trace every 50 epochs.
+
+    Returns:
+        Final converged Donsker-Varadhan estimate of I(X; Y) in nats, clamped at 0.
 
     Reference: Belghazi, Baratin, Rajeshwar, Ozair, Bengio, Courville, Hjelm
     (2018), "Mutual Information Neural Estimation", ICML 2018.
@@ -348,6 +351,9 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
         device: ``'auto'``, ``'cuda'``, or ``'cpu'``.
         seed: sub-sample RNG seed (used only when N > point_cloud_size).
 
+    Returns:
+        Estimated I(X; Y) from one forward pass of the pre-trained transformer.
+
     Reference: Hu, Wu, Wang, Wang, Hu, Liu (2024), "InfoNet: Neural Estimation
     of Mutual Information without Test-Time Optimization", ICML 2024.
     arXiv:2402.10158. Code: https://github.com/datou30/InfoNet.
@@ -453,6 +459,9 @@ def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
         loss: ``'mse'`` (point estimate from grgera/MIST) or ``'qr'``
             (quantile-conditioned from grgera/MIST-QR).
         device: ``'auto'``, ``'cuda'``, or ``'cpu'``.
+
+    Returns:
+        The loaded MIST model, cached per ``(loss, device)`` after the first call.
     """
     cache_key = (loss, device)
     if cache_key in _MIST_MODEL_CACHE:
@@ -634,6 +643,9 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
             at a fixed point-cloud size).
         device: ``'auto'``, ``'cuda'``, or ``'cpu'``.
         seed: ignored; feed-forward inference is deterministic.
+
+    Returns:
+        Estimated MI from the pre-trained model: calibrated to nats when ``calibrated`` is True, else the raw model output.
 
     Reference: https://arxiv.org/abs/2511.18945
     Code: https://github.com/grgera/mist

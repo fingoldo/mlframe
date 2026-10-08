@@ -21,7 +21,16 @@ from .settings import (
 
 
 class Leaderboard:
-    """Model x task score table plus per-task weights; ranks/elects models via the methods mixed in from ``_rules``/``_cw``."""
+    """Model x task score table plus per-task weights; ranks/elects models via the methods mixed in from ``_rules``/``_cw``.
+
+    Store the score table and per-task weights (default 1.0), then build ranks.
+
+    ``allow_partial``: bypass ``_partial_table_guard`` for methods with no NaN-fill strategy
+    of their own (see its docstring) -- for deliberate back-compat callers ONLY (e.g. an
+    explicit "skip" imputation policy reproducing the pre-fix pandas skipna=True bias for
+    A/B comparison). Everyone else should go through ``elect_all``/``rank_all``'s
+    ``PARTIAL_METHODS`` filter instead of setting this.
+    """
 
     from ._rules import (  # type: ignore[misc]  # class-scoped import binds these functions as unbound methods; mypy doesn't model this pattern
         mean_ranking,
@@ -49,14 +58,6 @@ class Leaderboard:
         self, table: pd.DataFrame, weights: Optional[Dict[str, float]] = None, allow_partial: bool = False,
         partial_fill: str = "min",
     ):
-        """Store the score table and per-task weights (default 1.0), then build ranks.
-
-        ``allow_partial``: bypass ``_partial_table_guard`` for methods with no NaN-fill strategy
-        of their own (see its docstring) -- for deliberate back-compat callers ONLY (e.g. an
-        explicit "skip" imputation policy reproducing the pre-fix pandas skipna=True bias for
-        A/B comparison). Everyone else should go through ``elect_all``/``rank_all``'s
-        ``PARTIAL_METHODS`` filter instead of setting this.
-        """
         self.allow_partial = allow_partial
         # How the score-based rules (mean / optimality-gap) fill a model's missing task. "min" (default) gives it the
         # task's WORST observed score; "median" is the historical behaviour, which credited a model that crashed or

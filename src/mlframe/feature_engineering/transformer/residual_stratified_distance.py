@@ -117,9 +117,15 @@ def _kth_nearest_dists_and_residuals(
     on the geometry stage and a strict prerequisite for any later hnswlib path (which has
     higher per-index build cost than sklearn).
 
+    Args:
+        X_subset: Reference rows the neighbours are searched in.
+        abs_resid_subset: Absolute residual of each row of ``X_subset``.
+        X_query: Rows to find neighbours for.
+        residual_k: Number of nearest reference rows whose residuals are averaged.
+
     Returns:
-        dists: (n_query, len(_K_SCALES)) — distances at k in _K_SCALES
-        mean_resid: (n_query,) — mean |residual| of nearest residual_k training rows
+        dists: (n_query, len(_K_SCALES)) - distances at k in _K_SCALES
+        mean_resid: (n_query,) - mean |residual| of nearest residual_k training rows
     """
     n_sub = X_subset.shape[0]
     n_q = X_query.shape[0]

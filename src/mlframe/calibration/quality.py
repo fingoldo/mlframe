@@ -507,15 +507,15 @@ def plot_pit_diagram(
     Plots a Probability Integral Transform (PIT) diagram for binary predictions.
 
     Args:
-        predicted_probs (array-like): Predicted probabilities for the positive class.
-        true_labels (array-like): Binary true labels (0 or 1).
-        pit_values (array-like): Precomputed PIT values, used directly instead of deriving them
+        predicted_probs: Predicted probabilities for the positive class.
+        true_labels: Binary true labels (0 or 1).
+        pit_values: Precomputed PIT values, used directly instead of deriving them
             from ``predicted_probs``/``true_labels`` when supplied.
-        title_prefix (str): Optional prefix prepended to the figure TITLE (the how-to-read caption is fixed).
-        bins (int): Number of bins for the histogram.
-        figsize (tuple): Figure size passed through to the underlying FigureSpec.
-        plot_file (str): when set, save the figure here (``.png`` appended if no extension).
-        plot_outputs (str): optional plot-output DSL (e.g. ``"matplotlib[png] + plotly[html]"``);
+        title_prefix: Optional prefix prepended to the figure TITLE (the how-to-read caption is fixed).
+        bins: Number of bins for the histogram.
+        figsize: Figure size passed through to the underlying FigureSpec.
+        plot_file: when set, save the figure here (``.png`` appended if no extension).
+        plot_outputs: optional plot-output DSL (e.g. ``"matplotlib[png] + plotly[html]"``);
             overrides ``plot_file``'s single-format inference when supplied.
 
     Routes through the spec pipeline (``build_pit_diagram_spec`` + the renderer) so the PIT
@@ -623,10 +623,11 @@ _AD_PARALLEL_THRESHOLD = 200_000
 def anderson_darling_statistic(pit_values: np.ndarray) -> float:
     """
     Calculate the Anderson-Darling statistic for a uniform distribution.
-    Parameters:
-        pit_values (array-like): Array of PIT values.
+    Args:
+        pit_values: Array of PIT values.
+
     Returns:
-        float: Anderson-Darling statistic.
+        Anderson-Darling statistic.
     """
     n = len(pit_values)
     # (1/n) on empty pit_values divides by zero.

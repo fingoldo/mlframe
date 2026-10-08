@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Sequence, Tuple, Any
+from typing import Sequence, Tuple, Any, Optional
 
 import numba
 import numpy as np
@@ -402,7 +402,19 @@ def evaluate_gain(
     return stopped_early, current_gain, k - 1, sink_reasons
 
 
-def _materialise_knob_columns(*, factors_data, X, y, factors_nbins, dtype, selected_vars, relax_y_col, relax_k_y, relax_sel_cols, relax_sel_nbins) -> dict:
+def _materialise_knob_columns(
+    *,
+    factors_data: np.ndarray,
+    X: Any,
+    y: Any,
+    factors_nbins: np.ndarray,
+    dtype: Any,
+    selected_vars: Any,
+    relax_y_col: Optional[np.ndarray],
+    relax_k_y: Optional[int],
+    relax_sel_cols: Optional[list],
+    relax_sel_nbins: Optional[list],
+) -> dict:
     """Materialise the candidate, target and selected-set columns the research knobs share.
 
     Carved out of ``evaluate_candidate`` to keep it under its length ceiling. RelaxMRMR, PID, the CMI-permutation stop and CPT all want
