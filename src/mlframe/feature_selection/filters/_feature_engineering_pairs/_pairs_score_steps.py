@@ -461,7 +461,7 @@ def _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations
                     st.i += 1
 
 
-def _config_abs_corr(_cfg, final_transformed_vals, _this_chunk_deferred, _resolve_col, _safe_abs_corr, _config_by_i, transformed_vars, vars_transformations, binary_transformations):
+def _config_corr(_cfg, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr):
     """|corr(continuous y)| of a config's materialised continuous column; -1.0 when
     it cannot be rebuilt (so an unrecoverable form never wins the comparison)."""
     try:
@@ -537,10 +537,9 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
         # below decide it on its own merits; demotion is for the MI-tie monotone case only.
         if _bc_uses_pw and st.best_nonprewarp_mi >= st.best_mi * fe_good_to_best_feature_mi_threshold:
 
-            _config_corr = partial(_config_abs_corr, final_transformed_vals=final_transformed_vals, _this_chunk_deferred=_this_chunk_deferred, _resolve_col=_resolve_col, _safe_abs_corr=_safe_abs_corr, _config_by_i=_config_by_i, transformed_vars=transformed_vars, vars_transformations=vars_transformations, binary_transformations=binary_transformations)
-
-            _pw_corr = _config_corr(st.best_config)
-            _clean_corr = _config_corr(st.best_nonprewarp_config)
+            _corr_args = (final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr)
+            _pw_corr = _config_corr(st.best_config, *_corr_args)
+            _clean_corr = _config_corr(st.best_nonprewarp_config, *_corr_args)
             # Demote to the clean form unless the prewarp form is MEANINGFULLY more linearly
             # usable. ``1.05`` = the prewarp must beat the clean |corr| by >= 5% to justify the
             # distorted re-expression; a genuinely non-monotone inner clears this comfortably
@@ -758,12 +757,12 @@ def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transform
                 _tgt = getattr(_safe_abs_corr, "target", None)
                 if _tgt is not None and _tgt[0] is not None:
                     _win_corr_dev = abs_corr_or_none(_win_dev, _tgt[0], _tgt[1])
-            _win_corr = _win_corr_dev
-            _win_measured = _win_corr_dev is not None
-            if not _win_measured and (final_transformed_vals is not None or _this_chunk_deferred):
+            _win_has_corr = _win_corr_dev is not None
+            _win_corr = _win_corr_dev if _win_has_corr else 0.0
+            if not _win_has_corr and (final_transformed_vals is not None or _this_chunk_deferred):
                 _win_vals = _resolve_col(st.best_config[2])
                 _win_corr = _safe_abs_corr(_win_vals)
-                _win_measured = True
+                _win_has_corr = True
             # Compare against the strongest CLEAN per-operand column the winner actually used: each operand
             # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` - raw ``a`` is ~0 corr
             # for an even target like ``exp(-a**2)``), falling back to the raw operand value. This is the
@@ -774,7 +773,7 @@ def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transform
             _op_corr = 0.0
             _tp = st.best_config[0]
             _op_corr = _score_one_pair_computed_once_per_distinct(_tp, vars_transformations, _op_corr, _transformed_operand_abs_corr, _raw_operand_abs_corr, raw_vars_pair)
-            if _win_measured and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC:
+            if _win_has_corr and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC:
                 st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = False
                 st._usability_accept = st._usability_primary = False
                 if verbose:

@@ -508,7 +508,11 @@ def _kendall_tau_z(x: np.ndarray, y: np.ndarray) -> Tuple[float, float]:
     return tau, z
 
 
-def _kendall_p_numeric_continuous(x: np.ndarray, y: np.ndarray, random_state: int = 0) -> float:
+def _kendall_p_numeric_continuous(
+    x: np.ndarray,
+    y: np.ndarray,
+    random_state: int = 0,
+) -> float:  # unused-ok: random_state: the full-n Kendall test is deterministic; kept so callers and tests pin that the seed has no effect
     """Kendall tau-b p-value for numeric feature ``x`` vs a continuous target ``y`` at full ``n`` (scipy if available, else the O(n^2) njit fallback); ``1.0`` on <5 valid rows."""
     mask = ~np.isnan(x) & ~np.isnan(y)
     if mask.sum() < 5:
@@ -579,7 +583,7 @@ def calculate_relevance_table(
     fdr_level: float = 0.05,
     n_jobs: int = 1,
     random_state: int = 0,
-) -> pd.DataFrame:
+) -> pd.DataFrame:  # unused-ok: n_jobs: documented no-op, reserved for future parallelisation
     """Per-feature univariate relevance test with BY-FDR correction.
 
     Args:

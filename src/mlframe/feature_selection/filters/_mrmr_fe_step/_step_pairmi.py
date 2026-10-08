@@ -59,7 +59,7 @@ def _kill_reusable_loky_workers() -> bool:
     backend, simply leaves nothing to kill.
     """
     try:
-        from joblib.externals.loky import get_reusable_executor
+        from joblib.externals.loky import get_reusable_executor  # vendored-ok: must be the executor instance joblib itself uses
 
         get_reusable_executor().shutdown(kill_workers=True)
         return True

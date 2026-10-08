@@ -12,7 +12,7 @@ Commands:
 from __future__ import annotations
 
 import argparse
-import json
+import orjson
 import sys
 
 from pyutilz.performance.kernel_tuning.registry import discover_tuners, get_registry, retune_all, tune_spec
@@ -144,7 +144,7 @@ def cmd_explain(specs: dict, kernel: str, dims: str | None) -> int:
     """Show the cache's lookup decision for a kernel at the given dims."""
     spec = _find_spec(specs, kernel)
     name = spec.kernel_name if spec is not None else kernel
-    print(json.dumps(KernelTuningCache().lookup_explain(name, **_parse_dims(dims)), indent=2, default=str))
+    print(orjson.dumps(KernelTuningCache().lookup_explain(name, **_parse_dims(dims)), option=orjson.OPT_INDENT_2, default=str).decode("utf-8"))
     return 0
 
 

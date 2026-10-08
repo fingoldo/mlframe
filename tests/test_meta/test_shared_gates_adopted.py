@@ -50,4 +50,4 @@ def test_no_swallowed_io_or_broad_failures():
 
 def test_no_new_xfail_that_defers_a_fix():
     """An xfail parks a known defect; each existing one names its gap in the baseline, and a new one must be a fix instead."""
-    assert_no_xfail_to_defer(REPO_ROOT / "tests", repo_root=REPO_ROOT, baseline_path=HERE / "_xfail_baseline.json", min_files=3000)
+    assert_no_xfail_to_defer(REPO_ROOT / "tests", repo_root=REPO_ROOT, baseline_path=HERE / "_xfail_baseline.json", known_gap_modules=(), min_files=3000)

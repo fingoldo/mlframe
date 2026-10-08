@@ -16,7 +16,7 @@ import pandas as pd
 
 from sklearn.linear_model import Ridge, LogisticRegression
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 
 from mlframe.training.configs import (
     DataConfig,

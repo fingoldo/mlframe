@@ -51,7 +51,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -76,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
+        os: [ubuntu-24.04]
         python-version: ["3.11"]
         # Active sklearn versions in production use. Exact pins make
         # breakage attributable to the specific minor. Floor is 1.6: category-encoders (a hard mlframe dep)
@@ -89,12 +89,12 @@ jobs:
           # Cross-Python: py3.13 catches sklearn-deprecation warnings under the
           # newest numpy ABI; only the latest sklearn is exercised (older sklearn
           # versions pre-date py3.13 wheel availability).
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             python-version: "3.13"
             sklearn-version: "1.8.0"
           # Newest Python (3.14) on the latest sklearn; experimental until the
           # composite-path optional extras publish cp314 wheels.
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             python-version: "3.14"
             sklearn-version: "1.8.0"
             experimental: true

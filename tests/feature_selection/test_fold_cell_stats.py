@@ -7,6 +7,7 @@ import pandas as pd
 
 from mlframe.feature_selection.filters._count_freq_interaction_fe import cat_num_interaction_fit
 from mlframe.feature_selection.filters._fold_cell_stats import fold_cell_sum_cnt
+from tests.conftest import skip_under_numba_disabled_jit
 
 
 def _ref(codes, y, fold_ids, skip, n_cells, valid=None):
@@ -61,6 +62,7 @@ def test_composite_corr_small_inputs_route_to_kernel_and_match_numpy():
     assert cn._MIN_ROWS < 20_000 and cn._MIN_COLS < 64
 
 
+@skip_under_numba_disabled_jit
 def test_unary_registry_matches_numpy_references_and_is_disk_cached():
     """Registry transforms equal their numpy definitions and the njit wrappers carry an on-disk cache."""
     from mlframe.feature_selection.filters.feature_engineering import create_unary_transformations
@@ -74,6 +76,7 @@ def test_unary_registry_matches_numpy_references_and_is_disk_cached():
     assert type(reg["neg"]._cache).__name__ != "NullCache"
 
 
+@skip_under_numba_disabled_jit
 def test_evaluate_gain_disk_cache_follows_ci_flag():
     """evaluate_gain persists compiled code on disk unless the CI guard is active."""
     from mlframe.feature_selection.filters import evaluation as ev

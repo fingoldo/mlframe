@@ -47,7 +47,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.feature_selection.conftest import is_fast_mode, fast_subset
 
 warnings.filterwarnings("ignore")
@@ -287,7 +287,7 @@ def test_biz_val_mrmr_int_weight_matches_row_duplication_engineered_values(ctor_
         assert gap_closed, f"engineered replay values diverge between duplication and sample_weight (shared={checked}, maxdiff={maxdiffs})"
         return
     known_gap(
-        "PROD GAP: MRMR sample_weight is a fixed-size MC resample (not row duplication) and _target_encoding_fe.py ignores sample_weight (0 refs), so "
+        "(KG-7) PROD GAP: MRMR sample_weight is a fixed-size MC resample (not row duplication) and _target_encoding_fe.py ignores sample_weight (0 refs), so "
         f"engineered-recipe replay values diverge from the duplication baseline (shared={checked}, maxdiff={maxdiffs}, dup={_engineered_names(sel_a)}, "
         f"sw={_engineered_names(sel_b)})",
         gap_closed=gap_closed,

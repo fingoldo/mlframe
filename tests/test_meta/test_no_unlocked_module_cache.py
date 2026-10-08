@@ -76,11 +76,16 @@ def _module_level_cache_names(tree: ast.Module) -> list[tuple[str, int]]:
     return sorted(mutable_module_dicts(tree).items())
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(MLFRAME_DIR.rglob("*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{relpath:lineno}`` for every module-level ``*_CACHE`` dict defined in a file with no
     ``Lock()``/``RLock()`` construction anywhere."""
     out: set[str] = set()
-    for py in MLFRAME_DIR.rglob("*.py"):
+    for py in _candidate_files():
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         if py.name.endswith(".py.old"):

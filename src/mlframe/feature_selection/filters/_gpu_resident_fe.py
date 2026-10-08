@@ -869,7 +869,7 @@ void fused_gen_bin_hist(const double* __restrict__ ua, const double* __restrict_
         // bin: searchsorted(edges[c], v, side='right')
         int lo = 0, hi = ne;
         while (lo < hi) { int mid = (lo + hi) >> 1; if (ec[mid] > v) hi = mid; else lo = mid + 1; }
-        int slot = lo * K_y;
+        int slot = lo * K_y;  // width-ok: bounded by hist_size, which must fit in dynamic shared memory
         for (int p = 0; p < P1; ++p) {
             int yp = y_all[(long long)p * n + i];
             atomicAdd(&sh[p * nbky + slot + yp], 1);

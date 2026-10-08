@@ -68,7 +68,7 @@ def shapley_model_values(
     score_subsample: Optional[int] = 20000,
     rng: Optional[np.random.Generator] = None,
     n_jobs: int = 1,
-) -> tuple[np.ndarray, dict]:
+) -> tuple[np.ndarray, dict]:  # unused-ok: n_jobs: documented no-op, coalition scoring is serial; uniform estimator signature
     """Shapley values ``(n_models,)`` of ``v(C) = score_fn(y, blend(preds[C]))`` over the model pool.
 
     ``preds``: ``(n_models, n_rows)`` OOF predictions (proba or margin). ``v(empty coalition)`` is the

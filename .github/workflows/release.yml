@@ -21,7 +21,7 @@ permissions:
 jobs:
   build:
     name: build sdist + wheel
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write      # attest-build-provenance signs via OIDC
@@ -91,7 +91,7 @@ jobs:
     # equality assert, which is itself gated on the release event.
     if: github.event_name == 'release'
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
       name: pypi

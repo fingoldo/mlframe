@@ -101,10 +101,15 @@ def _numba_config_env_mutations(tree: ast.Module) -> list[tuple[int, str]]:
     return out
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(_TESTS_DIR.rglob("test_*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{"relpath:lineno:what", ...}`` for every flagged numba-config env mutation under ``tests/``."""
     out: set[str] = set()
-    for py in _TESTS_DIR.rglob("test_*.py"):
+    for py in _candidate_files():
         if "__pycache__" in py.parts:
             continue
         try:

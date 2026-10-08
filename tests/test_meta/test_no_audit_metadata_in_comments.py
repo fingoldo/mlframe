@@ -83,6 +83,11 @@ def _comment_fingerprint(comment: str) -> str:
     return hashlib.blake2b(normalised.encode("utf-8"), digest_size=8).hexdigest()
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(MLFRAME_DIR.rglob("*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{"relpath::fingerprint:kind", ...}`` for every banned metadata marker in a comment.
 
@@ -95,7 +100,7 @@ def _build_offending_set() -> set[str]:
     The line number is not part of the identity of "this comment carries a date stamp"; the comment is.
     """
     out: set[str] = set()
-    for py in MLFRAME_DIR.rglob("*.py"):
+    for py in _candidate_files():
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         text = source_text(py)

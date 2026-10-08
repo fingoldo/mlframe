@@ -78,7 +78,6 @@ def error_bias_per_feature(
     tail_fraction: float = DEFAULT_TAIL_FRACTION,
     nbins: int = DEFAULT_OVERLAY_BINS,
     title: str = "Error bias per feature (OVER / UNDER / MAJORITY)",
-    seed: int = 0,
 ) -> ErrorBiasResult:
     """Own Evidently error-bias reimplementation: which feature values drive extreme errors.
 

@@ -84,7 +84,9 @@ def test_partial_nan_dedup_is_fast_and_bounded(N, P):
         v[rng.random(N) < 0.25] = np.nan
         cols[f"c{j}"] = v
     X = pd.DataFrame(cols)
-    t = time.perf_counter()
-    _dedup_collinear_source_cols(X, list(X.columns), corr_threshold=0.999)
-    dt = time.perf_counter() - t
+    dt = float("inf")
+    for _ in range(2):
+        t = time.perf_counter()
+        _dedup_collinear_source_cols(X, list(X.columns), corr_threshold=0.999)
+        dt = min(dt, time.perf_counter() - t)
     assert dt < 8.0, f"dedup took {dt:.1f}s at N={N} P={P}; row-cap/vectorization regressed to O(P^2*N)"

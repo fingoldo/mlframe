@@ -10,8 +10,8 @@ from __future__ import annotations
 import contextlib
 import glob
 import hashlib
-import json
 import logging
+import orjson
 import os
 import pickle  # nosec B403 - module used safely in this file, see call sites below (no untrusted input reaches it)
 import re
@@ -162,8 +162,8 @@ class DiscoveryCache:
         if not os.path.exists(self._lru_path):
             return {}
         try:
-            with open(self._lru_path, "r", encoding="utf-8") as f:
-                d = json.load(f)
+            with open(self._lru_path, "rb") as f:
+                d = orjson.loads(f.read())
             if isinstance(d, dict):
                 return {str(k): float(v) for k, v in d.items()}
         except (OSError, ValueError):
@@ -181,9 +181,9 @@ class DiscoveryCache:
         # quickly under sustained load (Windows 8192 default fd ceiling).
         _fd_adopted = False
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "wb") as f:
                 _fd_adopted = True
-                json.dump(lru, f, sort_keys=True)
+                f.write(orjson.dumps(lru, option=orjson.OPT_SORT_KEYS))
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, self._lru_path)

@@ -16,7 +16,7 @@ as a post-hoc addition rather than blending into the pre-registered set.
 
 from __future__ import annotations
 
-import json
+import orjson
 import logging
 import os
 from dataclasses import dataclass, field
@@ -460,8 +460,8 @@ def build_lock(seed: int = 0) -> Dict[str, Any]:
 def load_lock() -> Dict[str, Any]:
     """Return the committed lock, or an empty mapping when it has not been written yet."""
     try:
-        with open(LOCK_PATH, encoding="utf-8") as handle:
-            return dict(json.load(handle))
+        with open(LOCK_PATH, "rb") as handle:
+            return dict(orjson.loads(handle.read()))
     except (OSError, ValueError) as exc:
         logger.info("no usable scenario lock at %s: %s", LOCK_PATH, exc)
         return {}

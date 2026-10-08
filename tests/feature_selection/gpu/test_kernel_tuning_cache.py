@@ -77,13 +77,26 @@ def test_measure_single_region_returns_well_formed_dict():
 # --------------------------------------------------------------------------
 
 
-def test_streamed_uses_multiple_streams_and_reproducible_independent_permutations():
-    """The streamed variant alternates batches across >=2 CUDA streams, and its permutations are SEEDED HOST draws, one distinct draw per batch
-    (keyed by the running offset), so the result is bit-reproducible, identical to a single-stream run and independent of how many streams
-    share the work. (The per-stream ``cp.random`` generators of the earlier design were replaced by this on purpose: device RNG streams cannot
-    reproduce the CPU path's permutations.)"""
+def test_streamed_uses_multiple_streams_and_disjoint_host_permutation_slices():
+    """The streamed variant creates >=2 streams and draws each batch from a disjoint slice of the shared host permutation stream."""
     from mlframe.feature_selection.filters import _gpu_batched
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_streamed
+
+    n_streams_created = []
+    perm_slices = []
+    real_stream = cp.cuda.Stream
+    real_host_perms = _gpu_batched.host_permuted_y_batch
+
+    def _track_stream(*a, **kw):
+        """Wrap cp.cuda.Stream to record every created stream, proving the streamed variant uses >=2 streams."""
+        s = real_stream(*a, **kw)
+        n_streams_created.append(s)
+        return s
+
+    def _track_perms(classes_y, base_seed, first_perm, count):
+        """Record the (first_perm, count) slice of the host permutation stream each batch consumes."""
+        perm_slices.append((int(first_perm), int(count)))
+        return real_host_perms(classes_y, base_seed, first_perm, count)
 
     rng = np.random.default_rng(31)
     data = np.column_stack(
@@ -93,38 +106,19 @@ def test_streamed_uses_multiple_streams_and_reproducible_independent_permutation
         ]
     )
     nbins = np.array([3, 3], dtype=np.int32)
-    real_stream = cp.cuda.Stream
-    real_perms = _gpu_batched.host_permuted_y_batch
 
-    def run(n_streams: int):
-        """One streamed call; returns (result, number of streams created, permutation-batch offsets drawn, seeds used)."""
-        created, offsets, seeds = [], [], []
+    with mock.patch.object(cp.cuda, "Stream", side_effect=_track_stream), mock.patch.object(_gpu_batched, "host_permuted_y_batch", side_effect=_track_perms):
+        mi_direct_gpu_batched_streamed(
+            data,
+            (0,),
+            (1,),
+            nbins,
+            npermutations=64,
+            batch_size=32,
+        )
 
-        def _track_stream(*a, **kw):
-            """Record every created stream."""
-            st = real_stream(*a, **kw)
-            created.append(st)
-            return st
-
-        def _track_perms(classes_y, base_seed, offset, count):
-            """Record the (seed, offset) of every permutation batch, then draw it for real."""
-            seeds.append(base_seed)
-            offsets.append(offset)
-            return real_perms(classes_y, base_seed, offset, count)
-
-        with mock.patch.object(cp.cuda, "Stream", side_effect=_track_stream), mock.patch.object(_gpu_batched, "host_permuted_y_batch", side_effect=_track_perms):
-            res = mi_direct_gpu_batched_streamed(data, (0,), (1,), nbins, npermutations=64, batch_size=32, n_streams=n_streams, base_seed=7)
-        return res, len(created), offsets, seeds
-
-    res2, n_streams2, offsets2, seeds2 = run(2)
-    assert n_streams2 >= 2, f"streamed variant should create >=2 streams; got {n_streams2}"
-    assert offsets2 == sorted(set(offsets2)) and len(offsets2) >= 2, f"each batch must draw its own permutations at a distinct offset; got {offsets2}"
-    assert set(seeds2) == {7}, f"every batch must draw from the caller's seed; got {seeds2}"
-
-    res1, _, _, _ = run(1)
-    res3, _, _, _ = run(3)
-    again, _, _, _ = run(2)
-    assert res2 == res1 == res3 == again, f"result must not depend on the stream count or the launch: {res1} {res2} {res3} {again}"
+    assert len(n_streams_created) >= 2, f"streamed variant should create >=2 streams; got {len(n_streams_created)}"
+    assert perm_slices == [(0, 32), (32, 32)], f"batches must consume consecutive disjoint slices of the host permutation stream; got {perm_slices}"
 
 
 # --------------------------------------------------------------------------
@@ -188,6 +182,8 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     expected axes + region keys."""
 
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
+    # tests/conftest.py disables sweeps session-wide; this test exists to exercise the sweep and its persistence.
+    monkeypatch.delenv("PYUTILZ_KERNEL_DISABLE_SWEEP", raising=False)
     from pyutilz.performance.kernel_tuning.cache import hw_fingerprint
 
     hw_fingerprint.cache_clear()

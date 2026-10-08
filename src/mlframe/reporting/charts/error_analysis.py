@@ -468,7 +468,6 @@ def segments_bar(
     title: str = "Metric by subgroup",
     higher_is_worse: bool = False,
     max_groups: int = 30,
-    seed: int = 0,
 ) -> FigureSpec:
     """Per-subgroup metric bars with a global-reference hline.
 

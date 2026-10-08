@@ -35,12 +35,12 @@ permissions:
 
 concurrency:
   group: local-only-hooks-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   hooks:
     name: hooks with no CI counterpart
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     continue-on-error: true
     steps:

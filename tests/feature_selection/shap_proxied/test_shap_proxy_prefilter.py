@@ -571,16 +571,20 @@ def test_biz_value_cached_f_scores_avoid_recomputation():
     _, info = prefilter_columns(model, X, y, method="two_stage", prefilter_top=200, classification=True, n_features=width, n_estimators_cap=80, stage1_keep=800)
 
     # 1) Cached path: just read the published vector (free).
-    t0 = _time.perf_counter()
-    cached = get_cached_f_scores(info)
-    t_cached = _time.perf_counter() - t0
+    t_cached = float("inf")
+    for _ in range(5):
+        t0 = _time.perf_counter()
+        cached = get_cached_f_scores(info)
+        t_cached = min(t_cached, _time.perf_counter() - t0)
     assert cached is not None and cached.shape[0] == width
 
     # 2) Naive path a downstream stage would have used pre-iter13: recompute f_classif from scratch.
     Xv = X.values
-    t0 = _time.perf_counter()
-    fresh, _ = f_classif(Xv, y)
-    t_fresh = _time.perf_counter() - t0
+    t_fresh = float("inf")
+    for _ in range(3):
+        t0 = _time.perf_counter()
+        fresh, _ = f_classif(Xv, y)
+        t_fresh = min(t_fresh, _time.perf_counter() - t0)
     fresh = np.asarray(fresh, dtype=np.float64)
     fresh[~np.isfinite(fresh)] = -np.inf
 

@@ -214,8 +214,8 @@ def test_biz_val_mrmr_simple_mode_row_scaling_envelope(_warm_numba):
     the theoretical ratio is ~4x; the 8x bound (2x headroom) trips only on a real
     complexity regression (e.g. an accidental O(n^2) gather / sort). Measured ~2.06x.
     """
-    t_n = _time_simple_fit(2000, 40, seed=42)
-    t_4n = _time_simple_fit(8000, 40, seed=42)
+    t_n = min(_time_simple_fit(2000, 40, seed=42) for _ in range(2))
+    t_4n = min(_time_simple_fit(8000, 40, seed=42) for _ in range(2))
 
     # A RATIO is far more contention-robust than an absolute time -- both legs run on the same loaded box and
     # pay a similar tax -- so this is widened under xdist rather than skipped. Skipping meant the complexity
@@ -236,8 +236,8 @@ def test_biz_val_mrmr_simple_mode_feature_scaling_envelope(_warm_numba):
     25x bound (~1.6x headroom) trips only on a real complexity regression (e.g. an
     accidental O(p^3) pairwise-redundancy blow-up). Measured ~2.31x.
     """
-    t_p = _time_simple_fit(2000, 40, seed=42)
-    t_4p = _time_simple_fit(2000, 160, seed=42)
+    t_p = min(_time_simple_fit(2000, 40, seed=42) for _ in range(2))
+    t_4p = min(_time_simple_fit(2000, 160, seed=42) for _ in range(2))
 
     # Widened under xdist rather than skipped -- see the row-scaling sensor above.
     assert t_p > 0.05, f"baseline fit too fast to measure a meaningful ratio: {t_p:.4f}s"

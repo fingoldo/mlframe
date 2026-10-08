@@ -1,23 +1,29 @@
-"""Pair-form proposal generators of the FE auto-escalation pass: signal-adaptive polynomial routing and the Fourier / chirp amplitude fits (carved from _fe_auto_escalation; re-exported there)."""
+"""Candidate proposers of the FE auto-escalation: the signal-adaptive orthogonal-polynomial warp and the demodulated adaptive-frequency Fourier / chirp warp.
+
+Carved out of ``_fe_auto_escalation``, which re-exports every name so the historical import path keeps working.
+"""
 
 from __future__ import annotations
 
 import logging
-
 import numpy as np
+
 from mlframe.feature_selection.filters._safe_scale import guarded_scale, scale_is_usable
 
-logger = logging.getLogger(__name__)
-
+logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Signal-adaptive poly basis routing: try all four shipped families, best by held-out
 # reconstruction |corr|. Chebyshev first (the production prewarp default).
 _ESCALATION_POLY_BASES = ("chebyshev", "hermite", "legendre", "laguerre")
 
+
 # Coarse z-space frequency grids - VERBATIM the shipped univariate adaptive grids
 # (``_orth_extra_basis_fe``): linear axis 0.5..8.0, chirp axis 0.5..24.0.
 _ADAPTIVE_F_GRID = tuple(0.5 * k for k in range(1, 17))
+
+
 _CHIRP_F_GRID = tuple(0.5 * k for k in range(1, 49))
+
 
 # Identity warp degree for the mate operand (coef [0, 1] -> the basis' affine z map).
 _IDENTITY_BASIS = "chebyshev"
@@ -76,6 +82,47 @@ def _candidate_values(x_a: np.ndarray, spec_a: dict, x_b: np.ndarray, spec_b: di
     return np.asarray(out)
 
 
+def _heldout_abs_corr(vals_va, y_va) -> float:
+    """Absolute correlation between candidate values ``vals_va`` and the held-out (mean-centered) target ``y_va``, sanitizing non-finite inputs and returning 0.0 for a constant/degenerate candidate."""
+    vals_va = np.nan_to_num(np.asarray(vals_va, dtype=np.float64), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    if float(np.std(vals_va)) < 1e-12:
+        return 0.0
+    cc = float(np.corrcoef(vals_va, y_va)[0, 1])
+    return abs(cc) if np.isfinite(cc) else 0.0
+
+
+def _best_pair_basis(_blocks_a, _blocks_b, y_tr, y_va, xa_tr, xb_tr):
+    """Basis whose rank-1 ALS pair reconstruction has the best held-out |corr|; returns ``(basis_or_None, corr)``."""
+    from .hermite_fe import warm_start_als_seed
+
+    best_corr = -1.0
+    best_basis = None
+    for basis in _ESCALATION_POLY_BASES:
+        try:
+            blk_a = _blocks_a.get(basis); blk_b = _blocks_b.get(basis)
+            if blk_a is None or blk_b is None:
+                continue
+            Ba_tr, Ba_va, za_tr = blk_a; Bb_tr, Bb_va, zb_tr = blk_b
+            # Rank-1 ALS pair warp = fit_pair_prewarp_als' solve on the SAME basis
+            # matrices (warm_start_als_seed; OLS-ALS, no robustify - matches legacy).
+            # z_a/z_b/basis are passed too so the resident GPU branch takes the
+            # DEVICE-BORN path (warm_start_als_seed_gpu_from_z): Ba/Bb are rebuilt on
+            # device from these standardised columns (the SAME basis_fit the prebuilt
+            # Ba_tr/Bb_tr used), collapsing the ~358MB design H2D at 300k. Ba_tr/Bb_tr
+            # still feed the byte-identical CPU fallback (default, flag-off) path.
+            coef_a, coef_b = warm_start_als_seed(Ba_tr, Bb_tr, y_tr, iters=3, x_a=xa_tr, x_b=xb_tr, z_a=za_tr, z_b=zb_tr, basis=basis)
+            if coef_a is None or coef_b is None:
+                continue
+            c = _heldout_abs_corr((Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64)) * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64)), y_va)
+        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
+            logger.debug("suppressed: %s", e)
+            continue
+        if c > best_corr:
+            best_corr = c
+            best_basis = basis
+    return best_basis, best_corr
+
+
 def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_margin: float = 1.15):
     """Signal-adaptive orth-poly proposer: rank-1 ALS pair warp per shipped basis,
     held-out stride validation of the rank-1 reconstruction, best basis wins.
@@ -105,7 +152,7 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
     # - ``warm_start_als_seed`` (3 lstsq/ALS x 4 bases, ~0.95s/call) + the 8 single-operand
     # ``fit_basis_coef_robust`` solves (~0.52s/call); skipping bases or the single baseline
     # changes the pairness-guard verdict and is NOT selection-safe."""
-    from .hermite_fe import build_basis_matrix, fit_pair_prewarp_als, warm_start_als_seed
+    from .hermite_fe import build_basis_matrix, fit_pair_prewarp_als
     from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
     from mlframe.feature_selection.filters.hermite_fe.shared import fit_basis_coef_robust
     xa = _finite_filled(x_a)
@@ -125,14 +172,6 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
     if float(np.std(y_tr)) < 1e-12 or float(np.std(y_va)) < 1e-12:
         return None
     deg = max(1, int(degree))
-
-    def _heldout_corr(vals_va) -> float:
-        """Absolute correlation between candidate values ``vals_va`` and the held-out (mean-centered) target ``y_va``, sanitizing non-finite inputs and returning 0.0 for a constant/degenerate candidate."""
-        vals_va = np.nan_to_num(np.asarray(vals_va, dtype=np.float64), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-        if float(np.std(vals_va)) < 1e-12:
-            return 0.0
-        cc = float(np.corrcoef(vals_va, y_va)[0, 1])
-        return abs(cc) if np.isfinite(cc) else 0.0
 
     # Per-(operand-slice, basis) z-map + train/val basis matrices, built ONCE and
     # shared by BOTH the single-operand baseline (1-D OLS) and the pair ALS sweep.
@@ -184,7 +223,7 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
         _zmap_cache = {}  # z-map cache is per OPERAND (different column -> different z)
         if float(np.std(xraw)) < 1e-12 or float(np.std(y_tr)) < 1e-12:
             continue
-        # ONE heavy-tail memo scope per operand (cProfile-driven): _basis_block fits each escalation
+        # ONE heavy-tail memo scope per operand (2026-07-02, cProfile-driven): _basis_block fits each escalation
         # basis on the SAME x_tr, and every basis preprocess re-runs the robust heavy-tail np.median/MAD detect
         # on that identical column. Wrapping the per-basis probe in one nesting-safe, identity-verified scope
         # collapses the ~5 detects/operand to 1 (bit-identical: the memo returns a cached verdict only when the
@@ -199,36 +238,12 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
                     coef, _rb, _wn = fit_basis_coef_robust(B_tr, _y_tr_c, x_tr)
                     if coef is None or not np.all(np.isfinite(coef)):
                         continue
-                    single_best = max(single_best, _heldout_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64)))
+                    single_best = max(single_best, _heldout_abs_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64), y_va))
                 except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)
                     continue
 
-    best_corr = -1.0
-    best_basis = None
-    for basis in _ESCALATION_POLY_BASES:
-        try:
-            blk_a = _blocks_a.get(basis); blk_b = _blocks_b.get(basis)
-            if blk_a is None or blk_b is None:
-                continue
-            Ba_tr, Ba_va, za_tr = blk_a; Bb_tr, Bb_va, zb_tr = blk_b
-            # Rank-1 ALS pair warp = fit_pair_prewarp_als' solve on the SAME basis
-            # matrices (warm_start_als_seed; OLS-ALS, no robustify - matches legacy).
-            # z_a/z_b/basis are passed too so the resident GPU branch takes the
-            # DEVICE-BORN path (warm_start_als_seed_gpu_from_z): Ba/Bb are rebuilt on
-            # device from these standardised columns (the SAME basis_fit the prebuilt
-            # Ba_tr/Bb_tr used), collapsing the ~358MB design H2D at 300k. Ba_tr/Bb_tr
-            # still feed the byte-identical CPU fallback (default, flag-off) path.
-            coef_a, coef_b = warm_start_als_seed(Ba_tr, Bb_tr, y_tr, iters=3, x_a=xa_tr, x_b=xb_tr, z_a=za_tr, z_b=zb_tr, basis=basis)
-            if coef_a is None or coef_b is None:
-                continue
-            c = _heldout_corr((Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64)) * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64)))
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            continue
-        if c > best_corr:
-            best_corr = c
-            best_basis = basis
+    best_basis, best_corr = _best_pair_basis(_blocks_a, _blocks_b, y_tr, y_va, xa_tr, xb_tr)
     if best_basis is None or best_corr < float(min_val_corr):
         return None
     if best_corr < float(pairness_margin) * single_best:

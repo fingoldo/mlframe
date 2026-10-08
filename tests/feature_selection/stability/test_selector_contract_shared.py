@@ -26,7 +26,7 @@ import pandas as pd
 import pytest
 from sklearn.exceptions import NotFittedError
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.feature_selection._selector_factories import (
     SELECTOR_SPECS,
     selected_mask,
@@ -244,10 +244,10 @@ class TestTransformWidthValidation:
         bad = np.random.default_rng(0).standard_normal((20, nfin + 2))
         if not spec.accepts_ndarray:
             good = _BINARY_X.values
-            known_gap(f"{spec.name}: DataFrame-only (declared)", gap_closed=_outcome(lambda: sel.transform(good), (ValueError,)) == "ok")
+            known_gap(f"(KG-8) {spec.name}: DataFrame-only (declared)", gap_closed=_outcome(lambda: sel.transform(good), (ValueError,)) == "ok")
         if not spec.validates_transform_width:
             known_gap(
-                f"{spec.name}: no transform-time width validation (silent positional indexing -- prod guard backlog)",
+                f"(KG-9) {spec.name}: no transform-time width validation (silent positional indexing -- prod guard backlog)",
                 gap_closed=_outcome(lambda: sel.transform(bad), (ValueError, KeyError, IndexError)) == "raised",
             )
         with pytest.raises((ValueError, KeyError, IndexError)):
@@ -279,7 +279,7 @@ class TestColumnOrderInvariance:
         names1, names2 = set(selected_names(s1)), set(selected_names(s2))
         if not spec.column_order_invariant:
             known_gap(
-                f"{spec.name}: selection depends on input column order (positional tie-break / shadow ordering -- reproducibility gap)",
+                f"(KG-10) {spec.name}: selection depends on input column order (positional tie-break / shadow ordering -- reproducibility gap)",
                 gap_closed=spec.determinism >= 1.0 and names1 == names2,
             )
         floor = 1.0 if spec.determinism >= 1.0 else spec.determinism
@@ -364,7 +364,7 @@ class TestDuplicateColumnNames:
         sel = spec.make("binary")
         if not spec.rejects_duplicate_names:
             known_gap(
-                f"{spec.name}: no duplicate-column-name guard at fit entry (silent positional pick -- prod guard backlog)",
+                f"(KG-9) {spec.name}: no duplicate-column-name guard at fit entry (silent positional pick -- prod guard backlog)",
                 gap_closed=_outcome(lambda: _fit(sel, Xdup, _BINARY_Y), (ValueError, KeyError, AssertionError)) == "raised",
             )
         with pytest.raises((ValueError, KeyError, AssertionError)):

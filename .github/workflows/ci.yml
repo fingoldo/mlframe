@@ -51,7 +51,7 @@ env:
   # COVERAGE_OS names the single leg allowed to publish coverage. Three legs uploading the same lines would
   # not improve the report, and Linux is where this project's codecov history and its numba-coverage
   # companion workflow already live.
-  COVERAGE_OS: "ubuntu-latest"
+  COVERAGE_OS: "ubuntu-24.04"
   REPRESENTATIVE_PYTHON: "3.12"
 
 jobs:
@@ -76,7 +76,7 @@ jobs:
   # reintroduce the queue problem.
   matrix-setup:
     name: Choose the matrix for this event
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.build.outputs.matrix }}
@@ -112,8 +112,8 @@ jobs:
                    # 3.14 and the non-Linux platforms stay non-blocking: cp314 wheels are still landing,
                    # and mlframe has never had a green run on Windows or macOS, so the first sweeps are a
                    # survey rather than a gate. Drop the flag per-platform once one passes.
-                   "experimental": v == "3.14" or os_name != "ubuntu-latest"}
-                  for os_name in ("ubuntu-latest", "windows-latest", "macos-latest")
+                   "experimental": v == "3.14" or os_name != "ubuntu-24.04"}
+                  for os_name in ("ubuntu-24.04", "windows-2025", "macos-15")
                   for v in ALL_VERSIONS
                   for g in GROUPS
               ]
@@ -125,7 +125,7 @@ jobs:
               legs = [
                   {"os": os_name, "python-version": REPRESENTATIVE, "splits": "10",
                    "group": g, "experimental": False}
-                  for os_name in ("macos-latest",)
+                  for os_name in ("macos-15",)
                   for g in GROUPS
               ]
 
@@ -329,7 +329,7 @@ jobs:
           # single-worker OOM note already names as the mechanism -- capping the worker count answers
           # WHICH lever, 1 is the one that removes concurrent large fits entirely rather than just
           # reducing import-footprint duplication. Linux/Windows keep `auto` -- not the runners OOM-ing.
-          XDIST_WORKERS: ${{ matrix.os == 'macos-latest' && '1' || 'auto' }}
+          XDIST_WORKERS: ${{ matrix.os == 'macos-15' && '1' || 'auto' }}
           JUNIT_XML: junit-${{ matrix.os }}-${{ matrix.python-version }}-${{ matrix.group }}.xml
         run: |
           # --dist=loadgroup: plain `-n auto` defaults to `--dist=load`, which does NOT honor
@@ -461,9 +461,9 @@ jobs:
       # here the clone is the intended input, so the table is ignored. Never set this on the lockfile
       # job -- that one needs the source to resolve at all.
       UV_NO_SOURCES: "1"
-    name: pytest ${{ matrix.python-version }} on ubuntu-latest (test_core.py, serial, group ${{ matrix.group }}/4)
+    name: pytest ${{ matrix.python-version }} on ubuntu-24.04 (test_core.py, serial, group ${{ matrix.group }}/4)
     needs: matrix-setup
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -544,7 +544,7 @@ jobs:
     concurrency:
       group: test-durations-commit
       cancel-in-progress: false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     if: always() && github.event_name == 'push' && github.ref == 'refs/heads/master'
     timeout-minutes: 15
@@ -725,7 +725,7 @@ jobs:
 
   build:
     name: build sdist + wheel + install smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     timeout-minutes: 15
     steps:
@@ -802,7 +802,7 @@ jobs:
   # absent from ci-required's needs): its only job is to make a red push diagnosable at a glance.
   report-tests:
     name: Test failure summary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     if: always()
     timeout-minutes: 10
@@ -885,7 +885,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-24.04, windows-2025, macos-15]
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
@@ -939,7 +939,7 @@ jobs:
   # environment made the resolver pick the last torch with cp39 wheels for every version at once.
   lockfile:
     name: uv.lock is current and installable
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: matrix-setup
     timeout-minutes: 30
     steps:
@@ -971,7 +971,7 @@ jobs:
   ci-required:
     name: CI required checks
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     # matrix-setup is in this list deliberately. Everything below it is `needs:`-dependent on it, so if it
     # fails every test job SKIPS -- and a skip is not a failure, so without it here this gate reported

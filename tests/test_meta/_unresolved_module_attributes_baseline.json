@@ -1,0 +1,70 @@
+{
+  "entries": {
+    "unresolved-module-attributes::mlframe/feature_selection/filters/_benchmarks/bench_fe_fast_search_vs_exhaustive.py::'MRMR._FIT_CACHE': module 'mlframe.feature_selection.filters.MRMR' (mlframe/feature_selection/filters/mrmr/__init__.py) does not define '_FIT_CACHE'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/feature_selection/filters/_benchmarks/bench_mrmr_input_copy_deep_vs_shallow.py::'MRMR._FIT_CACHE': module 'mlframe.feature_selection.filters.MRMR' (mlframe/feature_selection/filters/mrmr/__init__.py) does not define '_FIT_CACHE'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/integrations/mlflow.py::'mlflow.active_run': module 'mlflow' (mlframe/integrations/mlflow.py) does not define 'active_run'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/integrations/mlflow.py::'mlflow.end_run': module 'mlflow' (mlframe/integrations/mlflow.py) does not define 'end_run'": {
+      "count": 2,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/integrations/mlflow.py::'mlflow.log_metric': module 'mlflow' (mlframe/integrations/mlflow.py) does not define 'log_metric'": {
+      "count": 2,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/integrations/mlflow.py::'mlflow.search_runs': module 'mlflow' (mlframe/integrations/mlflow.py) does not define 'search_runs'": {
+      "count": 3,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/integrations/mlflow.py::'mlflow.set_experiment': module 'mlflow' (mlframe/integrations/mlflow.py) does not define 'set_experiment'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/integrations/mlflow.py::'mlflow.start_run': module 'mlflow' (mlframe/integrations/mlflow.py) does not define 'start_run'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/reporting/renderers/_matplotlib_heatmap.py::'matplotlib.colormaps': module 'matplotlib' (mlframe/reporting/renderers/matplotlib.py) does not define 'colormaps'": {
+      "count": 2,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/reporting/renderers/_matplotlib_network.py::'matplotlib.colormaps': module 'matplotlib' (mlframe/reporting/renderers/matplotlib.py) does not define 'colormaps'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/reporting/renderers/_matplotlib_scatter.py::'matplotlib.colormaps': module 'matplotlib' (mlframe/reporting/renderers/matplotlib.py) does not define 'colormaps'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/reporting/renderers/matplotlib.py::'matplotlib.colormaps': module 'matplotlib' (mlframe/reporting/renderers/matplotlib.py) does not define 'colormaps'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/reporting/renderers/matplotlib.py::'matplotlib.is_interactive': module 'matplotlib' (mlframe/reporting/renderers/matplotlib.py) does not define 'is_interactive'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/training/_benchmarks/bench_per_target_hoist.py::'_main.pr': module 'mlframe.training.core.main' (mlframe/training/core/main.py) does not define 'pr'": {
+      "count": 3,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/training/_unpickle_policy.py::'io.BytesIO': module 'io' (mlframe/training/io.py) does not define 'BytesIO'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    },
+    "unresolved-module-attributes::mlframe/training/crash_reporting.py::'io.UnsupportedOperation': module 'io' (mlframe/training/io.py) does not define 'UnsupportedOperation'": {
+      "count": 1,
+      "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
+    }
+  },
+  "gate": "unresolved_module_attributes",
+  "schema": 1
+}

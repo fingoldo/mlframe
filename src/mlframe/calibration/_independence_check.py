@@ -59,8 +59,8 @@ def _member_consensus_correlations(logits: np.ndarray) -> np.ndarray:
     mean_a = col_sum / n
     mean_b = sum_b / n
     cov_ab = sum_ab / n - mean_a * mean_b
-    var_a = col_sumsq / n - mean_a * mean_a
-    var_b = sum_b2 / n - mean_b * mean_b
+    var_a = col_sumsq / n - mean_a * mean_a  # moment-ok: the columns were centred above, so mean_a is ~0 and nothing cancels
+    var_b = sum_b2 / n - mean_b * mean_b  # moment-ok: built from the centred columns, mean_b is ~0
 
     # A degenerate member is surfaced as NaN, not laundered into a clean 0.0 ("independent"). The variances are
     # now centred, so a non-positive one means the member really is constant -- which is maximal redundancy, the

@@ -26,7 +26,7 @@ Pure (no live framework state captured) so a fitted MRMR stays picklable.
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
 
 import numpy as np
 
@@ -95,7 +95,7 @@ def _to_host(x) -> np.ndarray:
         import cupy as cp
 
         return np.asarray(cp.asnumpy(x), dtype=np.float64)
-    return x
+    return cast(np.ndarray, x)
 
 
 def retention_form_is_subsumed(
@@ -219,6 +219,7 @@ def retention_form_is_subsumed(
         _cb = cand_dev if cand_dev is not None else cand_bin
         _zc = z_support_dev if z_support_dev is not None else z_support
         # kx=nbins (candidate is nbins-binned) / kz=_zcard skip the per-call int(dx.max())/int(dz.max()) reads.
+        assert _cb is not None, "the candidate codes are resident or host, never both missing"
         _cbkx = int(nbins)
         # Candidate's OWN marginal debiased excess (the reference scale for the relative bar).
         _marg_floor, marg_null_mean = _conditional_perm_null(_cb, y_arr, None, seed=seed)

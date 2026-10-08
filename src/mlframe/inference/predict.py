@@ -106,14 +106,10 @@ def _load_features_file(features_file: str):
             if not _verify_sidecar(candidate):
                 log_throttle(logger, "predict_features_json_sidecar_sha256_mismatch", logging.ERROR, "sha256 mismatch for features JSON sidecar %s; refusing to load", candidate)
                 return None
-            try:
-                import orjson
-                with open(candidate, "rb") as f:
-                    data = orjson.loads(f.read())
-            except ImportError:
-                import json
-                with open(candidate, encoding="utf-8") as f:
-                    data = json.load(f)
+            import orjson
+
+            with open(candidate, "rb") as f:
+                data = orjson.loads(f.read())
             if isinstance(data, list):
                 return [str(c) for c in data]
             log_throttle(logger, "predict_features_json_not_a_list", logging.WARNING, "JSON features file %s did not contain a list", candidate)

@@ -142,13 +142,18 @@ def test_cache_artefact_hit_faster_than_miss(tmp_path):
         time.sleep(0.05)
         return x * x
 
-    t0 = time.perf_counter()
+    miss_dt = float("inf")
+    for arg in (7, 8, 9):
+        t0 = time.perf_counter()
+        r1 = slow(arg)
+        miss_dt = min(miss_dt, time.perf_counter() - t0)
     r1 = slow(7)
-    miss_dt = time.perf_counter() - t0
 
-    t1 = time.perf_counter()
-    r2 = slow(7)
-    hit_dt = time.perf_counter() - t1
+    hit_dt = float("inf")
+    for _ in range(3):
+        t1 = time.perf_counter()
+        r2 = slow(7)
+        hit_dt = min(hit_dt, time.perf_counter() - t1)
 
     assert r1 == 49 and r2 == 49
     # The hit MUST be materially faster than the miss; the sleep is 50ms vs disk-load ~ms.

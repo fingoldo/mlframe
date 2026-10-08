@@ -284,6 +284,7 @@ def _downstream_auc(X_tr, y_tr, X_te, y_te, cols, seed: int) -> float:
 
 
 @pytest.mark.slow
+@pytest.mark.hang_guard
 @pytest.mark.timeout(0)  # this test enforces its OWN wall budget (max_runtime_mins); the global per-test timeout would kill the real-scale fit
 def test_mrmr_real_100k(tmp_path):
     """End-to-end MRMR at real scale: completes in budget, recovers planted

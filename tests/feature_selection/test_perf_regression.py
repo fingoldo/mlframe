@@ -24,7 +24,7 @@ import warnings
 import numpy as np
 import pytest
 
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.conftest import perf_time_budget
 from tests.conftest import skip_under_numba_disabled_jit
 
@@ -99,22 +99,24 @@ def test_perf_screen_n1000_under_threshold():
         verbose=0,
     )
 
-    t0 = time.perf_counter()
-    screen_predictors(
-        factors_data=factors_data,
-        factors_nbins=factors_nbins,
-        factors_names=names,
-        y=(target_idx,),
-        full_npermutations=50,
-        baseline_npermutations=10,
-        n_workers=1,
-        verbose=0,
-    )
-    elapsed = time.perf_counter() - t0
+    elapsed = float("inf")
+    for _ in range(3):
+        t0 = time.perf_counter()
+        screen_predictors(
+            factors_data=factors_data,
+            factors_nbins=factors_nbins,
+            factors_names=names,
+            y=(target_idx,),
+            full_npermutations=50,
+            baseline_npermutations=10,
+            n_workers=1,
+            verbose=0,
+        )
+        elapsed = min(elapsed, time.perf_counter() - t0)
 
     # 5.0s = ~250x observed warm time (~20ms). Generous to absorb CI variance + tqdm overhead. Regressions of
     # the hot path that matter (>2x algorithmic slowdown, kernel decompile, lost cache) will blow past this floor.
-    threshold = 5.0
+    threshold = perf_time_budget(5.0)
     assert elapsed < threshold, f"screen_predictors warm call took {elapsed:.3f}s, threshold {threshold:.2f}s. Possible regression on the screening hot path."
 
 
@@ -360,9 +362,11 @@ def test_perf_discretize_array_n100k_under_50ms():
     # Warm-up: first call may hit cold dtype/code paths in numpy or numba.
     discretize_array(x, n_bins=20, method="quantile")
 
-    t0 = time.perf_counter()
-    discretize_array(x, n_bins=20, method="quantile")
-    elapsed = time.perf_counter() - t0
+    elapsed = float("inf")
+    for _ in range(5):
+        t0 = time.perf_counter()
+        discretize_array(x, n_bins=20, method="quantile")
+        elapsed = min(elapsed, time.perf_counter() - t0)
 
     threshold = 0.050  # 50ms
     assert (

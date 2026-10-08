@@ -83,6 +83,11 @@ def _docstring_family_tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z][a-z0-9_]{2,}", text.lower()))
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(_FILTERS_DIR.rglob("*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{relpath:lineno}`` for every module/function docstring under ``filters/`` matching the stale
     "not wired" phrasing whose file/function name token-overlaps a true-default-on ``fe_*_enable`` param."""
@@ -90,7 +95,7 @@ def _build_offending_set() -> set[str]:
     if not true_default_params:
         return set()
     out: set[str] = set()
-    for py in _FILTERS_DIR.rglob("*.py"):
+    for py in _candidate_files():
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         tree = parsed_ast(py)

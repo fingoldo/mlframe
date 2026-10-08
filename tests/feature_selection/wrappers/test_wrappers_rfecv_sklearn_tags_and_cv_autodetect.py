@@ -433,6 +433,7 @@ class TestAdaptiveOptimizerSurrogate:
             "model_params": {"iterations": 7},
         }
 
+    @pytest.mark.perf
     def test_auto_tune_speedup_smoke(self):
         """Smoke + structural-direction check: the GP auto-default fits a tiny problem FASTER than the
         legacy 150-tree CatBoost surrogate (legacy CB runs ~150 tree-iterations while GP closes after

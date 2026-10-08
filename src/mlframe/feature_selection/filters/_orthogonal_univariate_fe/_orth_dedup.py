@@ -141,8 +141,8 @@ def _pc_corr_njit(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
             else:
                 inv = 1.0 / cnt
                 cov = sxy - sx * sy * inv
-                vx = sxx - sx * sx * inv
-                vy = syy - sy * sy * inv
+                vx = sxx - sx * sx * inv  # moment-ok: Q was row-centred by _pairwise_complete_abs_corr before dispatch
+                vy = syy - sy * sy * inv  # moment-ok: R was row-centred by _pairwise_complete_abs_corr before dispatch
                 out[i, j] = np.nan if (vx <= 1e-24 or vy <= 1e-24) else abs(cov / np.sqrt(vx * vy))
     return out
 

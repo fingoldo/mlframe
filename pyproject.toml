@@ -236,6 +236,7 @@ boosting = [
     "catboost>=1.2",
     "lightgbm>=4.0",
     "xgboost>=2.0",
+    "ngboost>=0.5",  # NGBoost heteroscedastic / probabilistic regressor in training.composite; tests importorskip it.
 ]
 
 # Calibration + uncertainty + interpretability stack.
@@ -316,6 +317,7 @@ feature_engineering = [
     "holidays>=0.100; python_version >= '3.10'",
     "holidays>=0.83; python_version < '3.10'",
     "rapidfuzz>=3.0",  # C++ edit-distance backend for fuzzy_entity_group_features(fuzzy_key_matching=True).
+    "mlxtend>=0.23",  # apriori frequent-itemset backend of the transformer feature engineering; tests importorskip it.
 ]
 
 # Resampling, encoding, stratification.
@@ -340,6 +342,8 @@ polars_ext = [
 # ``catboost/widget/ipythonwidget.py``.
 viz = [
     "plotly>=5.15",
+    # Static plotly export (write_image) and the kaleido hang / recovery paths under tests/reporting; without it those tests skip.
+    "kaleido>=0.2.1",
     # plotly >= 6 moved FigureWidget behind anywidget and raises only at CONSTRUCTION time, so without
     # this the live training-progress widget silently degrades to "disabled" on an otherwise complete install.
     "anywidget>=0.9",

@@ -7,6 +7,8 @@ finite edges it is exactly ``np.searchsorted(edges, x, side="right")``, with num
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 from numba import njit, prange
 
@@ -65,7 +67,7 @@ def count_distinct_int(a: np.ndarray) -> int:
 class ContentMemo:
     """Small thread-safe LRU of derived arrays keyed by the CONTENT of the input column (+ a caller tag). Fit-constant columns (the target above all) are
     re-derived by many stages with a fresh copy each time; the result is cached on a content hash and returned as a private copy so a caller can mutate it.
-    ``max_entries`` bounds how many results the memo holds."""
+    ``max_entries`` bounds the number of memoised results; the memo starts empty."""
 
     def __init__(self, max_entries: int = 8) -> None:
         import threading
@@ -76,12 +78,12 @@ class ContentMemo:
         self._max = int(max_entries)
 
     def __getstate__(self) -> dict:
-        """Pickle without the lock and the cached arrays: a memo is a runtime cache, so an unpickled copy starts empty."""
+        """Pickle only the capacity: the lock cannot be pickled and the memoised arrays are runtime state that a restored object must recompute."""
         return {"_max": self._max}
 
     def __setstate__(self, state: dict) -> None:
-        """Rebuild an empty memo with a fresh lock."""
-        self.__init__(state.get("_max", 8))
+        """Restore an empty memo with a fresh lock."""
+        self.__init__(max_entries=int(state["_max"]))  # type: ignore[misc]
 
     def get_or_compute(self, tag: str, arr: np.ndarray, compute) -> np.ndarray:
         """``compute(arr)`` memoised on ``(tag, dtype, shape, content hash of arr)``."""
@@ -93,7 +95,7 @@ class ContentMemo:
             hit = self._data.get(key)
             if hit is not None:
                 self._data.move_to_end(key)
-                return hit.copy()
+                return cast(np.ndarray, hit.copy())
         out = np.asarray(compute(a))
         with self._lock:
             self._data[key] = out.copy()

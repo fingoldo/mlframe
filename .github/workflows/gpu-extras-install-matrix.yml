@@ -22,7 +22,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -30,7 +30,7 @@ permissions:
 jobs:
   resolve:
     name: ${{ matrix.extra }} @ py${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     # cupy ships cuda11x wheels only through cupy 13.x on Python <=3.12; there is no cuda11x
     # wheel for Python 3.13+/cupy 14, so those rows are expected to fail resolution -- mark them

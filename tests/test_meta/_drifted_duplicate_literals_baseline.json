@@ -1,0 +1,90 @@
+{
+  "entries": {
+    "literal-set::(0.01, 0.1)::evaluation/reports.py feature_selection/filters/_numeric_decompose_fe.py feature_selection/filters/mrmr/_mrmr_class.py feature_selection/wrappers/rfecv/__init__.py training/composite/ensemble/_cross_target.py training/composite/ensemble/_stackers.py training/fs_params/mrmr.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(0.1, 0.2)::evaluation/reports.py feature_engineering/transformer/conformal_locally_adaptive.py feature_selection/filters/_neural_mi.py training/_reporting_configs.py training/diagnostics/learning_curve.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(0.1, 0.3)::feature_engineering/transformer/diffusion_noise.py feature_selection/filters/_neural_mi.py training/composite/ensemble/_stackers.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(0.1, 0.9)::feature_engineering/_numerical_constants.py feature_engineering/transformer/quantile_neighbours.py feature_engineering/transformer/stacked_qnn.py feature_selection/filters/_grouped_quantile_fe.py feature_selection/filters/mrmr/_mrmr_class.py training/_model_configs_behavior.py training/composite/ensemble/_stackers.py training/composite/quantile.py training/composite/transforms/registry.py training/fs_params/mrmr.py training/quantile_wrapper.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(0.3, 0.7)::feature_selection/filters/_hinge_basis_fe.py training/composite/ensemble/_stackers.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(0.4, 0.6)::feature_selection/filters/_neural_mi.py feature_selection/shap_proxied_fs/__init__.py feature_selection/shap_proxied_fs/_shap_proxy_revalidate/__init__.py training/diagnostics/learning_curve.py training/fs_params/shap_proxied_fs.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(0.7, 255255255)::reporting/renderers/plotly.py training/slicing/_slice_pareto_plot.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(0.8, 0.9)::data/datasets/scenarios/_linear.py feature_selection/filters/_mrmr_explain.py feature_selection/filters/_neural_mi.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(100000, 2000000)::feature_selection/filters/batch_pair_mi_gpu.py metrics/classification/_ice_kernel.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(127, 32767)::feature_selection/filters/_mrmr_fit_impl/_fit_impl_stages/_binning.py feature_selection/filters/supervised_binning.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(15, 20)::feature_selection/filters/_gpu_resident_materialise.py feature_selection/importance.py reporting/report_html.py training/_overlapping_walk_forward_cv.py training/core/_phase_config_setup.py training/models.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(20, 40)::feature_engineering/transformer/neighbor_aggregate_features.py training/models.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(2000, 10000, 50000)::feature_engineering/transformer/_knn_helper.py feature_selection/filters/_usability_njit_pool.py models/ensembling/per_member_tuning.py training/composite/discovery/_ktc_dispatch.py": {
+      "count": 1,
+      "note": "kernel-tuning sweep grids are per-kernel measurement points that coincide by choice, not a shared constant"
+    },
+    "literal-set::(2000, 20000)::data_valuation/_propagate_gpu_ktc.py feature_selection/filters/friend_graph_gpu.py models/ensembling/per_member_tuning.py training/composite/discovery/_ktc_dispatch.py": {
+      "count": 1,
+      "note": "kernel-tuning sweep grids are per-kernel measurement points that coincide by choice, not a shared constant"
+    },
+    "literal-set::(2000, 5000, 10000)::models/ensembling/per_member_tuning.py preprocessing/cleaning.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(50000, 100000, 300000)::feature_selection/filters/_gpu_resident_histgate_ktc.py feature_selection/filters/_gpu_resident_k_chunk_ktc.py feature_selection/filters/_gpu_resident_radix_ktc.py feature_selection/filters/_permutation_null_resident_ktc.py feature_selection/filters/_permutation_null_shufflegen_ktc.py feature_selection/filters/_resident_candidate_mi_ktc.py feature_selection/filters/info_theory/_cmi_cuda_ktc.py models/ensembling/per_member_tuning.py": {
+      "count": 1,
+      "note": "kernel-tuning sweep grids are per-kernel measurement points that coincide by choice, not a shared constant"
+    },
+    "literal-set::(50000, 200000, 1000000)::data_valuation/_propagate_gpu_ktc.py feature_selection/filters/_fe_synergy_exhaustive.py feature_selection/filters/batch_pair_mi_gpu.py metrics/_gpu_metrics.py": {
+      "count": 1,
+      "note": "kernel-tuning sweep grids are per-kernel measurement points that coincide by choice, not a shared constant"
+    },
+    "literal-set::(50000, 200000, 500000, 2000000)::feature_selection/filters/batch_pair_mi_gpu.py feature_selection/filters/discretization/__init__.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(7, 11, 13, 17, 19, 23)::feature_selection/filters/_gpu_resident_materialise.py feature_selection/filters/_pairwise_modular_fe.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(7, 52)::training/composite/transforms/_registry_extended.py training/composite/transforms/_seasonal.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(7, 9, 11, 13, 14, 15)::feature_selection/filters/_gpu_resident_materialise.py feature_selection/filters/_usability_njit_pool.py": {
+      "count": 1,
+      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    }
+  },
+  "gate": "drifted-duplicate-literals",
+  "schema": 1
+}

@@ -121,12 +121,15 @@ def test_oos_validated_variant_runs_and_is_cheaper_than_insample_validated():
     y = np.where(x < -1.5, 10.0, np.where(x < 2.0, 30.0, 5.0)) + rng.standard_normal(n) * 2.0
     import time
 
-    t0 = time.perf_counter()
+    def _wall(fn) -> float:
+        """Wall seconds of one call of ``fn`` on the fixture."""
+        t0 = time.perf_counter()
+        fn(x, y)
+        return time.perf_counter() - t0
+
     edges_oos = mdlp_bin_edges_oos_validated(x, y)
-    wall_oos = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    mdlp_bin_edges_validated(x, y)
-    wall_validated = time.perf_counter() - t0
+    wall_oos = min(_wall(mdlp_bin_edges_oos_validated) for _ in range(3))
+    wall_validated = min(_wall(mdlp_bin_edges_validated) for _ in range(3))
     assert edges_oos.size >= 2
     assert wall_oos < wall_validated, (wall_oos, wall_validated)
 

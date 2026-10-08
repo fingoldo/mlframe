@@ -28,7 +28,7 @@ def tmc_shapley(
     truncation_tol: float = 1e-3,
     rng: np.random.Generator,
     n_jobs: int = 1,
-) -> tuple[np.ndarray, dict]:
+) -> tuple[np.ndarray, dict]:  # unused-ok: n_jobs: documented no-op, utility calls are serial; uniform estimator signature
     """Truncated Monte Carlo Shapley: average marginal contribution over ``n_permutations`` random orderings.
 
     For each permutation, walks prefixes and accumulates ``utility_fn(prefix + [next]) -
@@ -83,7 +83,7 @@ def data_banzhaf(
     n_coalitions: int = 2048,
     rng: np.random.Generator,
     n_jobs: int = 1,
-) -> tuple[np.ndarray, dict]:
+) -> tuple[np.ndarray, dict]:  # unused-ok: n_jobs: documented no-op, utility calls are serial; uniform estimator signature
     """Maximum-Sample-Reuse Banzhaf estimate of every row's semivalue over a caller-supplied utility.
 
     Samples ``n_coalitions`` boolean masks over the ``n_rows`` players (each row included

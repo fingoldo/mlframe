@@ -1,51 +1,13 @@
-"""CUDA kernel sources must not use the platform-width ``long``.
-
-NVRTC on Windows (LLP64) compiles ``long`` as 4 bytes, so ``(long)cand * n`` and ``long off = ...`` silently wrap past 2**31 elements while behaving
-correctly on Linux, and no test on a small GPU ever sees it. ``long long`` is 8 bytes everywhere.
-"""
+"""CUDA kernel sources must use explicit 64-bit index types (NVRTC on Windows compiles ``long`` as 32 bits)."""
 from __future__ import annotations
 
-import ast
-import re
 from pathlib import Path
 
-from tests.test_meta._scan_guard import assert_scanned_enough
+from py_ci_shared.cuda_kernel_integer_width import assert_cuda_kernel_integer_width
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "mlframe"
-_PLATFORM_LONG = re.compile(r"(?<!long )(?<!unsigned )\blong\b(?! long)(?!\s*(?:long|double))")
-_LINE_COMMENT = re.compile(r"//[^\n]*")
 
 
-def platform_long_uses(kernel_source: str) -> list:
-    """Offending fragments of a CUDA source string (``long`` used without ``long long``), comments ignored."""
-    code = _LINE_COMMENT.sub("", kernel_source)
-    return [m.group(0) for m in _PLATFORM_LONG.finditer(code)]
-
-
-def _kernel_strings():
-    """Yield ``(path, line, text)`` for every string constant in the package that is CUDA kernel source."""
-    for path in SRC.rglob("*.py"):
-        if "_benchmarks" in path.parts or "__pycache__" in path.parts:
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if "__global__" not in text:
-            continue
-        for node in ast.walk(ast.parse(text)):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and "__global__" in node.value:
-                yield path, node.lineno, node.value
-
-
-def test_detector_flags_platform_long_and_accepts_long_long():
-    """The detector catches ``(long)`` casts and ``long`` locals, and accepts ``long long`` / ``unsigned long long``."""
-    assert platform_long_uses("const float* xi = X + (long)i * f;") == ["long"]
-    assert platform_long_uses("long off = (long)level * width;") == ["long", "long"]
-    assert platform_long_uses("long long off = (long long)level * width; unsigned long long k = 0;") == []
-    assert platform_long_uses("int x = 0; // a long comment") == []
-
-
-def test_no_cuda_kernel_source_uses_platform_width_long():
-    """Every CUDA kernel source in src/mlframe spells 64-bit indices as ``long long``."""
-    kernels = list(_kernel_strings())
-    assert_scanned_enough(len(kernels), "CUDA kernel source strings under src/mlframe", minimum=10)
-    offenders = [f"{path.relative_to(SRC)}:{line}" for path, line, text in kernels if platform_long_uses(text)]
-    assert offenders == []
+def test_cuda_kernel_sources_use_explicit_64bit_types():
+    """No platform-width ``long`` and no int index product in any CUDA kernel source."""
+    assert_cuda_kernel_integer_width(SRC, min_files=500, include_advisory=True)

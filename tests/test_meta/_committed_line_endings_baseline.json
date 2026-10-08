@@ -1,0 +1,466 @@
+{
+  "entries": {
+    "committed-crlf::profiling/bench_compute_multiclass_error.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/bench_gpu_metrics.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/bench_grouped_aucs_parallel.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/bench_ice_only.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/bench_multiclass_error_parallel.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/bench_numba_parallel.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/bench_numba_parallel_round2.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/bench_ranking_summary.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/profile_calibration_report.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/profile_ensembling.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/profile_metrics_blocks.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::profiling/profile_training.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::scripts/check_default_tuning.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/config.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/core/ewma.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/core/stats.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_engineering/categorical.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_engineering/transformer/RESULTS.md": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/_benchmarks/__init__.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/_benchmarks/_results/boruta_shap_golden.json": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/_benchmarks/fs_hybrid/AGENT_IDEAS.md": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/_benchmarks/fs_hybrid/AGENT_IDEAS_ROUND2.md": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_cat_target_encoding_and_weighted.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_legacy.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/__init__.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/configs/cfg_train_noflash.yaml": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/configs/config.yaml": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/model/attention.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/model/attention_block.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/model/decoder.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/model/gauss_mild.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/model/infonet.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/model/query.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/_vendored/infonet/model/util.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/filters/default_kernel_tuning.json": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/shap_proxied_fs/_benchmarks/bench_report_holdout_slice.jsonl": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/shap_proxied_fs/_shap_proxied_fit_prefilter.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/wrappers/TODO.md": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/feature_selection/wrappers/__init__.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/integrations/__init__.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/models/selection.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/preprocessing/scalers.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/testing/__init__.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/training/baselines/_dummy_numba_kernels.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/training/core/_benchmarks/bench_target_nulls.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/training/core/_main_train_suite_encoding.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/training/core/_predict_main.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/training/feature_handling/__init__.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/training/neural/recurrent.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/training/ranking/ranker_suite.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/utils/eda.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/utils/experiments.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/utils/text.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/version.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/votenrank/fairness_computation.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/votenrank/leaderboard/__init__.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::src/mlframe/votenrank/leaderboard/settings.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/calibration/test_post.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/MRMR_WORK_PLAN_2026_06_22.md": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/discretization/test_discretization.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/golden/_capture.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/golden/capture_baseline.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/info_theory/test_info_theory.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/mrmr/core/test_absolute_floor_retention_and_ledger_names.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/mrmr/core/test_mrmr_classification.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/mrmr/core/test_mrmr_integration.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/mrmr/core/test_mrmr_parameters.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/mrmr/core/test_mrmr_regression.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/screening/test_screen.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/stability/test_efs_relevancy_same_scale_null.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/test_failed_gate_excludes_candidate.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/feature_selection/test_fe_baseline_ties_are_reproducible.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/metrics/test_scoring.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/models/test_ensembling_quality_gate.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/reporting/test_fi_plot_defaults.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/test_meta/_verbose_gated_except_baseline.json": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/test_meta/test_calibration_monotonicity.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/test_security_rce.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/discovery/test_composite_discovery.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/ensemble/test_composite_ensemble.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/ensemble/test_composite_ensemble_linear_stack_dropout.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/estimator/test_predict_with_pre_clip.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/estimator/test_recurrent_predict_out_of_domain_base.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/perf/test_composite_post_phase_call_budgets.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/perf/test_discovery_memory_budgets.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/screening/test_tiny_cv_refits_transform_per_fold.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/test_biz_val_interaction_base_specs.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/test_composite_polish.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/test_composite_provenance.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/composite/test_fit_score_disjointness.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/core/test_auto_enabled_discovery_reaches_postprocessing.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/core/test_precomputed_composite_specs_train.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/extractors/test_extractors.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/ranking/test_bizvalue_ranking.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/ranking/test_ranking_metrics.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/ranking/test_ranking_splitting.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/strategies/test_quantile_strategies.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_audit_core_low_polish_cleanup.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_bizvalue_classifier_chain.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_bizvalue_preproc_transformers.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_bizvalue_quantile.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_calibration_flag_propagation.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_cb_ordinal_autoflip.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_cb_polars_fallback.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_ensemble_handles_none_preds.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_ensembling_streaming.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_lgb_polars_enum_end_to_end.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_monolith_split_split_helpers.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_multilabel_metrics_numba.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_targets_performance_row_scope.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_tfidf_extension_warns_and_skips_per_split.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/training/test_trainer_parameter_validation.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/utils/test_hash_array_content_sees_every_row.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-crlf::tests/utils/test_utils.py": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    },
+    "committed-mixed-endings::src/mlframe/feature_selection/_benchmarks/wide_data_scaling/raw_progress_2026-06-18.txt": {
+      "count": 1,
+      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
+    }
+  },
+  "gate": "committed_line_endings",
+  "schema": 1
+}

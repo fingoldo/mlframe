@@ -92,7 +92,7 @@ def design_matvec(cp: Any, B: Any, c: Any) -> Any:
     return out
 
 
-def weighted_gram(cp: Any, B: Any, w: Any, y: Any) -> tuple:
+def weighted_gram(cp: Any, B: Any, w: Any, y: Any) -> "tuple[Any, Any]":
     """``(A'A, A'y)`` for ``A = B * w[:, None]`` (``w=None`` means ``A = B``); ``B`` is C-contiguous float64 ``(n, d)``, ``y`` is ``(n,)``."""
     n, d = B.shape
     nacc = d * (d + 1) // 2 + d

@@ -37,11 +37,6 @@ _TEST_META_DIR = Path(__file__).resolve().parent
 # Imports of a production private symbol from a meta-test that are
 # legitimate. Each entry is "test_meta_filename::imported_dotted_name".
 _PERMITTED_PRIVATE_IMPORTS: set[str] = {
-    # Fault-injection audit of swallowed failures: each module is where one swallowed-exception handler lives, and the test makes that exact
-    # internal raise to prove the handler logs instead of staying silent. No public entry point reaches those handlers individually.
-    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._fallback_probe",
-    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mrmr_fit_impl._assign_support_tail",
-    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group1._raw_is_significant_or_permissive",
     # mlframe meta-tests touching internal helpers — these are the
     # surface under audit, so importing the underscore-prefixed name
     # is part of the test's purpose.
@@ -74,6 +69,9 @@ _PERMITTED_PRIVATE_IMPORTS: set[str] = {
     # it without a full fit, and the module object is what gets patched and logged under.
     "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mi_greedy_cmi_fe",
     "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._orthogonal_adaptive_arity_fe",
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._fallback_probe",
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mrmr_fit_impl._assign_support_tail",
+    "test_swallowed_failures_are_audible::mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._group1._raw_is_significant_or_permissive",
     "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._binned_numeric_agg_fe",
     "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._fe_batched_mi",
     "test_swallowed_failures_substitute_non_neutral_values::mlframe.feature_selection.filters._mi_greedy_cmi_fe",

@@ -110,7 +110,7 @@ def apply_loky_cpu_count_override() -> None:
     if _loky_override_applied:
         return
     try:
-        from joblib.externals.loky.backend import context as _loky_ctx
+        from joblib.externals.loky.backend import context as _loky_ctx  # vendored-ok: patches the loky copy joblib runs
 
         _count = _os.cpu_count() or 1
         _loky_ctx._count_physical_cores = lambda: (_count, _count)

@@ -167,7 +167,7 @@ def dense_gpu_pays_off(n_features: int, n_samples: int) -> bool:
     """Whether the dense Pearson edge scan should run on the GPU on this host at this size (measured; falls back to the width constant)."""
     try:
         choice = _DENSE_SPEC.choose(f=int(n_features), n=int(n_samples))
-    except Exception as e:  # best-effort: the width constant is the documented fallback choice of the same gate
+    except Exception as e:  # best-effort: the choice only routes a speed-equivalent CPU/GPU scan; both give the same edges
         logger.debug("shap_proxy_cluster_dense_gpu choose() failed, using the width fallback: %s", e)
         choice = _dense_fallback_choice(n_features)
     return bool(choice == "gpu")
@@ -177,7 +177,7 @@ def su_gpu_pays_off(n_features: int, n_samples: int) -> bool:
     """Whether the pairwise SU scan should run on the GPU on this host at this size (measured; falls back to the width constant)."""
     try:
         choice = _SU_SPEC.choose(f=int(n_features), n=int(n_samples))
-    except Exception as e:  # best-effort: the width constant is the documented fallback choice of the same gate
+    except Exception as e:  # best-effort: the choice only routes a speed-equivalent CPU/GPU scan; both give the same edges
         logger.debug("shap_proxy_cluster_su_gpu choose() failed, using the width fallback: %s", e)
         choice = _su_fallback_choice(n_features)
     return bool(choice == "gpu")

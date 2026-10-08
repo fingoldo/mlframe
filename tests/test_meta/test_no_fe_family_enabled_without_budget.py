@@ -118,10 +118,15 @@ def _zero_budget_preset_merged_with_a_call(tree: ast.Module) -> list[tuple[int, 
     return out
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(_TESTS_DIR.rglob("*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{"relpath:lineno:flag", ...}`` for every construction that enables a family under a zero budget."""
     out: set[str] = set()
-    for py in _TESTS_DIR.rglob("*.py"):
+    for py in _candidate_files():
         if "__pycache__" in py.parts:
             continue
         text = source_text(py)

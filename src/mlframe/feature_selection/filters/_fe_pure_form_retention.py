@@ -116,7 +116,7 @@ def retain_usable_pure_forms(
     min_resid_corr: float = 0.08,
     verbose: int = 0,
     _prep: "dict[str, Any] | None" = None,
-):
+):  # unused-ok: verbose: stage signature shared with the other retention passes; diagnostics go through logger levels
     """Return ``[(recipe, name), ...]`` of PURE single-pair engineered forms to ADD to
     ``mrmr._engineered_recipes_`` so a linearly-usable pair interaction the MI greedy left trapped
     inside a cross-mix (or only as separate raw operands) is recovered.
@@ -672,7 +672,7 @@ def retain_usable_raw_columns(
     max_rows: int = 3000,
     verbose: int = 0,
     _prep: "dict[str, Any] | None" = None,
-):
+):  # unused-ok: verbose: stage signature shared with the other retention passes; diagnostics go through logger levels
     """Return ``[raw_name, ...]`` of RAW columns the MI greedy dropped from ``support_`` even though a
     CROSS-VALIDATED LINEAR wrapper confirms they carry genuine linear-usable signal toward y.
 

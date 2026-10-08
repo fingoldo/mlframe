@@ -238,6 +238,7 @@ def _composite_all_on_fit():
 class TestCompositeAllOnSmoke:
     """Contract 2: composite all-on fit completes within the 180s budget."""
 
+    @pytest.mark.hang_guard
     def test_composite_all_on_fit_under_180s(self):
         """Composite all-on fit+transform completes under 180s and produces non-empty support_."""
         _X, _y, m, dt = _composite_all_on_fit()

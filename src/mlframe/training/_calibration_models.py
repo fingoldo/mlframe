@@ -366,7 +366,12 @@ def _model_probs_are_posthoc_calibrated(model) -> bool:
     return False
 
 
-def _maybe_apply_posthoc_calibration(model, fit_params, model_type_name, verbose=False):
+def _maybe_apply_posthoc_calibration(
+    model,
+    fit_params,
+    model_type_name,
+    verbose=False,
+):  # unused-ok: verbose: fallback-loop helper signature; logging goes through logger levels
     """Stamp ``model._mlframe_probs_posthoc_calibrated`` to record whether the probabilities are post-hoc calibrated.
 
     There is NO behaviour change here beyond the metadata flag. The ``prefer_calibrated_classifiers`` flag means two

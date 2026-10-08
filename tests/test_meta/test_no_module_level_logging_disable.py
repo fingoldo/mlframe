@@ -93,10 +93,15 @@ def _unrestored_disable_calls(tree: ast.Module) -> list[int]:
     return [] if has_notset_restore else disables
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(_TESTS_DIR.rglob("test_*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{"relpath:lineno", ...}`` for every unrestored import-time ``logging.disable(...)`` call."""
     out: set[str] = set()
-    for py in _TESTS_DIR.rglob("test_*.py"):
+    for py in _candidate_files():
         if "__pycache__" in py.parts:
             continue
         try:

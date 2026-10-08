@@ -108,7 +108,7 @@ def run_composite_target_discovery(
     data_dir: Any = None,
     save_charts: bool = False,
     precomputed_specs: dict | None = None,
-) -> tuple[dict, dict]:
+) -> tuple[dict, dict]:  # unused-ok: verbose: uniform suite-phase signature; logging goes through logger levels
     """Run composite-target discovery for regression targets.
 
     Defensive: target_by_type is shallow-copied before adding entries so the

@@ -63,7 +63,7 @@ def _max_among(candidates: np.ndarray, n_cand: int, vals: np.ndarray, out: np.nd
 @njit(cache=True)
 def _pick_tied(buf: np.ndarray, n: int) -> int:
     """The only entry of ``buf[:n]``, or one of them drawn from numba's RNG when there is a tie (the RNG is not touched without a tie)."""
-    return buf[0] if n == 1 else buf[np.random.randint(0, n)]
+    return int(buf[0] if n == 1 else buf[np.random.randint(0, n)])
 
 
 @njit(cache=True)
@@ -96,7 +96,7 @@ def _rarest_label(num_labels: np.ndarray, min_candidates: np.ndarray) -> int:
             elif num_labels[j] == min_val:
                 min_candidates[n_min] = j
                 n_min += 1
-    return _pick_tied(min_candidates, n_min)
+    return int(_pick_tied(min_candidates, n_min))
 
 
 @njit(cache=True)

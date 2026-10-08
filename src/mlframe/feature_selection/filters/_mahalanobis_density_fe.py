@@ -172,7 +172,7 @@ def hybrid_mahalanobis_density_fe(
     mi_gate_top_k: Optional[int] = None,
     random_state: int = 0,
     reject_sink: Optional[Callable[..., None]] = None,
-) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":
+) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":  # unused-ok: random_state: deterministic hybrid, uniform signature
     """End-to-end joint Mahalanobis-density feature: bound the column pool by top raw-MI (the
     family's own point is a p=15-30-way joint ellipsoidal level-set, so the pool is capped, not
     combinatorially enumerated), compute the single Ledoit-Wolf-shrunk Mahalanobis score, MI-gate

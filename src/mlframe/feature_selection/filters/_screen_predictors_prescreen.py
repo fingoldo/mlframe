@@ -15,7 +15,15 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def cardinality_prescreen(factors_data, factors_nbins, factors_names, x, y, verbose, raw_cardinality_cols=None):
+def cardinality_prescreen(
+    factors_data,
+    factors_nbins,
+    factors_names,
+    x,
+    y,
+    verbose,
+    raw_cardinality_cols=None,
+):  # unused-ok: verbose: positional stage signature; refusals are logged at warning/info regardless
     """Drop high-cardinality columns before candidate enumeration.
 
     The Miller-Madow bias on plug-in MI is ~(|X|-1)*(|Y|-1)/(2n) nats; columns with

@@ -2553,7 +2553,7 @@ def test_regression_fe_auto_escalation_excepts_are_logged():
     import inspect
 
     from mlframe.feature_selection.filters import _fe_auto_escalation as mod
-    from mlframe.feature_selection.filters import _fe_auto_escalation_proposals as proposals
+    from mlframe.feature_selection.filters import _fe_auto_escalation_proposers as proposals
 
     src = inspect.getsource(mod) + inspect.getsource(proposals)
     assert "apply_operand_prewarp failed; skipping candidate" in src

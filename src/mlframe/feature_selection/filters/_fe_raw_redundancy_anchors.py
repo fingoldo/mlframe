@@ -220,7 +220,7 @@ def _build_raw_redundancy_step2_def_raw_codes(_raw_codes_cache, data, raw_X, _en
             return _raw_codes_cache[_ridx]
         _fit = np.asarray(data[:, _ridx]).astype(np.int64).ravel()
         _levels = (int(_fit.max()) + 1) if _fit.size else 0
-        _out = _fit
+        _out: Any = _fit
         _dev = None
         if raw_X is not None and 0 < _levels < _eng_card:
             try:
@@ -349,7 +349,7 @@ def _build_raw_redundan_cont_none_np_asarray(_cont, n_rows, _dev_from_cont, _eng
         _cvals = np.asarray(_cont, dtype=np.float64)
         _eb_dev = _dev_from_cont(_cvals, _eng_card)
         if _eb_dev is not None:
-            eb = LazyHostCodes(_eb_dev, np.int64)
+            eb: Any = LazyHostCodes(_eb_dev, np.int64)
         else:
             eb = _quantile_bin(_cvals, nbins=_eng_card)
     else:

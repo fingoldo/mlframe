@@ -173,13 +173,14 @@ def test_biz_val_drift_snapshot_lazy_speedup():
     # Rust thread pool, so process_time (summing CPU-seconds across every thread) systematically
     # inflates whichever side does more parallel work internally, independent of which is actually
     # faster in real (wall-clock) time -- same class of issue as prange numba kernels.
-    t0 = time.perf_counter()
-    _legacy_drift_snapshot(train, val, test, cols)
-    legacy_s = time.perf_counter() - t0
+    def _wall(fn) -> float:
+        """Wall seconds of one drift-snapshot call over every column."""
+        t0 = time.perf_counter()
+        fn(train, val, test, cols)
+        return time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    _new_drift_snapshot(train, val, test, cols)
-    new_s = time.perf_counter() - t0
+    legacy_s = min(_wall(_legacy_drift_snapshot) for _ in range(3))
+    new_s = min(_wall(_new_drift_snapshot) for _ in range(3))
 
     ratio = new_s / max(legacy_s, 1e-9)
     # 0.5 -> 0.75 (2026-08-15): this is still a real speedup below 1.0 (new IS faster than legacy),

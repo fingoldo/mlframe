@@ -138,7 +138,7 @@ def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
         sv = plane.sum(axis=1)  # (F,)
         vv = (plane * plane).sum(axis=1)  # (F,)
         vy = plane @ yc  # (F,)
-        v_ss = vv - sv * sv / n
+        v_ss = vv - sv * sv / n  # moment-ok: sin/cos planes are bounded in [-1, 1], offset to spread is O(1)
         ok = (v_ss > 1e-12 * vv) & (v_ss >= 1e-24)
         denom = v_ss * y_ss
         val = cp.where(denom > 0.0, (vy * vy) / cp.where(denom > 0.0, denom, 1.0), 0.0)

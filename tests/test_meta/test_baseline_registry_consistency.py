@@ -48,6 +48,10 @@ FLAG_EXEMPT: dict[str, str] = {
     # this gate would otherwise look for was never going to exist. See audits/ci_review_2026-09-08/_TRACKER.md
     # (L1.13b).
     "_code_audit_tests_baseline.json": "--refresh-code-audit-baseline",
+    # py-ci-shared ratchets that refresh through the shared env var, one gate name per file.
+    "_committed_line_endings_baseline.json": "PY_CI_SHARED_REFRESH=committed_line_endings",
+    "_drifted_duplicate_literals_baseline.json": "PY_CI_SHARED_REFRESH=duplicate-literals",
+    "_unresolved_module_attributes_baseline.json": "PY_CI_SHARED_REFRESH=unresolved_module_attributes (see test_shared_gates_adopted_pass2.py)",
 }
 
 

@@ -403,7 +403,7 @@ def _quantile_edges(x: np.ndarray, n_bins: int) -> np.ndarray:
                 from ._device_quantile import device_quantile
 
                 q = device_quantile(finite, qs)
-        except Exception as e:  # best-effort: the host np.quantile returns the identical edges; only the speed differs
+        except Exception as e:  # best-effort: the host np.quantile is bit-identical to the device quantile
             logger.debug("device quantile edges failed, using the host np.quantile: %s", e)
             q = None
     if q is None:

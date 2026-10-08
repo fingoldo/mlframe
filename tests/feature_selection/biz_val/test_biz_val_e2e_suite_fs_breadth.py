@@ -41,7 +41,7 @@ from mlframe.training.core import train_mlframe_models_suite
 from mlframe.training.configs import ReportingConfig, TargetTypes
 from mlframe.training import FeatureSelectionConfig, OutputConfig
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 
 # ---------------------------------------------------------------------------
 # Shared helpers

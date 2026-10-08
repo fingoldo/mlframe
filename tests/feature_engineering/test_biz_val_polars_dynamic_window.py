@@ -52,13 +52,20 @@ def test_biz_val_polars_dynamic_window_aggregate_beats_pandas_resample_speed():
     # thread pool, so process_time (summing CPU-seconds across every thread) systematically inflates
     # the polars side relative to pandas' mostly-single-threaded groupby/resample -- the wrong metric
     # for a genuinely parallel-internal library (same class of issue as prange numba kernels).
-    t0 = time.perf_counter()
-    polars_dynamic_window_aggregate(df, "t", ["x"], every="7d", group_col="entity", agg_funcs=["mean"])
-    t_polars = time.perf_counter() - t0
+    def _polars_run() -> float:
+        """Wall seconds of one polars dynamic-window aggregate."""
+        t0 = time.perf_counter()
+        polars_dynamic_window_aggregate(df, "t", ["x"], every="7d", group_col="entity", agg_funcs=["mean"])
+        return time.perf_counter() - t0
 
-    t0 = time.perf_counter()
-    df.set_index("t").groupby("entity")["x"].resample("7D").mean()
-    t_pandas = time.perf_counter() - t0
+    def _pandas_run() -> float:
+        """Wall seconds of one pandas groupby-resample."""
+        t0 = time.perf_counter()
+        df.set_index("t").groupby("entity")["x"].resample("7D").mean()
+        return time.perf_counter() - t0
+
+    t_polars = min(_polars_run() for _ in range(3))
+    t_pandas = min(_pandas_run() for _ in range(3))
 
     assert (
         t_polars < t_pandas * 0.5

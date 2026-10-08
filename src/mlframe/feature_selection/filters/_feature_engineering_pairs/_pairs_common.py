@@ -5,6 +5,11 @@ from __future__ import annotations
 import logging
 import threading
 
+import numpy as np
+
+# Relative variance floor below which a column counts as constant in the |corr| kernels (host and device share it).
+_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
+
 # Module-level logger for module-scope helpers (e.g. _dispatch_batch_mi_with_noise_gate).
 # ``check_prospective_fe_pairs`` still lazy-imports the parent's ``logger`` for its own body.
 _module_logger = logging.getLogger("mlframe.feature_selection.filters._feature_engineering_pairs")

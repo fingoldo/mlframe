@@ -766,6 +766,7 @@ void marginal_mi_entropies(const long long* __restrict__ x, const long long* __r
     for (int i = tid; i < M; i += nt) hist[i] = 0u;
     __syncthreads();
     for (long long i = tid; i < n; i += nt) {
+        // width-ok: idx is a histogram cell below M = Kx * Ky, which the caller bounds by the per-block shared-memory limit
         int idx = (blk == 0) ? (int)x[i] : (blk == 1) ? (int)y[i] : (int)(x[i] * Ky + y[i]);
         atomicAdd(&hist[idx], 1u);
     }

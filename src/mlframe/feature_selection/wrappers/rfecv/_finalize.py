@@ -253,7 +253,13 @@ def _dump_atomic(obj, path: str) -> None:
     write_sidecar(path)
 
 
-def _persist_fitted_estimators(self, *, estimator, fitted_estimators, verbose):
+def _persist_fitted_estimators(
+    self,
+    *,
+    estimator,
+    fitted_estimators,
+    verbose,
+):  # unused-ok: verbose: finalize-step signature; failures are logged at warning regardless
     """Persist the fitted estimators + a required-features/metrics summary to ``self.estimators_save_path`` (documented ctor knob).
 
     Layout (per the ctor docstring): each fitted estimator -> ``join(save_path, estimator_type_name, "{key}.dump")``; the kept feature

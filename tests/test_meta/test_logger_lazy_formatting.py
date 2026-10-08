@@ -88,10 +88,15 @@ def _first_arg_is_eager_format(call: ast.Call) -> bool:
     return False
 
 
+def _candidate_files() -> list[Path]:
+    """The files this gate scans; the population canary asserts the list is not empty."""
+    return sorted(MLFRAME_DIR.rglob("*.py"))
+
+
 def _build_offending_set() -> set[str]:
     """``{relpath:lineno}`` for every eager-formatted ``logger.debug/info`` call under ``src/mlframe``."""
     out: set[str] = set()
-    for py in MLFRAME_DIR.rglob("*.py"):
+    for py in _candidate_files():
         if any(frag in py.parts for frag in _EXEMPT_PATH_FRAGMENTS):
             continue
         if py.name.endswith(".py.old"):

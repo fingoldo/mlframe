@@ -544,7 +544,7 @@ def dfa_alpha2_quadratic(x: np.ndarray) -> float:
         c02 = (M01 * M12 - M11 * M02) * inv_det
         c11 = (M00 * M22 - M02 * M02) * inv_det
         c12 = -(M00 * M12 - M01 * M02) * inv_det
-        c22 = (M00 * M11 - M01 * M01) * inv_det
+        c22 = (M00 * M11 - M01 * M01) * inv_det  # moment-ok: design moments of t = arange(s), a fixed offset-to-spread ratio, not data
         for j in range(m):
             seg = y[j * s : (j + 1) * s]
             Sy = seg.sum()

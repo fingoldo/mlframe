@@ -13,6 +13,7 @@ or ``tuning_rules -> tuning_catboost`` back-edge would cycle either sibling stra
 from __future__ import annotations
 
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +22,6 @@ from scipy.stats import randint
 
 from scipy.stats._distn_infrastructure import rv_continuous_frozen, rv_discrete_frozen
 from sklearn.model_selection import ParameterSampler, train_test_split, cross_validate, KFold
-
-from pyutilz import db
 
 import random as _stdlib_random
 import pandas as pd, numpy as np
@@ -50,6 +49,7 @@ __all__ = [
 ]
 
 trained_models: dict = {}
+_TRAINED_MODELS_LOCK = threading.RLock()
 
 
 def check_condition(condition, params: dict) -> bool:
@@ -270,6 +270,8 @@ def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.Data
     are dropped, and categorical columns are NaN-filled via ``preprocess_df``. Returns an empty dataframe and
     empty cat_features list when no matching trials exist yet.
     """
+    from pyutilz import db  # needs the database extra (sqlalchemy); only this DB-backed path pays for it
+
     logger.info("Getting trials for experiment %s...", experiment_name)
     res = []
     for _id, _node, params, results in db.safe_execute("select id,node,params,results from experiments where  project=%s", (experiment_name,)):
@@ -413,8 +415,10 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
     feature_cols = tuple(c for c in trials.columns if c != "target")
     cache_key = (experiment_name, tuple(cat_features), feature_cols)
     should_retrain = True
-    if cache_key in trained_models:
-        fitted_model, num_trials, prev_scoring, expected_score, model_columns = trained_models[cache_key]
+    with _TRAINED_MODELS_LOCK:
+        cached_entry = trained_models.get(cache_key)
+    if cached_entry is not None:
+        fitted_model, num_trials, prev_scoring, expected_score, model_columns = cached_entry
         if prev_scoring == scoring:
 
             if expected_score >= min_score:
@@ -445,7 +449,8 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
             min_score=min_score, random_state=random_state, early_stopping_rounds=50,
         )
 
-        trained_models[cache_key] = [fitted_model, len(trials), scoring, expected_score, model_columns]
+        with _TRAINED_MODELS_LOCK:
+            trained_models[cache_key] = [fitted_model, len(trials), scoring, expected_score, model_columns]
 
     return fitted_model, model_columns, y
 

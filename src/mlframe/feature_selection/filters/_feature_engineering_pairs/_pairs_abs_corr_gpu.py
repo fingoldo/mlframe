@@ -8,12 +8,11 @@ This computes the same statistic on the device and returns just that scalar.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 
-# Same relative degeneracy tolerance as the host |corr| path; defined here (not imported from _pairs_core_steps) so this leaf module closes no import cycle.
-_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
+from ._pairs_common import _DEGENERATE_REL_TOL
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ def abs_corr_finite_gpu(a_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: 
     denom = (va * vy) ** 0.5
     if denom <= 0.0:
         return 0.0
-    return abs(cay / denom)
+    return float(abs(cay / denom))
 
 
 def abs_corr_or_none(a_dev: Any, y: Optional[np.ndarray], y_finite: Optional[np.ndarray]) -> Optional[float]:
@@ -71,7 +70,7 @@ def candidate_abs_corr(resolve_col: Any, safe_abs_corr: Any, buf_col: int) -> Op
     target = getattr(safe_abs_corr, "target", None)
     if fn is None or target is None or target[0] is None:
         return None
-    return fn(buf_col, target[0], target[1])
+    return cast("Optional[float]", fn(buf_col, target[0], target[1]))
 
 
 def abs_corr_zerofill_gpu(a_dev: Any, b: np.ndarray) -> float:
@@ -97,4 +96,4 @@ def abs_corr_zerofill_gpu(a_dev: Any, b: np.ndarray) -> float:
     denom = (va * vb) ** 0.5
     if denom <= 0.0:
         return 0.0
-    return abs(cab / denom)
+    return float(abs(cab / denom))

@@ -58,7 +58,6 @@ def mixup_batch(
     x: torch.Tensor,
     y: torch.Tensor,
     alpha: float,
-    sample_weight: torch.Tensor | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
     """Compute a Mixup-perturbed batch.
 
@@ -68,9 +67,6 @@ def mixup_batch(
         alpha: Beta-distribution concentration parameter. Higher alpha
             means stronger mixing. Common range: 0.1-0.4 for tabular.
             Must be > 0.
-        sample_weight: Optional (N,) per-sample weights. Returned as-is
-            (the weight tied to the original index is preserved; see
-            module docstring for the semantic).
 
     Returns:
         x_mixed: lam * x + (1-lam) * x[idx]

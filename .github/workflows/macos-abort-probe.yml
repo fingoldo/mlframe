@@ -126,20 +126,20 @@ jobs:
         # the earlier result rather than trusting this file's summary of it. one-by-one is round 2,
         # native-stack round 3.
         include:
-          - { mode: serial, runner: macos-latest }
-          - { mode: xdist, runner: macos-latest }
-          - { mode: one-by-one, runner: macos-latest }
-          - { mode: native-stack, runner: macos-latest }
+          - { mode: serial, runner: macos-15 }
+          - { mode: xdist, runner: macos-15 }
+          - { mode: one-by-one, runner: macos-15 }
+          - { mode: native-stack, runner: macos-15 }
           - { mode: serial, runner: macos-15-intel }
           - { mode: native-stack, runner: macos-15-intel }
-          - { mode: lldb, runner: macos-latest }
-          - { mode: env-mitigation, runner: macos-latest }
+          - { mode: lldb, runner: macos-15 }
+          - { mode: env-mitigation, runner: macos-15 }
           # ROUND 6: does an older, longer-soaked libomp avoid the crash? Runs the exact same test set as
           # `serial` -- the leg that reproduced cleanly in every round so far -- so the only variable
           # between this leg and `serial` above is which libomp got installed.
-          - { mode: pinned-libomp, runner: macos-latest }
+          - { mode: pinned-libomp, runner: macos-15 }
           # ROUND 11: instrument libomp itself rather than guess a third Python-side lever.
-          - { mode: kmp-settings, runner: macos-latest }
+          - { mode: kmp-settings, runner: macos-15 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

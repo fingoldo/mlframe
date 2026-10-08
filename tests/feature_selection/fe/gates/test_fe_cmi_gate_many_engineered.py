@@ -163,9 +163,12 @@ def test_cost_is_bounded_as_K_grows():
     def _time(n_remaps):
         """Helper that time."""
         cands, yb, _ = _pool_with_remaps(seed=0, n_remaps=n_remaps)
-        t0 = time.perf_counter()
-        apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
-        return time.perf_counter() - t0, len(cands)
+        walls = []
+        for _ in range(3):
+            t0 = time.perf_counter()
+            apply_cmi_redundancy_gate(cands, yb, nbins=10, retain_frac=0.15, seed=0)
+            walls.append(time.perf_counter() - t0)
+        return min(walls), len(cands)
 
     t_small, k_small = _time(16)  # 3 + 48 = 51 candidates
     t_large, k_large = _time(66)  # 3 + 198 = 201 candidates

@@ -36,7 +36,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 
 from tests.feature_selection._selector_factories import SELECTOR_SPECS, selected_names
 from tests.feature_selection._biz_val_synth import (

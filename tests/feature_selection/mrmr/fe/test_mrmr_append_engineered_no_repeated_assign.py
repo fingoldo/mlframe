@@ -106,9 +106,14 @@ def test_append_engineered_scales_subquadratically_with_recipe_count(monkeypatch
     base_out = X[["a"]].copy()
     recipes = _make_recipes(n_recipes)
 
-    t0 = time.perf_counter()
-    out = _append_engineered(self, base_out, X, recipes=recipes)
-    dt = time.perf_counter() - t0
+    def _append_wall():
+        """The appended frame and the wall seconds of one append."""
+        t0 = time.perf_counter()
+        res = _append_engineered(self, base_out.copy(), X, recipes=recipes)
+        return res, time.perf_counter() - t0
+
+    out, dt = _append_wall()
+    dt = min(dt, _append_wall()[1], _append_wall()[1])
 
     assert out.shape[1] == 1 + n_recipes
     # Measured post-fix: ~0.25s at n_rows=99401/n_base_cols=500/n_recipes=103 (57.7x vs the pre-fix

@@ -62,13 +62,24 @@ from typing import Any, Sequence
 
 import numpy as np
 
-
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-__all__ = ["run_fe_auto_escalation", "find_underdelivering_pairs"]
+from ._fe_auto_escalation_proposers import (  # noqa: F401  -- carved sibling, re-exported
+    _ADAPTIVE_F_GRID,
+    _CHIRP_F_GRID,
+    _ESCALATION_POLY_BASES,
+    _IDENTITY_BASIS,
+    _candidate_values,
+    _finite_filled,
+    _fit_fourier_amplitude_spec,
+    _identity_prewarp_spec,
+    _propose_fourier,
+    _propose_poly,
+)
 
+__all__ = ["run_fe_auto_escalation", "find_underdelivering_pairs"]
 
 def _resolve_operand(X, name: str, engineered_continuous: dict | None) -> np.ndarray | None:
     """Continuous values for a RAW column ``name`` from the (possibly augmented) frame.
@@ -250,7 +261,7 @@ def _codes_of(values, nbins: int, quantile_bin) -> np.ndarray:
                 return np.asarray(cp.asnumpy(_quantile_bin_device(x, nbins).astype(cp.int8))).astype(np.int64)
         except Exception as e:
             logger.debug("device binning of the escalation capture failed, binning on the host: %s", e)
-    return quantile_bin(np.asarray(values, dtype=np.float64), nbins=nbins, host_only=True).astype(np.int64)
+    return np.array(quantile_bin(np.asarray(values, dtype=np.float64), nbins=nbins, host_only=True), dtype=np.int64)
 
 
 def _slice_admitted_pool(admitted_pool: dict, idx, classes_y_sub, nbins: int) -> dict:
@@ -687,5 +698,3 @@ def _replay_candidate(c, X_full, apply_recipe):
             c.get("name"),
         )
         return None
-
-from ._fe_auto_escalation_proposals import _ESCALATION_POLY_BASES, _ADAPTIVE_F_GRID, _CHIRP_F_GRID, _IDENTITY_BASIS, _finite_filled, _identity_prewarp_spec, _candidate_values, _propose_poly, _fit_fourier_amplitude_spec, _propose_fourier  # noqa: F401  (carved sibling; names re-exported)

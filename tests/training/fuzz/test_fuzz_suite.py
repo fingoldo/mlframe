@@ -29,7 +29,7 @@ from tests.training._fuzz_combo import (
     log_combo_outcome,
     xfail_reason,
 )
-from tests._known_gap import known_gap
+from py_ci_shared.pytest_known_gap import known_gap
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
 # 2026-04-27: train_mlframe_models_suite signature collapsed several

@@ -590,7 +590,7 @@ def combine_probs(
     sample_weight: Optional[np.ndarray] = None,
     ensure_prob_limits: bool = True,
     precomputed_weights: Optional[np.ndarray] = None,
-) -> np.ndarray:
+) -> np.ndarray:  # unused-ok: sample_weight: per-row weights cannot change a within-row blend; accepted so callers share one blend signature
     """Single canonical per-flavour ensemble math, shared by train and predict.
 
     ``stacked`` is a (K, N, ...) tensor (already filtered to the post-gate member set).

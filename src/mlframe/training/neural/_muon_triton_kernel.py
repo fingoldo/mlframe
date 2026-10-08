@@ -31,11 +31,14 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any, Callable, Optional, cast
 
 import torch
 
 from ._triton_bootstrap import ensure_triton_loaded
+
+NS5_COEFFS = (3.4445, -4.7750, 2.0315)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,7 @@ _TRITON_WIN_MARGIN: float = 1.10
 # process: True -> Triton was faster on this GPU+shape, use it; False -> eager
 # won, stay on torch.matmul. Cleared between processes; cheap to repopulate.
 _TRITON_VERDICT: dict = {}
+_TRITON_VERDICT_LOCK = threading.RLock()
 
 # Override the empirical gate: "0"/"off"/"false" force eager, "1"/"on"/"true"
 # force Triton (skips calibration), anything else / unset -> auto-calibrate.
@@ -196,7 +200,7 @@ def _build_triton_ns_fn() -> Optional[Callable]:
         but the X @ X.T step uses the Triton SYRK kernel above.
         """
         assert G.ndim == 2 and G.is_cuda, "Triton NS path requires 2D CUDA tensor"  # nosec B101 - internal invariant check in src/mlframe/training/neural, not reachable with untrusted input
-        a, b, c = (3.4445, -4.7750, 2.0315)
+        a, b, c = NS5_COEFFS
         X = G.to(torch.bfloat16) if G.is_cuda else G.to(torch.float32)
         transposed = X.size(0) > X.size(1)
         if transposed:
@@ -319,7 +323,8 @@ def maybe_newton_schulz_triton(
     if forced is not True:
         size_bucket = _size_bucket(min(G.shape))
         key = (dev_index, size_bucket)
-        verdict = _TRITON_VERDICT.get(key)
+        with _TRITON_VERDICT_LOCK:
+            verdict = _TRITON_VERDICT.get(key)
         if verdict is None:
             device_name = torch.cuda.get_device_name(dev_index)
             # Route through the repo's shared per-hardware measurement cache
@@ -351,7 +356,8 @@ def maybe_newton_schulz_triton(
             if verdict is None:
                 speedup = _calibrate_triton_vs_eager(fn, _shape, _dtype, _device, steps)
                 verdict = speedup >= _TRITON_WIN_MARGIN
-            _TRITON_VERDICT[key] = verdict
+            with _TRITON_VERDICT_LOCK:
+                _TRITON_VERDICT[key] = verdict
             logger.info(
                 "Muon Triton calibration on %s (bucket %d): %.2fx vs eager -> %s",
                 device_name, size_bucket, speedup if speedup is not None else float("nan"),

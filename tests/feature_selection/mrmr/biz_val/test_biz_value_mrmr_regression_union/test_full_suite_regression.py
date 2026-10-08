@@ -288,6 +288,7 @@ class TestPriorLayerRoster:
 class TestMegaFixtureAllOn:
     """The all-on mega-fixture fit (fe_auto + auto_oracle) stays within budget and produces diverse, collision-free provenance."""
 
+    @pytest.mark.hang_guard
     def test_fit_under_300s_and_provenance_diverse(self):
         """The all-on fit completes within 300s and fe_provenance_ surfaces >= 4 distinct engineered origins."""
         X, y = _build_mega(seed=42, n=3000)

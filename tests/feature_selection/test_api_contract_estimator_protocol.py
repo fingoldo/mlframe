@@ -61,7 +61,7 @@ def test_boruta_shap_fitted_state_uses_trailing_underscores(fitted_boruta):
     bs = fitted_boruta
     for name in ("accepted_", "rejected_", "tentative_", "history_x_", "hits_", "order_"):
         assert name in vars(bs), name
-    assert PRE_RENAME_ATTRS, "the pre-rename attribute list must not be empty or the loop below checks nothing"
+    assert PRE_RENAME_ATTRS, "the rename list must not be empty, or the loop below checks nothing"
     for bare in PRE_RENAME_ATTRS:
         assert bare not in vars(bs), bare
         assert not hasattr(bs, bare), bare

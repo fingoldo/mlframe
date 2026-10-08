@@ -42,17 +42,13 @@ def create_model(config):
     return model
 
 def load_model(config_path, checkpoint_path):
-    """Load a trained InfoNet from a config + checkpoint file and set it to eval mode; uses ``weights_only=True`` where available so a tampered checkpoint can't execute arbitrary code during unpickling."""
+    """Load a trained InfoNet from a config + checkpoint file and set it to eval mode; uses ``weights_only=True`` (never falls back to a full unpickle) so a tampered checkpoint can't execute arbitrary code during unpickling."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     config = load_config(config_path)
     model = create_model(config)
-    # weights_only=True restricts the unpickler to plain tensors/state-dicts, blocking arbitrary-code execution if the Google-Drive
-    # checkpoint is tampered with. The checkpoint here is a pure state_dict, so the restriction is sound. torch <1.13 lacks the kwarg;
-    # fall back to the legacy call there (those versions also predate the unpickler-restriction feature, so nothing safer is available).
-    try:
-        state_dict = torch.load(checkpoint_path, map_location=device, weights_only=True)  # nosec B614 - weights_only=True restricts the unpickler to plain tensors/state-dicts
-    except TypeError:
-        state_dict = torch.load(checkpoint_path, map_location=device)  # nosec B614 - torch<1.13 fallback; predates weights_only, no safer option exists on those versions
+    # weights_only=True restricts the unpickler to plain tensors/state-dicts, blocking code execution from a tampered checkpoint. torch < 1.13
+    # lacks the kwarg and raises TypeError: refuse rather than fall back to an unrestricted unpickle.
+    state_dict = torch.load(checkpoint_path, map_location=device, weights_only=True)  # nosec B614
     model.load_state_dict(state_dict)
     model.eval()
     return model

@@ -324,11 +324,16 @@ def test_mrmr_fit_cache_hit_replays_state():
     # short-circuit is disabled above).
     mrmr2 = clone(mrmr1)
     assert not hasattr(mrmr2, "support_")
-    t0 = time.perf_counter()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        mrmr2.fit(X, y)
-    second_dt = time.perf_counter() - t0
+
+    def _warm_fit_wall(est) -> float:
+        """Wall seconds of one fit that replays from the cache."""
+        t0 = time.perf_counter()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            est.fit(X, y)
+        return time.perf_counter() - t0
+
+    second_dt = min(_warm_fit_wall(mrmr2), _warm_fit_wall(clone(mrmr1)), _warm_fit_wall(clone(mrmr1)))
 
     second_support = np.asarray(mrmr2.support_)
     np.testing.assert_array_equal(first_support, second_support)

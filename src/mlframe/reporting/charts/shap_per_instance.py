@@ -116,7 +116,7 @@ def shap_worst_errors_explanation(
     plot_file: Optional[str] = None,
     plot_outputs: Optional[str] = None,
     seed: int = 0,
-) -> ShapPerInstanceResult:
+) -> ShapPerInstanceResult:  # unused-ok: seed: uniform diagnostic dispatch signature; the worst rows are chosen deterministically
     """Per-instance SHAP attribution for the K most-confident-wrong predictions (tree models only).
 
     Ranks rows by error severity (binary: ``|y_true - y_score|``; else raw |residual|), takes the K

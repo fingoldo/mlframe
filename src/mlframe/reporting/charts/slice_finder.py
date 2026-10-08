@@ -31,10 +31,10 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Sequence, Tuple
 
-import math
 
 import numpy as np
 
+from mlframe.core.proportion_stats import norm_ppf
 from mlframe.reporting.charts.error_analysis import (
     _per_row_error, _resolve_feature_matrix, _top_split_features,
 )
@@ -191,27 +191,8 @@ def _bin_matrix(mat: np.ndarray, nbins: int, row_mask: Optional[np.ndarray] = No
 
 
 def _norm_ppf_one_sided(p: float) -> float:
-    """Standard-normal quantile at ``p``.
-
-    Acklam's rational approximation (|error| < 1.15e-9 over the whole range), so this module keeps its numpy-only
-    dependency set -- ``math`` has no inverse erf, and pulling scipy in for one quantile is not worth it.
-    """
-    p = float(min(max(p, 1e-15), 1.0 - 1e-15))
-    a_ = (-3.969683028665376e01, 2.209460984245205e02, -2.759285104469687e02, 1.383577518672690e02, -3.066479806614716e01, 2.506628277459239e00)
-    b_ = (-5.447609879822406e01, 1.615858368580409e02, -1.556989798598866e02, 6.680131188771972e01, -1.328068155288572e01)
-    c_ = (-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e00, -2.549732539343734e00, 4.374664141464968e00, 2.938163982698783e00)
-    d_ = (7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e00, 3.754408661907416e00)
-    p_low, p_high = 0.02425, 1.0 - 0.02425
-    if p < p_low:
-        q = math.sqrt(-2.0 * math.log(p))
-        return (((((c_[0] * q + c_[1]) * q + c_[2]) * q + c_[3]) * q + c_[4]) * q + c_[5]) / ((((d_[0] * q + d_[1]) * q + d_[2]) * q + d_[3]) * q + 1.0)
-    if p > p_high:
-        q = math.sqrt(-2.0 * math.log(1.0 - p))
-        return -(((((c_[0] * q + c_[1]) * q + c_[2]) * q + c_[3]) * q + c_[4]) * q + c_[5]) / ((((d_[0] * q + d_[1]) * q + d_[2]) * q + d_[3]) * q + 1.0)
-    q = p - 0.5
-    r = q * q
-    return (((((a_[0] * r + a_[1]) * r + a_[2]) * r + a_[3]) * r + a_[4]) * r + a_[5]) * q / (
-        ((((b_[0] * r + b_[1]) * r + b_[2]) * r + b_[3]) * r + b_[4]) * r + 1.0)
+    """Standard-normal quantile at ``p``, clamped away from 0 and 1 so the tails stay finite."""
+    return norm_ppf(float(min(max(p, 1e-15), 1.0 - 1e-15)))
 
 
 def _bin_label(edges: np.ndarray, b: int) -> str:

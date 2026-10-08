@@ -27,7 +27,7 @@ LOO would not. Not implemented in v1.
 from __future__ import annotations
 
 import hashlib
-import json
+import orjson
 import logging
 import os
 import uuid
@@ -263,7 +263,7 @@ def persist_budgets(budgets: dict[str, float], *, cache_key: str = "mlframe.fe_f
     # per-family ROI. ``os.replace`` is atomic on Windows and POSIX alike.
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     try:
-        tmp.write_text(json.dumps(budgets, sort_keys=True), encoding="utf-8")
+        tmp.write_bytes(orjson.dumps(budgets, option=orjson.OPT_SORT_KEYS))
         os.replace(tmp, path)
     except OSError as exc:
         logger.warning("persist_budgets: failed to write %s (%s); budget learning will restart next fit.", path, exc)
@@ -280,11 +280,11 @@ def load_budgets(*, cache_key: str = "mlframe.fe_family_budget", fingerprint: Op
     if not path.exists():
         return None
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = orjson.loads(path.read_bytes())
         if not isinstance(raw, dict):
             return None
         return {str(k): float(v) for k, v in raw.items()}
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         logger.warning("load_budgets: failed to read/parse %s (%s); starting from equal-split budgets.", path, exc)
         return None
 

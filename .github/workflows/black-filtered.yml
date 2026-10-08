@@ -21,7 +21,7 @@ on:
 # Only the LATEST push's check matters, so cancel superseded ones.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: true  # cancel-ok: the check reports on the latest push only, an older master run carries no verdict
 
 # Extracted to fingoldo/py-ci-shared (2026-07-09): identical logic to pyutilz's own Black
 # workflow, script now lives in the shared py_ci_shared package instead of scripts/ here.

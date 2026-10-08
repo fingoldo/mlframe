@@ -55,3 +55,18 @@ def test_count_distinct_int_matches_unique_and_content_memo_is_content_keyed():
     assert len(calls) == 1
     memo.get_or_compute("t", y, compute)
     assert len(calls) == 2
+
+
+def test_content_memo_pickle_round_trip_drops_runtime_state() -> None:
+    """A pickled ContentMemo keeps its capacity, restores a usable lock and starts with an empty memo."""
+    import pickle
+
+    from mlframe.feature_selection.filters._fast_host_ops import ContentMemo
+
+    memo = ContentMemo(max_entries=3)
+    x = np.arange(10, dtype=np.float64)
+    memo.get_or_compute("t", x, lambda a: a * 2)
+    restored = pickle.loads(pickle.dumps(memo))  # nosec B301 - round-trip of an object this test just pickled
+    assert restored._max == 3
+    assert len(restored._data) == 0
+    np.testing.assert_array_equal(restored.get_or_compute("t", x, lambda a: a * 3), x * 3)

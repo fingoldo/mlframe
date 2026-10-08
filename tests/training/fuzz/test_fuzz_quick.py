@@ -43,7 +43,7 @@ _KNOWN_GAPS: dict[str, str] = {}
 @pytest.mark.parametrize("combo", QUICK_COMBOS, ids=[c.pytest_id() for c in QUICK_COMBOS])
 def test_fuzz_train_mlframe_models_suite_quick(combo, tmp_path):
     """Quick smoke; delegates to the full suite's combo runner, whose invariants (non-empty models, metadata keys, prediction sanity) all apply."""
-    from tests._known_gap import known_gap
+    from py_ci_shared.pytest_known_gap import known_gap
 
     from .test_fuzz_suite import test_fuzz_train_mlframe_models_suite as _full
 

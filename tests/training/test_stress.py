@@ -250,6 +250,7 @@ class TestPerformance:
         assert save_time < perf_time_budget(5.0), f"Save took {save_time:.1f}s"
         assert load_time < perf_time_budget(5.0), f"Load took {load_time:.1f}s"
 
+    @pytest.mark.hang_guard
     def test_multiple_models_performance(self, sample_regression_data, temp_data_dir, common_init_params):
         """Test training multiple model types performance."""
         df, _feature_names, _y = sample_regression_data

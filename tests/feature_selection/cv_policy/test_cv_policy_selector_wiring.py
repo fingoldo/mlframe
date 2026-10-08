@@ -202,7 +202,9 @@ def test_ace_selector_fit_uses_policy_holdout(monkeypatch):
 
     calls = []
     real = ace_mod._pfi_split
-    monkeypatch.setattr(ace_mod, "_pfi_split", lambda n, y, rng, cv_policy=None: (calls.append(cv_policy), real(n, y, rng, cv_policy))[1])
+    monkeypatch.setattr(
+        ace_mod, "_pfi_split", lambda n, y, rng, cv_policy=None, split_seed=0: (calls.append(cv_policy), real(n, y, rng, cv_policy, split_seed))[1]
+    )
     X, y = _frame()
     sel = _build(use_ace_fs=True, ace_kwargs={"importance": "permutation", "n_replicates": 3, "n_masking_rounds": 1})["ACE"]
     sel.fit(X, y)

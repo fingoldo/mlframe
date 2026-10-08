@@ -8,13 +8,16 @@ copy and caches it. A site that never reads the host form never pays for it; a s
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
 
 class LazyHostCodes:
-    """Deferred ``cp.asnumpy(dev).astype(dtype)`` of a device code array. Construction remembers the device array and the host dtype; nothing is copied yet."""
+    """Deferred ``cp.asnumpy(dev).astype(dtype)`` of a device code array.
+
+    Construction remembers the device array and the host dtype; nothing is copied until the host view is first read.
+    """
 
     __slots__ = ("_dev", "_dtype", "_host", "shape")
 
@@ -32,7 +35,7 @@ class LazyHostCodes:
     @property
     def dtype(self) -> np.dtype:
         """Host dtype of the materialised copy."""
-        return self._dtype
+        return cast("np.dtype[Any]", self._dtype)
 
     @property
     def ndim(self) -> int:

@@ -15,8 +15,7 @@ def test_every_edge_builder_runs_on_a_supervised_column(method):
     x = rng.standard_normal(600)
     y = (x + 0.3 * rng.standard_normal(600) > 0).astype(np.int64)
     edges = cols._EDGE_BUILDERS[method](x, y, "qs", {})
-    assert edges is not None
-    e = np.asarray(edges, dtype=np.float64)
-    assert e.ndim == 1 and np.all(np.isfinite(e)), f"{method}: edges must be a finite 1-D vector, got shape {e.shape}"
-    assert np.all(np.diff(e) >= 0), f"{method}: edges must be non-decreasing"
-    assert e.size == 0 or (x.min() <= e.min() and e.max() <= x.max()), f"{method}: edges must lie inside the column's range"
+    arr = np.asarray(edges, dtype=np.float64)
+    assert arr.ndim == 1 and arr.size >= 1, f"{method} returned no edges"
+    assert np.all(np.isfinite(arr)) and np.all(np.diff(arr) >= 0.0), f"{method} edges must be finite and sorted"
+    assert arr[0] >= x.min() - 1e-9 and arr[-1] <= x.max() + 1e-9, f"{method} edges must lie inside the data range"
