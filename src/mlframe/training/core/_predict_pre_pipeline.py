@@ -211,7 +211,11 @@ def _reattach_passthrough(out: pd.DataFrame, df_in: Any, ext_pipeline: Any) -> p
     return pd.concat([out, df_in[cols].set_axis(out.index)], axis=1) if cols else out
 
 
-def _apply_row_wise_extensions(df: Any, config: Optional[dict], verbose: int = 0) -> Any:
+def _apply_row_wise_extensions(
+    df: Any,
+    config: Optional[dict],
+    verbose: int = 0,
+) -> Any:  # unused-ok: verbose: predict-path helper signature shared by its callers; replay failures are logged at warning
     """Recompute row-wise extension columns (row_summary_*/row_extreme_*) on a predict-time frame.
 
     These columns are STATELESS (per-row functions of that row's own numeric column values, not

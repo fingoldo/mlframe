@@ -55,7 +55,7 @@ def _target_encoding_residual_fit(
     sample_weight: np.ndarray | None = None,  # -- see note below
     smoothing: float = _TARGET_ENCODING_DEFAULT_SMOOTHING,
     oof_folds: int | None = _TARGET_ENCODING_DEFAULT_OOF_FOLDS,
-) -> dict[str, Any]:
+) -> dict[str, Any]:  # unused-ok: sample_weight: transform registry fit signature; the fit is unweighted by design
     """Fit per-category smoothed means on TRAIN rows only.
 
     Parameters

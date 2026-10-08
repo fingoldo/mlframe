@@ -81,7 +81,7 @@ def _batched_precheck_gpu(cp, X_batch, yg, precheck_qs, precheck_min_sse_drop: f
         y_resid = yc[:, None] - b[None, :] * Xc  # y residualised against each column's OWN linear fit
         num = (r_relu * y_resid).sum(axis=0)
         denom_safe = cp.where(denom > 1e-24, denom, 1.0)
-        sse_relu = cp.where(denom > 1e-24, sse_lin - num * num / denom_safe, sse_lin)
+        sse_relu = cp.where(denom > 1e-24, sse_lin - num * num / denom_safe, sse_lin)  # moment-ok: FWL on centred residuals, no raw power sum
         with_guard = cp.where(ok, sse_relu, sse_lin)
         drop = cp.where(sse_lin > 1e-24, 1.0 - with_guard / cp.where(sse_lin > 1e-24, sse_lin, 1.0), 0.0)
         best_drop = cp.maximum(best_drop, cp.where(cp.isfinite(drop), drop, 0.0))

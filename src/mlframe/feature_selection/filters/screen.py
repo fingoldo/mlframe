@@ -153,7 +153,7 @@ def postprocess_candidates(
     dtype=np.int32,
     verbose: bool = True,
     ndigits: int = 4,
-):
+):  # unused-ok: verbose: shared screening stage signature; logging goes through logger levels
     """Post-analysis of prescreened candidates: build the feature "friend graph".
 
     Delegates to :func:`mlframe.feature_selection.filters.friend_graph.build_friend_graph`,

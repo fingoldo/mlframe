@@ -862,7 +862,7 @@ def render_class_structure_diagnostic(
     max_groups: int = 30,
     n_time_bins: int = 20,
     seed: int = 0,
-) -> bool:
+) -> bool:  # unused-ok: seed: uniform diagnostic dispatch signature; this diagnostic draws no random numbers
     """Group x time-bin class-rate heatmap (case_visual leakage/structure diagnostic).
 
     Default-ON when the frame carries a bounded-cardinality categorical column to use as the group axis. Time bins come

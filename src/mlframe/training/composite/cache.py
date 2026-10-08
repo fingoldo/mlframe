@@ -144,15 +144,30 @@ def _row_order_fingerprint(df: Any, n_edge: int = _ROW_ORDER_PREFIX_ROWS) -> str
     sensitivity should bump ``random_state`` (re-seeds the ``data_signature`` sample) or raise
     ``_ROW_ORDER_PREFIX_ROWS``.
 
-    Returns ``""`` on any access failure (degrades to the prior reorder-stable behaviour rather
-    than crashing on exotic frame types).
+    On an access failure returns ``"unfingerprintable:"`` plus a digest of the frame's type, shape and column names, so
+    frames of different structure never share one key and the signature does not crash on exotic frame types.
     """
     try:
         fp = _canonical.row_order_fingerprint(df, int(n_edge))
         return "" if fp is None else fp.decode("ascii")
     except Exception as exc:
         logger.warning("cache: head/tail row-order fingerprint failed, so this signature is NOT sensitive to row order: %s", exc)
-        return ""
+        return _unfingerprintable_key(df)
+
+
+def _structure_part(df: Any, attr: str) -> str:
+    """``repr`` of the frame's ``shape`` / ``columns`` attribute, or ``"?"`` when the frame type does not expose it."""
+    try:
+        value = getattr(df, attr)
+        return repr(list(value)) if attr == "columns" else repr(tuple(value))
+    except Exception:
+        return "?"
+
+
+def _unfingerprintable_key(df: Any) -> str:
+    """Distinct-per-structure fallback key for a frame whose row-order fingerprint could not be computed."""
+    parts = [f"{type(df).__module__}.{type(df).__qualname__}", _structure_part(df, "shape"), _structure_part(df, "columns")]
+    return "unfingerprintable:" + hashlib.blake2b("|".join(parts).encode("utf-8"), digest_size=8).hexdigest()
 
 
 def data_signature(

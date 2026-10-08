@@ -183,7 +183,13 @@ def unigram_text_processing() -> dict:
     }
 
 
-def unigram_rescues_text_features(df: Any, y: Any, text_features: Optional[Sequence[str]], *, verbose: bool = True) -> bool:
+def unigram_rescues_text_features(
+    df: Any,
+    y: Any,
+    text_features: Optional[Sequence[str]],
+    *,
+    verbose: bool = True,
+) -> bool:  # unused-ok: verbose: public probe signature; probe diagnostics go through logger levels
     """Would a unigram dictionary let the installed CatBoost fit ALL of ``text_features`` together?
 
     Probes the real fit rather than reasoning about token counts, for the same reason the per-column probe

@@ -119,7 +119,7 @@ def _make_contrasts(X: np.ndarray, rng: np.random.Generator) -> np.ndarray:
 _PFI_HOLDOUT_FRACTION = 0.25
 
 
-def _pfi_split(n: int, y: np.ndarray, rng: np.random.Generator, cv_policy=None) -> tuple:
+def _pfi_split(n: int, y: np.ndarray, rng: np.random.Generator, cv_policy=None, split_seed: int = 0) -> tuple:
     """Row indices ``(fit_idx, score_idx)`` for one replicate's held-out permutation importance.
 
     Stratified on ``y`` when it is discrete and every class can be represented on both sides; otherwise a plain
@@ -127,14 +127,14 @@ def _pfi_split(n: int, y: np.ndarray, rng: np.random.Generator, cv_policy=None) 
     held-out PFI rather than repeating one arbitrary split.
 
     A temporal / grouped ``cv_policy`` (the suite's shared split policy) replaces the random draw by the newest rows / whole groups,
-    the same for every replicate.
+    the same for every replicate; ``split_seed`` (the caller's ``random_state``) seeds the whole-group draw.
     """
     n_hold = round(n * _PFI_HOLDOUT_FRACTION)
     if n_hold < 2 or n - n_hold < 2:
         return None, None
     from mlframe.feature_selection.cv_policy import holdout_indices
 
-    policy_split = holdout_indices(cv_policy, n, _PFI_HOLDOUT_FRACTION, random_state=0)
+    policy_split = holdout_indices(cv_policy, n, _PFI_HOLDOUT_FRACTION, random_state=split_seed)
     if policy_split is not None:
         return policy_split
     seed = rng.integers(0, 2**31 - 1).item()
@@ -153,6 +153,7 @@ def _pfi_split(n: int, y: np.ndarray, rng: np.random.Generator, cv_policy=None) 
 
 def _one_replicate_importances(
     fit_predict_model, X: np.ndarray, y: np.ndarray, importance: str, n_perm_repeats: int, rng: np.random.Generator, seed: int, cv_policy=None,
+    split_seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Fit one estimator on ``[X | contrasts]`` and split its importances into (real, contrast) halves."""
     from sklearn.base import clone
@@ -169,7 +170,7 @@ def _one_replicate_importances(
     # that memorisation inflates the acceptance threshold and genuinely relevant low-cardinality features fail
     # the one-sided t-test. The caller opted into the mode advertised as removing exactly that bias.
     if importance == "permutation":
-        fit_idx, score_idx = _pfi_split(X_joint.shape[0], y, rng, cv_policy)
+        fit_idx, score_idx = _pfi_split(X_joint.shape[0], y, rng, cv_policy, split_seed)
         if fit_idx is not None:
             model.fit(X_joint[fit_idx], y[fit_idx])
             imps = _read_importances(model, importance, X_joint[score_idx], y[score_idx], n_repeats=n_perm_repeats, random_state=seed)
@@ -280,6 +281,7 @@ def ace_select(
         real_imps, thr = _run_ace_round(
             estimator, X_arr[:, idx], y_arr, n_replicates=n_replicates, contrast_percentile=contrast_percentile,
             importance=importance, n_perm_repeats=n_perm_repeats, random_state=random_state + _round * 1000, cv_policy=cv_policy,
+            split_seed=random_state,
         )
         pvals_round = _ttest_greater(real_imps, thr)
         mean_round = real_imps.mean(axis=0)
@@ -315,7 +317,7 @@ def ace_select(
 
 def _run_ace_round(
     estimator, X: np.ndarray, y: np.ndarray, *, n_replicates: int, contrast_percentile: float, importance: str,
-    n_perm_repeats: int, random_state: int, cv_policy=None,
+    n_perm_repeats: int, random_state: int, cv_policy=None, split_seed: int = 0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """One ACE pass over the given columns. Returns (real_imps [n_replicates x p], per-feature contrast bar).
 
@@ -327,7 +329,10 @@ def _run_ace_round(
     contrast_pool: list[np.ndarray] = []
     for r in range(n_replicates):
         rng = np.random.default_rng(random_state + r)
-        real_r, contrast_r = _one_replicate_importances(estimator, X, y, importance=importance, n_perm_repeats=n_perm_repeats, rng=rng, seed=random_state + r, cv_policy=cv_policy)
+        real_r, contrast_r = _one_replicate_importances(
+            estimator, X, y, importance=importance, n_perm_repeats=n_perm_repeats, rng=rng, seed=random_state + r, cv_policy=cv_policy,
+            split_seed=split_seed,
+        )
         real_imps[r] = real_r
         contrast_pool.append(contrast_r)
     pooled = np.concatenate(contrast_pool)

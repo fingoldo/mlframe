@@ -218,7 +218,7 @@ def _chronological_positions(policy: CVPolicy, n: int) -> Optional[np.ndarray]:
 
 
 def partition_folds(
-    policy: Optional[CVPolicy], n: int, n_splits: int, *, y: Any = None, classification: bool = False, random_state: int = 0,
+    policy: Optional[CVPolicy], n: int, n_splits: int, *, y: Any = None, classification: bool = False,
 ) -> Optional[List[Tuple[np.ndarray, np.ndarray]]]:
     """``(train, test)`` folds whose test sets PARTITION all ``n`` rows, for consumers that need an out-of-fold value for every row.
 

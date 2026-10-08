@@ -194,7 +194,7 @@ def run_composite_post_processing(
     plot_file: str | None,
     verbose: bool,
     ctx: Any = None,
-) -> tuple[dict, dict]:
+) -> tuple[dict, dict]:  # unused-ok: verbose: uniform suite-phase signature; logging goes through logger levels
     """Run composite wrapping, cross-target ensemble, and suite-end summary.
 
     ``ctx`` (the suite TrainingContext) carries ``timestamps`` / ``sample_weights`` / ``group_ids`` aligned to

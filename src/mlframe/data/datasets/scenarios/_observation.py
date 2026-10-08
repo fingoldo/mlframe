@@ -42,7 +42,7 @@ RARE_PREVALENCE = 0.01
 RARE_MIN_ROWS = 10000
 
 
-def _linear_core(n_informative: int, seed: int) -> Tuple[Tuple[FeatureSpec, ...], Dict[str, float]]:
+def _linear_core(n_informative: int) -> Tuple[Tuple[FeatureSpec, ...], Dict[str, float]]:
     """Return the shared informative columns and their weights, identical across this family."""
     informative = tuple(FeatureSpec(name=f"s{i}") for i in range(n_informative))
     weights = {f"s{i}": float(1.2 * (0.72**i)) for i in range(n_informative)}
@@ -64,7 +64,7 @@ def missingness_trio_spec(n_noise: int = 25, n_samples: int = 6000, ceiling: flo
     ``s3`` is left complete on purpose: it is what makes the MAR case recoverable, and a bed that hid it
     too would have turned its MAR column into a second MNAR one.
     """
-    informative, weights = _linear_core(4, seed)
+    informative, weights = _linear_core(4)
     return DatasetSpec(
         name=f"missingness_trio_{int(rate * 100)}pct",
         n_samples=n_samples,
@@ -88,7 +88,7 @@ def rare_class_spec(n_noise: int = 30, n_samples: int = RARE_MIN_ROWS, ceiling: 
     balanced bed has. A bed built by dropping majority rows would differ in sample size as well as balance,
     and no comparison between the two could then attribute a difference to either.
     """
-    informative, weights = _linear_core(5, seed)
+    informative, weights = _linear_core(5)
     return DatasetSpec(
         name=f"rare_class_{int(prevalence * 1000):03d}permille",
         n_samples=max(int(n_samples), RARE_MIN_ROWS),
@@ -136,7 +136,7 @@ def concept_shift_spec(n_noise: int = 25, n_samples: int = 6000, ceiling: float 
     The two halves share a structure and differ in exactly one declaration, so a method that reports the
     same thing on both is reporting "drift" as one phenomenon when the two demand opposite responses.
     """
-    informative, weights = _linear_core(5, seed)
+    informative, weights = _linear_core(5)
     return DatasetSpec(
         name="shift_concept",
         n_samples=n_samples,

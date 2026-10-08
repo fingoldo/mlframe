@@ -164,8 +164,9 @@ def _linear_residual_fit_closed(
     Reference scalar path the batched solver below is bit-identical to. For
     ``base = x``, ``y`` (length n) this returns ``(alpha, beta)`` of
     ``y ~ alpha*x + beta`` using
-    ``alpha = (n*Sxy - Sx*Sy) / (n*Sxx - Sx^2)``, ``beta = mean_y - alpha*mean_x``
-    -- exact OLS, no ``lstsq`` / SVD dispatch. Degenerate folds are guarded
+    ``alpha = sum(dx*dy) / sum(dx*dx)`` over the mean-centred ``dx``, ``dy``, ``beta = mean_y - alpha*mean_x``
+    (centred, so a large-offset base such as an epoch timestamp does not cancel) -- exact OLS, no ``lstsq`` / SVD dispatch.
+    Degenerate folds are guarded
     EXACTLY as ``_linear_residual_fit``'s scalar path: ``n < 2`` returns
     ``(0.0, mean(y))`` (or ``(0.0, 0.0)`` for empty), and a zero-variance base
     (``den == 0``) returns ``(0.0, mean(y))``.
@@ -181,15 +182,16 @@ def _linear_residual_fit_closed(
         return 0.0, (float(np.mean(y)) if n > 0 else 0.0)
     x_f = x.astype(np.float64)
     y_f = y.astype(np.float64)
-    sx = float(x_f.sum())
-    sy = float(y_f.sum())
-    sxx = float((x_f * x_f).sum())
-    sxy = float((x_f * y_f).sum())
-    den = n * sxx - sx * sx
+    mean_x = float(x_f.sum()) / n
+    mean_y = float(y_f.sum()) / n
+    if x_f.min() == x_f.max():
+        return 0.0, mean_y
+    dx = x_f - mean_x
+    den = float((dx * dx).sum())
     if den == 0.0:
-        return 0.0, float(np.mean(y_f))
-    alpha = (n * sxy - sx * sy) / den
-    beta = float(np.mean(y_f)) - alpha * float(np.mean(x_f))
+        return 0.0, mean_y
+    alpha = float((dx * (y_f - mean_y)).sum()) / den
+    beta = mean_y - alpha * mean_x
     return float(alpha), float(beta)
 def _linear_residual_fit_batched(
     x_segments: Sequence[np.ndarray],
@@ -198,7 +200,7 @@ def _linear_residual_fit_batched(
     """Solve K independent single-base OLS systems in one batched pass.
 
     ``x_segments`` / ``y_segments`` are the K per-fold ``(base, y)`` arrays. Each
-    fold's five reductions (``n, Sx, Sy, Sxx, Sxy``) are computed on the
+    fold's centred reductions (means, ``sum(dx*dx)``, ``sum(dx*dy)``) are computed on the
     contiguous segment with the SAME ``.sum()`` order as the scalar
     :func:`_linear_residual_fit_closed`, then the K ``(alpha, beta)`` pairs are
     derived in a SINGLE vectorised arithmetic pass over length-K arrays. This
@@ -217,37 +219,32 @@ def _linear_residual_fit_batched(
     betas = np.zeros(k, dtype=np.float64)
     if k == 0:
         return alphas, betas
-    counts = np.empty(k, dtype=np.float64)
-    sx = np.empty(k, dtype=np.float64)
-    sy = np.empty(k, dtype=np.float64)
-    sxx = np.empty(k, dtype=np.float64)
-    sxy = np.empty(k, dtype=np.float64)
+    mean_x = np.zeros(k, dtype=np.float64)
+    mean_y = np.zeros(k, dtype=np.float64)
+    sxx = np.zeros(k, dtype=np.float64)
+    sxy = np.zeros(k, dtype=np.float64)
+    const_x = np.zeros(k, dtype=bool)
     small = np.zeros(k, dtype=bool)  # folds with n<2 -> (0, mean(y)|0).
     for i in range(k):
         xi = x_segments[i].astype(np.float64)
         yi = y_segments[i].astype(np.float64)
         n = yi.size
-        counts[i] = n
         if n < 2:
             small[i] = True
             betas[i] = float(np.mean(yi)) if n > 0 else 0.0
-            sx[i] = sy[i] = sxx[i] = sxy[i] = 0.0
             continue
-        sx[i] = xi.sum()
-        sy[i] = yi.sum()
-        sxx[i] = (xi * xi).sum()
-        sxy[i] = (xi * yi).sum()
+        mean_x[i] = float(xi.sum()) / n
+        mean_y[i] = float(yi.sum()) / n
+        const_x[i] = bool(xi.min() == xi.max())
+        dx = xi - mean_x[i]
+        sxx[i] = (dx * dx).sum()
+        sxy[i] = (dx * (yi - mean_y[i])).sum()
     big = ~small
     if big.any():
-        den = counts * sxx - sx * sx
-        # Zero-variance base (den==0) degenerates to (0, mean(y)) exactly as
-        # the scalar guard. mean(y) = Sy / n is the same value the scalar path
-        # returns via np.mean for a finite-only segment.
-        nz = big & (den != 0.0)
-        safe_den = np.where(nz, den, 1.0)
-        a = (counts * sxy - sx * sy) / safe_den
-        mean_x = sx / np.where(counts > 0.0, counts, 1.0)
-        mean_y = sy / np.where(counts > 0.0, counts, 1.0)
+        # Zero-variance base degenerates to (0, mean(y)) exactly as the scalar guard.
+        nz = big & ~const_x & (sxx != 0.0)
+        safe_den = np.where(nz, sxx, 1.0)
+        a = sxy / safe_den
         alphas = np.where(nz, a, alphas)
         betas = np.where(big, np.where(nz, mean_y - alphas * mean_x, mean_y), betas)
     return alphas, betas
@@ -333,7 +330,7 @@ def _linear_residual_robust_fit(
 def _theilsen_residual_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any]:  # unused-ok: sample_weight: transform registry fit signature; the Theil-Sen fit is unweighted by design
     """Theil-Sen (median-of-pairwise-slopes) robust line fit.
 
     The slope ``alpha`` is the median of the pairwise slopes

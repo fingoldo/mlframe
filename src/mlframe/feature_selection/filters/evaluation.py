@@ -491,7 +491,7 @@ def evaluate_candidate(
     _relax_sel_cols: list | None = None,
     _relax_sel_nbins: list | None = None,
     random_seed: int | None = None,
-) -> Tuple[float, set]:
+) -> Tuple[float, set]:  # unused-ok: verbose: shared candidate-evaluator signature; logging goes through logger levels
     """Score one MRMR candidate (relevance minus redundancy against already-selected vars, optionally confidence-gated by a permutation baseline) and update the ``expected_gains``/``partial_gains``/``failed_candidates`` bookkeeping in place; this is the per-candidate body invoked in the main selection loop's inner scan over ``combs``."""
     current_gain: Any = None
     sink_reasons: set = set()

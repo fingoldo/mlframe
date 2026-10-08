@@ -67,7 +67,7 @@ def _second_diff_bases(base: np.ndarray, params: dict[str, Any] | None = None) -
 def _second_diff_fit(
     y: np.ndarray, base: np.ndarray,
     sample_weight: np.ndarray | None = None,
-) -> dict[str, Any]:
+) -> dict[str, Any]:  # unused-ok: sample_weight: transform registry fit signature; the fit is unweighted by design
     """No fitted parameters when both lag columns are present; a single lag column degrades to ``diff`` with a warning (see module docstring)."""
     if _has_second_lag(base):
         return {}

@@ -336,7 +336,6 @@ def _pred_sample_trace_panel(
     *,
     sample_size: int = DEFAULT_PRED_SAMPLE_SIZE,
     log_ratio_threshold: float = DEFAULT_PRED_SAMPLE_LOG_RATIO,
-    seed: int = 42,
 ) -> PanelSpec:
     """A small, eyeball-traceable sample of true-vs-predicted pairs.
 
@@ -837,7 +836,7 @@ def compose_regression_figure(
     panels: List[PanelSpec] = []
     for tok in tokens:
         if tok == "PRED_SAMPLE":
-            panels.append(_pred_sample_trace_panel(y_true, y_pred, seed=seed))
+            panels.append(_pred_sample_trace_panel(y_true, y_pred))
         elif tok == "SCATTER":
             panels.append(_scatter_panel(
                 y_true, y_pred, title=scatter_title,

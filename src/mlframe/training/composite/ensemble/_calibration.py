@@ -254,24 +254,31 @@ def _platt_mle_1d(
     """
     n = z.shape[0]
     ww = np.ones(n, dtype=np.float64) if w is None else np.asarray(w, dtype=np.float64)
-    A, B = 1.0, 0.0
+    # Start at the slope-1 map centred on the weighted mean logit, so the iteration is translation-equivariant and cannot overshoot on an offset basis.
+    w_sum = float(ww.sum())
+    A, B = 1.0, (-float(np.sum(ww * z)) / w_sum if w_sum > 0.0 else 0.0)
     for _ in range(50):
         s = 1.0 / (1.0 + np.exp(-(A * z + B)))
         s = np.clip(s, 1e-12, 1.0 - 1e-12)
         # Gradient of the weighted NLL wrt (A, B).
         resid = ww * (s - t01)
-        g_a = float(np.sum(resid * z))
         g_b = float(np.sum(resid))
-        # Hessian (logistic): w * s (1-s) outer-product of [z, 1].
+        # Hessian (logistic): w * s (1-s) outer-product of [z, 1]. Solved in the v-weighted-mean-centred basis so a
+        # large-offset logit does not cancel in h_aa * h_bb - h_ab**2.
         v = ww * s * (1.0 - s)
-        h_aa = float(np.sum(v * z * z))
         h_ab = float(np.sum(v * z))
         h_bb = float(np.sum(v))
-        det = h_aa * h_bb - h_ab * h_ab
+        if not (np.isfinite(h_bb) and h_bb > 0.0):
+            break
+        z_bar = h_ab / h_bb
+        zc = z - z_bar
+        h_cc = float(np.sum(v * zc * zc))
+        g_c = float(np.sum(resid * zc))
+        det = h_bb * h_cc
         if not np.isfinite(det) or abs(det) < 1e-12:
             break
-        dA = (h_bb * g_a - h_ab * g_b) / det
-        dB = (h_aa * g_b - h_ab * g_a) / det
+        dA = g_c / h_cc
+        dB = g_b / h_bb - z_bar * dA
         A -= dA
         B -= dB
         if abs(dA) < 1e-9 and abs(dB) < 1e-9:

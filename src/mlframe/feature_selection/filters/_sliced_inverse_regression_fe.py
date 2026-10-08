@@ -245,7 +245,7 @@ def hybrid_sir_direction_fe(
     mi_gate_top_k: Optional[int] = None,
     random_state: int = 0,
     reject_sink: Optional[Callable[..., None]] = None,
-) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":
+) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":  # unused-ok: random_state: deterministic hybrid, uniform signature
     """End-to-end SIR oblique-direction block: bound the column pool by top raw-MI (the family's
     whole point is a joint OBLIQUE linear combination over many correlated columns, so the pool is
     capped, not combinatorially enumerated), fit the top ``n_directions`` SIR eigendirections over
