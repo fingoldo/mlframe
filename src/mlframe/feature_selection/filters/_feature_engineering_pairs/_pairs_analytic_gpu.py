@@ -9,7 +9,7 @@ resident, both reductions are one pass each on the device, and only the (K,) MI 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -126,7 +126,7 @@ def _fused_observed_mi_and_bins(device_codes, yc: np.ndarray, ky: int) -> "Optio
     return np.asarray(mi.get(), dtype=np.float64), np.asarray(bins.get(), dtype=np.int64)
 
 
-def resident_observed_mi_and_bins(device_codes, classes_y: np.ndarray, by: int) -> "tuple[np.ndarray, np.ndarray]":
+def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: int) -> "tuple[np.ndarray, np.ndarray]":
     """Observed plug-in MI (nats) and occupied-bin count of every column of the resident ``(n, K)`` code matrix, against the target codes ``classes_y``.
 
     An int8 matrix goes through the fused single-pass kernel; anything else (or a histogram too large for shared memory) takes the generic block-wise path.
@@ -139,7 +139,7 @@ def resident_observed_mi_and_bins(device_codes, classes_y: np.ndarray, by: int) 
     yc = np.ascontiguousarray(classes_y, dtype=np.int64).ravel()
     try:
         fused = _fused_observed_mi_and_bins(device_codes, yc, int(by))
-    except Exception as e:
+    except Exception as e:  # best-effort: the generic path computes the identical statistics; only the speed differs
         logger.debug("fused observed-MI kernel failed, using the generic path: %s", e)
         fused = None
     if fused is not None:
@@ -159,7 +159,7 @@ def resident_observed_mi_and_bins(device_codes, classes_y: np.ndarray, by: int) 
     return observed, bins
 
 
-def resident_analytic_gate(device_codes, classes_y: np.ndarray, by: int, n_rows: int, min_nonzero_confidence: float) -> Optional[np.ndarray]:
+def resident_analytic_gate(device_codes: Any, classes_y: np.ndarray, by: int, n_rows: int, min_nonzero_confidence: float) -> Optional[np.ndarray]:
     """``fe_mi[K]`` of the analytic noise gate computed from resident codes, or ``None`` on any device fault so the caller keeps the host path."""
     try:
         from .._analytic_mi_null import analytic_batch_noise_gate

@@ -18,6 +18,7 @@ import warnings
 
 import pandas as pd
 from .._y_encoding import encode_y_for_classif_mi
+from ._fe_stage_merge import _fe_merge_new_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -54,6 +55,7 @@ def _fe_stage_cascade_mid_a(
     # CMI-gated against the raw support and uplift-gated against the source
     # num_col marginal MI. Routing piggybacks on hybrid_orth_features_ (same
     # Layer 23 remap as Layers 33/34/37/38).
+    X_acc = X  # step-input contract: X is never rebound here; stages read it and their new columns are merged into X_acc
     if _fe_family_on("fe_grouped_agg_enable", False):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
@@ -85,7 +87,7 @@ def _fe_stage_cascade_mid_a(
                 )
                 _ga_appended = [c for c in _ga_appended if c not in _X_before_ga_cols]
                 if _ga_appended:
-                    X = X_ga
+                    X_acc = _fe_merge_new_columns(X_acc, X_ga, X)
                     self.grouped_agg_features_ = list(_ga_appended)
                     self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ga_appended)
                     for _r in _ga_recipes:
@@ -111,7 +113,7 @@ def _fe_stage_cascade_mid_a(
     # uplift-gated against the source num_col marginal MI. Composite keys whose
     # distinct-cell count exceeds 0.5*n are refused (Layer 29 guard). Routing
     # piggybacks on hybrid_orth_features_ (same Layer 23 remap as 33/.../87).
-    X = _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_agg_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_agg_pre_recipes, verbose), X)
 
     # Layer 88: per-group histogram + quantile FE with
     # target-aware edges. NVIDIA cuDF Kaggle-Grandmaster technique #2.
@@ -119,24 +121,24 @@ def _fe_stage_cascade_mid_a(
     # the OOF-fit target-aware supervised bin index; each survivor MI-gated
     # against the source num_col marginal MI. Routing piggybacks on
     # hybrid_orth_features_ (same Layer 23 remap as Layers 33/34/37/38/87).
-    X = _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _grouped_quantile_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _grouped_quantile_pre_recipes, verbose), X)
 
     # Layer 89: cat x cat synergy cross with II pre-filter.
-    X = _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_pair_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_pair_pre_recipes, verbose), X)
 
     # Layer 94: cat x cat x cat TRIPLE synergy cross via beam
     # search over three-way interaction information (co-information).
-    X = _stage_cat_triple(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_triple_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_cat_triple(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_triple_pre_recipes, verbose), X)
 
     # Layer 90: numeric decomposition (multi-precision rounding +
     # decimal-digit extraction) with a bootstrap-stable MI gate.
-    X = _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_pre_recipes, verbose), X)
 
     # Layer 95 PART A: periodic / modular decomposition. For each
     # (col, period) emit x mod period plus its sin/cos phase encoding; each
     # candidate gated by Layer 62 bootstrap-stable MI (the gate doubles as
     # auto-period detection). Routing piggybacks on hybrid_orth_features_.
-    X = _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose), X)
 
     # Pairwise / n-way modular FE: detect a target that is an integer modulus of a
     # combination of integer columns - (a+b) mod m, (a*b) mod m, n-way parity, or a
@@ -196,7 +198,7 @@ def _fe_stage_cascade_mid_a(
             _y_class_mi_binned = _bin_y_class_mi(_y_np, nbins=int(getattr(self, "quantization_nbins", 10)))
 
     if _discrete_fe_master and _fe_family_on("fe_pairwise_modular_enable", False):
-        X = _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned, _pairwise_modular_pre_recipes, verbose)
+        X_acc = _fe_merge_new_columns(X_acc, _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned, _pairwise_modular_pre_recipes, verbose), X)
 
     # Pairwise integer-lattice FE (sibling of pairwise-modular): detect a target that is a function of a hidden common
     # divisor (gcd), its dual lcm, or a bit-level co-occurrence (a & b) of integer columns - structure smooth/arithmetic/
@@ -238,8 +240,8 @@ def _fe_stage_cascade_mid_a(
                         )
                         for _r in _il_recipes if _r.name in _il_appended
                     }
-                    X = pd.concat(
-                        [X, pd.DataFrame(_il_new, index=X.index)], axis=1,
+                    X_acc = pd.concat(
+                        [X_acc, pd.DataFrame(_il_new, index=X.index)], axis=1,
                     )
                     self.integer_lattice_features_ = list(_il_appended)
                     self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_il_appended)
@@ -263,14 +265,12 @@ def _fe_stage_cascade_mid_a(
     # ordinal/comparison pattern the MI/linear path cannot read off marginals or pairwise diffs. ZERO free params, detector-clean;
     # leak-free deterministic replay (np.argmax over the stacked source columns). Budget-guarded on wide frames.
     if _discrete_fe_master and _fe_family_on("fe_row_argmax_enable", False):
-        X = _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_argmax_pre_recipes, verbose)
+        X_acc = _fe_merge_new_columns(X_acc, _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_argmax_pre_recipes, verbose), X)
 
     # Conditional-gate FE (frontier pass 2): detect a regime switch c>tau ? a : b (select) or a masked interaction 1[c>tau]*a
     # (mask) routed by a third column's data-dependent threshold tau (frozen in the recipe). HARDENED detector gates vs the
     # best-existing-op MI (not the raw single-operand floor) so smooth/ordinary_mul controls stay silent. Budget-guarded.
-    X = _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_class_mi_applicable, _y_class_mi_binned, _conditional_gate_pre_recipes, verbose)
-
-    return X
+    return _fe_merge_new_columns(X_acc, _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_class_mi_applicable, _y_class_mi_binned, _conditional_gate_pre_recipes, verbose), X)
 
 
 def _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_agg_pre_recipes, verbose):

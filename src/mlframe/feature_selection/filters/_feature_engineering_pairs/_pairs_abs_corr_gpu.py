@@ -12,7 +12,8 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ._pairs_core_steps import _DEGENERATE_REL_TOL
+# Same relative degeneracy tolerance as the host |corr| path; defined here (not imported from _pairs_core_steps) so this leaf module closes no import cycle.
+_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
 
 logger = logging.getLogger(__name__)
 

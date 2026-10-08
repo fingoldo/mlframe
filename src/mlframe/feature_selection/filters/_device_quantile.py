@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -73,15 +73,15 @@ def _self_check() -> bool:
     return True
 
 
-def device_quantile(x, qs: np.ndarray) -> Optional[np.ndarray]:
+def device_quantile(x: Any, qs: np.ndarray) -> Optional[np.ndarray]:
     """``np.quantile(x, qs)`` (linear) computed from a device sort, bit-identical, or ``None`` when the device path does not apply (no cupy, NaNs, a failed
     self-check) so the caller uses the host call."""
     with _LOCK:
         if _STATE["verified"] is None:
             try:
                 _STATE["verified"] = bool(_self_check())
-            except Exception as e:
-                logger.debug("device quantile self-check failed, staying on the host: %s", e)
+            except Exception as e:  # best-effort: the host np.quantile is the reference result; the failure is logged at WARNING just below
+                logger.warning("device quantile self-check failed, staying on the host np.quantile: %s", e)
                 _STATE["verified"] = False
             if not _STATE["verified"]:
                 logger.warning("device quantile did not reproduce np.quantile exactly on the self-check; using the host np.quantile")

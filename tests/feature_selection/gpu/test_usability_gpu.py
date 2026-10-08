@@ -48,7 +48,7 @@ def test_disabled_when_cupy_unavailable(monkeypatch):
     """Even with the env flag on, an absent cupy install must keep the gate OFF -- it's the primary
     'no GPU path at all' guard."""
     monkeypatch.setattr(_usability_gpu, "_CUPY_AVAIL", False)
-    os.environ["MLFRAME_FE_GPU_USABILITY"] = "1"
+    monkeypatch.setenv("MLFRAME_FE_GPU_USABILITY", "1")
     assert _usability_gpu.fe_gpu_usability_enabled() is False
 
 
@@ -56,7 +56,7 @@ def test_disabled_by_default_without_env_flag(monkeypatch):
     """The gate defaults OFF: even with cupy importable, no ``MLFRAME_FE_GPU_USABILITY`` set means the
     proven CPU numpy/sklearn path stays in charge."""
     monkeypatch.setattr(_usability_gpu, "_CUPY_AVAIL", True)
-    os.environ.pop("MLFRAME_FE_GPU_USABILITY", None)
+    monkeypatch.delenv("MLFRAME_FE_GPU_USABILITY", raising=False)
     assert _usability_gpu.fe_gpu_usability_enabled() is False
 
 
@@ -64,7 +64,7 @@ def test_disabled_by_default_without_env_flag(monkeypatch):
 def test_disabled_for_falsey_env_values(monkeypatch, falsey):
     """Common falsey spellings of the env flag must all resolve to disabled, not just an empty string."""
     monkeypatch.setattr(_usability_gpu, "_CUPY_AVAIL", True)
-    os.environ["MLFRAME_FE_GPU_USABILITY"] = falsey
+    monkeypatch.setenv("MLFRAME_FE_GPU_USABILITY", falsey)
     assert _usability_gpu.fe_gpu_usability_enabled() is False
 
 
@@ -73,7 +73,7 @@ def test_enabled_for_truthy_env_values_when_not_globally_disabled(monkeypatch, t
     """Common truthy spellings all enable the gate when cupy is present and the global GPU off-switch is
     not engaged."""
     monkeypatch.setattr(_usability_gpu, "_CUPY_AVAIL", True)
-    os.environ["MLFRAME_FE_GPU_USABILITY"] = truthy
+    monkeypatch.setenv("MLFRAME_FE_GPU_USABILITY", truthy)
     monkeypatch.setattr("mlframe.feature_selection.filters._gpu_policy.gpu_globally_disabled", lambda: False)
     assert _usability_gpu.fe_gpu_usability_enabled() is True
 
@@ -82,7 +82,7 @@ def test_disabled_when_globally_disabled(monkeypatch):
     """The global GPU off-switch (``gpu_globally_disabled``) must veto this gate even when the local env
     flag is set and cupy is importable -- a single master kill-switch for all GPU FE paths."""
     monkeypatch.setattr(_usability_gpu, "_CUPY_AVAIL", True)
-    os.environ["MLFRAME_FE_GPU_USABILITY"] = "1"
+    monkeypatch.setenv("MLFRAME_FE_GPU_USABILITY", "1")
     monkeypatch.setattr("mlframe.feature_selection.filters._gpu_policy.gpu_globally_disabled", lambda: True)
     assert _usability_gpu.fe_gpu_usability_enabled() is False
 

@@ -77,28 +77,13 @@ def test_measure_single_region_returns_well_formed_dict():
 # --------------------------------------------------------------------------
 
 
-def test_streamed_uses_multiple_streams_and_independent_rngs():
-    """Verify the bug-fix paths in mi_direct_gpu_batched_streamed are
-    actually exercised: at least 2 cp.cuda.Stream instances created AND
-    at least 2 cp.random.default_rng generators created."""
+def test_streamed_uses_multiple_streams_and_reproducible_independent_permutations():
+    """The streamed variant alternates batches across >=2 CUDA streams, and its permutations are SEEDED HOST draws, one distinct draw per batch
+    (keyed by the running offset), so the result is bit-reproducible, identical to a single-stream run and independent of how many streams
+    share the work. (The per-stream ``cp.random`` generators of the earlier design were replaced by this on purpose: device RNG streams cannot
+    reproduce the CPU path's permutations.)"""
+    from mlframe.feature_selection.filters import _gpu_batched
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_streamed
-
-    n_streams_created = []
-    n_generators_created = []
-    real_stream = cp.cuda.Stream
-    real_default_rng = cp.random.default_rng
-
-    def _track_stream(*a, **kw):
-        """Wrap cp.cuda.Stream to record every created stream, proving the streamed variant uses >=2 streams."""
-        s = real_stream(*a, **kw)
-        n_streams_created.append(s)
-        return s
-
-    def _track_rng(*a, **kw):
-        """Wrap cp.random.default_rng to record every created generator, proving each stream gets its own independent RNG."""
-        g = real_default_rng(*a, **kw)
-        n_generators_created.append(g)
-        return g
 
     rng = np.random.default_rng(31)
     data = np.column_stack(
@@ -108,21 +93,38 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
         ]
     )
     nbins = np.array([3, 3], dtype=np.int32)
+    real_stream = cp.cuda.Stream
+    real_perms = _gpu_batched.host_permuted_y_batch
 
-    with mock.patch.object(cp.cuda, "Stream", side_effect=_track_stream), mock.patch.object(cp.random, "default_rng", side_effect=_track_rng):
-        mi_direct_gpu_batched_streamed(
-            data,
-            (0,),
-            (1,),
-            nbins,
-            npermutations=64,
-            batch_size=32,
-        )
+    def run(n_streams: int):
+        """One streamed call; returns (result, number of streams created, permutation-batch offsets drawn, seeds used)."""
+        created, offsets, seeds = [], [], []
 
-    assert len(n_streams_created) >= 2, f"streamed variant should create >=2 streams; got {len(n_streams_created)}"
-    assert (
-        len(n_generators_created) >= 2
-    ), f"streamed variant should create >=2 per-stream RNGs; got {len(n_generators_created)} (regression -- per-stream RNG protection may have been reverted)"
+        def _track_stream(*a, **kw):
+            """Record every created stream."""
+            st = real_stream(*a, **kw)
+            created.append(st)
+            return st
+
+        def _track_perms(classes_y, base_seed, offset, count):
+            """Record the (seed, offset) of every permutation batch, then draw it for real."""
+            seeds.append(base_seed)
+            offsets.append(offset)
+            return real_perms(classes_y, base_seed, offset, count)
+
+        with mock.patch.object(cp.cuda, "Stream", side_effect=_track_stream), mock.patch.object(_gpu_batched, "host_permuted_y_batch", side_effect=_track_perms):
+            res = mi_direct_gpu_batched_streamed(data, (0,), (1,), nbins, npermutations=64, batch_size=32, n_streams=n_streams, base_seed=7)
+        return res, len(created), offsets, seeds
+
+    res2, n_streams2, offsets2, seeds2 = run(2)
+    assert n_streams2 >= 2, f"streamed variant should create >=2 streams; got {n_streams2}"
+    assert offsets2 == sorted(set(offsets2)) and len(offsets2) >= 2, f"each batch must draw its own permutations at a distinct offset; got {offsets2}"
+    assert set(seeds2) == {7}, f"every batch must draw from the caller's seed; got {seeds2}"
+
+    res1, _, _, _ = run(1)
+    res3, _, _, _ = run(3)
+    again, _, _, _ = run(2)
+    assert res2 == res1 == res3 == again, f"result must not depend on the stream count or the launch: {res1} {res2} {res3} {again}"
 
 
 # --------------------------------------------------------------------------
@@ -250,20 +252,20 @@ def test_ensure_kernels_inited_populates_new_shared_kernels():
 def _proc_update(cache_dir: str, kernel_name: str, payload: dict) -> None:
     """Worker for the concurrent test. Runs in a fresh process via
     ``multiprocessing.Process``."""
-    import os
+    from unittest import mock
 
-    os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = cache_dir
     from pyutilz.performance.kernel_tuning.cache import (
         KernelTuningCache,
         hw_fingerprint,
     )
 
-    hw_fingerprint.cache_clear()
-    cache = KernelTuningCache()
-    cache.update(kernel_name, axes=["n"], regions=[{"n_max": None, **payload}])
+    with mock.patch.dict(os.environ, {"PYUTILZ_KERNEL_CACHE_DIR": cache_dir}):
+        hw_fingerprint.cache_clear()
+        cache = KernelTuningCache()
+        cache.update(kernel_name, axes=["n"], regions=[{"n_max": None, **payload}])
 
 
-def test_concurrent_update_preserves_kernels(tmp_path):
+def test_concurrent_update_preserves_kernels(tmp_path, monkeypatch):
     """Two processes calling ``update`` on different kernel names must
     both land in the final on-disk cache (file-lock + merge-on-write)."""
     import multiprocessing
@@ -279,7 +281,7 @@ def test_concurrent_update_preserves_kernels(tmp_path):
         assert p.exitcode == 0, f"worker {p.name} exited {p.exitcode}"
 
     # Read directly via a fresh KTC instance.
-    os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = str(tmp_path)
+    monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
     from pyutilz.performance.kernel_tuning.cache import (
         KernelTuningCache,
         hw_fingerprint,

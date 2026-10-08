@@ -12,7 +12,8 @@ does not exist in the apply-time frame. Three auto-scoping paths still let engin
 
 The engineered column is made deterministic by stubbing the MI-greedy constructor to emit one known column, and ``auto_detect_te_cols`` is
 stubbed to admit every column, the worst case the scoping must survive. Downstream families are observed through spies that record the
-columns they were handed; the count spy runs the real encoder so frequency encoding really sees count outputs.
+columns they were handed; the count spy runs the real encoder. Under the step-input contract no stage sees another stage's output, so the scope
+assertions hold by construction of the frame and, for the explicit and auto-detect branches, by the scope filter as well.
 """
 
 from __future__ import annotations
@@ -116,7 +117,7 @@ def test_wavelet_and_rankgauss_never_scope_an_mi_greedy_column(monkeypatch):
     for family in ("wavelet", "rankgauss"):
         assert seen[family], f"the {family} stage never ran; nothing was observed"
         frame_cols, scope = seen[family][0]
-        assert _MIG_COL in frame_cols, f"precondition: the MI-greedy column must be in the frame the {family} stage sees"
+        assert _MIG_COL not in frame_cols, f"step-input contract: the {family} stage must see the base frame, not another stage's output"
         assert _MIG_COL not in scope, f"{family} was handed the MI-greedy column {_MIG_COL!r} as a source"
         assert set(scope) <= set(raw), f"{family} was handed non-raw sources: {sorted(set(scope) - set(raw))}"
 
@@ -126,7 +127,7 @@ def test_count_encoding_auto_scope_excludes_engineered_columns(monkeypatch):
     seen, _ = _fit_with_spies(monkeypatch)
     assert seen["count"], "the count-encoding stage never ran; nothing was observed"
     frame_cols, scope = seen["count"][0]
-    assert _MIG_COL in frame_cols, "precondition: the MI-greedy column must be in the frame count encoding sees"
+    assert _MIG_COL not in frame_cols, "step-input contract: count encoding must see the base frame, not the MI-greedy output"
     assert _MIG_COL not in scope, f"count encoding auto-scoped the engineered column {_MIG_COL!r}"
 
 
@@ -136,7 +137,8 @@ def test_frequency_encoding_auto_scope_excludes_engineered_and_count_outputs(mon
     assert seen["freq"], "the frequency-encoding stage never ran; nothing was observed"
     assert seen["count_out"], f"precondition: count encoding must have appended columns for frequency encoding to see (encoder error: {seen.get('count_err')})"
     frame_cols, scope = seen["freq"][0]
-    assert set(seen["count_out"]) <= set(frame_cols), "precondition: the count outputs must be in the frame frequency encoding sees"
+    assert not set(seen["count_out"]) & set(frame_cols), "step-input contract: frequency encoding must not see the count-encoding outputs"
+    assert _MIG_COL not in frame_cols, "step-input contract: frequency encoding must see the base frame, not the MI-greedy output"
     assert _MIG_COL not in scope, f"frequency encoding auto-scoped the engineered column {_MIG_COL!r}"
     leaked = sorted(set(scope) & set(seen["count_out"]))
     assert not leaked, f"frequency encoding auto-scoped count-encoding outputs: {leaked}"

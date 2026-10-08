@@ -150,13 +150,11 @@ def test_mrmr_integration_creates_binagg_columns_and_transform_replays():
     assert not any(r.kind == "binned_numeric_agg" for r in off_recs)
 
 
-def test_redundancy_gate_drops_binagg_redundant_with_engineered_source_on_linear_target():
-    """End-to-end through MRMR on a linearly-separable target. The default-on univariate Fourier stage emits a
-    ``__qcos`` basis column whose binned aggregate (``binagg_std(x1__qcos..|qbin(x1))``) clears the Tier-1 MI floor
-    yet is a deterministic function of its source -- on this target raw ``[x1, x2]`` already explains y, so the
-    aggregate adds no conditional information. The redundancy gate (default ON) must drop it (no ``binagg_*`` in
-    ``hybrid_orth_features_``); turning the gate OFF restores the spurious append, pinning that the gate is what
-    suppresses it. Regression sensor for the per-scorer ``test_default_off_no_*`` family."""
+def test_binagg_never_aggregates_an_engineered_source_on_linear_target():
+    """End-to-end through MRMR on a linearly-separable target. Under the step-input contract every FE stage of a step reads only the base features,
+    so the binned-aggregate family cannot take another stage's output (the univariate Fourier ``__qcos`` basis column) as its source: no ``binagg_*``
+    column built on a ``__q*`` engineered source appears, with the redundancy gate ON or OFF. (Before the contract, the aggregate of that engineered
+    column cleared the Tier-1 MI floor while adding nothing over raw ``[x1, x2]``, and the redundancy gate existed to drop it.)"""
     from tests.feature_selection.conftest import make_fast_mrmr
 
     rng = np.random.default_rng(42)
@@ -174,15 +172,11 @@ def test_redundancy_gate_drops_binagg_redundant_with_engineered_source_on_linear
     )
     y = pd.Series(((x1 + 0.7 * x2) > 0).astype(int), name="y")
 
-    # Both arms need fe_max_steps>0: no FE family runs under a zero budget, so with the factory's no-FE
-    # preset neither arm would append anything and the gate's effect would be unobservable.
-    on_appended = list(getattr(make_fast_mrmr(fe_max_steps=1).fit(X, y), "hybrid_orth_features_", []) or [])
-    assert not any(
-        str(c).startswith("binagg_") for c in on_appended
-    ), f"redundancy gate (default ON) should drop binagg columns redundant with their source; got {on_appended}"
-
-    off_appended = list(getattr(make_fast_mrmr(fe_max_steps=1, fe_binned_numeric_agg_redundancy_gate=False).fit(X, y), "hybrid_orth_features_", []) or [])
-    assert any(str(c).startswith("binagg_") for c in off_appended), "with the redundancy gate OFF the Tier-1 MI floor admits the redundant binagg column(s)"
+    # fe_max_steps>0 in both arms: no FE family runs under a zero budget.
+    for gate in (True, False):
+        appended = list(getattr(make_fast_mrmr(fe_max_steps=1, fe_binned_numeric_agg_redundancy_gate=gate).fit(X, y), "hybrid_orth_features_", []) or [])
+        on_engineered = [c for c in appended if str(c).startswith("binagg_") and "__q" in str(c)]
+        assert not on_engineered, f"redundancy gate={gate}: binagg aggregated an engineered source: {on_engineered}"
 
 
 def test_global_stats_all_matches_global_stat():

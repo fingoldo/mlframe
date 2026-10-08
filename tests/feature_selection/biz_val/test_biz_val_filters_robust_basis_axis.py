@@ -17,7 +17,6 @@ measurement noise does not trip it but a real regression (gate stuck off, clamp 
 
 from __future__ import annotations
 
-import os
 import warnings
 
 import numpy as np
@@ -29,17 +28,6 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _fit_fourier_for_col,
 )
-
-@pytest.fixture(autouse=True)
-def _restore_robust_axis_env():
-    """Put MLFRAME_ROBUST_AXIS back to its pre-test value however the test exits (these tests flip it in-body)."""
-    prior = os.environ.get("MLFRAME_ROBUST_AXIS")
-    yield
-    if prior is None:
-        os.environ.pop("MLFRAME_ROBUST_AXIS", None)
-    else:
-        os.environ["MLFRAME_ROBUST_AXIS"] = prior
-
 
 _N = 4000
 _OUTLIER_FRAC = 0.05
@@ -68,7 +56,7 @@ def _fourier_axis(x: np.ndarray, lo: float, span: float, freq: float = 1.0) -> n
 # ---------------------------------------------------------------------------
 
 
-def test_biz_val_robust_axis_fourier_inlier_spread_not_collapsed():
+def test_biz_val_robust_axis_fourier_inlier_spread_not_collapsed(monkeypatch):
     """On a 5%-spike column the legacy Fourier axis collapses the 95% inlier mass into a ~0.0005-wide sliver of the [0, 1]
     axis (one bin); the robust axis spreads it across ~0.156. Measured spread ratio ~312x; floor 50x. This is the ROOT
     mechanism behind both the MI inflation and the shift-fragility -- if it regresses, the bulk re-collapses."""
@@ -78,19 +66,19 @@ def test_biz_val_robust_axis_fourier_inlier_spread_not_collapsed():
         base = rng.standard_normal(_N)
         cont, mask = _contaminate(base, rng)
 
-        os.environ["MLFRAME_ROBUST_AXIS"] = "0"
+        monkeypatch.setenv("MLFRAME_ROBUST_AXIS", "0")
         lo_l, sp_l = _fit_fourier_for_col(cont)
         z_l = (cont[mask] - lo_l) / max(sp_l, 1e-12)
         legacy_spread = float(np.std(z_l))
 
-        os.environ["MLFRAME_ROBUST_AXIS"] = "1"
+        monkeypatch.setenv("MLFRAME_ROBUST_AXIS", "1")
         lo_r, sp_r = _fit_fourier_for_col(cont)
         z_r = (cont[mask] - lo_r) / max(sp_r, 1e-12)
         robust_spread = float(np.std(z_r))
 
         legacy_spreads.append(legacy_spread)
         robust_spreads.append(robust_spread)
-    os.environ.pop("MLFRAME_ROBUST_AXIS", None)
+    monkeypatch.delenv("MLFRAME_ROBUST_AXIS", raising=False)
     med_legacy = float(np.median(legacy_spreads))
     med_robust = float(np.median(robust_spreads))
     # Two statements about two quantities, rather than one quotient by an almost-zero. The old
@@ -113,7 +101,7 @@ def test_biz_val_robust_axis_fourier_inlier_spread_not_collapsed():
 # ---------------------------------------------------------------------------
 
 
-def test_biz_val_robust_axis_fourier_shift_stable_under_new_outlier():
+def test_biz_val_robust_axis_fourier_shift_stable_under_new_outlier(monkeypatch):
     """The SHIFT-FRAGILE defect: with the legacy raw-span axis, ONE new extreme value at fit time shifts the engineered
     value of every clean row by up to ~0.88 (out of the sin's [-1, 1] range). The robust MAD-anchored axis is essentially
     unmoved (~0.0016). Measured legacy >=0.87, robust <=0.007; assert legacy >=0.5 AND robust <=0.05 (>10x margin)."""
@@ -124,14 +112,14 @@ def test_biz_val_robust_axis_fourier_shift_stable_under_new_outlier():
         cont, _ = _contaminate(base, rng)
         probe = base[:1000]
         for ev, store in (("0", legacy_drifts), ("1", robust_drifts)):
-            os.environ["MLFRAME_ROBUST_AXIS"] = ev
+            monkeypatch.setenv("MLFRAME_ROBUST_AXIS", ev)
             lo1, sp1 = _fit_fourier_for_col(cont)
             v1 = _fourier_axis(probe, lo1, sp1)
             cont2 = np.concatenate([cont, [5.0 * _EXTREME]])
             lo2, sp2 = _fit_fourier_for_col(cont2)
             v2 = _fourier_axis(probe, lo2, sp2)
             store.append(float(np.max(np.abs(v1 - v2))))
-    os.environ.pop("MLFRAME_ROBUST_AXIS", None)
+    monkeypatch.delenv("MLFRAME_ROBUST_AXIS", raising=False)
     legacy_drift = float(np.median(legacy_drifts))
     robust_drift = float(np.median(robust_drifts))
     assert (
@@ -151,7 +139,7 @@ def test_biz_val_robust_axis_fourier_shift_stable_under_new_outlier():
 # ---------------------------------------------------------------------------
 
 
-def test_biz_val_robust_axis_engineered_column_not_degenerate_under_outliers():
+def test_biz_val_robust_axis_engineered_column_not_degenerate_under_outliers(monkeypatch):
     """The plug-in-MI hijack risk comes from the engineered column COLLAPSING under the legacy axis: a 5%-spike column
     maps 95% of rows to a ~9e-05-wide sliver of He_2 values (effectively a constant), and a degenerate near-constant
     column produces an erratic / inflated quantile-bin MI that can out-rank genuine signal. The robust axis keeps the
@@ -165,11 +153,11 @@ def test_biz_val_robust_axis_engineered_column_not_degenerate_under_outliers():
         base = rng.standard_normal(_N)
         cont, mask = _contaminate(base, rng)
         for ev, store in (("0", legacy_iqrs), ("1", robust_iqrs)):
-            os.environ["MLFRAME_ROBUST_AXIS"] = ev
+            monkeypatch.setenv("MLFRAME_ROBUST_AXIS", ev)
             v = np.asarray(_evaluate_basis_column(cont, "hermite", 2), dtype=np.float64)[mask]
             q25, q75 = np.quantile(v, [0.25, 0.75])
             store.append(float(q75 - q25))
-    os.environ.pop("MLFRAME_ROBUST_AXIS", None)
+    monkeypatch.delenv("MLFRAME_ROBUST_AXIS", raising=False)
     legacy_iqr = float(np.median(legacy_iqrs))
     robust_iqr = float(np.median(robust_iqrs))
     assert legacy_iqr <= 1e-3, (
@@ -188,7 +176,7 @@ def test_biz_val_robust_axis_engineered_column_not_degenerate_under_outliers():
 
 
 @pytest.mark.parametrize("basis,degree", [("hermite", 2), ("hermite", 3), ("legendre", 2), ("chebyshev", 3), ("laguerre", 2)])
-def test_biz_val_robust_axis_clean_column_byte_identical(basis, degree):
+def test_biz_val_robust_axis_clean_column_byte_identical(basis, degree, monkeypatch):
     """On a CLEAN column the robust path must be byte-identical to legacy (the gate stays off). Asserts np.array_equal
     (0 tolerance) between the engineered values with MLFRAME_ROBUST_AXIS on vs off, for every basis. This is the
     non-negotiable byte-stability guarantee that keeps the wide FE suite green."""
@@ -198,24 +186,24 @@ def test_biz_val_robust_axis_clean_column_byte_identical(basis, degree):
     else:
         x = rng.standard_normal(_N)
 
-    os.environ["MLFRAME_ROBUST_AXIS"] = "1"
+    monkeypatch.setenv("MLFRAME_ROBUST_AXIS", "1")
     v_on = np.asarray(_evaluate_basis_column(x, basis, degree), dtype=np.float64)
-    os.environ["MLFRAME_ROBUST_AXIS"] = "0"
+    monkeypatch.setenv("MLFRAME_ROBUST_AXIS", "0")
     v_off = np.asarray(_evaluate_basis_column(x, basis, degree), dtype=np.float64)
-    os.environ.pop("MLFRAME_ROBUST_AXIS", None)
+    monkeypatch.delenv("MLFRAME_ROBUST_AXIS", raising=False)
     assert np.array_equal(v_on, v_off), (
         f"{basis} He{degree} on a CLEAN column is NOT byte-identical with the robust axis on vs off -- the gate is "
         f"leaking into the clean path. max|diff|={float(np.max(np.abs(v_on - v_off))):.3e}"
     )
 
 
-def test_biz_val_robust_axis_clean_fourier_byte_identical():
+def test_biz_val_robust_axis_clean_fourier_byte_identical(monkeypatch):
     """Same byte-identity guarantee for the Fourier axis ``(lo, span)`` on a clean column."""
     rng = np.random.default_rng(7)
     x = rng.standard_normal(_N)
-    os.environ["MLFRAME_ROBUST_AXIS"] = "1"
+    monkeypatch.setenv("MLFRAME_ROBUST_AXIS", "1")
     lo_on, sp_on = _fit_fourier_for_col(x)
-    os.environ["MLFRAME_ROBUST_AXIS"] = "0"
+    monkeypatch.setenv("MLFRAME_ROBUST_AXIS", "0")
     lo_off, sp_off = _fit_fourier_for_col(x)
-    os.environ.pop("MLFRAME_ROBUST_AXIS", None)
+    monkeypatch.delenv("MLFRAME_ROBUST_AXIS", raising=False)
     assert lo_on == lo_off and sp_on == sp_off, f"clean Fourier (lo, span) not byte-identical robust-on vs off: ({lo_on}, {sp_on}) != ({lo_off}, {sp_off})."

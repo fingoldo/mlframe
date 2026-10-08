@@ -635,7 +635,7 @@ def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _
         try:
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
             _dev = _quantile_bin_gpu_resident(vals, nbins)
-        except Exception as e:
+        except Exception as e:  # best-effort: the host binning path returns the identical codes; only the speed differs
             logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
             _dev = None
     return _dev

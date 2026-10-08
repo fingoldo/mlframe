@@ -7,10 +7,7 @@
    skipped for the rest of the process (mirrors the CMI breaker).
 """
 
-import os
-
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters._permutation_null import (
     _pair_maxt_max_rows,
@@ -38,48 +35,37 @@ def _screen_data(n=30000, p=40, nbins_val=10, seed=7):
     return data, nb, y.astype(np.int64), fy, pa, pb
 
 
-@pytest.fixture
-def _restore_env():
-    """Restore env."""
-    prev = os.environ.get("MLFRAME_FE_PAIR_MAXT_MAX_ROWS")
-    yield
-    if prev is None:
-        os.environ.pop("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", None)
-    else:
-        os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = prev
-
-
-def test_max_rows_default_and_parsing(_restore_env):
+def test_max_rows_default_and_parsing(monkeypatch):
     """Max rows default and parsing."""
-    os.environ.pop("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", None)
+    monkeypatch.delenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", raising=False)
     assert _pair_maxt_max_rows() == 15000
-    os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
+    monkeypatch.setenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "0")
     assert _pair_maxt_max_rows() == 0  # disabled
-    os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "8000"
+    monkeypatch.setenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "8000")
     assert _pair_maxt_max_rows() == 8000
-    os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "garbage"
+    monkeypatch.setenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "garbage")
     assert _pair_maxt_max_rows() == 15000  # invalid -> default
 
 
-def test_cap_disabled_equals_full_n(_restore_env):
+def test_cap_disabled_equals_full_n(monkeypatch):
     """Cap disabled equals full n."""
     data, nb, y, fy, pa, pb = _screen_data()
     kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
-    os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
+    monkeypatch.setenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "0")
     full = pooled_pair_permutation_null_joint_mi_floor(**kw)
     # recompute -- deterministic
     assert pooled_pair_permutation_null_joint_mi_floor(**kw) == full
 
 
-def test_cap_is_conservative_and_selection_equivalent(_restore_env):
+def test_cap_is_conservative_and_selection_equivalent(monkeypatch):
     """Cap is conservative and selection equivalent."""
     data, nb, y, fy, pa, pb = _screen_data()
     obs = batch_pair_mi_prange(data, pa, pb, nb, y, fy)  # observed pair-MI at FULL n (the gated value)
     kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
 
-    os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
+    monkeypatch.setenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "0")
     floor_full = pooled_pair_permutation_null_joint_mi_floor(**kw)
-    os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "15000"
+    monkeypatch.setenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "15000")
     floor_cap = pooled_pair_permutation_null_joint_mi_floor(**kw)
 
     # Capped floor is CONSERVATIVE (>= full-n floor: finite-sample MI bias ~1/n).
@@ -94,15 +80,15 @@ def test_cap_is_conservative_and_selection_equivalent(_restore_env):
     assert obs[idx[(2, 3)]] >= floor_cap
 
 
-def test_cap_actually_shrinks_n_via_higher_floor(_restore_env):
+def test_cap_actually_shrinks_n_via_higher_floor(monkeypatch):
     # Pin that the cap DOES engage (floor strictly higher than full-n) at an aggressive cap,
     # so a future "no-op cap" regression is caught.
     """Cap actually shrinks n via higher floor."""
     data, nb, y, fy, pa, pb = _screen_data()
     kw = dict(factors_data=data, nbins=nb, pair_a=pa, pair_b=pb, classes_y=y, freqs_y=fy, n_permutations=15, quantile=0.95, random_seed=123)
-    os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "0"
+    monkeypatch.setenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "0")
     floor_full = pooled_pair_permutation_null_joint_mi_floor(**kw)
-    os.environ["MLFRAME_FE_PAIR_MAXT_MAX_ROWS"] = "6000"
+    monkeypatch.setenv("MLFRAME_FE_PAIR_MAXT_MAX_ROWS", "6000")
     floor_small = pooled_pair_permutation_null_joint_mi_floor(**kw)
     assert floor_small > floor_full
 

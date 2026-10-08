@@ -461,6 +461,41 @@ def _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations
                     st.i += 1
 
 
+def _config_abs_corr(_cfg, final_transformed_vals, _this_chunk_deferred, _resolve_col, _safe_abs_corr, _config_by_i, transformed_vars, vars_transformations, binary_transformations):
+    """|corr(continuous y)| of a config's materialised continuous column; -1.0 when
+    it cannot be rebuilt (so an unrecoverable form never wins the comparison)."""
+    try:
+        _ci = _cfg[2]
+        if final_transformed_vals is not None:
+            _v = final_transformed_vals[:, _ci]
+        elif _this_chunk_deferred:
+            # DEFERRED-float GPU path: re-materialise this column on the GPU (bit-identical
+            # to the bulk buffer -> the clean-form demotion uses the EXACT same |corr| it
+            # would have under the host buffer; a numpy recompute here flips it at ULP).
+            _dev_corr = candidate_abs_corr(_resolve_col, _safe_abs_corr, _ci)
+            if _dev_corr is not None:
+                return _dev_corr
+            _v = _resolve_col(_ci)
+        elif _config_by_i is not None and _ci in _config_by_i:
+            _ak, _bk, _bn = _config_by_i[_ci]
+            _pa = transformed_vars[:, vars_transformations[_ak]]
+            _pb = transformed_vars[:, vars_transformations[_bk]]
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                _v = binary_transformations[_bn](_pa, _pb)
+            _v = np.nan_to_num(np.asarray(_v, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+        else:
+            return -1.0
+        return _safe_abs_corr(_v)
+    except Exception as e:
+        # Unmeasured, not unrecoverable: -1.0 here used to switch the clean-form demotion OFF when the CLEAN side failed.
+        log_throttle(
+            logger, "pairs_score_config_corr_failed", logging.WARNING,
+            "_config_corr: could not measure |corr| for config %r (%s: %s); the prewarp demotion treats it as unmeasured",
+            _cfg, type(e).__name__, e,
+        )
+        return None
+
+
 def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose, raw_vars_pair, _corr_y_cont, _PREWARP_UNARY, fe_good_to_best_feature_mi_threshold, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr, pair_mi, fe_mm_debias_prevalence, classes_y, freqs_y, quantization_nbins, discretize_array, quantization_method, quantization_dtype, _operand_discretized, fe_min_engineered_mi_prevalence, num_fs_steps, _operand_marginal_mi, _prewarp_active, prewarp_uplift_threshold):
     """Step 4 of _score_one_pair: lines starting at ``_score_one_pair_iteration_serialization_point_under(st._local_times, t``."""
     _score_one_pair_iteration_serialization_point_under(st._local_times, times_spent)
@@ -502,39 +537,7 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
         # below decide it on its own merits; demotion is for the MI-tie monotone case only.
         if _bc_uses_pw and st.best_nonprewarp_mi >= st.best_mi * fe_good_to_best_feature_mi_threshold:
 
-            def _config_corr(_cfg):
-                """|corr(continuous y)| of a config's materialised continuous column; -1.0 when
-                it cannot be rebuilt (so an unrecoverable form never wins the comparison)."""
-                try:
-                    _ci = _cfg[2]
-                    if final_transformed_vals is not None:
-                        _v = final_transformed_vals[:, _ci]
-                    elif _this_chunk_deferred:
-                        # DEFERRED-float GPU path: re-materialise this column on the GPU (bit-identical
-                        # to the bulk buffer -> the clean-form demotion uses the EXACT same |corr| it
-                        # would have under the host buffer; a numpy recompute here flips it at ULP).
-                        _dev_corr = candidate_abs_corr(_resolve_col, _safe_abs_corr, _ci)
-                        if _dev_corr is not None:
-                            return _dev_corr
-                        _v = _resolve_col(_ci)
-                    elif _config_by_i is not None and _ci in _config_by_i:
-                        _ak, _bk, _bn = _config_by_i[_ci]
-                        _pa = transformed_vars[:, vars_transformations[_ak]]
-                        _pb = transformed_vars[:, vars_transformations[_bk]]
-                        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                            _v = binary_transformations[_bn](_pa, _pb)
-                        _v = np.nan_to_num(np.asarray(_v, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                    else:
-                        return -1.0
-                    return _safe_abs_corr(_v)
-                except Exception as e:
-                    # Unmeasured, not unrecoverable: -1.0 here used to switch the clean-form demotion OFF when the CLEAN side failed.
-                    log_throttle(
-                        logger, "pairs_score_config_corr_failed", logging.WARNING,
-                        "_config_corr: could not measure |corr| for config %r (%s: %s); the prewarp demotion treats it as unmeasured",
-                        _cfg, type(e).__name__, e,
-                    )
-                    return None
+            _config_corr = partial(_config_abs_corr, final_transformed_vals=final_transformed_vals, _this_chunk_deferred=_this_chunk_deferred, _resolve_col=_resolve_col, _safe_abs_corr=_safe_abs_corr, _config_by_i=_config_by_i, transformed_vars=transformed_vars, vars_transformations=vars_transformations, binary_transformations=binary_transformations)
 
             _pw_corr = _config_corr(st.best_config)
             _clean_corr = _config_corr(st.best_nonprewarp_config)
@@ -750,14 +753,17 @@ def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transform
             # when the device path is unavailable.
             _win_dev = getattr(_resolve_col, "device", lambda *_: None)(st.best_config[2]) if (final_transformed_vals is None and _this_chunk_deferred) else None
             _win_vals = None
-            _win_corr = None
+            _win_corr_dev = None
             if _win_dev is not None:
                 _tgt = getattr(_safe_abs_corr, "target", None)
                 if _tgt is not None and _tgt[0] is not None:
-                    _win_corr = abs_corr_or_none(_win_dev, _tgt[0], _tgt[1])
-            if _win_corr is None and (final_transformed_vals is not None or _this_chunk_deferred):
+                    _win_corr_dev = abs_corr_or_none(_win_dev, _tgt[0], _tgt[1])
+            _win_corr = _win_corr_dev
+            _win_measured = _win_corr_dev is not None
+            if not _win_measured and (final_transformed_vals is not None or _this_chunk_deferred):
                 _win_vals = _resolve_col(st.best_config[2])
                 _win_corr = _safe_abs_corr(_win_vals)
+                _win_measured = True
             # Compare against the strongest CLEAN per-operand column the winner actually used: each operand
             # under its CHOSEN unary (``sqr(a)`` for the ``a`` side, not raw ``a`` - raw ``a`` is ~0 corr
             # for an even target like ``exp(-a**2)``), falling back to the raw operand value. This is the
@@ -768,7 +774,7 @@ def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transform
             _op_corr = 0.0
             _tp = st.best_config[0]
             _op_corr = _score_one_pair_computed_once_per_distinct(_tp, vars_transformations, _op_corr, _transformed_operand_abs_corr, _raw_operand_abs_corr, raw_vars_pair)
-            if _win_corr is not None and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC:
+            if _win_measured and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC:
                 st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = False
                 st._usability_accept = st._usability_primary = False
                 if verbose:

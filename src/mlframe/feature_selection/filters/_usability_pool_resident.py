@@ -117,7 +117,7 @@ def score_pair_combos_table_resident(
         if gpu_globally_disabled():
             return None
         from ._usability_njit_pool import (
-            _gpu_apply_unary, _gpu_quantile_bin_codes, _gpu_marginal_mi,
+            _gpu_apply_unary, _gpu_quantile_bin_codes, _gpu_marginal_mi, _USABILITY_DEGENERATE_REL_TOL,
         )
 
         npairs = len(operands)
@@ -214,8 +214,6 @@ def score_pair_combos_table_resident(
                 # (verified ((cand*cand).mean-mean^2 > 1e-18) == (cp.var > 1e-18) over the full block).
                 # Near-constant mask, relative to each combo's largest |value| exactly as the njit table kernel does (an absolute 1e-18
                 # variance floor rejected genuinely tiny-scale combos); D2H deferred (see below).
-                from ._usability_njit_pool import _USABILITY_DEGENERATE_REL_TOL
-
                 live_d = cand.var(axis=0) > (_USABILITY_DEGENERATE_REL_TOL * cp.abs(cand).max(axis=0)) ** 2
                 wrote_resident = False
                 try:

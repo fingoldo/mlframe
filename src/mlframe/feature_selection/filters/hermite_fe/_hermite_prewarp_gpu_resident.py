@@ -142,7 +142,7 @@ def _als_solve_weighted_gpu(cp, B, w, b):
         return cp.linalg.solve(AtA, Atb)
     except Exception as e:
         logger.debug("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
-        return cp.linalg.lstsq(B if w is None else B * w[:, None], b, rcond=None)[0]
+        return _als_solve_gpu(cp, B if w is None else B * w[:, None], b)
 
 
 def _als_sweep_gpu(cp, Ba, Bb, yc, iters) -> tuple:

@@ -122,13 +122,11 @@ def test_structural_fold_gather_fallback_bit_exact():
         )
 
 
-def test_resident_gate_selection_identical_to_host():
+def test_resident_gate_selection_identical_to_host(monkeypatch):
     """The device-born resident gate must return the SAME survivor set as the host local_mi_gate."""
-    import os
-
-    os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
-    os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
-    os.environ["MLFRAME_CMI_GPU"] = "1"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
+    monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
     from mlframe.feature_selection.filters._binned_numeric_agg_resident import local_mi_gate_binagg_resident
     from mlframe.feature_selection.filters._unified_fe_gate import local_mi_gate
 

@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 from .._fe_frame_ops import fe_to_pandas, fe_append_columns, fe_extract_columns, fe_polars_exceeds
+from ._fe_stage_merge import _fe_merge_new_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -45,6 +46,7 @@ def _fe_stage_cascade_early_b(
     # Engineered columns route through ``hybrid_orth_features_`` so the
     # end-of-fit remap treats them as engineered features (same routing
     # as Layer 23 / 26 / 32).
+    X_acc = X  # step-input contract: X is never rebound here; stages read it and their new columns are merged into X_acc
     self.kfold_te_features_ = []
     if _fe_family_on("fe_kfold_te_enable", False):
         # K-fold target encoding is an OOF stat (no closed-form subsample-replay), so it needs the full frame: gate the
@@ -109,7 +111,7 @@ def _fe_stage_cascade_early_b(
                 # accidental name collision rather than overwrite.
                 _te_appended = [c for c in _te_appended if c not in _X_before_te_cols]
                 if _te_appended:
-                    X = fe_append_columns(X, fe_extract_columns(X_te, _te_appended))
+                    X_acc = fe_append_columns(X_acc, fe_extract_columns(X_te, _te_appended))
                     self.kfold_te_features_ = list(_te_appended)
                     # Route through hybrid_orth_features_ so the end-of-fit
                     # remap routes by-name selected items into
@@ -135,7 +137,7 @@ def _fe_stage_cascade_early_b(
     # mean/std/skew/kurt of numeric columns grouped by quantile-binned cells of other numerics. Runs in the
     # pre-FE region (before categorize_dataset) so the appended columns enter screening like any numeric, and
     # routes recipes through hybrid_orth_features_ so a selected binagg column lands in _engineered_recipes_.
-    X = _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes, verbose), X)
 
     # 2026-05-31 Layer 34 — COUNT + FREQUENCY ENCODING + CAT x NUM
     # INTERACTION (target-mean residual). Three independent master switches;
@@ -200,7 +202,7 @@ def _fe_stage_cascade_early_b(
                     )
                     _cnt_appended = [c for c in _cnt_appended if c not in _X_before_cnt_cols]
                     if _cnt_appended:
-                        X = fe_append_columns(X, fe_extract_columns(X_c, _cnt_appended))
+                        X_acc = fe_append_columns(X_acc, fe_extract_columns(X_c, _cnt_appended))
                         self.count_encoding_features_ = list(_cnt_appended)
                         self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cnt_appended)
                         for _r in _cnt_recipes:
@@ -220,10 +222,10 @@ def _fe_stage_cascade_early_b(
                     )
 
             # ----- Frequency encoding ------------------------------------
-            X = _stage_frequency_encoding(self, _fe_family_on, _engineered_seen_l34, X, _y_np, _l34_reject_sink, _freq_enc_pre_recipes, verbose)
+            X_acc = _fe_merge_new_columns(X_acc, _stage_frequency_encoding(self, _fe_family_on, _engineered_seen_l34, X, _y_np, _l34_reject_sink, _freq_enc_pre_recipes, verbose), X)
 
             # ----- Cat x Num interaction (OOF residual) ------------------
-            X = _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, _cat_num_pre_recipes, verbose)
+            X_acc = _fe_merge_new_columns(X_acc, _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, _cat_num_pre_recipes, verbose), X)
 
     # 2026-05-31 Layer 37 — MISSINGNESS-AWARE FE. Three independent master
     # switches (indicator / count / pattern); each appends its own engineered
@@ -239,7 +241,7 @@ def _fe_stage_cascade_early_b(
     # bound). Deliberately checked directly (not via _fe_family_on, which requires fe_max_steps>0) so
     # ``fe_max_steps=0`` + an explicit fe_missingness_*_enable=True still emits the requested column(s) -
     # exactly the "disable the FE search but keep this one explicit static feature" contract callers rely on.
-    X = _stage_missingness_family(self, X, _fit_entry_nan_mask, _y_np, _raw_input_cols_pre_fe, _miss_ind_pre_recipes, verbose, _miss_cnt_pre_recipes, _miss_pat_pre_recipes)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_missingness_family(self, X, _fit_entry_nan_mask, _y_np, _raw_input_cols_pre_fe, _miss_ind_pre_recipes, verbose, _miss_cnt_pre_recipes, _miss_pat_pre_recipes), X)
 
     # 2026-05-31 Layer 38 — CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF.
     # Four independent master switches (ratio / log_ratio / grouped_delta /
@@ -275,9 +277,7 @@ def _fe_stage_cascade_early_b(
     # coverage no clean form expresses (CASE2). Empty when no gate fired. 2026-06-13.
     self._gate_col_src_vars_ = {}
     self.group_distance_features_ = []
-    X = _stage_pairwise_ratio_family(self, _fe_family_on, X, _y_np, _ratio_pre_recipes, verbose, _log_ratio_pre_recipes, _grouped_delta_pre_recipes, _lagged_diff_pre_recipes)
-
-    return X
+    return _fe_merge_new_columns(X_acc, _stage_pairwise_ratio_family(self, _fe_family_on, X, _y_np, _ratio_pre_recipes, verbose, _log_ratio_pre_recipes, _grouped_delta_pre_recipes, _lagged_diff_pre_recipes), X)
 
 
 def _stage_missingness_family(self, X, _fit_entry_nan_mask, _y_np, _raw_input_cols_pre_fe, _miss_ind_pre_recipes, verbose, _miss_cnt_pre_recipes, _miss_pat_pre_recipes):

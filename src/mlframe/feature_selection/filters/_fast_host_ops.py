@@ -64,16 +64,24 @@ def count_distinct_int(a: np.ndarray) -> int:
 
 class ContentMemo:
     """Small thread-safe LRU of derived arrays keyed by the CONTENT of the input column (+ a caller tag). Fit-constant columns (the target above all) are
-    re-derived by many stages with a fresh copy each time; the result is cached on a content hash and returned as a private copy so a caller can mutate it."""
+    re-derived by many stages with a fresh copy each time; the result is cached on a content hash and returned as a private copy so a caller can mutate it.
+    ``max_entries`` bounds how many results the memo holds."""
 
     def __init__(self, max_entries: int = 8) -> None:
-        """Create an empty memo holding at most ``max_entries`` results."""
         import threading
         from collections import OrderedDict
 
         self._data: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
         self._lock = threading.Lock()
         self._max = int(max_entries)
+
+    def __getstate__(self) -> dict:
+        """Pickle without the lock and the cached arrays: a memo is a runtime cache, so an unpickled copy starts empty."""
+        return {"_max": self._max}
+
+    def __setstate__(self, state: dict) -> None:
+        """Rebuild an empty memo with a fresh lock."""
+        self.__init__(state.get("_max", 8))
 
     def get_or_compute(self, tag: str, arr: np.ndarray, compute) -> np.ndarray:
         """``compute(arr)`` memoised on ``(tag, dtype, shape, content hash of arr)``."""
