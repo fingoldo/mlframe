@@ -258,7 +258,7 @@ def build_unary_binary_recipe(
     quantization_nbins: int | None,
     quantization_method: str | None,
     quantization_dtype: Any,
-    fit_values_for_edges: np.ndarray | None = None,
+    fit_values_for_edges: Any = None,  # host ndarray, device array, or LazyHostCodes
     poly_a_coef: np.ndarray | None = None,
     poly_b_coef: np.ndarray | None = None,
     prewarp_a: dict | None = None,

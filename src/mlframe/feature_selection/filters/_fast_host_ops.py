@@ -7,6 +7,8 @@ finite edges it is exactly ``np.searchsorted(edges, x, side="right")``, with num
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 from numba import njit, prange
 
@@ -93,7 +95,7 @@ class ContentMemo:
             hit = self._data.get(key)
             if hit is not None:
                 self._data.move_to_end(key)
-                return hit.copy()
+                return cast(np.ndarray, hit.copy())
         out = np.asarray(compute(a))
         with self._lock:
             self._data[key] = out.copy()

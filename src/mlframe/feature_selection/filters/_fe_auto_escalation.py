@@ -261,7 +261,7 @@ def _codes_of(values, nbins: int, quantile_bin) -> np.ndarray:
                 return np.asarray(cp.asnumpy(_quantile_bin_device(x, nbins).astype(cp.int8))).astype(np.int64)
         except Exception as e:
             logger.debug("device binning of the escalation capture failed, binning on the host: %s", e)
-    return quantile_bin(np.asarray(values, dtype=np.float64), nbins=nbins, host_only=True).astype(np.int64)
+    return np.array(quantile_bin(np.asarray(values, dtype=np.float64), nbins=nbins, host_only=True), dtype=np.int64)
 
 
 def _slice_admitted_pool(admitted_pool: dict, idx, classes_y_sub, nbins: int) -> dict:

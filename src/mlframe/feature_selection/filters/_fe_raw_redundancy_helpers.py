@@ -122,7 +122,7 @@ def raw_retains_signal_given_genuine_children(
     # re-crosses H2D; else upload once via the content-keyed cache.
     _rb_cand = raw_bin_dev if raw_bin_dev is not None else rb
     import os as _os
-    if raw_bin_dev is None and _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
+    if rb is not None and raw_bin_dev is None and _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
         try:
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled

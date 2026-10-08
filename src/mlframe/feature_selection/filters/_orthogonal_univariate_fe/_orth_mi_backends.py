@@ -450,7 +450,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
                     if _rank_mi is not None:
                         return np.asarray(_rank_mi, dtype=np.float64)
             return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls), dtype=np.float64)
-    except (ImportError, *_DEV_ERRS):  # type: ignore[misc]  # _DEV_ERRS is runtime-filtered to actual BaseException subclasses just above
+    except (ImportError, *_DEV_ERRS):  # _DEV_ERRS is runtime-filtered to actual BaseException subclasses just above
         pass  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
         # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here - a -1 / out-of-range
         # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.

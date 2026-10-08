@@ -17,7 +17,7 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-_STATE = {"verified": None}  # None = not checked yet, True / False after the one-time self-check
+_STATE: dict[str, Optional[bool]] = {"verified": None}  # None = not checked yet, True / False after the one-time self-check
 _LOCK = threading.Lock()
 
 
@@ -26,7 +26,7 @@ def _lerp(a: np.ndarray, b: np.ndarray, t: np.ndarray) -> np.ndarray:
     diff_b_a = np.subtract(b, a)
     out = np.asanyarray(np.add(a, diff_b_a * t))
     np.subtract(b, diff_b_a * (1 - t), out=out, where=t >= 0.5, casting="unsafe")
-    return out
+    return np.asarray(out)
 
 
 def _interpolate(sorted_lo: np.ndarray, sorted_hi: np.ndarray, virtual: np.ndarray, prev: np.ndarray) -> np.ndarray:

@@ -567,7 +567,7 @@ def compute_numerical_aggregates_numba(
             )
         )
 
-    return res
+    return list(res)
 
 
 # The helpers below are inlined (``inline="always"``) into the moments kernel, so they are compiled under the caller's fastmath setting -- a separately
@@ -643,7 +643,7 @@ def _linear_trend_stats(arr, xvals, mean_value, xvals_mean, slope_over, slope_un
         prev_d = d
         has_prev_d = True
         if return_lintrend_approx_stats:
-            lintrend_data_diffs[i] = d  # type: ignore[index]  # allocated iff return_lintrend_approx_stats, same guard as here
+            lintrend_data_diffs[i] = d  # allocated iff return_lintrend_approx_stats, same guard as here
     return slope, intercept, r, n_lintrend_crossings, lintrend_data_diffs
 
 

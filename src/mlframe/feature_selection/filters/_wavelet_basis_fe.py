@@ -325,7 +325,7 @@ def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
         hit = _Y_CODES_MEMO.get(key)
         if hit is not None:
             _Y_CODES_MEMO.move_to_end(key)
-            return hit.copy()
+            return cast(np.ndarray, hit.copy())
     uy = np.unique(y)
     if uy.size <= 20:
         out = y.astype(np.int64) if np.issubdtype(y.dtype, np.integer) else np.searchsorted(uy, y)

@@ -8,7 +8,7 @@ copy and caches it. A site that never reads the host form never pays for it; a s
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -35,7 +35,7 @@ class LazyHostCodes:
     @property
     def dtype(self) -> np.dtype:
         """Host dtype of the materialised copy."""
-        return self._dtype
+        return cast("np.dtype[Any]", self._dtype)
 
     @property
     def ndim(self) -> int:

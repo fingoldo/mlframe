@@ -229,9 +229,11 @@ def _ice_one_class(
     freqs_pred, freqs_true, hits, n_nonempty = _class_calibration_bins(y_t, y_p, nbins)
     cal_mae, cal_std = _calibration_mae_std(freqs_pred, freqs_true, hits, n_nonempty, use_weights)
     roc_auc, pr_auc = _roc_pr_auc_sorted(y_t[desc_idx], y_p[desc_idx])
-    return _combine_ice(
-        brier, cal_mae, cal_std, roc_auc, pr_auc, n_nonempty, nbins,
-        mae_weight, std_weight, brier_loss_weight, roc_auc_weight, pr_auc_weight, min_roc_auc, roc_auc_penalty, coverage_weight,
+    return float(
+        _combine_ice(
+            brier, cal_mae, cal_std, roc_auc, pr_auc, n_nonempty, nbins,
+            mae_weight, std_weight, brier_loss_weight, roc_auc_weight, pr_auc_weight, min_roc_auc, roc_auc_penalty, coverage_weight,
+        )
     )
 
 
