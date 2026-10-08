@@ -31,6 +31,8 @@ import numpy as np
 import pandas as pd
 from numba import njit, prange
 
+from ._fast_host_ops import searchsorted_right  # multi-core bin search for the large group columns
+
 logger = logging.getLogger(__name__)
 
 
@@ -385,7 +387,7 @@ def fit_binned_numeric_agg(
         edges = quantile_edges(gvals, nbins)
         if edges.size == 0:
             continue
-        codes = np.searchsorted(edges, gvals, side="right")
+        codes = searchsorted_right(edges, gvals)
         n_cells = int(codes.max()) + 1
         # ``codes[test]`` depends on (gcol, f) but NOT acol - hoist it out of the acol loop.
         _ct_by_fold = None if recipe_only else [codes[_ft] for _ft in _fold_test]  # type: ignore[union-attr]  # _fold_test is non-None exactly when recipe_only is False (same condition as this ternary)

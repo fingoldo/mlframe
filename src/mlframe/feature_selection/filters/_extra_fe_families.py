@@ -419,7 +419,9 @@ def _digitize_with_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     """Assign each value to a bin in ``[0, len(edges)-2]`` using the interior
     edges (``edges[1:-1]``). NaN -> bin 0 (matches the fit-time fill)."""
     x = np.asarray(x, dtype=np.float64)
-    codes = np.searchsorted(edges[1:-1], x, side="right")
+    from ._fast_host_ops import searchsorted_right
+
+    codes = searchsorted_right(edges[1:-1], x)
     codes = np.clip(codes, 0, max(0, edges.size - 2))
     codes[~np.isfinite(x)] = 0
     return codes.astype(np.int64)

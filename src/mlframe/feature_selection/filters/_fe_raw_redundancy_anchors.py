@@ -20,6 +20,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
+from ._fast_host_ops import count_distinct_int
 from ._lazy_host_codes import LazyHostCodes
 from ._fe_raw_redundancy_helpers import _excess_and_floor, _recipe_subexprs, _subexpr_continuous
 from types import SimpleNamespace as _SimpleNamespace
@@ -329,13 +330,14 @@ def _build_raw_redundan_continuous_none(y_continuous, n_rows, _target_card, y_ar
     """Block of build_raw_redundancy_anchors starting at ``if y_continuous is not None:``."""
     if y_continuous is not None:
         from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+        from mlframe.feature_selection.filters._y_encoding import _has_more_distinct_than
 
         _yc = np.asarray(y_continuous).reshape(-1)
         if _yc.shape[0] == n_rows and np.issubdtype(_yc.dtype, np.number):
-            if int(np.unique(_yc).size) > max(2 * _BINS, 2 * _target_card):
+            if _has_more_distinct_than(_yc, max(2 * _BINS, 2 * _target_card)):
                 _nb = int(min(max(_BINS, _target_card), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
                 y_arr = np.ascontiguousarray(_quantile_bin(_yc.astype(np.float64), nbins=_nb, host_only=True)).astype(np.int64)
-                _target_card = int(np.unique(y_arr).size)
+                _target_card = count_distinct_int(y_arr)
     return y_arr
 
 

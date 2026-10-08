@@ -230,7 +230,9 @@ def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np
             if edges.size == 2:
                 out[:] = (a >= edges[1]).astype(np.int64)
             return out
-        return np.searchsorted(edges[1:-1], a, side="right").astype(np.int64)
+        from ._fast_host_ops import searchsorted_right
+
+        return searchsorted_right(edges[1:-1], a).astype(np.int64, copy=False)
 
     finite_mask = np.isfinite(a)
     out = np.zeros(a.size, dtype=np.int64)

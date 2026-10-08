@@ -29,6 +29,7 @@ import threading
 
 import numpy as np
 from mlframe._array_buffer import array_buffer
+from ._fast_host_ops import ContentMemo
 
 logger = logging.getLogger(__name__)
 
@@ -252,6 +253,9 @@ def class_mi_fe_applicable(y: np.ndarray) -> bool:
     return arr.ndim <= 1
 
 
+_BIN_Y_MEMO = ContentMemo(max_entries=4)
+
+
 def bin_y_for_class_mi(y: np.ndarray, nbins: int = 10) -> np.ndarray:
     """Return int64 class labels for the MI-floor FE operators' ``_mi_classif_batch`` relevance path, given a 1D y.
 
@@ -262,6 +266,15 @@ def bin_y_for_class_mi(y: np.ndarray, nbins: int = 10) -> np.ndarray:
     Binned ONCE per fit by the caller and reused across the whole candidate scan (the operators take the returned labels unchanged). On a qcut
     failure (heavy ties / NaN) it falls back to the int64 cast so the fit still runs (signal may degrade, never crashes). ``nbins`` should be the
     MRMR instance's ``quantization_nbins`` so the operator binning matches the core's relevance binning."""
+    arr = np.asarray(y).ravel()
+    if arr.dtype.kind == "f" and arr.size >= 200_000:
+        # The same fit-constant target is binned by several stages with a fresh copy each time: memoise on its content.
+        return _BIN_Y_MEMO.get_or_compute(f"bin_y:{int(nbins)}", arr, lambda a: _bin_y_for_class_mi_uncached(a, nbins))
+    return _bin_y_for_class_mi_uncached(arr, nbins)
+
+
+def _bin_y_for_class_mi_uncached(y: np.ndarray, nbins: int) -> np.ndarray:
+    """The binning itself, without the memo (see :func:`bin_y_for_class_mi`)."""
     import pandas as pd
 
     arr = np.asarray(y).ravel()
