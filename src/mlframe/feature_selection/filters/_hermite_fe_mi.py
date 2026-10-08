@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import threading
+import weakref
 
 import numpy as np
 
@@ -282,11 +283,25 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     return np.asarray(_plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins))
 
 
-# (id(y_gpu), y_min) -> shifted (y - y_min) device vector. y is a fit-constant, so the shift recurs identically
+# (id(y_gpu), y_min) -> (weakref to y_gpu, shifted (y - y_min) device vector); a hit must be the SAME live y_gpu, an id alone can be reused. y is a fit-constant, so the shift recurs identically
 # across the per-chunk MI calls; memoize to launch it ONCE per fit (module-level -> never on a pickled instance).
 _SHIFTED_Y_CACHE: dict = {}
 # Held across the check-clear-insert below: threaded FE workers share this dict.
 _SHIFTED_Y_CACHE_LOCK = threading.Lock()
+
+
+def _shifted_y_cached(y_gpu, y_min: int):
+    """``y_gpu - y_min``, memoized per (live y_gpu, y_min): a hit must be the SAME array object, since an ``id`` is reused once its array is freed."""
+    key = (id(y_gpu), y_min)
+    with _SHIFTED_Y_CACHE_LOCK:
+        entry = _SHIFTED_Y_CACHE.get(key)
+        if entry is not None and entry[0]() is y_gpu and entry[1].shape == y_gpu.shape:
+            return entry[1]
+        shifted = y_gpu - y_min
+        if len(_SHIFTED_Y_CACHE) > 8:
+            _SHIFTED_Y_CACHE.clear()
+        _SHIFTED_Y_CACHE[key] = (weakref.ref(y_gpu), shifted)
+        return shifted
 
 
 def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
@@ -344,15 +359,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # common case -> the subtraction is a pure no-op that still launched), and memoize the shifted vector keyed
     # on (id(y_gpu), y_min) otherwise so the launch happens ONCE per fit, not once per MI batch. Bit-identical.
     if y_min:
-        _sk = (id(y_gpu), int(y_min))
-        with _SHIFTED_Y_CACHE_LOCK:
-            _sh = _SHIFTED_Y_CACHE.get(_sk)
-            if _sh is None or _sh.shape != y_gpu.shape:
-                _sh = y_gpu - y_min
-                if len(_SHIFTED_Y_CACHE) > 8:
-                    _SHIFTED_Y_CACHE.clear()
-                _SHIFTED_Y_CACHE[_sk] = _sh
-        y_gpu = _sh
+        y_gpu = _shifted_y_cached(y_gpu, int(y_min))
 
     # Per-column quantile binning via cp.percentile EDGES + searchsorted. Replaced the
     # argsort -> rank -> uncoalesced-scatter path (the dominant ~69%-of-MI cost). Measured 7.84x faster

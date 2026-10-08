@@ -219,7 +219,7 @@ def init_kernels() -> None:
         int joint_size = nbins_x * nbins_y;
         int tid = threadIdx.x;
         int nthreads = blockDim.x;
-        int gid_offset = blockIdx.x * nthreads;
+        long long gid_offset = (long long)blockIdx.x * nthreads;
 
         // Zero the shared histogram.
         for (int i = tid; i < joint_size; i += nthreads) {
@@ -228,7 +228,7 @@ def init_kernels() -> None:
         __syncthreads();
 
         // Grid-strided read of n_samples (only the block's slice).
-        int my_row = gid_offset + tid;
+        long long my_row = gid_offset + tid;
         if (my_row < n) {
             int cy = perms_y[(long long)batch_id * n + my_row];
             int cx = classes_x[my_row];
@@ -333,7 +333,7 @@ def init_kernels() -> None:
         int col_b = pairs_b[pid];
         int nba = nbins_a[pid];
 
-        int row = blockIdx.x * nthreads + tid;
+        long long row = (long long)blockIdx.x * nthreads + tid;
         if (row < n_rows) {
             int va = factors_data_T[(long long)col_a * n_rows + row];
             int vb = factors_data_T[(long long)col_b * n_rows + row];

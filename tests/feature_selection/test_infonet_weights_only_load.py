@@ -31,11 +31,10 @@ def test_state_dict_round_trips_under_weights_only_true(tmp_path):
 
 
 def test_infer_never_loads_a_checkpoint_without_weights_only():
-    """EVERY `torch.load` in infer.py passes `weights_only=True`, except the one in the `except TypeError` arm of the guarded call.
+    """EVERY `torch.load` in infer.py passes `weights_only=True`, with no legacy `except TypeError` fallback.
 
     Decided on the AST: a multi-line call or a kwargs splat is still seen, and a call in a dead branch cannot satisfy the check for the others.
-    The round-trip test above already proves the loader honours the flag; what is pinned here is that no call site omits it. The single
-    unavoidable exception is the torch < 1.13 fallback, whose torch has no such kwarg and predates the unpickler restriction entirely.
+    The round-trip test above already proves the loader honours the flag; what is pinned here is that no call site omits it.
     """
     import ast
 
@@ -43,13 +42,7 @@ def test_infer_never_loads_a_checkpoint_without_weights_only():
     loads = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "load" and getattr(n.func.value, "id", "") == "torch"]
     assert loads, "no torch.load call found in infer.py; this test needs updating"
 
-    fallback_ids: set[int] = set()
-    for handler in (n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)):
-        if isinstance(handler.type, ast.Name) and handler.type.id == "TypeError":
-            fallback_ids.update(id(n) for n in ast.walk(handler) if isinstance(n, ast.Call))
-
     unguarded = []
-    fallbacks = []
     for call in loads:
         kw = {k.arg: k.value for k in call.keywords if k.arg is not None}
         if any(k.arg is None for k in call.keywords):
@@ -57,9 +50,5 @@ def test_infer_never_loads_a_checkpoint_without_weights_only():
         if "weights_only" in kw:
             assert getattr(kw["weights_only"], "value", None) is True, f"torch.load at line {call.lineno} passes weights_only but not True"
             continue
-        if id(call) in fallback_ids:
-            fallbacks.append(call.lineno)
-            continue
         unguarded.append(call.lineno)
-    assert not unguarded, f"torch.load without weights_only=True outside the `except TypeError` fallback at line(s) {unguarded}"
-    assert len(fallbacks) == 1, f"expected exactly one legacy fallback in an `except TypeError` arm, found {fallbacks}"
+    assert not unguarded, f"torch.load without weights_only=True at line(s) {unguarded}"
