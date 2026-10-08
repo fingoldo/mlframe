@@ -63,7 +63,7 @@ def test_excess_and_floor_cap_actually_subsamples(monkeypatch):
 
         def spy(cand_bin, y_bin, z_support, **k):
             """Wrap _conditional_perm_null to record the row count it actually receives, proving the subsample cap took effect."""
-            seen["n"] = int(np.asarray(cand_bin).shape[0])
+            seen["n"] = int(cand_bin.shape[0])  # host array or resident device codes
             return orig(cand_bin, y_bin, z_support, **k)
 
         monkeypatch.setattr(G, "_conditional_perm_null", spy)
