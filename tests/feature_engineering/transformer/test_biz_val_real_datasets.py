@@ -136,6 +136,7 @@ from mlframe.feature_engineering.transformer import (
     compute_residual_band_attention_features,
     compute_rf_proximity_attention,
     compute_rff_features,
+    rff_apply_state,
     compute_robustness_budget_features,
     compute_signed_residual_band_features,
     compute_smote_distance_features,
@@ -326,13 +327,15 @@ def _load_puma32H() -> Tuple[np.ndarray, np.ndarray, str]:
 
 
 def _load_delta_ailerons() -> Tuple[np.ndarray, np.ndarray, str]:
-    """OpenML delta_ailerons: 7129 rows, 5 features, regression on aircraft control surface dynamics. Very smooth target."""
+    """OpenML delta_ailerons: 7129 rows, 5 features, binary classification (sign of the aileron control-surface change), roughly balanced."""
     from sklearn.datasets import fetch_openml
 
     bunch = fetch_openml(name="delta_ailerons", version=1, as_frame=True, parser="auto")
     X = bunch.data.to_numpy(dtype=np.float32)
-    y = bunch.target.to_numpy(dtype=np.float32)
-    return X, y, "regression"
+    y = (bunch.target.astype(str) == "P").astype(np.float32).to_numpy()
+    if y.mean() > 0.5:
+        y = 1.0 - y  # ensure minority is the positive class
+    return X, y, "binary"
 
 
 def _load_bank8FM() -> Tuple[np.ndarray, np.ndarray, str]:
@@ -379,7 +382,7 @@ def _load_wind() -> Tuple[np.ndarray, np.ndarray, str]:
     """OpenML wind: 6574 rows, 14 features, regression on wind speed."""
     from sklearn.datasets import fetch_openml
 
-    bunch = fetch_openml(name="wind", version=2, as_frame=True, parser="auto")
+    bunch = fetch_openml(name="wind", version=1, as_frame=True, parser="auto")
     df = bunch.frame
     target_col = bunch.target.name if hasattr(bunch.target, "name") else df.columns[-1]
     y = df[target_col].to_numpy(dtype=np.float32)
@@ -428,7 +431,7 @@ def _load_bank_marketing() -> Tuple[np.ndarray, np.ndarray, str]:
         keep = col_nonzero.head(50).index
         X_encoded = X_encoded[keep]
     X = X_encoded.to_numpy(dtype=np.float32)
-    y = (y_raw.astype(str).str.strip().str.lower() == "yes").astype(np.float32).to_numpy()
+    y = (y_raw.astype(str).str.strip() == "2").astype(np.float32).to_numpy()  # OpenML codes the classes 1 (no) and 2 (subscribed)
     return X, y, "binary"
 
 
@@ -705,8 +708,10 @@ def _features_raw(X_tr, X_te, y_tr, task):
 
 def _features_rff(X_tr, X_te, y_tr, task):
     """Helper: Features rff."""
-    rff_tr = compute_rff_features(X_tr, seed=42, n_features=128, sigma="median", standardize=True, use_gpu=False).to_numpy()
-    rff_te = compute_rff_features(X_te, seed=42, n_features=128, sigma="median", standardize=True, use_gpu=False).to_numpy()
+    # One train-fitted projection replayed on the held-out rows: two independent calls would each derive their own scaler and median bandwidth.
+    rff_tr_df, state = compute_rff_features(X_tr, seed=42, n_features=128, sigma="median", standardize=True, use_gpu=False, return_state=True)
+    rff_tr = rff_tr_df.to_numpy()
+    rff_te = rff_apply_state(state, X_te, use_gpu=False).to_numpy()
     return np.concatenate([X_tr, rff_tr], axis=1), np.concatenate([X_te, rff_te], axis=1)
 
 
@@ -908,7 +913,7 @@ def _features_pcrff(X_tr, X_te, y_tr, task):
     from mlframe.feature_engineering.transformer import compute_per_column_rff
 
     pcrff_tr = compute_per_column_rff(X_tr, seed=42, d_embed_per_column=4, sigma_scale=1.0, standardize=True).to_numpy()
-    pcrff_te = compute_per_column_rff(X_te, seed=42, d_embed_per_column=4, sigma_scale=1.0, standardize=True).to_numpy()
+    pcrff_te = compute_per_column_rff(X_tr, seed=42, d_embed_per_column=4, sigma_scale=1.0, standardize=True, X_query=X_te).to_numpy()
     return np.concatenate([X_tr, pcrff_tr], axis=1), np.concatenate([X_te, pcrff_te], axis=1)
 
 
@@ -1679,7 +1684,7 @@ def test_breakthrough_puma32H():
 
 
 def test_breakthrough_delta_ailerons():
-    """delta_ailerons - aircraft control dynamics, smooth target."""
+    """delta_ailerons - aircraft control dynamics, binary target."""
     X, y, task = _load_delta_ailerons()
     X, y = _cap_rows(X, y)
     print(f"\n[breakthrough] delta_ailerons: X.shape={X.shape}, task={task}")
