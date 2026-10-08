@@ -267,6 +267,23 @@ def _select_mi_backend() -> str:
 _MI_BACKEND = _select_mi_backend()
 
 
+def _device_error_classes() -> tuple:
+    """Exception classes of a genuine cupy/device fault (plus LinAlgError); registration of the optional cupy ones is best-effort."""
+    _dev_errs: list = [np.linalg.LinAlgError]
+    try:
+        import cupy as _cp_e
+
+        _dev_errs.append(_cp_e.cuda.runtime.CUDARuntimeError)
+        _dev_errs.append(_cp_e.cuda.memory.OutOfMemoryError)
+        from cupy_backends.cuda.libs import cusolver as _cusolver_e
+        _dev_errs.append(getattr(_cusolver_e, "CUSOLVERError", None))
+        from cupy_backends.cuda.libs import cublas as _cublas_e
+        _dev_errs.append(getattr(_cublas_e, "CUBLASError", None))
+    except Exception as _e_dev_errs:  # nosec B110 - optional dependency import guard
+        logger.debug("Could not register cupy device-error classes (%s); GPU-specific errors won't be distinguished from generic failures", _e_dev_errs)
+    return tuple(e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException))
+
+
 def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
     """Batch MI(X_j; y) for classification target.
 
@@ -365,19 +382,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # silently degrading a genuine OOB (illegal-address) bug to the CPU njit and DEFEATING the guard
     # added in 6c127567. Catch only genuine cupy/device faults below so a true device error still
     # falls back to CPU, while a ValueError/IndexError (real OOB / logic bug) propagates to surface.
-    _dev_errs: list = [np.linalg.LinAlgError]
-    try:
-        import cupy as _cp_e
-
-        _dev_errs.append(_cp_e.cuda.runtime.CUDARuntimeError)
-        _dev_errs.append(_cp_e.cuda.memory.OutOfMemoryError)
-        from cupy_backends.cuda.libs import cusolver as _cusolver_e
-        _dev_errs.append(getattr(_cusolver_e, "CUSOLVERError", None))
-        from cupy_backends.cuda.libs import cublas as _cublas_e
-        _dev_errs.append(getattr(_cublas_e, "CUBLASError", None))
-    except Exception as _e_dev_errs:  # nosec B110 - optional dependency import guard
-        logger.debug("Could not register cupy device-error classes (%s); GPU-specific errors won't be distinguished from generic failures", _e_dev_errs)
-    _DEV_ERRS = tuple(e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException))
+    _DEV_ERRS = _device_error_classes()
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
 

@@ -46,6 +46,33 @@ from ._step_score_parts import (  # noqa: F401  -- carved helpers
 )
 
 
+def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, _y_dense_g) -> None:
+    """Per-candidate device-or-host quantile binning and marginal MI of the CMI-gate pool, written into ``st._cmi_cands``."""
+    from .._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
+
+    for _tpf, _tvals, _ncols, _nnb, _msgs in prospective_additions.values():
+        if not _tpf or _tvals is None or not _ncols:
+            continue
+        for _jc, _cname in enumerate(_ncols):
+            if _tvals.shape[1] <= _jc:
+                continue
+            _vals = np.asarray(_tvals[:, _jc], dtype=np.float64)
+            if _gate_stride > 1:
+                _vals = _vals[::_gate_stride]
+            _vb = None
+            if st._gate_resident and np.isfinite(_vals).all():
+                try:
+                    from .._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
+                    _vb = _quantile_bin_gpu_resident(_vals, int(self.quantization_nbins))
+                except Exception as e:  # best-effort: the host quantile binner is the reference path and yields the same codes as the device binner
+                    logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
+                    _vb = None
+            if _vb is None:
+                _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
+            _marg = float(_cmi_from_binned(_vb, _y_dense_g, None, kx=int(self.quantization_nbins)))
+            st._cmi_cands[_cname] = (_vals, _marg)
+
+
 def materialise_and_finalise_fe_candidates(
     self,
     *,
@@ -86,8 +113,6 @@ def materialise_and_finalise_fe_candidates(
         # (full-n float, NOT pre-binned). Marginal MI is computed cheaply from the binned
         # values via the same plug-in primitive (z=None) so the seed/relative-bar anchor
         # matches the production CMI estimator - no separate MI kernel.
-        from .._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
-
         # y codes: reuse the discretised target the MI sweep scored against.
         from ._step_class_codes import dense_class_codes
 
@@ -134,27 +159,8 @@ def materialise_and_finalise_fe_candidates(
             if _b_mi is not None:
                 st._cmi_cands = {_nm: (_vv, _mm) for _nm, _vv, _mm in zip(_b_names, _b_vals, _b_mi)}
                 _batched_done = True
-        for _rp, (_tpf, _tvals, _ncols, _nnb, _msgs) in (() if _batched_done else prospective_additions.items()):
-            if not _tpf or _tvals is None or not _ncols:
-                continue
-            for _jc, _cname in enumerate(_ncols):
-                if _tvals.shape[1] <= _jc:
-                    continue
-                _vals = np.asarray(_tvals[:, _jc], dtype=np.float64)
-                if _gate_stride > 1:
-                    _vals = _vals[::_gate_stride]
-                _vb = None
-                if st._gate_resident and np.isfinite(_vals).all():
-                    try:
-                        from .._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
-                        _vb = _quantile_bin_gpu_resident(_vals, int(self.quantization_nbins))
-                    except Exception as e:
-                        logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
-                        _vb = None
-                if _vb is None:
-                    _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
-                _marg = float(_cmi_from_binned(_vb, _y_dense_g, None, kx=int(self.quantization_nbins)))
-                st._cmi_cands[_cname] = (_vals, _marg)
+        if not _batched_done:
+            _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, _y_dense_g)
 
         if len(st._cmi_cands) >= 2:
             _retain = float(getattr(self, "fe_engineered_cmi_retain_frac", 0.15))

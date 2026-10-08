@@ -56,7 +56,7 @@ it returns ``None`` and the caller falls back per-pair.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
@@ -80,6 +80,16 @@ def _build_combo_index_arrays(nu: int, nb: int):
                 bn_idx[j] = ibn
                 j += 1
     return ua_idx, ub_idx, bn_idx
+
+
+def _combo_chunk_cols(cp: Any, n: int, nc: int) -> int:
+    """Combo columns per fused chunk: ~25% of free VRAM over the candidate block (n x kk f64) plus ~3x radix/MI working set, clamped to ``[1, nc]``."""
+    try:
+        free_b = int(cp.cuda.runtime.memGetInfo()[0])
+    except Exception as e:  # best-effort: free VRAM only sizes the chunk width; any width yields the same table
+        logger.debug("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
+        free_b = 512 * 1024 * 1024
+    return int(max(1, min(nc, (free_b // 4) // (max(1, n * 8) * 3))))
 
 
 def score_pair_combos_table_resident(
@@ -172,13 +182,7 @@ def score_pair_combos_table_resident(
         ub_idx_d = cp.asarray(np.asarray(ub_idx, dtype=np.int32))
         bop_d = cp.asarray(np.asarray([bn_codes_l[int(bn_idx[j])] for j in range(nc)], dtype=np.int32))
         fused_gen = _get_fused_gen_kernel()
-        try:
-            free_b = int(cp.cuda.runtime.memGetInfo()[0])
-        except Exception as e:
-            logger.debug("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
-            free_b = 512 * 1024 * 1024
-        # cand block (n, kk) f64 + radix/MI working (~3x): combo_chunk = ~25% free VRAM / (n*8*3), clamped.
-        combo_chunk = int(max(1, min(nc, (free_b // 4) // (max(1, n * 8) * 3))))
+        combo_chunk = _combo_chunk_cols(cp, n, nc)
         threads = 256
 
         from ._fe_resident_operands import resident_operand

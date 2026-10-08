@@ -8,6 +8,7 @@ in registers, reduces by warp shuffle and finishes with one atomic add per warp.
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 _MODULES: dict = {}
 _LOCK = threading.Lock()
@@ -72,7 +73,7 @@ def _grid(cp, n: int) -> int:
     return int(min(4096, max(1, (n + 255) // 256)))
 
 
-def design_matvec(cp, B, c):
+def design_matvec(cp: Any, B: Any, c: Any) -> Any:
     """``B @ c`` for a C-contiguous float64 ``(n, d)`` design and a ``(d,)`` coefficient vector."""
     n, d = B.shape
     out = cp.empty(n, dtype=cp.float64)
@@ -81,7 +82,7 @@ def design_matvec(cp, B, c):
     return out
 
 
-def weighted_gram(cp, B, w, y):
+def weighted_gram(cp: Any, B: Any, w: Any, y: Any) -> "tuple[Any, Any]":
     """``(A'A, A'y)`` for ``A = B * w[:, None]`` (``w=None`` means ``A = B``); ``B`` is C-contiguous float64 ``(n, d)``, ``y`` is ``(n,)``."""
     n, d = B.shape
     nacc = d * (d + 1) // 2 + d

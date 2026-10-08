@@ -9,7 +9,7 @@ resident, both reductions are one pass each on the device, and only the (K,) MI 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -32,13 +32,13 @@ void analytic_obs_mi_bins_i8(const signed char* __restrict__ codes, const int* _
                              double* __restrict__ mi_out, int* __restrict__ bins_out) {
     extern __shared__ int sh[];                       // (tile, Kx*Ky) joint histograms
     const int M = Kx * Ky;
-    const int col0 = blockIdx.x * tile;
+    const long long col0 = (long long)blockIdx.x * tile;
     const int cj = threadIdx.x % tile;                // column within the tile
     const int rg = threadIdx.x / tile;                // row group
     const int ngroups = blockDim.x / tile;
     for (int s = threadIdx.x; s < tile * M; s += blockDim.x) sh[s] = 0;
     __syncthreads();
-    const int col = col0 + cj;
+    const long long col = col0 + cj;
     if (col < K) {
         for (long long i = rg; i < n; i += ngroups) {
             int cx = (int)codes[i * (long long)K + col];
@@ -94,7 +94,7 @@ def _tile_for(m_cells: int) -> int:
     return 0
 
 
-def _fused_observed_mi_and_bins(device_codes, yc: np.ndarray, ky: int) -> "Optional[tuple[np.ndarray, np.ndarray]]":
+def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "Optional[tuple[np.ndarray, np.ndarray]]":
     """Fused single-pass observed MI + occupied bins over an int8 ``(n, K)`` resident matrix, or ``None`` when the shape / dtype is outside what the kernel
     covers (the caller then takes the generic path)."""
     import cupy as cp
@@ -126,7 +126,7 @@ def _fused_observed_mi_and_bins(device_codes, yc: np.ndarray, ky: int) -> "Optio
     return np.asarray(mi.get(), dtype=np.float64), np.asarray(bins.get(), dtype=np.int64)
 
 
-def resident_observed_mi_and_bins(device_codes, classes_y: np.ndarray, by: int) -> "tuple[np.ndarray, np.ndarray]":
+def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: int) -> "tuple[np.ndarray, np.ndarray]":
     """Observed plug-in MI (nats) and occupied-bin count of every column of the resident ``(n, K)`` code matrix, against the target codes ``classes_y``.
 
     An int8 matrix goes through the fused single-pass kernel; anything else (or a histogram too large for shared memory) takes the generic block-wise path.
@@ -139,7 +139,7 @@ def resident_observed_mi_and_bins(device_codes, classes_y: np.ndarray, by: int) 
     yc = np.ascontiguousarray(classes_y, dtype=np.int64).ravel()
     try:
         fused = _fused_observed_mi_and_bins(device_codes, yc, int(by))
-    except Exception as e:
+    except Exception as e:  # best-effort: the generic block-wise path computes the same observed MI and occupied bins
         logger.debug("fused observed-MI kernel failed, using the generic path: %s", e)
         fused = None
     if fused is not None:
@@ -159,7 +159,7 @@ def resident_observed_mi_and_bins(device_codes, classes_y: np.ndarray, by: int) 
     return observed, bins
 
 
-def resident_analytic_gate(device_codes, classes_y: np.ndarray, by: int, n_rows: int, min_nonzero_confidence: float) -> Optional[np.ndarray]:
+def resident_analytic_gate(device_codes: Any, classes_y: np.ndarray, by: int, n_rows: int, min_nonzero_confidence: float) -> Optional[np.ndarray]:
     """``fe_mi[K]`` of the analytic noise gate computed from resident codes, or ``None`` on any device fault so the caller keeps the host path."""
     try:
         from .._analytic_mi_null import analytic_batch_noise_gate

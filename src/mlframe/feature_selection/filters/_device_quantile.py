@@ -1,7 +1,7 @@
 """Exact ``np.quantile`` (linear method) from a device sort.
 
 ``np.quantile`` of a 1M-row column partitions on the host (~115 ms per call at 9 quantiles); the FE stages call it per column on data that is going to the
-device anyway. One device sort plus a read of the handful of order statistics the linear method needs, interpolated with numpy's own ``_lerp`` and index
+device anyway. One device sort plus a read of the handful of order statistics the linear method needs, interpolated with numpy's lerp arithmetic and index
 rules, returns the SAME bits as ``np.quantile``: the host version also sorts exactly those elements and applies the same arithmetic. The result is
 self-checked against ``np.quantile`` on a small array the first time it is used; if numpy's internals ever drift, the device path switches itself off and
 callers keep the host call.
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -21,10 +21,16 @@ _STATE = {"verified": None}  # None = not checked yet, True / False after the on
 _LOCK = threading.Lock()
 
 
+def _lerp(a: np.ndarray, b: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """numpy's weighted linear interpolation, symmetric around ``t = 0.5``; the same operations in the same order as ``np.quantile`` uses."""
+    diff_b_a = np.subtract(b, a)
+    out = np.asanyarray(np.add(a, diff_b_a * t))
+    np.subtract(b, diff_b_a * (1 - t), out=out, where=t >= 0.5, casting="unsafe")
+    return out
+
+
 def _interpolate(sorted_lo: np.ndarray, sorted_hi: np.ndarray, virtual: np.ndarray, prev: np.ndarray) -> np.ndarray:
     """numpy's linear-method interpolation of the two bracketing order statistics."""
-    from numpy.lib.function_base import _lerp  # type: ignore[attr-defined]
-
     gamma = np.asanyarray(virtual - prev)
     return np.asarray(_lerp(sorted_lo, sorted_hi, gamma))
 
@@ -73,7 +79,7 @@ def _self_check() -> bool:
     return True
 
 
-def device_quantile(x, qs: np.ndarray) -> Optional[np.ndarray]:
+def device_quantile(x: Any, qs: np.ndarray) -> Optional[np.ndarray]:
     """``np.quantile(x, qs)`` (linear) computed from a device sort, bit-identical, or ``None`` when the device path does not apply (no cupy, NaNs, a failed
     self-check) so the caller uses the host call."""
     with _LOCK:
@@ -81,7 +87,7 @@ def device_quantile(x, qs: np.ndarray) -> Optional[np.ndarray]:
             try:
                 _STATE["verified"] = bool(_self_check())
             except Exception as e:
-                logger.debug("device quantile self-check failed, staying on the host: %s", e)
+                logger.warning("device quantile self-check failed (%s: %s); using the host np.quantile", type(e).__name__, e)
                 _STATE["verified"] = False
             if not _STATE["verified"]:
                 logger.warning("device quantile did not reproduce np.quantile exactly on the self-check; using the host np.quantile")
@@ -89,6 +95,6 @@ def device_quantile(x, qs: np.ndarray) -> Optional[np.ndarray]:
             return None
     try:
         return _device_quantile_raw(x if hasattr(x, "__cuda_array_interface__") else np.asarray(x), np.asarray(qs, dtype=np.float64))
-    except Exception as e:
+    except Exception as e:  # best-effort: the caller falls back to the bit-identical host np.quantile
         logger.debug("device quantile failed, using the host: %s", e)
         return None

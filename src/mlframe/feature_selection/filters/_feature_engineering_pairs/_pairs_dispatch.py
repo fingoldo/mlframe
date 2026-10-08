@@ -122,6 +122,59 @@ def _dispatch_batch_mi_with_noise_gate(
         )
 
 
+def _tuned_noise_gate_backend(n: int, K: int) -> str:
+    """Per-host CPU/GPU backend for the batched noise gate: the measurement-backed fallback under a runtime budget, else the kernel-tuning cache (CPU on any error)."""
+    backend = "cpu"
+    # Under an explicit max_runtime_mins budget, skip the CPU-vs-GPU crossover sweep (blocking on first use, tens of
+    # seconds at large n) and use the measurement-backed fallback; the sweep still runs on a normal no-budget fit so
+    # per-host tuning is unaffected. Checked BEFORE the get_or_tune so the budgeted fit never pays the sweep.
+    _budget_active = False
+    try:
+        from .._fe_deadline import fe_budget_active
+        _budget_active = fe_budget_active()
+    except Exception as e:  # best-effort: an unreadable budget flag only skips the tuning sweep; both backends return bit-identical results
+        _module_logger.debug("fe_budget_active() check failed, treating the run as unbudgeted: %s", e)
+        _budget_active = False
+    if _budget_active:
+        try:
+            from ..batch_mi_noise_gate_gpu import _batch_mi_noise_gate_fallback_choice
+            _fb = _batch_mi_noise_gate_fallback_choice(n, K)
+            backend = str(_fb.get("backend_choice", "cpu")) if isinstance(_fb, dict) else "cpu"
+        except Exception as e:  # best-effort: the fallback backend choice only routes between bit-identical CPU and GPU kernels
+            _module_logger.debug("budgeted-run fallback backend choice failed, defaulting to cpu: %s", e)
+            backend = "cpu"
+    else:
+        try:
+            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
+            from ..batch_mi_noise_gate_gpu import (
+                _run_batch_mi_noise_gate_sweep,
+                _batch_mi_noise_gate_fallback_choice,
+            )
+
+            # load_or_create() returns the MEMOIZED per-host cache singleton (~0ms/call); a bare
+            # KernelTuningCache() ctor re-loads cache state from disk EVERY call (~0.75ms), which
+            # on a wide near-saturated frame (thousands of FE raw-pairs, one dispatch each) added
+            # seconds of pure overhead. This dispatcher is on the per-raw-pair hot path -> singleton.
+            _res = KernelTuningCache.load_or_create().get_or_tune(
+                "batch_mi_noise_gate",
+                dims={"n_rows": n, "n_cols": K},
+                tuner=_run_batch_mi_noise_gate_sweep,  # real CPU-vs-GPU sweep (bit-identical GPU)
+                axes=["n_rows", "n_cols"],
+                fallback={"backend_choice": _batch_mi_noise_gate_fallback_choice(n, K)},
+                code_version=batch_mi_noise_gate_code_version(),
+                async_sweep=True,  # FIT-TIME: never block the FE pair-search on the sweep; measure in the background
+            )
+            if isinstance(_res, str):
+                backend = _res
+            elif _res:
+                backend = str(_res.get("backend_choice", "cpu"))
+        except Exception as e:  # best-effort: a tuning-cache failure only routes between bit-identical CPU and GPU kernels; CPU is the reference
+            _module_logger.debug("kernel_tuning_cache get_or_tune failed, defaulting to cpu: %s", e)
+            backend = "cpu"
+    return backend
+
+
 def _dispatch_batch_mi_with_noise_gate_impl(
     disc_2d: np.ndarray,
     quantization_nbins: int,
@@ -291,53 +344,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
             dtype=np.int32,
             classes_dtype=_fe_classes_dtype(disc_2d.dtype, factors_nbins),
         ))
-    # Under an explicit max_runtime_mins budget, skip the CPU-vs-GPU crossover sweep (blocking on first use, tens of
-    # seconds at large n) and use the measurement-backed fallback; the sweep still runs on a normal no-budget fit so
-    # per-host tuning is unaffected. Checked BEFORE the get_or_tune so the budgeted fit never pays the sweep.
-    _budget_active = False
-    try:
-        from .._fe_deadline import fe_budget_active
-        _budget_active = fe_budget_active()
-    except Exception as e:
-        _module_logger.debug("fe_budget_active() check failed, treating the run as unbudgeted: %s", e)
-        _budget_active = False
-    if _budget_active:
-        try:
-            from ..batch_mi_noise_gate_gpu import _batch_mi_noise_gate_fallback_choice
-            _fb = _batch_mi_noise_gate_fallback_choice(int(n), int(K))
-            backend = str(_fb.get("backend_choice", "cpu")) if isinstance(_fb, dict) else "cpu"
-        except Exception as e:
-            _module_logger.debug("budgeted-run fallback backend choice failed, defaulting to cpu: %s", e)
-            backend = "cpu"
-    else:
-        try:
-            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-            from ..batch_mi_noise_gate_gpu import (
-                _run_batch_mi_noise_gate_sweep,
-                _batch_mi_noise_gate_fallback_choice,
-            )
-
-            # load_or_create() returns the MEMOIZED per-host cache singleton (~0ms/call); a bare
-            # KernelTuningCache() ctor re-loads cache state from disk EVERY call (~0.75ms), which
-            # on a wide near-saturated frame (thousands of FE raw-pairs, one dispatch each) added
-            # seconds of pure overhead. This dispatcher is on the per-raw-pair hot path -> singleton.
-            _res = KernelTuningCache.load_or_create().get_or_tune(
-                "batch_mi_noise_gate",
-                dims={"n_rows": int(n), "n_cols": int(K)},
-                tuner=_run_batch_mi_noise_gate_sweep,  # real CPU-vs-GPU sweep (bit-identical GPU)
-                axes=["n_rows", "n_cols"],
-                fallback={"backend_choice": _batch_mi_noise_gate_fallback_choice(int(n), int(K))},
-                code_version=batch_mi_noise_gate_code_version(),
-                async_sweep=True,  # FIT-TIME: never block the FE pair-search on the sweep; measure in the background
-            )
-            if isinstance(_res, str):
-                backend = _res
-            elif _res:
-                backend = str(_res.get("backend_choice", "cpu"))
-        except Exception as e:  # pyutilz missing / cache error -> CPU (always correct)
-            _module_logger.debug("kernel_tuning_cache get_or_tune failed, defaulting to cpu: %s", e)
-            backend = "cpu"
+    backend = _tuned_noise_gate_backend(int(n), int(K))
 
     # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, diagnostic, default OFF): force the noise-gate MI onto the
     # bit-identical GPU twin (GPU does the integer counting, entropy stays on the CPU bit-exact path ->

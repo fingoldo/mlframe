@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ._pairs_core_steps import _DEGENERATE_REL_TOL
+from ._pairs_common import _DEGENERATE_REL_TOL
 
 logger = logging.getLogger(__name__)
 

@@ -256,6 +256,41 @@ def _emit_pair_features_step1_comment_check_prospective(verbose, leading_feature
     return _ev_configs, _ev_op_codes, _ext_factors_sorted, valid_pairs_perf
 
 
+def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_K, n_rows, _materialise_extval_njit):
+    """Materialise the (n, K) float64 external-validation candidate buffer on the host (njit kernel if every op is coded, else numpy);
+    returns ``(buffer, n_columns)``."""
+    _ev_buf = np.empty((n_rows, _ev_K), dtype=np.float64)
+    if _ev_op_codes is not None:
+        # NJIT materialise: ALL (ext x op) candidate columns in one nogil
+        # kernel (bit-identical to the numpy bin_funcs; see
+        # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
+        # the numpy ``for ext: for bin_func`` order, so the discretise +
+        # MI + max reduction below is unchanged. ``param_a`` may be a
+        # float32 buffer slice; the kernel upcasts per-element to float64.
+        # bench-attempt-rejected (2026-06-07): "drop the _ev_pb_mat repack"
+        # (Q7). The external-factor columns are DISTINCT memoised arrays
+        # (_extval_raw_col per var) so they genuinely must be assembled into
+        # a 2-D matrix for the njit kernel; there is no view to substitute.
+        _ev_pb_mat = np.empty((n_rows, len(_ev_param_bs)), dtype=np.float64)
+        for _ei, _pb_vals in enumerate(_ev_param_bs):
+            _ev_pb_mat[:, _ei] = _pb_vals
+        _materialise_extval_njit(
+            np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
+            _ev_buf[:, :_ev_K],
+        )
+        _ev_col = _ev_K
+    else:
+        # NUMPY FALLBACK: a bin_func is not njit-coded (maximal-preset
+        # special) -> materialise per-candidate with the exact numpy ufuncs.
+        _ev_col = 0
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            for _pb_vals in _ev_param_bs:
+                for valid_bin_func in _ev_bin_funcs:
+                    _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
+                    _ev_col += 1
+    return _ev_buf, _ev_col
+
+
 def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method, _narrow_code_dtype, quantization_nbins, quantization_dtype, _ev_op_codes, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels, serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct, valid_pairs_perf):
     """Step 2 of _emit_pair_features: lines starting at ``for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_``."""
     from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_enabled
@@ -373,35 +408,7 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                 # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
                 if param_a is None:
                     param_a = _resolve_col(i)
-                _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
-                if _ev_op_codes is not None:
-                    # NJIT materialise: ALL (ext x op) candidate columns in one nogil
-                    # kernel (bit-identical to the numpy bin_funcs; see
-                    # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
-                    # the numpy ``for ext: for bin_func`` order, so the discretise +
-                    # MI + max reduction below is unchanged. ``param_a`` may be a
-                    # float32 buffer slice; the kernel upcasts per-element to float64.
-                    # bench-attempt-rejected (2026-06-07): "drop the _ev_pb_mat repack"
-                    # (Q7). The external-factor columns are DISTINCT memoised arrays
-                    # (_extval_raw_col per var) so they genuinely must be assembled into
-                    # a 2-D matrix for the njit kernel; there is no view to substitute.
-                    _ev_pb_mat = np.empty((len(X), len(_ev_param_bs)), dtype=np.float64)
-                    for _ei, _pb_vals in enumerate(_ev_param_bs):
-                        _ev_pb_mat[:, _ei] = _pb_vals
-                    _materialise_extval_njit(
-                        np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
-                        _ev_buf[:, :_ev_K],
-                    )
-                    _ev_col = _ev_K
-                else:
-                    # NUMPY FALLBACK: a bin_func is not njit-coded (maximal-preset
-                    # special) -> materialise per-candidate with the exact numpy ufuncs.
-                    _ev_col = 0
-                    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-                        for _pb_vals in _ev_param_bs:
-                            for valid_bin_func in _ev_bin_funcs:
-                                _ev_buf[:, _ev_col] = valid_bin_func(param_a, _pb_vals)
-                                _ev_col += 1
+                _ev_buf, _ev_col = _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_K, len(X), _materialise_extval_njit)
                 # GPU BINNING: the ext-val survivor binning (full n) gets the same
                 # dedicated binning crossover - bit-identical to the CPU njit binning (maxdiff 0)
                 # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
