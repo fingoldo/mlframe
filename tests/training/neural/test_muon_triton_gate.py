@@ -92,6 +92,8 @@ def test_gate_picks_eager_when_calibration_shows_loss(monkeypatch):
     monkeypatch.delenv(mtk._TRITON_ENV_VAR, raising=False)
     # Pretend Triton is 2x slower on this device: gate must choose eager
     # even though compute capability passes the cheap pre-filter.
+    # A verdict persisted by an earlier real calibration would shadow the patched one, so bypass the on-disk cache.
+    monkeypatch.setattr(mtk, "_get_kernel_tuning_cache", lambda: None)
     monkeypatch.setattr(mtk, "_calibrate_triton_vs_eager", lambda *a, **k: 0.5)
     G = torch.randn(512, 512, device="cuda")
     assert mtk.maybe_newton_schulz_triton(G, steps=2) is None
@@ -104,6 +106,8 @@ def test_gate_picks_triton_when_calibration_shows_win(monkeypatch):
     _require_ampere_gpu()
     mtk._TRITON_VERDICT.clear()
     monkeypatch.delenv(mtk._TRITON_ENV_VAR, raising=False)
+    # A verdict persisted by an earlier real calibration would shadow the patched one, so bypass the on-disk cache.
+    monkeypatch.setattr(mtk, "_get_kernel_tuning_cache", lambda: None)
     monkeypatch.setattr(mtk, "_calibrate_triton_vs_eager", lambda *a, **k: 3.0)
     G = torch.randn(512, 512, device="cuda")
     out = mtk.maybe_newton_schulz_triton(G, steps=2)

@@ -77,16 +77,15 @@ def test_measure_single_region_returns_well_formed_dict():
 # --------------------------------------------------------------------------
 
 
-def test_streamed_uses_multiple_streams_and_independent_rngs():
-    """Verify the bug-fix paths in mi_direct_gpu_batched_streamed are
-    actually exercised: at least 2 cp.cuda.Stream instances created AND
-    at least 2 cp.random.default_rng generators created."""
+def test_streamed_uses_multiple_streams_and_disjoint_host_permutation_slices():
+    """The streamed variant creates >=2 streams and draws each batch from a disjoint slice of the shared host permutation stream."""
+    from mlframe.feature_selection.filters import _gpu_batched
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_streamed
 
     n_streams_created = []
-    n_generators_created = []
+    perm_slices = []
     real_stream = cp.cuda.Stream
-    real_default_rng = cp.random.default_rng
+    real_host_perms = _gpu_batched.host_permuted_y_batch
 
     def _track_stream(*a, **kw):
         """Wrap cp.cuda.Stream to record every created stream, proving the streamed variant uses >=2 streams."""
@@ -94,11 +93,10 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
         n_streams_created.append(s)
         return s
 
-    def _track_rng(*a, **kw):
-        """Wrap cp.random.default_rng to record every created generator, proving each stream gets its own independent RNG."""
-        g = real_default_rng(*a, **kw)
-        n_generators_created.append(g)
-        return g
+    def _track_perms(classes_y, base_seed, first_perm, count):
+        """Record the (first_perm, count) slice of the host permutation stream each batch consumes."""
+        perm_slices.append((int(first_perm), int(count)))
+        return real_host_perms(classes_y, base_seed, first_perm, count)
 
     rng = np.random.default_rng(31)
     data = np.column_stack(
@@ -109,7 +107,7 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
     )
     nbins = np.array([3, 3], dtype=np.int32)
 
-    with mock.patch.object(cp.cuda, "Stream", side_effect=_track_stream), mock.patch.object(cp.random, "default_rng", side_effect=_track_rng):
+    with mock.patch.object(cp.cuda, "Stream", side_effect=_track_stream), mock.patch.object(_gpu_batched, "host_permuted_y_batch", side_effect=_track_perms):
         mi_direct_gpu_batched_streamed(
             data,
             (0,),
@@ -120,9 +118,7 @@ def test_streamed_uses_multiple_streams_and_independent_rngs():
         )
 
     assert len(n_streams_created) >= 2, f"streamed variant should create >=2 streams; got {len(n_streams_created)}"
-    assert (
-        len(n_generators_created) >= 2
-    ), f"streamed variant should create >=2 per-stream RNGs; got {len(n_generators_created)} (regression -- per-stream RNG protection may have been reverted)"
+    assert perm_slices == [(0, 32), (32, 32)], f"batches must consume consecutive disjoint slices of the host permutation stream; got {perm_slices}"
 
 
 # --------------------------------------------------------------------------
@@ -186,6 +182,8 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     expected axes + region keys."""
 
     monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
+    # tests/conftest.py disables sweeps session-wide; this test exists to exercise the sweep and its persistence.
+    monkeypatch.delenv("PYUTILZ_KERNEL_DISABLE_SWEEP", raising=False)
     from pyutilz.performance.kernel_tuning.cache import hw_fingerprint
 
     hw_fingerprint.cache_clear()
