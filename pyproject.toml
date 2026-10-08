@@ -355,7 +355,9 @@ viz = [
     "ipywidgets>=8.0",
     # Not imported directly; floors hvplot -> bokeh's transitive tornado resolution above the
     # patched version for GHSA-pw6j-qg29-8w7f.
-    "tornado>=6.5.8",  # GHSA-wwv5-g3v4-889x / GHSA-8423-8fgw-73vq / CVE-2026-82397; open at 6.5.7
+    "tornado>=6.5.10",  # GHSA-chx6-46f5-w4vp / GHSA-c2m8-h5v5-343r / GHSA-3hv7-mjh2-fv65 (open at 6.5.8); GHSA-wwv5-g3v4-889x / CVE-2026-82397 before
+    # Not imported directly; the dash/mlflow stacks pull werkzeug, and 3.1.8 carries an open advisory fixed in 3.1.9.
+    "werkzeug>=3.1.9",
 ]
 
 # Experiment tracking.
@@ -384,7 +386,7 @@ mlflow = [
 db = [
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9.12",
-    "pymongo>=4.5",
+    "pymongo>=4.18.3",  # four advisories open at 4.18.0 (CVE-2026-88029, CVE-2026-96747, CVE-2026-96749 and one more); fixed by 4.18.3
     "duckdb>=0.9",
     "zstandard>=0.21",
 ]
@@ -494,6 +496,10 @@ docs = [
 
 # Development tooling.
 dev = [
+    "virtualenv>=21.14.5",  # pulled by pre-commit; four advisories open at 21.7.8, fixed by 21.14.5
+    # Not imported directly; transitive security floors raised above the versions pip-audit reports as vulnerable in the lock.
+    "multidict>=6.9.1; python_version >= '3.10'",  # CVE-2026-104874, open at 6.7.1; 6.9 needs Python 3.10
+    "urllib3>=2.8.0; python_version >= '3.10'",  # PYSEC-2026-4175 / 4176 / 4177, open at 2.7.0; 2.8 needs Python 3.10
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-xdist>=3.0",
@@ -840,7 +846,7 @@ DEP002 = [
     "pydoclint",  # invoked as `pydoclint` CLI command, never imported
     "polars-talib",  # imported through importlib.import_module in feature_engineering/financial.py, which deptry cannot see: the statement form typed the name differently where the package is and is not installed
     "codespell", "deptry", "interrogate", "vulture", "yamllint",  # invoked by pre-commit hooks as `python -m ...`, never imported
-    "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette",
+    "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette", "werkzeug", "virtualenv", "multidict", "urllib3",
     "pycddlib-standalone",  # the non-win32 twin of the win32-only `pycddlib` (same `cdd` module); on Windows it is never installed, so deptry cannot map it to its module
     "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
     "statsmodels",  # the [stats] extra is for users and benchmarks/bench_robust_linres_1M.py; src/ computes ACF with numpy since statsmodels' import broke under pandas 3
