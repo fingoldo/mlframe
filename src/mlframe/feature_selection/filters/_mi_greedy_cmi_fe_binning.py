@@ -169,6 +169,10 @@ def _quantile_bin_device(xd, nbins: int):
     return _sync_free_qbin_codes(cp, xd.astype(_qbin_float_dtype(), copy=False).ravel(), int(nbins))
 
 
+# Rows from which ``_quantile_bin(host_only=True)`` still uses the device binner under the strict-resident path (see its docstring).
+_HOST_ONLY_DEVICE_MIN_N = 200_000
+
+
 def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np.ndarray:
     """Equi-frequency bin a 1-D float column into ``nbins`` integer classes.
 
@@ -178,6 +182,8 @@ def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np
 
     ``host_only=True`` keeps the binning on the CPU even under the strict-resident path. It is for a host column whose codes are consumed on the host:
     the device binner would upload the column and copy the codes straight back, two transfers for a result that never needed the device.
+    Above ``_HOST_ONLY_DEVICE_MIN_N`` rows the device binner wins anyway (the host quantile + searchsorted of a 1M-row column cost 0.4-0.6 s against two
+    transfers of a few ms), so ``host_only`` only applies to the columns where the round trip is the larger cost.
 
     By design, a low-cardinality column can collapse to a single (or two) bin even when it is informative: ``np.unique(np.quantile(...))`` dedupes the
     equi-frequency edges, so a column with few distinct values yields ``edges.size <= 2`` and reads MI ~= 0 here. This is the price of monotone-invariance
@@ -214,7 +220,7 @@ def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np
         except Exception as e:
             logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
             _gpu_on = False
-        if _gpu_on and not host_only:
+        if _gpu_on and (not host_only or a.size >= _HOST_ONLY_DEVICE_MIN_N):
             _g = _quantile_bin_gpu(a, nbins)
             if _g is not None:
                 return np.asarray(_g)

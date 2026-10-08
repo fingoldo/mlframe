@@ -73,6 +73,8 @@ for leak-safe transform-time replay.
 from __future__ import annotations
 
 import logging
+import threading
+from collections import OrderedDict
 from typing import Optional, cast
 
 import numpy as np
@@ -301,19 +303,40 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     return leg
 
 
+_Y_CODES_MEMO: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+_Y_CODES_MEMO_MAX = 8
+_Y_CODES_MEMO_LOCK = threading.Lock()
+
+
 def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
     """Bin the target into integer codes exactly as :func:`_binned_mi` does
     internally. Hoisted so the (per-leg-invariant) y-subset binning can be
     computed once per ``_select_wavelet_legs`` call and reused across all legs.
-    Byte-identical to the inline path in ``_binned_mi``."""
-    y = np.asarray(y).ravel()
-    if np.issubdtype(y.dtype, np.integer) and np.unique(y).size <= 20:
-        return y.astype(np.int64)
-    if np.unique(y).size <= 20:
-        uy = np.unique(y)
-        return np.searchsorted(uy, y)
-    edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
-    return np.asarray(np.digitize(y, edges_y))
+    Byte-identical to the inline path in ``_binned_mi``.
+
+    The target is fit-constant but this is called once per source column per stage with a fresh ``y[mask]`` copy, and at 1M rows each call sorted the
+    column several times (``np.unique`` twice, then ``quantile`` / ``searchsorted``): ~2.1 s of a 17 s strict fit. The codes are memoised on the
+    content hash of ``y`` (+ ``nbins``), and the distinct values are computed once instead of twice."""
+    y = np.ascontiguousarray(np.asarray(y).ravel())
+    from ._fe_resident_operands import _content_hash
+
+    key = (y.shape, y.dtype.str, int(nbins), int(_content_hash(y)))
+    with _Y_CODES_MEMO_LOCK:
+        hit = _Y_CODES_MEMO.get(key)
+        if hit is not None:
+            _Y_CODES_MEMO.move_to_end(key)
+            return hit.copy()
+    uy = np.unique(y)
+    if uy.size <= 20:
+        out = y.astype(np.int64) if np.issubdtype(y.dtype, np.integer) else np.searchsorted(uy, y)
+    else:
+        edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
+        out = np.asarray(np.digitize(y, edges_y))
+    with _Y_CODES_MEMO_LOCK:
+        _Y_CODES_MEMO[key] = out.copy()
+        if len(_Y_CODES_MEMO) > _Y_CODES_MEMO_MAX:
+            _Y_CODES_MEMO.popitem(last=False)  # evict-ok: memo; a miss recomputes the value
+    return out
 
 
 def _binnedmi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool:

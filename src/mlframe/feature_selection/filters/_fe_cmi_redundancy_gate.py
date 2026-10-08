@@ -327,19 +327,8 @@ def apply_cmi_redundancy_gate(
     # resident partition (byte-identical), so no separate host ``np.quantile`` runs and the two forms cannot
     # diverge; a per-candidate cupy fault falls back to the host ``_quantile_bin`` (no resident code -> that
     # candidate's device sites re-upload the host code, exactly as before this change).
-    cand_bins: dict = {}
-    cand_bins_dev: dict = {}
-    for nm in names:
-        vals = candidates[nm][0]
-        if not hasattr(vals, "dev"):  # a device-backed candidate stays on the device unless the host binner below needs it
-            vals = np.asarray(vals, dtype=np.float64)
-        _dev = None
-        _dev = _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _dev)
-        if _dev is not None:
-            cand_bins_dev[nm] = _dev
-            cand_bins[nm] = LazyHostCodes(_dev, np.int64)  # host view of the SAME resident partition, copied only if a host site reads it
-        else:
-            cand_bins[nm] = _quantile_bin(np.asarray(vals, dtype=np.float64), nbins=nbins)
+    cand_bins, cand_bins_dev = _bin_candidates(names, candidates, nbins, _gate_resident, _quantile_bin)
+    nm = names[-1] if names else ""  # the loop variable the code below used to inherit from the binning loop
     marg = {nm: float(candidates[nm][1]) for nm in names}
 
     # PARTITION DEDUP: a monotone/linear remap of an admitted feature
@@ -610,6 +599,24 @@ def _apply_cmi_redundan_yhit_none(_yhit, y_arr, _yk):
                     _Y_DENSE_MEMO.pop(next(iter(_Y_DENSE_MEMO)))
                 _Y_DENSE_MEMO[_yk] = y_dense.copy()
     return y_dense
+
+
+def _bin_candidates(names, candidates, nbins, gate_resident, quantile_bin) -> "tuple[dict, dict]":
+    """Bin every candidate's continuous values once: ``(host_codes, resident_codes)`` per name. A device-backed candidate stays on the device unless the host
+    binner is needed; the host view of resident codes is a lazy mirror that copies back only if a host site reads it."""
+    cand_bins: dict = {}
+    cand_bins_dev: dict = {}
+    for nm in names:
+        vals = candidates[nm][0]
+        if not hasattr(vals, "dev"):
+            vals = np.asarray(vals, dtype=np.float64)
+        dev = _apply_cmi_redundan_gate_resident_np_isfinite(gate_resident, vals, nbins, None)
+        if dev is not None:
+            cand_bins_dev[nm] = dev
+            cand_bins[nm] = LazyHostCodes(dev, np.int64)
+        else:
+            cand_bins[nm] = quantile_bin(np.asarray(vals, dtype=np.float64), nbins=nbins)
+    return cand_bins, cand_bins_dev
 
 
 def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _dev):
