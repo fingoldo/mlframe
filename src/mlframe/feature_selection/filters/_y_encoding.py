@@ -94,6 +94,15 @@ def encode_y_for_classif_mi(y: np.ndarray) -> np.ndarray:
     return codes
 
 
+def _has_more_distinct_than(arr: np.ndarray, limit: int) -> bool:
+    """Whether ``arr`` has more than ``limit`` distinct values, without sorting the whole column when a prefix already proves it: the distinct count of a
+    column is at least that of any subset, so a continuous target is decided from its first rows (a full ``np.unique`` of a 1M-row float target was ~0.9 s)."""
+    head = arr[:65536]
+    if head.size < arr.size and int(np.unique(head).size) > limit:
+        return True
+    return int(np.unique(arr).size) > limit
+
+
 def _encode_y_uncached(y: np.ndarray) -> np.ndarray:
     """The encoding itself, without the memo; see ``encode_y_for_classif_mi``."""
     arr = np.asarray(y).ravel()
@@ -110,7 +119,7 @@ def _encode_y_uncached(y: np.ndarray) -> np.ndarray:
                 return a
         _, inv = np.unique(a, return_inverse=True)
         return inv.astype(np.int64, copy=False)
-    if arr.dtype.kind in "fc" and int(np.unique(arr).size) > _CONTINUOUS_Y_DISTINCT_THRESHOLD:
+    if arr.dtype.kind in "fc" and _has_more_distinct_than(arr, _CONTINUOUS_Y_DISTINCT_THRESHOLD):
         try:
             import pandas as pd
 

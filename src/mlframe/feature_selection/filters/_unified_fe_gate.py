@@ -119,7 +119,7 @@ def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
             return y_bin.astype(np.int64)
         # Continuous: 10-bin quantile discretisation.
         from ._mi_greedy_cmi_fe import _quantile_bin
-        return _quantile_bin(y_arr, nbins=10)
+        return _quantile_bin(y_arr, nbins=10, host_only=True)
     # bench-attempt-rejected (2026-06-11, wave-2 W8 "extreme-imbalance / tiny-n target-binning
     # guard"): hypothesis was that equi-frequency TARGET binning silently yields a single-class
     # degenerate bin under rare<<1% / n<200 y, corrupting MI -> unstable rare-feature ranking, and

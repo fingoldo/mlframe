@@ -99,7 +99,7 @@ def test_retention_cap_actually_subsamples(monkeypatch):
 
         def spy(cand_bin, y_bin, z_support, **k):
             """Helper that spy."""
-            seen["n"] = int(np.asarray(cand_bin).shape[0])
+            seen["n"] = int(cand_bin.shape[0])  # a host array or the resident device codes (cupy refuses the implicit numpy conversion)
             return orig(cand_bin, y_bin, z_support, **k)
 
         monkeypatch.setattr(G, "_conditional_perm_null", spy)

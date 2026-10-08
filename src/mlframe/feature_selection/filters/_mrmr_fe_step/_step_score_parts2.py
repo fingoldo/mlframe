@@ -31,6 +31,26 @@ def _fe_tail_budget_spent(stage: str, verbose: int = 0) -> bool:
     return True
 
 
+def _device_codes_to_host(transformed_vals, nbins, dtype):
+    """Quantile codes of a device-backed survivor matrix, binned ON the device (the float values never cross to the host); only the narrow int codes -
+    the augmented frame / data matrix the host stages consume - are copied back. ``None`` when the matrix is a host array or the device path faults."""
+    if not hasattr(transformed_vals, "dev"):
+        return None
+    try:
+        import cupy as cp
+
+        from mlframe.feature_selection.filters._gpu_resident_discretize import _gpu_resident_discretize_codes
+        from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
+
+        code_dtype = np.dtype(_safe_code_dtype(int(nbins), dtype))
+        dev = transformed_vals.dev
+        codes = _gpu_resident_discretize_codes(dev.reshape(-1, 1) if dev.ndim == 1 else dev, int(nbins), out_dtype=code_dtype)
+        return np.asarray(cp.asnumpy(codes.astype(cp.dtype(code_dtype), copy=False)))
+    except Exception as e:
+        logger.debug("device binning of the survivor matrix failed, binning on the host: %s", e)
+        return None
+
+
 def _materialise_and_fina_step3_gate_composite_drop(self, _gate_composite_drop, prospective_additions, st, cols, num_fs_steps, verbose):
     """Step 3 of _materialise_and_fina_step2_pruned_here_byte: lines starting at ``if _gate_composite_drop:``."""
     if _gate_composite_drop:
@@ -102,9 +122,11 @@ def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, en
                     # default one layer up in ``_pairs_score.py``/``_pairs_emit.py`` (gated on
                     # ``quantization_method == "quantile"`` there too, see ``_use_batch_disc``).
                     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
-                    new_vals = discretize_2d_quantile_batch(
-                        transformed_vals, n_bins=self.quantization_nbins, dtype=self.quantization_dtype,
-                    )
+                    new_vals = _device_codes_to_host(transformed_vals, self.quantization_nbins, self.quantization_dtype)
+                    if new_vals is None:
+                        new_vals = discretize_2d_quantile_batch(
+                            np.asarray(transformed_vals), n_bins=self.quantization_nbins, dtype=self.quantization_dtype,
+                        )
                 else:
                     # Pre-widen the buffer dtype the SAME way ``discretize_array`` widens its own return
                     # value internally (``_safe_code_dtype``): the pre-fix code preallocated ``new_vals``
@@ -174,7 +196,10 @@ def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, en
                     self._engineered_continuous_ = st._eng_cont_store
                 for _jc, col in enumerate(new_cols):
                     if transformed_vals.shape[1] > _jc:
-                        st._eng_cont_store[col] = np.asarray(transformed_vals[:, _jc], dtype=np.float64)
+                        # A device-backed survivor matrix hands over a lazy device column: the next FE step's pair search and the device stages read it
+                        # in place, and a host consumer copies it back (once) only when it actually reads it.
+                        _cv = transformed_vals[:, _jc]
+                        st._eng_cont_store[col] = _cv if hasattr(_cv, "dev") else np.asarray(_cv, dtype=np.float64)
 
                 # Build EngineeredRecipe for each newly-appended column so transform() can replay it.
                 # Runs whenever columns were added (fe_max_steps >= 1). NESTED-ENGINEERED PARENTS
@@ -379,7 +404,8 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
                 for _jc, _cname in enumerate(_ncols):
                     if _tvals.shape[1] > _jc:
                         _e_names.append(_cname)
-                        _e_vals.append(np.asarray(_tvals[:, _jc], dtype=np.float64))
+                        _ev = _tvals[:, _jc]
+                        _e_vals.append(_ev if hasattr(_ev, "dev") else np.asarray(_ev, dtype=np.float64))
             _e_mi = batched_device_marginals(_e_vals, _esc_y_dense, int(self.quantization_nbins))
             if _e_mi is not None:
                 _esc_admitted_pool = {_nm: (_vv, _mm) for _nm, _vv, _mm in zip(_e_names, _e_vals, _e_mi)}
@@ -523,6 +549,10 @@ def _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, 
                 _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
                 _fz_codes: np.ndarray = np.empty(shape=(len(X), len(_fused)), dtype=_fz_safe_dtype)
                 for _jf, _fc in enumerate(_fused):
+                    _dev_codes = _device_codes_to_host(_fc["values"], self.quantization_nbins, self.quantization_dtype) if self.quantization_method == "quantile" else None
+                    if _dev_codes is not None:
+                        _fz_codes[:, _jf] = _dev_codes[:, 0]
+                        continue
                     _fz_codes[:, _jf] = discretize_array(
                         arr=np.asarray(_fc["values"], dtype=np.float64),
                         n_bins=self.quantization_nbins,
@@ -543,7 +573,7 @@ def _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, 
                 for _jf, _fc in enumerate(_fused):
                     if not _is_polars_input:
                         X[_fc["name"]] = _fz_codes[:, _jf]
-                    st._eng_cont_store[_fc["name"]] = np.asarray(_fc["values"], dtype=np.float64)
+                    st._eng_cont_store[_fc["name"]] = _fc["values"] if hasattr(_fc["values"], "dev") else np.asarray(_fc["values"], dtype=np.float64)
                     engineered_recipes[_fc["name"]] = _fc["recipe"]
                 self._engineered_continuous_ = st._eng_cont_store
                 # Promote the fused compounds into selection and DROP the subsumed fragments

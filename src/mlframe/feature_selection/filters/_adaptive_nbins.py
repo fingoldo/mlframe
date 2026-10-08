@@ -49,6 +49,7 @@ from mlframe.feature_selection.filters.discretization.shared import (
     knuth_bin_edges as _knuth_bin_edges, bayesian_blocks_bin_edges as _bayesian_blocks_bin_edges,
 )
 from .supervised_binning import mdlp_bin_edges
+from ._mdlp_validated_split import edges_fayyad_irani_validated  # noqa: F401  # resolved by _adaptive_nbins_columns via this module
 
 # Shared per-column bin-count ceiling for every adaptive strategy whose own formula has no natural
 # upper bound (knuth, bayesian_blocks). MDLP already lands here implicitly via max_depth=8 -> up to

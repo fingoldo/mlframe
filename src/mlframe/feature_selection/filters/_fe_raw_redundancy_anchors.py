@@ -20,6 +20,8 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
+from ._fast_host_ops import count_distinct_int
+from ._lazy_host_codes import LazyHostCodes
 from ._fe_raw_redundancy_helpers import _excess_and_floor, _recipe_subexprs, _subexpr_continuous
 from types import SimpleNamespace as _SimpleNamespace
 
@@ -183,6 +185,26 @@ def _build_raw_redundancy_step1_def_dev_cont(_gate_resident):
             # Hot per-candidate path: debug-only. Caller falls back to host _quantile_bin codes.
             logger.debug("GPU-resident quantile-bin failed, falling back to host binning: %s", exc)
             return None
+
+    def _from_recipe(_sub, _raw_X, _eng_card_local: int) -> Any:
+        """RESIDENT int64 codes of a ``unary_binary`` sub-expression replayed AND binned on the device (the continuous values never reach the host), or
+        ``None`` when residency is off / the recipe is not GPU-eligible / cupy faults - the caller then replays on the host as before."""
+        if not _gate_resident or _sub is None or _raw_X is None or getattr(_sub, "kind", None) != "unary_binary":
+            return None
+        try:
+            import dataclasses as _dc
+
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe_binning import _quantile_bin_device
+            from mlframe.feature_selection.filters.engineered_recipes import apply_unary_binary_gpu_resident
+
+            _r = _dc.replace(_sub, quantization=None) if getattr(_sub, "quantization", None) is not None else _sub
+            _dev = apply_unary_binary_gpu_resident(_r, _raw_X)
+            return None if _dev is None else _quantile_bin_device(_dev, int(_eng_card_local))
+        except Exception as exc:
+            logger.debug("device sub-expression replay + binning failed, falling back to the host replay: %s", exc)
+            return None
+
+    _dev_from_cont.from_recipe = _from_recipe  # type: ignore[attr-defined]  # optional capability probed with getattr by the clean-sub-expression builder
     return _dev_from_cont
 
 
@@ -209,8 +231,7 @@ def _build_raw_redundancy_step2_def_raw_codes(_raw_codes_cache, data, raw_X, _en
                     _clean = np.nan_to_num(_rc, nan=0.0, posinf=0.0, neginf=0.0)
                     _dev = _dev_from_cont(_clean, _eng_card)
                     if _dev is not None:
-                        import cupy as _cp
-                        _out = _cp.asnumpy(_dev).astype(np.int64)
+                        _out = LazyHostCodes(_dev, np.int64)
                     else:
                         _out = np.ascontiguousarray(_quantile_bin(_clean, nbins=_eng_card)).astype(np.int64)
             except Exception as exc:
@@ -309,13 +330,14 @@ def _build_raw_redundan_continuous_none(y_continuous, n_rows, _target_card, y_ar
     """Block of build_raw_redundancy_anchors starting at ``if y_continuous is not None:``."""
     if y_continuous is not None:
         from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin
+        from mlframe.feature_selection.filters._y_encoding import _has_more_distinct_than
 
         _yc = np.asarray(y_continuous).reshape(-1)
         if _yc.shape[0] == n_rows and np.issubdtype(_yc.dtype, np.number):
-            if int(np.unique(_yc).size) > max(2 * _BINS, 2 * _target_card):
+            if _has_more_distinct_than(_yc, max(2 * _BINS, 2 * _target_card)):
                 _nb = int(min(max(_BINS, _target_card), max(2, n_rows // (_BINS * _SUPPORT_FRAG_DIVISOR))))
-                y_arr = np.ascontiguousarray(_quantile_bin(_yc.astype(np.float64), nbins=_nb)).astype(np.int64)
-                _target_card = int(np.unique(y_arr).size)
+                y_arr = np.ascontiguousarray(_quantile_bin(_yc.astype(np.float64), nbins=_nb, host_only=True)).astype(np.int64)
+                _target_card = count_distinct_int(y_arr)
     return y_arr
 
 
@@ -327,8 +349,7 @@ def _build_raw_redundan_cont_none_np_asarray(_cont, n_rows, _dev_from_cont, _eng
         _cvals = np.asarray(_cont, dtype=np.float64)
         _eb_dev = _dev_from_cont(_cvals, _eng_card)
         if _eb_dev is not None:
-            import cupy as _cp
-            eb = _cp.asnumpy(_eb_dev).astype(np.int64)
+            eb = LazyHostCodes(_eb_dev, np.int64)
         else:
             eb = _quantile_bin(_cvals, nbins=_eng_card)
     else:
@@ -399,14 +420,17 @@ def _build_raw_redundan_recipes_raw_none(_recipes, raw_X, eng_idx, cols, raw_nam
                 _, _best_name, _best_sub = _cands[0]
                 if len(_sub_parents[_best_name]) >= len(_eng_signal_parents.get(ei, set())):
                     continue
-                _vals = _subexpr_continuous(_best_sub, raw_X)
-                if _vals is None or _vals.shape[0] != n_rows:
+                _cs_dev = getattr(_dev_from_cont, "from_recipe", lambda *_: None)(_best_sub, raw_X, _eng_card)
+                if _cs_dev is not None and int(_cs_dev.shape[0]) != n_rows:
                     continue
-                _cvals_clean = np.asarray(_vals, dtype=np.float64)
-                _cs_dev = _dev_from_cont(_cvals_clean, _eng_card)
+                if _cs_dev is None:
+                    _vals = _subexpr_continuous(_best_sub, raw_X)
+                    if _vals is None or _vals.shape[0] != n_rows:
+                        continue
+                    _cvals_clean = np.asarray(_vals, dtype=np.float64)
+                    _cs_dev = _dev_from_cont(_cvals_clean, _eng_card)
                 if _cs_dev is not None:
-                    import cupy as _cp
-                    _clean_subexpr_bin[(_rn, ei)] = _cp.asnumpy(_cs_dev).astype(np.int64)
+                    _clean_subexpr_bin[(_rn, ei)] = LazyHostCodes(_cs_dev, np.int64)
                     _clean_subexpr_bin_dev[(_rn, ei)] = _cs_dev
                 else:
                     _clean_subexpr_bin[(_rn, ei)] = _quantile_bin(_cvals_clean, nbins=_eng_card)

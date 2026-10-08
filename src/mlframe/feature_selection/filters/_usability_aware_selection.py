@@ -113,12 +113,36 @@ class UsableCandidate:
     ops: tuple = ()  # (unary_a, unary_b, binary) names, for the recipe builder
 
 
+def _replay_matches_on_device(recipe: Any, X_df: Any, values: np.ndarray, feature_dtype: Any) -> "bool | None":
+    """Replay verification for a ``unary_binary`` recipe done ON the device (the replayed column is compared there, so it is never copied back): ``True`` /
+    ``False`` for the verdict, ``None`` when the device path does not apply (residency off, recipe not GPU-eligible, cupy fault) and the host replay runs."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        if not fe_gpu_strict_resident_enabled() or getattr(recipe, "kind", None) != "unary_binary":
+            return None
+        import cupy as cp
+
+        from .engineered_recipes import apply_unary_binary_gpu_resident
+
+        dev = apply_unary_binary_gpu_resident(recipe, X_df)
+        if dev is None:
+            return None
+        rep = dev.astype(feature_dtype)  # cast BEFORE the finite check, as _scrub does: a float64 value that overflows float32 scrubs to 0
+        rep = cp.where(cp.isfinite(rep), rep, cp.asarray(0, dtype=rep.dtype)).astype(cp.float64)
+        want = cp.asarray(np.asarray(values), dtype=cp.float64)
+        return bool(rep.shape == want.shape and bool(cp.allclose(rep, want, atol=1e-4, equal_nan=True)))
+    except Exception as e:
+        logger.debug("device replay verification failed, using the host replay: %s", e)
+        return None
+
+
 def _binned_mi(x: np.ndarray, y_codes: np.ndarray, nbins: int, y_terms: Any = None) -> float:
     """Mutual information of ``x`` with the target, estimated via equi-frequency quantile binning of ``x`` into
     ``nbins`` bins. When ``y_terms`` (the precomputed H(Y)/k_y terms for the fixed target) is supplied, uses the
     faster fixed-y marginal-MI path; otherwise falls back to the general conditional-MI-from-binned estimator."""
     from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, marginal_mi_binned_fixed_y
-    xb = _quantile_bin(_f64(x), nbins)
+    xb = _quantile_bin(_f64(x), nbins, host_only=True)
     if y_terms is not None:
         # y is fixed across the candidate enumeration; reuse the precomputed H(Y)/k_y. Bit-identical.
         return float(marginal_mi_binned_fixed_y(xb, *y_terms))
@@ -186,7 +210,7 @@ def build_usability_candidate_pool(
     if not isinstance(X_df, pd.DataFrame):
         X_df = pd.DataFrame(np.asarray(X_df))
     y_cont = _scrub(y_cont)
-    st.y_codes = _quantile_bin(y_cont, quantization_nbins)
+    st.y_codes = _quantile_bin(y_cont, quantization_nbins, host_only=True)
     # y is fixed for the whole candidate enumeration -> hoist H(Y)/k_y once (reused by every marginal-MI eval).
     st.y_terms = precompute_marginal_y_terms(st.y_codes)
 
@@ -294,7 +318,7 @@ def _build_usability_cand_step1_rank_pairs_joint(rank_pairs_by_joint_mi, base_na
         # it - whereas the MM/occupancy-floored estimator zeroes EVERY pair once rows/cell is small (the
         # 3000-row subsample x 10x10 grid), which would prune the genuine pairs too. Default OFF -> marginal
         # rank, byte-identical.
-        _pj_codes = {nm: _quantile_bin(base_f64[nm], quantization_nbins).astype(np.int64) for nm in base_names}
+        _pj_codes = {nm: _quantile_bin(base_f64[nm], quantization_nbins, host_only=True).astype(np.int64) for nm in base_names}
         _nb = int(quantization_nbins)
 
         def _pair_joint_mi(p):
@@ -517,8 +541,10 @@ def _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair
         ok = _combo_replay_ok.get(combo)
         if ok is None:
             try:
-                replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
-                ok = bool(replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
+                ok = _replay_matches_on_device(recipe, X_df, c.values, feature_dtype)
+                if ok is None:
+                    replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
+                    ok = bool(replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
             except Exception as e:
                 logger.debug("recipe replay verification raised, treating this combo as unverified: %s", e)
                 ok = False

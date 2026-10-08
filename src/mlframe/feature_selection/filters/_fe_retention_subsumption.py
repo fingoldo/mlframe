@@ -26,7 +26,7 @@ Pure (no live framework state captured) so a fitted MRMR stays picklable.
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -41,6 +41,61 @@ RETAIN_FRAC = 0.15
 
 _BINS = 10
 _MIN_ROWS = 500
+
+
+def _is_device(x) -> bool:
+    """Whether ``x`` is a cupy array (the strict-resident caller hands the replayed columns over without copying them to the host)."""
+    return type(x).__module__.split(".", 1)[0] == "cupy"
+
+
+def _flat(x):
+    """1-D float64 view of a host or device column."""
+    return x.astype("float64", copy=False).ravel() if _is_device(x) else np.asarray(x, dtype=np.float64).ravel()
+
+
+def _clean(x):
+    """Non-finite values -> 0, on whichever side ``x`` lives."""
+    if _is_device(x):
+        import cupy as cp
+
+        return cp.where(cp.isfinite(x), x, cp.asarray(0.0, dtype=x.dtype))
+    return np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _all_finite(x) -> bool:
+    """Whether every value is finite (a scalar read for a device column)."""
+    if _is_device(x):
+        import cupy as cp
+
+        return bool(cp.isfinite(x).all())
+    return bool(np.isfinite(x).all())
+
+
+def replay_candidate_continuous(recipe: Any, X: Any, apply_fn: Any) -> Any:
+    """Continuous values of a retention candidate's recipe replayed on ``X``: a scrubbed DEVICE column when the strict-resident path can replay it there
+    (a ``unary_binary`` recipe), so the subsumption check scores it without copying it to the host; else the host replay through ``apply_fn``."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        if fe_gpu_strict_resident_enabled() and getattr(recipe, "kind", None) == "unary_binary":
+            from .engineered_recipes import apply_unary_binary_gpu_resident
+
+            dev = apply_unary_binary_gpu_resident(recipe, X)
+            if dev is not None:
+                return dev.ravel()
+    except Exception as e:
+        logger.debug("device replay of the retention candidate failed, using the host replay: %s", e)
+    host = np.asarray(apply_fn(recipe, X), dtype=np.float64).ravel()
+    return np.nan_to_num(host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+def _to_host(x) -> np.ndarray:
+    """Host copy of a column that is only needed on the host fallback path."""
+    if _is_device(x):
+        import cupy as cp
+
+        return np.asarray(cp.asnumpy(x), dtype=np.float64)
+    return x
 
 
 def retention_form_is_subsumed(
@@ -81,10 +136,10 @@ def retention_form_is_subsumed(
         logger.debug("import for the conditional-permutation-null path failed: %s", e)
         return False
 
-    inc = [np.asarray(c, dtype=np.float64).ravel() for c in incumbent_continuous if c is not None]
+    inc = [_flat(c) for c in incumbent_continuous if c is not None]
     if not inc:
         return False
-    cand = np.asarray(cand_continuous, dtype=np.float64).ravel()
+    cand = _flat(cand_continuous)
     n = cand.shape[0]
     if n < _MIN_ROWS or any(c.shape[0] != n for c in inc):
         return False
@@ -112,8 +167,8 @@ def retention_form_is_subsumed(
             n = int(cand.shape[0])
 
     try:
-        cand = np.nan_to_num(cand, nan=0.0, posinf=0.0, neginf=0.0)
-        _inc_clean = [np.nan_to_num(c, nan=0.0, posinf=0.0, neginf=0.0) for c in inc]
+        cand = _clean(cand)
+        _inc_clean = [_clean(c) for c in inc]
         # DEVICE-BORN candidate + support residency (default ON under strict-resident; opt-out
         # MLFRAME_FE_GATE_RESIDENT_CANDS=0), mirroring the raw-redundancy drop. Device-bin the candidate + each
         # incumbent ONCE (resident int64 codes = same percentile-edge partition as the host _quantile_bin) and
@@ -132,26 +187,33 @@ def retention_form_is_subsumed(
                 _resident = False
         cand_dev = None
         z_support_dev = None
-        if _resident and np.isfinite(cand).all() and all(np.isfinite(c).all() for c in _inc_clean):
+        if _resident and _all_finite(cand) and all(_all_finite(c) for c in _inc_clean):
             try:
-                import cupy as _cp
                 from ._mi_greedy_cmi_fe import _quantile_bin_gpu_resident, _renumber_joint_gpu
-                cand_dev = _quantile_bin_gpu_resident(cand, int(nbins))
-                _inc_dev = [_quantile_bin_gpu_resident(c, int(nbins)) for c in _inc_clean]
+                from ._mi_greedy_cmi_fe_binning import _quantile_bin_device
+
+                def _bin_resident(x):
+                    """Resident codes of a host column (content-cached upload) or of a column already on the device."""
+                    return _quantile_bin_device(x, int(nbins)) if _is_device(x) else _quantile_bin_gpu_resident(x, int(nbins))
+
+                cand_dev = _bin_resident(cand)
+                _inc_dev = [_bin_resident(c) for c in _inc_clean]
                 if cand_dev is not None and _inc_dev and all(d is not None for d in _inc_dev):
-                    cand_bin = _cp.asnumpy(cand_dev).astype(np.int64).ravel()  # host copy = D2H of the partition
-                    inc_bins = [_cp.asnumpy(d).astype(np.int64).ravel() for d in _inc_dev]
-                    z_support_dev, _ = _renumber_joint_gpu(*_inc_dev)
+                    # No host copies: the candidate / incumbent codes and their joint support are scored on the device, and the host
+                    # forms below are only built on the fallback path.
+                    z_support_dev, _zcard = _renumber_joint_gpu(*_inc_dev)
                 else:
                     cand_dev = None
             except Exception as e:
                 logger.debug("resident candidate/support upload failed, falling back to the host path: %s", e)
                 cand_dev = None
                 z_support_dev = None
+        cand_bin = None
+        z_support = None
         if cand_dev is None:
-            cand_bin = np.asarray(_quantile_bin(cand, nbins=nbins)).astype(np.int64).ravel()
-            inc_bins = [np.asarray(_quantile_bin(c, nbins=nbins)).astype(np.int64).ravel() for c in _inc_clean]
-        z_support, _zcard = _renumber_joint(*inc_bins)  # _renumber_joint returns the occupied cardinality
+            cand_bin = np.asarray(_quantile_bin(_to_host(cand), nbins=nbins)).astype(np.int64).ravel()
+            inc_bins = [np.asarray(_quantile_bin(_to_host(c), nbins=nbins)).astype(np.int64).ravel() for c in _inc_clean]
+            z_support, _zcard = _renumber_joint(*inc_bins)  # _renumber_joint returns the occupied cardinality
         # Prefer the resident candidate codes + device-born support for the scoring (resident-input branches);
         # host otherwise.
         _cb = cand_dev if cand_dev is not None else cand_bin
@@ -183,4 +245,4 @@ def retention_form_is_subsumed(
     return not (passes_floor and passes_rel)
 
 
-__all__ = ["retention_form_is_subsumed", "RETAIN_FRAC"]
+__all__ = ["retention_form_is_subsumed", "replay_candidate_continuous", "RETAIN_FRAC"]

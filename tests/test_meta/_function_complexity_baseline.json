@@ -1,11 +1,1 @@
-{
-  "src/mlframe/feature_engineering/_numerical_numba.py::_make_compute_moments_slope_mi": 58,
-  "src/mlframe/feature_engineering/_numerical_numba.py::_make_compute_moments_slope_mi.<locals>.kernel": 57,
-  "src/mlframe/feature_engineering/_numerical_numba.py::compute_numerical_aggregates_numba": 63,
-  "src/mlframe/feature_engineering/windowed_shape.py::_shannon_entropy_binned_kernel": 26,
-  "src/mlframe/feature_selection/filters/evaluation.py::evaluate_gain": 26,
-  "src/mlframe/feature_selection/filters/feature_engineering.py::apply_gpu_unary_batched": 26,
-  "src/mlframe/metrics/classification/_ice_kernel.py::_batch_per_class_ice_kernel": 32,
-  "src/mlframe/metrics/classification/_ice_kernel.py::_batch_per_class_ice_kernel_serial": 31,
-  "src/mlframe/training/_iterative_stratification_njit.py::_iterative_stratification_njit": 35
-}
+{}

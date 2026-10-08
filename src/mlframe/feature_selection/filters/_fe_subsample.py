@@ -180,6 +180,42 @@ def _derive_seed(rng) -> int:
         return 0
 
 
+# Rows at or above which the continuous-target stratification bins on the device: a host quantile + digitize + unique over a 1M-row target was ~0.9 s.
+_DEVICE_STRATIFY_MIN_N = 200_000
+
+
+def _device_regression_bins(y_arr: np.ndarray, finite: np.ndarray) -> "tuple[np.ndarray, int] | None":
+    """Contiguous stratum codes ``[0, n_bins)`` of a continuous target (quantile bins over its finite values, one extra stratum for non-finite rows), computed
+    on the device and returned as ``(host int64 codes, n_bins)`` - the same partition the host branch builds (bit-identical quantile edges, ``digitize`` ==
+    ``searchsorted(side='right')``, bins ranked by value). ``None`` when the strict-resident path is off, cupy is unavailable, or the edges degenerate."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        if not fe_gpu_strict_resident_enabled():
+            return None
+        import cupy as cp
+
+        from ._device_quantile import device_quantile
+
+        yd = cp.asarray(np.ascontiguousarray(y_arr, dtype=np.float64))
+        fin_d = cp.asarray(finite)
+        edges = device_quantile(yd[fin_d], np.linspace(0.0, 1.0, _FE_STRATIFY_REG_BINS + 1))
+        if edges is None:
+            return None
+        edges = np.unique(edges)
+        if edges.shape[0] < 2:
+            return None
+        ids = cp.searchsorted(cp.asarray(edges[1:-1]), yd, side="right").astype(cp.int64)
+        ids = cp.where(fin_d, ids, cp.int64(edges.shape[0]))  # dedicated stratum for NaN/inf rows
+        present = cp.bincount(ids, minlength=int(edges.shape[0]) + 1) > 0
+        remap = cp.cumsum(present.astype(cp.int64)) - 1
+        n_bins = int(present.sum())
+        return np.ascontiguousarray(cp.asnumpy(remap[ids]), dtype=np.int64), n_bins
+    except Exception as e:
+        _logger.debug("device stratification bins failed, using the host path: %s", e)
+        return None
+
+
 def stratified_subsample_idx(rng, y, size: int, *, is_clf: bool) -> np.ndarray:
     """Return SORTED row indices of a target-stratified subsample of ``y`` of (about) ``size`` rows.
 
@@ -272,6 +308,14 @@ def stratified_subsample_idx(rng, y, size: int, *, is_clf: bool) -> np.ndarray:
             finite = np.isfinite(y_arr)
             if finite.sum() < 2 or np.nanmin(y_arr[finite]) == np.nanmax(y_arr[finite]):
                 return _uniform()
+            if _HAVE_NUMBA and n >= _DEVICE_STRATIFY_MIN_N:
+                _dev_codes = _device_regression_bins(y_arr, finite)
+                if _dev_codes is not None:
+                    bin_codes, n_bin_ids = _dev_codes
+                    idx = _strat_reg_kernel(bin_codes, int(n_bin_ids), size, int(n), _derive_seed(rng))
+                    if idx.shape[0] == 0:
+                        return _uniform()
+                    return np.sort(idx).astype(np.int64, copy=False)
             # Quantile bins over the FINITE values; non-finite rows form their own stratum so they
             # are still representable (and never crash the digitize).
             yv = y_arr.copy()

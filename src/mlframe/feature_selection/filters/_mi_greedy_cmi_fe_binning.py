@@ -161,12 +161,29 @@ def _quantile_bin_gpu_resident(a: np.ndarray, nbins: int):
         return None
 
 
-def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
+def _quantile_bin_device(xd, nbins: int):
+    """Equi-frequency codes of a column ALREADY on the device (finite values) -> resident int64 codes, with no host round trip. Same binner and float
+    dtype as :func:`_quantile_bin_gpu_resident`, minus its host-content cache (there is no host array to key on)."""
+    import cupy as cp
+
+    return _sync_free_qbin_codes(cp, xd.astype(_qbin_float_dtype(), copy=False).ravel(), int(nbins))
+
+
+# Rows from which ``_quantile_bin(host_only=True)`` still uses the device binner under the strict-resident path (see its docstring).
+_HOST_ONLY_DEVICE_MIN_N = 200_000
+
+
+def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np.ndarray:
     """Equi-frequency bin a 1-D float column into ``nbins`` integer classes.
 
     Constant or near-constant columns degenerate to a single class (0). NaN
     / Inf are mapped to bin 0 (caller is expected to scrub upstream; we keep
     the fallback for safety).
+
+    ``host_only=True`` keeps the binning on the CPU even under the strict-resident path. It is for a host column whose codes are consumed on the host:
+    the device binner would upload the column and copy the codes straight back, two transfers for a result that never needed the device.
+    Above ``_HOST_ONLY_DEVICE_MIN_N`` rows the device binner wins anyway (the host quantile + searchsorted of a 1M-row column cost 0.4-0.6 s against two
+    transfers of a few ms), so ``host_only`` only applies to the columns where the round trip is the larger cost.
 
     By design, a low-cardinality column can collapse to a single (or two) bin even when it is informative: ``np.unique(np.quantile(...))`` dedupes the
     equi-frequency edges, so a column with few distinct values yields ``edges.size <= 2`` and reads MI ~= 0 here. This is the price of monotone-invariance
@@ -203,7 +220,7 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
         except Exception as e:
             logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
             _gpu_on = False
-        if _gpu_on:
+        if _gpu_on and (not host_only or a.size >= _HOST_ONLY_DEVICE_MIN_N):
             _g = _quantile_bin_gpu(a, nbins)
             if _g is not None:
                 return np.asarray(_g)
@@ -213,7 +230,9 @@ def _quantile_bin(col: np.ndarray, nbins: int) -> np.ndarray:
             if edges.size == 2:
                 out[:] = (a >= edges[1]).astype(np.int64)
             return out
-        return np.searchsorted(edges[1:-1], a, side="right").astype(np.int64)
+        from ._fast_host_ops import searchsorted_right
+
+        return searchsorted_right(edges[1:-1], a).astype(np.int64, copy=False)
 
     finite_mask = np.isfinite(a)
     out = np.zeros(a.size, dtype=np.int64)

@@ -291,6 +291,42 @@ def gpu_compatible_binary_names() -> set:
     }
 
 
+def _gpu_smart_log(cp, x):
+    """Natural log that shifts a column containing non-positive values up to just above zero first (the CPU ``log`` rule), else a plain log."""
+    # Smart log: avoid log of non-positive.
+    x_min = cp.nanmin(x)
+    if x_min > 0:
+        return cp.log(x)
+    return cp.log(x + (1e-5 - x_min))
+
+
+# unary name -> ``op(cp, x)`` on a float32 CuPy array; the keys cover ``gpu_compatible_unary_names()``.
+_GPU_UNARY_OPS = {
+    "identity": lambda cp, x: x,
+    "sign": lambda cp, x: cp.sign(x),
+    "neg": lambda cp, x: -x,
+    "abs": lambda cp, x: cp.abs(x),
+    "rint": lambda cp, x: cp.rint(x),
+    "sqr": lambda cp, x: cp.power(x, 2),
+    "qubed": lambda cp, x: cp.power(x, 3),
+    "reciproc": lambda cp, x: cp.power(x, -1),
+    "invsquared": lambda cp, x: cp.power(x, -2),
+    "invqubed": lambda cp, x: cp.power(x, -3),
+    "cbrt": lambda cp, x: cp.cbrt(x),
+    "sqrt": lambda cp, x: cp.sqrt(cp.abs(x)),
+    "invcbrt": lambda cp, x: cp.power(x, -1.0 / 3.0),
+    "invsqrt": lambda cp, x: cp.power(x, -0.5),
+    "log": _gpu_smart_log,
+    "exp": lambda cp, x: cp.exp(x),
+    "sin": lambda cp, x: cp.sin(x),
+    "cos": lambda cp, x: cp.cos(x),
+    "tan": lambda cp, x: cp.tan(x),
+    "sinh": lambda cp, x: cp.sinh(x),
+    "cosh": lambda cp, x: cp.cosh(x),
+    "tanh": lambda cp, x: cp.tanh(x),
+}
+
+
 def apply_gpu_unary_batched(
     cols_data,
     column_indices: Sequence[int],
@@ -318,54 +354,9 @@ def apply_gpu_unary_batched(
     sub = cols_np[:, list(column_indices)] if cols_np.ndim == 2 else cols_np.reshape(-1, 1)
     sub_gpu = cp.asarray(sub.astype(np.float32))
 
-    if name == "identity":
-        return sub_gpu
-    if name == "sign":
-        return cp.sign(sub_gpu)
-    if name == "neg":
-        return -sub_gpu
-    if name == "abs":
-        return cp.abs(sub_gpu)
-    if name == "rint":
-        return cp.rint(sub_gpu)
-    if name == "sqr":
-        return cp.power(sub_gpu, 2)
-    if name == "qubed":
-        return cp.power(sub_gpu, 3)
-    if name == "reciproc":
-        return cp.power(sub_gpu, -1)
-    if name == "invsquared":
-        return cp.power(sub_gpu, -2)
-    if name == "invqubed":
-        return cp.power(sub_gpu, -3)
-    if name == "cbrt":
-        return cp.cbrt(sub_gpu)
-    if name == "sqrt":
-        return cp.sqrt(cp.abs(sub_gpu))
-    if name == "invcbrt":
-        return cp.power(sub_gpu, -1.0 / 3.0)
-    if name == "invsqrt":
-        return cp.power(sub_gpu, -0.5)
-    if name == "log":
-        # Smart log: avoid log of non-positive.
-        x_min = cp.nanmin(sub_gpu)
-        if x_min > 0:
-            return cp.log(sub_gpu)
-        return cp.log(sub_gpu + (1e-5 - x_min))
-    if name == "exp":
-        return cp.exp(sub_gpu)
-    if name == "sin":
-        return cp.sin(sub_gpu)
-    if name == "cos":
-        return cp.cos(sub_gpu)
-    if name == "tan":
-        return cp.tan(sub_gpu)
-    if name == "sinh":
-        return cp.sinh(sub_gpu)
-    if name == "cosh":
-        return cp.cosh(sub_gpu)
-    if name == "tanh":
-        return cp.tanh(sub_gpu)
+    op = _GPU_UNARY_OPS.get(name)
+    if op is not None:
+        return op(cp, sub_gpu)
     raise ValueError(f"GPU dispatch missing for {name!r} despite being in compatible set")
 
 

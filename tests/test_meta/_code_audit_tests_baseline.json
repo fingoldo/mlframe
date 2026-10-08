@@ -226,8 +226,6 @@
   "source_text_assertion::training/pipeline/test_training_pipeline_fixes.py::53797294cae9",
   "source_text_assertion::training/pipeline/test_training_pipeline_fixes.py::a3ba5184c743",
   "source_text_assertion::training/pipeline/test_training_pipeline_fixes.py::ea6b6255bf20",
-  "source_text_assertion::training/test_audit_assert_in_production.py::183e012fe2fc",
-  "source_text_assertion::training/test_audit_assert_in_production.py::3f123bd873a8",
   "source_text_assertion::training/test_audit_numpy_view_copy_contracts.py::6dfeb483a3ec",
   "source_text_assertion::training/test_drift_report.py::7a051f77680c",
   "source_text_assertion::training/test_drift_report.py::d199ce4fb6b2",

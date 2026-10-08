@@ -28,6 +28,43 @@ from types import SimpleNamespace as _SimpleNamespace
 logger = logging.getLogger(__name__)
 
 
+def _survivor_device_column(resolve_col, buf_col):
+    """The survivor column ``buf_col`` as a scrubbed float32 DEVICE array when the deferred-float path can produce it there, else ``None`` (the caller then
+    takes the host column from ``resolve_col``)."""
+    return getattr(resolve_col, "device", lambda *_: None)(buf_col)
+
+
+def _survivor_std(col) -> float:
+    """Standard deviation of a survivor column held on the host or the device (one scalar read for a device column)."""
+    if type(col).__module__.split(".", 1)[0] == "cupy":
+        import cupy as cp
+
+        return float(cp.std(col.astype(cp.float64)))
+    return float(np.std(col))
+
+
+def _stack_survivor_columns(cols, n_rows: int):
+    """The kept survivor columns as one float64 ``(n_rows, k)`` matrix: a device-backed lazy matrix when every column is on the device (nothing is copied
+    back until a host consumer reads it), else the plain host buffer."""
+    if cols and all(type(c).__module__.split(".", 1)[0] == "cupy" for c in cols):
+        import cupy as cp
+
+        from mlframe.feature_selection.filters._lazy_host_codes import LazyHostCodes
+
+        return LazyHostCodes(cp.stack([c.astype(cp.float64, copy=False) for c in cols], axis=1), np.float64)
+    buf = np.empty(shape=(n_rows, len(cols)), dtype=np.float64)
+    for ci, cv in enumerate(cols):
+        buf[:, ci] = cv if type(cv).__module__.split(".", 1)[0] != "cupy" else _device_to_host(cv)
+    return buf
+
+
+def _device_to_host(col) -> np.ndarray:
+    """Host copy of one device survivor column, for the mixed host/device fallback."""
+    import cupy as cp
+
+    return np.asarray(cp.asnumpy(col))
+
+
 def _finalize_survivor_column(col_full: np.ndarray) -> np.ndarray:
     """Return the survivor column produced by any of the ``_col_full`` branches (rebuild / buffer-view /
     GPU-resolve / recompute-fallback) unchanged, WITHOUT a second NaN/Inf scrub or a forced float64 upcast.
@@ -44,7 +81,7 @@ def _finalize_survivor_column(col_full: np.ndarray) -> np.ndarray:
     was float32, an exact no-op when it was already float64); the caller then assigns each column into a
     float64 ``transformed_vals`` buffer via plain elementwise ``__setitem__``, which upcasts correctly
     regardless of the source dtype, so no consumer needs this intermediate forced to any particular dtype."""
-    return np.asarray(col_full)
+    return col_full if type(col_full).__module__.split(".", 1)[0] == "cupy" else np.asarray(col_full)
 
 
 def _emit_pair_features(
@@ -221,13 +258,19 @@ def _emit_pair_features_step1_comment_check_prospective(verbose, leading_feature
 
 def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method, _narrow_code_dtype, quantization_nbins, quantization_dtype, _ev_op_codes, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels, serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct, valid_pairs_perf):
     """Step 2 of _emit_pair_features: lines starting at ``for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_``."""
+    from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_enabled
+
     for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
+        _pa_dev = None
         if final_transformed_vals is not None:
             param_a = final_transformed_vals[:, i]
         elif _this_chunk_deferred:
             # DEFERRED-float GPU path: re-materialise the survivor column on the GPU
             # (bit-identical to the buffer -> the external-validation MI is unchanged).
-            param_a = _resolve_col(i)
+            # Under the strict-resident path the column stays on the device (the ext-val candidates are built from it there); the host copy is only
+            # taken below if a host branch actually needs it.
+            _pa_dev = getattr(_resolve_col, "device", lambda *_: None)(i) if _ev_resident_enabled() else None
+            param_a = None if _pa_dev is not None else _resolve_col(i)
         else:
             # CRITICAL #2 recompute-fallback: rebuild the survivor column from its
             # (a_key, b_key, bin_func_name) metadata. transformed_vars is small
@@ -324,10 +367,12 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                 if _ev_use_dev:
                     from mlframe.feature_selection.filters._gpu_resident_extval import gpu_materialise_extval_codes_host
                     _ev_disc = gpu_materialise_extval_codes_host(
-                        param_a, _ev_param_bs, _ev_op_codes, int(quantization_nbins), dtype=_ev_code_dtype,
+                        param_a, _ev_param_bs, _ev_op_codes, int(quantization_nbins), dtype=_ev_code_dtype, defer_host_fill=True, param_a_dev=_pa_dev,
                     )
             if _ev_disc is None:
                 # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
+                if param_a is None:
+                    param_a = _resolve_col(i)
                 _ev_buf = np.empty((len(X), _ev_K), dtype=np.float64)
                 if _ev_op_codes is not None:
                     # NJIT materialise: ALL (ext x op) candidate columns in one nogil
@@ -404,6 +449,8 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
             if _ev_mi is not None and len(_ev_mi):
                 best_valid_mi = float(np.max(_ev_mi))
         else:
+            if param_a is None:
+                param_a = _resolve_col(i)
             for _pb_vals in _ev_param_bs:
                 param_b = _pb_vals
                 for valid_bin_func in binary_transformations.values():
@@ -511,6 +558,7 @@ def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols
     # a higher-MI form; trees are rank-indifferent so this cannot hurt the tree list.
     st._leader_usability = {}
     if len(leading_features) > 1 and _corr_y_cont is not None:
+        _corr_y_cont_finite = np.isfinite(_corr_y_cont)
         for _lc in leading_features:
             try:
                 _li = _lc[2]
@@ -519,6 +567,10 @@ def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols
                 elif _this_chunk_deferred:
                     # DEFERRED-float GPU path: re-materialise the leader column on the GPU
                     # (bit-identical to the buffer -> same linear-usability tie-break).
+                    _dev_corr = getattr(_resolve_col, "abs_corr", lambda *_: None)(_li, _corr_y_cont, _corr_y_cont_finite)
+                    if _dev_corr is not None:
+                        st._leader_usability[_lc] = _dev_corr
+                        continue
                     _lvals = _resolve_col(_li)
                 elif _config_by_i is not None and _li in _config_by_i:
                     # Recompute fallback (no hoisted buffer): rebuild the leader's
@@ -535,7 +587,7 @@ def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols
                     _lvals = None
                 if _lvals is not None:
                     st._leader_usability[_lc] = _safe_abs_corr(_lvals)
-            except Exception as e:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            except Exception as e:  # nosec B112 - best-effort path
                 logger.debug("leader usability computation for %r failed, skipping: %s", _lc, e)
                 continue
     return _cached_name, _name_cache, leading_features, st
@@ -673,7 +725,11 @@ def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe
                     # re-materialise the survivor column on the GPU (bit-identical to the buffer,
                     # full-n directly). The subsample case took the _rebuild_full_survivor_col
                     # branch above (full-n rebuild from raw), so this only handles full-n fits.
-                    _col_full = _resolve_col(i)
+                    # Under the strict-resident path the survivor stays a DEVICE column: the downstream stage bins it, derives the recipe edges and
+                    # stores its continuous values from the device, and only copies back what a host consumer actually reads.
+                    _col_full = _survivor_device_column(_resolve_col, i)
+                    if _col_full is None:
+                        _col_full = _resolve_col(i)
                 else:
                     # CRITICAL #2 recompute-fallback (no subsample, tight RAM): rebuild
                     # the survivor column from its (a_key, b_key, bin_func_name)
@@ -702,11 +758,10 @@ def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe
                 # downstream quantile discretiser produce the full nbins
                 # codes and the recipe pin correct edges.
                 _col_arr = _finalize_survivor_column(_col_full)
-                if float(np.std(_col_arr)) <= 1e-9:
+                _col_std = _survivor_std(_col_arr)
+                if _col_std <= 1e-9:
                     if verbose:
-                        messages.append(
-                            f"{new_feature_name} dropped at materialisation: dead column " f"(std={float(np.std(_col_arr)):.2e}, non-constant guard)."
-                        )
+                        messages.append(f"{new_feature_name} dropped at materialisation: dead column " f"(std={_col_std:.2e}, non-constant guard).")
                     continue
                 _kept_cols_vals.append(_col_arr)
             _kept_configs.append((config, j))
@@ -719,9 +774,7 @@ def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe
         if fe_max_steps >= 1 and _kept_cols_vals:
             # float buffer: holds RAW engineered values (discretised to
             # codes downstream; see the non-constant-guard comment above).
-            st.transformed_vals = np.empty(shape=(_full_n_rows, len(_kept_cols_vals)), dtype=np.float64)
-            for _ci, _cv in enumerate(_kept_cols_vals):
-                st.transformed_vals[:, _ci] = _cv
+            st.transformed_vals = _stack_survivor_columns(_kept_cols_vals, _full_n_rows)
             st.new_nbins = [quantization_nbins] * len(_kept_cols_vals)
         else:
             st.transformed_vals, st.new_nbins = None, []

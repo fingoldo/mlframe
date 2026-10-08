@@ -392,7 +392,22 @@ def _quantile_edges(x: np.ndarray, n_bins: int) -> np.ndarray:
     finite = x[np.isfinite(x)]
     if finite.size == 0:
         return np.array([0.0, 1.0], dtype=np.float64)
-    q = np.quantile(finite, np.linspace(0.0, 1.0, int(n_bins) + 1))
+    qs = np.linspace(0.0, 1.0, int(n_bins) + 1)
+    q = None
+    if finite.size >= 200_000:
+        # Large column under the strict-resident path: the quantiles from a device sort, bit-identical to np.quantile (a host call is ~115 ms per 1M rows).
+        try:
+            from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+            if fe_gpu_strict_resident_enabled():
+                from ._device_quantile import device_quantile
+
+                q = device_quantile(finite, qs)
+        except Exception as e:
+            logger.debug("device quantile edges failed, using the host np.quantile: %s", e)
+            q = None
+    if q is None:
+        q = np.quantile(finite, qs)
     q = np.unique(q)
     if q.size < 2:
         lo = float(finite.min())
@@ -404,7 +419,9 @@ def _digitize_with_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     """Assign each value to a bin in ``[0, len(edges)-2]`` using the interior
     edges (``edges[1:-1]``). NaN -> bin 0 (matches the fit-time fill)."""
     x = np.asarray(x, dtype=np.float64)
-    codes = np.searchsorted(edges[1:-1], x, side="right")
+    from ._fast_host_ops import searchsorted_right
+
+    codes = searchsorted_right(edges[1:-1], x)
     codes = np.clip(codes, 0, max(0, edges.size - 2))
     codes[~np.isfinite(x)] = 0
     return codes.astype(np.int64)

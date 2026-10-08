@@ -26,6 +26,80 @@ from numba import njit
 
 
 @njit(cache=True)
+def _collect_max_indices(vals: np.ndarray, buf: np.ndarray) -> int:
+    """Write the indices of the largest entries of ``vals`` (in index order) into ``buf``; returns how many there are."""
+    best_val = vals[0]
+    n_max = 1
+    buf[0] = 0
+    for j in range(1, vals.shape[0]):
+        if vals[j] > best_val:
+            best_val = vals[j]
+            n_max = 1
+            buf[0] = j
+        elif vals[j] == best_val:
+            buf[n_max] = j
+            n_max += 1
+    return n_max
+
+
+@njit(cache=True)
+def _max_among(candidates: np.ndarray, n_cand: int, vals: np.ndarray, out: np.ndarray) -> int:
+    """Of the first ``n_cand`` indices in ``candidates``, write those with the largest ``vals`` (in candidate order) into ``out``; returns how many."""
+    sub_best = vals[candidates[0]]
+    n_sub = 1
+    out[0] = candidates[0]
+    for t in range(1, n_cand):
+        cand = candidates[t]
+        if vals[cand] > sub_best:
+            sub_best = vals[cand]
+            n_sub = 1
+            out[0] = cand
+        elif vals[cand] == sub_best:
+            out[n_sub] = cand
+            n_sub += 1
+    return n_sub
+
+
+@njit(cache=True)
+def _pick_tied(buf: np.ndarray, n: int) -> int:
+    """The only entry of ``buf[:n]``, or one of them drawn from numba's RNG when there is a tie (the RNG is not touched without a tie)."""
+    return buf[0] if n == 1 else buf[np.random.randint(0, n)]
+
+
+@njit(cache=True)
+def _count_unprocessed_labels(labels: np.ndarray, processed: np.ndarray, num_labels: np.ndarray) -> int:
+    """Fill ``num_labels`` with the per-label count over the unprocessed samples; returns the total over all labels."""
+    for j in range(num_labels.shape[0]):
+        num_labels[j] = 0
+    for i in range(labels.shape[0]):
+        if not processed[i]:
+            for j in range(labels.shape[1]):
+                if labels[i, j]:
+                    num_labels[j] += 1
+    total = 0
+    for j in range(num_labels.shape[0]):
+        total += num_labels[j]
+    return total
+
+
+@njit(cache=True)
+def _rarest_label(num_labels: np.ndarray, min_candidates: np.ndarray) -> int:
+    """Label with the fewest (but >0) remaining unprocessed examples, ties broken randomly."""
+    min_val = -1
+    n_min = 0
+    for j in range(num_labels.shape[0]):
+        if num_labels[j] > 0:
+            if min_val == -1 or num_labels[j] < min_val:
+                min_val = num_labels[j]
+                n_min = 1
+                min_candidates[0] = j
+            elif num_labels[j] == min_val:
+                min_candidates[n_min] = j
+                n_min += 1
+    return _pick_tied(min_candidates, n_min)
+
+
+@njit(cache=True)
 def _iterative_stratification_njit(labels: np.ndarray, r: np.ndarray, seed: int) -> np.ndarray:
     """njit twin of ``iterstrat.ml_stratifiers.IterativeStratification(labels, r, random_state)``.
 
@@ -57,18 +131,10 @@ def _iterative_stratification_njit(labels: np.ndarray, r: np.ndarray, seed: int)
     num_labels = np.empty(k, dtype=np.int64)
     fold_max_buf = np.empty(f, dtype=np.int64)
     fold_sub_buf = np.empty(f, dtype=np.int64)
+    min_candidates = np.empty(k, dtype=np.int64)
 
     while unprocessed > 0:
-        for j in range(k):
-            num_labels[j] = 0
-        for i in range(n):
-            if not processed[i]:
-                for j in range(k):
-                    if labels[i, j]:
-                        num_labels[j] += 1
-        total = 0
-        for j in range(k):
-            total += num_labels[j]
+        total = _count_unprocessed_labels(labels, processed, num_labels)
 
         if total == 0:
             # All remaining unprocessed samples carry no (unprocessed-relevant) label: distribute
@@ -76,70 +142,25 @@ def _iterative_stratification_njit(labels: np.ndarray, r: np.ndarray, seed: int)
             for i in range(n):
                 if processed[i]:
                     continue
-                best_val = c_folds[0]
-                n_max = 1
-                fold_max_buf[0] = 0
-                for j in range(1, f):
-                    if c_folds[j] > best_val:
-                        best_val = c_folds[j]
-                        n_max = 1
-                        fold_max_buf[0] = j
-                    elif c_folds[j] == best_val:
-                        fold_max_buf[n_max] = j
-                        n_max += 1
-                fold_idx = fold_max_buf[0] if n_max == 1 else fold_max_buf[np.random.randint(0, n_max)]
+                n_max = _collect_max_indices(c_folds, fold_max_buf)
+                fold_idx = _pick_tied(fold_max_buf, n_max)
                 test_folds[i] = fold_idx
                 c_folds[fold_idx] -= 1.0
                 processed[i] = True
                 unprocessed -= 1
             break
 
-        # Label with the fewest (but >0) remaining unprocessed examples, ties broken randomly.
-        min_val = -1
-        n_min = 0
-        min_candidates = np.empty(k, dtype=np.int64)
-        for j in range(k):
-            if num_labels[j] > 0:
-                if min_val == -1 or num_labels[j] < min_val:
-                    min_val = num_labels[j]
-                    n_min = 1
-                    min_candidates[0] = j
-                elif num_labels[j] == min_val:
-                    min_candidates[n_min] = j
-                    n_min += 1
-        label_idx = min_candidates[0] if n_min == 1 else min_candidates[np.random.randint(0, n_min)]
+        label_idx = _rarest_label(num_labels, min_candidates)
 
         for i in range(n):
             if processed[i] or not labels[i, label_idx]:
                 continue
-            best_val = c_folds_labels[0, label_idx]
-            n_max = 1
-            fold_max_buf[0] = 0
-            for j in range(1, f):
-                v = c_folds_labels[j, label_idx]
-                if v > best_val:
-                    best_val = v
-                    n_max = 1
-                    fold_max_buf[0] = j
-                elif v == best_val:
-                    fold_max_buf[n_max] = j
-                    n_max += 1
+            n_max = _collect_max_indices(c_folds_labels[:, label_idx], fold_max_buf)
             if n_max == 1:
                 fold_idx = fold_max_buf[0]
             else:
-                sub_best = c_folds[fold_max_buf[0]]
-                n_sub = 1
-                fold_sub_buf[0] = fold_max_buf[0]
-                for t in range(1, n_max):
-                    cand = fold_max_buf[t]
-                    if c_folds[cand] > sub_best:
-                        sub_best = c_folds[cand]
-                        n_sub = 1
-                        fold_sub_buf[0] = cand
-                    elif c_folds[cand] == sub_best:
-                        fold_sub_buf[n_sub] = cand
-                        n_sub += 1
-                fold_idx = fold_sub_buf[0] if n_sub == 1 else fold_sub_buf[np.random.randint(0, n_sub)]
+                n_sub = _max_among(fold_max_buf, n_max, c_folds, fold_sub_buf)
+                fold_idx = _pick_tied(fold_sub_buf, n_sub)
 
             test_folds[i] = fold_idx
             processed[i] = True

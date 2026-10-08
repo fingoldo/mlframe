@@ -431,7 +431,6 @@ def drop_redundant_raw_operands(
 
 def _drop_redundant_raw_o_step1_ri_st_raw(st, cols, verbose, seed, _raw_marginal, floor_margin_mult, linear_usability_keep, raw_X, data, y_continuous, engineered_continuous, tail_subsume_enable, tail_subsume_min_corr, tail_subsume_rank_frac):
     """Step 1 of drop_redundant_raw_operands: lines starting at ``for ri in st.raw_sel_idx:``."""
-    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint
 
     for ri in st.raw_sel_idx:
         rname = cols[ri]
@@ -495,8 +494,7 @@ def _drop_redundant_raw_o_step1_ri_st_raw(st, cols, verbose, seed, _raw_marginal
         # RESIDENT twin of each conditioning column (clean sub-expr dev if that column used one, else eng dev),
         # for the device-born support join. None-safe: any missing twin -> host support scored.
         _cond_bins_dev = [(st._clean_subexpr_bin_dev.get((rname, ei)) if (rname, ei) in st._clean_subexpr_bin else st.eng_bin_dev.get(ei)) for ei in consumers]
-        z_support, _zcard = _renumber_joint(*_cond_bins)  # _renumber_joint returns the occupied cardinality
-        z_support_dev = st._join_dev(*_cond_bins_dev)
+        z_support, _zcard, z_support_dev = _join_support(_cond_bins, _cond_bins_dev)  # occupied cardinality; device-born when every code is resident
         cmi, floor, excess = _excess_and_floor(rb_cand, st.y_arr, z_support, seed=seed, z_support_dev=z_support_dev, kx=(int(rb.max()) + 1 if getattr(rb, "size", 0) else 1), kz=int(_zcard))
         # SIBLING-OPERAND CONDITIONING (non-invertible-fusion subsumer). A
         # consuming composite can FUSE ``rname`` with a SECOND signal-bearing operand in a
@@ -603,9 +601,25 @@ def _drop_redundant_raw_o_step1_ri_st_raw(st, cols, verbose, seed, _raw_marginal
             )
 
 
+def _join_support(host_bins, dev_bins):
+    """Conditioning-support join of ``host_bins``: ON the device when every code has a resident twin (so neither the codes nor the joined support are
+    copied to the host), else the host njit join. Returns ``(z_host_or_None, occupied_cardinality, z_dev_or_None)``."""
+    if dev_bins and all(d is not None for d in dev_bins):
+        try:
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint_gpu
+
+            z_dev, card = _renumber_joint_gpu(*dev_bins)
+            return None, card, z_dev
+        except Exception as exc:
+            logger.debug("device-resident conditioning-support join failed, falling back to the host join: %s", exc)
+    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint
+
+    z_host, card = _renumber_joint(*host_bins)
+    return z_host, card, None
+
+
 def _drop_redundant_raw_o_step1_full_composite_bin(consumers, excess, st, rname, rb_cand, seed, _raw_marginal, _cond_bins, _cond_bins_dev, cols, floor_margin_mult, cmi, floor):
     """Step 1 of _drop_redundant_raw_o_step1_ri_st_raw: lines starting at ``for ei in consumers:``."""
-    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint
 
     for ei in consumers:
         # SELECTION-EXACT short-circuit. The debiased ``excess`` is the MIN across conditionings
@@ -619,8 +633,7 @@ def _drop_redundant_raw_o_step1_full_composite_bin(consumers, excess, st, rname,
             break
         _clean = st._clean_subexpr_bin.get((rname, ei))
         if _clean is not None:
-            _z_full, _k_full = _renumber_joint(st.eng_bin[ei])
-            _z_full_dev = st._join_dev(st.eng_bin_dev.get(ei))
+            _z_full, _k_full, _z_full_dev = _join_support([st.eng_bin[ei]], [st.eng_bin_dev.get(ei)])
             _cmi_f, _floor_f, _excess_f = _excess_and_floor(rb_cand, st.y_arr, _z_full, seed=seed, z_support_dev=_z_full_dev, kz=int(_k_full))
             if _excess_f < excess:
                 cmi, floor, excess = _cmi_f, _floor_f, _excess_f
@@ -641,15 +654,14 @@ def _drop_redundant_raw_o_step1_full_composite_bin(consumers, excess, st, rname,
             except ValueError:
                 continue
             _sb = st._raw_codes(_sn, _sidx)
-            _, _trial_card = _renumber_joint(*_sib_cond, _sb)
+            _, _trial_card, _ = _join_support([*_sib_cond, _sb], [*_sib_cond_dev, st._raw_dev(_sn, _sidx)])
             if _trial_card > _budget:
                 continue  # adding this sibling would over-fragment the joint strata
             _sib_cond.append(_sb)
             _sib_cond_dev.append(st._raw_dev(_sn, _sidx))  # resident twin (None if host-fallback -> host z)
             _added = True
         if _added:
-            _z_sib, _k_sib = _renumber_joint(*_sib_cond)
-            _z_sib_dev = st._join_dev(*_sib_cond_dev)
+            _z_sib, _k_sib, _z_sib_dev = _join_support(_sib_cond, _sib_cond_dev)
             _cmi_s, _floor_s, _excess_s = _excess_and_floor(rb_cand, st.y_arr, _z_sib, seed=seed, z_support_dev=_z_sib_dev, kz=int(_k_sib))
             # Take the conditioning that gives the SMALLEST debiased excess - the
             # strongest evidence of subsumption - carrying its own (cmi, floor) so the

@@ -68,3 +68,48 @@ def test_concurrent_stash_and_fill_leaves_no_buffer_unfilled() -> None:
     for t in threads:
         t.join()
     assert all(results), f"{results.count(False)} of {n} buffers were read unfilled"
+
+
+class _CountingDevice(_FakeDevice):
+    """A fake device that counts how many device-to-host copies were requested."""
+
+    def __init__(self, codes: np.ndarray) -> None:
+        """Keep the codes and start the transfer count at zero."""
+        super().__init__(codes)
+        self.transfers = 0
+
+    def get(self, out: np.ndarray) -> None:
+        """Count the transfer, then copy as a real one would."""
+        self.transfers += 1
+        super().get(out)
+
+
+def test_buffers_whose_owner_is_gone_are_dropped_without_a_transfer() -> None:
+    """A record whose host buffer was garbage-collected has no reader: it is pruned, and eviction never copies its codes."""
+    import gc
+
+    devices = []
+    for k in range(3 * gfe._DEFERRED_HOST_FILL_MAX):
+        dev = _CountingDevice(np.full((50, 3), k % 10, dtype=np.int8))
+        devices.append(dev)
+        host = np.full((50, 3), -1, dtype=np.int8)
+        gfe._stash_deferred_host_fill(host, dev)
+        del host  # the dispatch ended without a host read
+        gc.collect()
+    assert sum(d.transfers for d in devices) == 0
+    assert len(gfe._DEFERRED_HOST_FILL) <= 1
+
+
+def test_a_live_owner_is_still_filled_when_dead_records_are_pruned() -> None:
+    """Pruning dead records must not touch a buffer that is still referenced: that owner still gets its codes."""
+    import gc
+
+    live, live_codes = _stash(7)
+    for k in range(2 * gfe._DEFERRED_HOST_FILL_MAX):
+        _stash(k)  # their hosts are dropped immediately
+    gc.collect()
+    try:
+        gfe.ensure_host_codes_filled(live)
+        np.testing.assert_array_equal(live, live_codes)
+    finally:
+        gfe.clear_resident_codes_handoff(live)

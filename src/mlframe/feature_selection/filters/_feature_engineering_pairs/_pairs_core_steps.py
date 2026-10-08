@@ -204,6 +204,8 @@ def _check_prospective_fe_step2_classes_codes_still(_corr_y_cont, _corr_y_cont_f
         except Exception as e:
             logger.debug("_safe_abs_corr: |corr| computation failed, treating as uncorrelated (0.0): %s", e)
             return 0.0
+
+    _safe_abs_corr.target = (_corr_y_cont, _corr_y_cont_finite)  # type: ignore[attr-defined]  # lets a device caller score a column against the same target without copying it
     return _safe_abs_corr
 
 

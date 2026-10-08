@@ -96,6 +96,7 @@ pure (no live framework state captured), so a fitted MRMR remains picklable.
 """
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 import zlib
@@ -106,6 +107,7 @@ import numpy as np
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Significance-null primitives carved to a sibling; re-imported so this facade and apply_cmi_redundancy_gate resolve them unchanged.
+from ._lazy_host_codes import LazyHostCodes
 from ._fe_cmi_redundancy_null import (  # noqa: F401
     _CMI_FLOOR_PERMUTATIONS,
     _CMI_FLOOR_QUANTILE,
@@ -265,7 +267,7 @@ def apply_cmi_redundancy_gate(
     than rejecting everything.
     """
     _yhit: Any = None
-    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, _renumber_joint
+    from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
 
     names = list(candidates.keys())
     diagnostics: dict = {}
@@ -325,18 +327,8 @@ def apply_cmi_redundancy_gate(
     # resident partition (byte-identical), so no separate host ``np.quantile`` runs and the two forms cannot
     # diverge; a per-candidate cupy fault falls back to the host ``_quantile_bin`` (no resident code -> that
     # candidate's device sites re-upload the host code, exactly as before this change).
-    cand_bins: dict = {}
-    cand_bins_dev: dict = {}
-    for nm in names:
-        vals = np.asarray(candidates[nm][0], dtype=np.float64)
-        _dev = None
-        _dev = _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _dev)
-        if _dev is not None:
-            import cupy as _cp
-            cand_bins_dev[nm] = _dev
-            cand_bins[nm] = _cp.asnumpy(_dev).astype(np.int64)  # host copy = D2H of the SAME resident partition
-        else:
-            cand_bins[nm] = _quantile_bin(vals, nbins=nbins)
+    cand_bins, cand_bins_dev = _bin_candidates(names, candidates, nbins, _gate_resident, _quantile_bin)
+    nm = names[-1] if names else ""  # the loop variable the code below used to inherit from the binning loop
     marg = {nm: float(candidates[nm][1]) for nm in names}
 
     # PARTITION DEDUP: a monotone/linear remap of an admitted feature
@@ -356,7 +348,7 @@ def apply_cmi_redundancy_gate(
     # partition collapses to the same key.
     _partition_rep: dict = {}  # canonical partition key -> representative name
     _dups_collapsed: list[str] = []
-    nm = _apply_cmi_redundan_partition_collapses_same_key(names, cand_bins, _partition_rep, marg, _dups_collapsed, nm)
+    nm = _apply_cmi_redundan_partition_collapses_same_key(names, cand_bins, _partition_rep, marg, _dups_collapsed, nm, cand_bins_dev)
     names, nm = _apply_cmi_redundan_dups_collapsed(_dups_collapsed, _partition_rep, names, marg, candidates, diagnostics, verbose, nm)
 
     # COST GUARD: the greedy below is O(K^2) in the candidate count. When the pool
@@ -575,7 +567,7 @@ def apply_cmi_redundancy_gate(
         # Fold the winner into the conditioning support, respecting the
         # fragmentation cap (freeze support if folding would shatter the strata).
         new_bin = cand_bins[best_name]
-        candidate_support, _cand_card = _renumber_joint(*[*accepted_bins, new_bin])
+        candidate_support, _cand_card = _joint_with_winner(accepted_bins, accepted_bins_dev, new_bin, cand_bins_dev.get(best_name) if cand_bins_dev else None)
         if _cand_card <= frag_cap:
             accepted_bins.append(new_bin)
             # Keep the resident-code list in lockstep so the NEXT round's device-born support join includes
@@ -609,9 +601,37 @@ def _apply_cmi_redundan_yhit_none(_yhit, y_arr, _yk):
     return y_dense
 
 
+def _bin_candidates(names, candidates, nbins, gate_resident, quantile_bin) -> "tuple[dict, dict]":
+    """Bin every candidate's continuous values once: ``(host_codes, resident_codes)`` per name. A device-backed candidate stays on the device unless the host
+    binner is needed; the host view of resident codes is a lazy mirror that copies back only if a host site reads it."""
+    cand_bins: dict = {}
+    cand_bins_dev: dict = {}
+    for nm in names:
+        vals = candidates[nm][0]
+        if not hasattr(vals, "dev"):
+            vals = np.asarray(vals, dtype=np.float64)
+        dev = _apply_cmi_redundan_gate_resident_np_isfinite(gate_resident, vals, nbins, None)
+        if dev is not None:
+            cand_bins_dev[nm] = dev
+            cand_bins[nm] = LazyHostCodes(dev, np.int64)
+        else:
+            cand_bins[nm] = quantile_bin(np.asarray(vals, dtype=np.float64), nbins=nbins)
+    return cand_bins, cand_bins_dev
+
+
 def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _dev):
     """Block of apply_cmi_redundancy_gate starting at ``if _gate_resident and np.isfinite(vals).all():``."""
-    if _gate_resident and np.isfinite(vals).all():
+    if _gate_resident and hasattr(vals, "dev"):
+        try:
+            import cupy as cp
+
+            from mlframe.feature_selection.filters._mi_greedy_cmi_fe_binning import _quantile_bin_device
+            if bool(cp.isfinite(vals.dev).all()):
+                _dev = _quantile_bin_device(vals.dev, nbins)
+        except Exception as e:
+            logger.debug("device binning of a device-backed candidate failed, falling back to the host path: %s", e)
+            _dev = None
+    elif _gate_resident and np.isfinite(vals).all():
         try:
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
             _dev = _quantile_bin_gpu_resident(vals, nbins)
@@ -621,11 +641,54 @@ def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _
     return _dev
 
 
-def _apply_cmi_redundan_partition_collapses_same_key(names, cand_bins, _partition_rep, marg, _dups_collapsed, nm):
+@functools.lru_cache(maxsize=2)
+def _fingerprint_weights(n: int):
+    """Fixed random 64-bit weights (2, n) on the device, shared by every candidate of the same length."""
+    import cupy as cp
+
+    return cp.asarray(np.random.default_rng(0x5EED).integers(1, 2**63, size=(2, n), dtype=np.uint64))
+
+
+def _joint_with_winner(accepted_bins, accepted_bins_dev, new_bin, new_bin_dev):
+    """Joint of the admitted codes plus the round's winner, for the fragmentation check: ON the device when every code is resident (only the cardinality is
+    needed, so no codes are copied), else the host join. Returns ``(host_support_or_None, occupied_cardinality)``."""
+    from ._mi_greedy_cmi_fe import _renumber_joint
+
+    devs = [*accepted_bins_dev, new_bin_dev]
+    if all(d is not None for d in devs):
+        try:
+            from ._mi_greedy_cmi_fe import _renumber_joint_gpu
+
+            _, card = _renumber_joint_gpu(*devs)
+            return None, card
+        except Exception as e:
+            logger.debug("device join for the fragmentation check failed, using the host join: %s", e)
+    return _renumber_joint(*[*accepted_bins, new_bin])
+
+
+def _device_partition_key(codes_dev) -> bytes:
+    """Partition identity of a resident code vector: a 128-bit weighted-sum fingerprint of its dense (rank-renumbered) codes, so duplicate partitions are
+    found without copying every candidate's codes to the host. Equal partitions give equal keys; a collision needs both independent 64-bit sums to agree."""
+    import cupy as cp
+
+    _, inv = cp.unique(codes_dev, return_inverse=True)
+    inv = inv.astype(cp.uint64).ravel()
+    n = int(inv.shape[0])
+    w = _fingerprint_weights(n)
+    sums = ((w * (inv + cp.uint64(1))[None, :]).sum(axis=1)).get()
+    return n.to_bytes(8, "little") + int(sums[0]).to_bytes(8, "little") + int(sums[1]).to_bytes(8, "little")
+
+
+def _apply_cmi_redundan_partition_collapses_same_key(names, cand_bins, _partition_rep, marg, _dups_collapsed, nm, cand_bins_dev=None):
     """Block of apply_cmi_redundancy_gate starting at ``for nm in sorted(names): # deterministic iteration (name order)``."""
+    # Device fingerprints only when EVERY candidate has resident codes: a device key and a host key for the same partition would not compare equal.
+    _all_dev = bool(cand_bins_dev) and all(cand_bins_dev.get(_n) is not None for _n in names)
     for nm in sorted(names):  # deterministic iteration (name order)
-        _, inv = np.unique(cand_bins[nm], return_inverse=True)
-        key = inv.astype(np.int64).tobytes()
+        if _all_dev:
+            key = _device_partition_key(cand_bins_dev[nm])
+        else:
+            _, inv = np.unique(cand_bins[nm], return_inverse=True)
+            key = inv.astype(np.int64).tobytes()
         rep = _partition_rep.get(key)
         if rep is None:
             _partition_rep[key] = nm
