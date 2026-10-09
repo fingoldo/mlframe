@@ -39,7 +39,7 @@ from ._gpu_resident_select_kernels import fe_gpu_radix_edges_enabled  # noqa: F4
 from ._gpu_resident_select_kernels import transpose_codes_to_cm  # noqa: F401 - re-export only, see module docstring
 
 
-def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False):
+def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False, data_is_cm: bool = False):
     """Return the (nbins-1, K) INTERIOR quantile edges of the resident (n, K) cupy ``cand_gpu`` via the
     sort-free radix-select kernel + cupy's exact 'linear' interpolation (reproduced in float64). The edges
     are BIT-IDENTICAL (in the resulting codes) to ``cp.percentile(cand, linspace(0,100,nbins+1))[1:-1]``.
@@ -62,10 +62,15 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     materialise kernel wrote cm then transposed it to the rm ``cand_gpu``), so the round-trip transpose pair
     (rm->cm here + cm->rm in materialise) collapses to ONE. The order statistics read the same values ->
     BIT-IDENTICAL edges. Validated shape (K, n) == (cand_gpu.shape[1], cand_gpu.shape[0]); any mismatch
-    ignores the hint and transposes (safe)."""
+    ignores the hint and transposes (safe).
+
+    ``data_is_cm``: ``cand_gpu`` is itself the ``(K, n)`` C-order column-major block (what ``fused_gen_cm`` writes), so there is nothing to transpose and no copy is made."""
     import cupy as cp
 
-    n, K = cand_gpu.shape
+    if data_is_cm:
+        K, n = cand_gpu.shape
+    else:
+        n, K = cand_gpu.shape
     is_f32 = cand_gpu.dtype == cp.float32
     # ALL of the order-statistic geometry (ranks, R, shared-mem gate, the cupy 'linear' interp gathers bi/ai/w,
     # the device rank vector ranks_g) depends ONLY on (n, nbins) - NOT the candidate data - so compute it ONCE
@@ -121,7 +126,9 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     # bit-identical order statistics. (The bin_codes step still uses the original (n,K) cand_gpu.)
     # Reuse the materialise kernel's pre-transpose (K, n) cm buffer when handed in (launch-fusion: skip the
     # rm->cm transpose that exactly inverts materialise's cm->rm). Validate shape/contiguity/dtype; else transpose.
-    if cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cand_gpu.dtype:
+    if data_is_cm:
+        data_cm = cand_gpu if cand_gpu.flags.c_contiguous else cp.ascontiguousarray(cand_gpu)
+    elif cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cand_gpu.dtype:
         data_cm = cm_hint
     elif cm_hint is not None and cm_hint.shape == (K, n) and cm_hint.flags.c_contiguous and cm_hint.dtype == cp.float32 and cand_gpu.dtype == cp.float64:
         # STRICT-f64 fusion recovery (2026-07-02, nsys-driven): under MLFRAME_FE_GPU_BINNING_DTYPE=float64 the

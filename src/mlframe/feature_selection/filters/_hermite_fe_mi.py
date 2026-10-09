@@ -305,7 +305,7 @@ def _shifted_y_cached(y_gpu, y_min: int):
 
 
 def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
-                                           keep_dtype: bool = False, relax_binning: bool = False):
+                                           keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False):
     """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays - the H2D-FREE core of
     :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy float64 candidate
     matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
@@ -321,9 +321,15 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     coalesced f32 select) instead of being upcast to f64. The interp edges and the plug-in MI math stay
     f64 (counts are integers), so the only effect is f32-precision order statistics -> SELECTION-EQUIVALENT
     (not bit-identical) to the f64 path: the edges differ from f64 only at ties, where f32 rounding can move
-    a boundary row. Use ONLY where the caller validates selection-equivalence (the f32 FE-batch path)."""
+    a boundary row. Use ONLY where the caller validates selection-equivalence (the f32 FE-batch path).
+
+    ``x_is_cm``: ``X_gpu`` is the ``(k, n)`` C-order column-major block (column ``j`` of the candidate matrix is row ``j``), which is what the edge select and the MI kernel read,
+    so a producer that builds it that way saves the transpose; the result is the same values in the same column order."""
     import cupy as cp
-    n, k = X_gpu.shape
+    if x_is_cm:
+        k, n = X_gpu.shape
+    else:
+        n, k = X_gpu.shape
     if n == 0 or k == 0:
         return np.zeros(k, dtype=np.float64)
     if not (keep_dtype and X_gpu.dtype == cp.float32) and X_gpu.dtype != cp.float64:
@@ -375,17 +381,28 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # exact contract, no test re-frame. Falls back to cp.percentile when the radix path is inapplicable
     # (R over cap / shared-mem over limit / k==1 cupy-axis bug) or disabled (MLFRAME_FE_GPU_RADIX_EDGES=0).
     interior = None
+    x_cm = None  # the (k, n) column-major copy, made once if the radix path runs and shared with the MI kernel
     # k >= 1: radix-select is correct for single-column too (verified maxdiff 0 vs np.percentile) - unlike
     # cp.percentile(axis=0) which has the k==1 axis bug, so the k==1 fallback below only fires if radix
     # returns None. Routing k==1 here uses the sort-free path on single-column chunks too.
     if k >= 1:
         try:
-            from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
+            from ._gpu_resident_select import _radix_select_interior_edges, _transpose_to_cm, fe_gpu_radix_edges_enabled
             if fe_gpu_radix_edges_enabled():
-                interior = _radix_select_interior_edges(X_gpu, n_bins)  # (n_bins-1, k), sort-free, == edges[1:-1]
+                # ONE transpose for both consumers: the radix select and the MI kernel each need the (k, n) column-major copy of this matrix
+                if x_is_cm:
+                    x_cm = X_gpu
+                    interior = _radix_select_interior_edges(X_gpu, n_bins, data_is_cm=True)
+                else:
+                    x_cm = _transpose_to_cm(X_gpu) if X_gpu.flags.c_contiguous and X_gpu.dtype in (cp.float32, cp.float64) else None
+                    interior = _radix_select_interior_edges(X_gpu, n_bins, cm_hint=x_cm)  # (n_bins-1, k), sort-free, == edges[1:-1]
         except Exception as e:
             logger.debug("_radix_select_interior_edges failed, falling back to the exact percentile path: %s", e)
             interior = None
+    if interior is None and x_is_cm:
+        X_gpu = cp.ascontiguousarray(X_gpu.T)  # the percentile fallback and the code-path MI work on the (n, k) matrix
+        x_is_cm = False
+        x_cm = None
     if interior is None:
         qs = cp.linspace(0.0, 100.0, n_bins + 1)
         if k == 1:
@@ -403,9 +420,11 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     from ._fe_batched_mi import binned_mi_from_values_gpu, binned_mi_from_codes_gpu
     # codes_trusted: y_gpu was shifted to dense 0-based above (y_min subtracted) -> the y-range guard cannot
     # fire; skip its blocking min/max sync on the resident MI hot path (FIX1).
-    _mi_v = binned_mi_from_values_gpu(X_gpu, interior, y_gpu, int(n_bins), int(n_classes), codes_trusted=True)
+    _mi_v = binned_mi_from_values_gpu(None if x_is_cm else X_gpu, interior, y_gpu, int(n_bins), int(n_classes), codes_trusted=True, x_cm=x_cm)
     if _mi_v is not None:
         return _mi_v
+    if x_is_cm:
+        X_gpu = cp.ascontiguousarray(X_gpu.T)  # (n, k) for the code-path fallback below
     from ._gpu_resident_fe import _searchsorted_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals()
     X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
     # codes_trusted: X_binned is searchsorted-produced (dense 0..n_bins-1) and y_gpu was shifted to dense
