@@ -560,8 +560,11 @@ def usability_greedy(
     cupy/device error. The default (flag-off) path never imports it -> byte-identical."""
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-        if fe_gpu_strict_resident_enabled():
+        # The per-call work floor STRICT applies to every other dispatch (n * p >= 1e6): a greedy over a handful of candidates on a few thousand rows is ~6k tiny launches
+        # (0.14-0.25 s resident against 0.03-0.06 s on the host, same selection). ``min_p=2`` because the pool is the shortlisted candidate set, not a wide batch.
+        if fe_gpu_strict_resident_enabled() and fe_gpu_strict_enabled(n=int(np.asarray(y_cont).shape[0]), p=len(pool), min_p=2):
             from ._usability_greedy_gpu_resident import usability_greedy_gpu_resident
             _res = usability_greedy_gpu_resident(
                 pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,

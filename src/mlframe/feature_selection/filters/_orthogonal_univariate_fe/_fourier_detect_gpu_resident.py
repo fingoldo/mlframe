@@ -96,6 +96,13 @@ def _seeded_subsample_idx(tr_size: int, cap: int, va_size: int, va_cap: int):
         return cached
 
 
+def _fused_enabled() -> bool:
+    """Whether the fused periodogram / deflation kernels are used; ``MLFRAME_FE_FOURIER_FUSED=0`` restores the cupy-op-per-step implementation."""
+    import os
+
+    return os.environ.get("MLFRAME_FE_FOURIER_FUSED", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
 def _corr_sq_centered_gpu(cp, v, yc, y_ss: float) -> float:
     """Squared Pearson correlation of resident ``v`` with a pre-centered resident
     ``yc`` (sum-of-squares ``y_ss``), mirroring the CPU ``_corr_sq_centered``
@@ -115,6 +122,10 @@ def _power_centered_gpu(cp, z, yc, y_ss: float, freq: float) -> float:
     """Periodogram power at ``freq`` against pre-centered resident ``yc`` - GPU
     twin of ``_power_centered`` / ``_power_centered_fused_par_njit``. sin/cos
     planes are resident; only the final scalar power comes back."""
+    if _fused_enabled():
+        from ._fourier_fused_gpu import power_sincos
+
+        return float(power_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(yc, dtype=cp.float64), y_ss, cp.asarray([float(freq)]))[0])
     ang = (_TWO_PI * float(freq)) * z
     s = cp.sin(ang)
     c = cp.cos(ang)
@@ -128,6 +139,10 @@ def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
     per-frequency scalar D2H). Selection-equivalent to calling ``_power_centered_gpu``
     per frequency: same raw-moment v_ss = v@v - sum(v)^2/n, same num = v@yc, same
     relative degeneracy guard, summed over the sin + cos planes."""
+    if _fused_enabled():
+        from ._fourier_fused_gpu import power_sincos
+
+        return power_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(yc, dtype=cp.float64), y_ss, freqs_dev)
     n = z.shape[0]
     ang = (_TWO_PI * freqs_dev)[:, None] * z[None, :]  # (F, n)
     s = cp.sin(ang)
@@ -178,6 +193,12 @@ def _deflate_sincos_gpu(cp, z, y, freq: float):
     ``[1, sin, cos]`` - GPU twin of ``_deflate_sincos``. Normal-equations solve
     on the 3-col design (lstsq fallback on singular A^T A). Stays resident: the
     returned residual is a device array, no D2H of y."""
+    if _fused_enabled():
+        from ._fourier_fused_gpu import deflate_sincos
+
+        fused = deflate_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(y, dtype=cp.float64), float(freq))
+        if fused is not None:
+            return fused
     ang = (_TWO_PI * float(freq)) * z
     A = cp.stack([cp.ones_like(z), cp.sin(ang), cp.cos(ang)], axis=1)  # (n, 3)
     try:
@@ -314,15 +335,19 @@ def detect_fourier_freqs_for_col_gpu(
 
     # Coarse-grid sin/cos plane on TRAIN, built ONCE (depends only on z). Resident (nf, n).
     grid_dev = cp.asarray(np.asarray(grid, dtype=np.float64))  # tiny H2D (grid is O(48))
-    ang_plane = (_TWO_PI * grid_dev)[:, None] * z_tr[None, :]  # (nf, n)
-    sin_plane = cp.sin(ang_plane)
-    cos_plane = cp.cos(ang_plane)
-    sin_mean = sin_plane.mean(axis=1, keepdims=True)
-    cos_mean = cos_plane.mean(axis=1, keepdims=True)
-    sc_plane = sin_plane - sin_mean  # centered (nf, n)
-    cc_plane = cos_plane - cos_mean
-    s_ss_vec = (sc_plane * sc_plane).sum(axis=1)  # (nf,)
-    c_ss_vec = (cc_plane * cc_plane).sum(axis=1)
+    fused = _fused_enabled()
+    if fused:
+        z_tr_64 = cp.ascontiguousarray(z_tr, dtype=cp.float64)  # the periodogram kernel reads float64
+    else:
+        ang_plane = (_TWO_PI * grid_dev)[:, None] * z_tr[None, :]  # (nf, n)
+        sin_plane = cp.sin(ang_plane)
+        cos_plane = cp.cos(ang_plane)
+        sin_mean = sin_plane.mean(axis=1, keepdims=True)
+        cos_mean = cos_plane.mean(axis=1, keepdims=True)
+        sc_plane = sin_plane - sin_mean  # centered (nf, n)
+        cc_plane = cos_plane - cos_mean
+        s_ss_vec = (sc_plane * sc_plane).sum(axis=1)  # (nf,)
+        c_ss_vec = (cc_plane * cc_plane).sum(axis=1)
 
     out: list = []
     for _ in range(max(1, int(max_freqs))):
@@ -335,11 +360,16 @@ def detect_fourier_freqs_for_col_gpu(
         if y_ss < 1e-24:
             break
         # Coarse peak-pick: batched matvec over the resident plane -> power per grid freq, scalar argmax.
-        num_s = sc_plane @ yc  # (nf,)
-        num_c = cc_plane @ yc
-        p_s = cp.where(s_ss_vec >= 1e-24, (num_s * num_s) / (s_ss_vec * y_ss), 0.0)
-        p_c = cp.where(c_ss_vec >= 1e-24, (num_c * num_c) / (c_ss_vec * y_ss), 0.0)
-        power_vec = p_s + p_c  # (nf,)
+        if fused:
+            from ._fourier_fused_gpu import power_sincos
+
+            power_vec = power_sincos(cp, z_tr_64, cp.ascontiguousarray(yc, dtype=cp.float64), y_ss, grid_dev)
+        else:
+            num_s = sc_plane @ yc  # (nf,)
+            num_c = cc_plane @ yc
+            p_s = cp.where(s_ss_vec >= 1e-24, (num_s * num_s) / (s_ss_vec * y_ss), 0.0)
+            p_c = cp.where(c_ss_vec >= 1e-24, (num_c * num_c) / (c_ss_vec * y_ss), 0.0)
+            power_vec = p_s + p_c  # (nf,)
         best_gi = int(cp.argmax(power_vec))  # scalar D2H
         best_f = grid[best_gi]
         refined_f = _refine_peak_freq_gpu(cp, z_tr, yc, y_ss, best_f)

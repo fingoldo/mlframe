@@ -132,11 +132,25 @@ def _als_solve_weighted_gpu(cp, B, w, b):
         return cp.linalg.lstsq(B if w is None else B * w[:, None], b, rcond=None)[0]
 
 
+def _fused_als_enabled() -> bool:
+    """Whether the fused ALS sweep (about twenty launches per call) is used; ``MLFRAME_FE_ALS_FUSED=0`` selects the original multi-kernel sweep."""
+    import os
+
+    return os.environ.get("MLFRAME_FE_ALS_FUSED", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
 def _als_sweep_gpu(cp, Ba, Bb, yc, iters) -> tuple:
     """Resident alternating sweep shared by both entry points. ``Ba``/``Bb``/``yc``
     are resident; returns the two host coefficient vectors (or ``(None, None)``)."""
     from ._als_kernels_gpu import design_matvec
 
+    if _fused_als_enabled():
+        from ._als_fused_gpu import als_sweep_fused
+
+        fused = als_sweep_fused(cp, Ba, Bb, yc, iters)
+        if fused is not None:
+            return fused
+        # no finite answer from the fused kernels (a singular normal matrix): the loop below falls back to lstsq for it
     # Initialise g(b) from a plain 1-D least-squares fit on the b-basis (resident).
     cb = _als_solve_weighted_gpu(cp, Bb, None, yc)
     g = design_matvec(cp, Bb, cb)

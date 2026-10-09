@@ -9724,9 +9724,11 @@ def test_row_attention_ymean_carries_neighbour_signal_and_matches_train_oof(conf
     of 0.05 catches a train/predict mismatch without tripping on seed noise.
 
     Not asserted, because it does not hold: that adding these features lifts a booster. On this target ``+rowattn`` lowers LightGBM's AUC by 0.011 to
-    0.015 on average over six seeds, against +0.038 for an exact Euclidean kNN-mean-y. The module retrieves neighbours by cosine similarity on
-    projected, normalised vectors, which recovers only part of a Euclidean neighbourhood structure (bare AUC 0.60 to 0.76 against 0.90 for the
-    exact feature).
+    0.015 on average over six seeds, against +0.038 for an exact Euclidean kNN-mean-y over the informative columns. The gap is the space the neighbours are
+    searched in more than the metric: a neighbour-mean feature searched in all 12 standardised columns lifts by -0.004 (Euclidean) and -0.008 (cosine), in a
+    random 8-d projection by -0.001 either way, and in the 4 columns a quick LightGBM ranks highest (it picked the informative columns 0 to 3 on every seed) by
+    +0.038 (Euclidean, equal to the oracle) and +0.016 (cosine). ``projection="importance"`` lifts by -0.005 to +0.003, so it does not yet reproduce that
+    top-column selection.
     """
     held_out, gap = [], []
     for seed in range(3):
