@@ -277,6 +277,7 @@ neural = [
     "torch>=2.6",
     # 2.4 is the floor for pytorch-lightning's path traversal (CVE-2024-8019), which ``lightning`` pulls in; also 3.9-compatible.
     "lightning>=2.6.6; python_version >= '3.10'",  # PYSEC-2026-3624; 2.6.6 requires Python >=3.10
+    "pytorch-lightning>=2.6.6; python_version >= '3.10'",  # PYSEC-2026-3967 (remote code execution through checkpoint hyperparameters); lightning pulls it unpinned and the lock had kept 2.6.5
     "lightning>=2.4; python_version < '3.10'",
     "captum>=0.7",
     # Not imported directly; floors torch's own transitive setuptools resolution above the
@@ -377,7 +378,8 @@ mlflow = [
     # 0.49.3 and the advisories above stay OPEN there -- same tradeoff as pillow in [project.dependencies].
     "aiohttp>=3.14.3; python_version >= '3.10'",  # PYSEC-2026-3545/3546/3547; measured open at 3.14.1
     "aiohttp>=3.13.5; python_version < '3.10'",
-    "cryptography>=48.0.1,<49",  # mlflow itself caps cryptography<49
+    "cryptography>=50.0.0,<51; python_version >= '3.10'",  # PYSEC-2026-3552/3553/3554, open at 48.0.1; mlflow 3.17 allows <51
+    "cryptography>=48.0.1,<49; python_version < '3.10'",  # the mlflow releases that still run on 3.9 cap cryptography<49
     "starlette>=1.3.1; python_version >= '3.10'",
     "starlette>=0.49.3; python_version < '3.10'",
 ]
