@@ -40,7 +40,7 @@ def mdlp_bin_edges(
     max_y_classes: int = 64,
     fast_mode: bool = False,
     alpha: float = 0.05,
-    n_permutations: int = 30,
+    n_permutations: int = 15,
     bonferroni: bool = False,
     validated_seed: int = 0,
     y_pseudo_classes: int = 16,
@@ -126,7 +126,10 @@ def mdlp_bin_edges(
         alpha: Significance level for the validated-split accept test (default path
             only). Default ``0.05``.
         n_permutations: Permutation-null draws for the small/sparse-node fallback
-            (default path only). Default ``30``.
+            (default path only). Default ``15`` (was 30): a split is accepted when its gain exceeds the
+            ``ceil((1 - alpha) * B)``-th smallest null gain, which leaves 2 of 30 draws above the threshold
+            (nominal false-accept rate 2/31 = 6.5%) but 1 of 15 (1/16 = 6.25%), so 15 draws are as strict as 30
+            while costing half; 10 draws leave 1 of 10 (9.1%) and are looser.
         bonferroni: Extra depth-wise ``alpha / 2**depth`` correction on top of the
             (always-applied) per-node candidate-count correction (default path only).
             Default ``False`` - classic ChiMerge/Chi2 use one fixed significance level

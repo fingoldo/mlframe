@@ -320,7 +320,7 @@ def edges_mah(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarra
 
 def edges_fayyad_irani(
     x: np.ndarray, y: np.ndarray, *, max_depth: int = 8, min_split_size: int = 5, backend: str = "njit", scaled_min_split: bool = False,
-    max_y_classes: int = 64, fast_mode: bool = False, alpha: float = 0.05, n_permutations: int = 30, bonferroni: bool = False,
+    max_y_classes: int = 64, fast_mode: bool = False, alpha: float = 0.05, n_permutations: int = 15, bonferroni: bool = False,
     validated_seed: int = 0, y_pseudo_classes: int = 16,
 ) -> np.ndarray:
     """Fayyad-Irani MDLP supervised edges. Flags forwarded:

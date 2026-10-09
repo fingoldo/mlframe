@@ -79,3 +79,10 @@ def test_held_out_information_is_not_lost(seed):
     new = held_out_mi(mdlp_bin_edges(x[:half], y[:half]))
     old = held_out_mi(mdlp_bin_edges(x[:half], y[:half], y_pseudo_classes=64))
     assert new >= old - 0.01
+
+
+def test_the_default_permutation_count_is_fifteen():
+    """No argument equals an explicit 15 draws, through both the binning function and the edge builder."""
+    x, y = _data(seed=5)
+    np.testing.assert_array_equal(mdlp_bin_edges(x, y), mdlp_bin_edges(x, y, n_permutations=15))
+    np.testing.assert_array_equal(edges_fayyad_irani(x, y), edges_fayyad_irani(x, y, n_permutations=15))
