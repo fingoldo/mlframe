@@ -48,3 +48,12 @@ Source: latest master run of every workflow (`gh run list --workflow <id> --bran
 | L2 | Make every advisory step blocking | Decide per step from the logs: a step that is clean becomes blocking now, a step with findings gets them fixed first. The census of the other advisory steps is pending. | OPEN |
 | K1 | `kaleido` is not installed in CI, so `tests/reporting/test_kaleido_*` skip | `kaleido` appears only in the deptry ignore lists of `pyproject.toml`, never in an extra, so `.[all,dev]` cannot install it. The code under test (static plotly export, hang and recovery paths) is therefore never exercised in CI. | OPEN: add to the `viz` extra and regenerate `uv.lock` |
 | K2 | Other forgotten modules | Test skips of the form "could not import X" in the downloaded CI logs: `mlxtend` (3 files), `ngboost` (2), `kaleido` (2), `gudhi`, `concepts`, `ndd`, `ml_insights`, `mlflow` (1 each), plus intentionally heavy `tensorflow`, `autogluon.tabular`, `lightautoml`, `cupy` (GPU only), and the external `mrmr` comparison package. None of `kaleido`, `mlxtend`, `ngboost`, `gudhi`, `ndd`, `ml_insights` is declared in an extra. | OPEN: declare the light ones in `dev`, leave the heavy ones skipped on purpose |
+
+## Local GPU-only runs after the fixes (seed 12345)
+
+| ID | Observation | Status |
+|---|---|---|
+| G1 | Full `-m gpu` runs: 479 passed and 2 failed, then 479 passed and 2 failed again with different tests. `test_biz_val_gpu_interaction_faster_than_numba` is a wall-clock ratio (0.47x to 0.56x against 1.15x) that fails every time the host is busy | OPEN: timing test on a shared machine, to be judged on a quiet host |
+| G2 | `test_ensure_joint_hist_tuning_saves_expected_schema` failed in two full runs and passed in the third, in every fixed-order run, in every in-file random order and after the tuning-cache test's two likely neighbours. Its read-back now goes through a fresh instance and its assertion message names the cache directory and the files written | OPEN: cause not confirmed, diagnostics in place |
+| G3 | `test_strict_fit_copies_back_only_result_columns` read back 6.57 MB against a 2.4 MB budget in one full run and passes alone (about 3 columns) | OPEN: order-dependent, not reproduced |
+| G4 | One run of the 92 files before the traffic test hit `cudaErrorIllegalAddress` at `test_fe_fusion_scoring_subsample`, which poisoned the CUDA context for 23 later tests and 4 fixtures. The same test passes alone, and the 22 files before it passed under `CUDA_LAUNCH_BLOCKING=1` | OPEN: not reproduced; the GPU is shared with other sessions |
