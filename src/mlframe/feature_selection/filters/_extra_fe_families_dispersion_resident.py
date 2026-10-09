@@ -93,7 +93,7 @@ def _emit_kind_gpu(cp, z, kind: str):
     raise ValueError(f"conditional_dispersion: unknown kind {kind!r}")
 
 
-def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], column_major: bool = False) -> Any:
+def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], column_major: bool = False, out_dtype: Any = None) -> Any:
     """Build the conditional-dispersion candidate matrix ON the device, one column per ``col_specs`` entry, in
     the GIVEN order. Reproduces ``generate_conditional_dispersion_features``'s per-pair body on device from
     resident operand columns.
@@ -153,13 +153,15 @@ def build_dispersion_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[di
 
         out_cols.append(_emit_kind_gpu(cp, z_g, kind))
 
+    dt = cp.float64 if out_dtype is None else out_dtype
     if not out_cols:
-        return cp.empty((0, n) if column_major else (n, 0), dtype=cp.float64)
-    # column_major: the columns are the rows of the (K, n) block (a plain concatenation) - what the edge select and the MI kernel read, so no transpose follows
-    return cp.ascontiguousarray(cp.stack(out_cols, axis=0 if column_major else 1).astype(cp.float64, copy=False))
+        return cp.empty((0, n) if column_major else (n, 0), dtype=dt)
+    # column_major: the columns are the rows of the (K, n) block (a plain concatenation) - what the edge select and the MI kernel read, so no transpose follows;
+    # each column is cast to ``out_dtype`` before the stack so a float32 block is never built in float64
+    return cp.ascontiguousarray(cp.stack([c.astype(dt, copy=False) for c in out_cols], axis=0) if column_major else cp.stack(out_cols, axis=1).astype(dt, copy=False))
 
 
-def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], column_major: bool = False) -> Any:
+def build_residual_abs_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], column_major: bool = False, out_dtype: Any = None) -> Any:
     """Build the ABSOLUTE Family-B mean-residual matrix ``|x_i - E[x_i|bin(x_j)]|`` ON the device, one column
     per ``col_specs`` entry, in the GIVEN order. Reproduces ``_extra_fe_families.generate_conditional_residual_features``'s
     per-pair body on device from resident operand columns - the SAME bin-code gather + per-bin-mean subtract
@@ -241,10 +243,10 @@ def dual_uplift_sibling_mi_resident(
     if not col_specs:
         return np.empty((0,), dtype=np.float64)
     try:
-        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident, relaxed_candidate_dtype
         from ._fe_resident_operands import resident_operand
 
-        mat_gpu = build_residual_abs_matrix_gpu(cp, raw_X, list(col_specs), column_major=True)
+        mat_gpu = build_residual_abs_matrix_gpu(cp, raw_X, list(col_specs), column_major=True, out_dtype=relaxed_candidate_dtype(cp))
         if mat_gpu.shape[0] == 0:
             return np.empty((0,), dtype=np.float64)
         _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
@@ -252,7 +254,7 @@ def dual_uplift_sibling_mi_resident(
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         return np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, x_is_cm=True),
+            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
             dtype=np.float64,
         )
     except Exception as _exc:
@@ -314,10 +316,10 @@ def local_mi_gate_dispersion_resident(
     y_bin = _coerce_y_classes(y)
 
     try:
-        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident, relaxed_candidate_dtype
         from ._fe_resident_operands import resident_operand
 
-        mat_gpu = build_dispersion_matrix_gpu(cp, raw_X, col_specs, column_major=True)
+        mat_gpu = build_dispersion_matrix_gpu(cp, raw_X, col_specs, column_major=True, out_dtype=relaxed_candidate_dtype(cp))
         if mat_gpu.shape[0] == 0:
             return []
         _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
@@ -325,7 +327,7 @@ def local_mi_gate_dispersion_resident(
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         cand_mi = np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, x_is_cm=True),
+            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
             dtype=np.float64,
         )
     except Exception as _exc:

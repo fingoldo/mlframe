@@ -76,3 +76,22 @@ def test_gate_grid_mi_is_identical_with_and_without_rank_binning_layouts():
     mat = cp.ascontiguousarray(cp.concatenate(blocks, axis=1))
     want = _plugin_mi_classif_batch_cuda_resident(mat, cp.asarray(y), 10, y_min=0, n_classes=2, relax_binning=True)
     np.testing.assert_array_equal(got, want)
+
+
+def test_float32_store_equals_casting_the_float64_block():
+    """The float32 build rounds each value at the store: bit for bit the cast of the float64 block."""
+    cols = _cols(4, 25_000, seed=21)
+    f64 = rc._build_best_existing_op_candidates_gpu_cm(cols, cp)
+    f32 = rc._build_best_existing_op_candidates_gpu_cm(cols, cp, out_dtype=cp.float32)
+    assert f32.dtype == cp.float32 and f32.shape == f64.shape
+    np.testing.assert_array_equal(cp.asnumpy(f32), cp.asnumpy(f64.astype(cp.float32)))
+
+
+def test_relaxed_candidate_dtype_follows_the_criterion_dtype(monkeypatch):
+    """float32 with the relaxed criterion dtype on (default), float64 with MLFRAME_CRIT_DTYPE_RELAXED=0."""
+    from mlframe.feature_selection.filters._hermite_fe_mi import relaxed_candidate_dtype
+
+    monkeypatch.delenv("MLFRAME_CRIT_DTYPE_RELAXED", raising=False)
+    assert relaxed_candidate_dtype(cp) == cp.float32
+    monkeypatch.setenv("MLFRAME_CRIT_DTYPE_RELAXED", "0")
+    assert relaxed_candidate_dtype(cp) == cp.float64

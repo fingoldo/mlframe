@@ -106,20 +106,28 @@ void build_op_cands_cm(const double* __restrict__ M, const int* __restrict__ pi,
     out[(long long)c * n + row] = val;
 }
 """
-_BUILD_OPCANDS_CM_KERNEL = None
+_BUILD_OPCANDS_CM_F32_SRC = _BUILD_OPCANDS_CM_SRC.replace("void build_op_cands_cm(", "void build_op_cands_cm_f32(").replace("double* __restrict__ out)", "float* __restrict__ out)").replace(
+    "out[(long long)c * n + row] = val;", "out[(long long)c * n + row] = (float)val;"
+)
+_BUILD_OPCANDS_CM_KERNELS: dict = {}
 
 
-def _get_build_opcands_cm_kernel(cp):
-    """Lazily compile and cache the column-major ``build_op_cands_cm`` RawKernel."""
-    global _BUILD_OPCANDS_CM_KERNEL
-    if _BUILD_OPCANDS_CM_KERNEL is None:
-        _BUILD_OPCANDS_CM_KERNEL = cp.RawKernel(_BUILD_OPCANDS_CM_SRC, "build_op_cands_cm")
-    return _BUILD_OPCANDS_CM_KERNEL
+def _get_build_opcands_cm_kernel(cp, f32: bool = False):
+    """Lazily compile and cache the column-major ``build_op_cands_cm`` RawKernel (the ``f32`` twin rounds each value to float32 at the store)."""
+    key = "f32" if f32 else "f64"
+    ker = _BUILD_OPCANDS_CM_KERNELS.get(key)
+    if ker is None:
+        ker = cp.RawKernel(_BUILD_OPCANDS_CM_F32_SRC if f32 else _BUILD_OPCANDS_CM_SRC, "build_op_cands_cm_f32" if f32 else "build_op_cands_cm")
+        _BUILD_OPCANDS_CM_KERNELS[key] = ker
+    return ker
 
 
-def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp):
-    """:func:`_build_best_existing_op_candidates_gpu` as a ``(k, n)`` column-major block (candidate ``c`` is row ``c``; same columns in the same order, same values)."""
+def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=None):
+    """:func:`_build_best_existing_op_candidates_gpu` as a ``(k, n)`` column-major block (candidate ``c`` is row ``c``; same columns in the same order, same values).
+
+    ``out_dtype=float32`` stores each value rounded to float32 (what casting the finished float64 block gives), saving the cast pass and the double-width buffer."""
     m = len(cols_arr_gpu)
+    f32 = out_dtype is not None and np.dtype(out_dtype) == np.dtype(np.float32)
     try:
         n = int(cols_arr_gpu[0].shape[0])
         M = cp.ascontiguousarray(cp.stack(cols_arr_gpu, axis=0).astype(cp.float64, copy=False))  # (m, n)
@@ -129,16 +137,16 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp):
         k = m + 4 * npairs + 2 + has_sum
         pi = cp.asarray(np.asarray([p[0] for p in pairs] or [0], dtype=np.int32))
         pj = cp.asarray(np.asarray([p[1] for p in pairs] or [0], dtype=np.int32))
-        out = cp.empty((k, n), dtype=cp.float64)
+        out = cp.empty((k, n), dtype=cp.float32 if f32 else cp.float64)
         total = n * k
         threads = 256
-        _get_build_opcands_cm_kernel(cp)(
+        _get_build_opcands_cm_kernel(cp, f32)(
             ((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out)
         )
         return out
     except Exception as e:
         logger.debug("column-major batched-fill kernel failed, transposing the row-major build: %s", e)
-        return cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T)
+        return cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T.astype(cp.float32 if f32 else cp.float64, copy=False))
 
 
 def _get_build_opcands_kernel(cp):
@@ -230,7 +238,10 @@ def best_existing_op_mi_resident(
         from ._fe_resident_operands import resident_operand
         cols_arr_gpu = [resident_operand(arrs[c], ("op", c), dtype=cp.float64) for c in names]
         # column-major block unless the rank-binning kernel (which takes the (n, k) matrix) is asked for
-        mat_gpu = _build_best_existing_op_candidates_gpu(cols_arr_gpu, cp) if rank_binning else _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu, cp)
+        from ._hermite_fe_mi import relaxed_candidate_dtype
+
+        _cdt = relaxed_candidate_dtype(cp)
+        mat_gpu = _build_best_existing_op_candidates_gpu(cols_arr_gpu, cp) if rank_binning else _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu, cp, out_dtype=_cdt)
         if y_gpu is None:
             # y is a fit-constant -> resident cache (instrumentation: 30x re-upload here when y_gpu is None).
             y_gpu = resident_operand(yi, "y", dtype=np.int64)
@@ -243,7 +254,7 @@ def best_existing_op_mi_resident(
                 return None
         else:
             mis = _plugin_mi_classif_batch_cuda_resident(
-                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True, x_is_cm=True,
+                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True, keep_dtype=True, x_is_cm=True,
             )
         return float(np.max(mis))
     except Exception as _exc:
@@ -295,6 +306,9 @@ def gate_grid_mi_resident(
         # Column-major unless the rank-binning kernel (which takes the (n, k) matrix) is asked for: each combo's tau grid is then a (k_combo, n) block, the blocks concatenate along
         # the row axis, and the plug-in MI edge-selects and scores the result without a transpose. The elements are the same expressions on the same operands either way.
         cm = not rank_binning
+        from ._hermite_fe_mi import relaxed_candidate_dtype
+
+        _gdt = relaxed_candidate_dtype(cp)  # each block is cast once, block by block, instead of the concatenated matrix afterwards
         blocks = []  # device (k_combo, n) [column-major] or (n, k_combo) matrices, built op-for-op like the host tau-grid
         for mode, ctup, cols, taus in specs:
             taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)
@@ -318,7 +332,7 @@ def gate_grid_mi_resident(
                     blk = cp.where(cv_g[:, None] > taus_g[None, :], av_g[:, None], bv_g[:, None])
             else:
                 return None  # unknown mode -> host fallback
-            blocks.append(cp.ascontiguousarray(blk.astype(cp.float64, copy=False)))
+            blocks.append(cp.ascontiguousarray(blk.astype(_gdt if cm else cp.float64, copy=False)))
         mat_gpu = cp.ascontiguousarray(cp.concatenate(blocks, axis=0 if cm else 1)) if len(blocks) > 1 else blocks[0]
         if y_gpu is None:
             y_gpu = resident_operand(yi, "y", dtype=np.int64)
@@ -331,7 +345,7 @@ def gate_grid_mi_resident(
                 return None
         else:
             mis = _plugin_mi_classif_batch_cuda_resident(
-                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True, x_is_cm=True,
+                mat_gpu, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True, keep_dtype=True, x_is_cm=True,
             )
         return np.asarray(mis, dtype=np.float64)
     except Exception as _exc:

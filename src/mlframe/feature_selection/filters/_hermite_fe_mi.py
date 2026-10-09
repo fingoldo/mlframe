@@ -304,6 +304,18 @@ def _shifted_y_cached(y_gpu, y_min: int):
         return shifted
 
 
+def relaxed_candidate_dtype(cp):
+    """The dtype a selection-gate producer should emit its candidate block in: float32 when the relaxed criterion dtype is on (the plug-in MI would otherwise cast the finished
+    float64 block to float32 itself, a full extra pass and a double-width buffer), else float64. Casting each element at the store gives the same float32 values as casting the finished block."""
+    try:
+        from ._fe_gpu_batch._devices import crit_float_dtype
+
+        return cp.float32 if crit_float_dtype() == cp.float32 else cp.float64
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("crit_float_dtype() lookup failed, producers keep float64: %s", e)
+        return cp.float64
+
+
 def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
                                            keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False):
     """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays - the H2D-FREE core of

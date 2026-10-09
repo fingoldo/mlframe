@@ -270,7 +270,7 @@ def _oof_column_foldloop(cp, per_fold_stats: list, fold_g, codes_g, n: int, fall
 
 
 def build_binagg_oof_matrix_gpu(
-    cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], fold_ids: np.ndarray, n_folds: int, column_major: bool = False,
+    cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], fold_ids: np.ndarray, n_folds: int, column_major: bool = False, out_dtype: Any = None,
 ) -> Any:
     """Build the OOF binned-aggregate candidate matrix ON the device, one column per ``col_specs`` entry, in
     the GIVEN order. Reproduces ``fit_binned_numeric_agg``'s OOF loop on device from resident operand columns.
@@ -373,12 +373,14 @@ def build_binagg_oof_matrix_gpu(
         oof = _oof_column_gather(cp, per_fold_stats, _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells), glob)
         out_cols.append(oof)
 
+    dt = cp.float64 if out_dtype is None else out_dtype
     if not out_cols:
-        return cp.empty((0, n) if column_major else (n, 0), dtype=cp.float64)
+        return cp.empty((0, n) if column_major else (n, 0), dtype=dt)
     if column_major:
-        # the columns ARE the rows of the (K, n) block: a plain contiguous concatenation, no strided interleave and nothing for a consumer to transpose
-        return cp.ascontiguousarray(cp.stack(out_cols, axis=0).astype(cp.float64, copy=False))
-    return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(cp.float64, copy=False))
+        # the columns ARE the rows of the (K, n) block: a plain contiguous concatenation, no strided interleave and nothing for a consumer to transpose. Each column is cast
+        # to ``out_dtype`` before the stack, so a float32 block never exists in float64 (K x n x 8 bytes) and is not cast as a whole afterwards.
+        return cp.ascontiguousarray(cp.stack([c.astype(dt, copy=False) for c in out_cols], axis=0))
+    return cp.ascontiguousarray(cp.stack(out_cols, axis=1).astype(dt, copy=False))
 
 
 def local_mi_gate_binagg_resident(
@@ -450,7 +452,9 @@ def local_mi_gate_binagg_resident(
         from ._fe_resident_operands import resident_operand
 
         fold_ids = binagg_fold_ids(n, n_folds, random_state)
-        mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs, fold_ids, n_folds, column_major=True)  # (K, n): scored and edge-selected without a transpose
+        from ._hermite_fe_mi import relaxed_candidate_dtype
+
+        mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs, fold_ids, n_folds, column_major=True, out_dtype=relaxed_candidate_dtype(cp))  # (K, n): no transpose, no float64 block
         if mat_gpu.shape[0] == 0:
             return []
         _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
@@ -458,7 +462,7 @@ def local_mi_gate_binagg_resident(
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         cand_mi = np.asarray(
-            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, x_is_cm=True),
+            _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
             dtype=np.float64,
         )
     except Exception as _exc:
