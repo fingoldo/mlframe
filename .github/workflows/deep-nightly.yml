@@ -83,7 +83,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@41ada1914549c74e92cb6fb162d6d1bba436a400  # v1.21.0+fixes  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -178,7 +178,7 @@ jobs:
 
       # Installs pyutilz AND this project in one uv call, exactly as ci.yml does -- the extras are what
       # the action installs, so leaving them empty asks it to install nothing.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@41ada1914549c74e92cb6fb162d6d1bba436a400  # v1.21.0+fixes  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -244,7 +244,7 @@ jobs:
       #                       it, and adding two flags' percentages double-counts instead of unioning.
       - name: Upload coverage to Codecov (deep flag)
         if: success() || failure()
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@41ada1914549c74e92cb6fb162d6d1bba436a400  # v1.21.0+fixes  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
         with:
           files: ./coverage.xml
           flags: deep
