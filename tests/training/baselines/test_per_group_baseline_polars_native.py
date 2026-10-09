@@ -17,6 +17,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from tests._perf_paired import assert_paired_speedup
+from tests.conftest import skip_if_host_contended
 
 pl = pytest.importorskip("polars")
 
@@ -110,6 +111,10 @@ def test_biz_val_per_group_baseline_polars_faster_than_pandas_at_1m_rows():
     fused group_by, falling back to two passes, accidentally reintroducing the polars->pandas bridge) trip this assertion.
     """
     from mlframe.training.baselines._dummy_baseline_compute import _per_group_predict
+
+    # polars runs the group_by on every core while the pandas arm is single-threaded, so under xdist the other workers take
+    # polars' cores and the ratio inverts (0.98x measured in deep-nightly); the paired floor is already at its 1.02x minimum there.
+    skip_if_host_contended("a multi-threaded polars arm against a single-threaded pandas arm is not measurable while other workers share the cores")
 
     n_rows = 1_000_000
     train_pl, y = _synth(n_rows, 1_000, 20, seed=20)
