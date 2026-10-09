@@ -74,7 +74,11 @@ def _free_gpu_fe_mempool() -> bool:
     the unused blocks at each step teardown holds the footprint flat (~2.9 GB) and the wall at ~11.2s.
     ``free_all_blocks`` only returns blocks with no live reference, so a resident operand table held across the
     fit is untouched; this is post-compute teardown, never mid-pipeline. Best-effort + env-gated so CPU users /
-    other backends are not touched."""
+    other backends are not touched.
+
+    bench-attempt-rejected: releasing only a pool above a fraction of the card (so a modest 0.8 GB pool survives into the next step) was measured at 100k and 1M rows on the
+    4 GB dev card: fit wall unchanged (12.0 / 12.3 s against 12.0 / 12.1 s). One 320 MB block re-allocation took 0.29 s in a traced run but not in the timed ones.
+    """
     import os as _os
     if not (_os.environ.get("MLFRAME_FE_GPU_STRICT") or _os.environ.get("MLFRAME_CMI_GPU")):
         return False

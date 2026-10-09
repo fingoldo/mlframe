@@ -31,31 +31,48 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
     """
     import scipy.linalg as sla
 
-    yv = y[val_mask]
+    # Integer row indices, computed once: ``take`` with them is several times cheaper than boolean-mask indexing of a full-length column, and every call below slices one.
+    tr_idx = np.flatnonzero(train_mask)
+    va_idx = np.flatnonzero(val_mask)
+    yv = y[va_idx]
     ss = float(np.sum((yv - yv.mean()) ** 2))
-    y_tr = y[train_mask]
+    y_tr = y[tr_idx]
     if isinstance(base_mat, np.ndarray):
-        base_tr = base_mat[train_mask]
-        base_va = base_mat[val_mask]
+        base_tr = base_mat[tr_idx]
+        base_va = base_mat[va_idx]
     else:
-        base_tr = np.column_stack([np.asarray(c)[train_mask] for c in base_mat])
-        base_va = np.column_stack([np.asarray(c)[val_mask] for c in base_mat])
+        base_tr = np.column_stack([np.asarray(c)[tr_idx] for c in base_mat])
+        base_va = np.column_stack([np.asarray(c)[va_idx] for c in base_mat])
 
     def _lstsq_r2(a_tr: np.ndarray, a_va: np.ndarray) -> float:
         """Held-out R^2 from the rank-revealing least-squares solution."""
         coef = np.linalg.lstsq(a_tr, y_tr, rcond=None)[0]
         return 1.0 - float(np.sum((yv - a_va @ coef) ** 2)) / ss
 
-    Q = R = coef_base = None
+    Q = R = coef_base = qty = None
     try:
         Q, R = sla.qr(base_tr, mode="economic")
         if _well_conditioned(R):
-            coef_base = sla.solve_triangular(R, Q.T @ y_tr)
+            qty = Q.T @ y_tr
+            coef_base = sla.solve_triangular(R, qty)
         else:
             Q = R = None
     except Exception as exc:
         logger.debug("mrmr: QR of the raw-protection base design failed; scoring with lstsq: %r", exc, exc_info=True)
         Q = R = None
+
+    def _extended_coef(e_tr: np.ndarray):
+        """Coefficients ``[beta_base; beta_extra]`` of ``y ~ [base | e]`` from the base QR without copying ``Q``: ``E = Q r + E_perp``, ``E_perp = Q2 R2``, so
+        ``R2 beta_e = Q2' y`` and ``R beta_b = Q' y - r beta_e``. ``None`` when the extended factor is ill conditioned (a column collinear with the base)."""
+        r_blk = Q.T @ e_tr
+        e_perp = e_tr - Q @ r_blk
+        q2, r2_blk = sla.qr(e_perp, mode="economic")
+        diag = np.concatenate((np.abs(np.diag(R)), np.abs(np.diag(r2_blk))))
+        if not (np.all(np.isfinite(diag)) and float(diag.min()) > _RCOND * float(diag.max())):
+            return None
+        beta_e = sla.solve_triangular(r2_blk, q2.T @ y_tr)
+        beta_b = sla.solve_triangular(R, qty - r_blk @ beta_e)
+        return np.concatenate((beta_b, beta_e))
 
     def r2(extra=None):
         """Held-out R^2 of ``[base | extra]``, where ``extra`` is one column or an ``(n, m)`` block of columns added together."""
@@ -67,16 +84,18 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
             return _lstsq_r2(base_tr, base_va)
         extra = np.asarray(extra, dtype=np.float64)
         extra = extra.reshape(-1, 1) if extra.ndim == 1 else extra
-        a_va = np.column_stack((base_va, extra[val_mask]))
+        extra_tr = extra[tr_idx]
+        extra_va = extra[va_idx]
         if Q is not None:
             try:
-                q1, r1 = sla.qr_insert(Q, R, extra[train_mask], Q.shape[1], which="col")
-                if _well_conditioned(r1):
-                    coef = sla.solve_triangular(r1, q1.T @ y_tr)
-                    return 1.0 - float(np.sum((yv - a_va @ coef) ** 2)) / ss
+                coef = _extended_coef(extra_tr)
+                if coef is not None:
+                    p = base_va.shape[1]
+                    pred = base_va @ coef[:p] + extra_va @ coef[p:]
+                    return 1.0 - float(np.sum((yv - pred) ** 2)) / ss
             except Exception as e:
-                logger.debug("QR-insert regression probe failed (%s: %s); scoring this candidate with lstsq", type(e).__name__, e)
+                logger.debug("QR-update regression probe failed (%s: %s); scoring this candidate with lstsq", type(e).__name__, e)
         # A candidate collinear with the base (or a rank-deficient base) lands here.
-        return _lstsq_r2(np.column_stack((base_tr, extra[train_mask])), a_va)
+        return _lstsq_r2(np.column_stack((base_tr, extra_tr)), np.column_stack((base_va, extra_va)))
 
     return r2
