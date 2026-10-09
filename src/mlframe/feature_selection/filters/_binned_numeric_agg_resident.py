@@ -217,6 +217,48 @@ def _per_cell_stats_gpu(cp, codes_g, v_g, n_cells: int, stats: Sequence[str]) ->
     return _stats_from_moments_gpu(cp, _per_cell_moments_stable_gpu(cp, codes_g, v_g, n_cells), stats)
 
 
+_OOF_GATHER_KERNEL = None
+
+
+def _oof_gather_kernel(cp):
+    """Lazily built elementwise kernel: out[i] = table[idx[i]] where finite, else the global fallback (one pass over the rows)."""
+    global _OOF_GATHER_KERNEL
+    if _OOF_GATHER_KERNEL is None:
+        _OOF_GATHER_KERNEL = cp.ElementwiseKernel(
+            "int64 idx, raw float64 table, float64 fallback", "float64 out", "double v = table[idx]; out = isfinite(v) ? v : fallback;", "binagg_oof_gather"
+        )
+    return _OOF_GATHER_KERNEL
+
+
+def _row_cell_index(cp, code_cache: dict, gcol, fold_g, codes_g, n_cells: int):
+    """Per-row flat index ``fold * n_cells + cell`` into a ``(n_folds, n_cells)`` stat table, shared by every column of the same group column."""
+    key = ("rowidx", gcol)
+    idx = code_cache.get(key)
+    if idx is None:
+        idx = fold_g * n_cells + codes_g
+        code_cache[key] = idx
+    return idx
+
+
+def _oof_column_gather(cp, per_fold_stats: list, row_index, fallback: float):
+    """The OOF column in ONE pass: row ``i`` takes the stat of its own fold's train-fold cell table at its cell code, or ``fallback`` where that cell was empty.
+
+    Equal to the per-fold loop (:func:`_oof_column_foldloop`: gather at every row's code, select this fold's test rows, empty cell -> fallback) value for value, because every row
+    belongs to exactly one fold, but it replaces ``n_folds`` rounds of gather + isfinite + two wheres over all rows by a single gather from the stacked ``(n_folds, n_cells)`` table."""
+    table = cp.ascontiguousarray(cp.stack(per_fold_stats, axis=0))
+    return _oof_gather_kernel(cp)(row_index, table.reshape(-1), float(fallback))
+
+
+def _oof_column_foldloop(cp, per_fold_stats: list, fold_g, codes_g, n: int, fallback: float):
+    """Reference per-fold assembly of one OOF column (kept as the parity oracle for :func:`_oof_column_gather`)."""
+    oof = cp.full(n, fallback, dtype=cp.float64)
+    for f, per_s in enumerate(per_fold_stats):
+        row_vals = per_s[codes_g]
+        row_stat = cp.where(cp.isfinite(row_vals), row_vals, fallback)
+        oof = cp.where(fold_g == f, row_stat, oof)
+    return oof
+
+
 def build_binagg_oof_matrix_gpu(
     cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], fold_ids: np.ndarray, n_folds: int,
 ) -> Any:
@@ -305,7 +347,7 @@ def build_binagg_oof_matrix_gpu(
         # weight is all-zero, so every cell count is 0, _stats_from_moments emits NaN, and the isfinite select
         # below leaves those test rows at the global fallback - exactly the old degenerate branch.
         _pstats = pair_stats[(gcol, acol)]
-        oof = cp.full(n, glob, dtype=cp.float64)
+        per_fold_stats = []
         for f in range(nf):
             _skey = ("stats", f)
             per_s_all = fold_stat_cache.get(_skey)
@@ -317,12 +359,8 @@ def build_binagg_oof_matrix_gpu(
                 moments = _per_cell_moments_stable_masked_gpu(cp, codes_g, v_safe, w, n_cells)
                 per_s_all = _stats_from_moments_gpu(cp, moments, _pstats)
                 fold_stat_cache[_skey] = per_s_all
-            per_s = per_s_all[stat]
-            # Per-row stat by gathering the per-cell stat at EVERY row's code (known-size gather -> no sync),
-            # then select this fold's TEST rows (fold_g == f) via elementwise where, empty cells -> global.
-            row_vals = per_s[codes_g]
-            row_stat = cp.where(cp.isfinite(row_vals), row_vals, glob)
-            oof = cp.where(fold_g == f, row_stat, oof)
+            per_fold_stats.append(per_s_all[stat])
+        oof = _oof_column_gather(cp, per_fold_stats, _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells), glob)
         out_cols.append(oof)
 
     if not out_cols:
