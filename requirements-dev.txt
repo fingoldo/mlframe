@@ -59,4 +59,4 @@
 # py-ci-shared-ref input and the pre-commit rev; 1.17.0 fails a missing baseline, an unparsable file and an empty scan.
 # Bumped 2026-10-03 from f6aa24a to 9779e9f (still v1.18.0: f6aa24a plus the black_filtered_apply --check speed-up that keeps the tests/ Black job under its 15-minute limit; the 1.19-1.20 gates are not adopted yet), same set of pins.
 # Bumped 2026-10-05 from v1.21.0 (559f720) to 41ada19: v1.21.0 plus the deferred_drift empty-list fix, the psycopg2 dev extra and the empty-module coverage fix; every pin moves together.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret

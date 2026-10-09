@@ -185,7 +185,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@b7a201838334698bdbaf336353d66b3539a34b0f  # v1.22.1+env_write_restore  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"

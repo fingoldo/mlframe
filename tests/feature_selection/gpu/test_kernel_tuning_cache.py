@@ -215,8 +215,14 @@ def test_ensure_joint_hist_tuning_saves_expected_schema(tmp_path, monkeypatch):
     from mlframe.feature_selection.filters._kernel_tuning import _reset_for_tests as _reset2
 
     _reset2()
-    persisted = KernelTuningCache.load_or_create().get_regions("joint_hist_batched")
-    assert persisted, "sweep did not persist joint_hist_batched regions to the cache"
+    # A fresh instance, not ``load_or_create()``: that is a process-wide singleton, and any earlier test that touched it
+    # leaves it bound to ITS cache directory, so reading through it ignores this test's PYUTILZ_KERNEL_CACHE_DIR.
+    persisted = KernelTuningCache().get_regions("joint_hist_batched")
+    written = sorted(str(f.relative_to(tmp_path)) for f in tmp_path.rglob("*") if f.is_file())
+    assert persisted, (
+        f"sweep did not persist joint_hist_batched regions to the cache; the sweep returned {len(regions)} region(s), "
+        f"PYUTILZ_KERNEL_CACHE_DIR={os.environ.get('PYUTILZ_KERNEL_CACHE_DIR')!r}, files under {tmp_path}: {written}"
+    )
     for r in persisted:
         for k in ("n_samples_max", "joint_size_max", "kernel_variant", "block_size"):
             assert k in r, f"region missing {k}: {r}"
