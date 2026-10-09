@@ -32,10 +32,14 @@ logger = logging.getLogger(__name__)
 # (n_rows, npairs, n_combos) grid. npairs spans the narrow joint-MI-pruned F2 pool (few pairs) up to a wide
 # sweep (max_pairs~60); n_combos ~ |unary|^2*|binary| (the medium preset -> ~1734) down to a minimal preset.
 # n_rows axis: GPU H2D/launch overhead amortises with n. Default fallback keeps the un-tuned host njit path.
-_POOLRES_SWEEP_N = [10_000, 50_000, 200_000]
-_POOLRES_SWEEP_NPAIRS = [4, 16, 60]
-_POOLRES_SWEEP_NCOMBOS = [96, 578, 1734]
-_POOLRES_SALT = 1
+# The host njit reference costs ~15-20 ns per (row x pair x combo): 200k x 60 x 1734 is ~7 minutes PER CALL, so the original grid (up to 200k/60/1734) took over 20 minutes
+# even with dominated cells pruned (three points per axis leave nothing to prune until the last step). Cells are capped at ~1e9 row-pair-combos (about 15 s per reference
+# call). Inputs larger than the grid resolve to the largest swept cell (the catch-all); the resident path only gets relatively better with more pairs (one batched pass
+# amortises launches) and was measured 4-6x faster than njit already at 4 pairs, so the largest measured cell is the conservative anchor.
+_POOLRES_SWEEP_N = [10_000, 50_000, 100_000]
+_POOLRES_SWEEP_NPAIRS = [4, 16]
+_POOLRES_SWEEP_NCOMBOS = [96, 578]
+_POOLRES_SALT = 2
 
 
 def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
@@ -132,7 +136,7 @@ def _run_pooltable_sweep() -> list:
         {"n_rows": _POOLRES_SWEEP_N, "npairs": _POOLRES_SWEEP_NPAIRS, "n_combos": _POOLRES_SWEEP_NCOMBOS},
         _make_pooltable_inputs,
         reference="njit",
-        repeats=3, equiv_rtol=1e-9, equiv_atol=1e-9,
+        repeats=2, equiv_rtol=1e-9, equiv_atol=1e-9,
     ))
 
 
