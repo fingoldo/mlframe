@@ -33,6 +33,7 @@ pytestmark = pytest.mark.fuzz
 from tests.training._fuzz_combo import FuzzCombo, build_frame_for_combo
 from tests.training._fuzz_suite_helpers import _assert_prediction_invariants, _iter_trained_models
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+from ._target_type import target_type_for_combo
 
 
 @pytest.fixture(autouse=True)
@@ -73,6 +74,7 @@ def _run_sensor_combo(combo: FuzzCombo, tmp_path):
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
+        target_type=target_type_for_combo(combo, target_col),
         target_carrier=combo.target_carrier,
     )
 

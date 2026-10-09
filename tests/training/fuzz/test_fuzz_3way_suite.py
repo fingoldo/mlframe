@@ -66,6 +66,8 @@ from mlframe.training import (
 )
 
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+from ._target_type import target_type_for_combo
+from tests.conftest import perf_time_budget
 
 # Import config/invariant helpers from the pairwise suite — they stay
 # in one place (DRY across pairwise + 3-way).
@@ -131,7 +133,9 @@ def _combo_param(combo: FuzzCombo):
     return pytest.param(combo, id=combo.pytest_id(), marks=marks)
 
 
-@pytest.mark.timeout(900)
+# A heavy combo (cb + hgb with MRMR, Boruta and SHAP-proxied selection all on) takes about 14 minutes on a loaded host, so the quiet-box
+# budget is widened under xdist and detected contention, as for every other wall-clock budget.
+@pytest.mark.timeout(perf_time_budget(900))
 @pytest.mark.parametrize("combo", [_combo_param(c) for c in COMBOS_3WAY])
 def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
     """Run the suite on one triple-coverage combo. Identical assertion
@@ -146,6 +150,7 @@ def test_fuzz_3way_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
+        target_type=target_type_for_combo(combo, target_col),
     )
     df_input = _maybe_to_parquet(combo, df, tmp_path)
     outlier_detector = _outlier_detector_for_combo(combo)

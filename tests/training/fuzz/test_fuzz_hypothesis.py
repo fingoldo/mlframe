@@ -37,6 +37,7 @@ from mlframe.training import (
 )
 
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+from ._target_type import target_type_for_combo
 from .test_fuzz_suite import (
     _assert_prediction_invariants,
     _preprocessing_for_combo,
@@ -127,6 +128,7 @@ def test_hypothesis_leaf_sampling(tmp_path_factory, leaf, discrete, seed):
     fte = SimpleFeaturesAndTargetsExtractor(
         target_column=target_col,
         regression=(combo.target_type == "regression"),
+        target_type=target_type_for_combo(combo, target_col),
     )
     outlier_detector = _outlier_detector_for_combo(combo)
     custom_pre = _custom_pre_pipelines_for_combo(combo)
