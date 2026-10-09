@@ -774,3 +774,6 @@ Size a rare-class synthetic from the minority count it needs, not the total: a 1
 Prefer `orjson` over the stdlib `json`, and compile regexes once at module scope rather than inside a function.
 Any JSON serialization feeding a hash, cache key or dedup comparison must sort its keys — dict ordering is not stable across processes or versions, so the same logical object otherwise yields different hashes and the cache silently misses.
 A cache attached to an instance at runtime (memo dicts, warmed kernels, device buffers, open handles) must be excluded in `__getstate__`, and the pickle suite run afterwards: the object pickles fine in a smoke test and fails later in a real save/load or joblib fan-out, far from the cause.
+
+## Pushing to a busy master
+Several sessions push to `master` at once and the pre-push hooks (whole-project mypy, smoke tests) take minutes, so a plain `git push` is usually rejected as non-fast-forward. Use `scripts/sync_and_push.sh`: it fetches, merges what arrived, commits the merge (retrying the hook that rewrites line endings) and pushes, up to six times; a conflict stops it with exit 3 and nothing is reset, stashed or forced. Do not edit the working tree while a commit or push is running: the hooks stash and auto-fix files, which makes them report "files were modified" and can revert an edit made in that window.

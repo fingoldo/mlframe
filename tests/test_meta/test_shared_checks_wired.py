@@ -924,7 +924,7 @@ def test_audit_tracker_statuses_are_countable(tracker):
 # Trackers carrying a `| File | Findings | <STATUS> ... |` summary over `### `<file>`` sections of rows. The older
 # rounds keep their counts in prose and per-severity headings, which this check does not parse; they were
 # recounted by hand when their rows were converted.
-_SUMMARISED_TRACKERS = ("audits/reporting_audit_2026-09-06/_TRACKER.md", "audits/2026-10-04/_TRACKER.md")
+_SUMMARISED_TRACKERS = ("audits/reporting_audit_2026-09-06/_TRACKER.md", "audits/2026-10-04/_TRACKER.md", "audits/2026-10-09/_TRACKER.md")
 
 
 @pytest.mark.parametrize("tracker", _SUMMARISED_TRACKERS)

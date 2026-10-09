@@ -29,7 +29,7 @@ jobs:
   black:
     permissions:
       contents: read
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: 8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+      py-ci-shared-ref: 9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
       check-path: src/mlframe

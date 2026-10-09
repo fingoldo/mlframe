@@ -12,11 +12,13 @@ plus a biz_value test quantifying the GPU-vs-numba speedup on a wide proxy and a
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pandas as pd
 import pytest
+
+from tests._perf_paired import assert_paired_speedup
+from tests.conftest import skip_if_host_contended
 
 cupy = pytest.importorskip("cupy")
 pytest.importorskip("xgboost")
@@ -176,6 +178,9 @@ def test_biz_val_gpu_interaction_faster_than_numba():
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions import interaction_tensor_numba
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import interaction_tensor_gpu
 
+    # The numba arm uses every core and the GPU arm shares the card with whatever else is running, so the ratio carries no signal while the host is busy.
+    skip_if_host_contended("a GPU-versus-numba speed ratio is not measurable while other processes use the cores and the card")
+
     X, y, _ = make_regime_dataset(n_samples=3000, n_informative=6, n_noise=34, task="regression", interaction_order=2, interaction_strength=0.6, seed=5)
     model = _fit_xgb(X, y, classification=False, n_estimators=200, max_depth=4)
     ens = extract_ensemble(model)
@@ -186,16 +191,18 @@ def test_biz_val_gpu_interaction_faster_than_numba():
     interaction_tensor_gpu(ens, X.values[:16])
     cupy.cuda.runtime.deviceSynchronize()
 
-    t0 = time.perf_counter()
-    Phi_n, _phi_n, _bn = interaction_tensor_numba(ens, X.values)
-    t_numba = time.perf_counter() - t0
+    def _run_numba():
+        """One numba interaction-tensor pass over the full frame."""
+        return interaction_tensor_numba(ens, X.values)
 
-    t0 = time.perf_counter()
-    Phi_g, _phi_g, _bg = interaction_tensor_gpu(ens, X.values)
-    cupy.cuda.runtime.deviceSynchronize()
-    t_gpu = time.perf_counter() - t0
+    def _run_gpu():
+        """One GPU interaction-tensor pass, synchronised so the timer sees the finished kernels."""
+        out = interaction_tensor_gpu(ens, X.values)
+        cupy.cuda.runtime.deviceSynchronize()
+        return out
 
+    # Paired, interleaved rounds: a stall that lands on one arm in one round cannot decide the verdict.
+    (Phi_n, _phi_n, _bn), (Phi_g, _phi_g, _bg) = assert_paired_speedup(
+        _run_numba, _run_gpu, base_ratio=1.15, n_trials=3, warmup=False, what=f"the GPU interaction kernel against numba on {P} features"
+    )
     np.testing.assert_allclose(Phi_g, Phi_n, rtol=0, atol=1e-6)
-    speedup = t_numba / max(t_gpu, 1e-9)
-    print(f"\n[biz_value] P={P} n={X.shape[0]}: numba {t_numba:.3f}s vs gpu {t_gpu:.3f}s -> {speedup:.2f}x GPU speedup")
-    assert speedup >= 1.15, f"expected >=1.15x GPU-vs-numba speedup on {P} features, got {speedup:.2f}x (numba {t_numba:.3f}s vs gpu {t_gpu:.3f}s)"

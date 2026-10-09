@@ -251,7 +251,7 @@ jobs:
       # collection from blowing up on ModuleNotFoundError) in a SINGLE `uv pip install`. Extracted 2026-07-18
       # to py-ci-shared's install-pyutilz composite action -- this exact clone+uv-install pair was
       # duplicated near-verbatim across 6 workflows in this repo.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -408,7 +408,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
         # (success() || failure()): a test failure in this shard (even one unrelated to coverage, e.g. a
         # meta-test) otherwise skips this step by GitHub Actions' default "only if prior steps succeeded"
         # rule, so codecov never sees that shard's coverage.xml and the merged report stays incomplete --
@@ -494,7 +494,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
@@ -625,16 +625,16 @@ jobs:
   # be redundant, not safer.
   ruff-blocking:
     name: Ruff (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
     with:
       # C901 is gated by the baselined ratchet tests/test_meta/test_function_complexity.py (limit 25); a plain ruff run
       # would fail on the 193 tracked functions over it.
-      py-ci-shared-ref: 8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+      py-ci-shared-ref: 9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
       ignore: "C901"
 
   lint-blocking:
     name: lint + security (blocking, triaged clean)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
     with:
       source-path: src/mlframe
       codespell-paths: src/mlframe
@@ -668,9 +668,9 @@ jobs:
 
   lint-advisory:
     name: lint (advisory)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-advisory.yml@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: 8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+      py-ci-shared-ref: 9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
       source-path: src/mlframe
       # import-linter's two contracts are now real blocking meta-tests
       # (test_no_sibling_backimport_to_facade.py, test_no_inbound_edge_to_benchmarking.py); the
@@ -680,6 +680,9 @@ jobs:
       # Audit the exact versions in uv.lock; resolving the project fails on the git-sourced pyutilz and audits nothing.
       pip-audit-uv-lock: true
       pip-audit-skip-packages: "pyutilz py-ci-shared"
+      # Accepted risks, each written up in audits/2026-10-08/pip_audit_findings.md: torch 2.10 is the last CUDA 12 release (2.13 does not resolve
+      # next to cupy-cuda12x) and caps setuptools below 83. Any advisory not listed here still shows in the report.
+      pip-audit-ignore-vulns: "PYSEC-2025-194 PYSEC-2026-139 PYSEC-2026-3447"
 
   # tests/ is intentionally EXCLUDED from the src-scoped jobs above (root pyproject.toml's
   # [tool.ruff] / [tool.interrogate] both list "tests" in their exclude) -- it carries its own,
@@ -689,22 +692,22 @@ jobs:
   # reusable workflows (py-ci-shared v1.1.0+) point them at tests/ instead of the whole repo.
   tests-ruff-blocking:
     name: Ruff tests/ (real bugs - blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/ruff-blocking.yml@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: 8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+      py-ci-shared-ref: 9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
       check-path: tests
       ignore: "C901"
 
   tests-black-filtered:
     name: Black tests/ (filtered, blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/black-filtered.yml@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
     with:
-      py-ci-shared-ref: 8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+      py-ci-shared-ref: 9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
       check-path: tests
 
   tests-lint-blocking:
     name: lint + security tests/ (blocking)
-    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@8bcc6832fedb22eec1d10a110f4c721b1be23c37  # v1.22.2  # pragma: allowlist secret
+    uses: fingoldo/py-ci-shared/.github/workflows/lint-blocking.yml@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.3+pip_audit_ignore_vulns  # pragma: allowlist secret
     with:
       source-path: tests
       codespell-paths: tests
