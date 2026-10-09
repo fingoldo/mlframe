@@ -8,8 +8,8 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT | DOC | FUTURE |
 |---|---|---|---|---|---|---|---|---|
-| `01_followup_proposals.md` | 8 | 6 | 0 | 0 | 0 | 2 | 0 | 0 |
-| **Total** | **8** | **6** | **0** | **0** | **0** | **2** | **0** | **0** |
+| `01_followup_proposals.md` | 8 | 5 | 1 | 0 | 0 | 2 | 0 | 0 |
+| **Total** | **8** | **5** | **1** | **0** | **0** | **2** | **0** | **0** |
 
 ## Per-report status
 
@@ -25,7 +25,7 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 | **RESOLVED** | P2 | `F-02` | tests/training/fuzz/test_fuzz_3way_suite.py:148, test_fuzz_hypothesis.py:129, test_fuzz_regression_sensors.py:75 | RESOLVED - tests/test_meta/test_fuzz_extractor_passes_target_type.py scans every extractor construction under tests/training/fuzz for target_type; one intentional flag-only construction is allowlisted with its reason |
 | **RESOLVED** | P3 | `F-03` | scripts/sync_and_push.sh | RESOLVED - fetch, merge, commit (retrying the line-ending hook), push loop with exit 3 on a conflict; tests/scripts/test_sync_and_push_script.py runs it in throwaway repositories; documented in CLAUDE.md; used for this round's py-ci-shared push |
 | **RESOLVED** | P2 | `F-04` | .github/workflows/polars-matrix.yml | RESOLVED - daily matrix over polars 1.36.1, 1.41.2, 2.0.0 and latest running the polars-facing tests (802 selected locally); workflow meta tests pass; the first scheduled run has not happened yet |
-| **RESOLVED** | P2 | `F-05` | .github/workflows/ci.yml (lint-advisory call) | RESOLVED - py-ci-shared 9d0cc27 adds pip-audit-ignore-vulns; mlframe pins it as v1.22.3+pip_audit_ignore_vulns and lists the three accepted ids; the py-ci-shared release tag is not cut because the macOS leg of its CI has been queued for over 8 hours (17 of 18 jobs green) |
+| **PARTIAL** | P2 | `F-05` | .github/workflows/ci.yml (lint-advisory call) | PARTIAL - py-ci-shared 9d0cc27 adds the pip-audit-ignore-vulns input, but the released v1.22.3 (e3c24ab) does not contain it, so mlframe pins v1.22.3 and the three accepted ids (PYSEC-2025-194, PYSEC-2026-139, PYSEC-2026-3447) show in the report again; remains: a py-ci-shared release containing 9d0cc27, then re-add the input to ci.yml |
 | **NOT A DEFECT** | P3 | `F-06` | .github/workflows/ci.yml:3-15 | NOT A DEFECT - paths-ignore for **.md, docs/**, audits/** and LICENSE is already on the push trigger, and mypy-full, black-filtered, codeql and hooks-not-in-ci have it too |
 | **RESOLVED** | P3 | `F-07` | scripts/ci_failure_digest.py | RESOLVED - per-workflow failed-job digest with NEW/PERSISTING/FIXED, retrying gh helper and 15 tests; a live run parsed real sklearn-matrix logs correctly; FIXED compares only the last two runs |
 | **NOT A DEFECT** | P2 | `F-08` | tests/feature_selection/mrmr/fe/test_fe_fusion_scoring_subsample.py (cascade victim) | NOT A DEFECT - compute-sanitizer memcheck 0 errors over the two nearest files and the 22-file window clean under CUDA_LAUNCH_BLOCKING=1; the card is shared at about 88% occupancy; re-run memcheck over the whole window if it recurs on a quiet card |
