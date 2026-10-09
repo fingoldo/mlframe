@@ -679,7 +679,6 @@ def binned_numeric_agg_with_recipes(
         feat_df = feat_df[kept_cols]
         if feat_df.shape[1] == 0:
             return X, [], []
-
     assert feat_df is not None
     X_aug = pd.concat([X, feat_df], axis=1)
     recipes = [build_binned_numeric_agg_recipe(n, raw[n]) for n in feat_df.columns]
