@@ -50,6 +50,7 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 from ._fast_host_ops import count_distinct_int
+from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -107,15 +108,14 @@ def _coerce_y_classes(y) -> np.ndarray:
 
 def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
     """Uncached coercion body for ``_coerce_y_classes``: integer/bool y is factorised to dense 0..k-1
-    codes, low-cardinality float y (<=20 uniques) is treated as already-categorical, and genuinely
+    codes, low-cardinality float y (<=FEW_CLASSES_MAX uniques) is treated as already-categorical, and genuinely
     continuous float y is quantile-binned into 10 bins so the plug-in classification MI estimator applies."""
     if np.issubdtype(y_arr.dtype, np.integer) or y_arr.dtype == bool:
         _, y_bin = np.unique(y_arr.astype(np.int64), return_inverse=True)
         return y_bin.astype(np.int64)
     if np.issubdtype(y_arr.dtype, np.floating):
         finite = y_arr[np.isfinite(y_arr)]
-        n_unique = int(np.unique(finite).size) if finite.size else 0
-        if n_unique <= 20:
+        if not (finite.size and _has_more_distinct_than(finite, FEW_CLASSES_MAX)):
             _, y_bin = np.unique(y_arr, return_inverse=True)
             return y_bin.astype(np.int64)
         # Continuous: 10-bin quantile discretisation.

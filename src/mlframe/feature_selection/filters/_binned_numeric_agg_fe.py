@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from typing import Optional, Any
 
 import numpy as np
+from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
 import pandas as pd
 from numba import njit
 
@@ -526,7 +527,7 @@ def binned_numeric_agg_with_recipes(
 
     # GROUP pre-selection by cheap MI(qbin(g); y). y discretised once (deciles) for the relevance proxy.
     y_arr = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()
-    if np.unique(y_arr).size <= 20:  # already categorical / few classes
+    if not _has_more_distinct_than(y_arr, FEW_CLASSES_MAX):  # already categorical / few classes
         _, y_codes = np.unique(y_arr, return_inverse=True)
     else:
         y_codes = np.searchsorted(quantile_edges(y_arr, 10), y_arr, side="right")

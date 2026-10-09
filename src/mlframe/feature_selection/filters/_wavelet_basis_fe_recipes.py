@@ -15,6 +15,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
+from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
 
 from ._wavelet_basis_fe import (
     _WAVELET_MAX_LEGS,
@@ -267,10 +268,13 @@ def hybrid_wavelet_fe_with_recipes(
         return X, [], [], pd.DataFrame(columns=_empty_cols)
     # y -> discrete class codes for the binned joint-MI gate; bin continuous y.
     y_arr = np.asarray(y).ravel()
-    if not np.issubdtype(y_arr.dtype, np.integer) or np.unique(y_arr).size > 20:
+    _y_many = _has_more_distinct_than(y_arr, FEW_CLASSES_MAX)
+    if not np.issubdtype(y_arr.dtype, np.integer) or _y_many:
         try:
+            # more than 20 distinct values already bounds the quantile count by nbins when nbins <= FEW_CLASSES_MAX: no need to sort the column again to count them
+            _y_q = nbins if (_y_many and nbins <= FEW_CLASSES_MAX) else min(nbins, max(2, np.unique(y_arr).size))
             y_codes = pd.qcut(
-                pd.Series(y_arr), q=min(nbins, max(2, np.unique(y_arr).size)),
+                pd.Series(y_arr), q=_y_q,
                 labels=False, duplicates="drop",
             ).to_numpy()
             y_codes = np.where(np.isfinite(y_codes), y_codes, 0).astype(np.int64)

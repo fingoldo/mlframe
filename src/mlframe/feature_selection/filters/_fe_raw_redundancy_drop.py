@@ -69,6 +69,7 @@ import re
 from typing import Iterable, Optional, Sequence, cast, Any
 
 import numpy as np
+from ._y_encoding import _has_more_distinct_than
 
 from ._fe_raw_redundancy_helpers import (
     _is_pseudo_remix_child,
@@ -375,7 +376,7 @@ def drop_redundant_raw_operands(
     st._guard_on = (
         st._yv is not None
         and st._yv.shape[0] == st.n_rows
-        and len(np.unique(st._yv)) >= _MIN_TARGET_DISTINCT_FOR_GUARD  # regression only (see constant)
+        and _has_more_distinct_than(st._yv, _MIN_TARGET_DISTINCT_FOR_GUARD - 1)  # regression only (see constant)
         and _os.environ.get("MLFRAME_FE_DROP_NO_HARM", "1").strip().lower() in ("1", "true", "on", "yes")
     )
     if st._guard_on:
