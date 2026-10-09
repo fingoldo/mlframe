@@ -18,6 +18,8 @@ history.
 
 ### Changed
 
+- **Binned-aggregate FE candidates are assembled in one pass on the GPU.** The out-of-fold column of each candidate used to take `n_folds` rounds of gather, isfinite and two selects over all rows; it is now one gather from the stacked per-fold cell table (identical values). The OOF matrix build at 1M rows went from 0.93 s to 0.50 s.
+- **Kernel tuning sweeps are affordable.** The cupy twin of the usability pair-combo MI is batched (about 100x faster, same values), `sweep_backend_grid` (pyutilz) skips grid cells a variant already dominates, and two kernels that register under an import alias (`rmse_partial_sum`, `fe_mi_split_launch`) and the `polyeval` sweep (empty backend tables) are now tuned by `ensure`.
 - **A fit no longer starts kernel-tuning sweeps in the background by default.** On a machine with a cold tuning cache the dispatchers used to launch a multi-minute sweep inside the first fit, competing with it for CPU and GPU (timings of that fit were meaningless and the sweep, bound to the process, was often lost at exit). Fits now use the built-in measurement-backed defaults, announce once that tuning is available (`mlframe-tune-kernels ensure`), and leave the caller's environment untouched. `MLFRAME_AUTOTUNE=on` restores the old behaviour; an explicit `PYUTILZ_KERNEL_DISABLE_SWEEP` always wins.
 - **`batch_pair_mi` routes a wide target without a logged failure.** A target above the static shared-memory cap (`MAX_Y_BINS_CUDA` = 16 classes; the F2 target has 20) used to provoke the static kernel's `ValueError` on every forced-CUDA call, logged as 'forced CUDA backend failed', before the dynamic-shared-memory kernel served it. The dispatcher now checks both caps up front.
 
