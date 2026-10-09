@@ -116,12 +116,12 @@ pip install -e "./mlframe[all,dev]" -r ./mlframe/requirements-dev.txt   # full i
 
 pip install -e "./mlframe[boosting]"             # catboost + lightgbm + xgboost + ngboost
 pip install -e "./mlframe[calibration]"          # shap + venn-abers + netcal + betacal + pycalib + uncertainty-calibration + properscoring
-pip install -e "./mlframe[neural]"               # torch + lightning + captum + transformers + sentencepiece + setuptools
+pip install -e "./mlframe[neural]"               # torch + lightning + pytorch-lightning + captum + transformers + sentencepiece + setuptools
 pip install -e "./mlframe[automl]"               # flaml (HPO)
 pip install -e "./mlframe[feature_engineering]"  # pysr (symbolic regression) + optbinning + optuna + cma + holidays + rapidfuzz + mlxtend
 pip install -e "./mlframe[sampling]"             # imbalanced-learn + iterative-stratification
 pip install -e "./mlframe[polars_ext]"           # polars-talib + polars-ds
-pip install -e "./mlframe[viz]"                  # plotly + seaborn + altair + hvplot + vegafusion + vl-convert-python + anywidget + ipywidgets + tornado + kaleido
+pip install -e "./mlframe[viz]"                  # plotly + seaborn + altair + hvplot + vegafusion + vl-convert-python + anywidget + ipywidgets + tornado + werkzeug + kaleido
 pip install -e "./mlframe[mlflow]"               # mlflow experiment tracking + aiohttp + cryptography + starlette (security floors)
 pip install -e "./mlframe[db]"                   # sqlalchemy + psycopg2 + duckdb + pymongo + zstandard
 pip install -e "./mlframe[signal]"               # astropy + entropy-estimators + pywavelets + ruptures
