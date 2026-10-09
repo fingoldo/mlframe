@@ -621,6 +621,20 @@ repos:
         # (or the CI-equivalent check) when a kernel's tuning surface actually changed.
         stages: [manual]
 
+      # Pre-push: bring the kernel tunings of THIS machine up to date after a push that touches kernel code. Tunes only what is missing or stale (instant when current), within
+      # MLFRAME_PREPUSH_TUNE_MINUTES (default 20), one run per machine at a time, and does nothing without CUDA (CI, GPU-less boxes). A failing sweep blocks the push (it is a
+      # kernel bug); running out of time does not. MLFRAME_PREPUSH_TUNE=0 reports instead of tuning; MLFRAME_SKIP_KERNEL_TUNING_HOOK=1 skips. A sweep on the COMMIT path was
+      # removed before (minutes per commit, instances piling up); push-only + stale-only + lock + time limit answers each of those.
+      - id: kernel-tuning-ensure
+        name: "kernel tuning cache current on this machine (tunes what is stale; MLFRAME_PREPUSH_TUNE=0 to only report)"
+        entry: python scripts/prepush_kernel_tuning.py
+        language: system
+        files: '^src/mlframe/.*\.py$'
+        pass_filenames: false
+        require_serial: true
+        verbose: true
+        stages: [pre-push]
+
       # MANUAL fast stage: actually (re)generate the defaults. Use after a kernel
       # edit moved a code_version:  pre-commit run --hook-stage manual gen-default-tuning
       # (equivalent to running ``mlframe-gen-default-tuning`` directly). This MAY

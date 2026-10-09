@@ -157,7 +157,7 @@ def test_cmd_clear_no_entry(capsys):
 
 def test_main_no_command_prints_help(capsys):
     """main() with no subcommand prints help and returns 0 without discovering specs."""
-    with patch.object(ktc_cli, "discover_tuners") as mock_discover:
+    with patch.object(ktc_cli, "discover_specs") as mock_discover:
         rc = ktc_cli.main([])
     assert rc == 0
     assert "usage" in capsys.readouterr().out.lower()
@@ -167,7 +167,7 @@ def test_main_no_command_prints_help(capsys):
 def test_main_explicit_empty_argv_treated_as_no_command(capsys):
     """main(argv=[]) means 'no arguments were given' and must print help, not fall back to
     sys.argv (`argv or sys.argv[1:]` would wrongly treat an explicit [] as falsy)."""
-    with patch.object(ktc_cli, "discover_tuners") as mock_discover:
+    with patch.object(ktc_cli, "discover_specs") as mock_discover:
         rc = ktc_cli.main([])
     assert rc == 0
     assert "usage" in capsys.readouterr().out.lower()
@@ -175,8 +175,8 @@ def test_main_explicit_empty_argv_treated_as_no_command(capsys):
 
 
 def test_main_no_specs_discovered_returns_1(capsys):
-    """main() returns 1 and writes to stderr when discover_tuners finds nothing."""
-    with patch.object(ktc_cli, "discover_tuners", return_value={}):
+    """main() returns 1 and writes to stderr when discover_specs finds nothing."""
+    with patch.object(ktc_cli, "discover_specs", return_value={}):
         rc = ktc_cli.main(["list"])
     assert rc == 1
     assert "No specs discovered" in capsys.readouterr().err
@@ -197,7 +197,7 @@ def test_main_dispatches_to_correct_subcommand(argv, expected_cmd):
     """main() routes each subcommand's argv to its matching cmd_* handler."""
     spec = _fake_spec("joint_hist_2d")
     with (
-        patch.object(ktc_cli, "discover_tuners", return_value={"joint_hist_2d": spec}),
+        patch.object(ktc_cli, "discover_specs", return_value={"joint_hist_2d": spec}),
         patch.object(ktc_cli, expected_cmd, return_value=0) as mock_cmd,
     ):
         rc = ktc_cli.main(argv)
