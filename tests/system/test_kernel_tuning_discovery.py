@@ -28,6 +28,9 @@ def package(tmp_path, monkeypatch):
     (pkg / "reg_a.py").write_text(_REGISTERING.format(name="a"), encoding="utf-8")
     (pkg / "sub" / "reg_b.py").write_text(_REGISTERING.format(name="b"), encoding="utf-8")
     (pkg / "reg_c_raises.py").write_text('def kernel_tuner(**kw):\n    return kw\n\n\nSPEC = kernel_tuner(kernel_name="c")\nraise RuntimeError("optional extra missing")\n', encoding="utf-8")
+    alias_source = "from ktcpkg_registry import kernel_tuner as _ktuner" + chr(10) + chr(10) + '_ktuner(kernel_name="aliased")' + chr(10)
+    (pkg / "reg_aliased.py").write_text(alias_source, encoding="utf-8")
+    (tmp_path / "ktcpkg_registry.py").write_text("def kernel_tuner(**kw):" + chr(10) + "    return kw" + chr(10), encoding="utf-8")
     (pkg / "bench_poison.py").write_text('import os, sys\nos.environ["CUDA_VISIBLE_DEVICES"] = ""\nsys.modules["cupy"] = None\n', encoding="utf-8")
     (pkg / "mentions_only.py").write_text('"""Docs: a module registers with ``kernel_tuner(...)`` at import."""\n# kernel_tuner(x) is explained here\nVALUE = 1\n', encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
@@ -37,8 +40,8 @@ def package(tmp_path, monkeypatch):
 
 
 def test_only_modules_that_call_kernel_tuner_are_selected(package):
-    """Found by reading the syntax tree: the registering modules, including one in a subpackage; not the benchmark script and not a module that only mentions the name."""
-    assert sorted(_discovery.registering_modules(package)) == ["ktcpkg.reg_a", "ktcpkg.reg_c_raises", "ktcpkg.sub.reg_b"]
+    """Found by reading the syntax tree: the registering modules, including one in a subpackage and one that imports the decorator under an alias; not the benchmark script and not a module that only mentions the name."""
+    assert sorted(_discovery.registering_modules(package)) == ["ktcpkg.reg_a", "ktcpkg.reg_aliased", "ktcpkg.reg_c_raises", "ktcpkg.sub.reg_b"]
 
 
 def test_a_benchmark_script_is_never_run_so_the_process_keeps_its_gpu(package, monkeypatch):
@@ -87,6 +90,7 @@ def test_the_real_package_is_found_by_reading_not_by_importing_everything():
     before = set(sys.modules)
     found = set(_discovery.registering_modules("mlframe"))
     assert "mlframe.feature_selection.filters.batch_pair_mi_gpu" in found
+    assert "mlframe.feature_selection._benchmarks.kernel_tuning_cache._auto_tune_sweeps_b" in found  # registers rmse_partial_sum / fe_mi_split_launch under an alias
     assert set(sys.modules) == before, "finding the modules must not import any"
 
 

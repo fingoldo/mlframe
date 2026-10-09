@@ -1,6 +1,11 @@
 """Run the four FE stage cascades of one fit under the step-input contract.
 
 Every cascade function reads the SAME frame (the base features the step started with) and returns it plus its own new columns; the new columns are folded together in the fixed cascade order, so no stage consumes another stage's output.
+
+bench-attempt-rejected: running early_b, mid_a and mid_b in threads (each on a copy of the estimator, outputs folded in the fixed order) was measured with
+_benchmarks/bench_fe_stage_threads.py at 300k rows on the single-GPU dev box. The three stages' wall rose from 0.7 s each to 1.0-1.7 s each (they queue on the same device), the cascade
+went from 2.92 s to 2.5 s and the whole fit from 8.7 s to 8.9 s (no gain). The stages also share list attributes of the estimator that are appended in stage order (hybrid_orth_features_),
+which a threaded run would have to merge back deterministically. Revisit on a multi-GPU host or once the stages are CPU-bound.
 """
 
 from __future__ import annotations

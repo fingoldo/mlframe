@@ -30,7 +30,7 @@ _GUARDED = ("cupy",)
 
 
 def _registers_a_tuner(path: Path) -> bool:
-    """Whether the file calls ``kernel_tuner(...)`` (a docstring or comment that merely mentions it does not count)."""
+    """Whether the file calls ``kernel_tuner(...)``, also under an import alias (a docstring or comment that merely mentions it does not count)."""
     try:
         text = path.read_text(encoding="utf-8")
         if "kernel_tuner" not in text:
@@ -39,11 +39,15 @@ def _registers_a_tuner(path: Path) -> bool:
     except (OSError, SyntaxError, UnicodeDecodeError) as exc:
         logger.debug("tuner discovery: cannot read %s (%s: %s)", path, type(exc).__name__, exc)
         return False
+    names = {"kernel_tuner"}
+    for node in ast.walk(tree):  # `from ...registry import kernel_tuner as _ktuner` registers under another name
+        if isinstance(node, ast.ImportFrom):
+            names.update(alias.asname for alias in node.names if alias.name == "kernel_tuner" and alias.asname)
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
             name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
-            if name == "kernel_tuner":
+            if name in names:
                 return True
     return False
 
