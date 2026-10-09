@@ -293,13 +293,14 @@ def _argmax_resident(arrs, tri):
         import cupy as cp
 
         from ._fe_resident_operands import resident_operand
+        from ._row_argmax_gpu import all_finite_cached, row_argmax_cm
         _ops = []
         for c in tri:
             _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=np.float64))
-            if not np.all(np.isfinite(_h)):
+            if not all_finite_cached(_h):
                 return None  # host np.argmax NaN semantics differ -> keep the host path for a non-finite operand
             _ops.append(resident_operand(_h, ("argmax_op", str(c)), dtype=cp.float64))
-        return cp.argmax(cp.stack(_ops, axis=1), axis=1).astype(cp.float64)
+        return row_argmax_cm(cp, _ops)  # first-max index as float64, one launch (cp.argmax over the interleaved stack ran a 15 ms cub reduction)
     except Exception:
         logger.debug("device-born row-argmax failed; host fallback", exc_info=True)
         return None
