@@ -671,6 +671,20 @@ def safely_compute_mps(f, **kwargs):
     return None
 
 
+def _read_parquet_insert_missing(path: Any, columns: "list[str]") -> "pl.DataFrame":
+    """Read ``columns`` from a parquet file, inserting nulls for the ones the file lacks.
+
+    polars 2 spells the option ``missing_columns="insert"`` and no longer accepts ``allow_missing_columns=True``, which polars 1.x
+    spells that way; the keyword is passed through a dict so one call site serves both.
+    """
+    current: dict[str, Any] = {"missing_columns": "insert"}
+    try:
+        return pl.read_parquet(path, columns=columns, **current)
+    except TypeError:
+        legacy: dict[str, Any] = {"allow_missing_columns": True}
+        return pl.read_parquet(path, columns=columns, **legacy)
+
+
 def compute_mps_targets(
     fpath: Optional[str] = None,
     fo_df: Optional[pl.DataFrame] = None,
@@ -696,9 +710,7 @@ def compute_mps_targets(
             raise ValueError("compute_mps_targets: either fpath or fo_df must be provided.")
         try:
             fo_df = (
-                pl.read_parquet(fpath, columns=[ts_field, group_field, price_field], allow_missing_columns=True)
-                .unique(subset=[ts_field, group_field], keep="first")
-                .sort(ts_field)
+                _read_parquet_insert_missing(fpath, [ts_field, group_field, price_field]).unique(subset=[ts_field, group_field], keep="first").sort(ts_field)
             )
         except Exception:
             logger.warning("Failed to read MPS parquet file %s", fpath, exc_info=True)

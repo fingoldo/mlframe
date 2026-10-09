@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
@@ -49,7 +49,10 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
         coef = np.linalg.lstsq(a_tr, y_tr, rcond=None)[0]
         return 1.0 - float(np.sum((yv - a_va @ coef) ** 2)) / ss
 
-    Q = R = coef_base = qty = None
+    Q: Any = None
+    R: Any = None
+    coef_base: Any = None
+    qty: Any = None
     try:
         Q, R = sla.qr(base_tr, mode="economic")
         if _well_conditioned(R):

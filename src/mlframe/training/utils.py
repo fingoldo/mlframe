@@ -79,7 +79,8 @@ def coerce_to_numpy(arr, *, allow_none: bool = False):
             return arr.to_numpy(allow_copy=True)
         except TypeError:
             try:
-                return arr.to_numpy(zero_copy_only=False)
+                legacy: dict[str, Any] = {"zero_copy_only": False}
+                return arr.to_numpy(**legacy)
             except TypeError:
                 return arr.to_numpy()
     if hasattr(arr, "to_numpy"):
