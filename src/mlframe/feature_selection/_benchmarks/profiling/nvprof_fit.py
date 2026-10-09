@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # this checkout, not an installed copy
-from mlframe.feature_selection._benchmarks.profiling._paths import add_src_to_path  # noqa: E402
 warnings.simplefilter("ignore")
 for k, v in {
     "MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1",

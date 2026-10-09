@@ -58,7 +58,7 @@ def _score_one_pair_fe_gpu_binning_enabled(_K, _fe_gpu_binning_enabled, final_tr
     if _K > 0 and _fe_gpu_binning_enabled(final_transformed_vals.shape[0], _K):
         _code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)
         _start = timer()
-        from mlframe.feature_selection.filters._gpu_resident_fe import gpu_materialise_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+        from mlframe.feature_selection.filters._gpu_resident_fe import gpu_materialise_discretize_codes_host
         _disc_2d = gpu_materialise_discretize_codes_host(
             transformed_vars,
             np.asarray(_a_cols, dtype=np.int64),
@@ -166,7 +166,7 @@ def _score_one_pair_non_analytic_branch_su(_fe_gpu_discretize_enabled, final_tra
     """Block of _score_one_pair starting at ``if _fe_gpu_discretize_enabled(final_transformed_vals.shape[0], i):``."""
     if _fe_gpu_discretize_enabled(final_transformed_vals.shape[0], i):
         try:
-            from mlframe.feature_selection.filters._gpu_resident_fe import gpu_pairs_fe_mi  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+            from mlframe.feature_selection.filters._gpu_resident_fe import gpu_pairs_fe_mi
             _fe_mi_arr = gpu_pairs_fe_mi(
                 final_transformed_vals[:, :i], int(quantization_nbins),
                 classes_y, classes_y_safe, freqs_y,
@@ -194,7 +194,7 @@ def _score_one_pair_fe_mi_arr_none(_fe_mi_arr, _disc_2d, final_transformed_vals,
             try:
                 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
                 if _fe_gpu_binning_enabled(final_transformed_vals.shape[0], i):
-                    from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+                    from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
                     # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
                     # whose resident-CUDA gate consumes the DEVICE codes in place (take_resident_codes)
                     # and only triggers the lazy host fill (ensure_host_codes_filled) on a host-reading

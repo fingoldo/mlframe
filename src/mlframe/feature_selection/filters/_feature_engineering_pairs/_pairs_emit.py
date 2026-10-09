@@ -415,7 +415,7 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                 try:
                     from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
                     if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
-                        from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+                        from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
                         # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
                         # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
                         # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever

@@ -490,7 +490,7 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     from ._gpu_resident_select import _transpose_to_cm
     if x_vals is None:
         Xc = x_cm if x_cm.dtype == (cp.float32 if _is_f32 else cp.float64) and x_cm.flags.c_contiguous else cp.ascontiguousarray(x_cm, dtype=cp.float32 if _is_f32 else cp.float64)
-    elif x_cm is not None and x_cm.shape == (K, n) and x_cm.dtype == Xd.dtype and x_cm.flags.c_contiguous:
+    elif x_cm is not None and Xd is not None and x_cm.shape == (K, n) and x_cm.dtype == Xd.dtype and x_cm.flags.c_contiguous:
         Xc = x_cm
     else:
         Xc = _transpose_to_cm(cp.ascontiguousarray(Xd))  # (K, n) C-order == column-major over the (n,K) matrix

@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # this checkout, not an installed copy
-from mlframe.feature_selection._benchmarks.profiling._paths import add_src_to_path  # noqa: E402
 from mlframe.system.kernel_tuning_cache import discover_specs
 s = discover_specs("mlframe")[sys.argv[1]]
 faulthandler.dump_traceback_later(float(sys.argv[2]), exit=True)

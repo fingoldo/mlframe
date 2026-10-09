@@ -137,7 +137,7 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
         if _cached is not None:
             return _cached
         import cupy as cp
-        from mlframe.feature_selection.filters._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals() from _gpu_resident_materialise
+        from mlframe.feature_selection.filters._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table
         if chunk_state["tv_gpu"] is None:
             # per-step weakref-cached operand table (shared with gpu_materialise) -> one H2D/step
             chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)
@@ -158,7 +158,7 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
             return None
         try:
             import cupy as cp
-            from mlframe.feature_selection.filters._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals() from _gpu_resident_materialise
+            from mlframe.feature_selection.filters._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table
 
             if chunk_state["tv_gpu"] is None:
                 chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)

@@ -373,7 +373,7 @@ def _build_operand_table(
     # materialise never reads them (operand indices are always < the used width), so their content is moot.
     if _operand_col_specs is not None and len(vars_transformations) > 0 and _operand_table_fits_vram(transformed_vars):
         try:
-            from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+            from .._gpu_resident_fe import build_resident_operand_table, register_prebuilt_operand_table
             # Build a FULL-WIDTH (n, n_operands) device mirror keyed on the SAME ``transformed_vars`` object
             # the materialise / _resolve_col paths pass: GPU-build the plain-unary columns from col_specs,
             # copy every other column (incl. any unused tail) from the host. Registered against the full

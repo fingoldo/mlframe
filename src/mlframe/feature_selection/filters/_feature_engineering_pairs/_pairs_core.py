@@ -213,7 +213,7 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     try:  # auto: per-host crossover from kernel_tuning_cache (measurement-backed fallback)
-        from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+        from .._gpu_resident_fe import fe_gpu_pairs_mi_backend_choice
 
         return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
@@ -266,7 +266,7 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     try:  # auto: per-host binning crossover from kernel_tuning_cache (measurement-backed fallback)
-        from .._gpu_resident_fe import fe_gpu_binning_backend_choice  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+        from .._gpu_resident_fe import fe_gpu_binning_backend_choice
 
         return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:

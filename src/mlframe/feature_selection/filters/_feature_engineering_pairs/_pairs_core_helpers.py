@@ -302,7 +302,7 @@ def _check_prospective__read_weakref_cache_no(_chunk_global_batch, _chunk_buffer
                 from concurrent.futures import ThreadPoolExecutor
 
                 _chunk_buffer2 = np.empty_like(_chunk_buffer)
-                from mlframe.feature_selection.filters._gpu_resident_fe import _resident_operand_table  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+                from mlframe.feature_selection.filters._gpu_resident_fe import _resident_operand_table
 
                 _resident_operand_table(_pl_cp, transformed_vars)  # pre-warm: both threads then only read
                 _chunk_state["pipeline_buffers"] = [_chunk_buffer, _chunk_buffer2]
