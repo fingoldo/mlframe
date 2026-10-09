@@ -408,12 +408,16 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
     # override) can monkeypatch them; when absent, import the real hermite_fe backends (deferred so this
     # benchmarks module stays light to import). An already-present (monkeypatched) value always wins.
     g = globals()
-    if not all(k in g for k in ("_NJIT_FUNCS", "_NJIT_PAR_FUNCS", "_CUDA_AVAILABLE")):
+    # The module-level tables are EMPTY placeholders (they only carry the type annotation), so "present" means non-empty: a plain setdefault left the empty dicts in place and
+    # every basis warmup raised KeyError, which persisted zero regions.
+    if not (g.get("_NJIT_FUNCS") and g.get("_NJIT_PAR_FUNCS") and "_CUDA_AVAILABLE" in g):
         from mlframe.feature_selection.filters.hermite_fe import (
             _NJIT_FUNCS as _nf, _NJIT_PAR_FUNCS as _npf, _CUDA_AVAILABLE as _ca,
         )
-        g.setdefault("_NJIT_FUNCS", _nf)
-        g.setdefault("_NJIT_PAR_FUNCS", _npf)
+        if not g.get("_NJIT_FUNCS"):
+            g["_NJIT_FUNCS"] = _nf
+        if not g.get("_NJIT_PAR_FUNCS"):
+            g["_NJIT_PAR_FUNCS"] = _npf
         g.setdefault("_CUDA_AVAILABLE", _ca)
     if g["_CUDA_AVAILABLE"] and "_polyeval_cuda" not in g:
         from mlframe.feature_selection.filters.hermite_fe import (

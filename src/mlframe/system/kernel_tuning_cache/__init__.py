@@ -6,6 +6,7 @@ Commands:
   mlframe-tune-kernels explain <kernel> - Show cached regions + decisions
   mlframe-tune-kernels refresh <kernel> - Tune one spec (cold cache)
   mlframe-tune-kernels refresh-all      - Tune all specs (force=True)
+  mlframe-tune-kernels ensure           - Tune only what is missing or stale on this machine (instant when current)
   mlframe-tune-kernels clear <kernel>   - Evict cache for one spec
 """
 
@@ -15,8 +16,11 @@ import argparse
 import orjson
 import sys
 
-from pyutilz.performance.kernel_tuning.registry import discover_tuners, get_registry, retune_all, tune_spec
+from pyutilz.performance.kernel_tuning.registry import get_registry, retune_all, tune_spec
 from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
+from ._discovery import discover_specs
+from ._ensure import cmd_ensure
 
 __all__ = ["main"]
 
@@ -50,6 +54,15 @@ def main(argv: list[str] | None = None) -> int:
     # refresh-all: tune all specs
     subparsers.add_parser("refresh-all", help="Tune all specs (force=True)")
 
+    # ensure: tune only missing/stale kernels
+    sp_ensure = subparsers.add_parser("ensure", help="Tune only the kernels whose tuning is missing or stale on this machine")
+    sp_ensure.add_argument("--check", action="store_true", help="Report what needs tuning and exit 1 if anything does; sweep nothing")
+    sp_ensure.add_argument("--only", choices=("all", "gpu", "cpu"), default="all", help="Restrict to GPU or CPU kernels")
+    sp_ensure.add_argument("--if-cuda", action="store_true", help="Exit 0 without doing anything on a host without CUDA (for hooks and deploy scripts)")
+    sp_ensure.add_argument("--max-minutes", type=float, default=None, help="Stop starting new sweeps after this many minutes")
+    sp_ensure.add_argument("--per-kernel-minutes", type=float, default=15.0, help="Stop any single kernel's sweep after this many minutes (each runs in its own process)")
+    sp_ensure.add_argument("--advisory", action="store_true", help="Never fail: print what is out of date and exit 0")
+
     # clear: evict cache
     sp_clear = subparsers.add_parser("clear", help="Clear cache for one spec")
     sp_clear.add_argument("kernel", help="Kernel name")
@@ -61,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     # Discover specs.
-    specs = discover_tuners(package="mlframe")
+    specs = discover_specs("mlframe")
     if not specs:
         print("No specs discovered in mlframe.", file=sys.stderr)
         return 1
@@ -77,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_refresh(specs, args.kernel)
     elif args.command == "refresh-all":
         return cmd_refresh_all(specs)
+    elif args.command == "ensure":
+        return cmd_ensure(specs, check=args.check, only=args.only, if_cuda=args.if_cuda, max_minutes=args.max_minutes, advisory=args.advisory, per_kernel_minutes=args.per_kernel_minutes)
     elif args.command == "clear":
         return cmd_clear(specs, args.kernel)
     else:

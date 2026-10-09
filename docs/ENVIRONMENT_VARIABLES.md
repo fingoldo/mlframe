@@ -28,6 +28,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `LOKY_MAX_CPU_COUNT` | — | [src/mlframe/training/__init__.py](../src/mlframe/training/__init__.py#L95) |
 | `MDL_OLD_BASELINE` | `''` | [src/mlframe/feature_engineering/_benchmarks/bench_mdl_binning_split_iter81.py](../src/mlframe/feature_engineering/_benchmarks/bench_mdl_binning_split_iter81.py#L30) |
 | `MLFRAME_ALLOW_UNVERIFIED_PICKLE` | — | [src/mlframe/utils/safe_pickle.py](../src/mlframe/utils/safe_pickle.py#L45) |
+| `MLFRAME_AUTOTUNE` | `''` | [src/mlframe/system/kernel_tuning_cache/_policy.py](../src/mlframe/system/kernel_tuning_cache/_policy.py#L37) |
 | `MLFRAME_BATCH_JOINT_CARD_CAP` | `''` | [src/mlframe/feature_selection/filters/info_theory/_batch_kernels.py](../src/mlframe/feature_selection/filters/info_theory/_batch_kernels.py#L33) |
 | `MLFRAME_BATCH_MI_KERNEL` | `''` | [src/mlframe/feature_selection/filters/info_theory/_batch_kernel_selection.py](../src/mlframe/feature_selection/filters/info_theory/_batch_kernel_selection.py#L42) |
 | `MLFRAME_BENCH_WORKERS` | — | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/_runner_pool.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/_runner_pool.py#L69) |
@@ -162,7 +163,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_FE_VRAM_F32` | `''` | [src/mlframe/feature_selection/filters/_fe_gpu_batch/_devices.py](../src/mlframe/feature_selection/filters/_fe_gpu_batch/_devices.py#L46) |
 | `MLFRAME_FE_VRAM_PACKER` | `''` | [src/mlframe/feature_selection/filters/_fe_gpu_batch/_packer.py](../src/mlframe/feature_selection/filters/_fe_gpu_batch/_packer.py#L86) |
 | `MLFRAME_FORCED_GC_MIN_DF_MB` | `256.0` | [src/mlframe/training/core/_phase_helpers.py](../src/mlframe/training/core/_phase_helpers.py#L45) |
-| `MLFRAME_FORCE_HELPER_PD_VIEW` | — | [src/mlframe/training/utils.py](../src/mlframe/training/utils.py#L593) |
+| `MLFRAME_FORCE_HELPER_PD_VIEW` | — | [src/mlframe/training/utils.py](../src/mlframe/training/utils.py#L606) |
 | `MLFRAME_FORCE_REPROBE` | — | [src/mlframe/training/mlp_runtime_defaults.py](../src/mlframe/training/mlp_runtime_defaults.py#L370) |
 | `MLFRAME_FOURIER_COARSE_BASIS_EXACT` | `''` | [src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py](../src/mlframe/feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py#L437) |
 | `MLFRAME_FOURIER_DETECT_MAX_N` | `str(_DEFAULT_MAX_N)` | [src/mlframe/feature_selection/filters/_fourier_detect_cap.py](../src/mlframe/feature_selection/filters/_fourier_detect_cap.py#L36) |
@@ -176,7 +177,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_HINGE_BATCH_MIN_K` | `''` | [src/mlframe/feature_selection/filters/_hinge_basis_fe.py](../src/mlframe/feature_selection/filters/_hinge_basis_fe.py#L489) |
 | `MLFRAME_HINGE_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py](../src/mlframe/feature_selection/filters/_hinge_detect_gpu_resident.py#L166) |
 | `MLFRAME_HYP_PROFILE` | `'mlframe-fast'` | [src/mlframe/testing/parametric.py](../src/mlframe/testing/parametric.py#L89) |
-| `MLFRAME_INFONET_CACHE` | `str(Path.home() / '.cache' / 'mlframe' / 'infonet')` | [src/mlframe/feature_selection/filters/_neural_mi.py](../src/mlframe/feature_selection/filters/_neural_mi.py#L261) |
+| `MLFRAME_INFONET_CACHE` | `str(Path.home() / '.cache' / 'mlframe' / 'infonet')` | [src/mlframe/feature_selection/filters/_neural_mi.py](../src/mlframe/feature_selection/filters/_neural_mi.py#L264) |
 | `MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY` | — | [src/mlframe/feature_selection/filters/evaluation.py](../src/mlframe/feature_selection/filters/evaluation.py#L53) |
 | `MLFRAME_KEEP_BROKEN_CUPY` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L201) |
 | `MLFRAME_KEEP_COLORAMA_REINIT` | `''` | [src/mlframe/__init__.py](../src/mlframe/__init__.py#L296) |
@@ -185,7 +186,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_KSG_GPU_N` | `50000` | [src/mlframe/feature_selection/filters/_ksg.py](../src/mlframe/feature_selection/filters/_ksg.py#L60) |
 | `MLFRAME_KTC_ONLINE_LEARN` | `''` | [src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/dispatch.py](../src/mlframe/feature_selection/_benchmarks/kernel_tuning_cache/dispatch.py#L179) |
 | `MLFRAME_LGB_CACHE_DISABLE` | — | [src/mlframe/training/_lgb_shim_helpers.py](../src/mlframe/training/_lgb_shim_helpers.py#L221) |
-| `MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD` | `'0'` | [src/mlframe/training/lgb_shim.py](../src/mlframe/training/lgb_shim.py#L87) |
+| `MLFRAME_LGB_MACOS_ALLOW_MULTITHREAD` | `'0'` | [src/mlframe/training/lgb_shim.py](../src/mlframe/training/lgb_shim.py#L96) |
 | `MLFRAME_LGB_SERIALISE` | `'1'` | [src/mlframe/_lightgbm_thread_safety.py](../src/mlframe/_lightgbm_thread_safety.py#L38) |
 | `MLFRAME_LOAD_MODEL_CACHE_MAX` | `'32'` | [src/mlframe/training/io.py](../src/mlframe/training/io.py#L612) |
 | `MLFRAME_LOAD_MODEL_CACHE_MAX_MB` | `'2048'` | [src/mlframe/training/io.py](../src/mlframe/training/io.py#L558) |
@@ -221,7 +222,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L291) |
 | `MLFRAME_NW_PARALLEL_MIN_QUERIES` | `2000` | [src/mlframe/feature_engineering/nadaraya_watson.py](../src/mlframe/feature_engineering/nadaraya_watson.py#L42) |
 | `MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS` | `16000` | [src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py](../src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py#L228) |
-| `MLFRAME_PAIR_NULL_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py#L350) |
+| `MLFRAME_PAIR_NULL_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py#L351) |
 | `MLFRAME_PANDAS_VIEW_CACHE_MAX_MB` | — | [src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py](../src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py#L62) |
 | `MLFRAME_PANDAS_VIEW_CACHE_SIZE` | `''` | [src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py](../src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py#L64) |
 | `MLFRAME_PANDAS_VIEW_CACHE_TYPE` | `''` | [src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py](../src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py#L63) |
@@ -281,7 +282,8 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MRMR_CAMPAIGN_RAISE` | — | [src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py](../src/mlframe/feature_selection/_benchmarks/fs_quality/mrmr_largeN_campaign.py#L175) |
 | `NUMBA_DISABLE_JIT` | — | [src/mlframe/reporting/charts/_ap_bootstrap.py](../src/mlframe/reporting/charts/_ap_bootstrap.py#L41) |
 | `PYTHON_JULIACALL_THREADS` | `'?'` | [src/mlframe/training/_benchmarks/bench_pysr_fe.py](../src/mlframe/training/_benchmarks/bench_pysr_fe.py#L191) |
-| `PYUTILZ_KERNEL_CACHE_DIR` | `''` | [src/mlframe/utils/_param_oracle.py](../src/mlframe/utils/_param_oracle.py#L131) |
+| `PYUTILZ_KERNEL_CACHE_DIR` | `''` | [src/mlframe/system/kernel_tuning_cache/_ensure.py](../src/mlframe/system/kernel_tuning_cache/_ensure.py#L92) |
+| `PYUTILZ_KERNEL_DISABLE_SWEEP` | — | [src/mlframe/system/kernel_tuning_cache/_policy.py](../src/mlframe/system/kernel_tuning_cache/_policy.py#L89) |
 | `SCENE_N` | `'700'` | [src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fs_campaign_profile.py](../src/mlframe/feature_selection/_benchmarks/fs_hybrid/round4_fs_campaign_profile.py#L22) |
 | `TRANSFORMERS_CACHE` | — | [src/mlframe/training/feature_handling/hf_provider.py](../src/mlframe/training/feature_handling/hf_provider.py#L109) |
 | `WELLBORE_DUMP_AUDIT` | `'0'` | [src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py](../src/mlframe/feature_selection/_benchmarks/profile_wellbore_mrmr_only_100k.py#L34) |

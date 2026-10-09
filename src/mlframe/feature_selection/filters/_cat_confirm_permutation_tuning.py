@@ -55,7 +55,8 @@ _PERM_SWEEP_N_SAMPLES = [100_000, 300_000, 1_000_000, 3_000_000, 5_000_000]
 _PERM_SWEEP_K_PAIR = 10
 _PERM_SWEEP_K_X = 5
 _PERM_SWEEP_K_Y = 3
-_PERM_SALT = 2  # serial-njit variant added + full 2-D (n_samples x n_perms) grid
+_PERM_SWEEP_SERIAL_MAX_WORK = 30_000_000  # n_samples * n_perms above which the serial kernel is not timed
+_PERM_SALT = 3  # reference is now cpu_parallel; serial is skipped on cells where it cannot win
 
 
 def _make_perm_kernel_inputs(dims: dict):
@@ -88,7 +89,13 @@ def _run_perm_kernel_sweep() -> list:
     _seed = 7
 
     def _cpu_serial(*a):
-        """Sweep-grid wrapper binding the fixed sweep seed + int32 output dtype onto the serial-njit permutation kernel."""
+        """Sweep-grid wrapper binding the fixed sweep seed + int32 output dtype onto the serial-njit permutation kernel.
+
+        Declined (raises -> the grid sweep skips it) on cells whose work exceeds ``_PERM_SWEEP_SERIAL_MAX_WORK`` row-permutations: one serial call there takes tens of
+        seconds and it cannot beat the prange kernel on a multi-core host, so timing it only made the sweep cost many minutes. The winner flips between parallel and cupy
+        along the rows axis, so dominance pruning cannot help here and the serial kernel is the part that is skipped."""
+        if int(a[0].shape[0]) * int(a[-1]) > _PERM_SWEEP_SERIAL_MAX_WORK:
+            raise RuntimeError("serial kernel not swept on this cell: parallel dominates")
         return _count_nfailed_joint_indep_serial(*a, _seed, np.int32)
 
     def _cpu_parallel(*a):
@@ -106,8 +113,8 @@ def _run_perm_kernel_sweep() -> list:
         variants,
         {"n_samples": _PERM_SWEEP_N_SAMPLES, "n_perms": _PERM_SWEEP_N_PERMS_GRID},
         _make_perm_kernel_inputs,
-        reference="cpu_serial",
-        repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
+        reference="cpu_parallel",
+        repeats=3, equiv_rtol=1e-3, equiv_atol=1e-3,
     ))
 
 

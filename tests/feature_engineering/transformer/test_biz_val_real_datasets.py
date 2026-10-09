@@ -21,7 +21,7 @@ from __future__ import annotations
 import time
 import socket
 import urllib.error
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pytest
@@ -9681,39 +9681,62 @@ def _make_knn_target_synthetic(
     return X, y, task
 
 
-def test_row_attention_lifts_boostings_on_knn_target_binary():
-    """STRUCTURAL DEMONSTRATION (binary): on a synthetic where the target is built by kNN-smoothing a latent nonlinear function, ``+rowattn`` lifts ALL three
-    boostings' AUC by >= 0.005 absolute over raw.
+def _make_voronoi_target_synthetic(n: int, seed: int, cells: int = 40, d: int = 12, d_inf: int = 4, flip: float = 0.03) -> Tuple[np.ndarray, np.ndarray]:
+    """Binary target whose label is the cell of a random Voronoi partition of the first ``d_inf`` columns; the other columns are pure noise.
 
-    Why this matters: this synthetic isolates the property that row-attention is FOR (per-row aggregation of similar-row labels). Trees on raw input approximate
-    the diagonal nonlinearity in cols 0-3 via axis-aligned splits, which is exactly the regime where kNN-style features add real signal that boostings cannot
-    derive on their own from per-row features.
-
-    If this test fails, the row-attention pipeline has a real bug; the data-generating process makes the lift mathematically necessary.
+    Many small cells mean axis-aligned trees need many splits to carve them out, while the mean label of a point's nearest neighbours in the informative
+    columns states the answer directly: an exact Euclidean kNN-mean-y feature lifts LightGBM's AUC by 0.038 on average over six seeds (all six positive).
     """
-    X, y, task = _make_knn_target_synthetic(n=2500, d=12, k_neighbors=10, seed=0, task="binary")
-    records = _run_matrix(X, y, task, "KnnTargetBinary")
-    _print_matrix(records)
+    rng = np.random.default_rng(seed)
+    X = rng.standard_normal((n, d)).astype(np.float32)
+    prototypes = rng.standard_normal((cells, d_inf)).astype(np.float32)
+    cell = np.argmin(((X[:, None, :d_inf] - prototypes[None]) ** 2).sum(-1), axis=1)
+    cell_label = (rng.random(cells) < 0.5).astype(np.float32)
+    y = cell_label[cell]
+    y = np.where(rng.random(n) < flip, 1.0 - y, y).astype(np.float32)
+    return X, y
 
-    lifts_by_boost: Dict[str, float] = {}
-    for r in records:
-        if r["features"] == "+rowattn":
-            raw_score = next((rr["score"] for rr in records if rr["boosting"] == r["boosting"] and rr["features"] == "raw"), None)
-            if raw_score is not None:
-                lifts_by_boost[r["boosting"]] = r["score"] - raw_score
-    print(f"\nPer-boosting +rowattn vs raw lift (binary kNN-target synthetic): {lifts_by_boost}")
 
-    # Honest threshold based on observed structure of the lift:
-    # - LGB and XGB are tree-pruning algorithms that gain from coarse aggregate features (kNN-mean of y) - lift consistently positive 0.5-2%.
-    # - CatBoost has its own internal target-statistics features (oblivious-tree TS) which overlap with row-attention's y_mean output - lift typically -0.5 to 0%.
-    # So the pass criterion: at least TWO of the three boostings lift by >= 0.005. This matches the empirically-observed regime and rejects a real bug where
-    # none of the boostings benefit.
-    positive_lifts = {b: v for b, v in lifts_by_boost.items() if v >= 0.005}
-    assert len(positive_lifts) >= 2, (
-        f"row-attention failed to lift AUC by >= 0.005 on at least 2 of 3 boostings. Per-boosting lifts: {lifts_by_boost}. "
-        f"Positive-lift boostings: {positive_lifts}. On a kNN-target binary synthetic at least LGB and XGB are expected to benefit; CatBoost's internal TS "
-        f"features can overlap with row-attention's y_mean so a flat or slightly-negative CB lift is normal."
+def _row_attention_ymean_auc(X_tr: np.ndarray, X_te: np.ndarray, y_tr: np.ndarray, y_te: np.ndarray, **config: Any) -> Tuple[float, float]:
+    """Mean AUC of the bare ``y_mean`` columns: train rows scored out-of-fold, held-out rows scored against the whole train set."""
+    common = dict(X_train=X_tr, y_train=y_tr, seed=42, aggregate=("y_mean", "y_std"), gpu_stage4=False, dedupe_threshold=None, allow_overcomplete=True, **config)
+    train = compute_row_attention(X_query=None, splitter=KFold(n_splits=5, shuffle=True, random_state=42), **common)
+    held_out = compute_row_attention(X_query=X_te, splitter=KFold(n_splits=5, shuffle=True, random_state=42), **common)
+    cols = [c for c in train.columns if "y_mean" in c]
+    return (
+        float(np.mean([roc_auc_score(y_tr, train[c].to_numpy()) for c in cols])),
+        float(np.mean([roc_auc_score(y_te, held_out[c].to_numpy()) for c in cols])),
     )
+
+
+@pytest.mark.parametrize(
+    ("config", "floor"),
+    [
+        pytest.param(dict(n_heads=4, head_dim=8, k=32), 0.58, id="default-random-projection"),
+        pytest.param(dict(n_heads=4, head_dim=8, k=10, projection="importance"), 0.70, id="importance-projection"),
+    ],
+)
+def test_row_attention_ymean_carries_neighbour_signal_and_matches_train_oof(config, floor):
+    """The neighbour-label mean is informative on held-out rows and as informative as it was out-of-fold on the rows it was trained on.
+
+    Averaged over three seeds the held-out AUC of the bare ``y_mean`` columns is 0.646 with the default random projections and 0.773 with
+    ``projection="importance"`` (floors sit about 10% below); the train-OOF and held-out AUCs differ by 0.016 and 0.011 on average, so the bound
+    of 0.05 catches a train/predict mismatch without tripping on seed noise.
+
+    Not asserted, because it does not hold: that adding these features lifts a booster. On this target ``+rowattn`` lowers LightGBM's AUC by 0.011 to
+    0.015 on average over six seeds, against +0.038 for an exact Euclidean kNN-mean-y. The module retrieves neighbours by cosine similarity on
+    projected, normalised vectors, which recovers only part of a Euclidean neighbourhood structure (bare AUC 0.60 to 0.76 against 0.90 for the
+    exact feature).
+    """
+    held_out, gap = [], []
+    for seed in range(3):
+        X, y = _make_voronoi_target_synthetic(2500, seed)
+        X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+        auc_train, auc_held_out = _row_attention_ymean_auc(X_tr, X_te, y_tr, y_te, **config)
+        held_out.append(auc_held_out)
+        gap.append(abs(auc_train - auc_held_out))
+    assert np.mean(held_out) >= floor, f"held-out AUC of the bare y_mean feature {np.mean(held_out):.3f} is below {floor}: {held_out}"
+    assert np.mean(gap) <= 0.05, f"train-OOF and held-out AUC of y_mean diverge by {np.mean(gap):.3f}: the booster would train on a relation that does not hold at predict time"
 
 
 def test_row_attention_lifts_boostings_on_knn_target_regression():

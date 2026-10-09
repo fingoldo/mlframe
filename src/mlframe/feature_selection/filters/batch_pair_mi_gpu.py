@@ -45,8 +45,8 @@ logger = logging.getLogger(__name__)
 # this file under the repo's 1000-LOC gate). ``_CUDA_AVAIL`` is re-exported
 # from there as the single source of truth.
 from ._batch_pair_mi_cuda_kernels import (
-    MAX_JOINT_BINS_CUDA,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
-    MAX_Y_BINS_CUDA,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
+    MAX_JOINT_BINS_CUDA,
+    MAX_Y_BINS_CUDA,
     _CUDA_AVAIL,
     _choose_pair_subchunk_rows,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
     _choose_row_chunk_rows,  # noqa: F401 - re-exported facade name, imported directly by tests/benchmarks
@@ -387,6 +387,17 @@ class _PairMiDispatch:
         self.vram_ok = _gpu_upload_fits(req_bytes, n_samples=self.n_samples, n_cols=n_cols, n_pairs=self.n_pairs)
         self._try_shared_fused = _dispatch_batch_pair__step1_def_try_cuda(nbins, self.n_pairs, pair_a, pair_b, freqs_y, factors_data, classes_y)
 
+    def static_kernel_accepts(self) -> bool:
+        """Whether the STATIC shared-memory kernel (``batch_pair_mi_cuda``) accepts this shape: it caps the target at ``MAX_Y_BINS_CUDA`` classes and the largest pair
+        joint at ``MAX_JOINT_BINS_CUDA`` cells. A wider shape is served by the dynamic-shared-memory / row-chunked kernels, so the caller goes there directly instead
+        of provoking the kernel's ``ValueError`` and logging it as a failure."""
+        _fd, pair_a, pair_b, nbins, _cy, freqs_y = self.args
+        if int(freqs_y.shape[0]) > MAX_Y_BINS_CUDA:
+            return False
+        if int(pair_a.shape[0]) == 0:
+            return True
+        return int(np.max(nbins[pair_a].astype(np.int64) * nbins[pair_b].astype(np.int64))) <= MAX_JOINT_BINS_CUDA
+
     def njit_prange(self) -> tuple[np.ndarray, str]:
         """The parallel CPU kernel (tag ``"njit"``)."""
         return batch_pair_mi_njit_prange(*self.args), "njit"
@@ -436,6 +447,11 @@ class _PairMiDispatch:
         """A forced CUDA request: the full-upload kernel when it fits VRAM, with the shared-fused / row-chunked fallbacks."""
         if not self.vram_ok:
             return self.try_row_chunked("forced CUDA backend requested but full upload does not fit VRAM")
+        if not self.static_kernel_accepts():
+            return self.cuda_fallbacks(
+                "shape exceeds the static shared-memory caps (served by the dynamic-shared-memory kernel)",
+                "shape exceeds the static shared-memory caps and the shared-fused kernel declined it",
+            )
         try:
             return batch_pair_mi_cuda(*self.args), "cuda"
         except Exception as e:
@@ -489,6 +505,11 @@ class _PairMiDispatch:
         """The size-heuristic CUDA pick: the full-upload kernel when it fits VRAM, with the shared-fused / row-chunked fallbacks."""
         if not self.vram_ok:
             return self.try_row_chunked("size-heuristic picked CUDA but full upload does not fit VRAM")
+        if not self.static_kernel_accepts():
+            return self.cuda_fallbacks(
+                "shape exceeds the static shared-memory caps (served by the dynamic-shared-memory kernel)",
+                "shape exceeds the static shared-memory caps and the shared-fused kernel declined it",
+            )
         try:
             return batch_pair_mi_cuda(*self.args), "cuda"
         except Exception as e:

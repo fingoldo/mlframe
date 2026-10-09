@@ -671,8 +671,63 @@ def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
     return out
 
 
+_GPU_BATCH_BYTES = 768 * 1024 * 1024  # budget for the (n, m) candidate block of one batch (it is sorted, so ~3 copies are live)
+
+
 def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
-    """cupy GPU twin of :func:`_pair_combo_mi_njit` - per-combo MI (or -1.0 std-sentinel), BIT-FAITHFUL
+    """cupy GPU twin of :func:`_pair_combo_mi_njit`, batched: per-combo MI (or -1.0 std-sentinel) for ``m`` combos at once.
+
+    The per-combo twin (:func:`_pair_combo_mi_cupy_loop`) spent ~4 ms per combo on ~15 launches and several host syncs, so it
+    lost to the CPU at every size. Here the unary transforms are computed once, the candidates are built per binary op as whole
+    column blocks, the quantile edges come from ONE column sort, and the fused bin + Miller-Madow kernel scores every column.
+    Raises on any cupy/device error so the dispatcher falls back to CPU."""
+    from ._fe_batched_mi import binned_mm_mi_from_values_gpu
+
+    cp = _cp
+    nc = int(ua_arr.shape[0])
+    n = int(x1.shape[0])
+    out = np.empty(nc, dtype=np.float64)
+    if nc == 0:
+        return out
+    nq = len(qs)
+    d_y = cp.asarray(y_codes, dtype=cp.int64)
+    pos = np.asarray(qs, dtype=np.float64) * (n - 1)
+    lo_h = np.floor(pos).astype(np.int64)
+    hi_h = np.where(lo_h < n - 1, lo_h + 1, lo_h)
+    lo, hi = cp.asarray(lo_h), cp.asarray(hi_h)
+    frac = cp.asarray(pos - lo_h)[:, None]
+
+    d_x1 = cp.asarray(x1, dtype=cp.float64)
+    d_x2 = cp.asarray(x2, dtype=cp.float64)
+    ua_distinct = sorted(set(ua_arr.tolist()))
+    ub_distinct = sorted(set(ub_arr.tolist()))
+    U1 = cp.stack([_gpu_apply_unary(d_x1, c, xmin_a) for c in ua_distinct], axis=1)  # (n, nu1)
+    U2 = cp.stack([_gpu_apply_unary(d_x2, c, xmin_b) for c in ub_distinct], axis=1)  # (n, nu2)
+    ia = np.searchsorted(ua_distinct, ua_arr)
+    ib = np.searchsorted(ub_distinct, ub_arr)
+    batch = max(1, min(nc, _GPU_BATCH_BYTES // (8 * n)))
+    for start in range(0, nc, batch):
+        stop = min(start + batch, nc)
+        m = stop - start
+        V = cp.empty((n, m), dtype=cp.float64)
+        for bn in np.unique(bn_arr[start:stop]):
+            sel = np.nonzero(bn_arr[start:stop] == bn)[0]
+            V[:, cp.asarray(sel)] = _gpu_apply_binary(U1[:, cp.asarray(ia[start:stop][sel])], U2[:, cp.asarray(ib[start:stop][sel])], int(bn))
+        var = V.var(axis=0)
+        vmax, vmin = V.max(axis=0), V.min(axis=0)
+        live = (var > 1e-18) & (vmax > vmin)
+        srt = cp.sort(V, axis=0)
+        q = srt[lo, :] + (srt[hi, :] - srt[lo, :]) * frac  # (nq, m) lerp edges
+        del srt
+        mi = binned_mm_mi_from_values_gpu(V, q[1 : nq - 1], d_y, nq - 1, int(k_y), float(h_y), int(k_y), codes_trusted=True, return_device=True)
+        if mi is None:  # (nbins * k_y) shared tile does not fit: let the dispatcher route to CPU
+            raise RuntimeError("fused Miller-Madow kernel cannot hold this target cardinality")
+        out[start:stop] = cp.asnumpy(cp.where(live, mi, cp.float64(-1.0)))
+    return out
+
+
+def _pair_combo_mi_cupy_loop(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
+    """Per-combo cupy twin of :func:`_pair_combo_mi_njit` - per-combo MI (or -1.0 std-sentinel), BIT-FAITHFUL
     to the CPU kernels (see the section docstring). Precomputes the ``nu`` distinct unary transforms of
     each operand ONCE on device, then processes combos in chunks. Raises on any cupy/device error so the
     dispatcher can fall back to CPU (the fit is never broken by a GPU problem)."""
@@ -734,7 +789,7 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
 # ----------------------------------------------------------------------------------------------
 _USABILITY_SWEEP_COMBOS = [64, 289, 578, 1156, 1734]  # ~ |unary|^2*|binary| neighbourhood (17^2*{...})
 _USABILITY_SWEEP_ROWS = [2_000, 10_000, 50_000]  # n_rows axis: GPU H2D/launch overhead amortises with n
-_USABILITY_SALT = 2  # bumped: added n_rows axis + gpu (cupy) backend
+_USABILITY_SALT = 3  # bumped: the cupy twin is batched (was per-combo launches), so stored crossovers are stale
 
 
 def _make_usability_inputs(dims: dict):
