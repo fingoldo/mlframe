@@ -700,6 +700,27 @@ def _apply_hinge_basis(recipe, X) -> np.ndarray:
     raise ValueError(f"hinge_basis recipe '{recipe.name}': unknown side {side!r}")
 
 
+# Above this condition number of A'A the normal equations lose too many digits and the SVD-based lstsq (rank-revealing, minimum norm) decides instead.
+_OLS_NORMAL_EQ_MAX_COND = 1e9
+
+
+def _ols_coef(A: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """OLS coefficients of ``y ~ A`` for a tall design with a handful of columns.
+
+    One BLAS pass builds ``A'A`` and ``A'y`` and the small system is solved directly; ``np.linalg.lstsq`` computes an SVD of the full tall matrix (~25 ms for 670k rows x 3)
+    for the same answer. A badly conditioned or rank-deficient ``A'A`` (a constant leg, a leg collinear with x) goes to ``lstsq`` so those cases keep its minimum-norm result."""
+    gram = A.T @ A
+    rhs = A.T @ y
+    try:
+        if np.linalg.cond(gram) < _OLS_NORMAL_EQ_MAX_COND:
+            coef = np.linalg.solve(gram, rhs)
+            if np.all(np.isfinite(coef)):
+                return np.asarray(coef)
+    except np.linalg.LinAlgError:
+        pass
+    return np.asarray(np.linalg.lstsq(A, y, rcond=None)[0])
+
+
 def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]:
     """Per-SOURCE-COLUMN prep for :func:`_heldout_incremental_r2`: the ``%3`` split and ``r2_base`` (held-out
     R^2 of ``[1, x]`` ALONE) do not depend on any particular leg, yet a column emitting several legs had this
@@ -728,7 +749,7 @@ def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]
         A_tr = np.column_stack(cols_tr)
         A_va = np.column_stack(cols_va)
         try:
-            coef, *_ = np.linalg.lstsq(A_tr, y[tr], rcond=None)
+            coef = _ols_coef(A_tr, y[tr])
         except Exception as e:
             logger.debug("_val_r2: train-split lstsq failed, returning -inf so this design loses the comparison: %s", e)
             return -np.inf
