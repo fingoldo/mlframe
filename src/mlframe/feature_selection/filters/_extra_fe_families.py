@@ -424,7 +424,7 @@ def _digitize_with_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     codes = searchsorted_right(edges[1:-1], x)
     codes = np.clip(codes, 0, max(0, edges.size - 2))
     codes[~np.isfinite(x)] = 0
-    return codes.astype(np.int64)
+    return np.asarray(codes).astype(np.int64)
 
 
 @njit(cache=True)
