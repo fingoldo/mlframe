@@ -112,6 +112,16 @@ def _per_cell_moments_stable_masked_gpu(cp, codes_g, v_safe, w, n_cells: int):
     masked TRAIN rows (mirrors the host OOF fold loop's identical correctness-over-the-old-optimization
     tradeoff, see ``fit_binned_numeric_agg`` in ``_binned_numeric_agg_fe.py``).
     """
+    from ._cell_moments_kernel import masked_cell_moments
+
+    fused = masked_cell_moments(cp, codes_g, v_safe, w, n_cells)
+    if fused is not None:
+        return fused
+    return _per_cell_moments_stable_masked_scatter_gpu(cp, codes_g, v_safe, w, n_cells)
+
+
+def _per_cell_moments_stable_masked_scatter_gpu(cp, codes_g, v_safe, w, n_cells: int):
+    """Scatter-add form of :func:`_per_cell_moments_stable_masked_gpu` (one global-atomic launch per moment); the fallback when the fused kernels do not apply."""
     nc = int(n_cells)
     cnt = resident_bincount(cp, codes_g, nc, weights=w)
     s1 = resident_bincount(cp, codes_g, nc, weights=v_safe * w)

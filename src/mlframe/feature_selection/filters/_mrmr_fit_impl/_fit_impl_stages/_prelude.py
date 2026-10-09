@@ -24,11 +24,12 @@ def _apply_large_n_regression_nbins_gate(self, X, y):
                 _is_reg_gate = not ("classif" in _tt_str_gate or _tt_str_gate in ("binary", "multiclass", "multilabel"))
             else:
                 _y_arr_gate = np.asarray(y)
-                _n_unique_gate = len(np.unique(_y_arr_gate))
-                _ratio_gate = len(_y_arr_gate) / max(1, _n_unique_gate)
-                _is_float_gate = _y_arr_gate.dtype.kind == "f"
-                _is_classification_gate = (not _is_float_gate) and _ratio_gate > 100 and _n_unique_gate <= 64
-                _is_reg_gate = not _is_classification_gate
+                if _y_arr_gate.dtype.kind == "f":
+                    _is_reg_gate = True  # a float target is never classification here; its cardinality (a full-n sort) cannot change that
+                else:
+                    _n_unique_gate = len(np.unique(_y_arr_gate))
+                    _ratio_gate = len(_y_arr_gate) / max(1, _n_unique_gate)
+                    _is_reg_gate = not (_ratio_gate > 100 and _n_unique_gate <= 64)
             if _is_reg_gate:
                 self.nbins_strategy = None
                 self.quantization_nbins = int(getattr(self, "adaptive_nbins_large_n_reg_nbins", 20))

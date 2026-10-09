@@ -81,6 +81,8 @@ import numpy as np
 from numba import njit, prange
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
+from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
+
 logger = logging.getLogger(__name__)
 
 # The recipe-application layer (generate_wavelet_features, hybrid_wavelet_fe_with_recipes,
@@ -326,8 +328,8 @@ def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
         if hit is not None:
             _Y_CODES_MEMO.move_to_end(key)
             return cast(np.ndarray, hit.copy())
-    uy = np.unique(y)
-    if uy.size <= 20:
+    if not _has_more_distinct_than(y, FEW_CLASSES_MAX):
+        uy = np.unique(y)
         out = y.astype(np.int64) if np.issubdtype(y.dtype, np.integer) else np.searchsorted(uy, y)
     else:
         edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
@@ -454,17 +456,16 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
             pass
     # Feature is a Haar leg taking values in {-1, 0, +1} -> use those as classes
     # directly (3 cells); avoids quantile-binning a ternary column.
-    uniq_f = np.unique(feat)
-    if uniq_f.size <= nbins:
-        fb = np.searchsorted(uniq_f, feat)
+    if not _has_more_distinct_than(feat, nbins):
+        fb = np.searchsorted(np.unique(feat), feat)
     else:
         edges = np.quantile(feat, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
         fb = np.digitize(feat, edges)
     if y_codes is not None:
         yb = y_codes
-    elif np.issubdtype(y.dtype, np.integer) and np.unique(y).size <= 20:
+    elif np.issubdtype(y.dtype, np.integer) and not _has_more_distinct_than(y, FEW_CLASSES_MAX):
         yb = y.astype(np.int64)
-    elif np.unique(y).size <= 20:
+    elif not _has_more_distinct_than(y, FEW_CLASSES_MAX):
         uy = np.unique(y)
         yb = np.searchsorted(uy, y)
     else:
@@ -502,9 +503,8 @@ def _x_codes(v: np.ndarray, nbins: int = 10) -> np.ndarray:
     distinct values directly if low-cardinality). Helper for the joint-MI
     admission gate."""
     v = np.asarray(v, dtype=np.float64).ravel()
-    u = np.unique(v)
-    if u.size <= nbins:
-        return np.searchsorted(u, v)
+    if not _has_more_distinct_than(v, nbins):
+        return np.searchsorted(np.unique(v), v)
     edges = np.quantile(v, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
     return np.digitize(v, edges)
 

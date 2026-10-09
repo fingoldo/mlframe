@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 # Above this many distinct float values a target is treated as continuous and quantile-binned rather than
 # densified as-is (a float target with <=32 levels is already effectively discrete -> densify directly).
+# A column (a target, or a leg of one) with at most this many distinct values is treated as already categorical and coded by its distinct values;
+# above it, it is quantile-binned. Shared by every FE gate that makes that call so they cannot drift apart.
+FEW_CLASSES_MAX = 20
 _CONTINUOUS_Y_DISTINCT_THRESHOLD = 32
 _CONTINUOUS_Y_QCUT_BINS = 10
 

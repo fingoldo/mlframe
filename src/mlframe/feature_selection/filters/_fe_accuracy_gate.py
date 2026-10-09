@@ -225,10 +225,10 @@ def infer_classification(y: np.ndarray) -> bool:
     finite = y[np.isfinite(y)] if y.dtype.kind == "f" else y
     if finite.size == 0:
         return True
-    if y.dtype.kind in ("i", "u"):
-        _res = np.unique(finite).size <= max(20, int(0.05 * finite.size))
-    else:
-        _res = np.unique(finite).size <= max(20, int(0.02 * finite.size))
+    from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than  # a prefix already proves "many distinct": no full-n sort for a continuous target
+
+    _limit = max(FEW_CLASSES_MAX, int(0.05 * finite.size)) if y.dtype.kind in ("i", "u") else max(FEW_CLASSES_MAX, int(0.02 * finite.size))
+    _res = not _has_more_distinct_than(finite, _limit)
     if _key is not None:
         with _FE_GATE_MEMO_LOCK:
             if len(_INFER_CLS_MEMO) > 8:

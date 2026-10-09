@@ -51,6 +51,7 @@ FLAG_EXEMPT: dict[str, str] = {
     # py-ci-shared ratchets that refresh through the shared env var, one gate name per file.
     "_committed_line_endings_baseline.json": "PY_CI_SHARED_REFRESH=committed_line_endings",
     "_drifted_duplicate_literals_baseline.json": "PY_CI_SHARED_REFRESH=duplicate-literals",
+    "_drifted_threshold_literals_baseline.json": "PY_CI_SHARED_REFRESH=duplicate-literals",
     "_unresolved_module_attributes_baseline.json": "PY_CI_SHARED_REFRESH=unresolved_module_attributes (see test_shared_gates_adopted_pass2.py)",
 }
 

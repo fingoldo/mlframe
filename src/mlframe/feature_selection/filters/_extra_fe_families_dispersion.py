@@ -142,10 +142,43 @@ def _bin_css_njit(xi_f, codes_f, bin_mean, n_bins):
     return bin_css
 
 
+@njit(cache=True, nogil=True)
+def _std_njit(a):
+    """Population std of a float64 vector in two passes without temporaries (``np.std`` allocates a full-n deviation array per call)."""
+    n = a.shape[0]
+    if n == 0:
+        return np.nan
+    s = 0.0
+    for i in range(n):
+        s += a[i]
+    m = s / n
+    ss = 0.0
+    for i in range(n):
+        d = a[i] - m
+        ss += d * d
+    return np.sqrt(ss / n)
+
+
+def _column_finite_stats(xi: np.ndarray) -> tuple:
+    """``(finite_mask, all_finite, xi_finite, global_mean, global_std)`` of one column - everything :func:`_per_bin_mean_std` derives from ``x_i`` alone,
+    so the generator computes it once per ``x_i`` instead of once per ordered pair."""
+    finite_i = np.isfinite(xi)
+    all_finite = bool(finite_i.all())
+    if not all_finite and not finite_i.any():
+        return finite_i, False, xi[finite_i], 0.0, 1.0
+    xi_f = xi if all_finite else xi[finite_i]
+    global_mean = float(xi_f.mean())
+    global_std = float(xi_f.std())
+    if not np.isfinite(global_std) or global_std < _DISPERSION_SIGMA_FLOOR:
+        global_std = 1.0  # degenerate x_i -> unit normaliser (residual ~0 anyway)
+    return finite_i, all_finite, xi_f, global_mean, global_std
+
+
 def _per_bin_mean_std(
     xi: np.ndarray,
     codes_j: np.ndarray,
     n_bins_eff: int,
+    col_stats: tuple | None = None,
 ) -> tuple[np.ndarray, np.ndarray, float, float]:
     """Per-bin (mean, std) of the FINITE ``x_i`` values grouped by ``codes_j``.
 
@@ -154,20 +187,15 @@ def _per_bin_mean_std(
     scale-normaliser instead of a ~0 divisor that would fabricate a giant |z|).
     Uses the numerically-stable two-pass mean-then-centred-SS reduction over the
     grouped values (one ``np.add.at`` for the sum, one for the centred SS)."""
-    finite_i = np.isfinite(xi)
-    if not finite_i.any():
+    finite_i, all_finite, xi_f, global_mean, global_std = col_stats if col_stats is not None else _column_finite_stats(xi)
+    if xi_f.size == 0:
         z = np.zeros(n_bins_eff, dtype=np.float64)
         return z.copy(), np.ones(n_bins_eff, dtype=np.float64), 0.0, 1.0
-    xi_f = xi[finite_i]
-    codes_f = codes_j[finite_i]
-    global_mean = float(xi_f.mean())
-    global_std = float(xi_f.std())
-    if not np.isfinite(global_std) or global_std < _DISPERSION_SIGMA_FLOOR:
-        global_std = 1.0  # degenerate x_i -> unit normaliser (residual ~0 anyway)
+    codes_f = codes_j if all_finite else codes_j[finite_i]
 
     # Per-bin sum + count in one compiled O(n) walk (bit-identical to the two ``np.add.at`` scatter-adds it
     # replaces - same ascending-i accumulation order - but ~10-50x faster; ``np.add.at`` was the tottime sink).
-    codes_f = np.ascontiguousarray(codes_f).astype(np.int64)
+    codes_f = np.ascontiguousarray(codes_f, dtype=np.int64)
     xi_f = np.ascontiguousarray(xi_f, dtype=np.float64)
     bin_sum, bin_cnt = _bin_sum_cnt_njit(xi_f, codes_f, int(n_bins_eff))
     bin_mean = np.where(
@@ -290,6 +318,7 @@ def generate_conditional_dispersion_features(
 
     from ._extra_fe_families import _digitize_with_edges, _quantile_edges  # lazy: break parent<->sibling cycle
     col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
+    col_stats: dict = {}  # x_i -> _column_finite_stats, shared by every pair that uses x_i
     for x_j in num_cols:
         xj = col_vals[x_j]
         edges = _quantile_edges(xj, n_bins)
@@ -299,8 +328,10 @@ def generate_conditional_dispersion_features(
             if x_i == x_j:
                 continue
             xi = col_vals[x_i]
+            if x_i not in col_stats:
+                col_stats[x_i] = _column_finite_stats(xi)
             bin_mean, bin_std, global_mean, global_std = _per_bin_mean_std(
-                xi, codes_j, n_bins_eff,
+                xi, codes_j, n_bins_eff, col_stats[x_i],
             )
             z = _zscore_from_bins(xi, codes_j, bin_mean, bin_std)
             payload = {
@@ -316,10 +347,10 @@ def generate_conditional_dispersion_features(
                 vals = _emit_kind(z, kind)
                 # Skip a degenerate constant emission (e.g. |z| all 0) - it
                 # carries no information and only burdens the screen.
-                if float(np.std(vals)) <= 1e-12:
+                if _std_njit(vals) <= 1e-12:
                     continue
                 name = engineered_name_conditional_dispersion(x_i, x_j, kind)
-                encoded[name] = vals.astype(np.float64)
+                encoded[name] = np.asarray(vals, dtype=np.float64)
                 raw_recipes[name] = {**payload, "kind": kind}
 
     return pd.DataFrame(encoded, index=X.index), raw_recipes

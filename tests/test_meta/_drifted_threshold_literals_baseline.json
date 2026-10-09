@@ -1,0 +1,54 @@
+{
+ "entries": {
+  "threshold::1e-09 compared against _col_std/_std_tr/_std_va/std::calibration/threshold_optimizer.py feature_selection/filters/_binned_numeric_agg_fe.py feature_selection/filters/_binned_numeric_agg_resident.py feature_selection/filters/_feature_engineering_pairs/_pairs_emit.py feature_selection/filters/_orthogonal_univariate_fe/_fourier_detect_gpu_resident.py feature_selection/filters/_target_encoding_fe.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-12 compared against C_hat/_c_span/_c_std/_y_std/base_std/col_norms/col_std/f_std/new_std/norm/norms/null_std/perm_std/resid_std/span/std/std_base/std_m/surface_std/target_std/train_std/y_std::evaluation/distribution_matching_subset_search.py feature_selection/filters/_binned_numeric_agg_fe.py feature_selection/filters/_chao_shen.py feature_selection/filters/_cupy_polynom_optimizer.py feature_selection/filters/_fe_additive_fusion_gpu_resident.py feature_selection/filters/_fe_auto_escalation_proposers.py feature_selection/filters/_fe_pure_form_retention.py feature_selection/filters/_fe_pure_form_retention_gpu_resident.py feature_selection/filters/_gpu_resident_basis.py feature_selection/filters/_null_importance.py feature_selection/filters/_numba_polynom_optimizer.py feature_selection/filters/_orthogonal_elasticnet_fe.py feature_selection/filters/_orthogonal_lasso_fe.py feature_selection/filters/_orthogonal_univariate_fe/_extra_basis_resident.py feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe.py feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_generate.py feature_selection/filters/_surrogate_interaction_seeder.py feature_selection/filters/_usability_gpu.py feature_selection/filters/_usability_greedy_clf_gpu_resident.py feature_selection/filters/_usability_greedy_gpu_resident.py feature_selection/filters/_wavelet_basis_fe.py feature_selection/filters/_wavelet_basis_fe_batched.py feature_selection/filters/hermite_fe/__init__.py feature_selection/filters/hermite_fe/_hermite_prewarp.py feature_selection/wrappers/rfecv/_validate.py reporting/charts/pdp_2d.py training/composite/autoconfig.py training/composite/discovery/_auto_base.py training/composite/discovery/_eval_stats.py training/composite/discovery/_fit_helpers.py training/composite/monitoring.py training/composite/streaming.py training/composite/transforms/linear.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-12 compared against _denom_su/denom/su/su_denom::feature_selection/filters/_batch_mi_noise_gate_kernels.py feature_selection/filters/_dynamic_cluster_discovery/_dcd_metrics.py feature_selection/filters/_mrmr_artifacts.py feature_selection/filters/_usability_gpu.py feature_selection/filters/correlated_features.py feature_selection/filters/evaluation.py feature_selection/filters/info_theory/_batch_kernels.py feature_selection/filters/info_theory/_class_mi_kernels.py feature_selection/filters/info_theory/_entropy_kernels.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su_bitmap.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su_joint.py inspection/interaction.py training/composite/monitoring.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-12 compared against _stds/stds::feature_selection/wrappers/_helpers_importance_agg.py feature_selection/wrappers/_importance_methods.py feature_selection/wrappers/_knockoffs.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-12 compared against sd::feature_selection/filters/_binned_numeric_agg_fe.py feature_selection/filters/_fe_sufficient_summary.py feature_selection/filters/_orthogonal_cluster_basis_fe.py feature_selection/filters/_target_encoding_fe.py feature_selection/filters/_usability_greedy_clf_gpu_resident.py feature_selection/filters/correlated_features.py feature_selection/filters/engineered_recipes/_orth_basis_recipes.py utils/_param_oracle.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-12 compared against var::feature_engineering/transformer/_aggregation.py feature_selection/filters/_meta_fe_recommender.py feature_selection/filters/_target_encoding_fe.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-24 compared against c_ss/c_ss_vec/s_ss/s_ss_vec/ss/var_a/var_b/var_y/y_ss/yv_ss::feature_selection/filters/_hinge_basis_fe.py feature_selection/filters/_hinge_detect_gpu_resident.py feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_raw_protect_r2.py feature_selection/filters/_orthogonal_univariate_fe/_fourier_detect_gpu_resident.py feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_helpers.py training/composite/discovery/_filter.py training/composite/discovery/_structural_hints.py training/composite/discovery/screening.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-24 compared against denom::feature_selection/filters/_hinge_basis_fe.py feature_selection/filters/_hinge_detect_gpu_resident.py feature_selection/filters/_hinge_detect_gpu_resident_batch.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-24 compared against sse_lin::feature_selection/filters/_hinge_basis_fe.py feature_selection/filters/_hinge_detect_gpu_resident.py feature_selection/filters/_hinge_detect_gpu_resident_batch.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::1e-300 compared against denom::calibration/_independence_check.py feature_selection/filters/_fe_additive_fusion_gpu_resident.py feature_selection/filters/_gpu_resident_basis.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
+  },
+  "threshold::20 compared against size::feature_selection/filters/_feature_engineering_pairs/_pairs_setup.py feature_selection/shap_proxied_fs/_shap_proxy_interactions.py training/composite/autoconfig.py": {
+   "count": 1,
+   "note": "Minimum row count below which a quantile/interaction estimate is not attempted. The three sites guard different estimators (prewarp target winsorising, SHAP interaction pairs, composite autoconfig); each limit is that estimator's own sample-size floor, so they are independent decisions that happen to share a value."
+  },
+  "threshold::200000 compared against size::feature_selection/filters/_extra_fe_families.py feature_selection/filters/_fe_accuracy_gate.py training/composite/discovery/_point_mass_gate.py training/composite/discovery/_skew_gate.py training/composite/transforms/nonlinear.py training/composite/transforms/simple.py": {
+   "count": 1,
+   "note": "Large-n crossover or subsample cap of unrelated routines (a quantile switch, a float cardinality probe, point-mass and skew subsamples, two composite transforms). Each marks where its own routine changes strategy or stops paying for the full column; they are kernel-tuning-cache candidates rather than one shared constant, and re-measuring one says nothing about the others."
+  }
+ },
+ "gate": "drifted-duplicate-literals",
+ "schema": 1
+}
