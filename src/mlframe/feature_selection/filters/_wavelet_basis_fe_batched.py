@@ -104,6 +104,54 @@ def _dyadic_haar_leg_gpu(cp, z_g, j: int, k: int):
     )
 
 
+def _fused_enabled() -> bool:
+    """Whether the two-kernel leg builder is used; ``MLFRAME_FE_WAVELET_FUSED=0`` selects the per-leg cupy loop."""
+    import os
+
+    return os.environ.get("MLFRAME_FE_WAVELET_FUSED", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _fused_leg_matrices(cp, z_g, max_scale: int, min_half_rows: int):
+    """``(metas, tr_mat, va_mat)`` from the fused kernels (see :mod:`_wavelet_legs_fused_gpu`), or ``None`` when they do not apply."""
+    from ._wavelet_legs_fused_gpu import leg_code_matrices
+
+    return leg_code_matrices(cp, z_g, max_scale, min_half_rows)
+
+
+def _per_leg_matrices(cp, z_g, max_scale: int, tr_mask, va_mask, min_half_rows: int):
+    """The per-leg cupy build of the train / validation code matrices: ``(metas, tr_mat, va_mat)`` (the reference the fused kernels are tested against).
+
+    Integer index arrays, not boolean masks, select the rows: a boolean-mask gather re-syncs on the nonzero count for every leg, an integer gather has a known output size."""
+    tr_g = cp.asarray(np.where(tr_mask)[0])
+    va_g = cp.asarray(np.where(va_mask)[0])
+    legs_all: list = []
+    metas_all: list = []
+    pos_all: list = []
+    neg_all: list = []
+    for j in range(int(max_scale) + 1):
+        for k in range(2**j):
+            leg = _dyadic_haar_leg_gpu(cp, z_g, j, k)
+            legs_all.append(leg)
+            metas_all.append((int(j), int(k)))
+            pos_all.append((leg > 0).sum())
+            neg_all.append((leg < 0).sum())
+    metas: list = []
+    tr_cols: list = []
+    va_cols: list = []
+    if metas_all:
+        elig = cp.asnumpy((cp.stack(pos_all) >= min_half_rows) & (cp.stack(neg_all) >= min_half_rows))
+        for _idx, (j, k) in enumerate(metas_all):
+            if not elig[_idx]:
+                continue
+            codes = (legs_all[_idx] + 1.0).astype(cp.int64)
+            metas.append((j, k))
+            tr_cols.append(codes[tr_g])
+            va_cols.append(codes[va_g])
+    if not metas:
+        return [], None, None
+    return metas, cp.ascontiguousarray(cp.stack(tr_cols, axis=1)), cp.ascontiguousarray(cp.stack(va_cols, axis=1))
+
+
 def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, scale_sigma):
     """DEVICE-BORN twin of the host body of :func:`select_wavelet_legs_batched`: builds the dyadic-Haar leg
     code matrices ON the device from the single resident ``z`` column (``z = clip((x-lo)/span, 0, 1)``) and
@@ -152,47 +200,15 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         # different column with the same role re-uploads while the SAME column hits.
         z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)
         z_g = cp.clip((z_g - float(lo)) / float(span), 0.0, 1.0)
-        # Integer index arrays (not boolean masks): a boolean-mask gather codes[mask] re-syncs on the mask
-        # nonzero count for EVERY leg; integer-index gathers have a known output size (no sync). Build the
-        # indices host-side (np.where) so the conversion itself costs no device sync. Same rows selected.
-        tr_g = cp.asarray(np.where(tr_mask)[0])
-        va_g = cp.asarray(np.where(va_mask)[0])
-
-        # Build every candidate leg resident, and its +/- support counts as DEVICE 0-dim scalars. Batching the
-        # eligibility check: the per-leg ``int(cp.count_nonzero(...))`` pair was two blocking D2H
-        # scalar drains per (j, k); instead stack the counts and read the whole eligibility mask back in ONE
-        # D2H. Same deterministic threshold -> the SAME legs are admitted (selection-identical).
-        legs_all: list = []
-        metas_all: list[tuple] = []
-        pos_all: list = []
-        neg_all: list = []
-        for j in range(int(max_scale) + 1):
-            for k in range(2**j):
-                leg = _dyadic_haar_leg_gpu(cp, z_g, j, k)
-                legs_all.append(leg)
-                metas_all.append((int(j), int(k)))
-                pos_all.append((leg > 0).sum())
-                neg_all.append((leg < 0).sum())
-        metas: list[tuple] = []
-        tr_cols: list = []
-        va_cols: list = []
-        if metas_all:
-            pos_v = cp.stack(pos_all)
-            neg_v = cp.stack(neg_all)
-            elig = cp.asnumpy((pos_v >= _WAVELET_MIN_HALF_ROWS) & (neg_v >= _WAVELET_MIN_HALF_ROWS))
-            for _idx, (j, k) in enumerate(metas_all):
-                if not elig[_idx]:
-                    continue
-                # _dense_leg_codes: leg -> leg+1 (cardinality 3). Slice train/val from the device leg.
-                codes = (legs_all[_idx] + 1.0).astype(cp.int64)
-                metas.append((j, k))
-                tr_cols.append(codes[tr_g])
-                va_cols.append(codes[va_g])
-        if not metas:
-            return []
-
-        tr_mat = cp.ascontiguousarray(cp.stack(tr_cols, axis=1))  # resident (n_tr, K) int64 codes
-        va_mat = cp.ascontiguousarray(cp.stack(va_cols, axis=1))  # resident (n_va, K) int64 codes
+        fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS) if _fused_enabled() else None
+        if fused is not None:
+            metas, tr_mat, va_mat = fused
+            if not metas:
+                return []
+        else:
+            metas, tr_mat, va_mat = _per_leg_matrices(cp, z_g, int(max_scale), tr_mask, va_mask, _WAVELET_MIN_HALF_ROWS)
+            if not metas:
+                return []
         yb_tr = _bin_y_codes(y[tr_mask])
         yb_va = _bin_y_codes(y[va_mask])
         ky_tr = int(np.asarray(yb_tr).max()) + 1

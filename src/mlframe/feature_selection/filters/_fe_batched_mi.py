@@ -448,11 +448,13 @@ def _get_mi_split_f32_kernels(cp):
     return _MI_SPLIT_F32_KERNELS
 
 
-def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False) -> np.ndarray | None:
+def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, codes_trusted: bool = False, x_cm: Any = None) -> np.ndarray | None:
     """Plug-in MI(col_k; y) for an (n,K) float matrix ``x_vals`` binned by per-column ``interior_edges``
     ((nbins-1, K) cupy) in ONE fused RawKernel (bin + joint histogram + MI), replacing _searchsorted_codes
     + binned_mi_from_codes_gpu. Returns a host (K,) float64 array. Selection-equivalent (codes match
-    cp.searchsorted side='right' bit-for-bit). Falls back to None if the (nbins*ky) shared tile won't fit."""
+    cp.searchsorted side='right' bit-for-bit). Falls back to None if the (nbins*ky) shared tile won't fit.
+
+    ``x_cm``: the ``(K, n)`` C-order column-major copy of ``x_vals`` when the caller already has one (the radix edge select needs the same buffer), so the matrix is not transposed a second time."""
     import cupy as cp
 
     # DTYPE-CHURN KILL: keep an f32 candidate matrix at f32 through the transpose + kernel
@@ -462,11 +464,17 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     # of X is ``double v = Xc[i]`` (widening float->double promotion == the exact f64 the f64 path stored via
     # X.astype(f64)); edges kept f64 so the comparison is byte-for-byte the f64 path's. Non-f32 input upcasts
     # to f64 as before (the generic contract). The transpose runs in f32 (transpose_f32, half the bytes).
-    _is_f32 = getattr(x_vals, "dtype", None) == cp.float32
-    Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)
-    if Xd.ndim == 1:
-        Xd = Xd[:, None]
-    n, K = int(Xd.shape[0]), int(Xd.shape[1])
+    if x_vals is None:
+        # column-major only: the (K, n) block is all there is, the row-major matrix never exists
+        _is_f32 = x_cm.dtype == cp.float32
+        Xd = None
+        K, n = int(x_cm.shape[0]), int(x_cm.shape[1])
+    else:
+        _is_f32 = getattr(x_vals, "dtype", None) == cp.float32
+        Xd = x_vals if _is_f32 else x_vals.astype(cp.float64, copy=False)
+        if Xd.ndim == 1:
+            Xd = Xd[:, None]
+        n, K = int(Xd.shape[0]), int(Xd.shape[1])
     E = cp.ascontiguousarray(interior_edges.astype(cp.float64, copy=False))  # (nbins-1, K)
     yv = y_codes.astype(cp.int64, copy=False).ravel() if isinstance(y_codes, cp.ndarray) else cp.asarray(np.ascontiguousarray(y_codes).astype(np.int64).ravel())
     Ky = int(ky)
@@ -480,7 +488,12 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     # unchanged (same values, just a different read layout). Falls back to the row-major contiguous copy if the
     # transpose can't apply (the kernels then need row-major - but _transpose_to_cm only returns (K,n) here).
     from ._gpu_resident_select import _transpose_to_cm
-    Xc = _transpose_to_cm(cp.ascontiguousarray(Xd))   # (K, n) C-order == column-major over the (n,K) matrix
+    if x_vals is None:
+        Xc = x_cm if x_cm.dtype == (cp.float32 if _is_f32 else cp.float64) and x_cm.flags.c_contiguous else cp.ascontiguousarray(x_cm, dtype=cp.float32 if _is_f32 else cp.float64)
+    elif x_cm is not None and x_cm.shape == (K, n) and x_cm.dtype == Xd.dtype and x_cm.flags.c_contiguous:
+        Xc = x_cm
+    else:
+        Xc = _transpose_to_cm(cp.ascontiguousarray(Xd))  # (K, n) C-order == column-major over the (n,K) matrix
     _inv = np.float64(1.0 / float(max(1, n)))
     # SPLIT-N when one-block-per-column can't fill the SMs (narrow K, big n): 60/66 of these launches were
     # K<=32 blocks on a 6-SM card (nsys 2026-07-02) -> segment the n rows across S blocks/column into a merged

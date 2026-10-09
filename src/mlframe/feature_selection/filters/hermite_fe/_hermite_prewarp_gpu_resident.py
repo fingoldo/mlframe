@@ -59,6 +59,13 @@ from mlframe.feature_selection.filters._safe_scale import guarded_scale
 logger = logging.getLogger(__name__)
 
 
+def _fused_basis_enabled() -> bool:
+    """Whether the design matrix is built by the single-kernel recurrence; ``MLFRAME_FE_BASIS_FUSED=0`` selects the cupy-op-per-degree loop."""
+    import os
+
+    return os.environ.get("MLFRAME_FE_BASIS_FUSED", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
 def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
     """Build ``B[i, k] = T_k(z[i])`` for k=0..max_degree DIRECTLY ON DEVICE - the
     cupy mirror of the host ``_build_basis_*`` njit recurrences (hermite_fe
@@ -82,6 +89,12 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
     x = cp.ascontiguousarray(cp.asarray(z_gpu, dtype=cp.float64)).reshape(-1)
     n = x.shape[0]
     nc = int(max_degree) + 1
+    if _fused_basis_enabled():
+        from ._basis_fused_gpu import build_basis_fused
+
+        fused = build_basis_fused(cp, basis, x, nc)
+        if fused is not None:
+            return fused
     B = cp.empty((n, nc), dtype=cp.float64)
     B[:, 0] = 1.0
     if nc <= 1:

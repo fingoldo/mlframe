@@ -1246,3 +1246,27 @@ for _m in (_grb, _gpm, _grs, _grk):
         if not _n.startswith("__") and _n not in globals():
             globals()[_n] = getattr(_m, _n)
 del _m, _n
+
+# The loop above copies a sibling's names at the moment it runs. When a sibling is imported FIRST (``_gpu_resident_select`` -> its tail imports
+# ``_gpu_resident_discretize`` -> that back-imports this module), this module's tail runs while the sibling is only partially initialised, and the names the sibling
+# re-exports from its own carved files are not there yet - ``from ._gpu_resident_fe import gpu_discretize_codes_host`` then failed depending on which module a process
+# happened to import first. The module-level ``__getattr__`` below resolves such a name from the siblings once they have finished loading (and caches it).
+_REEXPORT_SIBLINGS = (
+    "_gpu_resident_basis", "_gpu_resident_pair_mi", "_gpu_resident_select", "_gpu_resident_k_chunk_ktc",
+    "_gpu_resident_materialise", "_gpu_resident_discretize", "_gpu_resident_select_kernels",
+)
+
+
+def __getattr__(name: str):
+    """Late lookup of a re-exported name in the carved sibling modules (PEP 562), for the partial-initialisation import orders."""
+    if name.startswith("__"):
+        raise AttributeError(name)
+    import sys as _sys
+
+    for _sib in _REEXPORT_SIBLINGS:
+        _mod = _sys.modules.get(f"{__package__}.{_sib}")
+        if _mod is not None and name in vars(_mod):
+            _value = vars(_mod)[name]
+            globals()[name] = _value
+            return _value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
