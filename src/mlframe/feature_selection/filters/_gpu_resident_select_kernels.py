@@ -399,6 +399,9 @@ def _transpose_to_cm(cand_gpu):
     import cupy as cp
 
     n, K = cand_gpu.shape
+    if (K == 1 or n == 1) and cand_gpu.flags.c_contiguous:
+        # one column (or one row): the (K, n) C-order buffer has exactly the bytes of the (n, K) one, so the transpose is a view, not a copy
+        return cand_gpu.reshape(K, n)
     if cand_gpu.dtype == cp.float32 and cand_gpu.flags.c_contiguous:
         _ker, _dt = _get_transpose_f32_kernel(), cp.float32
     elif cand_gpu.dtype == cp.float64 and cand_gpu.flags.c_contiguous:
@@ -424,6 +427,8 @@ def _transpose_cm_to_rm(cm_gpu):
     import cupy as cp
 
     Kr, nc = cm_gpu.shape  # (K, n)
+    if (Kr == 1 or nc == 1) and cm_gpu.flags.c_contiguous:
+        return cm_gpu.reshape(nc, Kr)  # a single row/column: same bytes, a view
     if cm_gpu.dtype != cp.float32 or not cm_gpu.flags.c_contiguous:
         return cp.ascontiguousarray(cm_gpu.T)
     try:

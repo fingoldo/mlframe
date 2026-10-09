@@ -79,3 +79,18 @@ def test_single_column_block():
     row = _plugin_mi_classif_batch_cuda_resident(X, y, 10)
     col = _plugin_mi_classif_batch_cuda_resident(cp.ascontiguousarray(X.T), y, 10, x_is_cm=True)
     np.testing.assert_array_equal(col, row)
+
+
+@pytest.mark.parametrize("shape", [(5_000, 1), (1, 5_000), (3, 4)])
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
+def test_degenerate_transposes_are_views_with_the_right_values(shape, dtype):
+    """A single column or row transposes to the same bytes: no kernel, the result equals the plain transpose, and the inverse round-trips."""
+    a = cp.asarray(np.random.default_rng(0).normal(size=shape).astype(dtype))
+    cm = sel._transpose_to_cm(a)
+    np.testing.assert_array_equal(cp.asnumpy(cm), cp.asnumpy(a).T)
+    assert cm.flags.c_contiguous and cm.shape == (shape[1], shape[0])
+    if min(shape) == 1:
+        assert cm.data.ptr == a.data.ptr  # a view, not a copy
+    if dtype == np.float32:
+        back = sel._transpose_cm_to_rm(cm)
+        np.testing.assert_array_equal(cp.asnumpy(back), cp.asnumpy(a))
