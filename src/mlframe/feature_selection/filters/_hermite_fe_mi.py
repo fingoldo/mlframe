@@ -437,7 +437,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
         return _mi_v
     if x_is_cm:
         X_gpu = cp.ascontiguousarray(X_gpu.T)  # (n, k) for the code-path fallback below
-    from ._gpu_resident_fe import _searchsorted_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+    from ._gpu_resident_fe import _searchsorted_codes
     X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
     # codes_trusted: X_binned is searchsorted-produced (dense 0..n_bins-1) and y_gpu was shifted to dense
     # 0-based above, so the in-range guard cannot fire - skip its blocking min/max sync (FIX1), matching the

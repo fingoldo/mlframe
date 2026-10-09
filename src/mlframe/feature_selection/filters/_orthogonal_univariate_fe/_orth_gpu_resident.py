@@ -129,7 +129,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
         cand_x.append(np.ascontiguousarray(x))
     if not cand_x:
         return None, [], _empty
-    from .._gpu_resident_fe import (  # type: ignore[attr-defined]  # dynamically re-exported via globals()
+    from .._gpu_resident_fe import (
         _gpu_evaluate_basis_matrix, fe_gpu_routing_enabled, _gpu_route_bases_batched,
     )
     # GPU ROUTING (opt-in, default OFF): decide every candidate column's basis on the device at once,

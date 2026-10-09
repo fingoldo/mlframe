@@ -54,7 +54,7 @@ def all_finite_cached(arr: np.ndarray) -> bool:
     with _LOCK:
         hit = _FINITE.get(key)
         if hit is not None and hit[0]() is arr:
-            return hit[1]
+            return bool(hit[1])
     flag = bool(np.all(np.isfinite(arr)))
     try:
         ref = weakref.ref(arr)
