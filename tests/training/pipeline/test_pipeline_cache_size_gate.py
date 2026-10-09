@@ -7,7 +7,6 @@ Post-fix: ``PipelineCache`` is backed by an ``OrderedDict`` with LRU promotion o
 
 from __future__ import annotations
 
-import os
 from collections import OrderedDict
 
 import numpy as np
@@ -90,12 +89,12 @@ def test_pipeline_cache_pandas_frame_size_accounted(monkeypatch) -> None:
     assert cache.get("big_b") is not None, "big_b just inserted; must survive"
 
 
-def test_pipeline_cache_default_byte_limit_is_dynamic() -> None:
+def test_pipeline_cache_default_byte_limit_is_dynamic(monkeypatch) -> None:
     """2026-05-25: hardcoded 2 GB default replaced with psutil-driven
     (available RAM - 8 GB reserve), clamped to [2 GB, 64 GB]. The env
     var override knob still wins. On any dev/CI box with > 10 GB free
     we expect at least 2 GB and at most 64 GB."""
-    os.environ.pop("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT", None)
+    monkeypatch.delenv("MLFRAME_PIPELINE_CACHE_BYTES_LIMIT", raising=False)
     cache = PipelineCache(verbose=False)
     assert cache._bytes_limit >= 2 * 1024 * 1024 * 1024
     assert cache._bytes_limit <= 64 * 1024 * 1024 * 1024

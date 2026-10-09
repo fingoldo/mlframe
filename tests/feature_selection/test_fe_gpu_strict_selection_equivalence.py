@@ -6,8 +6,6 @@ integration test pins that contract: at n=50k the STRICT and CPU MRMR selections
 GPU (STRICT is a no-op) and under MLFRAME_FAST (heavy fit).
 """
 
-import os
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -32,9 +30,9 @@ def _make(n, seed):
     return X, y
 
 
-def _select(X, y, strict, seed):
-    """Test helper: os.environ['MLFRAME_FE_GPU_STRICT'] = strict; try: MRMR._FIT_CACHE.clear() except Exception: pass; m = MRMR(fe_ntop_features=8, interactions_max_order=2, n_...."""
-    os.environ["MLFRAME_FE_GPU_STRICT"] = strict
+def _select(monkeypatch, X, y, strict, seed):
+    """Test helper: monkeypatch.setenv('MLFRAME_FE_GPU_STRICT', strict); try: MRMR._FIT_CACHE.clear() except Exception: pass; m = MRMR(fe_ntop_features=8, interactions_max_order=2, n_...."""
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", strict)
     try:
         MRMR._FIT_CACHE.clear()
     except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
@@ -49,6 +47,6 @@ def _select(X, y, strict, seed):
 def test_strict_matches_cpu_selection_at_production_n(monkeypatch):
     """Strict matches cpu selection at production n."""
     X, y = _make(50_000, 7000)
-    cpu = _select(X, y, "0", 7000)
-    strict = _select(X, y, "1", 7000)
+    cpu = _select(monkeypatch, X, y, "0", 7000)
+    strict = _select(monkeypatch, X, y, "1", 7000)
     assert strict == cpu, f"STRICT {strict} != CPU {cpu} at n=50k (should be selection-equivalent)"

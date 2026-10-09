@@ -49,6 +49,7 @@ import threading
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from ._fast_host_ops import count_distinct_int
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -173,6 +174,21 @@ def _buffer_hash(a: np.ndarray) -> int:
         return int.from_bytes(hashlib.blake2b(c.view(np.uint8).data, digest_size=8).digest(), "little") ^ hash((c.dtype.str, c.shape))
 
 
+# Upper-tail level of the independence null used for the analytic floor.
+_NULL_FLOOR_ALPHA = 1e-3
+
+
+def _null_mi_floor(n_rows: int, nbins: int, n_y_classes: int) -> float:
+    """Plug-in MI (nats) that a column independent of ``y`` exceeds with probability ``_NULL_FLOOR_ALPHA``: ``2 n MI`` is asymptotically chi-squared with
+    ``(nbins - 1) * (n_y_classes - 1)`` degrees of freedom. Uses the nominal (largest) bin count, so the floor errs high rather than low."""
+    df = max(1, (int(nbins) - 1) * (int(n_y_classes) - 1))
+    if n_rows <= 0:
+        return 0.0
+    from scipy.stats import chi2
+
+    return float(chi2.isf(_NULL_FLOOR_ALPHA, df)) / (2.0 * float(n_rows))
+
+
 def raw_mi_noise_floor(
     raw_X: pd.DataFrame,
     y,
@@ -238,11 +254,16 @@ def raw_mi_noise_floor(
     if raw_mi.size == 0:
         _res = 0.0
     else:
+        _null_floor = _null_mi_floor(int(arr.shape[0]), int(nbins), count_distinct_int(y_bin))
         med = float(np.median(raw_mi))
         mad = float(np.median(np.abs(raw_mi - med)))
         # MAD scaled to a std-equivalent (1.4826) so ``mad_mult`` reads like a
         # sigma multiplier on a roughly-normal raw-MI distribution.
-        _res = med + float(mad_mult) * 1.4826 * mad
+        _est = med + float(mad_mult) * 1.4826 * mad
+        # Median + MAD of a handful of columns is erratic (on four raw columns it landed above the strongest one; with one more noise column it dropped
+        # 15x), so it is bounded on both sides: never above the strongest raw column's MI (a "noise floor" over every real column is outside the scale
+        # it was calibrated on), and never below the analytic independence quantile (a floor under the noise level is not a floor).
+        _res = max(min(_est, float(raw_mi.max())), _null_floor)
 
     if _key is not None:
         with _FE_GATE_MEMO_LOCK:

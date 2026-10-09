@@ -16,6 +16,7 @@ import numpy as np
 
 from ._helpers import _dispatch_default_scorer, fe_decide_on_subsample
 from .._fe_frame_ops import fe_append_columns, fe_extract_columns, fe_is_numeric_col
+from ._fe_stage_merge import _fe_merge_new_columns
 from .._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -49,6 +50,7 @@ def _fe_stage_cascade_early_a(
     # pre-registered in ``engineered_recipes`` dict (the same dict the FE-step
     # would populate) and the end-of-fit remap routes them through
     # ``self._engineered_recipes_`` automatically.
+    X_acc = X  # step-input contract: X is never rebound here; stages read it and their new columns are merged into X_acc
     self.hybrid_orth_features_ = []
     # Every column the hybrid-orth family APPENDED to the candidate pool, whether or not it later survived
     # selection. ``hybrid_orth_features_`` is intersected with ``support_`` (survivor-only), so when a sibling
@@ -213,7 +215,7 @@ def _fe_stage_cascade_early_a(
             # Identify appended columns vs the pre-hybrid X.
             _appended = [c for c in X_h.columns if c not in _X_before_hybrid_cols]
             if _appended:
-                X = fe_append_columns(X, fe_extract_columns(X_h, _appended))
+                X_acc = fe_append_columns(X_acc, fe_extract_columns(X_h, _appended))
                 self.hybrid_orth_features_ = list(_appended)
                 for _r in _recipes:
                     _hybrid_orth_pre_recipes[_r.name] = _r
@@ -257,7 +259,7 @@ def _fe_stage_cascade_early_a(
         _extra_basis_scorer_ok = _default_scorer == "plug_in"
         if _univ_fourier_on and _univ_basis_on and _extra_basis_scorer_ok and "fourier" not in _eff_extra_bases:
             _eff_extra_bases = (*_eff_extra_bases, "fourier")
-        X = _stage_extra_orthogonal_bases(self, _eff_extra_bases, X, _y_for_extra, _top_k_for_extra, _hybrid_orth_pre_recipes, verbose)
+        X_acc = _fe_merge_new_columns(X_acc, _stage_extra_orthogonal_bases(self, _eff_extra_bases, X, _y_for_extra, _top_k_for_extra, _hybrid_orth_pre_recipes, verbose), X)
     # 2026-06-09 — HINGE / piecewise-linear change-point basis stage.
     # Independent opt-in via ``fe_hinge_enable`` (does NOT require
     # ``fe_hybrid_orth_enable``): captures a SLOPE CHANGE at a data-dependent
@@ -356,7 +358,7 @@ def _fe_stage_cascade_early_a(
     _gbm_seeded_triplet_names = list(getattr(self, "_seeded_triplets_names_", []) or [])
     from ._hybrid_orth_family_variants import _hybrid_orth_family_variants
 
-    X = _hybrid_orth_family_variants(
+    X_acc = _fe_merge_new_columns(X_acc, _hybrid_orth_family_variants(
         self,
         X=X,
         y=y,
@@ -365,7 +367,7 @@ def _fe_stage_cascade_early_a(
         _hybrid_orth_pre_recipes=_hybrid_orth_pre_recipes,
         _gbm_seeded_triplet_names=_gbm_seeded_triplet_names,
         _fe_family_on=_fe_family_on,
-    )
+    ), X)
     # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
@@ -429,7 +431,7 @@ def _fe_stage_cascade_early_a(
             )
             _mig_appended = [c for c in X_mg.columns if c not in _X_before_mig_cols]
             if _mig_appended:
-                X = fe_append_columns(X, fe_extract_columns(X_mg, _mig_appended))
+                X_acc = fe_append_columns(X_acc, fe_extract_columns(X_mg, _mig_appended))
                 self.mi_greedy_features_ = list(_mig_appended)
                 for _r in _mig_recipes:
                     _mi_greedy_pre_recipes[_r.name] = _r
@@ -456,9 +458,7 @@ def _fe_stage_cascade_early_a(
     # transform-time replay are shared infrastructure. Seed pool excludes
     # both prior hybrid-orth and prior marginal-MI-greedy engineered cols
     # (same rationale: replay must not reference engineered sources).
-    X = _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, verbose)
-
-    return X, _raw_input_cols_pre_fe, _hinge_deferred_values, _hinge_deferred_recipes
+    return _fe_merge_new_columns(X_acc, _stage_greedy_cmi(self, _fe_family_on, _y_np, X, _mi_greedy_pre_recipes, verbose), X), _raw_input_cols_pre_fe, _hinge_deferred_values, _hinge_deferred_recipes
 
 
 def _stage_extra_orthogonal_bases(self, _eff_extra_bases, X, _y_for_extra, _top_k_for_extra, _hybrid_orth_pre_recipes, verbose):

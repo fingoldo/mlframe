@@ -19,7 +19,7 @@ Reference: Rahimi-Recht 2007 RFF + per-column random projections (a frozen varia
 from __future__ import annotations
 
 import logging
-from typing import Union
+from typing import Optional, Union
 
 import numba
 import numpy as np
@@ -60,6 +60,7 @@ def compute_per_column_rff(
     standardize: bool = True,
     dtype: type = np.float32,
     column_prefix: str = "pcrff",
+    X_query: Optional[Union[pl.DataFrame, np.ndarray]] = None,
 ) -> pl.DataFrame:
     """Per-column Random Fourier Features. Each input column gets ``d_embed_per_column`` cos+sin features (so ``2 * d_embed_per_column`` per input column total).
 
@@ -76,9 +77,12 @@ def compute_per_column_rff(
         standardize: If True, RobustScaler-normalise each input column first (recommended for raw data).
         dtype: Floating dtype of the computation and output.
         column_prefix: Prefix of the output column names.
+        X_query: Held-out / predict frame. When given, the RobustScaler is fitted on ``X`` (train) ONLY and the returned features are the projection of
+            ``X_query`` through that train-fitted scaler (the projections ``W``/``b`` depend on ``seed`` and the width alone, so they match ``X``'s). Without it
+            the scaler is fitted on the frame being projected, so two separate calls on a train and a test frame scale them differently.
 
     Returns:
-        Polars DataFrame of shape ``(N, d_input * 2 * d_embed_per_column)``.
+        Polars DataFrame of shape ``(N, d_input * 2 * d_embed_per_column)``; ``N`` is the row count of ``X_query`` when it is given.
     """
     from sklearn.preprocessing import RobustScaler
     seed = require_seed(seed)
@@ -92,11 +96,21 @@ def compute_per_column_rff(
         X = np.ascontiguousarray(X)
     validate_numeric_input(X, name="X", allow_fp16=True)
 
-    if standardize:
-        scaler = RobustScaler()
-        X_std = scaler.fit_transform(X).astype(dtype, copy=False)
+    if X_query is not None:
+        X_proj = X_query.to_numpy() if isinstance(X_query, pl.DataFrame) else np.asarray(X_query)
+        if X_proj.dtype.kind in ("f", "i", "u") and X_proj.dtype != dtype:
+            X_proj = X_proj.astype(dtype, copy=False)
+        validate_numeric_input(X_proj, name="X_query", allow_fp16=True)
+        if X_proj.ndim != 2 or X_proj.shape[1] != X.shape[1]:
+            raise ValueError(f"X_query must be 2-D with {X.shape[1]} columns like X; got shape {X_proj.shape}.")
     else:
-        X_std = X
+        X_proj = X
+
+    if standardize:
+        scaler = RobustScaler().fit(X)
+        X_std = scaler.transform(X_proj).astype(dtype, copy=False)
+    else:
+        X_std = X_proj
 
     _n, d_input = X_std.shape
     m = d_embed_per_column

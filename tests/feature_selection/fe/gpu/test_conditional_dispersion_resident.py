@@ -128,13 +128,12 @@ def test_codes_bit_identical_to_host_digitize():
     np.testing.assert_array_equal(host_codes, dev_codes)
 
 
-def test_resident_gate_selection_identical_to_host():
+def test_resident_gate_selection_identical_to_host(monkeypatch):
     """The device-born resident gate must return the SAME survivor set as the host local_mi_gate."""
-    import os
 
-    os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
-    os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
-    os.environ["MLFRAME_CMI_GPU"] = "1"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
+    monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
     from mlframe.feature_selection.filters._extra_fe_families_dispersion_resident import (
         local_mi_gate_dispersion_resident,
     )

@@ -254,20 +254,20 @@ def test_ensure_kernels_inited_populates_new_shared_kernels():
 def _proc_update(cache_dir: str, kernel_name: str, payload: dict) -> None:
     """Worker for the concurrent test. Runs in a fresh process via
     ``multiprocessing.Process``."""
-    import os
+    from unittest import mock
 
-    os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = cache_dir
     from pyutilz.performance.kernel_tuning.cache import (
         KernelTuningCache,
         hw_fingerprint,
     )
 
-    hw_fingerprint.cache_clear()
-    cache = KernelTuningCache()
-    cache.update(kernel_name, axes=["n"], regions=[{"n_max": None, **payload}])
+    with mock.patch.dict(os.environ, {"PYUTILZ_KERNEL_CACHE_DIR": cache_dir}):
+        hw_fingerprint.cache_clear()
+        cache = KernelTuningCache()
+        cache.update(kernel_name, axes=["n"], regions=[{"n_max": None, **payload}])
 
 
-def test_concurrent_update_preserves_kernels(tmp_path):
+def test_concurrent_update_preserves_kernels(tmp_path, monkeypatch):
     """Two processes calling ``update`` on different kernel names must
     both land in the final on-disk cache (file-lock + merge-on-write)."""
     import multiprocessing
@@ -283,7 +283,7 @@ def test_concurrent_update_preserves_kernels(tmp_path):
         assert p.exitcode == 0, f"worker {p.name} exited {p.exitcode}"
 
     # Read directly via a fresh KTC instance.
-    os.environ["PYUTILZ_KERNEL_CACHE_DIR"] = str(tmp_path)
+    monkeypatch.setenv("PYUTILZ_KERNEL_CACHE_DIR", str(tmp_path))
     from pyutilz.performance.kernel_tuning.cache import (
         KernelTuningCache,
         hw_fingerprint,

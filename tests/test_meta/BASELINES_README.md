@@ -36,6 +36,7 @@ Run from the repository root. The script re-runs each meta-test in
 - `_code_audit_tests_baseline.json` - the shared code-audit scanners run over `tests/` instead of `src/`
 - `_fe_budget_conflict_baseline.json` - conflicting FE budget declarations
 - `_fe_noop_copy_baseline.json` - FE copies that cannot change their input
+- `_env_write_restore_baseline.json` - test functions that write `os.environ` and never restore it (py_ci_shared.env_write_restore; shrink-only, seed with `PY_CI_SHARED_REFRESH_ALLOW_GROW=1`)
 - `_module_env_mutation_baseline.json` - module-level `os.environ` writes
 - `_module_level_logging_disable_baseline.json` - module-level `logging.disable` calls
 - `_nondiscriminating_assert_baseline.json` - assertions whose body cannot fail for the reason claimed

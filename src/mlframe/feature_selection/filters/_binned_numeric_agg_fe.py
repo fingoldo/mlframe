@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 
-from mlframe.utils.log_throttle import log_throttle
 from collections.abc import Sequence
 from typing import Optional, Any
 
@@ -41,6 +40,7 @@ from ._binned_agg_cheap_mi import (  # noqa: F401  -- carved sibling, re-exporte
     compute_mi_from_codes,
     quantile_edges,
 )
+from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -584,49 +584,16 @@ def binned_numeric_agg_with_recipes(
 
     feat_df = None
     raw = None
+    _dev_cands = None
+    state = "unavailable"
     if _device_binagg:
-        _rec_df, raw = fit_binned_numeric_agg(
-            X, y, group_num_cols=gsel, agg_num_cols=asel,
-            stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
-            pairs=_precap_pairs, recipe_only=True,
+        state, raw, feat_df, _dev_cands = device_born_candidates(
+            fit_binned_numeric_agg, X, y, gsel, asel, stats, nbins_base, n_folds, random_state, _precap_pairs, _cap_names, redundancy_gate, reject_sink,
         )
-        if not raw:
+        if state == "empty":
             return X, [], []
-        cand_names = _cap_names(list(raw.keys()), raw)
-        if not cand_names:
-            return X, [], []
-        survivor_list = None
-        try:
-            from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
-            survivor_list = local_mi_gate_binagg_resident(
-                None, y, raw_X=X, recipes={_nm: raw[_nm] for _nm in cand_names},
-                n_folds=n_folds, random_state=random_state, reject_sink=reject_sink,
-                cand_cols=cand_names, n_rows=len(X),
-            )
-        except Exception as e:
-            logger.debug("device candidate-survivor pass failed, falling back to the host path: %s", e)
-            survivor_list = None
-        if survivor_list is None:
-            _device_binagg = False  # device gate unavailable -> host all-columns path below
-        else:
-            _surv_set = set(survivor_list)
-            survivors = [c for c in cand_names if c in _surv_set]  # capped order, filtered to survivors
-            if not survivors:
-                return X, [], []
-            # HOST OOF for the SURVIVOR pairs only (bit-identical values, few columns). The pair-restricted fit
-            # may emit sibling stats of a survivor's pair -> keep exactly the survivor columns, in survivor order.
-            _surv_pairs = set((raw[_nm]["group_col"], raw[_nm]["agg_col"]) for _nm in survivors)
-            feat_df, _ = fit_binned_numeric_agg(
-                X, y, group_num_cols=gsel, agg_num_cols=asel,
-                stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
-                pairs=_surv_pairs,
-            )
-            _have = set(feat_df.columns)
-            feat_df = feat_df[[c for c in survivors if c in _have]]
-            if feat_df.shape[1] == 0:
-                return X, [], []
 
-    if not _device_binagg:
+    if state == "unavailable":
         # HOST path (unchanged behaviour): build ALL capped OOF columns, then the host CPU MI gate.
         feat_df, raw = fit_binned_numeric_agg(
             X, y, group_num_cols=gsel, agg_num_cols=asel,
@@ -652,8 +619,8 @@ def binned_numeric_agg_with_recipes(
     # its OWN sources (cheap: at most two raw columns). Collapses spurious appends to zero on data with no
     # residual per-cell structure while preserving genuine cell-conditional features (where the per-cell shape
     # adds information the raw marginals cannot).
-    assert feat_df is not None and raw is not None  # both branches above (device-born survivors / host all-columns) populate them before falling through
-    if redundancy_gate and feat_df.shape[1] > 0:
+    assert raw is not None and (feat_df is not None or _dev_cands is not None)  # the host branch fills feat_df, the device branch fills it or leaves the lazy device source
+    if redundancy_gate and (_dev_cands is not None or (feat_df is not None and feat_df.shape[1] > 0)):
         from ._mi_greedy_cmi_fe import _quantile_bin
         from ._unified_fe_gate import _coerce_y_classes
 
@@ -681,7 +648,8 @@ def binned_numeric_agg_with_recipes(
         # through on a wide noise frame (measured: binagg_std(noise_48|qbin(x5)) survived on the wide-synergy
         # fixture and fed spurious engineered composites). Bonferroni over the tested candidates at alpha=0.05,
         # never below the old per-candidate z.
-        _NULL_Z = _family_wise_null_z(int(feat_df.shape[1]))
+        cands = _dev_cands if _dev_cands is not None else HostCandidates(feat_df, _quantile_bin, _candidate_codes)
+        _NULL_Z = _family_wise_null_z(len(cands.names))
         _rng = np.random.default_rng(int(random_state))
 
         def _src_bins(col: str) -> np.ndarray:
@@ -693,89 +661,28 @@ def binned_numeric_agg_with_recipes(
             return b
 
         kept_cols: list[Any] = []
-        _build_binned_agg_recipes(feat_df, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink)
+        _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink)
+        if _dev_cands is not None:
+            # Host out-of-fold columns for the KEPT pairs only (usually none): same values the all-survivors fit would have produced for them.
+            if not kept_cols:
+                return X, [], []
+            _kept_pairs = set((raw[_nm]["group_col"], raw[_nm]["agg_col"]) for _nm in kept_cols)
+            feat_df, _ = fit_binned_numeric_agg(
+                X, y, group_num_cols=gsel, agg_num_cols=asel,
+                stats=stats, nbins_base=nbins_base, n_folds=n_folds, random_state=random_state,
+                pairs=_kept_pairs,
+            )
+            _have = set(feat_df.columns)
+            kept_cols = [c for c in kept_cols if c in _have]
+        assert feat_df is not None
         feat_df = feat_df[kept_cols]
         if feat_df.shape[1] == 0:
             return X, [], []
 
+    assert feat_df is not None
     X_aug = pd.concat([X, feat_df], axis=1)
     recipes = [build_binned_numeric_agg_recipe(n, raw[n]) for n in feat_df.columns]
     return X_aug, list(feat_df.columns), recipes
 
 
-def _build_binned_agg_recipes(feat_df, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink):
-    """Build the replayable recipe of every binned-aggregate column."""
-    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned, _cmi_gpu_enabled, _quantile_bin, _renumber_joint
-
-    for nm in feat_df.columns:
-        srcs = [c for c in (raw[nm].get("group_col"), raw[nm].get("agg_col")) if c in X.columns]
-        z_joint = _renumber_joint(*[_src_bins(c) for c in srcs])[0] if srcs else None
-        # bench-attempt-rejected (2026-07-02): routing this binning through batched_quantile_bin_gpu (with a
-        # _renumber_joint_gpu joint) FAILED the redundancy suite - its partition differs from _quantile_bin
-        # (a genuinely redundant binagg column survived). Unnecessary anyway: _quantile_bin itself already
-        # routes large columns to its device twin under the STRICT-resident path (size-gated
-        # _quantile_bin_gpu), so this gate's binning is device-backed without a partition change.
-        cand_bin = _quantile_bin(feat_df[nm].to_numpy(dtype=np.float64), nbins=nbins_base)
-        cmi = _cmi_from_binned(cand_bin, y_cls, z_joint)
-        null_ceiling = 0.0
-        if np.isfinite(cmi) and cmi >= float(min_cmi_gain):
-            # BATCHED null (launch-reduction): cand_bin / z_joint are FIXED across the _n_perm shuffles;
-            # only the permuted y varies. Plug-in CMI is symmetric in X and Y, so CMI(cand; yp | z) ==
-            # CMI(yp; cand | z) - stack the SAME _rng-drawn permuted-y columns into one (n, nperm) matrix
-            # and score them all in ONE batched_cmi_gpu workload (cand as the fixed 'y', z as support),
-            # replacing _n_perm per-perm _cmi_from_binned calls. Identical permutations -> the null ceiling
-            # is selection-equivalent; falls back to the per-perm loop on any error / when GPU is off.
-            # ONE draw from `_rng` for the permutation seed, then a child generator both paths rebuild
-            # identically. The GPU path used to consume `_n_perm` draws BEFORE the call that can fail, and
-            # the host fallback then drew `_n_perm` MORE from the now-advanced generator -- so a GPU failure
-            # silently produced a DIFFERENT null ceiling and therefore a different keep/reject verdict, which
-            # is exactly the selection-equivalence the comment above claims. Seeding a child also leaves
-            # `_rng` equally advanced whichever path runs, so everything downstream is unaffected too, and it
-            # costs no extra memory (the fallback still permutes one column at a time).
-            _perm_seed = int(_rng.integers(0, 2**63 - 1))
-            _null = None
-            try:
-                if _cmi_gpu_enabled(n=int(y_cls.shape[0]), p=int(_n_perm), min_p=2) and int(_n_perm) > 1:
-                    from mlframe.feature_selection.filters._fe_batched_mi import batched_cmi_gpu
-
-                    _prng = np.random.default_rng(_perm_seed)
-                    _Yp = np.empty((y_cls.shape[0], int(_n_perm)), dtype=np.int64)
-                    for _i in range(int(_n_perm)):
-                        _Yp[:, _i] = y_cls[_prng.permutation(y_cls.shape[0])]
-                    _null = np.asarray(batched_cmi_gpu(_Yp, cand_bin, z_joint), dtype=np.float64)
-                    _null = np.where(np.isfinite(_null), _null, 0.0)
-            except Exception as e:
-                log_throttle(
-                    logger,
-                    "binagg_gpu_perm_null_fallback",
-                    logging.WARNING,
-                    "GPU permutation-null batch failed (%s: %s); recomputing the null on the host path. The "
-                    "permutations are seeded identically, so the verdict is unchanged -- the GPU cost is not.",
-                    type(e).__name__,
-                    e,
-                )
-                _null = None
-            if _null is None:
-                _prng = np.random.default_rng(_perm_seed)
-                _null = np.empty(_n_perm, dtype=np.float64)
-                for _i in range(_n_perm):
-                    yp = y_cls[_prng.permutation(y_cls.shape[0])]
-                    c0 = _cmi_from_binned(cand_bin, yp, z_joint)
-                    _null[_i] = c0 if np.isfinite(c0) else 0.0
-            # Robust one-sided null upper tail (mean + z*std), not the noisy raw max.
-            null_ceiling = float(_null.mean() + _NULL_Z * _null.std())
-        keep = np.isfinite(cmi) and cmi >= float(min_cmi_gain) and cmi > null_ceiling
-        if keep:
-            kept_cols.append(nm)
-        elif reject_sink is not None:
-            try:
-                reject_sink(
-                    gate="binagg_source_redundancy", candidate=str(nm),
-                    operands=tuple(srcs), operator="binned_numeric_agg_redundancy_gate",
-                    observed=float(cmi) if np.isfinite(cmi) else 0.0,
-                    threshold=max(float(min_cmi_gain), float(null_ceiling)),
-                    reason="binagg CMI about y given its sources does not clear the permutation-null ceiling",
-                )
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+from ._binned_numeric_agg_redundancy import _candidate_codes, _build_binned_agg_recipes

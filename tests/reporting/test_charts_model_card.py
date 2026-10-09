@@ -264,11 +264,10 @@ def test_verdict_standalone_raises_on_single_class():
 # ----------------------------------------------------------------------------
 
 
-def test_card_renders_matplotlib(tmp_path):
+def test_card_renders_matplotlib(tmp_path, monkeypatch):
     """Card renders matplotlib."""
-    import os
 
-    os.environ.setdefault("MPLBACKEND", "Agg")
+    monkeypatch.setenv("MPLBACKEND", "Agg")
     from mlframe.reporting.renderers.base import get_renderer
 
     y, s = _separable_binary()

@@ -52,6 +52,18 @@ from ._usability_greedy_steps import (  # noqa: F401  -- carved sibling, re-expo
 # operands). Not worth the added complexity; reverted. Do not re-attempt without a cheaper-MI redesign.
 
 
+_SKIPPED = object()  # sentinel: a unary op that raised is skipped, whatever value it could have returned
+
+
+def _try_unary(op, x, name, label):
+    """``op(x)``, or ``_SKIPPED`` when the op raises (best-effort: one failing unary must not sink the pool). The ``try`` lives here so the caller's loop has none."""
+    try:
+        return op(x)
+    except Exception as e:  # nosec B110 - best-effort path
+        logger.debug("unary op %r on %s raised, skipping: %s", name, label, e)
+        return _SKIPPED
+
+
 @dataclass
 class UsableCandidate:
     """One candidate feature (a raw column or a unary/binary-engineered pair form) evaluated for the linear-usability
@@ -430,18 +442,8 @@ def _build_usability_cand_step1_ua_codes_none(_ua_codes, unary, binary, _residen
         # A snap-then-batch variant (grid-snapping this path's MI too) would trade the "byte-identical
         # default" contract for a "selection-equivalent-only" one - a real behavior-contract change,
         # not a pure perf refactor, so it is out of scope for this pass; not applied.
-        ta_by_ua: dict = {}
-        for _ua in unary:
-            try:
-                ta_by_ua[_ua] = unary[_ua](x1)
-            except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug("unary op %r on x1 raised, skipping: %s", _ua, e)
-        tb_by_ub: dict = {}
-        for _ub in unary:
-            try:
-                tb_by_ub[_ub] = unary[_ub](x2)
-            except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug("unary op %r on x2 raised, skipping: %s", _ub, e)
+        ta_by_ua = {u: v for u in unary if (v := _try_unary(unary[u], x1, u, "x1")) is not _SKIPPED}
+        tb_by_ub = {u: v for u in unary if (v := _try_unary(unary[u], x2, u, "x2")) is not _SKIPPED}
         for ua, ta in ta_by_ua.items():
             for ub, tb in tb_by_ub.items():
                 for bn, bf in binary.items():

@@ -221,7 +221,8 @@ class TestThePermutationNullIsRngIdenticalOnBothPaths:
         """Run the binned-aggregate redundancy gate on a noise candidate; return ``(rejection thresholds, kept columns, next outer draw, batch calls)``."""
         import pandas as pd
 
-        from mlframe.feature_selection.filters import _binned_numeric_agg_fe as agg
+        from mlframe.feature_selection.filters import _binned_numeric_agg_redundancy as agg
+        from mlframe.feature_selection.filters._binned_numeric_agg_cands import HostCandidates
         from mlframe.feature_selection.filters import _fe_batched_mi as batched
         from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as cmi_mod
 
@@ -248,7 +249,8 @@ class TestThePermutationNullIsRngIdenticalOnBothPaths:
         rejections = []
         kept = []
         outer = np.random.default_rng(7)
-        agg._build_binned_agg_recipes(feat_df, raw, X, src_bins, 6, y_cls, 0.0, outer, 8, 2.0, kept, lambda **kw: rejections.append(kw["threshold"]))
+        cands = HostCandidates(feat_df, cmi_mod._quantile_bin, agg._candidate_codes)
+        agg._build_binned_agg_recipes(cands, raw, X, src_bins, 6, y_cls, 0.0, outer, 8, 2.0, kept, lambda **kw: rejections.append(kw["threshold"]))
         return rejections, kept, int(outer.integers(0, 2**62)), len(batch_calls)
 
     def test_both_paths_rebuild_the_same_child_generator(self, monkeypatch):
@@ -264,7 +266,7 @@ class TestThePermutationNullIsRngIdenticalOnBothPaths:
 
     def test_the_fallback_no_longer_draws_from_the_outer_generator(self):
         """That is what made the two nulls differ."""
-        rel = "feature_selection/filters/_binned_numeric_agg_fe.py"
+        rel = "feature_selection/filters/_binned_numeric_agg_redundancy.py"
         # The fallback must draw from the SEEDED child, never from the caller's `_rng` -- drawing from the
         # outer generator advances it, so the two paths produce different nulls from the same inputs. Asserted
         # on the parsed module: no `_rng.permutation(...)` anywhere, which the previous form approximated by

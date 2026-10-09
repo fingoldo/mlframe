@@ -1,0 +1,22 @@
+{
+  "entries": {
+    "env-write-restore::_pysr_gate.py::pysr_works: os.environ['JULIA_EXE'] = julia": {
+      "count": 1,
+      "note": "documented side effect of the gate: it exposes the located Julia runtime (JULIA_EXE, PATH) process-wide once, idempotently, so later in-process `import pysr` calls find it; the process cannot import pysr without it"
+    },
+    "env-write-restore::_pysr_gate.py::pysr_works: os.environ['PATH'] = bindir + os.pathsep + os.environ.get('PATH', '')": {
+      "count": 1,
+      "note": "documented side effect of the gate: it exposes the located Julia runtime (JULIA_EXE, PATH) process-wide once, idempotently, so later in-process `import pysr` calls find it; the process cannot import pysr without it"
+    },
+    "env-write-restore::conftest.py::pytest_configure: os.environ[_FAST_ENV] = '1'": {
+      "count": 1,
+      "note": "--fast turns on fast mode for the WHOLE session by design (pytest_configure runs once, before any test), and xdist workers must see the same value"
+    },
+    "env-write-restore::training/run_fuzz_10k.py::main: os.environ['MLFRAME_FUZZ_FORCE_N_ROWS'] = str(int(args.force_n_rows))": {
+      "count": 1,
+      "note": "CLI script entry point: the setting is scoped to the script's own process, never to a pytest process"
+    }
+  },
+  "gate": "env_write_restore",
+  "schema": 1
+}

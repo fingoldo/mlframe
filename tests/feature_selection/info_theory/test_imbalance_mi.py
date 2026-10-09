@@ -22,11 +22,9 @@ that call is byte-for-byte the plain-MI path unless ``MLFRAME_FE_IMBALANCE_MI=on
 
 from __future__ import annotations
 
-import os
 import time
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backends import (
     _mi_classif_batch,
@@ -38,17 +36,6 @@ from mlframe.feature_selection.filters._orthogonal_univariate_fe._imbalance_mi i
     _PRIOR_THRESHOLD,
     compute_class_weights,
 )
-
-
-@pytest.fixture(autouse=True)
-def _clean_env():
-    """Each test sets MLFRAME_FE_IMBALANCE_MI explicitly; restore after."""
-    saved = os.environ.get("MLFRAME_FE_IMBALANCE_MI")
-    yield
-    if saved is None:
-        os.environ.pop("MLFRAME_FE_IMBALANCE_MI", None)
-    else:
-        os.environ["MLFRAME_FE_IMBALANCE_MI"] = saved
 
 
 def _imbalanced_frame(seed=0, n=20000, prior=0.01, p=8):
@@ -64,21 +51,21 @@ def _imbalanced_frame(seed=0, n=20000, prior=0.01, p=8):
 # ---------------------------------------------------------------------------
 
 
-def test_default_off_is_byte_identical_to_plain():
+def test_default_off_is_byte_identical_to_plain(monkeypatch):
     """Env unset => default OFF => _mi_classif_batch == plain numba batch, byte-for-byte.
 
     The zero-regression guarantee for every FE consumer of _mi_classif_batch.
     """
-    os.environ.pop("MLFRAME_FE_IMBALANCE_MI", None)
+    monkeypatch.delenv("MLFRAME_FE_IMBALANCE_MI", raising=False)
     X, y = _imbalanced_frame(seed=1)
     out_default = _mi_classif_batch(X, y, nbins=10)
     out_plain = _mi_classif_batch_numba(X, y, nbins=10)
     assert np.array_equal(out_default, out_plain)
 
 
-def test_explicit_off_is_byte_identical():
+def test_explicit_off_is_byte_identical(monkeypatch):
     """MLFRAME_FE_IMBALANCE_MI=off is byte-identical to the plain numba MI batch, same zero-regression guarantee as the unset default."""
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "off")
     X, y = _imbalanced_frame(seed=2)
     assert np.array_equal(
         _mi_classif_batch(X, y, nbins=10),
@@ -86,9 +73,9 @@ def test_explicit_off_is_byte_identical():
     )
 
 
-def test_gate_fires_when_imbalanced_and_enough_rare():
+def test_gate_fires_when_imbalanced_and_enough_rare(monkeypatch):
     """(a) WIN-fixture regime: prior ~1%, n_rare ~200 -> gate returns weights; ON changes MI."""
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
     X, y = _imbalanced_frame(seed=3, prior=0.01)
     n_rare = int(min((y == 0).sum(), (y == 1).sum()))
     assert n_rare >= _N_RARE_FLOOR, f"fixture must have >= floor rare rows, got {n_rare}"
@@ -101,9 +88,9 @@ def test_gate_fires_when_imbalanced_and_enough_rare():
     assert not np.allclose(out_on, out_plain)
 
 
-def test_gate_fallback_below_n_rare_is_identical_to_plain():
+def test_gate_fallback_below_n_rare_is_identical_to_plain(monkeypatch):
     """(b) GATE control: prior ~1% but n_rare TOO SMALL -> fall back to plain MI byte-identical."""
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
     # n=2000, prior 1% -> ~20 positives, well below the 150 floor.
     rng = np.random.RandomState(4)
     n = 2000
@@ -116,9 +103,9 @@ def test_gate_fallback_below_n_rare_is_identical_to_plain():
     assert np.array_equal(out_on, out_plain)
 
 
-def test_no_regression_on_balanced_data():
+def test_no_regression_on_balanced_data(monkeypatch):
     """(c) NO-REGRESSION: prior ~0.5 -> correction inert -> balanced MI == plain MI."""
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
     rng = np.random.RandomState(5)
     n = 20000
     y = (rng.rand(n) < 0.5).astype(np.int64)
@@ -130,18 +117,18 @@ def test_no_regression_on_balanced_data():
     )
 
 
-def test_gate_refuses_non_discrete_and_single_class():
+def test_gate_refuses_non_discrete_and_single_class(monkeypatch):
     """compute_class_weights returns None for a continuous (regression-style) target and for a single-populated-class target."""
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
     # float (regression-style) target -> never reweight
     assert compute_class_weights(np.linspace(0, 1, 100)) is None
     # single populated class -> None
     assert compute_class_weights(np.zeros(100, dtype=np.int64)) is None
 
 
-def test_prior_threshold_boundary():
+def test_prior_threshold_boundary(monkeypatch):
     """Just-imbalanced-enough fires; just-balanced-enough does not."""
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
     n = 20000
     # prior just below threshold, plenty of rare rows -> fires
     k_lo = int((_PRIOR_THRESHOLD - 0.02) * n)
@@ -160,7 +147,7 @@ def test_prior_threshold_boundary():
 # ---------------------------------------------------------------------------
 
 
-def test_balanced_kernel_equals_plain_when_weights_uniform():
+def test_balanced_kernel_equals_plain_when_weights_uniform(monkeypatch):
     """With per-class weights set so every class has equal total mass on ALREADY-balanced
     data, the reweighted MI must match the plain plug-in MI (the kernel is a correct
     generalisation: uniform reweight is a no-op up to fp tolerance)."""
@@ -178,7 +165,7 @@ def test_balanced_kernel_equals_plain_when_weights_uniform():
         np.ascontiguousarray(w, dtype=np.float64),
         10,
     )
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "off")
     plain = _mi_classif_batch_numba(X, y, nbins=10)
     # rtol 1e-3: the balanced kernel accumulates float64 weighted histograms in a
     # different summation order than the plain integer-count kernel, so they agree
@@ -186,7 +173,7 @@ def test_balanced_kernel_equals_plain_when_weights_uniform():
     assert np.allclose(bal, plain, rtol=1e-3, atol=1e-7)
 
 
-def test_balanced_mi_amplifies_rare_separator_magnitude():
+def test_balanced_mi_amplifies_rare_separator_magnitude(monkeypatch):
     """The documented mechanism: a real rare-class separator's MI MAGNITUDE is
     majority-compressed under plain MI; balancing amplifies it (~10x+). This is the
     one true effect -- it is a rescale, not a re-ranking (see the biz_value test)."""
@@ -196,9 +183,9 @@ def test_balanced_mi_amplifies_rare_separator_magnitude():
     x_rare = rng.randn(n)
     x_rare[y == 1] += 1.6  # AUC ~0.87 rare separator
     X = x_rare.reshape(-1, 1)
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "off")
     plain = _mi_classif_batch(X, y, nbins=10)[0]
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
     bal = _mi_classif_batch(X, y, nbins=10)[0]
     assert bal > 5.0 * plain  # magnitude amplification is real (was ~30x in bench)
 
@@ -209,14 +196,14 @@ def test_balanced_mi_amplifies_rare_separator_magnitude():
 # ---------------------------------------------------------------------------
 
 
-def test_bench_rejection_near_rank_preserving():
+def test_bench_rejection_near_rank_preserving(monkeypatch):
     """Inverse-prior balancing barely re-orders the feature ranking across imbalanced
     frames (Kendall tau ~0.99), so it cannot systematically change a rank-based
     selection -> the WIN claim (a) (plain under-ranks, balanced fixes) does NOT
     reproduce. Pins the rejection."""
     from scipy.stats import kendalltau
 
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "off")
     n = 20000
     taus = []
     for s in range(8):
@@ -228,9 +215,9 @@ def test_bench_rejection_near_rank_preserving():
         y = (rng.rand(n) < 1 / (1 + np.exp(-logit))).astype(np.int64)
         if int(min((y == 0).sum(), (y == 1).sum())) < _N_RARE_FLOOR:
             continue
-        os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
+        monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "off")
         plain = _mi_classif_batch(F, y, nbins=10)
-        os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+        monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
         bal = _mi_classif_batch(F, y, nbins=10)
         taus.append(kendalltau(plain, bal).correlation)
     assert len(taus) >= 4
@@ -239,7 +226,7 @@ def test_bench_rejection_near_rank_preserving():
     assert np.mean(taus) > 0.90
 
 
-def test_bench_rejection_does_not_improve_topk_rare_selection():
+def test_bench_rejection_does_not_improve_topk_rare_selection(monkeypatch):
     """(a)-as-tested + biz_value: with a strong rare-band signal present, BOTH plain and
     balanced MI rank the rare-discriminative features into the top-k -> identical
     selection -> no downstream rare-AP delta. (The rare separator is NOT under-ranked
@@ -253,9 +240,9 @@ def test_bench_rejection_does_not_improve_topk_rare_selection():
     logit = common_logit + 3.5 * ((Fr[:, 0] > 2.1) | (Fr[:, 1] > 2.1))
     y = (rng.rand(n) < 1 / (1 + np.exp(-logit))).astype(np.int64)
     F = np.column_stack([Fc, Fr])
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "off"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "off")
     plain = _mi_classif_batch(F, y, nbins=10)
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
     bal = _mi_classif_batch(F, y, nbins=10)
     # The load-bearing claim: the rare-band features (idx 8, 9) are NOT under-ranked
     # by plain MI -- they sit in the top-3 under BOTH plain and balanced. Balancing
@@ -270,7 +257,7 @@ def test_bench_rejection_does_not_improve_topk_rare_selection():
     assert set(np.argsort(-plain)[:3]) == set(np.argsort(-bal)[:3])
 
 
-def test_noise_control_rare_by_chance_not_promoted():
+def test_noise_control_rare_by_chance_not_promoted(monkeypatch):
     """(d) NOISE: a pure-noise feature that separates the rare class BY CHANCE is not
     spuriously promoted above genuine noise by balancing. Balanced MI of pure noise
     stays bounded and does not vault a chance feature over a real separator's
@@ -283,7 +270,7 @@ def test_noise_control_rare_by_chance_not_promoted():
     x_real = rng.randn(n)
     x_real[y == 1] += 1.8  # genuine rare separator
     X = np.column_stack([x_real, noise])
-    os.environ["MLFRAME_FE_IMBALANCE_MI"] = "on"
+    monkeypatch.setenv("MLFRAME_FE_IMBALANCE_MI", "on")
     bal = _mi_classif_batch(X, y, nbins=10)
     # the genuine separator's balanced MI exceeds every pure-noise column's.
     assert bal[0] > bal[1:].max()
@@ -294,11 +281,11 @@ def test_noise_control_rare_by_chance_not_promoted():
 # ---------------------------------------------------------------------------
 
 
-def test_default_off_adds_negligible_cost():
+def test_default_off_adds_negligible_cost(monkeypatch):
     """The detection short-circuit (compute_class_weights) on the default OFF path is
     a single env read -> the OFF path must be no slower than calling the plain numba
     batch directly (generous 1.5x budget to absorb timing noise)."""
-    os.environ.pop("MLFRAME_FE_IMBALANCE_MI", None)
+    monkeypatch.delenv("MLFRAME_FE_IMBALANCE_MI", raising=False)
     X, y = _imbalanced_frame(seed=9, n=20000, p=12)
     # warm numba
     _mi_classif_batch(X, y, nbins=10)

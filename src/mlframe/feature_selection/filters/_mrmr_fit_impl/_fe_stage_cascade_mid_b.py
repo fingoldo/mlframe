@@ -19,6 +19,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+from ._fe_stage_merge import _fe_merge_new_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -54,7 +55,8 @@ def _fe_stage_cascade_mid_b(
     # (group, num) emit the group-level z / KL / Wasserstein-1 distance from the
     # global distribution, broadcast to rows; each survivor MI-gated against the
     # source num_col marginal MI. Routing piggybacks on hybrid_orth_features_.
-    X = _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_recipes, verbose)
+    X_acc = X  # step-input contract: X is never rebound here; stages read it and their new columns are merged into X_acc
+    X_acc = _fe_merge_new_columns(X_acc, _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_recipes, verbose), X)
 
     # Layer 104: THREE new recipe-based FE families.
     # Family D: conditional dispersion / 2nd-moment.
@@ -112,7 +114,7 @@ def _fe_stage_cascade_mid_b(
                 )
                 _rc_appended = [c for c in _rc_appended if c not in _X_before_rc_cols]
                 if _rc_appended:
-                    X = X_rc
+                    X_acc = _fe_merge_new_columns(X_acc, X_rc, X)
                     self.rare_category_features_ = list(_rc_appended)
                     self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_rc_appended)
                     for _r in _rc_recipes:
@@ -134,7 +136,7 @@ def _fe_stage_cascade_mid_b(
     # FAMILY B - NUM x NUM conditional residual x_i - E[x_i | bin(x_j)].
     # Cardinality-bounded by top raw-MI columns; MI-gated. Routing piggybacks on
     # hybrid_orth_features_.
-    X = _stage_conditional_residual(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_residual_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_conditional_residual(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_residual_pre_recipes, verbose), X)
 
     # FAMILY D - NUM x NUM conditional DISPERSION / 2nd-moment.
     # Bin x_j; per bin store conditional STD of x_i; emit |z| / z^2 (conditional
@@ -144,7 +146,7 @@ def _fe_stage_cascade_mid_b(
     # Family-B sibling, so homoscedastic / canonical fixtures admit 0 and the
     # operator does not perturb pair-FE recovery). Routing piggybacks on
     # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
-    X = _stage_conditional_dispersion(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_dispersion_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_conditional_dispersion(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_dispersion_pre_recipes, verbose), X)
 
     # CONDITIONAL QUANTILE-RANK: 4th member of the
     # conditional-dispersion family. Bin x_j; emit q(row) = empirical_rank(x_i within bin(x_j)) -
@@ -152,7 +154,7 @@ def _fe_stage_cascade_mid_b(
     # monotone reparametrization on homoscedastic/non-skewed data clears no uplift over raw x_i, so
     # it does not perturb genuine-feature recovery on canonical fixtures). Routing piggybacks on
     # hybrid_orth_features_; recipes carry no y -> leak-safe replay.
-    X = _stage_conditional_quantile_rank(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_quantile_rank_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_conditional_quantile_rank(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _conditional_quantile_rank_pre_recipes, verbose), X)
 
     # ORDINAL PATTERN (Bandt-Pompe) K-fold TARGET ENCODING.
     # For each K-tuple of raw numeric columns, compute the row's rank-permutation id (0..K!-1) and
@@ -160,7 +162,7 @@ def _fe_stage_cascade_mid_b(
     # never exposed as its own column, avoiding a 2-deep nested-recipe replay the 1-deep convention
     # here cannot order. Routing piggybacks on hybrid_orth_features_; recipe carries a frozen
     # (fit-time) TE lookup, not y -> leak-safe replay.
-    X = _stage_ordinal_pattern(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ordinal_pattern_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_ordinal_pattern(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ordinal_pattern_pre_recipes, verbose), X)
 
     # RANDOM FOURIER FEATURES (random kitchen sinks) joint kernel-approximation block
     # . Unlike every pair/triplet/quadruplet cross-basis
@@ -168,7 +170,7 @@ def _fe_stage_cascade_mid_b(
     # columns simultaneously without combinatorial blow-up, approximating an RBF kernel over the
     # bounded column pool. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen
     # W-column/phase/bandwidth, never y -> leak-safe replay.
-    X = _stage_random_fourier(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _random_fourier_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_random_fourier(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _random_fourier_pre_recipes, verbose), X)
 
     # SLICED INVERSE REGRESSION (SIR) oblique-direction projection (
     # fe_expansion.md). Recovers a genuinely OBLIQUE (rotated) linear combination spread thinly
@@ -176,7 +178,7 @@ def _fe_stage_cascade_mid_b(
     # column's own marginal MI to clear the screening floor, and no pairwise/triplet/quadruplet
     # product reconstructs the rotated hyperplane. Routing piggybacks on hybrid_orth_features_;
     # recipe carries the frozen centering/direction, not y -> leak-safe replay.
-    X = _stage_sir_direction(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _sir_direction_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_sir_direction(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _sir_direction_pre_recipes, verbose), X)
 
     # LOCAL OUTLIER FACTOR / k-NN local density-ratio.
     # LOCAL and non-parametric (unlike a global Mahalanobis ellipsoid), catching a row anomalous
@@ -184,7 +186,7 @@ def _fe_stage_cascade_mid_b(
     # distance to the overall mean is unremarkable. Routing piggybacks on hybrid_orth_features_;
     # recipe carries a bounded frozen reference sample (RAM discipline), never y or the whole fit
     # frame -> leak-safe replay.
-    X = _stage_lof(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _lof_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_lof(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _lof_pre_recipes, verbose), X)
 
     # MULTIVARIATE MAHALANOBIS / GAUSSIAN-COPULA JOINT DENSITY anomaly score (
     # fe_expansion.md). Catches y depending on whether a row sits inside/outside an ELLIPSOIDAL
@@ -193,7 +195,7 @@ def _fe_stage_cascade_mid_b(
     # group_distance / conditional-dispersion families' one-column-conditioned-on-one-other-column
     # scope. Routing piggybacks on hybrid_orth_features_; recipe carries the frozen Ledoit-Wolf
     # mu/Sigma_inv, never y -> leak-safe replay.
-    X = _stage_mahalanobis_density(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _mahalanobis_density_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_mahalanobis_density(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _mahalanobis_density_pre_recipes, verbose), X)
 
     # HAAR WAVELET / localized multiresolution basis.
     # A NEW operator for LOCALIZED bump / multiscale piecewise structure: y jumps
@@ -210,15 +212,13 @@ def _fe_stage_cascade_mid_b(
     # MI-invariant hinge needs). Recipes (``orth_wavelet``) store (lo, span) +
     # dyadic (j, k); replay is the closed-form indicator - no y, leak-safe.
     # Routing piggybacks on hybrid_orth_features_ (like Family D dispersion).
-    X = _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols_pre_fe, _wavelet_pre_recipes, verbose)
+    X_acc = _fe_merge_new_columns(X_acc, _stage_wavelet(self, _fe_family_on, _fe_budget_ok, X, _y_np, _raw_input_cols_pre_fe, _wavelet_pre_recipes, verbose), X)
 
     # FAMILY C - RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
     # MI-invariant by the data-processing inequality; the pool is bounded by raw
     # marginal MI and the value is downstream (linear / NN). Routing piggybacks
     # on hybrid_orth_features_.
-    X = _stage_rankgauss(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _rankgauss_pre_recipes, verbose)
-
-    return X
+    return _fe_merge_new_columns(X_acc, _stage_rankgauss(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _rankgauss_pre_recipes, verbose), X)
 
 
 def _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_recipes, verbose):

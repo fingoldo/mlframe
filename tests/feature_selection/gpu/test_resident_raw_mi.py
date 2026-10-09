@@ -44,33 +44,33 @@ def teardown_function():
     os.environ.pop("MLFRAME_FE_GPU_STRICT_RESIDENT", None)
 
 
-def test_returns_none_when_strict_residency_disabled():
+def test_returns_none_when_strict_residency_disabled(monkeypatch):
     """The default (flag-off) path never engages the resident matrix upload; the caller must fall
     back to the exact host ``_mi_classif_batch``."""
-    os.environ.pop("MLFRAME_FE_GPU_STRICT", None)
-    os.environ.pop("MLFRAME_FE_GPU_STRICT_RESIDENT", None)
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT_RESIDENT", raising=False)
     rng = np.random.default_rng(0)
     mat = rng.random((200, 3))
     y = rng.integers(0, 2, size=200)
     assert resident_raw_baseline_mi(mat, y, "test_role", nbins=10) is None
 
 
-def test_returns_none_when_explicit_opt_out_set():
+def test_returns_none_when_explicit_opt_out_set(monkeypatch):
     """``MLFRAME_FE_GPU_RESIDENT_RAW_BASELINE=0`` is the documented explicit opt-out, even under STRICT-residency."""
-    os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
-    os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
-    os.environ["MLFRAME_FE_GPU_RESIDENT_RAW_BASELINE"] = "0"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_RESIDENT_RAW_BASELINE", "0")
     rng = np.random.default_rng(0)
     mat = rng.random((200, 3))
     y = rng.integers(0, 2, size=200)
     assert resident_raw_baseline_mi(mat, y, "test_role", nbins=10) is None
 
 
-def test_empty_matrix_returns_zeros_not_none():
+def test_empty_matrix_returns_zeros_not_none(monkeypatch):
     """A zero-column matrix returns an empty (k=0) array (a well-defined degenerate case), not ``None``
     -- distinguishing it from the "GPU path unavailable" signal the caller treats differently."""
-    os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
-    os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
     pytest.importorskip("cupy")
     if not _need_cuda():
         pytest.skip("no CUDA")
@@ -83,7 +83,7 @@ def test_empty_matrix_returns_zeros_not_none():
 
 @pytest.mark.gpu
 @pytest.mark.skipif(not _need_cuda(), reason="no CUDA")
-def test_informative_column_scores_higher_mi_than_noise():
+def test_informative_column_scores_higher_mi_than_noise(monkeypatch):
     """Sanity check on the resident MI values themselves: a column that strongly determines the binary
     target must score materially higher MI than an unrelated noise column, through the SAME resident
     code path (percentile-edge binning, the non-rank-binning default)."""
@@ -95,8 +95,8 @@ def test_informative_column_scores_higher_mi_than_noise():
     y = (signal + 0.1 * rng.normal(size=n) > 0).astype(np.int64)
     mat = np.column_stack([signal, noise])
 
-    os.environ["MLFRAME_FE_GPU_STRICT"] = "1"
-    os.environ["MLFRAME_FE_GPU_STRICT_RESIDENT"] = "1"
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
+    monkeypatch.setenv("MLFRAME_FE_GPU_STRICT_RESIDENT", "1")
     result = resident_raw_baseline_mi(mat, y, ("test_role_signal", ("signal", "noise")), nbins=10)
     assert result is not None
     assert result.shape == (2,)

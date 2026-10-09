@@ -138,12 +138,121 @@ def _discretise_survivor_block(self, transformed_vals, n_rows, _n_forms, discret
             )
     return new_vals
 
+def _register_pair_recipes(self, engineered_recipes, this_pair_features, transformed_vals, cols, X, st, raw_vars_pair, verbose, get_new_feature_name, _poly_coefs, fe_unary_preset, fe_binary_preset):
+    """Build and register the replayable ``EngineeredRecipe`` of every freshly appended pair column (nested engineered parents resolve to their own recipes; a parent without a replayable recipe skips the column)."""
+    if engineered_recipes is None:
+        return
+    from mlframe.feature_selection.filters.engineered_recipes import build_unary_binary_recipe
+    _raw_names = set(self.feature_names_in_)
+    for config, _j in this_pair_features:
+        # config = (transformations_pair, bin_func_name, i)
+        # transformations_pair = ((var_a_idx, unary_a_name),
+        #                        (var_b_idx, unary_b_name))
+        transformations_pair, bin_func_name, _ = config
+        var_a_idx, unary_a_name = transformations_pair[0]
+        var_b_idx, unary_b_name = transformations_pair[1]
+        # Map cols-index -> name. A RAW parent resolves to a ``feature_names_in_``
+        # name; an ENGINEERED parent resolves to its prior recipe (nested replay).
+        src_a_name_raw = cols[var_a_idx]
+        src_b_name_raw = cols[var_b_idx]
+        # NESTED-PARENT RESOLUTION also consults the SUBSUMED-FRAGMENT recipe store
+        # . When C2 additive-fusion subsumes a fragment at a prior step it
+        # POPS the fragment from ``engineered_recipes`` (so it is not re-selected
+        # bare), but a LATER step's pair / escalation search may legitimately re-derive
+        # a composite that nests that fragment (e.g. ``abs(div(sqr(a),neg(b)))``). The
+        # fragment's recipe must still be reachable so the re-derived composite stays
+        # REPLAYABLE - otherwise it is recorded recipe-less and DROPPED from transform
+        # output, collapsing the selection back to raw operands (the F2 scaled_1_5
+        # DOMINANT-CAPTURE leak). The preserved store keeps the fragment recipe object
+        # available for nested replay WITHOUT re-admitting the bare fragment to selection.
+        st._subsumed_store = getattr(self, "_fe_subsumed_recipes_", None) or {}
+        _nested_a = None if src_a_name_raw in _raw_names else (engineered_recipes.get(src_a_name_raw) or st._subsumed_store.get(src_a_name_raw))
+        _nested_b = None if src_b_name_raw in _raw_names else (engineered_recipes.get(src_b_name_raw) or st._subsumed_store.get(src_b_name_raw))
+        # Skip only when an operand is engineered but its parent recipe is missing
+        # (un-replayable) - e.g. a parent from a stage that did not register one.
+        _a_unreplayable = (src_a_name_raw not in _raw_names) and (_nested_a is None)
+        _b_unreplayable = (src_b_name_raw not in _raw_names) and (_nested_b is None)
+        if _a_unreplayable or _b_unreplayable:
+            if verbose:
+                logger.info(
+                    "Skipping recipe construction for nested engineered feature " "'%s' (parent %s has no replayable recipe).",
+                    get_new_feature_name(config, cols),
+                    src_a_name_raw if _a_unreplayable else src_b_name_raw,
+                )
+            continue
+        eng_name = get_new_feature_name(config, cols)
+        #
+        # pass the fit-time engineered values
+        # ``transformed_vals[:, _j]`` so the recipe
+        # persists the quantile edges. Pre-fix replay
+        # re-quantiled on test data, silently shifting
+        # bin codes between fit and transform under
+        # distribution drift.
+        _fit_vals = transformed_vals[:, _j] if transformed_vals.shape[1] > _j else None
+        # Per-operand pre-warp: when a side used the learned
+        # ``prewarp`` pseudo-unary, hand its fitted spec to the
+        # recipe so replay reproduces the closed-form warp.
+        # Pair-scoped spec first (the warp this pair's column was actually built with); var key is the legacy fallback.
+        from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import _prewarp_pair_spec_key
+
+        _pw_a = st._prewarp_specs.get(_prewarp_pair_spec_key(raw_vars_pair, var_a_idx), st._prewarp_specs.get(var_a_idx)) if unary_a_name == "prewarp" else None
+        _pw_b = st._prewarp_specs.get(_prewarp_pair_spec_key(raw_vars_pair, var_b_idx), st._prewarp_specs.get(var_b_idx)) if unary_b_name == "prewarp" else None
+        # Per-operand median gate: when a side used the
+        # ``gate_med`` pseudo-unary, hand its fitted TRAIN
+        # median to the recipe so replay reproduces the
+        # closed-form ``(x > median)`` gate.
+        _gm_a = st._gate_med_specs.get(var_a_idx) if unary_a_name == "gate_med" else None
+        _gm_b = st._gate_med_specs.get(var_b_idx) if unary_b_name == "gate_med" else None
+        # Freeze the fit-time ``smart_log`` shift
+        # anchor per ``log`` side. ``smart_log`` shifts non-positive
+        # inputs by ``(1e-5 - nanmin(operand))``; that anchor is
+        # data-dependent, so a transform row-slice recomputes a
+        # different shift and the log output (then the bin code)
+        # drifts. Reconstruct the CONTINUOUS fit-time operand exactly
+        # as replay does (raw column from X, or the nested parent's
+        # continuous replay) and compute the frozen anchor so replay is
+        # byte-exact. Best-effort: None leaves the legacy refit path.
+        from mlframe.feature_selection.filters._mrmr_fe_step._step_log_anchor import smart_log_anchor
+
+        _ls_a = smart_log_anchor(src_a_name_raw, _nested_a, X, st._ls_anchor_memo) if unary_a_name == "log" else None
+        _ls_b = smart_log_anchor(src_b_name_raw, _nested_b, X, st._ls_anchor_memo) if unary_b_name == "log" else None
+        engineered_recipes[eng_name] = build_unary_binary_recipe(
+            name=eng_name,
+            src_a_name=src_a_name_raw,
+            src_b_name=src_b_name_raw,
+            unary_a_name=unary_a_name,
+            unary_b_name=unary_b_name,
+            binary_name=bin_func_name,
+            # Persist the hermite coef of a poly_<coef> unary so recipe replay can hermval it.
+            poly_a_coef=(_poly_coefs.get(unary_a_name) if _poly_coefs is not None and unary_a_name.startswith("poly_") else None),
+            poly_b_coef=(_poly_coefs.get(unary_b_name) if _poly_coefs is not None and unary_b_name.startswith("poly_") else None),
+            unary_preset=fe_unary_preset,
+            binary_preset=fe_binary_preset,
+            quantization_nbins=self.quantization_nbins,
+            quantization_method=self.quantization_method,
+            quantization_dtype=self.quantization_dtype,
+            fit_values_for_edges=_fit_vals,
+            prewarp_a=_pw_a,
+            prewarp_b=_pw_b,
+            gate_med_a=_gm_a,
+            gate_med_b=_gm_b,
+            # Nested-engineered parents: None for raw operands,
+            # else the parent's recipe so replay recomputes it recursively.
+            nested_parent_a=_nested_a,
+            nested_parent_b=_nested_b,
+            log_shift_a=_ls_a,
+            log_shift_b=_ls_b,
+        )
 
 def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, engineered_features, verbose, fe_max_steps, X, discretize_array, cols, st, nbins, _is_polars_input, engineered_recipes, get_new_feature_name, _poly_coefs, fe_unary_preset, fe_binary_preset, n_recommended_features, checked_pairs):
     """Step 3 of materialise_and_finalise_fe_candidates: lines starting at ``for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, ne``."""
     import polars as pl
 
     for raw_vars_pair, (this_pair_features, transformed_vals, new_cols, new_nbins, messages) in prospective_additions.items():
+        # factors_to_use / factors_names_to_use are already threaded through the upstream FE loop (MRMR.fit -> FE-pair iteration consults these via
+        # `self.factors_to_use` and the caller-supplied filter); no extra plumbing needed at this bookkeeping site. The pair-cache only tracks "raw
+        # pair already processed" - a pair that produced no features is processed too - which is name-agnostic.
+        checked_pairs.add(raw_vars_pair)
         if this_pair_features:
             engineered_features.update(this_pair_features)
             if verbose:
@@ -214,118 +323,9 @@ def _materialise_and_fina_step3_cols_space_index(self, prospective_additions, en
                 # we pass the parent's own EngineeredRecipe (already in ``engineered_recipes`` from
                 # the prior step) so replay recomputes it recursively. Only when a parent is
                 # engineered AND has no replayable recipe do we skip (cannot reconstruct it).
-                if engineered_recipes is not None:
-                    from mlframe.feature_selection.filters.engineered_recipes import build_unary_binary_recipe
-                    _raw_names = set(self.feature_names_in_)
-                    for config, _j in this_pair_features:
-                        # config = (transformations_pair, bin_func_name, i)
-                        # transformations_pair = ((var_a_idx, unary_a_name),
-                        #                        (var_b_idx, unary_b_name))
-                        transformations_pair, bin_func_name, _ = config
-                        var_a_idx, unary_a_name = transformations_pair[0]
-                        var_b_idx, unary_b_name = transformations_pair[1]
-                        # Map cols-index -> name. A RAW parent resolves to a ``feature_names_in_``
-                        # name; an ENGINEERED parent resolves to its prior recipe (nested replay).
-                        src_a_name_raw = cols[var_a_idx]
-                        src_b_name_raw = cols[var_b_idx]
-                        # NESTED-PARENT RESOLUTION also consults the SUBSUMED-FRAGMENT recipe store
-                        # . When C2 additive-fusion subsumes a fragment at a prior step it
-                        # POPS the fragment from ``engineered_recipes`` (so it is not re-selected
-                        # bare), but a LATER step's pair / escalation search may legitimately re-derive
-                        # a composite that nests that fragment (e.g. ``abs(div(sqr(a),neg(b)))``). The
-                        # fragment's recipe must still be reachable so the re-derived composite stays
-                        # REPLAYABLE - otherwise it is recorded recipe-less and DROPPED from transform
-                        # output, collapsing the selection back to raw operands (the F2 scaled_1_5
-                        # DOMINANT-CAPTURE leak). The preserved store keeps the fragment recipe object
-                        # available for nested replay WITHOUT re-admitting the bare fragment to selection.
-                        st._subsumed_store = getattr(self, "_fe_subsumed_recipes_", None) or {}
-                        _nested_a = None if src_a_name_raw in _raw_names else (engineered_recipes.get(src_a_name_raw) or st._subsumed_store.get(src_a_name_raw))
-                        _nested_b = None if src_b_name_raw in _raw_names else (engineered_recipes.get(src_b_name_raw) or st._subsumed_store.get(src_b_name_raw))
-                        # Skip only when an operand is engineered but its parent recipe is missing
-                        # (un-replayable) - e.g. a parent from a stage that did not register one.
-                        _a_unreplayable = (src_a_name_raw not in _raw_names) and (_nested_a is None)
-                        _b_unreplayable = (src_b_name_raw not in _raw_names) and (_nested_b is None)
-                        if _a_unreplayable or _b_unreplayable:
-                            if verbose:
-                                logger.info(
-                                    "Skipping recipe construction for nested engineered feature " "'%s' (parent %s has no replayable recipe).",
-                                    get_new_feature_name(config, cols),
-                                    src_a_name_raw if _a_unreplayable else src_b_name_raw,
-                                )
-                            continue
-                        eng_name = get_new_feature_name(config, cols)
-                        #
-                        # pass the fit-time engineered values
-                        # ``transformed_vals[:, _j]`` so the recipe
-                        # persists the quantile edges. Pre-fix replay
-                        # re-quantiled on test data, silently shifting
-                        # bin codes between fit and transform under
-                        # distribution drift.
-                        _fit_vals = transformed_vals[:, _j] if transformed_vals.shape[1] > _j else None
-                        # Per-operand pre-warp: when a side used the learned
-                        # ``prewarp`` pseudo-unary, hand its fitted spec to the
-                        # recipe so replay reproduces the closed-form warp.
-                        # Pair-scoped spec first (the warp this pair's column was actually built with); var key is the legacy fallback.
-                        from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gates import _prewarp_pair_spec_key
-
-                        _pw_a = st._prewarp_specs.get(_prewarp_pair_spec_key(raw_vars_pair, var_a_idx), st._prewarp_specs.get(var_a_idx)) if unary_a_name == "prewarp" else None
-                        _pw_b = st._prewarp_specs.get(_prewarp_pair_spec_key(raw_vars_pair, var_b_idx), st._prewarp_specs.get(var_b_idx)) if unary_b_name == "prewarp" else None
-                        # Per-operand median gate: when a side used the
-                        # ``gate_med`` pseudo-unary, hand its fitted TRAIN
-                        # median to the recipe so replay reproduces the
-                        # closed-form ``(x > median)`` gate.
-                        _gm_a = st._gate_med_specs.get(var_a_idx) if unary_a_name == "gate_med" else None
-                        _gm_b = st._gate_med_specs.get(var_b_idx) if unary_b_name == "gate_med" else None
-                        # Freeze the fit-time ``smart_log`` shift
-                        # anchor per ``log`` side. ``smart_log`` shifts non-positive
-                        # inputs by ``(1e-5 - nanmin(operand))``; that anchor is
-                        # data-dependent, so a transform row-slice recomputes a
-                        # different shift and the log output (then the bin code)
-                        # drifts. Reconstruct the CONTINUOUS fit-time operand exactly
-                        # as replay does (raw column from X, or the nested parent's
-                        # continuous replay) and compute the frozen anchor so replay is
-                        # byte-exact. Best-effort: None leaves the legacy refit path.
-                        from mlframe.feature_selection.filters._mrmr_fe_step._step_log_anchor import smart_log_anchor
-
-                        _ls_a = smart_log_anchor(src_a_name_raw, _nested_a, X, st._ls_anchor_memo) if unary_a_name == "log" else None
-                        _ls_b = smart_log_anchor(src_b_name_raw, _nested_b, X, st._ls_anchor_memo) if unary_b_name == "log" else None
-                        engineered_recipes[eng_name] = build_unary_binary_recipe(
-                            name=eng_name,
-                            src_a_name=src_a_name_raw,
-                            src_b_name=src_b_name_raw,
-                            unary_a_name=unary_a_name,
-                            unary_b_name=unary_b_name,
-                            binary_name=bin_func_name,
-                            # Persist the hermite coef of a poly_<coef> unary so recipe replay can hermval it.
-                            poly_a_coef=(_poly_coefs.get(unary_a_name) if _poly_coefs is not None and unary_a_name.startswith("poly_") else None),
-                            poly_b_coef=(_poly_coefs.get(unary_b_name) if _poly_coefs is not None and unary_b_name.startswith("poly_") else None),
-                            unary_preset=fe_unary_preset,
-                            binary_preset=fe_binary_preset,
-                            quantization_nbins=self.quantization_nbins,
-                            quantization_method=self.quantization_method,
-                            quantization_dtype=self.quantization_dtype,
-                            fit_values_for_edges=_fit_vals,
-                            prewarp_a=_pw_a,
-                            prewarp_b=_pw_b,
-                            gate_med_a=_gm_a,
-                            gate_med_b=_gm_b,
-                            # Nested-engineered parents: None for raw operands,
-                            # else the parent's recipe so replay recomputes it recursively.
-                            nested_parent_a=_nested_a,
-                            nested_parent_b=_nested_b,
-                            log_shift_a=_ls_a,
-                            log_shift_b=_ls_b,
-                        )
+                _register_pair_recipes(self, engineered_recipes, this_pair_features, transformed_vals, cols, X, st, raw_vars_pair, verbose, get_new_feature_name, _poly_coefs, fe_unary_preset, fe_binary_preset)
 
             n_recommended_features += len(this_pair_features)
-
-        # factors_to_use / factors_names_to_use are
-        # already threaded through the upstream FE loop (MRMR.fit -> FE-pair
-        # iteration consults these via `self.factors_to_use` and the
-        # caller-supplied filter); no extra plumbing needed at this
-        # bookkeeping site. The pair-cache only tracks "raw pair already
-        # processed", which is name-agnostic.
-        checked_pairs.add(raw_vars_pair)
     return X, cols, n_recommended_features, nbins
 
 

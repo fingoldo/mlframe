@@ -677,16 +677,24 @@ def _rebuild_admitted_substitutes(_esc_do_sub, admitted, _X_full):
         from mlframe.feature_selection.filters.engineered_recipes import apply_recipe
         _rebuilt: list[dict] = []
         for c in admitted:
-            try:
-                c["values"] = np.asarray(apply_recipe(c["recipe"], _X_full), dtype=np.float64)
+            values = _replay_candidate(c, _X_full, apply_recipe)
+            if values is not None:
+                c["values"] = values
                 _rebuilt.append(c)
-            except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                log_throttle(
-                    logger,
-                    "fe_auto_escalation_replay_failed",
-                    logging.WARNING,
-                    "MRMR FE auto-escalation: full-n replay failed for %r; dropping.",
-                    c.get("name"),
-                )
         admitted = _rebuilt
     return admitted
+
+
+def _replay_candidate(c, X_full, apply_recipe):
+    """The candidate's full-n values through its recipe replay, or ``None`` (logged at WARNING) when the replay fails and the candidate must be dropped."""
+    try:
+        return np.asarray(apply_recipe(c["recipe"], X_full), dtype=np.float64)
+    except Exception:
+        log_throttle(
+            logger,
+            "fe_auto_escalation_replay_failed",
+            logging.WARNING,
+            "MRMR FE auto-escalation: full-n replay failed for %r; dropping.",
+            c.get("name"),
+        )
+        return None

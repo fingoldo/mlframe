@@ -159,11 +159,10 @@ def test_tiny_n_calibration_annotates():
     assert isinstance(calib, AnnotationPanelSpec)
 
 
-def test_figure_renders_matplotlib():
+def test_figure_renders_matplotlib(monkeypatch):
     """Figure renders matplotlib."""
-    import os
 
-    os.environ.setdefault("MPLBACKEND", "Agg")
+    monkeypatch.setenv("MPLBACKEND", "Agg")
     from mlframe.reporting.renderers.base import get_renderer
 
     preds, yt, _ = _easy_hard_ensemble()

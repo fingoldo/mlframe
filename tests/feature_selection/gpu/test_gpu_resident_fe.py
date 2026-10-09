@@ -842,7 +842,7 @@ def test_gpu_apply_prewarp_resolves_clenshaw_dict_after_carve():
         np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-10, err_msg=f"device prewarp differs from host replay on basis {basis!r}")
 
 
-def test_fe_materialise_cm_bit_identical():
+def test_fe_materialise_cm_bit_identical(monkeypatch):
     """Coalescing audit (2026-06-23): the COALESCED column-major fe_materialise (``fe_materialise_cm`` +
     tv-transpose + result transpose-back, ~2x net) must be BIT-IDENTICAL (array_equal) to the row-major
     ``fe_materialise`` kernel and return the SAME (n, K) row-major layout the downstream bin/D2H expect.
@@ -863,14 +863,13 @@ def test_fe_materialise_cm_bit_identical():
         tvg = cp.asarray(tv)
 
         M._OPERAND_TABLE_CM_CACHE["ref"] = None  # avoid a stale cm cache from a prior shape
-        import os
 
-        os.environ["MLFRAME_FE_GPU_MATERIALISE_CM"] = "0"
+        monkeypatch.setenv("MLFRAME_FE_GPU_MATERIALISE_CM", "0")
         o_rm = M._fe_materialise_block_gpu(tvg, a, b, ops)
-        os.environ["MLFRAME_FE_GPU_MATERIALISE_CM"] = "1"
+        monkeypatch.setenv("MLFRAME_FE_GPU_MATERIALISE_CM", "1")
         M._OPERAND_TABLE_CM_CACHE["ref"] = None
         o_cm = M._fe_materialise_block_gpu(tvg, a, b, ops)
-        os.environ.pop("MLFRAME_FE_GPU_MATERIALISE_CM", None)
+        monkeypatch.delenv("MLFRAME_FE_GPU_MATERIALISE_CM", raising=False)
 
         assert o_cm.shape == (n, K) == o_rm.shape
         assert bool(cp.array_equal(o_rm, o_cm)), f"cm materialise differs at n={n} K={K} nop={nop}"
