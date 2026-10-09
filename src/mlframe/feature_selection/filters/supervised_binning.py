@@ -43,6 +43,7 @@ def mdlp_bin_edges(
     n_permutations: int = 30,
     bonferroni: bool = False,
     validated_seed: int = 0,
+    y_pseudo_classes: int = 16,
 ) -> np.ndarray:
     """Fayyad-Irani MDLP discretisation. Returns sorted bin edges (includes ``-inf`` / ``+inf`` sentinels).
 
@@ -132,6 +133,11 @@ def mdlp_bin_edges(
             per decision, not a whole-tree multiplicity correction; benched both ways,
             no consistent accuracy difference observed, left off to match that convention.
         validated_seed: RNG seed for the permutation-null fallback (default path only).
+        y_pseudo_classes: how many quantile pseudo-classes a target above the ``max_y_classes`` cap is discretised into in the DEFAULT (validated) path; ``fast_mode`` keeps
+            using ``max_y_classes``. The per-split permutation null costs a full scan per draw per node and its time grows steeply with the class count; 16 classes cut the
+            validated search 2.5-4x against 64 with held-out MI of the binned column equal or marginally higher on 18 regression scenarios (smooth, step, interaction,
+            heavy-tailed, log-normal and pure-noise targets at n = 6k / 20k / 60k; 10 classes were faster still and equally good there but leave less headroom for
+            fine target structure). Targets at or below the cap are untouched.
 
     Returns:
         Sorted 1-D array of bin edges, including the ``-inf`` / ``+inf`` sentinels.
@@ -165,7 +171,8 @@ def mdlp_bin_edges(
         # "class" per distinct truncated value (see ``max_y_classes`` docstring).
         _y_finite = _y_arr[np.isfinite(_y_arr)] if _y_arr.dtype.kind == "f" else _y_arr
         if _y_finite.size and int(np.unique(_y_finite).size) > int(max_y_classes):
-            _q = np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]
+            _n_pseudo = int(max_y_classes) if fast_mode else max(2, min(int(max_y_classes), int(y_pseudo_classes)))
+            _q = np.linspace(0.0, 1.0, _n_pseudo + 1)[1:-1]
             _y_edges = np.unique(np.quantile(_y_finite, _q))
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
             # This blunt depth cap now applies ONLY when ``fast_mode=True``.

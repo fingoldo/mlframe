@@ -68,6 +68,7 @@ def _fayyad_irani(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: d
         n_permutations=kwargs.get("mdlp_n_permutations", 30),
         bonferroni=kwargs.get("mdlp_bonferroni", False),
         validated_seed=kwargs.get("mdlp_validated_seed", 0),
+        y_pseudo_classes=kwargs.get("mdlp_y_pseudo_classes", 16),
     )
 
 
