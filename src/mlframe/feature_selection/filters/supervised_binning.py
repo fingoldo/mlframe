@@ -40,9 +40,10 @@ def mdlp_bin_edges(
     max_y_classes: int = 64,
     fast_mode: bool = False,
     alpha: float = 0.05,
-    n_permutations: int = 30,
+    n_permutations: int = 15,
     bonferroni: bool = False,
     validated_seed: int = 0,
+    y_pseudo_classes: int = 16,
 ) -> np.ndarray:
     """Fayyad-Irani MDLP discretisation. Returns sorted bin edges (includes ``-inf`` / ``+inf`` sentinels).
 
@@ -125,13 +126,21 @@ def mdlp_bin_edges(
         alpha: Significance level for the validated-split accept test (default path
             only). Default ``0.05``.
         n_permutations: Permutation-null draws for the small/sparse-node fallback
-            (default path only). Default ``30``.
+            (default path only). Default ``15`` (was 30): a split is accepted when its gain exceeds the
+            ``ceil((1 - alpha) * B)``-th smallest null gain, which leaves 2 of 30 draws above the threshold
+            (nominal false-accept rate 2/31 = 6.5%) but 1 of 15 (1/16 = 6.25%), so 15 draws are as strict as 30
+            while costing half; 10 draws leave 1 of 10 (9.1%) and are looser.
         bonferroni: Extra depth-wise ``alpha / 2**depth`` correction on top of the
             (always-applied) per-node candidate-count correction (default path only).
             Default ``False`` - classic ChiMerge/Chi2 use one fixed significance level
             per decision, not a whole-tree multiplicity correction; benched both ways,
             no consistent accuracy difference observed, left off to match that convention.
         validated_seed: RNG seed for the permutation-null fallback (default path only).
+        y_pseudo_classes: how many quantile pseudo-classes a target above the ``max_y_classes`` cap is discretised into in the DEFAULT (validated) path; ``fast_mode`` keeps
+            using ``max_y_classes``. The per-split permutation null costs a full scan per draw per node and its time grows steeply with the class count; 16 classes cut the
+            validated search 2.5-4x against 64 with held-out MI of the binned column equal or marginally higher on 18 regression scenarios (smooth, step, interaction,
+            heavy-tailed, log-normal and pure-noise targets at n = 6k / 20k / 60k; 10 classes were faster still and equally good there but leave less headroom for
+            fine target structure). Targets at or below the cap are untouched.
 
     Returns:
         Sorted 1-D array of bin edges, including the ``-inf`` / ``+inf`` sentinels.
@@ -165,7 +174,8 @@ def mdlp_bin_edges(
         # "class" per distinct truncated value (see ``max_y_classes`` docstring).
         _y_finite = _y_arr[np.isfinite(_y_arr)] if _y_arr.dtype.kind == "f" else _y_arr
         if _y_finite.size and int(np.unique(_y_finite).size) > int(max_y_classes):
-            _q = np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]
+            _n_pseudo = int(max_y_classes) if fast_mode else max(2, min(int(max_y_classes), int(y_pseudo_classes)))
+            _q = np.linspace(0.0, 1.0, _n_pseudo + 1)[1:-1]
             _y_edges = np.unique(np.quantile(_y_finite, _q))
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
             # This blunt depth cap now applies ONLY when ``fast_mode=True``.

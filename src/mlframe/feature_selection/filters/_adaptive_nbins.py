@@ -320,8 +320,8 @@ def edges_mah(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarra
 
 def edges_fayyad_irani(
     x: np.ndarray, y: np.ndarray, *, max_depth: int = 8, min_split_size: int = 5, backend: str = "njit", scaled_min_split: bool = False,
-    max_y_classes: int = 64, fast_mode: bool = False, alpha: float = 0.05, n_permutations: int = 30, bonferroni: bool = False,
-    validated_seed: int = 0,
+    max_y_classes: int = 64, fast_mode: bool = False, alpha: float = 0.05, n_permutations: int = 15, bonferroni: bool = False,
+    validated_seed: int = 0, y_pseudo_classes: int = 16,
 ) -> np.ndarray:
     """Fayyad-Irani MDLP supervised edges. Flags forwarded:
 
@@ -355,6 +355,7 @@ def edges_fayyad_irani(
         n_permutations: permutation-null draws for the validated-splitting significance test.
         bonferroni: forwarded to ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
         validated_seed: forwarded to ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
+        y_pseudo_classes: pseudo-class count for a target above ``max_y_classes`` distinct values (default 16; see ``mdlp_bin_edges``).
 
     Returns:
         1-D float64 array of the finite inner cut points (outer boundaries dropped); empty when no split was accepted.
@@ -362,7 +363,7 @@ def edges_fayyad_irani(
     full_edges = mdlp_bin_edges(
         np.asarray(x), np.asarray(y), max_depth=max_depth, min_split_size=min_split_size, backend=backend, scaled_min_split=scaled_min_split,
         max_y_classes=max_y_classes, fast_mode=fast_mode, alpha=alpha, n_permutations=n_permutations, bonferroni=bonferroni,
-        validated_seed=validated_seed,
+        validated_seed=validated_seed, y_pseudo_classes=y_pseudo_classes,
     )
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)

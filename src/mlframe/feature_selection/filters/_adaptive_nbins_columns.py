@@ -65,9 +65,10 @@ def _fayyad_irani(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: d
         # cheap depth-capped classic path for a specific run.
         fast_mode=kwargs.get("mdlp_fast_mode", False),
         alpha=kwargs.get("mdlp_alpha", 0.05),
-        n_permutations=kwargs.get("mdlp_n_permutations", 30),
+        n_permutations=kwargs.get("mdlp_n_permutations", 15),
         bonferroni=kwargs.get("mdlp_bonferroni", False),
         validated_seed=kwargs.get("mdlp_validated_seed", 0),
+        y_pseudo_classes=kwargs.get("mdlp_y_pseudo_classes", 16),
     )
 
 
