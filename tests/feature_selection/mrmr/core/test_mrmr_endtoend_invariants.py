@@ -393,7 +393,15 @@ def _get(case_idx, case, _results_cache):
 
 # (target_family, distribution, task, seed) -> measured FE no-harm gap. While the tree downstream scores the FE space below
 # raw-only by more than the tolerance, the case xfails; the day the delta recovers, the test fails so the entry is removed.
-_OPEN_FE_NO_HARM_GAPS: dict = {}
+_OPEN_FE_NO_HARM_GAPS = {
+    # History: the first offset-product acceptance rule (a fixed 40/n margin and a 3% floor) accepted a column here and measured delta -0.021, which looked like a closed gap. That rule also accepted
+    # unrelated pairs in 35-50% of the runs of a controlled layout; the standard-error rule that replaced it accepts nothing on this case, and with every new family switched off the fit is
+    # identical (delta -0.0579, the same single engineered column), so the gap is open again and the case is a borderline HistGradientBoosting R^2 reading around the -0.05 tolerance.
+    ("ratio_plus_trig", "lognormal", "regression", 305): (
+        "FE-quality gap: on heavy-tailed ratio_plus_trig the FE selection (kept raw only 'a') scores 0.697 on the tree downstream vs 0.755 "
+        "raw-only (delta -0.058, tolerance -0.05); the interaction operands are not recovered at n=25000"
+    ),
+}
 
 
 def _assert_fe_no_harm(case, up, message):

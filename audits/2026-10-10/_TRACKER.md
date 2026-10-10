@@ -8,14 +8,14 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT | DOC | FUTURE |
 |---|---|---|---|---|---|---|---|---|
-| `01_fe_followups_low_hanging.md` | 14 | 10 | 2 | 0 | 0 | 1 | 1 | 0 |
-| **Total** | **14** | **10** | **2** | **0** | **0** | **1** | **1** | **0** |
+| `01_fe_followups_low_hanging.md` | 15 | 11 | 2 | 0 | 0 | 1 | 1 | 0 |
+| **Total** | **15** | **11** | **2** | **0** | **0** | **1** | **1** | **0** |
 
 ## Per-report status
 
 | Status | Report | Findings | Area |
 |---|---|---|---|
-| **OPEN** | [01_fe_followups_low_hanging.md](01_fe_followups_low_hanging.md) | 14 | offset-product stage cost, dispatch, warm-up, fuzz coverage, feature scale, float64 copies |
+| **OPEN** | [01_fe_followups_low_hanging.md](01_fe_followups_low_hanging.md) | 15 | offset-product stage cost, dispatch, warm-up, fuzz coverage, feature scale, float64 copies |
 
 ### `01_fe_followups_low_hanging.md`
 
@@ -35,6 +35,7 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 | **NOT A DEFECT** | P2 | `L-12` | ridge error on one seed in three with the family on | ridge was scored on the MI list (trees); on the designed linear list it is unchanged, and L-13 gives it the family's gain |
 | **RESOLVED** | P2 | `L-13` | offset products missing from the usability pool of the linear list | candidates added to the pool; ridge MAE +6.8%, +5.2%, +4.2% on three seeds (linear list), gradient boosting +1.6%, +5.4%, +0.9%; 2 tests |
 | **RESOLVED** | P2 | `L-14` | one Fourier detection per column (3960 launches) | columns of a request run as one batch; frequency lists equal; `_propose_fourier_both_warps` 0.435 -> 0.193 s, escalation 0.875 -> 0.584 s (cProfile); 3 parity tests |
+| **RESOLVED** | P2 | `L-15` | a gap closed by the lax acceptance rule was reported as closed | the standard-error rule accepts nothing on that case (identical -0.0579 with all new families on or off); the gap entry is restored, both tests XFAIL |
 
 ## Wave 2 operators ([fe_operators_wave2/REPORT.md](fe_operators_wave2/REPORT.md))
 
