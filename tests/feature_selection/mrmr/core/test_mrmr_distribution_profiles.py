@@ -93,24 +93,24 @@ def _reg(name, domains, target, keep, drop, family):
 # --- single weak ratio (divisor operand) -----------------------------------
 _reg(
     "ratio_sqr",
-    {"a": sd.DOMAIN_ANY, "b": sd.DOMAIN_DIVISOR, "e": sd.DOMAIN_ANY},
+    {"a": sd.DOMAIN_ANY, "b": sd.DOMAIN_DIVISOR, "e": sd.DOMAIN_ANY, "zn": sd.DOMAIN_ANY},
     lambda d: 0.30 * d["a"] ** 2 / d["b"] + 0.01 * d["e"],
     # The (a,b) ratio. We require BOTH operands (no lone-a fallback): on this single
     # weak-ratio formula a lone ``a`` next to a noise feature is NOT recovery of the
     # a**2/b interaction -- demanding {a,b} lets the mixed-marginal collapse (where
     # only a noise feature survives) surface as the genuine signal-loss it is.
     keep=[[{"a", "b"}]],
-    drop={"e"},
+    drop={"zn"},
     family="weak-scaled",
 )
 
 # --- log*sin product (positive operand) ------------------------------------
 _reg(
     "log_sin_product",
-    {"c": sd.DOMAIN_POSITIVE, "d": sd.DOMAIN_ANY, "e1": sd.DOMAIN_ANY, "e2": sd.DOMAIN_ANY},
+    {"c": sd.DOMAIN_POSITIVE, "d": sd.DOMAIN_ANY, "e1": sd.DOMAIN_ANY, "e2": sd.DOMAIN_ANY, "zn": sd.DOMAIN_ANY},
     lambda d: 0.40 * np.log(d["c"]) * np.sin(d["d"]) + 0.02 * d["e1"] + 0.02 * d["e2"],
     keep=[[{"c", "d"}]],
-    drop={"e1", "e2"},
+    drop={"zn"},
     family="weak-scaled",
 )
 
@@ -139,10 +139,10 @@ _reg(
 # --- additive two-term, both positive operands -----------------------------
 _reg(
     "additive_two_term",
-    {"a": sd.DOMAIN_POSITIVE, "c": sd.DOMAIN_POSITIVE, "e": sd.DOMAIN_ANY},
+    {"a": sd.DOMAIN_POSITIVE, "c": sd.DOMAIN_POSITIVE, "e": sd.DOMAIN_ANY, "zn": sd.DOMAIN_ANY},
     lambda d: np.log(d["a"] + 1.0) + np.sqrt(d["c"]) + 0.02 * d["e"],
     keep=[[{"a"}], [{"c"}]],
-    drop={"e"},
+    drop={"zn"},
     family="additive",
 )
 
@@ -205,8 +205,9 @@ SIGNAL_LOSS = {
     "profile): only raw a survives, b lost (sel add(sqr(a),prewarp(e))) -- same "
     "divisor-MI-distortion limit as the mixed/with_outliers cells",
     ("two_pairs_strong", "with_outliers", 20000): "divisor (a,b) ratio lost under uniform+3%-outlier marginals (BOTH operands "
-    "gone); the (c,d) log*sin term survives (sel keeps d + c__haar_j1k0). Same "
-    "fragile-divisor-term pattern as the documented mixed-marginal two_pairs_strong cell",
+    "gone); the (c,d) log*sin term survives. Measured: a**2/b carries 83% of the target variance but ~5 outlier rows hold half of it; in "
+    "the 16-bin rank space of y MI(a**2/b,y)=0.071 vs MI(log(c)*sin(d),y)=1.85 and the best (a,b) candidate scores 0.038, below the screen. "
+    "A real gap: no residual stage (fit the already-selected terms, search features on the residual); tracked in audits/2026-10-10 (L-16)",
     # 2026-06-16 -- VERIFIED ACCURACY-SAFE limit (extends the documented heavy_tailed_outliers cell to the
     # adjacent heavy_tailed profile). The weak 0.20*dd linear side-term washes out under pareto tails: its
     # held-out LINEAR lift over the selected design is 0.00072 and its raw |corr(dd,y)| is 0.0052 -- i.e. dd
@@ -232,63 +233,11 @@ SIGNAL_LOSS = {
     "admitting noise -- a verified accuracy-safe distribution-robustness limit, not a wiring regression",
 }
 
-# NOISE-ADMISSION residuals (a SEPARATE, weaker concern -- NOT signal-loss).
-# A tiny-weight pure-noise operand (e/e1/e2 at 0.01-0.02 coefficient) admitted
-# alongside the FULLY-recovered genuine signal. This is the same marginal-uplift /
-# small-n raw-retention noise-FE admission the sibling uniform suite documents as a
-# default-preset residual (it also fires under uniform at small n -- see the
-# ratio_sqr n=10000/uniform cell), NOT a distribution-robustness gap. Recorded for
-# the report; does not fail the signal-recovery gate.
-NOISE_ADMISSION = {
-    ("log_sin_product", "heavy_tailed", 20000): "e2 (0.02-weight noise) admitted; (c,d) signal recovered",
-    ("additive_two_term", "with_outliers", 20000): "e (0.02-weight noise) admitted; (a,c) signal recovered",
-    ("ratio_sqr", "uniform", 10000): "e (0.01-weight noise) admitted at small n; (a,b) recovered (uniform baseline residual)",
-    # --- 2026-06-11 re-measurement: the default-preset raw-retention noise residual
-    # now fires on more (formula, profile, n) cells. The 2026-06 FE campaign's
-    # raw-signal-retention augmentation + the marginal-uplift FE fallback re-attach a
-    # tiny-weight noise operand (e / e1 / e2 at 0.01-0.02 coefficient) alongside the
-    # FULLY-recovered genuine signal whenever its debiased marginal MI clears the
-    # relevance floor -- the SAME default-preset residual the three cells above already
-    # document (it also fires under the uniform baseline), now visible at n>=10000 across
-    # more profiles. This is a noise-ADMISSION residual, NOT signal loss: every genuine
-    # keep is recovered in each of these cells. An UNDOCUMENTED noise admission still
-    # fails loudly, so a NEW noise leak is caught.
-    ("log_sin_product", "uniform", 20000): "e1+e2 (0.02-weight noise) admitted as raw cols; (c,d) recovered (sel keeps c,d)",
-    ("ratio_sqr", "uniform", 20000): "e (0.01-weight noise) admitted; (a,b) ratio recovered via div(neg(a),sqrt(b))",
-    ("ratio_sqr", "heavy_tailed", 20000): "e (0.01-weight noise) admitted; (a,b) recovered via mul(invsquared(a),neg(b))",
-    ("log_sin_product", "mixed", 20000): "e1 (0.02-weight noise) admitted; (c,d) recovered inside add(prewarp(e1),mul(log(c),sin(d)))",
-    ("additive_two_term", "heavy_tailed_outliers", 20000): "e (0.02-weight noise) admitted; (a,c) recovered via div(log(a),reciproc(c))",
-    # SAME 0.02-weight raw-retention noise residual under pareto tails: both (a) and (c) signals fully recovered
-    # (sel keeps a, c, add(sqrt(a),sqrt(c)) + the a/c warp surrogates), only the tiny-weight noise operand e is
-    # co-admitted by the marginal-uplift raw-retention pass -- downstream-cosmetic, no accuracy cost, the same
-    # heavy-tail finite-sample-MI-of-e limit the sibling with_outliers / heavy_tailed_outliers cells document.
-    (
-        "additive_two_term",
-        "heavy_tailed",
-        20000,
-    ): "e (0.02-weight noise) admitted; (a,c) recovered via a + c + add(sqrt(a),sqrt(c)) (pareto-tail raw-retention residual)",
-    ("ratio_sqr", "heavy_tailed", 10000): "e (0.01-weight noise) admitted; (a,b) recovered via div(abs(b),a__p2sin1)",
-    ("ratio_sqr", "uniform", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(invsquared(a),...min(abs(b),...))",
-    ("ratio_sqr", "heavy_tailed", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via div(sqr(a),neg(b))",
-    # 2026-06-16 -- the SAME 0.01-0.02-weight noise-admission residual under outlier / mixed marginals (verified:
-    # signal fully recovered in each, only a tiny-weight noise operand co-admitted -> downstream-cosmetic, no
-    # accuracy cost; eliminating it would require rejecting the screen's outlier-inflated finite-sample MI of e,
-    # which is the core heavy-tail MI-robustness limit, not a per-cell bug).
-    ("ratio_sqr", "mixed", 20000): "e (0.01-weight noise) admitted; (a,b) ratio recovered (outlier/mixed-marginal residual)",
-    ("ratio_sqr", "with_outliers", 20000): "e (0.01-weight noise) admitted; (a,b) recovered (3%-outlier residual)",
-    ("ratio_sqr", "with_outliers", 10000): "e (0.01-weight noise) admitted; (a,b) recovered (3%-outlier residual, n-sweep)",
-    ("ratio_sqr", "with_outliers", 30000): "e (0.01-weight noise) admitted; (a,b) recovered via mul(sqr(a),reciproc(b)) "
-    "(same 3%-outlier residual as the 10000/20000 n-sweep cells; observed selected=['e', 'a', 'mul(sqr(a),reciproc(b))'])",
-    ("ratio_sqr", "heavy_tailed_outliers", 20000): "e (0.01-weight noise) admitted; (a,b) recovered (pareto+outlier residual)",
-    ("log_sin_product", "with_outliers", 20000): "e1+e2 (0.02-weight noise) admitted; (c,d) recovered (3%-outlier residual)",
-    # CI-only (not reproducible locally): the SAME 0.02-weight raw-retention residual as this formula's
-    # already-documented heavy_tailed/uniform/mixed/with_outliers cells above, on the pareto+outlier
-    # combination -- e1's marginal MI is already flagged near the noise floor by this exact cell's own
-    # SIGNAL_LOSS entry (MI=0.052 vs the dominant d factor's 2.09), so an occasional CI-Linux
-    # floating-point difference nudging its debiased marginal MI just over the relevance floor matches
-    # the established residual class, not a new bug: signal (d + sin(d)) is still fully recovered.
-    ("log_sin_product", "heavy_tailed_outliers", 20000): "e1 (0.02-weight noise) admitted; (c,d) signal recovered (pareto+outlier residual)",
-}
+# NOISE-ADMISSION registry: cells where a PURE-noise column (``zn``, or ``e`` in product_square_decoys; neither enters the target) is admitted
+# next to the fully recovered signal. It is empty on purpose: the weak operands e / e1 / e2 of the other formulas are real terms of the
+# noise-free target (coefficient 0.01-0.02), so admitting them is correct and they are not asserted-drop. Any admission of a pure-noise
+# column fails loudly as a leak, and a documented one must carry its measured reason here.
+NOISE_ADMISSION = {}
 
 
 def _signal_loss_reason(formula, profile, n):

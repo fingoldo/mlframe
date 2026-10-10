@@ -50,6 +50,7 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 | **RESOLVED** | P2 | `W2-10` | shrinkage `m` shadowed in the prototype `fit_B` | fixed in `stress.fit_B2`; verdict unchanged |
 | **DECIDED** | P2 | `W2-11` | acceptance rule for B, C, G | standard-error bar + practical-effect constructor knob (supersedes c = 40 + 3%) |
 | **RESOLVED** | P3 | `W2-12` | C on low-cardinality integer columns acts like a target encoding | columns with at most `FEW_CLASSES_MAX` distinct values are skipped (`test_nominal_like_columns_are_skipped`) |
+| **OPEN** | P1 | `L-16` | weak-in-rank-space term lost: no residual stage | `two_pairs_strong/with_outliers`: a**2/b is 83% of the target variance (half of it in ~5 outlier rows) but MI(a**2/b,y)=0.07 vs 1.85 for the (c,d) term in 16 rank bins, so the screen drops it. Fix: after the selection, fit the selected terms and search candidates against the residual (MAE/RMSE bar). Last xfail of test_mrmr_distribution_profiles |
 | **OPEN** | P3 | `W2-13` | non-monotone multiclass needs one-vs-rest warps | |
 | **RESOLVED** | P3 | `W2-14` | G dominated by `argsort` in `qbin` at 100k | the production kernel bins by edges from a 2048-row sample of the even rows (no full sort): 0.2-0.4 s per fit against 1.1 s in the prototype |
 | **TODO** | P3 | `W2-B1b` | device-born warp fit for the strict-resident mode | the fit is njit on at most 100k rows (0.2 s at 1M); a fused kernel that builds bin sums per fold on the device would remove the host work |
