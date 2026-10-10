@@ -20,6 +20,8 @@ import numpy as np
 import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes, quantile_codes
+from ._fe_scan_common import rank_scaled as _rank_scaled
+from ._fe_scan_common import scan_index as _scan_index
 from ._row_stat_kernels import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
 from ._y_encoding import FEW_CLASSES_MAX
 
@@ -74,18 +76,6 @@ def apply_row_stat_recipe(recipe, X, _block_cache: Optional[dict] = None) -> np.
     subset = np.arange(k, dtype=np.int64)
     out = stat_column(Zt, subset, k, STAT_NAMES.index(ex["stat"]))
     return np.asarray(np.clip(out, ex["lo"], ex["hi"]))
-
-
-def _rank_scaled(y: np.ndarray) -> np.ndarray:
-    """Average ranks of ``y`` scaled into ``(0, 1]``."""
-    from scipy.stats import rankdata
-
-    return np.asarray(rankdata(y, method="average") / float(len(y)))
-
-
-def _scan_index(n: int, scan_rows: int) -> np.ndarray:
-    """Evenly spaced row indices of the search sample (all rows when ``n`` is small)."""
-    return np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
 
 
 def _noise_scale(n_even: int, nb: int, ky: int) -> float:

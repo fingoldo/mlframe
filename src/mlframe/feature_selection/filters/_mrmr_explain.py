@@ -26,7 +26,7 @@ import logging
 from typing import Any
 
 import pandas as pd
-from pyutilz.dev.logginglib import log_throttle
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -104,10 +104,7 @@ def _survivor_section(mrmr_self: Any) -> str:
         _selected_names = set(map(str, mrmr_self.get_feature_names_out()))
         prov = prov_all[prov_all["feature_name"].astype(str).isin(_selected_names)]
     except Exception as e:
-        if log_throttle("mrmr_explain.selected_names"):
-            logger.warning("mrmr-explain: could not read the selected feature names (%s: %s); counting survivors by support_rank >= 0", type(e).__name__, e)
-        else:
-            logger.debug("mrmr-explain: could not read the selected feature names (%s); falling back to support_rank >= 0", e)
+        log_throttle(logger, "mrmr_explain.selected_names", logging.WARNING, "mrmr-explain: could not read the selected feature names (%s: %s); counting survivors by support_rank >= 0", type(e).__name__, e)
         if "support_rank" in prov_all.columns:
             prov = prov_all[pd.to_numeric(prov_all["support_rank"], errors="coerce") >= 0]
     n_screened = len(prov_all) - len(prov)

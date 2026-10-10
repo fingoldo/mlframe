@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, pointwise_mi, quantile_codes
+from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._offset_product_kernels import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
 
 if TYPE_CHECKING:
@@ -100,13 +101,6 @@ def _rank_all_rows(y: np.ndarray, rows: np.ndarray) -> np.ndarray:
     left = np.searchsorted(ref, y, side="left")
     right = np.searchsorted(ref, y, side="right") if (ref[1:] == ref[:-1]).any() else left
     return (left + right + 1) / (2.0 * len(ref))
-
-
-def _rank_scaled(y: np.ndarray) -> np.ndarray:
-    """Average ranks of ``y`` scaled into ``(0, 1]``."""
-    from scipy.stats import rankdata
-
-    return np.asarray(rankdata(y, method="average") / float(len(y)), dtype=np.float64)
 
 
 def build_offset_product_recipe(

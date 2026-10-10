@@ -9,6 +9,8 @@ values), so the work per candidate is ``n * k`` and nothing needs the full-colum
 from __future__ import annotations
 
 import numpy as np
+
+from ._offset_product_kernels import _bin_of
 from numba import njit, prange
 
 __all__ = ["STAT_NAMES", "MAX_SUBSET", "LSE_BETA", "N_EDGE_SAMPLE", "eval_candidates", "stat_column"]
@@ -78,20 +80,6 @@ def _row_value(Zt, subset, k, stat, i, vals):
     for j in range(k):
         vals[j] = Zt[subset[j], i]
     return _stat_of(vals, k, stat)
-
-
-@njit(cache=True, nogil=True)
-def _bin_of(x, edges):
-    """Number of interior edges ``<= x`` (binary search)."""
-    lo = 0
-    hi = edges.shape[0]
-    while lo < hi:
-        mid = (lo + hi) >> 1
-        if edges[mid] <= x:
-            lo = mid + 1
-        else:
-            hi = mid
-    return lo
 
 
 @njit(cache=True, nogil=True)

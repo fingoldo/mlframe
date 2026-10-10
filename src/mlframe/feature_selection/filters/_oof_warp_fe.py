@@ -19,6 +19,8 @@ import numpy as np
 import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes
+from ._fe_scan_common import rank_scaled as _rank_scaled
+from ._fe_scan_common import scan_index as _scan_index
 from ._oof_warp_service import apply_warp1d, fit_oof_warp1d
 from ._y_encoding import FEW_CLASSES_MAX
 
@@ -53,18 +55,6 @@ def apply_oof_warp1d_recipe(recipe, X) -> np.ndarray:
     ex = recipe.extra
     x = np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64)
     return np.asarray(np.clip(apply_warp1d(x, ex["cx"], ex["cy"], ex["fill"]), ex["lo"], ex["hi"]))
-
-
-def _rank_scaled(y: np.ndarray) -> np.ndarray:
-    """Average ranks of ``y`` scaled into ``(0, 1]`` (a bounded target: bin means are robust to heavy tails)."""
-    from scipy.stats import rankdata
-
-    return np.asarray(rankdata(y, method="average") / float(len(y)))
-
-
-def _scan_index(n: int, scan_rows: int) -> np.ndarray:
-    """Evenly spaced row indices of the fitting / scoring sample (all rows when ``n`` is small)."""
-    return np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
 
 
 def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0) -> "list[dict]":

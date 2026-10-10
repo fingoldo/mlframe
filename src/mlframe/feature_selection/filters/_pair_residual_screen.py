@@ -102,7 +102,8 @@ def _score_pairs(Q, resid, even, pairs, n_bins, shrink):
         if cnt > 1:
             mean = m1 / cnt
             var = max(m2 / cnt - mean * mean, 0.0)
-            out[k] = mean / (np.sqrt(var / cnt) + 1e-300)
+            se = np.sqrt(var / cnt)
+            out[k] = mean / se if se > 0.0 else mean * 1e300
     return out
 
 

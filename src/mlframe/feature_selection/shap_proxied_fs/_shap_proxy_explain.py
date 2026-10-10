@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any, Optional, Union, cast
 
 import numpy as np
-from pyutilz.dev.logginglib import log_throttle
+from mlframe.utils.log_throttle import log_throttle
 import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import KFold, StratifiedKFold
@@ -167,10 +167,7 @@ def _maybe_patch_shap_xgb_base_score():
     try:
         _shap_ver = tuple(int(p) for p in str(shap.__version__).split(".")[:2])
     except Exception as e:
-        if log_throttle("shap_proxy.shap_version"):
-            logger.warning("shap_proxy: could not parse shap.__version__ (%s), treating it as (0, 0) so the xgboost base_score patch is applied", e)
-        else:
-            logger.debug("parsing shap.__version__ failed, treating it as (0, 0): %s", e)
+        log_throttle(logger, "shap_proxy.shap_version", logging.WARNING, "shap_proxy: could not parse shap.__version__ (%s), treating it as (0, 0) so the xgboost base_score patch is applied", e)
         _shap_ver = (0, 0)
     # shap >= 0.52 handles the array base_score natively and uses ``float`` as a numpy dtype; touching it is harmful + unnecessary -> no-op.
     if _shap_ver >= (0, 52):
@@ -745,10 +742,7 @@ def compute_shap_matrix(
                 return _hit
         except Exception as exc:
             # Cache failures are non-fatal: we lose the speedup but the compute path stays correct.
-            if log_throttle("shap_proxy.cache_disabled"):
-                logger.warning("compute_shap_matrix: the disk cache is disabled for this call (%s), the result is recomputed", exc)
-            else:
-                logger.debug("compute_shap_matrix: cache disabled (%s)", exc)
+            log_throttle(logger, "shap_proxy.cache_disabled", logging.WARNING, "compute_shap_matrix: the disk cache is disabled for this call (%s), the result is recomputed", exc)
             _cache = None
             _cache_key = None
 

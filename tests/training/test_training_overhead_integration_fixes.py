@@ -86,7 +86,7 @@ def test_fix3a_deep_false_on_pandas_uses_shallow_accounting():
     df = pd.DataFrame(
         {
             "i": np.arange(1000),
-            "obj": ["x" * 64 for _ in range(1000)],  # 64B per string
+            "obj": pd.Series(["x" * 64 for _ in range(1000)], dtype=object),  # 64B per string; object dtype, since pandas 3 stores plain strings as an Arrow-backed str
         }
     )
     shallow = get_df_memory_consumption(df, deep=False)

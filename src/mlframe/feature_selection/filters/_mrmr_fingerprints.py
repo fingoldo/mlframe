@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
-from pyutilz.dev.logginglib import log_throttle
+from mlframe.utils.log_throttle import log_throttle
 
 from mlframe._dtype_canon import canonicalise_dtype
 
@@ -184,28 +184,19 @@ def _mrmr_compute_x_fingerprint(X) -> str:
             try:
                 dtypes_repr = tuple((str(c), _canonicalise_dtype_str(_resolved_schema[c])) for c in _resolved_schema.names())
             except Exception as e:
-                if log_throttle("mrmr_fp.dtypes_lazy"):
-                    logger.warning("MRMR fit fingerprint: the lazy-polars dtype fingerprint failed (%s), dtypes are left out of the key, so frames differing only in dtype share a fingerprint", e)
-                else:
-                    logger.debug("_mrmr_compute_x_fingerprint: lazy-polars dtype fingerprint failed, using an empty dtypes tuple: %s", e)
+                log_throttle(logger, "mrmr_fp.dtypes_lazy", logging.WARNING, "MRMR fit fingerprint: the lazy-polars dtype fingerprint failed (%s), dtypes are left out of the key, so frames differing only in dtype share a fingerprint", e)
                 dtypes_repr = ()
         elif hasattr(X, "schema") and hasattr(X, "columns"):
             try:
                 dtypes_repr = tuple((str(c), _canonicalise_dtype_str(X.schema[c])) for c in X.columns)
             except Exception as e:
-                if log_throttle("mrmr_fp.dtypes_polars"):
-                    logger.warning("MRMR fit fingerprint: the polars dtype fingerprint failed (%s), dtypes are left out of the key, so frames differing only in dtype share a fingerprint", e)
-                else:
-                    logger.debug("_mrmr_compute_x_fingerprint: eager-polars dtype fingerprint failed, using an empty dtypes tuple: %s", e)
+                log_throttle(logger, "mrmr_fp.dtypes_polars", logging.WARNING, "MRMR fit fingerprint: the polars dtype fingerprint failed (%s), dtypes are left out of the key, so frames differing only in dtype share a fingerprint", e)
                 dtypes_repr = ()
         elif hasattr(X, "dtypes") and hasattr(X, "columns"):
             try:
                 dtypes_repr = tuple((str(c), _canonicalise_dtype_str(X.dtypes[c])) for c in X.columns)
             except Exception as e:
-                if log_throttle("mrmr_fp.dtypes_pandas"):
-                    logger.warning("MRMR fit fingerprint: the pandas dtype fingerprint failed (%s), dtypes are left out of the key, so frames differing only in dtype share a fingerprint", e)
-                else:
-                    logger.debug("_mrmr_compute_x_fingerprint: pandas dtype fingerprint failed, using an empty dtypes tuple: %s", e)
+                log_throttle(logger, "mrmr_fp.dtypes_pandas", logging.WARNING, "MRMR fit fingerprint: the pandas dtype fingerprint failed (%s), dtypes are left out of the key, so frames differing only in dtype share a fingerprint", e)
                 dtypes_repr = ()
         else:
             dtypes_repr = ()
@@ -368,10 +359,7 @@ def _content_array_signature(arr) -> tuple:
             try:
                 col_names = tuple(str(c) for c in arr.columns)
             except Exception as e:
-                if log_throttle("mrmr_fp.col_names"):
-                    logger.warning("MRMR content signature: reading column names failed (%s), the signature cannot tell a frame from its renamed copy", e)
-                else:
-                    logger.debug("_content_array_signature: reading column names failed, proceeding without them: %s", e)
+                log_throttle(logger, "mrmr_fp.col_names", logging.WARNING, "MRMR content signature: reading column names failed (%s), the signature cannot tell a frame from its renamed copy", e)
                 col_names = None
         if _is_named_frame(arr):
             return _named_frame_signature(arr, col_names)
@@ -717,10 +705,7 @@ def _replay_fitted_state(target: MRMR, source: MRMR) -> int:
             except Exception as e:
                 # A non-deepcopyable fitted artefact (e.g. a live framework handle) falls back to the legacy shared assignment rather than failing
                 # the whole replay; such objects are rare and treated as read-only by callers.
-                if log_throttle("mrmr_fp.replay_deepcopy"):
-                    logger.warning("MRMR replay: deepcopy of fitted attribute %r failed (%s), the replayed instance shares it with the cached source", k, e)
-                else:
-                    logger.debug("_replay_state: deepcopy of %r failed, falling back to a shared (non-isolated) reference: %s", k, e)
+                log_throttle(logger, "mrmr_fp.replay_deepcopy", logging.WARNING, "MRMR replay: deepcopy of fitted attribute %r failed (%s), the replayed instance shares it with the cached source", k, e)
                 target.__dict__[k] = v
         n_replayed += 1
     return n_replayed

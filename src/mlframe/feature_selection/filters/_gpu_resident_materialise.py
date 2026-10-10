@@ -20,7 +20,7 @@ from collections import OrderedDict
 from typing import Any, Sequence
 
 import numpy as np
-from pyutilz.dev.logginglib import log_throttle
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -626,10 +626,7 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
             _host = np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1 else np.ascontiguousarray(cols[0]).reshape(-1, 1)
             _dev_groups[_dk] = cp.asarray(_host)
         except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-            if log_throttle("gpu_materialise.group_upload"):
-                logger.warning("resident operand table: the column-stack/upload of group %r failed, its columns take the per-column path: %s", _dk, e)
-            else:
-                logger.debug("group column-stack/upload failed for group %r, marking as unavailable: %s", _dk, e)
+            log_throttle(logger, "gpu_materialise.group_upload", logging.WARNING, "resident operand table: the column-stack/upload of group %r failed, its columns take the per-column path: %s", _dk, e)
             _dev_groups[_dk] = None
     n_gpu = 0
     n_cpu = 0
@@ -675,10 +672,7 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
                 _batched.update(oc)
             n_gpu += len(_batched)
     except Exception as e:
-        if log_throttle("gpu_materialise.batched_build"):
-            logger.warning("resident operand table: the batched GPU column build failed, every column takes the per-column path: %s", e)
-        else:
-            logger.debug("batched GPU column build failed, falling back to the per-column path: %s", e)
+        log_throttle(logger, "gpu_materialise.batched_build", logging.WARNING, "resident operand table: the batched GPU column build failed, every column takes the per-column path: %s", e)
         _batched = set()  # any batch failure -> every column rebuilt by the exact per-column path below
     for _spec_t in col_specs:
         col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
@@ -705,10 +699,7 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
                     g[:, col_idx] = col.astype(cp.float32)
                     gpu_built = True
             except Exception as e:
-                if log_throttle("gpu_materialise.per_column_build"):
-                    logger.warning("resident operand table: a per-column GPU build failed, that column takes the host path: %s", e)
-                else:
-                    logger.debug("per-column GPU build failed, falling back to the host path: %s", e)
+                log_throttle(logger, "gpu_materialise.per_column_build", logging.WARNING, "resident operand table: a per-column GPU build failed, that column takes the host path: %s", e)
                 gpu_built = False
         if not gpu_built:
             # Non-plain (prewarp / gate_med / poly) or failed: copy just THIS column from the host (a single
@@ -844,10 +835,7 @@ def gpu_materialise_discretize_codes_host(
                     _db_slot ^= 1
                     _done_async = True
                 except Exception:
-                    if log_throttle("gpu_materialise.async_d2h"):
-                        logger.warning("candidate block copy: the async D2H pipeline failed, using synchronous copies", exc_info=True)
-                    else:
-                        logger.debug("async D2H pipeline failed; sync fallback", exc_info=True)
+                    log_throttle(logger, "gpu_materialise.async_d2h", logging.WARNING, "candidate block copy: the async D2H pipeline failed, using synchronous copies", exc_info=True)
                     _copy_stream = None
                     _drain_pending()
             if not _done_async:

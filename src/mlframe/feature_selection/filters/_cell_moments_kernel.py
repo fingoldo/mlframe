@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # Shared-memory budget (doubles) per block: 3 accumulators x n_cells must fit in 48 KB.
@@ -177,7 +179,8 @@ def _fold_kernels(cp) -> Optional[tuple]:
         _FOLD_KERNELS = (cp.RawKernel(_FOLDS_PASS1_SRC, "fold_cell_sums"), cp.RawKernel(_FOLDS_PASS2_SRC, "fold_cell_centred"))
         _FOLD_KERNELS[0].compile()
         _FOLD_KERNELS[1].compile()
-    except Exception:
+    except Exception as exc:
+        log_throttle(logger, "cell_moments.fold_kernels", logging.WARNING, "cell moments: the all-folds kernels could not be built (%s: %s), the per-fold form is used", type(exc).__name__, exc)
         _FOLD_KERNELS = None
         _FOLD_UNAVAILABLE = True
     return _FOLD_KERNELS

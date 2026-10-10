@@ -39,6 +39,7 @@ from collections import OrderedDict
 from typing import Any
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +258,7 @@ def batch_mi_with_noise_gate_cupy(
     try:
         free_b, _tot_b = cp.cuda.runtime.memGetInfo()
     except Exception as e:
-        logger.debug("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
+        log_throttle(logger, "noise_gate.memgetinfo", logging.WARNING, "noise gate: cp.cuda.runtime.memGetInfo() failed (%s), tiling against a conservative 512MiB default", e)
         free_b = 512 * 1024 * 1024  # conservative default
     budget = int(free_b * 0.35)
     # Per y-row device cost of a tile: the flat index array (n*K int64) + the
@@ -521,7 +522,7 @@ def batch_mi_with_noise_gate_cuda_resident(
             try:
                 _d_y_all_su = _resident_y_all_device(classes_y, classes_y_safe, base_seed, _nperm_su, _n_su, _nperm_su + 1)
             except Exception as e:
-                logger.debug("_resident_y_all_device failed, falling back to the per-call shuffle+upload path: %s", e)
+                log_throttle(logger, "noise_gate.resident_y", logging.WARNING, "noise gate: _resident_y_all_device failed (%s), using the per-call shuffle and upload path", e)
                 _d_y_all_su = None
         return batch_mi_with_noise_gate_cuda(
             disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
@@ -565,6 +566,7 @@ def batch_mi_with_noise_gate_cuda_resident(
         try:
             from ._gpu_resident_histgate_ktc import histgate_threads
             threads_per_block = int(histgate_threads(n))
+        # best-effort: the block size never changes the integer counts, so 128 gives the same MI and gate decision
         except Exception as e:
             logger.debug("histgate_threads() lookup failed, using the default 128: %s", e)
             threads_per_block = 128
@@ -596,6 +598,7 @@ def batch_mi_with_noise_gate_cuda_resident(
             _rdt = np.dtype(d_disc_resident.dtype)
             if _rshape == (n, K) and _rdt.itemsize <= 2 and _rdt == np.dtype(_disc_dt):
                 d_disc = d_disc_resident  # resident device codes -> NO H2D (the round-trip we eliminate)
+        # best-effort: a fresh upload of the same codes gives the same result, only with an extra transfer
         except Exception as e:
             logger.debug("resident device-codes reuse check failed, falling back to a fresh H2D upload: %s", e)
             d_disc = None
@@ -643,7 +646,7 @@ def batch_mi_with_noise_gate_cuda_resident(
             # (same values, same (K,n) C-order layout -> counts unchanged); falls back to ascontiguousarray.
             _d_disc_cm = _transpose_codes_to_cm(_cp_cm.asarray(d_disc))  # (K, n) C-order, coalesced disc load
         except Exception:
-            logging.getLogger(__name__).debug("histgate column-major transpose failed; row-major fallback", exc_info=True)
+            log_throttle(logger, "noise_gate.cm_transpose", logging.WARNING, "noise gate: the column-major transpose failed, using the row-major layout", exc_info=True)
             _d_disc_cm = None
     # The shared kernel OVERWRITES every counts slot (flushes its full [off:off+nb_k*K_y] slice), so the
     # host zeroing is redundant there; the global-atomic kernel needs the zeroed buffer.

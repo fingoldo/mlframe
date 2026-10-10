@@ -131,7 +131,7 @@ def _score_one_pair_fut_none(_fut, _my_chunk, _mi_cache):
         try:
             _mi_cache = _fut.result()
         except Exception:
-            logger.debug("pipelined chunk %d producer failed; inline recompute", _my_chunk, exc_info=True)
+            log_throttle(logger, "pairs_score.producer", logging.WARNING, "pair scoring: the pipelined producer of chunk %d failed, recomputing inline", _my_chunk, exc_info=True)
             _mi_cache = None
     return _mi_cache
 
@@ -173,7 +173,7 @@ def _score_one_pair_non_analytic_branch_su(_fe_gpu_discretize_enabled, final_tra
                 fe_npermutations, fe_min_nonzero_confidence, use_su_normalization(),
             )
         except Exception:
-            logger.debug("FE GPU pair-MI failed; falling back to CPU", exc_info=True)
+            log_throttle(logger, "pairs_score.gpu_pair_mi", logging.WARNING, "pair scoring: the GPU pair-MI failed, using the CPU path", exc_info=True)
             _fe_mi_arr = None
     return _fe_mi_arr
 
@@ -205,7 +205,7 @@ def _score_one_pair_fe_mi_arr_none(_fe_mi_arr, _disc_2d, final_transformed_vals,
                         defer_host_fill=True,
                     )
             except Exception:
-                logger.debug("FE per-pair GPU binning failed; CPU discretise", exc_info=True)
+                log_throttle(logger, "pairs_score.gpu_binning", logging.WARNING, "pair scoring: the per-pair GPU binning failed, discretising on the CPU", exc_info=True)
                 _disc_2d = None
         if _disc_2d is None:
             _disc_2d = discretize_2d_quantile_batch(
@@ -291,7 +291,7 @@ def _score_one_pair_mi_threshold_ratio_fix(fe_mm_debias_prevalence, pair_mi, bes
             )
             _k_eng = _occupied_k(_win_codes)
         except Exception as e:
-            logger.debug("_occupied_k computation failed, falling back to quantization_nbins: %s", e)
+            log_throttle(logger, "pairs_score.occupied_k", logging.WARNING, "pair scoring: the occupied-K computation failed (%s), the nominal quantization_nbins is used for the MI threshold", e)
             _k_eng = quantization_nbins
         # 2-D joint occupied-K of the raw operands (bit-identical discretise to the
         # pair_mi compute); fall back to nominal ``nbins^2`` if either operand is
@@ -412,6 +412,7 @@ def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept,
             if best_config is not None:
                 try:
                     _rej_op = best_config[1]  # binary func name of the best engineered form
+                # best-effort: the binary op name only labels the rejection record; the decision does not read it
                 except Exception as e:
                     logger.debug("reading the best-config binary op name failed: %s", e)
                     _rej_op = None
