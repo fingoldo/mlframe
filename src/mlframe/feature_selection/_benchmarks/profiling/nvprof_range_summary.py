@@ -1,4 +1,4 @@
-"""Per-NVTX-range kernel launches and GPU time from an ``nvprof --print-gpu-summary`` log. Usage: ``python nvprof_range_summary.py out.txt``."""
+"""Per-NVTX-range kernel launches and GPU time from an ``nvprof --print-gpu-summary`` log. Usage: ``python nvprof_range_summary.py out.txt [kernel-name-substring]``; with a substring it lists, per range, the launches and GPU ms of the kernels whose name contains it (for example ``cupy_copy__float64_float64``, the same-dtype copies)."""
 import re, sys
 txt = open(sys.argv[1], encoding="utf-8", errors="ignore").read().splitlines()
 def tms(s):
@@ -16,3 +16,21 @@ for l in txt:
         res[cur][2] += int(m.group(3)); res[cur][3] += tms(m.group(2))
 for k, (n, t, mc, mt) in sorted(res.items(), key=lambda x: -x[1][0]):
     if k.startswith("S_") or n > 400: print(f"{k:28s} kernels {n:6d}  gpu {t:8.1f} ms   memcpy {mc:5d} ({mt:6.1f} ms)")
+
+if len(sys.argv) > 2:
+    needle = sys.argv[2]
+    hits = {}
+    cur = None
+    for l in txt:
+        m = re.search(r'Range "([^"]+)"', l)
+        if m:
+            cur = m.group(1)
+            continue
+        l2 = l.replace("GPU activities:", "").strip()
+        m = re.match(r"([\d.]+)%\s+(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)", l2)
+        if cur is not None and m and needle in m.group(7):
+            n0, t0 = hits.get(cur, (0, 0.0))
+            hits[cur] = (n0 + int(m.group(3)), t0 + tms(m.group(2)))
+    print(f"--- launches of kernels matching {needle!r} per range")
+    for k, (n, t) in sorted(hits.items(), key=lambda x: -x[1][0]):
+        print(f"{k:34s} {n:6d} launches  {t:8.2f} ms")

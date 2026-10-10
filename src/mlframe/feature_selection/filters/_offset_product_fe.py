@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from ._fe_gain_stats import held_out_codes, paired_gain_se, pointwise_mi, quantile_codes
 from ._offset_product_kernels import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
 
 if TYPE_CHECKING:
@@ -188,29 +189,12 @@ def _mm_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> flo
     return mi - (int((px > 0).sum()) - 1) * (int((py > 0).sum()) - 1) / (2.0 * n)
 
 
-def _quantile_codes(x: np.ndarray, n_bins: int) -> np.ndarray:
-    """Equal-frequency bin codes of ``x`` in ``[0, n_bins)`` (ties share a bin; non-finite values go to the lowest bin)."""
-    x = np.where(np.isfinite(x), x, -np.inf)
-    edges = np.quantile(x[np.isfinite(x)], np.linspace(0.0, 1.0, n_bins + 1)[1:-1]) if np.isfinite(x).any() else np.zeros(n_bins - 1)
-    return np.searchsorted(edges, x, side="right").astype(np.int64)
-
-
-def _plugin_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> float:
-    """Plug-in MI (nats, no small-sample correction: the scan kernel's MI is the same) of integer ``codes`` and ``y_codes``."""
-    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)
-    n = joint.sum()
-    px = joint.sum(axis=1, keepdims=True)
-    py = joint.sum(axis=0, keepdims=True)
-    nz = joint > 0
-    return float((joint[nz] / n * np.log(joint[nz] * n / (px @ py)[nz])).sum())
-
-
 def synergy_pairs(
     xs: "list[np.ndarray]", rows: np.ndarray, codes: np.ndarray, ky: int, min_synergy: float = SYNERGY_MIN, q: "Optional[list[np.ndarray]]" = None
 ) -> "list[tuple[int, int]]":
     """Column pairs whose joint MI with the target exceeds the larger marginal MI by more than ``min_synergy``: the only pairs a shifted product can help (the shifted forms carry no
     information beyond the joint distribution of the two columns). Costs one bincount per pair on the scan rows, a few ms against the scan's O(unary pairs) passes."""
-    q = q if q is not None else [_quantile_codes(x[rows], N_MI_BINS) for x in xs]
+    q = q if q is not None else [quantile_codes(x[rows], N_MI_BINS) for x in xs]
     marg = [_mm_mi(c, N_MI_BINS, codes, ky) for c in q]
     return [
         (i, j)
@@ -226,20 +210,9 @@ def _unary_rows(x: np.ndarray, name: str, rows: np.ndarray, funcs: "dict[str, Ca
     return np.where(np.isfinite(u), u, _finite_fill(u))
 
 
-def _pointwise_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> np.ndarray:
-    """Per-row pointwise mutual information ``log p(x, y) / (p(x) p(y))`` of integer ``codes`` and ``y_codes`` (the influence function of the plug-in MI up to a constant)."""
-    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)
-    n = joint.sum()
-    px, py = joint.sum(axis=1, keepdims=True), joint.sum(axis=0, keepdims=True)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        table = np.log(joint * n / (px @ py))
-    return np.where(joint > 0, table, 0.0)[codes, y_codes]
-
-
 def _winner_standard_error(u: np.ndarray, v: np.ndarray, yr: np.ndarray, codes: np.ndarray, ky: int, clip_u: np.ndarray, clip_v: np.ndarray) -> float:
     """Standard error of the odd-row MI gain of the shifted product ``(u + s) (v + t)`` over the strongest of its own shift-free baselines (``u*v``, ``u+v``, ``u``, ``v``, the least-squares
-    weighted sum): the spread of the per-row difference of the two pointwise MIs over sqrt(n_odd), the delta-method error of a paired difference of plug-in MIs. Bin edges come from the even
-    rows. ``inf`` when the shifts cannot be fitted."""
+    weighted sum), by the paired delta-method error of ``_fe_gain_stats.paired_gain_se``; bin edges come from the even rows. ``inf`` when the shifts cannot be fitted."""
     sh = np.empty(4)
     ols2_shift(u, v, yr, 0, 2, clip_u[0], clip_u[1], clip_v[0], clip_v[1], sh)
     if not np.isfinite(sh[:2]).all():
@@ -248,12 +221,10 @@ def _winner_standard_error(u: np.ndarray, v: np.ndarray, yr: np.ndarray, codes: 
     if np.isfinite(sh[2:]).all():
         feats.append(sh[2] * u + sh[3] * v)
     even = np.arange(len(u)) % 2 == 0
-    levels = np.linspace(0.0, 1.0, N_MI_BINS + 1)[1:-1]
     y_odd = codes[~even]
-    pmi = [_pointwise_mi(np.searchsorted(np.quantile(f[even], levels), f[~even], side="right").astype(np.int64), N_MI_BINS, y_odd, ky) for f in feats]
-    best = 1 + int(np.argmax([m.mean() for m in pmi[1:]]))
-    d = pmi[0] - pmi[best]
-    return float(d.std() / np.sqrt(len(d)))
+    cods = [held_out_codes(f, even, ~even, N_MI_BINS) for f in feats]
+    best = 1 + int(np.argmax([pointwise_mi(c, N_MI_BINS, y_odd, ky).mean() for c in cods[1:]]))
+    return paired_gain_se(cods[0], cods[best], y_odd, ky, N_MI_BINS)
 
 
 def _scan_all(
@@ -317,7 +288,7 @@ def hybrid_offset_product_fe(
     unaries = tuple(u for u in OFFSET_UNARIES if u in funcs)
     xs = [np.asarray(X[c].to_numpy(), dtype=np.float64) for c in cols]
     nu = len(unaries)
-    qcodes = [_quantile_codes(x[rows], N_MI_BINS) for x in xs]
+    qcodes = [quantile_codes(x[rows], N_MI_BINS) for x in xs]
     yr_rows = _rank_scaled(y_arr[rows])
     if min_synergy is None:
         pairs = [(i, j) for i in range(len(cols)) for j in range(i + 1, len(cols))]

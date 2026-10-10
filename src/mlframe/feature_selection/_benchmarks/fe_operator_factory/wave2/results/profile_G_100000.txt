@@ -1,0 +1,21 @@
+         23577 function calls in 1.097 seconds
+
+   Ordered by: internal time
+   List reduced from 119 to 15 due to restriction <15>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      461    0.717    0.002    0.717    0.002 {method 'argsort' of 'numpy.ndarray' objects}
+      461    0.071    0.000    0.797    0.002 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\common\binning.py:8(qbin)
+      462    0.065    0.000    0.163    0.000 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\rowstats.py:22(row_stat)
+      460    0.055    0.000    1.067    0.002 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\rowstats.py:61(score)
+      460    0.044    0.000    0.055    0.000 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\common\binning.py:16(mi_b)
+       53    0.040    0.001    0.040    0.001 {method 'partition' of 'numpy.ndarray' objects}
+     2617    0.031    0.000    0.031    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       53    0.009    0.000    0.009    0.000 {method 'take' of 'numpy.ndarray' objects}
+       71    0.008    0.000    0.014    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\core\_methods.py:135(_var)
+        3    0.007    0.002    0.007    0.002 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\rowstats.py:42(_z)
+      461    0.006    0.000    0.006    0.000 {built-in method numpy.arange}
+      212    0.006    0.000    0.016    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\core\_methods.py:101(_mean)
+        1    0.004    0.004    1.089    1.089 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\rowstats.py:48(fit_rowstat)
+        2    0.003    0.001    0.007    0.003 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\rowstats.py:81(replay_rowstat)
+        2    0.002    0.001    0.007    0.004 D:\ProgramData\anaconda3\Lib\site-packages\numpy\lib\nanfunctions.py:1617(nanvar)

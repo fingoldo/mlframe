@@ -75,7 +75,6 @@ from ._fe_auto_escalation_proposers import (  # noqa: F401  -- carved sibling, r
     _finite_filled,
     _fit_fourier_amplitude_spec,
     _identity_prewarp_spec,
-    _propose_fourier,
     _propose_poly,
 )
 
@@ -639,9 +638,18 @@ def _pairwise_control_matrix(_cv, n_rows, y_f, y_pair):
 
 
 def _propose_fourier_both_warps(x_a, x_b, na, nb, y_pair, min_val_corr, max_freqs, pair_cands):
-    """Propose demodulated Fourier / chirp candidates for both warp directions."""
-    for x_w, x_m, nw, nm in ((x_a, x_b, na, nb), (x_b, x_a, nb, na)):
-        for prop in _propose_fourier(x_w, x_m, y_pair, min_val_corr=min_val_corr, max_freqs=max_freqs, chirp=True):
+    """Propose demodulated Fourier / chirp candidates for both warp directions; the detection jobs of both directions (up to four) run as one batch."""
+    from mlframe.feature_selection.filters._fe_auto_escalation_proposers import _detect_jobs, _fourier_jobs, _fourier_proposal
+
+    directions = ((x_a, x_b, na, nb), (x_b, x_a, nb, na))
+    per_direction = [_fourier_jobs(x_w, x_m, y_pair, chirp=True) for x_w, x_m, _nw, _nm in directions]
+    flat = [j for jobs in per_direction for j in jobs]
+    freqs = iter(_detect_jobs(flat, min_val_corr=min_val_corr, max_freqs=max_freqs) if flat else [])
+    for (x_w, x_m, nw, nm), jobs in zip(directions, per_direction):
+        for job in jobs:
+            prop = _fourier_proposal(job, next(freqs))
+            if prop is None:
+                continue
             spec_m = _identity_prewarp_spec(x_m)
             if spec_m is None:
                 continue

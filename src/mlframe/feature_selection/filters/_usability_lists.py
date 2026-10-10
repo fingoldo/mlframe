@@ -138,6 +138,11 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     # both greedy calls finish: it mutates candidates' .values in place, and a candidate object can be
     # shared between the two result lists since both greedy calls read the same pool.
     pool = build_usability_candidate_pool(df, y_cont, base_names, **pool_kwargs)
+    if bool(getattr(mrmr, "fe_offset_product_enable", False)):
+        # sign-crossing interactions the fixed-zero pair forms of the pool cannot express; the greedy keeps one only if it helps the held-out linear fit
+        from ._usability_offset_pool import offset_product_candidates
+
+        pool = list(pool) + offset_product_candidates(df, y_cont, base_names, pool_kwargs["feature_dtype"], pool_kwargs["quantization_nbins"])
     linear = usability_greedy(pool, y_cont, w=w_lin, seed=seed, **greedy_kwargs)
     universal = usability_greedy(pool, y_cont, w=w_uni, seed=seed, **greedy_kwargs)
     mrmr.support_linear_ = _drop_stored_values(linear)

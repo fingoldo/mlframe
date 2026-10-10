@@ -3,13 +3,15 @@
 Four datasets (n = 20000, a 25% hold-out): ``sign`` (the interaction the family exists for), ``plain`` (a ratio plus a product with no sign change: the family must change nothing),
 ``cat`` (a categorical column with a target-encoding signal next to a sign-crossing numeric pair: overlap with ``kfold_target_encoded``), ``smooth`` (a smooth nonlinear additive target: overlap
 with the spline / Fourier / wavelet bases). Each is fitted with ``fe_offset_product_enable`` off and on; the selected features and the hold-out MAE and RMSE (ridge and gradient boosting on the
-transformed frame) are printed side by side. Run: ``python -m mlframe.feature_selection._benchmarks.offset_product.gating_check [dataset ...]``.
+consumer-specific feature lists) are printed side by side. The repository routes tree models to ``transform`` (the MI list) and linear models to ``transform_usability("linear")`` (the
+usability-aware list, ``usability_aware_lists=True``), so each model is scored on its own list; ridge on the MI list is printed for reference. Run: ``python -m mlframe.feature_selection._benchmarks.offset_product.gating_check [dataset ...]``.
 """
 
 from __future__ import annotations
 
 import sys
 import warnings
+from unittest import mock
 
 import numpy as np
 import pandas as pd
@@ -53,16 +55,25 @@ def _smooth(rng: np.random.Generator):
     return pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "x4": x4, "x5": x5}), np.sin(6 * x1) + 2 * (x2 - 0.5) ** 2 + 0.5 * np.exp(x3) + 0.2 * rng.standard_normal(N_ROWS)
 
 
+ARMS = {"off": (False, False), "on": (True, False), "on+pool": (True, True)}  # arm -> (fe_offset_product_enable, offset products also offered to the usability pool)
 DATASETS = {"sign": _sign, "plain": _plain, "cat": _cat, "smooth": _smooth}
 
 
-def _errors(Xtr: np.ndarray, ytr: np.ndarray, Xte: np.ndarray, yte: np.ndarray) -> dict:
-    """Hold-out MAE and RMSE of ridge and gradient boosting."""
-    out = {}
-    for name, model in (("ridge", make_pipeline(StandardScaler(), Ridge(alpha=1.0))), ("hgb", HistGradientBoostingRegressor(max_iter=150, early_stopping=False, random_state=0))):
-        resid = yte - model.fit(Xtr, ytr).predict(Xte)
-        out[name] = (float(np.abs(resid).mean()), float(np.sqrt((resid**2).mean())))
-    return out
+def _mae_rmse(model, Xtr: np.ndarray, ytr: np.ndarray, Xte: np.ndarray, yte: np.ndarray) -> "tuple[float, float]":
+    """Hold-out MAE and RMSE of ``model`` fitted on the train part."""
+    resid = yte - model.fit(Xtr, ytr).predict(Xte)
+    return float(np.abs(resid).mean()), float(np.sqrt((resid**2).mean()))
+
+
+def _errors(mi_lists: "tuple[np.ndarray, np.ndarray]", lin_lists: "tuple[np.ndarray, np.ndarray]", ytr: np.ndarray, yte: np.ndarray) -> dict:
+    """Hold-out errors per consumer: gradient boosting on the MI list, ridge on the linear list (``ridge_mi``: ridge on the MI list, reference)."""
+    ridge = lambda: make_pipeline(StandardScaler(), Ridge(alpha=1.0))  # noqa: E731 - a fresh estimator per call
+    hgb = HistGradientBoostingRegressor(max_iter=150, early_stopping=False, random_state=0)
+    return {
+        "ridge": _mae_rmse(ridge(), *lin_lists[:1], ytr, lin_lists[1], yte),
+        "hgb": _mae_rmse(hgb, mi_lists[0], ytr, mi_lists[1], yte),
+        "ridge_mi": _mae_rmse(ridge(), mi_lists[0], ytr, mi_lists[1], yte),
+    }
 
 
 def run(name: str, seed: int = 0) -> None:
@@ -72,16 +83,23 @@ def run(name: str, seed: int = 0) -> None:
     cut = int(len(df) * (1 - TEST_FRACTION))
     dtr, dte, ytr, yte = df.iloc[:cut], df.iloc[cut:], y[:cut], y[cut:]
     rows = {}
-    for flag in (False, True):
-        fs = MRMR(verbose=0, fe_max_steps=2, n_jobs=1, random_seed=seed, fe_offset_product_enable=flag).fit(dtr, pd.Series(ytr, name="y"))
-        Ztr, Zte = np.asarray(fs.transform(dtr), dtype=float), np.asarray(fs.transform(dte), dtype=float)
-        rows[flag] = (list(map(str, fs.get_feature_names_out())), list(getattr(fs, "offset_product_features_", [])), _errors(Ztr, ytr, Zte, yte))
+    pool_target = "mlframe.feature_selection.filters._usability_offset_pool.offset_product_candidates"
+    for arm, (flag, in_pool) in ARMS.items():
+        MRMR.clear_fit_cache()  # the fit memo is keyed by data and constructor parameters, not by the patch below: without this the second "on" arm would be a cache hit
+        with mock.patch(pool_target, side_effect=lambda *a, **k: []) if not in_pool else mock.patch.dict({}):
+            fs = MRMR(verbose=0, fe_max_steps=2, n_jobs=1, random_seed=seed, fe_offset_product_enable=flag, usability_aware_lists=True).fit(dtr, pd.Series(ytr, name="y"))
+        mi = (np.asarray(fs.transform(dtr), dtype=float), np.asarray(fs.transform(dte), dtype=float))
+        lin = (np.asarray(fs.transform_usability(dtr, which="linear"), dtype=float), np.asarray(fs.transform_usability(dte, which="linear"), dtype=float))
+        rows[arm] = (list(map(str, fs.get_feature_names_out())), [str(c.name) for c in (getattr(fs, "support_linear_", None) or [])], _errors(mi, lin, ytr, yte))
     print(f"== {name}")
-    for flag, (names, roster, err) in rows.items():
-        print(f"  offset_product={flag!s:5} selected={names} offset roster={roster}")
+    for arm, (names, roster, err) in rows.items():
+        print(f"  [{arm}] MI list={names}")
+        print(f"                       linear list={roster}")
         print("     " + "  ".join(f"{m}: MAE {e[0]:.4f} RMSE {e[1]:.4f}" for m, e in err.items()))
-    off, on = rows[False][2], rows[True][2]
-    print("  relative improvement on vs off (positive = on is better): " + "  ".join(f"{m} MAE {(off[m][0] - on[m][0]) / off[m][0]:+.2%} RMSE {(off[m][1] - on[m][1]) / off[m][1]:+.2%}" for m in off), flush=True)
+    off = rows["off"][2]
+    for arm in ("on", "on+pool"):
+        on = rows[arm][2]
+        print(f"  [{arm}] vs [off] (positive = better): " + "  ".join(f"{m} MAE {(off[m][0] - on[m][0]) / off[m][0]:+.2%} RMSE {(off[m][1] - on[m][1]) / off[m][1]:+.2%}" for m in off if m != "ridge_mi"), flush=True)
 
 
 def main() -> None:

@@ -23,7 +23,7 @@ p = pstats.Stats(str(PROF_FILE)); st = p.stats
 cands = []
 for k, v in st.items():
     fn = k[0].replace("\\", "/")
-    if "mlframe" not in fn or not fn.endswith(".py"): continue
+    if "mlframe" not in fn or not fn.endswith(".py") or "/_benchmarks/" in fn: continue  # the profiling scripts themselves run a whole fit when imported
     if v[3] < 0.12: continue
     mod = fn.split("/src/")[-1][:-3].replace("/", ".")
     if mod.endswith(".__init__"): mod = mod[: -len(".__init__")]
