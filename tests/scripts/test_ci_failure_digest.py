@@ -247,3 +247,48 @@ def test_main_writes_markdown_and_json(tmp_path):
     assert rc == 0
     assert "(no failures)" in md.read_text(encoding="utf-8")
     assert json.loads(js.read_text(encoding="utf-8")) == []
+
+
+class _FakeCompleted:
+    """Minimal subprocess.CompletedProcess stand-in."""
+
+    def __init__(self, returncode: int, stdout: str = "", stderr: str = "") -> None:
+        """Hold the three fields the script reads."""
+        self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+
+def test_a_refusal_for_escape_sequences_is_retried_once_with_the_allow_flag(monkeypatch):
+    """Newer gh refuses a job log with terminal escapes unless --allow-escape-sequences is passed; the script adds it and returns the log."""
+    calls: List[List[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        """First call refuses, the call with the flag succeeds."""
+        calls.append(list(cmd))
+        if "--allow-escape-sequences" in cmd:
+            return _FakeCompleted(0, stdout="log text")
+        return _FakeCompleted(1, stderr="the response contains terminal escape sequences; pass --allow-escape-sequences to output it anyway")
+
+    monkeypatch.setattr(cfd.subprocess, "run", fake_run)
+    assert cfd._exec_gh_once(["api", "repos/o/r/actions/jobs/1/logs"]) == "log text"
+    assert len(calls) == 2 and calls[1][-1] == "--allow-escape-sequences"
+
+
+def test_a_404_is_not_retried_and_a_missing_workflow_has_no_runs(monkeypatch):
+    """HTTP 404 raises GhNotFound at once (no 8 attempts), and a workflow that vanished from the default branch yields an empty run list."""
+    attempts = {"n": 0}
+
+    def fake_run(cmd, **kwargs):
+        """Always answer 404."""
+        attempts["n"] += 1
+        return _FakeCompleted(1, stderr="HTTP 404: workflow 7 not found on the default branch")
+
+    monkeypatch.setattr(cfd.subprocess, "run", fake_run)
+    with pytest.raises(cfd.GhNotFound):
+        cfd.retry_gh(["run", "list", "-R", "o/r"], cfd._exec_gh_once, sleep=lambda s: None)
+    assert attempts["n"] == 1
+
+    def missing(args):
+        """A run_gh that reports the workflow as gone."""
+        raise cfd.GhNotFound("HTTP 404")
+
+    assert cfd.latest_completed_runs(missing, "o/r", 7, "master") == []
