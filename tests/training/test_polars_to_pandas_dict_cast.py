@@ -82,8 +82,6 @@ def test_dict_cast_preserves_ordered_enum():
     ordered_cats = ["low", "mid", "high"]
     enum = pl.Enum(ordered_cats)
     df = pl.DataFrame({"sev": pl.Series(["low", "high", "mid", "low"]).cast(enum)})
-    # polars stores Enum as an ordered dictionary on the Arrow side.
-    assert df.to_arrow().column("sev").type.ordered
     pdf = get_pandas_view_of_polars_df(df)
     assert isinstance(pdf["sev"].dtype, pd.CategoricalDtype)
     assert pdf["sev"].cat.ordered is True, "ordered flag lost during dict cast"

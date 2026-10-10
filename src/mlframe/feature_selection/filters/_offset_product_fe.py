@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import TYPE_CHECKING, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Optional, cast, Sequence
 
 import numpy as np
 import pandas as pd
@@ -53,7 +53,7 @@ def _unary_funcs(preset: str) -> "dict[str, Callable]":
     """Memoised unary registry of ``preset`` (the same registry the ``unary_binary`` replay uses; read-only)."""
     from .feature_engineering import create_unary_transformations
 
-    return create_unary_transformations(preset=preset)
+    return cast("dict[str, Callable]", create_unary_transformations(preset=preset))
 
 
 def _unary_column(fn: Callable, x: np.ndarray) -> np.ndarray:
@@ -72,7 +72,7 @@ def _rank_scaled(y: np.ndarray) -> np.ndarray:
     """Average ranks of ``y`` scaled into ``(0, 1]``."""
     from scipy.stats import rankdata
 
-    return rankdata(y, method="average") / float(len(y))
+    return np.asarray(rankdata(y, method="average") / float(len(y)), dtype=np.float64)
 
 
 def build_offset_product_recipe(
@@ -120,7 +120,7 @@ def apply_offset_product_recipe(recipe, X) -> np.ndarray:
     u = _unary_column(funcs[ua], np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64))
     v = _unary_column(funcs[ub], np.asarray(extract_column(X, recipe.src_names[1]), dtype=np.float64))
     out = _product(u, v, ex["s"], ex["t"], ex["fill_u"], ex["fill_v"])
-    return np.clip(out, ex["clip_lo"], ex["clip_hi"])
+    return np.asarray(np.clip(out, ex["clip_lo"], ex["clip_hi"]))
 
 
 def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries: Sequence[str], rows: np.ndarray):
@@ -173,7 +173,7 @@ def hybrid_offset_product_fe(
     Returns ``(X_aug, appended, recipes, enc_df)``. ``y`` only steers the scan and the acceptance; recipes carry the shifts, never ``y``."""
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"hybrid_offset_product_fe: X must be a pandas DataFrame; got {type(X).__name__}")
-    empty = (X, [], [], pd.DataFrame())
+    empty: tuple[pd.DataFrame, list, list, pd.DataFrame] = (X, [], [], pd.DataFrame())
     cols = [c for c in (num_cols if num_cols else X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     n = len(X)
     if len(cols) < 2 or n < _MIN_ROWS or y is None:
@@ -241,7 +241,7 @@ def hybrid_offset_product_fe(
         new_cols[name] = np.clip(col, lo, hi)
         recipes.append(
             build_offset_product_recipe(
-                name=name, src_names=(cols[i], cols[j]), unary_names=(ua, ub), unary_preset=unary_preset, shifts=shifts, fills=fills, out_clip=(lo, hi)
+                name=name, src_names=(cols[i], cols[j]), unary_names=(ua, ub), unary_preset=unary_preset, shifts=(float(shifts[0]), float(shifts[1])), fills=fills, out_clip=(lo, hi)
             )
         )
     if not new_cols:

@@ -31,8 +31,8 @@ def _stage_offset_product(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe,
             _record_fe_rejection(self, step=_op_step, **_kw)
 
         # RAW columns only: a recipe built on an engineered column could not be replayed in a single pass at transform() time.
-        _op_cols = tuple(getattr(self, "fe_offset_product_cols", ()) or ())
-        _op_cols = [c for c in _op_cols if c in X.columns] or None
+        _op_cols_cfg = tuple(getattr(self, "fe_offset_product_cols", ()) or ())
+        _op_cols = [c for c in _op_cols_cfg if c in X.columns] or None
         if _op_cols is None:
             _op_raw = set(_raw_input_cols_pre_fe)
             _op_cols = [c for c in X.columns if c in _op_raw] or None
