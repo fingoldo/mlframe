@@ -2984,6 +2984,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # pool of the linear-downstream list only (``usability_aware_lists=True``); a linear model cannot form a bump or a ridge of two columns. Default ON; no effect without the
         # usability lists. Replay (kind ``oof_cell2d``) stores the edges and the table, no y reference.
         fe_oof_cell2d_enable: bool = True,
+        # RESIDUAL RESCUE: after the selection, columns of the pool (raw and engineered) that reduce the held-out squared residual of the selected design on the target's own scale are admitted.
+        # The rank-MI greedy cannot see a term that is weak in rank space but carries most of the variance (a**2/b next to 3*log(c)*sin(d) with outliers). Evidence: paired odd-row t statistic
+        # at a family-wise 5% level over the pool; ``min_relative_gain`` is the practical-effect floor (share of the target variance), ``max_admit`` bounds the rounds. Regression targets only.
+        fe_residual_rescue_enable: bool = True,
+        fe_residual_rescue_min_relative_gain: float = 0.01,
+        fe_residual_rescue_max_admit: int = 3,
         # HAAR WAVELET / localized multiresolution basis.
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or
@@ -3283,6 +3289,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             "fe_oof_warp_enable",  # legacy OFF; ctor ON
             "fe_row_stat_enable",  # legacy OFF; ctor ON
             "fe_oof_cell2d_enable",  # legacy OFF; ctor ON
+            "fe_residual_rescue_enable",  # legacy OFF; ctor ON
             "fe_wavelet_enable",  # legacy OFF; ctor ON
         }
     )

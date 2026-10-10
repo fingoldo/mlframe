@@ -12,6 +12,12 @@ history.
 ## [Unreleased]
 
 ### Added
+- MRMR residual rescue (`fe_residual_rescue_enable`, default on; `fe_residual_rescue_min_relative_gain`, `fe_residual_rescue_max_admit`): after the selection, pool columns (raw and engineered) that reduce the held-out squared residual of the selected design on the target's own scale are admitted (paired odd-row t statistic, family-wise 5% over the pool, practical-effect floor as a share of the target variance). Recovers terms that are weak in rank space but carry most of the variance, e.g. `a**2/b` next to `3*log(c)*sin(d)` under outliers. Regression targets only; about 0.17 s on 50k scan rows and 117 candidate columns.
+
+### Changed
+- Distribution-profile tests: the asserted-drop column is an independent pure-noise column; the weak operands e / e1 / e2 are real terms of the noise-free target and are no longer called noise. Both xfail registries are empty (41 passed, 0 xfailed).
+
+### Added
 
 - **`mlframe-tune-kernels ensure` tunes only what this machine is missing.** The measured backend and parameter choices of the GPU/CPU kernels are cached per machine and per kernel source version; a new machine, a driver or library upgrade or a kernel edit leaves entries missing or stale. `ensure` sweeps exactly those (instant when everything is current), takes `--check` (report, exit 1 when work is pending), `--only gpu|cpu`, `--if-cuda` (silent no-op without CUDA, for deploy scripts and hooks), `--max-minutes` and `--advisory`, and runs one tuning at a time per machine. Run it once after installing or upgrading mlframe; `refresh-all` remains the unconditional re-sweep.
 - **A pre-push hook keeps the tunings current for developers.** `kernel-tuning-ensure` runs `ensure --if-cuda` after a push that touches `src/mlframe`: it tunes what is stale within `MLFRAME_PREPUSH_TUNE_MINUTES` (default 20), does nothing without CUDA, blocks the push only if a sweep fails (a kernel bug), and is switched off by `MLFRAME_SKIP_KERNEL_TUNING_HOOK=1` or downgraded to a report by `MLFRAME_PREPUSH_TUNE=0`.

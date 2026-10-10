@@ -45,12 +45,17 @@ def _assign_support_tail(
     selected_vars,
     _allowed_raw_idx,
     _retention_added_eng_names,
+    engineered_recipes=None,
 ):
     """Run the second half of the post-screen support_ mutation passes.
 
     See the module docstring for the full section this carves out.
     """
     _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx)
+
+    from ._residual_rescue_stage import run_residual_rescue
+
+    run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose)
 
     # POST-RETENTION RAW-REDUNDANCY DROP (BUG1). The main raw-vs-engineered
     # redundancy sweep (above) runs on the screen-stage ``selected_vars`` BEFORE

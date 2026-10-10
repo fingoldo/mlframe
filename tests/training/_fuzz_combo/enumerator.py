@@ -589,6 +589,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         mrmr_fe_oof_warp_enable_cfg=axes.get("mrmr_fe_oof_warp_enable_cfg", True),
         mrmr_fe_row_stat_enable_cfg=axes.get("mrmr_fe_row_stat_enable_cfg", True),
         mrmr_fe_oof_cell2d_enable_cfg=axes.get("mrmr_fe_oof_cell2d_enable_cfg", True),
+        mrmr_fe_residual_rescue_enable_cfg=axes.get("mrmr_fe_residual_rescue_enable_cfg", True),
         mrmr_fe_gradient_interaction_enable_cfg=axes.get("mrmr_fe_gradient_interaction_enable_cfg", False),
         # 2026-07-13 -- DEFAULTS_CHANGELOG.md default-flip wiring coverage.
         extra_registry_model_cfg=axes.get("extra_registry_model_cfg"),

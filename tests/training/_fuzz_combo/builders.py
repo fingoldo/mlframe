@@ -230,6 +230,7 @@ def build_mrmr_kwargs_from_flat(
     fe_oof_warp_enable: bool = True,
     fe_row_stat_enable: bool = True,
     fe_oof_cell2d_enable: bool = True,
+    fe_residual_rescue_enable: bool = True,
     fe_gradient_interaction_enable: bool = False,
     # MRMR FE-family + escalation + hybrid-orth scorer master toggles. Names match MRMR.__init__ verbatim; defaults mirror the source signature.
     fe_rung_schedule_enable: bool = True,
@@ -434,6 +435,7 @@ def build_mrmr_kwargs_from_flat(
         "fe_oof_warp_enable": fe_oof_warp_enable,
         "fe_row_stat_enable": fe_row_stat_enable,
         "fe_oof_cell2d_enable": fe_oof_cell2d_enable,
+        "fe_residual_rescue_enable": fe_residual_rescue_enable,
         "fe_gradient_interaction_enable": fe_gradient_interaction_enable,
         # MRMR FE-family + escalation + hybrid-orth scorer master toggles. Names match MRMR.__init__ verbatim.
         "fe_rung_schedule_enable": fe_rung_schedule_enable,
@@ -668,6 +670,7 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_oof_warp_enable=combo.mrmr_fe_oof_warp_enable_cfg,
         fe_row_stat_enable=combo.mrmr_fe_row_stat_enable_cfg,
         fe_oof_cell2d_enable=combo.mrmr_fe_oof_cell2d_enable_cfg,
+        fe_residual_rescue_enable=combo.mrmr_fe_residual_rescue_enable_cfg,
         fe_gradient_interaction_enable=combo.mrmr_fe_gradient_interaction_enable_cfg,
         # MRMR FE-family + escalation + hybrid-orth scorer master toggles.
         fe_rung_schedule_enable=combo.mrmr_fe_rung_schedule_enable_cfg,

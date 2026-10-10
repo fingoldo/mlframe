@@ -150,88 +150,10 @@ _reg(
 # ---------------------------------------------------------------------------
 # SIGNAL-LOSS verdict registry (the hard robustness gate).
 # ---------------------------------------------------------------------------
-# Filled from the synchronous n<=30k ground-truth run at seed=42. A cell appears
-# here iff a GENUINE signal (a keep) that IS recovered under the uniform baseline
-# is LOST under this profile -- the documented distribution-robustness gaps. Each
-# carries the verified reason. Cells ABSENT from this registry must recover every
-# genuine signal (pass) -- a new signal-loss fails loudly as a regression.
-#
-# Pattern: the fragile term is always a WEAK or DIVISOR-BEARING term. The (c,d)
-# log*sin term and the dominant (a,b)/(a^2)*b products are recovered under every
-# profile; what breaks under heavy-tail/outlier/mixed marginals is (i) a divisor
-# ratio whose binned-MI the extreme denominator values distort, and (ii) a weak
-# LINEAR side-term (0.20*dd) whose small marginal uplift the skewed/outlier
-# binning washes out. Both are weak-signal binning-resolution limits, not a
-# vocabulary or wiring bug -- the strong interactions survive every marginal.
-SIGNAL_LOSS = {
-    # two_pairs_strong: divisor (a,b) ratio is the fragile term; (c,d) survives.
-    ("two_pairs_strong", "mixed", 20000): "divisor (a,b) ratio lost under mixed marginals (bimodal a + beta_u divisor b); "
-    "(c,d) log*sin term recovered cleanly (sel keeps mul(log(c),sin(d)))",
-    ("two_pairs_strong", "heavy_tailed_outliers", 20000): "BOTH terms degrade under pareto-tailed marginals + 2% outliers (the harshest "
-    "profile): selector keeps only raw a,d (+noise e); the (a,b) divisor ratio and the "
-    "(c,d) log*sin term both collapse -- the only cell where the (c,d) term does not survive",
-    # ratio_sqr: under MIXED marginals the lone weak a**2/b ratio collapses entirely
-    # -- the selector keeps only a noise-mixing engineered feature. This is the
-    # sharpest robustness finding: a signal cleanly recovered under uniform/heavy/
-    # outlier marginals is LOST specifically under the bimodal-a + beta_u-divisor
-    # mix, where neither operand's binned marginal exposes the ratio.
-    ("ratio_sqr", "mixed", 20000): "weak a**2/b ratio collapses under mixed marginals (bimodal a, beta_u divisor b); "
-    "selector keeps only a noise feature add(exp(a),prewarp(e)) -- genuine ratio lost",
-    # product_square_decoys: the WEAK linear side-term 0.20*dd is the fragile one;
-    # the dominant (a^2)*b product is recovered under every profile. dd's small
-    # marginal uplift is washed out by the skewed/outlier binning.
-    ("product_square_decoys", "mixed", 20000): "weak linear side-term 0.20*dd lost under mixed marginals; dominant (a,b) product "
-    "recovered (sel div(invsquared(a),neg(b)))",
-    ("product_square_decoys", "heavy_tailed_outliers", 20000): "weak linear side-term 0.20*dd lost under pareto tails + outliers; (a,b) product "
-    "recovered (sel keeps a,b + add(sqrt(b),log(a__He2)))",
-    # --- 2026-06-11 re-measurement: outlier-profile (a,b)-ratio collapses ----
-    # The 2026-06 FE campaign (default-on hinge legs + pair-prewarp + the CMI
-    # acceptance/raw-retention gate) shifted WHERE the weak divisor-ratio collapses
-    # under gross outliers: the same divisor-MI-distortion limit the mixed-marginal
-    # cells already document now also binds on the with_outliers / heavy_tailed_outliers
-    # profiles at the larger n. These are the SAME weak-signal binning-resolution limit
-    # (a divisor ratio whose binned MI the 3%-outlier denominator distorts) -- NOT a
-    # vocabulary/wiring regression. The strong terms still survive; only the faint
-    # ``a**2/b`` ratio is lost. Observed selections recorded per cell.
-    ("ratio_sqr", "with_outliers", 20000): "weak a**2/b ratio collapses under uniform+3%-outlier marginals; the 15-IQR "
-    "denominator outliers distort b's binned MI so the ratio falls below the screen "
-    "floor (sel keeps only raw a + noise-mixing add(qubed(a),log(e)) -- b lost)",
-    ("ratio_sqr", "with_outliers", 30000): "weak a**2/b ratio: an IN-SUITE BOUNDARY flip. In a fresh process this cell "
-    "RECOVERS (a,b) via max(abs(a),b__haar_j1k0); after the full-file run's prior "
-    "fits accumulate process-global dispatcher/JIT state the divisor ratio falls "
-    "just under the floor and b is lost. pytest.xfail is imperative so it fires ONLY "
-    "when the loss actually occurs (in-suite); the isolated run passes cleanly",
-    ("ratio_sqr", "heavy_tailed_outliers", 20000): "weak a**2/b ratio collapses under pareto tails + 2% outliers (the dirtiest "
-    "profile): only raw a survives, b lost (sel add(sqr(a),prewarp(e))) -- same "
-    "divisor-MI-distortion limit as the mixed/with_outliers cells",
-    ("two_pairs_strong", "with_outliers", 20000): "divisor (a,b) ratio lost under uniform+3%-outlier marginals (BOTH operands "
-    "gone); the (c,d) log*sin term survives. Measured: a**2/b carries 83% of the target variance but ~5 outlier rows hold half of it; in "
-    "the 16-bin rank space of y MI(a**2/b,y)=0.071 vs MI(log(c)*sin(d),y)=1.85 and the best (a,b) candidate scores 0.038, below the screen. "
-    "A real gap: no residual stage (fit the already-selected terms, search features on the residual); tracked in audits/2026-10-10 (L-16)",
-    # 2026-06-16 -- VERIFIED ACCURACY-SAFE limit (extends the documented heavy_tailed_outliers cell to the
-    # adjacent heavy_tailed profile). The weak 0.20*dd linear side-term washes out under pareto tails: its
-    # held-out LINEAR lift over the selected design is 0.00072 and its raw |corr(dd,y)| is 0.0052 -- i.e. dd
-    # sits AT the noise floor here (indistinguishable from the pure-noise e at 0.005 corr). Recovering it would
-    # require admitting 0.005-corr features, which also admits noise -> a NET ACCURACY LOSS. The dominant a**2*b
-    # term IS recovered (a__He2 + b), so downstream accuracy is preserved; dd's omission is a measured
-    # distribution-robustness limit, not a fixable regression.
-    ("product_square_decoys", "heavy_tailed", 20000): "weak 0.20*dd linear side-term washed out under pareto tails -- held-out lift 0.00072 / |corr| 0.0052 "
-    "(noise-level); recovering it would admit noise (accuracy loss). a**2*b recovered via a__He2+b. Verified limit.",
-    # 2026-06-27 -- VERIFIED ACCURACY-SAFE limit: the weak ``log(c)`` factor of the log(c)*sin(d) term washes out
-    # under the dirtiest profile (pareto tails + outliers). Direct MI at n=20000/seed=42: MI(c,y)=0.069 sits AT the
-    # noise floor (MI(e1,y)=0.052, MI(e2,y)=0.034) while the ``d`` factor dominates (MI(d,y)=2.09). The outlier-
-    # contaminated positive operand c's binned MI is crushed to noise level, so the screen cannot separate c from
-    # the pure-noise operands -- recovering c would require admitting 0.069-MI features, which also admits e1/e2
-    # (a NET accuracy loss). The dominant ``d`` factor IS recovered (raw d + d__relu legs + sin(d) inside the
-    # surviving compound), so downstream accuracy is preserved; the omission of the ~noise-level c factor is a
-    # measured distribution-robustness limit, NOT a fixable wiring regression. Same weak-operand binning-resolution
-    # limit as the documented two_pairs_strong/heavy_tailed_outliers (both terms degrade) and product_square_decoys
-    # heavy_tailed (weak dd at noise floor) cells.
-    ("log_sin_product", "heavy_tailed_outliers", 20000): "weak log(c) factor washed out under pareto tails + outliers: MI(c,y)=0.069 AT the noise floor "
-    "(e1=0.052,e2=0.034) vs the dominant d factor MI=2.09; the dominant sin(d) half IS recovered (d + "
-    "d__relu legs + sin(d) in the surviving compound), c's ~noise-level factor is unrecoverable without "
-    "admitting noise -- a verified accuracy-safe distribution-robustness limit, not a wiring regression",
-}
+# A cell listed here is a documented distribution-robustness gap: a genuine signal (a keep) that is lost under that profile, with the measured reason. Cells absent from the registry must recover
+# every genuine signal, and a new loss fails loudly. The registry is empty: the residual rescue (``fe_residual_rescue_enable``) judges the pool on the residual of the selected design in the
+# target's own scale and recovers the weak-in-rank-space terms (a**2/b under outliers, mixed marginals and pareto tails; the weak linear 0.20*dd side term) that the rank-MI greedy dropped.
+SIGNAL_LOSS = {}
 
 # NOISE-ADMISSION registry: cells where a PURE-noise column (``zn``, or ``e`` in product_square_decoys; neither enters the target) is admitted
 # next to the fully recovered signal. It is empty on purpose: the weak operands e / e1 / e2 of the other formulas are real terms of the
