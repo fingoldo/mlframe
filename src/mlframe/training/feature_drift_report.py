@@ -50,7 +50,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -64,7 +64,7 @@ DEFAULT_FEATURE_DRIFT_WARN_THRESHOLD_Z: float = 3.0
 than this many train-std away from the train mean."""
 
 
-ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {}
+ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT: dict[str, Any] = {}
 """Placeholder for a future recurrent-model (LSTM / GRU / RNN /
 Transformer) override under feature drift.
 
@@ -79,7 +79,7 @@ in ``_phase_recurrent`` does not auto-apply any recurrent override.
 """
 
 
-ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION: Dict[str, Any] = {
+ROBUST_MLP_OVERRIDES_UNDER_DRIFT_CLASSIFICATION: dict[str, Any] = {
     "alpha": 1.0,
     "hidden_layer_sizes": (32, 16),
     "activation": "identity",
@@ -109,7 +109,7 @@ the sigmoid and degenerate one class).
 """
 
 
-ROBUST_MLP_OVERRIDES_UNDER_DRIFT: Dict[str, Any] = {
+ROBUST_MLP_OVERRIDES_UNDER_DRIFT: dict[str, Any] = {
     "alpha": 1e-4,
     "hidden_layer_sizes": (32, 16),
     "activation": "identity",
@@ -168,7 +168,7 @@ drift keep the original ReLU config and its nonlinear capacity.
 """
 
 
-WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS: Dict[str, Optional[float]] = {
+WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS: dict[str, Optional[float]] = {
     "regression": 3.0,
     "classification": 3.0,
 }
@@ -237,9 +237,9 @@ imported the flat constant before per-type thresholds landed."""
 
 
 def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
-    sklearn_overrides: Dict[str, Any],
-    existing_mlp_kwargs: "Dict[str, Any] | None" = None,
-) -> Dict[str, Any]:
+    sklearn_overrides: dict[str, Any],
+    existing_mlp_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Translate a sklearn-MLPRegressor-shape override dict (produced by the
     robustness bench) into the nested ``mlp_kwargs`` shape consumed by the
     mlframe MLP builder in ``training/helpers.py:get_training_configs``.
@@ -273,8 +273,8 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
     if not sklearn_overrides:
         return {}
 
-    out: Dict[str, Any] = {}
-    untranslated: List[str] = []
+    out: dict[str, Any] = {}
+    untranslated: list[str] = []
 
     if "alpha" in sklearn_overrides:
         try:
@@ -359,8 +359,8 @@ def translate_sklearn_mlp_overrides_to_mlframe_mlp_kwargs(
 
 
 def translate_sklearn_mlp_overrides_to_recurrent_config_kwargs(
-    sklearn_overrides: Dict[str, Any],
-) -> Dict[str, Any]:
+    sklearn_overrides: dict[str, Any],
+) -> dict[str, Any]:
     """Translate the same sklearn-MLP-shape override into the
     ``RecurrentConfig`` field shape used by mlframe's LSTM / GRU / RNN /
     Transformer wrappers.
@@ -382,8 +382,8 @@ def translate_sklearn_mlp_overrides_to_recurrent_config_kwargs(
     """
     if not sklearn_overrides:
         return {}
-    out: Dict[str, Any] = {}
-    untranslated: List[str] = []
+    out: dict[str, Any] = {}
+    untranslated: list[str] = []
     if "alpha" in sklearn_overrides:
         out["weight_decay"] = float(sklearn_overrides["alpha"])
     if "hidden_layer_sizes" in sklearn_overrides:
@@ -403,7 +403,7 @@ def translate_sklearn_mlp_overrides_to_recurrent_config_kwargs(
     return out
 
 
-def _numeric_columns(df: Any) -> List[str]:
+def _numeric_columns(df: Any) -> list[str]:
     """Return the list of numeric column names from a pandas/polars DataFrame."""
     if df is None:
         return []
@@ -456,7 +456,7 @@ def _is_unhashable_object_column(df: Any, col: str) -> bool:
         return False
 
 
-def _categorical_columns(df: Any) -> List[str]:
+def _categorical_columns(df: Any) -> list[str]:
     """Return the list of categorical / string column names from a pandas/polars DataFrame.
 
     Pandas: ``category``, ``object``, ``string`` dtypes. Polars: ``Categorical``, ``Enum``, ``Utf8``/``String``.
@@ -467,7 +467,7 @@ def _categorical_columns(df: Any) -> List[str]:
     if hasattr(df, "select_dtypes"):
         try:
             cols = list(df.select_dtypes(include=["category", "object", "string"]).columns)
-            out: List[str] = []
+            out: list[str] = []
             for c in cols:
                 if _is_unhashable_object_column(df, c):
                     logger.debug("drift: skipping object column %r (array/list/dict cells, not a hashable categorical)", c)
@@ -492,7 +492,7 @@ def _categorical_columns(df: Any) -> List[str]:
     return []
 
 
-def _col_value_counts(df: Any, col: str) -> Optional[Dict[Any, int]]:
+def _col_value_counts(df: Any, col: str) -> Optional[dict[Any, int]]:
     """Per-value count for a single column across pandas / polars; returns ``None`` on failure or for unhashable array/list/dict object columns."""
     if df is None:
         return None
@@ -537,8 +537,8 @@ def _col_value_counts(df: Any, col: str) -> Optional[Dict[Any, int]]:
 
 
 def _compute_categorical_psi(
-    train_counts: Dict[Any, int],
-    other_counts: Dict[Any, int],
+    train_counts: dict[Any, int],
+    other_counts: dict[Any, int],
     bin_min_count: int = 5,
 ) -> float:
     """PSI on category-bucket counts between train and another split.
@@ -596,12 +596,12 @@ def compute_categorical_drift_psi(
     val_df: Any,
     test_df: Any,
     *,
-    feature_names: Optional[List[str]] = None,
+    feature_names: Optional[list[str]] = None,
     bin_min_count: int = 5,
     moderate_threshold: float = DEFAULT_CATEGORICAL_PSI_WARN_MODERATE,
     high_threshold: float = DEFAULT_CATEGORICAL_PSI_WARN_HIGH,
     max_features_in_log: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Per-categorical-feature PSI drift across train / val / test.
 
     Returns ``{per_feature: {col: {val_psi, test_psi}}, drift_candidates: [(col, max_psi)], moderate_threshold, high_threshold, n_categorical_features}``.
@@ -609,9 +609,9 @@ def compute_categorical_drift_psi(
     New-category cases (a value present in val/test but missing from train) are surfaced as a positive PSI contribution -- see ``_compute_categorical_psi`` docstring.
     """
     cols = feature_names or _categorical_columns(train_df)
-    per_feature: Dict[str, Dict[str, float]] = {}
-    candidates: List[tuple[str, float]] = []
-    too_sparse: List[tuple[str, int, float]] = []
+    per_feature: dict[str, dict[str, float]] = {}
+    candidates: list[tuple[str, float]] = []
+    too_sparse: list[tuple[str, int, float]] = []
     for col in cols:
         train_counts = _col_value_counts(train_df, col)
         if not train_counts:
@@ -690,7 +690,7 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
 # a content signature (point-sampled, O(n_cols), no whole-frame copy) and recompute
 # only the per-target FI-weighted aggregate. Bounded FIFO so it never grows on a
 # 100 GB workload; a single suite's targets share one signature -> one live entry.
-_DRIFT_INVARIANT_CACHE: "Dict[Any, Dict[str, Any]]" = {}
+_DRIFT_INVARIANT_CACHE: dict[Any, dict[str, Any]] = {}
 _DRIFT_INVARIANT_CACHE_MAX: int = 8
 # Guards the check-then-evict-then-insert sequence below: concurrent joblib(backend="threading")
 # fits racing on the compound "len() >= MAX -> pop(next(iter(...))) -> insert" sequence could
@@ -700,7 +700,7 @@ _DRIFT_INVARIANT_CACHE_LOCK = threading.Lock()
 
 def _drift_invariant_cache_key(
     train_df: Any, val_df: Any, test_df: Any,
-    feature_names: Optional[List[str]], warn_threshold_z: float,
+    feature_names: Optional[list[str]], warn_threshold_z: float,
 ) -> Optional[Any]:
     """Content signature for the target-invariant drift stats; None = uncacheable.
 
@@ -730,15 +730,15 @@ def _drift_invariant_cache_key(
 
 def _compute_drift_invariant(
     train_df: Any, val_df: Any, test_df: Any,
-    *, warn_threshold_z: float, feature_names: Optional[List[str]],
-) -> Dict[str, Any]:
+    *, warn_threshold_z: float, feature_names: Optional[list[str]],
+) -> dict[str, Any]:
     """Target-invariant half of the drift report: per-feature z-stats, the drift
     candidate list, and the categorical PSI. Depends only on the frames + names +
     threshold; the caller layers the per-target FI-weighted aggregate on top.
     """
     cols = feature_names or _numeric_columns(train_df)
-    per_feature: Dict[str, Dict[str, float]] = {}
-    candidates: List[tuple[str, float]] = []
+    per_feature: dict[str, dict[str, float]] = {}
+    candidates: list[tuple[str, float]] = []
     # bench-attempt-rejected 2026-05-23: tried vectorising as
     # train_df[cols].mean() + .std(ddof=0) once per side. profiling bench
     # bench_feature_drift_vectorize.py shows loop=170ms vec=162ms (1.05x)
@@ -837,12 +837,12 @@ def compute_feature_distribution_drift(
     test_df: Any,
     *,
     warn_threshold_z: float = DEFAULT_FEATURE_DRIFT_WARN_THRESHOLD_Z,
-    feature_names: Optional[List[str]] = None,
-    feature_importance: Optional[Dict[str, float]] = None,
+    feature_names: Optional[list[str]] = None,
+    feature_importance: Optional[dict[str, float]] = None,
     max_features_in_log: int = 10,
     target_type: Optional[str] = None,
     linear_shape_delta_vs_raw_pct: Optional[float] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute per-feature mean drift across train / val / test.
 
     Returns a dict with:
@@ -887,7 +887,7 @@ def compute_feature_distribution_drift(
     _cache_key = _drift_invariant_cache_key(
         train_df, val_df, test_df, feature_names, warn_threshold_z,
     )
-    _invariant: Optional[Dict[str, Any]] = _DRIFT_INVARIANT_CACHE.get(_cache_key) if _cache_key is not None else None
+    _invariant: Optional[dict[str, Any]] = _DRIFT_INVARIANT_CACHE.get(_cache_key) if _cache_key is not None else None
     if _invariant is None:
         _invariant = _compute_drift_invariant(
             train_df, val_df, test_df,
@@ -953,7 +953,7 @@ def compute_feature_distribution_drift(
             _shape_gate_passes = False  # no signal -> conservatively skip
         else:
             _shape_gate_passes = abs(float(linear_shape_delta_vs_raw_pct)) <= CLASSIFICATION_LINEAR_SHAPE_MAX_DELTA_VS_RAW_PCT
-    recommend_neural_overrides: Optional[Dict[str, Any]] = None
+    recommend_neural_overrides: Optional[dict[str, Any]] = None
     if weighted_score is not None and _per_type_threshold is not None and weighted_score >= _per_type_threshold and _override_family and _shape_gate_passes:
         recommend_neural_overrides = dict(_override_family)
 
