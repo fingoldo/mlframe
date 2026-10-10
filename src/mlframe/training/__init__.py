@@ -474,3 +474,7 @@ from ._dataset_cache_fingerprint import compute_signature
 __all__ += ["compute_signature"]
 
 __version__ = "2.0.0"  # Major refactoring version
+
+from ._catboost_polars2_shim import install_catboost_polars2_shim as _install_catboost_polars2_shim
+
+_install_catboost_polars2_shim()

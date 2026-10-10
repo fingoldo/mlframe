@@ -8,14 +8,14 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT | DOC | FUTURE |
 |---|---|---|---|---|---|---|---|---|
-| `01_followup_proposals.md` | 13 | 10 | 1 | 0 | 0 | 2 | 0 | 0 |
-| **Total** | **13** | **10** | **1** | **0** | **0** | **2** | **0** | **0** |
+| `01_followup_proposals.md` | 18 | 15 | 1 | 0 | 0 | 2 | 0 | 0 |
+| **Total** | **18** | **15** | **1** | **0** | **0** | **2** | **0** | **0** |
 
 ## Per-report status
 
 | Status | Report | Findings | Area |
 |---|---|---|---|
-| **OPEN** | [01_followup_proposals.md](01_followup_proposals.md) | 13 | CI, test harness and tooling follow-ups |
+| **OPEN** | [01_followup_proposals.md](01_followup_proposals.md) | 18 | CI, test harness and tooling follow-ups |
 
 ### `01_followup_proposals.md`
 
@@ -34,3 +34,8 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 | **RESOLVED** | P3 | `F-11` | .github/workflows/ci-failure-digest.yml | RESOLVED - runs daily at 06:47 UTC and on dispatch, writes the digest to the job summary and an artifact; exempt from the push-trigger rule by name with the reason; not yet run on the remote. |
 | **RESOLVED** | P2 | `F-12` | tests/test_meta/test_py_ci_shared_pin.py | RESOLVED - test_the_pin_is_a_released_tag_not_an_unreleased_commit with an empty allowlist plus a teeth test for the marker regex. The repository is currently on a plain release pin. |
 | **RESOLVED** | P3 | `F-13` | .gitignore | RESOLVED - audits/**/*.log and /sc_*.log are ignored. |
+| **RESOLVED** | P1 | `F-14` | src/mlframe/_polars_categories.py, _fe_matrix_io.py, _mrmr_fingerprints.py, _pdp_carrier.py | RESOLVED - categorical_labels() with tests for both paths (the polars 2 path is exercised with a wrapper hiding get_categories and by hand on polars 2.0.0); the test that called the method now uses unique(). |
+| **RESOLVED** | P1 | `F-15` | src/mlframe/training/_hgb_polars_categorical.py, _training_loop_fallback_helpers.py | RESOLVED - pin_hgb_categorical_features_for_polars (nested estimators included, re-pinned on a later fit); 4 tests pass on polars 1.41 and 2.0.0, and the 9 matrix tests pass on polars 2.0.0 locally. |
+| **RESOLVED** | P1 | `F-16` | src/mlframe/training/_catboost_polars2_shim.py | RESOLVED - the Pool constructor is wrapped only when polars lacks get_categories; fit and predict tested on polars 1.41 (no wrapper) and 2.0.0 (wrapper). Upstream catboost still needs the fix; the shim can go when it ships. |
+| **RESOLVED** | P2 | `F-17` | src/mlframe/training/utils.py | RESOLVED - enum columns are cast to an ordered dictionary when the export dropped the flag; a test simulates the unordered export on any polars version. |
+| **RESOLVED** | P3 | `F-18` | .github/workflows/polars-matrix.yml | RESOLVED - extras and -k filter changed; the second run will show whether anything else is red. |

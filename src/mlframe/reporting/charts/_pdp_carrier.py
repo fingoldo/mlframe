@@ -93,7 +93,9 @@ def _categorical_grid(carrier: Any, col_name: Optional[str]) -> Tuple[Optional[l
         dt = carrier.schema.get(col_name) if hasattr(carrier, "schema") else None
         is_cat = dt is not None and (dt == pl.Categorical or (hasattr(pl, "Enum") and isinstance(dt, pl.Enum)))
         if is_cat and dt is not None:
-            labels = carrier[col_name].cat.get_categories().to_list() if dt == pl.Categorical else list(dt.categories)
+            from mlframe._polars_categories import categorical_labels
+
+            labels = categorical_labels(carrier[col_name]) if dt == pl.Categorical else list(dt.categories)
             return labels, dt
     return None, None
 

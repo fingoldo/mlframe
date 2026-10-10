@@ -164,3 +164,26 @@ def test_biz_value_whole_array_cast_faster_than_per_chunk():
     # (e.g. the per-chunk loop sneaks back in) trips the gate, while jitter
     # doesn't.
     assert speedup >= 1.5, f"whole-array cast not delivering: speedup={speedup:.2f}x (old={t_old * 1000 / iters:.2f}ms, new={t_new * 1000 / iters:.2f}ms)"
+
+
+def test_enum_stays_ordered_when_polars_hands_arrow_an_unordered_dictionary(monkeypatch):
+    """Older polars (1.36) exports an Enum as an unordered Arrow dictionary; the bridge restores the order from the source dtype."""
+    import pyarrow as pa
+
+    from mlframe.training.utils import get_pandas_view_of_polars_df
+
+    real_to_arrow = pl.DataFrame.to_arrow
+
+    def _unordered_to_arrow(self, *args, **kwargs):
+        """to_arrow with every ordered dictionary column turned unordered."""
+        tbl = real_to_arrow(self, *args, **kwargs)
+        cols = [
+            pa.compute.cast(c, pa.dictionary(c.type.index_type, c.type.value_type, ordered=False)) if pa.types.is_dictionary(c.type) else c for c in tbl.columns
+        ]
+        return pa.table(cols, names=tbl.column_names)
+
+    monkeypatch.setattr(pl.DataFrame, "to_arrow", _unordered_to_arrow)
+    df = pl.DataFrame({"sev": pl.Series(["low", "high", "mid"]).cast(pl.Enum(["low", "mid", "high"]))})
+    pdf = get_pandas_view_of_polars_df(df)
+    assert pdf["sev"].cat.ordered is True
+    assert list(pdf["sev"].cat.categories) == ["low", "mid", "high"]

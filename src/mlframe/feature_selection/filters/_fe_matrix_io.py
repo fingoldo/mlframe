@@ -132,7 +132,9 @@ def _polars_column_to_arrays(s, dtype):
             categories = list(s.dtype.categories)
         else:  # Categorical
             try:
-                categories = s.cat.get_categories().to_list()
+                from mlframe._polars_categories import categorical_labels
+
+                categories = categorical_labels(s)
             except Exception as e:
                 logger.debug("could not resolve categories for polars Categorical column: %s", e)
                 categories = []

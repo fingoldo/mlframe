@@ -70,12 +70,12 @@ jobs:
           pip install "./pyutilz[system,pandas,polars,database]"
 
       - name: Install mlframe and the test tooling
-        # The union of extras the polars-facing tests import at collection (boosting, calibration, polars_ext, db for zstandard);
+        # The union of extras the polars-facing tests import at collection (boosting, calibration, polars_ext, db for zstandard, neural for lightning);
         # py-ci-shared is a git checkout no extra can declare (see requirements-dev.txt).
         # numpy is capped below 2.5: catboost 1.2.10 fails to import on 2.5.3 (ValueError in _catboost init), which is unrelated to polars.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[boosting,calibration,viz,signal,stats,sampling,unsupervised,polars_ext,db,dev]" "numpy<2.5"
+          pip install -e ".[boosting,calibration,viz,signal,stats,sampling,unsupervised,polars_ext,db,neural,dev]" "numpy<2.5"
           pip install -r requirements-dev.txt
 
       - name: Pin polars to ${{ matrix.polars-version }}
@@ -107,9 +107,10 @@ jobs:
             numba-polarsmatrix-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Polars-facing tests
+        # Timing-ratio tests ("speedup") are left to ci.yml: with -n auto on a 4-core runner their ratios measure the neighbouring workers.
         run: |
           pytest tests/feature_engineering tests/training \
-            -k polars \
+            -k "polars and not speedup" \
             -m "not slow and not gpu and not multigpu" \
             --no-cov \
             -p no:randomly \

@@ -316,7 +316,9 @@ def _column_categories(frame, name):
         return tuple(map(str, dt.categories)) if isinstance(dt, pd.CategoricalDtype) else None
     col = frame[name]
     if str(col.dtype).startswith(("Categorical", "Enum")):
-        return tuple(map(str, col.cat.get_categories().to_list()))
+        from mlframe._polars_categories import categorical_labels
+
+        return tuple(categorical_labels(col))
     return None
 
 

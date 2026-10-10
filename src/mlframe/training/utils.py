@@ -685,9 +685,11 @@ def get_pandas_view_of_polars_df(
     # Note: short-circuit on "no dictionary columns" was benchmarked 2026-04-14 and
     # delivered only 1.16x on pure-numeric workloads (below 1.2x threshold), so the
     # per-column scan is retained for code uniformity.
+    # polars Enum is ordered, but older polars (1.36) hands Arrow an unordered dictionary for it; the order is restored from the source dtype.
+    enum_cols = {name for name, dt in df.schema.items() if isinstance(dt, pl.Enum)} if pl is not None and isinstance(df, pl.DataFrame) else set()
     fixed_cols = []
-    for col in tbl.columns:
-        if pa.types.is_dictionary(col.type) and col.type.index_type != pa.int32():
+    for name, col in zip(tbl.column_names, tbl.columns):
+        if pa.types.is_dictionary(col.type) and (col.type.index_type != pa.int32() or (name in enum_cols and not col.type.ordered)):
             # Whole-ChunkedArray cast: ~5.5x faster than the prior per-chunk
             # ``pa.compute.cast(chunk.indices, ...)`` + ``DictionaryArray.from_arrays``
             # rebuild loop on 1M-row x 3-col frames (microbench 2026-05-20:
@@ -696,7 +698,7 @@ def get_pandas_view_of_polars_df(
             # rewrap, and preserves the dictionary buffer by reference. The
             # ``ordered`` flag is threaded explicitly so ordered enums don't
             # silently lose their ordering metadata.
-            target_type = pa.dictionary(pa.int32(), col.type.value_type, ordered=col.type.ordered)
+            target_type = pa.dictionary(pa.int32(), col.type.value_type, ordered=col.type.ordered or name in enum_cols)
             col = pa.compute.cast(col, target_type)
         fixed_cols.append(col)
 

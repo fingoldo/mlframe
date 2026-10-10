@@ -349,7 +349,7 @@ class TestXGBoostStrategyPreparePolars:
         df = pl.DataFrame({"cat": ["a", "b", "c", "a"], "num": [1.0, 2.0, 3.0, 4.0]})
         result = strategy.prepare_polars_dataframe(df, ["cat"])
         assert isinstance(result["cat"].dtype, pl.Enum)
-        assert sorted(result["cat"].cat.get_categories().to_list()) == ["a", "b", "c"]
+        assert sorted(result["cat"].unique().drop_nulls().to_list()) == ["a", "b", "c"]
 
     def test_high_cardinality_stays_categorical(self):
         """Unlike HGB, XGBoost has no 255 cardinality limit; still emits Enum."""

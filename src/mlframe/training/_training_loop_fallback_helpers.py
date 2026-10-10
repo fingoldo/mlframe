@@ -14,6 +14,7 @@ except ImportError:
     pl = None  # type: ignore[assignment]
 
 
+from mlframe.training._hgb_polars_categorical import pin_hgb_categorical_features_for_polars
 from mlframe.config import CATBOOST_MODEL_TYPES
 from mlframe.core.helpers import get_model_best_iter
 
@@ -620,6 +621,7 @@ def _train_model_with_f_phase(model_type_name, train_df, _cb_pool, fit_params, m
                 # gradient-boosting val-set support).
                 _strip_keys = ("eval_set", "X_val", "y_val", "validation_data")
                 fit_params = {k: v for k, v in fit_params.items() if k not in _strip_keys}
+            pin_hgb_categorical_features_for_polars(model, train_df)
             with _suppress_catboost_noise():
                 model.fit(train_df, train_target, **fit_params)
     return fit_params, model
