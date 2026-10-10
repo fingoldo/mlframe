@@ -109,7 +109,7 @@ def apply_oof_cell2d_recipe(recipe, X) -> np.ndarray:
     b = np.asarray(extract_column(X, recipe.src_names[1]), dtype=np.float64)
     cell, _ = _cells(a, b, ex["ea"], ex["eb"])
     out = np.where(cell >= 0, ex["tab"].reshape(-1)[np.maximum(cell, 0)], ex["fill"])
-    return np.clip(out, ex["lo"], ex["hi"])
+    return np.asarray(np.clip(out, ex["lo"], ex["hi"]))
 
 
 def cell2d_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[str], feature_dtype: Any, quantization_nbins: int, *, scan_rows: int = DEFAULT_SCAN_ROWS) -> list:

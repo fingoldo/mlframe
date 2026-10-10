@@ -284,7 +284,8 @@ def _run_group(
         yt_new, sing_t = _deflate(cp, zt, yt, fvec, mask_dev)
         yv_new, sing_v = _deflate(cp, zv, yv, fvec, mask_dev)
         yt, yv = yt_new, yv_new
-        for k in np.flatnonzero((sing_t | sing_v) & (mask == 1)):
+        for k_sing in np.flatnonzero((sing_t | sing_v) & (mask == 1)):
+            k = int(k_sing)
             # singular [1, sin, cos] system: the single-column path decides (its lstsq / graceful fallback); the rest of this column's loop runs there too
             results[k] = single(int(k))
             active = [a for a in active if a != int(k)]

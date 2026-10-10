@@ -52,7 +52,7 @@ def apply_oof_warp1d_recipe(recipe, X) -> np.ndarray:
 
     ex = recipe.extra
     x = np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64)
-    return np.clip(apply_warp1d(x, ex["cx"], ex["cy"], ex["fill"]), ex["lo"], ex["hi"])
+    return np.asarray(np.clip(apply_warp1d(x, ex["cx"], ex["cy"], ex["fill"]), ex["lo"], ex["hi"]))
 
 
 def _rank_scaled(y: np.ndarray) -> np.ndarray:
