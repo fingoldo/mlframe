@@ -14,7 +14,7 @@ Replay (kind ``row_stat``) stores the source columns, the frozen standardisation
 from __future__ import annotations
 
 import itertools
-from typing import TYPE_CHECKING, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -73,14 +73,14 @@ def apply_row_stat_recipe(recipe, X, _block_cache: Optional[dict] = None) -> np.
     k = Zt.shape[0]
     subset = np.arange(k, dtype=np.int64)
     out = stat_column(Zt, subset, k, STAT_NAMES.index(ex["stat"]))
-    return np.clip(out, ex["lo"], ex["hi"])
+    return np.asarray(np.clip(out, ex["lo"], ex["hi"]))
 
 
 def _rank_scaled(y: np.ndarray) -> np.ndarray:
     """Average ranks of ``y`` scaled into ``(0, 1]``."""
     from scipy.stats import rankdata
 
-    return rankdata(y, method="average") / float(len(y))
+    return np.asarray(rankdata(y, method="average") / float(len(y)))
 
 
 def _scan_index(n: int, scan_rows: int) -> np.ndarray:
@@ -126,7 +126,7 @@ def _search(Zt: np.ndarray, codes: np.ndarray, ky: int) -> "list[tuple[float, in
     mat, sizes = _subset_matrix(cand)
     ev, od = np.empty(len(cand)), np.empty(len(cand))
     eval_candidates(Zt, mat, sizes, stats, codes, ky, N_MI_BINS, ev, od)
-    best = []
+    best: list[list[Any]] = []
     for s in range(n_stats):
         sl = slice(s * len(pairs), (s + 1) * len(pairs))
         j = int(np.argmax(ev[sl]))
@@ -222,7 +222,7 @@ def hybrid_row_stat_fe(
     Returns ``(X_aug, appended, recipes, enc_df)``; ``y`` only steers the search and the acceptance, recipes carry the standardisation and the statistic, never ``y``."""
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"hybrid_row_stat_fe: X must be a pandas DataFrame; got {type(X).__name__}")
-    empty = (X, [], [], pd.DataFrame())
+    empty: tuple[pd.DataFrame, list, list, pd.DataFrame] = (X, [], [], pd.DataFrame())
     cols = [c for c in (num_cols if num_cols else X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if len(cols) < 2 or y is None:
         return empty
@@ -236,7 +236,9 @@ def hybrid_row_stat_fe(
                 observed=cand["gain"], threshold=SIGNIFICANCE_Z * cand["se"], reason="held-out MI gain over the best raw column not significant or below the practical effect",
             )
     accepted.sort(key=lambda c: -c["gain"])
-    new_cols, recipes, blocks = {}, [], {}
+    new_cols: dict = {}
+    recipes: list = []
+    blocks: dict = {}
     for cand in accepted[: int(top_k)]:
         name = f"rowstat_{cand['stat']}({','.join(map(str, cand['src']))})"
         if name in X.columns or name in new_cols:

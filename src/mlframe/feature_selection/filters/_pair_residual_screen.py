@@ -112,7 +112,7 @@ def _winsorised(y: np.ndarray) -> np.ndarray:
     lo, hi = np.quantile(y, WINSOR_Q)
     w = np.clip(y, lo, hi)
     sd = float(w.std())
-    return (w - w.mean()) / sd if sd > 0 else w - w.mean()
+    return np.asarray((w - w.mean()) / sd if sd > 0 else w - w.mean())
 
 
 def main_effect_bins(n_even: int) -> int:

@@ -59,7 +59,7 @@ def _rank_scaled(y: np.ndarray) -> np.ndarray:
     """Average ranks of ``y`` scaled into ``(0, 1]`` (a bounded target: bin means are robust to heavy tails)."""
     from scipy.stats import rankdata
 
-    return rankdata(y, method="average") / float(len(y))
+    return np.asarray(rankdata(y, method="average") / float(len(y)))
 
 
 def _scan_index(n: int, scan_rows: int) -> np.ndarray:
@@ -122,7 +122,7 @@ def hybrid_oof_warp_fe(
     Returns ``(X_aug, appended, recipes, enc_df)``; ``y`` only steers the fit and the acceptance, recipes carry the table, never ``y``."""
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"hybrid_oof_warp_fe: X must be a pandas DataFrame; got {type(X).__name__}")
-    empty = (X, [], [], pd.DataFrame())
+    empty: tuple[pd.DataFrame, list, list, pd.DataFrame] = (X, [], [], pd.DataFrame())
     cols = [c for c in (num_cols if num_cols else X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not cols or y is None:
         return empty

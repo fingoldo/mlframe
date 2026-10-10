@@ -39,7 +39,7 @@ def _edges(x: np.ndarray, k: int = K_BINS) -> np.ndarray:
     return np.unique(np.quantile(finite, np.linspace(0.0, 1.0, k + 1)[1:-1]))
 
 
-def _cells(a: np.ndarray, b: np.ndarray, ea: np.ndarray, eb: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+def _cells(a: np.ndarray, b: np.ndarray, ea: np.ndarray, eb: np.ndarray) -> "tuple[np.ndarray, np.int64]":
     """Cell indices of the rows (``-1`` where either value is not finite) and the cell count ``(len(ea) + 1) * (len(eb) + 1)``."""
     nb = len(eb) + 1
     ia = np.searchsorted(ea, np.where(np.isfinite(a), a, 0.0), side="right")
@@ -53,7 +53,7 @@ def _table(sums: np.ndarray, counts: np.ndarray, mu: float, shrink: float) -> np
     rx = (sums.sum(1) + shrink * mu) / (counts.sum(1) + shrink)
     cz = (sums.sum(0) + shrink * mu) / (counts.sum(0) + shrink)
     prior = rx[:, None] + cz[None, :] - mu
-    return (sums + shrink * prior) / (counts + shrink)
+    return np.asarray((sums + shrink * prior) / (counts + shrink))
 
 
 def fit_oof_cell2d(a: np.ndarray, b: np.ndarray, y: np.ndarray, *, n_folds: int = N_FOLDS, shrink: float = SHRINK, seed: int = 0) -> dict:

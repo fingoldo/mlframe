@@ -31,8 +31,8 @@ def _stage_row_stat(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _row_
             _record_fe_rejection(self, step=_rs_step, **_kw)
 
         # RAW columns only: a recipe built on an engineered column could not be replayed in a single pass at transform() time.
-        _rs_cols = tuple(getattr(self, "fe_row_stat_cols", ()) or ())
-        _rs_cols = [c for c in _rs_cols if c in X.columns] or None
+        _rs_cols_cfg = tuple(getattr(self, "fe_row_stat_cols", ()) or ())
+        _rs_cols = [c for c in _rs_cols_cfg if c in X.columns] or None
         if _rs_cols is None:
             _rs_raw = set(_raw_input_cols_pre_fe)
             _rs_cols = [c for c in X.columns if c in _rs_raw] or None

@@ -31,8 +31,8 @@ def _stage_oof_warp(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _oof_
             _record_fe_rejection(self, step=_ow_step, **_kw)
 
         # RAW columns only: a recipe built on an engineered column could not be replayed in a single pass at transform() time.
-        _ow_cols = tuple(getattr(self, "fe_oof_warp_cols", ()) or ())
-        _ow_cols = [c for c in _ow_cols if c in X.columns] or None
+        _ow_cols_cfg = tuple(getattr(self, "fe_oof_warp_cols", ()) or ())
+        _ow_cols = [c for c in _ow_cols_cfg if c in X.columns] or None
         if _ow_cols is None:
             _ow_raw = set(_raw_input_cols_pre_fe)
             _ow_cols = [c for c in X.columns if c in _ow_raw] or None

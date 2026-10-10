@@ -158,4 +158,4 @@ def _apply(x, cx, cy, fill):
 
 def apply_warp1d(x: np.ndarray, cx: np.ndarray, cy: np.ndarray, fill: float) -> np.ndarray:
     """The warp table ``(cx, cy)`` applied to ``x``: piecewise-linear between the bin centres, clamped to the end values, ``fill`` for a non-finite ``x``."""
-    return _apply(np.ascontiguousarray(x, dtype=np.float64), np.ascontiguousarray(cx, dtype=np.float64), np.ascontiguousarray(cy, dtype=np.float64), float(fill))
+    return np.asarray(_apply(np.ascontiguousarray(x, dtype=np.float64), np.ascontiguousarray(cx, dtype=np.float64), np.ascontiguousarray(cy, dtype=np.float64), float(fill)))
