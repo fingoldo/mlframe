@@ -556,6 +556,7 @@ class MRMRParams(BaseModel):
     fe_offset_product_max_pair_cols: int = 6
     fe_offset_product_top_k: int = 3
     fe_offset_product_scan_rows: int = 100000
+    fe_offset_product_min_relative_gain: float = 0.05
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: Optional[int] = 100
     fe_wavelet_cols: tuple = ()

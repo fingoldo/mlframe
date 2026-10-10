@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 
-__all__ = ["NACC", "N_EDGE_SUBSAMPLE", "N_BASELINES", "ols2_shift", "scan_offset_products"]
+__all__ = ["NACC", "N_EDGE_SUBSAMPLE", "N_BASELINES", "ols2_shift", "scan_offset_products", "weighted_sum_heldout_mi"]
 
 NACC = 14  # upper triangle of the Gram matrix of [1, x, w, x*w] (10 entries) + the 4 right-hand sides
 N_EDGE_SUBSAMPLE = 2048  # rows whose candidate value defines the bin edges
@@ -235,3 +235,51 @@ def scan_offset_products(U, tasks, yr, ycodes, ky, nb, clips, out_shift, out_mi)
             n_sp = n_even if sp == 0 else n - n_even
             for q in range(nf):
                 out_mi[k, sp, q] = _mi_from_counts(counts[q, sp], nb, ky, n_sp)
+
+
+@njit(parallel=True, cache=True)
+def weighted_sum_heldout_mi(u, v, codes, ky, nb, n_dirs):
+    """Held-out MI of the best weighted sum ``cos(t) * u / sd(u) + sin(t) * v / sd(v)`` of the two factors, the direction ``t`` chosen over ``n_dirs`` directions of the full circle by the MI on
+    the even rows and scored on the odd rows (edges from a ``N_EDGE_SUBSAMPLE``-row sample of the even rows, as in the scan).
+
+    A shifted product with large shifts degenerates into a weighted sum of its factors, and a weighted sum with better weights than the least-squares baseline wins without any interaction;
+    only a gain over THIS baseline, the best additive mix of the candidate's own factors, is evidence of an interaction."""
+    n = u.shape[0]
+    n_even = (n + 1) // 2
+    m = min(N_EDGE_SUBSAMPLE, n_even)
+    su = 0.0
+    sv = 0.0
+    mu = 0.0
+    mv = 0.0
+    for i in range(0, n, 2):
+        mu += u[i]
+        mv += v[i]
+    mu /= n_even
+    mv /= n_even
+    for i in range(0, n, 2):
+        su += (u[i] - mu) ** 2
+        sv += (v[i] - mv) ** 2
+    su = np.sqrt(su / n_even) if su > 0 else 1.0
+    sv = np.sqrt(sv / n_even) if sv > 0 else 1.0
+    mi_even = np.empty(n_dirs)
+    mi_odd = np.empty(n_dirs)
+    for k in prange(n_dirs):
+        th = 2.0 * np.pi * k / n_dirs
+        cu = np.cos(th) / su
+        cv = np.sin(th) / sv
+        sub = np.empty(m)
+        for j in range(m):
+            i = 2 * ((j * n_even) // m)
+            sub[j] = cu * u[i] + cv * v[i]
+        edges = np.empty(nb - 1)
+        _edges_of(sub, edges)
+        counts = np.zeros((2, nb, ky), dtype=np.int64)
+        for i in range(n):
+            counts[i & 1, _bin_of(cu * u[i] + cv * v[i], edges), codes[i]] += 1
+        mi_even[k] = _mi_from_counts(counts[0], nb, ky, n_even)
+        mi_odd[k] = _mi_from_counts(counts[1], nb, ky, n - n_even)
+    best = 0
+    for k in range(1, n_dirs):
+        if mi_even[k] > mi_even[best]:
+            best = k
+    return mi_odd[best]

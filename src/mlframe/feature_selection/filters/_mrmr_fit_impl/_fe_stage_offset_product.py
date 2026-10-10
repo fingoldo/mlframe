@@ -43,6 +43,7 @@ def _stage_offset_product(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe,
             max_pair_cols=int(getattr(self, "fe_offset_product_max_pair_cols", 6)),
             top_k=int(getattr(self, "fe_offset_product_top_k", 3)),
             scan_rows=int(getattr(self, "fe_offset_product_scan_rows", 100_000)),
+            min_relative_gain=float(getattr(self, "fe_offset_product_min_relative_gain", 0.05)),
             reject_sink=_op_reject_sink,
         )
         _op_appended = [c for c in _op_appended if c not in _X_before]

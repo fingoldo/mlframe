@@ -28,6 +28,7 @@ from ._screen_predictors_prescreen import cardinality_prescreen, compute_fdr_gai
 from .evaluation import get_candidate_name
 from .info_theory import merge_vars
 from ._numba_warmup import warmup_typed_dict
+from ._screen_predictors_step1 import _screen_predictors_step1_array_returned_encodings
 
 if TYPE_CHECKING:
     from ._dynamic_cluster_discovery import DCDState
@@ -662,26 +663,6 @@ def screen_predictors(
         # Still restore numba + cupy (the prior comment block
         # acknowledged the leak; this closes it with a fresh-entropy reseed).
         _screen_predictors_step3_acknowledged_leak_closes(st)
-
-
-def _screen_predictors_step1_array_returned_encodings(subsample_idx, factors_data, targets_data, _screen_full_factors):
-    """Step 1 of screen_predictors: lines starting at ``if subsample_idx is not None:``."""
-    if subsample_idx is not None:
-        try:
-            _sidx = np.asarray(subsample_idx)
-            if _sidx.ndim == 1 and 0 < _sidx.shape[0] < len(factors_data) and int(_sidx.max()) < len(factors_data):
-                _sidx = _sidx.astype(np.int64, copy=False)
-                _same_t = targets_data is factors_data
-                _screen_full_factors = factors_data
-                factors_data = factors_data[_sidx]
-                if _same_t:
-                    targets_data = factors_data
-                elif targets_data is not None and len(targets_data) == len(_screen_full_factors):
-                    targets_data = targets_data[_sidx]
-        except Exception as e:
-            logger.debug("subsample-index application failed, falling back to the full factors: %s", e)
-            _screen_full_factors = None
-    return _screen_full_factors, factors_data
 
 
 def _screen_predictors_step2_interactions_order_subsets(subsets, verbose, st, num_possible_candidates, ctx, stop_file, patience_triggered, min_relevance_gain, cardinality_bias_correction, factors_data, y, factors_nbins, min_relevance_gain_relative_to_first, selected_vars, predictors, _fdr_gain_floor, cached_MIs, selected_interactions_vars, dcd_state, factors_names, data_copy, entropy_cache, full_npermutations, engineered_recipes, ndigits):

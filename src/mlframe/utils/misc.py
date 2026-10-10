@@ -203,7 +203,7 @@ def hygienic_fit(fit_method):
     (2) the caller's input pandas DataFrame restored to its entry column schema
     (any columns the fit materialised in place are dropped on return), and (3) no
     silent background kernel-tuning sweep competes with the fit
-    (see ``mlframe.system.kernel_tuning_cache._policy``). Apply to
+    (see ``mlframe.system.kernel_tuning_cache.kernel_tuning_fit_policy``). Apply to
     selectors whose fit engineers columns into the working frame (MRMR's hinge /
     cat-cross / target-prefix FE), so ``X`` in == ``X`` out."""
     @functools.wraps(fit_method)
@@ -222,7 +222,7 @@ def hygienic_fit(fit_method):
         except Exception as e:
             logger.debug("capturing original polars column order failed: %s", e)
             original_cols = None
-        from mlframe.system.kernel_tuning_cache._policy import kernel_tuning_fit_policy
+        from mlframe.system.kernel_tuning_cache import kernel_tuning_fit_policy
 
         with preserve_global_rng(), kernel_tuning_fit_policy():
             try:
