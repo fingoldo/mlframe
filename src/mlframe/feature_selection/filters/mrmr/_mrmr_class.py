@@ -2988,8 +2988,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # The rank-MI greedy cannot see a term that is weak in rank space but carries most of the variance (a**2/b next to 3*log(c)*sin(d) with outliers). Evidence: paired odd-row t statistic
         # at a family-wise 5% level over the pool; ``min_relative_gain`` is the practical-effect floor (share of the target variance), ``max_admit`` bounds the rounds. Regression targets only.
         fe_residual_rescue_enable: bool = True,
-        fe_residual_rescue_min_relative_gain: float = 0.01,
-        fe_residual_rescue_max_admit: int = 3,
+        fe_residual_rescue_min_relative_gain: float = 0.001,
+        fe_residual_rescue_max_admit: int = 8,
+        # With ``redundancy_policy='drop'`` the same residual evidence prunes a selected column (raw or engineered) that does not lower the held-out residual of the rest of the selection
+        # significantly. A raw operand of a multi-source engineered column must in addition lower it by this share of the target variance: below it the gain is the numerical remainder of
+        # the compound's own fit (a surrogate of the true form), not information the compound lacks.
+        fe_residual_rescue_prune_min_relative_gain: float = 0.0001,
         # HAAR WAVELET / localized multiresolution basis.
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or

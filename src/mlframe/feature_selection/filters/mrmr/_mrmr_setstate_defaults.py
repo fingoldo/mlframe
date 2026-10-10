@@ -317,8 +317,9 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # 2-D cell table (usability pool only). Pre-cell2d pickles default OFF so the legacy reload path is byte-identical.
     "fe_oof_cell2d_enable": False,
     "fe_residual_rescue_enable": False,
-    "fe_residual_rescue_min_relative_gain": 0.01,
-    "fe_residual_rescue_max_admit": 3,
+    "fe_residual_rescue_min_relative_gain": 0.001,
+    "fe_residual_rescue_max_admit": 8,
+    "fe_residual_rescue_prune_min_relative_gain": 0.0001,
     "offset_product_features_": [],
     # Haar wavelet basis. Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new

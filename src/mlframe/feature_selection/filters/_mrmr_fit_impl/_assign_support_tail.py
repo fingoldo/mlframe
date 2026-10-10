@@ -53,10 +53,6 @@ def _assign_support_tail(
     """
     _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx)
 
-    from ._residual_rescue_stage import run_residual_rescue
-
-    run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose)
-
     # POST-RETENTION RAW-REDUNDANCY DROP (BUG1). The main raw-vs-engineered
     # redundancy sweep (above) runs on the screen-stage ``selected_vars`` BEFORE
     # the usability-aware pure-form retention re-attaches an engineered survivor. When that
@@ -87,6 +83,12 @@ def _assign_support_tail(
     _pgn_n_final = int(data.shape[0])
     _pgn_p_final = int(getattr(self, "n_features_in_", 0) or 0)
     _assign_support_tai_adds_more_raw_columns(self, _pgn_p_final, _pgn_n_final, selected_vars, cols, n_engineered_out, verbose)
+
+    # RESIDUAL RESCUE runs last: every pass above that re-attaches or strips raw columns has finished, so what it prunes stays pruned and what it admits is judged against the final selection.
+    from ._residual_rescue_stage import run_residual_rescue
+
+    if run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose):
+        self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
 
 def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx):

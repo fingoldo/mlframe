@@ -4,8 +4,8 @@ The greedy MI selection ranks candidates by information about the (quantile-binn
 ``a**2/b`` next to ``3*log(c)*sin(d)`` with 3% outliers has 83% of the variance (half of it in five rows) and MI 0.07 against 1.85, so the screen never picks it. The error metric of the
 downstream models is MAE / RMSE, i.e. the target's own scale, so this stage asks the regression question instead:
 
-* the selected design (raw and engineered columns, each with a free-form main effect of ``main_effect_bins`` levels) is backfitted on the even rows against the winsorised, standardised target
-  (``_pair_residual_screen``: clipping keeps the additive structure of the bulk of the rows, a rank transform would squash it);
+* the selected design (raw and engineered columns: a linear part first, then a free-form main effect of ``main_effect_bins`` levels each) is fitted on the even rows against the fence-clipped,
+  standardised target (``_pair_residual_screen``: clipping keeps the additive structure of the bulk of the rows, a rank transform would squash it);
 * every other column of the pool gets the even-row mean residual in its quantile bins (shrunk toward 0 by ``SHRINK`` pseudo-counts), applied to the odd rows; the evidence is the paired per-row
   reduction of the squared residual ``d_i = e_i^2 - (e_i - m_bin(i))^2`` and its t statistic ``mean(d) / (sd(d) / sqrt(n_odd))``;
 * the best column is admitted when its t exceeds the one-sided normal quantile of a family-wise ``alpha`` over the pool (Bonferroni) and its relative gain ``mean(d)`` over the odd-row variance of the target is at least
@@ -17,15 +17,15 @@ Columns are binned by their own quantiles (no target information), the bin means
 
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Mapping, Optional
 
 import numpy as np
 from numba import njit, prange
 
-from ._pair_residual_screen import BACKFIT_SWEEPS, FAMILY_ALPHA, SHRINK, _backfit, _winsorised, main_effect_bins
+from ._pair_residual_screen import BACKFIT_SWEEPS, FAMILY_ALPHA, OUTER_FENCE, SHRINK, _backfit, _winsorised, main_effect_bins
 from ._y_encoding import FEW_CLASSES_MAX
 
-__all__ = ["residual_rescue", "MAX_POOL", "DEFAULT_SCAN_ROWS"]
+__all__ = ["residual_rescue", "design_residual", "MAX_POOL", "DEFAULT_SCAN_ROWS"]
 
 MAX_POOL = 300  # columns scored per round: the pool is cut to the highest marginal variation of the residual in its bins
 DEFAULT_SCAN_ROWS = 50_000
@@ -120,6 +120,29 @@ def _code_columns(cols: "Mapping[str, np.ndarray]", rows: np.ndarray, n_bins: in
     return [names[k] for k in keep], np.ascontiguousarray(codes[keep])
 
 
+def _standardised(v: np.ndarray) -> Optional[np.ndarray]:
+    """``v`` with non-finite values set to the median, clipped to Tukey's far-out fences and standardised; ``None`` for a constant column."""
+    v = np.asarray(v, dtype=np.float64)
+    finite = np.isfinite(v)
+    if not finite.any():
+        return None
+    v = np.where(finite, v, np.median(v[finite]))
+    q1, q3 = np.quantile(v, (0.25, 0.75))
+    iqr = q3 - q1
+    if iqr > 0:
+        v = np.clip(v, q1 - OUTER_FENCE * iqr, q3 + OUTER_FENCE * iqr)
+    sd = float(v.std())
+    return (v - v.mean()) / sd if sd > 0 else None
+
+
+def _without_linear_part(lin_cols: "list[np.ndarray]", yr: np.ndarray, even: np.ndarray) -> np.ndarray:
+    """``yr`` minus its least-squares fit (even rows) on the standardised design columns and an intercept. The free-form effects below are binned, so a smooth trend inside a bin is left in their
+    residual and a column that shares the trend (a raw operand beside an engineered column built from it) scores a spurious gain; fitting the linear part first removes that artefact."""
+    L = np.column_stack([*lin_cols, np.ones(len(yr))]) if lin_cols else np.ones((len(yr), 1))
+    beta, *_ = np.linalg.lstsq(L[even], yr[even], rcond=None)
+    return np.asarray(yr - L @ beta)
+
+
 def _residual(Qm: np.ndarray, yr: np.ndarray, even: np.ndarray, n_main: int) -> np.ndarray:
     """Residual of the additive free-form model of the design columns ``Qm`` (rows are columns) on the standardised target."""
     if Qm.shape[0] == 0:
@@ -131,14 +154,27 @@ def _residual(Qm: np.ndarray, yr: np.ndarray, even: np.ndarray, n_main: int) -> 
     return np.asarray(yr - mu - pred)
 
 
+def design_residual(design: Mapping[str, np.ndarray], y: np.ndarray) -> np.ndarray:
+    """Residual of the free-form additive model of the ``design`` columns on the winsorised, standardised target, one value per row (the model is backfitted on the even rows, so the odd
+    rows are out of sample). The scale is the standardised target's, whatever the scale of ``y``."""
+    n = len(y)
+    rows = np.arange(n)
+    yr = _winsorised(np.asarray(y, dtype=np.float64).ravel())
+    even = rows % 2 == 0
+    n_main = main_effect_bins((n + 1) // 2)
+    _, dcodes = _code_columns(design, rows, n_main)
+    lin = [c for c in (_standardised(v) for v in design.values()) if c is not None]
+    return _residual(np.ascontiguousarray(dcodes), _without_linear_part(lin, yr, even), even, n_main)
+
+
 def residual_rescue(
     design: Mapping[str, np.ndarray],
     pool: Mapping[str, np.ndarray],
     y: np.ndarray,
     *,
     alpha: float = FAMILY_ALPHA,
-    min_relative_gain: float = 0.01,
-    max_admit: int = 3,
+    min_relative_gain: float = 0.001,
+    max_admit: int = 8,
     scan_rows: int = DEFAULT_SCAN_ROWS,
     max_pool: int = MAX_POOL,
 ) -> "list[tuple[str, float, float]]":
@@ -157,6 +193,7 @@ def residual_rescue(
     n_main = main_effect_bins((len(rows) + 1) // 2)
     _, dcodes = _code_columns(design, rows, n_main)
     design_codes = list(dcodes)
+    lin_cols = [c for c in (_standardised(np.asarray(v)[rows]) for v in design.values()) if c is not None]
     pool_names, Qp = _code_columns(pool, rows, n_main)
     if not pool_names:
         return []
@@ -164,7 +201,7 @@ def residual_rescue(
     alive = np.ones(len(pool_names), dtype=bool)
     for _ in range(int(max_admit)):
         Qd = np.ascontiguousarray(np.stack(design_codes)) if design_codes else np.empty((0, len(rows)), dtype=np.int64)
-        resid = _residual(Qd, yr, even, n_main)
+        resid = _residual(Qd, _without_linear_part(lin_cols, yr, even), even, n_main)
         idx = np.flatnonzero(alive)
         if idx.size > max_pool:
             var = np.array([float(np.var(np.bincount(Qp[j], weights=resid, minlength=n_main) / np.maximum(np.bincount(Qp[j], minlength=n_main), 1))) for j in idx])
@@ -180,4 +217,7 @@ def residual_rescue(
         out.append((pool_names[j], float(t[k]), float(rel[k])))
         alive[j] = False
         design_codes.append(Qp[j])
+        added = _standardised(np.asarray(pool[pool_names[j]])[rows])
+        if added is not None:
+            lin_cols.append(added)
     return out

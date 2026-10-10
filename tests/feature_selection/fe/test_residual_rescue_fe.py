@@ -98,3 +98,70 @@ def test_constructor_default_and_legacy_state():
     from mlframe.feature_selection.filters.mrmr._mrmr_setstate_defaults import _SETSTATE_LEGACY_DEFAULTS as D
 
     assert D["fe_residual_rescue_enable"] is False
+
+
+def test_candidates_built_from_the_design_sources_are_not_eligible():
+    """An operand view of one design column is a refinement and not eligible; a joint feature of operands held only in separate columns is."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _is_refinement, _raw_sources
+
+    raw = frozenset({"a", "b", "c", "d", "e"})
+    compound = _raw_sources("add(mul(log(c),sin(d)),div(sqr(a),abs(b)))", raw)
+    assert compound == {"a", "b", "c", "d"}
+    assert _raw_sources("a__haar_j1k0", raw) == {"a"}
+    assert _raw_sources("binagg_mean(e|qbin(d))", raw) == {"d", "e"}
+    assert _is_refinement(_raw_sources("oofwarp(a)", raw), [compound])
+    assert not _is_refinement(_raw_sources("binagg_mean(e|qbin(d))", raw), [compound])
+    separate = [frozenset({"a"}), frozenset({"b"})]
+    assert not _is_refinement(_raw_sources("mul(log(a),sin(b))", raw), separate)
+    assert _is_refinement(_raw_sources("sqr(a)", raw), separate)
+
+
+class _Stub:
+    """Minimal estimator stand-in carrying the constructor knobs the stage reads."""
+
+    def __init__(self, policy="drop", cell=True):
+        self.redundancy_policy = policy
+        self.fe_oof_cell2d_enable = cell
+        self.fe_residual_rescue_prune_min_relative_gain = 0.0001
+
+
+def test_prune_drops_the_noise_columns_and_keeps_the_real_ones_only_under_the_drop_policy():
+    """Under ``redundancy_policy='drop'`` a raw or engineered column without held-out gain is pruned and a real term is kept; the default policy prunes nothing."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _redundant_raw_operands
+
+    X, y = _two_term(n=20000, seed=3)
+    raw = frozenset(X.columns)
+    cd = np.log(X["c"].to_numpy()) * np.sin(X["d"].to_numpy())
+    rng = np.random.default_rng(5)
+    design = {"a2/b": (X["a"] ** 2 / X["b"]).to_numpy(), "cd": cd, "e": X["e"].to_numpy(), "noise_engineered": rng.standard_normal(len(y)) * cd.std()}
+    design["a"] = X["a"].to_numpy()  # an operand of the ratio that the ratio already holds
+    pruned = _redundant_raw_operands(_Stub(), design, y, raw, residual_rescue)
+    assert "noise_engineered" in pruned and "e" not in pruned and "cd" not in pruned
+    assert _redundant_raw_operands(_Stub(policy="emit_both"), design, y, raw, residual_rescue) == []
+
+
+def test_cell_tables_of_the_residual_find_a_pair_interaction_the_vocabulary_may_miss():
+    """A weak interaction of two columns under a dominant term is tabulated on the residual of the design; an additive target yields no table."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _cell_table_candidates
+
+    r = np.random.default_rng(0)
+    n = 20000
+    X = pd.DataFrame({k: r.uniform(0, 1, n) for k in "abcde"})
+    big = 6.0 * np.sin(6.0 * X["a"].to_numpy()) * X["b"].to_numpy()
+    y = big + np.log(X["c"].to_numpy() + 1.0) * np.sin(2 * X["d"].to_numpy())
+    design = {"big": big}
+    pool: dict = {}
+    got = _cell_table_candidates(_Stub(), X, y, design, frozenset(X.columns), [frozenset({"a", "b"})], pool)
+    assert "oofcell(c,d)" in got and "oofcell(c,d)" in pool
+    additive = X["a"].to_numpy() + X["c"].to_numpy() ** 2
+    assert _cell_table_candidates(_Stub(), X, additive, {"a": X["a"].to_numpy()}, frozenset(X.columns), [frozenset({"a"})], {}) == {}
+    assert _cell_table_candidates(_Stub(cell=False), X, y, design, frozenset(X.columns), [], {}) == {}
+
+
+def test_design_residual_shrinks_with_the_true_design():
+    """The residual of the right design is far smaller than the residual of an empty one, on the standardised scale."""
+    from mlframe.feature_selection.filters._residual_rescue_fe import design_residual
+
+    X, y = _two_term(n=6000, seed=4)
+    full = {"a2/b": (X["a"] ** 2 / X["b"]).to_numpy(), "cd": np.log(X["c"].to_numpy()) * np.sin(X["d"].to_numpy())}
+    assert np.var(design_residual(full, y)) < 0.2 * np.var(design_residual({}, y))
