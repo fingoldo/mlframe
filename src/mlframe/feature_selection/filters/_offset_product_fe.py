@@ -31,11 +31,13 @@ __all__ = ["hybrid_offset_product_fe", "build_offset_product_recipe", "apply_off
 # minimal preset already makes redundant.
 OFFSET_UNARIES = ("identity", "abs", "sqr", "reciproc", "sqrt", "log", "sin")
 ACCEPT_MARGIN_C = 40.0  # held-out MI gain must exceed ACCEPT_MARGIN_C / n_scan nats; the largest null gain seen over 6 seeds x 15 pairs x n in 5k..300k was 24 / n (_benchmarks/offset_product/null_gain.py), the stat study used 26 / n
+ACCEPT_MIN_RELATIVE_GAIN = 0.03  # and the gain must be at least this fraction of the best baseline held-out MI: at 100k+ rows 40 / n is under 0.001 nats, a gain no consumer can use
 DEFAULT_SCAN_ROWS = 100_000  # the scan decides on at most this many rows (stat study: decisions are stable from n=5k); accepted shifts are refitted on all rows
 N_MI_BINS = 10
 _WINSOR_Q = (0.01, 0.99)  # winsorisation of the unary outputs for the regression only
 _OUTPUT_CLIP_Q = (0.001, 0.999)  # replay clips the product to its fit-time quantiles so heavy tails cannot dominate a linear consumer
 _MIN_ROWS = 200
+SYNERGY_MIN = 0.02  # a pair is scanned only if its joint 10 x 10 Miller-Madow MI exceeds the larger marginal MI by this many nats; the 25 planted pairs of the pre-filter study had >= 0.041
 
 
 def _op_label(unary: str, col: str) -> str:
@@ -62,10 +64,35 @@ def _unary_column(fn: Callable, x: np.ndarray) -> np.ndarray:
         return np.asarray(fn(x), dtype=np.float64)
 
 
+def _log_anchor(x: np.ndarray) -> float:
+    """The shift ``smart_log`` applies to the fit column (``1e-5 - min`` for a column with non-positive values, else 0), frozen so replay on another batch cannot shift differently."""
+    lo = float(np.nanmin(x)) if np.isfinite(x).any() else 1.0
+    return 0.0 if lo > 0 else 1e-5 - lo
+
+
+def _apply_unary(funcs: "dict[str, Callable]", name: str, x: np.ndarray, log_shift: float = 0.0) -> np.ndarray:
+    """Unary map ``name`` of ``x``; ``log`` uses the frozen ``log_shift`` instead of the batch-dependent shift of the registry's ``smart_log``."""
+    if name == "log":
+        with np.errstate(all="ignore"):
+            return np.asarray(np.log(x + log_shift) if log_shift != 0.0 else np.log(x), dtype=np.float64)
+    return _unary_column(funcs[name], x)
+
+
 def _finite_fill(u: np.ndarray) -> float:
     """Mean of the finite entries of ``u`` (0.0 when there are none): the value a non-finite unary output is replaced with, at fit and at replay."""
     ok = np.isfinite(u)
     return float(u[ok].mean()) if ok.any() else 0.0
+
+
+def _rank_all_rows(y: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    """Average ranks of every row of ``y`` scaled into ``(0, 1]``, taken against the sorted scan rows when ``y`` has more rows than that (a binary search per row instead of a full argsort:
+    0.04 s against 0.26 s at 1M rows, with a rank error of 1 / len(rows), far below what the shift regression resolves)."""
+    if len(rows) >= len(y):
+        return _rank_scaled(y)
+    ref = np.sort(y[rows])
+    left = np.searchsorted(ref, y, side="left")
+    right = np.searchsorted(ref, y, side="right") if (ref[1:] == ref[:-1]).any() else left
+    return (left + right + 1) / (2.0 * len(ref))
 
 
 def _rank_scaled(y: np.ndarray) -> np.ndarray:
@@ -76,9 +103,10 @@ def _rank_scaled(y: np.ndarray) -> np.ndarray:
 
 
 def build_offset_product_recipe(
-    *, name: str, src_names: Sequence[str], unary_names: Sequence[str], unary_preset: str, shifts: Sequence[float], fills: Sequence[float], out_clip: Sequence[float]
+    *, name: str, src_names: Sequence[str], unary_names: Sequence[str], unary_preset: str, shifts: Sequence[float], fills: Sequence[float], out_clip: Sequence[float],
+    log_shifts: Sequence[float] = (0.0, 0.0),
 ) -> "EngineeredRecipe":
-    """Frozen recipe of one offset-product column; stores only the shifts, the non-finite fills and the output clip (no target)."""
+    """Frozen recipe of one offset-product column; stores only the shifts, the non-finite fills, the frozen log anchors and the output clip (no target)."""
     from .engineered_recipes import EngineeredRecipe
 
     return EngineeredRecipe(
@@ -92,6 +120,8 @@ def build_offset_product_recipe(
             "t": float(shifts[1]),
             "fill_u": float(fills[0]),
             "fill_v": float(fills[1]),
+            "log_shift_u": float(log_shifts[0]),
+            "log_shift_v": float(log_shifts[1]),
             "clip_lo": float(out_clip[0]),
             "clip_hi": float(out_clip[1]),
         },
@@ -117,44 +147,83 @@ def apply_offset_product_recipe(recipe, X) -> np.ndarray:
     for un in (ua, ub):
         if un not in funcs:
             raise KeyError(f"Unary function '{un}' not in '{recipe.unary_preset}' preset. Replay requires the same preset that was active at fit time.")
-    u = _unary_column(funcs[ua], np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64))
-    v = _unary_column(funcs[ub], np.asarray(extract_column(X, recipe.src_names[1]), dtype=np.float64))
+    u = _apply_unary(funcs, ua, np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64), ex["log_shift_u"])
+    v = _apply_unary(funcs, ub, np.asarray(extract_column(X, recipe.src_names[1]), dtype=np.float64), ex["log_shift_v"])
     out = _product(u, v, ex["s"], ex["t"], ex["fill_u"], ex["fill_v"])
     return np.asarray(np.clip(out, ex["clip_lo"], ex["clip_hi"]))
 
 
-def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries: Sequence[str], rows: np.ndarray):
-    """Unary outputs of every pooled column on the scan rows, non-finite entries filled, plus the winsorisation bounds fitted on the even (training) rows."""
+def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries: Sequence[str], rows: np.ndarray, log_shifts: Optional[Sequence[float]] = None):
+    """Unary outputs of every pooled column on the scan rows, non-finite entries filled, plus the winsorisation bounds fitted on the even (training) rows.
+
+    ``log_shifts``: the frozen ``log`` anchor of each column (default: computed from the whole column, which is what the recipe stores)."""
+    anchors = list(log_shifts) if log_shifts is not None else [_log_anchor(x) for x in cols]
     m, nu, n = len(cols), len(unaries), len(rows)
     U = np.empty((m, nu, n), dtype=np.float64)
     clips = np.empty((m, nu, 2), dtype=np.float64)
     for ci, x in enumerate(cols):
         xs = x[rows]
         for ui, un in enumerate(unaries):
-            u = _unary_column(funcs[un], xs)
+            u = _apply_unary(funcs, un, xs, anchors[ci])
             u = np.where(np.isfinite(u), u, _finite_fill(u))
             U[ci, ui] = u
-            clips[ci, ui] = np.quantile(u[::2], _WINSOR_Q)
+        clips[ci] = np.quantile(U[ci][:, ::2], _WINSOR_Q, axis=1).T
     return U, clips
 
 
-def _scan(U: np.ndarray, tasks: np.ndarray, yr: np.ndarray, codes: np.ndarray, ky: int, clips: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
-    """``(out_shift, out_mi)`` of the scan: the fused CUDA kernel in strict-resident GPU mode (``None`` from it, or any device failure, falls back), else the njit/prange kernel."""
+def _mm_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> float:
+    """Miller-Madow corrected plug-in MI (nats) of integer ``codes`` in ``[0, n_codes)`` and ``y_codes`` in ``[0, ky)``."""
+    n = len(codes)
+    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)
+    px = joint.sum(axis=1, keepdims=True)
+    py = joint.sum(axis=0, keepdims=True)
+    nz = joint > 0
+    mi = float((joint[nz] / n * np.log(joint[nz] * n / (px @ py)[nz])).sum())
+    return mi - (int((px > 0).sum()) - 1) * (int((py > 0).sum()) - 1) / (2.0 * n)
+
+
+def _quantile_codes(x: np.ndarray, n_bins: int) -> np.ndarray:
+    """Equal-frequency bin codes of ``x`` in ``[0, n_bins)`` (ties share a bin; non-finite values go to the lowest bin)."""
+    x = np.where(np.isfinite(x), x, -np.inf)
+    edges = np.quantile(x[np.isfinite(x)], np.linspace(0.0, 1.0, n_bins + 1)[1:-1]) if np.isfinite(x).any() else np.zeros(n_bins - 1)
+    return np.searchsorted(edges, x, side="right").astype(np.int64)
+
+
+def synergy_pairs(xs: "list[np.ndarray]", rows: np.ndarray, codes: np.ndarray, ky: int, min_synergy: float = SYNERGY_MIN) -> "list[tuple[int, int]]":
+    """Column pairs whose joint MI with the target exceeds the larger marginal MI by more than ``min_synergy``: the only pairs a shifted product can help (the shifted forms carry no
+    information beyond the joint distribution of the two columns). Costs one bincount per pair on the scan rows, a few ms against the scan's O(unary pairs) passes."""
+    q = [_quantile_codes(x[rows], N_MI_BINS) for x in xs]
+    marg = [_mm_mi(c, N_MI_BINS, codes, ky) for c in q]
+    return [
+        (i, j)
+        for i in range(len(xs))
+        for j in range(i + 1, len(xs))
+        if _mm_mi(q[i] * N_MI_BINS + q[j], N_MI_BINS * N_MI_BINS, codes, ky) - max(marg[i], marg[j]) > min_synergy
+    ]
+
+
+def _scan_all(
+    xs: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries: Sequence[str], rows: np.ndarray, tasks: np.ndarray, yr: np.ndarray, codes: np.ndarray, ky: int, anchors: "list[float]"
+) -> "tuple[np.ndarray, np.ndarray]":
+    """``(out_mi, clips)`` of the scan over the pooled columns ``xs``: the fused CUDA path with device-built inputs when the kernel tuning cache (or, untuned, the strict-resident GPU mode) says
+    so, else the njit/prange kernel on host-built inputs. A ``None`` from the device path, or any device failure, falls back to the host path (same selection)."""
     try:
+        from .._benchmarks.kernel_tuning_cache.dispatch import lookup_offset_scan_backend
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
 
-        if fe_gpu_strict_resident_enabled():
-            from ._offset_product_gpu import scan_offset_products_gpu
+        if lookup_offset_scan_backend(len(rows), int(tasks.shape[0]), strict_resident=fe_gpu_strict_resident_enabled()) == "gpu":
+            from ._offset_product_gpu import scan_offset_products_device
 
-            res = scan_offset_products_gpu(U, tasks, yr, codes, ky, N_MI_BINS, clips)
+            res = scan_offset_products_device(xs, tuple(unaries), rows, tasks, yr, codes, ky, N_MI_BINS, anchors, _WINSOR_Q)
             if res is not None:
                 return res
     except Exception as e:  # device unavailable or kernel fault: the CPU scan below gives the same selection
         logger.debug("offset-product GPU scan fell back to the CPU kernel: %r", e)
+    U, clips = _scan_inputs(xs, funcs, unaries, rows, anchors)
     out_shift = np.empty((len(tasks), 2))
     out_mi = np.empty((len(tasks), 2, 1 + N_BASELINES))
     scan_offset_products(U, tasks, yr, codes, ky, N_MI_BINS, clips, out_shift, out_mi)
-    return out_shift, out_mi
+    return out_mi, clips
 
 
 def hybrid_offset_product_fe(
@@ -165,6 +234,7 @@ def hybrid_offset_product_fe(
     max_pair_cols: int = 6,
     top_k: int = 3,
     scan_rows: int = DEFAULT_SCAN_ROWS,
+    min_synergy: Optional[float] = SYNERGY_MIN,
     unary_preset: str = "minimal",
     reject_sink: Optional[Callable[..., None]] = None,
 ) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":
@@ -185,17 +255,24 @@ def hybrid_offset_product_fe(
     if len(cols) < 2:
         return empty
     y_arr = np.asarray(y).ravel()
-    codes = np.asarray(encode_y_for_classif_mi(y_arr), dtype=np.int64)
-    ky = int(codes.max()) + 1
     rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
+    codes = np.asarray(encode_y_for_classif_mi(y_arr[rows]), dtype=np.int64)
+    ky = int(codes.max()) + 1
     funcs = _unary_funcs(unary_preset)
     unaries = tuple(u for u in OFFSET_UNARIES if u in funcs)
     xs = [np.asarray(X[c].to_numpy(), dtype=np.float64) for c in cols]
-    U, clips = _scan_inputs(xs, funcs, unaries, rows)
     nu = len(unaries)
-    pairs = [(i, j) for i in range(len(cols)) for j in range(i + 1, len(cols))]
-    tasks = np.array([(i, j, a, b) for (i, j) in pairs for a in range(nu) for b in range(nu)], dtype=np.int64)
-    _shifts, out_mi = _scan(U, tasks, _rank_scaled(y_arr[rows]), codes[rows], ky, clips)
+    if min_synergy is None:
+        pairs = [(i, j) for i in range(len(cols)) for j in range(i + 1, len(cols))]
+    else:
+        pairs = synergy_pairs(xs, rows, codes, ky, float(min_synergy))
+    if not pairs:
+        return empty
+    used = sorted({c for pair in pairs for c in pair})
+    slot = {c: k for k, c in enumerate(used)}
+    tasks = np.array([(slot[i], slot[j], a, b) for (i, j) in pairs for a in range(nu) for b in range(nu)], dtype=np.int64)
+    used_xs = [xs[c] for c in used]
+    out_mi, clips = _scan_all(used_xs, funcs, unaries, rows, tasks, _rank_scaled(y_arr[rows]), codes, ky, [_log_anchor(x) for x in used_xs])
     n_scan = len(rows)
     margin = ACCEPT_MARGIN_C / n_scan
     accepted = []
@@ -209,30 +286,32 @@ def hybrid_offset_product_fe(
             if not np.isfinite(train_gain).any():
                 continue
             k = p * per_pair + int(np.nanargmax(train_gain))
-            g_ho = float(out_mi[k, 1, 0] - np.nanmax(out_mi[rows_p, 1, 1:]))
-        if g_ho > margin:
+            base_ho = float(np.nanmax(out_mi[rows_p, 1, 1:]))
+            g_ho = float(out_mi[k, 1, 0]) - base_ho
+        if g_ho > margin and g_ho > ACCEPT_MIN_RELATIVE_GAIN * base_ho:
             accepted.append((g_ho, i, j, int(tasks[k, 2]), int(tasks[k, 3])))
         elif reject_sink is not None:
             reject_sink(gate="offset_product_heldout_margin", candidate=f"{cols[i]}x{cols[j]}", operand_names=f"{cols[i]},{cols[j]}", operator="offmul", observed=g_ho, threshold=margin, reason="held-out MI gain below margin")
     accepted.sort(key=lambda r: -r[0])
-    yr_full = _rank_scaled(y_arr)
+    yr_full = _rank_all_rows(y_arr, rows) if accepted else None  # ranking every row is only needed to refit the shifts of an accepted candidate
     new_cols: "dict[str, np.ndarray]" = {}
     recipes = []
     for _, i, j, a, b in accepted[: int(top_k)]:
         ua, ub = unaries[a], unaries[b]
-        u = _unary_column(funcs[ua], xs[i])
-        v = _unary_column(funcs[ub], xs[j])
+        log_shifts = (_log_anchor(xs[i]) if ua == "log" else 0.0, _log_anchor(xs[j]) if ub == "log" else 0.0)
+        u = _apply_unary(funcs, ua, xs[i], log_shifts[0])
+        v = _apply_unary(funcs, ub, xs[j], log_shifts[1])
         fills = (_finite_fill(u), _finite_fill(v))
         u = np.where(np.isfinite(u), u, fills[0])
         v = np.where(np.isfinite(v), v, fills[1])
-        qu = np.quantile(u, _WINSOR_Q)
-        qv = np.quantile(v, _WINSOR_Q)
+        qu = clips[slot[i], a]  # winsorisation bounds fitted on the scan rows, the same ones the scan regressed with
+        qv = clips[slot[j], b]
         shifts = np.empty(4)
         ols2_shift(u, v, yr_full, 0, 1, qu[0], qu[1], qv[0], qv[1], shifts)
         if not np.isfinite(shifts[:2]).all():
             continue
         col = _product(u, v, shifts[0], shifts[1], fills[0], fills[1])
-        lo, hi = np.quantile(col, _OUTPUT_CLIP_Q)
+        lo, hi = np.quantile(col[rows], _OUTPUT_CLIP_Q)
         if not hi > lo:
             continue
         name = f"offmul({_op_label(ua, cols[i])}{_shift_label(shifts[0])},{_op_label(ub, cols[j])}{_shift_label(shifts[1])})"
@@ -241,7 +320,7 @@ def hybrid_offset_product_fe(
         new_cols[name] = np.clip(col, lo, hi)
         recipes.append(
             build_offset_product_recipe(
-                name=name, src_names=(cols[i], cols[j]), unary_names=(ua, ub), unary_preset=unary_preset, shifts=(float(shifts[0]), float(shifts[1])), fills=fills, out_clip=(lo, hi)
+                name=name, src_names=(cols[i], cols[j]), unary_names=(ua, ub), unary_preset=unary_preset, shifts=(float(shifts[0]), float(shifts[1])), fills=fills, out_clip=(lo, hi), log_shifts=log_shifts
             )
         )
     if not new_cols:

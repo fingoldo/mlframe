@@ -43,6 +43,7 @@ from tests.training.shared import SimpleFeaturesAndTargetsExtractor  # noqa: E40
 from mlframe.training.configs import (  # noqa: E402
     FeatureSelectionConfig, OutputConfig, TargetTypes,
 )
+from mlframe.training.fs_params.configs import MRMRConfig  # noqa: E402
 
 
 def _build_fte(combo, target_col):
@@ -153,34 +154,28 @@ def main():
                 # ``args.mrmr_interactions_max_order`` (default 1) lets
                 # users compare 1-way vs k-way interaction discovery cost.
                 feature_selection_config=FeatureSelectionConfig(
-                    use_mrmr_fs=combo.use_mrmr_fs,
-                    mrmr_kwargs=(
-                        {
-                            k: v for k, v in {
-                                "interactions_max_order": (
-                                    args.mrmr_interactions_max_order
-                                    if args.mrmr_interactions_max_order > 1 else None
-                                ),
-                                "fe_max_steps": args.mrmr_fe_max_steps,
-                                # 2026-05-12: cap MRMR at 5 min so profiles
-                                # don't run away on order=3 + 1M combos.
-                                # Production users keep the default (unlimited).
-                                "max_runtime_mins": 5,
-                                # n_jobs=1 runs FE in the MAIN process so
-                                # cProfile sees the actual FE kernel cost.
-                                # Default (n_jobs=-1) fans out to joblib
-                                # workers whose work is invisible to cProfile.
-                                "n_jobs": getattr(args, "mrmr_n_jobs", None) or 1,
-                            }.items() if v is not None
-                        }
-                        if combo.use_mrmr_fs and (
-                            args.mrmr_interactions_max_order > 1
-                            or args.mrmr_fe_max_steps is not None
+                    mrmr=(
+                        MRMRConfig(
+                            **{
+                                k: v for k, v in {
+                                    "interactions_max_order": (
+                                        args.mrmr_interactions_max_order
+                                        if args.mrmr_interactions_max_order > 1 else None
+                                    ),
+                                    "fe_max_steps": args.mrmr_fe_max_steps,
+                                    # 2026-05-12: cap MRMR at 5 min so profiles
+                                    # don't run away on order=3 + 1M combos.
+                                    # Production users keep the default (unlimited).
+                                    "max_runtime_mins": 5,
+                                    # n_jobs=1 runs FE in the MAIN process so
+                                    # cProfile sees the actual FE kernel cost.
+                                    # Default (n_jobs=-1) fans out to joblib
+                                    # workers whose work is invisible to cProfile.
+                                    "n_jobs": getattr(args, "mrmr_n_jobs", None) or 1,
+                                }.items() if v is not None
+                            }
                         )
-                        else (
-                            {"max_runtime_mins": 5, "n_jobs": getattr(args, "mrmr_n_jobs", None) or 1}
-                            if combo.use_mrmr_fs else None
-                        )
+                        if combo.use_mrmr_fs else None
                     ),
                 ),
                 # Force CPU so CatBoost / XGBoost / LightGBM don't trip on

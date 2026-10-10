@@ -46,7 +46,46 @@ import math
 import os
 from typing import Any, NamedTuple, Optional
 
+import numba
 import numpy as np
+
+from mlframe.metrics._numba_params import NUMBA_NJIT_PARAMS
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _finite_min_max_std_kernel(arr: np.ndarray) -> tuple:
+    """One-pass (min, max, std, count) over the finite entries of ``arr``, population std (ddof=0).
+
+    Replaces the boolean-mask-copy + three separate reduction passes (``min``/``max``/``std`` each
+    scan the filtered array independently) with a single Welford-free two-moment accumulation pass --
+    mean and variance need the count up front, so this still needs the count ahead of the variance term,
+    but folds it into the same loop as min/max instead of a separate ``np.isfinite`` + boolean-index copy.
+    """
+    n = arr.shape[0]
+    count = 0
+    s = 0.0
+    y_min = np.inf
+    y_max = -np.inf
+    for i in range(n):
+        v = arr[i]
+        if np.isfinite(v):
+            count += 1
+            s += v
+            if v < y_min:
+                y_min = v
+            if v > y_max:
+                y_max = v
+    if count == 0:
+        return y_min, y_max, 0.0, 0
+    mean = s / count
+    sq = 0.0
+    for i in range(n):
+        v = arr[i]
+        if np.isfinite(v):
+            d = v - mean
+            sq += d * d
+    std = math.sqrt(sq / count)
+    return y_min, y_max, std, count
 
 logger = logging.getLogger(__name__)
 
@@ -94,17 +133,14 @@ def compute_train_envelope_stats(y_train: Any) -> Optional[TrainEnvelopeStats]:
     entirely (no envelope = no clip).
     """
     try:
-        arr = np.asarray(y_train, dtype=np.float64).reshape(-1)
-        finite = arr[np.isfinite(arr)]
-        if finite.size < 10:
-            return None
-        y_std = float(finite.std())
-        if y_std <= 0:
+        arr = np.ascontiguousarray(np.asarray(y_train, dtype=np.float64).reshape(-1))
+        y_min, y_max, y_std, count = _finite_min_max_std_kernel(arr)
+        if count < 10 or y_std <= 0:
             return None
         return TrainEnvelopeStats(
-            y_min=float(finite.min()),
-            y_max=float(finite.max()),
-            y_std=y_std,
+            y_min=float(y_min),
+            y_max=float(y_max),
+            y_std=float(y_std),
         )
     except Exception as exc:
         logger.debug("compute_train_envelope_stats failed: %s", exc)

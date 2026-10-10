@@ -393,12 +393,7 @@ def _get(case_idx, case, _results_cache):
 
 # (target_family, distribution, task, seed) -> measured FE no-harm gap. While the tree downstream scores the FE space below
 # raw-only by more than the tolerance, the case xfails; the day the delta recovers, the test fails so the entry is removed.
-_OPEN_FE_NO_HARM_GAPS = {
-    ("ratio_plus_trig", "lognormal", "regression", 305): (
-        "FE-quality gap: on heavy-tailed ratio_plus_trig the FE selection (kept raw only 'a') scores 0.697 on the tree downstream vs 0.755 "
-        "raw-only (delta -0.058, tolerance -0.05); the interaction operands are not recovered at n=25000"
-    ),
-}
+_OPEN_FE_NO_HARM_GAPS: dict = {}
 
 
 def _assert_fe_no_harm(case, up, message):

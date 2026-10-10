@@ -146,15 +146,15 @@ def accuracy_ratio(y_true: np.ndarray, y_score: np.ndarray) -> float:
     _block_size = np.diff(np.append(_starts, n))
     yt_s = np.repeat(_block_sum / _block_size, _block_size)
     # CAP curve y-axis: cumulative true positive ratio (TP_k / n_pos)
-    # x-axis: cumulative population (k/n). Trapezoidal area in (x, y) space.
+    # x-axis: cumulative population (k/n), equally spaced by construction.
     cum_tp = np.cumsum(yt_s) / n_pos
-    cum_pop = (np.arange(1, n + 1, dtype=np.float64)) / n
-    # Prepend (0, 0) so the trapezoid starts at the origin.
-    cum_pop = np.concatenate(([0.0], cum_pop))
+    # Prepend 0 so the trapezoid starts at the origin.
     cum_tp = np.concatenate(([0.0], cum_tp))
     # Manual trapezoid formula (np.trapz removed in NumPy 2; np.trapezoid
-    # exists only from 2.0). Keeps the kernel numpy-version-agnostic.
-    area_model = float(np.sum((cum_pop[1:] - cum_pop[:-1]) * (cum_tp[1:] + cum_tp[:-1]) * 0.5))
+    # exists only from 2.0). x-axis step is constant (1/n since cum_pop is
+    # evenly spaced k/n), so the per-segment width factors out of the sum --
+    # avoids building the cum_pop array and its diff entirely.
+    area_model = float(np.sum(cum_tp[1:] + cum_tp[:-1])) * 0.5 / n
     # Random baseline: area = 0.5. Perfect: area = 1 - (n_pos / 2 / n).
     area_perfect = 1.0 - (n_pos / (2.0 * n))
     denom = area_perfect - 0.5

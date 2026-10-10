@@ -140,3 +140,84 @@ def test_opt_out_flag_disables_the_family():
     fs.fit(X, pd.Series(y, name="y"))
     assert fs.offset_product_features_ == []
     assert not any(str(nm).startswith("offmul(") for nm in fs.get_feature_names_out())
+
+
+def test_synergy_prefilter_keeps_the_planted_pair_and_drops_noise_pairs():
+    """The cheap raw-MI pre-filter keeps the (c, d) pair of the sign-crossing target and keeps no pair of a pure-noise frame."""
+    from mlframe.feature_selection.filters._offset_product_fe import synergy_pairs
+    from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
+
+    X, y = _case2(30000)
+    xs = [X[c].to_numpy() for c in X.columns]
+    codes = np.asarray(encode_y_for_classif_mi(y), dtype=np.int64)
+    pairs = synergy_pairs(xs, np.arange(len(y)), codes, int(codes.max()) + 1)
+    assert (2, 3) in pairs, f"the (c, d) pair was dropped: {pairs}"
+    r = np.random.default_rng(0)
+    noise = [r.random(30000) for _ in range(5)]
+    ny = np.asarray(encode_y_for_classif_mi(r.random(30000)), dtype=np.int64)
+    assert synergy_pairs(noise, np.arange(30000), ny, int(ny.max()) + 1) == []
+
+
+def test_prefilter_changes_no_accepted_column():
+    """Selection parity: with and without the pre-filter the stage accepts the same columns on the sign-crossing target, and the filtered run scans fewer pairs."""
+    X, y = _case2(30000)
+    _, with_filter, _, _ = hybrid_offset_product_fe(X, y, top_k=10)
+    _, without, _, _ = hybrid_offset_product_fe(X, y, top_k=10, min_synergy=None)
+    assert with_filter == without and with_filter
+
+
+def test_large_n_accepts_only_the_real_interaction():
+    """Materiality: at 100k rows the margin 40/n is below 0.001 nats, yet only the (c, d) interaction is accepted, not the pairs whose gain over the baselines is a fraction of a percent."""
+    X, y = _case2(100000)
+    _, appended, recipes, _ = hybrid_offset_product_fe(X, y, top_k=10)
+    assert appended and all(set(r.src_names) == {"c", "d"} for r in recipes), appended
+
+
+class _FakeCache:
+    """Kernel tuning cache stand-in returning a fixed region verdict."""
+
+    def __init__(self, verdict):
+        """Remember the verdict ``lookup`` returns."""
+        self.verdict = verdict
+
+    def lookup(self, kernel, **dims):
+        """Return the stored verdict for any kernel and dimensions."""
+        return self.verdict
+
+
+def test_scan_backend_lookup_fallback_and_tuned_verdict(monkeypatch):
+    """Untuned, the device scan is chosen only in strict-resident mode; a tuned verdict wins in both directions."""
+    from mlframe.feature_selection._benchmarks.kernel_tuning_cache import dispatch
+
+    monkeypatch.setattr(dispatch, "_get_cache", lambda: None)
+    assert dispatch.lookup_offset_scan_backend(100000, 735, strict_resident=True) == "gpu"
+    assert dispatch.lookup_offset_scan_backend(100000, 735, strict_resident=False) == "cpu"
+    monkeypatch.setattr(dispatch, "_get_cache", lambda: _FakeCache({"backend_choice": "cpu"}))
+    assert dispatch.lookup_offset_scan_backend(100000, 735, strict_resident=True) == "cpu"
+    monkeypatch.setattr(dispatch, "_get_cache", lambda: _FakeCache({"backend_choice": "gpu"}))
+    assert dispatch.lookup_offset_scan_backend(100000, 735, strict_resident=False) == "gpu"
+    monkeypatch.setattr(dispatch, "_get_cache", lambda: _FakeCache({"backend_choice": "bogus"}))
+    assert dispatch.lookup_offset_scan_backend(100000, 735, strict_resident=False) == "cpu"
+
+
+def test_log_unary_replays_with_the_frozen_anchor_not_the_batch_minimum():
+    """Replay applies log(x + anchor) with the anchor stored at fit time; the registry's batch-dependent shift would give another value on a batch whose minimum is positive."""
+    from mlframe.feature_selection.filters._offset_product_fe import build_offset_product_recipe
+
+    rec = build_offset_product_recipe(
+        name="offmul(log(c)+0.1,d+0.2)", src_names=("c", "d"), unary_names=("log", "identity"), unary_preset="minimal",
+        shifts=(0.1, 0.2), fills=(0.0, 0.0), out_clip=(-1e9, 1e9), log_shifts=(0.3, 0.0),
+    )
+    r = np.random.default_rng(0)
+    batch = pd.DataFrame({"c": r.random(50) + 0.05, "d": r.random(50)})  # strictly positive: smart_log would use no shift at all
+    expected = (np.log(batch["c"].to_numpy() + 0.3) + 0.1) * (batch["d"].to_numpy() + 0.2)
+    np.testing.assert_allclose(apply_offset_product_recipe(rec, batch), expected, rtol=1e-12)
+
+
+def test_fit_stores_the_log_anchor_of_a_column_with_non_positive_values():
+    """A fitted recipe whose source column has negative values stores the smart_log shift of the fit column."""
+    from mlframe.feature_selection.filters._offset_product_fe import _log_anchor
+
+    x = np.array([-0.5, 0.2, 1.0])
+    assert _log_anchor(x) == pytest.approx(1e-5 + 0.5)
+    assert _log_anchor(np.array([0.1, 2.0])) == 0.0

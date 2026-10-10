@@ -88,3 +88,44 @@ def test_strict_resident_fit_selects_the_same_columns_as_the_cpu_path(monkeypatc
     _, gpu_names, _, _ = fe.hybrid_offset_product_fe(X, y, top_k=10)
     assert calls, "the strict-resident path did not reach the device scan"
     assert gpu_names == cpu_names
+
+
+def test_device_built_inputs_match_host_built_inputs():
+    """Unary outputs, fills and winsorisation bounds made on the device give the same scan as the host-built block, including a column with non-positive values (frozen log anchor)."""
+    from mlframe.feature_selection.filters._offset_product_gpu import scan_offset_products_device
+
+    r = np.random.default_rng(3)
+    n = 20000
+    cols = [r.random(n), r.random(n) - 0.2, r.random(n), r.random(n)]
+    cols[1][::997] = 0.0
+    y = 0.2 * cols[0] ** 2 + np.sin(cols[3] / 3) * (cols[2] - 0.4)
+    funcs = fe._unary_funcs("minimal")
+    unaries = fe.OFFSET_UNARIES
+    rows = np.linspace(0, n - 1, 9001).astype(np.int64)
+    anchors = [fe._log_anchor(x) for x in cols]
+    U, clips = fe._scan_inputs(cols, funcs, unaries, rows, anchors)
+    nu = len(unaries)
+    tasks = np.array([(i, j, p, q) for i in range(4) for j in range(i + 1, 4) for p in range(nu) for q in range(nu)], dtype=np.int64)
+    from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
+
+    codes = np.asarray(encode_y_for_classif_mi(y[rows]), dtype=np.int64)
+    ky = int(codes.max()) + 1
+    yr = fe._rank_scaled(y[rows])
+    _cpu_shift, cpu_mi = _cpu(U, tasks, yr, codes, ky, clips)
+    res = scan_offset_products_device(cols, tuple(unaries), rows, tasks, yr, codes, ky, N_BINS, anchors, fe._WINSOR_Q)
+    assert res is not None
+    dev_mi, dev_clips = res
+    np.testing.assert_allclose(dev_clips, clips, rtol=1e-9, atol=1e-12)
+    assert np.array_equal(np.isnan(cpu_mi), np.isnan(dev_mi))
+    ok = ~np.isnan(cpu_mi)
+    diff = np.abs(dev_mi[ok] - cpu_mi[ok])
+    assert np.quantile(diff, 0.99) < 1e-9 and diff.max() < 5e-3
+
+
+def test_device_inputs_decline_a_unary_without_a_device_form():
+    """A unary map outside the device set sends the caller to the host path (None), it is not approximated."""
+    from mlframe.feature_selection.filters._offset_product_gpu import scan_offset_products_device
+
+    x = [np.random.default_rng(0).random(500) for _ in range(2)]
+    tasks = np.array([[0, 1, 0, 0]], dtype=np.int64)
+    assert scan_offset_products_device(x, ("identity", "cbrt"), np.arange(500), tasks, np.zeros(500), np.zeros(500, dtype=np.int64), 1, 10, [0.0, 0.0], (0.01, 0.99)) is None

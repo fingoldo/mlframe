@@ -1,0 +1,16 @@
+B_W n=5000 seed=0 MIex=0.3212 MInew=0.5038 gain*n=456.5 36.2s
+B_W n=5000 seed=1 MIex=0.3179 MInew=0.4922 gain*n=435.6 36.3s
+B_W n=5000 seed=2 MIex=0.3088 MInew=0.5152 gain*n=516.2 38.1s
+B_W n=5000 seed=3 MIex=0.2847 MInew=0.5012 gain*n=541.3 28.9s
+B_W n=5000 seed=4 MIex=0.3048 MInew=0.5013 gain*n=491.3 31.4s
+B_W n=5000 seed=5 MIex=0.3124 MInew=0.5273 gain*n=537.3 29.6s
+B_W n=5000 seed=6 MIex=0.3068 MInew=0.5065 gain*n=499.2 32.4s
+B_W n=5000 seed=7 MIex=0.3162 MInew=0.5008 gain*n=461.4 30.9s
+B_N n=5000 seed=0 MIex=1.0878 MInew=1.0208 gain*n=-167.5 31.4s
+B_N n=5000 seed=1 MIex=1.0836 MInew=1.0250 gain*n=-146.4 34.5s
+B_N n=5000 seed=2 MIex=1.0936 MInew=1.0282 gain*n=-163.7 36.9s
+B_N n=5000 seed=3 MIex=1.0773 MInew=1.0388 gain*n=-96.3 38.8s
+B_N n=5000 seed=4 MIex=1.1180 MInew=1.0647 gain*n=-133.4 33.7s
+B_N n=5000 seed=5 MIex=1.0785 MInew=1.0376 gain*n=-102.3 31.5s
+B_N n=5000 seed=6 MIex=1.0736 MInew=1.0321 gain*n=-103.6 34.4s
+B_N n=5000 seed=7 MIex=1.1058 MInew=1.0575 gain*n=-120.7 36.0s
