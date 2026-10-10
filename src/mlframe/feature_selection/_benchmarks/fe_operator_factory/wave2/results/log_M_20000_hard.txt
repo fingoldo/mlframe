@@ -1,0 +1,24 @@
+M_W n=20000 seed=0 top y=[0, 1] r=[6, 7] cell_r=[6, 7] true=[[4, 5], [6, 7]] 146.0s
+M_W n=20000 seed=1 top y=[0, 1] r=[6, 7] cell_r=[6, 7] true=[[4, 5], [6, 7]] 141.1s
+M_W n=20000 seed=2 top y=[0, 1] r=[6, 7] cell_r=[6, 7] true=[[4, 5], [6, 7]] 137.9s
+M_W n=20000 seed=3 top y=[0, 1] r=[6, 7] cell_r=[6, 7] true=[[4, 5], [6, 7]] 107.0s
+M_W n=20000 seed=4 top y=[0, 4] r=[6, 7] cell_r=[6, 7] true=[[4, 5], [6, 7]] 133.0s
+M_W n=20000 seed=5 top y=[0, 1] r=[6, 7] cell_r=[6, 7] true=[[4, 5], [6, 7]] 149.5s
+M_W n=20000 seed=6 top y=[0, 1] r=[6, 7] cell_r=[6, 7] true=[[4, 5], [6, 7]] 161.5s
+M_W n=20000 seed=7 top y=[0, 1] r=[6, 7] cell_r=[6, 7] true=[[4, 5], [6, 7]] 160.1s
+M_N n=20000 seed=0 top y=[0, 1] r=[2, 6] cell_r=[3, 4] true=[] 8.8s
+M_N n=20000 seed=1 top y=[0, 1] r=[2, 7] cell_r=[3, 9] true=[] 9.0s
+M_N n=20000 seed=2 top y=[0, 1] r=[0, 4] cell_r=[0, 7] true=[] 9.2s
+M_N n=20000 seed=3 top y=[0, 1] r=[4, 7] cell_r=[0, 6] true=[] 8.4s
+M_N n=20000 seed=4 top y=[0, 1] r=[1, 9] cell_r=[2, 5] true=[] 8.9s
+M_N n=20000 seed=5 top y=[0, 1] r=[3, 8] cell_r=[2, 6] true=[] 9.3s
+M_N n=20000 seed=6 top y=[0, 1] r=[2, 9] cell_r=[0, 9] true=[] 9.6s
+M_N n=20000 seed=7 top y=[0, 1] r=[1, 5] cell_r=[2, 6] true=[] 9.2s
+M_0 n=20000 seed=0 top y=[1, 8] r=[8, 9] cell_r=[3, 4] true=[] 9.1s
+M_0 n=20000 seed=1 top y=[2, 8] r=[2, 8] cell_r=[4, 8] true=[] 9.0s
+M_0 n=20000 seed=2 top y=[2, 3] r=[4, 8] cell_r=[0, 7] true=[] 9.3s
+M_0 n=20000 seed=3 top y=[5, 7] r=[4, 8] cell_r=[8, 9] true=[] 9.0s
+M_0 n=20000 seed=4 top y=[5, 8] r=[3, 4] cell_r=[2, 5] true=[] 9.4s
+M_0 n=20000 seed=5 top y=[6, 8] r=[6, 8] cell_r=[6, 8] true=[] 8.7s
+M_0 n=20000 seed=6 top y=[4, 8] r=[2, 6] cell_r=[0, 9] true=[] 8.9s
+M_0 n=20000 seed=7 top y=[7, 8] r=[5, 7] cell_r=[2, 6] true=[] 10.3s
