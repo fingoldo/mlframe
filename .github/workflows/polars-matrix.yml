@@ -29,8 +29,33 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    name: choose the polars versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Resolve the legs
+        # The lowest locked version, the newest release of its major series and the newest release overall, each once (scripts/ci_version_matrix.py).
+        id: plan
+        run: |
+          python -m pip install packaging
+          python scripts/ci_version_matrix.py plan --package polars --lock uv.lock --python 3.12 --github-output "$GITHUB_OUTPUT"
+
   test:
-    name: polars ${{ matrix.polars-version }} on py${{ matrix.python-version }}
+    name: polars ${{ matrix.label }} on py${{ matrix.python-version }}
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     defaults:
@@ -42,14 +67,7 @@ jobs:
       MLFRAME_FAST: "1"
     strategy:
       fail-fast: false
-      matrix:
-        python-version: ["3.12"]
-        polars-version:
-          - "1.36.1"  # the version uv.lock resolves
-          - "1.41.2"
-          - "1.44.2"  # newest 1.x release
-          - "2.0.0"   # first major release
-          - "latest"  # whatever pip resolves today, so the next release is seen on its first day
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -79,18 +97,14 @@ jobs:
           pip install -e ".[boosting,calibration,viz,signal,stats,sampling,unsupervised,polars_ext,db,neural,dev]" "numpy<2.5"
           pip install -r requirements-dev.txt
 
-      - name: Pin polars to ${{ matrix.polars-version }}
+      - name: Pin polars to ${{ matrix.version }}
         # polars 1.37+ ships its native module as the separate polars-runtime-32 wheel, which must match polars exactly: replacing only
         # polars leaves the runtime of the other version in place and polars then imports without its native module (NameError: plr).
         env:
-          POLARS_VERSION: ${{ matrix.polars-version }}
+          POLARS_VERSION: ${{ matrix.version }}
         run: |
           pip uninstall -y polars polars-runtime-32
-          if [ "$POLARS_VERSION" = "latest" ]; then
-            pip install polars
-          else
-            pip install "polars==${POLARS_VERSION}"
-          fi
+          pip install "polars==${POLARS_VERSION}"
 
       - name: Show installed versions
         run: |
@@ -118,3 +132,51 @@ jobs:
             -n auto \
             --timeout=900 \
             -v
+
+  badge:
+    name: update the polars badge
+    needs: [plan, test]
+    if: ${{ always() && github.ref == 'refs/heads/master' && needs.plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Publish the badge document to the badges branch
+        # shields.io reads the JSON from raw.githubusercontent.com; keeping it on its own branch keeps badge updates out of master's history and CI.
+        env:
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+          RESULT: ${{ needs.test.result }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python -m pip install packaging
+          python scripts/ci_version_matrix.py badge --package polars --legs "$MATRIX" --result "$RESULT" --out "$RUNNER_TEMP/polars.json"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git ls-remote --exit-code --heads "$remote" badges > /dev/null; then
+            git fetch --depth=1 "$remote" badges
+            git checkout -B badges FETCH_HEAD
+          else
+            git checkout --orphan badges
+            git rm -rf --quiet .
+          fi
+          cp "$RUNNER_TEMP/polars.json" polars.json
+          git add polars.json
+          if git diff --cached --quiet; then
+            echo "badge unchanged"
+            exit 0
+          fi
+          git commit -m "polars badge: $RESULT"
+          git push "$remote" HEAD:badges
