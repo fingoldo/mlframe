@@ -18,7 +18,9 @@ import numpy as np
 
 from ._offset_product_kernels import N_BASELINES, N_EDGE_SUBSAMPLE
 
-__all__ = ["scan_offset_products_gpu"]
+__all__ = ["scan_offset_products_gpu", "scan_offset_products_device", "DEVICE_UNARIES"]
+
+DEVICE_UNARIES = frozenset({"identity", "abs", "sqr", "reciproc", "sqrt", "log", "sin"})  # the unary maps with a device form below; any other name sends the caller to the host path
 
 _THREADS = 256
 _SHARED_BUDGET = 44 * 1024  # dynamic shared memory per block; with the ~3.6 KB of static arrays this stays inside the 48 KB default limit
@@ -270,3 +272,65 @@ def scan_offset_products_gpu(U: Any, tasks: np.ndarray, yr: Any, ycodes: Any, ky
         shared_mem=_shared_bytes(nb, ky),
     )
     return cp.asnumpy(out_shift), cp.asnumpy(out_mi)
+
+
+def _device_unary(cp: Any, name: str, x: Any, log_shift: float) -> Any:
+    """Device form of one unary map, matching the registry's host form (``reciproc`` uses its fixed 1e9 ceiling at zero, ``log`` the frozen anchor instead of a batch minimum)."""
+    if name == "identity":
+        return x
+    if name == "abs":
+        return cp.abs(x)
+    if name == "sqr":
+        return x * x
+    if name == "reciproc":
+        zero = x == 0.0
+        return cp.where(zero, 1e9, 1.0 / cp.where(zero, 1.0, x))
+    if name == "sqrt":
+        return cp.sqrt(cp.abs(x))
+    if name == "log":
+        return cp.log(x + log_shift) if log_shift != 0.0 else cp.log(x)
+    if name == "sin":
+        return cp.sin(x)
+    raise ValueError(f"no device form for the unary {name!r}")
+
+
+def _column_quantiles(cp: Any, a: Any, qs: "tuple[float, ...]") -> Any:
+    """Linear-interpolation quantiles ``qs`` along axis 1 of the ``(k, h)`` array ``a`` (same rule as ``np.quantile``), shape ``(k, len(qs))``."""
+    srt = cp.sort(a, axis=1)
+    h = int(a.shape[1])
+    cols = []
+    for q in qs:
+        pos = q * (h - 1)
+        lo = int(np.floor(pos))
+        hi = min(lo + 1, h - 1)
+        cols.append(srt[:, lo] + (srt[:, hi] - srt[:, lo]) * (pos - lo))
+    return cp.stack(cols, axis=1)
+
+
+def scan_offset_products_device(
+    xs: "list[np.ndarray]", unaries: "tuple[str, ...]", rows: np.ndarray, tasks: np.ndarray, yr: np.ndarray, codes: np.ndarray, ky: int, nb: int,
+    log_shifts: "list[float]", winsor_q: "tuple[float, float]",
+) -> Optional[tuple]:
+    """The scan with its inputs built on the device: only the scan rows of each pooled column are uploaded, the unary outputs, their non-finite fills and the winsorisation bounds are made
+    there, and the ``(columns, unaries, rows)`` block is never copied back. Returns host ``(out_mi, clips)`` (``clips`` is needed later for the refit), or ``None`` when a unary has no
+    device form or the joint histograms do not fit (the caller then takes the host path)."""
+    import cupy as cp
+
+    if not set(unaries) <= DEVICE_UNARIES:
+        return None
+    m, nu, n = len(xs), len(unaries), len(rows)
+    U = cp.empty((m, nu, n), dtype=cp.float64)
+    clips = cp.empty((m, nu, 2), dtype=cp.float64)
+    for ci, x in enumerate(xs):
+        xd = cp.asarray(np.ascontiguousarray(x[rows], dtype=np.float64))
+        for ui, name in enumerate(unaries):
+            u = _device_unary(cp, name, xd, log_shifts[ci])
+            fin = cp.isfinite(u)
+            count = fin.sum()
+            fill = cp.where(count > 0, cp.where(fin, u, 0.0).sum() / cp.maximum(count, 1), 0.0)
+            U[ci, ui] = cp.where(fin, u, fill)
+        clips[ci] = _column_quantiles(cp, U[ci][:, ::2], winsor_q)
+    res = scan_offset_products_gpu(U, tasks, yr, codes, ky, nb, clips)
+    if res is None:
+        return None
+    return res[1], cp.asnumpy(clips)

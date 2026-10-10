@@ -368,6 +368,26 @@ def lookup_fe_mi_split_backend(n_samples: int, k: int, *, run_auto_tune: bool = 
     return fb
 
 
+def lookup_offset_scan_backend(n_scan_rows: int, n_tasks: int, *, strict_resident: bool) -> str:
+    """Return ``"cpu"`` or ``"gpu"`` for the offset-product scan (``_offset_product_fe._scan``).
+
+    A per-host verdict from the ``offset_product_scan`` sweep (``mlframe-tune-kernels ensure``) wins in both directions. Without one the fallback is the device scan in strict-resident GPU mode
+    (where the resident stages are active by contract) and the njit scan otherwise: the device scan measured 5.3x / 10.5x / 10.2x faster at 20k / 100k / 300k scan rows on the development card,
+    but a default fit on a CUDA host keeps its CPU path until the host has been tuned."""
+    fb = "gpu" if strict_resident else "cpu"
+    cache = _get_cache()
+    if cache is False or cache is None:
+        return fb
+    try:
+        result = cache.lookup("offset_product_scan", n_scan_rows=n_scan_rows, n_tasks=n_tasks)
+        bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", "")) if result else ""
+        if bc in ("cpu", "gpu"):
+            return bc
+    except Exception as e:
+        logger.debug("lookup_offset_scan_backend lookup failed: %s", e)
+    return fb
+
+
 def lookup_pairwise_corr_backend(p: int, n: int) -> str:
     """Return ``"numpy"`` | ``"cupy"`` | ``"njit"`` for ``_pairwise_complete_abs_corr`` (the FE source-dedup corr kernel).
 
