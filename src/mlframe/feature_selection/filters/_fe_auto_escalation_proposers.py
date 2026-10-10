@@ -291,63 +291,70 @@ def _fit_fourier_amplitude_spec(axis01: np.ndarray, t: np.ndarray, freqs, prepro
     }
 
 
-def _propose_fourier(x_w, x_m, y_f, *, min_val_corr: float, max_freqs: int, chirp: bool = True):
-    """Adaptive-frequency Fourier (+ chirp) proposer for the multiplicative pair form
-    ``y ~ g(x_w) * x_m`` via DEMODULATION: the shipped held-out multitone detector is run
-    on ``(axis(x_w), t = y_c * zscore(x_m))``. Returns a list of fitted warp specs (0-2:
-    linear-axis and/or quadratic-chirp-axis), each a ``fourier_adaptive`` prewarp spec."""
-    from ._orthogonal_univariate_fe._orth_extra_basis_fe import (
-        _chirp_axis,
-        _detect_fourier_freqs_for_col,
-        _fit_chirp_warp_for_col,
-        _fit_fourier_for_col,
-        _is_int_as_cat_axis,
-    )
-    out: list[dict] = []
+def _fourier_jobs(x_w, x_m, y_f, *, chirp: bool = True) -> list[dict]:
+    """Detection jobs of the demodulated Fourier (+ chirp) proposer for ``y ~ g(x_w) * x_m``: the linear-axis job and, when usable, the quadratic-chirp-axis job.
+
+    Each job holds the axis ``z`` the detector scans, the demodulated target ``t = y_c * zscore(x_m)``, the frequency grid, the warp ``kind`` and the ``axis`` description the amplitude spec
+    stores. Empty when the pair carries no usable axis (an integer-code axis, a constant column or target)."""
+    from ._orthogonal_univariate_fe._orth_extra_basis_fe import _chirp_axis, _fit_chirp_warp_for_col, _fit_fourier_for_col, _is_int_as_cat_axis
+
+    jobs: list[dict] = []
     xw = _finite_filled(x_w)
     xm = _finite_filled(x_m)
     if _is_int_as_cat_axis(xw):
         # Arbitrary integer label codes carry no real oscillation - mirror the shipped
         # univariate guard (sin/cos of a region code is spurious periodicity).
-        return out
+        return jobs
     std_m = float(np.std(xm))
     if std_m < 1e-12 or float(np.std(xw)) < 1e-12:
-        return out
+        return jobs
     z_m = (xm - float(np.mean(xm))) / std_m
     y_c = y_f - float(np.mean(y_f))
     if float(np.std(y_c)) < 1e-12:
-        return out
+        return jobs
     t = y_c * z_m
     # Linear axis (shipped robust min-max normalisation).
     lo, span = _fit_fourier_for_col(xw)
     span = float(guarded_scale(span, np.abs(xw).max()))  # stored below, so replay divides by exactly this
     z01 = (xw - float(lo)) / span
-    freqs = _detect_fourier_freqs_for_col(
-        z01, t, f_grid=_ADAPTIVE_F_GRID, min_val_corr=float(min_val_corr),
-        min_rows=800, max_freqs=int(max_freqs),
-    )
-    if freqs:
-        spec = _fit_fourier_amplitude_spec(
-            z01, t, freqs, {"arg": "linear", "lo": float(lo), "span": float(span)},
-        )
-        if spec is not None:
-            out.append({"kind": "fourier", "spec_w": spec, "freqs": [float(f) for f in freqs]})
+    jobs.append({"kind": "fourier", "z": z01, "t": t, "grid": _ADAPTIVE_F_GRID, "axis": {"arg": "linear", "lo": float(lo), "span": float(span)}})
     # Quadratic-argument chirp axis (shipped warp): stationary in u for growing-frequency inners.
     if chirp:
         c_mean, c_std, c_lo, c_span = _fit_chirp_warp_for_col(xw)
         if scale_is_usable(c_span, xw) and scale_is_usable(c_std, xw):
             u = _chirp_axis(xw, c_mean, c_std, c_lo, c_span)
             if np.all(np.isfinite(u)) and float(np.std(u)) > 1e-12:
-                cfreqs = _detect_fourier_freqs_for_col(
-                    u, t, f_grid=_CHIRP_F_GRID, min_val_corr=float(min_val_corr),
-                    min_rows=800, max_freqs=int(max_freqs),
+                jobs.append(
+                    {
+                        "kind": "chirp", "z": u, "t": t, "grid": _CHIRP_F_GRID,
+                        "axis": {"arg": "quadratic", "mean": float(c_mean), "std": float(c_std), "lo": float(c_lo), "span": float(c_span)},
+                    }
                 )
-                if cfreqs:
-                    spec = _fit_fourier_amplitude_spec(
-                        u, t, cfreqs,
-                        {"arg": "quadratic", "mean": float(c_mean), "std": float(c_std),
-                         "lo": float(c_lo), "span": float(c_span)},
-                    )
-                    if spec is not None:
-                        out.append({"kind": "chirp", "spec_w": spec, "freqs": [float(f) for f in cfreqs]})
-    return out
+    return jobs
+
+
+def _fourier_proposal(job: dict, freqs: list):
+    """The proposal ``{"kind", "spec_w", "freqs"}`` of one detection job given its detected frequencies, or ``None`` when nothing was detected or no amplitude spec could be fitted."""
+    if not freqs:
+        return None
+    spec = _fit_fourier_amplitude_spec(job["z"], job["t"], freqs, job["axis"])
+    if spec is None:
+        return None
+    return {"kind": job["kind"], "spec_w": spec, "freqs": [float(f) for f in freqs]}
+
+
+def _detect_jobs(jobs: list[dict], *, min_val_corr: float, max_freqs: int) -> list[list]:
+    """Detected frequencies of every job (one resident batch on the device when the GPU-resident mode is on, else the single-column detector per job)."""
+    from ._orthogonal_univariate_fe._fourier_detect_batch import detect_fourier_freqs_batch
+
+    return detect_fourier_freqs_batch([(j["z"], j["t"], j["grid"]) for j in jobs], min_val_corr=float(min_val_corr), min_rows=800, max_freqs=int(max_freqs))
+
+
+def _propose_fourier(x_w, x_m, y_f, *, min_val_corr: float, max_freqs: int, chirp: bool = True):
+    """Adaptive-frequency Fourier (+ chirp) proposer for the multiplicative pair form
+    ``y ~ g(x_w) * x_m`` via DEMODULATION: the shipped held-out multitone detector is run
+    on ``(axis(x_w), t = y_c * zscore(x_m))``. Returns a list of fitted warp specs (0-2:
+    linear-axis and/or quadratic-chirp-axis), each a ``fourier_adaptive`` prewarp spec."""
+    jobs = _fourier_jobs(x_w, x_m, y_f, chirp=chirp)
+    freqs = _detect_jobs(jobs, min_val_corr=min_val_corr, max_freqs=max_freqs) if jobs else []
+    return [p for p in (_fourier_proposal(j, f) for j, f in zip(jobs, freqs)) if p is not None]

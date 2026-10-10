@@ -1,0 +1,3 @@
+B n=100000 case=H total=1.39s: <method 'searchsorted' of 'numpy.ndarray' objects> (~:0) self=0.36s calls=662; <method 'partition' of 'numpy.ndarray' objects> (~:0) self=0.33s calls=360; fit_cell2d (warp_service.py:42) self=0.18s calls=180
+C n=100000 case=H total=0.18s: <method 'searchsorted' of 'numpy.ndarray' objects> (~:0) self=0.04s calls=36; <method 'partition' of 'numpy.ndarray' objects> (~:0) self=0.04s calls=36; mi_pair (h.py:35) self=0.03s calls=6
+G n=100000 case=H total=1.10s: <method 'argsort' of 'numpy.ndarray' objects> (~:0) self=0.72s calls=461; qbin (binning.py:8) self=0.07s calls=461; row_stat (rowstats.py:22) self=0.07s calls=462

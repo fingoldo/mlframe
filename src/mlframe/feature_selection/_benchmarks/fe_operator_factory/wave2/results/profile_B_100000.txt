@@ -1,0 +1,21 @@
+         48905 function calls in 1.392 seconds
+
+   Ordered by: internal time
+   List reduced from 112 to 15 due to restriction <15>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      662    0.364    0.001    0.364    0.001 {method 'searchsorted' of 'numpy.ndarray' objects}
+      360    0.329    0.001    0.329    0.001 {method 'partition' of 'numpy.ndarray' objects}
+      180    0.183    0.001    0.972    0.005 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\warp_service.py:42(fit_cell2d)
+       30    0.151    0.005    0.151    0.005 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\brainstorm\h.py:35(mi_pair)
+      180    0.043    0.000    1.015    0.006 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\warp_service.py:113(fit)
+      150    0.037    0.000    0.037    0.000 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\warp_service.py:127(<listcomp>)
+       30    0.033    0.001    1.222    0.041 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\warp_service.py:98(oof_fit)
+       30    0.033    0.001    0.033    0.001 {method 'permutation' of 'numpy.random._generator.Generator' objects}
+      360    0.030    0.000    0.469    0.001 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\warp_service.py:21(_edges)
+      151    0.022    0.000    0.087    0.001 D:\Temp\mlf_merge\src\mlframe\feature_selection\_benchmarks\fe_operator_factory\wave2\warp_service.py:63(_apply_one)
+     1680    0.016    0.000    0.016    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+     1080    0.015    0.000    0.015    0.000 {method 'flatten' of 'numpy.ndarray' objects}
+      360    0.015    0.000    0.391    0.001 D:\ProgramData\anaconda3\Lib\site-packages\numpy\lib\function_base.py:4765(_quantile)
+     1322    0.013    0.000    0.013    0.000 {method 'astype' of 'numpy.ndarray' objects}
+      360    0.012    0.000    0.016    0.000 D:\ProgramData\anaconda3\Lib\site-packages\numpy\core\function_base.py:24(linspace)

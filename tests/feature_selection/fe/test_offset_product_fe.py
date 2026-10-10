@@ -285,3 +285,34 @@ def test_standard_error_of_the_gain_shrinks_with_the_square_root_of_n():
 
     ratio = se_at(8000) / se_at(32000)
     assert 1.4 < ratio < 2.8, ratio
+
+
+def test_usability_pool_gets_the_accepted_offset_products_with_replayable_recipes():
+    """The linear-downstream pool is offered the accepted columns as candidates whose recipes replay to their stored values; a pure-noise frame offers none."""
+    from mlframe.feature_selection.filters._usability_offset_pool import offset_product_candidates
+
+    X, y = _bounded_case(15000, 2)
+    cands = offset_product_candidates(X, y, list(X.columns), np.float32, 10)
+    assert cands and all(set(c.recipe.src_names) == {"c", "d"} for c in cands)
+    for c in cands:
+        np.testing.assert_allclose(apply_offset_product_recipe(c.recipe, X).astype(np.float32), c.values, rtol=1e-5, atol=1e-6)
+        assert c.mi > 0.0
+    r = np.random.default_rng(0)
+    noise = pd.DataFrame({k: r.random(6000) for k in "abcd"})
+    assert offset_product_candidates(noise, r.standard_normal(6000), list(noise.columns), np.float32, 10) == []
+
+
+def test_usability_greedy_picks_the_offset_product_for_the_linear_list():
+    """With the candidate in the pool the linear usability greedy selects it on the sign-crossing target; without it the list has no (c, d) offset form."""
+    from mlframe.feature_selection.filters._usability_aware_selection import build_usability_candidate_pool, usability_greedy
+    from mlframe.feature_selection.filters._usability_offset_pool import offset_product_candidates
+
+    X, y = _bounded_case(8000, 2)
+    names = list(X.columns)
+    pool = build_usability_candidate_pool(X, y, names, feature_dtype=np.float32, quantization_nbins=10)
+    extra = offset_product_candidates(X, y, names, np.float32, 10)
+    assert extra
+    plain = [c.name for c in usability_greedy(pool, y, w=0.85, seed=2)]
+    boosted = [c.name for c in usability_greedy(list(pool) + extra, y, w=0.85, seed=2)]
+    assert not any(n.startswith("offmul(") for n in plain)
+    assert any(n.startswith("offmul(") for n in boosted), boosted

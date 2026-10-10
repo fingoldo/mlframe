@@ -61,3 +61,34 @@ def test_residual_cell_screen_finds_the_true_pair_on_the_additive_target():
     r = resid_oof(X, y, np.random.default_rng(0))
     top_r = pairs[int(np.argmax(cell_screen(Q, r, pairs)))]
     assert top_r == true_pairs[0]
+
+
+def test_fit_B2_keeps_shrinkage_apart_from_train_mi_and_adds_over_warps():
+    """``fit_B2`` stores the requested m for every pair; on the bump target the cell table carries more held-out MI than the sum of the two C warps (the additive baseline)."""
+    from mlframe.feature_selection._benchmarks.fe_operator_factory.brainstorm.h import MI, ybins
+    from mlframe.feature_selection._benchmarks.fe_operator_factory.wave2.stress import fit_B2
+
+    gen, cols = CASES["B"]["W"]
+    X, y, _ = gen(np.random.default_rng(5), 8000)
+    XA, XB, ya, yB = X[:4000], X[4000:], y[:4000], y[4000:]
+    yb = ybins(ya, yB)
+    fa, rec, info = fit_B2(XA, ya, cols, yb, 0, m=3.0, ks=(6,))
+    assert info["m"] == 3.0
+    wa = [oof_fit("warp1d", XA, ya, [c], seed=0, nb=20) for c in (0, 1)]
+    add_te = MI(wa[0][0] + wa[1][0], replay(wa[0][1], XB) + replay(wa[1][1], XB), yb)[1]
+    assert MI(fa, replay(rec, XB), yb)[1] > add_te + 0.05
+
+
+def test_acceptance_rules_and_classification_labels():
+    """The floor rejects a tiny relative gain that c = 40 alone accepts; class labels follow the signal (binary and 4-class) and are independent of it for pure noise."""
+    from mlframe.feature_selection._benchmarks.fe_operator_factory.wave2.classif import make_labels
+    from mlframe.feature_selection._benchmarks.fe_operator_factory.wave2.stress import accept
+
+    a = accept(0.0010, 0.5, 100_000)
+    assert a["acc_c40"] and not a["acc_floor"] and not a["acc_both"]
+    assert accept(0.1, 0.5, 100_000)["acc_both"]
+    rng = np.random.default_rng(0)
+    z = rng.standard_normal(20000)
+    yb, y4 = make_labels(rng, z, "bin"), make_labels(rng, z, "4c")
+    assert set(np.unique(y4)) == {0, 1, 2, 3} and np.corrcoef(z, yb)[0, 1] > 0.3 and np.corrcoef(z, y4)[0, 1] > 0.3
+    assert abs(np.corrcoef(rng.standard_normal(20000), yb)[0, 1]) < 0.05

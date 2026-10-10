@@ -259,6 +259,28 @@ def _oof_column_gather(cp, per_fold_stats: list, row_index, fallback: float):
     return _oof_gather_kernel(cp)(row_index, table.reshape(-1), float(fallback))
 
 
+def _oof_column_from_table(cp, table, row_index, fallback: float):
+    """The OOF column from a contiguous ``(n_folds, n_cells)`` stat table: one gather, no stacking (the table already has the fold rows in place)."""
+    return _oof_gather_kernel(cp)(row_index, table.reshape(-1), float(fallback))
+
+
+def _pair_fold_stat_tables(cp, codes_g, v_safe, finite_f, fold_g, n_folds: int, n_cells: int, stats: Sequence[str]) -> dict:
+    """``{stat: (n_folds, n_cells) table}`` of a (group, aggregate) pair: row ``f`` is the stat of the cells over fold ``f``'s TRAIN rows (NaN where the cell is empty there).
+
+    The moments of all folds come from two launches (``fold_cell_moments``) and every stat is one fused elementwise launch over the whole table. When the kernels do not apply (too many
+    cells for shared memory, or no support) the per-fold moments are computed one fold at a time and stacked ONCE per pair."""
+    from ._cell_moments_kernel import fold_cell_moments
+
+    moments = fold_cell_moments(cp, codes_g, v_safe, finite_f, fold_g, n_folds, n_cells)
+    if moments is None:
+        per_fold = []
+        for f in range(n_folds):
+            w = cp.where(fold_g != f, finite_f, 0.0)
+            per_fold.append(_per_cell_moments_stable_masked_gpu(cp, codes_g, v_safe, w, n_cells))
+        moments = tuple(cp.ascontiguousarray(cp.stack([m[k] for m in per_fold], axis=0)) for k in range(5))
+    return _stats_from_moments_gpu(cp, moments, stats)
+
+
 def _oof_column_foldloop(cp, per_fold_stats: list, fold_g, codes_g, n: int, fallback: float):
     """Reference per-fold assembly of one OOF column (kept as the parity oracle for :func:`_oof_column_gather`)."""
     oof = cp.full(n, fallback, dtype=cp.float64)
@@ -357,20 +379,11 @@ def build_binagg_oof_matrix_gpu(
         # weight is all-zero, so every cell count is 0, _stats_from_moments emits NaN, and the isfinite select
         # below leaves those test rows at the global fallback - exactly the old degenerate branch.
         _pstats = pair_stats[(gcol, acol)]
-        per_fold_stats = []
-        for f in range(nf):
-            _skey = ("stats", f)
-            per_s_all = fold_stat_cache.get(_skey)
-            if per_s_all is None:
-                # w = 1.0 on this fold's TRAIN rows (other folds AND finite), 0.0 elsewhere. finite_f is shared;
-                # (fold_g != f) is the only per-fold term. Moments -> ALL of the pair's stats in one pass (cached),
-                # so every stat column of this (pair, fold) reuses the single derivation instead of re-launching.
-                w = cp.where(fold_g != f, finite_f, 0.0)
-                moments = _per_cell_moments_stable_masked_gpu(cp, codes_g, v_safe, w, n_cells)
-                per_s_all = _stats_from_moments_gpu(cp, moments, _pstats)
-                fold_stat_cache[_skey] = per_s_all
-            per_fold_stats.append(per_s_all[stat])
-        oof = _oof_column_gather(cp, per_fold_stats, _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells), glob)
+        tables = fold_stat_cache.get("tables")
+        if tables is None:
+            tables = _pair_fold_stat_tables(cp, codes_g, v_safe, finite_f, fold_g, nf, n_cells, _pstats)
+            fold_stat_cache["tables"] = tables
+        oof = _oof_column_from_table(cp, tables[stat], _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells), glob)
         out_cols.append(oof)
 
     dt = cp.float64 if out_dtype is None else out_dtype
