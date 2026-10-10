@@ -5,7 +5,7 @@ import functools
 import logging
 import math
 import threading
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -28,6 +28,23 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_xxh3_64() -> Optional[Callable]:
+    """Return ``xxhash.xxh3_64_intdigest``, or ``None`` when the content-hash cache key must fall back to ``tobytes()`` + ``hash()``."""
+    try:
+        import xxhash as _xxhash
+
+        return _xxhash.xxh3_64_intdigest
+    except ImportError as e:
+        logger.debug("xxhash unavailable, _cached_card falls back to tobytes()+hash() for its cache key: %s", e)
+        return None
+    except Exception as e:
+        logger.warning("xxhash is installed but unusable (%s: %s); _cached_card falls back to tobytes()+hash()", type(e).__name__, e)
+        return None
+
+
+_xxh3_64: Optional[Callable] = _resolve_xxh3_64()
 
 # GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
 # 1050 Ti, nbins=10): a single host column round-tripped to the device for equi-frequency binning (H2D +
@@ -558,11 +575,21 @@ _CARD_MAX_CACHE_LOCK = threading.Lock()
 
 
 def _cached_card(host_arr, dev_codes) -> int:
-    """Return ``max(dev_codes)+1``, memoized by a content-hash of ``host_arr`` (never the operand's ``id()`` - an id can be reused after GC and silently return a too-small cardinality, corrupting the device joint-histogram kernels' shared-tile sizing)."""
+    """Return ``max(dev_codes)+1``, memoized by a content-hash of ``host_arr`` (never the operand's ``id()`` - an id can be reused after GC and silently return a too-small cardinality, corrupting the device joint-histogram kernels' shared-tile sizing).
+
+    ``xxh3_64_intdigest`` reads the array's own buffer directly (copy-free for a C-contiguous array, the same
+    technique ``_mrmr_degenerate._content_key`` and ``_fe_resident_operands._content_hash`` already use) instead
+    of materialising a full ``.tobytes()`` copy just to feed the stdlib ``hash()`` - 2.85s cumtime / 226 calls on
+    a 2M-row profile was almost entirely that copy, for a cache-KEY computation that is pure overhead next to the
+    cached value itself."""
     if dev_codes.size == 0:
         return 1
     ha = np.ascontiguousarray(np.asarray(host_arr).ravel())
-    key = (int(ha.size), ha.dtype.str, hash(ha.tobytes()))  # content fingerprint (no id-reuse collision)
+    if _xxh3_64 is not None and ha.dtype.kind in "fiub":
+        content_fp = _xxh3_64(ha)
+    else:
+        content_fp = hash(ha.tobytes())
+    key = (int(ha.size), ha.dtype.str, content_fp)  # content fingerprint (no id-reuse collision)
     with _CARD_MAX_CACHE_LOCK:
         v = _CARD_MAX_CACHE.get(key)
         if v is None:

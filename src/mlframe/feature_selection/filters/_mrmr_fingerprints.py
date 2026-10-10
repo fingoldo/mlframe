@@ -278,11 +278,25 @@ def _column_cell_sample(X: Any, c: Any, positions: list) -> Any:
 
     A never-matching token when the column cannot be read: an empty sample let two frames that differ only in this column
     share a fingerprint, and a shared fingerprint licenses MRMR to skip the fit.
+
+    Non-object columns (the common case: numeric FE columns) take a fused fast path -- one fancy-index gather of
+    every sampled position plus ONE ``.tobytes()`` call on the small resulting array, instead of 1024 separate
+    ``np.asarray(scalar).tobytes()`` calls (one Python-level 0-d-array allocation + buffer read each). This genexpr
+    was called 135300 times per fit on a 2M-row profile (~0.3s cumtime just for the per-position dispatch overhead,
+    before the actual hashing even runs) -- a fresh-array-per-position cost with no first-party loop structure to
+    keep once the whole sampled slice can be read in one gather. Object-dtype columns (raw strings/categoricals)
+    keep the per-element path: a fancy-indexed object-array slice still carries the per-element Python wrappers,
+    and ``.tobytes()`` is not defined on an object ndarray at all.
     """
     try:
         col = X[c] if not hasattr(X, "schema") else X.get_column(c)
         arr = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
-        return tuple(np.asarray(arr[p]).tobytes() for p in positions if p < len(arr))
+        valid = [p for p in positions if p < len(arr)]
+        if not valid:
+            return ()
+        if arr.dtype != object:
+            return np.ascontiguousarray(arr[valid]).tobytes()
+        return tuple(np.asarray(arr[p]).tobytes() for p in valid)
     except Exception as e:
         logger.warning("_mrmr_compute_x_fingerprint: cell sample for column %r failed (%s); this frame will not hit the fit cache.", c, e)
         return uuid4().hex
