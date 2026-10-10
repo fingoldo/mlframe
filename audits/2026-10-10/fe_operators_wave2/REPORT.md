@@ -53,3 +53,14 @@ Scripts: `b_vs_additive.py`, `null_layouts.py`, `classif.py`, `large_n.py`, `str
 | W2-12 | P3 | C on a low-cardinality integer column is accepted at large n and behaves like a target encoding. | OPEN - downstream check, possibly skip C for columns with at most `FEW_CLASSES_MAX` levels |
 | W2-13 | P3 | A multiclass target whose class order is not monotone in the signal needs one-vs-rest warps, otherwise C and B lose their MI edge. | OPEN |
 | W2-14 | P3 | G is dominated by `argsort` inside `qbin` at 100k (461 calls, 0.72 s). | OPEN - rank reuse or njit when G is built |
+
+## What was built (2026-10-10) and where it departs from the specs above
+
+| Operator | Modules | Departures from the first specification |
+|---|---|---|
+| Warp service + C | `_oof_warp_service.py` (njit cross-fit), `_oof_warp_fe.py`, stage `_fe_stage_oof_warp.py`, `_usability_warp_pool.py` | Bin edges are computed once from `x` (they carry no target) instead of per fold, so the fold tables are bin-sum differences; acceptance by 2 standard errors of the paired MI gain plus the constructor knob `fe_oof_warp_min_relative_gain` (not c = 40 + 3%); nominal-like columns (at most 20 distinct values) skipped (W2-12); fit and scoring on at most 100k evenly spaced rows. |
+| G | `_row_stat_kernels.py` (parallel candidate kernel), `_row_stat_fe.py`, stage `_fe_stage_row_stat.py`, `_usability_row_stat_pool.py` | Bin edges from a 2048-row sample of the even rows instead of a full sort (the prototype's `argsort` hot spot, W2-14); seven statistics (the plain mean is dropped: it is a linear combination); subsets of at least three columns (a two-column statistic is a pair form the preset has); baseline = best raw column AND the best least-squares linear mix of the subset; growth margin from the chi-square noise scale of a plug-in MI. |
+| M | `_pair_residual_screen.py` | Built as the pair selector of B rather than a stage of its own (the offset stage needs none: its pair pool recalls weak-marginal pairs 12 of 12); family-wise 5% Bonferroni level over the pairs instead of a fixed threshold; main-effect levels `clip(n_even / 250, 15, 60)` (confirmed); the target is WINSORISED and standardised, not rank-scaled: a rank target squashes an additive sum and makes every strongly additive pair look interacting (found while testing, pinned by a regression test). |
+| B | `_oof_cell2d_fe.py` | No MI-list stage: offered to the usability pool of the linear list only, for the pairs M reports (the gradient-boosting model loses 0.8-1.7% on it); shrinkage m = 3 toward the additive fit of the pair. |
+
+Shared: `_fe_gain_stats.py` (pointwise MI, held-out codes, paired standard error), used by the offset product, C and G. Evidence of the null behaviour of each is in its test file (`test_oof_warp_fe.py`, `test_row_stat_fe.py`, `test_pair_screen_and_cell2d.py`).
