@@ -186,3 +186,6 @@ _sha256_of_file
 # the existing blocks), but callers still pass it and a test pins that they may; the module comment says so at its
 # own definition. ---
 allow_large_frame_copy
+
+# --- MRMR constructor flag fe_offset_product_enable: read only through the estimator's parameter machinery (get_params / setstate defaults / fs_params), never as a name in a function body. ---
+fe_offset_product_enable
