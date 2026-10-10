@@ -36,6 +36,26 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
+def _device_error_classes() -> tuple:
+    """Exception classes of a genuine cupy/device fault, so a dispatcher can fall back to CPU on an actual
+    GPU failure (OOM, driver fault) while letting a real bug (``TypeError``, a shape ``ValueError``, ...)
+    surface. Includes the plain built-in ``MemoryError`` -- cupy's thrust-backed ``argsort`` (the ROC/PR-AUC
+    sort) raises that directly on a bad allocation rather than ``cupy.cuda.memory.OutOfMemoryError``, so
+    omitting it would miss the exact failure this helper exists to catch. Mirrors
+    ``_orth_mi_backends._device_error_classes``; kept local here (not shared) per this project's existing
+    one-helper-per-module convention for this exact function."""
+    _dev_errs: list = [MemoryError]
+    try:
+        import cupy as _cp_e
+
+        _dev_errs.append(_cp_e.cuda.runtime.CUDARuntimeError)
+        _dev_errs.append(_cp_e.cuda.memory.OutOfMemoryError)
+    except Exception as _e_dev_errs:  # nosec B110 - optional dependency import guard
+        logger.debug("Could not register cupy device-error classes (%s); GPU-specific errors won't be distinguished from generic failures", _e_dev_errs)
+    return tuple(e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException))
+
+
 # Default crossover thresholds. Tunable via ``set_gpu_thresholds(...)``.
 #
 # ``_GPU_BATCH_THRESHOLD_M = 5`` (was 1) so binary-classification single-target callers
@@ -504,8 +524,16 @@ def compute_batch_rmse(
     if use_gpu:
         import cupy as cp  # lazy
 
-        out = gpu_multiple_rmse_scores(yt, yp)
-        return np.asarray(cp.asnumpy(out)).astype(_out_dtype, copy=False)
+        try:
+            out = gpu_multiple_rmse_scores(yt, yp)
+            return np.asarray(cp.asnumpy(out)).astype(_out_dtype, copy=False)
+        except _device_error_classes() as e:
+            # An explicit force_backend='gpu' means the caller wants GPU or an error, not a silent
+            # degrade; auto-dispatch (the common case) falls back to the CPU reference below instead of
+            # crashing the whole suite on a transient OOM/driver fault under VRAM pressure.
+            if force_backend == "gpu":
+                raise
+            logger.warning("compute_batch_rmse: GPU dispatch failed (%s: %s); falling back to the CPU reference.", type(e).__name__, e)
     # CPU reference
     if yt.ndim == 1:
         yt = yt[:, np.newaxis]
@@ -536,9 +564,18 @@ def compute_batch_aucs(
     if use_gpu:
         import cupy as cp  # lazy
 
-        roc = cp.asnumpy(gpu_multiple_roc_auc_scores(yt, ys))
-        pr = cp.asnumpy(gpu_multiple_pr_auc_scores(yt, ys))
-        return roc, pr
+        try:
+            roc = cp.asnumpy(gpu_multiple_roc_auc_scores(yt, ys))
+            pr = cp.asnumpy(gpu_multiple_pr_auc_scores(yt, ys))
+            return roc, pr
+        except _device_error_classes() as e:
+            # See compute_batch_rmse's identical guard: force_backend='gpu' still raises, auto-dispatch
+            # falls back instead of crashing the whole suite. Found live via a 2M-row fuzz-optimization
+            # profiling run (combo c0685): cupy's thrust-backed argsort raised a plain MemoryError under
+            # VRAM pressure and this function had NO fallback at all, aborting the entire training suite.
+            if force_backend == "gpu":
+                raise
+            logger.warning("compute_batch_aucs: GPU dispatch failed (%s: %s); falling back to the CPU reference.", type(e).__name__, e)
     # CPU loop over per-column ``fast_aucs`` (returns roc, pr in one pass).
     # ``fast_aucs`` lives in ``core`` and is imported lazily here to
     # sidestep the core <-> _gpu_metrics circular dependency.
