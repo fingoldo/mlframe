@@ -798,3 +798,32 @@ Re-profiling the same combo after the Captum fix (FI cost gone from the profile 
 - `_mrmr_degenerate.audit_degenerate_columns`/`_is_constant`/`_gram_matrix` — the Gram matrix already GPU-dispatches under `fe_gpu_strict_enabled`; the diagnostic per-column scan is a one-shot O(p) pass, ~3s of 775s (<0.4%) — sub-material.
 - `_probe_cuda_is_usable` (`training/neural/_base_tensor_helpers.py`) — already cached (`_CUDA_PROBE_CACHE`); the 16 calls are cold per-process re-probes from joblib worker respawn, ~40ms each, sub-material.
 No safe, well-scoped, materially-sized fresh win identified this cycle.
+
+## PERF cycle REJECT (2026-10-11): fresh combo c0505_36bd8bea (cb+hgb+lgb+mlp, learning_to_rank), the MLP RankNet DataLoader path is the top hotspot but has no confirmed lever gap
+2M-row cProfile on combo `c0505_36bd8bea` (hgb correctly drops for LTR; surviving native rankers cb/lgb/mlp)
+surfaced `ranker.py`'s DataLoader/pairwise-loss machinery as the dominant self-time: `__getitems__`
+(30.6s/56260 calls), `ranknet_pairwise_loss_precomputed` (24.8s/56260 calls), `install_pair_index_cache`
+(9.3s/2 calls), `GroupBatchSampler.__iter__` (8.3s/56280 calls) -- together ~13% of the 556s MLP ranker
+fit. None of these have a missing `@njit`/`parallel=True`/`cuda.jit`/`cupy` lever: the loss kernel is
+already TorchScript-traced (with a documented 2026-05-23 bench-rejected attempt to strip its thin Python
+wrapper, 0.1-0.2% of wall), and `__getitems__`/`install_pair_index_cache` already carry extensive
+per-query caching (iter357, iter364) that collapses the cache-hit path to a single dict lookup -- the
+measured cost is concentrated in the OPT-7 multi-query batch path (`queries_per_batch > 1`), which this
+combo's config apparently exercises. OPT-7's own docstring already explains why that path's batch-level
+cache can't be reused across epochs (the multi-query partition key depends on the shuffled batch
+composition, which changes every epoch) -- the PER-QUERY pair/X/y slices it reads ARE still cached
+(`_pair_idx_by_query`/`_batch_by_query`, keyed by query, not by batch), so the remaining cost is the
+per-batch list-building + `torch.cat` composition over those already-cached per-query pieces.
+
+NOT a REJECT on smallness grounds (13% of a 556s fit is clearly material) -- REJECTed because no
+confirmed acceleration lever is missing without a deeper redesign, and this module has an unusually dense
+history of prior tuning (OPT-7, iter357, iter183, iter364) that a shallow pass risks silently undoing.
+**Lead for whoever picks this up**: the OPT-7 branch's per-batch `torch.cat(concat_i_parts)` /
+`torch.cat(concat_j_parts)` loop over `partition` could potentially be replaced by precomputing, ONCE per
+epoch (inside `GroupBatchSampler.__iter__`, which already rebuilds the partition each epoch), the
+FULL-EPOCH concatenated pair-index tensors with per-batch offset ranges, turning each `__getitems__` call
+under OPT-7 into a single tensor slice instead of a per-query Python loop + list append + `torch.cat` --
+but this needs a standalone wall-clock microbench first (cProfile's per-call instrumentation tax on many
+small torch-op dispatches inside a tight loop is a known inflation risk here, per this project's own
+"microbench the wrapper standalone before trusting a flagged frame" rule) and careful bit-identity
+verification against the existing OPT-7 output before touching a path this heavily tuned.
