@@ -9,6 +9,8 @@ call.
 [![pydoclint](https://github.com/fingoldo/mlframe/actions/workflows/pydoclint.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/pydoclint.yml?query=branch%3Amaster)
 [![CodeQL](https://github.com/fingoldo/mlframe/actions/workflows/codeql.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/codeql.yml?query=branch%3Amaster)
 [![sklearn 1.6-1.8](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml/badge.svg?branch=master)](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml?query=branch%3Amaster)
+[![pandas](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffingoldo%2Fmlframe%2Fbadges%2Fpandas.json)](https://github.com/fingoldo/mlframe/actions/workflows/pandas-matrix.yml?query=branch%3Amaster)
+[![polars](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Ffingoldo%2Fmlframe%2Fbadges%2Fpolars.json)](https://github.com/fingoldo/mlframe/actions/workflows/polars-matrix.yml?query=branch%3Amaster)
 [![coverage](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?label=coverage)](https://codecov.io/gh/fingoldo/mlframe)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
@@ -54,8 +56,8 @@ stacking through a uniform API.
   estimates rather than on the split that drove early stopping.
 - **Diagnostics are on by default**, with the charts to match: reliability curves, drift/PSI panels, SHAP
   panels and model comparisons, rendered through matplotlib or plotly.
-- **scikit-learn 1.6 through 1.8 are tested in CI**, on Linux, Windows and macOS, across Python 3.9 to
-  3.14.
+- **scikit-learn 1.6 through 1.8 are tested in CI** (see [Tested versions](#tested-versions)); the main CI runs the locked
+  version on Linux, Windows and macOS across Python 3.9 to 3.14.
 
 ## Quickstart
 
@@ -143,6 +145,20 @@ pip install -e "./mlframe[dev]"                  # pytest + coverage + ruff + bl
 Requires Python 3.9 or newer; tested on 3.9 through 3.14. The full core stack
 (numpy, numba/llvmlite, polars, scikit-learn, pyarrow, pydantic) ships `cp314`
 wheels and the numba JIT kernels compile and run on 3.14.
+
+### Tested versions
+
+| Dependency | Declared range | What CI runs | Workflow |
+|---|---|---|---|
+| Python | 3.9 or newer | 3.9 through 3.14 | [ci.yml](.github/workflows/ci.yml) |
+| scikit-learn | 1.6 to 1.8 | 1.6.1, 1.7.2 and 1.8.0 on Linux with Python 3.11, plus 1.8.0 on Python 3.13 and 3.14 | [sklearn-matrix-ci.yml](.github/workflows/sklearn-matrix-ci.yml) |
+| pandas | 1.5 to below 3.0 | the locked version, and the newest release (`pandas` badge) | [pandas-matrix.yml](.github/workflows/pandas-matrix.yml) |
+| polars | 0.20 or newer | the locked version, the newest release of its major series, and the newest release (`polars` badge) | [polars-matrix.yml](.github/workflows/polars-matrix.yml) |
+
+The pandas and polars legs are computed on every run rather than listed by hand: the lowest version `uv.lock` resolves (`min`), the newest release of
+that version's major series, and the newest release overall (`latest`), each once. When the newest release is also the newest of the series it runs
+once, so the list grows only when a new major appears. The badges show the versions of the last run and turn red when any of them fails. A leg that
+is newer than the declared range (pandas 3.x, while the range stops below 3.0) is run on purpose: it shows what the cap is guarding against.
 
 For development:
 
