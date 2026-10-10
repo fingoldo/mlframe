@@ -351,7 +351,7 @@ viz = [
     "seaborn>=0.13",
     "altair>=5.0",
     "hvplot>=0.9",
-    "vegafusion[embed]>=1.5",
+    "vegafusion[embed]>=2.0.3",
     "vl-convert-python>=1.0",
     "ipywidgets>=8.0",
     # Not imported directly; floors hvplot -> bokeh's transitive tornado resolution above the
