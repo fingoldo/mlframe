@@ -4,8 +4,13 @@ A product whose factor changes sign inside the data range (``ln 2 + ln c`` cross
 preset form puts the sign change at 0. The shifts come from one 4x4 interaction regression on rank(y) (``_offset_product_kernels.ols2_shift``), so there is no grid; a fused scan
 (``scan_offset_products``) scores every column pair x unary pair without storing a candidate.
 
-Acceptance (see audits/2026-10-09/offset_product_fe/FOLLOWUP.md): for each column pair the unary pair with the best gain on the even rows is chosen, and it is kept only when its MI on the
-odd (held-out) rows beats the best of five shift-free baselines (``u*v``, ``u+v``, ``u``, ``v`` and their least-squares weighted sum) by ``ACCEPT_MARGIN_C / n``. The shifts of the kept candidates are then refitted on every row.
+Acceptance (see audits/2026-10-10/01_fe_followups_low_hanging.md, L-09 to L-11): for each column pair the unary pair with the best gain on the even rows is chosen. Its odd-row MI must beat
+the best of the shift-free baselines (``u*v``, ``u+v``, ``u``, ``v``, their least-squares weighted sum, over every unary pair, and the best weighted sum of the winner's own two factors) by more
+than ``SIGNIFICANCE_Z`` standard errors of the gain (delta method for the paired difference of two plug-in MIs, so the bar follows n and the noise by itself) and by at least the practical
+effect ``min_relative_gain`` (a policy knob of the MRMR constructor) of the baseline MI. The shifts of the kept candidates are then refitted on every row.
+bench-attempt-rejected: a null built from surrogate targets (additive fit plus residuals permuted within prediction bins, whole per-pair procedure repeated, accept above all 19 draws) accepted an unrelated
+pair in 28 of 28 runs of the sign-crossing target and cost 1.3 s per fit: the surrogate removes EVERY interaction, including the genuine a**2/b one that the shift-free baselines already capture,
+so the baseline-relative gain of the real data is not comparable with its null.
 Replay (kind ``offset_product``) is the pure function ``clip((u + s) * (v + t))`` of the two source columns; the target is never used at transform time.
 """
 
@@ -18,7 +23,7 @@ from typing import TYPE_CHECKING, Callable, Optional, cast, Sequence
 import numpy as np
 import pandas as pd
 
-from ._offset_product_kernels import N_BASELINES, ols2_shift, scan_offset_products
+from ._offset_product_kernels import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -30,13 +35,14 @@ __all__ = ["hybrid_offset_product_fe", "build_offset_product_recipe", "apply_off
 # Unary maps scanned on each side. ``neg`` is omitted (the sign is absorbed by the regression) as are the non-monotone-in-the-wrong-way duplicates of ``abs``/``sqr`` pairs that the
 # minimal preset already makes redundant.
 OFFSET_UNARIES = ("identity", "abs", "sqr", "reciproc", "sqrt", "log", "sin")
-ACCEPT_MARGIN_C = 40.0  # held-out MI gain must exceed ACCEPT_MARGIN_C / n_scan nats; the largest null gain seen over 6 seeds x 15 pairs x n in 5k..300k was 24 / n (_benchmarks/offset_product/null_gain.py), the stat study used 26 / n
-ACCEPT_MIN_RELATIVE_GAIN = 0.03  # and the gain must be at least this fraction of the best baseline held-out MI: at 100k+ rows 40 / n is under 0.001 nats, a gain no consumer can use
+SIGNIFICANCE_Z = 2.0  # one-sided normal critical value (97.7%) applied to the standard error of the held-out gain
+DEFAULT_MIN_RELATIVE_GAIN = 0.05  # default of the practical-effect knob: the gain must be at least this fraction of the best baseline held-out MI
 DEFAULT_SCAN_ROWS = 100_000  # the scan decides on at most this many rows (stat study: decisions are stable from n=5k); accepted shifts are refitted on all rows
 N_MI_BINS = 10
 _WINSOR_Q = (0.01, 0.99)  # winsorisation of the unary outputs for the regression only
 _OUTPUT_CLIP_Q = (0.001, 0.999)  # replay clips the product to its fit-time quantiles so heavy tails cannot dominate a linear consumer
 _MIN_ROWS = 200
+MIX_DIRECTIONS = 32  # directions of the weighted-sum baseline: mixing angles over the full circle
 SYNERGY_MIN = 0.02  # a pair is scanned only if its joint 10 x 10 Miller-Madow MI exceeds the larger marginal MI by this many nats; the 25 planted pairs of the pre-filter study had >= 0.041
 
 
@@ -189,10 +195,22 @@ def _quantile_codes(x: np.ndarray, n_bins: int) -> np.ndarray:
     return np.searchsorted(edges, x, side="right").astype(np.int64)
 
 
-def synergy_pairs(xs: "list[np.ndarray]", rows: np.ndarray, codes: np.ndarray, ky: int, min_synergy: float = SYNERGY_MIN) -> "list[tuple[int, int]]":
+def _plugin_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> float:
+    """Plug-in MI (nats, no small-sample correction: the scan kernel's MI is the same) of integer ``codes`` and ``y_codes``."""
+    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)
+    n = joint.sum()
+    px = joint.sum(axis=1, keepdims=True)
+    py = joint.sum(axis=0, keepdims=True)
+    nz = joint > 0
+    return float((joint[nz] / n * np.log(joint[nz] * n / (px @ py)[nz])).sum())
+
+
+def synergy_pairs(
+    xs: "list[np.ndarray]", rows: np.ndarray, codes: np.ndarray, ky: int, min_synergy: float = SYNERGY_MIN, q: "Optional[list[np.ndarray]]" = None
+) -> "list[tuple[int, int]]":
     """Column pairs whose joint MI with the target exceeds the larger marginal MI by more than ``min_synergy``: the only pairs a shifted product can help (the shifted forms carry no
     information beyond the joint distribution of the two columns). Costs one bincount per pair on the scan rows, a few ms against the scan's O(unary pairs) passes."""
-    q = [_quantile_codes(x[rows], N_MI_BINS) for x in xs]
+    q = q if q is not None else [_quantile_codes(x[rows], N_MI_BINS) for x in xs]
     marg = [_mm_mi(c, N_MI_BINS, codes, ky) for c in q]
     return [
         (i, j)
@@ -200,6 +218,42 @@ def synergy_pairs(xs: "list[np.ndarray]", rows: np.ndarray, codes: np.ndarray, k
         for j in range(i + 1, len(xs))
         if _mm_mi(q[i] * N_MI_BINS + q[j], N_MI_BINS * N_MI_BINS, codes, ky) - max(marg[i], marg[j]) > min_synergy
     ]
+
+
+def _unary_rows(x: np.ndarray, name: str, rows: np.ndarray, funcs: "dict[str, Callable]") -> np.ndarray:
+    """Unary output ``name`` of ``x`` on the scan rows with the frozen log anchor of the whole column and the non-finite entries filled, exactly the block the scan used."""
+    u = _apply_unary(funcs, name, x[rows], _log_anchor(x))
+    return np.where(np.isfinite(u), u, _finite_fill(u))
+
+
+def _pointwise_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> np.ndarray:
+    """Per-row pointwise mutual information ``log p(x, y) / (p(x) p(y))`` of integer ``codes`` and ``y_codes`` (the influence function of the plug-in MI up to a constant)."""
+    joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)
+    n = joint.sum()
+    px, py = joint.sum(axis=1, keepdims=True), joint.sum(axis=0, keepdims=True)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        table = np.log(joint * n / (px @ py))
+    return np.where(joint > 0, table, 0.0)[codes, y_codes]
+
+
+def _winner_standard_error(u: np.ndarray, v: np.ndarray, yr: np.ndarray, codes: np.ndarray, ky: int, clip_u: np.ndarray, clip_v: np.ndarray) -> float:
+    """Standard error of the odd-row MI gain of the shifted product ``(u + s) (v + t)`` over the strongest of its own shift-free baselines (``u*v``, ``u+v``, ``u``, ``v``, the least-squares
+    weighted sum): the spread of the per-row difference of the two pointwise MIs over sqrt(n_odd), the delta-method error of a paired difference of plug-in MIs. Bin edges come from the even
+    rows. ``inf`` when the shifts cannot be fitted."""
+    sh = np.empty(4)
+    ols2_shift(u, v, yr, 0, 2, clip_u[0], clip_u[1], clip_v[0], clip_v[1], sh)
+    if not np.isfinite(sh[:2]).all():
+        return float("inf")
+    feats = [(u + sh[0]) * (v + sh[1]), u * v, u + v, u, v]
+    if np.isfinite(sh[2:]).all():
+        feats.append(sh[2] * u + sh[3] * v)
+    even = np.arange(len(u)) % 2 == 0
+    levels = np.linspace(0.0, 1.0, N_MI_BINS + 1)[1:-1]
+    y_odd = codes[~even]
+    pmi = [_pointwise_mi(np.searchsorted(np.quantile(f[even], levels), f[~even], side="right").astype(np.int64), N_MI_BINS, y_odd, ky) for f in feats]
+    best = 1 + int(np.argmax([m.mean() for m in pmi[1:]]))
+    d = pmi[0] - pmi[best]
+    return float(d.std() / np.sqrt(len(d)))
 
 
 def _scan_all(
@@ -235,6 +289,7 @@ def hybrid_offset_product_fe(
     top_k: int = 3,
     scan_rows: int = DEFAULT_SCAN_ROWS,
     min_synergy: Optional[float] = SYNERGY_MIN,
+    min_relative_gain: float = DEFAULT_MIN_RELATIVE_GAIN,
     unary_preset: str = "minimal",
     reject_sink: Optional[Callable[..., None]] = None,
 ) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":
@@ -262,36 +317,50 @@ def hybrid_offset_product_fe(
     unaries = tuple(u for u in OFFSET_UNARIES if u in funcs)
     xs = [np.asarray(X[c].to_numpy(), dtype=np.float64) for c in cols]
     nu = len(unaries)
+    qcodes = [_quantile_codes(x[rows], N_MI_BINS) for x in xs]
+    yr_rows = _rank_scaled(y_arr[rows])
     if min_synergy is None:
         pairs = [(i, j) for i in range(len(cols)) for j in range(i + 1, len(cols))]
     else:
-        pairs = synergy_pairs(xs, rows, codes, ky, float(min_synergy))
+        pairs = synergy_pairs(xs, rows, codes, ky, float(min_synergy), qcodes)
     if not pairs:
         return empty
     used = sorted({c for pair in pairs for c in pair})
     slot = {c: k for k, c in enumerate(used)}
     tasks = np.array([(slot[i], slot[j], a, b) for (i, j) in pairs for a in range(nu) for b in range(nu)], dtype=np.int64)
     used_xs = [xs[c] for c in used]
-    out_mi, clips = _scan_all(used_xs, funcs, unaries, rows, tasks, _rank_scaled(y_arr[rows]), codes, ky, [_log_anchor(x) for x in used_xs])
-    n_scan = len(rows)
-    margin = ACCEPT_MARGIN_C / n_scan
+    out_mi, clips = _scan_all(used_xs, funcs, unaries, rows, tasks, yr_rows, codes, ky, [_log_anchor(x) for x in used_xs])
+    accepted = []
+    per_pair = len(unaries) ** 2
     accepted = []
     per_pair = len(unaries) ** 2
     for p, (i, j) in enumerate(pairs):
         rows_p = slice(p * per_pair, (p + 1) * per_pair)
         with np.errstate(invalid="ignore", all="ignore"):
-            # The winner is picked on the even rows against the baselines of the SAME unary pair; the held-out test then compares it with the best shift-free baseline of ANY unary
-            # pair of this column pair (the preset's own products and sums included), so a product that is only a better additive fit than some other unary choice is not accepted.
+            # The winner is picked on the even rows against the baselines of the SAME unary pair; the held-out test then compares it with the best shift-free baseline of ANY unary pair of this
+            # column pair (the preset's own products and sums included).
             train_gain = out_mi[rows_p, 0, 0] - np.nanmax(out_mi[rows_p, 0, 1:], axis=1)
             if not np.isfinite(train_gain).any():
                 continue
             k = p * per_pair + int(np.nanargmax(train_gain))
             base_ho = float(np.nanmax(out_mi[rows_p, 1, 1:]))
-            g_ho = float(out_mi[k, 1, 0]) - base_ho
-        if g_ho > margin and g_ho > ACCEPT_MIN_RELATIVE_GAIN * base_ho:
-            accepted.append((g_ho, i, j, int(tasks[k, 2]), int(tasks[k, 3])))
+        a, b = int(tasks[k, 2]), int(tasks[k, 3])
+        cand_ho = float(out_mi[k, 1, 0])
+        gain = cand_ho - base_ho
+        se = float("nan")
+        if gain > 0.0:
+            # Last gates, run for the few screened winners only: the best weighted sum of the winner's own two factors (a product with large shifts degenerates into one, and a weighted sum with
+            # better weights than the least-squares baseline beats the fixed baselines with no interaction at all), then significance against the standard error of the gain.
+            u_rows = _unary_rows(xs[i], unaries[a], rows, funcs)
+            v_rows = _unary_rows(xs[j], unaries[b], rows, funcs)
+            base_ho = max(base_ho, float(weighted_sum_heldout_mi(u_rows, v_rows, codes, ky, N_MI_BINS, MIX_DIRECTIONS)))
+            gain = cand_ho - base_ho
+            if gain > 0.0:
+                se = _winner_standard_error(u_rows, v_rows, yr_rows, codes, ky, clips[slot[i], a], clips[slot[j], b])
+        if gain > SIGNIFICANCE_Z * se and gain > float(min_relative_gain) * base_ho:
+            accepted.append((gain, i, j, a, b))
         elif reject_sink is not None:
-            reject_sink(gate="offset_product_heldout_margin", candidate=f"{cols[i]}x{cols[j]}", operand_names=f"{cols[i]},{cols[j]}", operator="offmul", observed=g_ho, threshold=margin, reason="held-out MI gain below margin")
+            reject_sink(gate="offset_product_gain", candidate=f"{cols[i]}x{cols[j]}", operand_names=f"{cols[i]},{cols[j]}", operator="offmul", observed=gain, threshold=SIGNIFICANCE_Z * se, reason="held-out MI gain not significant or below the practical effect")
     accepted.sort(key=lambda r: -r[0])
     yr_full = _rank_all_rows(y_arr, rows) if accepted else None  # ranking every row is only needed to refit the shifts of an accepted candidate
     new_cols: "dict[str, np.ndarray]" = {}

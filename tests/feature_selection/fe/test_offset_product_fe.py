@@ -221,3 +221,67 @@ def test_fit_stores_the_log_anchor_of_a_column_with_non_positive_values():
     x = np.array([-0.5, 0.2, 1.0])
     assert _log_anchor(x) == pytest.approx(1e-5 + 0.5)
     assert _log_anchor(np.array([0.1, 2.0])) == 0.0
+
+
+def _bounded_case(n: int, seed: int):
+    """The sign-crossing target with the columns in [0.1, 1.1): ``a`` and ``d`` carry independent additive effects, only (c, d) interact."""
+    r = np.random.default_rng(seed)
+    a, b, c, d, e, f = (r.random(n) + 0.1 for _ in range(6))
+    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), 0.2 * a**2 / b + f / 5.0 + np.log(2 * c) * np.sin(d / 3)
+
+
+def test_independent_additive_effects_are_not_credited_as_an_interaction():
+    """Regression: with the shift-free baselines alone, the unrelated pair (a, d) was accepted in 35-50% of the runs (a weighted sum with better weights than the least-squares one beat the baselines);
+    the weighted-sum baseline of the winner's own factors removes it while (c, d) is still found in every run."""
+    for seed in range(8):
+        X, y = _bounded_case(15000, seed)
+        _, _, recipes, _ = hybrid_offset_product_fe(X, y, top_k=10)
+        pairs = {tuple(sorted(r.src_names)) for r in recipes}
+        assert pairs == {("c", "d")}, f"seed {seed}: accepted pairs {pairs}"
+
+
+def test_weighted_sum_baseline_separates_an_additive_target_from_an_interaction():
+    """The best weighted sum carries most of the information of an additive target (MI 1.4) and less than half of what the true feature of a sign-crossing product carries (0.65 against 1.5)."""
+    from mlframe.feature_selection.filters._offset_product_kernels import weighted_sum_heldout_mi
+    from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
+
+    r = np.random.default_rng(0)
+    u, v = r.random(20000), r.random(20000)
+    mi = {}
+    for name, y in (("additive", 2 * u + v + 0.1 * r.standard_normal(20000)), ("product", (u - 0.5) * (v - 0.5) + 0.01 * r.standard_normal(20000))):
+        codes = np.asarray(encode_y_for_classif_mi(y), dtype=np.int64)
+        mi[name] = float(weighted_sum_heldout_mi(u, v, codes, int(codes.max()) + 1, 10, 32))
+    assert mi["additive"] > 1.2, mi
+    assert mi["product"] < 0.8, mi
+
+
+def test_the_unrelated_pair_is_accepted_without_the_weighted_sum_baseline_and_the_significance_bar(monkeypatch):
+    """Teeth: with the pre-fix rule (no weighted-sum baseline, no standard-error bar, a 3% floor) the unrelated pair of the regression test above is accepted on these seeds."""
+    import mlframe.feature_selection.filters._offset_product_fe as fe_mod
+
+    monkeypatch.setattr(fe_mod, "weighted_sum_heldout_mi", lambda *a, **k: 0.0)
+    monkeypatch.setattr(fe_mod, "SIGNIFICANCE_Z", 0.0)
+    unrelated = 0
+    for seed in range(8):
+        X, y = _bounded_case(15000, seed)
+        _, _, recipes, _ = hybrid_offset_product_fe(X, y, top_k=10, min_relative_gain=0.03)
+        unrelated += len({tuple(sorted(r.src_names)) for r in recipes} - {("c", "d")})
+    assert unrelated >= 1
+
+
+def test_standard_error_of_the_gain_shrinks_with_the_square_root_of_n():
+    """The bar follows the sample size by itself: the standard error of the shifted product's gain over its baselines at 4x the rows is about half."""
+    from mlframe.feature_selection.filters._offset_product_fe import _rank_scaled, _winner_standard_error
+    from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
+
+    def se_at(n):
+        """Standard error of the winner's gain on ``n`` rows of a shifted-product target."""
+        r = np.random.default_rng(1)
+        u, v = r.random(n), r.random(n)
+        y = (u - 0.4) * (v - 0.7) + 0.1 * r.standard_normal(n)
+        codes = np.asarray(encode_y_for_classif_mi(y), dtype=np.int64)
+        clip_u, clip_v = np.quantile(u, [0.01, 0.99]), np.quantile(v, [0.01, 0.99])
+        return _winner_standard_error(u, v, _rank_scaled(y), codes, int(codes.max()) + 1, clip_u, clip_v)
+
+    ratio = se_at(8000) / se_at(32000)
+    assert 1.4 < ratio < 2.8, ratio

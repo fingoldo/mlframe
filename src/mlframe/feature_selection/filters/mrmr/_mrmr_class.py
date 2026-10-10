@@ -2956,13 +2956,14 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_mahalanobis_density_top_k: int = 1,
         # OFFSET PRODUCT (u + s) * (v + t) of two unary-transformed raw columns: the interaction of factors that change sign INSIDE the data range (ln(2c) crosses zero at c=0.5),
         # which the fixed-zero unary x binary pair table cannot express. The shifts are a closed-form interaction regression on rank(y) (no grid); a column is kept only when its
-        # held-out MI beats the best shift-free baseline (u*v, u+v, u, v, weighted sum) by 40/n. Default ON (corrective for a measured gap). Replay (kind ``offset_product``)
+        # held-out MI beats the best shift-free baseline (u*v, u+v, u, v, weighted sums) by more than 2 standard errors of the gain and by at least ``fe_offset_product_min_relative_gain`` (5%) of the baseline MI. Default ON (corrective for a measured gap). Replay (kind ``offset_product``)
         # stores the shifts, non-finite fills and output clip; no y reference.
         fe_offset_product_enable: bool = True,
         fe_offset_product_cols: tuple = (),
         fe_offset_product_max_pair_cols: int = 6,
         fe_offset_product_top_k: int = 3,
         fe_offset_product_scan_rows: int = 100_000,
+        fe_offset_product_min_relative_gain: float = 0.05,
         # HAAR WAVELET / localized multiresolution basis.
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or

@@ -299,6 +299,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_offset_product_max_pair_cols": 6,
     "fe_offset_product_top_k": 3,
     "fe_offset_product_scan_rows": 100_000,
+    "fe_offset_product_min_relative_gain": 0.05,
     "offset_product_features_": [],
     # Haar wavelet basis. Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new

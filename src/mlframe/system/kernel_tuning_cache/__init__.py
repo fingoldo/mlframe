@@ -21,8 +21,9 @@ from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 
 from ._discovery import discover_specs
 from ._ensure import cmd_ensure
+from ._policy import kernel_tuning_fit_policy
 
-__all__ = ["main"]
+__all__ = ["main", "kernel_tuning_fit_policy"]
 
 
 def main(argv: list[str] | None = None) -> int:
