@@ -202,7 +202,7 @@ def _scan_freqs(centers: np.ndarray, half: float, step: float) -> "tuple[np.ndar
 def _argmax_freq(cp: Any, power: Any, freqs_host: np.ndarray) -> np.ndarray:
     """Frequency at the first maximum of each row of ``power`` (one small transfer)."""
     best = cp.asnumpy(cp.argmax(power, axis=1))
-    return freqs_host[np.arange(len(best)), best]
+    return np.asarray(freqs_host[np.arange(len(best)), best])
 
 
 def _run_group(

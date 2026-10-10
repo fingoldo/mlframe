@@ -29,7 +29,7 @@ def pointwise_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) 
     px, py = joint.sum(axis=1, keepdims=True), joint.sum(axis=0, keepdims=True)
     with np.errstate(divide="ignore", invalid="ignore"):
         table = np.log(joint * n / (px @ py))
-    return np.where(joint > 0, table, 0.0)[codes, y_codes]
+    return np.asarray(np.where(joint > 0, table, 0.0)[codes, y_codes])
 
 
 def plugin_mi_of_codes(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> float:
@@ -40,7 +40,7 @@ def plugin_mi_of_codes(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky:
 def held_out_codes(feature: np.ndarray, fit_rows: np.ndarray, score_rows: np.ndarray, n_bins: int = N_BINS) -> np.ndarray:
     """Bin codes of ``feature[score_rows]`` using equal-frequency edges taken from ``feature[fit_rows]`` only."""
     edges = np.quantile(feature[fit_rows], np.linspace(0.0, 1.0, n_bins + 1)[1:-1])
-    return np.searchsorted(edges, feature[score_rows], side="right").astype(np.int64)
+    return np.asarray(np.searchsorted(edges, feature[score_rows], side="right"), dtype=np.int64)
 
 
 def paired_gain_se(cand_codes: np.ndarray, base_codes: np.ndarray, y_codes: np.ndarray, ky: int, n_codes: int = N_BINS) -> float:
