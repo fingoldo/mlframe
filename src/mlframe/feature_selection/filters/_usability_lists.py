@@ -148,6 +148,11 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
         from ._usability_warp_pool import warp_pool_candidates
 
         pool = list(pool) + warp_pool_candidates(df, y_cont, base_names, pool_kwargs["feature_dtype"], pool_kwargs["quantization_nbins"])
+    if bool(getattr(mrmr, "fe_row_stat_enable", False)):
+        # range / extreme / spread of several columns: a form a linear model cannot build; the greedy keeps one only if it helps the held-out linear fit
+        from ._usability_row_stat_pool import row_stat_pool_candidates
+
+        pool = list(pool) + row_stat_pool_candidates(df, y_cont, base_names, pool_kwargs["feature_dtype"], pool_kwargs["quantization_nbins"])
     linear = usability_greedy(pool, y_cont, w=w_lin, seed=seed, **greedy_kwargs)
     universal = usability_greedy(pool, y_cont, w=w_uni, seed=seed, **greedy_kwargs)
     mrmr.support_linear_ = _drop_stored_values(linear)

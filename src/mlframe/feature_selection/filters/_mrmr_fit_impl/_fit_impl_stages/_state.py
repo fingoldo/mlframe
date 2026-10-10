@@ -58,6 +58,7 @@ ROUTED_RECIPE_FAMILIES = (
     "mahalanobis_density",
     "offset_product",
     "oof_warp",
+    "row_stat",
     "wavelet",
     "rankgauss",
     "temporal_agg",

@@ -2972,6 +2972,14 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_oof_warp_top_k: int = 5,
         fe_oof_warp_scan_rows: int = 100_000,
         fe_oof_warp_min_relative_gain: float = 0.05,
+        # ROW STATISTICS of a learned subset (three or more) of numeric columns: min, max, median, range, std, soft max / soft min. Kept when the held-out MI beats the best raw column and
+        # the best linear mix of the subset by more than 2 standard errors and by at least ``fe_row_stat_min_relative_gain`` of the baseline MI. Default ON (corrective); replay
+        # (kind ``row_stat``) stores the standardisation, no y reference.
+        fe_row_stat_enable: bool = True,
+        fe_row_stat_cols: tuple = (),
+        fe_row_stat_top_k: int = 2,
+        fe_row_stat_scan_rows: int = 20_000,
+        fe_row_stat_min_relative_gain: float = 0.05,
         # HAAR WAVELET / localized multiresolution basis.
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or
@@ -3269,6 +3277,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             "fe_conditional_dispersion_enable",  # legacy OFF; ctor ON
             "fe_offset_product_enable",  # legacy OFF; ctor ON
             "fe_oof_warp_enable",  # legacy OFF; ctor ON
+            "fe_row_stat_enable",  # legacy OFF; ctor ON
             "fe_wavelet_enable",  # legacy OFF; ctor ON
         }
     )

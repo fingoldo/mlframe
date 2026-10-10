@@ -316,6 +316,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     recipes.mahalanobis_density = {}
     recipes.offset_product = {}
     recipes.oof_warp = {}
+    recipes.row_stat = {}
     recipes.wavelet = {}
     recipes.rankgauss = {}
     recipes.grouped_agg = {}

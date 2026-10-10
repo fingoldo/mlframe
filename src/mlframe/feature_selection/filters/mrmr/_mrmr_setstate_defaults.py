@@ -307,6 +307,13 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_oof_warp_scan_rows": 100_000,
     "fe_oof_warp_min_relative_gain": 0.05,
     "oof_warp_features_": [],
+    # Row statistics. Pre-row-stat pickles default OFF so the legacy reload path is byte-identical (the live default is ON for new fits via __init__).
+    "fe_row_stat_enable": False,
+    "fe_row_stat_cols": (),
+    "fe_row_stat_top_k": 2,
+    "fe_row_stat_scan_rows": 20_000,
+    "fe_row_stat_min_relative_gain": 0.05,
+    "row_stat_features_": [],
     "offset_product_features_": [],
     # Haar wavelet basis. Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new

@@ -41,7 +41,7 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
 | **RESOLVED** | P2 | `W2-B1` | out-of-fold warp service and operator C (`oof_warp1d`) | `_oof_warp_service.py` (njit cross-fit), `_oof_warp_fe.py`, stage, 11-point wiring, usability-pool offer, fuzz axis; acceptance by the standard-error bar (no fixed margin); 13 + 1 tests; 0.04 s for five columns at 20k, 0.2 s at 1M; remains: device-born fit for the strict mode (`W2-B1b`) |
-| **TODO** | P2 | `W2-B2` | build operator G (`row_stat`) | verdict ADOPT: helps the gradient-boosting model too (+2.6 to +9.3% MAE), exact subset in 8/8 seeds |
+| **RESOLVED** | P2 | `W2-B2` | operator G (`row_stat`) | `_row_stat_kernels.py` (parallel candidate kernel, sample-based bin edges), `_row_stat_fe.py`, stage, wiring, usability-pool offer, fuzz axis; baseline = best raw column and best linear mix of the subset, bar = 2 standard errors + practical-effect knob, subsets of at least 3 columns; 17 tests; exact subset recovered 12/12 and 5/5, 0 false accepts on 4 null/additive/pair layouts; 0.2-0.4 s per fit |
 | **TODO** | P2 | `W2-B3` | build the pair screen M (`_pair_residual_screen`) | verdict ADOPT as a selection step: true pair ranked first 8/8; two fixes (bins rule, threshold 60 plus permutation floor) |
 | **TODO** | P3 | `W2-B4` | build operator B (`oof_cell2d`), gated for linear and neural consumers | ridge MAE +45 to +55%, gradient-boosting model -0.8 to -1.7% |
 | **DOC** | P2 | `W2-02` | 2-D shrinkage default (m = 3) | re-tested at n = 20000 against 10 and 20: ordering consistent, small; keep 3 (an earlier fit bug, W2-10, had invalidated the first comparison) |
@@ -50,5 +50,5 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 | **DECIDED** | P2 | `W2-11` | acceptance rule for B, C, G | standard-error bar + practical-effect constructor knob (supersedes c = 40 + 3%) |
 | **RESOLVED** | P3 | `W2-12` | C on low-cardinality integer columns acts like a target encoding | columns with at most `FEW_CLASSES_MAX` distinct values are skipped (`test_nominal_like_columns_are_skipped`) |
 | **OPEN** | P3 | `W2-13` | non-monotone multiclass needs one-vs-rest warps | |
-| **OPEN** | P3 | `W2-14` | G dominated by `argsort` in `qbin` at 100k | rank reuse / njit |
+| **RESOLVED** | P3 | `W2-14` | G dominated by `argsort` in `qbin` at 100k | the production kernel bins by edges from a 2048-row sample of the even rows (no full sort): 0.2-0.4 s per fit against 1.1 s in the prototype |
 | **TODO** | P3 | `W2-B1b` | device-born warp fit for the strict-resident mode | the fit is njit on at most 100k rows (0.2 s at 1M); a fused kernel that builds bin sums per fold on the device would remove the host work |
