@@ -60,4 +60,4 @@
 # Bumped 2026-10-03 from f6aa24a to 9779e9f (still v1.18.0: f6aa24a plus the black_filtered_apply --check speed-up that keeps the tests/ Black job under its 15-minute limit; the 1.19-1.20 gates are not adopted yet), same set of pins.
 # Bumped 2026-10-05 from v1.21.0 (559f720) to 41ada19: v1.21.0 plus the deferred_drift empty-list fix, the psycopg2 dev extra and the empty-module coverage fix; every pin moves together.
 # Bumped 2026-10-09 from the v1.22.2 commit (8bcc683) to v1.22.3 (e3c24ab): v1.22.2 failed the release workflow's verify job and was never published; every pin moves together.
-py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@e3c24ab4bdf2326b72112bae5d40248ed177b595  # v1.22.3  # pragma: allowlist secret
+py-ci-shared @ git+https://github.com/fingoldo/py-ci-shared@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.4  # pragma: allowlist secret

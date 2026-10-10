@@ -242,80 +242,74 @@ def test_biz_value_realistic_mixed_degenerate():
 # --------------------------------------------------------------------------- regression: content-hash + M-layout perf fix
 
 
-def test_regression_wide_frame_matches_reference_slow_content_hash():
-    """2026-07-17: ``_content_key`` was switched from ``pandas.util.hash_array(...).tobytes()`` to a
-    copy-free xxh3 hash of the raw buffer (the dominant self-time line of ``audit_degenerate_columns`` on
-    wide frames -- measured ~17ms/column), and the collinearity matrix ``M`` was rebuilt row-major (was a
-    column-into-row-major-array write antipattern, ~13ms/column). Both are perf-only changes; this pins
-    exact output equivalence against the ORIGINAL (slow) implementation on a wide (p=60), NaN-and-duplicate-
-    and-collinear-laden frame -- the shape most likely to expose an off-by-something in the row/column swap
-    or a NaN-bit-pattern mismatch between the two hashing schemes."""
-    from mlframe.feature_selection.filters import _mrmr_degenerate as m
-
-    def _reference_content_key(values):
-        """Original (pre-2026-07-17) pandas.util.hash_array-based content key, kept as the ground truth."""
+def _reference_content_key(values):
+    """Original (pre-2026-07-17) pandas.util.hash_array-based content key, kept as the ground truth."""
+    try:
+        return pd.util.hash_array(np.asarray(values)).tobytes()
+    except Exception:
         try:
-            return pd.util.hash_array(np.asarray(values)).tobytes()
+            return np.asarray(values).tobytes()
         except Exception:
-            try:
-                return np.asarray(values).tobytes()
-            except Exception:
-                return None
+            return None
 
-    def _reference_audit(X):
-        """Original (pre-2026-07-17) audit_degenerate_columns implementation, kept as the ground truth."""
-        degenerate: dict = {}
-        seen_content: dict = {}
-        numeric_cols: list = []
-        for name, values in m._column_arrays(X):
-            if m._is_all_nan(values):
-                degenerate[name] = "all_nan"
-                continue
-            if m._is_constant(values):
-                degenerate[name] = "constant"
-                continue
-            key = _reference_content_key(values)
-            if key is not None:
-                if key in seen_content:
-                    degenerate[name] = f"duplicate_of:{seen_content[key]}"
-                    continue
-                seen_content[key] = name
-            if values.dtype.kind in "fiu":
-                v = values.astype(np.float64)
-                finite = np.isfinite(v)
-                if finite.sum() >= 2:
-                    numeric_cols.append((name, v, finite))
-        live = [(n, v, f) for (n, v, f) in numeric_cols if n not in degenerate]
-        if len(live) >= 2:
-            names = [n for (n, _, _) in live]
-            n_rows = live[0][1].shape[0]
-            M = np.empty((n_rows, len(live)), dtype=np.float64)
-            for k, (_, v, fin) in enumerate(live):
-                col = v.copy()
-                if not fin.all():
-                    col_mean = float(np.nanmean(col)) if fin.any() else 0.0
-                    col = np.where(fin, col, col_mean)
-                M[:, k] = col
-            with np.errstate(invalid="ignore"):
-                M -= M.mean(axis=0, keepdims=True)
-                stds = np.sqrt((M * M).sum(axis=0))
-            good = stds > 0
-            with np.errstate(invalid="ignore", divide="ignore"):
-                M = np.where(good, M / np.where(stds == 0, 1.0, stds), 0.0)
-            corr = M.T @ M
-            np.fill_diagonal(corr, 0.0)
-            abs_corr = np.abs(corr)
-            for j in range(len(live)):
-                if not good[j]:
-                    continue
-                row = abs_corr[j, :j]
-                hits = np.where(np.abs(row - 1.0) <= m._COLLINEAR_TOL)[0]
-                for i in hits:
-                    if good[i] and names[i] not in degenerate:
-                        degenerate[names[j]] = f"collinear_with:{names[i]}"
-                        break
-        return degenerate
 
+def _reference_audit(m, X):
+    """Original (pre-2026-07-17) audit_degenerate_columns implementation, kept as the ground truth."""
+    degenerate: dict = {}
+    seen_content: dict = {}
+    numeric_cols: list = []
+    for name, values in m._column_arrays(X):
+        if m._is_all_nan(values):
+            degenerate[name] = "all_nan"
+            continue
+        if m._is_constant(values):
+            degenerate[name] = "constant"
+            continue
+        key = _reference_content_key(values)
+        if key is not None:
+            if key in seen_content:
+                degenerate[name] = f"duplicate_of:{seen_content[key]}"
+                continue
+            seen_content[key] = name
+        if values.dtype.kind in "fiu":
+            v = values.astype(np.float64)
+            finite = np.isfinite(v)
+            if finite.sum() >= 2:
+                numeric_cols.append((name, v, finite))
+    live = [(n, v, f) for (n, v, f) in numeric_cols if n not in degenerate]
+    if len(live) >= 2:
+        names = [n for (n, _, _) in live]
+        n_rows = live[0][1].shape[0]
+        M = np.empty((n_rows, len(live)), dtype=np.float64)
+        for k, (_, v, fin) in enumerate(live):
+            col = v.copy()
+            if not fin.all():
+                col_mean = float(np.nanmean(col)) if fin.any() else 0.0
+                col = np.where(fin, col, col_mean)
+            M[:, k] = col
+        with np.errstate(invalid="ignore"):
+            M -= M.mean(axis=0, keepdims=True)
+            stds = np.sqrt((M * M).sum(axis=0))
+        good = stds > 0
+        with np.errstate(invalid="ignore", divide="ignore"):
+            M = np.where(good, M / np.where(stds == 0, 1.0, stds), 0.0)
+        corr = M.T @ M
+        np.fill_diagonal(corr, 0.0)
+        abs_corr = np.abs(corr)
+        for j in range(len(live)):
+            if not good[j]:
+                continue
+            row = abs_corr[j, :j]
+            hits = np.where(np.abs(row - 1.0) <= m._COLLINEAR_TOL)[0]
+            for i in hits:
+                if good[i] and names[i] not in degenerate:
+                    degenerate[names[j]] = f"collinear_with:{names[i]}"
+                    break
+    return degenerate
+
+
+def _wide_nan_dup_collinear_frame():
+    """Build the wide (p=60) frame laden with constants, all-NaN, duplicate, collinear and NaN-sprinkled columns."""
     rng = np.random.RandomState(7)
     n = 400
     cols: dict = {}
@@ -340,5 +334,19 @@ def test_regression_wide_frame_matches_reference_slow_content_hash():
         cols[f"c{j}"] = v
         base[f"c{j}"] = v
     X = pd.DataFrame(cols)
+    return X
 
-    assert audit_degenerate_columns(X) == _reference_audit(X)
+
+def test_regression_wide_frame_matches_reference_slow_content_hash():
+    """2026-07-17: ``_content_key`` was switched from ``pandas.util.hash_array(...).tobytes()`` to a
+    copy-free xxh3 hash of the raw buffer (the dominant self-time line of ``audit_degenerate_columns`` on
+    wide frames -- measured ~17ms/column), and the collinearity matrix ``M`` was rebuilt row-major (was a
+    column-into-row-major-array write antipattern, ~13ms/column). Both are perf-only changes; this pins
+    exact output equivalence against the ORIGINAL (slow) implementation on a wide (p=60), NaN-and-duplicate-
+    and-collinear-laden frame -- the shape most likely to expose an off-by-something in the row/column swap
+    or a NaN-bit-pattern mismatch between the two hashing schemes."""
+    from mlframe.feature_selection.filters import _mrmr_degenerate as m
+
+    X = _wide_nan_dup_collinear_frame()
+
+    assert audit_degenerate_columns(X) == _reference_audit(m, X)

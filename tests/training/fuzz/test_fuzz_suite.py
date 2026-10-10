@@ -15,6 +15,7 @@ import importlib
 import os
 import time
 import traceback
+from typing import Any
 
 import pytest
 
@@ -138,35 +139,8 @@ def _fuzz_combo_cleanup():
         pass
 
 
-@pytest.mark.slow
-@pytest.mark.slow_only
-@pytest.mark.timeout(900)
-@pytest.mark.parametrize("combo", _COMBO_PARAMS)
-def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
-    """Run ``train_mlframe_models_suite`` on one random combo; log the outcome.
-
-    FUZZ-1 (2026-05-23) -- when ``MLFRAME_FUZZ_PERF_MODE`` env var is set
-    (any truthy value: 1/yes/true/on), each combo is downgraded to a tiny
-    config-coverage run: n_rows=1000, iterations=1, MRMR/Boruta/ensembles
-    /baseline_diagnostics/dummy_baselines all disabled. Goal: verify suite
-    wiring on every combo in seconds instead of minutes. Quality / metric
-    assertions are NOT meaningful in this mode -- it's a smoke test only.
-
-    ``MLFRAME_FUZZ_FORCE_N_ROWS`` (bug-hunt mode) -- when set to a positive
-    int, overrides ONLY ``n_rows`` via ``dataclasses.replace``. ``FuzzCombo``
-    is frozen with no eager canonicalisation at construction -- n_rows-gated
-    rules (rare-imbalance clamp, ocsvm gate, RFECV/recurrent-model gates,
-    viz-rendering tier) are all COMPUTED LIVE off ``self.n_rows`` inside
-    ``canonical_key()`` / property methods, so they stay consistent for the
-    new size automatically; nothing needs to be "re-run". Unlike perf-mode,
-    every subsystem (MRMR, BorutaShap, ensembles, diagnostics) stays ON:
-    this is for exhaustive bug-hunting at a fixed fast row count, not a
-    wiring smoke test. Applied AFTER perf-mode (so perf-mode's n_rows wins
-    if both are set) and BEFORE ``xfail_reason`` so n_rows-gated xfail rules
-    see the forced size.
-
-    Default (env unset): full combo runs unchanged.
-    """
+def _apply_env_overrides(combo: FuzzCombo) -> FuzzCombo:
+    """Apply the perf-mode and forced-n_rows env overrides to a combo."""
     import os as _os
 
     if _os.environ.get("MLFRAME_FUZZ_PERF_MODE", "").lower() in ("1", "yes", "true", "on"):
@@ -178,13 +152,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
         import dataclasses as _dataclasses
 
         combo = _dataclasses.replace(combo, n_rows=int(_forced_n_rows))
-    _skip_if_deps_missing(combo.models)
+    return combo
 
-    # Known-bug rules: a failing run is recorded as the open gap, a passing run fails the test so the fixed rule is removed from KNOWN_XFAIL_RULES.
-    reason = xfail_reason(combo)
 
-    df, target_col, _cat_names = build_frame_for_combo(combo)
-
+def _snapshot_caller_frame(combo: FuzzCombo, df: Any) -> tuple[Any, Any]:
+    """Capture the caller frame shape and columns before the suite runs (in-memory input only)."""
     # #16 invariant: capture caller-frame schema + shape before the
     # suite runs; re-assert identity after. Applies when input stays
     # in-memory (parquet-path combos have no Python-level caller frame
@@ -198,7 +170,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
             {c: str(df[c].dtype) for c in df.columns}
         frame_shape_before = getattr(df, "shape", None)
         frame_cols_before = tuple(df.columns) if hasattr(df, "columns") else None
+    return frame_shape_before, frame_cols_before
 
+
+def _resolve_combo_target_type(combo: FuzzCombo, target_col: str) -> Any:
+    """Map the combo's string target_type to the TargetTypes enum."""
     # Resolve target_type for FTE — maps combo's string target_type to
     # the TargetTypes enum. Multilabel + multi_target_regression get
     # explicit TargetTypes to trigger the 2-D target unpack path in FTE.
@@ -224,53 +200,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
         "learning_to_rank": _TT.LEARNING_TO_RANK,
         "multi_target_regression": _TT.MULTI_TARGET_REGRESSION,
     }[_effective_target_type]
-    # LTR combos: build_frame_for_combo adds a 'qid' column for queries;
-    # surface it as the FTE's group_field so the ranker suite picks it up.
-    _is_ltr = combo.target_type == "learning_to_rank"
-    fte = SimpleFeaturesAndTargetsExtractor(
-        target_column=target_col,
-        regression=(combo.target_type == "regression"),
-        target_type=_combo_tt,
-        # 2026-04-27 Session 7 batch 6: when the combo injects a
-        # datetime column ('ts' from build_frame_for_combo), surface it
-        # as ts_field so train_mlframe_models_suite's temporal_audit
-        # auto-detect kicks in. Without this the audit stays silent
-        # for fuzz combos and the auto-detect path is untested.
-        ts_field=("ts" if combo.with_datetime_col else None),
-        # 2026-05-04: LTR combos need group_field for the ranker suite.
-        group_field=("qid" if _is_ltr else None),
-        target_carrier=combo.target_carrier,
-        # 2026-05-21 iter150 -- wire weight_schemas through (latent bug:
-        # the axis has existed since iter113 but the FTE init was missing
-        # the kwarg, so every combo silently fell back to
-        # ``sample_weights={}``. Combos still dedup'd distinct via the
-        # canonical_key BUT had identical runtime behaviour, leaving
-        # the recency-weight code path (FTE._build_sample_weights, the
-        # suite's per-weight loop, recency vs uniform branch in
-        # _phase_train_one_target) entirely unfuzzed).
-        weight_schemas=combo.weight_schemas,
-        # 2026-05-21 iter150 -- multi-target axis. FTE adds synthetic
-        # extra targets to target_by_type per combo.extra_targets so the
-        # suite's per-target outer loop runs more than once.
-        extra_targets=combo.extra_targets,
-    )
+    return _combo_tt
 
-    # Resolve combo-specific kwargs (outlier detector, custom prep,
-    # parquet path). These feed directly into train_mlframe_models_suite.
-    df_input = _maybe_to_parquet(combo, df, tmp_path)
-    outlier_detector = _outlier_detector_for_combo(combo)
-    custom_pre = _custom_pre_pipelines_for_combo(combo)
 
-    # Chart/report rendering: mirror the canonical_key gate (small n_rows tier only) so the suite call below renders charts exactly on the
-    # combos whose identity reflects rendering-on. Force the matplotlib Agg backend so the figure path runs without a display (headless box).
-    _viz_on = bool(combo.enable_viz_rendering_cfg) and combo.n_rows <= 1000
-    if _viz_on:
-        import matplotlib
-
-        matplotlib.use("Agg", force=True)
-
-    from mlframe.training.core import train_mlframe_models_suite
-
+def _build_ltr_models_and_config(combo: FuzzCombo, _is_ltr: bool) -> tuple[list, Any]:
+    """Build the model allowlist and the LTR ranking config for a combo."""
     # LTR combos: filter mlframe_models to {cb,xgb,lgb} (HGB/Linear have
     # no native ranker) and build a ranking_config from the combo axis.
     # Pass target_type=LEARNING_TO_RANK explicitly so the suite's early
@@ -303,7 +237,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
                 eval_at=_ltr_eval_at,
             ),
         )
+    return _ltr_models, _ltr_ranking_config
 
+
+def _build_quantile_cfg(combo: FuzzCombo, _is_ltr: bool) -> Any:
+    """Build the quantile_regression_config for a combo, or None when the axis is off."""
     # 2026-05-21 iter151 -- P0 suite-level kwargs (built once per combo
     # and forwarded into _suite_kwargs below). Each is None when the
     # respective axis is disabled, so the production default behaviour
@@ -322,6 +260,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
             coverage_pairs=_coverage_pairs,
             wrapper_n_jobs=combo.quantile_wrapper_n_jobs_cfg,
         )
+    return _quantile_cfg
+
+
+def _build_linear_cfg(combo: FuzzCombo) -> Any:
+    """Build the linear_model_config for a combo, or None when no linear model is present."""
     # P0-2 linear_model_config: only meaningful when "linear" in models.
     _linear_cfg = None
     if "linear" in combo.models:
@@ -350,6 +293,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
                 l1_ratio=_l1_ratio,
             )
         )
+    return _linear_cfg
+
+
+def _build_fhc(combo: FuzzCombo) -> Any:
+    """Build the feature_handling_config for a combo, or None when disabled or unconstructible."""
     # P0-3 feature_handling_config: instantiate with nested sub-config
     # overrides per the iter162 deep-kwargs audit. Each sub-config field
     # falls back to library defaults when not on the axis OR when import
@@ -450,6 +398,11 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
             _fhc = FeatureHandlingConfig(**_safe_cfg_kwargs(FeatureHandlingConfig, **_fhc_kw))
         except (ImportError, AttributeError, TypeError, ValueError):
             _fhc = None  # tolerate import / construction failure
+    return _fhc
+
+
+def _build_precomputed(combo: FuzzCombo, df_input: Any, df: Any) -> Any:
+    """Build the precomputed trainset-stats bundle for a combo, or None."""
     # P0-4 precomputed: build the trainset_features_stats bundle. The
     # other slots (dummy_baselines, composite_target_specs) raise
     # NotImplementedError if requested -- precompute_all only fills the
@@ -462,6 +415,130 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
             _precomputed = precompute_all(df_input if not isinstance(df_input, str) else df, target_by_type=None)
         except (TypeError, ValueError, KeyError, AttributeError, NotImplementedError):
             _precomputed = None  # tolerate parquet-path / FTE-shape edge cases
+    return _precomputed
+
+
+def _assert_post_train_invariants(combo: FuzzCombo, df: Any, trained: Any, _meta: Any, frame_cols_before: Any, frame_shape_before: Any, tmp_path: Any) -> None:
+    """Assert the free per-combo invariants on the suite outcome."""
+    # --- Post-train invariants (free on every combo) ---
+    # #16 no caller-frame mutation (skip for parquet-path).
+    frame_tracked = combo.input_storage == "memory" and frame_cols_before is not None
+    assert not frame_tracked or tuple(df.columns) == frame_cols_before, f"caller-frame columns mutated: before={frame_cols_before} after={tuple(df.columns)}"
+    shape_after = getattr(df, "shape", None)
+    assert not frame_tracked or shape_after == frame_shape_before, f"caller-frame shape mutated: before={frame_shape_before} after={shape_after}"
+    # #20 metadata schema: load-bearing keys present.
+    # ``model_schemas`` is only populated when at least one model
+    # successfully trained — combos that legitimately degrade to
+    # an empty trained dict (continue_on_failure=True + all models
+    # failed) won't have it. Check the always-present keys
+    # unconditionally; model_schemas only when trained non-empty.
+    _missing_meta_keys = [k for k in ("columns", "cat_features", "outlier_detection") if _meta is not None and k not in _meta]
+    assert not _missing_meta_keys, f"metadata missing load-bearing key(s) {_missing_meta_keys}; keys={list(_meta or {})[:20]}"
+    assert not trained or _meta is None or "model_schemas" in _meta, f"metadata missing 'model_schemas' despite non-empty trained dict; keys={list(_meta)[:20]}"
+
+    # --- Fix C property invariants (cheap, per-combo) ---
+    # Catches silent degeneracy that a "no exception" assertion misses:
+    # dead features, all-zero predictions, NaN leakage to the model
+    # head, val-slice misalignment.
+    _assert_prediction_invariants(trained, _meta, combo)
+    # --- R3-3 I4 serialization roundtrip (env-gated, off by default) ---
+    if os.environ.get("MLFRAME_FUZZ_ROUNDTRIP") == "1":
+        _assert_serialization_roundtrip(trained, str(tmp_path), combo)
+
+
+@pytest.mark.slow
+@pytest.mark.slow_only
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("combo", _COMBO_PARAMS)
+def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
+    """Run ``train_mlframe_models_suite`` on one random combo; log the outcome.
+
+    FUZZ-1 (2026-05-23) -- when ``MLFRAME_FUZZ_PERF_MODE`` env var is set
+    (any truthy value: 1/yes/true/on), each combo is downgraded to a tiny
+    config-coverage run: n_rows=1000, iterations=1, MRMR/Boruta/ensembles
+    /baseline_diagnostics/dummy_baselines all disabled. Goal: verify suite
+    wiring on every combo in seconds instead of minutes. Quality / metric
+    assertions are NOT meaningful in this mode -- it's a smoke test only.
+
+    ``MLFRAME_FUZZ_FORCE_N_ROWS`` (bug-hunt mode) -- when set to a positive
+    int, overrides ONLY ``n_rows`` via ``dataclasses.replace``. ``FuzzCombo``
+    is frozen with no eager canonicalisation at construction -- n_rows-gated
+    rules (rare-imbalance clamp, ocsvm gate, RFECV/recurrent-model gates,
+    viz-rendering tier) are all COMPUTED LIVE off ``self.n_rows`` inside
+    ``canonical_key()`` / property methods, so they stay consistent for the
+    new size automatically; nothing needs to be "re-run". Unlike perf-mode,
+    every subsystem (MRMR, BorutaShap, ensembles, diagnostics) stays ON:
+    this is for exhaustive bug-hunting at a fixed fast row count, not a
+    wiring smoke test. Applied AFTER perf-mode (so perf-mode's n_rows wins
+    if both are set) and BEFORE ``xfail_reason`` so n_rows-gated xfail rules
+    see the forced size.
+
+    Default (env unset): full combo runs unchanged.
+    """
+    combo = _apply_env_overrides(combo)
+    _skip_if_deps_missing(combo.models)
+
+    # Known-bug rules: a failing run is recorded as the open gap, a passing run fails the test so the fixed rule is removed from KNOWN_XFAIL_RULES.
+    reason = xfail_reason(combo)
+
+    df, target_col, _cat_names = build_frame_for_combo(combo)
+
+    frame_shape_before, frame_cols_before = _snapshot_caller_frame(combo, df)
+
+    _combo_tt = _resolve_combo_target_type(combo, target_col)
+    # LTR combos: build_frame_for_combo adds a 'qid' column for queries;
+    # surface it as the FTE's group_field so the ranker suite picks it up.
+    _is_ltr = combo.target_type == "learning_to_rank"
+    fte = SimpleFeaturesAndTargetsExtractor(
+        target_column=target_col,
+        regression=(combo.target_type == "regression"),
+        target_type=_combo_tt,
+        # 2026-04-27 Session 7 batch 6: when the combo injects a
+        # datetime column ('ts' from build_frame_for_combo), surface it
+        # as ts_field so train_mlframe_models_suite's temporal_audit
+        # auto-detect kicks in. Without this the audit stays silent
+        # for fuzz combos and the auto-detect path is untested.
+        ts_field=("ts" if combo.with_datetime_col else None),
+        # 2026-05-04: LTR combos need group_field for the ranker suite.
+        group_field=("qid" if _is_ltr else None),
+        target_carrier=combo.target_carrier,
+        # 2026-05-21 iter150 -- wire weight_schemas through (latent bug:
+        # the axis has existed since iter113 but the FTE init was missing
+        # the kwarg, so every combo silently fell back to
+        # ``sample_weights={}``. Combos still dedup'd distinct via the
+        # canonical_key BUT had identical runtime behaviour, leaving
+        # the recency-weight code path (FTE._build_sample_weights, the
+        # suite's per-weight loop, recency vs uniform branch in
+        # _phase_train_one_target) entirely unfuzzed).
+        weight_schemas=combo.weight_schemas,
+        # 2026-05-21 iter150 -- multi-target axis. FTE adds synthetic
+        # extra targets to target_by_type per combo.extra_targets so the
+        # suite's per-target outer loop runs more than once.
+        extra_targets=combo.extra_targets,
+    )
+
+    # Resolve combo-specific kwargs (outlier detector, custom prep,
+    # parquet path). These feed directly into train_mlframe_models_suite.
+    df_input = _maybe_to_parquet(combo, df, tmp_path)
+    outlier_detector = _outlier_detector_for_combo(combo)
+    custom_pre = _custom_pre_pipelines_for_combo(combo)
+
+    # Chart/report rendering: mirror the canonical_key gate (small n_rows tier only) so the suite call below renders charts exactly on the
+    # combos whose identity reflects rendering-on. Force the matplotlib Agg backend so the figure path runs without a display (headless box).
+    _viz_on = bool(combo.enable_viz_rendering_cfg) and combo.n_rows <= 1000
+    if _viz_on:
+        import matplotlib
+
+        matplotlib.use("Agg", force=True)
+
+    from mlframe.training.core import train_mlframe_models_suite
+
+    _ltr_models, _ltr_ranking_config = _build_ltr_models_and_config(combo, _is_ltr)
+
+    _quantile_cfg = _build_quantile_cfg(combo, _is_ltr)
+    _linear_cfg = _build_linear_cfg(combo)
+    _fhc = _build_fhc(combo)
+    _precomputed = _build_precomputed(combo, df_input, df)
 
     t0 = time.perf_counter()
     outcome = "pass"
@@ -667,30 +744,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
             f"failed_models={(_meta or {}).get('failed_models')})"
         )
 
-        # --- Post-train invariants (free on every combo) ---
-        # #16 no caller-frame mutation (skip for parquet-path).
-        frame_tracked = combo.input_storage == "memory" and frame_cols_before is not None
-        assert not frame_tracked or tuple(df.columns) == frame_cols_before, f"caller-frame columns mutated: before={frame_cols_before} after={tuple(df.columns)}"
-        shape_after = getattr(df, "shape", None)
-        assert not frame_tracked or shape_after == frame_shape_before, f"caller-frame shape mutated: before={frame_shape_before} after={shape_after}"
-        # #20 metadata schema: load-bearing keys present.
-        # ``model_schemas`` is only populated when at least one model
-        # successfully trained — combos that legitimately degrade to
-        # an empty trained dict (continue_on_failure=True + all models
-        # failed) won't have it. Check the always-present keys
-        # unconditionally; model_schemas only when trained non-empty.
-        _missing_meta_keys = [k for k in ("columns", "cat_features", "outlier_detection") if _meta is not None and k not in _meta]
-        assert not _missing_meta_keys, f"metadata missing load-bearing key(s) {_missing_meta_keys}; keys={list(_meta or {})[:20]}"
-        assert not trained or _meta is None or "model_schemas" in _meta, f"metadata missing 'model_schemas' despite non-empty trained dict; keys={list(_meta)[:20]}"
-
-        # --- Fix C property invariants (cheap, per-combo) ---
-        # Catches silent degeneracy that a "no exception" assertion misses:
-        # dead features, all-zero predictions, NaN leakage to the model
-        # head, val-slice misalignment.
-        _assert_prediction_invariants(trained, _meta, combo)
-        # --- R3-3 I4 serialization roundtrip (env-gated, off by default) ---
-        if os.environ.get("MLFRAME_FUZZ_ROUNDTRIP") == "1":
-            _assert_serialization_roundtrip(trained, str(tmp_path), combo)
+        _assert_post_train_invariants(combo, df, trained, _meta, frame_cols_before, frame_shape_before, tmp_path)
     except Exception as exc:
         outcome = "fail"
         err_class = type(exc).__name__

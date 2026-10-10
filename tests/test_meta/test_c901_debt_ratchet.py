@@ -1,9 +1,8 @@
 """Ratchet on the tracked mccabe (C901) complexity debt.
 
 ``[tool.ruff.lint.mccabe]``'s comment describes the threshold-40 findings as "real, tracked debt". Nothing
-tracked them: C901 is ``--ignore``d in every blocking invocation (a recorded, correct decision -- the debt
-is not fixable in one pass), and the advisory job's output is nobody's assigned reading. The 2026-09-08
-review measured the count at 92 against a comment that said 70, so the debt had grown ~31% unnoticed.
+tracked them while C901 was ``--ignore``d in every blocking invocation. It is enforced directly now (the plain
+``ruff check`` steps in CI and pre-commit), and this ceiling stays as the second line: it is 0 and may not rise.
 
 A ratchet costs nothing and has no false positives: the count may fall freely, and only a rise fails. The
 number here is a measurement, not a target -- lower it whenever the debt drains.
@@ -21,8 +20,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Counted at pyproject's max-complexity, 25 since the per-function gate (test_function_complexity.py) replaced 40; 194 findings
-# (the 193 baseline functions plus _benchmarks/_profile_fuzz_1m_run_suite.py, which that gate does not scan). Ratchet DOWN only.
+# Counted at pyproject's max-complexity (25). The debt is fully paid: the ceiling is 0.
 C901_CEILING = 0
 
 

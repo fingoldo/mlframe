@@ -123,10 +123,8 @@ repos:
     hooks:
       - id: ruff
         name: "ruff (real bugs block)"
-        # The project's FULL configured select/ignore (pyproject.toml), minus C901: complexity is gated by the baselined
-        # ratchet tests/test_meta/test_function_complexity.py (limit 25), which a plain ruff run cannot express. Closed to 0 findings on 2026-07-09 after fixing every RUF/G/ISC/PERF
-        # finding. Mirrors CI's ``ruff check . --ignore C901`` exactly so a commit that passes
-        # locally cannot fail CI and vice versa.
+        # The project's FULL configured select/ignore (pyproject.toml), McCabe complexity (C901, max-complexity there) included.
+        # Mirrors CI's ``ruff check src/mlframe`` exactly so a commit that passes locally cannot fail CI and vice versa.
         #
         # CRITICAL: never use ``--select`` here. ``--select`` REPLACES the effective rule set
         # instead of narrowing pyproject.toml's configured select, silently dropping the
@@ -135,10 +133,10 @@ repos:
         # incident). ``--ignore`` only ADDS to the configured ignore list, so it is safe.
         # WHOLE TREE, not the changed files. pre-commit hands a hook only what the commit touches, so a finding in an untouched file was
         # invisible locally and surfaced only in CI -- which is how 26 of them accumulated on master while every local commit passed
-        # (2026-09-23). CI runs `ruff check src/mlframe --ignore C901`; this now runs the identical command, and at 0.23 s it costs
+        # (2026-09-23). CI runs `ruff check src/mlframe`; this now runs the identical command, and at 0.23 s it costs
         # nothing to do so. Passing the directory rather than file arguments also restores ruff's own pyproject `exclude` walk, which
         # explicit file arguments bypass -- so the hand-mirrored exclude regex this hook used to carry is no longer needed.
-        entry: python -m ruff check src/mlframe --ignore C901
+        entry: python -m ruff check src/mlframe
         language: system
         pass_filenames: false
         always_run: true
@@ -460,9 +458,9 @@ repos:
         name: "ruff tests/ (real bugs block)"
         # tests/ruff.toml (nested under tests/, `extend`s py-ci-shared's ruff-tests.toml) is
         # auto-discovered by ruff walking up from the path -- no --config override needed here.
-        # WHOLE TREE for the same reason as the src hook above: CI's tests-ruff-blocking job runs `ruff check tests --ignore C901` over
+        # WHOLE TREE for the same reason as the src hook above: CI's tests-ruff-blocking job runs `ruff check tests` over
         # everything, so scoping this to the changed files let findings in untouched test modules reach master unseen. 0.32 s.
-        entry: python -m ruff check tests --ignore C901
+        entry: python -m ruff check tests
         language: system
         pass_filenames: false
         always_run: true
@@ -538,8 +536,7 @@ repos:
         files: '^\.github/workflows/.*\.ya?ml$'
         stages: [pre-commit, pre-merge-commit]
 
-  # Advisory-taste gate: unrestricted-select ruff (surfaces everything the blocking gate's
-  # --ignore C901 hides) + mccabe complexity (C90) + pip-audit (dependency CVE feed, network-bound
+  # Advisory-taste gate: unrestricted-select ruff (every rule the blocking gate's select leaves out) + mccabe complexity (C90) + pip-audit (dependency CVE feed, network-bound
   # against pypi.org -- ~2-3 min per commit, no local value since it never blocks). Mirrors
   # lint-advisory.yml's own posture (continue-on-error in CI); CI is this hook's real venue.
   # manual-only locally: ``pre-commit run --hook-stage=manual lint-advisory-warn``.
@@ -657,7 +654,7 @@ repos:
   # runnable via `pre-commit run mypy-full-manual --hook-stage manual` for a quick changed-files-
   # only check without paying the whole-project scan) rather than deleting the hook entirely.
   - repo: https://github.com/fingoldo/py-ci-shared
-    rev: e3c24ab4bdf2326b72112bae5d40248ed177b595  # v1.22.3  # pragma: allowlist secret
+    rev: 9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.4  # pragma: allowlist secret
     hooks:
       - id: mypy-full-manual
         pass_filenames: true

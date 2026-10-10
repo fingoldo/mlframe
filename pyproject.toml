@@ -1021,11 +1021,8 @@ extend-ignore = [
 
 [tool.ruff.lint.mccabe]
 # 25, measured on this codebase (2026-09-24): median complexity 2, p90 9, p95 13, p99 30, so 25 sits past the 98th
-# percentile and flags only functions a reader genuinely has to hold in their head. (The old comment's "median 30" was
-# wrong; that was roughly the p99.) The number is ENFORCED by tests/test_meta/test_function_complexity.py, a blocking
-# ratchet keyed by path::qualname: no new function over 25, and the 193 over it today (each a tracked refactor in
-# audits/implemented/full_audit_2026-09-20/complexity_refactor.md) may not get more complex. The plain `ruff check` steps in CI and
-# pre-commit keep `--ignore C901` because they have no baseline; the ratchet is the C901 gate.
+# percentile and flags only functions a reader genuinely has to hold in their head. The plain `ruff check` steps in CI and pre-commit
+# enforce it directly (no `--ignore C901`); tests/test_meta/test_function_complexity.py and test_c901_debt_ratchet.py keep a zero-debt ratchet on top.
 # NOT shared via ruff-base.toml -- this is mlframe's own measured number (pyutilz's is 20).
 max-complexity = 25
 
