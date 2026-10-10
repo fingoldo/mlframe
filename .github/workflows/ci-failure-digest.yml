@@ -1,0 +1,50 @@
+# Daily digest of the red runs on master: which failures are new, which persist and which are gone, per workflow.
+#
+# scripts/ci_failure_digest.py reads the last runs through the GitHub API; the Markdown goes to the job summary and is kept as an artifact,
+# so a red night is read in one page instead of being rebuilt from job logs by hand.
+
+name: ci-failure-digest
+
+on:
+  schedule:
+    - cron: "47 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Build the digest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python scripts/ci_failure_digest.py --branch master --repo "$REPO" --days 2 --out digest.md --json digest.json
+          cat digest.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the digest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ci-failure-digest
+          path: |
+            digest.md
+            digest.json

@@ -45,6 +45,7 @@ PUSH_EXEMPT: Dict[str, str] = {
     "dependabot-auto-merge.yml": "reacts to Dependabot pull requests by design",
     "dependency-review.yml": "GitHub's action compares a PR against its base; it has no push semantics",
     "dep-floors.yml": "resolves the declared floors; scheduled and dispatch, not a per-push gate",
+    "ci-failure-digest.yml": "reads the results of other runs on a schedule; it gates nothing and has no push semantics",
 }
 
 

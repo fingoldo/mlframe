@@ -243,3 +243,7 @@ audit/**/*_commitmsg.txt
 /*.svg
 /*.pdf
 **/_benchmarks/_results/rfecv_one_se_rule_*.json
+
+# Scratch logs written next to audits and in the repo root by ad-hoc runs
+audits/**/*.log
+/sc_*.log

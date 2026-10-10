@@ -3,7 +3,8 @@
 #
 # master here is pushed to by several sessions at once and the pre-push hooks take minutes, so a plain `git push` is rejected as
 # non-fast-forward more often than not. Each attempt: fetch, merge what arrived (commit the merge, retrying the hook that rewrites line
-# endings), push. A merge conflict stops the loop for a human; nothing is reset, stashed or forced.
+# endings), push. A merge conflict (exit 3) or a failing pre-push hook (exit 4, findings printed) stops the loop for a human; nothing is reset,
+# stashed or forced.
 #
 # Usage: scripts/sync_and_push.sh [branch] [max_attempts]      (defaults: master, 6)
 # Logs of each attempt go to ${TMPDIR:-/tmp}/sync_and_push_<attempt>_*.log
@@ -41,7 +42,15 @@ for attempt in $(seq 1 "$max_attempts"); do
     git log --oneline -1
     exit 0
   fi
-  grep -E "Failed$|rejected|cannot lock" "$logdir/sync_and_push_${attempt}_push.log" | head -3
+  pushlog="$logdir/sync_and_push_${attempt}_push.log"
+  if grep -qE "rejected|cannot lock|fetch first|non-fast-forward" "$pushlog"; then
+    echo "remote moved under the push; retrying"
+    continue
+  fi
+  # A failing pre-push hook is not fixed by pushing again: show what it found and stop.
+  echo "pre-push hook failed; findings (full log: $pushlog):"
+  grep -E "Failed$|error:|: error|FAIL|unused|Unused" "$pushlog" | head -40
+  exit 4
 done
 
 echo "gave up after $max_attempts attempts"

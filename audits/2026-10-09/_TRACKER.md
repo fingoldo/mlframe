@@ -8,14 +8,14 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 
 | File | Findings | RESOLVED | PARTIAL | TODO | REJECTED | NOT A DEFECT | DOC | FUTURE |
 |---|---|---|---|---|---|---|---|---|
-| `01_followup_proposals.md` | 8 | 5 | 1 | 0 | 0 | 2 | 0 | 0 |
-| **Total** | **8** | **5** | **1** | **0** | **0** | **2** | **0** | **0** |
+| `01_followup_proposals.md` | 13 | 10 | 1 | 0 | 0 | 2 | 0 | 0 |
+| **Total** | **13** | **10** | **1** | **0** | **0** | **2** | **0** | **0** |
 
 ## Per-report status
 
 | Status | Report | Findings | Area |
 |---|---|---|---|
-| **CLOSED** | [01_followup_proposals.md](01_followup_proposals.md) | 8 | CI, test harness and tooling follow-ups |
+| **OPEN** | [01_followup_proposals.md](01_followup_proposals.md) | 13 | CI, test harness and tooling follow-ups |
 
 ### `01_followup_proposals.md`
 
@@ -29,3 +29,8 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 | **NOT A DEFECT** | P3 | `F-06` | .github/workflows/ci.yml:3-15 | NOT A DEFECT - paths-ignore for **.md, docs/**, audits/** and LICENSE is already on the push trigger, and mypy-full, black-filtered, codeql and hooks-not-in-ci have it too |
 | **RESOLVED** | P3 | `F-07` | scripts/ci_failure_digest.py | RESOLVED - per-workflow failed-job digest with NEW/PERSISTING/FIXED, retrying gh helper and 15 tests; a live run parsed real sklearn-matrix logs correctly; FIXED compares only the last two runs |
 | **NOT A DEFECT** | P2 | `F-08` | tests/feature_selection/mrmr/fe/test_fe_fusion_scoring_subsample.py (cascade victim) | NOT A DEFECT - compute-sanitizer memcheck 0 errors over the two nearest files and the 22-file window clean under CUDA_LAUNCH_BLOCKING=1; the card is shared at about 88% occupancy; re-run memcheck over the whole window if it recurs on a quiet card |
+| **RESOLVED** | P2 | `F-09` | tests/test_meta/test_workflow_polars_install_keeps_runtime_matched.py | RESOLVED - the scan has a teeth test (flags the broken form, accepts the paired and plain forms) and passes over the repository; polars-matrix.yml now uninstalls both packages and installs a matching pair, numpy capped below 2.5 for a catboost import failure. |
+| **RESOLVED** | P3 | `F-10` | scripts/sync_and_push.sh | RESOLVED - rejection and lock errors retry, any other failure prints up to 40 finding lines and exits 4; test_a_failing_pre_push_hook_stops_with_its_findings_instead_of_retrying pins it. |
+| **RESOLVED** | P3 | `F-11` | .github/workflows/ci-failure-digest.yml | RESOLVED - runs daily at 06:47 UTC and on dispatch, writes the digest to the job summary and an artifact; exempt from the push-trigger rule by name with the reason; not yet run on the remote. |
+| **RESOLVED** | P2 | `F-12` | tests/test_meta/test_py_ci_shared_pin.py | RESOLVED - test_the_pin_is_a_released_tag_not_an_unreleased_commit with an empty allowlist plus a teeth test for the marker regex. The repository is currently on a plain release pin. |
+| **RESOLVED** | P3 | `F-13` | .gitignore | RESOLVED - audits/**/*.log and /sc_*.log are ignored. |
