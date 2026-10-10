@@ -23,7 +23,8 @@ def load(pattern: str) -> list:
     """All JSON rows of the files matching ``pattern`` inside the wave2 results folder."""
     rows = []
     for f in sorted(glob.glob(str(results_dir("wave2") / pattern))):
-        rows += [json.loads(line) for line in open(f)]
+        with open(f, encoding="utf-8") as fh:
+            rows += [json.loads(line) for line in fh]
     return rows
 
 
