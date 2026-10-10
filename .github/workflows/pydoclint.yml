@@ -1,0 +1,48 @@
+name: pydoclint
+
+# Docstring-vs-signature consistency (params, returns, raises, yields) over src/mlframe, as a blocking gate of its own so the README badge
+# reflects exactly this check. The configuration lives in [tool.pydoclint] of pyproject.toml; the findings baseline
+# (tests/test_meta/_pydoclint_baseline.json) is empty, so any finding fails the run. Same invocation as the pre-commit hook and the
+# tests/test_meta/test_pydoclint_baseline.py meta test.
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "audits/**"
+      - "LICENSE"
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  pydoclint:
+    name: pydoclint (blocking)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pydoclint
+        run: python -m pip install "pydoclint==0.9.1"
+
+      - name: Check docstrings against signatures
+        run: pydoclint --style=google src/mlframe

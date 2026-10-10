@@ -106,3 +106,25 @@ def test_a_failing_pre_push_hook_stops_with_its_findings_instead_of_retrying(tmp
     assert "attempt 2" not in done.stdout
     assert "Unused" in done.stdout
     assert _git(tmp_path, "--git-dir", str(remote), "rev-parse", "master") == before
+
+
+def test_a_line_ending_autofix_failure_is_retried_and_the_push_then_succeeds(tmp_path) -> None:
+    """The line-ending hook fails once after rewriting files and passes on the next run: the script retries and pushes."""
+    remote, mine, _other = _clone_pair(tmp_path)
+    hooks = mine / ".git" / "hooks"
+    marker = tmp_path / "first_run_done"
+    (hooks / "pre-push").write_text(
+        f"#!/bin/sh\nif [ ! -f '{marker.as_posix()}' ]; then touch '{marker.as_posix()}'; echo 'mixed line ending.....Failed' >&2; exit 1; fi\nexit 0\n",
+        encoding="utf-8",
+    )
+    (hooks / "pre-push").chmod(0o755)
+    _git(mine, "config", "--unset", "core.hooksPath")
+    (mine / "new.txt").write_text("x\n", encoding="utf-8")
+    _git(mine, "add", "new.txt")
+    _git(mine, "commit", "-m", "work")
+
+    done = _run(mine, "master", "3")
+
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "retrying" in done.stdout
+    assert _git(tmp_path, "--git-dir", str(remote), "rev-parse", "master") == _git(mine, "rev-parse", "HEAD")

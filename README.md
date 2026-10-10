@@ -6,6 +6,7 @@ call.
 [![CI](https://github.com/fingoldo/mlframe/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/ci.yml?query=branch%3Amaster)
 [![MyPy](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/mypy-full.yml?query=branch%3Amaster)
 [![Black](https://github.com/fingoldo/mlframe/actions/workflows/black-filtered.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/black-filtered.yml?query=branch%3Amaster)
+[![pydoclint](https://github.com/fingoldo/mlframe/actions/workflows/pydoclint.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/pydoclint.yml?query=branch%3Amaster)
 [![CodeQL](https://github.com/fingoldo/mlframe/actions/workflows/codeql.yml/badge.svg?branch=master&event=push)](https://github.com/fingoldo/mlframe/actions/workflows/codeql.yml?query=branch%3Amaster)
 [![sklearn 1.6-1.8](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml/badge.svg?branch=master)](https://github.com/fingoldo/mlframe/actions/workflows/sklearn-matrix-ci.yml?query=branch%3Amaster)
 [![coverage](https://img.shields.io/codecov/c/github/fingoldo/mlframe/master?label=coverage)](https://codecov.io/gh/fingoldo/mlframe)

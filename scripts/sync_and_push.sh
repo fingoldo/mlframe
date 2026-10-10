@@ -47,6 +47,11 @@ for attempt in $(seq 1 "$max_attempts"); do
     echo "remote moved under the push; retrying"
     continue
   fi
+  # The line-ending hook rewrites files and reports Failed once; the next run passes, so that failure alone is retried.
+  if grep -qE "^mixed line ending.*Failed$" "$pushlog" && ! grep -E "Failed$" "$pushlog" | grep -qv "^mixed line ending"; then
+    echo "line-ending hook autofixed files; retrying"
+    continue
+  fi
   # A failing pre-push hook is not fixed by pushing again: show what it found and stop.
   echo "pre-push hook failed; findings (full log: $pushlog):"
   grep -E "Failed$|error:|: error|FAIL|unused|Unused" "$pushlog" | head -40
