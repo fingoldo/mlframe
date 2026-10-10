@@ -155,6 +155,7 @@ _RECIPE_KIND_TO_ORIGIN: dict[str, str] = {
     "offset_product": "extra_fe",
     "oof_warp1d": "extra_fe",
     "row_stat": "extra_fe",
+    "oof_cell2d": "extra_fe",
     "random_fourier": "extra_fe",
     "lof_score": "extra_fe",
     "conditional_quantile_rank": "extra_fe",

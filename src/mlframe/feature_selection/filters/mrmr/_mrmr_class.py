@@ -2980,6 +2980,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_row_stat_top_k: int = 2,
         fe_row_stat_scan_rows: int = 20_000,
         fe_row_stat_min_relative_gain: float = 0.05,
+        # 2-D CELL TABLE E[rank(y) | x_a, x_b] of the column pairs that carry a significant interaction beyond the additive model (residual screen, family-wise 5%): offered to the usability
+        # pool of the linear-downstream list only (``usability_aware_lists=True``); a linear model cannot form a bump or a ridge of two columns. Default ON; no effect without the
+        # usability lists. Replay (kind ``oof_cell2d``) stores the edges and the table, no y reference.
+        fe_oof_cell2d_enable: bool = True,
         # HAAR WAVELET / localized multiresolution basis.
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or
@@ -3278,6 +3282,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             "fe_offset_product_enable",  # legacy OFF; ctor ON
             "fe_oof_warp_enable",  # legacy OFF; ctor ON
             "fe_row_stat_enable",  # legacy OFF; ctor ON
+            "fe_oof_cell2d_enable",  # legacy OFF; ctor ON
             "fe_wavelet_enable",  # legacy OFF; ctor ON
         }
     )

@@ -567,6 +567,7 @@ class MRMRParams(BaseModel):
     fe_row_stat_top_k: int = 2
     fe_row_stat_scan_rows: int = 20000
     fe_row_stat_min_relative_gain: float = 0.05
+    fe_oof_cell2d_enable: bool = True
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: Optional[int] = 100
     fe_wavelet_cols: tuple = ()

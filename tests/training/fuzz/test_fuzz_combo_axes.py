@@ -205,6 +205,19 @@ def test_row_stat_enable_axis_present_wired_and_gated():
     assert _make_combo(use_mrmr_fs=False, mrmr_fe_row_stat_enable_cfg=False).canonical_key() == _make_combo(use_mrmr_fs=False, mrmr_fe_row_stat_enable_cfg=True).canonical_key()
 
 
+def test_oof_cell2d_enable_axis_present_wired_and_gated():
+    """``mrmr_fe_oof_cell2d_enable_cfg`` covers both values, reaches MRMR.__init__ as ``fe_oof_cell2d_enable`` and collapses to the default (True) outside use_mrmr_fs."""
+    assert "mrmr_fe_oof_cell2d_enable_cfg" in AXES
+    assert set(AXES["mrmr_fe_oof_cell2d_enable_cfg"]) == {True, False}
+
+    from tests.training._fuzz_combo.builders import build_mrmr_kwargs
+
+    off = build_mrmr_kwargs(_make_combo(use_mrmr_fs=True, mrmr_fe_oof_cell2d_enable_cfg=False))
+    assert off is not None and off.get("fe_oof_cell2d_enable") is False
+    assert _make_combo(use_mrmr_fs=True, mrmr_fe_oof_cell2d_enable_cfg=True).canonical_key() != _make_combo(use_mrmr_fs=True, mrmr_fe_oof_cell2d_enable_cfg=False).canonical_key()
+    assert _make_combo(use_mrmr_fs=False, mrmr_fe_oof_cell2d_enable_cfg=False).canonical_key() == _make_combo(use_mrmr_fs=False, mrmr_fe_oof_cell2d_enable_cfg=True).canonical_key()
+
+
 def test_new_mrmr_fe_budget_learning_axis_present_and_wired():
     """mrmr_fe_budget_learning_cfg covers False/True/"auto" and forwards to MRMR.__init__'s fe_budget_learning."""
     assert "mrmr_fe_budget_learning_cfg" in AXES

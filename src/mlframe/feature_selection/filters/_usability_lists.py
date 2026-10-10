@@ -153,6 +153,11 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
         from ._usability_row_stat_pool import row_stat_pool_candidates
 
         pool = list(pool) + row_stat_pool_candidates(df, y_cont, base_names, pool_kwargs["feature_dtype"], pool_kwargs["quantization_nbins"])
+    if bool(getattr(mrmr, "fe_oof_cell2d_enable", False)):
+        # E[rank(y) | x_a, x_b] of the pairs with a significant interaction beyond the additive model: a bump or a ridge of two columns that a linear model cannot form
+        from ._oof_cell2d_fe import cell2d_pool_candidates
+
+        pool = list(pool) + cell2d_pool_candidates(df, y_cont, base_names, pool_kwargs["feature_dtype"], pool_kwargs["quantization_nbins"])
     linear = usability_greedy(pool, y_cont, w=w_lin, seed=seed, **greedy_kwargs)
     universal = usability_greedy(pool, y_cont, w=w_uni, seed=seed, **greedy_kwargs)
     mrmr.support_linear_ = _drop_stored_values(linear)
