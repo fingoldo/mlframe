@@ -133,6 +133,7 @@ def boruta_select(
             shadow = pd.DataFrame(shadow_arr, columns=[f"{c}__shadow" for c in cols])
             X_shadowed = pd.concat([X[cols].reset_index(drop=True), shadow.reset_index(drop=True)], axis=1)
         else:
+            assert X_arr is not None  # guaranteed by the `is_pandas_frame` branch that set it, above
             shadow_arr = rng.permuted(X_arr, axis=0)
             X_shadowed = np.concatenate([X_arr, shadow_arr], axis=1)
 

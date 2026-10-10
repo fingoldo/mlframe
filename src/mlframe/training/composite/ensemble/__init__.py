@@ -682,6 +682,7 @@ def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, co
                     if group_ids is not None:
                         try:
                             _g_arr = _g_arr_all
+                            assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
                             if _g_arr.shape[0] == n_train:
                                 _gf = _g_arr[fold_train_idx]
                                 if _gf.shape[0] == valid.shape[0]:
@@ -714,6 +715,7 @@ def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, co
                     if group_ids is not None:
                         try:
                             _g_arr = _g_arr_all
+                            assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
                             if _g_arr.shape[0] == n_train:
                                 _group_for_fold = _g_arr[fold_train_idx]
                             else:

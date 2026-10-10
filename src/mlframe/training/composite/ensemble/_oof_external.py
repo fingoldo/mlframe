@@ -99,6 +99,7 @@ def _compute_oof_with_external_holdout(
                 if group_ids is not None:
                     try:
                         _g_arr = _g_arr_all
+                        assert _g_arr is not None  # guaranteed by the `group_ids is not None` check above
                         if _g_arr.shape[0] == valid.shape[0]:
                             _group_for_valid = _g_arr[valid]
                     except (TypeError, IndexError):
