@@ -56,13 +56,20 @@ def _standardised_block(A: np.ndarray, mu: np.ndarray, sd: np.ndarray) -> np.nda
     return np.ascontiguousarray(np.where(np.isfinite(Z), Z, 0.0).T)
 
 
-def apply_row_stat_recipe(recipe, X) -> np.ndarray:
-    """Replay one row-statistic column from the stored standardisation; a pure function of the source columns."""
+def apply_row_stat_recipe(recipe, X, _block_cache: Optional[dict] = None) -> np.ndarray:
+    """Replay one row-statistic column from the stored standardisation; a pure function of the source columns.
+
+    ``_block_cache`` (fit time only): statistics over the same source columns share one standardised ``(p, n)`` block instead of rebuilding it."""
     from .engineered_recipes.shared import extract_column
 
     ex = recipe.extra
-    A = np.column_stack([np.asarray(extract_column(X, c), dtype=np.float64) for c in recipe.src_names])
-    Zt = _standardised_block(A, ex["mu"], ex["sd"])
+    key = (tuple(recipe.src_names), ex["mu"].tobytes(), ex["sd"].tobytes())
+    Zt = _block_cache.get(key) if _block_cache is not None else None
+    if Zt is None:
+        A = np.column_stack([np.asarray(extract_column(X, c), dtype=np.float64) for c in recipe.src_names])
+        Zt = _standardised_block(A, ex["mu"], ex["sd"])
+        if _block_cache is not None:
+            _block_cache[key] = Zt
     k = Zt.shape[0]
     subset = np.arange(k, dtype=np.int64)
     out = stat_column(Zt, subset, k, STAT_NAMES.index(ex["stat"]))
@@ -169,11 +176,11 @@ def row_stat_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *
     pool = _pool_columns(X, cols, rows, codes, ky)
     if len(pool) < 2:
         return []
-    A = np.column_stack([np.asarray(X[c].to_numpy(), dtype=np.float64) for c in pool])
-    mu = np.nanmean(A[rows], axis=0)
-    sd = np.nanstd(A[rows], axis=0)
+    A = np.column_stack([np.asarray(X[c].to_numpy(), dtype=np.float64)[rows] for c in pool])  # the scan rows only: the full columns are touched for the accepted statistics alone
+    mu = np.nanmean(A, axis=0)
+    sd = np.nanstd(A, axis=0)
     sd = np.where(sd > 0, sd, 1.0)
-    Zt = _standardised_block(A[rows], mu, sd)
+    Zt = _standardised_block(A, mu, sd)
     even = np.arange(len(rows)) % 2 == 0
     y_odd = codes[~even]
     raw_codes = [held_out_codes(Zt[j], even, ~even, N_MI_BINS) for j in range(len(pool))]
@@ -229,13 +236,13 @@ def hybrid_row_stat_fe(
                 observed=cand["gain"], threshold=SIGNIFICANCE_Z * cand["se"], reason="held-out MI gain over the best raw column not significant or below the practical effect",
             )
     accepted.sort(key=lambda c: -c["gain"])
-    new_cols, recipes = {}, []
+    new_cols, recipes, blocks = {}, [], {}
     for cand in accepted[: int(top_k)]:
         name = f"rowstat_{cand['stat']}({','.join(map(str, cand['src']))})"
         if name in X.columns or name in new_cols:
             continue
         rec = build_row_stat_recipe(name=name, src=cand["src"], stat=cand["stat"], mu=cand["mu"], sd=cand["sd"], lo=-np.inf, hi=np.inf)
-        col = apply_row_stat_recipe(rec, X)
+        col = apply_row_stat_recipe(rec, X, blocks)
         lo, hi = np.quantile(col[cand["rows"]], _OUTPUT_CLIP_Q)
         if not hi > lo:
             continue

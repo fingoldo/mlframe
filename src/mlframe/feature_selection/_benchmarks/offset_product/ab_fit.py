@@ -1,4 +1,4 @@
-"""Paired A/B of a whole MRMR fit (the F2 example, GPU strict-resident mode) with ``fe_offset_product_enable`` off and on.
+"""Paired A/B of a whole MRMR fit (the F2 example, GPU strict-resident mode) with the new FE families (``FAMILY_FLAGS``: offset product, out-of-fold warp, row statistics, 2-D cell table) all off and all on.
 
 Usage: ``python -m mlframe.feature_selection._benchmarks.offset_product.ab_fit <n_rows> [pairs]``. Every pair gets novel data (MRMR memoises by content hash and parameters, so a repeated frame with the
 same flag would time the cache replay); both arms of a pair fit the SAME frame back to back, the order alternating between pairs (the flag is part of the memo key, so the second arm is a real fit).
@@ -28,6 +28,7 @@ import pandas as pd
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 DEFAULT_PAIRS = 3
+FAMILY_FLAGS = ("fe_offset_product_enable", "fe_oof_warp_enable", "fe_row_stat_enable", "fe_oof_cell2d_enable")  # switched together by the arms
 
 
 def _make(n: int, seed: int):
@@ -46,7 +47,7 @@ def _fit(n: int, seed: int, flag: bool):
     cp.cuda.Device().synchronize()
     t0 = time.perf_counter()
     fs = MRMR(
-        full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1, random_seed=seed, fe_offset_product_enable=flag
+        full_npermutations=10, baseline_npermutations=20, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, verbose=0, n_jobs=1, random_seed=seed, **dict.fromkeys(FAMILY_FLAGS, flag)
     ).fit(df, y)
     cp.cuda.Device().synchronize()
     return time.perf_counter() - t0, [str(s) for s in fs.get_feature_names_out()]
