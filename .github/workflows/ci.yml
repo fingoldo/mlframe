@@ -259,7 +259,7 @@ jobs:
           # itself had no way to honour one until pyutilz-ref was added) -- every other workflow's
           # inline "git -C pyutilz checkout <sha>" line already matched this SHA; see
           # X_CICD_DEPENDENCIES-1 for why pinning matters here.
-          pyutilz-ref: d64ac2c2a2cf121c24c8c093126fe8f9553f03a7  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: 38532cd5c943e4624bdb687c1c5fc4381779c573  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
@@ -498,7 +498,7 @@ jobs:
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: d64ac2c2a2cf121c24c8c093126fe8f9553f03a7  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: 38532cd5c943e4624bdb687c1c5fc4381779c573  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Restore numba JIT cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -644,7 +644,7 @@ jobs:
       # [all,dev] actually installed via `python -m deptry .` surfaced exactly 1 real finding).
       deptry-install-command: |
         git clone https://github.com/fingoldo/pyutilz.git
-        git -C pyutilz checkout d64ac2c2a2cf121c24c8c093126fe8f9553f03a7  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
+        git -C pyutilz checkout 38532cd5c943e4624bdb687c1c5fc4381779c573  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
         # UV_NO_SOURCES: [tool.uv.sources] points pyutilz at git while this line installs it from the
         # clone above; uv refuses on conflicting URLs for one package. A reusable-workflow call cannot
         # carry `env:`, so it goes on the command. Same reason as mypy-full.yml.
@@ -758,7 +758,7 @@ jobs:
         run: |
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip
-          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@d64ac2c2a2cf121c24c8c093126fe8f9553f03a7"
+          /tmp/smoke/bin/pip install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@38532cd5c943e4624bdb687c1c5fc4381779c573"
           /tmp/smoke/bin/pip install dist/*.whl
           # Assert every path declared in [tool.setuptools.package-data] actually shipped. py.typed drops
           # typing support; default_kernel_tuning.json and the infonet configs are read at runtime, and
@@ -905,7 +905,7 @@ jobs:
           # bash on all three runners, so only this one path segment has to vary.
           if [ "$RUNNER_OS" = "Windows" ]; then BIN=smoke/Scripts; else BIN=smoke/bin; fi
           "$BIN/python" -m pip install --upgrade pip
-          "$BIN/pip" install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@d64ac2c2a2cf121c24c8c093126fe8f9553f03a7"
+          "$BIN/pip" install "pyutilz @ git+https://github.com/fingoldo/pyutilz.git@38532cd5c943e4624bdb687c1c5fc4381779c573"
           "$BIN/pip" install dist/*.whl
           "$BIN/python" -c "import mlframe; print('mlframe', mlframe.__version__, 'at', mlframe.__file__)"
           "$BIN/python" -c "from mlframe.metrics.core import *; from mlframe.training import train_and_evaluate_model; from mlframe.models.ensembling import *; from mlframe.calibration.quality import *; print('smoke OK')"

@@ -44,7 +44,7 @@ jobs:
       advisory: false
       install-command: |
         git clone https://github.com/fingoldo/pyutilz.git
-        git -C pyutilz checkout d64ac2c2a2cf121c24c8c093126fe8f9553f03a7  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
+        git -C pyutilz checkout 38532cd5c943e4624bdb687c1c5fc4381779c573  # see X_CICD_DEPENDENCIES-1 for why this is pinned -- narrowed code_audit scanners + the private-assertion-helper fix
         # UV_NO_SOURCES: [tool.uv.sources] points pyutilz at git and this line installs it from the
         # clone above; without it uv refuses on conflicting URLs for the same package. A reusable
         # workflow call cannot carry `env:`, so it is set on the command.

@@ -8,6 +8,9 @@ warnings.simplefilter("ignore")
 import numpy as np
 
 from mlframe.feature_selection.filters.feature_engineering import create_binary_transformations, create_unary_transformations
+import logging
+
+logger = logging.getLogger(__name__)
 
 n = 30000
 rng = np.random.default_rng(0)
@@ -45,7 +48,8 @@ for preset in ("minimal", "medium"):
         for bn, fb in bi.items():
             try:
                 val = np.asarray(fb(u, v), float)
-            except Exception:
+            except Exception as exc:
+                logger.debug("operator %s failed on the study inputs: %s", bn, exc)
                 continue
             if np.isfinite(val).all() and val.std() > 0:
                 best.append((mi(val), f"{bn}({un1}(c),{un2}(d))"))
