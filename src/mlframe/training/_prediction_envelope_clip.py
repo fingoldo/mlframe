@@ -54,12 +54,14 @@ from mlframe.metrics._numba_params import NUMBA_NJIT_PARAMS
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _finite_min_max_std_kernel(arr: np.ndarray) -> tuple:
-    """One-pass (min, max, std, count) over the finite entries of ``arr``, population std (ddof=0).
+    """One-pass (min, max, mean, std, count) over the finite entries of ``arr``, population std (ddof=0).
 
     Replaces the boolean-mask-copy + three separate reduction passes (``min``/``max``/``std`` each
     scan the filtered array independently) with a single Welford-free two-moment accumulation pass --
     mean and variance need the count up front, so this still needs the count ahead of the variance term,
     but folds it into the same loop as min/max instead of a separate ``np.isfinite`` + boolean-index copy.
+    ``mean`` is returned alongside (not just used internally) so a caller that also needs the mean --
+    e.g. a per-feature drift z-score -- gets it for free instead of paying a second ``np.mean`` pass.
     """
     n = arr.shape[0]
     count = 0
@@ -76,7 +78,7 @@ def _finite_min_max_std_kernel(arr: np.ndarray) -> tuple:
             if v > y_max:
                 y_max = v
     if count == 0:
-        return y_min, y_max, 0.0, 0
+        return y_min, y_max, 0.0, 0.0, 0
     mean = s / count
     sq = 0.0
     for i in range(n):
@@ -85,7 +87,8 @@ def _finite_min_max_std_kernel(arr: np.ndarray) -> tuple:
             d = v - mean
             sq += d * d
     std = math.sqrt(sq / count)
-    return y_min, y_max, std, count
+    return y_min, y_max, mean, std, count
+
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +137,7 @@ def compute_train_envelope_stats(y_train: Any) -> Optional[TrainEnvelopeStats]:
     """
     try:
         arr = np.ascontiguousarray(np.asarray(y_train, dtype=np.float64).reshape(-1))
-        y_min, y_max, y_std, count = _finite_min_max_std_kernel(arr)
+        y_min, y_max, _y_mean, y_std, count = _finite_min_max_std_kernel(arr)
         if count < 10 or y_std <= 0:
             return None
         return TrainEnvelopeStats(

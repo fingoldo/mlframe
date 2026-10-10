@@ -54,6 +54,8 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from mlframe.training._prediction_envelope_clip import _finite_min_max_std_kernel
+
 logger = logging.getLogger(__name__)
 
 
@@ -747,12 +749,18 @@ def _compute_drift_invariant(
         train_vals = _col_to_numpy(train_df, col)
         if train_vals is None:
             continue
-        train_vals = np.asarray(train_vals, dtype=np.float64)
-        train_vals = train_vals[np.isfinite(train_vals)]
-        if train_vals.size < 2:
+        train_vals = np.ascontiguousarray(np.asarray(train_vals, dtype=np.float64))
+        # TRAIN is typically the largest split (70-80% of rows); folding the isfinite-mask
+        # copy + separate mean/std passes into one njit pass over the raw array (instead of
+        # filtering first, then running np.mean + np.std -- 2 more full passes over the
+        # filtered copy) matters here even though the earlier bench-attempt-rejected note
+        # above found vectorising ACROSS columns not worth it -- this is a different axis
+        # (per-column single-pass fusion), not the column-wide vectorisation that was tried.
+        _train_min, _train_max, train_mean, train_std, _train_count = _finite_min_max_std_kernel(train_vals)
+        if _train_count < 2:
             continue
-        train_mean = float(np.mean(train_vals))
-        train_std = float(np.std(train_vals))
+        train_mean = float(train_mean)
+        train_std = float(train_std)
         if train_std <= 0.0 or not math.isfinite(train_std):
             # Constant feature -- no drift signal computable.
             per_feature[col] = {

@@ -57,6 +57,10 @@ def _compute_oof_with_external_holdout(
     holdout_cols: list[np.ndarray] = []
     surviving_names: list[str] = []
     _pair_memo: dict = {}
+    # Hoisted out of the per-component loop below: ``group_ids`` is a function parameter that never changes
+    # across components, so recasting it with ``np.asarray`` once per component repeated the same conversion for
+    # nothing (only the per-component ``valid`` mask it's indexed by differs).
+    _g_arr_all = None if group_ids is None else np.asarray(group_ids)
     for model, name, spec in zip(
         component_models, component_names, component_specs,
     ):
@@ -94,7 +98,7 @@ def _compute_oof_with_external_holdout(
                 _group_for_valid = None
                 if group_ids is not None:
                     try:
-                        _g_arr = np.asarray(group_ids)
+                        _g_arr = _g_arr_all
                         if _g_arr.shape[0] == valid.shape[0]:
                             _group_for_valid = _g_arr[valid]
                     except (TypeError, IndexError):

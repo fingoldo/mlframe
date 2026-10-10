@@ -631,6 +631,10 @@ def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, co
     """Block of _oof_holdout_predictions_with_rows starting at ``for fold_train_idx, fold_holdout_idx in _kf_split:``."""
     fold_train_idx: Any = None
     fold_holdout_idx: Any = None
+    # Hoisted out of the per-fold loop below: ``group_ids`` is a function parameter that never changes across
+    # folds, so recasting it with ``np.asarray`` once per fold (both call sites further down used to do this
+    # independently) repeated the same conversion ``kfold`` times for nothing.
+    _g_arr_all = None if group_ids is None else np.asarray(group_ids)
     for fold_train_idx, fold_holdout_idx in _kf_split:
         # Sub-frame views by index; fit/predict inlined per fold.
         X_holdout, X_stack = _oof_holdout_predic_sub_frame_views_index(train_X, fold_train_idx, fold_holdout_idx)
@@ -677,7 +681,7 @@ def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, co
                     _group_fold_valid = None
                     if group_ids is not None:
                         try:
-                            _g_arr = np.asarray(group_ids)
+                            _g_arr = _g_arr_all
                             if _g_arr.shape[0] == n_train:
                                 _gf = _g_arr[fold_train_idx]
                                 if _gf.shape[0] == valid.shape[0]:
@@ -709,7 +713,7 @@ def _oof_holdout_predic_fold_train_idx_fold(_kf_split, train_X, y_train_full, co
                     _group_for_fold = None
                     if group_ids is not None:
                         try:
-                            _g_arr = np.asarray(group_ids)
+                            _g_arr = _g_arr_all
                             if _g_arr.shape[0] == n_train:
                                 _group_for_fold = _g_arr[fold_train_idx]
                             else:

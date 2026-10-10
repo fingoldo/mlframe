@@ -108,6 +108,15 @@ def _compute_metrics_table(
 
     elif target_type == "multilabel_classification":
         primary_metric = "val_log_loss_macro"
+        # ``y`` (val_y / test_y) is the SAME ground-truth matrix for every baseline -- only
+        # the per-baseline predictions ``p`` differ. The int64-cast + contiguity copy below
+        # was previously re-run once per baseline x split (len(baseline_names) x 2 redundant
+        # full-array copies of the SAME y); hoisted out of the baseline loop so each split's
+        # ``y`` is cast exactly once regardless of how many dummy baselines are being scored.
+        _y_int_by_split = {
+            "val": np.ascontiguousarray(val_y, dtype=np.int64) if val_y is not None and val_y.ndim == 2 else None,
+            "test": np.ascontiguousarray(test_y, dtype=np.int64) if test_y is not None and test_y.ndim == 2 else None,
+        }
         for name in baseline_names:
             row = {"baseline": name}
             vp = val_preds.get(name)
@@ -119,7 +128,7 @@ def _compute_metrics_table(
                     if _NUMBA_AVAILABLE and n > 0 and K > 0:
                         # Numba kernel: ~57x faster than per-label sklearn loop.
                         try:
-                            y_int = np.ascontiguousarray(y, dtype=np.int64)
+                            y_int = _y_int_by_split[split_name]
                             p_arr = np.ascontiguousarray(p, dtype=np.float64)
                             macro = float(_numba_macro_log_loss(y_int, p_arr, n, K))
                             micro = float(_numba_micro_log_loss(y_int, p_arr, n, K))

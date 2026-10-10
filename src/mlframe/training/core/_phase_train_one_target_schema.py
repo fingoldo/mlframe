@@ -222,18 +222,27 @@ def _build_and_record_model_schema(
         "target_type": str(target_type) if target_type is not None else None,
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
-    train_y = (
-        cur_target_values[_train_idx]
-        if isinstance(cur_target_values, (np.ndarray, pl.Series if pl is not None else ()))
-        else cur_target_values.iloc[_train_idx]
-    )
     try:
         if target_type == _TargetTypes.MULTILABEL_CLASSIFICATION:
-            _record["n_classes"] = int(train_y.shape[1]) if hasattr(train_y, "shape") and train_y.ndim == 2 else None
+            # Column count is invariant to row-subsetting, so this reads it off the FULL
+            # ``cur_target_values`` instead of gathering the (possibly ~millions-of-rows)
+            # train-index subset just to look at ``.shape[1]`` -- the prior code always
+            # materialised ``cur_target_values[_train_idx]`` (an O(n) copy) for every model,
+            # every target, even though only the MULTICLASS branch below actually needs the
+            # train-split VALUES (to count classes present in train).
+            _record["n_classes"] = int(cur_target_values.shape[1]) if hasattr(cur_target_values, "shape") and cur_target_values.ndim == 2 else None
             _record["multilabel_strategy"] = (
                 "native" if (hasattr(strategy, "supports_native_multilabel") and strategy.supports_native_multilabel) else "wrapper"
             )
         elif target_type == _TargetTypes.MULTICLASS_CLASSIFICATION:
+            # Unlike column count, the number of classes PRESENT IN TRAIN can legitimately
+            # differ from the full target (a rare class entirely held out by the split), so
+            # this one genuinely needs the train-subset values -- gather lazily, only here.
+            train_y = (
+                cur_target_values[_train_idx]
+                if isinstance(cur_target_values, (np.ndarray, pl.Series if pl is not None else ()))
+                else cur_target_values.iloc[_train_idx]
+            )
             _record["n_classes"] = len(np.unique(np.asarray(train_y))) if hasattr(train_y, "shape") else None
             _record["multilabel_strategy"] = None
         else:

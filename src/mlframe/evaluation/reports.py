@@ -209,6 +209,11 @@ def evaluate_estimators(
         if caption:
             display(Markdown(f"**{caption.upper()}:**"))
 
+        # Hoisted out of the per-estimator loop below: ``classification_thresholds`` is a function parameter
+        # that never changes across estimators, so recasting it with ``np.asarray`` once per estimator (in the
+        # regressor branch further down) repeated the same conversion for nothing.
+        _thresholds_arr_all = None if classification_thresholds is None else np.asarray(classification_thresholds)
+
         for est in estimators:
 
             # ****************************************************************************************************************************
@@ -281,7 +286,7 @@ def evaluate_estimators(
                     mes = regression_stats(y_test_test, preds)
 
                     if classification_thresholds is not None:
-                        _thresholds_arr = np.asarray(classification_thresholds)
+                        _thresholds_arr = _thresholds_arr_all
                         _, y_test_test = get_predicted_classes(y_test_test.values, thresholds=_thresholds_arr)
                         probs, preds = get_predicted_classes(preds, thresholds=_thresholds_arr)
                         nclasses = probs.shape[1]

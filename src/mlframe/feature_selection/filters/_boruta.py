@@ -117,6 +117,9 @@ def boruta_select(
     prev_confirmed: Optional[frozenset] = None
     stable_rounds = 0
     rounds_run = 0
+    # Hoisted out of the per-iteration loop below: ``X`` never changes across rounds, so recasting it ``n_iterations``
+    # times (up to a few hundred) on the non-pandas path repeated a no-op-or-copy on every round for nothing.
+    X_arr = None if is_pandas_frame else np.asarray(X)
 
     for it in range(n_iterations):
         rounds_run = it + 1
@@ -130,7 +133,6 @@ def boruta_select(
             shadow = pd.DataFrame(shadow_arr, columns=[f"{c}__shadow" for c in cols])
             X_shadowed = pd.concat([X[cols].reset_index(drop=True), shadow.reset_index(drop=True)], axis=1)
         else:
-            X_arr = np.asarray(X)
             shadow_arr = rng.permuted(X_arr, axis=0)
             X_shadowed = np.concatenate([X_arr, shadow_arr], axis=1)
 

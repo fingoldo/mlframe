@@ -66,13 +66,16 @@ def _maybe_auto_enable_discovery(composite_target_discovery_config, *, target_by
     if composite_target_discovery_config.enabled or "enabled" in composite_target_discovery_config.model_fields_set:
         return composite_target_discovery_config
     _reasons: dict[str, list[str]] = {}
+    # Hoisted out of the per-target loop below: ``train_idx`` is a function parameter that never changes across
+    # regression targets, so recasting it with ``np.asarray`` once per target repeated the same conversion for
+    # nothing.
+    _idx_auto = None if train_idx is None else np.asarray(train_idx)
     for _tname_auto, _tvals_auto in (target_by_type.get(TargetTypes.REGRESSION) or {}).items():
         try:
             _y_auto = np.asarray(_tvals_auto)
             if _y_auto.ndim != 1:
                 continue
-            if train_idx is not None:
-                _idx_auto = np.asarray(train_idx)
+            if _idx_auto is not None:
                 if _idx_auto.size and _y_auto.size > int(_idx_auto.max()):
                     _y_auto = _y_auto[_idx_auto]
         except Exception as e:
