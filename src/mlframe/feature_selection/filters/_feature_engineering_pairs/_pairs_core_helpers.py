@@ -9,6 +9,7 @@ import os
 from itertools import combinations
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 import pandas as pd
 
 # A column is near-constant when its std is within this factor of machine epsilon of its largest |value|: its spread is then rounding noise.
@@ -105,7 +106,7 @@ def _check_prospective__scores_same_rows_fall(shared_subsample_idx, _full_n_rows
             if _si.ndim == 1 and 0 < _si.shape[0] < _full_n_rows and int(_si.max()) < _full_n_rows:
                 _shared_idx = _si.astype(np.int64, copy=False)
         except Exception as e:
-            logger.debug("shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
+            log_throttle(logger, "pairs_core.shared_subsample", logging.WARNING, "pair search: the shared subsample index failed validation (%s), no shared subsample is used", e)
             _shared_idx = None
     return _shared_idx
 
@@ -239,7 +240,7 @@ def _check_prospective__classes_codes_still_usable(usability_y_continuous, prewa
             _corr_y_cont = _cyc
             _corr_y_cont_finite = np.isfinite(_corr_y_cont)
     except Exception as e:
-        logger.debug("y-continuous correlation prep failed, skipping that signal: %s", e)
+        log_throttle(logger, "pairs_core.y_cont_corr", logging.WARNING, "pair search: the continuous-target correlation could not be prepared (%s), that signal is skipped", e)
         _corr_y_cont = None
         _corr_y_cont_finite = None
     return _corr_y_cont, _corr_y_cont_finite
@@ -294,7 +295,7 @@ def _check_prospective__read_weakref_cache_no(_chunk_global_batch, _chunk_buffer
 
                 _pipe_on = bool(fe_gpu_strict_enabled(n=len(X), p=int(_chunk_buf_width)))
             except Exception as e:
-                logger.debug("fe_gpu_strict_enabled() check failed, defaulting _pipe_on to False: %s", e)
+                log_throttle(logger, "pairs_core.gpu_strict_probe", logging.WARNING, "pair search: the GPU-strict probe failed (%s), the chunk pipeline is off", e)
                 _pipe_on = False
         if _pipe_on:
             try:
@@ -311,7 +312,7 @@ def _check_prospective__read_weakref_cache_no(_chunk_global_batch, _chunk_buffer
                 if verbose:
                     logger.info("check_prospective_fe_pairs: chunk pipeline active (%d chunks, double buffer).", len(_fe_chunks))
             except Exception:
-                logger.debug("chunk pipeline setup failed; synchronous chunk path", exc_info=True)
+                log_throttle(logger, "pairs_core.pipeline_setup", logging.WARNING, "pair search: the chunk pipeline setup failed, using the synchronous chunk path", exc_info=True)
                 _chunk_state.pop("pipeline_buffers", None)
                 _ex0 = _chunk_state.pop("pipeline_ex", None)
                 if _ex0 is not None:

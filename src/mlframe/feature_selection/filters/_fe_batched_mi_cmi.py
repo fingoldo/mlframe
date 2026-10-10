@@ -10,10 +10,13 @@ re-exports every public name for back-compat; importers continue to use ``from .
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
 
 # bench-attempt-rejected (2026-06-28): fit-amortised reuse of the joint-histogram atomicAdd count buffers in
 # joint_counts_gpu (227 calls/fit, ~22M int64) and _batched_joint_counts2 (15 calls, up to ~320M int64) - one
@@ -199,8 +202,7 @@ def _rows_entropy_and_k(counts, inv_n):
         _ker((K,), (threads,), (c, float(inv_n), np.int32(K), np.int64(M), out_h, out_k))
         return out_h, out_k
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).debug("fused xlogx-rows kernel failed, falling back to the elementwise kernel: %s", e)
+        log_throttle(logging.getLogger(__name__), "batched_mi_cmi.xlogx_rows", logging.WARNING, "batched CMI: the fused xlogx-rows kernel failed (%s), using the elementwise kernel", e)
         if _XLOGX_ROWS_EK is None:
             _XLOGX_ROWS_EK = cp.ElementwiseKernel("T c, float64 invn", "float64 o", "o = c > 0 ? (c * invn) * log(c * invn) : 0.0", "mrmr_xlogx_rows_ek")
         h = -_XLOGX_ROWS_EK(counts, float(inv_n)).sum(axis=1)
@@ -418,6 +420,7 @@ def _get_batched_joint_entropy_kernel(cp):
         _BATCHED_JOINT_ENTROPY_KERNEL = cp.RawKernel(_BATCHED_JOINT_ENTROPY_SRC, "batched_joint_entropy2")
         try:
             _BATCHED_JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+        # best-effort: a smaller shared-memory limit only moves the dispatch to the global-memory kernel, which gives the same counts
         except Exception as e:
             import logging
             logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
@@ -519,8 +522,7 @@ def _ent_nnz_1d(c, inv_n):
         h_k = cp.asnumpy(out)
         return float(-h_k[0]), round(h_k[1])
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).debug("fused nnz-1d entropy kernel failed, falling back to the elementwise path: %s", e)
+        log_throttle(logging.getLogger(__name__), "batched_mi_cmi.nnz_1d", logging.WARNING, "batched CMI: the fused nnz-1d entropy kernel failed (%s), using the elementwise path", e)
         cf = c.astype(cp.float64) if c.dtype != cp.float64 else c
         p = cf[cf > 0] * float(inv_n)
         return float(-(p * cp.log(p)).sum()), int((cf > 0).sum())
@@ -621,6 +623,7 @@ def _get_joint_entropy_kernels():
         _JOINT_ENTROPY_KERNELS = (mod.get_function("joint_entropy1"), mod.get_function("joint_entropy2"), mod.get_function("joint_entropy3"))
         try:
             _JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+        # best-effort: a smaller shared-memory limit only moves the dispatch to the global-memory kernel, which gives the same counts
         except Exception as e:
             import logging
             logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)

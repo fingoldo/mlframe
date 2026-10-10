@@ -6,6 +6,8 @@ import logging
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,6 +26,6 @@ def _screen_predictors_step1_array_returned_encodings(subsample_idx, factors_dat
                 elif targets_data is not None and len(targets_data) == len(_screen_full_factors):
                     targets_data = targets_data[_sidx]
         except Exception as e:
-            logger.debug("subsample-index application failed, falling back to the full factors: %s", e)
+            log_throttle(logger, "screen_predictors.subsample_index", logging.WARNING, "screening: applying the subsample index failed (%s), the full factors are used", e)
             _screen_full_factors = None
     return _screen_full_factors, factors_data

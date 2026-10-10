@@ -16,6 +16,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 from ._gpu_host_permutations import host_perm_batch_cap, host_permuted_y_batch
 from ._internals import GPU_MAX_BLOCK_SIZE
@@ -114,7 +115,7 @@ def mi_direct_gpu_batched(
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
     except Exception as e:  # - cushion module unavailable: leave existing guards in charge
-        logger.debug("fe_gpu_has_vram_cushion() check failed, leaving existing guards in charge: %s", e)
+        log_throttle(logger, "gpu_batched.vram_cushion_probe", logging.WARNING, "GPU batched MI: the VRAM cushion check failed (%s), only the relative memory cap guards the launch", e)
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
@@ -164,7 +165,7 @@ def mi_direct_gpu_batched(
         block_size = int(_choice["block_size"])
     except Exception as e:
         # Hand-tuned source-code fallback (matches the pre-cache defaults).
-        logger.debug("lookup_joint_hist() failed, using the hand-tuned source-code fallback: %s", e)
+        log_throttle(logger, "gpu_batched.lookup_joint_hist", logging.WARNING, "GPU batched MI: the joint-histogram tuning lookup failed (%s), the hand-tuned defaults are used", e)
         use_shared_hist = joint_size <= 4096
         block_size = 512 if use_shared_hist else GPU_MAX_BLOCK_SIZE
 
@@ -348,7 +349,7 @@ def mi_direct_gpu_batched_streamed(
         from mlframe.feature_selection.filters._fe_gpu_vram import fe_gpu_has_vram_cushion
         _cushion_ok = fe_gpu_has_vram_cushion(n * 4)
     except Exception as e:
-        logger.debug("fe_gpu_has_vram_cushion() check failed, leaving existing guards in charge: %s", e)
+        log_throttle(logger, "gpu_batched.vram_cushion_probe", logging.WARNING, "GPU batched MI: the VRAM cushion check failed (%s), only the relative memory cap guards the launch", e)
         _cushion_ok = True
     if not _cushion_ok:
         from .permutation import mi_direct
@@ -385,7 +386,7 @@ def mi_direct_gpu_batched_streamed(
         block_size = int(_choice["block_size"])
     except Exception as e:
         # Hand-tuned source-code fallback (matches the pre-cache defaults).
-        logger.debug("lookup_joint_hist() failed, using the hand-tuned source-code fallback: %s", e)
+        log_throttle(logger, "gpu_batched.lookup_joint_hist", logging.WARNING, "GPU batched MI: the joint-histogram tuning lookup failed (%s), the hand-tuned defaults are used", e)
         use_shared_hist = joint_size <= 4096
         block_size = 512 if use_shared_hist else GPU_MAX_BLOCK_SIZE
     shared_mem_bytes = joint_size * 4 if use_shared_hist else 0
