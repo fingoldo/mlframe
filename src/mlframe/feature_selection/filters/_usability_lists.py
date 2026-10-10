@@ -143,6 +143,11 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
         from ._usability_offset_pool import offset_product_candidates
 
         pool = list(pool) + offset_product_candidates(df, y_cont, base_names, pool_kwargs["feature_dtype"], pool_kwargs["quantization_nbins"])
+    if bool(getattr(mrmr, "fe_oof_warp_enable", False)):
+        # calibrated E[rank(y) | x] of each column: an effect that is non-monotone in x becomes linear in the warp; the greedy keeps one only if it helps the held-out linear fit
+        from ._usability_warp_pool import warp_pool_candidates
+
+        pool = list(pool) + warp_pool_candidates(df, y_cont, base_names, pool_kwargs["feature_dtype"], pool_kwargs["quantization_nbins"])
     linear = usability_greedy(pool, y_cont, w=w_lin, seed=seed, **greedy_kwargs)
     universal = usability_greedy(pool, y_cont, w=w_uni, seed=seed, **greedy_kwargs)
     mrmr.support_linear_ = _drop_stored_values(linear)

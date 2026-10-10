@@ -88,6 +88,7 @@ def _second_pass_cmi_gate(self, X, _y_np, recipes, verbose):
                         recipes.lof,
                         recipes.mahalanobis_density,
                         recipes.offset_product,
+                        recipes.oof_warp,
                     ):
                         for _c in list(_pre.keys()):
                             if _c in _eng_drop_u:

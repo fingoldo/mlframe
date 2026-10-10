@@ -300,6 +300,13 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_offset_product_top_k": 3,
     "fe_offset_product_scan_rows": 100_000,
     "fe_offset_product_min_relative_gain": 0.05,
+    # Out-of-fold warp. Pre-warp pickles default OFF so the legacy reload path is byte-identical (the live default is ON for new fits via __init__).
+    "fe_oof_warp_enable": False,
+    "fe_oof_warp_cols": (),
+    "fe_oof_warp_top_k": 5,
+    "fe_oof_warp_scan_rows": 100_000,
+    "fe_oof_warp_min_relative_gain": 0.05,
+    "oof_warp_features_": [],
     "offset_product_features_": [],
     # Haar wavelet basis. Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new

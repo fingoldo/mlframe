@@ -227,6 +227,7 @@ def build_mrmr_kwargs_from_flat(
     fe_stability_vote_enable: bool = True,
     fe_sufficient_summary_early_stop: bool = True,
     fe_offset_product_enable: bool = True,
+    fe_oof_warp_enable: bool = True,
     fe_gradient_interaction_enable: bool = False,
     # MRMR FE-family + escalation + hybrid-orth scorer master toggles. Names match MRMR.__init__ verbatim; defaults mirror the source signature.
     fe_rung_schedule_enable: bool = True,
@@ -428,6 +429,7 @@ def build_mrmr_kwargs_from_flat(
         "fe_stability_vote_enable": fe_stability_vote_enable,
         "fe_sufficient_summary_early_stop": fe_sufficient_summary_early_stop,
         "fe_offset_product_enable": fe_offset_product_enable,
+        "fe_oof_warp_enable": fe_oof_warp_enable,
         "fe_gradient_interaction_enable": fe_gradient_interaction_enable,
         # MRMR FE-family + escalation + hybrid-orth scorer master toggles. Names match MRMR.__init__ verbatim.
         "fe_rung_schedule_enable": fe_rung_schedule_enable,
@@ -659,6 +661,7 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         fe_stability_vote_enable=combo.mrmr_fe_stability_vote_enable_cfg,
         fe_sufficient_summary_early_stop=combo.mrmr_fe_sufficient_summary_early_stop_cfg,
         fe_offset_product_enable=combo.mrmr_fe_offset_product_enable_cfg,
+        fe_oof_warp_enable=combo.mrmr_fe_oof_warp_enable_cfg,
         fe_gradient_interaction_enable=combo.mrmr_fe_gradient_interaction_enable_cfg,
         # MRMR FE-family + escalation + hybrid-orth scorer master toggles.
         fe_rung_schedule_enable=combo.mrmr_fe_rung_schedule_enable_cfg,

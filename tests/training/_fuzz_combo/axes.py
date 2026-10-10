@@ -1816,6 +1816,8 @@ AXES: dict[str, tuple[Any, ...]] = {
     "mrmr_fe_sufficient_summary_early_stop_cfg": (True, False),
     # offset product (u + s) * (v + t): default-ON family, gated on use_mrmr_fs, collapses to True outside.
     "mrmr_fe_offset_product_enable_cfg": (True, False),
+    # out-of-fold warp: default-ON family, gated on use_mrmr_fs, collapses to True outside.
+    "mrmr_fe_oof_warp_enable_cfg": (True, False),
     # Gradient-interaction seeder (mrmr/_mrmr_class.py:1537, default-OFF, bench-
     # rejected 2026-06-10 so it stays opt-in). The ON branch -- a GBM-gradient
     # co-occurrence interaction seeder -- has no fuzz exposure. Gate use_mrmr_fs

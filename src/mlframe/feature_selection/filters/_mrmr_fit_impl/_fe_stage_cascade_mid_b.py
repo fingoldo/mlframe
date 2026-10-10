@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 from ._fe_stage_merge import _fe_merge_new_columns
 from ._fe_stage_offset_product import _stage_offset_product
+from ._fe_stage_oof_warp import _stage_oof_warp
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -47,6 +48,7 @@ def _fe_stage_cascade_mid_b(
     _lof_pre_recipes,
     _mahalanobis_density_pre_recipes,
     _offset_product_pre_recipes,
+    _oof_warp_pre_recipes,
     _wavelet_pre_recipes,
     _rankgauss_pre_recipes,
 ):
@@ -72,6 +74,7 @@ def _fe_stage_cascade_mid_b(
     self.lof_features_ = []
     self.mahalanobis_density_features_ = []
     self.offset_product_features_ = []
+    self.oof_warp_features_ = []
     self.wavelet_features_ = []
     self.rankgauss_features_ = []
 
@@ -203,6 +206,10 @@ def _fe_stage_cascade_mid_b(
     # OFFSET PRODUCT (u + s) * (v + t): the interaction of two factors that change sign inside the data range, which the fixed-zero preset pair forms cannot express. The shifts are a
     # closed-form interaction regression on rank(y); a candidate is kept only when its held-out MI beats every shift-free baseline. Recipe stores the shifts, never y.
     X_acc = _fe_merge_new_columns(X_acc, _stage_offset_product(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _offset_product_pre_recipes, verbose), X)
+
+    # OUT-OF-FOLD WARP E[rank(y) | x]: a column that matters through a non-monotone effect (a sine, a bump) becomes monotone in the target. Accepted on a held-out MI gain over the raw
+    # column of more than 2 standard errors and the practical-effect knob; the recipe stores the bin table, never y.
+    X_acc = _fe_merge_new_columns(X_acc, _stage_oof_warp(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _oof_warp_pre_recipes, verbose), X)
 
     # HAAR WAVELET / localized multiresolution basis.
     # A NEW operator for LOCALIZED bump / multiscale piecewise structure: y jumps

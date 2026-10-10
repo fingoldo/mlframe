@@ -715,6 +715,7 @@ class FuzzCombo:
     mrmr_fe_stability_vote_enable_cfg: bool = True
     mrmr_fe_sufficient_summary_early_stop_cfg: bool = True
     mrmr_fe_offset_product_enable_cfg: bool = True
+    mrmr_fe_oof_warp_enable_cfg: bool = True
     mrmr_fe_gradient_interaction_enable_cfg: bool = False
     # Learnable categorical embeddings default-on (nn.Embedding); this axis also samples the legacy CatBoostEncoder OFF path + a fixed embed dim vs the fastai heuristic (None).
     mlp_use_learnable_cat_embeddings_cfg: bool = True
@@ -2117,6 +2118,7 @@ class FuzzCombo:
             self.mrmr_fe_stability_vote_enable_cfg if self.use_mrmr_fs else True,
             self.mrmr_fe_sufficient_summary_early_stop_cfg if self.use_mrmr_fs else True,
             self.mrmr_fe_offset_product_enable_cfg if self.use_mrmr_fs else True,
+            self.mrmr_fe_oof_warp_enable_cfg if self.use_mrmr_fs else True,
             # Gradient-interaction seeder feeds the interaction stage: gate on
             # use_mrmr_fs AND interactions_max_order>=2; canon to source-default
             # False outside (the seeder is a no-op when no interactions run).

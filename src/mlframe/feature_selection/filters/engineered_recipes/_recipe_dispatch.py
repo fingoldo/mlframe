@@ -209,6 +209,7 @@ def _binned_numeric_agg(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> n
 #   conditional_residual   Layer 104: x_i - E[x_i | bin(x_j)] with the stored quantile edges and per-bin mean of x_i.
 #   conditional_dispersion Family D: conditional z-score / |z| / z^2 from the stored per-bin (mu_hat, sigma_hat) of x_i.
 #   offset_product        (u + s) * (v + t) of two unary-transformed source columns with the frozen shifts, non-finite fills and output clip; a pure function of X.
+#   oof_warp1d            cross-fitted E[rank(y) | x] of one column: the stored bin table interpolated at x, clipped to the stored range; a pure function of X.
 #   rankgauss              Layer 104: interpolates each test value's rank against the stored sorted fit values and maps to a Gaussian quantile.
 _KIND_HANDLERS: dict[str, _Handler] = {
     "unary_binary": _routed("._recipe_unary_binary", "_apply_unary_binary", col_cache=True),
@@ -266,6 +267,7 @@ _KIND_HANDLERS: dict[str, _Handler] = {
     "lof_score": _routed(".._lof_fe", "_apply_lof_recipe"),
     "mahalanobis_density": _routed(".._mahalanobis_density_fe", "_apply_mahalanobis_density_recipe"),
     "offset_product": _routed(".._offset_product_fe", "apply_offset_product_recipe"),
+    "oof_warp1d": _routed(".._oof_warp_fe", "apply_oof_warp1d_recipe"),
 }
 
 

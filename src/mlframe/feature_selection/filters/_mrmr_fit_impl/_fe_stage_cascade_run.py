@@ -64,6 +64,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
         _lof_pre_recipes=recipes.lof,
         _mahalanobis_density_pre_recipes=recipes.mahalanobis_density,
         _offset_product_pre_recipes=recipes.offset_product,
+        _oof_warp_pre_recipes=recipes.oof_warp,
         _wavelet_pre_recipes=recipes.wavelet,
         _rankgauss_pre_recipes=recipes.rankgauss,
     ), _X_step_input)

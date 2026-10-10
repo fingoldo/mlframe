@@ -40,9 +40,15 @@ Statuses: **RESOLVED** (done; the note names the test, file or commit that pins 
 
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
-| **TODO** | P2 | `W2-B1` | build the out-of-fold warp service and operator C (`oof_warp1d`) | verdict ADOPT: ridge MAE +73% / +38%, nothing accepted on N and 0, 0.07 s per column at 100k |
+| **RESOLVED** | P2 | `W2-B1` | out-of-fold warp service and operator C (`oof_warp1d`) | `_oof_warp_service.py` (njit cross-fit), `_oof_warp_fe.py`, stage, 11-point wiring, usability-pool offer, fuzz axis; acceptance by the standard-error bar (no fixed margin); 13 + 1 tests; 0.04 s for five columns at 20k, 0.2 s at 1M; remains: device-born fit for the strict mode (`W2-B1b`) |
 | **TODO** | P2 | `W2-B2` | build operator G (`row_stat`) | verdict ADOPT: helps the gradient-boosting model too (+2.6 to +9.3% MAE), exact subset in 8/8 seeds |
 | **TODO** | P2 | `W2-B3` | build the pair screen M (`_pair_residual_screen`) | verdict ADOPT as a selection step: true pair ranked first 8/8; two fixes (bins rule, threshold 60 plus permutation floor) |
 | **TODO** | P3 | `W2-B4` | build operator B (`oof_cell2d`), gated for linear and neural consumers | ridge MAE +45 to +55%, gradient-boosting model -0.8 to -1.7% |
-| **OPEN** | P2 | `W2-02` | re-test the 2-D shrinkage default (m = 3) at n = 20000 | tested at n = 5000 only |
-| **OPEN** | P2 | `W2-04` | re-check the acceptance rule at n = 100k and 1M for B, C and G | the offset product needed a relative-gain floor at large n |
+| **DOC** | P2 | `W2-02` | 2-D shrinkage default (m = 3) | re-tested at n = 20000 against 10 and 20: ordering consistent, small; keep 3 (an earlier fit bug, W2-10, had invalidated the first comparison) |
+| **DECIDED** | P2 | `W2-04` | acceptance for B, C, G at large n | no false accepts with c = 40 up to n = 100000 (null gain x n at most 30); the fixed margins are replaced by the standard-error bar of L-11 (W2-11) |
+| **RESOLVED** | P2 | `W2-10` | shrinkage `m` shadowed in the prototype `fit_B` | fixed in `stress.fit_B2`; verdict unchanged |
+| **DECIDED** | P2 | `W2-11` | acceptance rule for B, C, G | standard-error bar + practical-effect constructor knob (supersedes c = 40 + 3%) |
+| **RESOLVED** | P3 | `W2-12` | C on low-cardinality integer columns acts like a target encoding | columns with at most `FEW_CLASSES_MAX` distinct values are skipped (`test_nominal_like_columns_are_skipped`) |
+| **OPEN** | P3 | `W2-13` | non-monotone multiclass needs one-vs-rest warps | |
+| **OPEN** | P3 | `W2-14` | G dominated by `argsort` in `qbin` at 100k | rank reuse / njit |
+| **TODO** | P3 | `W2-B1b` | device-born warp fit for the strict-resident mode | the fit is njit on at most 100k rows (0.2 s at 1M); a fused kernel that builds bin sums per fold on the device would remove the host work |

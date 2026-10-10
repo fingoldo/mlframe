@@ -2964,6 +2964,14 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_offset_product_top_k: int = 3,
         fe_offset_product_scan_rows: int = 100_000,
         fe_offset_product_min_relative_gain: float = 0.05,
+        # OUT-OF-FOLD WARP: replace a numeric column by the cross-fitted E[rank(y) | x] when its held-out MI beats the raw column by more than 2 standard errors and by at least
+        # ``fe_oof_warp_min_relative_gain`` of the raw MI (a column that matters through a sine or a bump becomes monotone in the target; nominal-like columns are skipped). The accepted
+        # warps are also offered to the usability pool of the linear-downstream list. Default ON (corrective); replay (kind ``oof_warp1d``) stores the bin table, no y reference.
+        fe_oof_warp_enable: bool = True,
+        fe_oof_warp_cols: tuple = (),
+        fe_oof_warp_top_k: int = 5,
+        fe_oof_warp_scan_rows: int = 100_000,
+        fe_oof_warp_min_relative_gain: float = 0.05,
         # HAAR WAVELET / localized multiresolution basis.
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or
@@ -3260,6 +3268,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             "fe_kfold_te_enable",  # legacy OFF; ctor ON
             "fe_conditional_dispersion_enable",  # legacy OFF; ctor ON
             "fe_offset_product_enable",  # legacy OFF; ctor ON
+            "fe_oof_warp_enable",  # legacy OFF; ctor ON
             "fe_wavelet_enable",  # legacy OFF; ctor ON
         }
     )

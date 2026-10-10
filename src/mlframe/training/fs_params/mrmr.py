@@ -557,6 +557,11 @@ class MRMRParams(BaseModel):
     fe_offset_product_top_k: int = 3
     fe_offset_product_scan_rows: int = 100000
     fe_offset_product_min_relative_gain: float = 0.05
+    fe_oof_warp_enable: bool = True
+    fe_oof_warp_cols: tuple = ()
+    fe_oof_warp_top_k: int = 5
+    fe_oof_warp_scan_rows: int = 100000
+    fe_oof_warp_min_relative_gain: float = 0.05
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: Optional[int] = 100
     fe_wavelet_cols: tuple = ()
