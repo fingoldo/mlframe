@@ -12,11 +12,9 @@ arithmetic: ~185 launches and ~2 ms of GPU work per column. Two pieces account f
 
 from __future__ import annotations
 
-import threading
 from typing import Any, Optional
 
-_LOCK = threading.Lock()
-_MODULE: Optional[Any] = None
+from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
 _SRC = r"""
 extern "C" {
@@ -120,20 +118,14 @@ __global__ void apply_deflate(const double* z, const double* y, const double* co
 """
 
 
-def _module(cp):
-    """Compile the kernel module once."""
-    global _MODULE
-    with _LOCK:
-        if _MODULE is None:
-            _MODULE = cp.RawModule(code=_SRC, options=("-std=c++14",))
-        return _MODULE
+_MODULES = RawModuleCache(_SRC)
 
 
 def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     """Resident ``(F,)`` periodogram power of ``yc`` at each frequency in ``freqs`` (one block per frequency). ``z`` and ``yc`` are float64 ``(n,)``."""
     f = cp.ascontiguousarray(freqs, dtype=cp.float64)
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
-    _module(cp).get_function("periodogram_power")((int(f.shape[0]),), (256,), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
+    _MODULES.get(cp).get_function("periodogram_power")((int(f.shape[0]),), (256,), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))
     return out
 
 
@@ -144,7 +136,7 @@ def deflate_sincos(cp: Any, z: Any, y: Any, freq: float) -> Optional[Any]:
     import numpy as np
 
     n = int(z.shape[0])
-    mod = _module(cp)
+    mod = _MODULES.get(cp)
     blocks = max(1, min(64, (n + 255) // 256))
     part = cp.empty((blocks, 9), dtype=cp.float64)
     coef = cp.empty(3, dtype=cp.float64)

@@ -12,11 +12,9 @@ fractional part with exactly the comparisons the ``where`` chain makes.
 
 from __future__ import annotations
 
-import threading
 from typing import Any, Optional
 
-_LOCK = threading.Lock()
-_MODULE: Optional[Any] = None
+from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
 _SRC = r"""
 // Leg value of row value z for level j, cell k: +1 left half, -1 right half, 0 outside the cell (also for z outside [0, 1) and NaN).
@@ -54,13 +52,7 @@ extern "C" __global__ void leg_codes(const double* __restrict__ z, const long lo
 """
 
 
-def _module(cp):
-    """Compile the kernels once."""
-    global _MODULE
-    with _LOCK:
-        if _MODULE is None:
-            _MODULE = cp.RawModule(code=_SRC, options=("-std=c++14",))
-        return _MODULE
+_MODULES = RawModuleCache(_SRC)
 
 
 def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> Optional[tuple]:
@@ -75,7 +67,7 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     n = int(z_g.shape[0])
     z = cp.ascontiguousarray(z_g, dtype=cp.float64)
     n_legs_all = (1 << (int(max_scale) + 1)) - 1
-    mod = _module(cp)
+    mod = _MODULES.get(cp)
     counts = cp.zeros(2 * n_legs_all, dtype=cp.int32)
     blocks = max(1, min(4096, (n + 255) // 256))
     mod.get_function("leg_supports")((blocks,), (256,), (z, cp.int64(n), cp.int32(max_scale), counts))

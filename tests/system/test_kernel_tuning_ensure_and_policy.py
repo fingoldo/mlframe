@@ -166,7 +166,8 @@ def clean_policy(monkeypatch):
     monkeypatch.setattr(_policy, "_WARNED", False)
 
 
-def test_a_fit_runs_with_background_sweeps_disabled_and_the_environment_is_restored(clean_policy):
+@pytest.mark.usefixtures("clean_policy")
+def test_a_fit_runs_with_background_sweeps_disabled_and_the_environment_is_restored():
     """Inside the policy the pyutilz sweep switch is on; afterwards it is gone again, also when the fit raises."""
     assert SWITCH not in os.environ
     with _policy.kernel_tuning_fit_policy():
@@ -178,7 +179,8 @@ def test_a_fit_runs_with_background_sweeps_disabled_and_the_environment_is_resto
     assert SWITCH not in os.environ
 
 
-def test_the_callers_own_setting_is_never_overridden_or_removed(clean_policy, monkeypatch):
+@pytest.mark.usefixtures("clean_policy")
+def test_the_callers_own_setting_is_never_overridden_or_removed(monkeypatch):
     """An explicit PYUTILZ_KERNEL_DISABLE_SWEEP (any value) belongs to the caller: kept inside, kept after."""
     monkeypatch.setenv(SWITCH, "0")
     with _policy.kernel_tuning_fit_policy():
@@ -186,7 +188,8 @@ def test_the_callers_own_setting_is_never_overridden_or_removed(clean_policy, mo
     assert os.environ[SWITCH] == "0"
 
 
-def test_autotune_on_restores_the_old_behaviour(clean_policy, monkeypatch):
+@pytest.mark.usefixtures("clean_policy")
+def test_autotune_on_restores_the_old_behaviour(monkeypatch):
     """MLFRAME_AUTOTUNE=on leaves the sweep switch alone, so the dispatchers may start their background sweeps."""
     monkeypatch.setenv("MLFRAME_AUTOTUNE", "on")
     assert _policy.autotune_mode() == "on"
@@ -194,7 +197,8 @@ def test_autotune_on_restores_the_old_behaviour(clean_policy, monkeypatch):
         assert SWITCH not in os.environ
 
 
-def test_overlapping_fits_keep_the_switch_until_the_last_one_leaves(clean_policy):
+@pytest.mark.usefixtures("clean_policy")
+def test_overlapping_fits_keep_the_switch_until_the_last_one_leaves():
     """Two fits in flight: the first to finish must not re-enable sweeps under the second."""
     outer = _policy.kernel_tuning_fit_policy()
     inner = _policy.kernel_tuning_fit_policy()
@@ -206,7 +210,8 @@ def test_overlapping_fits_keep_the_switch_until_the_last_one_leaves(clean_policy
     assert SWITCH not in os.environ
 
 
-def test_a_cold_cache_is_announced_once_with_the_command_to_run(clean_policy, monkeypatch, caplog):
+@pytest.mark.usefixtures("clean_policy")
+def test_a_cold_cache_is_announced_once_with_the_command_to_run(monkeypatch, caplog):
     """The warning names the count, an example kernel and the command to run, and appears once per process."""
     monkeypatch.setattr(_policy, "cold_kernel_names", lambda: ["k1", "k2", "k3", "k4"])
     with caplog.at_level(logging.WARNING, logger=_policy.logger.name):
@@ -218,7 +223,8 @@ def test_a_cold_cache_is_announced_once_with_the_command_to_run(clean_policy, mo
     assert "4 kernel(s)" in msgs[0] and "mlframe-tune-kernels ensure" in msgs[0] and "k1" in msgs[0]
 
 
-def test_a_failing_cold_cache_probe_never_breaks_a_fit(clean_policy, monkeypatch):
+@pytest.mark.usefixtures("clean_policy")
+def test_a_failing_cold_cache_probe_never_breaks_a_fit(monkeypatch):
     """The notice is advice: if the probe itself raises, the fit still runs."""
 
     def _boom():
@@ -232,7 +238,8 @@ def test_a_failing_cold_cache_probe_never_breaks_a_fit(clean_policy, monkeypatch
     assert ran == [True]
 
 
-def test_hygienic_fit_wraps_the_fit_in_the_policy(clean_policy):
+@pytest.mark.usefixtures("clean_policy")
+def test_hygienic_fit_wraps_the_fit_in_the_policy():
     """Every selector fit that goes through hygienic_fit runs with sweeps disabled and leaves the environment as it found it."""
     from mlframe.utils.misc import hygienic_fit
 

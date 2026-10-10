@@ -26,6 +26,7 @@ import logging
 from typing import Any
 
 import pandas as pd
+from pyutilz.dev.logginglib import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,10 @@ def _survivor_section(mrmr_self: Any) -> str:
         _selected_names = set(map(str, mrmr_self.get_feature_names_out()))
         prov = prov_all[prov_all["feature_name"].astype(str).isin(_selected_names)]
     except Exception as e:
-        logger.debug("mrmr-explain: could not read the selected feature names (%s); falling back to support_rank >= 0", e)
+        if log_throttle("mrmr_explain.selected_names"):
+            logger.warning("mrmr-explain: could not read the selected feature names (%s: %s); counting survivors by support_rank >= 0", type(e).__name__, e)
+        else:
+            logger.debug("mrmr-explain: could not read the selected feature names (%s); falling back to support_rank >= 0", e)
         if "support_rank" in prov_all.columns:
             prov = prov_all[pd.to_numeric(prov_all["support_rank"], errors="coerce") >= 0]
     n_screened = len(prov_all) - len(prov)
@@ -255,26 +259,31 @@ def explain_selection(mrmr_self: Any) -> str:
     # The never-raise contract is unchanged; only a debug-level log line is added per section.
     try:
         survivors = _survivor_section(mrmr_self)
+    # best-effort: the section renders as "(unavailable: <ExceptionType>)" in the report itself, so the reader sees the substitution
     except Exception as exc:  # pragma: no cover - assembly must never break
         logger.debug("explain_selection: survivor section failed: %r", exc, exc_info=True)
         survivors = f"Surviving features: (unavailable: {type(exc).__name__})."
     try:
         rejections, binding_gate = _rejection_section(mrmr_self)
+    # best-effort: the section renders as "(unavailable: <ExceptionType>)" in the report itself, so the reader sees the substitution
     except Exception as exc:  # pragma: no cover
         logger.debug("explain_selection: rejection section failed: %r", exc, exc_info=True)
         rejections, binding_gate = (f"Rejections: (unavailable: {type(exc).__name__}).", None)
     try:
         recommender = _recommender_section(mrmr_self)
+    # best-effort: the section renders as "(unavailable: <ExceptionType>)" in the report itself, so the reader sees the substitution
     except Exception as exc:  # pragma: no cover
         logger.debug("explain_selection: recommender section failed: %r", exc, exc_info=True)
         recommender = f"FE recommender: (unavailable: {type(exc).__name__})."
     try:
         whatif = _whatif_section(mrmr_self, binding_gate)
+    # best-effort: the section renders as "(unavailable: <ExceptionType>)" in the report itself, so the reader sees the substitution
     except Exception as exc:  # pragma: no cover
         logger.debug("explain_selection: what-if section failed: %r", exc, exc_info=True)
         whatif = f"What-if-flip: (unavailable: {type(exc).__name__})."
     try:
         hint = _hint_line(binding_gate, mrmr_self)
+    # best-effort: the section renders as "(unavailable: <ExceptionType>)" in the report itself, so the reader sees the substitution
     except Exception as exc:  # pragma: no cover
         logger.debug("explain_selection: hint line failed: %r", exc, exc_info=True)
         hint = f"Hint: (unavailable: {type(exc).__name__})."

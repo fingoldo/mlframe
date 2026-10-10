@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Optional, Union, cast
 
 import numpy as np
+from pyutilz.dev.logginglib import log_throttle
 import pandas as pd
 from sklearn.base import clone
 from sklearn.model_selection import KFold, StratifiedKFold
@@ -74,6 +75,7 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
 
         try:
             params = model_template.get_params(deep=False)
+        # best-effort: only the cache key degrades (repr of the template instead of its params); the computation is unaffected
         except Exception as e:
             logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
@@ -165,7 +167,10 @@ def _maybe_patch_shap_xgb_base_score():
     try:
         _shap_ver = tuple(int(p) for p in str(shap.__version__).split(".")[:2])
     except Exception as e:
-        logger.debug("parsing shap.__version__ failed, treating it as (0, 0): %s", e)
+        if log_throttle("shap_proxy.shap_version"):
+            logger.warning("shap_proxy: could not parse shap.__version__ (%s), treating it as (0, 0) so the xgboost base_score patch is applied", e)
+        else:
+            logger.debug("parsing shap.__version__ failed, treating it as (0, 0): %s", e)
         _shap_ver = (0, 0)
     # shap >= 0.52 handles the array base_score natively and uses ``float`` as a numpy dtype; touching it is harmful + unnecessary -> no-op.
     if _shap_ver >= (0, 52):
@@ -421,6 +426,7 @@ def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
         corr = np.asarray(corr, dtype=np.float64)
         iu = np.triu_indices(n_folds, k=1)
         vals = corr[iu]
+    # best-effort: the per-row argsort path computes the same statistic (bit-identical), only slower
     except Exception as e:
         logger.debug("vectorized correlation-pair extraction failed, falling back to the per-row argsort path: %s", e)
         # Single argsort + scatter per row instead of double argsort (bit-identical, ~1.7-1.9x faster).
@@ -698,6 +704,7 @@ def compute_shap_matrix(
             _cache = DiskCache(cache_dir)
             try:
                 _params = model_template.get_params(deep=False)
+            # best-effort: only the cache key degrades (repr of the template instead of its params); the computation is unaffected
             except Exception as e:
                 logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
                 _params = {"_repr": repr(model_template)}
@@ -738,7 +745,10 @@ def compute_shap_matrix(
                 return _hit
         except Exception as exc:
             # Cache failures are non-fatal: we lose the speedup but the compute path stays correct.
-            logger.debug("compute_shap_matrix: cache disabled (%s)", exc)
+            if log_throttle("shap_proxy.cache_disabled"):
+                logger.warning("compute_shap_matrix: the disk cache is disabled for this call (%s), the result is recomputed", exc)
+            else:
+                logger.debug("compute_shap_matrix: cache disabled (%s)", exc)
             _cache = None
             _cache_key = None
 
@@ -853,6 +863,7 @@ def _compute_shap_matrix_step1_def_models_phi(f, return_variance, n_models, conf
                 if fold_fit_key is not None:
                     try:
                         cached_est = _cache.get(fold_fit_key)
+                    # best-effort: a failed cache read is a miss; the fold is fitted instead
                     except Exception as exc:
                         logger.debug("compute_shap_matrix: per-fold disk cache get failed (%s); skipping", exc)
                         cached_est = None

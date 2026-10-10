@@ -112,6 +112,12 @@ _BUILD_OPCANDS_CM_F32_SRC = _BUILD_OPCANDS_CM_SRC.replace("void build_op_cands_c
 _BUILD_OPCANDS_CM_KERNELS: dict = {}
 
 
+def _pair_index_arrays(cp, pairs: list):
+    """Device int32 first/second operand indices of ``pairs``; a single zero entry stands in for an empty list so the kernel still gets valid pointers."""
+    idx = np.asarray(pairs, dtype=np.int32).reshape(-1, 2) if pairs else np.zeros((1, 2), dtype=np.int32)
+    return cp.asarray(np.ascontiguousarray(idx[:, 0])), cp.asarray(np.ascontiguousarray(idx[:, 1]))
+
+
 def _get_build_opcands_cm_kernel(cp, f32: bool = False):
     """Lazily compile and cache the column-major ``build_op_cands_cm`` RawKernel (the ``f32`` twin rounds each value to float32 at the store)."""
     key = "f32" if f32 else "f64"
@@ -135,8 +141,7 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=
         npairs = len(pairs)
         has_sum = 1 if m >= 3 else 0
         k = m + 4 * npairs + 2 + has_sum
-        pi = cp.asarray(np.asarray([p[0] for p in pairs] or [0], dtype=np.int32))
-        pj = cp.asarray(np.asarray([p[1] for p in pairs] or [0], dtype=np.int32))
+        pi, pj = _pair_index_arrays(cp, pairs)
         out = cp.empty((k, n), dtype=cp.float32 if f32 else cp.float64)
         total = n * k
         threads = 256
@@ -182,8 +187,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
         npairs = len(pairs)
         has_sum = 1 if m >= 3 else 0
         k = m + 4 * npairs + 2 + has_sum
-        pi = cp.asarray(np.asarray([p[0] for p in pairs] or [0], dtype=np.int32))
-        pj = cp.asarray(np.asarray([p[1] for p in pairs] or [0], dtype=np.int32))
+        pi, pj = _pair_index_arrays(cp, pairs)
         out = cp.empty((n, k), dtype=cp.float64)
         total = n * k
         threads = 256

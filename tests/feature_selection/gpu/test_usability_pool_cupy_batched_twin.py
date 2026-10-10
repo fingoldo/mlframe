@@ -5,14 +5,13 @@ The earlier twin launched ~15 cupy kernels and synced several times per combo (~
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 import pytest
 
 cp = pytest.importorskip("cupy")
 
 from mlframe.feature_selection.filters import _usability_njit_pool as pool
+from tests._perf_paired import assert_paired_speedup
 
 pytestmark = pytest.mark.skipif(not pool._CUPY_AVAIL, reason="cupy device unavailable")
 
@@ -37,15 +36,19 @@ def test_batched_twin_splits_into_batches_without_changing_the_result(monkeypatc
 
 
 def test_batched_twin_is_much_cheaper_per_combo_than_the_loop_twin():
-    """The loop twin costs milliseconds per combo; the batched one must be well below that (an order of magnitude with margin)."""
+    """The loop twin costs milliseconds per combo; the batched one must beat it by a wide margin on paired interleaved trials, with identical output."""
     args = pool._make_usability_inputs({"n_rows": 10_000, "n_combos": 289})
-    for fn in (pool._pair_combo_mi_cupy, pool._pair_combo_mi_cupy_loop):
-        fn(*args)
-    cp.cuda.Device().synchronize()
-    t = time.perf_counter()
-    pool._pair_combo_mi_cupy(*args)
-    batched = time.perf_counter() - t
-    t = time.perf_counter()
-    pool._pair_combo_mi_cupy_loop(*args)
-    loop = time.perf_counter() - t
-    assert batched * 5 < loop, (batched, loop)
+
+    def run(fn):
+        """Run one twin to completion (device synchronised) and return its host result."""
+        out = fn(*args)
+        cp.cuda.Device().synchronize()
+        return out
+
+    loop_out, batched_out = assert_paired_speedup(
+        lambda: run(pool._pair_combo_mi_cupy_loop),
+        lambda: run(pool._pair_combo_mi_cupy),
+        base_ratio=5.0,
+        what="the batched cupy twin",
+    )
+    np.testing.assert_allclose(batched_out, loop_out, rtol=0, atol=1e-9)

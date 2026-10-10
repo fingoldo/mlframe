@@ -20,14 +20,27 @@ def _inputs(n, n_cells, seed=0, zero_frac=0.2):
     return codes, v, w
 
 
+def _numpy_moments(codes, v, w, n_cells):
+    """Per-cell weighted count, mean and centred 2nd/3rd/4th moment sums by plain numpy, independent of both GPU forms."""
+    cnt = np.bincount(codes, weights=w, minlength=n_cells)
+    mean = np.bincount(codes, weights=v * w, minlength=n_cells) / np.maximum(cnt, 1.0)
+    d = v - mean[codes]
+    return [cnt, mean] + [np.bincount(codes, weights=d**k * w, minlength=n_cells) for k in (2, 3, 4)]
+
+
 @pytest.mark.parametrize("n,n_cells", [(200_000, 12), (50_000, 300), (10, 3), (1_000, 1)])
 def test_fused_moments_match_the_scatter_form(n, n_cells):
-    """Count and mean exactly (up to summation order), the centred moments to 1e-7 (both forms add with atomics in an unspecified order, so cancelling sums differ at summation-order noise), including cells that the weights leave empty."""
+    """Count, mean and centred moments equal a numpy reference and the scatter form to 1e-7 (both GPU forms add with atomics in an unspecified order), including cells that the weights leave empty."""
     codes, v, w = _inputs(n, n_cells)
     got = kern.masked_cell_moments(cp, codes, v, w, n_cells)
-    assert got is not None
+    assert got is not None and len(got) == 5
     want = res._per_cell_moments_stable_masked_scatter_gpu(cp, codes, v, w, n_cells)
-    for g, e in zip(got, want):
+    ref = _numpy_moments(cp.asnumpy(codes), cp.asnumpy(v), cp.asnumpy(w), n_cells)
+    assert float(ref[0].sum()) == float(cp.asnumpy(w).sum()) > 0.0
+    assert float(np.abs(ref[4]).sum()) > 0.0
+    for g, e, r in zip(got, want, ref):
+        assert g.shape == (n_cells,)
+        np.testing.assert_allclose(cp.asnumpy(g), r, rtol=1e-7, atol=1e-7)
         np.testing.assert_allclose(cp.asnumpy(g), cp.asnumpy(e), rtol=1e-7, atol=1e-7)
 
 

@@ -109,4 +109,4 @@ def test_a_constant_weight_column_does_not_blow_up():
     """A target the first factor cannot move (constant f) keeps the guarded scale at 1 instead of dividing by ~0."""
     Ba, Bb, yc = _designs("legendre", 3, 4_000, seed=3)
     got = als_sweep_fused(cp, Ba, Bb, cp.zeros_like(yc) + 1e-30, 2)
-    assert got is None or all(np.all(np.isfinite(v)) for v in got)
+    assert got is None or (len(got) > 0 and all(np.all(np.isfinite(v)) for v in got))

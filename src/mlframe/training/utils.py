@@ -698,7 +698,7 @@ def get_pandas_view_of_polars_df(
             # rewrap, and preserves the dictionary buffer by reference. The
             # ``ordered`` flag is threaded explicitly so ordered enums don't
             # silently lose their ordering metadata.
-            target_type = pa.dictionary(pa.int32(), col.type.value_type, ordered=col.type.ordered or name in enum_cols)
+            target_type = pa.dictionary(pa.int32(), col.type.value_type, ordered=bool(col.type.ordered) | (name in enum_cols))
             col = pa.compute.cast(col, target_type)
         fixed_cols.append(col)
 

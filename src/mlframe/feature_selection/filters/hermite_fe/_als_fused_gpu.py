@@ -14,13 +14,11 @@ A singular normal matrix yields NaN coefficients; the caller then runs the origi
 
 from __future__ import annotations
 
-import threading
 from typing import Any, Optional
 
+from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 from mlframe.feature_selection.filters._safe_scale import _REL_TOL
 
-_MODULES: dict = {}
-_LOCK = threading.Lock()
 _STAT_BLOCKS = 64  # fixed grid of the statistics kernel, so a consumer block reduces only this many partials
 
 _SRC = r"""
@@ -156,15 +154,7 @@ __global__ void solve_small(const double* part, const int nblocks, double* coef)
 """
 
 
-def _module(cp, d: int):
-    """Kernel module specialised (unrolled) for design width ``d``, built once per width."""
-    with _LOCK:
-        mod = _MODULES.get(d)
-        if mod is None:
-            nacc = d * (d + 1) // 2 + d
-            mod = cp.RawModule(code=_SRC, options=("-std=c++14", f"-DD={d}", f"-DNACC={nacc}"))
-            _MODULES[d] = mod
-        return mod
+_MODULES = RawModuleCache(_SRC)
 
 
 def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[tuple]:
@@ -179,7 +169,7 @@ def als_sweep_fused(cp: Any, Ba: Any, Bb: Any, yc: Any, iters: int) -> Optional[
     ba = cp.ascontiguousarray(Ba, dtype=cp.float64)
     bb = cp.ascontiguousarray(Bb, dtype=cp.float64)
     y = cp.ascontiguousarray(yc, dtype=cp.float64)
-    mod = _module(cp, d)
+    mod = _MODULES.get(cp, d)
     matvec_stats = mod.get_function("matvec_stats")
     gram_scaled = mod.get_function("gram_scaled")
     solve_small = mod.get_function("solve_small")

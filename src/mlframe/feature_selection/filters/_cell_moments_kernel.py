@@ -7,7 +7,10 @@ histogram and merges it into the global one once. The arithmetic per row is the 
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
+
+logger = logging.getLogger(__name__)
 
 # Shared-memory budget (doubles) per block: 3 accumulators x n_cells must fit in 48 KB.
 MAX_CELLS = 2048
@@ -68,9 +71,10 @@ def _kernels(cp) -> Optional[tuple]:
         _KERNELS = (cp.RawKernel(_PASS1_SRC, "cell_sums"), cp.RawKernel(_PASS2_SRC, "cell_centred"))
         _KERNELS[0].compile()
         _KERNELS[1].compile()
-    except Exception:
+    except Exception as exc:
         _KERNELS = None
         _UNAVAILABLE = True
+        logger.warning("fused cell-moment kernels unavailable (%s: %s); per-cell moments use the slower scatter-add form for this process", type(exc).__name__, exc)
     return _KERNELS
 
 

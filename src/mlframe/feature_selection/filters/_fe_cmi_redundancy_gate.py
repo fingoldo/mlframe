@@ -104,6 +104,8 @@ from typing import Optional, Any
 
 import numpy as np
 
+from pyutilz.dev.logginglib import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Significance-null primitives carved to a sibling; re-imported so this facade and apply_cmi_redundancy_gate resolve them unchanged.
@@ -288,7 +290,10 @@ def apply_cmi_redundancy_gate(
             from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
             _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(np.asarray(y_bin).shape[0]), p=len(names)))
         except Exception as e:
-            logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting _gate_resident to False: %s", e)
+            if log_throttle("cmi_gate.resident_probe"):
+                logger.warning("CMI gate: the resident-GPU eligibility probe failed, using the host path: %s", e)
+            else:
+                logger.debug("CMI gate: the resident-GPU eligibility probe failed, using the host path: %s", e)
             _gate_resident = False
 
     y_arr = np.asarray(y_bin)
@@ -302,6 +307,7 @@ def apply_cmi_redundancy_gate(
         _yk = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
         with _Y_DENSE_MEMO_LOCK:
             _yhit = _Y_DENSE_MEMO.get(_yk)
+    # best-effort: the memo only saves recomputation; without it the dense target is rebuilt with the same result
     except Exception as e:
         logger.debug("y-dense memo key computation failed, skipping the memo: %s", e)
         _yhit = None
@@ -505,7 +511,10 @@ def apply_cmi_redundancy_gate(
                 # analytic floor/null for all candidates from the batched cards (matches _conditional_perm_null)
                 _round_floor = _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _kxz, _kyz, quantile, _round_floor, _j, _nm)
         except Exception as e:
-            logger.debug("round CMI/floor computation failed, using empty dicts: %s", e)
+            if log_throttle("cmi_gate.round_cmi_floor"):
+                logger.warning("CMI gate: the round CMI/floor computation failed (%s: %s), the round proceeds with empty CMI and floor tables", type(e).__name__, e)
+            else:
+                logger.debug("round CMI/floor computation failed, using empty dicts: %s", e)
             _round_cmi = {}
             _round_floor = {}
         # z_support is FIXED within the round, so read its occupied cardinality ONCE here (one D2H) and pass it
@@ -629,7 +638,10 @@ def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _
             if bool(cp.isfinite(vals.dev).all()):
                 _dev = _quantile_bin_device(vals.dev, nbins)
         except Exception as e:
-            logger.debug("device binning of a device-backed candidate failed, falling back to the host path: %s", e)
+            if log_throttle("cmi_gate.device_binning"):
+                logger.warning("CMI gate: device binning of a device-backed candidate failed, using the host path: %s", e)
+            else:
+                logger.debug("CMI gate: device binning of a device-backed candidate failed, using the host path: %s", e)
             _dev = None
     elif _gate_resident and np.isfinite(vals).all():
         try:
@@ -751,7 +763,10 @@ def _apply_cmi_redundan_gate_resident_accepted_bins(_gate_resident, accepted_bin
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint_gpu
             z_support_dev, _ = _renumber_joint_gpu(*accepted_bins_dev)
         except Exception as e:
-            logger.debug("_renumber_joint_gpu failed, falling back to the host path: %s", e)
+            if log_throttle("cmi_gate.renumber_joint_gpu"):
+                logger.warning("CMI gate: _renumber_joint_gpu failed, using the host path: %s", e)
+            else:
+                logger.debug("CMI gate: _renumber_joint_gpu failed, using the host path: %s", e)
             z_support_dev = None
     return z_support_dev
 
@@ -784,7 +799,7 @@ def _apply_cmi_redundan_analytic_floor_null_all(n_rows, _rem_list, _kxyz, _kz, _
                     _flr = float(_chi2.ppf(float(quantile), _df)) / (2.0 * _nf)
                     _round_floor[_nm] = (_flr if _flr > 0.0 else 0.0, _df / (2.0 * _nf))
     except Exception as e:
-        logger.debug("per-name round-floor computation failed, using an empty round_floor: %s", e)
+        logger.warning("CMI gate: the per-name round-floor computation failed (%s: %s), the round proceeds with an empty floor table", type(e).__name__, e)
         _round_floor = {}
     return _round_floor
 
@@ -797,7 +812,7 @@ def _apply_cmi_redundan_candidate_candidate_codes_nbins(_z_card, _z_scored, _zca
         try:
             _zcard = (int(_z_scored.max()) + 1) if getattr(_z_scored, "size", 0) else 0
         except Exception as e:
-            logger.debug("_z_scored cardinality computation failed, using 0: %s", e)
+            logger.warning("CMI gate: the z cardinality could not be computed (%s: %s), using 0", type(e).__name__, e)
             _zcard = 0
     return _zcard
 

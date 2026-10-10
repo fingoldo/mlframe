@@ -37,7 +37,7 @@ def _registers_a_tuner(path: Path) -> bool:
             return False
         tree = ast.parse(text, filename=str(path))
     except (OSError, SyntaxError, UnicodeDecodeError) as exc:
-        logger.debug("tuner discovery: cannot read %s (%s: %s)", path, type(exc).__name__, exc)
+        logger.warning("tuner discovery: cannot read %s (%s: %s); any tuner it registers is skipped", path, type(exc).__name__, exc)
         return False
     names = {"kernel_tuner"}
     for node in ast.walk(tree):  # `from ...registry import kernel_tuner as _ktuner` registers under another name
