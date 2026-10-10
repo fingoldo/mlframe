@@ -551,6 +551,11 @@ class MRMRParams(BaseModel):
     fe_mahalanobis_density_cols: tuple = ()
     fe_mahalanobis_density_max_cols_for_block: int = 20
     fe_mahalanobis_density_top_k: int = 1
+    fe_offset_product_enable: bool = True
+    fe_offset_product_cols: tuple = ()
+    fe_offset_product_max_pair_cols: int = 6
+    fe_offset_product_top_k: int = 3
+    fe_offset_product_scan_rows: int = 100000
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: Optional[int] = 100
     fe_wavelet_cols: tuple = ()

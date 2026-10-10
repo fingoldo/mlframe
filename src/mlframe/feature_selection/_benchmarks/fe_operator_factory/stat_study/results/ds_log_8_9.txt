@@ -1,0 +1,10 @@
+log(x)sin(z) noshift 5000 0 86s
+log(x)sin(z) noshift 5000 1 88s
+log(x)sin(z) noshift 5000 2 134s
+log(x)sin(z) noshift 30000 0 285s
+log(x)sin(z) noshift 30000 1 183s
+x^2+z add 5000 0 69s
+x^2+z add 5000 1 84s
+x^2+z add 5000 2 93s
+x^2+z add 30000 0 198s
+x^2+z add 30000 1 110s

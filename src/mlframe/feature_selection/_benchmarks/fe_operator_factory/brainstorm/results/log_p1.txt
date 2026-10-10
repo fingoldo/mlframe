@@ -1,0 +1,2 @@
+A_W                                MIte ex=1.1968(1.1970tr) new=1.2108(1.2140tr) truth=1.2119 sd_new=0.0055 wins=8/8 | R2lin raw=0.167 +ex=0.586 +new=0.961 +truth=0.962 hgb=0.959 | t_new=0.01s
+A_N                                MIte ex=1.2161(1.2167tr) new=1.2154(1.2167tr) truth=1.2162 sd_new=0.0080 wins=4/8 | R2lin raw=0.825 +ex=0.962 +new=0.961 +truth=0.962 hgb=0.959 | t_new=0.01s

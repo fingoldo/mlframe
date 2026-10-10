@@ -1,0 +1,16 @@
+rep 0 35.1s
+rep 1 32.0s
+rep 2 35.6s
+rep 3 34.6s
+rep 4 36.3s
+rep 5 33.1s
+rep 6 32.4s
+rep 7 29.9s
+rep 8 30.1s
+rep 9 30.5s
+rep 10 28.8s
+rep 11 29.1s
+rep 12 30.7s
+rep 13 31.7s
+rep 14 32.3s
+rep 15 31.6s

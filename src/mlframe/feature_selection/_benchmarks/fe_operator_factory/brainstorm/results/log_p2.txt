@@ -1,0 +1,2 @@
+C_W                                MIte ex=0.7972(0.7997tr) new=0.9968(1.0016tr) truth=1.0070 sd_new=0.0043 wins=8/8 | R2lin raw=-0.001 +ex=-0.001 +new=0.916 +truth=0.918 hgb=0.913 | t_new=0.03s
+C_N                                MIte ex=1.0852(1.0904tr) new=1.0853(1.0883tr) truth=1.0854 sd_new=0.0069 wins=5/8 | R2lin raw=0.917 +ex=0.917 +new=0.917 +truth=0.917 hgb=0.913 | t_new=0.02s

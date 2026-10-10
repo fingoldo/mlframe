@@ -208,6 +208,7 @@ def _binned_numeric_agg(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> n
 #   rare_category          Layer 104: rare-category indicator / frequency-band via the stored per-category frequency lookup.
 #   conditional_residual   Layer 104: x_i - E[x_i | bin(x_j)] with the stored quantile edges and per-bin mean of x_i.
 #   conditional_dispersion Family D: conditional z-score / |z| / z^2 from the stored per-bin (mu_hat, sigma_hat) of x_i.
+#   offset_product        (u + s) * (v + t) of two unary-transformed source columns with the frozen shifts, non-finite fills and output clip; a pure function of X.
 #   rankgauss              Layer 104: interpolates each test value's rank against the stored sorted fit values and maps to a Gaussian quantile.
 _KIND_HANDLERS: dict[str, _Handler] = {
     "unary_binary": _routed("._recipe_unary_binary", "_apply_unary_binary", col_cache=True),
@@ -264,6 +265,7 @@ _KIND_HANDLERS: dict[str, _Handler] = {
     "sir_direction": _routed(".._sliced_inverse_regression_fe", "_apply_sir_direction_recipe"),
     "lof_score": _routed(".._lof_fe", "_apply_lof_recipe"),
     "mahalanobis_density": _routed(".._mahalanobis_density_fe", "_apply_mahalanobis_density_recipe"),
+    "offset_product": _routed(".._offset_product_fe", "apply_offset_product_recipe"),
 }
 
 

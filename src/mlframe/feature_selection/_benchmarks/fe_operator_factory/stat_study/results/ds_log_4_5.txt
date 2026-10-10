@@ -1,0 +1,10 @@
+mix 3xz+.5z+1.5x 5000 0 73s
+mix 3xz+.5z+1.5x 5000 1 70s
+mix 3xz+.5z+1.5x 5000 2 73s
+mix 3xz+.5z+1.5x 30000 0 201s
+mix 3xz+.5z+1.5x 30000 1 237s
+mix xz+2z-x 5000 0 89s
+mix xz+2z-x 5000 1 73s
+mix xz+2z-x 5000 2 61s
+mix xz+2z-x 30000 0 170s
+mix xz+2z-x 30000 1 196s

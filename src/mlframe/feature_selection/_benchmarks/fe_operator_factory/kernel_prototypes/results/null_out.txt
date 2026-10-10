@@ -1,0 +1,9 @@
+n=20000 K*G=80 B=20 threads=1: bin-once 0.009s (8 thr) + shuffled-hist passes 0.048s
+n=20000 K*G=80 B=20 threads=8: bin-once 0.009s (8 thr) + shuffled-hist passes 0.012s
+   thread-count invariant: True  null max-over-grid mean/q95: 0.002737571968644868 0.003131212273808427
+   (observed-grid scoring for scale: 6.535s)
+n=100000 K*G=80 B=20 threads=1: bin-once 0.040s (8 thr) + shuffled-hist passes 0.233s
+n=100000 K*G=80 B=20 threads=8: bin-once 0.040s (8 thr) + shuffled-hist passes 0.071s
+   thread-count invariant: True  null max-over-grid mean/q95: 0.0005396184652078277 0.0005893482545353812
+   (observed-grid scoring for scale: 0.071s)
+exit 0

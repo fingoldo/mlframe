@@ -1,0 +1,176 @@
+
+== mono n=2000 snr=3 (reps=24)
+  t0               regret +0.3068  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0501  captured 0.78  fail 0.12  |t err|/sd(u) 0.48
+  zc8              regret +0.0004  captured 0.99  fail 0.00  |t err|/sd(u) 0.05
+  zc8_sig+med      regret -0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.06
+  zc8_mid          regret +0.0057  captured 0.97  fail 0.00  |t err|/sd(u) 0.14
+  ols              regret +0.0003  captured 1.00  fail 0.00  |t err|/sd(u) 0.07
+  ols_winsor       regret +0.0004  captured 1.00  fail 0.00  |t err|/sd(u) 0.07
+  ols_huber+wins   regret +0.0015  captured 0.99  fail 0.00  |t err|/sd(u) 0.08
+  grid9            regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.04
+
+== mono n=2000 snr=1 (reps=24)
+  t0               regret +0.1472  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0180  captured 0.76  fail 0.21  |t err|/sd(u) 0.46
+  zc8              regret +0.0013  captured 0.98  fail 0.00  |t err|/sd(u) 0.09
+  zc8_sig+med      regret +0.0003  captured 0.99  fail 0.00  |t err|/sd(u) 0.07
+  zc8_mid          regret +0.0012  captured 0.98  fail 0.00  |t err|/sd(u) 0.16
+  ols              regret -0.0001  captured 0.99  fail 0.00  |t err|/sd(u) 0.05
+  ols_winsor       regret -0.0001  captured 0.99  fail 0.00  |t err|/sd(u) 0.05
+  ols_huber+wins   regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.06
+  grid9            regret +0.0000  captured 0.99  fail 0.00  |t err|/sd(u) 0.04
+
+== mono n=2000 snr=0.3 (reps=24)
+  t0               regret +0.0490  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0046  captured 0.85  fail 0.08  |t err|/sd(u) 0.47
+  zc8              regret +0.0011  captured 0.95  fail 0.00  |t err|/sd(u) 0.19
+  zc8_sig+med      regret +0.0013  captured 0.94  fail 0.04  |t err|/sd(u) 0.15
+  zc8_mid          regret +0.0012  captured 0.94  fail 0.04  |t err|/sd(u) 0.25
+  ols              regret +0.0003  captured 0.98  fail 0.00  |t err|/sd(u) 0.09
+  ols_winsor       regret +0.0003  captured 0.98  fail 0.00  |t err|/sd(u) 0.09
+  ols_huber+wins   regret +0.0001  captured 0.97  fail 0.00  |t err|/sd(u) 0.09
+  grid9            regret -0.0014  captured 0.99  fail 0.00  |t err|/sd(u) 0.21
+
+== mono n=2000 snr=0.1 (reps=24)
+  t0               regret +0.0212  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0019  captured 0.87  fail 0.04  |t err|/sd(u) 0.48
+  zc8              regret +0.0001  captured 0.92  fail 0.04  |t err|/sd(u) 0.28
+  zc8_sig+med      regret +0.0006  captured 0.93  fail 0.00  |t err|/sd(u) 0.28
+  zc8_mid          regret +0.0011  captured 0.84  fail 0.09  |t err|/sd(u) 0.32
+  ols              regret -0.0007  captured 0.97  fail 0.00  |t err|/sd(u) 0.12
+  ols_winsor       regret -0.0006  captured 0.97  fail 0.00  |t err|/sd(u) 0.12
+  ols_huber+wins   regret -0.0005  captured 0.96  fail 0.00  |t err|/sd(u) 0.12
+  grid9            regret -0.0022  captured 1.00  fail 0.00  |t err|/sd(u) 0.32
+
+== mono n=5000 snr=3 (reps=24)
+  t0               regret +0.3093  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0502  captured 0.76  fail 0.25  |t err|/sd(u) 0.46
+  zc8              regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  zc8_sig+med      regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  zc8_mid          regret +0.0039  captured 0.98  fail 0.00  |t err|/sd(u) 0.12
+  ols              regret +0.0005  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  ols_winsor       regret +0.0005  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  ols_huber+wins   regret +0.0011  captured 0.99  fail 0.00  |t err|/sd(u) 0.06
+  grid9            regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+
+== mono n=5000 snr=1 (reps=24)
+  t0               regret +0.1475  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0186  captured 0.79  fail 0.21  |t err|/sd(u) 0.47
+  zc8              regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  zc8_sig+med      regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  zc8_mid          regret +0.0014  captured 0.98  fail 0.00  |t err|/sd(u) 0.13
+  ols              regret -0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  ols_winsor       regret -0.0002  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  ols_huber+wins   regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.06
+  grid9            regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+
+== mono n=5000 snr=0.3 (reps=24)
+  t0               regret +0.0542  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0054  captured 0.82  fail 0.08  |t err|/sd(u) 0.47
+  zc8              regret -0.0001  captured 0.99  fail 0.00  |t err|/sd(u) 0.10
+  zc8_sig+med      regret -0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.08
+  zc8_mid          regret +0.0005  captured 0.97  fail 0.00  |t err|/sd(u) 0.16
+  ols              regret -0.0002  captured 1.00  fail 0.00  |t err|/sd(u) 0.06
+  ols_winsor       regret -0.0002  captured 1.00  fail 0.00  |t err|/sd(u) 0.06
+  ols_huber+wins   regret -0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.06
+  grid9            regret -0.0003  captured 1.00  fail 0.00  |t err|/sd(u) 0.13
+
+== mono n=5000 snr=0.1 (reps=24)
+  t0               regret +0.0192  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0014  captured 0.88  fail 0.08  |t err|/sd(u) 0.47
+  zc8              regret +0.0000  captured 0.98  fail 0.00  |t err|/sd(u) 0.15
+  zc8_sig+med      regret +0.0001  captured 0.97  fail 0.00  |t err|/sd(u) 0.11
+  zc8_mid          regret +0.0006  captured 0.95  fail 0.00  |t err|/sd(u) 0.20
+  ols              regret +0.0000  captured 0.98  fail 0.00  |t err|/sd(u) 0.06
+  ols_winsor       regret +0.0000  captured 0.98  fail 0.00  |t err|/sd(u) 0.06
+  ols_huber+wins   regret +0.0000  captured 0.98  fail 0.00  |t err|/sd(u) 0.06
+  grid9            regret -0.0007  captured 1.00  fail 0.00  |t err|/sd(u) 0.24
+
+== mono n=30000 snr=3 (reps=24)
+  t0               regret +0.3115  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0506  captured 0.76  fail 0.29  |t err|/sd(u) 0.46
+  zc8              regret -0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  zc8_sig+med      regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  zc8_mid          regret +0.0034  captured 0.98  fail 0.00  |t err|/sd(u) 0.12
+  ols              regret +0.0006  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  ols_winsor       regret +0.0006  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  ols_huber+wins   regret +0.0011  captured 0.99  fail 0.00  |t err|/sd(u) 0.06
+  grid9            regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+
+== mono n=30000 snr=1 (reps=24)
+  t0               regret +0.1470  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0185  captured 0.79  fail 0.17  |t err|/sd(u) 0.47
+  zc8              regret -0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc8_sig+med      regret -0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc8_mid          regret +0.0012  captured 0.99  fail 0.00  |t err|/sd(u) 0.12
+  ols              regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  ols_winsor       regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  ols_huber+wins   regret +0.0002  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  grid9            regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+
+== mono n=30000 snr=0.3 (reps=24)
+  t0               regret +0.0528  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0058  captured 0.81  fail 0.12  |t err|/sd(u) 0.46
+  zc8              regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  zc8_sig+med      regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc8_mid          regret +0.0005  captured 0.98  fail 0.00  |t err|/sd(u) 0.14
+  ols              regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  ols_winsor       regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  ols_huber+wins   regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  grid9            regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+
+== mono n=30000 snr=0.1 (reps=24)
+  t0               regret +0.0186  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0019  captured 0.79  fail 0.25  |t err|/sd(u) 0.46
+  zc8              regret +0.0000  captured 0.99  fail 0.00  |t err|/sd(u) 0.06
+  zc8_sig+med      regret +0.0000  captured 0.99  fail 0.00  |t err|/sd(u) 0.07
+  zc8_mid          regret +0.0001  captured 0.98  fail 0.00  |t err|/sd(u) 0.13
+  ols              regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  ols_winsor       regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  ols_huber+wins   regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  grid9            regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+
+== mono n=100000 snr=3 (reps=24)
+  t0               regret +0.3093  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0506  captured 0.76  fail 0.33  |t err|/sd(u) 0.46
+  zc8              regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+  zc8_sig+med      regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+  zc8_mid          regret +0.0033  captured 0.98  fail 0.00  |t err|/sd(u) 0.12
+  ols              regret +0.0004  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  ols_winsor       regret +0.0004  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  ols_huber+wins   regret +0.0009  captured 1.00  fail 0.00  |t err|/sd(u) 0.06
+  grid9            regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.00
+
+== mono n=100000 snr=1 (reps=24)
+  t0               regret +0.1461  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0188  captured 0.78  fail 0.33  |t err|/sd(u) 0.46
+  zc8              regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+  zc8_sig+med      regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+  zc8_mid          regret +0.0012  captured 0.99  fail 0.00  |t err|/sd(u) 0.12
+  ols              regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  ols_winsor       regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  ols_huber+wins   regret +0.0002  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  grid9            regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+
+== mono n=100000 snr=0.3 (reps=24)
+  t0               regret +0.0525  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0057  captured 0.80  fail 0.17  |t err|/sd(u) 0.46
+  zc8              regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  zc8_sig+med      regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc8_mid          regret +0.0004  captured 0.99  fail 0.00  |t err|/sd(u) 0.12
+  ols              regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  ols_winsor       regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  ols_huber+wins   regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  grid9            regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.01
+
+== mono n=100000 snr=0.1 (reps=24)
+  t0               regret +0.0190  captured 0.00  fail 1.00  |t err|/sd(u) 1.73
+  median           regret +0.0019  captured 0.81  fail 0.08  |t err|/sd(u) 0.46
+  zc8              regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc8_sig+med      regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  zc8_mid          regret +0.0001  captured 0.99  fail 0.00  |t err|/sd(u) 0.12
+  ols              regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  ols_winsor       regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  ols_huber+wins   regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  grid9            regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.00

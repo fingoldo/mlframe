@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "D:\Temp\agent_stat\exp9_fa.py", line 73, in <module>
+    D = prep(x, z)
+        ^^^^^^^^^^
+  File "D:\Temp\agent_stat\exp9_fa.py", line 30, in prep
+    plain = np.empty((NP, n)); g1 = np.empty((NP * G1, n)); g2 = np.empty((NP * G2 * G2, n))
+                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+numpy.core._exceptions._ArrayMemoryError: Unable to allocate 239. MiB for an array with shape (6272, 5000) and data type float64

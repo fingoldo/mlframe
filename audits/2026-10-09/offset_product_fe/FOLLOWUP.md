@@ -25,3 +25,17 @@ Ranking: M additive-residual interaction screen (ADOPT; true pair rank 4.75 -> 1
 Shared mechanisms: fused parameter-grid MI scan kernel, out-of-fold nonparametric warp service, whole-family permutation null service, run pair screens on additive-model residual too.
 Caveats: reimplemented preset, idealised targets, no GPU, no replay test, no interaction with repo gating.
 Status of adoption items: all TODO, to be scheduled after the offset operator (order: M, B+C, G).
+
+## Where the scripts live
+
+The evidence scripts named in the tables above were cleaned and moved into the package as `src/mlframe/feature_selection/_benchmarks/fe_operator_factory/` (protocol, script table and operator backlog in its `README.md`); run them as `python -m mlframe.feature_selection._benchmarks.fe_operator_factory.<subpackage>.<module>`.
+
+| Old location | New location |
+|---|---|
+| `D:/Temp/agent_stat/` (core, core2, lib, exp1-exp11, agg6-agg11, pf_headroom, time_cost, smoke, `out/`) | `fe_operator_factory/stat_study/` (`lib.py` became `common/binning.py`; raw results in `stat_study/results/`) |
+| `scripts_stat/` (exp1-exp5, lib), `case2_mi.py`, `case2_missing.py`, `dbg_case2.py` | `stat_study/` (earlier copies were identical to the agent_stat versions, so they were not duplicated) |
+| `D:/Temp/agent_integ/` (offset_kernels, offset_closed_form, offset_fused_cuda, offset_null, cost_bench, t_curve) | `fe_operator_factory/kernel_prototypes/` (`null_out.txt` in `kernel_prototypes/results/`) |
+| `D:/Temp/agent_integ/test_*.py` | `tests/feature_selection/fe/factory/` (converted to pytest with assertions at small n) |
+| `D:/Temp/agent_brain/` (h, ops_pair, ops_multi, ops_M, ops_O, cost, results, logs) | `fe_operator_factory/brainstorm/` (results and logs in `brainstorm/results/`) |
+
+Changes made while moving: the decision metric of the downstream scripts (`exp10_downstream.py`, `agg10.py`, brainstorm `h.run_case`) is now MAE and RMSE, reported as relative improvement over the raw-columns baseline, for a ridge and a HistGradientBoosting model. R^2 is no longer computed; the R^2 figures quoted in S8 and in the brainstorm paragraph above, and the `ds_*.json` / `results_*.jsonl` columns that hold R^2, are historical and legacy. The MAE / RMSE code was smoke-tested at tiny n only; the full experiments were not rerun, so no MAE / RMSE table exists yet for these findings.

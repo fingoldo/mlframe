@@ -39,6 +39,7 @@ FE_ROSTER_ATTRS: Tuple[str, ...] = (
     "lagged_diff_features_",
     "lof_features_",
     "mahalanobis_density_features_",
+    "offset_product_features_",
     "mi_greedy_features_",
     "missingness_count_features_",
     "missingness_indicator_features_",

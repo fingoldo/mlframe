@@ -293,6 +293,13 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_conditional_dispersion_n_bins": 10,
     "fe_conditional_dispersion_top_k": 10,
     "fe_conditional_dispersion_max_pair_cols": 6,
+    # Offset product (u + s) * (v + t). Pre-offset pickles default OFF so the legacy reload path is byte-identical (the live default is ON for new fits via __init__).
+    "fe_offset_product_enable": False,
+    "fe_offset_product_cols": (),
+    "fe_offset_product_max_pair_cols": 6,
+    "fe_offset_product_top_k": 3,
+    "fe_offset_product_scan_rows": 100_000,
+    "offset_product_features_": [],
     # Haar wavelet basis. Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new
     # fits via __init__); the fitted-attr list defaults empty.

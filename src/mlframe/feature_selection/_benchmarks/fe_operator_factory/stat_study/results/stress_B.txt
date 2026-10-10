@@ -1,0 +1,56 @@
+
+== mono nb sweep n=5000 snr=1
+  zc6              regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.04
+  zc6_sig+med      regret +0.0001  captured 0.99  fail 0.00  |t err|/sd(u) 0.04
+  zc6_mid          regret +0.0012  captured 0.98  fail 0.00  |t err|/sd(u) 0.08
+  zc8              regret +0.0000  captured 0.99  fail 0.00  |t err|/sd(u) 0.05
+  zc8_sig+med      regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc8_mid          regret +0.0019  captured 0.98  fail 0.00  |t err|/sd(u) 0.13
+  zc12             regret +0.0003  captured 0.99  fail 0.00  |t err|/sd(u) 0.06
+  zc12_sig+med     regret +0.0003  captured 0.99  fail 0.00  |t err|/sd(u) 0.05
+  zc12_mid         regret +0.0015  captured 0.98  fail 0.00  |t err|/sd(u) 0.11
+  zc16             regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.07
+  zc16_sig+med     regret -0.0003  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  zc16_mid         regret +0.0008  captured 0.99  fail 0.00  |t err|/sd(u) 0.09
+
+== mono nb sweep n=5000 snr=0.3
+  zc6              regret +0.0001  captured 0.99  fail 0.00  |t err|/sd(u) 0.10
+  zc6_sig+med      regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.09
+  zc6_mid          regret +0.0004  captured 0.97  fail 0.00  |t err|/sd(u) 0.12
+  zc8              regret +0.0003  captured 0.98  fail 0.00  |t err|/sd(u) 0.12
+  zc8_sig+med      regret +0.0001  captured 0.99  fail 0.00  |t err|/sd(u) 0.08
+  zc8_mid          regret +0.0009  captured 0.97  fail 0.00  |t err|/sd(u) 0.19
+  zc12             regret +0.0007  captured 0.98  fail 0.00  |t err|/sd(u) 0.16
+  zc12_sig+med     regret +0.0000  captured 0.99  fail 0.00  |t err|/sd(u) 0.10
+  zc12_mid         regret +0.0009  captured 0.97  fail 0.00  |t err|/sd(u) 0.19
+  zc16             regret +0.0008  captured 0.98  fail 0.00  |t err|/sd(u) 0.20
+  zc16_sig+med     regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.12
+  zc16_mid         regret +0.0009  captured 0.96  fail 0.00  |t err|/sd(u) 0.22
+
+== mono nb sweep n=30000 snr=1
+  zc6              regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  zc6_sig+med      regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  zc6_mid          regret +0.0008  captured 0.99  fail 0.00  |t err|/sd(u) 0.08
+  zc8              regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  zc8_sig+med      regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc8_mid          regret +0.0011  captured 0.99  fail 0.00  |t err|/sd(u) 0.12
+  zc12             regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc12_sig+med     regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.02
+  zc12_mid         regret +0.0009  captured 0.99  fail 0.00  |t err|/sd(u) 0.09
+  zc16             regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc16_sig+med     regret +0.0001  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc16_mid         regret +0.0005  captured 0.99  fail 0.00  |t err|/sd(u) 0.05
+
+== mono nb sweep n=30000 snr=0.3
+  zc6              regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  zc6_sig+med      regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.03
+  zc6_mid          regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.08
+  zc8              regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  zc8_sig+med      regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.04
+  zc8_mid          regret +0.0004  captured 0.99  fail 0.00  |t err|/sd(u) 0.13
+  zc12             regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.06
+  zc12_sig+med     regret -0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.05
+  zc12_mid         regret +0.0003  captured 0.99  fail 0.00  |t err|/sd(u) 0.09
+  zc16             regret +0.0002  captured 0.99  fail 0.00  |t err|/sd(u) 0.08
+  zc16_sig+med     regret +0.0000  captured 1.00  fail 0.00  |t err|/sd(u) 0.06
+  zc16_mid         regret +0.0003  captured 0.99  fail 0.00  |t err|/sd(u) 0.10

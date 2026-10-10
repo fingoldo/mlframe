@@ -50,6 +50,7 @@ _DEPENDENCY_FAMILIES: tuple[str, ...] = (
     "sir_direction",
     "lof",
     "mahalanobis_density",
+    "offset_product",
 )
 """Recipe families whose surviving recipes' ``src_names`` protect a column from the cross-stage dedup."""
 
@@ -88,6 +89,7 @@ _PRUNED_FAMILIES: tuple[str, ...] = (
     "sir_direction",
     "lof",
     "mahalanobis_density",
+    "offset_product",
     "wavelet",
     "rankgauss",
     "temporal_agg",
