@@ -61,6 +61,7 @@ def _child(estimator: Any):
 
     child = clone(estimator)
     child.set_params(fe_target_mix_enable=False, verbose=0)
+    child._lean_second_pass_ = True  # skips the linear-usability retention of the support assembly: the child only proposes candidates
     return child
 
 

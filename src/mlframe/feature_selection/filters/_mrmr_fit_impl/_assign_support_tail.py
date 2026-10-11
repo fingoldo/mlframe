@@ -51,7 +51,10 @@ def _assign_support_tail(
 
     See the module docstring for the full section this carves out.
     """
-    _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx)
+    # A second pass that only PROPOSES engineered candidates (the feature-base target mix) does not need the linear-usability retention: it re-attaches forms for a downstream linear model, which the
+    # pass that owns the selection runs on its own (1.4 s of a 10k-row fit, size independent).
+    if not getattr(self, "_lean_second_pass_", False):
+        _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx)
 
     # POST-RETENTION RAW-REDUNDANCY DROP (BUG1). The main raw-vs-engineered
     # redundancy sweep (above) runs on the screen-stage ``selected_vars`` BEFORE

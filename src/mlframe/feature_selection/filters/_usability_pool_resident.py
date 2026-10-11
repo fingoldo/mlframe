@@ -82,14 +82,14 @@ def _build_combo_index_arrays(nu: int, nb: int):
     return ua_idx, ub_idx, bn_idx
 
 
-def _combo_chunk_cols(cp: Any, n: int, nc: int) -> int:
+def _combo_chunk_cols(cp: Any, n: int, nc: int, itemsize: int = 8) -> int:
     """Combo columns per fused chunk: ~25% of free VRAM over the candidate block (n x kk f64) plus ~3x radix/MI working set, clamped to ``[1, nc]``."""
     try:
         free_b = int(cp.cuda.runtime.memGetInfo()[0])
     except Exception as e:  # best-effort: free VRAM only sizes the chunk width; any width yields the same table
         logger.debug("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
         free_b = 512 * 1024 * 1024
-    return int(max(1, min(nc, (free_b // 4) // (max(1, n * 8) * 3))))
+    return int(max(1, min(nc, (free_b // 4) // (max(1, n * itemsize) * 3))))
 
 
 def _column_major_enabled() -> bool:
@@ -107,6 +107,7 @@ def score_pair_combos_table_resident(
     ua_codes: np.ndarray,
     ub_codes: np.ndarray,
     bn_codes: np.ndarray,
+    value_dtype: Any = np.float32,
 ) -> Optional[np.ndarray]:
     """Compute the FULL ``(npairs, nc)`` pair-combo MI table for ALL pairs in ONE resident GPU pass.
 
@@ -123,7 +124,10 @@ def score_pair_combos_table_resident(
     on the device (reusing the per-operand distinct unary transforms), accumulate them into one big
     ``(npairs*nc, n)`` candidate matrix, then bin + MI-score the WHOLE stack in one batched call - so the
     only per-pair host->device traffic is the two operand columns (unavoidable), NOT a fresh kernel launch
-    grid per pair. Only the ``(npairs, nc)`` table comes back to the host."""
+    grid per pair. Only the ``(npairs, nc)`` table comes back to the host.
+
+    ``value_dtype`` is the dtype of the operand columns, their unary stacks and the candidate block (float32 by default: the radix select over the block is the dominant kernel of the fit and a
+    float32 block is half the traffic of a float64 one; the table itself, the MI sums and the returned array stay float64). ``np.float64`` restores the double path."""
     try:
         import cupy as cp
     except ImportError as e:
@@ -150,6 +154,8 @@ def score_pair_combos_table_resident(
         n = int(np.asarray(operands[0][0]).shape[0])
         qs = np.linspace(0.0, 1.0, int(nbins) + 1)
         d_qs = cp.asarray(qs, dtype=cp.float64)
+        f32 = np.dtype(value_dtype) == np.float32
+        cp_dt = cp.float32 if f32 else cp.float64
         d_y = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.int64))
         ky_w = int(d_y.max()) + 1 if n else 1  # y-cardinality (histogram width) for the fused MM kernel
         # SYNC-FREE fused bin+hist+MM-MI: the resident table's per-flush scoring used
@@ -193,8 +199,10 @@ def score_pair_combos_table_resident(
         ua_idx_d = cp.asarray(np.asarray(ua_idx, dtype=np.int32))
         ub_idx_d = cp.asarray(np.asarray(ub_idx, dtype=np.int32))
         bop_d = cp.asarray(np.asarray([bn_codes_l[int(bn_idx[j])] for j in range(nc)], dtype=np.int32))
-        fused_gen = _get_fused_gen_cm_kernel() if col_major else _get_fused_gen_kernel()
-        combo_chunk = _combo_chunk_cols(cp, n, nc)
+        if not col_major and f32:
+            f32, cp_dt = False, cp.float64  # the row-major block (MLFRAME_FE_POOL_CM=0) has no float32 generator
+        fused_gen = _get_fused_gen_cm_kernel(float32=f32) if col_major else _get_fused_gen_kernel()
+        combo_chunk = _combo_chunk_cols(cp, n, nc, itemsize=4 if f32 else 8)
         threads = 256
 
         from ._fe_resident_operands import resident_operand
@@ -207,8 +215,8 @@ def score_pair_combos_table_resident(
             # (already used pervasively elsewhere in the FE-resident stack) uploads each DISTINCT
             # content ONCE per fit and returns the cached device buffer on every repeat. Read-only
             # inputs -> sharing the buffer across pairs is safe; values are byte-identical either way.
-            d_x1 = resident_operand(x1, "usability_pool_operand", dtype=np.float64)
-            d_x2 = resident_operand(x2, "usability_pool_operand", dtype=np.float64)
+            d_x1 = resident_operand(x1, "usability_pool_operand_f32" if f32 else "usability_pool_operand", dtype=np.float32 if f32 else np.float64)
+            d_x2 = resident_operand(x2, "usability_pool_operand_f32" if f32 else "usability_pool_operand", dtype=np.float32 if f32 else np.float64)
             # The operands are host arrays that were just uploaded: their nanmin shifts are a numpy reduction of a column already in memory, instead of two
             # device nanmin kernels plus a blocking read per pair (cupy's nanmin was ~15 ms a call here, almost all of it waiting on the queued work).
             xmin_a, xmin_b = (float(np.nanmin(x1)), float(np.nanmin(x2))) if n else (0.0, 0.0)
@@ -219,7 +227,7 @@ def score_pair_combos_table_resident(
             for c0 in range(0, nc, combo_chunk):
                 c1 = min(c0 + combo_chunk, nc)
                 kk = c1 - c0
-                cand = cp.empty((kk, n) if col_major else (n, kk), dtype=cp.float64)  # (kk, n) column-major or (n, kk) row-major
+                cand = cp.empty((kk, n) if col_major else (n, kk), dtype=cp_dt)  # (kk, n) column-major or (n, kk) row-major
                 total = n * kk
                 fused_gen(((total + threads - 1) // threads,), (threads,),
                           (ua_stack, ub_stack, ua_idx_d[c0:c1], ub_idx_d[c0:c1], bop_d[c0:c1],

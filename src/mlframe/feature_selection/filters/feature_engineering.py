@@ -456,8 +456,23 @@ def _safe_pow(x, exponent):
     return np.where(is_zero, ceiling, result)
 
 
+_REGISTRY_CACHE: "dict[tuple[str, str], dict]" = {}
+
+
 def create_unary_transformations(preset: str = "minimal"):
-    """Build the ``{name: callable}`` unary-transform registry for the given preset (``minimal``/``medium``/``maximal``, monotone supersets)."""
+    """The ``{name: callable}`` unary-transform registry of the given preset (``minimal``/``medium``/``maximal``, monotone supersets).
+
+    The registry is built once per preset and process, and every call returns a fresh dict over the SAME callables. Building it wraps new lambdas in ``njit`` each time, so a fresh registry
+    meant fresh numba dispatchers whose first call on each argument type loads (or compiles) the kernel again: about 13 of those loads, 0.24 s, in every fit that used the usability pool."""
+    key = ("unary", _resolve_preset(preset))
+    built = _REGISTRY_CACHE.get(key)
+    if built is None:
+        built = _REGISTRY_CACHE.setdefault(key, _build_unary_transformations(key[1]))
+    return dict(built)
+
+
+def _build_unary_transformations(preset: str):
+    """Build the unary-transform registry for a resolved preset (see :func:`create_unary_transformations`)."""
     # Domain-validity tags for each transform live in the module-level ``UNARY_INPUT_CONSTRAINTS`` dict so callers that need to clip / reject inputs can look them up
     # by transform name (e.g. ``arccos`` requires ``-1to1``).
     #
@@ -604,7 +619,17 @@ def _safe_div(x, y):
 
 
 def create_binary_transformations(preset: str = "minimal"):
-    """Build the ``{name: callable}`` binary-transform registry for the given preset (``minimal``/``medium``/``maximal``, monotone supersets)."""
+    """The ``{name: callable}`` binary-transform registry of the given preset (``minimal``/``medium``/``maximal``, monotone supersets); built once per preset and process, a fresh dict per call
+    (see :func:`create_unary_transformations`)."""
+    key = ("binary", _resolve_preset(preset))
+    built = _REGISTRY_CACHE.get(key)
+    if built is None:
+        built = _REGISTRY_CACHE.setdefault(key, _build_binary_transformations(key[1]))
+    return dict(built)
+
+
+def _build_binary_transformations(preset: str):
+    """Build the binary-transform registry for a resolved preset (see :func:`create_binary_transformations`)."""
     # Preset ladder (monotone: minimal subset of medium subset of maximal):
     #   minimal - the elementary closed binary algebra: mul, add, sub,
     #     div, max, min. ``sub`` and ``div`` were absent from EVERY
