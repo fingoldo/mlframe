@@ -90,6 +90,10 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
         scan_rows=int(self.fe_target_mix_scan_rows),
         min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
     )
+    eng_recipe = {str(n): r for n, r in zip(self._engineered_features_ or [], self._engineered_recipes_ or [])}
+    for entry in self.fe_target_mix_provenance_:
+        base = entry["base"]
+        entry["recipe"] = eng_recipe.get(base, {"raw": base} if base in X.columns else None)
     recipes: dict = {}
     for name, recipe in found.items():
         kind = classify(_raw_sources(name, raw_cols))

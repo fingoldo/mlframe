@@ -151,3 +151,24 @@ Decision recorded: keep max_bases=1 as the cheaper setting with the same accurac
 * No, by construction. The child fits on the even-position subset of rows (at most `fe_target_mix_scan_rows`) and on the target `T`. Disk binning caches key on the column's content hash (of the subset) and on the target key, so neither matches the parent's full-column, y-keyed entries. The in-memory content-hash memo behaves the same way.
 * Measured: on seed 17 with the disk cache disabled, the parent's and the child's per-feature edge calls both ran with no cache (7 and 24 columns). With the cache enabled no hits are expected for the reason above; not measured with an enabled cache.
 * Consequence: the child's discretisation is an independent computation on its own rows. That is also the held-out-safe choice (the rescue judges candidates on rows the child's binning did not see).
+
+## Final model trained on the mix target: TargetOffsetRegressor
+
+* Class `filters/_target_offset_regressor.py`: fits the MRMR selector, then the regressor on the selected features against `y - beta * u(X)`; predicts `f(X) + beta * u(X)`. Only the first recorded base is used (slopes of several bases are fitted against the raw target and do not compose).
+* Provenance now carries the replayable base recipe (`entry["recipe"]`): an engineered base's recipe, or `{"raw": name}`.
+* Held-out gate (`offset_alpha`, default 0.05, one-sided, standard-error test on paired squared error, even/odd training rows): the offset is used only if the regressor on `T` beats the regressor on `y`. Without it a linear base of a nonlinear term hurt HGB (derived_base +10.1%, +5.7 se).
+* OOS, 6 seeds, n_train 6000, paired against the same MRMR with the mix off (arm A), held-out RMSE; offset found in brackets after the gate:
+
+| process | ridge | HGB | offset found |
+|---|---|---|---|
+| masked_ratio | -16.0% (-1.9 se) | +0.5% | 0/6 |
+| derived_base | -32.2% (-1.3 se) | 0.0% | 0/6 |
+| masked_interaction | -18.7% (-2.5 se) | -0.4% | 0/6 |
+| two_dominant_weak_pair | -20.3% (-2.7 se) | -46.7% (-4.6 se) | 5/6 |
+| heteroscedastic | 0.0% | -0.1% | 3/6 |
+| regime | +4.0% (+0.6 se) | +1.9% | 1/6 |
+| noise_control | 0.0% | -1.5% (-9.7 se) | 6/6 |
+| monotone_control | 0.0% | -50.2% (-5.2 se) | 5/6 |
+
+* Reading: the held-out gate removes the derived_base harm and keeps the large HGB gains on the two processes where the base is a true smooth term (two_dominant, monotone). The ridge gains on masked_ratio and derived_base come from the features the mix adds to the selection, not from the offset (the offset is rejected there); arm A has the mix off, so this comparison cannot separate the two. A split of the ridge gain into features and offset needs a third arm (mix on, offset off), not yet run.
+* Tests: `tests/feature_selection/fe/test_target_offset_regressor.py` (add-back invariant, no-base equals plain regressor, a harmful offset is rejected on held-out rows).
