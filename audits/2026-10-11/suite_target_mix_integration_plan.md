@@ -114,3 +114,5 @@ Implemented and committed (local, not pushed):
 * End-to-end: suite trains `target__mixoff` and records it (test passes); predicting through the suite returns the companion on the y scale (RMSE against y below 1.0 on the fixture; test passes).
 
 Still open before default ON: caching digests (plan v2 step 6), reload of a saved wrapper (step 7), the regression-only guard on every build path, and the 20-seed OOS with multiplicity correction (plan v2 step 8).
+
+Step 6 (cache digests), done in bc5f209cc: the pipeline cache key now folds `pre_pipeline_params_digest(pre_pipeline)` (step parameters, including `fe_target_mix_enable`). Before the fix, a mix-on run with the same pre-pipeline name and target could be served a mix-off run's frames. The legacy key is unchanged when no digest is given. `composite_spec_digest` applies to composite wrappers only; the companion is a plain target, so it needs no separate entry.
