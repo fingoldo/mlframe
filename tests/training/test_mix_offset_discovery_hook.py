@@ -49,7 +49,7 @@ def test_noise_target_gets_no_companion():
 
 def test_predict_finds_the_record_only_for_its_companion_target():
     """The predict-side lookup returns the record of ``<name>__mixoff`` under its target type and nothing for any other name."""
-    from mlframe.training.core._predict_main_suite import _mix_offset_record
+    from mlframe.feature_selection.filters._target_mix_target import mix_offset_record as _mix_offset_record
 
     rec = {"source": "t", "beta": 3.0, "recipe": None}
     meta = {"mix_offset_targets": {str(TargetTypes.REGRESSION): {"t__mixoff": rec}}}

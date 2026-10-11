@@ -16,7 +16,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["add_back_mix_offset", "build_mix_offset_target"]
+__all__ = ["add_back_mix_offset", "build_mix_offset_target", "mix_offset_record"]
 
 
 def build_mix_offset_target(
@@ -58,3 +58,10 @@ def add_back_mix_offset(predictions: Any, X: pd.DataFrame, record: dict) -> np.n
     if not np.all(np.isfinite(u)):
         raise ValueError("the mix base replays to non-finite values on this frame; refusing to fill them silently.")
     return np.asarray(predictions, dtype=np.float64).ravel() + float(record["beta"]) * u
+
+
+def mix_offset_record(metadata: Any, target_type: Any, target_name: Any) -> Optional[dict]:
+    """The feature-base mix record of a ``<name>__mixoff`` companion target (``metadata["mix_offset_targets"]``), or None for any other target."""
+    if not isinstance(metadata, dict):
+        return None
+    return metadata.get("mix_offset_targets", {}).get(str(target_type), {}).get(target_name)
