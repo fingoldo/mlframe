@@ -82,3 +82,24 @@ Two critics read the plan against the code: one on statistics and ML validity, o
 * The wrapper is never built for a classification target.
 * Suite: existing `training/` regression tests pass with the flag on and off.
 * OOS: at least 20 paired seeds through the suite path, multiplicity-adjusted; noise_control and heteroscedastic not worse; null calibration passes.
+
+
+## Decision (2026-10-11): option C, the wrapper replays the base from the raw frame
+
+Options weighed for keeping `__mix_base__` away from the selector:
+* A. Move the base out of the frame before the selector and back after. Needs the base carried beside the pre-pipeline through every fit/predict signature. Rejected.
+* B. New exclusion parameter on MRMR. MRMR has no exclude or forced-keep parameter; adding one touches `fs_params/mrmr.py`, the setstate defaults and the selection cache key, and the column stays in the frame. Rejected.
+* C. No base column anywhere. The wrapper stores the recipe, replays it from the raw frame at fit and at predict, and declares the recipe's source columns in `_resolve_base_columns` so the routing keeps them. Chosen.
+
+Verified in code for C:
+* Predict: `composite_predict` / `composite_stage_frame` (`core/_predict_composite_routing.py:38-68`) pass the suite-stage raw frame to a wrapper with `_routes_inner_input`, and fall back to the raw `df` when the required columns are missing.
+* Fit: `_wrap_one_composite` (`core/_phase_composite_wrapping.py:364-433`) wraps fitted entries with `filtered_train_df`, the raw training split, so the wrapper can compute the same base at fit time.
+* Target: the composite targets are built upstream and stored in `target_by_type` (T-scale), then wrapped post hoc with `from_fitted`. The mix offset must follow the same pattern: the model trains on `T = y - beta*u(X_train)` where `u` is replayed from the raw training frame, and the wrapper adds `beta*u` back at predict.
+
+Remaining work for C, in order:
+1. Target build: a mix-offset target entry in `target_by_type`, `u` replayed from the raw training split, computed once per fit (not per model).
+2. Wrapper class over a fitted model with the recipe (not a column), `_routes_inner_input = True`, `_resolve_base_columns` = the recipe's raw source columns.
+3. Held-out gate as in `TargetOffsetRegressor`, applied before the entry is kept.
+4. Cache-key and composite-spec digests carry the recipe and beta.
+5. Save/load keeps the wrapper; metrics on the y scale.
+6. Regression-only guard; suite tests with the flag on and off; OOS on 20+ seeds.
