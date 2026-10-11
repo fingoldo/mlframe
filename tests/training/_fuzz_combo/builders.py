@@ -7,9 +7,24 @@ imported lazily in-body so this module stays import-light.
 
 from __future__ import annotations
 
+import os as _os
 from typing import Any, Dict, Optional
 
+import numpy as _np
+
 from .combo import FuzzCombo
+from .field_randomizer import randomize_scalar_fields as _randomize_scalar_fields
+
+#: See field_randomizer.py / _fuzz_suite_helpers.py's identically-named flag: opt-in resampling of every
+#: config field a named axis left at its default. Off by default (existing CI-gating combos unaffected).
+_RANDOMIZE_ALL_FIELDS_ENV = "MLFRAME_FUZZ_RANDOMIZE_ALL_FIELDS"
+
+
+def _randomize_if_enabled(model: Any, combo: "FuzzCombo", salt: int = 5) -> Any:
+    """``randomize_scalar_fields(model, ...)`` when ``MLFRAME_FUZZ_RANDOMIZE_ALL_FIELDS`` is set, else ``model`` unchanged."""
+    if model is None or _os.environ.get(_RANDOMIZE_ALL_FIELDS_ENV, "").lower() not in ("1", "true", "yes", "on"):
+        return model
+    return _randomize_scalar_fields(model, _np.random.default_rng((combo.seed, salt)))
 
 # ---------------------------------------------------------------------------
 # Shared suite-config builders (2026-05-18 refactor)
@@ -1443,7 +1458,7 @@ def build_composite_discovery_config_from_flat(
 def build_composite_discovery_config(combo: "FuzzCombo"):
     """FuzzCombo-aware wrapper."""
     enabled = combo.composite_discovery_enabled_cfg and combo.target_type == "regression"
-    return build_composite_discovery_config_from_flat(
+    return _randomize_if_enabled(build_composite_discovery_config_from_flat(
         enabled=enabled,
         transforms_mode=combo.composite_transforms_mode_cfg if enabled else None,
         mi_estimator=combo.composite_mi_estimator_cfg,
@@ -1492,7 +1507,7 @@ def build_composite_discovery_config(combo: "FuzzCombo"):
         top_m_after_tiny=combo.composite_top_m_after_tiny_cfg,
         use_baseline_diagnostics_hint=combo.composite_use_baseline_diagnostics_hint_cfg,
         gate_kind=combo.composite_gate_kind_cfg,
-    )
+    ), combo)
 
 
 def build_slice_stable_es_config_from_flat(

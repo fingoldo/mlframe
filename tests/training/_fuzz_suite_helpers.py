@@ -7,13 +7,55 @@ imported lazily in-body to keep import time low.
 
 from __future__ import annotations
 
+import os as _os
+
 import numpy as np
 import pytest
+from pydantic import BaseModel
 
 from ._fuzz_combo import (
     FuzzCombo,
     build_composite_discovery_config,
+    randomize_scalar_fields,
 )
+
+#: Opt-in: when set, every bool/bounded-numeric/Literal config field a named FuzzCombo axis left at its
+#: library default gets resampled too (see field_randomizer.py). Off by default so the existing CI-gating
+#: fuzz suite's combos keep their exact historical behavior; bughunt runs and the profiler opt in to
+#: actually exercise the ~230 config-surface fields that have no dedicated axis of their own.
+_RANDOMIZE_ALL_FIELDS_ENV = "MLFRAME_FUZZ_RANDOMIZE_ALL_FIELDS"
+
+
+def _randomize_configs(configs: dict, combo: FuzzCombo) -> dict:
+    """Apply :func:`randomize_scalar_fields` to every pydantic-model value of ``configs`` when
+    ``MLFRAME_FUZZ_RANDOMIZE_ALL_FIELDS`` is set, seeded off ``combo.seed`` (deterministic per combo).
+    A no-op dict pass-through otherwise, so the default fuzz suite is bit-for-bit unaffected."""
+    if _os.environ.get(_RANDOMIZE_ALL_FIELDS_ENV, "").lower() not in ("1", "true", "yes", "on"):
+        return configs
+    rng = np.random.default_rng(combo.seed)
+    return {k: (randomize_scalar_fields(v, rng) if isinstance(v, BaseModel) else v) for k, v in configs.items()}
+
+
+def _randomize_hyperparams_dict(cfg: dict, combo: FuzzCombo) -> dict:
+    """``_config_for_models``'s return is a plain dict (its keys -- ``iterations``, ``cb_kwargs``, ``ngb_kwargs``,
+    ...) are ``ModelHyperparamsConfig``'s own field names, so round-tripping through that model lets the
+    generic randomizer reach the ~20 scalar ``ModelHyperparamsConfig`` fields (``roc_auc_weight``,
+    ``use_explicit_early_stopping``, ``validation_fraction``, ...) no named axis sets, without this helper
+    needing to know any of their names itself."""
+    if _os.environ.get(_RANDOMIZE_ALL_FIELDS_ENV, "").lower() not in ("1", "true", "yes", "on"):
+        return cfg
+    from mlframe.training.configs import ModelHyperparamsConfig
+
+    randomized = randomize_scalar_fields(ModelHyperparamsConfig(**cfg), np.random.default_rng((combo.seed, 6)))
+    return {**cfg, **randomized.model_dump(exclude_none=True)}
+
+
+def _randomize_one(model: BaseModel, combo: FuzzCombo, salt: int = 0) -> BaseModel:
+    """Single-model counterpart to :func:`_randomize_configs`, for a builder that returns one config object
+    rather than a kwargs dict. ``salt`` decorrelates the RNG from a sibling call sharing the same combo seed."""
+    if _os.environ.get(_RANDOMIZE_ALL_FIELDS_ENV, "").lower() not in ("1", "true", "yes", "on"):
+        return model
+    return randomize_scalar_fields(model, np.random.default_rng((combo.seed, salt)))
 
 
 def _safe_cfg_kwargs(cfg_class, **kwargs):
@@ -356,71 +398,74 @@ def _configs_for_combo(combo: FuzzCombo) -> dict:
     # branch). Don't include it here or we'd hit a duplicate-kwarg
     # TypeError when this dict is **-splatted alongside the explicit
     # ``preprocessing_config=...``.
-    return {
-        "pipeline_config": PreprocessingBackendConfig(
-            prefer_polarsds=combo.prefer_polarsds,
-            scaler_name=combo.scaler_name_cfg,
-            categorical_encoding=combo.categorical_encoding_cfg,
-            skip_categorical_encoding=combo.skip_categorical_encoding_cfg,
-            imputer_strategy=combo.imputer_strategy_cfg,
-            # 2026-05-21 iter151 P1-9: polars-ds -> sklearn fallback bridge.
-            # Only meaningful when prefer_polarsds=True (otherwise the
-            # bridge path is unreachable).
-            fallback_to_sklearn=combo.fallback_to_sklearn_cfg,
-            # 2026-05-22 iter170: robust-scaler quantile bounds (defensive).
-            **_safe_cfg_kwargs(
-                PreprocessingBackendConfig,
-                robust_q_low=combo.robust_q_low_cfg,
-                robust_q_high=combo.robust_q_high_cfg,
+    return _randomize_configs(
+        {
+            "pipeline_config": PreprocessingBackendConfig(
+                prefer_polarsds=combo.prefer_polarsds,
+                scaler_name=combo.scaler_name_cfg,
+                categorical_encoding=combo.categorical_encoding_cfg,
+                skip_categorical_encoding=combo.skip_categorical_encoding_cfg,
+                imputer_strategy=combo.imputer_strategy_cfg,
+                # 2026-05-21 iter151 P1-9: polars-ds -> sklearn fallback bridge.
+                # Only meaningful when prefer_polarsds=True (otherwise the
+                # bridge path is unreachable).
+                fallback_to_sklearn=combo.fallback_to_sklearn_cfg,
+                # 2026-05-22 iter170: robust-scaler quantile bounds (defensive).
+                **_safe_cfg_kwargs(
+                    PreprocessingBackendConfig,
+                    robust_q_low=combo.robust_q_low_cfg,
+                    robust_q_high=combo.robust_q_high_cfg,
+                ),
             ),
-        ),
-        "split_config": split_config,
-        "feature_types_config": FeatureTypesConfig(
-            auto_detect_feature_types=combo.auto_detect_cats,
-            use_text_features=combo.use_text_features,
-            honor_user_dtype=combo.honor_user_dtype,
-            text_features=text_features,
-            embedding_features=embedding_features,
-            cat_text_cardinality_threshold=combo.cat_text_card_threshold_cfg,
-        ),
-        "behavior_config": TrainingBehaviorConfig(**behavior_kwargs),
-        # 2026-05-18 — composite-target discovery axes. The dict is splatted
-        # into the suite call, so when discovery is enabled this routes the
-        # config through. Disabled-config still passes through so the suite
-        # path is exercised symmetrically.
-        "composite_target_discovery_config": build_composite_discovery_config(combo),
-        # PreprocessingExtensionsConfig — sklearn-bridge transforms applied
-        # once and reused per model. Mirror FuzzCombo._canonical_prep_ext
-        # so combos with NaN-injecting axes or unencoded categoricals
-        # collapse to None (the bridge cannot consume those). Only attach
-        # the config when at least one knob is non-default; otherwise pass
-        # None to preserve the polars-native fastpath.
-        "preprocessing_extensions": _maybe_preprocessing_extensions(combo, PreprocessingExtensionsConfig),
-        # Multilabel dispatch is consulted only when target_type is
-        # MULTILABEL_CLASSIFICATION (helpers._maybe_wrap_multilabel
-        # short-circuits otherwise), but pass on every combo — the
-        # production API accepts it unconditionally. Mirror
-        # FuzzCombo._canonical_multilabel_strategy so chain dispatch is
-        # only requested for combos whose data shape supports it.
-        "multilabel_dispatch_config": MultilabelDispatchConfig(
-            strategy=combo._canonical_multilabel_strategy(),
-            n_chains=combo.multilabel_n_chains_cfg,
-            chain_order_strategy=combo.multilabel_chain_order_cfg,
-            cv=combo.multilabel_cv_cfg,
-            # 2026-05-11 Wave 21: post-hoc calib downgrade toggle (multilabel
-            # only). Canonicalised to default False for non-multilabel.
-            allow_uncalibrated_multi=combo.multilabel_allow_uncalibrated_cfg,
-            # iter170 deep axis (defensive).
-            **_safe_cfg_kwargs(
-                MultilabelDispatchConfig,
-                force_native_xgb_multilabel=combo.multilabel_force_native_xgb_cfg,
-                # iter180 DEPTH-4 list-typed: per_label_thresholds (uniform 0.4 vs None),
-                # chain_seeds (deterministic per-chain seeds vs None).
-                per_label_thresholds=(None if combo.multilabel_per_label_thresholds_cfg is None else [0.4, 0.4, 0.4]),  # K=3 default labels in fuzz frame
-                chain_seeds=(None if combo.multilabel_chain_seeds_cfg is None else list(range(combo.multilabel_n_chains_cfg))),
+            "split_config": split_config,
+            "feature_types_config": FeatureTypesConfig(
+                auto_detect_feature_types=combo.auto_detect_cats,
+                use_text_features=combo.use_text_features,
+                honor_user_dtype=combo.honor_user_dtype,
+                text_features=text_features,
+                embedding_features=embedding_features,
+                cat_text_cardinality_threshold=combo.cat_text_card_threshold_cfg,
             ),
-        ),
-    }
+            "behavior_config": TrainingBehaviorConfig(**behavior_kwargs),
+            # 2026-05-18 — composite-target discovery axes. The dict is splatted
+            # into the suite call, so when discovery is enabled this routes the
+            # config through. Disabled-config still passes through so the suite
+            # path is exercised symmetrically.
+            "composite_target_discovery_config": build_composite_discovery_config(combo),
+            # PreprocessingExtensionsConfig — sklearn-bridge transforms applied
+            # once and reused per model. Mirror FuzzCombo._canonical_prep_ext
+            # so combos with NaN-injecting axes or unencoded categoricals
+            # collapse to None (the bridge cannot consume those). Only attach
+            # the config when at least one knob is non-default; otherwise pass
+            # None to preserve the polars-native fastpath.
+            "preprocessing_extensions": _maybe_preprocessing_extensions(combo, PreprocessingExtensionsConfig),
+            # Multilabel dispatch is consulted only when target_type is
+            # MULTILABEL_CLASSIFICATION (helpers._maybe_wrap_multilabel
+            # short-circuits otherwise), but pass on every combo — the
+            # production API accepts it unconditionally. Mirror
+            # FuzzCombo._canonical_multilabel_strategy so chain dispatch is
+            # only requested for combos whose data shape supports it.
+            "multilabel_dispatch_config": MultilabelDispatchConfig(
+                strategy=combo._canonical_multilabel_strategy(),
+                n_chains=combo.multilabel_n_chains_cfg,
+                chain_order_strategy=combo.multilabel_chain_order_cfg,
+                cv=combo.multilabel_cv_cfg,
+                # 2026-05-11 Wave 21: post-hoc calib downgrade toggle (multilabel
+                # only). Canonicalised to default False for non-multilabel.
+                allow_uncalibrated_multi=combo.multilabel_allow_uncalibrated_cfg,
+                # iter170 deep axis (defensive).
+                **_safe_cfg_kwargs(
+                    MultilabelDispatchConfig,
+                    force_native_xgb_multilabel=combo.multilabel_force_native_xgb_cfg,
+                    # iter180 DEPTH-4 list-typed: per_label_thresholds (uniform 0.4 vs None),
+                    # chain_seeds (deterministic per-chain seeds vs None).
+                    per_label_thresholds=(None if combo.multilabel_per_label_thresholds_cfg is None else [0.4, 0.4, 0.4]),  # K=3 default labels in fuzz frame
+                    chain_seeds=(None if combo.multilabel_chain_seeds_cfg is None else list(range(combo.multilabel_n_chains_cfg))),
+                ),
+            ),
+        },
+        combo,
+    )
 
 
 # (Removed 2026-05-18: ``_composite_discovery_config_for_combo`` folded
@@ -799,7 +844,7 @@ def _preprocessing_for_combo(combo: FuzzCombo):
             from sklearn.preprocessing import StandardScaler
             from sklearn.impute import SimpleImputer
 
-            return PreprocessingConfig(
+            return _randomize_one(PreprocessingConfig(
                 drop_columns=[],
                 fillna_value=combo.fillna_value_cfg,
                 fix_infinities=_fix_inf,
@@ -816,16 +861,16 @@ def _preprocessing_for_combo(combo: FuzzCombo):
                 # remove_constant_columns=False -- the NaN reached PytorchLightningEstimator's strict
                 # guard (2026-07-06).
                 imputer=SimpleImputer(strategy="mean", keep_empty_features=True),
-            )
+            ), combo)
         except ImportError:
             pass
-    return PreprocessingConfig(
+    return _randomize_one(PreprocessingConfig(
         drop_columns=[],
         fillna_value=combo.fillna_value_cfg,
         fix_infinities=_fix_inf,
         ensure_float32_dtypes=combo.ensure_float32_cfg,
         remove_constant_columns=combo.remove_constant_columns_cfg,
-    )
+    ), combo)
 
 
 def _skip_if_deps_missing(models: tuple[str, ...]) -> None:
@@ -1005,10 +1050,10 @@ def _feature_selection_config_for_combo(combo: FuzzCombo, rfecv_on: bool, custom
         "variance_threshold": combo.fs_pre_screen_variance_threshold_cfg,
         "null_fraction_threshold": combo.fs_pre_screen_null_fraction_threshold_cfg,
     }
-    return FeatureSelectionConfig(
+    return _randomize_one(FeatureSelectionConfig(
         **selectors,
         custom_pre_pipelines=custom_pre_pipelines or {},
         pre_screen={k: v for k, v in pre_screen.items() if v is not None},
         use_sample_weights_in_fs=combo.use_sample_weights_in_fs_cfg,
         skip_identity_equivalent_pre_pipelines=combo.skip_identity_equivalent_pre_pipelines_cfg,
-    )
+    ), combo, salt=1)

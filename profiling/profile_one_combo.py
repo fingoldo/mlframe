@@ -48,6 +48,7 @@ from tests.training._fuzz_suite_helpers import (  # noqa: E402
     _maybe_to_parquet,
     _outlier_detector_for_combo,
     _preprocessing_for_combo,
+    _randomize_hyperparams_dict,
     _recurrent_config_for_combo,
     _recurrent_sequences_for_combo,
 )
@@ -85,7 +86,7 @@ def _build_fte(combo: FuzzCombo, target_col: str) -> SimpleFeaturesAndTargetsExt
 
 def _hyperparams_for_combo(combo: FuzzCombo) -> dict:
     """Every booster / RFECV axis of the combo, as the pytest fuzz suite passes them, with the profiling iteration floor applied."""
-    return _config_for_models(
+    return _randomize_hyperparams_dict(_config_for_models(
         combo.models,
         combo.n_rows,
         # Floor of 10: short enough to keep MLP/LTR profiles fast, long enough to exercise early stopping and the multi-round boost loop.
@@ -111,7 +112,7 @@ def _hyperparams_for_combo(combo: FuzzCombo) -> dict:
         cb_bernoulli_subsample=combo.cb_bernoulli_subsample_cfg,
         cb_grow_policy=combo.cb_grow_policy_cfg,
         cb_lossguide_max_leaves=combo.cb_lossguide_max_leaves_cfg,
-    )
+    ), combo)
 
 
 def _feature_selection_for_profile(combo: FuzzCombo, args: argparse.Namespace) -> FeatureSelectionConfig:

@@ -90,6 +90,7 @@ from .builders import (
 from .results_log import RESULTS_LOG, log_combo_outcome, read_fail_summary
 from .perf_mode import apply_perf_mode
 from .frame_builder import build_frame_for_combo
+from .field_randomizer import GENERICALLY_FUZZABLE_SHAPE, randomize_scalar_fields
 
 __all__ = [
     "MODELS",
@@ -115,4 +116,6 @@ __all__ = [
     "read_fail_summary",
     "apply_perf_mode",
     "build_frame_for_combo",
+    "randomize_scalar_fields",
+    "GENERICALLY_FUZZABLE_SHAPE",
 ]

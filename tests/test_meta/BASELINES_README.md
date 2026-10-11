@@ -69,4 +69,3 @@ Run from the repository root. The script re-runs each meta-test in
 - `_drifted_duplicate_literals_baseline.json` - numeric tuples written in several modules, each with its reason (`drifted_duplicate_literals`)
 - `_drifted_threshold_literals_baseline.json` - one limit compared against similarly named operands in several modules, each with its reason (`drifted_duplicate_literals`, rule `threshold`)
 - `_unresolved_module_attributes_baseline.json` - `module.NAME` reads the gate cannot resolve (`unresolved_module_attributes`)
-- `_fuzz_config_field_coverage_baseline.json` - training config fields with no corresponding fuzz axis in `tests/training/_fuzz_combo/` (test_fuzz_config_field_coverage.py; edited by hand, may only shrink)
