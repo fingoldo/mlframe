@@ -14,6 +14,9 @@ history.
 ### Added
 - MRMR residual rescue (`fe_residual_rescue_enable`, default on; `fe_residual_rescue_min_relative_gain`, `fe_residual_rescue_max_admit`): after the selection, pool columns (raw and engineered) that reduce the held-out squared residual of the selected design on the target's own scale are admitted (paired odd-row t statistic, family-wise 5% over the pool, practical-effect floor, 0.1% of the target variance by default). Recovers terms that are weak in rank space but carry most of the variance, e.g. `a**2/b` next to `3*log(c)*sin(d)` under outliers. Only candidates that bring a source column the selection does not already use are eligible (a second view of the operands of a fused compound is not rescued). Regression targets only; about 0.17 s on 50k scan rows and 117 candidate columns.
 
+### Performance
+- The four FE families and the residual rescue together cost 0.3-0.9 s on an 11.3 s fit of the F2 example at 1M rows (about 0.5 s at 100k); per stage at 1M: warp 0.18 s, offset product 0.19 s, rescue 0.21 s, row statistics 0.07 s. Paired A/B in `audits/2026-10-11/f2_fit_timing_all_families.md`.
+
 ### Changed
 - Distribution-profile tests: the asserted-drop column is an independent pure-noise column; the weak operands e / e1 / e2 are real terms of the noise-free target and are no longer called noise. Both xfail registries are empty (41 passed, 0 xfailed).
 
