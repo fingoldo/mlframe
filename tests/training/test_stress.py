@@ -274,7 +274,7 @@ class TestPerformance:
 
         elapsed = time.time() - start
 
-        # 3 linear models should complete quickly (< 30 seconds). Under
+        # 3 linear models should complete quickly (< 90 seconds with the mix base search; see the threshold note below). Under
         # pytest-xdist with N parallel workers, individual workers share host
         # cores with concurrent CPU-heavy tests -- wall-time grows roughly
         # linearly with worker count. Scale the threshold so the assertion
@@ -282,7 +282,10 @@ class TestPerformance:
         # a wall-time flake. Worker count is exposed via the well-known
         # PYTEST_XDIST_WORKER_COUNT env var.
         _xdist_n = max(1, int(os.environ.get("PYTEST_XDIST_WORKER_COUNT", "1") or "1"))
-        _threshold = 30.0 * _xdist_n
+        # Base raised 30 s -> 90 s (2026-10-12): the mix-offset default runs an MRMR base search on the first regression target, which in a fresh
+        # process loads the numba kernels of the MRMR feature-engineering path from cache (about 25 s of cold start, measured). The same
+        # suite with the mix off takes about 6 s. Observed with the mix on: 60.7 s under load, so 90 s leaves a margin of about 1.5x.
+        _threshold = 90.0 * _xdist_n
         assert elapsed < _threshold, f"Multiple models took {elapsed:.1f}s (threshold {_threshold:.1f}s = 30s x xdist workers={_xdist_n})"
         assert TargetTypes.REGRESSION in models
 
