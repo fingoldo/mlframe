@@ -16,7 +16,8 @@ import re
 import numpy as np
 
 logger = logging.getLogger(__name__)
-_TOKEN_SPLIT = re.compile(r"[(),|\s]+")
+_COMPOUND_VIEWS_LINEAR = True  # a view of the operands of a multi-source compound is scored by the linear channel only (False: skipped); a free-form gain is impossible there, a linear gain is not
+_TOKEN_SPLIT = re.compile(r"[(),|\s]+|__")
 
 __all__ = ["run_residual_rescue"]
 
@@ -26,14 +27,13 @@ def _raw_sources(name: str, raw_cols: "frozenset[str]") -> "frozenset[str]":
     engineered operands that no longer exist as recipes, so the name is the one reliable record of the sources."""
     if name in raw_cols:
         return frozenset({name})
-    tokens = _TOKEN_SPLIT.split(name)
-    return frozenset(tok.split("__")[0] for tok in tokens if tok.split("__")[0] in raw_cols)
+    return frozenset(tok for tok in _TOKEN_SPLIT.split(name) if tok in raw_cols)
 
 
 def _is_refinement(sources: "frozenset[str]", design_sources: "list[frozenset[str]]") -> bool:
     """True when a candidate is built from operands that one design column already holds: a second view of the same operands, beside a fused compound or a raw. A joint feature of operands that
     the design only holds in separate columns (a raw ``a`` and a raw ``b`` beside a candidate ``mul(a,b)``) is new information and not a refinement."""
-    return any(sources <= held for held in design_sources)
+    return bool(sources) and any(sources <= held for held in design_sources)
 
 
 def _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool) -> dict:
@@ -70,6 +70,38 @@ def _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool) -
         recipes[name] = build_oof_cell2d_recipe(
             name=name, src=(str(ca), str(cb)), ea=fit["ea"], eb=fit["eb"], tab=fit["tab"], fill=fit["fill"], lo=float(fit["oof"].min()), hi=float(fit["oof"].max())
         )
+    return recipes
+
+
+def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only) -> dict:
+    """Engineered candidates of the feature-base target mix (``_target_mix_fe``), added to ``pool``; returns their recipes (attached only if the rescue admits them). Empty when the mix is off."""
+    if not getattr(self, "fe_target_mix_enable", False):
+        return {}
+    from ..engineered_recipes.shared import apply_recipe
+    from .._target_mix_fe import second_pass_recipes
+
+    found = second_pass_recipes(
+        self,
+        X,
+        y,
+        design,
+        max_bases=int(self.fe_target_mix_max_bases),
+        scan_rows=int(self.fe_target_mix_scan_rows),
+        min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
+    )
+    recipes: dict = {}
+    for name, recipe in found.items():
+        kind = classify(_raw_sources(name, raw_cols))
+        if name in design or name in pool or name in X.columns or kind == "skip":
+            continue
+        try:
+            pool[name] = np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+        except Exception:
+            logger.warning("MRMR target-mix candidate %r failed to replay; skipped.", name, exc_info=True)
+            continue
+        recipes[name] = recipe
+        if kind == "linear":
+            linear_only.add(name)
     return recipes
 
 
@@ -152,6 +184,16 @@ def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retent
         for name in prune_names:
             del design[name]
         design_sources = [_raw_sources(name, raw_cols) for name in design]
+        engineered_held = [s for name, s in zip(design, design_sources) if name not in raw_cols and len(s) >= 2]  # compounds of several operands
+        raw_held = [s for name, s in zip(design, design_sources) if name in raw_cols or len(s) < 2]  # a raw, or a one-column transform of a raw (hinge leg, warp)
+
+        def classify(sources):
+            """'skip': a view of the operands of one multi-source ENGINEERED design column (a refinement of a term the selection has); 'linear': a form of operands one RAW (or one-column
+            engineered) design column holds: no free-form gain is possible, a linear model can still gain; 'free': anything else."""
+            if _is_refinement(sources, engineered_held):
+                return "linear" if _COMPOUND_VIEWS_LINEAR else "skip"
+            return "linear" if sources and _is_refinement(sources, raw_held) else "free"
+
         pool = {
             str(c): np.asarray(X[c].to_numpy(), dtype=np.float64)
             for c in X.columns
@@ -159,11 +201,19 @@ def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retent
             and str(c) not in sel_names
             and str(c) not in prune_names
             and np.issubdtype(X[c].dtype, np.number)
-            and not _is_refinement(_raw_sources(str(c), raw_cols), design_sources)
+            and classify(_raw_sources(str(c), raw_cols)) != "skip"
         }
+        linear_only = {name for name in pool if classify(_raw_sources(name, raw_cols)) == "linear"}
         cell_recipes = _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool)
+        cell_recipes.update(_target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only))
         admitted = residual_rescue(
-            design, pool, y, min_relative_gain=float(self.fe_residual_rescue_min_relative_gain), max_admit=int(self.fe_residual_rescue_max_admit)
+            design,
+            pool,
+            y,
+            min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
+            max_admit=int(self.fe_residual_rescue_max_admit),
+            linear_channel=True,
+            linear_only=frozenset(linear_only),
         )
         eng_set = {str(n) for n in eng_names}
     except Exception:

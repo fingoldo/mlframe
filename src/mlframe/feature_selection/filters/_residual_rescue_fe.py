@@ -194,6 +194,25 @@ def design_residual(design: Mapping[str, np.ndarray], y: np.ndarray) -> np.ndarr
     return _residual(np.ascontiguousarray(dcodes), _without_linear_part(lin, yr, even), even, n_main)
 
 
+def _linear_scores(Z: np.ndarray, L: np.ndarray, r0: np.ndarray, even: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """Held-out gain of each row of ``Z`` (a candidate column per row) for a LINEAR model that already holds the columns of ``L``: ``(t statistic, mean reduction of the squared error)``.
+
+    ``r0`` is the linear residual of the target on ``L`` (fitted on the even rows). By the Frisch-Waugh argument adding a candidate to the OLS is the same as regressing ``r0`` on the candidate
+    orthogonalised against ``L`` (also on the even rows); the paired per-row reduction ``r0^2 - (r0 - b x)^2`` on the odd rows is the evidence, exactly as in ``linear_oos_gain`` but for a whole block."""
+    ts, gains = [], []
+    for start in range(0, Z.shape[0], 64):
+        block = Z[start : start + 64].T.astype(np.float64)
+        G, *_ = np.linalg.lstsq(L[even], block[even], rcond=None)
+        P = block - L @ G
+        den = np.maximum((P[even] ** 2).sum(0), 1e-12)
+        b = (P[even] * r0[even, None]).sum(0) / den
+        d = (r0[:, None] ** 2 - (r0[:, None] - P * b) ** 2)[~even]
+        sd = d.std(0)
+        ts.append(d.mean(0) / (sd / np.sqrt(d.shape[0]) + 1e-300))
+        gains.append(d.mean(0))
+    return np.concatenate(ts), np.concatenate(gains)
+
+
 def residual_rescue(
     design: Mapping[str, np.ndarray],
     pool: Mapping[str, np.ndarray],
@@ -204,10 +223,15 @@ def residual_rescue(
     max_admit: int = 8,
     scan_rows: int = DEFAULT_SCAN_ROWS,
     max_pool: int = MAX_POOL,
+    linear_channel: bool = False,
+    linear_only: "frozenset[str]" = frozenset(),
 ) -> "list[tuple[str, float, float]]":
     """Pool columns that reduce the held-out squared residual of the design, as ``(name, t statistic, relative gain)`` in admission order.
 
-    ``design`` and ``pool`` map names to full-length columns; ``y`` is the continuous target. Empty when there are too few rows, no usable pool column or nothing passes."""
+    ``design`` and ``pool`` map names to full-length columns; ``y`` is the continuous target. Empty when there are too few rows, no usable pool column or nothing passes.
+
+    With ``linear_channel`` a candidate also qualifies when it improves the held-out fit of a LINEAR model on the design (a nonlinear form of a column the design holds raw, ``tanh(2 x)`` beside
+    ``x``, has no free-form gain and a large linear one); the family-wise level is then shared by the two channels. Candidates named in ``linear_only`` are scored by the linear channel alone."""
     from scipy.stats import norm
 
     n = len(y)
@@ -224,24 +248,38 @@ def residual_rescue(
     pool_names, Qp = _code_columns(pool, rows, n_main)
     if not pool_names:
         return []
+    only_linear = np.array([nm in linear_only for nm in pool_names], dtype=bool)
+    if linear_channel:
+        standardised = [_standardised(np.asarray(pool[nm])[rows]) for nm in pool_names]
+        Zp = np.stack([s if s is not None else np.zeros(len(rows)) for s in standardised]).astype(np.float32)
     out: "list[tuple[str, float, float]]" = []
     alive = np.ones(len(pool_names), dtype=bool)
     for _ in range(int(max_admit)):
         Qd = np.ascontiguousarray(np.stack(design_codes)) if design_codes else np.empty((0, len(rows)), dtype=np.int64)
         resid = _residual(Qd, _without_linear_part(lin_cols, yr, even), even, n_main)
-        idx = np.flatnonzero(alive)
+        idx = np.flatnonzero(alive & ~only_linear)
         if idx.size > max_pool:
             var = np.array([float(np.var(np.bincount(Qp[j], weights=resid, minlength=n_main) / np.maximum(np.bincount(Qp[j], minlength=n_main), 1))) for j in idx])
             idx = idx[np.argsort(-var, kind="stable")[:max_pool]]
-        t, gain = _score_columns(np.ascontiguousarray(Qp[idx]), resid, even, n_main, SHRINK)
-        z = float(norm.isf(float(alpha) / max(len(pool_names), 1)))
+        t = np.full(len(pool_names), -np.inf)
+        gain = np.zeros(len(pool_names))
+        if idx.size:
+            t[idx], gain[idx] = _score_columns(np.ascontiguousarray(Qp[idx]), resid, even, n_main, SHRINK)
+        if linear_channel:
+            lin_idx = np.flatnonzero(alive)
+            L = np.column_stack([*lin_cols, np.ones(len(rows))])
+            t_lin, g_lin = _linear_scores(Zp[lin_idx], L, _without_linear_part(lin_cols, yr, even), even)
+            better = t_lin > t[lin_idx]
+            t[lin_idx] = np.where(better, t_lin, t[lin_idx])
+            gain[lin_idx] = np.where(better, g_lin, gain[lin_idx])
+        channels = 2 if linear_channel else 1
+        z = float(norm.isf(float(alpha) / (channels * max(len(pool_names), 1))))
         rel = gain / total
-        ok = np.flatnonzero((t > z) & (rel >= float(min_relative_gain)))
+        ok = np.flatnonzero((t > z) & (rel >= float(min_relative_gain)) & alive)
         if ok.size == 0:
             break
-        k = int(ok[np.argmax(t[ok])])
-        j = int(idx[k])
-        out.append((pool_names[j], float(t[k]), float(rel[k])))
+        j = int(ok[np.argmax(t[ok])])
+        out.append((pool_names[j], float(t[j]), float(rel[j])))
         alive[j] = False
         design_codes.append(Qp[j])
         added = _standardised(np.asarray(pool[pool_names[j]])[rows])

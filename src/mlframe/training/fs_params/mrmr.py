@@ -571,6 +571,9 @@ class MRMRParams(BaseModel):
     fe_residual_rescue_enable: bool = True
     fe_residual_rescue_min_relative_gain: float = 0.001
     fe_residual_rescue_max_admit: int = 8
+    fe_target_mix_enable: bool = True
+    fe_target_mix_max_bases: int = 2
+    fe_target_mix_scan_rows: int = 20000
     fe_residual_rescue_operand_min_linear_gain: float = 0.001
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: Optional[int] = 100

@@ -2990,6 +2990,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_residual_rescue_enable: bool = True,
         fe_residual_rescue_min_relative_gain: float = 0.001,
         fe_residual_rescue_max_admit: int = 8,
+        # FEATURE-BASE TARGET MIX: a dominant term of the selection hides a weaker one from a search that scores candidates against y. A second pass on ``T = y - beta * u`` (``u`` one of the
+        # ``fe_target_mix_max_bases`` selected columns that track y best) over the even positions of at most ``fe_target_mix_scan_rows`` rows proposes engineered features; they enter the pool of
+        # the residual rescue and are judged there on held-out rows. Needs ``fe_residual_rescue_enable``. Regression targets only.
+        fe_target_mix_enable: bool = True,
+        fe_target_mix_max_bases: int = 2,
+        fe_target_mix_scan_rows: int = 20000,
         # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
         # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
         # model on the other columns, significantly and by at least this share of the target variance (a private linear term the engineered column cannot give a linear model).
@@ -3294,6 +3300,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             "fe_row_stat_enable",  # legacy OFF; ctor ON
             "fe_oof_cell2d_enable",  # legacy OFF; ctor ON
             "fe_residual_rescue_enable",  # legacy OFF; ctor ON
+            "fe_target_mix_enable",  # legacy OFF; ctor ON
             "fe_wavelet_enable",  # legacy OFF; ctor ON
         }
     )
