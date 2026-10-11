@@ -236,17 +236,24 @@ def get_training_configs(
 
     CB_CLASSIF = CB_GENERAL_PARAMS.copy()
     CB_CLASSIF.update({"eval_metric": def_classif_metric})
-    # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
-    # Upstream CatBoost behaviour; no tracking issue is filed against catboost/catboost.
-    # "custom_metric": tuple(catboost_custom_classif_metrics or [])
+    # custom_metric used to break sklearn.clone()'s default identity-based param round-trip check
+    # (CatBoost's own get_params() returns a FRESH list object for this param on every call --
+    # upstream CatBoost behaviour, no tracking issue filed). Fixed globally, not per call site:
+    # mlframe.metrics._ice_metric installs a __sklearn_clone__ patch on the stock
+    # catboost.CatBoostClassifier/Regressor classes (consulted by sklearn.base.clone() BEFORE its
+    # broken identity check) that already carried eval_metric across clone() the same way --
+    # extended to cover custom_metric too. This module's own import of mlframe.metrics.core (top of
+    # file) guarantees the patch is installed before any CB_CLASSIF/CB_REGR dict reaches a real
+    # CatBoostClassifier(**...)/CatBoostRegressor(**...) construction site.
+    if catboost_custom_classif_metrics:
+        CB_CLASSIF["custom_metric"] = tuple(catboost_custom_classif_metrics)
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
     # CatBoost rejects a bare "Huber" ("Metric Huber requires delta as parameter") while LGB / XGB map it below; delta=1.0 matches XGB's
     # default huber_slope, so the three boosters early-stop on the same surface.
     CB_REGR.update({"eval_metric": {"Huber": "Huber:delta=1.0"}.get(def_regr_metric, def_regr_metric)})
-    # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
-    # Upstream CatBoost behaviour; no tracking issue is filed against catboost/catboost.
-    # "custom_metric": tuple(catboost_custom_regr_metrics or [])
+    if catboost_custom_regr_metrics:
+        CB_REGR["custom_metric"] = tuple(catboost_custom_regr_metrics)
 
     HGB_GENERAL_PARAMS = dict(
         max_iter=iterations,

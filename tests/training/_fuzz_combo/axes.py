@@ -413,6 +413,14 @@ AXES: dict[str, tuple[Any, ...]] = {
     # Canonicalised to defaults when "linear" not in combo.models.
     "linear_alpha_cfg": (1.0, 0.01, 100.0),
     "linear_solver_cfg": ("lbfgs", "liblinear", "saga"),
+    # 2026-10-11 -- LinearModelConfig.model_type fuzz gap. The suite's linear dispatch keys off the NAME
+    # string in the models/mlframe_models allowlist (``LINEAR_MODEL_TYPES & models_set`` in
+    # _trainer_configure.py), not off LinearModelConfig.model_type (explicitly stripped from the
+    # user-supplied config before merging) -- so varying this axis is the only way to fuzz-exercise
+    # ridge/lasso/elasticnet/huber/ransac/sgd, not just the "linear" default. See combo.py's
+    # ``linear_model_type_cfg`` field docstring + ``_canonical_models_for_suite``. Canonicalised to
+    # "linear" when "linear" not in combo.models.
+    "linear_model_type_cfg": ("linear", "ridge", "lasso", "elasticnet", "huber", "ransac", "sgd"),
     # P0-3: feature_handling_config. Pre-iter151 the polars-native FHC
     # fastpath was entirely unfuzzed (the legacy
     # split_config/pipeline_config/preprocessing_config path always

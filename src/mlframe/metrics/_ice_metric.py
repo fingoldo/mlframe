@@ -674,34 +674,56 @@ class ICE:
 # ``eval_metric`` instance for the cloned estimator, bypassing
 # ``_clone_parametrized``'s identity check entirely. ICE retains its
 # default deepcopy/pickle behaviour, so save/load is unaffected.
+#
+# ``custom_metric`` has the SAME identity-check failure mode for a different
+# reason: CatBoost's own ``get_params()`` returns a FRESH ``list`` object for
+# this param on every single call (verified empirically --
+# ``m.get_params()['custom_metric'] is m.get_params()['custom_metric']`` is
+# ``False`` even with zero state change between the two calls), so
+# ``sklearn.base._clone_parametrized``'s per-param ``is`` check fails
+# regardless of value (list vs tuple, populated vs empty) -- upstream
+# CatBoost behaviour, no tracking issue filed. ``__sklearn_clone__`` bypasses
+# that check entirely (it is consulted by ``sklearn.base.clone()`` BEFORE the
+# broken identity-based fallback), so the same strip-then-reattach-after-
+# construction trick as ``eval_metric`` fixes it: the cloned estimator gets a
+# ``custom_metric`` with the right VALUES (CatBoost will still normalize it to
+# its own internal representation), just never round-tripped through the
+# broken per-call identity check.
+_CB_CLONE_IDENTITY_UNSAFE_PARAMS = ("eval_metric", "custom_metric")
+
+
 def _install_catboost_sklearn_clone_patch() -> None:
-    """Monkeypatch ``__sklearn_clone__`` onto ``CatBoostClassifier``/``CatBoostRegressor`` so ``sklearn.base.clone()`` reuses the caller's ``eval_metric`` instance instead of tripping on CatBoost's internal deep-copy (see the module comment above for the full identity-check failure mode)."""
+    """Monkeypatch ``__sklearn_clone__`` onto ``CatBoostClassifier``/``CatBoostRegressor`` so ``sklearn.base.clone()`` reuses the caller's ``eval_metric``/``custom_metric`` instead of tripping on CatBoost's internal deep-copy / per-call list re-normalization (see the module comment above for both failure modes)."""
     try:
         from catboost import CatBoostClassifier, CatBoostRegressor
     except ImportError:
         return
 
     def _cb_sklearn_clone(self):
-        """``__sklearn_clone__`` replacement: reuse the SAME eval_metric instance to bypass CB's internal deep-copy of eval_metric on ``__init__`` that breaks identity."""
+        """``__sklearn_clone__`` replacement: reuse the SAME eval_metric/custom_metric values to bypass CB's own internal mutation of those two params that breaks sklearn's identity-based clone check."""
         params = self.get_params(deep=False)
-        eval_metric = getattr(self, "_init_params", {}).get("eval_metric")
-        if eval_metric is None:
-            eval_metric = params.get("eval_metric")
+        init_params = getattr(self, "_init_params", {})
+        unsafe_values = {}
+        for name in _CB_CLONE_IDENTITY_UNSAFE_PARAMS:
+            value = init_params.get(name)
+            if value is None:
+                value = params.get(name)
+            if value is not None:
+                unsafe_values[name] = value
         cls = type(self)
-        # Strip eval_metric from params before re-init so we can attach
-        # the original instance after construction (CB's __init__ would
-        # deep-copy it otherwise).
-        params_no_em = {k: v for k, v in params.items() if k != "eval_metric"}
-        new = cls(**params_no_em)
-        if eval_metric is not None:
-            # Re-attach by direct assignment -- CB stores eval_metric in
-            # ``_init_params`` and the public param map.
+        # Strip the identity-unsafe params from the constructor kwargs so we can attach the
+        # original values AFTER construction (CB's __init__ would otherwise deep-copy/renormalize
+        # them again, right back into an identity-broken state).
+        params_safe = {k: v for k, v in params.items() if k not in unsafe_values}
+        new = cls(**params_safe)
+        for name, value in unsafe_values.items():
+            # Re-attach by direct assignment -- CB stores these in ``_init_params`` and the public param map.
             try:
-                new._init_params["eval_metric"] = eval_metric
+                new._init_params[name] = value
             except (AttributeError, KeyError):
                 pass
             try:
-                new.set_params(eval_metric=eval_metric)
+                new.set_params(**{name: value})
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed: %s", e)
                 pass

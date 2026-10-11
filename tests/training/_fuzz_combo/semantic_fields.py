@@ -100,14 +100,11 @@ def frame_row_id_column(combo: FuzzCombo) -> Optional[str]:
 
 
 def linear_family_for_combo(combo: FuzzCombo) -> str:
-    """Linear estimator family the run trains in place of ``"linear"``: the suite takes the family from ``mlframe_models``, never from
-    ``LinearModelConfig.model_type`` (excluded at ``_configure_training_learning_rate_float_trees``), so the family is varied there."""
-    from mlframe.training._configs_base import VALID_LINEAR_MODEL_TYPES
-
-    if not randomize_all_fields_enabled() or "linear" not in combo.models or combo.target_type == _LTR or not combo._canonical_mlframe_models_explicit():
-        return "linear"
-    families = sorted(VALID_LINEAR_MODEL_TYPES)
-    return families[int(_decision_rng(combo, 3).integers(0, len(families)))]
+    """Linear estimator family the run actually trains in place of ``"linear"``: the suite takes the family from the
+    ``linear_model_type_cfg`` combo axis (see ``combo._canonical_linear_model_type``), never from ``LinearModelConfig.model_type``
+    itself (excluded at ``_configure_training_learning_rate_float_trees``) -- mirroring that axis here keeps this field consistent
+    with what the suite actually builds, regardless of whether generic-randomizer mode is on."""
+    return combo._canonical_linear_model_type()
 
 
 # ---------------------------------------------------------------------------
@@ -491,9 +488,11 @@ def _gen_ace(rng, ctx, model) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@_register("LinearModelConfig", "model_type", "learning_rate")
+@_register("LinearModelConfig", "learning_rate")
 def _gen_linear(rng, ctx, model) -> Dict[str, Any]:
-    """``model_type`` mirrors the family the run trains (see :func:`linear_family_for_combo`); ``learning_rate`` is an SGD schedule."""
+    """``learning_rate`` is an SGD schedule. ``model_type`` is set alongside it to mirror the family the run actually trains (see
+    :func:`linear_family_for_combo`), but is NOT independently registered for coverage: it has no value space of its own -- it is
+    fully determined by the combo's ``linear_model_type_cfg`` axis, the same "derived, not sampled" pattern as ``DERIVED_FIELDS``."""
     from sklearn.linear_model import SGDRegressor
 
     schedules = sorted(o for c in SGDRegressor._parameter_constraints["learning_rate"] for o in getattr(c, "options", ()))

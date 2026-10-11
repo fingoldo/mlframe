@@ -95,8 +95,9 @@ _RANDOMIZER_WIRED_CLASSES = {
 _SEMANTIC_WIRED_CLASSES = _RANDOMIZER_WIRED_CLASSES | {"TrainingConfig"}
 
 #: Reviewed, reasoned remainder -- fields no mechanism reaches. Empty: every field that used to sit here now has a domain-aware generator in
-#: ``semantic_fields.py`` (a real frame column, a replayable split file, a callee-signature callable, a validator's allowed set). A new entry
-#: needs a reason grounded in the consuming code, not a bare name.
+#: ``semantic_fields.py`` (a real frame column, a replayable split file, a callee-signature callable, a validator's allowed set) or, for
+#: ``LinearModelConfig.model_type``, a dedicated ``linear_model_type_cfg`` combo axis. A new entry needs a reason grounded in the consuming
+#: code, not a bare name.
 _NOT_GENERICALLY_FUZZABLE: frozenset = frozenset()
 
 

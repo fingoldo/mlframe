@@ -30,7 +30,7 @@ from tests.training._fuzz_combo import (
     log_combo_outcome,
     xfail_reason,
 )
-from tests.training._fuzz_combo.semantic_fields import linear_family_for_combo, register_combo_frame, training_config_for_combo
+from tests.training._fuzz_combo.semantic_fields import register_combo_frame, training_config_for_combo
 from py_ci_shared.pytest_known_gap import known_gap
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
@@ -217,11 +217,10 @@ def _build_ltr_models_and_config(combo: FuzzCombo, _is_ltr: bool) -> tuple[list,
     # composite_classification) to the sampled model subset when the combo
     # asks for one and it's compatible with the resolved target_type.
     _extra_registry_model = combo._canonical_extra_registry_model()
-    _ltr_models = list(combo.models) + ([_extra_registry_model] if _extra_registry_model is not None else [])
-    # Linear family drawn by the semantic randomizer (the suite builds the family named in mlframe_models; "linear" otherwise).
-    _linear_family = linear_family_for_combo(combo)
-    if _linear_family != "linear":
-        _ltr_models = [_linear_family if m == "linear" else m for m in _ltr_models]
+    # linear_model_type_cfg substitutes the "linear" entry with the resolved variant name
+    # (ridge/lasso/elasticnet/.../sgd) -- see combo.py's _canonical_models_for_suite docstring. A no-op
+    # when the axis is at its default "linear" or "linear" isn't in combo.models.
+    _ltr_models = list(combo._canonical_models_for_suite()) + ([_extra_registry_model] if _extra_registry_model is not None else [])
     _ltr_ranking_config = None
     if _is_ltr:
         _supported = {"cb", "xgb", "lgb", "mlp"}  # 2026-05-07: MLP via RankNet/ListNet
