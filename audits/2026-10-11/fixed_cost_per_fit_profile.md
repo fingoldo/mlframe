@@ -77,3 +77,11 @@ Total of F-1 to F-6: about 1.9 s of the 5 s, without touching selection logic. F
 * `fe_target_mix_max_bases=2`: 10.63 s median (rounds 5.38, 10.63, 17.83)
 
 The round-to-round spread (5 s to 18 s) is far above the mix-off spread, so these numbers come from a box with other GPU/CPU load (CI and nightly runs were in progress), not a quiet A/B. The direction is clear: the mix stage costs several seconds per fit at 10k, which dominates everything else on the table. Decision pending: default ON (as requested) is incompatible with a 1-2 s target unless the child fit is made much cheaper or the mix runs on a capped row subset with a cached scan.
+
+## Where the target-mix child fit spends its time (10k parent, child on 5000 rows, cProfile)
+
+* Child total 8.2 s under the profiler (about 2.7 s warm without it, the same as a full 5000-row fit).
+* FE search: 4.4 s, of which pair scoring 3.4 s and the cascades 3.0 s (mid_a 1.3 s, conditional gate 0.8 s, early_a 0.7 s, mid_b 0.6 s).
+* Support tail (`_assign_support`, residual rescue, drop sweep, friend graph): about 0.16 s each, so the lean flag already removed the expensive part of the tail.
+* Conclusion: the child is the whole FE search on half the rows. Nothing is shared with the parent, because the target differs (T instead of y), so its pair scores, marginals and cascades must all be recomputed. A lossless cut does not exist; any cut (fewer cascades, fewer scan rows, a smaller pair budget) changes the candidate list and has to be judged on OOS error, not wall time alone.
+* First fit in a process is 14.9 s against 2.7 s warm at 5000 rows (kernel compile and pool warm-up), so benchmarks must always discard a warm-up fit.
