@@ -2990,10 +2990,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_residual_rescue_enable: bool = True,
         fe_residual_rescue_min_relative_gain: float = 0.001,
         fe_residual_rescue_max_admit: int = 8,
-        # With ``redundancy_policy='drop'`` the same residual evidence prunes a selected column (raw or engineered) that does not lower the held-out residual of the rest of the selection
-        # significantly. A raw operand of a multi-source engineered column must in addition lower it by this share of the target variance: below it the gain is the numerical remainder of
-        # the compound's own fit (a surrogate of the true form), not information the compound lacks.
-        fe_residual_rescue_prune_min_relative_gain: float = 0.0001,
+        # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
+        # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
+        # model on the other columns, significantly and by at least this share of the target variance (a private linear term the engineered column cannot give a linear model).
+        fe_residual_rescue_operand_min_linear_gain: float = 0.001,
         # HAAR WAVELET / localized multiresolution basis.
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or

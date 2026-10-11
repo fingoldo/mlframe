@@ -1031,10 +1031,11 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
 # Each non-pass cell below carries its class + the verified reason. Class (1) cells
 # now PASS (the fix); classes (2)/(3)/(4) are xfailed with their specific cause so
 # the suite is honest about WHY each is expected, never padded green.
-# Documented non-pass cells: (formula, n) -> verified reason. Empty on purpose. The residual rescue (``fe_residual_rescue_enable``) judges columns on the held-out residual of the selection:
-# it admits the terms the rank-MI greedy cannot see (pair tables of the residual, weak real operands) and, under ``redundancy_policy='drop'``, prunes the columns that carry nothing the rest of
-# the selection lacks. The earlier xfails were either spec mistakes (a weak REAL term called noise; a keep that excluded the operands of the single fused compound the framework builds on
-# purpose; a product of composites expected to split) or gaps this stage closes. A new non-pass cell fails loudly unless it is documented here with its measured cause.
+# Documented non-pass cells: (formula, n) -> verified reason. Empty on purpose. The residual rescue (``fe_residual_rescue_enable``) judges columns on held-out predictive error: it admits the terms
+# the rank-MI greedy cannot see (pair tables of the residual, weak real operands) and, under ``redundancy_policy='drop'``, prunes the columns that carry nothing the rest of the selection lacks
+# (engineered columns and unattached raws by the held-out free-form residual; raw operands of an engineered column unless they improve a LINEAR model out of sample). The earlier xfails were
+# spec mistakes (a weak REAL term called noise; a keep that excluded the operands of the single fused compound the framework builds on purpose; a product of composites expected to split) or
+# gaps this stage closes. A new non-pass cell fails loudly unless it is documented here with its measured cause.
 EXPECTED_XFAILS: dict = {}
 
 

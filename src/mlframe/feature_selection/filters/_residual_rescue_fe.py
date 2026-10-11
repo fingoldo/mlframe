@@ -25,7 +25,7 @@ from numba import njit, prange
 from ._pair_residual_screen import BACKFIT_SWEEPS, FAMILY_ALPHA, OUTER_FENCE, SHRINK, _backfit, _winsorised, main_effect_bins
 from ._y_encoding import FEW_CLASSES_MAX
 
-__all__ = ["residual_rescue", "design_residual", "MAX_POOL", "DEFAULT_SCAN_ROWS"]
+__all__ = ["residual_rescue", "design_residual", "linear_oos_gain", "MAX_POOL", "DEFAULT_SCAN_ROWS"]
 
 MAX_POOL = 300  # columns scored per round: the pool is cut to the highest marginal variation of the residual in its bins
 DEFAULT_SCAN_ROWS = 50_000
@@ -152,6 +152,33 @@ def _residual(Qm: np.ndarray, yr: np.ndarray, even: np.ndarray, n_main: int) -> 
     for j in range(Qm.shape[0]):
         pred += f[j, Qm[j]]
     return np.asarray(yr - mu - pred)
+
+
+def linear_oos_gain(rest: Mapping[str, np.ndarray], candidate: np.ndarray, y: np.ndarray) -> "tuple[float, float]":
+    """Held-out gain of ``candidate`` for a LINEAR model on the other columns: ``(t statistic, share of the target variance)``.
+
+    OLS (fence-clipped, standardised columns and an intercept) fitted on the even rows with and without the candidate; the evidence is the paired per-row reduction of the squared error on the odd rows,
+    ``d_i = e0_i^2 - e1_i^2``, its t statistic and its mean over the odd-row variance of the target. This is the question a linear downstream model asks of a column, whatever the free-form
+    effects of the other columns could absorb: a raw ``a`` beside ``add(exp(a), ...)`` has no free-form gain (the compound is a proxy of ``a``) but a linear model can only use the compound as one
+    block, so a private linear term of ``a`` is a real gain there."""
+    yr = _winsorised(np.asarray(y, dtype=np.float64).ravel())
+    n = len(yr)
+    even = np.arange(n) % 2 == 0
+    cols = [c for c in (_standardised(v) for v in rest.values()) if c is not None]
+    x = _standardised(candidate)
+    if x is None:
+        return 0.0, 0.0
+
+    def residual(columns):
+        """Odd-row residual of the OLS on ``columns`` fitted on the even rows."""
+        L = np.column_stack([*columns, np.ones(n)])
+        beta, *_ = np.linalg.lstsq(L[even], yr[even], rcond=None)
+        return (yr - L @ beta)[~even]
+
+    d = residual(cols) ** 2 - residual([*cols, x]) ** 2
+    sd = float(d.std())
+    total = float(np.var(yr[~even])) or 1.0
+    return float(d.mean() / (sd / np.sqrt(len(d)) + 1e-300)), float(d.mean() / total)
 
 
 def design_residual(design: Mapping[str, np.ndarray], y: np.ndarray) -> np.ndarray:

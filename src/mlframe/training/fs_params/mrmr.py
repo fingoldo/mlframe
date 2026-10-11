@@ -571,7 +571,7 @@ class MRMRParams(BaseModel):
     fe_residual_rescue_enable: bool = True
     fe_residual_rescue_min_relative_gain: float = 0.001
     fe_residual_rescue_max_admit: int = 8
-    fe_residual_rescue_prune_min_relative_gain: float = 0.0001
+    fe_residual_rescue_operand_min_linear_gain: float = 0.001
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: Optional[int] = 100
     fe_wavelet_cols: tuple = ()

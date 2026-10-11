@@ -319,7 +319,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_residual_rescue_enable": False,
     "fe_residual_rescue_min_relative_gain": 0.001,
     "fe_residual_rescue_max_admit": 8,
-    "fe_residual_rescue_prune_min_relative_gain": 0.0001,
+    "fe_residual_rescue_operand_min_linear_gain": 0.001,
     "offset_product_features_": [],
     # Haar wavelet basis. Pre-#13 pickles default OFF so the
     # legacy reload path is byte-identical (the live default is ON for new

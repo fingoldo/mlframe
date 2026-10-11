@@ -122,12 +122,12 @@ class _Stub:
     def __init__(self, policy="drop", cell=True):
         self.redundancy_policy = policy
         self.fe_oof_cell2d_enable = cell
-        self.fe_residual_rescue_prune_min_relative_gain = 0.0001
+        self.fe_residual_rescue_operand_min_linear_gain = 0.001
 
 
 def test_prune_drops_the_noise_columns_and_keeps_the_real_ones_only_under_the_drop_policy():
     """Under ``redundancy_policy='drop'`` a raw or engineered column without held-out gain is pruned and a real term is kept; the default policy prunes nothing."""
-    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _redundant_raw_operands
+    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _unsupported_columns
 
     X, y = _two_term(n=20000, seed=3)
     raw = frozenset(X.columns)
@@ -135,9 +135,9 @@ def test_prune_drops_the_noise_columns_and_keeps_the_real_ones_only_under_the_dr
     rng = np.random.default_rng(5)
     design = {"a2/b": (X["a"] ** 2 / X["b"]).to_numpy(), "cd": cd, "e": X["e"].to_numpy(), "noise_engineered": rng.standard_normal(len(y)) * cd.std()}
     design["a"] = X["a"].to_numpy()  # an operand of the ratio that the ratio already holds
-    pruned = _redundant_raw_operands(_Stub(), design, y, raw, residual_rescue)
+    pruned = _unsupported_columns(_Stub(), design, y, raw, residual_rescue)
     assert "noise_engineered" in pruned and "e" not in pruned and "cd" not in pruned
-    assert _redundant_raw_operands(_Stub(policy="emit_both"), design, y, raw, residual_rescue) == []
+    assert _unsupported_columns(_Stub(policy="emit_both"), design, y, raw, residual_rescue) == []
 
 
 def test_cell_tables_of_the_residual_find_a_pair_interaction_the_vocabulary_may_miss():
@@ -165,3 +165,41 @@ def test_design_residual_shrinks_with_the_true_design():
     X, y = _two_term(n=6000, seed=4)
     full = {"a2/b": (X["a"] ** 2 / X["b"]).to_numpy(), "cd": np.log(X["c"].to_numpy()) * np.sin(X["d"].to_numpy())}
     assert np.var(design_residual(full, y)) < 0.2 * np.var(design_residual({}, y))
+
+
+def test_linear_oos_gain_sees_a_private_linear_term_that_a_proxy_compound_hides():
+    """A raw beside ``add(exp(a), ...)`` has a private linear term only a linear fit sees; a raw the compound holds exactly has none."""
+    from mlframe.feature_selection.filters._residual_rescue_fe import linear_oos_gain
+
+    r = np.random.default_rng(0)
+    n = 20000
+    a, d = r.uniform(0, 1, n), r.uniform(0, 1, n)
+    compound = np.exp(a) + np.sin(3 * d)
+    y_private = compound + 4.0 * a + 0.1 * r.standard_normal(n)
+    y_exact = compound + 0.1 * r.standard_normal(n)
+    t_priv, rel_priv = linear_oos_gain({"compound": compound}, a, y_private)
+    _t_exact, rel_exact = linear_oos_gain({"compound": compound}, a, y_exact)
+    assert t_priv > 10 and rel_priv > 0.01
+    assert rel_exact < 0.001
+
+
+def test_operand_pruning_follows_the_linear_gain_and_the_existing_knob():
+    """A raw operand with a private linear term is kept, an operand the compound holds is pruned, and ``fe_drop_redundant_raw_operands=False`` keeps both."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _unsupported_columns
+
+    r = np.random.default_rng(1)
+    n = 20000
+    a, d, b = r.uniform(0, 1, n), r.uniform(0, 1, n), r.uniform(0.2, 1, n)
+    compound = np.exp(a) + np.sin(3 * d)
+    ratio = a**2 / b
+    y = compound + ratio + 4.0 * a
+    design = {"compound": compound, "ratio(a,b)": ratio, "a": a, "b": b}
+    raw = frozenset({"a", "b", "d"})
+    stub = _Stub()
+    stub.fe_drop_redundant_raw_operands = True
+    # the names must spell the operands for the source scan: the stub design uses real FE-style names
+    design = {"add(exp(a),sin(d))": compound, "div(sqr(a),b)": ratio, "a": a, "b": b}
+    pruned = _unsupported_columns(stub, design, y, raw, residual_rescue)
+    assert "a" not in pruned and "b" in pruned
+    stub.fe_drop_redundant_raw_operands = False
+    assert "b" not in _unsupported_columns(stub, design, y, raw, residual_rescue)

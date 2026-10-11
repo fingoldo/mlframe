@@ -73,34 +73,46 @@ def _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool) -
     return recipes
 
 
-def _redundant_raw_operands(self, design: dict, y, raw_cols, residual_rescue) -> "list[str]":
-    """Design columns, raw or engineered, that add nothing to the rest of the selection (``redundancy_policy='drop'`` only).
+def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "list[str]":
+    """Design columns that add nothing to the rest of the selection (``redundancy_policy='drop'`` only).
 
-    Backward elimination on the held-out residual: a column is pruned when, given every other column of the design, it does not lower the squared residual significantly; a raw operand of a
-    multi-source engineered column must in addition lower it by at least ``fe_residual_rescue_prune_min_relative_gain`` of the target variance. This is the out-of-sample check the in-sample MI ranking lacks: an engineered column fitted to noise
-    (``sub(sqrt(c),sqrt(d))`` on two unrelated columns) has no held-out gain. Pruned columns leave the design before the next one is judged."""
+    Backward elimination on held-out predictive error, one criterion per kind of column. An engineered column, or a raw no engineered column is built from, is pruned when, given every other column
+    of the design, it does not lower the held-out squared residual significantly (free-form effects): an engineered column fitted to noise (``sub(sqrt(c),sqrt(d))`` on two unrelated columns) has
+    none. A raw OPERAND of a selected engineered column is pruned (``fe_drop_redundant_raw_operands``) unless it improves the held-out fit of a LINEAR model on the other columns significantly and by
+    at least ``fe_residual_rescue_operand_min_linear_gain`` of the target variance: the engineered column already carries the operand's nonlinear effect, so what the operand can still add is a
+    private linear term (``10*a`` beside ``add(exp(a), ...)``), which only the linear fit sees. Pruned columns leave the design before the next one is judged."""
     if getattr(self, "redundancy_policy", "emit_both") != "drop":
         return []
-    prune_raw_operands = bool(getattr(self, "fe_drop_redundant_raw_operands", True))  # the existing knob of the raw-operand drop: off restores the legacy re-add
-    floor = float(self.fe_residual_rescue_prune_min_relative_gain)
-    # a raw column is a candidate for pruning when a selected MULTI-source engineered column holds it as an operand (the precedent of the other raw-redundancy passes) or when no engineered column
-    # is built from it at all; a raw beside a unary transform of itself (``a`` and ``sin(a)``) is left alone
-    multi: "frozenset[str]" = frozenset()
-    anyeng: "frozenset[str]" = frozenset()
+    operands: "frozenset[str]" = frozenset()  # raws held by a selected MULTI-source engineered column
+    unary_only: "frozenset[str]" = frozenset()  # raws that only unary transforms of themselves are built from: ``a`` beside ``sin(a)`` is left alone
     for name in design:
         if name not in raw_cols:
             src = _raw_sources(name, raw_cols)
-            anyeng |= src
             if len(src) >= 2:
-                multi |= src
+                operands |= src
+            else:
+                unary_only |= src
+    from scipy.stats import norm
+
+    from .._pair_residual_screen import FAMILY_ALPHA
+    from .._residual_rescue_fe import linear_oos_gain
+
+    z = float(norm.isf(FAMILY_ALPHA))
+    floor = float(self.fe_residual_rescue_operand_min_linear_gain)
+    prune_operands = bool(getattr(self, "fe_drop_redundant_raw_operands", True))
     pruned: "list[str]" = []
     for name in list(design):
-        if name in raw_cols and name in anyeng and name not in multi:
-            continue
-        if name in raw_cols and name in multi and not prune_raw_operands:
-            continue
         rest = {k: v for k, v in design.items() if k != name and k not in pruned}
-        if rest and not residual_rescue(rest, {name: design[name]}, y, min_relative_gain=floor if name in multi else 0.0, max_admit=1):
+        if not rest:
+            continue
+        if name in raw_cols and name in unary_only and name not in operands:
+            continue
+        if name in raw_cols and name in operands:
+            if prune_operands:
+                t_stat, rel = linear_oos_gain(rest, design[name], y)
+                if not (t_stat > z and rel >= floor):
+                    pruned.append(name)
+        elif not residual_rescue(rest, {name: design[name]}, y, min_relative_gain=0.0, max_admit=1):
             pruned.append(name)
     return pruned
 
@@ -133,7 +145,7 @@ def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retent
             design[name] = np.nan_to_num(np.asarray(apply_recipe(rec, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
         raw_cols = frozenset(str(c) for c in (getattr(self, "feature_names_in_", None) if getattr(self, "feature_names_in_", None) is not None else cols) if str(c) not in engineered_recipes)
         # prune first: a column without held-out gain must not shield the raw operands it holds from the pool (the sources of a pruned carrier are free again)
-        prune_names = _redundant_raw_operands(self, design, y, raw_cols, residual_rescue)
+        prune_names = _unsupported_columns(self, design, y, raw_cols, residual_rescue)
         for name in prune_names:
             del design[name]
         design_sources = [_raw_sources(name, raw_cols) for name in design]
