@@ -25,12 +25,12 @@ from numba import njit, prange
 from ._pair_residual_screen import BACKFIT_SWEEPS, FAMILY_ALPHA, OUTER_FENCE, SHRINK, _backfit, _winsorised, main_effect_bins
 from ._y_encoding import FEW_CLASSES_MAX
 
-__all__ = ["residual_rescue", "design_residual", "linear_oos_gain", "MAX_POOL", "DEFAULT_SCAN_ROWS"]
+__all__ = ["residual_rescue", "design_residual", "linear_oos_gain", "MAX_POOL", "DEFAULT_SCAN_ROWS", "MIN_ROWS"]
 
 MAX_POOL = 300  # columns scored per round: the pool is cut to the highest marginal variation of the residual in its bins
 DEFAULT_SCAN_ROWS = 50_000
 CODE_SAMPLE = 4096  # finite values per column that set its bin edges
-_MIN_ROWS = 800
+MIN_ROWS = 800  # fewer rows: the held-out evidence is too thin to admit or to prune anything
 
 
 @njit(parallel=True, cache=True)
@@ -115,7 +115,7 @@ def _code_columns(cols: "Mapping[str, np.ndarray]", rows: np.ndarray, n_bins: in
     if not names:
         return [], np.empty((0, len(rows)), dtype=np.int64)
     M = np.ascontiguousarray(np.stack([np.asarray(cols[k])[rows] for k in names]).astype(np.float64, copy=False))
-    codes, ok = _codes_matrix(M, n_bins, CODE_SAMPLE, _MIN_ROWS, FEW_CLASSES_MAX)
+    codes, ok = _codes_matrix(M, n_bins, CODE_SAMPLE, MIN_ROWS, FEW_CLASSES_MAX)
     keep = np.flatnonzero(ok)
     return [names[k] for k in keep], np.ascontiguousarray(codes[keep])
 
@@ -211,7 +211,7 @@ def residual_rescue(
     from scipy.stats import norm
 
     n = len(y)
-    if n < _MIN_ROWS or not len(pool) or int(max_admit) <= 0:
+    if n < MIN_ROWS or not len(pool) or int(max_admit) <= 0:
         return []
     rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
     yr = _winsorised(np.asarray(y, dtype=np.float64).ravel()[rows])

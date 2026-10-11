@@ -77,11 +77,13 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     """Design columns that add nothing to the rest of the selection (``redundancy_policy='drop'`` only).
 
     Backward elimination on held-out predictive error, one criterion per kind of column. An engineered column, or a raw no engineered column is built from, is pruned when, given every other column
-    of the design, it does not lower the held-out squared residual significantly (free-form effects): an engineered column fitted to noise (``sub(sqrt(c),sqrt(d))`` on two unrelated columns) has
-    none. A raw OPERAND of a selected engineered column is pruned (``fe_drop_redundant_raw_operands``) unless it improves the held-out fit of a LINEAR model on the other columns significantly and by
+    of the design, it does not lower the held-out squared residual at all (free-form effects, t <= 0): an engineered column fitted to noise (``sub(sqrt(c),sqrt(d))`` on two unrelated columns)
+    does not. The bar is deliberately not significance: on a small sample or a weak signal no single column is significant, and removing the weak useful ones would lower the out-of-sample fit. A raw OPERAND of a selected engineered column is pruned (``fe_drop_redundant_raw_operands``) unless it improves the held-out fit of a LINEAR model on the other columns significantly and by
     at least ``fe_residual_rescue_operand_min_linear_gain`` of the target variance: the engineered column already carries the operand's nonlinear effect, so what the operand can still add is a
     private linear term (``10*a`` beside ``add(exp(a), ...)``), which only the linear fit sees. Pruned columns leave the design before the next one is judged."""
-    if getattr(self, "redundancy_policy", "emit_both") != "drop":
+    from .._residual_rescue_fe import MIN_ROWS
+
+    if getattr(self, "redundancy_policy", "emit_both") != "drop" or len(y) < MIN_ROWS:  # too few rows: no evidence is not evidence of no gain
         return []
     operands: "frozenset[str]" = frozenset()  # raws held by a selected MULTI-source engineered column
     unary_only: "frozenset[str]" = frozenset()  # raws that only unary transforms of themselves are built from: ``a`` beside ``sin(a)`` is left alone
@@ -112,8 +114,8 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
                 t_stat, rel = linear_oos_gain(rest, design[name], y)
                 if not (t_stat > z and rel >= floor):
                     pruned.append(name)
-        elif not residual_rescue(rest, {name: design[name]}, y, min_relative_gain=0.0, max_admit=1):
-            pruned.append(name)
+        elif not residual_rescue(rest, {name: design[name]}, y, alpha=0.5, min_relative_gain=0.0, max_admit=1):
+            pruned.append(name)  # alpha = 0.5 makes the bar t > 0: the column is removed only when its held-out gain is not even positive
     return pruned
 
 
@@ -126,10 +128,11 @@ def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retent
         return False
     try:
         from .._residual_rescue_fe import DEFAULT_SCAN_ROWS, residual_rescue
+        from .._y_encoding import FEW_CLASSES_MAX
         from ..engineered_recipes.shared import apply_recipe
 
         y = np.asarray(y_cont, dtype=np.float64).ravel()
-        if len(y) != len(X):
+        if len(y) != len(X) or np.unique(y).size <= FEW_CLASSES_MAX:  # class labels are not a regression target
             return False
         n = len(y)
         if n > DEFAULT_SCAN_ROWS:  # the scan rows are taken before any column is converted: no full-length float64 copy of the frame

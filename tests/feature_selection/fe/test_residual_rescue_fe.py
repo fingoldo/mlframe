@@ -203,3 +203,29 @@ def test_operand_pruning_follows_the_linear_gain_and_the_existing_knob():
     assert "a" not in pruned and "b" in pruned
     stub.fe_drop_redundant_raw_operands = False
     assert "b" not in _unsupported_columns(stub, design, y, raw, residual_rescue)
+
+
+def test_nothing_is_pruned_when_there_are_too_few_rows_for_evidence():
+    """With fewer than MIN_ROWS rows the held-out test cannot run: an empty verdict must not be read as 'no gain' (it once pruned every column of a 442-row diabetes fit)."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _unsupported_columns
+
+    r = np.random.default_rng(2)
+    n = 400
+    X = {k: r.standard_normal(n) for k in "abc"}
+    y = X["a"] + 0.5 * X["b"] + 0.1 * r.standard_normal(n)
+    design = {"a": X["a"], "b": X["b"], "mul(a,b)": X["a"] * X["b"]}
+    assert _unsupported_columns(_Stub(), design, y, frozenset("abc"), residual_rescue) == []
+
+
+def test_classification_targets_are_skipped_by_the_stage():
+    """The stage is for continuous targets: a 2-class label vector must leave the selection as it was."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import run_residual_rescue
+
+    class _Fit(_Stub):
+        """Stub with the rescue on and a two-class label vector as the continuous target."""
+
+        fe_residual_rescue_enable = True
+        _fe_prewarp_y_continuous_ = (np.arange(3000) % 2).astype(np.float64)
+
+    X = pd.DataFrame({"a": np.arange(3000, dtype=np.float64), "b": np.arange(3000, dtype=np.float64)[::-1]})
+    assert run_residual_rescue(_Fit(), X, [0], ["a", "b"], {}, set(), 0) is False
