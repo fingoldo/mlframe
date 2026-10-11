@@ -62,3 +62,10 @@ The fixed cost is **not** one launch-overhead problem and not a single hot spot.
 | F-7 | launch grind on the pair search and the usability pool (35 000 launches) | 0.3-0.6 s | continues the standing launch-count work |
 
 Total of F-1 to F-6: about 1.9 s of the 5 s, without touching selection logic. For the target-mix pass this matters directly: a second pass is a whole fit, so each second saved in the fixed floor is saved per base.
+
+## Update after the free-VRAM gate and gc fixes
+
+* 1M-row bimodal spike (9.5 s vs 22 s) was the free-VRAM gate (`_gpu_has_free_vram`) reading the device free memory without the cupy pool's idle bytes: it flipped `fe_gpu_resident_codes_enabled()` off for the rest of the fit and the analytic noise gate ran on the CPU. Fixed; six consecutive 1M fits 9.0-10.0 s.
+* `gc.collect` before discretisation now runs only when the frame is >= 1/512 of the free RAM: 10k fit 3.45 s -> 3.26 s (mix off).
+* 10k fit after these (mix off): ~3.0 s. Flat profile: own Python 1.16 s (largest single function 0.11 s), cupy launches/syncs 1.08 s, numpy 0.58 s, numba 0.26 s, pandas 0.17 s. No function above 4%; the two stages that looked batchable (`_excess_and_floor` perm nulls, per-pair escalation proposers) have per-call varying conditioning supports (see the rejected-bench note in `_fe_raw_redundancy_helpers.py`) and are not batched.
+* Under 2 s at 10k needs fewer launches overall (CUDA graphs or fused multi-stage kernels), not further per-stage trimming.
