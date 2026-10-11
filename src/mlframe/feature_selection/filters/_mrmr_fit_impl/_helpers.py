@@ -485,3 +485,21 @@ def _pgn_raw_budget(ceiling: int, n_engineered: int) -> int:
     Shared by ``_assign_support`` and ``_assign_support_tail`` (moved here 2026-08-15 when the latter was split
     off, to avoid a circular import between the two sibling files)."""
     return max(0, int(ceiling) - int(n_engineered))
+
+
+def collect_garbage_if_frame_is_large(X) -> bool:
+    """Run ``gc.collect`` before discretisation only when the frame is a visible share of the free RAM (the pass bounds the peak RSS and costs ~0.16 s of a small fit).
+
+    Returns whether the collection ran."""
+    import gc
+
+    try:
+        import psutil
+
+        frame_bytes = int(X.memory_usage(index=False, deep=False).sum()) if hasattr(X, "memory_usage") else int(getattr(X, "estimated_size", lambda: 0)())
+        collect = frame_bytes * 8 >= int(psutil.virtual_memory().available) // 64
+    except Exception:
+        collect = True
+    if collect:
+        gc.collect()
+    return collect
