@@ -1013,7 +1013,7 @@ def _add_mix_offset_targets(target_by_type: dict, metadata: dict, inputs: dict) 
             continue
         reg[companion] = built["values"]
         metadata.setdefault("mix_offset_targets", {}).setdefault(str(TargetTypes.REGRESSION), {})[companion] = {
-            "source": tname, "beta": built["beta"], "base": repr(built["base"]),
+            "source": tname, "beta": built["beta"], "base": repr(built["base"]), "recipe": built["base"],
         }
         logger.info("[MixOffset] added companion target '%s' (beta %+.4f).", companion, built["beta"])
     out[TargetTypes.REGRESSION] = reg
