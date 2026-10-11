@@ -62,6 +62,16 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
 
     def fit(self, X, y):
         """Fit the selector, then the regressor on the selected features against ``y - beta * u(X)``."""
+        self.decide(X, y)
+        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
+        y = np.asarray(y, dtype=np.float64).ravel()
+        self.regressor_ = clone(self.regressor).fit(self.selector_.transform(X), y - self._offset(X))
+        return self
+
+    def decide(self, X, y):
+        """Select, fix beta and run the held-out gate, without fitting the final regressor; sets ``selector_``, ``offset_base_``, ``offset_beta_``.
+
+        Used on its own where only the decision and the slope are needed (building the mix-offset target); ``fit`` is this plus the final fit."""
         X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
         y = np.asarray(y, dtype=np.float64).ravel()
         # Selection and the slope beta see the even rows only; the held-out gate below reads the odd rows, which neither the selector nor beta has seen.
@@ -76,7 +86,6 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
         if self.offset_base_ is not None and not self._offset_helps_held_out(Z, y, X, even):
             self.offset_base_ = None
             self.offset_beta_ = 0.0
-        self.regressor_ = clone(self.regressor).fit(Z, y - self._offset(X))
         return self
 
     def _offset_helps_held_out(self, Z, y, X, even) -> bool:

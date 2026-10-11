@@ -38,7 +38,8 @@ def build_mix_offset_target(
     y = np.asarray(y, dtype=np.float64).ravel()
     tr = np.asarray(train_idx, dtype=np.int64)
     Xtr = X.iloc[tr].reset_index(drop=True)
-    wrapper = TargetOffsetRegressor(selector=selector, regressor=gate_regressor, offset_alpha=offset_alpha).fit(Xtr, y[tr])
+    # The decision and the slope only: the final regressor is not fitted here, so the target build costs two gate fits, not three.
+    wrapper = TargetOffsetRegressor(selector=selector, regressor=gate_regressor, offset_alpha=offset_alpha).decide(Xtr, y[tr])
     if wrapper.offset_base_ is None:
         return None
     u_all = _replay_base(wrapper.offset_base_, X)
