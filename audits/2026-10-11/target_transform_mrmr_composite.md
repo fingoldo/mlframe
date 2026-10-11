@@ -4,6 +4,8 @@ Scope: the idea "try not only feature transforms but also TARGET transforms in t
 
 Status values for findings: OPEN, DECIDED (a recommendation the owner can overrule), NOT A DEFECT, FUTURE.
 
+> **Update 2026-10-11 (after measurements, see `target_mix_brainstorm.md`)**: the acceptance criterion of section 8 asks for a MAE win on the heteroscedastic target. That cannot happen: a variance-only signal adds columns and no point-prediction gain (measured +2.2% worse HGB error). The criterion is replaced by the processes where the mix beat its placebo (`derived_base`, `masked_ratio`, `monotone_control`). The recommendation of section 0 (OFF by default, a lens of K = 3) is superseded by the owner's decision (default ON) and by the feature-base mix as the first lens; the "MI pre-filter was disabled because the correct composite has lower MI" statement is true only when X keeps the columns that carry the base (`composite_mi_gain_experiment.md`).
+
 ## 0. Verdict
 
 | Question | Answer |
