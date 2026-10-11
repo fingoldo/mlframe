@@ -674,7 +674,8 @@ def _mix_offset_inputs_for_discovery(config, train_df_pd, val_df_pd, test_df_pd,
     return {
         "X": X,
         "train_idx": np.asarray(train_idx, dtype=np.int64),
-        "selector": MRMR(verbose=0, n_jobs=1, fe_target_mix_enable=True, fe_target_mix_max_bases=1),
+        # One FE step: the base and beta it finds match the two-step search on every case checked (2026-10-12), at a fraction of the cost.
+        "selector": MRMR(verbose=0, n_jobs=1, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1),
         "gate_regressor": HistGradientBoostingRegressor(max_iter=200, random_state=0),
     }
 
