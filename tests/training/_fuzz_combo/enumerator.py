@@ -672,6 +672,7 @@ def enumerate_combos(
     target: int = 150,
     master_seed: int = 2026_04_22,
     model_universe: tuple[str, ...] = MODELS,
+    exhaustive_pairs: bool = False,
 ) -> list[FuzzCombo]:
     """Return `target` unique FuzzCombo instances covering the axis space.
 
@@ -769,7 +770,7 @@ def enumerate_combos(
         seen.add(key)
         combos.append(candidate)
 
-    return combos[:target]
+    return combos if exhaustive_pairs else combos[:target]
 
 
 # ---------------------------------------------------------------------------
