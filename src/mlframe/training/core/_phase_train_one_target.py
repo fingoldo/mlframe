@@ -409,8 +409,13 @@ def _compute_pipeline_cache_key(
     train_df=None,
     target_name=None,
     train_target=None,
+    pre_pipeline_digest: str = "",
 ) -> str:
     """Build the PipelineCache lookup key for a (strategy, pre_pipeline, tier, kind, features) combo.
+
+    ``pre_pipeline_digest`` (optional): a digest of the pre-pipeline's step parameters (see ``pre_pipeline_params_digest``). Two
+    pre-pipelines with the same name but different parameters (e.g. an MRMR with ``fe_target_mix_enable`` on and off) produce
+    different frames, so without it a run would be served the other run's transformed frames. Empty keeps the legacy key.
 
     The features digest folds (cat, text, embedding) lists through blake2b so cache HIT invalidates
     when the user reshapes those lists between sessions yet stays stable across list ordering;
@@ -469,8 +474,9 @@ def _compute_pipeline_cache_key(
 
         _target_hash = _full_target_content_hash(train_target) if train_target is not None else ""
         _target_suffix = f"_tgt{hashlib.blake2b((str(target_name) + _target_hash).encode(), digest_size=8).hexdigest()}"
+    _pp_suffix = f"_pp{pre_pipeline_digest}" if pre_pipeline_digest else ""
     if pre_pipeline_name:
-        return f"{strategy_cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}{_target_suffix}"
+        return f"{strategy_cache_key}_{pre_pipeline_name}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}{_target_suffix}{_pp_suffix}"
     return f"{strategy_cache_key}{_tier_suffix}{_kind_suffix}{_feats_suffix}{_dtype_suffix}"
 
 

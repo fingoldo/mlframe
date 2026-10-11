@@ -7,7 +7,11 @@ arguments, aside from mutating the caller-supplied ``ctx`` cache dicts.
 
 from __future__ import annotations
 
+import hashlib
+import logging
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 
 def compute_model_pipeline_cache_key(
@@ -21,6 +25,7 @@ def compute_model_pipeline_cache_key(
     current_train_target,
     _compute_pipeline_cache_key: Callable[..., str],
     train_df_pd=None,
+    pre_pipeline_digest: str = "",
 ) -> str:
     """Build the per-(strategy, pre_pipeline, tier, kind, features) pipeline cache key.
 
@@ -79,9 +84,31 @@ def compute_model_pipeline_cache_key(
             train_df=_cache_key_train_df,
             target_name=cur_target_name,
             train_target=current_train_target,
+            pre_pipeline_digest=pre_pipeline_digest,
         )
     )
     return key + rows_suffix
+
+
+def pre_pipeline_params_digest(pre_pipeline) -> str:
+    """Digest of every step's ``get_params(deep=False)`` in a fitted or unfitted pre-pipeline; "" for no pre-pipeline or any failure.
+
+    A pre-pipeline's name does not say which parameters it was built with, so two pipelines of the same name and different
+    parameters (an MRMR with the target mix on and off) would otherwise share a cache slot. ``repr`` of the sorted items is
+    stable for the primitive parameters the selectors use; a failure leaves the key unchanged rather than blocking training."""
+    if pre_pipeline is None:
+        return ""
+    try:
+        steps = getattr(pre_pipeline, "steps", None)
+        items = [(name, est) for name, est in steps] if steps is not None else [("", pre_pipeline)]
+        parts = []
+        for name, est in items:
+            params = est.get_params(deep=False) if hasattr(est, "get_params") else {}
+            parts.append((str(name), type(est).__name__, sorted(params.items(), key=lambda kv: kv[0])))
+        return hashlib.blake2b(repr(parts).encode("utf-8", errors="replace"), digest_size=8).hexdigest()
+    except Exception as exc:
+        logger.debug("pre_pipeline_params_digest: introspection failed, key left unchanged: %s", exc)
+        return ""
 
 
 def compute_cached_model_input_fingerprint(
