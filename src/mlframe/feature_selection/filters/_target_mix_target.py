@@ -16,7 +16,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["build_mix_offset_target"]
+__all__ = ["add_back_mix_offset", "build_mix_offset_target"]
 
 
 def build_mix_offset_target(
@@ -45,3 +45,16 @@ def build_mix_offset_target(
     beta = float(wrapper.offset_beta_)
     logger.info("mix-offset target: base %r accepted on the training split (beta %+.4f).", wrapper.offset_base_, beta)
     return {"base": wrapper.offset_base_, "beta": beta, "values": y - beta * u_all}
+
+
+def add_back_mix_offset(predictions: Any, X: pd.DataFrame, record: dict) -> np.ndarray:
+    """Predictions of a ``__mixoff`` model returned to the y scale: ``predictions + beta * u(X)``, with ``u`` replayed from the raw frame.
+
+    ``record`` is the metadata entry ``{"beta", "base"}`` written by the discovery hook; the base recipe travels with the
+    fitted object (``record["recipe"]``), because the metadata holds only its repr. A non-finite base raises (no silent zero)."""
+    from ._target_offset_regressor import _replay_base
+
+    u = _replay_base(record["recipe"], X)
+    if not np.all(np.isfinite(u)):
+        raise ValueError("the mix base replays to non-finite values on this frame; refusing to fill them silently.")
+    return np.asarray(predictions, dtype=np.float64).ravel() + float(record["beta"]) * u

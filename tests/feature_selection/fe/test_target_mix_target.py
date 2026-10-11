@@ -36,3 +36,13 @@ def test_pure_noise_gives_no_target():
     y = rng.standard_normal(1500)
     out = build_mix_offset_target(X, y, np.arange(1000), selector=MRMR(verbose=0, n_jobs=1, random_seed=1, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1), gate_regressor=HistGradientBoostingRegressor(max_iter=50, random_state=0))
     assert out is None
+
+
+def test_add_back_returns_predictions_to_the_y_scale():
+    """Predictions of the offset target plus beta times the replayed base equal ``y`` predictions built from the raw frame."""
+    from mlframe.feature_selection.filters._target_mix_target import add_back_mix_offset
+
+    X, _y = _frame(3)
+    rec = {"beta": 2.0, "recipe": {"raw": "u"}}
+    back = add_back_mix_offset(np.zeros(len(X)), X, rec)
+    assert np.allclose(back, 2.0 * X["u"].to_numpy())
