@@ -44,12 +44,15 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
         One-sided significance of the offset's held-out gain. The offset is used only when a model trained on ``T`` beats the same model trained on ``y`` on the held-out odd rows, paired on squared error,
         at this level (a standard-error test, not a fixed margin); otherwise the final model is fitted on ``y`` and the offset is dropped. A mis-specified base (a linear term of a nonlinear one) lowers
         the gradient-boosting score, which this decision catches.
+    use_offset : bool, default True
+        False keeps the selector (its mix features stay in the selection) and fits the final model on ``y``: the arm that separates the features of the mix from its offset.
     """
 
-    def __init__(self, selector, regressor, offset_alpha=0.05):
+    def __init__(self, selector, regressor, offset_alpha=0.05, use_offset=True):
         self.selector = selector
         self.regressor = regressor
         self.offset_alpha = offset_alpha
+        self.use_offset = use_offset
 
     def _offset(self, X: pd.DataFrame) -> np.ndarray:
         """``beta * u(X)`` of the first recorded base, or zeros when the selector recorded none."""
@@ -62,7 +65,7 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
         X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
         y = np.asarray(y, dtype=np.float64).ravel()
         self.selector_ = clone(self.selector).fit(X, y)
-        provenance = [e for e in (getattr(self.selector_, "fe_target_mix_provenance_", None) or []) if e.get("recipe") is not None]
+        provenance = [e for e in (getattr(self.selector_, "fe_target_mix_provenance_", None) or []) if e.get("recipe") is not None] if self.use_offset else []
         if len(provenance) > 1:
             logger.info("TargetOffsetRegressor: %d bases recorded, using the first only (their slopes do not compose into one offset).", len(provenance))
         self.offset_base_ = provenance[0]["recipe"] if provenance else None

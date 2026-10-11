@@ -172,3 +172,28 @@ Decision recorded: keep max_bases=1 as the cheaper setting with the same accurac
 
 * Reading: the held-out gate removes the derived_base harm and keeps the large HGB gains on the two processes where the base is a true smooth term (two_dominant, monotone). The ridge gains on masked_ratio and derived_base come from the features the mix adds to the selection, not from the offset (the offset is rejected there); arm A has the mix off, so this comparison cannot separate the two. A split of the ridge gain into features and offset needs a third arm (mix on, offset off), not yet run.
 * Tests: `tests/feature_selection/fe/test_target_offset_regressor.py` (add-back invariant, no-base equals plain regressor, a harmful offset is rejected on held-out rows).
+
+## Third arm: mix on, offset off (features of the mix only)
+
+Arm C fits the same selector with the mix on and the final model on `y`. Paired against plain (A, mix off) and against the offset arm (B).
+
+| process | ridge C vs plain | ridge B vs plain | HGB C vs plain | HGB B vs plain |
+|---|---|---|---|---|
+| masked_ratio | -17.1% (-2.0 se) | -17.2% | +0.3% | +0.3% |
+| derived_base | -32.2% (-1.3 se) | -32.2% | +0.0% | +0.0% |
+| masked_interaction | -18.6% (-2.7 se) | -18.7% | -0.1% | -0.1% |
+| two_dominant_weak_pair | -20.3% (-2.7 se) | -20.3% | -1.1% (-0.3 se) | -46.6% (-4.6 se) |
+| heteroscedastic | 0.0% | 0.0% | 0.0% | -0.1% |
+| regime | -0.7% (-0.1 se) | -0.7% | +4.1% (+0.7 se) | +4.1% |
+| noise_control | 0.0% | 0.0% | 0.0% | -1.5% (-9.7 se) |
+| monotone_control | 0.0% | 0.0% | 0.0% | -50.2% (-5.2 se) |
+
+Reading:
+* The ridge gain is entirely the features of the mix: arm C equals arm B on every process. The offset adds nothing to a ridge (it has a free coefficient on the base already).
+* The gradient-boosting gain is entirely the offset: the mix features do nothing for HGB (regime is worse by +4.1% with them, which the held-out gate then declines to offset), and the offset carries two_dominant (-46.6%) and monotone (-50.2%).
+
+## Default-on decision and its blocker
+
+* The wrapper is the right shape for regression with a found base. Turning it on by default needs it at the top of the training pipeline, not inside it: the suite's `Pipeline(selector, imputer, scaler, model)` hands the model only `selector.transform(X)`, and the base column `u` may not be among the selected features. So the offset cannot be recomputed at predict time from inside the pipeline.
+* Affected code: the suite builds that pipeline in `training/core/_phase_train_one_target_*`; the change touches every regression target that uses MRMR with the mix on, so it needs the suite's own tests.
+* Status: not done in this session. Current default: wrapper available, opt-in.
