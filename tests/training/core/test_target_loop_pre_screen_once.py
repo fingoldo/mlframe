@@ -46,3 +46,14 @@ def test_every_target_trains_without_the_screened_out_column(monkeypatch):
     assert "const" not in seen["y1"] and "const" not in seen["y2"]
     assert "const" not in ctx.train_df_pd.columns
     assert "const" not in ctx.calib_df.columns, "the calibration slice must lose the columns the models were trained without"
+
+
+def test_raw_calib_slice_keeps_the_screened_out_column_for_replay(monkeypatch):
+    """The calib slice loses the screened column for model predictions, but its raw copy keeps it: the fitted pipeline still takes it as input."""
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame({"x": rng.normal(size=200), "const": 1.0})
+    ctx = _ctx(frame)
+    y = rng.normal(size=200)
+    loop.train_every_target(ctx, {"regression": {"y1": y, "y2": y}}, {}, SimpleNamespace(_train_one_target=lambda *a, **k: None))
+    assert "const" not in ctx.calib_df.columns
+    assert "const" in ctx.calib_df_raw.columns, "replay needs the raw calib schema the pipeline was fit on"
