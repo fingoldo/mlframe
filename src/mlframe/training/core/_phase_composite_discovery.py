@@ -108,14 +108,21 @@ def run_composite_target_discovery(
     data_dir: Any = None,
     save_charts: bool = False,
     precomputed_specs: dict | None = None,
+    mix_offset_inputs: dict | None = None,
 ) -> tuple[dict, dict]:  # unused-ok: verbose: uniform suite-phase signature; logging goes through logger levels
     """Run composite-target discovery for regression targets.
 
     Defensive: target_by_type is shallow-copied before adding entries so the
     FTE-returned original is never mutated in-place.
 
+    ``mix_offset_inputs`` (optional, default None = off): ``{"X": full frame, "train_idx": training rows of the full frame, "selector": MRMR with fe_target_mix_enable, "gate_regressor": the model the held-out decision is made for}``.
+    When given, a regression target whose feature-base mix the gate accepts gets a companion target ``<name>__mixoff`` with values
+    ``y - beta * u(X)``, built from the training rows only (``build_mix_offset_target``).
+
     Returns updated (target_by_type, metadata).
     """
+    if mix_offset_inputs is not None and TargetTypes.REGRESSION in target_by_type:
+        target_by_type = _add_mix_offset_targets(target_by_type, metadata, mix_offset_inputs)
     _disc_feature_cols: Any = None
     if TargetTypes.REGRESSION in target_by_type:
         composite_target_discovery_config = _maybe_auto_enable_discovery(
@@ -981,3 +988,33 @@ def _run_composite_targ_specs_trained(n_specs_trained, _gpu_families):
                 "estimators if reproducibility matters.",
                 ", ".join(_gpu_families), n_specs_trained, n_specs_trained,
             )
+
+
+def _add_mix_offset_targets(target_by_type: dict, metadata: dict, inputs: dict) -> dict:
+    """Add ``<name>__mixoff`` for each regression target whose mix base the gate accepts; record the base and slope in metadata.
+
+    The companion is an ordinary target in ``target_by_type``: it is trained like any other, and its predictions are returned
+    to the y scale by the add-back wrapper (wiring pending). A name collision leaves the existing target untouched."""
+    from ...feature_selection.filters._target_mix_target import build_mix_offset_target
+
+    out = dict(target_by_type)
+    reg = dict(out.get(TargetTypes.REGRESSION, {}))
+    for tname, values in list(reg.items()):
+        if np.asarray(values).ndim != 1:
+            continue
+        companion = f"{tname}__mixoff"
+        if companion in reg:
+            continue
+        built = build_mix_offset_target(
+            inputs["X"], values, inputs["train_idx"],
+            selector=inputs["selector"], gate_regressor=inputs["gate_regressor"],
+        )
+        if built is None:
+            continue
+        reg[companion] = built["values"]
+        metadata.setdefault("mix_offset_targets", {}).setdefault(str(TargetTypes.REGRESSION), {})[companion] = {
+            "source": tname, "beta": built["beta"], "base": repr(built["base"]),
+        }
+        logger.info("[MixOffset] added companion target '%s' (beta %+.4f).", companion, built["beta"])
+    out[TargetTypes.REGRESSION] = reg
+    return out
