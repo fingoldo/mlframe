@@ -42,3 +42,39 @@ def test_mix_offset_companion_is_trained_and_recorded(tmp_path):
     assert rec["source"] == "target"
     assert abs(rec["beta"] - 0.95) < 0.2
     assert "target__mixoff" in str(models)
+
+
+def test_companion_predictions_come_back_on_the_y_scale(tmp_path):
+    """Predicting through the suite returns the ``__mixoff`` model on the y scale: its RMSE against y is near the noise, not near the scale of y minus the base."""
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.core.predict import predict_mlframe_models_suite
+    from tests.training.composite.test_composite_integration import _LEAN_OUTPUT_CONFIG_KWARGS, _LEAN_REPORTING_CONFIG_KWARGS, _build_minimal_fte
+
+    data_dir = str(tmp_path / "data")
+    df = _frame()
+    train_mlframe_models_suite(
+        df=df,
+        target_name="target",
+        model_name="mix_offset_predict",
+        features_and_targets_extractor=_build_minimal_fte(),
+        mlframe_models=["linear"],
+        output_config={"data_dir": data_dir, "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+        reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
+        verbose=0,
+        composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False, mix_offset_enabled=True),
+    )
+    import glob
+    import os
+
+    meta = glob.glob(os.path.join(data_dir, "**", "metadata.pkl.zst"), recursive=True)
+    assert meta, "the suite saved no metadata"
+    models_path = os.path.dirname(meta[0])
+    X = df.drop(columns=["target"])
+    y = df["target"].to_numpy(dtype=np.float64)
+    result = predict_mlframe_models_suite(X, models_path, return_probabilities=False, verbose=0)
+    keys = [k for k in result["predictions"] if "target__mixoff" in k]
+    assert keys, f"no __mixoff prediction in {list(result['predictions'])}"
+    y_pred = np.asarray(result["predictions"][keys[0]], dtype=np.float64)
+    rmse = float(np.sqrt(np.mean((y_pred - y) ** 2)))
+    assert rmse < 1.0, f"companion RMSE against y is {rmse:.3f}; the offset was not added back (y scale is about {y.mean():.1f})"

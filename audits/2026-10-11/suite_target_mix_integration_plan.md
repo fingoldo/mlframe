@@ -103,3 +103,14 @@ Remaining work for C, in order:
 4. Cache-key and composite-spec digests carry the recipe and beta.
 5. Save/load keeps the wrapper; metrics on the y scale.
 6. Regression-only guard; suite tests with the flag on and off; OOS on 20+ seeds.
+
+
+## Status (2026-10-11, after the loop ticks)
+
+Implemented and committed (local, not pushed):
+* Mix-offset target built from the training split only (`build_mix_offset_target`), companion `<name>__mixoff` added by the discovery hook (`_add_mix_offset_targets`).
+* Suite wiring behind the explicit flag `mix_offset_enabled` (default False): `_mix_offset_inputs_for_discovery` assembles the full frame from the split frames and refuses unless the splits partition the table.
+* Predict paths (`_predict_main_suite.py`, `_predict_main_from_models.py`) add the offset back for companion models, using the recorded recipe and beta; helper `mix_offset_record` in the feature-selection module.
+* End-to-end: suite trains `target__mixoff` and records it (test passes); predicting through the suite returns the companion on the y scale (RMSE against y below 1.0 on the fixture; test passes).
+
+Still open before default ON: caching digests (plan v2 step 6), reload of a saved wrapper (step 7), the regression-only guard on every build path, and the 20-seed OOS with multiplicity correction (plan v2 step 8).
