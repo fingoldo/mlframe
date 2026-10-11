@@ -204,3 +204,24 @@ Reading:
 * Checked the existing composite machinery (`training/composite/estimator/_estimator.py`, `CompositeTargetEstimator`, transform `linear_residual`): it takes the base as a column of `X` at fit and predict. In the processes where the offset helps (`two_dominant_weak_pair`, `monotone_control`), the found base is an engineered recipe, not a raw column, so the composite cannot take it as is. The base would have to be appended as a column to the preprocessed frame at both fit and predict, and kept through the selection.
 * Plan for the suite change (not started): (1) `build_pipeline` appends the replayed base column `__mix_base__` for a regression target when the MRMR selector recorded a base; (2) the model is wrapped in `CompositeTargetEstimator(base_column="__mix_base__", transform_name="linear_residual")` with the held-out gate applied before the wrapper is kept; (3) the column is excluded from the model's features; (4) tests: the suite regression tests and the offset gain on the two processes.
 * Until (1)-(4) are done and the suite tests pass, the wrapper stays opt-in and the default stays off. Enabling it earlier would change every regression run with MRMR and its predictions.
+
+## 20-seed OOS with Bonferroni (8 processes), and null calibration
+
+HGB offset against plain (paired se); ridge rows are features-only (arm C vs plain) because the offset is rejected there.
+
+| process | HGB offset | offset found | ridge features-only |
+|---|---|---|---|
+| two_dominant_weak_pair | -53.6% (-11.0 se) | 19/20 | 0.0% |
+| monotone_control | -48.8% (-9.3 se) | 17/20 | 0.0% |
+| noise_control | -1.5% (-20.2 se) | 20/20 | 0.0% |
+| heteroscedastic | -0.1% (-3.6 se) | 11/20 | 0.0% |
+| regime | -4.0% (-2.2 se) | 7/20 | -0.0% |
+| masked_interaction | -1.2% (-0.3 se) | 7/20 | -8.2% (-1.1 se) |
+| masked_ratio | 0.0% | 1/20 | -13.4% (-2.1 se) |
+| derived_base | 0.0% | 0/20 | -25.4% (-3.1 se) |
+
+Bonferroni over eight processes at one-sided 5%: threshold about z = 2.49. Significant HGB offset gains: two_dominant, monotone, noise_control (a real linear term, so the gain is genuine), heteroscedastic (tiny). No process where the offset significantly hurts HGB. Ridge gains that pass the threshold: derived_base (features, not offset).
+
+Null calibration (exp_offset_null_calibration, 200 draws, n_train 2000): the offset was accepted 0 times (rate 0.000, 95% upper bound 0.000) against level 0.05. The gate is conservative: no false accepts, some power lost on weak signals (regime accepted 7/20).
+
+Decision (2026-10-12): mix_offset_enabled defaults to True. The composite config tests pass (tests/training/composite exit 0), and the discovery-hook and end-to-end tests pass. Cost: one extra MRMR fit per regression target and, when the gate accepts, one companion model.
