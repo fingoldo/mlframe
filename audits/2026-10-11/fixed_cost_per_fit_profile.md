@@ -128,3 +128,5 @@ Decision recorded: keep max_bases=1 as the cheaper setting with the same accurac
 * Parity: selected features identical in both modes on seeds 50 and 51 (10k rows).
 * Timing: no gain. Precompute 0.117 s over 4 calls (2 fits); whole fit 3.41 s batched against 3.42 s with the lazy path. The per-operand loop was cheap on this workload, and the 0.49 s in the cProfile run was profiler inflation on operands that the cProfile run hit more often.
 * Reverted, since no speedup and the code is not simpler (rule: skip an optimisation with no measured gain).
+
+* Same batched marginal MI at 1M rows (seed 50): 10.39 s batched against 10.36 s lazy, identical selection. No gain at 1M either, so the change stays rejected.
