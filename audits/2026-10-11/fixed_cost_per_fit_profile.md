@@ -121,3 +121,10 @@ Decision recorded: keep max_bases=1 as the cheaper setting with the same accurac
 * Measured (6 random columns, 10k rows, 10 bins): with `npermutations=10` the returned MI is 0.000 for all six (not significant at confidence 0.99); with `npermutations=0` it is the plug-in value 0.0007-0.0015. So the returned MI is the permutation-gated value, not the plug-in MI.
 * Consequence: the baseline of the marginal-uplift gate changes, so selections change. Not a lossless change; rejected.
 * A batched version has to reproduce the same gate per column (the batch noise gate also returns a gated MI). The seed stream differs from `mi_direct`, so borderline columns could flip. Needs a selection-parity check before it can ship. Left as an open item, not implemented.
+
+## Attempted and reverted: batched operand marginal MI
+
+* Implemented: one `batch_mi_with_noise_gate` call (through `_dispatch_batch_mi_with_noise_gate`) over all identity operands, filling the marginal cache before the pair loop. The batch kernel is documented bit-identical to the per-column `mi_direct` loop on this path.
+* Parity: selected features identical in both modes on seeds 50 and 51 (10k rows).
+* Timing: no gain. Precompute 0.117 s over 4 calls (2 fits); whole fit 3.41 s batched against 3.42 s with the lazy path. The per-operand loop was cheap on this workload, and the 0.49 s in the cProfile run was profiler inflation on operands that the cProfile run hit more often.
+* Reverted, since no speedup and the code is not simpler (rule: skip an optimisation with no measured gain).
