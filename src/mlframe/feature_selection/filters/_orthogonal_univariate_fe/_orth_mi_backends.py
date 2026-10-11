@@ -15,6 +15,8 @@ import logging
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -447,7 +449,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
                     from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
                     _resident_on = fe_gpu_strict_resident_enabled()
                 except Exception as e:
-                    logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+                    log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
                     _resident_on = False
                 if _resident_on:
                     from .._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
