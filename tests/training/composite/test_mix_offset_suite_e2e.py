@@ -78,3 +78,34 @@ def test_companion_predictions_come_back_on_the_y_scale(tmp_path):
     y_pred = np.asarray(result["predictions"][keys[0]], dtype=np.float64)
     rmse = float(np.sqrt(np.mean((y_pred - y) ** 2)))
     assert rmse < 1.0, f"companion RMSE against y is {rmse:.3f}; the offset was not added back (y scale is about {y.mean():.1f})"
+
+
+def test_reloaded_metadata_keeps_the_recipe_and_beta(tmp_path):
+    """The metadata read back from disk carries the replayable recipe and the beta of the companion, so a reloaded suite can add the offset back."""
+    import glob
+    import os
+
+    from mlframe.training.configs import CompositeTargetDiscoveryConfig
+    from mlframe.training.core import train_mlframe_models_suite
+    from mlframe.training.core._predict_main_suite import _load_suite_metadata
+    from tests.training.composite.test_composite_integration import _LEAN_OUTPUT_CONFIG_KWARGS, _LEAN_REPORTING_CONFIG_KWARGS, _build_minimal_fte
+
+    data_dir = str(tmp_path / "data")
+    train_mlframe_models_suite(
+        df=_frame(),
+        target_name="target",
+        model_name="mix_offset_reload",
+        features_and_targets_extractor=_build_minimal_fte(),
+        mlframe_models=["linear"],
+        output_config={"data_dir": data_dir, "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+        reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
+        verbose=0,
+        composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False, mix_offset_enabled=True),
+    )
+    meta_file = glob.glob(os.path.join(data_dir, "**", "metadata.pkl.zst"), recursive=True)
+    assert meta_file
+    models_path = os.path.dirname(meta_file[0])
+    meta = _load_suite_metadata(models_path, None, 0)
+    rec = next(iter(next(iter(meta["mix_offset_targets"].values())).values()))
+    assert rec["recipe"] is not None
+    assert abs(rec["beta"] - 0.95) < 0.2
