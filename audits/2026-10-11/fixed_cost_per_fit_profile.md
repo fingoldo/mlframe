@@ -85,3 +85,10 @@ The round-to-round spread (5 s to 18 s) is far above the mix-off spread, so thes
 * Support tail (`_assign_support`, residual rescue, drop sweep, friend graph): about 0.16 s each, so the lean flag already removed the expensive part of the tail.
 * Conclusion: the child is the whole FE search on half the rows. Nothing is shared with the parent, because the target differs (T instead of y), so its pair scores, marginals and cascades must all be recomputed. A lossless cut does not exist; any cut (fewer cascades, fewer scan rows, a smaller pair budget) changes the candidate list and has to be judged on OOS error, not wall time alone.
 * First fit in a process is 14.9 s against 2.7 s warm at 5000 rows (kernel compile and pool warm-up), so benchmarks must always discard a warm-up fit.
+
+## Mix on, max_bases=1, 10k: reaching 5-6 s
+
+* Rounds (fit_wall, 7): 5.50, 10.41, 10.06, 5.32, 5.42, 9.79, 5.30; median 5.50 s. Three of seven rounds sit at about 10 s, unexplained.
+* Instrumented run (5 and 7 rounds, same settings): 4.9-5.8 s with no 10 s round. Split per round: mix stage 2.2-2.6 s, rest of the fit 3.0-3.3 s.
+* The 10 s mode is not the VRAM gate (checked: vram_ok True, pool free 76-92 MB, every round) and not a stray process. Open item.
+* Open quality question: max_bases=1 halves the mix cost against max_bases=2; the second base's OOS contribution has not been measured on the synthetic suite. Default left at 2 until that check is done.
