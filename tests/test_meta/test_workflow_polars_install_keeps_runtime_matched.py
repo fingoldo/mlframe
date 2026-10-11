@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _PIP_INSTALL = re.compile(r"\bpip\s+install\b[^\n]*")
 _BARE_POLARS = re.compile(r"(?<![\w-])polars(?![\w-])")
@@ -36,7 +38,7 @@ def test_the_detector_flags_a_no_deps_polars_swap_and_accepts_a_paired_one() -> 
 def test_no_workflow_swaps_polars_without_its_runtime() -> None:
     """Every workflow and composite action under .github installs polars together with its matching runtime wheel."""
     files = sorted((REPO_ROOT / ".github").rglob("*.y*ml"))
-    assert files, "no workflow files found"
+    assert_scanned_enough(len(files), ".github workflows", minimum=5)
     found = {f.relative_to(REPO_ROOT).as_posix(): offending_lines(f.read_text(encoding="utf-8")) for f in files}
     bad = {name: lines for name, lines in found.items() if lines}
     assert not bad, f"pip install --no-deps polars without polars-runtime leaves a mismatched native module: {bad}"
