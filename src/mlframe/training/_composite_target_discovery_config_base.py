@@ -24,6 +24,11 @@ class CompositeTargetDiscoveryConfigBase(BaseConfig):
     # regardless of target shape; pass enabled=True explicitly to always run it.
     enabled: bool = False
 
+    # Opt-in: carry the feature-base target mix into training. When True and a regression target has a base the MRMR held-out gate
+    # accepts, a companion ``<name>__mixoff`` target is trained on ``y - beta * u(X)`` and returned to the y scale at predict.
+    # Default False: no MRMR run is added and no target is created.
+    mix_offset_enabled: bool = False
+
     # Optional chronological-order column (timestamp / monotone index). When set, discovery SORTS the MI-screening sample by it so the tiny-model CV is a forward-walk (TimeSeriesSplit) not a shuffled K-fold -- the canonical non-monotone ``lag(y)`` base defeated the legacy base-monotonicity heuristic, so the screen leaked future->past. None keeps the legacy auto-detection.
     time_column: Optional[str] = None
 

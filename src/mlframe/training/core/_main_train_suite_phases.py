@@ -640,6 +640,7 @@ def run_optional_diagnostics_and_composite_discovery(
     _pre_specs = metadata["composite_target_specs"] if maybe_apply_composite_target_specs_precomputed(
         _precomp_fp_ok=_precomp_fp_ok, precomputed=precomputed, metadata=metadata, verbose=verbose,
     ) else None
+    _mix_offset_inputs = _mix_offset_inputs_for_discovery(composite_target_discovery_config, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx)
     target_by_type, metadata = pr_module.run_composite_target_discovery(
             composite_target_discovery_config=composite_target_discovery_config,
             target_by_type=target_by_type, mlframe_models=mlframe_models, metadata=metadata,
@@ -650,8 +651,32 @@ def run_optional_diagnostics_and_composite_discovery(
             verbose=bool(verbose), discovery_cache_dir=_discovery_cache_dir, group_ids=group_ids,
             split_config=split_config, data_dir=data_dir, save_charts=save_charts,
             precomputed_specs=_pre_specs,
+            mix_offset_inputs=_mix_offset_inputs,
         )
     return target_by_type, metadata
+
+
+def _mix_offset_inputs_for_discovery(config, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx):
+    """The discovery hook's inputs when ``mix_offset_enabled`` is set and the splits rebuild the full frame; None otherwise."""
+    if not getattr(config, "mix_offset_enabled", False):
+        return None
+    import numpy as np
+
+    from ...feature_selection.filters._target_mix_target import assemble_full_frame
+    from ...feature_selection.filters.mrmr import MRMR
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    n_rows = int(len(train_idx) + len(val_idx) + len(test_idx))
+    X = assemble_full_frame(train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, n_rows=n_rows)
+    if X is None:
+        logger.warning("mix_offset_enabled set, but the split frames do not rebuild the full table; the mix-offset hook is skipped.")
+        return None
+    return {
+        "X": X,
+        "train_idx": np.asarray(train_idx, dtype=np.int64),
+        "selector": MRMR(verbose=0, n_jobs=1, fe_target_mix_enable=True, fe_target_mix_max_bases=1),
+        "gate_regressor": HistGradientBoostingRegressor(max_iter=200, random_state=0),
+    }
 
 
 def begin_suite_process_state(verbose: int, suite_module: Any) -> None:

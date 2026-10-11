@@ -57,3 +57,28 @@ def test_predict_finds_the_record_only_for_its_companion_target():
     assert _mix_offset_record(meta, TargetTypes.REGRESSION, "t") is None
     assert _mix_offset_record({}, TargetTypes.REGRESSION, "t__mixoff") is None
     assert _mix_offset_record(None, TargetTypes.REGRESSION, "t__mixoff") is None
+
+
+def test_flag_defaults_off_and_the_inputs_helper_returns_none_when_off():
+    """The config flag is False by default, so the suite builds no MRMR and adds no target unless it is set."""
+    from mlframe.training._composite_target_discovery_config import CompositeTargetDiscoveryConfig
+    from mlframe.training.core._main_train_suite_phases import _mix_offset_inputs_for_discovery
+
+    assert CompositeTargetDiscoveryConfig().mix_offset_enabled is False
+    df = pd.DataFrame({"a": [1.0, 2.0]})
+    assert _mix_offset_inputs_for_discovery(CompositeTargetDiscoveryConfig(), df, None, None, np.array([0, 1]), np.array([], dtype=np.int64), np.array([], dtype=np.int64)) is None
+
+
+def test_flag_on_with_a_partition_returns_the_hook_inputs():
+    """With the flag set and the splits covering the table, the helper returns the full frame, the training rows and a selector."""
+    from mlframe.training._composite_target_discovery_config import CompositeTargetDiscoveryConfig
+    from mlframe.training.core._main_train_suite_phases import _mix_offset_inputs_for_discovery
+
+    cfg = CompositeTargetDiscoveryConfig(mix_offset_enabled=True)
+    full = pd.DataFrame({"a": np.arange(6.0)})
+    tr, va, te = np.array([0, 2, 4]), np.array([1]), np.array([3, 5])
+    out = _mix_offset_inputs_for_discovery(cfg, full.iloc[tr], full.iloc[va], full.iloc[te], tr, va, te)
+    assert out is not None
+    assert np.array_equal(out["X"]["a"].to_numpy(), full["a"].to_numpy())
+    assert np.array_equal(out["train_idx"], tr)
+    assert out["selector"].fe_target_mix_enable is True
