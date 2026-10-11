@@ -102,6 +102,7 @@ def report_regression_model_perf(
     mase_naive_mae: float | None = None,
     mase_seasonality: int | None = None,
     reporting_config: Any = None,
+    quantile_alphas: Sequence[float] | None = None,
 ) -> tuple[np.ndarray, None]:
     """
     Generate a detailed performance report for regression models.
@@ -177,6 +178,15 @@ def report_regression_model_perf(
     # sample_weight through -- see that branch for which metrics are actually weight-aware here.
     st.targets_arr = np.asarray(targets)
     st.preds_arr = np.asarray(preds)
+    # Quantile regression: a single-column target scored against (N, K) per-alpha predictions. The headline
+    # point metrics and the 1-D chart/audit/sensor stages need one point estimate per row, which is the median.
+    # The full (N, K) matrix is still what this function returns, for the quantile panels and stored predictions.
+    st.full_quantile_preds = None
+    _point = select_quantile_point_estimate(st.targets_arr, st.preds_arr, quantile_alphas)
+    if _point is not st.preds_arr:
+        st.full_quantile_preds = st.preds_arr
+        st.preds_arr = _point
+        preds = _point
 
     # F-34 (2026-05-31): MULTI_TARGET_REGRESSION gate. This reporter
     # assumes 1-D targets + 1-D preds for the scatter/histogram chart,
@@ -418,7 +428,7 @@ def report_regression_model_perf(
                 report_title,
                 model_name,
             )
-            return st.preds_arr, None
+            return (st.preds_arr if st.full_quantile_preds is None else st.full_quantile_preds), None
         _scale_tag = " [T-scale residual]" if _is_t_scale_composite_chart else ""
         header_str = report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + _scale_tag
         from ..._format import format_metric as _fmt
@@ -446,7 +456,25 @@ def report_regression_model_perf(
 
     _report_regression__cleanly_under_one_record(subgroups, subset_index, targets, preds, print_report, metrics)
 
-    return preds, None
+    return (preds if st.full_quantile_preds is None else st.full_quantile_preds), None
+
+
+def select_quantile_point_estimate(targets_arr: np.ndarray, preds_arr: np.ndarray, quantile_alphas: Sequence[float] | None = None) -> np.ndarray:
+    """Return the median column of (N, K) quantile predictions scored against a single-column target, else ``preds_arr`` unchanged.
+
+    The column is the alpha closest to 0.5 when ``quantile_alphas`` matches K; otherwise the middle column, since quantile
+    configs keep alphas sorted ascending. Multi-target regression ((N, K) targets) is left alone.
+    """
+    if targets_arr.ndim != 1 or preds_arr.ndim != 2:
+        return preds_arr
+    k = preds_arr.shape[1]
+    if k == 1:
+        return preds_arr[:, 0]
+    if quantile_alphas is not None and len(quantile_alphas) == k:
+        col = int(np.argmin(np.abs(np.asarray(quantile_alphas, dtype=np.float64) - 0.5)))
+    else:
+        col = k // 2
+    return preds_arr[:, col]
 
 
 def _report_regression_mo_step1_def_render_regression(MAE, report_ndigits, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_Pearson, _ext_Spearman, _ext_Kendall, _ext_EV, _ext_NSE, _ext_RMSLE, _ext_MdAPE, _ext_Cindex, _ext_Huber):

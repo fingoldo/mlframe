@@ -592,6 +592,8 @@ def train_and_evaluate_model(
         model_type_name=st.model_type_name,
         model_name=model_name,
         row_wise_extensions_config=control.row_wise_extensions_config,
+        calib_df_pre_pipeline=data.calib_df_pre_pipeline,
+        test_df=data.test_df,
     )
 
     return (

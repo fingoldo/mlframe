@@ -326,6 +326,12 @@ def _to_2d(arr: np.ndarray) -> np.ndarray:
 # ---------- public wrappers ----------
 
 
+def _check_same_ndim(yt: np.ndarray, yp: np.ndarray) -> None:
+    """Raise sklearn's error for a 1-D/2-D mismatch; the per-row njit kernels would otherwise die with an opaque numba TypingError."""
+    if yt.ndim != yp.ndim or (yt.ndim == 2 and yt.shape[1] != yp.shape[1]):
+        raise ValueError(f"y_true and y_pred have different number of output ({yt.shape} vs {yp.shape})")
+
+
 def fast_mean_absolute_error(
     y_true,
     y_pred,
@@ -343,6 +349,7 @@ def fast_mean_absolute_error(
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    _check_same_ndim(yt, yp)
     if yt.shape[0] == 0:  # sklearn parity: raise on empty rather than the njit kernel's silent 0/0 -> NaN.
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
@@ -384,6 +391,7 @@ def fast_mean_squared_error(
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    _check_same_ndim(yt, yp)
     if yt.shape[0] == 0:  # sklearn parity: raise on empty rather than the njit kernel's silent 0/0 -> NaN.
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
@@ -456,6 +464,7 @@ def fast_max_error(
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    _check_same_ndim(yt, yp)
     if yt.shape[0] == 0:  # sklearn parity: raise on empty rather than the njit kernel's silent reduction -> NaN.
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if yt.ndim == 1:
@@ -487,6 +496,7 @@ def fast_r2_score(
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)
     yp = np.ascontiguousarray(np.asarray(y_pred), dtype=np.float64)
+    _check_same_ndim(yt, yp)
     if yt.shape[0] == 0:  # sklearn parity: raise on empty rather than the njit kernel's silent 0/0 -> NaN.
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:

@@ -122,6 +122,8 @@ def compute_calib_and_oof_outputs(
     model_type_name: str,
     model_name: str,
     row_wise_extensions_config: Optional[dict] = None,
+    calib_df_pre_pipeline: Any = None,
+    test_df: Any = None,
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray], Any, Any, Any]:
     """Run the fitted model's calib-slice predict (proba for classification, point for regression) and mirror OOF preds/probs/target.
 
@@ -137,7 +139,17 @@ def compute_calib_and_oof_outputs(
     through that fit-time call, so its row_summary_*/row_extreme_* columns must be replayed here the
     same way real predict() does, or a model fit with those columns raises a feature-shape mismatch
     against the raw calib_df.
+
+    ``calib_df_pre_pipeline`` is set by the suite, which has already replayed every suite-level fitted stage on the calib
+    rows (``replay_suite_fe_on_calib``): ``calib_df`` is then the post-main-pipeline variant and this the pre-pipeline one.
+    The variant carrying this model's ``test_df`` columns is used, subset to them, so the calib predict sees exactly the
+    test frame's schema; the row-wise replay below is skipped since those columns are already there.
     """
+    if calib_df is not None and calib_df_pre_pipeline is not None:
+        from mlframe.training.core._calib_frame_replay import align_calib_to_test_schema
+
+        calib_df = align_calib_to_test_schema(calib_df, calib_df_pre_pipeline, test_df)
+        row_wise_extensions_config = None
     # Disjoint-calib predict (TrainingSplitConfig.calib_size > 0): run the fitted base model's predict_proba on the calib
     # slice and stamp (calib_probs, calib_target) so finalize's _auto_calibrate_on_calib_slice fits the post-hoc isotonic
     # calibrator. Mirrors the test path: subset+transform the raw calib rows through the SAME fitted pre_pipeline via

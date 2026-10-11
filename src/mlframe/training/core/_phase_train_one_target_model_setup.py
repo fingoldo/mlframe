@@ -593,13 +593,18 @@ def _setup_per_target_mlframe_models(
     # _build_configs_from_params. The trainer transforms calib_df through the same fitted pre_pipeline as test and
     # stamps (calib_probs, calib_target) for finalize's auto-calibration. No-op when no calib slice was carved.
     if _calib_df is not None and current_calib_target is not None:
-        common_params["calib_df"] = _calib_df
+        # calib_df is carved from the raw frame before the suite-level fit stages, so it is replayed through them here
+        # exactly like a predict-time frame; the trainer then aligns it to each model's own test-frame schema.
+        from ._calib_frame_replay import replay_suite_fe_on_calib
+
+        _calib_post, _calib_pre = replay_suite_fe_on_calib(
+            _calib_df, metadata, calib_idx=np.asarray(_calib_idx), group_ids=group_ids, timestamps=timestamps,
+            auxiliary_events_df=getattr(ctx, "auxiliary_events_df", None), verbose=bool(verbose),
+        )
+        common_params["calib_df"] = _calib_post
+        common_params["calib_df_pre_pipeline"] = _calib_pre
         common_params["calib_target"] = current_calib_target
         common_params["calib_idx"] = _calib_idx
-        # calib_df is disjoint from train/val/test and never passes through apply_preprocessing_extensions,
-        # so its row_summary_*/row_extreme_* columns must be replayed by the trainer's calib-slice predict
-        # path (compute_calib_and_oof_outputs) -- thread the fit-time config through the same way.
-        common_params["row_wise_extensions_config"] = metadata.get("row_wise_extensions_config")
 
     # Full-length row timestamps reach DataConfig.timestamps so the per-split reporter can slice them and render the
     # residual-vs-time / metric-over-time temporal-drift panels under the same FTE-timestamp gate as the target audit.
