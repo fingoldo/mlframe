@@ -277,6 +277,9 @@ def train_mlframe_models_suite(
             linear_model_config = training_config.linear_config
         if behavior_config is None:
             behavior_config = training_config.behavior
+        from ._setup_helpers import behavior_with_training_config_metamodel
+
+        behavior_config = behavior_with_training_config_metamodel(behavior_config, training_config.metamodel_func)
 
     ctx = pr.setup_configuration(
         preprocessing_config=preprocessing_config,

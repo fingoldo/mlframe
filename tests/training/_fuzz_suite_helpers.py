@@ -18,6 +18,8 @@ from ._fuzz_combo import (
     build_composite_discovery_config,
     randomize_scalar_fields,
 )
+from ._fuzz_combo.field_randomizer import DEFAULT_SKIP_FIELDS
+from ._fuzz_combo.semantic_fields import randomize_semantic_fields, semantic_owned_fields
 
 #: Opt-in: when set, every bool/bounded-numeric/Literal config field a named FuzzCombo axis left at its
 #: library default gets resampled too (see field_randomizer.py). Off by default so the existing CI-gating
@@ -33,7 +35,13 @@ def _randomize_configs(configs: dict, combo: FuzzCombo) -> dict:
     if _os.environ.get(_RANDOMIZE_ALL_FIELDS_ENV, "").lower() not in ("1", "true", "yes", "on"):
         return configs
     rng = np.random.default_rng(combo.seed)
-    return {k: (randomize_scalar_fields(v, rng) if isinstance(v, BaseModel) else v) for k, v in configs.items()}
+    return {k: (_randomize_model(v, combo, rng) if isinstance(v, BaseModel) else v) for k, v in configs.items()}
+
+
+def _randomize_model(model: BaseModel, combo: FuzzCombo, rng: np.random.Generator) -> BaseModel:
+    """Semantic generators first (so a recipe's own master switch, e.g. ``engineer_causal_bases``, lands as explicitly set), then the
+    shape-based scalar randomizer over whatever is still at its default."""
+    return randomize_scalar_fields(randomize_semantic_fields(model, combo, rng), rng, skip=DEFAULT_SKIP_FIELDS | semantic_owned_fields(model))
 
 
 def _randomize_hyperparams_dict(cfg: dict, combo: FuzzCombo) -> dict:
@@ -46,7 +54,7 @@ def _randomize_hyperparams_dict(cfg: dict, combo: FuzzCombo) -> dict:
         return cfg
     from mlframe.training.configs import ModelHyperparamsConfig
 
-    randomized = randomize_scalar_fields(ModelHyperparamsConfig(**cfg), np.random.default_rng((combo.seed, 6)))
+    randomized = _randomize_model(ModelHyperparamsConfig(**cfg), combo, np.random.default_rng((combo.seed, 6)))
     return {**cfg, **randomized.model_dump(exclude_none=True)}
 
 
@@ -55,7 +63,7 @@ def _randomize_one(model: BaseModel, combo: FuzzCombo, salt: int = 0) -> BaseMod
     rather than a kwargs dict. ``salt`` decorrelates the RNG from a sibling call sharing the same combo seed."""
     if _os.environ.get(_RANDOMIZE_ALL_FIELDS_ENV, "").lower() not in ("1", "true", "yes", "on"):
         return model
-    return randomize_scalar_fields(model, np.random.default_rng((combo.seed, salt)))
+    return _randomize_model(model, combo, np.random.default_rng((combo.seed, salt)))
 
 
 def _safe_cfg_kwargs(cfg_class, **kwargs):

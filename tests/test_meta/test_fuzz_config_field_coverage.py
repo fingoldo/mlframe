@@ -29,11 +29,17 @@ only shrink; a new entry needs the same kind of reason the existing ones have, n
 
 from __future__ import annotations
 
+import dataclasses
 import re
+import tempfile
 from pathlib import Path
+from typing import Any, Optional
+
+import numpy as np
 
 import mlframe.training.configs as _cfgmod
 from tests.training._fuzz_combo.field_randomizer import GENERICALLY_FUZZABLE_SHAPE
+from tests.training._fuzz_combo.semantic_fields import DERIVED_FIELDS, SEMANTIC_FIELDS
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FUZZ_COMBO_DIR = _REPO_ROOT / "tests" / "training" / "_fuzz_combo"
@@ -84,95 +90,42 @@ _RANDOMIZER_WIRED_CLASSES = {
     "ModelHyperparamsConfig",
 }
 
-#: Reviewed, reasoned remainder -- every entry needs real domain work, not a mechanical axis.
-_NOT_GENERICALLY_FUZZABLE = {
-    # Bare callables: there is no value space to sample from.
-    "TrainingConfig.metamodel_func",
-    "TrainingBehaviorConfig.metamodel_func",
-    "ReportingConfig.custom_ice_metric",
-    "ReportingConfig.custom_rice_metric",
-    # Structured dict/nested-model payloads a blind randomizer would corrupt into an invalid shape
-    # (each key has its own contract, e.g. a scoring dict's values must be sklearn scorer names).
-    "TrainingConfig.linear_config",
-    "TrainingBehaviorConfig.callback_params",
-    "TrainingBehaviorConfig.cb_fit_params",
-    "TrainingBehaviorConfig.default_classification_scoring",
-    "TrainingBehaviorConfig.default_regression_scoring",
-    "TrainingBehaviorConfig.isotonic_risk_kwargs",
-    "TrainingBehaviorConfig.threshold_optimizer_kwargs",
-    "TrainingBehaviorConfig.precomputed_fairness_subgroups",
-    "OutputConfig.diagnostics_kwargs",
-    "ReportingConfig.decision_costs",
-    "ReportingConfig.diagnostic_splits",
-    "ReportingConfig.feature_importance_config",
-    "ReportingConfig.learning_curve",
-    "ModelHyperparamsConfig.catboost_custom_classif_metrics",
-    "ModelHyperparamsConfig.catboost_custom_regr_metrics",
-    # Column names the real frame must contain -- a random string just trips "column not found", testing
-    # nothing about the lever itself. Needs a combo-aware axis that reads the actual built frame's columns.
-    "TrainingSplitConfig.id_column",
-    "CompositeTargetDiscoveryConfig.group_column",
-    "CompositeTargetDiscoveryConfig.per_group_column",
-    "CompositeTargetDiscoveryConfig.engineer_causal_group_column",
-    "CompositeTargetDiscoveryConfig.dominant_features_hint",
-    "CompositeTargetDiscoveryConfig.forbidden_base_patterns",
-    # A real file path / split-id file on disk, or an explicit calendar boundary -- needs the actual
-    # split machinery's state, not a random string/date.
-    "TrainingSplitConfig.split_ids_path",
-    "TrainingSplitConfig.reuse_splits",
-    "TrainingSplitConfig.test_start",
-    "TrainingSplitConfig.test_end",
-    "TrainingSplitConfig.val_start",
-    "TrainingSplitConfig.val_end",
-    # Causal-lag feature-engineering knobs: lags/ops/windows only mean something together, as a coherent
-    # recipe, and first_fill only applies when lags is non-empty -- needs a dedicated semantic axis, not
-    # independent random values per field.
-    "CompositeTargetDiscoveryConfig.engineer_causal_lags",
-    "CompositeTargetDiscoveryConfig.engineer_causal_ops",
-    "CompositeTargetDiscoveryConfig.engineer_causal_trailing_windows",
-    "CompositeTargetDiscoveryConfig.engineer_causal_first_fill",
-    # ``str``-typed but constrained to an allowed set enforced by a runtime validator invisible to the
-    # annotation itself (not a ``Literal``) -- needs the validator's actual allowed-value list read out
-    # field by field, not a shape-based guess.
-    "FeatureTypesConfig.datetime_methods",
-    "LinearModelConfig.model_type",
-    "LinearModelConfig.learning_rate",
-    "ModelHyperparamsConfig.def_classif_metric",
-    "ModelHyperparamsConfig.def_regr_metric",
-    "CompositeTargetDiscoveryConfig.auto_base_null_block_length",
-    "CompositeTargetDiscoveryConfig.base_ranking_criterion",
-    "CompositeTargetDiscoveryConfig.cross_target_calibration_method",
-    "CompositeTargetDiscoveryConfig.fail_on_no_gain",
-    "CompositeTargetDiscoveryConfig.tiny_consensus",
-    "CompositeTargetDiscoveryConfig.tiny_rerank_backend",
-    "TrainingBehaviorConfig.target_temporal_audit_unit",
-    "TrainingBehaviorConfig.mlp_drop_per_group_constants_pattern",
-    "FeatureSelectionConfig.ace",
-    # ``List[str]``/tuple-shaped report-panel selectors: each is a whitelist of named panels/tokens this
-    # report family understands; needs that whitelist read out of the renderer, not a random string list.
-    "ReportingConfig.binary_panels",
-    "ReportingConfig.multilabel_panels",
-    "ReportingConfig.regression_panels",
-    "ReportingConfig.plot_outputs",
-    "ReportingConfig.title_metrics_tokens",
-    "ReportingConfig.regression_title_metrics_tokens",
-    "ReportingConfig.calibration_colormap",
-    "OutputConfig.plot_file",
-}
+#: Classes whose construction site also runs :func:`randomize_semantic_fields` (the same call sites as above, plus ``TrainingConfig``, which the
+#: fuzz suite builds only through ``training_config_for_combo`` for the suite's ``training_config=`` carrier).
+_SEMANTIC_WIRED_CLASSES = _RANDOMIZER_WIRED_CLASSES | {"TrainingConfig"}
+
+#: Reviewed, reasoned remainder -- fields no mechanism reaches. Empty: every field that used to sit here now has a domain-aware generator in
+#: ``semantic_fields.py`` (a real frame column, a replayable split file, a callee-signature callable, a validator's allowed set). A new entry
+#: needs a reason grounded in the consuming code, not a bare name.
+_NOT_GENERICALLY_FUZZABLE: frozenset = frozenset()
 
 
-def uncovered_fields(classes: dict, corpus: str, randomizer_wired: frozenset) -> list[str]:
-    """``"ClassName.field"`` for every pydantic field of ``classes`` that is neither mentioned (whole word)
-    in ``corpus`` nor closed by the generic randomizer (its class is in ``randomizer_wired`` AND its
-    annotation shape is one :func:`GENERICALLY_FUZZABLE_SHAPE` recognises)."""
+def uncovered_fields(
+    classes: dict,
+    corpus: str,
+    randomizer_wired: frozenset,
+    semantic: frozenset = frozenset(),
+    semantic_wired: frozenset = frozenset(),
+    derived: Optional[dict] = None,
+) -> list[str]:
+    """``"ClassName.field"`` for every pydantic field of ``classes`` that no mechanism covers: a whole-word mention in ``corpus``, the generic
+    randomizer (class in ``randomizer_wired`` AND a :func:`GENERICALLY_FUZZABLE_SHAPE` annotation), a semantic generator (field in ``semantic``
+    AND class in ``semantic_wired``), or derivation from a source field that is itself mentioned (``derived``)."""
+    derived = derived or {}
     out = []
     for cls_name, cls in classes.items():
         for field_name, info in cls.model_fields.items():
+            key = f"{cls_name}.{field_name}"
+            if key in semantic and cls_name in semantic_wired:
+                continue
             if re.search(rf"\b{re.escape(field_name)}\b", corpus):
                 continue
             if cls_name in randomizer_wired and GENERICALLY_FUZZABLE_SHAPE(info.annotation):
                 continue
-            out.append(f"{cls_name}.{field_name}")
+            src = derived.get(key)
+            if src is not None and re.search(rf"\b{re.escape(src.split('.', 1)[1])}\b", corpus):
+                continue
+            out.append(key)
     return sorted(out)
 
 
@@ -190,7 +143,16 @@ def _fuzz_harness_corpus() -> str:
 
 def test_no_new_uncovered_config_fields():
     """A config field with neither a named axis nor generic-randomizer coverage must already be a reasoned entry in ``_NOT_GENERICALLY_FUZZABLE``."""
-    got = set(uncovered_fields(_CONFIG_CLASSES, _fuzz_harness_corpus(), frozenset(_RANDOMIZER_WIRED_CLASSES)))
+    got = set(
+        uncovered_fields(
+            _CONFIG_CLASSES,
+            _fuzz_harness_corpus(),
+            frozenset(_RANDOMIZER_WIRED_CLASSES),
+            semantic=SEMANTIC_FIELDS,
+            semantic_wired=frozenset(_SEMANTIC_WIRED_CLASSES),
+            derived=DERIVED_FIELDS,
+        )
+    )
     new = sorted(got - _NOT_GENERICALLY_FUZZABLE)
     closed = sorted(_NOT_GENERICALLY_FUZZABLE - got)
     assert not new, (
@@ -220,3 +182,66 @@ def test_the_scan_flags_an_uncovered_field_and_honours_both_coverage_mechanisms(
     classes = {"Wired": _Wired, "Unwired": _Unwired}
     result = uncovered_fields(classes, corpus, frozenset({"Wired"}))
     assert result == ["Unwired.totally_uncovered_field"]
+
+
+def test_every_semantic_field_is_a_real_wired_config_field():
+    """A semantic generator registered under a misspelled field or class, or for a class whose construction site never runs it, would close a
+    gap on paper only."""
+    real = {f"{c}.{f}" for c, cls in _CONFIG_CLASSES.items() for f in cls.model_fields}
+    assert SEMANTIC_FIELDS <= real, f"semantic generators name non-existent fields: {sorted(SEMANTIC_FIELDS - real)}"
+    unwired = sorted(k for k in SEMANTIC_FIELDS if k.split(".", 1)[0] not in _SEMANTIC_WIRED_CLASSES)
+    assert not unwired, f"semantic fields whose class is not built through randomize_semantic_fields: {unwired}"
+
+
+def _semantic_base(cls_name: str) -> Any:
+    """A default instance of ``cls_name``, with required fields filled the way its fuzz construction site fills them."""
+    if cls_name == "TrainingConfig":
+        return _cfgmod.TrainingConfig(target_name="t", model_name="m")
+    if cls_name == "OutputConfig":
+        return _cfgmod.OutputConfig(data_dir=tempfile.gettempdir())
+    return _CONFIG_CLASSES[cls_name]()
+
+
+def _differs(a: Any, b: Any) -> bool:
+    """``a != b`` tolerating values whose ``==`` is not a plain bool (frames or arrays inside payloads)."""
+    try:
+        return bool(a != b)
+    except Exception:
+        return a is not b
+
+
+def test_semantic_generators_move_every_registered_field_off_its_default(monkeypatch):
+    """Each semantic field takes a non-default, assignment-validated value on some real combo: a generator that always returns ``{}``, or whose
+    value never validates, cannot pass for coverage."""
+    from tests.training._fuzz_combo import enumerate_combos
+    from tests.training._fuzz_combo.semantic_fields import randomize_semantic_fields
+
+    monkeypatch.setenv("MLFRAME_FUZZ_RANDOMIZE_ALL_FIELDS", "1")
+    by_class: dict = {}
+    for key in SEMANTIC_FIELDS:
+        cls_name, field = key.split(".", 1)
+        by_class.setdefault(cls_name, []).append(field)
+    hit: set = set()
+    combos = [dataclasses.replace(c, n_rows=300) for c in enumerate_combos(target=150, master_seed=7)]
+    for i, combo in enumerate(combos):
+        for cls_name, fields in by_class.items():
+            default = _semantic_base(cls_name)
+            sampled = randomize_semantic_fields(
+                _semantic_base(cls_name), combo, np.random.default_rng((combo.seed, i)), linear_config=_cfgmod.LinearModelConfig(alpha=0.5)
+            )
+            hit.update(f"{cls_name}.{f}" for f in fields if _differs(getattr(sampled, f), getattr(default, f)))
+        if hit == SEMANTIC_FIELDS:
+            break
+    assert hit == SEMANTIC_FIELDS, f"never moved off the default across {len(combos)} combos: {sorted(SEMANTIC_FIELDS - hit)}"
+
+
+def test_derived_fields_follow_their_source():
+    """``title_metrics_tokens`` is overwritten from ``title_metrics_template`` at every construction, so varying the template (a named axis) is
+    the only way the tokens vary. Pinned so a change making the tokens independently settable re-opens the gap instead of hiding it."""
+    for derived, source in DERIVED_FIELDS.items():
+        cls_name, field = derived.split(".", 1)
+        src_field = source.split(".", 1)[1]
+        cfg = _CONFIG_CLASSES[cls_name](**{src_field: "ROC_AUC KS"})
+        assert getattr(cfg, field) == ("ROC_AUC", "KS")
+        cfg = _CONFIG_CLASSES[cls_name](**{src_field: "ROC_AUC KS", field: ("ICE",)})
+        assert getattr(cfg, field) == ("ROC_AUC", "KS"), f"{derived} became independently settable; give it its own generator"

@@ -241,7 +241,9 @@ def get_training_configs(
     # "custom_metric": tuple(catboost_custom_classif_metrics or [])
 
     CB_REGR = CB_GENERAL_PARAMS.copy()
-    CB_REGR.update({"eval_metric": def_regr_metric})
+    # CatBoost rejects a bare "Huber" ("Metric Huber requires delta as parameter") while LGB / XGB map it below; delta=1.0 matches XGB's
+    # default huber_slope, so the three boosters early-stop on the same surface.
+    CB_REGR.update({"eval_metric": {"Huber": "Huber:delta=1.0"}.get(def_regr_metric, def_regr_metric)})
     # NOTE: custom_metric breaks sklearn.clone() - CatBoost modifies this param after init.
     # Upstream CatBoost behaviour; no tracking issue is filed against catboost/catboost.
     # "custom_metric": tuple(catboost_custom_regr_metrics or [])

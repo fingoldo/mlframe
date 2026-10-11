@@ -30,6 +30,7 @@ from tests.training._fuzz_combo import (
     log_combo_outcome,
     xfail_reason,
 )
+from tests.training._fuzz_combo.semantic_fields import linear_family_for_combo, register_combo_frame, training_config_for_combo
 from py_ci_shared.pytest_known_gap import known_gap
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
@@ -217,6 +218,10 @@ def _build_ltr_models_and_config(combo: FuzzCombo, _is_ltr: bool) -> tuple[list,
     # asks for one and it's compatible with the resolved target_type.
     _extra_registry_model = combo._canonical_extra_registry_model()
     _ltr_models = list(combo.models) + ([_extra_registry_model] if _extra_registry_model is not None else [])
+    # Linear family drawn by the semantic randomizer (the suite builds the family named in mlframe_models; "linear" otherwise).
+    _linear_family = linear_family_for_combo(combo)
+    if _linear_family != "linear":
+        _ltr_models = [_linear_family if m == "linear" else m for m in _ltr_models]
     _ltr_ranking_config = None
     if _is_ltr:
         _supported = {"cb", "xgb", "lgb", "mlp"}  # 2026-05-07: MLP via RankNet/ListNet
@@ -485,6 +490,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
     reason = xfail_reason(combo)
 
     df, target_col, _cat_names = build_frame_for_combo(combo)
+    register_combo_frame(combo, df)
 
     frame_shape_before, frame_cols_before = _snapshot_caller_frame(combo, df)
 
@@ -569,7 +575,12 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
         # 2026-05-21 iter151 P0 suite-level kwargs.
         if _quantile_cfg is not None:
             _suite_kwargs["quantile_regression_config"] = _quantile_cfg
-        if _linear_cfg is not None:
+        # Aggregate ``training_config=`` carrier (semantic randomizer): when drawn it carries the linear config in place of
+        # ``linear_model_config=``, so its linear_config / metamodel_func are what the suite actually consumes.
+        _training_cfg = training_config_for_combo(combo, combo.short_id(), combo.short_id(), _linear_cfg)
+        if _training_cfg is not None:
+            _suite_kwargs["training_config"] = _training_cfg
+        if _linear_cfg is not None and (_training_cfg is None or _training_cfg.linear_config is None):
             _suite_kwargs["linear_model_config"] = _linear_cfg
         if _fhc is not None:
             _suite_kwargs["feature_handling_config"] = _fhc

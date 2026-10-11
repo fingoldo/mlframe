@@ -14,6 +14,8 @@ import numpy as _np
 
 from .combo import FuzzCombo
 from .field_randomizer import randomize_scalar_fields as _randomize_scalar_fields
+from .field_randomizer import DEFAULT_SKIP_FIELDS as _DEFAULT_SKIP_FIELDS
+from .semantic_fields import randomize_semantic_fields as _randomize_semantic_fields, semantic_owned_fields as _semantic_owned_fields
 
 #: See field_randomizer.py / _fuzz_suite_helpers.py's identically-named flag: opt-in resampling of every
 #: config field a named axis left at its default. Off by default (existing CI-gating combos unaffected).
@@ -24,7 +26,8 @@ def _randomize_if_enabled(model: Any, combo: "FuzzCombo", salt: int = 5) -> Any:
     """``randomize_scalar_fields(model, ...)`` when ``MLFRAME_FUZZ_RANDOMIZE_ALL_FIELDS`` is set, else ``model`` unchanged."""
     if model is None or _os.environ.get(_RANDOMIZE_ALL_FIELDS_ENV, "").lower() not in ("1", "true", "yes", "on"):
         return model
-    return _randomize_scalar_fields(model, _np.random.default_rng((combo.seed, salt)))
+    rng = _np.random.default_rng((combo.seed, salt))
+    return _randomize_scalar_fields(_randomize_semantic_fields(model, combo, rng), rng, skip=_DEFAULT_SKIP_FIELDS | _semantic_owned_fields(model))
 
 # ---------------------------------------------------------------------------
 # Shared suite-config builders (2026-05-18 refactor)

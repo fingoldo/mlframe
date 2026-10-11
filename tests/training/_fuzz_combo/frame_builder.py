@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from .combo import FuzzCombo
+from .semantic_fields import frame_row_id_column, ts_epoch_unit
 
 # Column names the grouped_delta / lagged_diff MRMR-FE kinds consume. Emitted into the synthetic frame (and wired into the MRMR ctor via
 # builders.build_mrmr_kwargs) only when ``mrmr_fe_ratio_delta_diff_cfg`` selects one of those kinds, so the two FE kinds actually run in the
@@ -511,8 +512,16 @@ def _is_2d_mtr(combo: FuzzCombo, target) -> bool:
     return combo.target_type == "multi_target_regression" and target.ndim == 2
 
 
-def _pandas_ts_column(n: int, inject_zero_wb: bool):
-    """Pandas datetime column, with the last 20% of rows splatted to year 1900 when the zero-weight-batch axis is on."""
+def zero_weight_batch_injected(combo: FuzzCombo) -> bool:
+    """True when the frame's last 20% of ``ts`` rows are splatted to 1900 (MLP + non-uniform weights + the zero-weight-batch axis)."""
+    return bool(combo.mlp_inject_zero_sample_weight_batch_cfg and "mlp" in combo.models and combo.weight_schemas != ("uniform",))
+
+
+_EPOCH_DIVISORS = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}
+
+
+def _pandas_ts_column(n: int, inject_zero_wb: bool, epoch_unit: "str | None" = None):
+    """Pandas datetime column, with the last 20% of rows splatted to year 1900 when the zero-weight-batch axis is on; int64 epoch when ``epoch_unit``."""
     import pandas as pd
 
     ts = pd.date_range("2026-01-01", periods=n, freq="h")
@@ -522,6 +531,8 @@ def _pandas_ts_column(n: int, inject_zero_wb: bool):
         ts = ts.to_series().reset_index(drop=True)
         ts.iloc[n - tail :] = far_past
         ts = pd.DatetimeIndex(ts)
+    if epoch_unit is not None:
+        return pd.DatetimeIndex(ts).as_unit("ns").asi8 // _EPOCH_DIVISORS[epoch_unit]
     return ts
 
 
@@ -542,7 +553,7 @@ def _build_pandas_frame(combo: FuzzCombo, n: int, parts: dict, target, target_co
     # timestamp (year 1900) so recency-weight schemes collapse that
     # contiguous block to ~0 weights.
     if combo.with_datetime_col or inject_zero_wb:
-        data["ts"] = _pandas_ts_column(n, inject_zero_wb)
+        data["ts"] = _pandas_ts_column(n, inject_zero_wb, ts_epoch_unit(combo))
     # Multilabel target: 2-D (N, K) stored as an object column of list cells.
     # SimpleFeaturesAndTargetsExtractor unpacks back to (N, K) ndarray at
     # consumption time.
@@ -572,8 +583,8 @@ def _polars_cat_series(values: list, input_type: str):
     return pl.Series(values, dtype=pl.Utf8)  # polars_utf8
 
 
-def _polars_ts_series(n: int, inject_zero_wb: bool):
-    """Polars datetime column, with the last 20% of rows splatted to year 1900 when the zero-weight-batch axis is on."""
+def _polars_ts_series(n: int, inject_zero_wb: bool, epoch_unit: "str | None" = None):
+    """Polars datetime column, with the last 20% of rows splatted to year 1900 when the zero-weight-batch axis is on; int64 epoch when ``epoch_unit``."""
     import datetime as _dt
 
     import polars as pl
@@ -585,7 +596,8 @@ def _polars_ts_series(n: int, inject_zero_wb: bool):
         tail = max(1, int(n * 0.2))
         for i in range(n - tail, n):
             ts_values[i] = far_past
-    return pl.Series(ts_values, dtype=pl.Datetime)
+    series = pl.Series(ts_values, dtype=pl.Datetime)
+    return series if epoch_unit is None else series.dt.epoch(time_unit=epoch_unit)
 
 
 def _build_polars_frame(combo: FuzzCombo, rng, n: int, parts: dict, target, target_col: str, build_input_type: str, want_embedding: bool, inject_zero_wb: bool):
@@ -614,7 +626,7 @@ def _build_polars_frame(combo: FuzzCombo, rng, n: int, parts: dict, target, targ
     # timestamp (year 1900) so recency-weight schemes collapse that
     # contiguous block to ~0 weights.
     if combo.with_datetime_col or inject_zero_wb:
-        data_pl["ts"] = _polars_ts_series(n, inject_zero_wb)
+        data_pl["ts"] = _polars_ts_series(n, inject_zero_wb, ts_epoch_unit(combo))
     # Multilabel target: 2-D (N, K) stored as pl.List(pl.Int8) column.
     # SimpleFeaturesAndTargetsExtractor unpacks back to (N, K) ndarray.
     if combo.target_type == "multilabel_classification":
@@ -683,7 +695,12 @@ def build_frame_for_combo(combo: FuzzCombo):
     # adds a ``ts`` column when active so the recency builder has
     # something to consume (existing ``with_datetime_col`` axis is
     # orthogonal and may also emit ``ts`` -- the active branch wins).
-    _inject_zero_wb = bool(combo.mlp_inject_zero_sample_weight_batch_cfg and "mlp" in combo.models and combo.weight_schemas != ("uniform",))
+    _inject_zero_wb = zero_weight_batch_injected(combo)
+    # Unique row key for TrainingSplitConfig.id_column, emitted only when the combo's split recipe keys on it (otherwise it would just be a
+    # monotone index feature nobody asked for).
+    _row_id_col = frame_row_id_column(combo)
+    if _row_id_col is not None:
+        extra_num_cols[_row_id_col] = np.arange(n, dtype="int64")
 
     # 2026-05-12 Wave 30: when no model in the combo supports polars
     # natively (CB/XGB/HGB), build a pandas frame regardless of the

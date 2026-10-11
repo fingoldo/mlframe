@@ -517,6 +517,25 @@ def _entry_not_for_target(model_entry: Any, target_name: Any) -> bool:
     return only is not None and str(target_name) not in only
 
 
+def behavior_with_training_config_metamodel(behavior_config: Any, metamodel_func: Any) -> Any:
+    """``behavior_config`` carrying ``TrainingConfig.metamodel_func`` when it names no wrapper of its own.
+
+    Model construction reads the wrapper only from ``TrainingBehaviorConfig.metamodel_func``, so the aggregate carrier's own field was dropped
+    without a trace. An explicitly set behavior-level wrapper wins; ``behavior_config`` may be None, a dict or a config object.
+    """
+    if metamodel_func is None:
+        return behavior_config
+    if behavior_config is None:
+        from ..configs import TrainingBehaviorConfig
+
+        return TrainingBehaviorConfig(metamodel_func=metamodel_func)
+    if isinstance(behavior_config, dict):
+        return behavior_config if behavior_config.get("metamodel_func") is not None else {**behavior_config, "metamodel_func": metamodel_func}
+    if getattr(behavior_config, "metamodel_func", None) is not None:
+        return behavior_config
+    return behavior_config.model_copy(update={"metamodel_func": metamodel_func})
+
+
 def _should_skip_catboost_metamodel(
     model_or_pipeline_name: str,
     target_type: TargetTypes,

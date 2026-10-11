@@ -35,6 +35,7 @@ from ._phase_train_one_target_schema import (
     _build_and_record_model_schema,
     _clone_model_with_sticky_flags,
 )
+from ..composite._frame_columns import frame_columns
 from ._phase_train_one_target_mlp_helpers import (
     _apply_mlp_extreme_ar_output_activation,
     _apply_mlp_extreme_ar_weight_decay_bump,
@@ -517,7 +518,7 @@ def _train_one_target_ste_step1_model_name_weight(st, mlframe_model_name, weight
             )
         )
         _train_df_now = st.current_common_params.get("train_df")
-        _cols_now = list(getattr(_train_df_now, "columns", []) or []) if _train_df_now is not None else []
+        _cols_now = frame_columns(_train_df_now)
         _per_group_cols = _identify_per_group_columns(_cols_now, _drop_pattern)
         if _per_group_cols:
             logger.info(

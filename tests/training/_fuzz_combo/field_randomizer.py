@@ -23,7 +23,18 @@ from typing import Any
 import numpy as np
 from pydantic import BaseModel
 
-__all__ = ["randomize_scalar_fields", "GENERICALLY_FUZZABLE_SHAPE"]
+__all__ = ["randomize_scalar_fields", "GENERICALLY_FUZZABLE_SHAPE", "DEFAULT_SKIP_FIELDS"]
+
+#: Field names excluded from every call site by default, regardless of config class: individually
+#: type-safe to randomize, but part of a cross-field invariant this module has no way to know about.
+#: ``TrainingSplitConfig.val_size`` is never set by a named combo axis (so it was always a "gap"), but it
+#: shares a joint "must sum to < 1" constraint with test_size/calib_size/conformal_size -- those ARE
+#: always explicitly set by ``_configs_for_combo`` (so the randomizer never touches them), but val_size
+#: alone picked independently from the full [0, 1] range reliably produces a degenerate split ("0
+#: validation rows", "train set will be empty") on the tiny bughunt-mode row counts. Found live: a
+#: 2026-10-11 bughunt run randomized this field, and ~15/20 of its first-batch failures were exactly this
+#: -- not a product bug, a self-contradictory split request the splitter correctly rejects.
+DEFAULT_SKIP_FIELDS: frozenset = frozenset({"val_size"})
 
 
 def _is_literal(ann: Any) -> bool:
@@ -92,7 +103,7 @@ def GENERICALLY_FUZZABLE_SHAPE(annotation: Any) -> bool:
     return _union_choices(ann) is not None
 
 
-def randomize_scalar_fields(model: BaseModel, rng: np.random.Generator, skip: frozenset = frozenset()) -> BaseModel:
+def randomize_scalar_fields(model: BaseModel, rng: np.random.Generator, skip: frozenset = DEFAULT_SKIP_FIELDS) -> BaseModel:
     """Return a copy of ``model`` with every bool / bounded-numeric / Literal / Enum field that is NOT already
     explicitly set (``model_fields_set`` -- i.e. not already driven by a real combo axis) and not in ``skip``
     resampled to a value seeded from ``rng``. Fields of any other shape (str, ``Any``, sequences, dicts,

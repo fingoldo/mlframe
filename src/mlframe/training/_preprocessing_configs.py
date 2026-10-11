@@ -839,9 +839,8 @@ class FeatureTypesConfig(BaseConfig):
     # Backward-compat default keeps the legacy {day, weekday, month, hour}
     # quad. Per the richness-first policy, the set is exposed so callers can
     # request richer decompositions (year / ordinal_day / minute / second).
-    # The historical name "dayofyear" maps to the polars accessor
-    # ``ordinal_day``; pandas exposes both names. To stay portable across
-    # backends, use ``ordinal_day``.
+    # Day of year is ``day_of_year``; the backend-native spellings ``dayofyear``
+    # (pandas) and ``ordinal_day`` (polars) resolve on both backends too.
     datetime_methods: Set[str] = Field(
         default_factory=lambda: {"day", "weekday", "month", "hour"},
     )
