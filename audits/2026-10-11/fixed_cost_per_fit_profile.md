@@ -114,3 +114,10 @@ Reading:
 * max_bases=2 costs about 1.5x the mix time (fit 12-14 s against 8-10 s on this loaded box).
 
 Decision recorded: keep max_bases=1 as the cheaper setting with the same accuracy on this suite. The default is still 2 in code; changing it is a user decision, not made here.
+
+## Rejected: batching or skipping the operand marginal MI (`_operand_marginal_mi`)
+
+* Candidate: `_operand_marginal_mi` calls `mi_direct` per operand (48 calls, 0.49 s cumulative at 10k). Idea: drop the permutation test (`npermutations=0`) and take the plug-in MI, which costs microseconds.
+* Measured (6 random columns, 10k rows, 10 bins): with `npermutations=10` the returned MI is 0.000 for all six (not significant at confidence 0.99); with `npermutations=0` it is the plug-in value 0.0007-0.0015. So the returned MI is the permutation-gated value, not the plug-in MI.
+* Consequence: the baseline of the marginal-uplift gate changes, so selections change. Not a lossless change; rejected.
+* A batched version has to reproduce the same gate per column (the batch noise gate also returns a gated MI). The seed stream differs from `mi_direct`, so borderline columns could flip. Needs a selection-parity check before it can ship. Left as an open item, not implemented.
