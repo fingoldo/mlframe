@@ -69,3 +69,11 @@ Total of F-1 to F-6: about 1.9 s of the 5 s, without touching selection logic. F
 * `gc.collect` before discretisation now runs only when the frame is >= 1/512 of the free RAM: 10k fit 3.45 s -> 3.26 s (mix off).
 * 10k fit after these (mix off): ~3.0 s. Flat profile: own Python 1.16 s (largest single function 0.11 s), cupy launches/syncs 1.08 s, numpy 0.58 s, numba 0.26 s, pandas 0.17 s. No function above 4%; the two stages that looked batchable (`_excess_and_floor` perm nulls, per-pair escalation proposers) have per-call varying conditioning supports (see the rejected-bench note in `_fe_raw_redundancy_helpers.py`) and are not batched.
 * Under 2 s at 10k needs fewer launches overall (CUDA graphs or fused multi-stage kernels), not further per-stage trimming.
+
+## Target-mix cost at 10k (fit_wall, 3 rounds, novel data)
+
+* mix off: 2.94 s median (2.85-3.02)
+* `fe_target_mix_max_bases=1`: 9.58 s median (rounds 5.24, 9.83, 9.58)
+* `fe_target_mix_max_bases=2`: 10.63 s median (rounds 5.38, 10.63, 17.83)
+
+The round-to-round spread (5 s to 18 s) is far above the mix-off spread, so these numbers come from a box with other GPU/CPU load (CI and nightly runs were in progress), not a quiet A/B. The direction is clear: the mix stage costs several seconds per fit at 10k, which dominates everything else on the table. Decision pending: default ON (as requested) is incompatible with a 1-2 s target unless the child fit is made much cheaper or the mix runs on a capped row subset with a cached scan.
