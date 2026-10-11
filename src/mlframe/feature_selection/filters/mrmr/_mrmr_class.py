@@ -2993,6 +2993,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # FEATURE-BASE TARGET MIX: a dominant term of the selection hides a weaker one from a search that scores candidates against y. A second pass on ``T = y - beta * u`` (``u`` one of the
         # ``fe_target_mix_max_bases`` selected columns that track y best) over the even positions of at most ``fe_target_mix_scan_rows`` rows proposes engineered features; they enter the pool of
         # the residual rescue and are judged there on held-out rows. Needs ``fe_residual_rescue_enable``. Regression targets only.
+        # Rows on which the closed-form families that have no row subsample of their own (hinge breakpoints, Haar wavelet legs) search and gate their candidates; the winners are replayed at full n. 0 = all rows.
+        # Above ~200 000 rows the search does not need more, and it costs 0.6 s (hinge) and 1.0 s (wavelet) of a 1M-row fit; below it nothing is subsampled.
+        fe_closed_form_decide_rows: int = 200_000,
         fe_target_mix_enable: bool = True,
         fe_target_mix_max_bases: int = 2,
         fe_target_mix_scan_rows: int = 20000,

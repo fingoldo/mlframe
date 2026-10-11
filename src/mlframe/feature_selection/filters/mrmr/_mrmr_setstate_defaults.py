@@ -320,6 +320,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_residual_rescue_min_relative_gain": 0.001,
     "fe_residual_rescue_max_admit": 8,
     "fe_target_mix_enable": False,
+    "fe_closed_form_decide_rows": 0,
     "fe_target_mix_max_bases": 2,
     "fe_target_mix_scan_rows": 20000,
     "fe_residual_rescue_operand_min_linear_gain": 0.001,
