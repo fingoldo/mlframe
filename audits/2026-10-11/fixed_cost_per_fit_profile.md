@@ -139,3 +139,15 @@ Decision recorded: keep max_bases=1 as the cheaper setting with the same accurac
 * Child profile (round 7): the FE steps take 13.2 s against 4.4 s in a fast round. The added time sits in `_run_fe_step` (second step over the pool enlarged by step-one admissions), not in the residual rescue or the support tail.
 * Gate and cache growth: module-level caches grow by about 20 entries per round (`_RADIX_INTERP_CACHE`, `_FINITE`, `_CARD_MAX_CACHE`); this is small and does not explain the mode.
 * So the mix cost is a property of the data: when the child finds structure, the second FE step runs over a bigger pool. A cap on the child's FE steps is the candidate fix; it changes the candidate list, so it is judged on OOS (below).
+
+## Child fit with fe_max_steps=1 (applied in `_child`) and its OOS
+
+* OOS (6 seeds, n_train=6000, ridge paired change, previous child with two steps in brackets): masked_ratio -15.8% (-15.8%), derived_base -32.2% (-29.6%), masked_interaction -23.7% (-18.6%), two_dominant_weak_pair -23.1% (-23.1%), regime -0.0% (0.0%), others 0.0%. No loss on any process.
+* Time: no measurable saving on the suite (mix-on fits 6-11 s in both). On the 8 seeded rounds with the slow mode the mix stage is still 2.2 s in the fast rounds and 5.1-14.1 s in the slow ones, so the second FE step was not the cost. Kept because the user asked for it, but it does not deliver the speedup the note in the audit implied; decision on keeping it is open.
+* Provenance added: `second_pass_recipes` returns `(found, provenance)`; `MRMR.fe_target_mix_provenance_` lists per base `{base, beta, features}`. Verified on a real fit (seed 17): one base `add(mul(sqr(a),reciproc(b)),div(log(c),reciproc(d)))`, beta 0.986, with its candidates. Tests in `tests/feature_selection/fe/test_target_mix_provenance.py` and `test_target_mix_child_steps.py`.
+
+## Does the child reuse the parent's binnings?
+
+* No, by construction. The child fits on the even-position subset of rows (at most `fe_target_mix_scan_rows`) and on the target `T`. Disk binning caches key on the column's content hash (of the subset) and on the target key, so neither matches the parent's full-column, y-keyed entries. The in-memory content-hash memo behaves the same way.
+* Measured: on seed 17 with the disk cache disabled, the parent's and the child's per-feature edge calls both ran with no cache (7 and 24 columns). With the cache enabled no hits are expected for the reason above; not measured with an enabled cache.
+* Consequence: the child's discretisation is an independent computation on its own rows. That is also the held-out-safe choice (the rescue judges candidates on rows the child's binning did not see).

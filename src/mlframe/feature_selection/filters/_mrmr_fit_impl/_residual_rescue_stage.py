@@ -75,12 +75,13 @@ def _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool) -
 
 def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only) -> dict:
     """Engineered candidates of the feature-base target mix (``_target_mix_fe``), added to ``pool``; returns their recipes (attached only if the rescue admits them). Empty when the mix is off."""
+    self.fe_target_mix_provenance_ = []
     if not getattr(self, "fe_target_mix_enable", False):
         return {}
     from ..engineered_recipes.shared import apply_recipe
     from .._target_mix_fe import second_pass_recipes
 
-    found = second_pass_recipes(
+    found, self.fe_target_mix_provenance_ = second_pass_recipes(
         self,
         X,
         y,

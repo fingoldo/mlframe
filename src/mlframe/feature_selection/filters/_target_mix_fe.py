@@ -60,24 +60,28 @@ def _child(estimator: Any):
     from sklearn.base import clone
 
     child = clone(estimator)
-    child.set_params(fe_target_mix_enable=False, verbose=0)
+    child.set_params(fe_target_mix_enable=False, fe_max_steps=1, verbose=0)  # one FE step: the second step re-searches the pool the first step enlarged, which is most of the cost on a structured base (see audits/2026-10-11)
     child._lean_second_pass_ = True  # skips the linear-usability retention of the support assembly: the child only proposes candidates
     return child
 
 
-def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design: Mapping[str, np.ndarray], *, max_bases: int, scan_rows: int, min_relative_gain: float) -> "dict[str, Any]":
-    """Engineered recipes the second pass found on ``T = y - beta u`` for each base, by name (the first base that finds a name wins).
+def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design: Mapping[str, np.ndarray], *, max_bases: int, scan_rows: int, min_relative_gain: float) -> "tuple[dict[str, Any], list[dict]]":
+    """Engineered recipes the second pass found on ``T = y - beta u`` for each base, by name (the first base that finds a name wins), and the provenance of the mix.
+
+    The provenance is one entry per base that was used, ``{"base", "beta", "features"}``: the design column ``u`` (by its design name), the OLS slope on the even positions, and the candidate names
+    that base produced. It is the only record that the target was mixed; the candidates themselves are ordinary features replayable from ``X``.
 
     Fitted on the even positions of ``X`` (at most ``scan_rows`` of them), so the held-out test of the rescue, which fits the design on the same positions, scores the candidates on the odd ones."""
     n = len(y)
     bases = choose_bases(design, y, max_bases, min_relative_gain=min_relative_gain)
     if not bases:
-        return {}
+        return {}, []
     train = np.arange(0, n, 2)
     if len(train) > scan_rows:
         train = train[np.linspace(0, len(train) - 1, int(scan_rows)).astype(np.int64)]
     X_train = X.iloc[train].reset_index(drop=True)
     found: "dict[str, Any]" = {}
+    provenance: "list[dict]" = []
     for name, u, beta in bases:
         try:
             child = _child(estimator)
@@ -85,6 +89,10 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
         except Exception:
             logger.warning("MRMR target-mix second pass on the base %r failed; skipped.", name, exc_info=True)
             continue
+        own = []
         for feature, recipe in zip(child._engineered_features_ or [], child._engineered_recipes_ or []):
-            found.setdefault(str(feature), recipe)
-    return found
+            if str(feature) not in found:
+                found[str(feature)] = recipe
+                own.append(str(feature))
+        provenance.append({"base": str(name), "beta": float(beta), "features": own})
+    return found, provenance
