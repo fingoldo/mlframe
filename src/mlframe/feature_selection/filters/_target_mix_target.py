@@ -16,7 +16,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["add_back_mix_offset", "build_mix_offset_target", "mix_offset_record"]
+__all__ = ["add_back_mix_offset", "assemble_full_frame", "build_mix_offset_target", "mix_offset_record"]
 
 
 def build_mix_offset_target(
@@ -65,3 +65,28 @@ def mix_offset_record(metadata: Any, target_type: Any, target_name: Any) -> Opti
     if not isinstance(metadata, dict):
         return None
     return metadata.get("mix_offset_targets", {}).get(str(target_type), {}).get(target_name)
+
+
+def assemble_full_frame(train_df: Any, val_df: Any, test_df: Any, train_idx: Any, val_idx: Any, test_idx: Any, n_rows: int) -> Optional[pd.DataFrame]:
+    """The full-row pandas frame rebuilt from the three split frames, ordered by the full-table row positions.
+
+    Returns None unless the three index arrays are a partition of ``range(n_rows)`` (no row missing, none repeated) and each
+    frame has as many rows as its index: a mix-offset target built on a misaligned frame would be silently wrong, so the
+    caller then skips the hook. Any of the split frames may be None only when its index is empty."""
+    parts, idx = [], []
+    for frame, index in ((train_df, train_idx), (val_df, val_idx), (test_df, test_idx)):
+        index = np.asarray(index, dtype=np.int64).ravel()
+        if index.size == 0:
+            continue
+        if frame is None or len(frame) != index.size:
+            return None
+        parts.append(frame.reset_index(drop=True))
+        idx.append(index)
+    if not parts:
+        return None
+    all_idx = np.concatenate(idx)
+    if all_idx.size != n_rows or not np.array_equal(np.sort(all_idx), np.arange(n_rows)):
+        return None
+    X = pd.concat(parts, ignore_index=True)
+    order = np.argsort(all_idx, kind="stable")
+    return X.iloc[order].reset_index(drop=True)
