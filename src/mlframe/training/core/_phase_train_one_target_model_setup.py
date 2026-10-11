@@ -598,7 +598,7 @@ def _setup_per_target_mlframe_models(
         from ._calib_frame_replay import replay_suite_fe_on_calib
 
         _calib_post, _calib_pre = replay_suite_fe_on_calib(
-            _calib_df, metadata, calib_idx=np.asarray(_calib_idx), group_ids=group_ids, timestamps=timestamps,
+            getattr(ctx, "calib_df_raw", None) if getattr(ctx, "calib_df_raw", None) is not None else _calib_df, metadata, calib_idx=np.asarray(_calib_idx), group_ids=group_ids, timestamps=timestamps,
             auxiliary_events_df=getattr(ctx, "auxiliary_events_df", None), verbose=bool(verbose),
         )
         common_params["calib_df"] = _calib_post
