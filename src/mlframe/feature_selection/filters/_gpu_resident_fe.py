@@ -193,6 +193,8 @@ def _gpu_has_free_vram() -> bool:
         import cupy as cp
 
         free_b, _total = cp.cuda.runtime.memGetInfo()
+        # bytes cupy's pool holds but has not handed out are reusable by this process: counting them as used flips the gate off for the rest of a large fit
+        free_b += int(cp.get_default_memory_pool().free_bytes())
         return bool(free_b >= _min_mb * 1024 * 1024)
     except Exception as e:
         logger.debug("_gpu_has_free_vram: VRAM query failed, deferring to the existing per-path OOM fallbacks: %s", e)
