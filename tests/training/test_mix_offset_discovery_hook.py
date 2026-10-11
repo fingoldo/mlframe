@@ -60,13 +60,13 @@ def test_predict_finds_the_record_only_for_its_companion_target():
 
 
 def test_flag_defaults_off_and_the_inputs_helper_returns_none_when_off():
-    """The config flag is False by default, so the suite builds no MRMR and adds no target unless it is set."""
+    """The config flag is True by default; the helper returns None only when it is switched off."""
     from mlframe.training._composite_target_discovery_config import CompositeTargetDiscoveryConfig
     from mlframe.training.core._main_train_suite_phases import _mix_offset_inputs_for_discovery
 
-    assert CompositeTargetDiscoveryConfig().mix_offset_enabled is False
+    assert CompositeTargetDiscoveryConfig().mix_offset_enabled is True
     df = pd.DataFrame({"a": [1.0, 2.0]})
-    assert _mix_offset_inputs_for_discovery(CompositeTargetDiscoveryConfig(), df, None, None, np.array([0, 1]), np.array([], dtype=np.int64), np.array([], dtype=np.int64)) is None
+    assert _mix_offset_inputs_for_discovery(CompositeTargetDiscoveryConfig(mix_offset_enabled=False), df, None, None, np.array([0, 1]), np.array([], dtype=np.int64), np.array([], dtype=np.int64)) is None
 
 
 def test_flag_on_with_a_partition_returns_the_hook_inputs():
