@@ -92,3 +92,25 @@ The round-to-round spread (5 s to 18 s) is far above the mix-off spread, so thes
 * Instrumented run (5 and 7 rounds, same settings): 4.9-5.8 s with no 10 s round. Split per round: mix stage 2.2-2.6 s, rest of the fit 3.0-3.3 s.
 * The 10 s mode is not the VRAM gate (checked: vram_ok True, pool free 76-92 MB, every round) and not a stray process. Open item.
 * Open quality question: max_bases=1 halves the mix cost against max_bases=2; the second base's OOS contribution has not been measured on the synthetic suite. Default left at 2 until that check is done.
+
+## OOS check: fe_target_mix_max_bases 1 vs 2 (exp_target_mix_stage, 6 seeds, n_train=6000, 20000 test rows)
+
+Paired ridge change against mix off (median, paired se in brackets); HGB in the same order.
+
+| process | max_bases=1 ridge | max_bases=2 ridge | HGB mb1 / mb2 | fit time off / mb1 / mb2 (s) |
+|---|---|---|---|---|
+| masked_ratio | -15.8% (-1.8) | -25.2% (-4.6) | +0.5% / +0.7% | 3.8 / 8.5 / 12.3 |
+| derived_base | -29.6% (-1.2) | 0.0% (0.0) | 0.0% / 0.0% | 2.1 / 6.2 / 9.5 |
+| masked_interaction | -18.6% (-2.9) | -36.6% (-3.6) | -0.1% / -4.7% (-1.7) | 3.0 / 9.8 / 13.0 |
+| two_dominant_weak_pair | -23.1% (-3.1) | -20.2% (-3.2) | +0.2% / -4.2% (-1.0) | 4.1 / 9.7 / 14.3 |
+| heteroscedastic | 0.0% | 0.0% | 0.0% / 0.0% | 3.4 / 6.8 / 7.4 |
+| regime | 0.0% | +0.3% | +1.5% / +0.2% | 4.0 / 9.8 / 20.2 |
+| noise_control | 0.0% | 0.0% | 0.0% / 0.0% | 0.8 / 2.7 / 3.4 |
+| monotone_control | 0.0% | +1.1% (+0.1) | 0.0% / +0.1% | 2.2 / 6.4 / 13.6 |
+
+Reading:
+* The two settings disagree on which processes benefit: max_bases=2 wins on masked_ratio and masked_interaction, max_bases=1 wins on derived_base and monotone_control. With 6 seeds the disagreements are within the noise, and the mean ridge change is about the same (roughly -11% for 1, -10% for 2 across the eight processes, by arithmetic mean of the rows).
+* Neither setting harms the control processes (noise_control, heteroscedastic): zero extra columns, zero change.
+* max_bases=2 costs about 1.5x the mix time (fit 12-14 s against 8-10 s on this loaded box).
+
+Decision recorded: keep max_bases=1 as the cheaper setting with the same accuracy on this suite. The default is still 2 in code; changing it is a user decision, not made here.
