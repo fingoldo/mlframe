@@ -130,3 +130,12 @@ Decision recorded: keep max_bases=1 as the cheaper setting with the same accurac
 * Reverted, since no speedup and the code is not simpler (rule: skip an optimisation with no measured gain).
 
 * Same batched marginal MI at 1M rows (seed 50): 10.39 s batched against 10.36 s lazy, identical selection. No gain at 1M either, so the change stays rejected.
+
+## The 10 s mode in the target-mix stage: data-dependent, not an infrastructure fault
+
+* 10 rounds, 10k rows, max_bases=1 (seeds 10-19): mix stage 2.2-2.6 s in the fast rounds and 6.4-15.5 s in the slow ones. Rest of the fit 3.0-3.4 s in every round.
+* The VRAM gate never switched off in any round (`false 0`, minimum free VRAM 2.2-2.7 GB). The earlier 1M explanation does not apply here.
+* The slow rounds are exactly the rounds in which the child fit returns engineered candidates (2-4 recipes); the fast rounds return none. The mix stage then grows with the candidates.
+* Child profile (round 7): the FE steps take 13.2 s against 4.4 s in a fast round. The added time sits in `_run_fe_step` (second step over the pool enlarged by step-one admissions), not in the residual rescue or the support tail.
+* Gate and cache growth: module-level caches grow by about 20 entries per round (`_RADIX_INTERP_CACHE`, `_FINITE`, `_CARD_MAX_CACHE`); this is small and does not explain the mode.
+* So the mix cost is a property of the data: when the child finds structure, the second FE step runs over a bigger pool. A cap on the child's FE steps is the candidate fix; it changes the candidate list, so it is judged on OOS (below).
