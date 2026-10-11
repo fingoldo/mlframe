@@ -46,4 +46,5 @@ def test_harmful_offset_is_rejected_on_held_out_rows():
     w.offset_base_ = {"raw": "u"}
     w.offset_beta_ = -10.0
     Z = w.selector_.transform(X)
-    assert w._offset_helps_held_out(Z, y, X) is False
+    even = np.arange(len(y)) % 2 == 0
+    assert w._offset_helps_held_out(Z, y, X, even) is False

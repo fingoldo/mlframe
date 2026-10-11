@@ -64,27 +64,29 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
         """Fit the selector, then the regressor on the selected features against ``y - beta * u(X)``."""
         X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
         y = np.asarray(y, dtype=np.float64).ravel()
-        self.selector_ = clone(self.selector).fit(X, y)
+        # Selection and the slope beta see the even rows only; the held-out gate below reads the odd rows, which neither the selector nor beta has seen.
+        even = np.arange(len(y)) % 2 == 0
+        self.selector_ = clone(self.selector).fit(X.iloc[np.flatnonzero(even)].reset_index(drop=True), y[even])
         provenance = [e for e in (getattr(self.selector_, "fe_target_mix_provenance_", None) or []) if e.get("recipe") is not None] if self.use_offset else []
         if len(provenance) > 1:
             logger.info("TargetOffsetRegressor: %d bases recorded, using the first only (their slopes do not compose into one offset).", len(provenance))
         self.offset_base_ = provenance[0]["recipe"] if provenance else None
         self.offset_beta_ = float(provenance[0]["beta"]) if provenance else 0.0
         Z = self.selector_.transform(X)
-        if self.offset_base_ is not None and not self._offset_helps_held_out(Z, y, X):
+        if self.offset_base_ is not None and not self._offset_helps_held_out(Z, y, X, even):
             self.offset_base_ = None
             self.offset_beta_ = 0.0
         self.regressor_ = clone(self.regressor).fit(Z, y - self._offset(X))
         return self
 
-    def _offset_helps_held_out(self, Z, y, X) -> bool:
-        """True when the regressor on ``y - offset`` beats the regressor on ``y`` on held-out rows, paired on squared error, at ``offset_alpha`` one-sided.
+    def _offset_helps_held_out(self, Z, y, X, even) -> bool:
+        """True when the regressor on ``y - offset`` beats the regressor on ``y`` on the odd rows, paired on squared error, at ``offset_alpha`` one-sided.
 
-        The split is on the training rows (even versus odd positions), so no test row reaches the decision. Both fits use the same selected features."""
+        The regressors are fitted on the even rows, the rows the selector and beta were fitted on; the odd rows are untouched by selection, so the decision is out-of-sample. Both fits use the same selected features."""
         from scipy.stats import norm
 
         off = self._offset(X)
-        tr = np.arange(len(y)) % 2 == 0
+        tr = np.asarray(even, dtype=bool)
         te = ~tr
         with_off = clone(self.regressor).fit(Z[tr], y[tr] - off[tr]).predict(Z[te]) + off[te]
         plain = clone(self.regressor).fit(Z[tr], y[tr]).predict(Z[te])

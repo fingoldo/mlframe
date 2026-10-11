@@ -38,3 +38,47 @@ Risks.
 * Every MRMR regression run changes its predictions when the flag is on (mitigation: the gate keeps the plain model where no offset is found).
 * Prediction-time cost of the replay (small: one recipe per base).
 * `__mix_base__` leaking into saved models or explanations (SHAP, feature importance) if not excluded.
+
+## Critique round 1 (2026-10-11): what was accepted, what was not, and the revised design
+
+Two critics read the plan against the code: one on statistics and ML validity, one on the training suite's call sites. Their findings are below with the disposition of each.
+
+### Accepted and already fixed in code
+* Selection and gate shared rows (critic ML, blocker). `TargetOffsetRegressor.fit` now fits the selector and takes beta on even rows only; the held-out gate fits and scores on odd rows, which neither the selector nor beta has seen. Cost: the selector gets half the training rows. Tests updated and passing (6 passed).
+
+### Accepted, to be implemented
+* Fixed-beta transform, not `linear_residual`. The measured estimator has no intercept refit; `linear_residual` refits alpha and beta by OLS and would not reproduce the OOS numbers. Use `T = y - beta*u` with beta from the gate-accepted MRMR slope.
+* Do not add a `__mix_base__` column to the sklearn chain. `build_pipeline` runs the selector first; a column appended after the selector is imputed and scaled (`strategies/base.py:695-741`), and the recipe's source columns are not guaranteed to survive selection.
+* Reuse the existing routing for a wrapper's base from the raw frame: `PrePipelinePredictShim` (`composite/post_shim.py:173-197`) and `CompositeTargetEstimator._routes_inner_input` (`composite/estimator/_estimator.py:156`). Predict routing currently falls back to `df` when required columns are missing (`core/_predict_composite_routing.py:38-56`), so `_required_columns` must include the base.
+* Cache keys: add a digest of the mix provenance (recipe and beta) to `_compute_pipeline_cache_key` (`core/_phase_train_one_target.py:439-474`), to `compute_model_pipeline_cache_key` (`core/_phase_train_one_target_cache_helpers.py`), and to `composite_spec_digest` / `_composite_cache_mismatch` (`train_eval.py`). Without this a mix-on run reuses a mix-off cache.
+* Reload: the `estimator_` unwrap (`train_eval.py:497-500`) evaluates on the T scale. A saved mix wrapper must keep its add-back for prediction and evaluate on the y scale.
+* Consumers: every path that reads a regression prediction (metrics, calibration, OOF, ensembles, feature importances, SHAP) must add the offset back or be checked as not affected. Ensemble code special-cases `CompositeTargetEstimator` (`composite/ensemble/__init__.py:648`, `:880`), so a mix wrapper must not be mistaken for a composite spec.
+* Missing base at predict: raise, or fall back to the plain model explicitly. No silent zero-fill (`_target_offset_regressor.py` `nan_to_num` on the base is to be replaced).
+* Off switch: `fe_target_mix_suite_enable` does not exist yet; declare it next to `fe_target_mix_enable` (`fs_params/mrmr.py:575`) and thread it into the MRMR fit, not into `build_pipeline`.
+* Regression-only: assert in code that the wrapper is never built for a classification target (not yet verified against `build_pipeline` call sites).
+* Statistics: the OOS evidence rests on 6 seeds. Before default ON, run at least 20 paired seeds with multiplicity correction across bases and targets, and a null calibration (y independent of X) that shows the false-accept rate is at or below `offset_alpha`.
+
+### Rejected, with the reason
+* "noise_control accepts the offset 6/6 is a false positive." Rejected: noise_control is `y = 3*x1 + noise`, so `x1` is a true linear signal and the acceptance is correct. The -1.5% (-9.7 se) HGB gain there is small but real. The null calibration above is still required, because the true null has not been tested.
+* "The plan's risk framing is wrong: the mix is not default on today." Partly accepted: `fe_target_mix_enable` already defaults to True (`fs_params/mrmr.py:575`), so today's MRMR regression runs already change predictions through the mix features (arm C). The real new change is the offset only; the plan's risk section is reworded accordingly, and the mix's own cost (3-10 s per fit at 10k) is recorded.
+
+### Revised design (v2)
+1. Keep `build_pipeline` step order unchanged; no base column in the sklearn chain.
+2. In the suite, before `pre_pipeline` fit and predict, for each regression target with an accepted mix recipe, replay the recipe on raw X to obtain `u`; carry it under a reserved name excluded from features, schema fingerprint and metadata.
+3. Route the wrapper through `_routes_inner_input` with the reserved base in `_required_columns`.
+4. Fixed-beta transform `T = y - beta*u`, beta from the MRMR gate.
+5. Held-out even/odd gate as in `TargetOffsetRegressor`; plain model kept when the gate rejects.
+6. Digests of the mix provenance in the three cache keys above.
+7. Reload keeps the wrapper and evaluates on y scale.
+8. `fe_target_mix_suite_enable` default False, declared in the suite config.
+9. Consumer audit recorded in this file before default ON.
+
+### Tests required before default ON
+* `u` replayed from raw X is identical at fit and predict; no leakage across the held-out split.
+* The reserved base column is absent from `feature_names_in_`, the schema fingerprint and the metadata feature list.
+* Gate off: predictions equal the plain pipeline bit for bit.
+* A mix-on run after a mix-off run with identical inputs does not reuse the cache; a mix-off model is not accepted for a mix-on run.
+* A saved and reloaded wrapper predicts on y scale and matches the in-memory prediction.
+* The wrapper is never built for a classification target.
+* Suite: existing `training/` regression tests pass with the flag on and off.
+* OOS: at least 20 paired seeds through the suite path, multiplicity-adjusted; noise_control and heteroscedastic not worse; null calibration passes.
