@@ -9,8 +9,6 @@ import functools
 import logging
 
 import numba
-from typing import cast
-
 import numpy as np
 import pandas as pd
 
@@ -913,7 +911,7 @@ def fast_numba_aucs_with_ks(y_true: np.ndarray, y_score: np.ndarray, desc_score_
     else:
         roc_auc = np.nan
 
-    return cast(float, roc_auc), pr_auc, ks
+    return float(roc_auc), pr_auc, ks
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -975,7 +973,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
         # Should not reach here due to early return, but handle defensively
         roc_auc = np.nan
 
-    return cast(float, roc_auc), pr_auc
+    return float(roc_auc), pr_auc
 
 
 # Brier score kernels + scorers live in the sibling ``_core_brier`` (carved out to keep this module

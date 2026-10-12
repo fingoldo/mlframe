@@ -45,7 +45,7 @@ def _safe_code_dtype(n_bins: int, dtype: type, reserve_nan_slot: bool = False) -
     real code ``n_bins-1`` and keeps the tighter default.
     """
     try:
-        info: np.iinfo = np.iinfo(np.dtype(dtype))  # dtype may be non-integer (e.g. float64); caught below at runtime
+        info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type]  # dtype may be non-integer (e.g. float64); caught below at runtime
     except (ValueError, TypeError):
         return dtype  # non-integer requested dtype: caller owns the contract
     top_code = n_bins if reserve_nan_slot else n_bins - 1

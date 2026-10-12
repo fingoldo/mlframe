@@ -11,7 +11,7 @@ offset. A selector that found no base gives a zero offset, so the wrapper then e
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -25,10 +25,10 @@ __all__ = ["TargetOffsetRegressor"]
 def _replay_base(recipe: Any, X: pd.DataFrame) -> np.ndarray:
     """Values of the base column on ``X``: a raw column by name, or an engineered recipe replayed from ``X`` (no target)."""
     if isinstance(recipe, dict) and "raw" in recipe:
-        return np.nan_to_num(np.asarray(X[recipe["raw"]].to_numpy()), nan=0.0, posinf=0.0, neginf=0.0)
+        return cast(np.ndarray, np.nan_to_num(np.asarray(X[recipe["raw"]].to_numpy()), nan=0.0, posinf=0.0, neginf=0.0))
     from .engineered_recipes.shared import apply_recipe
 
-    return np.nan_to_num(np.asarray(apply_recipe(recipe, X)).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+    return cast(np.ndarray, np.nan_to_num(np.asarray(apply_recipe(recipe, X)).ravel(), nan=0.0, posinf=0.0, neginf=0.0))
 
 
 class TargetOffsetRegressor(RegressorMixin, BaseEstimator):

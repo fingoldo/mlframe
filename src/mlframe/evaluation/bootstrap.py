@@ -206,7 +206,7 @@ def bootstrap_metric(
                 _sz = int(_class_sizes[_c])
                 _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
                 _idx_buf[_class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
-            idx = _idx_buf  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
+            idx = _idx_buf  # type: ignore[assignment]  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
         # bench-attempt-rejected (2026-05-27, iter392): replacing
         # ``y_true[idx], y_pred[idx]`` with pre-allocated buffers via
         # ``np.take(y_true, idx, out=y_buf)`` ran 0.88x SLOWER on n=100k
@@ -513,7 +513,7 @@ def bootstrap_metrics(
                     _sz = int(_class_sizes[_c])
                     _rand = rng.integers(0, _sz, size=_sz, dtype=np.int64)
                     _idx_buf[_class_offsets[_c] : _class_offsets[_c + 1]] = _groups_list[_c][_rand]
-                idx = _idx_buf  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
+                idx = _idx_buf  # type: ignore[assignment]  # numpy stubs mis-infer rng.integers(..., size=n) as scalar-returning above; idx is always an ndarray at runtime
             # Slice ONCE; every non-idx-aware metric reads the same resampled views.
             # Skipped entirely when all active metrics are idx-aware (re-gather internally).
             yt = yp = None
