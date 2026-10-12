@@ -154,39 +154,7 @@ def _assign_support(
     # fit whose ``cluster_members_`` is not a dict (e.g. dcd_enable=False) must not hit an UnboundLocalError.
     _ca_keep_raw: set = set()
     if isinstance(_cm_final, dict):
-        # ``cluster_members_`` is populated by mechanisms with DIFFERENT final-exclusion semantics:
-        #   * an ENGINEERED-anchor cluster (DCD PC1/mean_z swap whose anchor is the denoised aggregate, a
-        #     name NOT in feature_names_in_): the aggregate survives, so its raw members are stripped from
-        #     any raw support a downstream pass resurrected.
-        #   * a pure RAW redundancy cluster (exact-duplicate / collinear / DCD decoy pair, ALL names raw):
-        #     exactly ONE representative must survive. The cluster dict's anchor/member DIRECTION is NOT
-        #     reliable for which to keep (e.g. ``{'collinear_b': ['good_b']}`` labels the genuine ``good_b``
-        #     as a member), so keep the highest cached-MI(.,y) column of the cluster and strip the rest.
-        #     This de-duplicates (RC2 exact-duplicate / realistic-mixed-degenerate -> keep ``good_a``,
-        #     ``good_b``) AND prunes genuine decoys (layer6 DCD second-decoy -> keep the strong driver).
-        # Mixed clusters (raw anchor + pseudo-remix/engineered member) fall to the pseudo-remix-protected
-        # member strip below.
-        _nm2col_cm = {c: i for i, c in enumerate(cols)}
-        # Use the in-scope LOCAL cached_MIs (populated by the screen, same dict used at the other read
-        # sites) - self.cached_MIs is only assigned near the end of _fit_impl, so on a FRESH fit
-        # hasattr(self,...) is False and this degraded to {} -> every rep tiebreak collapsed to 0.0.
-        _cached_cm = cached_MIs if isinstance(cached_MIs, dict) else {}
-        _name2inidx_cm = {c: i for i, c in enumerate(self.feature_names_in_)}
-        # Names ALREADY in selected_vars (raw, in feature_names_in_ index space). The greedy
-        # screen / retention passes have already chosen these as the cluster's surviving
-        # representative(s); the pure-raw-cluster strip below must KEEP one of them rather than
-        # silently swapping in an unselected member.
-        _sel_names_cm = {self.feature_names_in_[int(v)] for v in selected_vars if int(v) < len(self.feature_names_in_)}
-        def _cm_mi(_nm):
-            """Screening marginal MI(name, y) for a cluster-member column name, used to pick the strongest representative when collapsing a pure-raw redundancy cluster (0.0 when the column has no cached score)."""
-            _ci = _nm2col_cm.get(_nm)
-            return float(_cached_cm.get((_ci,), 0.0)) if _ci is not None else 0.0
-
-        for _anchor, _members in _cm_final.items():
-            _a = str(_anchor)
-            _mlist = [str(_m) for _m in (_members or [])] if isinstance(_members, (list, tuple, set)) else []
-            _group = [_a, *_mlist]
-            _keep_strongest_raw_per_cluster(_group, _raw_names_cmfinal, _sel_names_cm, _cm_mi, _name2inidx_cm, _ca_final_excl, _ca_keep_raw, _a, _mlist)
+        _collect_cluster_representative_keeps(self, _cm_final, _raw_names_cmfinal, selected_vars, cols, cached_MIs, _ca_final_excl, _ca_keep_raw)
     # PSEUDO-REMIX SELF-SOURCE PROTECTION. A conditional-gate / binned-numeric-agg /
     # row-argmax anchor (``gate_mask__a__b`` / ``binagg_mean(d|qbin(a))`` / ``argmax__a__b``) is a
     # LOSSY threshold/binning RE-MIX of its raw source(s): it cannot carry a raw operand's private
@@ -469,6 +437,43 @@ def _assign_support(
         _retention_added_eng_names=_retention_added_eng_names,
         engineered_recipes=engineered_recipes,
     )
+
+
+def _collect_cluster_representative_keeps(self, _cm_final, _raw_names_cmfinal, selected_vars, cols, cached_MIs, _ca_final_excl, _ca_keep_raw):
+    """Pick the surviving raw representative of each cluster in ``cluster_members_``, adding the members to strip into ``_ca_final_excl`` and the kept raw names into ``_ca_keep_raw`` (both mutated in place)."""
+    # ``cluster_members_`` is populated by mechanisms with DIFFERENT final-exclusion semantics:
+    #   * an ENGINEERED-anchor cluster (DCD PC1/mean_z swap whose anchor is the denoised aggregate, a
+    #     name NOT in feature_names_in_): the aggregate survives, so its raw members are stripped from
+    #     any raw support a downstream pass resurrected.
+    #   * a pure RAW redundancy cluster (exact-duplicate / collinear / DCD decoy pair, ALL names raw):
+    #     exactly ONE representative must survive. The cluster dict's anchor/member DIRECTION is NOT
+    #     reliable for which to keep (e.g. ``{'collinear_b': ['good_b']}`` labels the genuine ``good_b``
+    #     as a member), so keep the highest cached-MI(.,y) column of the cluster and strip the rest.
+    #     This de-duplicates (RC2 exact-duplicate / realistic-mixed-degenerate -> keep ``good_a``,
+    #     ``good_b``) AND prunes genuine decoys (layer6 DCD second-decoy -> keep the strong driver).
+    # Mixed clusters (raw anchor + pseudo-remix/engineered member) fall to the pseudo-remix-protected
+    # member strip below.
+    _nm2col_cm = {c: i for i, c in enumerate(cols)}
+    # Use the in-scope LOCAL cached_MIs (populated by the screen, same dict used at the other read
+    # sites) - self.cached_MIs is only assigned near the end of _fit_impl, so on a FRESH fit
+    # hasattr(self,...) is False and this degraded to {} -> every rep tiebreak collapsed to 0.0.
+    _cached_cm = cached_MIs if isinstance(cached_MIs, dict) else {}
+    _name2inidx_cm = {c: i for i, c in enumerate(self.feature_names_in_)}
+    # Names ALREADY in selected_vars (raw, in feature_names_in_ index space). The greedy
+    # screen / retention passes have already chosen these as the cluster's surviving
+    # representative(s); the pure-raw-cluster strip below must KEEP one of them rather than
+    # silently swapping in an unselected member.
+    _sel_names_cm = {self.feature_names_in_[int(v)] for v in selected_vars if int(v) < len(self.feature_names_in_)}
+    def _cm_mi(_nm):
+        """Screening marginal MI(name, y) for a cluster-member column name, used to pick the strongest representative when collapsing a pure-raw redundancy cluster (0.0 when the column has no cached score)."""
+        _ci = _nm2col_cm.get(_nm)
+        return float(_cached_cm.get((_ci,), 0.0)) if _ci is not None else 0.0
+
+    for _anchor, _members in _cm_final.items():
+        _a = str(_anchor)
+        _mlist = [str(_m) for _m in (_members or [])] if isinstance(_members, (list, tuple, set)) else []
+        _group = [_a, *_mlist]
+        _keep_strongest_raw_per_cluster(_group, _raw_names_cmfinal, _sel_names_cm, _cm_mi, _name2inidx_cm, _ca_final_excl, _ca_keep_raw, _a, _mlist)
 
 
 def _recover_support_from_engineered_operands(self, selected_vars, cols, data, classes_y, y, _eng_continuous_snapshot, X, target_indices, nbins, verbose):
