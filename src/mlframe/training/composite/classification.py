@@ -180,9 +180,12 @@ class CompositeClassificationEstimator(ClassifierMixin, BaseEstimator):
             X_inner = self._drop_margin_column(X)
             self.base_margin_estimator_ = None
         else:
+            from sklearn.impute import SimpleImputer
             from sklearn.linear_model import LogisticRegression
+            from sklearn.pipeline import make_pipeline
 
-            self.base_margin_estimator_ = clone(self.base_margin_estimator if self.base_margin_estimator is not None else LogisticRegression(max_iter=1000))
+            _default_base = make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True), LogisticRegression(max_iter=1000))
+            self.base_margin_estimator_ = clone(self.base_margin_estimator if self.base_margin_estimator is not None else _default_base)
             if sample_weight is not None:
                 self.base_margin_estimator_.fit(X, y_enc, sample_weight=sample_weight)
             else:
