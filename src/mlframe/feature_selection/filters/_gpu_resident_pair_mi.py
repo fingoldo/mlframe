@@ -20,6 +20,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Optional, Sequence, cast
 
+from mlframe.utils.log_throttle import log_throttle
 import numpy as np
 
 if TYPE_CHECKING:
@@ -464,7 +465,8 @@ def grand_fused_pair_mi(
                 )
             except Exception as _res_exc:
                 import logging
-                logging.getLogger(__name__).debug(
+                log_throttle(
+                    logging.getLogger(__name__), "gpu_pairs_mi.grand_fused_noise_gate", logging.WARNING,
                     "grand_fused_pair_mi resident noise-gate failed (%s: %s); D2H fallback",
                     type(_res_exc).__name__, _res_exc,
                 )
@@ -611,7 +613,8 @@ def grand_fused_pair_mi_fused(
         sm_limit = int(cp.cuda.runtime.getDeviceProperties(cp.cuda.Device().id)["sharedMemPerBlock"])
     except Exception as e:
         import logging
-        logging.getLogger(__name__).debug("device sharedMemPerBlock probe failed, using the conservative 48KiB default: %s", e)
+        log_throttle(logging.getLogger(__name__), "gpu_pairs_mi.shared_mem_probe", logging.WARNING,
+                     "device sharedMemPerBlock probe failed, using the conservative 48KiB default: %s", e)
         sm_limit = 48 * 1024
     if hist_bytes > sm_limit - 256:
         raise RuntimeError(
@@ -763,7 +766,8 @@ def pair_candidate_mi_dispatch(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray
         _use_gpu = fe_gpu_pairs_mi_backend_choice(n, len(_COMBOS)) == "gpu"
     except Exception as e:
         import logging
-        logging.getLogger(__name__).debug("fe_gpu_pairs_mi_backend_choice failed, using the size-based fallback: %s", e)
+        log_throttle(logging.getLogger(__name__), "gpu_pairs_mi.backend_choice", logging.WARNING,
+                     "fe_gpu_pairs_mi_backend_choice failed, using the size-based fallback: %s", e)
         _use_gpu = n >= _GPU_RESIDENT_MIN_N
     if _use_gpu:
         try:
