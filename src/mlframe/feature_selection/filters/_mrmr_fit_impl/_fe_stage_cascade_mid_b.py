@@ -28,6 +28,58 @@ from ._fe_stage_row_stat import _stage_row_stat
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _stage_rare_category(self, X_acc, X, _y_np, _raw_input_cols_pre_fe, _rare_category_pre_recipes, verbose):
+    """Layer 104 rare-category stage for a pandas frame; returns ``X_acc`` with the surviving columns merged in (failures are logged and skipped)."""
+    try:
+        from .._extra_fe_families import hybrid_rare_category_fe
+        from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+
+        # W6 follow-up: rare-category family's unified local-MI abs-MAD
+        # floor kills (pure-record; selection byte-identical).
+        _rc_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+        def _rc_reject_sink(**_kw):
+            """Reject-sink callback for the rare-category FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
+            _record_fe_rejection(self, step=_rc_step, **_kw)
+
+        _y_for_rc = _y_np
+        _rc_cols = tuple(getattr(self, "fe_rare_category_cols", ()) or ())
+        _rc_cols = [c for c in _rc_cols if c in X.columns] or None  # type: ignore[assignment]
+        _X_before_rc_cols = list(X.columns)
+        _rc_raw_floor = X[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
+        X_rc, _rc_appended, _rc_recipes, _ = hybrid_rare_category_fe(
+            X, _y_for_rc,
+            cat_cols=_rc_cols,
+            rare_threshold=float(getattr(self, "fe_rare_category_threshold", 0.01)),
+            top_k=int(getattr(self, "fe_rare_category_top_k", 10)),
+            mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
+            mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
+            reject_sink=_rc_reject_sink,
+            raw_floor_X=_rc_raw_floor,
+        )
+        _rc_appended = [c for c in _rc_appended if c not in _X_before_rc_cols]
+        if _rc_appended:
+            X_acc = _fe_merge_new_columns(X_acc, X_rc, X)
+            self.rare_category_features_ = list(_rc_appended)
+            self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_rc_appended)
+            for _r in _rc_recipes:
+                if _r.name in _rc_appended:
+                    _rare_category_pre_recipes[_r.name] = _r
+            if verbose:
+                logger.info(
+                    "MRMR.fit rare_category: appended %d engineered " "column(s): %s",
+                    len(_rc_appended),
+                    _rc_appended[:8],
+                )
+    except Exception as _rc_exc:
+        logger.warning(
+            "MRMR.fit rare_category FE raised %s: %s; continuing " "without rare-category columns.",
+            type(_rc_exc).__name__,
+            _rc_exc,
+        )
+    return X_acc
+
+
 def _fe_stage_cascade_mid_b(
     self,
     *,
@@ -95,53 +147,7 @@ def _fe_stage_cascade_mid_b(
                 UserWarning, stacklevel=3,
             )
         else:
-            try:
-                from .._extra_fe_families import hybrid_rare_category_fe
-                from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
-
-                # W6 follow-up: rare-category family's unified local-MI abs-MAD
-                # floor kills (pure-record; selection byte-identical).
-                _rc_step = int(getattr(self, "_fe_steps_executed_", -1))
-
-                def _rc_reject_sink(**_kw):
-                    """Reject-sink callback for the rare-category FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
-                    _record_fe_rejection(self, step=_rc_step, **_kw)
-
-                _y_for_rc = _y_np
-                _rc_cols = tuple(getattr(self, "fe_rare_category_cols", ()) or ())
-                _rc_cols = [c for c in _rc_cols if c in X.columns] or None  # type: ignore[assignment]
-                _X_before_rc_cols = list(X.columns)
-                _rc_raw_floor = X[[c for c in _raw_input_cols_pre_fe if c in X.columns]] if _raw_input_cols_pre_fe else None
-                X_rc, _rc_appended, _rc_recipes, _ = hybrid_rare_category_fe(
-                    X, _y_for_rc,
-                    cat_cols=_rc_cols,
-                    rare_threshold=float(getattr(self, "fe_rare_category_threshold", 0.01)),
-                    top_k=int(getattr(self, "fe_rare_category_top_k", 10)),
-                    mi_gate=bool(getattr(self, "fe_local_mi_gate", False)),
-                    mi_gate_top_k=int(getattr(self, "fe_local_mi_gate_top_k", 20)),
-                    reject_sink=_rc_reject_sink,
-                    raw_floor_X=_rc_raw_floor,
-                )
-                _rc_appended = [c for c in _rc_appended if c not in _X_before_rc_cols]
-                if _rc_appended:
-                    X_acc = _fe_merge_new_columns(X_acc, X_rc, X)
-                    self.rare_category_features_ = list(_rc_appended)
-                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_rc_appended)
-                    for _r in _rc_recipes:
-                        if _r.name in _rc_appended:
-                            _rare_category_pre_recipes[_r.name] = _r
-                    if verbose:
-                        logger.info(
-                            "MRMR.fit rare_category: appended %d engineered " "column(s): %s",
-                            len(_rc_appended),
-                            _rc_appended[:8],
-                        )
-            except Exception as _rc_exc:
-                logger.warning(
-                    "MRMR.fit rare_category FE raised %s: %s; continuing " "without rare-category columns.",
-                    type(_rc_exc).__name__,
-                    _rc_exc,
-                )
+            X_acc = _stage_rare_category(self, X_acc, X, _y_np, _raw_input_cols_pre_fe, _rare_category_pre_recipes, verbose)
 
     # FAMILY B - NUM x NUM conditional residual x_i - E[x_i | bin(x_j)].
     # Cardinality-bounded by top raw-MI columns; MI-gated. Routing piggybacks on

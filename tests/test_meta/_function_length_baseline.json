@@ -69,7 +69,7 @@
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_early_a.py::_fe_stage_cascade_early_a": 385,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_early_b.py::_fe_stage_cascade_early_b": 252,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_mid_a.py::_fe_stage_cascade_mid_a": 210,
-  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_mid_b.py::_fe_stage_cascade_mid_b": 195,
+  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_mid_b.py::_fe_stage_cascade_mid_b": 168,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_finalise.py::_finalise_fs_results": 236,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fit_impl_core.py::_fit_impl": 776,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_group1.py::_friend_graph_and_redundancy_passes_group1": 186,
