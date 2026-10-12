@@ -174,7 +174,7 @@ def describe_available_panels(*, file: Optional[TextIO] = None) -> Dict[str, Lis
             lines.append(f"  {tok:<22} {desc}")
     lines.append("")
     lines.append("[standalone diagnostics] (ReportingConfig knobs, not panel tokens)")
-    for name, desc in _STANDALONE_DIAGNOSTICS:
+    for name, desc in standalone_diagnostics():
         lines.append(f"  {name:<22} {desc}")
     print("\n".join(lines), file=file)
     return catalogue

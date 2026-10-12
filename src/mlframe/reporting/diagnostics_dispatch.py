@@ -227,7 +227,7 @@ def _prepared_error_inputs(
     return shared_error_prep(df, _key_yt, _key_yp, task, seed, _build, extra=int(n))
 
 
-def render_split_error_diagnostics(
+def _render_split_error_diagnostics(
     *,
     df: Any,
     y_true: np.ndarray,
@@ -354,6 +354,22 @@ def render_split_error_diagnostics(
             _record(charts, "segments", False)
 
     return out
+
+
+def render_split_error_diagnostics(**kwargs: Any) -> Dict[str, Any]:
+    """Render the per-split error diagnostics; accepts the same keyword arguments as ``_render_split_error_diagnostics``.
+
+    The memoised error prep and the densified feature matrix hold the full split's frame, so both caches are released
+    when the call returns, whether it rendered or returned early.
+    """
+    from ._diagnostics_prep import clear_shared_error_prep
+    from .charts.error_analysis import clear_feature_matrix_cache
+
+    try:
+        return _render_split_error_diagnostics(**kwargs)
+    finally:
+        clear_shared_error_prep()
+        clear_feature_matrix_cache()
 
 
 def render_target_drift_diagnostics(
