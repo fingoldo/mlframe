@@ -253,45 +253,9 @@ def report_regression_model_perf(
     # 2-D / multioutput regression keeps the legacy per-output dispatch since the
     # multioutput aggregation has a non-trivial dispatch and fusing one target's
     # pass doesn't compose cleanly across outputs.
-    if st.targets_arr.ndim == 1 and st.preds_arr.ndim == 1 and sample_weight is None:
-        # 2026-05-28 audit batch: switched from fast_regression_metrics_block
-        # (4 metrics: MAE/RMSE/MaxError/R2) to the EXTENDED block that lands
-        # 12 metrics in the SAME 2 numba passes. 5.8-10.5x faster than the
-        # equivalent 12 separate calls; see comment block in
-        # ``mlframe.metrics._regression_extras`` for measured speedups.
-        # Only reachable when sample_weight is None: the fused kernel has no weighted variant.
-        from mlframe.metrics.core import fast_regression_metrics_block_extended
-        _block = fast_regression_metrics_block_extended(st.targets_arr, st.preds_arr)
-        MAE = _block["MAE"]
-        RMSE = _block["RMSE"]
-        MaxError = _block["MaxError"]
-        R2 = _block["R2"]
-        # Stash the rest on the locals so the chart-title token renderer
-        # below can pick them up without recomputing.
-        _ext_MBE = _block["MBE"]
-        _ext_MAPE_mean = _block["MAPE_mean"]
-        _ext_SMAPE = _block["SMAPE"]
-        _ext_wMAPE = _block["wMAPE"]
-        _ext_CV_RMSE = _block["CV_RMSE"]
-        _ext_NSE = _block["NSE"]
-        _ext_Pearson = _block["Pearson"]
-        _ext_EV = _block["ExplainedVariance"]
-    else:
-        # Either a 2-D/multioutput target, OR sample_weight was supplied (the fused block has no
-        # weighted variant). MAE/RMSE/R2 correctly honor sample_weight here via their own
-        # fast_*(sample_weight=...) kernels; the 8 "extended" metrics have no weighted kernel
-        # anywhere in the codebase and stay unweighted (NaN placeholders, matching the pre-existing
-        # 2-D-path behavior) rather than silently mixing weighted and unweighted numbers in one report.
-        _ext_MBE = _ext_MAPE_mean = _ext_SMAPE = _ext_wMAPE = np.nan
-        _ext_CV_RMSE = _ext_NSE = _ext_Pearson = _ext_EV = np.nan
-        MAE = fast_mean_absolute_error(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
-        # 2-D max_error returns per-output array; the existing reporting
-        # contract is a single scalar (overall max), so reduce explicitly.
-        # No weighted variant exists (matches sklearn's own unweighted max_error).
-        _max_err = fast_max_error(st.targets_arr, st.preds_arr)
-        MaxError = float(np.max(_max_err)) if isinstance(_max_err, np.ndarray) else _max_err
-        R2 = fast_r2_score(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
-        RMSE = fast_root_mean_squared_error(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
+    MAE, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_NSE, _ext_Pearson, _ext_EV = _report_regression_point_metrics(
+        st, sample_weight
+    )
 
     # Prediction-collapse / extrapolation / mean-shift / out-of-envelope sensor (carved to _sensors.py). Logs a HARD
     # WARNING when predictions look pathological so operators see it in the run log instead of eyeballing scatters.
@@ -862,3 +826,51 @@ def _report_regression__cleanly_under_one_record(subgroups, subset_index, target
                 _maybe_display(fairness_report)
             if metrics is not None:
                 metrics.update(dict(fairness_report=fairness_report))
+
+
+def _report_regression_point_metrics(st, sample_weight):
+    """Headline and extended regression metrics for the current (targets_arr, preds_arr) pair.
+
+    Uses the fused 1-D kernel when there is no sample weight, otherwise the per-metric weighted kernels.
+    Returns (MAE, RMSE, MaxError, R2, MBE, MAPE_mean, SMAPE, wMAPE, CV_RMSE, NSE, Pearson, ExplainedVariance).
+    """
+    if st.targets_arr.ndim == 1 and st.preds_arr.ndim == 1 and sample_weight is None:
+        # 2026-05-28 audit batch: switched from fast_regression_metrics_block
+        # (4 metrics: MAE/RMSE/MaxError/R2) to the EXTENDED block that lands
+        # 12 metrics in the SAME 2 numba passes. 5.8-10.5x faster than the
+        # equivalent 12 separate calls; see comment block in
+        # ``mlframe.metrics._regression_extras`` for measured speedups.
+        # Only reachable when sample_weight is None: the fused kernel has no weighted variant.
+        from mlframe.metrics.core import fast_regression_metrics_block_extended
+        _block = fast_regression_metrics_block_extended(st.targets_arr, st.preds_arr)
+        MAE = _block["MAE"]
+        RMSE = _block["RMSE"]
+        MaxError = _block["MaxError"]
+        R2 = _block["R2"]
+        # Stash the rest on the locals so the chart-title token renderer
+        # below can pick them up without recomputing.
+        _ext_MBE = _block["MBE"]
+        _ext_MAPE_mean = _block["MAPE_mean"]
+        _ext_SMAPE = _block["SMAPE"]
+        _ext_wMAPE = _block["wMAPE"]
+        _ext_CV_RMSE = _block["CV_RMSE"]
+        _ext_NSE = _block["NSE"]
+        _ext_Pearson = _block["Pearson"]
+        _ext_EV = _block["ExplainedVariance"]
+    else:
+        # Either a 2-D/multioutput target, OR sample_weight was supplied (the fused block has no
+        # weighted variant). MAE/RMSE/R2 correctly honor sample_weight here via their own
+        # fast_*(sample_weight=...) kernels; the 8 "extended" metrics have no weighted kernel
+        # anywhere in the codebase and stay unweighted (NaN placeholders, matching the pre-existing
+        # 2-D-path behavior) rather than silently mixing weighted and unweighted numbers in one report.
+        _ext_MBE = _ext_MAPE_mean = _ext_SMAPE = _ext_wMAPE = np.nan
+        _ext_CV_RMSE = _ext_NSE = _ext_Pearson = _ext_EV = np.nan
+        MAE = fast_mean_absolute_error(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
+        # 2-D max_error returns per-output array; the existing reporting
+        # contract is a single scalar (overall max), so reduce explicitly.
+        # No weighted variant exists (matches sklearn's own unweighted max_error).
+        _max_err = fast_max_error(st.targets_arr, st.preds_arr)
+        MaxError = float(np.max(_max_err)) if isinstance(_max_err, np.ndarray) else _max_err
+        R2 = fast_r2_score(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
+        RMSE = fast_root_mean_squared_error(st.targets_arr, st.preds_arr, sample_weight=sample_weight)
+    return (MAE, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_NSE, _ext_Pearson, _ext_EV)
