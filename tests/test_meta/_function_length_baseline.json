@@ -136,7 +136,7 @@
   "src/mlframe/feature_selection/filters/polynom_pair_fe.py::_run_polynom_pair_fe_step2_existing_np_memmap": 190,
   "src/mlframe/feature_selection/filters/polynom_pair_fe.py::_run_polynom_pair_fe_step2_existing_np_memmap.<locals>._eval_one_pair_impl": 187,
   "src/mlframe/feature_selection/filters/polynom_pair_fe.py::run_polynom_pair_fe": 183,
-  "src/mlframe/feature_selection/filters/supervised_binning.py::mdlp_bin_edges": 221,
+  "src/mlframe/feature_selection/filters/supervised_binning.py::mdlp_bin_edges": 202,
   "src/mlframe/feature_selection/forward_select.py::forward_select": 175,
   "src/mlframe/feature_selection/general.py::estimate_features_relevancy": 169,
   "src/mlframe/feature_selection/hybrid_selector.py::HybridSelector.fit": 184,
