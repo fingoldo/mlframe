@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 
-class _Stop(Exception):
+class _StopError(Exception):
     """Raised by a stub after the fallback has been logged, to end a long function early."""
 
 
@@ -64,6 +64,7 @@ def test_ace_pfi_split_warns_when_stratified_split_fails(monkeypatch, caplog):
 
 class _FitRaises:
     """FitRaises stub or test: see module docstring."""
+
     def fit(self, X, y=None, **_kw):
         """fit."""
         raise RuntimeError("selector cannot fit")
@@ -71,6 +72,7 @@ class _FitRaises:
 
 class _NoSupport:
     """NoSupport stub or test: see module docstring."""
+
     def fit(self, X, y=None, **_kw):
         """fit."""
         return self
@@ -123,11 +125,11 @@ def test_noise_gate_sweep_warns_when_psutil_is_unavailable(monkeypatch, caplog):
 
     def _stop(*_a, **_k):
         """stop stub or test: see module docstring."""
-        raise _Stop()
+        raise _StopError()
 
     monkeypatch.setitem(sys.modules, "psutil", None)  # makes `import psutil` raise ImportError
     monkeypatch.setattr(bench, "sweep_backend_grid", _stop)
-    with caplog.at_level(logging.DEBUG), pytest.raises(_Stop):
+    with caplog.at_level(logging.DEBUG), pytest.raises(_StopError):
         mod._run_batch_mi_noise_gate_sweep()
     assert _warnings_mentioning(caplog, "psutil.virtual_memory() probe failed")
 
@@ -155,7 +157,7 @@ def test_row_chunked_pair_mi_warns_when_cupy_memory_probe_fails(monkeypatch, cap
 
     def _stop(*_a, **_k):
         """stop stub or test: see module docstring."""
-        raise _Stop()
+        raise _StopError()
 
     monkeypatch.setattr(mod, "_choose_row_chunk_rows", _stop)
     factors = np.zeros((4, 8), dtype=np.int32)
@@ -163,6 +165,6 @@ def test_row_chunked_pair_mi_warns_when_cupy_memory_probe_fails(monkeypatch, cap
     nbins = np.full(4, 2, dtype=np.int32)
     classes_y = np.zeros(8, dtype=np.int32)
     freqs_y = np.array([0.5, 0.5])
-    with caplog.at_level(logging.DEBUG), pytest.raises(_Stop):
+    with caplog.at_level(logging.DEBUG), pytest.raises(_StopError):
         mod.batch_pair_mi_cuda_row_chunked(factors, pairs, pairs, nbins, classes_y, freqs_y)
     assert _warnings_mentioning(caplog, "cp.cuda.runtime.memGetInfo() probe failed")
