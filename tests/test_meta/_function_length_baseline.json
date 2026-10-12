@@ -242,7 +242,7 @@
   "src/mlframe/training/core/_phase_config_setup.py::setup_configuration": 366,
   "src/mlframe/training/core/_phase_diagnostics.py::run_per_target_diagnostics": 151,
   "src/mlframe/training/core/_phase_drift_snapshot.py::_log_cardinality_and_drift_snapshot": 191,
-  "src/mlframe/training/core/_phase_dummy_baselines.py::run_dummy_baselines": 248,
+  "src/mlframe/training/core/_phase_dummy_baselines.py::run_dummy_baselines": 234,
   "src/mlframe/training/core/_phase_helpers.py::_phase_pandas_conversion_and_cat_prep": 203,
   "src/mlframe/training/core/_phase_helpers_fit_pipeline.py::_phase_fit_pipeline": 281,
   "src/mlframe/training/core/_phase_helpers_fit_split.py::_phase_auto_detect_feature_types": 189,
