@@ -711,6 +711,22 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     return cp.ascontiguousarray(g), n_gpu, n_cpu
 
 
+def _validate_materialise_codes_dtype(dtype: Any, nbins: int) -> None:
+    """Reject a code dtype too narrow for ``nbins`` before any GPU work. Pure numpy/dtype arithmetic, so it
+    runs before ``import cupy``: a cupy-less host gets this ``ValueError`` rather than ``ModuleNotFoundError``."""
+    # Validate BEFORE importing cupy: this check is pure numpy/dtype arithmetic, unrelated to whether a
+    # GPU/cupy is even present, but used to sit after ``import cupy as cp`` -- a caller on a cupy-less host
+    # got ``ModuleNotFoundError: No module named 'cupy'`` instead of this function's own intended
+    # ``ValueError`` (CI: cupy is not installed on some py-version legs, breaking
+    # ``test_regression_gpu_materialise_discretize_rejects_narrow_dtype_for_nbins``, which exists purely to
+    # pin this validation and has nothing to do with GPU execution).
+    _dt = np.dtype(dtype)
+    if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
+        # a future direct caller passing a dtype too narrow for
+        # nbins would otherwise silently wrap around instead of raising.
+        raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
+
+
 def gpu_materialise_discretize_codes_host(
     transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray,
     nbins: int, *, dtype: Any = np.int8, out_cand: np.ndarray | None = None,
@@ -729,17 +745,7 @@ def gpu_materialise_discretize_codes_host(
     one (the bandwidth-bound strided-gather op the GPU is good at) while keeping the buffer the rest of the
     pipeline expects. Pass ``out_cand=None`` to skip the float D2H (codes-only, when no downstream
     continuous read is needed). Inputs are finite by construction (the kernel scrubs NaN/inf inline)."""
-    # Validate BEFORE importing cupy: this check is pure numpy/dtype arithmetic, unrelated to whether a
-    # GPU/cupy is even present, but used to sit after ``import cupy as cp`` -- a caller on a cupy-less host
-    # got ``ModuleNotFoundError: No module named 'cupy'`` instead of this function's own intended
-    # ``ValueError`` (CI: cupy is not installed on some py-version legs, breaking
-    # ``test_regression_gpu_materialise_discretize_rejects_narrow_dtype_for_nbins``, which exists purely to
-    # pin this validation and has nothing to do with GPU execution).
-    _dt = np.dtype(dtype)
-    if np.issubdtype(_dt, np.integer) and np.iinfo(_dt).max < nbins - 1:
-        # a future direct caller passing a dtype too narrow for
-        # nbins would otherwise silently wrap around instead of raising.
-        raise ValueError(f"dtype {_dt} cannot represent codes up to nbins-1={nbins - 1} (max={np.iinfo(_dt).max})")
+    _validate_materialise_codes_dtype(dtype, nbins)
     import cupy as cp
 
     # This used to call clear_resident_codes_handoff with NO

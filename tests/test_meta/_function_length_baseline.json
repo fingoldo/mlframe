@@ -54,7 +54,7 @@
   "src/mlframe/feature_selection/filters/_gpu_batched.py::mi_direct_gpu_batched": 218,
   "src/mlframe/feature_selection/filters/_gpu_batched.py::mi_direct_gpu_batched_streamed": 199,
   "src/mlframe/feature_selection/filters/_gpu_pairs.py::mi_direct_gpu_batched_pairs": 224,
-  "src/mlframe/feature_selection/filters/_gpu_resident_materialise.py::gpu_materialise_discretize_codes_host": 176,
+  "src/mlframe/feature_selection/filters/_gpu_resident_materialise.py::gpu_materialise_discretize_codes_host": 168,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise.py::_eval_coef_pair_batch": 165,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise.py::optimise_pair_multimode": 164,
   "src/mlframe/feature_selection/filters/_hermite_fe_optimise_pair.py::optimise_hermite_pair": 221,
