@@ -45,12 +45,16 @@ def _assign_support_tail(
     selected_vars,
     _allowed_raw_idx,
     _retention_added_eng_names,
+    engineered_recipes=None,
 ):
     """Run the second half of the post-screen support_ mutation passes.
 
     See the module docstring for the full section this carves out.
     """
-    _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx)
+    # A second pass that only PROPOSES engineered candidates (the feature-base target mix) does not need the linear-usability retention: it re-attaches forms for a downstream linear model, which the
+    # pass that owns the selection runs on its own (1.4 s of a 10k-row fit, size independent).
+    if not getattr(self, "_lean_second_pass_", False):
+        _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx)
 
     # POST-RETENTION RAW-REDUNDANCY DROP (BUG1). The main raw-vs-engineered
     # redundancy sweep (above) runs on the screen-stage ``selected_vars`` BEFORE
@@ -82,6 +86,12 @@ def _assign_support_tail(
     _pgn_n_final = int(data.shape[0])
     _pgn_p_final = int(getattr(self, "n_features_in_", 0) or 0)
     _assign_support_tai_adds_more_raw_columns(self, _pgn_p_final, _pgn_n_final, selected_vars, cols, n_engineered_out, verbose)
+
+    # RESIDUAL RESCUE runs last: every pass above that re-attaches or strips raw columns has finished, so what it prunes stays pruned and what it admits is judged against the final selection.
+    from ._residual_rescue_stage import run_residual_rescue
+
+    if run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose):
+        self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
 
 def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx):

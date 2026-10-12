@@ -511,3 +511,41 @@ def apply_linear_residual_diff_collapse(
             len(collapsed_dropped), preview,
         )
     return collapsed
+
+
+def base_carrying_keep_mask(
+    x_matrix: np.ndarray, base_values: np.ndarray, *, nbins: int, n_permutations: int = 20, seed: int = 0,
+) -> np.ndarray:
+    """Boolean keep-mask dropping the columns of ``x_matrix`` that carry the base.
+
+    A column carries the base when its binned MI with the base is above the largest of ``n_permutations`` binned MIs of the
+    same column against shuffled base values: a calibrated null, so no fixed bar is needed. Such a column makes
+    ``MI(y, X)`` and ``MI(T, X)`` both large for reasons that are not the transform, which biases ``mi_gain`` (the
+    composite experiment: the sign is right in 6 of 6 processes once these columns are excluded, wrong in 2 of 6 without).
+    Columns that are not finite on the base's rows are kept (no evidence either way).
+    """
+    from .screening import _mi_pair_bin
+
+    n_cols = x_matrix.shape[1]
+    keep = np.ones(n_cols, dtype=bool)
+    if n_cols == 0 or base_values.size < 50:
+        return keep
+    rng = np.random.default_rng(seed)
+    base = np.asarray(base_values, dtype=np.float64).ravel()
+    perms = [rng.permutation(base) for _ in range(int(n_permutations))]
+    for j in range(n_cols):
+        col = np.asarray(x_matrix[:, j], dtype=np.float64)
+        ok = np.isfinite(col) & np.isfinite(base)
+        if int(ok.sum()) < 50:
+            continue
+        mi_j = _mi_pair_bin(col[ok], base[ok], nbins=nbins)
+        null = max(_mi_pair_bin(col[ok], p[ok], nbins=nbins) for p in perms)
+        keep[j] = not (mi_j > null)
+    return keep
+
+
+def compose_keep(prev_mask: np.ndarray, new_mask: np.ndarray) -> np.ndarray:
+    """Mask over the original columns for a second keep-mask applied to the columns that the first kept."""
+    out = np.zeros(prev_mask.shape[0], dtype=bool)
+    out[np.flatnonzero(prev_mask)[new_mask]] = True
+    return out

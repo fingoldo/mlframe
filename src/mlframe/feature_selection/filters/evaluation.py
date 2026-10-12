@@ -425,6 +425,13 @@ def _exclude_ungated_candidate(cand_idx, partial_gains: dict, expected_gains) ->
     return 0.0
 
 
+def _group_leak_without_synergy(X, y, factors_data, factors_nbins, dtype) -> bool:
+    """True when group-aware relevance is active and X has global MI but no within-group signal (a between-group leak)."""
+    if get_group_mi() is None:
+        return False
+    return float(mi(factors_data=factors_data, x=X, y=y, factors_nbins=factors_nbins, dtype=dtype)) > 0.0
+
+
 def evaluate_candidate(
     cand_idx: int,
     X: Sequence[int],
@@ -481,6 +488,10 @@ def evaluate_candidate(
     # still short-circuits on zero direct gain since there's nothing else to
     # compute.
     _force_cond = selected_vars and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret"
+    # A between-group leak (zero within-group relevance, positive global MI) must not take the synergy exemption: its conditional
+    # term comes from the between-group structure, not from a within-group partner. A pure synergy operand has zero global MI too.
+    if _force_cond and direct_gain <= 0.0 and _group_leak_without_synergy(X, y, factors_data, factors_nbins, dtype):
+        _force_cond = False
     if direct_gain > 0 or _force_cond:
         if selected_vars and not use_simple_mode:
             # Some factors already selected. Best gain from including X is min I(X; Y | Z) over Z in selected_vars. But a variable correlated to every real
@@ -738,7 +749,9 @@ def evaluate_candidate(
 
 def _evaluate_candidate_candidate_any_good_target(X, cached_confident_MIs, y, factors_data, factors_nbins, dtype, freqs_y, cached_MIs, classes_y, baseline_npermutations, random_seed, cand_idx, use_gpu, classes_y_safe, freqs_y_safe):
     """Block of evaluate_candidate starting at ``if X in cached_confident_MIs: # type: ignore[operator] # caller always``."""
-    if X in cached_confident_MIs:  # caller always supplies a dict; cached_confident_MIs first - more reliable (but don't fill them here).
+    # Under group-aware relevance the cross-round confident cache holds GLOBAL gains that were never group-checked, so it is
+    # bypassed: the group-blocked relevance below decides every candidate (the cache is consulted only without a group payload).
+    if X in cached_confident_MIs and get_group_mi() is None:  # caller always supplies a dict; cached_confident_MIs first - more reliable (but don't fill them here).
         # cached_confident_MIs stores (bootstrapped_gain, confidence) tuples (see confirm_candidate); take the gain. WITHIN one screen_predictors() round, a
         # candidate only lands in cached_confident_MIs AFTER permutation confirmation, at which point its cand_idx is in added_/failed_candidates and
         # should_skip_candidate filters it out before re-entry here. ACROSS rounds this branch is legitimately reachable (seed_caches cross-round threading):
@@ -757,7 +770,9 @@ def _evaluate_candidate_candidate_any_good_target(X, cached_confident_MIs, y, fa
     else:
         _gmi = get_group_mi()
         _grp_gain = float("nan")
-        if _gmi is not None and X not in cached_MIs:  # caller always supplies a dict
+        # Group-aware relevance replaces the global MI for EVERY candidate, including single columns that feature_engineering
+        # already precomputed into cached_MIs: the global value there let a between-group leak through the raw screen.
+        if _gmi is not None:
             # Group-aware relevance: per-group I(X;Y|G) (MM-debiased) instead of the global MI. Bypasses the GPU + permutation-null path (the per-group MM
             # debias handles the small-sample bias). Returns nan when the segments do not row-align (subsample), in which case we fall through to the global
             # path. Default OFF.

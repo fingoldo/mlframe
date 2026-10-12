@@ -218,7 +218,7 @@ def find_best_mps_sequence(
         return np.empty(0, dtype=np.int8), np.empty(0, dtype=dtype)
 
     m = n - 1  # number of intervals
-    deltas = np.empty(m, dtype=dtype)
+    deltas: np.ndarray = np.empty(m, dtype=dtype)
     for i in range(m):
         deltas[i] = prices[i + 1] - prices[i]
 

@@ -23,7 +23,7 @@ from ._fit_ram import _phase_ram_report, _process_mem_mb  # noqa: F401 -- _proce
 from ._eval import build_unary_base_context, eval_one_transform, release_context_matrices
 from ._fit_multibase import apply_multi_base_forward_stepwise
 from ._per_base_x import release_fold_caches
-from ._eval_stats import near_collinear_keep_mask
+from ._eval_stats import base_carrying_keep_mask, compose_keep, near_collinear_keep_mask
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -312,6 +312,18 @@ def _fit_step1_strict_no_op(self, st, df, train_idx):
                 base,
             )
             continue
+        # L-22: columns that carry the base are dropped from x_remaining before the MI baseline (calibrated null, eager path only:
+        # the lazy path keeps no float plane to test against).
+        if st.x_remaining_matrix is not None and st.x_remaining_matrix.shape[1] > 0 and st.x_remaining_matrix.shape[0] == base_screen.shape[0]:
+            _carry_keep = base_carrying_keep_mask(st.x_remaining_matrix, base_screen, nbins=int(self.config.mi_nbins))
+            # Applied only when a column survives: when every remaining column carries the base there is nothing left to score the gain against,
+            # and the base keeps its previous treatment instead of being skipped.
+            if _carry_keep.any() and not _carry_keep.all():
+                st.x_remaining_matrix = st.x_remaining_matrix[:, _carry_keep]
+                if st._x_prebinned is not None:
+                    st._x_prebinned = st._x_prebinned[:, _carry_keep]
+                _surviving_orig_idx = _surviving_orig_idx[_carry_keep]
+                _ctx_keep = _carry_keep if _ctx_keep is None else compose_keep(_ctx_keep, _carry_keep)
         if st.x_remaining_matrix.shape[1] == 0:
             continue
         _mi_kwargs: dict[str, Any] = dict(

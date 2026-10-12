@@ -32,6 +32,7 @@ default. Forward + inverse are already at the vectorised floor.
 """
 from __future__ import annotations
 
+from typing import cast
 from ._domain_shared import residual_domain_no_cast
 
 from typing import Any, Callable, Optional
@@ -145,7 +146,7 @@ def _causal_anchor_residual_forward(
 ) -> np.ndarray:
     """Apply the fitted anchor shrink: target - alpha * base."""
     alpha = float(params["alpha"])
-    return y - alpha * base
+    return cast("np.ndarray", y - alpha * base)
 
 
 def _causal_anchor_residual_inverse(
@@ -153,7 +154,7 @@ def _causal_anchor_residual_inverse(
 ) -> np.ndarray:
     """Invert the anchor shrink to recover the original target scale: prediction + alpha * base."""
     alpha = float(params["alpha"])
-    return t_hat + alpha * base
+    return cast("np.ndarray", t_hat + alpha * base)
 
 
 _causal_anchor_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast

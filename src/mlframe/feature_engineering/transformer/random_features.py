@@ -243,7 +243,7 @@ def compute_positional_encoding(
                     )
 
     # Clamp against fp32 overflow. Compute the modulo directly in the caller's float dtype (typically float32) so we skip the prior float64 intermediate (80MB on N=10M when dtype=float32, accumulates GC pressure across ticker-group loops).
-    _np_dtype = np.dtype(dtype)
+    _np_dtype: np.dtype = np.dtype(dtype)
     pos_f = np.fmod(pos_arr.astype(_np_dtype, copy=False), _np_dtype.type(1_000_000.0))
 
     half = d_model // 2
@@ -251,7 +251,7 @@ def compute_positional_encoding(
     i_idx = np.arange(half, dtype=np.float64)
     div_term: np.ndarray = (1.0 / np.power(base, 2.0 * i_idx / d_model)).astype(dtype, copy=False)
     # Fused sin/cos in one parallel sweep — no (N, half) angles / sin / cos temporaries (5.6-6.4x at N=10M; see positional_encoding_njit).
-    pe = np.empty((pos_f.size, d_model), dtype=dtype)
+    pe: np.ndarray = np.empty((pos_f.size, d_model), dtype=dtype)
     positional_encoding_njit(np.ascontiguousarray(pos_f), div_term, pe)
 
     col_names = [f"{column_prefix}_{i}" for i in range(d_model)]

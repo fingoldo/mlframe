@@ -16,6 +16,7 @@ two-level step bit-for-bit.
 """
 from __future__ import annotations
 
+from typing import cast
 from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -84,7 +85,7 @@ def recency_step_weight(
         # window float would raise; callers on datetime64 should pass window as an np.timedelta64).
         progress = (dates_arr - (cutoff_arr - smooth_window)) / smooth_window
         progress = np.clip(progress, 0.0, 1.0)
-        return (float(base) + progress * (float(boost) - float(base))).astype(np.float64)
+        return cast("np.ndarray", (float(base) + progress * (float(boost) - float(base))).astype(np.float64))
 
     is_recent = dates_arr >= np.asarray(cutoff_date)
     # bench-attempt-rejected: a fused `base + is_recent * (boost - base)` looked like it should save a pass

@@ -49,6 +49,10 @@ from ._batch_mi_noise_gate_kernels import (
 # thrash cache - which widens the GPU win there; the cache captures it.)
 GPU_MIN_ROWS = 2_000
 GPU_MIN_COLS = 256
+# Work (rows x columns of the code matrix) above which the GPU wins whatever the column count. The sweep grid ends at 100 000 rows, so a 1M-row call finds no region and takes this fallback;
+# measured (GTX 1050 Ti, 8 CPU threads) at 1M rows: K = 4 and 16 (4M and 16M cells) CPU 0.03 s and 0.07 s against cupy 0.06 s and 0.08 s, K = 64 (64M cells) CPU 1.44 s against cupy 0.21 s
+# (7x): the CPU kernel degrades once the (n, K) code matrix leaves the last-level cache. The break-even is between 16M and 64M cells.
+GPU_MIN_WORK = 32_000_000
 
 # LARGE-N ROUTING FIX. The sweep grid previously topped out at
 # n_rows=10000, so EVERY query beyond it (the n=50000/100000/1M FE batches the
@@ -207,10 +211,10 @@ def ensure_batch_mi_noise_gate_tuning(force: bool = False):
 
 def _batch_mi_noise_gate_fallback_choice(n_rows: int, n_cols: int) -> str:
     """Pre-sweep heuristic: GPU only for large n AND large K (where the O(n*K)
-    counting amortises the H2D copy + per-shuffle launch overhead); CPU otherwise.
+    counting amortises the H2D copy + per-shuffle launch overhead), or for any call whose code matrix has at least ``GPU_MIN_WORK`` cells; CPU otherwise.
     Prefers cupy over cuda (single batched bincount per shuffle vs per-column
     block launch)."""
-    if n_rows >= GPU_MIN_ROWS and n_cols >= GPU_MIN_COLS:
+    if (n_rows >= GPU_MIN_ROWS and n_cols >= GPU_MIN_COLS) or n_rows * n_cols >= GPU_MIN_WORK:
         if cupy_available():
             return "cupy"
         if cuda_available():

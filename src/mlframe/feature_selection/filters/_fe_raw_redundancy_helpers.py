@@ -8,6 +8,7 @@ reference. The main module re-exports every name defined here, so external
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import os
 from typing import Optional, Sequence
@@ -311,7 +312,7 @@ def _rank_transform(a: np.ndarray) -> np.ndarray:
     csum = np.cumsum(counts)
     start = csum - counts
     avg = (start + csum + 1) / 2.0  # mean rank within each tie group (1-based)
-    return avg[inv]
+    return cast("np.ndarray", avg[inv])
 
 
 def _residualize(target: np.ndarray, design: np.ndarray) -> Optional[np.ndarray]:

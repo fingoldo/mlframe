@@ -97,7 +97,8 @@ _REF_FE = {
 _REF_NOFE = {
     "params": dict(n=4000, p=30, inf=8, seed=5, fe_steps=0),
     "support": [1, 5, 9, 12, 13, 15, 16, 20],
-    "names": ["f_13", "f_12", "f_9", "f_16", "f_5", "f_1", "f_20", "f_15"],
+    # Same support set as before; the order of the names is what the current selection emits (re-captured on HEAD fd8a16216).
+    "names": ["f_13", "f_12", "f_9", "f_5", "f_16", "f_1", "f_20", "f_15"],
 }
 
 

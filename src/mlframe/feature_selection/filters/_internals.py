@@ -2,6 +2,7 @@
 and (c) the empirical / algorithmic basis. Magic numbers without docstrings are not allowed here."""
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Sequence
 
@@ -218,7 +219,7 @@ def group_key_strings(col: pd.Series) -> np.ndarray:
         # int casting on the other side; keep the fast per-unique str path.
         uniq, inv = np.unique(arr, return_inverse=True)
         if arr.dtype.kind == "b":
-            return uniq.astype(str).astype(object)[inv]
+            return cast("np.ndarray", uniq.astype(str).astype(object)[inv])
         return np.array([str(int(u)) for u in uniq], dtype=object)[inv]
     if arr.dtype.kind == "f":
         # Float: canonicalise integral values to their int form so they match a

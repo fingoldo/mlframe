@@ -568,6 +568,14 @@ class MRMRParams(BaseModel):
     fe_row_stat_scan_rows: int = 20000
     fe_row_stat_min_relative_gain: float = 0.05
     fe_oof_cell2d_enable: bool = True
+    fe_residual_rescue_enable: bool = True
+    fe_residual_rescue_min_relative_gain: float = 0.001
+    fe_residual_rescue_max_admit: int = 8
+    fe_closed_form_decide_rows: int = 200000
+    fe_target_mix_enable: bool = True
+    fe_target_mix_max_bases: int = 2
+    fe_target_mix_scan_rows: int = 20000
+    fe_residual_rescue_operand_min_linear_gain: float = 0.001
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: Optional[int] = 100
     fe_wavelet_cols: tuple = ()

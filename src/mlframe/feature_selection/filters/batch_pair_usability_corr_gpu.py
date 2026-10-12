@@ -183,8 +183,8 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
     backends can never numerically diverge from EACH OTHER (both compile this same function)."""
     n_rows = y.shape[0]
     cnt = 0
-    sa = 0.0
-    sv = 0.0
+    sa: float | np.floating = 0.0
+    sv: float | np.floating = 0.0
     for i in range(n_rows):
         yi = np.float64(y[i])
         x0 = np.float64(operand_matrix[a_idx, i])
@@ -201,9 +201,9 @@ def _abs_pearson_form_reduction(y, operand_matrix, a_idx, b_idx, form_id, eps, c
     inv = 1.0 / cnt
     ma = sa * inv
     mv = sv * inv
-    saa = 0.0
-    svv = 0.0
-    sav = 0.0
+    saa: float | np.floating = 0.0
+    svv: float | np.floating = 0.0
+    sav: float | np.floating = 0.0
     for i in range(n_rows):
         yi = np.float64(y[i])
         x0 = np.float64(operand_matrix[a_idx, i])
@@ -339,8 +339,8 @@ def _cuda_kernel_warp_factory():
 
         # Pass 1: strided partial (count, sum_y, sum_v) per lane, coalesced across the warp.
         cnt = 0
-        sa = 0.0
-        sv = 0.0
+        sa: float | np.floating = 0.0
+        sv: float | np.floating = 0.0
         i = lane
         while i < n_rows:
             yi = np.float64(y[i])
@@ -371,9 +371,9 @@ def _cuda_kernel_warp_factory():
         mv = sv * inv
 
         # Pass 2: strided partial (saa, svv, sav) per lane, same coalesced pattern.
-        saa = 0.0
-        svv = 0.0
-        sav = 0.0
+        saa: float | np.floating = 0.0
+        svv: float | np.floating = 0.0
+        sav: float | np.floating = 0.0
         i = lane
         while i < n_rows:
             yi = np.float64(y[i])

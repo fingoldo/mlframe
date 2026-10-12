@@ -187,6 +187,8 @@ def _gpu_has_free_vram() -> bool:
         import cupy as cp
 
         free_b, _total = cp.cuda.runtime.memGetInfo()
+        # bytes cupy's pool holds but has not handed out are reusable by this process: counting them as used flips the gate off for the rest of a large fit
+        free_b += int(cp.get_default_memory_pool().free_bytes())
         return bool(free_b >= _min_mb * 1024 * 1024)
     except Exception as e:
         logger.debug("_gpu_has_free_vram: VRAM query failed, deferring to the existing per-path OOM fallbacks: %s", e)
@@ -753,6 +755,19 @@ void fused_gen_cm(const double* __restrict__ ua, const double* __restrict__ ub,
 }
 """
 _FUSED_GEN_CM_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe twin of _FUSED_GEN_KERNEL)
+# float32 twin of the column-major generator: operands, arithmetic and the candidate block in float32 (half the memory traffic of the block, and consumer GPUs run float32 arithmetic far faster than
+# float64). Same operator switch, same safe division and the same non-finite scrub; a value that overflows float32 is scrubbed to 0, as the float32 feature scrub does everywhere else.
+_FUSED_GEN_CM_F32_SRC = (
+    _FUSED_GEN_CM_SRC.replace("fused_gen_cm", "fused_gen_cm_f32")
+    .replace("const double*", "const float*")
+    .replace("double* __restrict__ out", "float* __restrict__ out")
+    .replace("double x", "float x")
+    .replace("double y", "float y")
+    .replace("double v", "float v")
+    .replace("(y == 0.0) ? 1e-9 : y", "(y == 0.0f) ? 1e-9f : y")
+    .replace("v = 0.0;", "v = 0.0f;")
+)
+_FUSED_GEN_CM_F32_KERNEL = None
 
 def _get_fused_gen_kernel():
     """Lazily compiles and caches the row-major fused-generation ``RawKernel`` (one launch fills the whole (n,K) candidate matrix)."""
@@ -762,11 +777,17 @@ def _get_fused_gen_kernel():
         _FUSED_GEN_KERNEL = cp.RawKernel(_FUSED_GEN_SRC, "fused_gen")
     return _FUSED_GEN_KERNEL
 
-def _get_fused_gen_cm_kernel():
-    """Lazily compiles and caches the column-major twin of ``_get_fused_gen_kernel`` (writes a (K,n) buffer for coalesced downstream reads)."""
-    global _FUSED_GEN_CM_KERNEL
+
+def _get_fused_gen_cm_kernel(float32: bool = False):
+    """Lazily compiles and caches the column-major twin of ``_get_fused_gen_kernel`` (writes a (K,n) buffer for coalesced downstream reads); ``float32`` selects the float32 twin."""
+    global _FUSED_GEN_CM_KERNEL, _FUSED_GEN_CM_F32_KERNEL
+    import cupy as cp
+
+    if float32:
+        if _FUSED_GEN_CM_F32_KERNEL is None:
+            _FUSED_GEN_CM_F32_KERNEL = cp.RawKernel(_FUSED_GEN_CM_F32_SRC, "fused_gen_cm_f32")
+        return _FUSED_GEN_CM_F32_KERNEL
     if _FUSED_GEN_CM_KERNEL is None:
-        import cupy as cp
         _FUSED_GEN_CM_KERNEL = cp.RawKernel(_FUSED_GEN_CM_SRC, "fused_gen_cm")
     return _FUSED_GEN_CM_KERNEL
 

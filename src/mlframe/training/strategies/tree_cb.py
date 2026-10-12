@@ -104,7 +104,9 @@ class CatBoostStrategy(TreeModelStrategy):
         and loss [MultiRMSE] are incompatible" -- and the whole multi-target fit dies. ``_ensure_cb_mtr_loss``
         already sets both for the same reason.
         """
-        return {"loss_function": "MultiRMSE", "eval_metric": "MultiRMSE"}
+        # custom_metric too: the regressor default ("RMSE", "MAPE") is refused beside MultiRMSE with the same error
+        # (verified against the installed CatBoost: ("MultiRMSE",) and no custom_metric both fit).
+        return {"loss_function": "MultiRMSE", "eval_metric": "MultiRMSE", "custom_metric": ("MultiRMSE",)}
 
     def get_quantile_objective_kwargs(self, qr_config) -> dict:
         """CatBoost ``MultiQuantile`` loss_function with comma-joined alphas.

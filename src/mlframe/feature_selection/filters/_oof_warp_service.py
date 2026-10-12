@@ -25,7 +25,7 @@ def quantile_edges(x: np.ndarray, n_bins: int = N_BINS) -> np.ndarray:
     finite = x[np.isfinite(x)]
     if finite.size == 0:
         return np.empty(0)
-    return np.unique(np.quantile(finite, np.linspace(0.0, 1.0, n_bins + 1)[1:-1]))
+    return np.asarray(np.unique(np.quantile(finite, np.linspace(0.0, 1.0, n_bins + 1)[1:-1])))
 
 
 @njit(cache=True, nogil=True)

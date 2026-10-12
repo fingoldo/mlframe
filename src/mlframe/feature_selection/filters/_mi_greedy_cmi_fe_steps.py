@@ -1,6 +1,7 @@
 """Helpers carved out of ``_mi_greedy_cmi_fe`` to keep that module under its size budget."""
 from __future__ import annotations
 
+from typing import cast, Any
 import functools
 import logging
 import math
@@ -35,7 +36,7 @@ def _resolve_xxh3_64() -> Optional[Callable]:
     try:
         import xxhash as _xxhash
 
-        return _xxhash.xxh3_64_intdigest
+        return cast(Callable[..., Any], _xxhash.xxh3_64_intdigest)
     except ImportError as e:
         logger.debug("xxhash unavailable, _cached_card falls back to tobytes()+hash() for its cache key: %s", e)
         return None

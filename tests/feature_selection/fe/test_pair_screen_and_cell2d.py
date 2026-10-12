@@ -126,3 +126,15 @@ def test_usability_greedy_takes_the_table_and_the_mrmr_flag_is_wired():
     picked = [c.name for c in usability_greedy(list(pool) + extra, y, w=0.85, seed=0)]
     assert any(n.startswith("oofcell(") for n in picked), picked
     assert MRMR().fe_oof_cell2d_enable is True and MRMR(fe_oof_cell2d_enable=False).fe_oof_cell2d_enable is False
+
+
+def test_screen_reports_no_interaction_for_a_light_tailed_additive_target():
+    """a + c**2 clipped at its 1% / 99% quantiles was no longer additive in the corner (t = 6 at n = 20000); the far-out fences leave a light-tailed target untouched."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._pair_residual_screen import pair_interaction_screen
+
+    r = np.random.default_rng(0)
+    X = pd.DataFrame({k: r.uniform(0, 1, 20000) for k in "abcde"})
+    assert pair_interaction_screen(X, X["a"].to_numpy() + X["c"].to_numpy() ** 2) == []

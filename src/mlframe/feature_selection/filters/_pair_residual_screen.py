@@ -3,7 +3,7 @@
 Screening column pairs by their joint MI with the target (or by a pair-form table against the target) picks the wrong pair on a strongly additive target: two columns with large main effects
 carry a lot of joint information with no interaction at all. This screen first fits the additive part and asks only what is left.
 
-* ``f_1(x_1) + ... + f_p(x_p)`` with free-form main effects is backfitted on the even rows against the winsorised, standardised target (``BACKFIT_SWEEPS`` Gauss-Seidel sweeps over all the columns
+* ``f_1(x_1) + ... + f_p(x_p)`` with free-form main effects is backfitted on the even rows against the fence-clipped, standardised target (``BACKFIT_SWEEPS`` Gauss-Seidel sweeps over all the columns
   together, so a pair is judged against the whole additive model, not against its own two main effects). The main effects use ``main_effect_bins`` levels (``clip(n_even / 250, 15, 60)``): a
   coarser additive model leaves the lack of fit of a steep effect (a sine, a parabola) in the residual and the screen would call it an interaction.
 * For each pair, the mean residual in each ``N_BINS x N_BINS`` cell is estimated on the even rows (shrunk toward 0 by ``SHRINK`` pseudo-counts) and applied to the odd rows. The evidence is the
@@ -30,7 +30,7 @@ N_BINS = 10
 SHRINK = 3.0  # pseudo-counts that pull a cell's mean residual toward 0
 BACKFIT_SWEEPS = 4
 FAMILY_ALPHA = 0.05  # family-wise error level over all the pairs of one screen (Bonferroni)
-WINSOR_Q = (0.01, 0.99)  # quantiles the target is clipped to
+OUTER_FENCE = 3.0  # IQRs beyond the quartiles: Tukey's far-out fences, the clip of the target
 MAIN_BINS_PER_ROWS = 250  # even rows per main-effect level
 MAIN_BINS_RANGE = (15, 60)
 MAX_COLS = 40
@@ -108,12 +108,15 @@ def _score_pairs(Q, resid, even, pairs, n_bins, shrink):
 
 
 def _winsorised(y: np.ndarray) -> np.ndarray:
-    """``y`` clipped to its ``WINSOR_Q`` quantiles and standardised. A rank transform would be the robust choice but it is a nonlinear squashing (the CDF) of an additive target, which makes the
-    squashed target interact; clipping keeps the additive structure of the bulk of the rows."""
-    lo, hi = np.quantile(y, WINSOR_Q)
-    w = np.clip(y, lo, hi)
+    """``y`` clipped to Tukey's far-out fences (``OUTER_FENCE`` IQRs beyond the quartiles) and standardised. A rank transform would be the robust choice but it is a nonlinear squashing (the CDF)
+    of an additive target, which makes the squashed target interact; a clip at fixed quantiles does the same to the corner of a light-tailed additive target (a + c**2 clipped at its 1% and 99%
+    quantiles shows a significant interaction at n = 20000). The far-out fences leave a light-tailed target untouched and cut only the rows of a heavy tail, where a handful of rows would carry
+    the variance, so the bulk keeps its additive structure."""
+    q1, q3 = np.quantile(y, (0.25, 0.75))
+    iqr = q3 - q1
+    w = np.clip(y, q1 - OUTER_FENCE * iqr, q3 + OUTER_FENCE * iqr) if iqr > 0 else y
     sd = float(w.std())
-    return np.asarray((w - w.mean()) / sd if sd > 0 else w - w.mean())
+    return (w - w.mean()) / sd if sd > 0 else np.asarray(w - w.mean())
 
 
 def main_effect_bins(n_even: int) -> int:

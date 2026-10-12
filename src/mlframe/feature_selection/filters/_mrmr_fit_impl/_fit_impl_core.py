@@ -442,8 +442,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # function, which Python's refcounting already frees on return, but an explicit collect here
     # still helps against any reference cycle (e.g. a DataFrame's own internal caches) before the
     # ``categorize_dataset`` peak.
-    import gc as _gc
-    _gc.collect()
+    from ._helpers import collect_garbage_if_frame_is_large
+
+    collect_garbage_if_frame_is_large(X)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Discretize continuous data

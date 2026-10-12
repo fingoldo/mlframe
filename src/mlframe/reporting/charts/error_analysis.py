@@ -26,6 +26,7 @@ subsampled with extremes preserved; curves stay under a few thousand vertices.
 
 from __future__ import annotations
 
+from typing import cast
 import logging
 import threading
 import weakref
@@ -321,7 +322,7 @@ def _bin_edges(values: np.ndarray, nbins: int) -> np.ndarray:
     if edges.size < 2:
         lo = float(finite.min())
         return np.array([lo, lo + 1.0])
-    return edges
+    return cast("np.ndarray", edges)
 
 
 def weak_segment_heatmap(

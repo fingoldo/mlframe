@@ -76,6 +76,8 @@ class FakeCatBoost:
                 if hasattr(X, "__getitem__") and col in (X.columns if hasattr(X, "columns") else [])
             },
             "has_eval_set": "eval_set" in fit_params,
+            # The validation frame the model actually received (what the fallback handed to fit), not the caller's dict.
+            "eval_X": fit_params["eval_set"][0] if "eval_set" in fit_params else None,
         }
         self.calls.append(snapshot)
         if len(self.calls) == 1:
@@ -222,11 +224,13 @@ def test_fallback_rewrites_eval_set_to_pandas(polars_frame_with_text_cats):
         fit_params=fit_params,
         verbose=False,
     )
-    # After the fallback, fit_params["eval_set"] should hold pandas.
-    eval_X = fit_params["eval_set"][0]
+    # The model's retry must receive the validation frame as pandas with no pd.Categorical text column.
+    # Asserted on what the model received, not on the caller's dict: fit_params is copied on entry to the fallback
+    # trainer so the rewrite cannot leak into the shared fit_params of the next model (commit 21dfc9ce1).
+    eval_X = model.calls[-1]["eval_X"]
     assert isinstance(eval_X, pd.DataFrame), f"eval_set X must be pandas after fallback, got {type(eval_X).__name__}"
-    # And its text column must not be pd.Categorical either.
     assert not isinstance(eval_X["skills_text"].dtype, pd.CategoricalDtype), "eval_set text column must also be decategorized"
+    assert isinstance(fit_params["eval_set"][0], pl.DataFrame), "the caller's fit_params must not be rewritten by the fallback"
 
 
 def test_fallback_passes_when_polars_fastpath_succeeds(polars_frame_with_text_cats):

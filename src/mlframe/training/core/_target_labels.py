@@ -8,6 +8,7 @@ error.
 
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, Optional
 
@@ -42,7 +43,7 @@ def labelled_unique(values: Any) -> np.ndarray:
     with {0, NaN} looked like two classes."""
     arr = np.asarray(values)
     missing = pd.isna(arr)
-    return np.unique(arr[~missing]) if missing.any() else np.unique(arr)
+    return cast("np.ndarray", np.unique(arr[~missing]) if missing.any() else np.unique(arr))
 
 
 def missing_label_counts(target_by_type: dict) -> "dict[tuple[Any, str], tuple[int, int]]":

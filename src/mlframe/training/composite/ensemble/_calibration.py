@@ -19,6 +19,7 @@ Default OFF / bit-identity
 
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any
 
@@ -219,7 +220,7 @@ class OutputCalibrator:
         bad = ~np.isfinite(p)
         if bad.any():
             out[bad] = p[bad]
-        return out
+        return cast("np.ndarray", out)
 
     # ------------------------------------------------------------------
     def export(self) -> dict[str, Any]:

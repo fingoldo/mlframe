@@ -50,6 +50,7 @@ reference is captured, so ``transform()`` is leakage-free by construction.
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from itertools import combinations
 from typing import Optional, Sequence
@@ -216,7 +217,7 @@ def _bin_target(y: np.ndarray, n_bins: int = 10) -> np.ndarray:
     y_arr = np.asarray(y)
     if y_arr.dtype.kind in "iub":
         _, codes = np.unique(y_arr, return_inverse=True)
-        return codes.astype(np.int64)
+        return cast("np.ndarray", codes.astype(np.int64))
     if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > n_bins:
         q = np.quantile(y_arr.astype(np.float64), np.linspace(0, 1, n_bins + 1))
         q = np.unique(q)
@@ -224,7 +225,7 @@ def _bin_target(y: np.ndarray, n_bins: int = 10) -> np.ndarray:
             return np.zeros(len(y_arr), dtype=np.int64)
         return np.searchsorted(q[1:-1], y_arr.astype(np.float64), side="right").astype(np.int64)
     _, codes = np.unique(y_arr, return_inverse=True)
-    return codes.astype(np.int64)
+    return cast("np.ndarray", codes.astype(np.int64))
 
 def score_cat_pairs_by_interaction_information(
     X: pd.DataFrame,

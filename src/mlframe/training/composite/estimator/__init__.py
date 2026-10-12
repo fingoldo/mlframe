@@ -255,7 +255,7 @@ def predict_quantile_ensemble(
     # MUST raise -- silently truncating the union would hand back a confidence interval
     # at the wrong nominal coverage.
     per_member: list[np.ndarray] = []
-    expected_shape: Optional[Tuple[int, int]] = None
+    expected_shape: Optional[Tuple[int, ...]] = None
     quantiles_list = [float(v) for v in quantiles_arr]
     for idx, m in enumerate(members):
         if not hasattr(m, "predict_quantile"):

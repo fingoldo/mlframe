@@ -4,6 +4,7 @@ consolidated here so a fix can't silently drift out of sync across copies.
 """
 from __future__ import annotations
 
+from typing import cast
 import numpy as np
 import pandas as pd
 
@@ -30,7 +31,7 @@ def make_latent_projection_data(n: int, d: int, seed: int) -> np.ndarray:
     rng = np.random.default_rng(seed)
     latent = rng.normal(size=(n, 3))
     W = rng.normal(size=(3, d))
-    return latent @ W + rng.normal(scale=0.2, size=(n, d))
+    return cast("np.ndarray", latent @ W + rng.normal(scale=0.2, size=(n, d)))
 
 
 def make_binary_ensemble_pred_matrix(m: int, n: int, seed: int) -> tuple[np.ndarray, np.ndarray]:

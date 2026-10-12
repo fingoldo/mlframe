@@ -17,6 +17,9 @@ import numpy as np
 import pytest
 
 import mlframe.metrics._gpu_metrics as gm
+
+# The dispatch path imports cupy inside the mocked GPU branch; a CPU-only runner has no cupy, so the module is skipped there.
+pytest.importorskip("cupy")
 from mlframe.metrics.core import compute_batch_aucs, compute_batch_rmse
 
 

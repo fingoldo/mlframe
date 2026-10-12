@@ -467,6 +467,7 @@ def _assign_support(
         selected_vars=selected_vars,
         _allowed_raw_idx=_allowed_raw_idx,
         _retention_added_eng_names=_retention_added_eng_names,
+        engineered_recipes=engineered_recipes,
     )
 
 

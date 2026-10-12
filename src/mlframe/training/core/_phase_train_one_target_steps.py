@@ -50,6 +50,7 @@ from ._phase_train_one_target_post import (
 from ._phase_train_one_target_cache_helpers import (
     compute_cached_model_input_fingerprint,
     compute_model_pipeline_cache_key,
+    pre_pipeline_params_digest,
 )
 from mlframe.utils.log_throttle import log_throttle
 
@@ -217,6 +218,7 @@ def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st
             cur_target_name=cur_target_name,
             current_train_target=st.current_train_target,
             _compute_pipeline_cache_key=_compute_pipeline_cache_key,
+            pre_pipeline_digest=pre_pipeline_params_digest(pre_pipeline),
         )
 
         # Polars fastpath substitutes original Polars DataFrames for natively-Polars consumers

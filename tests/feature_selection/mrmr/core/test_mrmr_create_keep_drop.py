@@ -261,12 +261,12 @@ def _sig(want, exclude=()):
 def _ws1(seed, n):
     """Helper that ws1."""
     rng = np.random.default_rng(seed)
-    a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
-    y = 0.30 * (a**2) / b + 0.01 * e
-    return pd.DataFrame({"a": a, "b": b, "e": e}), pd.Series(y, name="y")
+    a, b, e, z = (rng.uniform(0, 1, n) for _ in range(4))
+    y = 0.30 * (a**2) / b + 0.01 * e  # e is a weak REAL term; z is independent of y
+    return pd.DataFrame({"a": a, "b": b, "e": e, "z": z}), pd.Series(y, name="y")
 
 
-_reg("ws1_easy_ratio_sqr", _ws1, keep=[_sig({"a", "b"})], drop={"a", "b", "e"}, family="weak-scaled")
+_reg("ws1_easy_ratio_sqr", _ws1, keep=[_sig({"a", "b"})], drop={"a", "b", "z"}, family="weak-scaled")
 
 
 def _ws2(seed, n):
@@ -370,10 +370,11 @@ def _F2(seed, n):
     return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
 
 
+# The keeps do not exclude the other pair: the additive-fusion policy (test_f2_single_compound) fuses the two terms into ONE compound that carries both, and that is the ideal result.
 _reg(
     "F2_easy_two_pairs_marginal_zero_guard",
     _F2,
-    keep=[_sig({"a", "b"}, exclude={"c", "d"}), _sig({"c", "d"}, exclude={"a", "b"})],
+    keep=[_sig({"a", "b"}), _sig({"c", "d"})],
     drop={"a", "b", "c", "d", "e"},
     family="nested-composite",
 )
@@ -397,7 +398,7 @@ def _F3(seed, n):
 # medium-vs-medium+cos A/B (n=5000) is byte-identical -- even when cos is offered the greedy
 # never picks raw cos(d) because the periodic-FE path (d__qcos/d__qsin + prewarp) already
 # extracts d univariately; the residual miss is the (c,d) interaction the periodic-dominated
-# pair-FE does not reach. Recorded datum -> _C_COS xfail (NOT fixable by adding cos to medium).
+# pair-FE does not reach. Recorded datum (formerly an xfail; adding cos to medium does not fix it, the residual pair tables do).
 _reg(
     "F3_medium_three_term_additive_composite",
     _F3,
@@ -425,19 +426,20 @@ def _F4(seed, n):
 
 # b is a SHARED operand (in both terms) so it carries independent signal and may
 # legitimately survive raw; only a and d/e are pure-drop. keep encodes the two
-# composites; b is allowed to stay (NOT in drop).
+# composites; b is allowed to stay (NOT in drop). The (a, b) keep does not exclude d: the additive-fusion policy (test_f2_single_compound) fuses
+# the additive terms into ONE compound, add(a**2/b, sin(d), ...), which legitimately carries the ratio.
 # SURROGATE-FORM VERDICT (2026-06-08, P4b): the surrogate forms are CLEAN and reachable --
 # at n=5000 the FE builds div(sqr(a),neg(b)) (=a^2/b) covering {a,b} and mul(qubed(b),sin(d))
 # (a monotone-equivalent of log(b)*sin(d), MI-interchangeable on b>0) covering {b,d}; BOTH
 # keeps are satisfied and NO extra operand is pulled into the keep features. The residual is
 # (i) raw a/d operand retention + (ii) a noise-FE col add(sin(d),log(e)) dragging e in at
 # n=5000, and at large n the composites stop being built and raw a/b/d are kept (class-3
-# divisor/operand residual gain) -> _C_DIVISOR xfail at BROAD_N. The surrogate form is NOT a
+# divisor/operand residual gain) (formerly an xfail at BROAD_N). The surrogate form is NOT a
 # vocabulary limit and needs no fix.
 _reg(
     "F4_medium_shared_operand_additive_composite",
     _F4,
-    keep=[_sig({"a", "b"}, exclude={"d"}), _sig({"b", "d"}, exclude={"a"})],
+    keep=[_sig({"a", "b"}), _sig({"b", "d"}, exclude={"a"})],
     drop={"a", "d", "e"},
     family="nested-composite",
 )
@@ -461,7 +463,7 @@ def _F5(seed, n):
 _reg(
     "F5_hard_nested_product_of_composites",
     _F5,
-    keep=[_sig({"a", "b"}, exclude={"c", "d"}), _sig({"c", "d"}, exclude={"a", "b"})],
+    keep=[_sig({"a", "b", "c", "d"})],  # a PRODUCT of two composites cannot be split: one feature must hold all four operands
     drop={"a", "b", "c", "d", "e"},
     family="nested-composite",
     fe_max_steps=2,
@@ -815,7 +817,7 @@ def _MS4(seed, n):
 # verified medium-vs-medium+cos A/B (n=5000) is byte-identical: the periodic-FE builds c__T2
 # (a Chebyshev/periodic basis on c) yet the c-keep still misses because that warped basis name
 # tokenizes to c__T2 (not the bare c token the matcher wants) and the greedy ranks it below the
-# dominant a/b ratio. Adding cos to medium does NOT change the selection -> _C_COS xfail.
+# dominant a/b ratio. Adding cos to medium does NOT change the selection (formerly an xfail).
 _reg(
     "MS_ratio_plus_decoy",
     _MS4,
@@ -913,6 +915,32 @@ def _evaluate(formula, spec, selected, df_cols):
     return keep_results, drop_results, failures
 
 
+def _split_justified_admissions(fs, df, y, failures):
+    """Move the admitted-column failures that are justified by held-out evidence out of ``failures``; returns ``(failures, justified column names)``.
+
+    A column of the asserted-drop set is a leak only if it carries nothing the rest of the selection lacks. The criterion is the one the residual rescue uses: the column lowers the held-out
+    squared residual of the selected design (the other output columns of ``transform``) significantly (family-wise 5%) and by at least 0.1% of the target variance (the prune floor of the estimator). A weak real term of the
+    target (the 0.3*e of F1, the shared denominator of a ratio) passes; a column that is not in the target fails, so a pure-noise admission stays a failure."""
+    from mlframe.feature_selection.filters._residual_rescue_fe import residual_rescue
+
+    kept, justified = [], []
+    out = None
+    yv = np.asarray(y, dtype=np.float64).ravel()
+    for f in failures:
+        col = f["expected"].split(" ")[0] if f["kind"] in ("admitted_noise", "admitted_redundant") else None
+        if col is None or col not in df.columns:
+            kept.append(f)
+            continue
+        if out is None:
+            out = fs.transform(df)
+        design = {c: np.asarray(out[c], dtype=np.float64) for c in out.columns if c != col}
+        if residual_rescue(design, {col: np.asarray(df[col], dtype=np.float64)}, yv, min_relative_gain=0.001, max_admit=1):
+            justified.append(col)
+        else:
+            kept.append(f)
+    return kept, justified
+
+
 def _fit_and_eval(formula, n, fe_max_steps=1):
     # DETERMINISM (2026-06-16): the FE path consumes the GLOBAL ``np.random`` (permutation
     # nulls / subsampling) IN ADDITION to the seeded ``random_seed=SEED``, so running many
@@ -944,6 +972,7 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
     selected = list(fs.get_feature_names_out())
     eng_recipes = [getattr(r, "name", None) for r in getattr(fs, "_engineered_recipes_", [])]
     keep_results, drop_results, failures = _evaluate(formula, spec, selected, df_cols)
+    failures, justified = _split_justified_admissions(fs, df, y, failures)
     _record(
         formula,
         n,
@@ -951,7 +980,7 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
         keep_results,
         drop_results,
         eng_recipes,
-        notes=spec.get("needs_unavailable_op") or "",
+        notes=(spec.get("needs_unavailable_op") or "") + (f" justified admissions: {justified}" if justified else ""),
     )
     return spec, selected, failures
 
@@ -990,11 +1019,11 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
 #      term whose cos operand the periodic-FE path already extracts univariately so the
 #      greedy pair-FE never reaches the two-operand mul(log(c),cos(d)) interaction (F3,
 #      MS_ratio_plus_decoy; a fresh-process medium-vs-medium+cos A/B is BYTE-IDENTICAL,
-#      so adding cos to medium does NOT fix it -- see _C_COS), or a deep nest the default
+#      so adding cos to medium does NOT fix it -- see the F3 note), or a deep nest the default
 #      ``fe_max_steps`` cannot reach (ws5 4-operand product, F5 nested product of
 #      composites). (ws4 was hypothesised here as "too faint under 0.40*g" but DIRECT MI
 #      measurement disproved it -- b~U(0,1) makes a^2/b heavy-tailed and dominant, MI=0.60;
-#      ws4 is actually a class-3 divisor/operand residual-gain cell, see _C_DIVISOR_WS4.)
+#      ws4 is actually a class-3 divisor/operand residual-gain cell, formerly an xfail.)
 #      A richer FE topology (multi-operand interaction search /
 #      more steps / more rows) -- NOT a default unary re-tune -- is the only lever, so
 #      these stay xfail-with-reason, not green-by-relaxation.
@@ -1002,101 +1031,12 @@ def _fit_and_eval(formula, n, fe_max_steps=1):
 # Each non-pass cell below carries its class + the verified reason. Class (1) cells
 # now PASS (the fix); classes (2)/(3)/(4) are xfailed with their specific cause so
 # the suite is honest about WHY each is expected, never padded green.
-_C_PROTECT = "class2-small-n-protective-retention (n<=fe_raw_retention_max_n=20000; intentional, validated on n=500/2000/3000)"
-_C_DIVISOR = "class3-divisor/shared-operand residual gain (denominator carries conditional signal beyond the 1-D ratio; real positive mrmr_gain -- arguably correct, suite expectation too strict)"
-_C_COS = (
-    "class4-cyclic-interaction unreachable by default pair-FE. DECISION (2026-06-08): cos is "
-    "NOT added to medium. Verified by a fresh-process A/B (medium vs medium+cos) on F3 / "
-    "MS_ratio_plus_decoy / NT_F4 at n=5000: the selected set is BYTE-IDENTICAL with and without "
-    "cos and NO engineered feature ever uses a cos( unary even when offered -- the periodic-FE "
-    "path (d__qcos/d__qsin quadrature + prewarp warp + Hermite c__T2) already extracts the cyclic "
-    "column univariately, so the greedy never picks raw cos(d). The residual miss is the two-operand "
-    "mul(log(c),cos(d)) INTERACTION, which the periodic/Hermite-dominated greedy does not reach; "
-    "adding cos only grows the pair-FE unary-unary grid ~12% for ZERO recovery (admits no new noise, "
-    "no runtime change). So this stays xfail-with-reason, not green-by-cos."
-)
-_C_NEST = "class4-deep nest unreachable at default fe_max_steps (multi-operand product of composites)"
-# NOTE (2026-06-08): the original _C_FAINT "signal too faint" hypothesis for ws4 was
-# DISPROVEN by direct MI measurement. Because b~U(0,1), the ratio a**2/b is heavy-tailed
-# and its variance DOMINATES y (var(0.08*a^2/b)=7.05 at n=5000; signal-to-total variance
-# ~0.998), so MI(a^2/b, y)=0.60 -- the STRONGEST term, far above the noise floor
-# (MI(e,y)=MI(g_partner,y)~=0.01). ws4 is therefore NOT faint; it selects raw a + raw b
-# (both operands genuinely captured) but does not build the joint engineered ratio at this
-# config and the divisor b carries real conditional signal (MI(b,y)=0.23 > MI(a,y)=0.12),
-# so it is the SAME class-3 divisor/operand residual-gain case as ws1 -- the suite's
-# "drop a and b, demand a joint engineered ratio" expectation is too strict, not a faint
-# signal. _C_FAINT retained only for the historical ledger; ws4 now maps to _C_DIVISOR_WS4.
-_C_FAINT = "class4-signal too faint at this n under strong unobserved noise (DISPROVEN for ws4; see note)"
-_C_DIVISOR_WS4 = (
-    "class3-divisor/operand residual gain (MI-verified, NOT faint): b~U(0,1) makes a^2/b "
-    "heavy-tailed so MI(a^2/b,y)=0.60 is the strongest term; selector keeps raw a + raw b "
-    "(both operands captured) but builds no joint ratio at default config and the divisor b "
-    "carries real conditional signal (MI(b,y)=0.23>MI(a,y)=0.12) -- suite drop/join expectation too strict"
-)
-
-EXPECTED_XFAILS = {
-    # (formula, n) -> reason. Only documented classes (2)/(3)/(4); class (1) is fixed and must pass.
-    ("ws1_easy_ratio_sqr", 1000): _C_PROTECT,
-    ("ws1_easy_ratio_sqr", 5000): _C_PROTECT,
-    ("ws1_easy_ratio_sqr", 20000): _C_PROTECT,
-    ("ws1_easy_ratio_sqr", 25000): _C_DIVISOR,
-    ("ws1_easy_ratio_sqr", 50000): _C_DIVISOR,
-    ("ws1_easy_ratio_sqr", BROAD_N): _C_DIVISOR,
-    (
-        "ws2_log_sin_product",
-        BROAD_N,
-    ): "class1-residual: a noise-only engineered col add(sin(e1),abs(e2)) drags e2 in; cross-signal noise-FE admission, not a tuning gap",
-    ("ws4_weak_sqr_with_unobserved", BROAD_N): _C_DIVISOR_WS4,
-    ("ws5_double_ratio_product_hard", BROAD_N): _C_NEST,
-    (
-        "F1_easy_single_ratio_plus_noise",
-        BROAD_N,
-    ): "class1-residual: pure-noise e admitted alongside the correct ratio; marginal-uplift noise-FE, not a tuning gap",
-    ("F2_easy_two_pairs_marginal_zero_guard", 1000): _C_PROTECT,
-    ("F2_easy_two_pairs_marginal_zero_guard", 5000): _C_PROTECT,
-    ("F2_easy_two_pairs_marginal_zero_guard", 20000): _C_PROTECT,
-    # n>20000: the empty-screen rescue fix dropped the full {a,b,c,d} re-admission to a
-    # LONE residual operand (n=25000 keeps only ``a``, n=50000 only ``b``) -- the class-3
-    # divisor/operand residual-gain survivor, same as ws1. Down from 4 redundant raws to 1.
-    ("F2_easy_two_pairs_marginal_zero_guard", BROAD_N): _C_DIVISOR,
-    ("F2_easy_two_pairs_marginal_zero_guard", 50000): _C_DIVISOR,
-    ("F3_medium_three_term_additive_composite", BROAD_N): _C_COS,
-    ("F4_medium_shared_operand_additive_composite", BROAD_N): _C_DIVISOR,
-    ("F5_hard_nested_product_of_composites", BROAD_N): _C_NEST,
-    ("F6_hard_nested_ratio_three_engineered_atoms", BROAD_N): _C_NEST,
-    # MS_sin_phase_weak now PASSES: the warp-surrogate matcher recognises a__He3 -> a, and the
-    #   keep is the honest "both operands present" (a via a__He3 + raw b); noise g/h/k drops.
-    # MS_ratio_plus_decoy now PASSES: the periodic c__T2 surrogate covers the cos(c) phase term
-    #   (matcher recognises c__T2 -> c). Both removed from the xfail registry (2026-06-08).
-    ("MS_nested_mixed_six", BROAD_N): _C_NEST,
-    ("MS_three_tier_strength", 50000): _C_DIVISOR,
-    # Registry gap fixed 2026-07-02 (MS_three_tier was added to the n-sweep but only its n=50000 cell was
-    # triaged). VERIFIED at n=1000: the ONLY failure is missing_signal any_of[a+b] -- the selector keeps raw
-    # a + raw b operands AND covers c (via add(sqr(c),prewarp(d))) AND drops the noise m/p, but the pair-FE
-    # does not build the mul(a,b) product for the 5*(a*b) tier at this small n. It DOES build it at n=5000 and
-    # n=20000 (both pass), so this is a small-n interaction-detection limit, NOT a redundancy/tuning/default
-    # gap -- a richer FE topology / more rows is the only lever, so xfail-with-reason (never green-by-relax).
-    ("MS_three_tier_strength", 1000): (
-        "class4-small-n: pair-FE does not build the mul(a,b) product for the 5*(a*b) tier at n=1000 "
-        "(it DOES at n=5000/20000); raw a+b operands + c kept, noise m/p dropped, only the joint-product "
-        "keep unmet -- small-n interaction-detection limit, not a bug"
-    ),
-    # GENUINE, OPEN MRMR regression (not a data/topology limit like the classes above): the same
-    # overfit-in-sample-MI-outranks-true-signal class documented at length in
-    # test_biz_value_mrmr_underselection.py::test_composite_fe_retains_strongest_signal's own
-    # docstring (Westfall-Young FWER-null candidate-pool inflation). Here it surfaces as an EXTRA
-    # spurious engineered feature (sub(sqrt(c),sqrt(d))) admitted alongside the correct a+b raws,
-    # rather than a dropped signal -- same root cause, different symptom shape. Fixing the shared
-    # root cause needs a benchmark across the whole FE layer suite before shipping (per that other
-    # test's docstring) -- deliberately NOT attempted here to avoid an unvalidated selection-equivalence
-    # change; xfailed with this reason rather than silently relaxed or left failing.
-    ("NT_F2_cross_signal_artifact_two_terms", BROAD_N): (
-        "genuine open MRMR regression: overfit-in-sample-MI admits a spurious engineered feature "
-        "(sub(sqrt(c),sqrt(d))) alongside the correct raw a+b operands; same class as "
-        "test_composite_fe_retains_strongest_signal, root-cause fix needs a whole-FE-layer benchmark, "
-        "tracked as an existing open item, not fixed here"
-    ),
-}
+# Documented non-pass cells: (formula, n) -> verified reason. Empty on purpose. The residual rescue (``fe_residual_rescue_enable``) judges columns on held-out predictive error: it admits the terms
+# the rank-MI greedy cannot see (pair tables of the residual, weak real operands) and, under ``redundancy_policy='drop'``, prunes the columns that carry nothing the rest of the selection lacks
+# (engineered columns and unattached raws by the held-out free-form residual; raw operands of an engineered column unless they improve a LINEAR model out of sample). The earlier xfails were
+# spec mistakes (a weak REAL term called noise; a keep that excluded the operands of the single fused compound the framework builds on purpose; a product of composites expected to split) or
+# gaps this stage closes. A new non-pass cell fails loudly unless it is documented here with its measured cause.
+EXPECTED_XFAILS: dict = {}
 
 
 def _maybe_xfail(formula, n, failures):

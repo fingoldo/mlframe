@@ -32,6 +32,10 @@
 # different behavior than CI with no error, rather than a clear "upgrade pre-commit" message.
 minimum_pre_commit_version: "3.5.0"
 
+# The hook scripts live in each clone's .git/hooks, which git does not version: a plain `pre-commit install` installs only the pre-commit stage unless this lists the others, so a clone could
+# silently miss the blocking pre-push mypy-full / scan gates.
+default_install_hook_types: [pre-commit, pre-merge-commit, pre-push]
+
 # Pins `language: python` hooks (currently just black's, `language_version: python3` at its own
 # hook entry) to whichever `python3` is first on PATH -- most `language: system` hooks below
 # depend on the ACTIVE VENV instead (see each hook's own comment), which this key does not

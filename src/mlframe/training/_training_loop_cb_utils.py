@@ -102,6 +102,10 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     _existing = params.get("loss_function")
     # Skip when the user already wired a multi-target-compatible loss.
     if _existing is not None and "multi" in str(_existing).lower():
+        # The loss is already multi-target, but the clone may still carry a single-output eval_metric (RMSE); CatBoost
+        # refuses that pair ("metric [RMSE] and loss [MultiRMSE] are incompatible"), so the eval_metric follows the loss.
+        if str(_existing) == "MultiRMSE" and "multi" not in str(params.get("eval_metric") or "").lower():
+            model.set_params(eval_metric="MultiRMSE")
         return
     label_arr = None
     if pool is not None:

@@ -44,6 +44,7 @@ Token catalogue:
 
 from __future__ import annotations
 
+from typing import cast
 import math
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
@@ -594,7 +595,7 @@ def _decimate_keep_tails(n: int, cap: int, tail_keep: int) -> np.ndarray:
     tail = np.arange(n - tail_keep, n, dtype=np.int64)
     mid_budget = max(1, cap - 2 * tail_keep)
     mid = np.linspace(tail_keep, n - tail_keep - 1, mid_budget).astype(np.int64)
-    return np.unique(np.concatenate([head, mid, tail]))
+    return cast("np.ndarray", np.unique(np.concatenate([head, mid, tail])))
 
 
 def _worm_panel(

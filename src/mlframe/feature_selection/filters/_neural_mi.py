@@ -35,6 +35,7 @@ Optimization pattern (per README.md):
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import math
 import os
@@ -332,7 +333,7 @@ def _jitter_if_discrete(arr: np.ndarray, rng: np.random.Generator) -> np.ndarray
     if uniq.size <= max(8, arr.size // 50):
         std = float(np.std(arr))
         jitter_scale = max(std, 1.0) * 1e-6
-        return arr + rng.standard_normal(arr.size) * jitter_scale
+        return cast("np.ndarray", arr + rng.standard_normal(arr.size) * jitter_scale)
     return arr
 
 

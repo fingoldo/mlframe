@@ -264,7 +264,7 @@ def hybrid_offset_product_fe(
     ky = int(codes.max()) + 1
     funcs = _unary_funcs(unary_preset)
     unaries = tuple(u for u in OFFSET_UNARIES if u in funcs)
-    xs = [np.asarray(X[c].to_numpy(), dtype=np.float64) for c in cols]
+    xs = [np.asarray(X[c].to_numpy()) for c in cols]  # the frame's own dtype: a float64 copy of every column is p x n x 8 bytes
     nu = len(unaries)
     qcodes = [quantile_codes(x[rows], N_MI_BINS) for x in xs]
     yr_rows = _rank_scaled(y_arr[rows])

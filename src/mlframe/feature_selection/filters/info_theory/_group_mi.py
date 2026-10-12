@@ -217,3 +217,44 @@ def group_relevance_mi(
         np.asarray(classes_x), np.asarray(classes_y), sort_idx, group_offsets,
         int(nclasses_x), int(n_bins_y), min_rows=min_rows, size_weighted=size_weighted, use_mm=True,
     )
+
+
+def group_leak_verdict(
+    codes_x: np.ndarray,
+    codes_y: np.ndarray,
+    sort_idx: np.ndarray,
+    group_offsets: np.ndarray,
+    n_bins_x: int,
+    n_bins_y: int,
+    *,
+    min_rows: int = 20,
+    size_weighted: bool = True,
+    n_perm: int = 199,
+    alpha: float = 0.05,
+    seed: int = 0,
+) -> "tuple[float, bool]":
+    """``(observed group-blocked MI, is_leak)`` for a candidate column.
+
+    A between-group-level leak carries no within-group signal, so its group-blocked MI is indistinguishable from the
+    value a within-group permutation of ``y`` produces. The null permutes ``codes_y`` inside each group (the group
+    structure is kept), and the candidate is a leak when its observed value does not exceed the ``1 - alpha`` quantile of
+    those permuted values. A genuine within-group signal lies above that quantile. ``is_leak`` is False when the
+    observed value is nan ("cannot decide"), so an undecidable column is never demoted.
+    """
+    observed = group_blocked_mi(codes_x, codes_y, sort_idx, group_offsets, n_bins_x, n_bins_y, min_rows=min_rows, size_weighted=size_weighted, use_mm=True)
+    if observed != observed:
+        return observed, False
+    rng = np.random.default_rng(seed)
+    y_perm = np.asarray(codes_y).copy()
+    offsets = np.asarray(group_offsets)
+    sort_idx = np.asarray(sort_idx)
+    null = np.zeros(int(n_perm))
+    for p in range(int(n_perm)):
+        for g in range(offsets.shape[0] - 1):
+            seg = sort_idx[offsets[g] : offsets[g + 1]]
+            y_perm[seg] = y_perm[rng.permutation(seg)]
+        null[p] = group_blocked_mi(codes_x, y_perm, sort_idx, group_offsets, n_bins_x, n_bins_y, min_rows=min_rows, size_weighted=size_weighted, use_mm=True)
+    null = null[null == null]
+    if null.size == 0:
+        return observed, False
+    return observed, bool(observed <= float(np.quantile(null, 1.0 - alpha)))

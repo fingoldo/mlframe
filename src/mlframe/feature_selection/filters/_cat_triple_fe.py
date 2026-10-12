@@ -59,6 +59,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from itertools import combinations
 from typing import Optional, Sequence
@@ -103,7 +104,7 @@ def engineered_name_cat_triple_cross(cat_a: str, cat_b: str, cat_c: str) -> str:
 def _dense_codes(values) -> np.ndarray:
     """Dense int64 class codes for a stringified categorical column."""
     _, codes = np.unique(values, return_inverse=True)
-    return codes.astype(np.int64)
+    return cast("np.ndarray", codes.astype(np.int64))
 
 def _join_codes(*code_arrays: np.ndarray) -> np.ndarray:
     """Dense int64 cell code for the joint of several integer code arrays.

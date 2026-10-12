@@ -125,6 +125,7 @@ from ..info_theory import (
     use_jmim_aggregator,
     get_bur_lambda,
     use_mi_miller_madow,
+    get_group_mi,
     get_relaxmrmr_alpha,
     get_pid_synergy_bonus,
     get_cmi_perm_stop,
@@ -2984,6 +2985,25 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # pool of the linear-downstream list only (``usability_aware_lists=True``); a linear model cannot form a bump or a ridge of two columns. Default ON; no effect without the
         # usability lists. Replay (kind ``oof_cell2d``) stores the edges and the table, no y reference.
         fe_oof_cell2d_enable: bool = True,
+        # RESIDUAL RESCUE: after the selection, columns of the pool (raw and engineered) that reduce the held-out squared residual of the selected design on the target's own scale are admitted.
+        # The rank-MI greedy cannot see a term that is weak in rank space but carries most of the variance (a**2/b next to 3*log(c)*sin(d) with outliers). Evidence: paired odd-row t statistic
+        # at a family-wise 5% level over the pool; ``min_relative_gain`` is the practical-effect floor (share of the target variance), ``max_admit`` bounds the rounds. Regression targets only.
+        fe_residual_rescue_enable: bool = True,
+        fe_residual_rescue_min_relative_gain: float = 0.001,
+        fe_residual_rescue_max_admit: int = 8,
+        # FEATURE-BASE TARGET MIX: a dominant term of the selection hides a weaker one from a search that scores candidates against y. A second pass on ``T = y - beta * u`` (``u`` one of the
+        # ``fe_target_mix_max_bases`` selected columns that track y best) over the even positions of at most ``fe_target_mix_scan_rows`` rows proposes engineered features; they enter the pool of
+        # the residual rescue and are judged there on held-out rows. Needs ``fe_residual_rescue_enable``. Regression targets only.
+        # Rows on which the closed-form families that have no row subsample of their own (hinge breakpoints, Haar wavelet legs) search and gate their candidates; the winners are replayed at full n. 0 = all rows.
+        # Above ~200 000 rows the search does not need more, and it costs 0.6 s (hinge) and 1.0 s (wavelet) of a 1M-row fit; below it nothing is subsampled.
+        fe_closed_form_decide_rows: int = 200_000,
+        fe_target_mix_enable: bool = True,
+        fe_target_mix_max_bases: int = 2,
+        fe_target_mix_scan_rows: int = 20000,
+        # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
+        # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
+        # model on the other columns, significantly and by at least this share of the target variance (a private linear term the engineered column cannot give a linear model).
+        fe_residual_rescue_operand_min_linear_gain: float = 0.001,
         # HAAR WAVELET / localized multiresolution basis.
         # A NEW operator for LOCALIZED bump / multiscale piecewise structure the
         # catalog cannot capture: y jumps only inside a narrow sub-window of x, or
@@ -3283,6 +3303,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             "fe_oof_warp_enable",  # legacy OFF; ctor ON
             "fe_row_stat_enable",  # legacy OFF; ctor ON
             "fe_oof_cell2d_enable",  # legacy OFF; ctor ON
+            "fe_residual_rescue_enable",  # legacy OFF; ctor ON
+            "fe_target_mix_enable",  # legacy OFF; ctor ON
             "fe_wavelet_enable",  # legacy OFF; ctor ON
         }
     )
@@ -3719,6 +3741,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             get_cmi_perm_stop(),
             get_cpt_test(),
             use_mi_chao_shen(),
+            get_group_mi(),
         )
 
         def _restore_toggles_snapshot_and_raise(exc: BaseException) -> NoReturn:
@@ -3729,7 +3752,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             ValueError here would leave the corrupted thread-local state active for every subsequent,
             unrelated fit on this thread.
             """
-            _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e = _toggles_snapshot
+            _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e, _gmi0e = _toggles_snapshot
             _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
             _safe_restore(lambda: set_jmim_aggregator(_jmim0e), "JMIM aggregator thread-local (activation-block exception)")
             _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")

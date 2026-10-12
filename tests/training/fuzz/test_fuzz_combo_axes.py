@@ -282,3 +282,16 @@ def test_new_composite_gate_kind_axis_present_and_wired():
         composite_gate_kind_cfg="shapley",
     )
     assert combo_off.canonical_key() != combo.canonical_key()
+
+
+def test_residual_rescue_enable_axis_present_wired_and_gated():
+    """``mrmr_fe_residual_rescue_enable_cfg`` covers both values, reaches MRMR.__init__ as ``fe_residual_rescue_enable`` and collapses to the default (True) outside use_mrmr_fs."""
+    assert "mrmr_fe_residual_rescue_enable_cfg" in AXES
+    assert set(AXES["mrmr_fe_residual_rescue_enable_cfg"]) == {True, False}
+
+    from tests.training._fuzz_combo.builders import build_mrmr_kwargs
+
+    off = build_mrmr_kwargs(_make_combo(use_mrmr_fs=True, mrmr_fe_residual_rescue_enable_cfg=False))
+    assert off is not None and off.get("fe_residual_rescue_enable") is False
+    assert _make_combo(use_mrmr_fs=True, mrmr_fe_residual_rescue_enable_cfg=True).canonical_key() != _make_combo(use_mrmr_fs=True, mrmr_fe_residual_rescue_enable_cfg=False).canonical_key()
+    assert _make_combo(use_mrmr_fs=False, mrmr_fe_residual_rescue_enable_cfg=False).canonical_key() == _make_combo(use_mrmr_fs=False, mrmr_fe_residual_rescue_enable_cfg=True).canonical_key()

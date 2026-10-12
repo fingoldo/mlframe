@@ -13,7 +13,8 @@ the fill and the output range; it is a pure function of the two source columns.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Sequence
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 if TYPE_CHECKING:
@@ -38,7 +39,7 @@ def _edges(x: np.ndarray, k: int = K_BINS) -> np.ndarray:
     finite = x[np.isfinite(x)]
     if finite.size == 0:
         return np.empty(0)
-    return np.unique(np.quantile(finite, np.linspace(0.0, 1.0, k + 1)[1:-1]))
+    return np.asarray(np.unique(np.quantile(finite, np.linspace(0.0, 1.0, k + 1)[1:-1])))
 
 def _cells(a: np.ndarray, b: np.ndarray, ea: np.ndarray, eb: np.ndarray) -> "tuple[np.ndarray, np.int64]":
     """Cell indices of the rows (``-1`` where either value is not finite) and the cell count ``(len(ea) + 1) * (len(eb) + 1)``."""

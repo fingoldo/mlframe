@@ -17,6 +17,7 @@ What lives here:
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any
 
@@ -309,7 +310,7 @@ def _coerce_y(y: Any, target_type: str, target_name: str) -> np.ndarray | None:
                 target_name, target_type,
             )
             return None
-    return arr
+    return cast("np.ndarray | None", arr)
 
 
 def _empty_report(

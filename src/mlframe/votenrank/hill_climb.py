@@ -10,6 +10,7 @@ optimization step needed.
 """
 from __future__ import annotations
 
+from typing import cast
 from typing import Callable, Optional, Sequence
 
 import numpy as np
@@ -64,7 +65,7 @@ def _hill_climb_single_path(
         if best_candidate_idx is None:
             break
         selected.append(best_candidate_idx)
-        running_sum = best_candidate_sum
+        running_sum = cast(np.ndarray, best_candidate_sum)
         current_score = best_candidate_score
         history.append(current_score)
 

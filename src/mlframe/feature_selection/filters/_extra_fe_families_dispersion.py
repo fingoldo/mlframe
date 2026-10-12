@@ -317,6 +317,7 @@ def generate_conditional_dispersion_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     from ._extra_fe_families import _digitize_with_edges, _quantile_edges  # lazy: break parent<->sibling cycle
+    # Intentional float64: the device dispersion path must match these host columns to a 1e-10 ULP band (tests/feature_selection/fe/gpu/test_conditional_dispersion_resident.py), which float32 breaks.
     col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
     col_stats: dict = {}  # x_i -> _column_finite_stats, shared by every pair that uses x_i
     for x_j in num_cols:

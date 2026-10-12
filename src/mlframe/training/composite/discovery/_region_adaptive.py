@@ -44,6 +44,7 @@ command away.
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Sequence
@@ -155,7 +156,7 @@ def _quantile_edges(base: np.ndarray, k: int) -> np.ndarray:
         return np.empty(0, dtype=np.float64)
     qs = np.linspace(0.0, 1.0, k + 1)[1:-1]
     edges = np.quantile(np.asarray(base, dtype=np.float64), qs)
-    return np.unique(edges)
+    return cast("np.ndarray", np.unique(edges))
 
 
 def _oof_score_transform(

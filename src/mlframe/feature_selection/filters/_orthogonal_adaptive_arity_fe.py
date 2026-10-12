@@ -56,6 +56,7 @@ replay path.
 """
 from __future__ import annotations
 
+from typing import cast
 from ._orthogonal_shared import parse_code_deg_with_basis
 
 import logging
@@ -121,7 +122,7 @@ def _coerce_y_classif(y) -> np.ndarray:
     if np.issubdtype(y_arr.dtype, np.integer):
         return y_arr.astype(np.int64, copy=False)
     _, inv = np.unique(y_arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
+    return cast("np.ndarray", inv.astype(np.int64, copy=False))
 
 def generate_adaptive_arity_cross_basis(
     X: pd.DataFrame,
