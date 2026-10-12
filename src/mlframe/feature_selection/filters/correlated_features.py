@@ -18,6 +18,7 @@ correlation when the operator does not know the structure upfront.
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 
 import numpy as np
@@ -238,7 +239,7 @@ def cluster_features_by_correlation(
     # Compress + relabel.
     roots = np.array([_find(i) for i in range(n)])
     _, compact = np.unique(roots, return_inverse=True)
-    return compact
+    return cast("np.ndarray", compact)
 
 
 def _cluster_medoids(

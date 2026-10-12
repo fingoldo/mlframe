@@ -307,7 +307,7 @@ def build_unary_binary_recipe(
         }
         # Persist fit-time edges so replay never re-quantiles on test data.
         if fit_values_for_edges is not None:
-            _edges = _device_fit_edges(fit_values_for_edges, quantization["method"], int(quantization_nbins))
+            _edges = _device_fit_edges(fit_values_for_edges, cast(str, quantization["method"]), int(quantization_nbins))
             _arr = np.empty(0, dtype=np.float64) if _edges is not None else np.asarray(fit_values_for_edges, dtype=np.float64).ravel()
             if _edges is not None:
                 pass  # computed on the device: only the nbins + 1 edges crossed to the host

@@ -13,6 +13,7 @@ Public API (re-exported from ``mlframe.metrics.core``):
 """
 from __future__ import annotations
 
+from typing import cast
 from math import log
 
 import numpy as np
@@ -84,7 +85,7 @@ def _safe_quantile_bins(
                     if interior.size >= 1:
                         return np.concatenate([[-np.inf], interior, [np.inf]])
         edges = np.array([-np.inf, np.inf])
-    return edges
+    return cast("np.ndarray", edges)
 
 
 def _bin_counts(x: np.ndarray, edges: np.ndarray) -> np.ndarray:

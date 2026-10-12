@@ -95,6 +95,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Optional, Sequence
 
@@ -179,7 +180,7 @@ def _rbf_gram(z: np.ndarray, sigma: float) -> np.ndarray:
     diff = arr[:, None] - arr[None, :]
     sq = diff * diff
     s = float(sigma) if float(sigma) > 0.0 else 1.0
-    return np.exp(-sq / (2.0 * s * s))
+    return cast("np.ndarray", np.exp(-sq / (2.0 * s * s)))
 
 
 def hsic(

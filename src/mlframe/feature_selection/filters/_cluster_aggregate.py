@@ -22,6 +22,7 @@ Design notes:
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, Sequence
 
@@ -542,7 +543,7 @@ def run_cluster_aggregate_step(
             # across loop iterations).
             if quantization is not None:
                 _q_local = dict(quantization)
-                _nb = int(_q_local.get("nbins", 0))
+                _nb = int(cast(int, _q_local.get("nbins", 0)))
                 if _nb >= 2:
                     if str(_q_local.get("method", "quantile")) == "quantile":
                         _q_arr = np.linspace(0.0, 100.0, _nb + 1)
@@ -583,7 +584,7 @@ def run_cluster_aggregate_step(
                 binned = np.searchsorted(
                     _edges_arr[1:-1] if _edges_arr.size >= 2 else _edges_arr,
                     _agg_continuous, side="right",
-                ).astype(np.dtype(_q_local["dtype"]))
+                ).astype(np.dtype(cast(str, _q_local["dtype"])))
             else:
                 binned = apply_recipe(recipe, X)
             # ``mi`` reads ONLY columns x (the binned aggregate) and y (``target``)

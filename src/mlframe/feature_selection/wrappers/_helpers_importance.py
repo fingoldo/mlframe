@@ -5,6 +5,7 @@ Carved from ``_helpers.py``; the parent re-exports these names so legacy
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Callable, Union
 
@@ -238,7 +239,7 @@ def _conditional_permutation_importance(
             uniq = np.unique(col[mask])
         except (TypeError, ValueError):
             uniq = np.unique(col)
-        return uniq.size <= 10
+        return cast("bool", uniq.size <= 10)
 
     def _is_discrete_v2(col: np.ndarray) -> bool:
         """Tighter discrete-vs-continuous detection than ``_is_discrete``: integer dtype is canonical discrete; for
@@ -254,7 +255,7 @@ def _conditional_permutation_importance(
         except (TypeError, ValueError):
             uniq = np.unique(col)
         _n = max(int(mask.sum()) if hasattr(mask, "sum") else len(col), 1)
-        return uniq.size <= max(5, int(np.sqrt(_n))) and uniq.size <= 0.5 * _n
+        return cast("bool", uniq.size <= max(5, int(np.sqrt(_n))) and uniq.size <= 0.5 * _n)
 
     # Copy the matrix ONCE; every iteration mutates only column j and restores it in a
     # try/finally so the buffer re-enters each iteration identical to X_arr. The prior

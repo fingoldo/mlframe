@@ -100,7 +100,7 @@ def compute_local_linear_attention(
         back to a per-row ``sklearn.Ridge`` solve so degenerate neighbourhoods keep the exact path.
         """
         n_anchor = X_anchor.shape[0]
-        out = np.zeros((n_anchor, n_out_cols), dtype=dtype)
+        out: np.ndarray = np.zeros((n_anchor, n_out_cols), dtype=dtype)
         # Build ANN index over the neighbour pool.
         index = build_hnsw_index(X_neighbour_pool, space="cosine", M=16, ef_construction=100, num_threads=None, random_state=seed)
         topk_ids, _ = query_topk(index, X_anchor, k=k)
@@ -156,7 +156,7 @@ def compute_local_linear_attention(
 
     if not out_for_query:
         # Mode A: OOF for X_train.
-        out = np.zeros((n_train, n_out_cols), dtype=dtype)
+        out: np.ndarray = np.zeros((n_train, n_out_cols), dtype=dtype)
         for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X_train_s)):
             X_pool = X_train_s[tr_idx]
             y_pool = y_train[tr_idx].astype(np.float32, copy=False)

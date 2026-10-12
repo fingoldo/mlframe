@@ -12,12 +12,13 @@ fitted on the train rows, so a ``div`` interaction stays a reported candidate an
 
 from __future__ import annotations
 
+from typing import Callable, Dict
 from typing import Any, Optional
 
 import numpy as np
 
 SPECABLE_OPS = ("mul", "add", "sub")
-_APPLY = {"mul": np.multiply, "add": np.add, "sub": np.subtract}
+_APPLY: Dict[str, Callable[..., Any]] = {"mul": np.multiply, "add": np.add, "sub": np.subtract}
 
 
 def _columns(frame: Any) -> list:

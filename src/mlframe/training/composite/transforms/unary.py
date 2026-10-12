@@ -195,14 +195,14 @@ def signed_power_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Signed power transform ``sign(y) * |y|**p`` using the fitted exponent ``params["p"]``."""
     p = float(params["p"])
     arr = np.asarray(y, dtype=np.float64)
-    return np.sign(arr) * np.abs(arr) ** p
+    return cast("np.ndarray", np.sign(arr) * np.abs(arr) ** p)
 
 
 def signed_power_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Inverse of the signed power transform: ``sign(t) * |t|**(1/p)``."""
     p = float(params["p"])
     arr = np.asarray(t, dtype=np.float64)
-    return np.sign(arr) * np.abs(arr) ** (1.0 / p)
+    return cast("np.ndarray", np.sign(arr) * np.abs(arr) ** (1.0 / p))
 
 
 def signed_power_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndarray:
@@ -246,7 +246,7 @@ def log_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     # offset normally lifts y into the positive domain; a stray non-positive row yields NaN (handled by the
     # downstream domain/clip guards) -- silence the expected invalid-log RuntimeWarning rather than spam it.
     with np.errstate(invalid="ignore", divide="ignore"):
-        return np.log(np.asarray(y, dtype=np.float64) + offset)
+        return cast("np.ndarray", np.log(np.asarray(y, dtype=np.float64) + offset))
 
 
 def log_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:

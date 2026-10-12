@@ -35,6 +35,7 @@ References:
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, Literal, Optional
 
@@ -98,7 +99,7 @@ def compute_bgmm_virtual_features(
             # 1e6 ("very far") for pos-distance columns instead of a misleading 0.0 ("identical to
             # positive manifold"), 0.0 for log_gap columns (log(1e6)-log(1e6)=0, "no signal").
             n_k = len(_K_SCALES)
-            return np.concatenate([np.full((Xq_s.shape[0], n_k), 1e6), np.zeros((Xq_s.shape[0], n_k))], axis=1).astype(np.float32)
+            return cast("np.ndarray", np.concatenate([np.full((Xq_s.shape[0], n_k), 1e6), np.zeros((Xq_s.shape[0], n_k))], axis=1).astype(np.float32))
         # Cap n_components by available data.
         k_mix = max(2, min(n_components, Xt_pos.shape[0] // 3))
         n_synthetic = max(50, int(Xt_pos.shape[0] * n_synthetic_multiplier))

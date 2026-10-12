@@ -171,7 +171,7 @@ def attach_array(desc: SharedArrayDescriptor) -> np.ndarray:
         else:
             _ATTACHED[desc.name] = (hit[0], hit[1] + 1)
         shm = _ATTACHED[desc.name][0]
-    view = np.ndarray(desc.shape, dtype=np.dtype(desc.dtype), buffer=shm.buf)
+    view: np.ndarray = np.ndarray(desc.shape, dtype=np.dtype(desc.dtype), buffer=shm.buf)
     view.flags.writeable = False
     return view
 

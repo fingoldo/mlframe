@@ -18,6 +18,7 @@ early-stopping split over it (``early_stopping_val_cv``) holds out the newest ro
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, Iterator, Optional, Tuple
 
@@ -75,7 +76,7 @@ class GroupTimeSeriesSplit:
             logger.debug("pandas unique() group-order extraction failed, falling back to np.unique: %s", e)
             g = np.asarray(groups)
             _, idx = np.unique(g, return_index=True)
-            return g[np.sort(idx)]
+            return cast("np.ndarray", g[np.sort(idx)])
 
     def split(self, X=None, y=None, groups=None):
         """Yield ``(train_idx, test_idx)`` row-index arrays for each fold, forward-chaining over ``groups`` in first-appearance order.

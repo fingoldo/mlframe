@@ -376,8 +376,8 @@ def _frac_diff_grouped_domain(
     if y is None:
         if base is None or not hasattr(base, "__len__"):
             return np.ones(1, dtype=bool)
-        return np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
-    return np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+        return cast("np.ndarray", np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1)))
+    return cast("np.ndarray", np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
 
 
 # ----------------------------------------------------------------------

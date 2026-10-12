@@ -12,6 +12,7 @@ int-truncated), then densified. Mirrors the temporal-agg family's continuous-y g
 """
 from __future__ import annotations
 
+from typing import cast
 import hashlib
 import logging
 import threading
@@ -46,7 +47,7 @@ def _resolve_content_hash() -> Callable[[memoryview], int]:
     try:
         import xxhash as _xxhash
 
-        return _xxhash.xxh3_64_intdigest
+        return cast(Callable[[memoryview], int], _xxhash.xxh3_64_intdigest)
     except Exception as e:
         logger.debug("encode_y memo: xxhash unavailable (%s), hashing targets with blake2b", e)
 
@@ -139,4 +140,4 @@ def _encode_y_uncached(y: np.ndarray) -> np.ndarray:
                 type(e).__name__, e,
             )
     _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
+    return cast("np.ndarray", inv.astype(np.int64, copy=False))

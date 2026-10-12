@@ -15,10 +15,28 @@ selected features.
 from __future__ import annotations
 
 import os
+from typing import Any, Protocol, cast
+
 from mlframe.utils.env_flags import env_float
 
 _CP_SAT_TIME_LIMIT_S = env_float("MLFRAME_FE_VRAM_CPSAT_TIME_LIMIT_S", 1.0, minimum=0.0)
 _SCALE = 1000  # integer scale for the relative speed weights
+
+
+class _CpModelApi(Protocol):
+    """The CpModel methods the packer calls. Typed here because ortools removed the CamelCase aliases in 9.15 and the stubs disagree across versions."""
+
+    def NewBoolVar(self, name: str) -> Any:
+        """Create a boolean decision variable."""
+
+    def NewIntVar(self, lb: int, ub: int, name: str) -> Any:
+        """Create an integer decision variable with bounds ``[lb, ub]``."""
+
+    def Add(self, ct: Any) -> Any:
+        """Add a constraint to the model."""
+
+    def Minimize(self, obj: Any) -> Any:
+        """Set the objective to minimise."""
 
 
 def _greedy_lpt(works: list[int], speeds: list[float]) -> list[int]:
@@ -46,16 +64,17 @@ def _cpsat_pack(works: list[int], speeds: list[float]) -> list[int] | None:
     sp = [max(1, round(s / mn * _SCALE)) for s in speeds]  # integer relative speeds, slowest == _SCALE
     total = sum(int(w) for w in works)
     model = cp_model.CpModel()
-    x = [[model.NewBoolVar(f"x_{b}_{d}") for d in range(D)] for b in range(B)]  # type: ignore[attr-defined]  # ortools CamelCase alias, still present at runtime
+    api = cast(_CpModelApi, model)
+    x = [[api.NewBoolVar(f"x_{b}_{d}") for d in range(D)] for b in range(B)]  # ortools CamelCase alias, still present at runtime
     for b in range(B):
-        model.Add(sum(x[b][d] for d in range(D)) == 1)  # type: ignore[attr-defined]
+        api.Add(sum(x[b][d] for d in range(D)) == 1)
     cmax_ub = max(1, total) * _SCALE
-    cmax = model.NewIntVar(0, cmax_ub, "cmax")  # type: ignore[attr-defined]
+    cmax = api.NewIntVar(0, cmax_ub, "cmax")
     for d in range(D):
         load_d = sum(x[b][d] * int(works[b]) for b in range(B))
         # time_d = load_d / speed_d <= cmax  <=>  load_d * _SCALE <= cmax * sp[d]   (linear; sp[d] constant)
-        model.Add(load_d * _SCALE <= cmax * sp[d])  # type: ignore[attr-defined]
-    model.Minimize(cmax)  # type: ignore[attr-defined]
+        api.Add(load_d * _SCALE <= cmax * sp[d])
+    api.Minimize(cmax)
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = _CP_SAT_TIME_LIMIT_S
     solver.parameters.num_search_workers = 1  # deterministic, reproducible

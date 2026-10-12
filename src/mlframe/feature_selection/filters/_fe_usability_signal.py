@@ -59,7 +59,7 @@ def _abs_pearson_njit(y, v):
     the ``isfinite`` test, silently admitting the NaN rows the ratio forms produce and CORRUPTING the |corr| (a
     selection-BREAKING ~1e-2 error, not the ~1e-16 reassoc ULP delta this safe set gives)."""
     n = 0
-    sa = 0.0; sv = 0.0
+    sa: float | np.floating = 0.0; sv: float | np.floating = 0.0
     for i in range(y.shape[0]):
         a = np.float64(y[i]); b = np.float64(v[i])
         finite = np.isfinite(a) and np.isfinite(b)
@@ -73,7 +73,7 @@ def _abs_pearson_njit(y, v):
     inv = 1.0 / n
     ma = sa * inv
     mv = sv * inv
-    saa = 0.0; svv = 0.0; sav = 0.0
+    saa: float | np.floating = 0.0; svv: float | np.floating = 0.0; sav: float | np.floating = 0.0
     for i in range(y.shape[0]):
         a = np.float64(y[i]); b = np.float64(v[i])
         finite = np.isfinite(a) and np.isfinite(b)

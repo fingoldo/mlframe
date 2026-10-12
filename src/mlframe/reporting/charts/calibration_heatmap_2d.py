@@ -27,6 +27,7 @@ edges is annotated and the grid degenerates; cells below the support floor are g
 
 from __future__ import annotations
 
+from typing import cast
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
@@ -50,7 +51,7 @@ _CELL_SCORE_BINS: int = 5
 def _quantile_edges(values: np.ndarray, n_bins: int) -> np.ndarray:
     """Unique quantile edges for ``values`` (ties collapse on a low-cardinality / constant feature)."""
     qs = np.linspace(0.0, 1.0, n_bins + 1)
-    return np.unique(np.quantile(values, qs))
+    return cast("np.ndarray", np.unique(np.quantile(values, qs)))
 
 
 def _bin_codes(values: np.ndarray, edges: np.ndarray) -> np.ndarray:

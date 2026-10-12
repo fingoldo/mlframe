@@ -16,6 +16,7 @@ njit matches the numpy two-pass reduction numerically and wins at every profiled
 
 from __future__ import annotations
 
+from typing import cast
 from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -207,7 +208,7 @@ _MAX_CLASS_VALUES = 20
 
 def _is_continuous_target(yv: np.ndarray) -> bool:
     """True for a regression target: more than ``_MAX_CLASS_VALUES`` distinct finite values."""
-    return np.unique(yv[np.isfinite(yv)]).size > _MAX_CLASS_VALUES
+    return cast("bool", np.unique(yv[np.isfinite(yv)]).size > _MAX_CLASS_VALUES)
 
 
 def _rank(v: np.ndarray) -> np.ndarray:

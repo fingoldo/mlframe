@@ -33,6 +33,7 @@ A high-drift alert sets ``report["recommend_update"] = True``, the hook the
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from collections import deque
 from typing import Any, Deque, Dict, Sequence, Tuple
@@ -65,7 +66,7 @@ def _quantile_knots(values: np.ndarray, n_quantiles: int) -> np.ndarray:
         return np.array([0.0], dtype=np.float64)
     qs = np.linspace(0.0, 1.0, n_quantiles + 1)[1:-1]
     edges = np.quantile(v, qs)
-    return np.unique(edges)
+    return cast("np.ndarray", np.unique(edges))
 
 
 def _bin_fractions(values: np.ndarray, edges: np.ndarray) -> np.ndarray:

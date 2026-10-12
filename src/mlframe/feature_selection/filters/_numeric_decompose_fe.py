@@ -52,6 +52,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import math
 from typing import Optional, Sequence
@@ -131,7 +132,7 @@ def apply_rounding(x: np.ndarray, precision: float) -> np.ndarray:
     if p <= 0.0:
         raise ValueError(f"rounding precision must be > 0; got {p!r}")
     arr = np.asarray(x, dtype=np.float64)
-    return np.round(arr / p) * p
+    return cast("np.ndarray", np.round(arr / p) * p)
 
 
 def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:

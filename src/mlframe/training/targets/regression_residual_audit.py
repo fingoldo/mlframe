@@ -39,6 +39,7 @@ plot, and the diagnostic / hypothesis text is printed underneath.
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import math
 from dataclasses import dataclass, field
@@ -251,7 +252,7 @@ def _sample(arr: np.ndarray, size: int, seed: int = 0) -> np.ndarray:
         return arr
     rng = np.random.default_rng(seed)
     idx = rng.choice(arr.size, size=size, replace=False)
-    return arr[idx]
+    return cast("np.ndarray", arr[idx])
 
 
 def _ranks_via_scatter(x: np.ndarray) -> np.ndarray:

@@ -22,6 +22,7 @@ importance measure cannot see -- a real failure mode, and one this generator can
 
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Dict, Mapping, Optional, Sequence, Tuple
 
@@ -159,10 +160,10 @@ def basis_term_value(term: "BasisTerm", columns: Mapping[str, np.ndarray], rng: 
         return weight * operands[0]
     if term.kind == "centered_square":
         center = float(term.params.get("center", 0.0))
-        return weight * np.square(operands[0] - center)
+        return cast("np.ndarray", weight * np.square(operands[0] - center))
     if term.kind == "abs_deviation":
         center = float(term.params.get("center", 0.0))
-        return weight * np.abs(operands[0] - center)
+        return cast("np.ndarray", weight * np.abs(operands[0] - center))
     if term.kind == "sin_product":
         frequency = float(term.params.get("frequency", np.pi))
         product = operands[0].copy()

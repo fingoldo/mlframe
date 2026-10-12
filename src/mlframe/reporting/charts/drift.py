@@ -22,6 +22,7 @@ and decimate curves so a 1M-row time-ordered frame stays cheap. New behaviour de
 
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -94,7 +95,7 @@ def _quantile_edges(baseline: np.ndarray, nbins: int) -> np.ndarray:
     edges = edges.astype(np.float64)
     edges[0] = -np.inf
     edges[-1] = np.inf
-    return edges
+    return cast("np.ndarray", edges)
 
 
 def _binned_proportions(values: np.ndarray, edges: np.ndarray) -> np.ndarray:

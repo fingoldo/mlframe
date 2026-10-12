@@ -16,6 +16,7 @@ residual) pair as separate, individually named output columns -- not a pooled ag
 """
 from __future__ import annotations
 
+from typing import Dict
 import logging
 from typing import Any, Callable, Optional, Sequence
 
@@ -144,7 +145,7 @@ def compute_auxiliary_feature_prediction_features(
     if splitter is None:
         raise ValueError("compute_auxiliary_feature_prediction_features: Mode A (X_query=None) requires a splitter.")
     n_train = X_train.shape[0]
-    out_cols = {f"{column_prefix}_{f}_pred": np.zeros(n_train, dtype=dtype) for f in target_features}
+    out_cols: Dict[str, np.ndarray] = {f"{column_prefix}_{f}_pred": np.zeros(n_train, dtype=dtype) for f in target_features}
     out_cols.update({f"{column_prefix}_{f}_resid": np.zeros(n_train, dtype=dtype) for f in target_features})
     if want_uncertainty:
         out_cols.update({f"{column_prefix}_{f}_uncertainty": np.zeros(n_train, dtype=dtype) for f in target_features})

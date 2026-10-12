@@ -5,6 +5,7 @@ so a fix can't silently drift out of sync across copies.
 """
 from __future__ import annotations
 
+from typing import cast
 from typing import Any
 
 import numpy as np
@@ -81,4 +82,4 @@ def coerce_y_classif(y: "np.ndarray | Any") -> np.ndarray:
     if np.issubdtype(arr.dtype, np.integer):
         return arr.astype(np.int64, copy=False)
     _, inv = np.unique(arr, return_inverse=True)
-    return inv.astype(np.int64, copy=False)
+    return cast("np.ndarray", inv.astype(np.int64, copy=False))

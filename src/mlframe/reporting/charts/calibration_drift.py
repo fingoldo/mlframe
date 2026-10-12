@@ -19,6 +19,7 @@ existing O(n) njit ``compute_ece_and_brier_decomposition`` -- aggregate-first, n
 
 from __future__ import annotations
 
+from typing import cast
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Tuple
 
@@ -86,7 +87,7 @@ def _window_edges_by_population(n: int, n_windows: int) -> np.ndarray:
     rounded to int; deduped so a tiny n with many windows does not manufacture empty windows.
     """
     raw = np.linspace(0, n, n_windows + 1)
-    return np.unique(np.round(raw).astype(np.int64))
+    return cast("np.ndarray", np.unique(np.round(raw).astype(np.int64)))
 
 
 def calibration_drift(

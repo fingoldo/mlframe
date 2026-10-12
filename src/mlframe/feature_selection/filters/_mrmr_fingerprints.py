@@ -22,6 +22,7 @@ time - only at runtime.
 """
 from __future__ import annotations
 
+from typing import cast
 import hashlib
 from uuid import uuid4
 import logging
@@ -447,7 +448,7 @@ def _mrmr_y_corr_sample(y, max_sample: int = 1000) -> np.ndarray:
     if not np.issubdtype(sample.dtype, np.number):
         # Factorize non-numeric (object/str/categorical) codes so the gate still has a numeric vector.
         _, codes = np.unique(sample.astype(str), return_inverse=True)
-        return codes.astype(np.float64)
+        return cast("np.ndarray", codes.astype(np.float64))
     return sample.astype(np.float64)
 
 

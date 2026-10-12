@@ -8,6 +8,7 @@ helpers (`get_binning_edges`, `edges`, `discretize_sklearn`).
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import math
 from typing import Optional
@@ -88,7 +89,7 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
             if j == M - 1:
                 hi = n
             else:
-                hi = np.searchsorted(a_sorted, a_min + (j + 1) * width, side="left")
+                hi = cast(int, np.searchsorted(a_sorted, a_min + (j + 1) * width, side="left"))
             s += math.lgamma((hi - prev) + 0.5)
             prev = hi
         if s > best_logp:

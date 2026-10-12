@@ -238,4 +238,4 @@ def _target_encoding_residual_domain(
     if y is None:
         n = len(base) if hasattr(base, "__len__") else 1
         return np.ones(n, dtype=bool)
-    return np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+    return cast("np.ndarray", np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))

@@ -15,6 +15,7 @@ unweighted calls.
 
 from __future__ import annotations
 
+from typing import cast
 import numba
 import numpy as np
 
@@ -175,7 +176,7 @@ def bin_index(y_true: np.ndarray, y_pred: np.ndarray, sample_weight: np.ndarray,
     span = hi - lo
     if span <= 0:
         return np.zeros(p.size, dtype=np.int64)
-    return np.clip(np.floor((p - lo) * (nbins / span)), 0, nbins - 1).astype(np.int64)
+    return cast("np.ndarray", np.clip(np.floor((p - lo) * (nbins / span)), 0, nbins - 1).astype(np.int64))
 
 
 @numba.njit(fastmath=False, cache=True, nogil=True)

@@ -190,7 +190,7 @@ def _roc_pr_auc_sorted(y_t_sorted: np.ndarray, y_p_sorted: np.ndarray):
             prev_recall = current_recall
     denom_roc = tps * fps * 2
     if denom_roc > 0:
-        roc_auc = roc_acc / denom_roc
+        roc_auc: float | np.floating = roc_acc / denom_roc
     else:
         roc_auc = np.nan
     return roc_auc, pr_acc
