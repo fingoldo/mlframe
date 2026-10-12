@@ -65,4 +65,6 @@ from mlframe.metrics.regression import (
 
 # Preserve the historical ``from mlframe.metrics import *`` surface (every public name the star-imports above brought in)
 # while GUARANTEEING the documented ``fast_calibration_report`` / ``CalibrationReport`` are part of it as a first-class contract.
+from ._numba_params import NUMBA_NJIT_PARAMS
+
 __all__ = sorted({name for name in globals() if not name.startswith("_")} | {"CalibrationReport", "fast_calibration_report"})

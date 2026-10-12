@@ -12,6 +12,16 @@ warnings.simplefilter("ignore")
 
 
 @njit(cache=True)
+def _median_njit(a):
+    """Median by sorting a copy: ``np.median`` is not a numba-stable reduction across versions, a sort is."""
+    s = np.sort(a)
+    n = s.shape[0]
+    if n % 2 == 1:
+        return s[n // 2]
+    return 0.5 * (s[n // 2 - 1] + s[n // 2])
+
+
+@njit(cache=True)
 def bins_of(f, k):
     """Equal-frequency bin codes (int8) from the merge-sort rank of ``f``."""
     n = f.size
@@ -135,7 +145,7 @@ def zc_t(u, v, yr, nb, zthr, interp, fallback_median):
                 t = -x0
         last = b
     if np.isnan(t) and fallback_median:
-        t = -np.median(u)
+        t = -_median_njit(u)
     return t
 
 
@@ -182,7 +192,7 @@ def ols_t(u, v, yr, winsor, huber):
             res = np.empty(n)
             for i in range(n):
                 res[i] = yr[i] - (X[i, 0] * beta[0] + X[i, 1] * beta[1] + X[i, 2] * beta[2] + X[i, 3] * beta[3])
-            s = 1.4826 * np.median(np.abs(res - np.median(res))) + 1e-12
+            s = 1.4826 * _median_njit(np.abs(res - _median_njit(res))) + 1e-12
             for i in range(n):
                 a = np.abs(res[i]) / s
                 w[i] = 1.0 if a <= 1.345 else 1.345 / a

@@ -35,11 +35,14 @@ def _inputs(n: int):
 
 def _best(fn) -> float:
     """Best wall time of ``REPEATS`` calls (the first call, which compiles, is made before timing)."""
+    from mlframe.utils.gpu_sync import synchronize_gpu_if_available
+
     fn()
     best = float("inf")
     for _ in range(REPEATS):
         t0 = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         best = min(best, time.perf_counter() - t0)
     return best
 

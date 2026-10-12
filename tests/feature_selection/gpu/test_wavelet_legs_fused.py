@@ -97,8 +97,9 @@ def test_clipped_and_nan_values_encode_as_outside():
 def test_thin_support_removes_legs_like_the_loop():
     """With z concentrated in one cell only the legs covering it stay eligible, with the same order."""
     z = cp.asarray(np.random.default_rng(1).uniform(0.0, 0.2, size=5_000))
-    metas = _same(z, 4, 100)
-    assert 0 < len(metas) < 31
+    thin = _same(z, 4, 100)
+    full = _same(cp.asarray(np.random.default_rng(1).uniform(0.0, 1.0, size=5_000)), 4, 100)
+    assert 0 < len(thin) < len(full), "a concentrated column must admit strictly fewer legs than a spread one"
 
 
 def test_no_eligible_leg_gives_an_empty_result():

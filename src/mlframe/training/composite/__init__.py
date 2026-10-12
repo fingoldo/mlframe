@@ -75,6 +75,7 @@ logger = logging.getLogger(__name__)
 # composite_discovery). Re-export below preserves callers doing
 # ``from mlframe.training.composite import CompositeSpec``.
 # ----------------------------------------------------------------------
+from ._frame_columns import frame_columns
 from .spec import CompositeSpec
 
 # Re-export everything from composite_transforms for full back-compat.

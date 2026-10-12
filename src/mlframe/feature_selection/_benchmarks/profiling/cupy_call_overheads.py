@@ -4,7 +4,7 @@ The numbers (30-140 us per op on the dev box, ``std`` ~280 us, ``bincount`` ~500
 """
 import time, warnings
 warnings.simplefilter("ignore")
-import numpy as np, cupy as cp
+import cupy as cp
 n = 30000
 a = cp.random.rand(n); b = cp.random.rand(n); m = a > 0.5; f32 = a.astype(cp.float32); idx = cp.arange(n)[::-1].copy()
 M = cp.random.rand(n, 8)
@@ -12,6 +12,7 @@ def bench(label, fn, reps=400):
     fn(); cp.cuda.Device().synchronize()
     t = time.perf_counter()
     for _ in range(reps): fn()
+    # gpu-timing-async-intentional: t_launch is the host-side launch cost on purpose; t_all below is the synchronized total
     t_launch = (time.perf_counter() - t) / reps * 1e6
     cp.cuda.Device().synchronize()
     t_all = (time.perf_counter() - t) / reps * 1e6

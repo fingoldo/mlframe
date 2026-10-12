@@ -90,7 +90,7 @@ def compute_model_pipeline_cache_key(
     return key + rows_suffix
 
 
-def pre_pipeline_params_digest(pre_pipeline) -> str:
+def pre_pipeline_params_digest(pre_pipeline: Any) -> str:
     """Digest of every step's ``get_params(deep=False)`` in a fitted or unfitted pre-pipeline; "" for no pre-pipeline or any failure.
 
     A pre-pipeline's name does not say which parameters it was built with, so two pipelines of the same name and different
@@ -107,8 +107,10 @@ def pre_pipeline_params_digest(pre_pipeline) -> str:
             parts.append((str(name), type(est).__name__, sorted(params.items(), key=lambda kv: kv[0])))
         return hashlib.blake2b(repr(parts).encode("utf-8", errors="replace"), digest_size=8).hexdigest()
     except Exception as exc:
-        logger.debug("pre_pipeline_params_digest: introspection failed, key left unchanged: %s", exc)
-        return ""
+        # A failed introspection must not share one constant slot across every failing pipeline: key on the object itself, so
+        # two different un-introspectable pipelines never reuse each other's cache entry (an object repr carries its identity).
+        logger.debug("pre_pipeline_params_digest: introspection failed, keying on the object instead: %s", exc)
+        return hashlib.blake2b(repr(pre_pipeline).encode("utf-8", errors="replace"), digest_size=8).hexdigest()
 
 
 def compute_cached_model_input_fingerprint(

@@ -52,11 +52,14 @@ def _cpu_scan(args) -> None:
 
 def _median_ms(fn, n_iters: int) -> float:
     """Median wall time of ``fn`` over ``max(3, n_iters)`` calls after one warm call (milliseconds)."""
+    from mlframe.utils.gpu_sync import synchronize_gpu_if_available
+
     fn()
     ts = []
     for _ in range(max(3, n_iters)):
         t0 = time.perf_counter()
         fn()
+        synchronize_gpu_if_available()
         ts.append(time.perf_counter() - t0)
     return float(np.median(ts)) * 1e3
 

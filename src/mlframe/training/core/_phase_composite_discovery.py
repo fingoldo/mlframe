@@ -995,7 +995,7 @@ def _add_mix_offset_targets(target_by_type: dict, metadata: dict, inputs: dict) 
 
     The companion is an ordinary target in ``target_by_type``: it is trained like any other, and its predictions are returned
     to the y scale by the add-back wrapper (wiring pending). A name collision leaves the existing target untouched."""
-    from ...feature_selection.filters._target_mix_target import build_mix_offset_target
+    from ...feature_selection.filters import build_mix_offset_target
 
     out = dict(target_by_type)
     reg = dict(out.get(TargetTypes.REGRESSION, {}))

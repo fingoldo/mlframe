@@ -146,7 +146,7 @@ def compute_calib_and_oof_outputs(
     test frame's schema; the row-wise replay below is skipped since those columns are already there.
     """
     if calib_df is not None and calib_df_pre_pipeline is not None:
-        from mlframe.training.core._calib_frame_replay import align_calib_to_test_schema
+        from mlframe.training.core import align_calib_to_test_schema
 
         calib_df = align_calib_to_test_schema(calib_df, calib_df_pre_pipeline, test_df)
         row_wise_extensions_config = None

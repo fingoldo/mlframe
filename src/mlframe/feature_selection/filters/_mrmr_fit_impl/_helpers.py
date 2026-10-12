@@ -487,7 +487,7 @@ def _pgn_raw_budget(ceiling: int, n_engineered: int) -> int:
     return max(0, int(ceiling) - int(n_engineered))
 
 
-def collect_garbage_if_frame_is_large(X) -> bool:
+def collect_garbage_if_frame_is_large(X: Any) -> bool:
     """Run ``gc.collect`` before discretisation only when the frame is a visible share of the free RAM (the pass bounds the peak RSS and costs ~0.16 s of a small fit).
 
     Returns whether the collection ran."""

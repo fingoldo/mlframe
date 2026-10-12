@@ -428,11 +428,11 @@ def _predict_mlframe_mo_quantile_bundles_skipped_fix(metadata, model_files, mode
                 per_target_preds.setdefault((_tt, _tn), []).append(preds)
             else:
                 preds = _predict_mlframe_mo_try(model, _primary_for_model, verbose, _pandas_view_cache, preds)
-                from ...feature_selection.filters._target_mix_target import mix_offset_record
+                from ...feature_selection.filters import mix_offset_record
 
                 _mixoff = mix_offset_record(metadata, _tt, _tn)
                 if _mixoff is not None:
-                    from ...feature_selection.filters._target_mix_target import add_back_mix_offset
+                    from ...feature_selection.filters import add_back_mix_offset
                     preds = add_back_mix_offset(preds, _ensure_pandas_view(df, _pandas_view_cache), _mixoff)
                 results["predictions"][model_name] = preds
                 all_preds.append(preds)
