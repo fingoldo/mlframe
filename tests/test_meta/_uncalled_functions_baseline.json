@@ -391,7 +391,6 @@
   "src/mlframe/feature_selection/filters/_gpu_resident_basis.py::_gpu_evaluate_basis_column",
   "src/mlframe/feature_selection/filters/_gpu_resident_fe.py::clear_resident_codes_handoff",
   "src/mlframe/feature_selection/filters/_gpu_resident_fe.py::fe_gpu_resident_enabled",
-  "src/mlframe/feature_selection/filters/_gpu_resident_fe.py::gpu_resident_pair_candidate_mi_fast",
   "src/mlframe/feature_selection/filters/_gpu_resident_materialise.py::clear_pinned_d2h",
   "src/mlframe/feature_selection/filters/_gpu_resident_pair_mi.py::ensure_fe_gpu_binning_tuning",
   "src/mlframe/feature_selection/filters/_gpu_resident_pair_mi.py::ensure_fe_gpu_pairs_mi_tuning",
