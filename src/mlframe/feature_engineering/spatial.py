@@ -112,6 +112,138 @@ def _resolve_aggs(values: np.ndarray, agg_fns: Iterable[str]) -> dict:
     return out
 
 
+def _finite_reference_pool(ref_coords: np.ndarray, ref_labels: np.ndarray, ref_group_ids: Optional[np.ndarray]) -> tuple:
+    """Drop reference rows with a non-finite coordinate or label so the KDTree is built on a clean pool."""
+    ref_finite_mask = np.isfinite(ref_coords).all(axis=1) & np.isfinite(ref_labels)
+    if not ref_finite_mask.all():
+        ref_coords = ref_coords[ref_finite_mask]
+        ref_labels = ref_labels[ref_finite_mask]
+        if ref_group_ids is not None:
+            ref_group_ids = np.asarray(ref_group_ids)[ref_finite_mask]
+    return ref_coords, ref_labels, ref_group_ids
+
+
+def _group_filtered_neighbours(
+    indices: np.ndarray,
+    distances: np.ndarray,
+    q_k: int,
+    k: int,
+    q_group_ids: np.ndarray,
+    ref_group_ids: np.ndarray,
+    ref_labels: np.ndarray,
+    n_ref: int,
+) -> tuple:
+    """Keep each query's first ``k`` neighbours from a different group; return their labels, distances and validity mask."""
+    q_group_ids = np.asarray(q_group_ids)
+    ref_group_ids = np.asarray(ref_group_ids)
+    # mask[i, j] = True iff neighbour j of query i belongs to a
+    # different group than query i.
+    same_group = ref_group_ids[indices] == q_group_ids[:, None]
+    # Compact: for each row, take first k columns where same_group=False
+    sorted_mask = np.where(same_group, np.iinfo(np.int64).max, np.arange(q_k))
+    order = np.argsort(sorted_mask, axis=1)
+    keep_idx = order[:, :k]
+    compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+    compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    compact_mask = ~np.take_along_axis(same_group, keep_idx, axis=1)
+    # The overquery cap (q_k = min(ref pool, k*4+1)) is a heuristic sized for "typical" panel data
+    # (1-5 same-group members). A query row whose own group is unusually dense can exhaust the
+    # entire q_k candidate window with same-group hits, silently degrading that row's aggregates to
+    # partial-k / all-NaN with no signal to the caller that the cap (not genuine data sparsity) was
+    # the cause -- surface a count/warning so this is diagnosable instead of silent.
+    n_valid = compact_mask.sum(axis=1)
+    starved = (n_valid < k) & (q_k < n_ref)
+    if starved.any():
+        logger.warning(
+            "knn_aggregate: %d/%d query row(s) got fewer than k=%d valid (different-group) neighbours "
+            "because the overquery cap q_k=%d was exhausted by same-group hits, not because the "
+            "reference pool ran out; consider increasing k*4+1 for denser groups.",
+            int(starved.sum()),
+            q_group_ids.shape[0],
+            k,
+            q_k,
+        )
+    # Where mask is False (no valid neighbour for that slot),
+    # carry NaN; aggregators below handle NaN via np.nanmean / etc.
+    labels_arr = np.where(
+        compact_mask,
+        ref_labels[compact_indices],
+        np.nan,
+    )
+    return labels_arr, compact_dist, compact_mask
+
+
+def _self_excluded_neighbours(
+    indices: np.ndarray,
+    distances: np.ndarray,
+    q_k: int,
+    k: int,
+    query_is_ref: bool,
+    ref_labels: np.ndarray,
+) -> tuple:
+    """Return each query's ``k`` nearest labels and distances, skipping one distance-0 self-match when the query pool is the reference pool."""
+    # Exclude at most one distance-0 self-match per query row (the
+    # `query is ref` case the docstring promises is leak-safe): the
+    # KDTree returns neighbours sorted by distance ascending, so a
+    # self-match always lands at rank 0 and would otherwise always
+    # survive the naive `indices[:, :k]` truncation, silently
+    # replacing the true k-th neighbour with the query point itself.
+    # ...but ONLY when the query pool really is the reference pool. Keying on distance alone dropped a
+    # genuine coincident neighbour whenever two different reference entities shared a location, which
+    # geocoded data produces constantly (one address, several entities): the k-ring then shifted outward by
+    # one and the aggregate was computed over a farther set than the k nearest, with nothing to show for it.
+    is_zero_dist = (distances <= 0.0) if query_is_ref else np.zeros(distances.shape, dtype=bool)
+    first_zero = is_zero_dist & (np.cumsum(is_zero_dist, axis=1) == 1)
+    if first_zero.any():
+        sorted_mask = np.where(first_zero, np.iinfo(np.int64).max, np.arange(q_k))
+        order = np.argsort(sorted_mask, axis=1)
+        keep_idx = order[:, :k]
+        compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+        compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    else:
+        compact_indices = indices[:, :k]
+        compact_dist = distances[:, :k]
+    return ref_labels[compact_indices], compact_dist
+
+
+def _group_aware_aggregates(
+    labels_arr: np.ndarray,
+    agg_fns: Iterable[str],
+    distance_weighted: bool,
+    compact_dist: np.ndarray,
+    weight_eps: float,
+) -> dict:
+    """NaN-aware aggregates over group-filtered neighbour labels, where NaN marks a slot with no valid neighbour."""
+    out_aggs: dict = {}
+    for name in agg_fns:
+        if name == "median":
+            out_aggs[name] = np.nanmedian(labels_arr, axis=1)
+        elif name == "mean":
+            if distance_weighted:
+                w = 1.0 / (compact_dist + weight_eps)
+                w = np.where(np.isfinite(labels_arr), w, 0.0)
+                out_aggs[name] = safe_div((np.where(np.isfinite(labels_arr), labels_arr, 0.0) * w).sum(axis=1), w.sum(axis=1))
+            else:
+                out_aggs[name] = np.nanmean(labels_arr, axis=1)
+        elif name == "std":
+            out_aggs[name] = np.nanstd(labels_arr, axis=1, ddof=1)
+        elif name == "iqr":
+            q25 = np.nanpercentile(labels_arr, 25, axis=1)
+            q75 = np.nanpercentile(labels_arr, 75, axis=1)
+            out_aggs[name] = q75 - q25
+        elif name == "min":
+            out_aggs[name] = np.nanmin(labels_arr, axis=1)
+        elif name == "max":
+            out_aggs[name] = np.nanmax(labels_arr, axis=1)
+        elif name == "p10":
+            out_aggs[name] = np.nanpercentile(labels_arr, 10, axis=1)
+        elif name == "p90":
+            out_aggs[name] = np.nanpercentile(labels_arr, 90, axis=1)
+        else:
+            raise ValueError(f"unknown agg_fn={name!r}")
+    return out_aggs
+
+
 def knn_aggregate(
     query_coords: np.ndarray,
     ref_coords: np.ndarray,
@@ -189,12 +321,7 @@ def knn_aggregate(
     if ref_coords.shape[0] != ref_labels.shape[0]:
         raise ValueError(f"ref_coords rows {ref_coords.shape[0]} != ref_labels " f"len {ref_labels.shape[0]}")
     # Drop non-finite ref rows so KDTree gets a clean pool.
-    ref_finite_mask = np.isfinite(ref_coords).all(axis=1) & np.isfinite(ref_labels)
-    if not ref_finite_mask.all():
-        ref_coords = ref_coords[ref_finite_mask]
-        ref_labels = ref_labels[ref_finite_mask]
-        if ref_group_ids is not None:
-            ref_group_ids = np.asarray(ref_group_ids)[ref_finite_mask]
+    ref_coords, ref_labels, ref_group_ids = _finite_reference_pool(ref_coords, ref_labels, ref_group_ids)
 
     if ref_coords.shape[0] < k + 1:
         raise ValueError(f"need >= k+1 ({k + 1}) finite reference rows; got " f"{ref_coords.shape[0]}")
@@ -217,93 +344,15 @@ def knn_aggregate(
     distances, indices = tree.query(q_clean, k=q_k)
 
     if q_group_ids is not None and ref_group_ids is not None:
-        q_group_ids = np.asarray(q_group_ids)
-        ref_group_ids = np.asarray(ref_group_ids)
-        # mask[i, j] = True iff neighbour j of query i belongs to a
-        # different group than query i.
-        same_group = ref_group_ids[indices] == q_group_ids[:, None]
-        # Compact: for each row, take first k columns where same_group=False
-        sorted_mask = np.where(same_group, np.iinfo(np.int64).max, np.arange(q_k))
-        order = np.argsort(sorted_mask, axis=1)
-        keep_idx = order[:, :k]
-        compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
-        compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
-        compact_mask = ~np.take_along_axis(same_group, keep_idx, axis=1)
-        # The overquery cap (q_k = min(ref pool, k*4+1)) is a heuristic sized for "typical" panel data
-        # (1-5 same-group members). A query row whose own group is unusually dense can exhaust the
-        # entire q_k candidate window with same-group hits, silently degrading that row's aggregates to
-        # partial-k / all-NaN with no signal to the caller that the cap (not genuine data sparsity) was
-        # the cause -- surface a count/warning so this is diagnosable instead of silent.
-        n_valid = compact_mask.sum(axis=1)
-        starved = (n_valid < k) & (q_k < ref_coords.shape[0])
-        if starved.any():
-            logger.warning(
-                "knn_aggregate: %d/%d query row(s) got fewer than k=%d valid (different-group) neighbours "
-                "because the overquery cap q_k=%d was exhausted by same-group hits, not because the "
-                "reference pool ran out; consider increasing k*4+1 for denser groups.",
-                int(starved.sum()),
-                q_group_ids.shape[0],
-                k,
-                q_k,
-            )
-        # Where mask is False (no valid neighbour for that slot),
-        # carry NaN; aggregators below handle NaN via np.nanmean / etc.
-        labels_arr = np.where(
-            compact_mask, ref_labels[compact_indices], np.nan,
+        labels_arr, compact_dist, compact_mask = _group_filtered_neighbours(
+            indices, distances, q_k, k, q_group_ids, ref_group_ids, ref_labels, ref_coords.shape[0]
         )
     else:
-        # Exclude at most one distance-0 self-match per query row (the
-        # `query is ref` case the docstring promises is leak-safe): the
-        # KDTree returns neighbours sorted by distance ascending, so a
-        # self-match always lands at rank 0 and would otherwise always
-        # survive the naive `indices[:, :k]` truncation, silently
-        # replacing the true k-th neighbour with the query point itself.
-        # ...but ONLY when the query pool really is the reference pool. Keying on distance alone dropped a
-        # genuine coincident neighbour whenever two different reference entities shared a location, which
-        # geocoded data produces constantly (one address, several entities): the k-ring then shifted outward by
-        # one and the aggregate was computed over a farther set than the k nearest, with nothing to show for it.
-        is_zero_dist = (distances <= 0.0) if _query_is_ref else np.zeros(distances.shape, dtype=bool)
-        first_zero = is_zero_dist & (np.cumsum(is_zero_dist, axis=1) == 1)
-        if first_zero.any():
-            sorted_mask = np.where(first_zero, np.iinfo(np.int64).max, np.arange(q_k))
-            order = np.argsort(sorted_mask, axis=1)
-            keep_idx = order[:, :k]
-            compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
-            compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
-        else:
-            compact_indices = indices[:, :k]
-            compact_dist = distances[:, :k]
-        labels_arr = ref_labels[compact_indices]
+        labels_arr, compact_dist = _self_excluded_neighbours(indices, distances, q_k, k, _query_is_ref, ref_labels)
 
     # Aggregate. Use nan-aware variants if same-group filter introduced NaN.
     if q_group_ids is not None:
-        out_aggs: dict = {}
-        for name in agg_fns:
-            if name == "median":
-                out_aggs[name] = np.nanmedian(labels_arr, axis=1)
-            elif name == "mean":
-                if distance_weighted:
-                    w = 1.0 / (compact_dist + weight_eps)
-                    w = np.where(np.isfinite(labels_arr), w, 0.0)
-                    out_aggs[name] = safe_div((np.where(np.isfinite(labels_arr), labels_arr, 0.0) * w).sum(axis=1), w.sum(axis=1))
-                else:
-                    out_aggs[name] = np.nanmean(labels_arr, axis=1)
-            elif name == "std":
-                out_aggs[name] = np.nanstd(labels_arr, axis=1, ddof=1)
-            elif name == "iqr":
-                q25 = np.nanpercentile(labels_arr, 25, axis=1)
-                q75 = np.nanpercentile(labels_arr, 75, axis=1)
-                out_aggs[name] = q75 - q25
-            elif name == "min":
-                out_aggs[name] = np.nanmin(labels_arr, axis=1)
-            elif name == "max":
-                out_aggs[name] = np.nanmax(labels_arr, axis=1)
-            elif name == "p10":
-                out_aggs[name] = np.nanpercentile(labels_arr, 10, axis=1)
-            elif name == "p90":
-                out_aggs[name] = np.nanpercentile(labels_arr, 90, axis=1)
-            else:
-                raise ValueError(f"unknown agg_fn={name!r}")
+        out_aggs = _group_aware_aggregates(labels_arr, agg_fns, distance_weighted, compact_dist, weight_eps)
         # Consistent with the aggregates above. A query row whose own group exhausts the whole q_k window has
         # correctly-NaN aggregates but was still handed `compact_dist[:, 0]` -- a SAME-group distance, i.e. a
         # within-group proximity value leaking into a column documented as group-filtered.
