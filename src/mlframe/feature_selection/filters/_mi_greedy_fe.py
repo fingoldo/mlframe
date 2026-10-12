@@ -28,6 +28,7 @@ column on test data deterministically (X-only, never references y).
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
@@ -179,7 +180,7 @@ def _bin_min(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 def _bin_abs_diff(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``|a - b|`` - unsigned gap between two columns; catches "how far apart" relationships regardless of which column is larger."""
-    return np.abs(np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64))
+    return cast("np.ndarray", np.abs(np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)))
 
 
 def _bin_ratio_log(a: np.ndarray, b: np.ndarray) -> np.ndarray:

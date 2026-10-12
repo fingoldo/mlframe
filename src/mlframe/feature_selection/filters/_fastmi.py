@@ -30,6 +30,7 @@ Optimization (per README.md methodology):
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import math
 from typing import Optional
@@ -129,7 +130,7 @@ def _gaussian_kernel_2d(M: int, h: float, grid_range: float) -> np.ndarray:
     r2 = xx * xx + yy * yy
     K = np.exp(-r2 / (2.0 * h * h))
     K /= K.sum()
-    return K
+    return cast("np.ndarray", K)
 
 
 def _fft_conv_2d(samples: np.ndarray, kernel: np.ndarray) -> np.ndarray:
@@ -194,7 +195,8 @@ def fastmi(
     M = int(grid_size)
     # Bin the (zx, zy) samples to a sample-count histogram on (M, M) grid.
     edges = np.linspace(-pad, pad, M + 1)
-    counts, _, _ = np.histogram2d(zx, zy, bins=[edges, edges])
+    bin_edges: list[np.ndarray] = [edges, edges]
+    counts, _, _ = np.histogram2d(zx, zy, bins=bin_edges)
     samples = counts.astype(np.float64) / n  # normalised to sum to 1
     # KDE bandwidth via Silverman or MISE.
     if bandwidth == "silverman":

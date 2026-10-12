@@ -46,16 +46,16 @@ def _cpsat_pack(works: list[int], speeds: list[float]) -> list[int] | None:
     sp = [max(1, round(s / mn * _SCALE)) for s in speeds]  # integer relative speeds, slowest == _SCALE
     total = sum(int(w) for w in works)
     model = cp_model.CpModel()
-    x = [[model.NewBoolVar(f"x_{b}_{d}") for d in range(D)] for b in range(B)]  # type: ignore[attr-defined]  # ortools CamelCase alias, still present at runtime
+    x = [[model.NewBoolVar(f"x_{b}_{d}") for d in range(D)] for b in range(B)]  # ortools CamelCase alias, still present at runtime
     for b in range(B):
-        model.Add(sum(x[b][d] for d in range(D)) == 1)  # type: ignore[attr-defined]
+        model.Add(sum(x[b][d] for d in range(D)) == 1)
     cmax_ub = max(1, total) * _SCALE
-    cmax = model.NewIntVar(0, cmax_ub, "cmax")  # type: ignore[attr-defined]
+    cmax = model.NewIntVar(0, cmax_ub, "cmax")
     for d in range(D):
         load_d = sum(x[b][d] * int(works[b]) for b in range(B))
         # time_d = load_d / speed_d <= cmax  <=>  load_d * _SCALE <= cmax * sp[d]   (linear; sp[d] constant)
-        model.Add(load_d * _SCALE <= cmax * sp[d])  # type: ignore[attr-defined]
-    model.Minimize(cmax)  # type: ignore[attr-defined]
+        model.Add(load_d * _SCALE <= cmax * sp[d])  # type: ignore[operator]  # ortools LinearExpr comparison is not typed in the stub
+    model.Minimize(cmax)
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = _CP_SAT_TIME_LIMIT_S
     solver.parameters.num_search_workers = 1  # deterministic, reproducible

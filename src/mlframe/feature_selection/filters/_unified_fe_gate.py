@@ -44,6 +44,7 @@ rest. They never reference y at transform time (they run only at fit).
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import threading
 from typing import Callable, Optional, Sequence
@@ -117,7 +118,7 @@ def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
         finite = y_arr[np.isfinite(y_arr)]
         if not (finite.size and _has_more_distinct_than(finite, FEW_CLASSES_MAX)):
             _, y_bin = np.unique(y_arr, return_inverse=True)
-            return y_bin.astype(np.int64)
+            return cast("np.ndarray", y_bin.astype(np.int64))
         # Continuous: 10-bin quantile discretisation.
         from ._mi_greedy_cmi_fe import _quantile_bin
         return _quantile_bin(y_arr, nbins=10, host_only=True)
@@ -140,7 +141,7 @@ def _coerce_y_classes_impl(y_arr: np.ndarray) -> np.ndarray:
     #     (imbalance-MI rescore). Large-n balanced is byte-identical to the cap variant either way.
     # Do not re-attempt a degenerate-target-bin merge / coarser-nbins guard here.
     _, y_bin = np.unique(y_arr, return_inverse=True)
-    return y_bin.astype(np.int64)
+    return cast("np.ndarray", y_bin.astype(np.int64))
 
 
 # bench-attempt-rejected (2026-06-11, / frontier-idea-3 "leave-candidate-out

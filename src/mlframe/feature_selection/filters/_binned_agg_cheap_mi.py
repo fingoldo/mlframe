@@ -5,6 +5,7 @@ Carved out of ``_binned_numeric_agg_fe``, which re-exports every name so the his
 
 from __future__ import annotations
 
+from typing import cast
 import logging
 from collections.abc import Sequence
 
@@ -33,10 +34,10 @@ def quantile_edges(x: np.ndarray, nbins: int) -> np.ndarray:
 
                 dev = device_quantile(x, qs)
                 if dev is not None:
-                    return np.unique(dev)
+                    return cast("np.ndarray", np.unique(dev))
         except Exception as e:
             logger.debug("device quantile edges failed, using the host np.quantile: %s", e)
-    return np.unique(np.quantile(x, qs))
+    return cast("np.ndarray", np.unique(np.quantile(x, qs)))
 
 
 def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> float:

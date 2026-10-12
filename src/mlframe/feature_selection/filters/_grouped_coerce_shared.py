@@ -5,6 +5,7 @@ across copies.
 """
 from __future__ import annotations
 
+from typing import cast
 from typing import Any
 
 import numpy as np
@@ -28,7 +29,7 @@ def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarra
         out = uniq_vals[inverse]
     except (TypeError, ValueError):
         out = np.array([lookup.get(str(_k), glob) for _k in g_keys], dtype=np.float64)
-    return np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob)
+    return cast("np.ndarray", np.nan_to_num(out, nan=glob, posinf=glob, neginf=glob))
 
 
 def auto_detect_num_cols_plain(X: pd.DataFrame, group_cols: "list | tuple | set", max_cols: int = 8) -> list:

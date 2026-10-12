@@ -42,7 +42,7 @@ def _device_codes_to_host(transformed_vals, nbins, dtype):
         from mlframe.feature_selection.filters._gpu_resident_discretize import _gpu_resident_discretize_codes
         from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
 
-        code_dtype = np.dtype(_safe_code_dtype(int(nbins), dtype))
+        code_dtype: np.dtype = np.dtype(_safe_code_dtype(int(nbins), dtype))
         dev = transformed_vals.dev
         codes = _gpu_resident_discretize_codes(dev.reshape(-1, 1) if dev.ndim == 1 else dev, int(nbins), out_dtype=code_dtype)
         return np.asarray(cp.asnumpy(codes.astype(cp.dtype(code_dtype), copy=False)))

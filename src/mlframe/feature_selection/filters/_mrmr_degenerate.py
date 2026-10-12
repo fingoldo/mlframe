@@ -29,6 +29,7 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
+from typing import cast
 from typing import Any
 import logging
 from typing import Callable, Optional
@@ -47,7 +48,7 @@ def _resolve_xxh3_64() -> Optional[Callable]:
     try:
         import xxhash as _xxhash
 
-        return _xxhash.xxh3_64_intdigest
+        return cast(Callable[..., Any], _xxhash.xxh3_64_intdigest)
     except ImportError as e:
         logger.debug("xxhash unavailable, falling back to pandas hash_array for duplicate-column detection: %s", e)
         return None

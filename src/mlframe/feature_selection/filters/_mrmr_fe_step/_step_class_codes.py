@@ -1,6 +1,7 @@
 """Dense 0-based class codes for the FE step's MI / CMI scorers."""
 from __future__ import annotations
 
+from typing import cast
 import numpy as np
 from numpy.typing import ArrayLike
 
@@ -22,6 +23,6 @@ def dense_class_codes(classes_y: ArrayLike) -> np.ndarray:
             shifted = a - lo
             present = np.bincount(shifted, minlength=span) > 0
             rank = np.cumsum(present, dtype=np.int64) - 1
-            return rank[shifted]
+            return cast("np.ndarray", rank[shifted])
     _, dense = np.unique(flat, return_inverse=True)
-    return dense.astype(np.int64).ravel()
+    return cast("np.ndarray", dense.astype(np.int64).ravel())

@@ -44,6 +44,7 @@ Implementation notes (per README.md optimization methodology):
 """
 from __future__ import annotations
 
+from typing import cast
 import math
 import threading
 import weakref
@@ -411,10 +412,10 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
     # y is fit-constant across the whole per_feature_edges column dispatch -> cached binning (see _get_y_binning).
     yb, K_y = _get_y_binning(y, K)
     if K_y == 0:
-        return initial_inner
+        return cast("np.ndarray", initial_inner)
     K_x = int(xb.max()) + 1
     if K_x < 2 or K_y < 2:
-        return initial_inner
+        return cast("np.ndarray", initial_inner)
     joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)
     _, row_merges, _ = _greedy_merge_with_history(joint)
     # Map row merges to drop the swallowed X edges.

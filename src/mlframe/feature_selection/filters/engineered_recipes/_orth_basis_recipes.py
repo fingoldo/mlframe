@@ -8,6 +8,7 @@ dataclass + ``_extract_column`` are lazy-imported in-body to avoid a cycle.
 """
 from __future__ import annotations
 
+from typing import cast
 from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
@@ -78,7 +79,7 @@ def _apply_orth_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
         return np.asarray(np.sign(x) * np.sqrt(np.abs(x)))
     if pre_transform == "tanh":
         sd = float(np.std(x))
-        return np.tanh(x / sd) if sd > 1e-12 else np.tanh(x)
+        return cast("np.ndarray", np.tanh(x / sd) if sd > 1e-12 else np.tanh(x))
     # Unknown - warn and fall back to identity. Avoids raising at replay
     # time on pickles produced by older clients that introduced bespoke
     # tags; the worst case is one orth column that's the wrong shape, which

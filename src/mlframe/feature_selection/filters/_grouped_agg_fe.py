@@ -41,6 +41,7 @@ at fit time, so ``transform`` is leakage-free by construction.
 """
 from __future__ import annotations
 
+from typing import cast
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
 
 import logging
@@ -135,7 +136,7 @@ def _broadcast_lookup(
             [lookup.get(str(_k), global_value) for _k in group_keys],
             dtype=np.float64,
         )
-    return np.nan_to_num(out, nan=global_value, posinf=global_value, neginf=global_value)
+    return cast("np.ndarray", np.nan_to_num(out, nan=global_value, posinf=global_value, neginf=global_value))
 
 
 def generate_grouped_agg_features(
