@@ -431,7 +431,7 @@ def test_f9_pr4_no_duplicate_pipeline_cache_import():
     from tests._source_structure import import_sources
 
     assert (1, "_pipeline_cache") in import_sources(_pipeline_helpers_apply)
-    for name in ("_PRE_PIPELINE_CACHE", "_PRE_PIPELINE_CACHE_LOCK", "_approx_entry_bytes", "_pre_pipeline_cache_get", "_pre_pipeline_cache_key"):
+    for name in ("_pre_pipeline_cache_get", "_pre_pipeline_cache_key", "_pre_pipeline_cache_set"):
         assert getattr(_pipeline_helpers_apply, name) is getattr(_pipeline_cache, name)
         assert getattr(_pipeline_helpers, name) is getattr(_pipeline_cache, name)
 
@@ -441,8 +441,7 @@ def test_f9_pr4_all_symbols_still_resolve():
     from mlframe.training.pipeline import _pipeline_helpers_apply as pha
 
     for name in (
-        "_PRE_PIPELINE_CACHE", "_PRE_PIPELINE_CACHE_LOCK", "_PRE_PIPELINE_CACHE_MAX",
-        "_PRE_PIPELINE_CACHE_MAX_BYTES", "_approx_entry_bytes", "_pre_pipeline_cache_get", "_pre_pipeline_cache_key",
+        "_pre_pipeline_cache_get", "_pre_pipeline_cache_key", "_pre_pipeline_cache_set",
     ):
         assert hasattr(pha, name), f"{name} no longer resolves from _pipeline_helpers_apply"
 

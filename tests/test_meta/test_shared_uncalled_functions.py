@@ -86,7 +86,6 @@ _REEXPORTED_PUBLIC_API = {
     "_ksg_mi_1d",
     "_polars_df_has_null_in_categorical",
     "_pre_pipeline_cache_clear",
-    "_pre_pipeline_cache_set",
     "_quantile_edges_2d_njit_partition",
     "_residualise",
     "_resolve_model_spec",

@@ -724,16 +724,20 @@ def _pre_pipeline_cache_get(train_df, val_df, pipeline, train_target=None, targe
     return None
 
 
-def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None):
+def _pre_pipeline_cache_set(train_df, val_df, pipeline, train_out, val_out, train_target=None, target_name=None, cache_max: int | None = None, sample_weight=None, key=None):
     """Insert under LRU, evicting the oldest entry if over capacity.
 
     ``cache_max`` overrides the module default; pass through from the
     caller's ``TrainingBehaviorConfig.pre_pipeline_cache_max`` so
     long-running services can tune memory vs hit-rate.
+
+    ``key``: pass the entry-time ``_pre_pipeline_cache_key`` when the inputs were already rebound to the transformed frames
+    (the caller's ``train_df`` no longer matches what the key was built from). Same contract as ``_pre_pipeline_cache_get``.
     """
     if train_df is None or pipeline is None:
         return
-    key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
+    if key is None:
+        key = _pre_pipeline_cache_key(train_df, val_df, pipeline, train_target, target_name, sample_weight=sample_weight)
     _cap = int(cache_max) if cache_max is not None else _PRE_PIPELINE_CACHE_MAX
     _max_bytes = _PRE_PIPELINE_CACHE_MAX_BYTES
     with _PRE_PIPELINE_CACHE_LOCK:
