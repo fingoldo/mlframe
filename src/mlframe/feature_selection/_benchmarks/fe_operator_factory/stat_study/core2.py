@@ -3,7 +3,7 @@
 import numpy as np
 from numba import njit, prange
 
-from .core import bins_of, mi_cnt
+from .core import _median_njit, bins_of, mi_cnt
 
 
 @njit(cache=True)
@@ -51,7 +51,7 @@ def ols_st(u, v, yr, winsor, huber):
             res = np.empty(n)
             for i in range(n):
                 res[i] = yr[i] - (X[i, 0] * beta[0] + X[i, 1] * beta[1] + X[i, 2] * beta[2] + X[i, 3] * beta[3])
-            s = 1.4826 * np.median(np.abs(res - np.median(res))) + 1e-12
+            s = 1.4826 * _median_njit(np.abs(res - _median_njit(res))) + 1e-12
             for i in range(n):
                 a = np.abs(res[i]) / s
                 w[i] = 1.0 if a <= 1.345 else 1.345 / a
