@@ -388,7 +388,9 @@ def _train_model_with_f_trainer_boundary_regardless_which(_is_pandas, model_type
             # Shallow copy: every site below reassigns whole columns (train_df[_c] = ...), never
             # mutates a column's buffer in place, so a deep copy of train/eval frames here is
             # unnecessary (frames here can be 100+GB).
-            train_df = train_df.copy(deep=False) if not getattr(train_df, "_mlframe_filled", False) else train_df
+            # Always copy: a ``_mlframe_filled`` frame can be the shared training frame another model reads next,
+            # so the flag cannot be trusted to mean "private to this call".
+            train_df = train_df.copy(deep=False)
             for _c in _decategorise_for_text_or_emb:
                 # Use ``astype("string").fillna(sentinel)`` so OOV-null cells
                 # (from the train+val joint Enum cast, strict=False on test)
@@ -408,7 +410,7 @@ def _train_model_with_f_trainer_boundary_regardless_which(_is_pandas, model_type
                         _eval_df_filled = _eval_df
                         for _c in _decategorise_for_text_or_emb:
                             if _c in _eval_df_filled.columns:
-                                if not getattr(_eval_df_filled, "_mlframe_filled", False):
+                                if _eval_df_filled is _eval_df:
                                     _eval_df_filled = _eval_df_filled.copy(deep=False)
                                 _eval_df_filled[_c] = _eval_df_filled[_c].astype("string").fillna("__MISSING__").astype(object)
                                 _eval_df_filled._mlframe_filled = True
@@ -460,10 +462,13 @@ def _train_model_with_f_pandas_model_type_name(_is_pandas, model_type_name, fit_
     if _is_pandas and model_type_name in CATBOOST_MODEL_TYPES and "cat_features" in fit_params and fit_params["cat_features"] and isinstance(train_df, pd.DataFrame):
         _cat_cols = [c for c in fit_params["cat_features"] if c in train_df.columns]
         if _cat_cols:
+            _frame_in = train_df
             for _c in _cat_cols:
                 _s = train_df[_c]
                 if _s.isna().any():
-                    train_df = train_df.copy(deep=False) if not getattr(train_df, "_mlframe_filled", False) else train_df
+                    # Copy once per call, never trust a pre-existing ``_mlframe_filled`` flag (see the text-route block above).
+                    if train_df is _frame_in:
+                        train_df = train_df.copy(deep=False)
                     train_df[_c] = _s.astype("string").fillna("__MISSING__").astype("category")
                     train_df._mlframe_filled = True
             # Symmetric fill on eval_set so val/test slices don't trip the
@@ -477,7 +482,7 @@ def _train_model_with_f_pandas_model_type_name(_is_pandas, model_type_name, fit_
                         _eval_df_filled = _eval_df
                         for _c in _cat_cols:
                             if _c in _eval_df_filled.columns and _eval_df_filled[_c].isna().any():
-                                if not getattr(_eval_df_filled, "_mlframe_filled", False):
+                                if _eval_df_filled is _eval_df:
                                     _eval_df_filled = _eval_df_filled.copy(deep=False)
                                 _eval_df_filled[_c] = _eval_df_filled[_c].astype("string").fillna("__MISSING__").astype("category")
                                 _eval_df_filled._mlframe_filled = True

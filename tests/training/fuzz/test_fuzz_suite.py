@@ -160,6 +160,15 @@ def _apply_env_overrides(combo: FuzzCombo) -> FuzzCombo:
     return combo
 
 
+def _innermost_mlframe_frame(exc: BaseException) -> str:
+    """``file:line in func`` of the deepest traceback frame inside ``src/mlframe``, so a failure row names where it originated."""
+    frames = [f for f in traceback.extract_tb(exc.__traceback__) if "mlframe" in f.filename.replace("\\", "/") and "site-packages" not in f.filename]
+    if not frames:
+        return ""
+    last = frames[-1]
+    return f"{last.filename.replace(chr(92), '/').split('/mlframe/')[-1]}:{last.lineno} in {last.name}"
+
+
 def _snapshot_caller_frame(combo: FuzzCombo, df: Any) -> tuple[Any, Any]:
     """Capture the caller frame shape and columns before the suite runs (in-memory input only)."""
     # #16 invariant: capture caller-frame schema + shape before the
@@ -777,6 +786,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
             duration_s=time.perf_counter() - t0,
             error_class=err_class,
             error_summary=err_summary,
+            extra={"origin": _innermost_mlframe_frame(exc)},
         )
         if reason is not None:
             known_gap(reason, gap_closed=False)

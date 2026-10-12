@@ -19,7 +19,7 @@ class ForwardSelectParams(BaseModel):
 
     estimator: Any = None
     scoring: Any = None
-    cv: int = 5
+    cv: int = 3
     max_features: Optional[int] = None
     min_improvement: float = 0.0
     patience: Optional[int] = None
