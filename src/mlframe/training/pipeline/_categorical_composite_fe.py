@@ -115,7 +115,7 @@ def apply_categorical_composite_fe(
                             continue
                         _fname = f"concat_group__{COMPOSITE_SEPARATOR.join(_group)}"
                         _composed = concat_categorical_group(_pd_view, columns=_group, separator=COMPOSITE_SEPARATOR, feature_name=_fname)
-                        _new_cols[_fname] = _composed[_fname].to_numpy()
+                        _new_cols[_fname] = pd.Categorical(_composed[_fname].to_numpy())
                     _pending_new_cols[_split_name] = _new_cols
                 if "train" in _pending_new_cols:
                     train_df = attach_new_columns(train_df, _pending_new_cols["train"])
@@ -180,7 +180,7 @@ def replay_categorical_composite_fe(df: Any, metadata: dict, verbose: int = 0) -
             continue
         _fname = f"concat_group__{COMPOSITE_SEPARATOR.join(_group)}"
         _composed = concat_categorical_group(_pd_view, columns=_group, separator=COMPOSITE_SEPARATOR, feature_name=_fname)
-        new_cols[_fname] = _composed[_fname].to_numpy()
+        new_cols[_fname] = pd.Categorical(_composed[_fname].to_numpy())
 
     _powerset_present = [c for c in _powerset_cols if c in _pd_view.columns]
     if len(_powerset_present) >= 2:
