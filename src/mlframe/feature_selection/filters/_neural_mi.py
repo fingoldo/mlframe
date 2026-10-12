@@ -582,7 +582,8 @@ def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho,
     for i in range(1, nats_sorted.size):
         if nats_sorted[i] < nats_sorted[i - 1]:
             nats_sorted[i] = nats_sorted[i - 1]
-    _MIST_CALIBRATION_CACHE[cache_key] = (raw_sorted, nats_sorted)
+    with _NEURAL_MI_CACHE_LOCK:
+        _MIST_CALIBRATION_CACHE[cache_key] = (raw_sorted, nats_sorted)
     logger.info("MIST calibration (%s, %s): raw %s -> nats %s", device, y_kind, raw_sorted.tolist(), nats_sorted.tolist())
     return raw_sorted, nats_sorted
 

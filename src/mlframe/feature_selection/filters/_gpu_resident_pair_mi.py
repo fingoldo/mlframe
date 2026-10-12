@@ -33,6 +33,7 @@ from ._gpu_resident_fe import (
     _BINOP_CODE,
     _COMBOS,
     _COMBO_IDX_CACHE,
+    _GPU_RESIDENT_FE_CACHE_LOCK,
     _GPU_RESIDENT_MIN_N,
     _UNARY_IDX,
     _binary_apply,
@@ -521,14 +522,15 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
     # Same fit-invariant index trio as _fused_generate_block (block is a slice of the module constant
     # _COMBOS); reuse the shared cache to drop the per-chunk-per-pair list-comps + tiny H2D.
     _ck = tuple(block)
-    _cc = _COMBO_IDX_CACHE.get(_ck)
-    if _cc is None:
-        ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in block], dtype=np.int32))
-        ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in block], dtype=np.int32))
-        bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in block], dtype=np.int32))
-        _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
-    else:
-        ua_idx, ub_idx, bop = _cc
+    with _GPU_RESIDENT_FE_CACHE_LOCK:
+        _cc = _COMBO_IDX_CACHE.get(_ck)
+        if _cc is None:
+            ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in block], dtype=np.int32))
+            ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in block], dtype=np.int32))
+            bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in block], dtype=np.int32))
+            _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
+        else:
+            ua_idx, ub_idx, bop = _cc
     col_off = cp.arange(K, dtype=cp.int64) * (int(nbins) * int(K_y))
     P1 = int(y_all_dev.shape[0])
     # OOB SCREEN (FIX2): the grand-fusion kernel (_gpu_resident_fe.py:744) uses the y code
