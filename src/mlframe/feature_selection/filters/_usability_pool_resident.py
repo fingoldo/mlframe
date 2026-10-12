@@ -99,6 +99,38 @@ def _column_major_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_POOL_CM", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
+def _write_combo_chunk_mi(cand, live_d, col_major, nbins, ky_w, h_y, k_y, d_y, d_qs, n, mi_table_d, start, stop):
+    """Score one combo chunk and write its masked MI into ``mi_table_d[start:stop]`` on the device (resident MM-MI, with the per-row sync path as fallback)."""
+    import cupy as cp
+    from ._fe_batched_mi import binned_mm_mi_from_values_gpu
+    from ._gpu_resident_select import _radix_select_interior_edges
+    from ._usability_njit_pool import _gpu_marginal_mi, _gpu_quantile_bin_codes
+
+    wrote_resident = False
+    try:
+        interior = _radix_select_interior_edges(cand, int(nbins), data_is_cm=col_major)
+        if interior is not None:
+            # FULLY RESIDENT (no D2H here): the MM-MI stays on device, the std<=1e-9 sentinel mask is
+            # applied on device, and the masked row is written into the resident mi_table_d slice. The
+            # readback is deferred to a SINGLE whole-table .get() after the loop (was one .get()/chunk).
+            if col_major:
+                from ._fe_batched_mi_mm_cm import binned_mm_mi_from_cm_gpu
+
+                mi_d = binned_mm_mi_from_cm_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y, codes_trusted=True, return_device=True)
+            else:
+                mi_d = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y,
+                                                    codes_trusted=True, return_device=True)   # d_y dense 0-based fit-constant (FIX1)
+            mi_table_d[start:stop] = cp.where(live_d, mi_d, -1.0)
+            wrote_resident = True
+    except Exception as e:
+        logger.debug("resident MI-table write failed, falling back to the per-row sync path: %s", e)
+        wrote_resident = False
+    if not wrote_resident:  # per-row sync fallback (bit-faithful)
+        codes, kx = _gpu_quantile_bin_codes(cand if col_major else cp.ascontiguousarray(cand.T), d_qs)
+        mi_h = cp.asnumpy(_gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n))
+        mi_table_d[start:stop] = cp.asarray(np.where(cp.asnumpy(live_d), mi_h, -1.0))
+
+
 def score_pair_combos_table_resident(
     operands: Sequence[tuple],
     y_codes: np.ndarray,
@@ -137,9 +169,7 @@ def score_pair_combos_table_resident(
         from ._gpu_policy import gpu_globally_disabled
         if gpu_globally_disabled():
             return None
-        from ._usability_njit_pool import (
-            _gpu_apply_unary, _gpu_quantile_bin_codes, _gpu_marginal_mi,
-        )
+        from ._usability_njit_pool import _gpu_apply_unary
 
         npairs = len(operands)
         nu = len(ua_codes)
@@ -163,8 +193,6 @@ def score_pair_combos_table_resident(
         # (~one per combo column) made the whole resident table a 0.5x LOSS on a 6-SM card. The fused
         # radix-edges + mi_mm_from_values kernels score the whole flush chunk in ONE launch each (no per-row
         # sync), MM-correct and partition-identical to _gpu_marginal_mi (maxdiff ~1e-15, rank identical).
-        from ._fe_batched_mi import binned_mm_mi_from_values_gpu
-        from ._gpu_resident_select import _radix_select_interior_edges
 
         ua_codes_l = [int(c) for c in ua_codes]
         ub_codes_l = [int(c) for c in ub_codes]
@@ -242,29 +270,7 @@ def score_pair_combos_table_resident(
 
                 _axis = 1 if col_major else 0
                 live_d = cand.var(axis=_axis) > (_USABILITY_DEGENERATE_REL_TOL * cp.abs(cand).max(axis=_axis)) ** 2
-                wrote_resident = False
-                try:
-                    interior = _radix_select_interior_edges(cand, int(nbins), data_is_cm=col_major)
-                    if interior is not None:
-                        # FULLY RESIDENT (no D2H here): the MM-MI stays on device, the std<=1e-9 sentinel mask is
-                        # applied on device, and the masked row is written into the resident mi_table_d slice. The
-                        # readback is deferred to a SINGLE whole-table .get() after the loop (was one .get()/chunk).
-                        if col_major:
-                            from ._fe_batched_mi_mm_cm import binned_mm_mi_from_cm_gpu
-
-                            mi_d = binned_mm_mi_from_cm_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y, codes_trusted=True, return_device=True)
-                        else:
-                            mi_d = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y,
-                                                                codes_trusted=True, return_device=True)   # d_y dense 0-based fit-constant (FIX1)
-                        mi_table_d[base + c0:base + c1] = cp.where(live_d, mi_d, -1.0)
-                        wrote_resident = True
-                except Exception as e:
-                    logger.debug("resident MI-table write failed, falling back to the per-row sync path: %s", e)
-                    wrote_resident = False
-                if not wrote_resident:  # per-row sync fallback (bit-faithful)
-                    codes, kx = _gpu_quantile_bin_codes(cand if col_major else cp.ascontiguousarray(cand.T), d_qs)
-                    mi_h = cp.asnumpy(_gpu_marginal_mi(codes, kx, d_y, h_y, k_y, n))
-                    mi_table_d[base + c0 : base + c1] = cp.asarray(np.where(cp.asnumpy(live_d), mi_h, -1.0))
+                _write_combo_chunk_mi(cand, live_d, col_major, nbins, ky_w, h_y, k_y, d_y, d_qs, n, mi_table_d, base + c0, base + c1)
                 del cand
             del d_x1, d_x2, ua_stack, ub_stack
         # ONE D2H for the WHOLE table (was ~96/call, 17340/fit): all chunk MI accumulated resident above.
