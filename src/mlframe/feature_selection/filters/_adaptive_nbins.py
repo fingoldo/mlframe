@@ -687,7 +687,7 @@ def per_feature_edges(
                 "kwargs": kwargs,
             })
         except Exception as exc:
-            logger.debug("per_feature_edges: cache disabled (%s)", exc)
+            logger.warning("per_feature_edges: cache disabled, computing without it (%s)", exc)
             _cache = None
 
     # If a column has few unique finite values (e.g. binary target, small
@@ -755,7 +755,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
                     edges_list[j] = _hit
                     continue
             except Exception as exc:
-                logger.debug("per_feature_edges: cache get failed col=%d (%s)", j, exc)
+                logger.warning("per_feature_edges: cache get failed col=%d, computing this column without it (%s)", j, exc)
                 _col_cache_key = None
         _miss_keys[j] = _col_cache_key
         _miss_cols.append(j)
@@ -777,7 +777,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
 
             _resolved_jobs = psutil.cpu_count(logical=False) or 1
         except Exception as e:
-            logger.debug("psutil.cpu_count(logical=False) failed, falling back to os.cpu_count(): %s", e)
+            logger.warning("psutil.cpu_count(logical=False) failed, falling back to os.cpu_count(): %s", e)
             import os
 
             _resolved_jobs = os.cpu_count() or 1
