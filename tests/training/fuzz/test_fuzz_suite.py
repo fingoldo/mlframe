@@ -171,9 +171,7 @@ def _apply_bughunt_budget(combo: FuzzCombo) -> FuzzCombo:
     """
     import dataclasses as _dataclasses
 
-    changes: dict = {"n_rows": min(int(combo.n_rows), 200), "iterations": 1}
-    if combo.use_boruta_shap_cfg:
-        changes.update(boruta_early_stop_tentative_cfg=True, boruta_early_stop_patience_cfg=5)
+    changes: dict = {"n_rows": min(int(combo.n_rows), 100), "iterations": 1, "use_boruta_shap_cfg": False}
     return _dataclasses.replace(combo, **changes)
 
 
