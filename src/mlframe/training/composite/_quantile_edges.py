@@ -9,6 +9,7 @@ boundaries at the midpoints between consecutive values.
 
 from __future__ import annotations
 
+from typing import cast
 import numpy as np
 
 
@@ -20,10 +21,10 @@ def quantile_bin_edges(values: np.ndarray, n_bins: int) -> np.ndarray:
     v = np.asarray(values, dtype=np.float64)
     edges = np.unique(np.quantile(v, np.linspace(0.0, 1.0, n_bins + 1)))
     if edges.size == n_bins + 1:
-        return edges
+        return cast("np.ndarray", edges)
     distinct = np.unique(v)
     if distinct.size <= 1 or distinct.size > n_bins:
-        return edges
+        return cast("np.ndarray", edges)
     return np.concatenate(([distinct[0]], 0.5 * (distinct[:-1] + distinct[1:]), [distinct[-1]]))
 
 

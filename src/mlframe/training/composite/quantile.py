@@ -54,6 +54,7 @@ bit-identical and is dominated by the already-parallel inner anyway.)
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, Sequence
 
@@ -250,7 +251,7 @@ class CompositeQuantileEstimator(RegressorMixin, BaseEstimator):
         q_sorted = np.unique(q_arr)
         if q_sorted.size != q_arr.size:
             raise ValueError("CompositeQuantileEstimator: quantiles must be unique; got " f"{q_arr.tolist()!r}.")
-        return q_sorted
+        return cast("np.ndarray", q_sorted)
 
     def fit(
         self,

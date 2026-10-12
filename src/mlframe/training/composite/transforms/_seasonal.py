@@ -18,6 +18,7 @@ of this comment.
 """
 from __future__ import annotations
 
+from typing import cast
 from typing import Any
 
 import numpy as np
@@ -147,4 +148,4 @@ def _seasonal_residual_domain(
     if y is None:
         n = len(base) if base is not None and hasattr(base, "__len__") else 1
         return np.ones(n, dtype=bool)
-    return np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1))
+    return cast("np.ndarray", np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))

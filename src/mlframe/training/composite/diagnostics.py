@@ -45,6 +45,7 @@ NOT auto-display under ``Agg``.
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, Sequence
 
@@ -235,7 +236,7 @@ def _qq_decimation_indices(n: int, max_points: int = 2000, tail_keep: int = 20) 
     if n <= max_points:
         return np.arange(n)
     mid = np.linspace(tail_keep, n - 1 - tail_keep, max_points - 2 * tail_keep).round().astype(np.int64)
-    return np.unique(np.concatenate([np.arange(tail_keep), mid, np.arange(n - tail_keep, n)]))
+    return cast("np.ndarray", np.unique(np.concatenate([np.arange(tail_keep), mid, np.arange(n - tail_keep, n)])))
 
 
 def plot_qq(

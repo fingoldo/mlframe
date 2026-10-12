@@ -8,6 +8,7 @@ resolves transparently.
 """
 from __future__ import annotations
 
+from typing import cast
 from ._domain_shared import residual_domain_no_cast
 
 import logging
@@ -254,14 +255,14 @@ def _linear_residual_forward(
     """Compute the OLS residual ``T = y - alpha*base - beta`` from fitted ``params``."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    return y - alpha * base - beta
+    return cast("np.ndarray", y - alpha * base - beta)
 def _linear_residual_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
     """Invert the linear residual: ``y_hat = t_hat + alpha*base + beta``."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    return t_hat + alpha * base + beta
+    return cast("np.ndarray", t_hat + alpha * base + beta)
 _linear_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast
 def _linear_residual_robust_fit(
     y: np.ndarray, base: np.ndarray,
@@ -540,7 +541,7 @@ def _linear_residual_multi_forward(
     beta = float(params["beta"])
     if base.shape[1] != alphas.size:
         raise ValueError(f"linear_residual_multi: base has {base.shape[1]} columns but " f"fitted alphas has {alphas.size} entries")
-    return y - (np.ascontiguousarray(base, dtype=np.float64) @ alphas) - beta
+    return cast("np.ndarray", y - (np.ascontiguousarray(base, dtype=np.float64) @ alphas) - beta)
 def _linear_residual_multi_inverse(
     t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
 ) -> np.ndarray:
@@ -553,7 +554,7 @@ def _linear_residual_multi_inverse(
         raise ValueError(f"linear_residual_multi: base has {base.shape[1]} columns but " f"fitted alphas has {alphas.size} entries")
     # Canonical C-contiguous layout so the (n,K)@(K,) matvec rounds identically regardless of the caller's
     # array order (C vs F differ by ~1 ULP in BLAS dgemv); keeps predict and the serving spec byte-identical.
-    return t_hat + (np.ascontiguousarray(base, dtype=np.float64) @ alphas) + beta
+    return cast("np.ndarray", t_hat + (np.ascontiguousarray(base, dtype=np.float64) @ alphas) + beta)
 def _linear_residual_multi_domain(
     y: np.ndarray | None, base: np.ndarray,
 ) -> np.ndarray:

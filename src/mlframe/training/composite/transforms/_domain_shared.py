@@ -8,6 +8,7 @@ delegates to the matching implementation below.
 """
 from __future__ import annotations
 
+from typing import cast
 import numpy as np
 
 
@@ -15,7 +16,7 @@ def residual_domain_reshaped(y: np.ndarray | None, base: np.ndarray) -> np.ndarr
     """Boolean row mask (flattened via ``reshape(-1)``) where ``base`` (and ``y``, if given) are finite."""
     base_ok = np.isfinite(np.asarray(base, dtype=np.float64).reshape(-1))
     if y is None:
-        return base_ok
+        return cast("np.ndarray", base_ok)
     return np.asarray(base_ok & np.isfinite(np.asarray(y, dtype=np.float64).reshape(-1)))
 
 

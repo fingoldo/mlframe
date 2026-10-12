@@ -20,6 +20,7 @@ round's own pseudo-labeling mistakes don't get baked in and mechanically reinfor
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
@@ -184,9 +185,9 @@ class PseudoLabelingLoop(BaseEstimator):
                     self.class_thresholds.get(1, fallback),
                     self.class_thresholds.get(0, fallback),
                 )
-                return confidence >= per_row_threshold
+                return cast("np.ndarray", confidence >= per_row_threshold)
             assert threshold is not None  # guaranteed by the early-return above when class_thresholds is None
-            return confidence >= threshold
+            return cast("np.ndarray", confidence >= threshold)
         assert threshold is not None  # regression has no class_thresholds fallback
         return std_pred <= threshold
 

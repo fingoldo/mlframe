@@ -124,7 +124,7 @@ def _asinh_residual_forward(
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     s_y, s_b = float(params.get("y_scale", 1.0)), float(params.get("base_scale", 1.0))
-    return np.arcsinh(np.asarray(y, dtype=np.float64) / s_y) - alpha * np.arcsinh(np.asarray(base, dtype=np.float64) / s_b) - beta
+    return cast("np.ndarray", np.arcsinh(np.asarray(y, dtype=np.float64) / s_y) - alpha * np.arcsinh(np.asarray(base, dtype=np.float64) / s_b) - beta)
 
 
 def _asinh_residual_inverse(
@@ -135,7 +135,7 @@ def _asinh_residual_inverse(
     beta = float(params["beta"])
     s_y, s_b = float(params.get("y_scale", 1.0)), float(params.get("base_scale", 1.0))
     z = np.asarray(t_hat, dtype=np.float64) + alpha * np.arcsinh(np.asarray(base, dtype=np.float64) / s_b) + beta
-    return s_y * np.sinh(z)
+    return cast("np.ndarray", s_y * np.sinh(z))
 
 
 _asinh_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_plain
@@ -347,7 +347,7 @@ def _rank_residual_forward(
     """Map y and base to train-calibrated rank fractions and return the residual rank(y) - alpha * rank(base) - beta."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
-    return _rank_residual_ranks(y, params, "y") - alpha * _rank_residual_ranks(base, params, "b") - beta
+    return cast("np.ndarray", _rank_residual_ranks(y, params, "y") - alpha * _rank_residual_ranks(base, params, "b") - beta)
 
 
 def _rank_residual_inverse(

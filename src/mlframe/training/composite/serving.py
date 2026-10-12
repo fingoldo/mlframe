@@ -25,6 +25,7 @@ that would silently mis-predict at serve time.
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import math
 from typing import Any, Callable, Dict
@@ -93,7 +94,7 @@ def _inv_linear_residual(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any])
     """Inverts ``linear_residual``/``linear_residual_robust``/``theilsen_residual``: ``y = t_hat + alpha*base + beta``."""
     # _linear_residual_inverse -> t + alpha*base + beta. Shared by linear_residual,
     # linear_residual_robust, theilsen_residual (all return {alpha, beta}).
-    return t_hat + float(p["alpha"]) * base + float(p["beta"])
+    return cast("np.ndarray", t_hat + float(p["alpha"]) * base + float(p["beta"]))
 
 
 def _inv_linear_residual_multi(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
@@ -107,7 +108,7 @@ def _inv_linear_residual_multi(t_hat: np.ndarray, base: np.ndarray, p: dict[str,
     # Normalise to a canonical C-contiguous layout before the matvec: BLAS dgemv rounds an (n,K)@(K,)
     # product differently for C- vs F-ordered bases (~1 ULP), and the predict path always feeds a
     # C-contiguous base (via the soft-shrink guard's ascontiguousarray), so this keeps serving byte-identical.
-    return t_hat + (np.ascontiguousarray(base, dtype=np.float64) @ alphas) + float(p["beta"])
+    return cast("np.ndarray", t_hat + (np.ascontiguousarray(base, dtype=np.float64) @ alphas) + float(p["beta"]))
 
 
 def _inv_ratio(t_hat: np.ndarray, base: np.ndarray, p: dict[str, Any]) -> np.ndarray:
@@ -299,7 +300,7 @@ def serving_base_from_columns(spec: Dict[str, Any], columns: Dict[str, Any]) -> 
     parents with the same arithmetic discovery used.
     """
     recipes = spec.get("base_recipes", {}) or {}
-    ops = {"mul": np.multiply, "add": np.add, "sub": np.subtract}
+    ops: Dict[str, Callable[..., Any]] = {"mul": np.multiply, "add": np.add, "sub": np.subtract}
     cols = []
     for c in spec.get("base_columns", []):
         if c in columns:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import cast
 import hashlib
 import json
 import logging
@@ -431,7 +432,7 @@ def prebin_matrix_signature(feature_matrix: np.ndarray, nbins: int) -> str:
     h.update(str(arr.shape).encode("utf-8"))
     h.update(b"|data=")
     h.update(array_buffer(arr))
-    return h.hexdigest()
+    return cast("str", h.hexdigest())
 
 
 class PrebinCache:
