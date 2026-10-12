@@ -10,11 +10,10 @@ elementwise kernels round and the result is bit-identical to the loop it replace
 
 from __future__ import annotations
 
-import threading
 from typing import Any, Optional
 
-_LOCK = threading.Lock()
-_MODULE: Optional[Any] = None
+from .._gpu_raw_module import LazyRawModule
+
 _BASIS_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 2, "laguerre": 3}
 MAX_COLUMNS = 40  # register budget of the unrolled recurrence
 
@@ -55,13 +54,12 @@ extern "C" __global__ void build_basis(const double* __restrict__ x, double* __r
 """
 
 
-def _module(cp):
-    """Compile the kernel once (``--fmad=false``: every operation rounds where the separate cupy kernels round)."""
-    global _MODULE
-    with _LOCK:
-        if _MODULE is None:
-            _MODULE = cp.RawModule(code=_SRC, options=("-std=c++14", "--fmad=false"))
-        return _MODULE
+_KERNEL = LazyRawModule(_SRC, ("-std=c++14", "--fmad=false"))  # --fmad=false: every operation rounds where the separate cupy kernels round
+
+
+def _module(cp: Any) -> Any:
+    """Compile the kernel once."""
+    return _KERNEL.get(cp)
 
 
 def build_basis_fused(cp: Any, basis: str, x: Any, n_columns: int) -> Optional[Any]:

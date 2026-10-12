@@ -29,13 +29,14 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
-from typing import cast
 from typing import Any
 import logging
 from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
+
+from ._xxh3_hash import resolve_xxh3_64
 
 logger = logging.getLogger(__name__)
 
@@ -45,17 +46,7 @@ _COLLINEAR_TOL = 1e-9
 
 def _resolve_xxh3_64() -> Optional[Callable]:
     """Return ``xxhash.xxh3_64_intdigest``, or ``None`` when duplicate-column detection must use pandas ``hash_array`` instead."""
-    try:
-        import xxhash as _xxhash
-
-        return cast(Callable[..., Any], _xxhash.xxh3_64_intdigest)
-    except ImportError as e:
-        logger.debug("xxhash unavailable, falling back to pandas hash_array for duplicate-column detection: %s", e)
-        return None
-    except Exception as e:
-        # Resolved once per process, so a broken install would otherwise pin every fit onto the slower hash without a trace.
-        logger.warning("xxhash is installed but unusable (%s: %s); duplicate-column detection falls back to pandas hash_array", type(e).__name__, e)
-        return None
+    return resolve_xxh3_64(logger, "duplicate-column detection falls back to pandas hash_array")
 
 
 _xxh3_64: Optional[Callable] = _resolve_xxh3_64()

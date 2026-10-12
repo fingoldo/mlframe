@@ -12,19 +12,17 @@ A column whose cubic detrend or deflation system is singular is handled by the s
 from __future__ import annotations
 
 import logging
-import threading
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
+from .._gpu_raw_module import LazyRawModule
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["detect_fourier_freqs_batch_gpu"]
 
-_LOCK = threading.Lock()
-_MODULE: Optional[Any] = None
 _THREADS = 256
 _MIN_STD = 1e-9
 _MIN_Y_SS = 1e-24
@@ -151,13 +149,12 @@ __global__ void apply_deflate_b(const double* Z, const double* Y, const double* 
 """
 
 
+_KERNEL = LazyRawModule(_SRC, ("-std=c++14",))
+
+
 def _module(cp: Any) -> Any:
     """Compile the kernels once."""
-    global _MODULE
-    with _LOCK:
-        if _MODULE is None:
-            _MODULE = cp.RawModule(code=_SRC, options=("-std=c++14",))
-        return _MODULE
+    return _KERNEL.get(cp)
 
 
 def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:

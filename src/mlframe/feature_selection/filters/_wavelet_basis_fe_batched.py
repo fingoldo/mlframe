@@ -26,6 +26,8 @@ import logging
 
 import numpy as np
 
+from ._fe_env_switch import fused_switch_enabled
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,11 +106,8 @@ def _dyadic_haar_leg_gpu(cp, z_g, j: int, k: int):
     )
 
 
-def _fused_enabled() -> bool:
-    """Whether the two-kernel leg builder is used; ``MLFRAME_FE_WAVELET_FUSED=0`` selects the per-leg cupy loop."""
-    import os
-
-    return os.environ.get("MLFRAME_FE_WAVELET_FUSED", "1").strip().lower() not in ("0", "false", "off", "no")
+# Two-kernel leg builder; ``MLFRAME_FE_WAVELET_FUSED=0`` selects the per-leg cupy loop.
+_FUSED_ENV = "MLFRAME_FE_WAVELET_FUSED"
 
 
 def _fused_leg_matrices(cp, z_g, max_scale: int, min_half_rows: int):
@@ -200,7 +199,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         # different column with the same role re-uploads while the SAME column hits.
         z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)
         z_g = cp.clip((z_g - float(lo)) / float(span), 0.0, 1.0)
-        fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS) if _fused_enabled() else None
+        fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS) if fused_switch_enabled(_FUSED_ENV) else None
         if fused is not None:
             metas, tr_mat, va_mat = fused
             if not metas:
