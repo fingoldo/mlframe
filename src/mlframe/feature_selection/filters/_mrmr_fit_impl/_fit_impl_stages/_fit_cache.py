@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 # --- imports (managed) ---
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
+import logging
 from typing import Any
 
 import numpy as np
@@ -27,7 +29,8 @@ def _fit_signature(self, y, X):
         try:
             _x_cols_sig = tuple(str(c) for c in X.columns)
         except Exception as exc:
-            logger.debug("mrmr: columns-signature hash failed; treating as unknown (forces a cache miss): %r", exc, exc_info=True)
+            log_throttle(logger, "mrmr_fit_cache.columns_signature", logging.WARNING,
+                         "mrmr: columns-signature hash failed; fit-skip signature omits column names: %r", exc, exc_info=True)
             _x_cols_sig = None
     # Fold X content hash into
     # the shortcut signature. Pre-fix the signature was
@@ -69,6 +72,7 @@ def _fit_signature(self, y, X):
     try:
         _pre_fit_snapshot = getattr(self, "_pre_fit_ctor_params_snapshot_", None)
         _self_params_sig = _hashable_params_signature(_pre_fit_snapshot if _pre_fit_snapshot is not None else self.get_params(deep=True))
+    # best-effort: the sentinel never equals a stored signature, so the fit re-runs instead of reusing a cached result; output is unchanged.
     except Exception as exc:
         logger.debug("mrmr: ctor-params signature hash failed; using a unique sentinel (forces a cache miss): %r", exc, exc_info=True)
         _self_params_sig = object()
@@ -108,6 +112,7 @@ def _fit_cache_key(self, X, y, _y_hash_for_sig, groups):
             _cache_key = None
         else:
             _cache_key = (_x_sig, _y_sig, _y_name, _y_full_hash, _x_full_hash, _params_sig, _groups_sig)
+    # best-effort: a None key only skips the fit-cache lookup and the fit runs normally; output is unchanged.
     except Exception as exc:
         logger.debug("mrmr: fit-cache key construction failed; skipping cache lookup for this fit: %r", exc, exc_info=True)
         _cache_key = None

@@ -466,11 +466,18 @@ def build_pit_diagram_spec(
     from mlframe.reporting.spec import FigureSpec, HistogramPanelSpec
 
     pit_values = np.clip(np.asarray(pit_values, dtype=np.float64), 0.0, 1.0)
-    ks_stat = kolmogorov_smirnov_statistic(pit_values) if len(pit_values) else float("nan")
+    summary = pit_gof_summary(pit_values) if len(pit_values) else None
+    ks_stat = summary["ks"] if summary is not None else float("nan")
     edges = np.linspace(0.0, 1.0, bins + 1)
     heights, _ = np.histogram(pit_values, bins=edges, density=True)
     centers = 0.5 * (edges[:-1] + edges[1:])
     title = (title_prefix + " " if title_prefix else "") + f"PIT Diagram (KS-vs-uniform={ks_stat:.4f})"
+    stats_line = ""
+    if summary is not None:
+        stats_line = (
+            f" Statistics: CvM={summary['cvm']:.4f}, AD={summary['anderson_darling']:.4f}, chi2={summary['chi_square']:.4f}, "
+            f"ECI={summary['eci']:.4f}, MSD={summary['msd']:.4f}, WPD={summary['wpd']:.4f} (relative diagnostics, see module caveat)."
+        )
     panel = HistogramPanelSpec(
         values=heights,
         bin_centers=centers,
@@ -488,7 +495,7 @@ def build_pit_diagram_spec(
             "How to read: the PIT value of a row is the predicted probability it assigned to what actually "
             "happened, so a well-calibrated model spreads them UNIFORMLY -- a flat histogram. A hump in the middle "
             "means the model is under-confident, mass piled at both ends means over-confident, and a tilt means a "
-            "systematic bias toward one class. The KS statistic in the title is the largest gap from uniform."
+            "systematic bias toward one class. The KS statistic in the title is the largest gap from uniform." + stats_line
         ),
     )
 
@@ -561,6 +568,26 @@ def kolmogorov_smirnov_statistic(pit_values: np.ndarray) -> float:
 
     statistic, _ = ks_1samp(pit_values, uniform_cdf, alternative="two-sided")
     return float(statistic)
+
+
+def pit_gof_summary(pit_values: np.ndarray) -> dict[str, float]:
+    """Compute every PIT-vs-uniform diagnostic in this module for one set of PIT values.
+
+    Keys: ``ks``, ``cvm``, ``anderson_darling``, ``chi_square``, ``eci``, ``msd``, ``wpd``. Each value is the
+    corresponding statistic function's output on the same clipped ``[0, 1]`` input. The statistics are relative
+    ranking diagnostics for continuous PIT values; see the binary-PIT caveat above before reading them as tests.
+    Requires a non-empty input (the individual statistics return NaN or raise on an empty array).
+    """
+    pit = np.clip(np.asarray(pit_values, dtype=np.float64), 0.0, 1.0)
+    return {
+        "ks": kolmogorov_smirnov_statistic(pit),
+        "cvm": cramer_von_mises_statistic(pit),
+        "anderson_darling": anderson_darling_statistic(pit),
+        "chi_square": chi_square_statistic(pit),
+        "eci": entropy_calibration_index(pit),
+        "msd": mean_squared_deviation(pit),
+        "wpd": weighted_pit_deviation(pit),
+    }
 
 
 def cramer_von_mises_statistic(pit_values: np.ndarray) -> float:

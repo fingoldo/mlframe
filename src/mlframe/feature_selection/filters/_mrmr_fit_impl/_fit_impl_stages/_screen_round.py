@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 # --- imports (managed) ---
+import logging
+
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from timeit import default_timer as timer
 # --- end imports ---
@@ -16,7 +19,7 @@ def _attach_dcd_results(self, _dcd_state, X, data, cols, nbins):
 
         self.dcd_ = _dcd_summary(_dcd_state)
     except Exception as exc:
-        logger.debug("mrmr: DCD result attachment failed; dcd_ unavailable: %r", exc, exc_info=True)
+        log_throttle(logger, "mrmr_screen_round.dcd_attach", logging.WARNING, "mrmr: DCD result attachment failed; dcd_ unavailable: %r", exc, exc_info=True)
         self.dcd_ = None
     # Layer 41: self-describing cluster membership accessor.
     # Mirror ``dcd_["cluster_anchors_names"]`` onto the estimator as a
@@ -47,7 +50,8 @@ def _attach_dcd_results(self, _dcd_state, X, data, cols, nbins):
                 distance=str(getattr(self, "dcd_distance", "su")),
             )
         except Exception as exc:
-            logger.debug("mrmr: cluster-hierarchy accessor failed; using an empty mapping: %r", exc, exc_info=True)
+            log_throttle(logger, "mrmr_screen_round.cluster_hierarchy", logging.WARNING,
+                         "mrmr: cluster-hierarchy accessor failed; using an empty mapping: %r", exc, exc_info=True)
             self.cluster_hierarchy_ = {}
     else:
         self.cluster_hierarchy_ = None
@@ -183,6 +187,7 @@ def _take_engineered_continuous_store(self):
         try:
             del self._engineered_continuous_
         except Exception as exc:
-            logger.debug("mrmr: engineered-continuous store failed; using an empty mapping: %r", exc, exc_info=True)
+            log_throttle(logger, "mrmr_screen_round.engineered_continuous", logging.WARNING,
+                             "mrmr: engineered-continuous store failed; using an empty mapping: %r", exc, exc_info=True)
             self._engineered_continuous_ = {}
     return _eng_continuous_snapshot

@@ -61,6 +61,7 @@ import threading
 
 # Quiet the intermittent cupy<->numba illegal-address race at interpreter teardown (cosmetic; suppressed ONLY
 # during finalization, never mid-fit - see _gpu_teardown_guard). Cheap import (no cupy), idempotent install.
+from mlframe.utils.log_throttle import log_throttle
 from ._gpu_teardown_guard import install_cuda_teardown_guard as _install_cuda_teardown_guard
 
 logger = logging.getLogger(__name__)
@@ -190,12 +191,13 @@ def _cuda_usable() -> bool:
             from ._gpu_policy import cuda_available_for_run
             _CUDA_USABLE_CACHE = bool(cuda_available_for_run())
         except Exception as e:
-            logger.debug("cuda_available_for_run() check failed, falling back to numba.cuda.is_available(): %s", e)
+            log_throttle(logger, "fe_gpu_strict.cuda_available_for_run", logging.WARNING,
+                             "cuda_available_for_run() check failed, falling back to numba.cuda.is_available(): %s", e)
             try:
                 from numba import cuda as _c
                 _CUDA_USABLE_CACHE = bool(getattr(_c, "is_available", lambda: False)())
             except ImportError as e2:
-                logger.debug("numba.cuda unavailable (%s); assuming CUDA unusable", e2)
+                log_throttle(logger, "fe_gpu_strict.numba_cuda_import", logging.WARNING, "numba.cuda unavailable (%s); assuming CUDA unusable", e2)
                 _CUDA_USABLE_CACHE = False
             except Exception as e2:
                 # Same reasoning as ``_internals.numba_cuda_can_compile``: an ImportError means the stack is
@@ -206,7 +208,8 @@ def _cuda_usable() -> bool:
                 # code path uploads to the device and another routes the same arrays into a CPU njit kernel.
                 # Logged here as well as inside the retry: this handler must not read as silent, and a reader
                 # tracing a device fault should see it at the point it was caught, not only one frame down.
-                logger.debug("numba.cuda probe raised %s: %s; delegating to the bounded retry", type(e2).__name__, e2)
+                log_throttle(logger, "fe_gpu_strict.numba_cuda_probe", logging.WARNING,
+                             "numba.cuda probe raised %s: %s; delegating to the bounded retry", type(e2).__name__, e2)
                 _CUDA_USABLE_CACHE = _retry_cuda_available(e2)
     return _CUDA_USABLE_CACHE
 
