@@ -27,16 +27,16 @@ def main() -> int:
     """Print the fingerprint, then run the gate."""
     freeze = _freeze()
     digest = hashlib.sha256("\n".join(freeze).encode("utf-8")).hexdigest()[:16]
-    print(f"python {sys.version.split()[0]} on {platform.system()} {platform.machine()}")
-    print(f"pip-freeze sha256[:16] {digest} ({len(freeze)} packages)")
+    print(f"python {sys.version.split()[0]} on {platform.system()} {platform.machine()}")  # noqa: T201 -- CLI output
+    print(f"pip-freeze sha256[:16] {digest} ({len(freeze)} packages)")  # noqa: T201 -- CLI output
     for line in freeze:
         if any(h in line.lower() for h in STUB_HINTS):
-            print(f"  {line}")
+            print(f"  {line}")  # noqa: T201 -- CLI output
     cmd = [
         sys.executable, "-m", "py_ci_shared.mypy_gate", "--min-files", "1600", "src/mlframe",
-        "--cache-dir=.mypy_cache_ci_local",
+        "--cache-dir=.mypy_cache_ci_local", "--no-incremental",
     ]
-    print("gate:", " ".join(cmd))
+    print("gate:", " ".join(cmd))  # noqa: T201 -- CLI output
     return subprocess.run(cmd, check=False).returncode
 
 
