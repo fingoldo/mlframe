@@ -21,6 +21,7 @@ import time
 import warnings
 from collections import OrderedDict
 from collections.abc import Iterable, MutableMapping, Sequence
+from functools import partial
 from typing import Any, Callable, ClassVar, NoReturn, Optional, cast
 
 import numpy as np
@@ -3770,9 +3771,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             get_group_mi(),
         )
 
-        def _restore_toggles_snapshot_and_raise(exc: BaseException) -> NoReturn:
-            """Restore the MI thread-locals to the fit-entry snapshot, then re-raise exc."""
-            return _restore_toggles_snapshot_and_raise_impl(_toggles_snapshot, exc)
+        _restore_toggles_snapshot_and_raise = partial(_restore_toggles_snapshot_and_raise_impl, _toggles_snapshot)
 
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):

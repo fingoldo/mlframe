@@ -131,7 +131,7 @@
   "src/mlframe/feature_selection/filters/hermite_fe/_hermite_prewarp.py::warm_start_als_seed": 175,
   "src/mlframe/feature_selection/filters/info_theory/_batch_kernels.py::batch_mi_with_noise_gate": 160,
   "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR.__init__": 2837,
-  "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR._fit_body": 485,
+  "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR._fit_body": 484,
   "src/mlframe/feature_selection/filters/permutation.py::mi_direct": 280,
   "src/mlframe/feature_selection/filters/polynom_pair_fe.py::_run_polynom_pair_f_poly_t0_time_perf": 214,
   "src/mlframe/feature_selection/filters/polynom_pair_fe.py::_run_polynom_pair_fe_step2_existing_np_memmap": 190,
