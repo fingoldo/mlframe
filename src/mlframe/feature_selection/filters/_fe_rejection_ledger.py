@@ -297,3 +297,9 @@ def get_fe_rejection_report(mrmr_self: Any) -> str:
     header = "MRMR FE rejection ledger: " + ", ".join(header_parts)
     table = led.to_string(index=False)
     return str(header + "\n" + table)
+
+
+def _drain_fe_rejection_records(mrmr_self: Any, records: list, step: int) -> None:
+    """Append caller-collected rejection dicts to the MRMR ledger, one ``record_fe_rejection`` call each."""
+    for rec in records:
+        record_fe_rejection(mrmr_self, step=int(step), **rec)

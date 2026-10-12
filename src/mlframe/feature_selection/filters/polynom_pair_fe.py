@@ -90,6 +90,8 @@ def run_polynom_pair_fe(
     # dispatch
     n_jobs: int,
     verbose: int,
+    # Caller-owned list the reduce loop appends a dict per polynom-gate drop to (the MRMR ledger drains it).
+    rejection_records: Optional[list] = None,
     # Subsample inside the CMA-ES / Optuna search to bound
     # per-pair MI compute. On production n=4M data each trial evaluates
     # MI on the full y - ``_plugin_mi_classif_njit`` then takes ~100ms
@@ -237,7 +239,7 @@ def run_polynom_pair_fe(
 
     st._fe_deadline_value = getattr(_fe_deadline_state, "deadline", None)
 
-    X, cols, data, nbins = _run_polynom_pair_f_poly_t0_time_perf(st._polynom_n_jobs, st._n_pairs_to_eval, verbose, st._pair_keys, _eval_one_pair, st.X_ndarr, classes_y, st._fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio)
+    X, cols, data, nbins = _run_polynom_pair_f_poly_t0_time_perf(st._polynom_n_jobs, st._n_pairs_to_eval, verbose, st._pair_keys, _eval_one_pair, st.X_ndarr, classes_y, st._fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio, rejection_records)
     return data, nbins, cols, X
 
 
@@ -439,7 +441,7 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
     return _eval_one_pair_impl
 
 
-def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio):
+def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, verbose, _pair_keys, _eval_one_pair, X_ndarr, classes_y, _fe_deadline_value, fe_min_engineered_mi_prevalence, cols, quantization_nbins, quantization_method, quantization_dtype, is_polars_input, X, pl, engineered_features, hermite_features_list, engineered_recipes, data, nbins, poly_cheap_skip_ratio, rejection_records=None):
     """Block of run_polynom_pair_fe starting at ``_poly_t0 = time.perf_counter()``."""
     _poly_t0 = time.perf_counter()
     # 2026-05-18 threshold: at n=1M, 15 pairs, joblib worker spin-up
@@ -569,6 +571,18 @@ def _run_polynom_pair_f_poly_t0_time_perf(_polynom_n_jobs, _n_pairs_to_eval, ver
         if best_res is None:
             continue
         if best_res.mi <= best_res.baseline_mi * _uplift_gate:
+            # Ledger record: this gate uses fe_min_engineered_mi_prevalence and was previously silent.
+            if rejection_records is not None:
+                rejection_records.append({
+                    "gate": "engineered_mi_prevalence",
+                    "candidate": f"_polynom_{best_res.basis}_{best_res.bin_func_name}__{raw_vars_pair[0]}__{raw_vars_pair[1]}",
+                    "operands": tuple(raw_vars_pair),
+                    "operand_names": "(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                    "operator": best_res.bin_func_name,
+                    "observed": float(best_res.mi),
+                    "threshold": float(best_res.baseline_mi * _uplift_gate),
+                    "reason": "polynom_mi_below_baseline_times_prevalence",
+                })
             continue
         try:
             _t_vals = np.asarray(
