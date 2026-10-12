@@ -55,7 +55,6 @@ _PUBLIC_API = {
     "embed_website_to_mlflow",  # user-facing helpers of mlframe.integrations.mlflow, each pinned by tests/integrations/test_mlflow.py
     "clip_to_quantiles_hard",  # documented preset for choosing a target transform (1%/99% quantile clip)
     "clip_to_quantiles_winsor_quantile",  # documented preset for choosing a target transform (soft winsorise)
-    "set_wavedec_dispatch_threshold",  # documented tuning knob for the wavelet single/batched dispatch; a user sets it
     "reset_openmp_smoke",  # compatibility alias for the old hnswlib API; a no-op kept so old imports keep working
     "operand_uplift_null_bar",  # exported through the module's __all__ (feature_engineering_pairs operand floor); public surface
     "set_dtw_dispatch_threshold",  # documented tuning knob for the DTW GPU/CPU crossover; a user sets it
@@ -610,9 +609,6 @@ _REEXPORTED_PUBLIC_API = {
     "compose_pair_fe",  # exported by mlframe.feature_selection.filters (__all__)
     "validate_pair_fe_cv",  # exported by mlframe.feature_selection.filters (__all__)
     "numpy_rng_scope",  # exported by its package (__all__ / lazy export map)
-    "curated_fe_pipelines",  # exported by its package (__all__ / lazy export map)
-    "recommended_curated_fe_names",  # exported by its package (__all__ / lazy export map)
-    "wavedec_dispatch",  # exported by its package (__all__ / lazy export map)
     "wavelet_denoise",  # exported by its package (__all__ / lazy export map)
     "benjamini_hochberg_reject",  # exported lazily through mlframe.training
     "list_registered_specs",  # exported lazily through mlframe.training
@@ -1069,6 +1065,10 @@ _OPT_IN_SLOW: set[str] = {
     "compute_target_quantile_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_target_quantile_attention") in transformer/_suite_adapter.py, off by default
     "compute_tree_path_boolean_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_tree_path_boolean_features") in transformer/_suite_adapter.py, off by default
     "compute_variance_baseline_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_variance_baseline_features") in transformer/_suite_adapter.py, off by default
+    "wavedec_dispatch",  # opt-in: wavedec_dispatch(..., path="batched") selects the batched DWT; default path="auto" keeps the current choice
+    "set_wavedec_dispatch_threshold",  # tunes the row threshold used only when path="auto" (the default)
+    "curated_fe_pipelines",  # opt-in: curated_fe_pipelines(...) output passed as FeatureSelectionConfig.custom_pre_pipelines
+    "recommended_curated_fe_names",  # opt-in: names to pass to curated_fe_pipelines(names=...)
 }
 
 #: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.
