@@ -34,9 +34,11 @@ from typing import Any
 import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
-
 
 def _raw_numeric_frame(X: Any, feature_names: list[str]):
     """Return a pandas DataFrame of the CONTINUOUS-numeric raw columns of ``X`` (named by
@@ -77,7 +79,6 @@ def _raw_numeric_frame(X: Any, feature_names: list[str]):
         raise ValueError("no continuous-numeric raw columns available for the usability pass")
     return pd.DataFrame(keep)
 
-
 def _scope_base_names(df, y_cont: np.ndarray, max_base_features: int) -> list[str]:
     """Cap the base-name set to the ``max_base_features`` columns with the highest marginal MI with
     the (binned) target, so the O(p^2) pair enumeration stays tractable on wide inputs. For small p
@@ -92,7 +93,6 @@ def _scope_base_names(df, y_cont: np.ndarray, max_base_features: int) -> list[st
     scored = [(name, _binned_mi(df[name].to_numpy(), y_codes, 10)) for name in names]
     scored.sort(key=lambda t: t[1], reverse=True)
     return [name for name, _ in scored[:max_base_features]]
-
 
 def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> None:
     """Compute ``support_linear_`` / ``support_universal_`` (and the ``support_nonlinear_`` alias)
@@ -163,7 +163,6 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     mrmr.support_linear_ = _drop_stored_values(linear)
     mrmr.support_universal_ = _drop_stored_values(universal)
 
-
 def _drop_stored_values(candidates: list):
     """Clear each selected candidate's full-n ``values`` array before it is attached to the fitted
     estimator. The greedy needed those arrays DURING selection (CV folds), but ``transform_usability``
@@ -179,8 +178,7 @@ def _drop_stored_values(candidates: list):
             c.values = np.empty(0, dtype=v.dtype)
     return candidates
 
-
-def materialize_usability_features(candidates: list, X: Any):
+def materialize_usability_features(candidates: list, X: Any) -> pd.DataFrame:
     """Build the feature DataFrame for a usability list (``support_linear_`` / ``support_universal_``)
     on new data: a raw candidate (``recipe is None``) passes its named column through; an engineered
     candidate replays its ``EngineeredRecipe``. Output columns are in selection order, scrubbed."""

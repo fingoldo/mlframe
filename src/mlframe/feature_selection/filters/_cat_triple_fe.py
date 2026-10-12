@@ -74,6 +74,9 @@ from ._cat_pair_fe import (
     _kfold_target_encode_codes,
     score_cat_pairs_by_interaction_information,
 )
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -86,27 +89,22 @@ __all__ = [
     "apply_cat_triple_cross",
 ]
 
-
 # ---------------------------------------------------------------------------
 # Naming
 # ---------------------------------------------------------------------------
-
 
 def engineered_name_cat_triple_cross(cat_a: str, cat_b: str, cat_c: str) -> str:
     """Stable engineered column name for the (cat_a, cat_b, cat_c) cross."""
     return f"cross3_{cat_a}_{cat_b}_{cat_c}"
 
-
 # ---------------------------------------------------------------------------
 # Discrete-MI primitives (reuse Layer 60 / Layer 19 plug-in family)
 # ---------------------------------------------------------------------------
-
 
 def _dense_codes(values) -> np.ndarray:
     """Dense int64 class codes for a stringified categorical column."""
     _, codes = np.unique(values, return_inverse=True)
     return cast("np.ndarray", codes.astype(np.int64))
-
 
 def _join_codes(*code_arrays: np.ndarray) -> np.ndarray:
     """Dense int64 cell code for the joint of several integer code arrays.
@@ -124,7 +122,6 @@ def _join_codes(*code_arrays: np.ndarray) -> np.ndarray:
         key = key * cmax + c64
     _, codes = np.unique(key, return_inverse=True)
     return codes.astype(np.int64)
-
 
 def triple_interaction_information(
     a, b, c, y, *, n_bins: int = 10,
@@ -162,11 +159,9 @@ def triple_interaction_information(
 
     return mi_abc - (mi_ab + mi_ac + mi_bc) + (mi_a + mi_b + mi_c)
 
-
 # ---------------------------------------------------------------------------
 # Triple-cross materialisation - pure X-only kernel (no y reference)
 # ---------------------------------------------------------------------------
-
 
 def _encode_triple(
     cats_a: Optional[np.ndarray] = None,
@@ -226,7 +221,6 @@ def _encode_triple(
         mapping[(uniq_a[ia], uniq_b[ib], uniq_c[ic])] = code
     return codes, mapping
 
-
 def generate_cat_triple_crosses(
     X: pd.DataFrame,
     cat_cols: Sequence[str],
@@ -272,11 +266,9 @@ def generate_cat_triple_crosses(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 # ---------------------------------------------------------------------------
 # Beam search over triples seeded by Layer-89 pairwise synergy
 # ---------------------------------------------------------------------------
-
 
 def score_cat_triples_by_interaction_information(
     X: pd.DataFrame,
@@ -416,11 +408,9 @@ def score_cat_triples_by_interaction_information(
     out.attrs["n_triples_exhaustive"] = int(n_exhaustive)
     return out
 
-
 # ---------------------------------------------------------------------------
 # End-to-end pipeline: beam -> II3 filter -> emit cross -> route TE / raw
 # ---------------------------------------------------------------------------
-
 
 def hybrid_cat_triple_fe(
     X: pd.DataFrame,
@@ -435,7 +425,7 @@ def hybrid_cat_triple_fe(
     n_folds: int = 5,
     smoothing: float = 10.0,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end cat x cat x cat triple-synergy-cross FE pipeline.
 
     1. Auto-detect ``cat_cols`` when not supplied (Layer 89 detector).
@@ -529,11 +519,9 @@ def hybrid_cat_triple_fe(
     X_aug = pd.concat([X, new_df], axis=1)
     return X_aug, appended, recipes, scores
 
-
 # ---------------------------------------------------------------------------
 # Transform-time replay
 # ---------------------------------------------------------------------------
-
 
 def apply_cat_triple_cross(
     X_test: pd.DataFrame,

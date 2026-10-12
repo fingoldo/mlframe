@@ -16,9 +16,9 @@ import numpy as np
 from numba import njit
 
 from mlframe.core.arrays import arrayMinMax
+from typing import Sequence
 
 logger = logging.getLogger(__name__)
-
 
 @njit(nogil=True, cache=True)
 def _knuth_log_posterior(M: int, n: int, counts: np.ndarray) -> float:
@@ -39,7 +39,6 @@ def _knuth_log_posterior(M: int, n: int, counts: np.ndarray) -> float:
     for k in range(M):
         s += math.lgamma(counts[k] + 0.5)
     return s
-
 
 @njit(nogil=True, cache=True)
 def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) -> int:
@@ -96,7 +95,6 @@ def _knuth_best_M(a_sorted: np.ndarray, a_min: float, a_max: float, M_max: int) 
             best_M = M
     return best_M
 
-
 def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile", m_max_cap: int = 64) -> np.ndarray:
     """Knuth's optimal-bin-count rule (Knuth 2006). Returns bin edges at the M*
     that maximises the log-posterior over M in [1, min(sqrt(N)*4, m_max_cap)].
@@ -146,7 +144,6 @@ def _knuth_bin_edges(a: np.ndarray, edge_type: str = "quantile", m_max_cap: int 
         quantiles = np.linspace(0.0, 100.0, best_M + 1)
         return np.asarray(np.nanpercentile(a, quantiles))
     return np.linspace(a_min, a_max, best_M + 1)
-
 
 @njit(nogil=True, cache=True)
 def _bayesian_blocks_inner(t: np.ndarray, ncp_prior: float) -> np.ndarray:
@@ -205,7 +202,6 @@ def _bayesian_blocks_inner(t: np.ndarray, ncp_prior: float) -> np.ndarray:
         cps_arr[len(cps) - 1 - i] = v
     return cps_arr
 
-
 @njit(nogil=True, cache=True)
 def _bayesian_blocks_midpoints(t_sorted: np.ndarray) -> np.ndarray:
     """Build the cell-boundary midpoint array used by the canonical Scargle 2013 /
@@ -218,7 +214,6 @@ def _bayesian_blocks_midpoints(t_sorted: np.ndarray) -> np.ndarray:
         edges[i] = 0.5 * (t_sorted[i - 1] + t_sorted[i])
     edges[N] = t_sorted[N - 1]
     return edges
-
 
 def _bayesian_blocks_bin_edges(
     a: np.ndarray, p0: float = 0.05, edge_placement: str = "start", subsample_threshold: int = 0, m_max_cap: int = 500,
@@ -316,7 +311,6 @@ def _bayesian_blocks_bin_edges(
         edges_internal = np.unique(edges_internal)
     return edges_internal
 
-
 def histogram(a, bins="auto", **kwargs):
     """In-tree histogram supporting np.histogram's bin schemes + 'blocks' / 'knuth'.
 
@@ -338,8 +332,7 @@ def histogram(a, bins="auto", **kwargs):
         return hist, edges
     return np.histogram(a, bins=bins, **kwargs)
 
-
-def edges(arr, quantiles):
+def edges(arr: np.ndarray, quantiles: Sequence[float] | np.ndarray) -> np.ndarray:
     """Quantile bin edges for ``arr`` at the given ``quantiles``, NaN-safe (see the inline comment below
     for why plain ``np.percentile`` is unsafe here)."""
     # Wave 21 P0: use nanpercentile so NaN in arr doesn't poison every
@@ -350,7 +343,6 @@ def edges(arr, quantiles):
     # a constant with no upstream signal.
     bin_edges = np.asarray(np.nanpercentile(arr, quantiles))
     return bin_edges
-
 
 @njit(cache=True)
 def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform", min_value: Optional[float] = None, max_value: Optional[float] = None) -> np.ndarray:
@@ -397,7 +389,6 @@ def get_binning_edges(arr: np.ndarray, n_bins: int = 10, method: str = "uniform"
         # (no f-string interpolation of ``method`` inside nopython mode).
         raise ValueError("get_binning_edges: unknown binning method; expected 'uniform' or 'quantile'")
     return bin_edges
-
 
 def discretize_sklearn(
     arr: np.ndarray, n_bins: int = 10, method: str = "uniform",

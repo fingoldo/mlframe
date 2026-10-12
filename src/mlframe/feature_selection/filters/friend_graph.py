@@ -45,11 +45,9 @@ from .info_theory import entropy, merge_vars, mi, joint_entropy_2var
 
 logger = logging.getLogger(__name__)
 
-
 # ----------------------------------------------------------------------------
 # Data model
 # ----------------------------------------------------------------------------
-
 
 @dataclass
 class FriendGraphNode:
@@ -65,7 +63,6 @@ class FriendGraphNode:
     klass: str  # "green" | "red" | "yellow"
     centrality: float = 0.0  # Inf-FS-style eigenvector centrality on the MI-weighted adjacency (0 when the edge pass was skipped)
 
-
 @dataclass
 class FriendGraphEdge:
     """One directed pairwise-MI link between two features in the friend graph, pointing from the explaining feature to the explained one."""
@@ -73,7 +70,6 @@ class FriendGraphEdge:
     a: int  # explaining feature (arrow source)
     b: int  # explained feature (arrow target)
     mi: float  # I(X_a; X_b)
-
 
 @dataclass
 class FriendGraph:
@@ -126,11 +122,9 @@ class FriendGraph:
             "nodes": nodes_meta,
         }
 
-
 # ----------------------------------------------------------------------------
 # Compute
 # ----------------------------------------------------------------------------
-
 
 def _node_entropy(factors_data, idx, factors_nbins, entropy_cache, dtype) -> float:
     """H(X_idx) in nats, reusing ``entropy_cache`` (keyed by sorted index tuple) when present."""
@@ -146,7 +140,6 @@ def _node_entropy(factors_data, idx, factors_nbins, entropy_cache, dtype) -> flo
         entropy_cache[key] = h
     return h
 
-
 # ----------------------------------------------------------------------------
 # Reusable MI primitives (shared with the cluster-aggregate FE step, which needs
 # the SAME feature-feature edge metric + significance floor + redundancy criterion
@@ -154,11 +147,9 @@ def _node_entropy(factors_data, idx, factors_nbins, entropy_cache, dtype) -> flo
 # so both call one implementation.
 # ----------------------------------------------------------------------------
 
-
-def node_relevance(factors_data, idx, target, factors_nbins, dtype=np.int32) -> float:
+def node_relevance(factors_data: np.ndarray, idx: int, target: np.ndarray, factors_nbins: np.ndarray, dtype: type = np.int32) -> float:
     """I(X_idx; Y) in nats (the plug-in MI of one feature with the target)."""
     return float(mi(factors_data, np.array([idx], dtype=np.int64), target, factors_nbins, dtype=dtype))
-
 
 def _joint_entropy_2vars(factors_data, a, b, factors_nbins, dtype=np.int32) -> float:
     """H(X_a, X_b) in nats - the joint half of I(X_a; X_b). Split out so the
@@ -179,8 +170,7 @@ def _joint_entropy_2vars(factors_data, a, b, factors_nbins, dtype=np.int32) -> f
     """
     return float(joint_entropy_2var(factors_data, int(a), int(b), int(factors_nbins[a]), int(factors_nbins[b])))
 
-
-def pairwise_mi_edge(factors_data, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_significance=3.0, dtype=np.int32, h_a=None, h_b=None):
+def pairwise_mi_edge(factors_data: np.ndarray, a: int, b: int, factors_nbins: np.ndarray, n_samples: int, mi_eps: float=1e-6, edge_significance: float=3.0, dtype: type=np.int32, h_a: Optional[float]=None, h_b: Optional[float]=None) -> Optional[float]:
     """Feature-feature ``I(X_a; X_b)`` if it clears the finite-sample significance floor, else ``None``.
 
     The floor ``max(mi_eps, edge_significance*(na-1)(nb-1)/(2n))`` suppresses spurious edges between
@@ -211,7 +201,6 @@ def pairwise_mi_edge(factors_data, a, b, factors_nbins, n_samples, mi_eps=1e-6, 
     floor = max(mi_eps, edge_significance * (na - 1) * (nb - 1) / (2.0 * max(1, int(n_samples))))
     return m if m > floor else None
 
-
 def _apply_edge_floor(m, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_significance=3.0):
     """Apply ``pairwise_mi_edge``'s finite-sample significance floor to a PRE-COMPUTED
     raw edge MI ``m`` (e.g. the bit-identical GPU value ``H_a + H_b - H_ab`` clamped >=0).
@@ -227,7 +216,6 @@ def _apply_edge_floor(m, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_signi
     na, nb = int(factors_nbins[a]), int(factors_nbins[b])
     floor = max(mi_eps, edge_significance * (na - 1) * (nb - 1) / (2.0 * max(1, int(n_samples))))
     return m if m > floor else None
-
 
 def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, factors_nbins, dtype=np.int32, cached_MIs: Optional[dict] = None):
     """Sum_j I(Y; X_j | X_i) over neighbors via the chain rule ``I((X_i,X_j);Y) - I(X_i;Y)``.
@@ -263,7 +251,6 @@ def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, fac
         total_unique += max(0.0, cmi)
     return total_unique, detail
 
-
 def _inf_fs_centrality(sel: List[int], edges: List[FriendGraphEdge]) -> Dict[int, float]:
     """Roffo et al. 2017 (ICCV) Infinite Feature Selection score on the MI-weighted friend-graph adjacency.
 
@@ -297,7 +284,6 @@ def _inf_fs_centrality(sel: List[int], edges: List[FriendGraphEdge]) -> Dict[int
     normalized = (scores - lo) / (hi - lo)
     return {v: float(normalized[idx_of[v]]) for v in sel}
 
-
 def _layout(sel: List[int], edges: List[FriendGraphEdge], seed) -> Dict[int, Tuple[float, float]]:
     """Node positions via networkx ``spring_layout`` (force-directed); deterministic
     circular fallback when networkx is absent so the build never blocks on an
@@ -324,7 +310,6 @@ def _layout(sel: List[int], edges: List[FriendGraphEdge], seed) -> Dict[int, Tup
     n = len(sel)
     angles = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
     return {int(v): (float(np.cos(a)), float(np.sin(a))) for v, a in zip(sel, angles)}
-
 
 def build_friend_graph(
     selected_vars: Sequence[int],
@@ -543,7 +528,6 @@ def build_friend_graph(
         graph.pos = _layout(sel, edges, seed)
     return graph
 
-
 def _dispatch_gpu_friend_stats(edges_skipped, gpu_backend, sel, factors_data, factors_nbins, target, dtype, gpu_stats):
     """Offload the friend-graph statistics to the GPU backend when one is selected."""
     if not edges_skipped and gpu_backend != "cpu":
@@ -564,7 +548,6 @@ def _dispatch_gpu_friend_stats(edges_skipped, gpu_backend, sel, factors_data, fa
             logger.warning("friend_graph GPU dispatch raised %s: %s; falling back to CPU edge pass", type(_exc).__name__, _exc, exc_info=True)
             gpu_stats = None
     return gpu_stats
-
 
 def prune_by_friend_graph(graph: FriendGraph, selected_vars: Sequence[int], protect_indices: Sequence[int] = ()) -> Tuple[List[int], Dict[str, str]]:
     """Drop suspected-garbage features while protecting the cause of each removal.
@@ -607,11 +590,9 @@ def prune_by_friend_graph(graph: FriendGraph, selected_vars: Sequence[int], prot
     graph.prune_reasons = reasons
     return pruned_vars, reasons
 
-
 # ----------------------------------------------------------------------------
 # Rendering (via the declarative reporting system)
 # ----------------------------------------------------------------------------
-
 
 def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature friend graph", edge_cmap: Optional[str] = None):
     """Wrap a ``FriendGraph`` in a single-panel ``FigureSpec`` (``NetworkPanelSpec``)."""
@@ -655,7 +636,6 @@ def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature frie
     )
     return FigureSpec(suptitle=title, panels=((panel,),), figsize=(11.0, 8.0))
 
-
 def plot_friend_graph(graph: FriendGraph, *, plot_outputs: str, base_path: str, title: str = "Feature friend graph") -> None:
     """Render + save the friend graph via the reporting DSL (mirrors other domain plots)."""
     from mlframe.reporting.output import parse_plot_output_dsl
@@ -663,7 +643,6 @@ def plot_friend_graph(graph: FriendGraph, *, plot_outputs: str, base_path: str, 
 
     spec = friend_graph_to_figurespec(graph, title=title)
     render_and_save(spec, parse_plot_output_dsl(plot_outputs), base_path)
-
 
 __all__ = [
     "FriendGraphNode",

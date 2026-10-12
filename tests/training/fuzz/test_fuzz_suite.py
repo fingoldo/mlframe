@@ -53,7 +53,9 @@ from mlframe.training import (
 # invocation reads the env fresh so 10k-combo campaigns can span 60+
 # seeds × 150 combos each without the parent process sharing state).
 _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
-COMBOS: list[FuzzCombo] = enumerate_combos(target=150, master_seed=_FUZZ_MASTER_SEED)
+COMBOS: list[FuzzCombo] = enumerate_combos(
+    target=150, master_seed=_FUZZ_MASTER_SEED, exhaustive_pairs=bool(os.environ.get("MLFRAME_FUZZ_EXHAUSTIVE_PAIRS")),
+)
 
 # LTR combos train native rankers only; a combo whose sampled models contain none has nothing to run, which is known from the combo alone.
 _LTR_NATIVE_RANKER_MODELS = frozenset({"cb", "xgb", "lgb", "mlp"})

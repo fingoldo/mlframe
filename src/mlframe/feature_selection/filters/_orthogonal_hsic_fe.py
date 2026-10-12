@@ -104,6 +104,9 @@ import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +123,6 @@ __all__ = [
     "hybrid_orth_mi_hsic_fe",
     "hybrid_orth_mi_hsic_fe_with_recipes",
 ]
-
 
 def _subsample_indices(
     n: int, n_sample: int, random_state: int,
@@ -139,7 +141,6 @@ def _subsample_indices(
     idx = rng.choice(n, size=int(n_sample), replace=False)
     idx.sort()
     return idx
-
 
 def median_heuristic_sigma(z: np.ndarray) -> float:
     """Median pairwise-distance bandwidth (Gretton 2005).
@@ -168,7 +169,6 @@ def median_heuristic_sigma(z: np.ndarray) -> float:
         return 1.0
     return med
 
-
 def _rbf_gram(z: np.ndarray, sigma: float) -> np.ndarray:
     """Gaussian RBF Gram matrix ``K_ij = exp(-||z_i - z_j||^2 / 2 sigma^2)``.
 
@@ -181,7 +181,6 @@ def _rbf_gram(z: np.ndarray, sigma: float) -> np.ndarray:
     sq = diff * diff
     s = float(sigma) if float(sigma) > 0.0 else 1.0
     return cast("np.ndarray", np.exp(-sq / (2.0 * s * s)))
-
 
 def hsic(
     x: np.ndarray,
@@ -306,7 +305,6 @@ def hsic(
     val = (tr + sum_K * sum_L / ((nn - 1.0) * (nn - 2.0)) - (2.0 / (nn - 2.0)) * cross) / denom
     return float(val)
 
-
 def _hsic_y_side_prep(
     y: np.ndarray, n_total: int, *, n_sample: int, random_state: int, estimator: str,
 ) -> Optional[tuple]:
@@ -338,7 +336,6 @@ def _hsic_y_side_prep(
     sum_L = float(L_t.sum())
     row_sum_L = L_t.sum(axis=1)
     return (idx, n, None, (L_t, sum_L, row_sum_L))
-
 
 def _hsic_batch(
     X: np.ndarray, y: np.ndarray, *,
@@ -406,7 +403,6 @@ def _hsic_batch(
         val = (tr + sum_K * sum_L / ((nn - 1.0) * (nn - 2.0)) - (2.0 / (nn - 2.0)) * cross) / denom
         out[j] = float(val)
     return out
-
 
 def score_features_by_hsic_uplift(
     raw_X: pd.DataFrame,
@@ -515,7 +511,6 @@ def score_features_by_hsic_uplift(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_hsic_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -594,7 +589,6 @@ def hybrid_orth_mi_hsic_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_hsic_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -609,7 +603,7 @@ def hybrid_orth_mi_hsic_fe_with_recipes(
     n_sample: int = 500,
     random_state: int = 0,
     estimator: str = "biased",
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_hsic_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data

@@ -40,6 +40,49 @@ from ._utils import require_seed, validate_numeric_input, softmax
 logger = logging.getLogger(__name__)
 
 
+def _regression_band_masks(y_t: np.ndarray, n_bands: int) -> list:
+    """Quantile-band masks over ``y_t``; the first and last bands are open toward the tails."""
+    quantiles = np.quantile(y_t, np.linspace(0.0, 1.0, n_bands + 1))
+    masks = []
+    for b in range(n_bands):
+        if b == 0:
+            masks.append(y_t <= quantiles[b + 1])
+        elif b == n_bands - 1:
+            masks.append(y_t > quantiles[b])
+        else:
+            masks.append((y_t > quantiles[b]) & (y_t <= quantiles[b + 1]))
+    return masks
+
+
+def _band_anchor_frame(
+    feats: np.ndarray,
+    anchors_per_band: int,
+    effective_n_bands: int,
+    task: str,
+    column_prefix: str,
+    dtype: type,
+) -> dict[str, np.ndarray]:
+    """Split the flat feature matrix into named columns (per-anchor weights, entropy, flat/band aggregates, argmaxes)."""
+    n_anchors_total = effective_n_bands * anchors_per_band
+    cols: dict[str, np.ndarray] = {}
+    # weights[a]
+    for a in range(n_anchors_total):
+        b = a // anchors_per_band
+        band_tag = f"Q{b+1}" if task == "regression" else ("pos" if b == 0 else "neg")
+        sub = a % anchors_per_band
+        cols[f"{column_prefix}_w_{band_tag}_a{sub}"] = feats[:, a].astype(dtype, copy=False)
+    col_idx = n_anchors_total
+    cols[f"{column_prefix}_entropy"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_flat_y_mean"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_flat_y_std"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    for b in range(effective_n_bands):
+        band_tag = f"Q{b+1}" if task == "regression" else ("pos" if b == 0 else "neg")
+        cols[f"{column_prefix}_mass_{band_tag}"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_argmax_anchor"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_argmax_band"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    return cols
+
+
 def compute_band_conditional_anchor_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -84,15 +127,7 @@ def compute_band_conditional_anchor_features(
         if task == "binary":
             masks = [y_t > 0.5, y_t <= 0.5]
         else:
-            quantiles = np.quantile(y_t, np.linspace(0.0, 1.0, effective_n_bands + 1))
-            masks = []
-            for b in range(effective_n_bands):
-                if b == 0:
-                    masks.append(y_t <= quantiles[b + 1])
-                elif b == effective_n_bands - 1:
-                    masks.append(y_t > quantiles[b])
-                else:
-                    masks.append((y_t > quantiles[b]) & (y_t <= quantiles[b + 1]))
+            masks = _regression_band_masks(y_t, effective_n_bands)
 
         # Per-band K-means with M anchors each.
         d = Xt_s.shape[1]
@@ -175,30 +210,10 @@ def compute_band_conditional_anchor_features(
     n_anchors_total = effective_n_bands * anchors_per_band
     n_features = n_anchors_total + 1 + 1 + 1 + effective_n_bands + 1 + 1  # weights + 4 scalars + band-masses + 2 argmax
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        """Split the flat feature matrix into named columns (per-anchor weights, entropy, flat/band aggregates, argmaxes)."""
-        cols: dict[str, np.ndarray] = {}
-        # weights[a]
-        for a in range(n_anchors_total):
-            b = a // anchors_per_band
-            band_tag = f"Q{b+1}" if task == "regression" else ("pos" if b == 0 else "neg")
-            sub = a % anchors_per_band
-            cols[f"{column_prefix}_w_{band_tag}_a{sub}"] = feats[:, a].astype(dtype, copy=False)
-        col_idx = n_anchors_total
-        cols[f"{column_prefix}_entropy"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_flat_y_mean"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_flat_y_std"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        for b in range(effective_n_bands):
-            band_tag = f"Q{b+1}" if task == "regression" else ("pos" if b == 0 else "neg")
-            cols[f"{column_prefix}_mass_{band_tag}"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_argmax_anchor"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_argmax_band"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        return cols
-
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         feats = _process(X_train_f, Xq, y_train_f, seed)
-        return pl.DataFrame(_make_df(feats))
+        return pl.DataFrame(_band_anchor_frame(feats, anchors_per_band, effective_n_bands, task, column_prefix, dtype))
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
@@ -210,4 +225,4 @@ def compute_band_conditional_anchor_features(
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("band_conditional_anchor: fold %d/%d done", fold_idx + 1, len(splits))
 
-    return pl.DataFrame(_make_df(out))
+    return pl.DataFrame(_band_anchor_frame(out, anchors_per_band, effective_n_bands, task, column_prefix, dtype))

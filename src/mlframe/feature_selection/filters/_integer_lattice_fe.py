@@ -53,7 +53,12 @@ import numpy as np
 from ._pairwise_modular_fe import _is_integer_col, _mi
 from ._y_encoding import encode_y_for_classif_mi
 from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_operands, responded_property as _responded_property
-
+from typing import TYPE_CHECKING
+from typing import Any
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
+    from .engineered_recipes import EngineeredRecipe
 
 @numba.njit(cache=True, fastmath=False)
 def _lattice_gcd_lcm_and_njit(a, b):
@@ -110,7 +115,6 @@ _MIN_MARGIN = 0.02
 # hit clears the null by a wide margin, so this absolute gap floor kills the over-fragmentation false positive while leaving real hits untouched.
 _MIN_NULL_MARGIN = 0.05
 
-
 def _to_int(x: np.ndarray) -> np.ndarray:
     """Round-to-nearest int64 view of an exactly-integer-valued column (eligibility already checked by caller).
 
@@ -119,7 +123,6 @@ def _to_int(x: np.ndarray) -> np.ndarray:
     errstate silences the harmless 'invalid value in cast' warning that would otherwise fire on that row."""
     with np.errstate(invalid="ignore"):
         return np.asarray(np.rint(np.asarray(x, dtype=np.float64)).astype(np.int64))
-
 
 def _nonfinite_mask(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Rows where either operand is NOT a finite number. The fit-time eligibility scan guarantees finite
@@ -130,7 +133,6 @@ def _nonfinite_mask(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     is undefined where an operand is not a finite integer, and a NaN is the honest, downstream-droppable
     signal for that, never INT64_MIN garbage."""
     return np.asarray(~(np.isfinite(np.asarray(a, dtype=np.float64)) & np.isfinite(np.asarray(b, dtype=np.float64))))
-
 
 def _lattice_column(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
     """One integer-lattice column from a pair. Pure function of (a, b) - leak-free at replay (no y)."""
@@ -150,7 +152,6 @@ def _lattice_column(a: np.ndarray, b: np.ndarray, op: str) -> np.ndarray:
     if bad.any():
         out[bad] = np.nan
     return np.asarray(out)
-
 
 def _lattice_columns_for_pair(a: np.ndarray, b: np.ndarray, ops: Sequence[str]) -> np.ndarray:
     """All op-columns for one pair, casting both operands to int ONCE and sharing gcd between the gcd/lcm ops.
@@ -182,7 +183,6 @@ def _lattice_columns_for_pair(a: np.ndarray, b: np.ndarray, ops: Sequence[str]) 
         mat[bad, :] = np.nan  # operand not a finite integer at replay -> column undefined, never INT64_MIN garbage
     return mat
 
-
 def _lattice_grid_mi(a: np.ndarray, b: np.ndarray, y: np.ndarray, ops: Sequence[str], nbins: int) -> np.ndarray:
     """MI of every op-column for one pair vs y, in one batched kernel call.
 
@@ -193,7 +193,6 @@ def _lattice_grid_mi(a: np.ndarray, b: np.ndarray, y: np.ndarray, ops: Sequence[
     yi = encode_y_for_classif_mi(y)
     mat = _lattice_columns_for_pair(a, b, ops)
     return np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
-
 
 def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of the pre-computed feature's MI under y permutation - the noise reference the
@@ -226,13 +225,11 @@ def _perm_null_hi(feat: np.ndarray, y: np.ndarray, nbins: int, n_perm: int = 12,
     vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
     return float(vals.mean() + z * vals.std())
 
-
 def _responded(feat_mi: float, operand_floor: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the engineered column's MI must clear BOTH the better operand's raw MI (by ``min_margin``) AND the permutation-null upper band by
     an absolute ``null_margin`` (not just ``> null_hi`` - guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
     Mirrors ``_pairwise_modular_fe._responded`` (operand_floor plays the baseline role)."""
     return (feat_mi - operand_floor) >= min_margin and feat_mi > (null_hi + null_margin)
-
 
 @dataclass(frozen=True)
 class LatticeHit:
@@ -247,9 +244,8 @@ class LatticeHit:
     margin_over_operands = property(_margin_over_operands)
     responded = _responded_property(_responded)
 
-
 def cheap_integer_lattice_scan(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     cols: Optional[Sequence[str]] = None,
     *,
@@ -294,9 +290,8 @@ def cheap_integer_lattice_scan(
     hits.sort(key=lambda h: h.margin_over_operands, reverse=True)
     return hits
 
-
 def detect_integer_lattice(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     cols: Optional[Sequence[str]] = None,
     *,
@@ -304,7 +299,7 @@ def detect_integer_lattice(
     top_k: int = 4,
     nbins: int = 12,
     seed: int = 0,
-):
+) -> list[dict[str, Any]]:
     """Cheap-first scan; returns the list of responded hits (each a dict with the op, source columns, engineered-column
     MI + margin), capped at ``top_k``. Empty when nothing responds - a non-lattice frame detects nothing."""
     hits = cheap_integer_lattice_scan(X, y, cols, ops=ops, nbins=nbins, seed=seed)
@@ -322,12 +317,10 @@ def detect_integer_lattice(
             break
     return out
 
-
 # Recipe plumbing: emit frozen EngineeredRecipe objects so the MRMR selector materialises, scores, selects, and replays
 # the lattice column at predict time identically. Replay is pure integer arithmetic on X (cast both operands to int, take
 # gcd / lcm / bitwise_and) - no y reference, so it is leak-free + deterministic + train/test exact, mirroring the
 # pairwise-modular recipe replay.
-
 
 def engineered_name_integer_lattice(op: str, cols: Sequence[str]) -> str:
     """Canonical engineered column name for one lattice op, e.g. ``il_gcd__a__b``.
@@ -339,8 +332,7 @@ def engineered_name_integer_lattice(op: str, cols: Sequence[str]) -> str:
     joined = "__".join(str(c) for c in cols)
     return f"{INTEGER_LATTICE_PREFIX}_{op}__{joined}"
 
-
-def apply_integer_lattice(X, op: str, cols: Sequence[str]) -> np.ndarray:
+def apply_integer_lattice(X: pd.DataFrame | pl.DataFrame, op: str, cols: Sequence[str]) -> np.ndarray:
     """Replay one integer-lattice column: cast both source columns to int64 then apply ``op`` (gcd / lcm / bitwise_and).
 
     Pure integer arithmetic on the source columns - no y reference, no fitted state, so transform() is leak-free and
@@ -352,8 +344,7 @@ def apply_integer_lattice(X, op: str, cols: Sequence[str]) -> np.ndarray:
     a, b = (np.asarray(X[c]) for c in cols)
     return _lattice_column(a, b, op)
 
-
-def build_integer_lattice_recipe(*, name: str, op: str, cols: Sequence[str]):
+def build_integer_lattice_recipe(*, name: str, op: str, cols: Sequence[str]) -> EngineeredRecipe:
     """Frozen recipe for one integer-lattice column. Replay is pure integer arithmetic on the source columns."""
     from .engineered_recipes import EngineeredRecipe
 
@@ -366,9 +357,8 @@ def build_integer_lattice_recipe(*, name: str, op: str, cols: Sequence[str]):
         extra={"op": str(op)},
     )
 
-
 def hybrid_integer_lattice_fe_with_recipes(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     *,
     cols: Optional[Sequence[str]] = None,
@@ -377,7 +367,7 @@ def hybrid_integer_lattice_fe_with_recipes(
     nbins: int = 12,
     seed: int = 0,
     max_int_cols: int = 30,
-):
+) -> tuple[list[str], list[EngineeredRecipe]]:
     """Detect responded integer-lattice structure and emit it as frozen, replayable ``EngineeredRecipe`` objects.
 
     Column-count BUDGET GUARD (the wide-frame cost is O(C(p,2)) pairs of integer ufuncs + the batched MI; see

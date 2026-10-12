@@ -33,7 +33,6 @@ __all__ = [
     "hybrid_orth_mi_pair_fe_with_recipes",
 ]
 
-
 def _pair_sources_from_engineered_name(name: str, raw_names):
     """Recover ``(col_i, col_j)`` from a pair-cross name ``"{col_i}*{col_j}__{suffix}"``.
 
@@ -68,7 +67,6 @@ def _pair_sources_from_engineered_name(name: str, raw_names):
         return ci, cj
     return None, None
 
-
 def _pair_eng_col_name(col_i: str, col_j: str, basis_a: str, basis_b: str, deg_a: int, deg_b: int) -> str:
     """Stable naming: ``"{col_i}*{col_j}__He{a}_He{b}"`` when both legs share one basis code, else ``"{col_i}*{col_j}__He{a}_T{b}"`` when ``basis="auto"`` routes each column to a different family.
 
@@ -83,7 +81,6 @@ def _pair_eng_col_name(col_i: str, col_j: str, basis_a: str, basis_b: str, deg_a
     code_a = _BASIS_CODE.get(basis_a, basis_a)
     code_b = _BASIS_CODE.get(basis_b, basis_b)
     return f"{col_i}*{col_j}__{code_a}{deg_a}_{code_b}{deg_b}"
-
 
 def generate_pair_cross_basis_features(
     X: pd.DataFrame,
@@ -216,7 +213,6 @@ def generate_pair_cross_basis_features(
                         continue
     return pd.DataFrame(out_cols, index=X.index)
 
-
 def _crossbasis_device_born_on() -> bool:
     """Device-born cross-basis scoring engages ONLY under STRICT-residency (+ the per-family opt-out). Read live
     (no frozen cache) so it tracks the env per call. Any import failure -> host path (never a correctness loss)."""
@@ -226,7 +222,6 @@ def _crossbasis_device_born_on() -> bool:
     except Exception as e:
         logger.debug("_crossbasis_device_born_on: fe_gpu_device_born_crossbasis_enabled() check failed, staying on the host path: %s", e)
         return False
-
 
 def _pair_device_col_specs(eng_columns, raw_cols, *, nbins: int):
     """Build per-column device leg specs aligned 1:1 with ``eng_columns`` for the pair-cross family, recovering
@@ -258,13 +253,11 @@ def _pair_device_col_specs(eng_columns, raw_cols, *, nbins: int):
         specs.append({"legs": [(col_i, deg_a), (col_j, deg_b)]})
     return specs
 
-
 def _resident_pair_cross_mi(raw_X, engineered_X, y_arr, col_specs, *, nbins: int, basis: str = "auto"):
     """Thin wrapper over the shared device-born cross-basis MI twin for the pair family."""
     from ._gpu_resident_cross_basis import raw_and_product_mi_resident
 
     return raw_and_product_mi_resident(raw_X, engineered_X, y_arr, col_specs, nbins=nbins, basis=basis)
-
 
 def score_pair_cross_basis_by_mi_uplift(
     raw_X: pd.DataFrame,
@@ -346,7 +339,6 @@ def score_pair_cross_basis_by_mi_uplift(
     if not df.empty:
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
-
 
 def hybrid_orth_mi_pair_fe(
     X: pd.DataFrame,
@@ -517,9 +509,10 @@ def hybrid_orth_mi_pair_fe(
         X_aug = X_aug_uni
     return X_aug, uni_scores, cross_scores
 
-
 from .._fe_family_timing import fe_timed
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 @fe_timed("orth_pair")
 def hybrid_orth_mi_pair_fe_with_recipes(
@@ -538,7 +531,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
     pair_min_uplift: float = 1.05,
     pair_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_pair_fe` but additionally returns a
     flat list of recipes (univariate + pair, in append order) for replay.
     """

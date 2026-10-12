@@ -9,7 +9,6 @@ from numba import njit
 from .._numba_utils import arr2str, unpack_and_sort
 from ._class_encoding import merge_vars, joint_freqs_2var
 
-
 @njit(cache=True)
 def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     """Shannon entropy in nats. Bins below ``min_occupancy`` (or zero by default) are filtered out before the log to avoid ``0 * log(0)``."""
@@ -18,7 +17,6 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     else:
         freqs = freqs[freqs > 0]
     return float(-(np.log(freqs) * freqs).sum())
-
 
 @njit(cache=True)
 def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32) -> np.ndarray:
@@ -75,7 +73,6 @@ def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32)
             current_nclasses = expected_nclasses - nzeros
     return freqs / n_rows
 
-
 @njit(cache=True)
 def _entropy_xz_fused(factors_data, indices, factors_nbins, dtype=np.int32) -> float:
     """``H`` of the joint over ``indices`` (the sorted X u Z union), fused freqs-only. For the common
@@ -85,7 +82,6 @@ def _entropy_xz_fused(factors_data, indices, factors_nbins, dtype=np.int32) -> f
     if len(indices) == 2:
         return float(entropy(joint_freqs_2var(factors_data, indices[0], indices[1], factors_nbins[indices[0]], factors_nbins[indices[1]])))
     return float(entropy(_merge_vars_freqs(factors_data, indices, factors_nbins, dtype)))
-
 
 @njit(cache=True)
 def _entropy_x_onto_classes(factors_data, xi, final_classes, current_nclasses, nb_x) -> float:
@@ -108,7 +104,6 @@ def _entropy_x_onto_classes(factors_data, xi, final_classes, current_nclasses, n
         freqs[newclass] += 1
     nz = freqs[freqs > 0]
     return float(entropy(nz / n_rows))
-
 
 @njit(cache=True)
 def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float = 0) -> float:
@@ -141,7 +136,6 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
         return float(h_plugin)
     return float(h_plugin + (k - 1) / (2.0 * n_samples))
 
-
 @njit(cache=True)
 def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int) -> float:
     """Miller-Madow bias-correct a PLUG-IN mutual-information estimate.
@@ -172,15 +166,14 @@ def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int
         return mi_plugin
     return mi_plugin - (k_x - 1) * (k_y - 1) / (2.0 * n_samples)
 
-
 @njit(cache=True)
 def mi(
-    factors_data,
+    factors_data: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
     factors_nbins: np.ndarray,
     verbose: bool = False,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Mutual information ``I(X; Y) = H(X) + H(Y) - H(X, Y)`` via entropy."""
     x = np.asarray(x, dtype=np.int64)
@@ -215,15 +208,14 @@ def mi(
 
     return float(entropy_x + entropy_y - entropy_xy)
 
-
 @njit(cache=True)
 def mi_miller_madow(
-    factors_data,
+    factors_data: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
     factors_nbins: np.ndarray,
     verbose: bool = False,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Miller-Madow bias-corrected mutual information ``I_mm(X; Y) = I_plugin - (k_x-1)(k_y-1)/(2n)``.
 
@@ -257,7 +249,6 @@ def mi_miller_madow(
     n_samples = factors_data.shape[0] if factors_data.ndim > 1 else len(factors_data)
     return float(mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples))
 
-
 @njit(cache=True)
 def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
     """Chao & Shen (2003) coverage-adjusted entropy from a normalized frequency vector ``freqs``
@@ -290,7 +281,6 @@ def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
             term = term / lam
         h += term
     return float(h)
-
 
 @njit(cache=True)
 def mi_chao_shen(
@@ -330,15 +320,14 @@ def mi_chao_shen(
     mi_cs = h_x + h_y - h_xy
     return float(mi_cs) if mi_cs > 0.0 else 0.0
 
-
 @njit(nogil=True, cache=True)
 def symmetric_uncertainty(
-    factors_data,
+    factors_data: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
     factors_nbins: np.ndarray,
     verbose: bool = False,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Symmetric Uncertainty (Witten-Frank-Hall) — cardinality-normalised MI.
 
@@ -392,7 +381,6 @@ def symmetric_uncertainty(
         mi_xy = 0.0
     return float(2.0 * mi_xy / denom)
 
-
 @njit(nogil=True, cache=True)
 def conditional_symmetric_uncertainty(
     factors_data: np.ndarray,
@@ -400,7 +388,7 @@ def conditional_symmetric_uncertainty(
     y: np.ndarray,
     z: np.ndarray,
     factors_nbins: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Conditional Symmetric Uncertainty (CSU): ``2 * I(X; Y | Z) / (H(X|Z) + H(Y|Z))``.
 
@@ -468,7 +456,6 @@ def conditional_symmetric_uncertainty(
     # MM-correction-inflated numerator - which would spuriously dominate the redundancy ranking. Clamp it.
     return csu if csu <= 1.0 else 1.0
 
-
 @njit(cache=True)
 def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float:
     """Analytic Miller-Madow bias of the plug-in CMI: ``(k_xyz + k_z - k_xz - k_yz) / (2n)`` where ``k_*`` are the
@@ -489,7 +476,6 @@ def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float
     k_xyz = np.count_nonzero(fxyz)
     return float((k_xyz + k_z - k_xz - k_yz) / (2.0 * n))
 
-
 @njit(cache=True)
 def conditional_mi(
     factors_data: np.ndarray,
@@ -505,7 +491,7 @@ def conditional_mi(
     entropy_cache: Optional[dict] = None,
     can_use_x_cache: bool = False,
     can_use_y_cache: bool = False,
-    dtype=np.int32,
+    dtype: type = np.int32,
     use_mm: bool = False,
 ) -> float:
     """Conditional mutual information ``I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z)``.
@@ -608,7 +594,6 @@ def conditional_mi(
         if res < 0.0:
             res = 0.0
     return res
-
 
 def conditional_mi_redundancy_batched(
     factors_data,

@@ -86,6 +86,9 @@ from ._orthogonal_univariate_fe import (
     cached_dense_finite_corr_matrix,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +102,6 @@ __all__ = [
 
 _VALID_AGGREGATORS = ("mean_z", "median_z", "pc1")
 
-
 def _cluster_col_name(anchor: str, aggregator: str, basis: str, degree: int) -> str:
     """Stable engineered column name for a cluster-basis column.
 
@@ -109,7 +111,6 @@ def _cluster_col_name(anchor: str, aggregator: str, basis: str, degree: int) -> 
     """
     code = _BASIS_CODE.get(basis, basis)
     return f"cluster_{anchor}__agg_{aggregator}__{code}{int(degree)}"
-
 
 def detect_clusters_by_correlation(
     X: pd.DataFrame,
@@ -206,7 +207,6 @@ def detect_clusters_by_correlation(
         out[anchor] = members
     return out
 
-
 def _zscore(arr: np.ndarray) -> np.ndarray:
     """Standardise (x - mean) / std with NaN-safe fill and constant guard."""
     arr = np.asarray(arr, dtype=np.float64)
@@ -219,7 +219,6 @@ def _zscore(arr: np.ndarray) -> np.ndarray:
     if sd <= 1e-12:
         return np.zeros_like(arr)
     return (arr - mu) / sd
-
 
 def compute_cluster_aggregate(
     X: pd.DataFrame,
@@ -320,7 +319,6 @@ def compute_cluster_aggregate(
         }
         return out, fit_stats
     return out
-
 
 def generate_cluster_basis_features(
     X: pd.DataFrame,
@@ -567,7 +565,6 @@ def generate_cluster_basis_features(
         }
     return pd.DataFrame(out_cols, index=X.index), meta
 
-
 def hybrid_orth_mi_cluster_basis_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -653,7 +650,6 @@ def hybrid_orth_mi_cluster_basis_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_cluster_basis_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -671,7 +667,7 @@ def hybrid_orth_mi_cluster_basis_fe_with_recipes(
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_cluster_basis_fe` but additionally
     returns a list of ``EngineeredRecipe`` objects (kind
     ``"orth_cluster_basis"``) so ``MRMR.transform`` can replay each
@@ -722,7 +718,6 @@ def hybrid_orth_mi_cluster_basis_fe_with_recipes(
             basis_params=row.get("basis_params") if hasattr(row, "get") else None,
         ))
     return X_aug, scores, recipes
-
 
 def _apply_orth_cluster_basis(recipe, X) -> np.ndarray:
     """Replay a cluster-basis column. Lazy-imported by the recipes

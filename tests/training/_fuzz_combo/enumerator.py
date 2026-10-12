@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import random
 from itertools import combinations as iter_combinations
 from typing import Any
@@ -44,6 +45,9 @@ def _combo_is_runnable(models: tuple[str, ...], target_type: str) -> bool:
     return True
 
 
+_FUZZCOMBO_FIELDS = frozenset(f.name for f in dataclasses.fields(FuzzCombo))
+
+
 def _sample_axes(rng: random.Random) -> dict[str, Any]:
     """Sample axes."""
     return {name: rng.choice(values) for name, values in AXES.items()}
@@ -51,7 +55,7 @@ def _sample_axes(rng: random.Random) -> dict[str, Any]:
 
 def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> FuzzCombo:
     """Build combo."""
-    return FuzzCombo(
+    combo = FuzzCombo(
         models=tuple(sorted(models)),
         input_type=axes["input_type"],
         n_rows=axes["n_rows"],
@@ -627,6 +631,8 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         composite_gate_kind_cfg=axes.get("composite_gate_kind_cfg", "nnls"),
         mrmr_fe_additive_fusion_enable_cfg=axes.get("mrmr_fe_additive_fusion_enable_cfg", True),
     )
+    carried = {k: v for k, v in axes.items() if k in _FUZZCOMBO_FIELDS and getattr(combo, k) != v}
+    return dataclasses.replace(combo, **carried) if carried else combo
 
 
 def _all_axis_pairs() -> set[tuple[str, Any, str, Any]]:
@@ -645,86 +651,15 @@ def _all_axis_pairs() -> set[tuple[str, Any, str, Any]]:
     return pairs
 
 
+def _hashable(v: Any) -> Any:
+    """Hashable form of an axis value, so list-valued config fields can enter the pair set."""
+    return tuple(_hashable(x) for x in v) if isinstance(v, (list, tuple)) else v
+
+
 def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
-    """Combo pairs."""
-    values = {
-        "input_type": combo.input_type,
-        "n_rows": combo.n_rows,
-        "cat_feature_count": combo.cat_feature_count,
-        "null_fraction_cats": combo.null_fraction_cats,
-        "use_mrmr_fs": combo.use_mrmr_fs,
-        "weight_schemas": combo.weight_schemas,
-        "target_type": combo.target_type,
-        "auto_detect_cats": combo.auto_detect_cats,
-        "align_polars_categorical_dicts": combo.align_polars_categorical_dicts,
-        "prefer_polarsds": combo.prefer_polarsds,
-        "use_text_features": combo.use_text_features,
-        "honor_user_dtype": combo.honor_user_dtype,
-        "text_col_count": combo.text_col_count,
-        "embedding_col_count": combo.embedding_col_count,
-        # 2026-04-24 combo-extension axes
-        "outlier_detection": combo.outlier_detection,
-        "use_ensembles": combo.use_ensembles,
-        "continue_on_model_failure": combo.continue_on_model_failure,
-        "iterations": combo.iterations,
-        "prefer_calibrated_classifiers": combo.prefer_calibrated_classifiers,
-        "inject_degenerate_cols": combo.inject_degenerate_cols,
-        "inject_inf_nan": combo.inject_inf_nan,
-        "with_datetime_col": combo.with_datetime_col,
-        "inject_zero_col": combo.inject_zero_col,
-        "fairness_col": combo.fairness_col,
-        "custom_prep": combo.custom_prep,
-        "input_storage": combo.input_storage,
-        # 2026-04-24 round 2
-        "fillna_value_cfg": combo.fillna_value_cfg,
-        "scaler_name_cfg": combo.scaler_name_cfg,
-        "categorical_encoding_cfg": combo.categorical_encoding_cfg,
-        "skip_categorical_encoding_cfg": combo.skip_categorical_encoding_cfg,
-        "val_placement_cfg": combo.val_placement_cfg,
-        "test_size_cfg": combo.test_size_cfg,
-        "trainset_aging_limit_cfg": combo.trainset_aging_limit_cfg,
-        "cat_text_card_threshold_cfg": combo.cat_text_card_threshold_cfg,
-        "early_stopping_rounds_cfg": combo.early_stopping_rounds_cfg,
-        "use_robust_eval_metric_cfg": combo.use_robust_eval_metric_cfg,
-        # Fix G
-        "inject_label_leak": combo.inject_label_leak,
-        "inject_rank_deficient": combo.inject_rank_deficient,
-        "inject_all_nan_col": combo.inject_all_nan_col,
-        # R3
-        "inject_test_drift": combo.inject_test_drift,
-        "imbalance_ratio": combo.imbalance_ratio,
-        "weird_cat_content": combo.weird_cat_content,
-        # Phase H
-        "multilabel_strategy_cfg": combo.multilabel_strategy_cfg,
-        # 2026-04-26 batch 1
-        "fix_infinities_cfg": combo.fix_infinities_cfg,
-        "ensure_float32_cfg": combo.ensure_float32_cfg,
-        "remove_constant_columns_cfg": combo.remove_constant_columns_cfg,
-        "imputer_strategy_cfg": combo.imputer_strategy_cfg,
-        "shuffle_val_cfg": combo.shuffle_val_cfg,
-        "shuffle_test_cfg": combo.shuffle_test_cfg,
-        "wholeday_splitting_cfg": combo.wholeday_splitting_cfg,
-        "val_sequential_fraction_cfg": combo.val_sequential_fraction_cfg,
-        # batch 3 — multilabel dispatch
-        "multilabel_n_chains_cfg": combo.multilabel_n_chains_cfg,
-        "multilabel_chain_order_cfg": combo.multilabel_chain_order_cfg,
-        "multilabel_cv_cfg": combo.multilabel_cv_cfg,
-        # batch 4 — PreprocessingExtensionsConfig
-        "prep_ext_scaler_cfg": combo.prep_ext_scaler_cfg,
-        "prep_ext_kbins_cfg": combo.prep_ext_kbins_cfg,
-        "prep_ext_polynomial_degree_cfg": combo.prep_ext_polynomial_degree_cfg,
-        "prep_ext_dim_reducer_cfg": combo.prep_ext_dim_reducer_cfg,
-        "prep_ext_nonlinear_cfg": combo.prep_ext_nonlinear_cfg,
-        "prep_ext_pysr_enabled_cfg": combo.prep_ext_pysr_enabled_cfg,
-        "mrmr_nan_strategy_cfg": combo.mrmr_nan_strategy_cfg,
-        # batch 5
-        "rfecv_estimator_cfg": combo.rfecv_estimator_cfg,
-        # batch 6
-        "recurrent_model_cfg": combo.recurrent_model_cfg,
-        # 2026-04-28 batch 4 followup
-        "include_confidence_analysis_cfg": combo.include_confidence_analysis_cfg,
-        "n_models": len(combo.models),
-    }
+    """Every pair of axis values this combo realises, over all axes (same axis set as ``_all_axis_pairs``)."""
+    values = {name: _hashable(getattr(combo, name)) for name in AXES}
+    values["n_models"] = len(combo.models)
     names = list(values.keys())
     out: set[tuple[str, Any, str, Any]] = set()
     for i in range(len(names)):
@@ -738,6 +673,7 @@ def enumerate_combos(
     target: int = 150,
     master_seed: int = 2026_04_22,
     model_universe: tuple[str, ...] = MODELS,
+    exhaustive_pairs: bool = False,
 ) -> list[FuzzCombo]:
     """Return `target` unique FuzzCombo instances covering the axis space.
 
@@ -803,6 +739,25 @@ def enumerate_combos(
         covered.update(_combo_pairs(best_combo))
         tries += 1
 
+    # Phase B2 — targeted search for the few pairs the greedy pass could not reach by chance.
+    for pair in sorted(required - covered, key=str):
+        for _ in range(2000):
+            subset = rng.choice(_powerset_nonempty(model_universe))
+            axes = _sample_axes(rng)
+            if not _combo_is_runnable(subset, axes["target_type"]):
+                continue
+            candidate = _build_combo(subset, axes, len(combos))
+            key = candidate.canonical_key()
+            ai, vi, aj, vj = pair
+            if key in seen or _hashable(getattr(candidate, ai) if ai != "n_models" else len(candidate.models)) != vi:
+                continue
+            if _hashable(getattr(candidate, aj) if aj != "n_models" else len(candidate.models)) != vj:
+                continue
+            seen.add(key)
+            combos.append(candidate)
+            covered.update(_combo_pairs(candidate))
+            break
+
     # Phase C — random fill until target
     while len(combos) < target:
         subset = rng.choice(_powerset_nonempty(model_universe))
@@ -816,7 +771,7 @@ def enumerate_combos(
         seen.add(key)
         combos.append(candidate)
 
-    return combos[:target]
+    return combos if exhaustive_pairs else combos[:target]
 
 
 # ---------------------------------------------------------------------------

@@ -73,7 +73,6 @@ __all__ = [
     "hybrid_orth_mi_quadruplet_fe_with_recipes",
 ]
 
-
 def _quadruplet_eng_col_name(
     col_i: str, col_j: str, col_k: str, col_l: str,
     basis: str, deg_a: int, deg_b: int, deg_c: int, deg_d: int,
@@ -86,7 +85,6 @@ def _quadruplet_eng_col_name(
     """
     code = _BASIS_CODE.get(basis, basis)
     return f"{col_i}*{col_j}*{col_k}*{col_l}__" f"{code}{deg_a}_{code}{deg_b}_{code}{deg_c}_{code}{deg_d}"
-
 
 def generate_quadruplet_cross_basis_features(
     X: pd.DataFrame,
@@ -230,7 +228,6 @@ def generate_quadruplet_cross_basis_features(
                                 continue
     return pd.DataFrame(out_cols, index=X.index)
 
-
 _QUADRUPLET_SCORE_EMPTY_COLS = [
     "engineered_col",
     "source_col_i", "source_col_j", "source_col_k", "source_col_l",
@@ -238,7 +235,6 @@ _QUADRUPLET_SCORE_EMPTY_COLS = [
     "baseline_mi",
     "engineered_mi", "uplift",
 ]
-
 
 def _quadruplet_device_col_specs(eng_columns, raw_cols):
     """Per-column device leg specs aligned 1:1 with ``eng_columns`` for the quadruplet family (4 legs),
@@ -265,7 +261,6 @@ def _quadruplet_device_col_specs(eng_columns, raw_cols):
             return None
         specs.append({"legs": [(legs[i], degs[i]) for i in range(4)]})
     return specs
-
 
 def score_quadruplet_cross_basis_by_mi_uplift(
     raw_X: pd.DataFrame,
@@ -346,7 +341,6 @@ def score_quadruplet_cross_basis_by_mi_uplift(
     if not df.empty:
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
-
 
 def hybrid_orth_mi_quadruplet_fe(
     X: pd.DataFrame,
@@ -491,9 +485,10 @@ def hybrid_orth_mi_quadruplet_fe(
         X_aug = X_aug_uni
     return X_aug, uni_scores, quad_scores
 
-
 from ._fe_family_timing import fe_timed
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 @fe_timed("quadruplet")
 def hybrid_orth_mi_quadruplet_fe_with_recipes(
@@ -512,7 +507,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
     quadruplet_min_uplift: float = 1.05,
     quadruplet_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_quadruplet_fe` but additionally returns
     a flat list of recipes (univariate + quadruplet, in append order) so
     that ``MRMR.transform`` can replay each engineered column from X

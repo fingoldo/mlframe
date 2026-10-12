@@ -112,6 +112,145 @@ def sanitize_pysr_column_names(columns: list) -> list:
     return final_names
 
 
+def _sample_pysr_frame(df: Union[pd.DataFrame, pl.DataFrame], sample_size: int, random_state: Optional[int], bytes_limit: int) -> pd.DataFrame:
+    """Sample ``df`` down to ``sample_size`` rows as a pandas frame, median-imputed and checked against the byte limit."""
+    if isinstance(df, pl.DataFrame):
+        n = min(sample_size, len(df))
+        sampled = df.sample(n, seed=random_state) if random_state is not None else df.sample(n)
+        # Polars-side per-column median imputation: keeps the fill inside the Arrow buffer so the downstream ``to_pandas()`` allocates exactly once. Numeric-only because non-numeric columns (Utf8 / Datetime / Duration) hit the dtype-mismatch path on polars 1.x and would either be dropped or encoded downstream anyway. Median (not 0) preserves central tendency so PySR's candidate-score ranking does not silently collapse NaN rows onto real-0 rows.
+        #
+        # ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (mid-pair of the 10-element sort) instead of 6.0 (median of the 9 finite values). Verified against polars 1.x.
+        sampled = median_fill_polars(sampled)
+        sampled_bytes = sampled.estimated_size()
+        if sampled_bytes > bytes_limit:
+            raise ValueError(
+                f"PySR input frame is {sampled_bytes:,} bytes after sampling -- exceeds the {bytes_limit:,}-byte limit. "
+                "PySR's sklearn check_array + Julia bridge densify the frame twice, so the in-process peak is ~2x this. "
+                "Either lower sample_size, drop columns before calling, or raise MLFRAME_PYSR_INPUT_BYTES_LIMIT."
+            )
+        # bench-attempt-rejected (2026-05-24): use_pyarrow_extension_array=True measured 3.0x SLOWER on the downstream PySR path (10.2 ms vs 3.4 ms at N=10k D=50,
+        # default-to-pandas+sklearn.check_array end-to-end). PySR routes through sklearn check_array which densifies pyarrow-backed dtypes back to float64 ndarrays;
+        # the extra Arrow->numpy round-trip dominates. Stick with bare to_pandas() here.
+        return sampled.to_pandas()
+    if isinstance(df, pd.DataFrame):
+        n = min(sample_size, len(df))
+        # ``df.sample`` returns a fresh frame with its own block manager, but pandas may still share the underlying ndarray block for unchanged columns. The downstream rename + cat-cast steps then mutate the caller's block via shared references. Materialise once here (BlockManager copy on construction) so the rest of the function operates on an isolated frame.
+        tmp_df = df.sample(n, random_state=random_state)
+        sampled_bytes = int(tmp_df.memory_usage(deep=False).sum())
+        if sampled_bytes > bytes_limit:
+            raise ValueError(
+                f"PySR input frame is {sampled_bytes:,} bytes after sampling -- exceeds the {bytes_limit:,}-byte limit. "
+                "PySR's sklearn check_array + Julia bridge densify the frame twice, so the in-process peak is ~2x this. "
+                "Either lower sample_size, drop columns before calling, or raise MLFRAME_PYSR_INPUT_BYTES_LIMIT."
+            )
+        # Pandas-side per-column median imputation on numeric columns only. ``.fillna(0)`` on a Categorical with a NaN would raise ``Cannot setitem on a Categorical with a new category (0)``; categoricals get dropped or encoded downstream anyway, so leave their NaNs alone here.
+        return median_fill_pandas(tmp_df)
+    raise TypeError(f"Input must be a pandas or polars DataFrame, got {type(df).__name__}.")
+
+
+def _rename_pysr_frame(tmp_df: pd.DataFrame, reserved_names: List[str], reserved_prefix: str) -> pd.DataFrame:
+    """Sanitise column names for PySR and prefix the reserved ones, returning a frame that owns its own block storage."""
+    # Sanitise PySR-reserved characters ("-", "=") into "_" and suffix collisions ("col-x" and "col=x" both map to "col_x") with _2, _3, ... so each renamed column retains a unique identity; pandas with dupe columns silently collapses to one when read via dict-comprehension over .columns.
+    _final_names = sanitize_pysr_column_names(list(tmp_df.columns))
+    # Build a fresh BlockManager via dict-of-Series so the renamed frame owns its column Index AND its block storage. ``tmp_df.columns = _final_names`` would reassign the column Index but leave the underlying blocks aliased to the caller's frame (when caller passed a view like ``df.head(N)``); later ``tmp_df[col] = ...astype("category")`` mutations would then broadcast-copy through the shared block manager and corrupt the caller's frame. The dict-of-Series construction with ``copy=False`` keeps the ndarrays themselves zero-copy but rebinds them under a brand-new BlockManager that is no longer aliased to the caller.
+    tmp_df = pd.DataFrame(
+        {new_name: tmp_df[old_name] for old_name, new_name in zip(list(tmp_df.columns), _final_names)},
+        copy=False,
+    )
+    return tmp_df.rename(
+        columns={col: reserved_prefix + col for col in reserved_names if col in tmp_df.columns},
+    )
+
+
+def _string_columns_to_categorical(tmp_df: pd.DataFrame, string_categorical_threshold: int, verbose: int) -> pd.DataFrame:
+    """Cast low-cardinality string columns to categorical and drop the high-cardinality ones."""
+    str_cols = tmp_df.select_dtypes(include=["object", "string"]).columns.tolist()
+    cols_to_drop_str: List[str] = []
+    for col in str_cols:
+        unique_vals = tmp_df[col].nunique()
+        if unique_vals <= string_categorical_threshold:
+            tmp_df[col] = tmp_df[col].astype("category")
+        else:
+            cols_to_drop_str.append(col)
+            if verbose > 0:
+                logger.info("Dropping string column %r with %d unique values.", col, unique_vals)
+    if cols_to_drop_str:
+        tmp_df = tmp_df.drop(columns=cols_to_drop_str)
+    return tmp_df
+
+
+def _encode_pysr_categoricals(
+    tmp_df: pd.DataFrame,
+    target: pd.Series,
+    encode_categoricals: bool,
+    leakage_free: bool,
+    leakage_free_n_splits: int,
+    random_state: Optional[int],
+    verbose: int,
+) -> pd.DataFrame:
+    """Encode the categorical columns with CatBoostEncoder (OOF unless legacy) or drop them when encoding is disabled."""
+    cat_cols = tmp_df.select_dtypes(include=["category"]).columns.tolist()
+    if encode_categoricals and cat_cols:
+        if leakage_free:
+            logger.info(
+                "CatBoostEncoder running in OOF/KFold mode (%d splits) over %d categorical columns: %s",
+                leakage_free_n_splits,
+                len(cat_cols),
+                cat_cols,
+            )
+            tmp_df[cat_cols] = _kfold_target_encode(
+                tmp_df,
+                cat_cols,
+                target,
+                n_splits=leakage_free_n_splits,
+                random_state=random_state,
+            )
+        else:
+            # The legacy path fits CatBoostEncoder on the full sample with the target visible -
+            # classic supervised-encoding leak. Surface as a warning so the operator can switch
+            # to leakage_free=True (slower, but holdout-honest).
+            _leak_msg = (
+                "run_pysr_feature_engineering: TARGET-ENCODING LEAK detected - "
+                "CatBoostEncoder.fit_transform on the full sample leaks the target "
+                "into the categorical encoding; downstream holdout metrics will "
+                f"be optimistically biased. Columns: {cat_cols}. Pass leakage_free=True for an "
+                "OOF-encoded path."
+            )
+            # stacklevel=3 attributes the warning to run_pysr_feature_engineering's caller, as it did before this split.
+            warnings.warn(_leak_msg, stacklevel=3)
+            logger.warning(_leak_msg)
+            from category_encoders import CatBoostEncoder
+
+            encoder = CatBoostEncoder(cols=cat_cols, return_df=True)
+            tmp_df[cat_cols] = encoder.fit_transform(tmp_df[cat_cols], target)
+        if verbose > 0:
+            logger.info("Encoded %d categorical column(s) via CatBoostEncoder.", len(cat_cols))
+    elif not encode_categoricals and cat_cols:
+        if verbose > 0:
+            logger.info("Dropping categorical columns: %s", cat_cols)
+        tmp_df = tmp_df.drop(columns=cat_cols)
+    return tmp_df
+
+
+def _build_pysr_params(pysr_params: Optional[Dict], pysr_params_override: Optional[Dict]) -> Dict:
+    """Merge the module defaults with the caller's params, the override dict winning last."""
+    default_params: Dict = dict(
+        maxsize=_DEFAULT_PYSR_MAXSIZE,
+        niterations=_DEFAULT_PYSR_NITERATIONS,
+        binary_operators=list(DEFAULT_BINARY_OPERATORS),
+        unary_operators=list(DEFAULT_UNARY_OPERATORS),
+        extra_sympy_mappings={"inv": lambda x: 1 / x},
+        elementwise_loss="loss(prediction, target) = abs(prediction - target)",
+        turbo=True,
+        bumper=True,
+    )
+
+    final_params = {**default_params, **(pysr_params or {})}
+    if pysr_params_override:
+        final_params.update(pysr_params_override)
+    return final_params
+
+
 def run_pysr_feature_engineering(
     df: Union[pd.DataFrame, pl.DataFrame],
     target_col: str,
@@ -186,52 +325,11 @@ def run_pysr_feature_engineering(
 
     _bytes_limit = int(os.environ.get("MLFRAME_PYSR_INPUT_BYTES_LIMIT", _DEFAULT_PYSR_INPUT_BYTES_LIMIT))
 
-    if isinstance(df, pl.DataFrame):
-        n = min(sample_size, len(df))
-        sampled = df.sample(n, seed=random_state) if random_state is not None else df.sample(n)
-        # Polars-side per-column median imputation: keeps the fill inside the Arrow buffer so the downstream ``to_pandas()`` allocates exactly once. Numeric-only because non-numeric columns (Utf8 / Datetime / Duration) hit the dtype-mismatch path on polars 1.x and would either be dropped or encoded downstream anyway. Median (not 0) preserves central tendency so PySR's candidate-score ranking does not silently collapse NaN rows onto real-0 rows.
-        #
-        # ``drop_nans()`` BEFORE ``median()`` is required: polars 1.x ``Series.median()`` includes NaN in the sort order, so on [1,2,3,4,NaN,6,7,8,9,10] it returns 6.5 (mid-pair of the 10-element sort) instead of 6.0 (median of the 9 finite values). Verified against polars 1.x.
-        sampled = median_fill_polars(sampled)
-        sampled_bytes = sampled.estimated_size()
-        if sampled_bytes > _bytes_limit:
-            raise ValueError(
-                f"PySR input frame is {sampled_bytes:,} bytes after sampling -- exceeds the {_bytes_limit:,}-byte limit. "
-                "PySR's sklearn check_array + Julia bridge densify the frame twice, so the in-process peak is ~2x this. "
-                "Either lower sample_size, drop columns before calling, or raise MLFRAME_PYSR_INPUT_BYTES_LIMIT."
-            )
-        # bench-attempt-rejected (2026-05-24): use_pyarrow_extension_array=True measured 3.0x SLOWER on the downstream PySR path (10.2 ms vs 3.4 ms at N=10k D=50,
-        # default-to-pandas+sklearn.check_array end-to-end). PySR routes through sklearn check_array which densifies pyarrow-backed dtypes back to float64 ndarrays;
-        # the extra Arrow->numpy round-trip dominates. Stick with bare to_pandas() here.
-        tmp_df = sampled.to_pandas()
-    elif isinstance(df, pd.DataFrame):
-        n = min(sample_size, len(df))
-        # ``df.sample`` returns a fresh frame with its own block manager, but pandas may still share the underlying ndarray block for unchanged columns. The downstream rename + cat-cast steps then mutate the caller's block via shared references. Materialise once here (BlockManager copy on construction) so the rest of the function operates on an isolated frame.
-        tmp_df = df.sample(n, random_state=random_state)
-        sampled_bytes = int(tmp_df.memory_usage(deep=False).sum())
-        if sampled_bytes > _bytes_limit:
-            raise ValueError(
-                f"PySR input frame is {sampled_bytes:,} bytes after sampling -- exceeds the {_bytes_limit:,}-byte limit. "
-                "PySR's sklearn check_array + Julia bridge densify the frame twice, so the in-process peak is ~2x this. "
-                "Either lower sample_size, drop columns before calling, or raise MLFRAME_PYSR_INPUT_BYTES_LIMIT."
-            )
-        # Pandas-side per-column median imputation on numeric columns only. ``.fillna(0)`` on a Categorical with a NaN would raise ``Cannot setitem on a Categorical with a new category (0)``; categoricals get dropped or encoded downstream anyway, so leave their NaNs alone here.
-        tmp_df = median_fill_pandas(tmp_df)
-    else:
-        raise TypeError(f"Input must be a pandas or polars DataFrame, got {type(df).__name__}.")
+    tmp_df = _sample_pysr_frame(df, sample_size, random_state, _bytes_limit)
 
     clean_ram()
 
-    # Sanitise PySR-reserved characters ("-", "=") into "_" and suffix collisions ("col-x" and "col=x" both map to "col_x") with _2, _3, ... so each renamed column retains a unique identity; pandas with dupe columns silently collapses to one when read via dict-comprehension over .columns.
-    _final_names = sanitize_pysr_column_names(list(tmp_df.columns))
-    # Build a fresh BlockManager via dict-of-Series so the renamed frame owns its column Index AND its block storage. ``tmp_df.columns = _final_names`` would reassign the column Index but leave the underlying blocks aliased to the caller's frame (when caller passed a view like ``df.head(N)``); later ``tmp_df[col] = ...astype("category")`` mutations would then broadcast-copy through the shared block manager and corrupt the caller's frame. The dict-of-Series construction with ``copy=False`` keeps the ndarrays themselves zero-copy but rebinds them under a brand-new BlockManager that is no longer aliased to the caller.
-    tmp_df = pd.DataFrame(
-        {new_name: tmp_df[old_name] for old_name, new_name in zip(list(tmp_df.columns), _final_names)},
-        copy=False,
-    )
-    tmp_df = tmp_df.rename(
-        columns={col: reserved_prefix + col for col in reserved_names if col in tmp_df.columns},
-    )
+    tmp_df = _rename_pysr_frame(tmp_df, reserved_names, reserved_prefix)
 
     if target_col not in tmp_df.columns:
         raise ValueError(f"Target column {target_col!r} not found in dataframe.")
@@ -250,58 +348,8 @@ def run_pysr_feature_engineering(
         logger.info("Excluding %d datetime columns: %s", len(datetime_cols), wrapped_names)
     tmp_df = tmp_df.drop(columns=datetime_cols)
 
-    str_cols = tmp_df.select_dtypes(include=["object", "string"]).columns.tolist()
-    cols_to_drop_str: List[str] = []
-    for col in str_cols:
-        unique_vals = tmp_df[col].nunique()
-        if unique_vals <= string_categorical_threshold:
-            tmp_df[col] = tmp_df[col].astype("category")
-        else:
-            cols_to_drop_str.append(col)
-            if verbose > 0:
-                logger.info("Dropping string column %r with %d unique values.", col, unique_vals)
-    if cols_to_drop_str:
-        tmp_df = tmp_df.drop(columns=cols_to_drop_str)
-
-    cat_cols = tmp_df.select_dtypes(include=["category"]).columns.tolist()
-    if encode_categoricals and cat_cols:
-        if leakage_free:
-            logger.info(
-                "CatBoostEncoder running in OOF/KFold mode (%d splits) over %d categorical columns: %s",
-                leakage_free_n_splits,
-                len(cat_cols),
-                cat_cols,
-            )
-            tmp_df[cat_cols] = _kfold_target_encode(
-                tmp_df,
-                cat_cols,
-                target,
-                n_splits=leakage_free_n_splits,
-                random_state=random_state,
-            )
-        else:
-            # The legacy path fits CatBoostEncoder on the full sample with the target visible -
-            # classic supervised-encoding leak. Surface as a warning so the operator can switch
-            # to leakage_free=True (slower, but holdout-honest).
-            _leak_msg = (
-                "run_pysr_feature_engineering: TARGET-ENCODING LEAK detected - "
-                "CatBoostEncoder.fit_transform on the full sample leaks the target "
-                "into the categorical encoding; downstream holdout metrics will "
-                f"be optimistically biased. Columns: {cat_cols}. Pass leakage_free=True for an "
-                "OOF-encoded path."
-            )
-            warnings.warn(_leak_msg, stacklevel=2)
-            logger.warning(_leak_msg)
-            from category_encoders import CatBoostEncoder
-
-            encoder = CatBoostEncoder(cols=cat_cols, return_df=True)
-            tmp_df[cat_cols] = encoder.fit_transform(tmp_df[cat_cols], target)
-        if verbose > 0:
-            logger.info("Encoded %d categorical column(s) via CatBoostEncoder.", len(cat_cols))
-    elif not encode_categoricals and cat_cols:
-        if verbose > 0:
-            logger.info("Dropping categorical columns: %s", cat_cols)
-        tmp_df = tmp_df.drop(columns=cat_cols)
+    tmp_df = _string_columns_to_categorical(tmp_df, string_categorical_threshold, verbose)
+    tmp_df = _encode_pysr_categoricals(tmp_df, target, encode_categoricals, leakage_free, leakage_free_n_splits, random_state, verbose)
 
     non_numeric = tmp_df.select_dtypes(exclude=[np.number]).columns.tolist()
     if non_numeric:
@@ -311,22 +359,7 @@ def run_pysr_feature_engineering(
 
     clean_ram()
 
-    default_params: Dict = dict(
-        maxsize=_DEFAULT_PYSR_MAXSIZE,
-        niterations=_DEFAULT_PYSR_NITERATIONS,
-        binary_operators=list(DEFAULT_BINARY_OPERATORS),
-        unary_operators=list(DEFAULT_UNARY_OPERATORS),
-        extra_sympy_mappings={"inv": lambda x: 1 / x},
-        elementwise_loss="loss(prediction, target) = abs(prediction - target)",
-        turbo=True,
-        bumper=True,
-    )
-
-    final_params = {**default_params, **(pysr_params or {})}
-    if pysr_params_override:
-        final_params.update(pysr_params_override)
-
-    fe_model = PySRRegressor(**final_params)
+    fe_model = PySRRegressor(**_build_pysr_params(pysr_params, pysr_params_override))
 
     with _PYSR_LOCK:
         fe_model.fit(tmp_df, target)

@@ -81,6 +81,9 @@ from ._mi_greedy_cmi_fe import (
     _renumber_joint,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +103,6 @@ __all__ = [
     "hybrid_orth_mi_three_gate_fe",
     "hybrid_orth_mi_three_gate_fe_with_recipes",
 ]
-
 
 def _stratified_fold_indices(
     y_int: np.ndarray, n_folds: int, seed: int,
@@ -129,7 +131,6 @@ def _stratified_fold_indices(
         for j, gi in enumerate(idx_k):
             fold_lists[j % n_folds_eff].append(int(gi))
     return [np.array(sorted(f), dtype=np.int64) for f in fold_lists]
-
 
 def _bin_with_train_edges(
     train_vals: np.ndarray, test_vals: np.ndarray, nbins: int,
@@ -160,7 +161,6 @@ def _bin_with_train_edges(
     train_bins = np.searchsorted(edges, train, side="right").astype(np.int64)
     test_bins = np.searchsorted(edges, test, side="right").astype(np.int64)
     return train_bins, test_bins
-
 
 def _bin_with_train_edges_batched(
     train_arr: np.ndarray, test_arr: np.ndarray, nbins: int,
@@ -209,7 +209,6 @@ def _bin_with_train_edges_batched(
         test_bins[:, j] = np.searchsorted(edges, test[:, j], side="right")
     return train_bins, test_bins
 
-
 def _fold_test_bins(
     arr: np.ndarray,
     train_idx: np.ndarray,
@@ -237,7 +236,6 @@ def _fold_test_bins(
         )
         test_bins[:, j] = tb
     return test_bins
-
 
 def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool = True) -> float:
     """Miller-Madow-corrected plug-in MI ``H(X) + H(Y) - H(X, Y)`` from
@@ -298,7 +296,6 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
     if clip_zero:
         return max(0.0, mi_corrected)
     return mi_corrected
-
 
 def score_features_by_kfold_oof_mi(
     raw_X: pd.DataFrame,
@@ -451,7 +448,6 @@ def score_features_by_kfold_oof_mi(
         df = df.sort_values("uplift_oof", ascending=False).reset_index(drop=True)
     return df
 
-
 def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
     """Column-batched equivalent of ``_mi_greedy_cmi_fe._quantile_bin``: one ``np.quantile(mat, qs,
     axis=0)`` call over every ALL-FINITE column instead of ``p`` separate per-column ``np.quantile``
@@ -492,7 +488,6 @@ def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
     for j in partial_idx:
         out[:, j] = _quantile_bin(mat[:, j], nbins=nbins)
     return out
-
 
 def _cmi_gate_scores(
     engineered_X: pd.DataFrame,
@@ -536,7 +531,6 @@ def _cmi_gate_scores(
     for k, c in enumerate(engineered_X.columns):
         out[c] = float(_cmi_from_binned(np.ascontiguousarray(eng_bins_mat[:, k]), y_bin, z_joint))
     return out
-
 
 def hybrid_orth_mi_three_gate_fe(
     X: pd.DataFrame,
@@ -639,7 +633,6 @@ def hybrid_orth_mi_three_gate_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_three_gate_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -655,7 +648,7 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
     n_folds: int = 5,
     seed: int = 0,
     nbins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_three_gate_fe` but additionally returns
     a list of ``orth_univariate`` recipes - one per appended column - so
     that ``MRMR.transform`` can recompute each engineered column on test

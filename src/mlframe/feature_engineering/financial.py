@@ -315,6 +315,219 @@ def _build_unnests(prefix: str, ta_windows: Sequence[int]) -> List[str]:
     return names
 
 
+def _warn_on_null_ohlcv(ohlcv: pl.DataFrame, market_action_prefixes: Sequence[str], ohlcv_fields_mapping: Dict[str, str]) -> None:
+    """Log a warning naming the OHLCV columns that contain nulls, which are about to be zero-filled."""
+    # Count the nulls BEFORE they become zeros. The zero-fill below is forced by a polars limitation, not by
+    # intent, and the comment at the fill site tells the caller to forward-fill upstream -- but nothing checked
+    # whether they did. A single missing `low` becomes a 0.0 price, so that bar reads as a 100%-of-price range
+    # to ATR / Stochastic / Williams %R and divides to inf in the `high / low.shift(lag) - 1` ratios, silently,
+    # for exactly the rows a user would most want flagged.
+    _ohlcv_cols = [f"{prefix}{ohlcv_fields_mapping.get(f)}" for prefix in market_action_prefixes for f in ("open", "high", "low", "close", "volume")]
+    _present = [c for c in _ohlcv_cols if c in ohlcv.columns]
+    if _present:
+        _null_counts = {c: int(v) for c, v in zip(_present, ohlcv.select(pl.col(_present).null_count()).row(0)) if v}
+        if _null_counts:
+            logger.warning(
+                "add_ohlcv_ta_indicators: %d OHLCV column(s) contain nulls (%s) and are about to be filled with 0.0, "
+                "which TA indicators read as a real zero price -- a bar with a 100%%-of-price range, or an infinite "
+                "high/low ratio. Forward-fill these columns before calling; see the note at the fill site.",
+                len(_null_counts),
+                ", ".join(f"{c}={n}" for c, n in sorted(_null_counts.items())),
+            )
+
+
+def _zero_filled_price_columns(prefix: str, ohlcv_fields_mapping: Dict[str, str]) -> tuple:
+    """Return ``(open, high, low, close, volume)`` expressions for one market-action prefix, with nulls zero-filled."""
+    # Prices are zero-filled here (not forward-filled) because polars-talib indicators apply
+    # their own .over(ticker_column) downstream, and a nested window expression
+    # (forward-fill-over inside `getattr(_ta_ns(close), func)()`) raises
+    # `InvalidOperationError: window expression not allowed in aggregation` in polars 1.x.
+    # If your input contains sporadic null prices, forward-fill them on the caller side
+    # BEFORE passing to add_ohlcv_ta_indicators.
+    low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(0.0)
+    high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(0.0)
+    open_col = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(0.0)
+    close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(0.0)
+    volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}").fill_null(0.0)
+    return open_col, high, low, close, volume
+
+
+def _window_free_ta_expressions(prefix: str, ohlcv_fields_mapping: Dict[str, str], ticker_column: str, unnests: List[str]) -> list:
+    """TA expressions of one prefix whose indicators take no ``timeperiod`` window."""
+    open_col, high, low, close, volume = _zero_filled_price_columns(prefix, ohlcv_fields_mapping)
+    ta_expressions: list = []
+
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(getattr(_ta_ns(close), func)(), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix)
+            for func in _CYCLIC_TA_INDICATORS
+        ]
+    )
+
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(plta, func)(open=open_col, high=high, low=low, close=close),
+                func=func,
+                window="",
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+            )
+            for func in _OHLC_ONLY_TA_INDICATORS
+        ]
+    )
+
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(plta, func)(volume=volume, close=close),
+                func=func,
+                window="",
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+            )
+            for func in _CV_ONLY_TA_INDICATORS
+        ]
+    )
+
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(plta, func)(high=high, low=low, close=close),
+                func=func,
+                window="",
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+            )
+            for func in _HLC_ONLY_TA_INDICATORS
+        ]
+    )
+
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(plta, func)(high=high, low=low, close=close, volume=volume),
+                func=func,
+                window="",
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+            )
+            for func in _HLCV_ONLY_TA_INDICATORS
+        ]
+    )
+
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(plta, func)(high=high, low=low),
+                func=func,
+                window="",
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+            )
+            for func in _HL_ONLY_TA_INDICATORS
+        ]
+    )
+    return ta_expressions
+
+
+def _windowed_ta_expressions(
+    prefix: str, window: int, ohlcv_fields_mapping: Dict[str, str], ticker_column: str, nans_filler: float, unnests: List[str]
+) -> list:
+    """TA expressions of one prefix for one ``timeperiod`` window."""
+    _, high, low, close, volume = _zero_filled_price_columns(prefix, ohlcv_fields_mapping)
+    ta_expressions: list = []
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(_ta_ns(close), func)(window),
+                func=func,
+                window=window,
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+                suffix="close",
+            )
+            for func in _TIMEPERIOD_ONLY_TA_INDICATORS
+        ]
+    )
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(_ta_ns(volume), func)(window),
+                func=func,
+                window=window,
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+                suffix="volume",
+            )
+            for func in _TIMEPERIOD_ONLY_TA_INDICATORS
+        ]
+    )
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(plta, func)(price0=high, price1=low, timeperiod=window),
+                func=func,
+                window=window,
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+            )
+            for func in _TIMEPERIOD_P01_TA_INDICATORS
+        ]
+    )
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(plta, func)(high=high, low=low, timeperiod=window),
+                func=func,
+                window=window,
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+            )
+            for func in _TIMEPERIOD_HL_TA_INDICATORS
+        ]
+    )
+    ta_expressions.extend(
+        [
+            pllib.clean_numeric(
+                apply_ta_indicator(
+                    getattr(plta, func)(high=high, low=low, close=close, timeperiod=window),
+                    func=func,
+                    window=window,
+                    ticker_column=ticker_column,
+                    unnests=unnests,
+                    prefix=prefix,
+                ),
+                nans_filler=nans_filler,
+            )
+            for func in _TIMEPERIOD_HLC_TA_INDICATORS
+        ]
+    )
+    ta_expressions.extend(
+        [
+            apply_ta_indicator(
+                getattr(plta, func)(high=high, low=low, close=close, volume=volume, timeperiod=window),
+                func=func,
+                window=window,
+                ticker_column=ticker_column,
+                unnests=unnests,
+                prefix=prefix,
+            )
+            for func in _TIMEPERIOD_HLCV_TA_INDICATORS
+        ]
+    )
+    return ta_expressions
+
+
 def add_ohlcv_ta_indicators(
     ohlcv: pl.DataFrame,
     ta_windows: Optional[Sequence[int]] = None,
@@ -344,23 +557,7 @@ def add_ohlcv_ta_indicators(
     if ohlcv_fields_mapping is None:
         ohlcv_fields_mapping = dict(_DEFAULT_TA_OHLCV_FIELDS)
 
-    # Count the nulls BEFORE they become zeros. The zero-fill below is forced by a polars limitation, not by
-    # intent, and the comment at the fill site tells the caller to forward-fill upstream -- but nothing checked
-    # whether they did. A single missing `low` becomes a 0.0 price, so that bar reads as a 100%-of-price range
-    # to ATR / Stochastic / Williams %R and divides to inf in the `high / low.shift(lag) - 1` ratios, silently,
-    # for exactly the rows a user would most want flagged.
-    _ohlcv_cols = [f"{prefix}{ohlcv_fields_mapping.get(f)}" for prefix in market_action_prefixes for f in ("open", "high", "low", "close", "volume")]
-    _present = [c for c in _ohlcv_cols if c in ohlcv.columns]
-    if _present:
-        _null_counts = {c: int(v) for c, v in zip(_present, ohlcv.select(pl.col(_present).null_count()).row(0)) if v}
-        if _null_counts:
-            logger.warning(
-                "add_ohlcv_ta_indicators: %d OHLCV column(s) contain nulls (%s) and are about to be filled with 0.0, "
-                "which TA indicators read as a real zero price -- a bar with a 100%%-of-price range, or an infinite "
-                "high/low ratio. Forward-fill these columns before calling; see the note at the fill site.",
-                len(_null_counts),
-                ", ".join(f"{c}={n}" for c, n in sorted(_null_counts.items())),
-            )
+    _warn_on_null_ohlcv(ohlcv, market_action_prefixes, ohlcv_fields_mapping)
 
     ta_expressions: list = []
     unnests: List[str] = []
@@ -371,183 +568,15 @@ def add_ohlcv_ta_indicators(
         unnests.extend(_build_unnests(prefix, ta_windows))
 
     for prefix in market_action_prefixes:
-        # Prices are zero-filled here (not forward-filled) because polars-talib indicators apply
-        # their own .over(ticker_column) downstream, and a nested window expression
-        # (forward-fill-over inside `getattr(_ta_ns(close), func)()`) raises
-        # `InvalidOperationError: window expression not allowed in aggregation` in polars 1.x.
-        # If your input contains sporadic null prices, forward-fill them on the caller side
-        # BEFORE passing to add_ohlcv_ta_indicators.
-        low = pl.col(f"{prefix}{ohlcv_fields_mapping.get('low')}").fill_null(0.0)
-        high = pl.col(f"{prefix}{ohlcv_fields_mapping.get('high')}").fill_null(0.0)
-        open_col = pl.col(f"{prefix}{ohlcv_fields_mapping.get('open')}").fill_null(0.0)
-        close = pl.col(f"{prefix}{ohlcv_fields_mapping.get('close')}").fill_null(0.0)
-        volume = pl.col(f"{prefix}{ohlcv_fields_mapping.get('volume')}").fill_null(0.0)
-
-        ta_expressions.extend(
-            [
-                apply_ta_indicator(getattr(_ta_ns(close), func)(), func=func, window="", ticker_column=ticker_column, unnests=unnests, prefix=prefix)
-                for func in _CYCLIC_TA_INDICATORS
-            ]
-        )
-
-        ta_expressions.extend(
-            [
-                apply_ta_indicator(
-                    getattr(plta, func)(open=open_col, high=high, low=low, close=close),
-                    func=func,
-                    window="",
-                    ticker_column=ticker_column,
-                    unnests=unnests,
-                    prefix=prefix,
-                )
-                for func in _OHLC_ONLY_TA_INDICATORS
-            ]
-        )
-
-        ta_expressions.extend(
-            [
-                apply_ta_indicator(
-                    getattr(plta, func)(volume=volume, close=close),
-                    func=func,
-                    window="",
-                    ticker_column=ticker_column,
-                    unnests=unnests,
-                    prefix=prefix,
-                )
-                for func in _CV_ONLY_TA_INDICATORS
-            ]
-        )
-
-        ta_expressions.extend(
-            [
-                apply_ta_indicator(
-                    getattr(plta, func)(high=high, low=low, close=close),
-                    func=func,
-                    window="",
-                    ticker_column=ticker_column,
-                    unnests=unnests,
-                    prefix=prefix,
-                )
-                for func in _HLC_ONLY_TA_INDICATORS
-            ]
-        )
-
-        ta_expressions.extend(
-            [
-                apply_ta_indicator(
-                    getattr(plta, func)(high=high, low=low, close=close, volume=volume),
-                    func=func,
-                    window="",
-                    ticker_column=ticker_column,
-                    unnests=unnests,
-                    prefix=prefix,
-                )
-                for func in _HLCV_ONLY_TA_INDICATORS
-            ]
-        )
-
-        ta_expressions.extend(
-            [
-                apply_ta_indicator(
-                    getattr(plta, func)(high=high, low=low),
-                    func=func,
-                    window="",
-                    ticker_column=ticker_column,
-                    unnests=unnests,
-                    prefix=prefix,
-                )
-                for func in _HL_ONLY_TA_INDICATORS
-            ]
-        )
+        ta_expressions.extend(_window_free_ta_expressions(prefix, ohlcv_fields_mapping, ticker_column, unnests))
 
         for window in ta_windows:
-            ta_expressions.extend(
-                [
-                    apply_ta_indicator(
-                        getattr(_ta_ns(close), func)(window),
-                        func=func,
-                        window=window,
-                        ticker_column=ticker_column,
-                        unnests=unnests,
-                        prefix=prefix,
-                        suffix="close",
-                    )
-                    for func in _TIMEPERIOD_ONLY_TA_INDICATORS
-                ]
-            )
-            ta_expressions.extend(
-                [
-                    apply_ta_indicator(
-                        getattr(_ta_ns(volume), func)(window),
-                        func=func,
-                        window=window,
-                        ticker_column=ticker_column,
-                        unnests=unnests,
-                        prefix=prefix,
-                        suffix="volume",
-                    )
-                    for func in _TIMEPERIOD_ONLY_TA_INDICATORS
-                ]
-            )
-            ta_expressions.extend(
-                [
-                    apply_ta_indicator(
-                        getattr(plta, func)(price0=high, price1=low, timeperiod=window),
-                        func=func,
-                        window=window,
-                        ticker_column=ticker_column,
-                        unnests=unnests,
-                        prefix=prefix,
-                    )
-                    for func in _TIMEPERIOD_P01_TA_INDICATORS
-                ]
-            )
-            ta_expressions.extend(
-                [
-                    apply_ta_indicator(
-                        getattr(plta, func)(high=high, low=low, timeperiod=window),
-                        func=func,
-                        window=window,
-                        ticker_column=ticker_column,
-                        unnests=unnests,
-                        prefix=prefix,
-                    )
-                    for func in _TIMEPERIOD_HL_TA_INDICATORS
-                ]
-            )
-            ta_expressions.extend(
-                [
-                    pllib.clean_numeric(
-                        apply_ta_indicator(
-                            getattr(plta, func)(high=high, low=low, close=close, timeperiod=window),
-                            func=func,
-                            window=window,
-                            ticker_column=ticker_column,
-                            unnests=unnests,
-                            prefix=prefix,
-                        ),
-                        nans_filler=nans_filler,
-                    )
-                    for func in _TIMEPERIOD_HLC_TA_INDICATORS
-                ]
-            )
-            ta_expressions.extend(
-                [
-                    apply_ta_indicator(
-                        getattr(plta, func)(high=high, low=low, close=close, volume=volume, timeperiod=window),
-                        func=func,
-                        window=window,
-                        ticker_column=ticker_column,
-                        unnests=unnests,
-                        prefix=prefix,
-                    )
-                    for func in _TIMEPERIOD_HLCV_TA_INDICATORS
-                ]
-            )
+            ta_expressions.extend(_windowed_ta_expressions(prefix, window, ohlcv_fields_mapping, ticker_column, nans_filler, unnests))
 
         # The MACD/FSS block was historically present but disabled (empty indicator list); leave
         # the for-loop in place so adding indicators later requires only one edit.
         timeperiod_only_fss_indicators: Tuple[str, ...] = ()
+        close = _zero_filled_price_columns(prefix, ohlcv_fields_mapping)[3]
         for fastperiod, slowperiod, signalperiod in fss_rolling_windows:
             ta_expressions.extend(
                 [

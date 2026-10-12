@@ -67,7 +67,6 @@ import numpy as np
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
 
-
 def _guarded_span(pp) -> float:
     """The stored min-max span, guarded against the bounds' own magnitude so a tiny-but-real range is not swamped by an absolute pad."""
     lo, hi = float(pp["lo"]), float(pp["hi"])
@@ -116,7 +115,6 @@ logger = logging.getLogger(__name__)
 _MINIMAL_UNARY = ("identity", "neg", "abs", "sqr", "reciproc", "sqrt", "log", "sin")
 _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 
-
 # RESIDENCY REPLATFORM MAP (2026-06-21, measured - the production chunk path, NOT this prototype).
 # Goal: kill the FE chunk's bulk float-buffer D2H. ``gpu_materialise_discretize_codes_host`` D2Hs the
 # full (n,K) float candidate buffer via ``out_cand`` - measured 6.7 GB total across the canonical
@@ -140,11 +138,9 @@ _MINIMAL_BINARY = ("mul", "add", "sub", "div", "max", "min")
 # 72d1c364). Real wall levers are COMPUTE reduction (subsample scale-down - 64s@30k -> 36s@8k but plateaus
 # at a ~30s FE-component floor; selection holds on the canonical formula) or cutting FE work, NOT transfers.
 
-
 def fe_gpu_resident_enabled() -> bool:
     """Whether the GPU-resident FE prototype is active. OFF unless ``MLFRAME_FE_GPU_RESIDENT`` truthy."""
     return os.environ.get("MLFRAME_FE_GPU_RESIDENT", "").strip().lower() in ("1", "true", "on", "yes")
-
 
 def _cuda_present() -> bool:
     """Best-effort CUDA-availability probe for the resident-codes default. Mirrors
@@ -170,7 +166,6 @@ def _cuda_present() -> bool:
             logger.debug("_cuda_present: numba.cuda.is_available() also failed, defaulting to no CUDA: %s", e2)
             return False
 
-
 def _gpu_min_free_vram_mb() -> int:
     """Minimum FREE device VRAM (MB) for the FE GPU paths to default ON. Below this the (n, K) FE matrices cannot
     fit and the GPU work stalls/OOM-falls-back while the (parallelized) CPU cores idle - so default to CPU instead.
@@ -179,7 +174,6 @@ def _gpu_min_free_vram_mb() -> int:
         return int(os.environ.get("MLFRAME_FE_GPU_MIN_FREE_VRAM_MB", "1024"))
     except (ValueError, TypeError):
         return 1024
-
 
 def _gpu_has_free_vram() -> bool:
     """True iff the current CUDA device has at least ``_gpu_min_free_vram_mb()`` MB FREE. On a small/shared card whose
@@ -200,7 +194,6 @@ def _gpu_has_free_vram() -> bool:
         logger.debug("_gpu_has_free_vram: VRAM query failed, deferring to the existing per-path OOM fallbacks: %s", e)
         return True
 
-
 def _env_gpu_default_on(name: str) -> bool:
     """Shared GPU opt-out gate: explicit env ``<name>`` = 0/1 (off/on) wins; otherwise default ON when a CUDA device
     is usable AND has enough FREE VRAM - False if CUDA_VISIBLE_DEVICES='' or MLFRAME_DISABLE_GPU=1, no CUDA present,
@@ -219,7 +212,6 @@ def _env_gpu_default_on(name: str) -> bool:
         return False
     return _cuda_present() and _gpu_has_free_vram()
 
-
 def fe_gpu_resident_codes_enabled() -> bool:
     """Whether the GPU-RESIDENT-CODES handoff is active. DEFAULT ON when CUDA is present (env opt-out
     ``MLFRAME_FE_GPU_RESIDENT_CODES=0``); explicit truthy forces it on even without a detected device.
@@ -237,7 +229,6 @@ def fe_gpu_resident_codes_enabled() -> bool:
     present). Honours the CUDA opt-out conventions (``CUDA_VISIBLE_DEVICES=""`` / ``MLFRAME_DISABLE_GPU=1``)
     by short-circuiting to OFF - the resident gate is skipped on those runs anyway, so never stash."""
     return _env_gpu_default_on("MLFRAME_FE_GPU_RESIDENT_CODES")
-
 
 def fe_gpu_resident_basis_mi_enabled() -> bool:
     """Whether the matrix-native RESIDENT orth-FE basis-MI path is active (Piece 3).
@@ -258,7 +249,6 @@ def fe_gpu_resident_basis_mi_enabled() -> bool:
     clears the p200 high-feature perf budget). Opt out with ``MLFRAME_FE_GPU_RESIDENT_BASIS_MI=0``. Any GPU
     failure / unported basis falls back to the host path per-call (never a correctness regression)."""
     return _env_gpu_default_on("MLFRAME_FE_GPU_RESIDENT_BASIS_MI")
-
 
 def fe_gpu_routing_enabled() -> bool:
     """Whether the orth-FE basis ROUTING (basis_route_by_signal) runs on the device. DEFAULT ON.
@@ -285,7 +275,6 @@ def fe_gpu_routing_enabled() -> bool:
     earlier A/B wrongly charged the GPU an H2D that residency mode does not pay - corrected here.)"""
     return _env_gpu_default_on("MLFRAME_FE_GPU_ROUTING")
 
-
 def fe_gpu_defer_host_codes_enabled() -> bool:
     """Whether the DEFERRED host-codes D2H is active. DEFAULT ON whenever the resident-codes handoff is on
     (the device codes already exist resident, so skipping the eager host D2H of those SAME codes is free
@@ -304,7 +293,6 @@ def fe_gpu_defer_host_codes_enabled() -> bool:
         return True
     return fe_gpu_resident_codes_enabled()  # default ON iff the resident-codes handoff is on
 
-
 # RESIDENT-CODES HANDOFF (2026-06-21, gated). The FE chunk path calls ``gpu_materialise_discretize_codes_
 # host`` (producer) and ``_dispatch_batch_mi_with_noise_gate`` (consumer) as SEPARATE steps - the producer
 # returns the host int codes (``disc_2d``) which the consumer's resident-CUDA gate re-uploads. To pass the
@@ -321,7 +309,6 @@ def fe_gpu_defer_host_codes_enabled() -> bool:
 # dispatch consumes them (clear_resident_codes_handoff). Module-level -> never reachable from pickled state.
 _RESIDENT_CODES_HANDOFF: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (device_codes, shape, dtype, weakref(host))
 _RESIDENT_CODES_HANDOFF_MAX = 8
-
 
 # DEFERRED HOST-CODES FILL. When the resident-codes path is on, the (n, K) host int codes are
 # the SINGLE largest D2H of the canonical fit (audit n=100k: _gpu_resident_fe.py codes-fill = 1691 MB / 160
@@ -345,7 +332,6 @@ _DEFERRED_HOST_FILL_MAX = 8
 # the buffer first, and the registry is guarded because several threads stash, fill and clear at once.
 _DEFERRED_HOST_FILL_LOCK = threading.Lock()
 
-
 def _fill_deferred(entry) -> None:
     """D2H one registry entry's device codes into its host buffer, once. An entry whose host buffer has been garbage-collected has no reader left
     and is skipped: filling it would copy the whole (n, K) codes matrix to a buffer nobody can read."""
@@ -354,7 +340,6 @@ def _fill_deferred(entry) -> None:
     if host is not None and not filled[0]:
         dev.get(out=host)
         filled[0] = True
-
 
 def _stash_resident_codes(host_codes, device_codes) -> None:
     """Record the resident device codes for the host array ``host_codes`` (keyed on its id)."""
@@ -365,7 +350,6 @@ def _stash_resident_codes(host_codes, device_codes) -> None:
         while len(c) > _RESIDENT_CODES_HANDOFF_MAX:
             # evict-ok: a miss routes to the host codes, which ensure_host_codes_filled always delivers
             c.popitem(last=False)
-
 
 def _stash_deferred_host_fill(host_codes, device_codes) -> None:
     """Register ``host_codes`` (an UNFILLED host buffer) for a lazy D2H fill from ``device_codes`` - used
@@ -384,8 +368,7 @@ def _stash_deferred_host_fill(host_codes, device_codes) -> None:
             # A buffer whose owner is alive is never dropped unfilled: the owner may still be waiting to read it.
             _fill_deferred(c.popitem(last=False)[1])
 
-
-def ensure_host_codes_filled(host_codes) -> None:
+def ensure_host_codes_filled(host_codes: np.ndarray) -> None:
     """If ``host_codes`` was returned UNFILLED with a deferred device->host fill registered for it (same id,
     shape, dtype), D2H the device codes into it NOW (once; idempotent). No-op when there is no deferred fill
     for this array (it was filled eagerly, or is an unrelated array). Called by the dispatch on every
@@ -401,7 +384,6 @@ def ensure_host_codes_filled(host_codes) -> None:
             return
         # D2H the resident device codes into the caller's host buffer (the exact bytes the eager path produced).
         _fill_deferred(h)
-
 
 def take_resident_codes(host_codes):
     """Return the resident device codes stashed for ``host_codes`` iff they match it (same id, shape,
@@ -419,7 +401,6 @@ def take_resident_codes(host_codes):
         return dev
     return None
 
-
 def clear_resident_codes_handoff(host_codes: np.ndarray | None = None) -> None:
     """Drop the resident-codes handoff + the deferred host-fill record so device memory is not pinned past
     the dispatch that produced it, and a stale entry can never satisfy a later, unrelated dispatch. Called
@@ -434,7 +415,6 @@ def clear_resident_codes_handoff(host_codes: np.ndarray | None = None) -> None:
             return
         _RESIDENT_CODES_HANDOFF.clear()
         _DEFERRED_HOST_FILL.clear()
-
 
 # GPU-RESIDENT BINNING DTYPE. The FE candidate buffer is ALREADY float32 (the njit/CUDA
 # materialise writes float32; the chunk buffer is float32). The original GPU-resident discretize path
@@ -452,7 +432,6 @@ def clear_resident_codes_handoff(host_codes: np.ndarray | None = None) -> None:
 # fed by _fused_generate_block -> float64) stays float64 (bit-identical). MLFRAME_FE_GPU_BINNING_DTYPE
 # (float32|float64) force-overrides the working dtype host-wide if a future host/data combo needs it.
 
-
 def _xp_special(xp):
     """The scipy.special-compatible module for array module ``xp``: ``scipy.special`` for numpy,
     ``cupyx.scipy.special`` for cupy. Used for the GPU full-catalog special functions (erf / gammaln /
@@ -462,7 +441,6 @@ def _xp_special(xp):
         return _s
     import cupyx.scipy.special as _s
     return _s
-
 
 # GPU-ONLY catalog: user directive - EVERYTHING runs on the GPU, NO CPU fallback. The six
 # ops that lack a cupy/cupyx equivalent or need cross-row / data-dependent / emath handling are
@@ -488,7 +466,6 @@ _FULL_BINARY = (
     "logaddexp", "pow", "heaviside", "greater", "less", "equal", "beta",        # maximal
     # GPU-DISABLED(restore): "agm" (no cupyx), "logn" (np.emath), "binom"
 )
-
 
 def _unary_apply(xp, name, x):
     """Apply unary ``name`` to ``x`` using array module ``xp`` (numpy or cupy). Semantics mirror
@@ -552,7 +529,6 @@ def _unary_apply(xp, name, x):
     #     return _xp_special(xp).dawsn(x)
     raise ValueError(f"unknown unary {name!r}")
 
-
 _PREWARP_TRANSFORM_SRC = r"""
 extern "C" __global__
 void prewarp_transform(const double* __restrict__ x, const int code, const double lo, const double span,
@@ -571,14 +547,12 @@ void prewarp_transform(const double* __restrict__ x, const int code, const doubl
 _PREWARP_TRANSFORM_KERNEL = None
 _PREWARP_CODE = {"hermite": 0, "legendre": 1, "chebyshev": 1, "laguerre": 2}
 
-
 def _get_prewarp_transform_kernel(cp):
     """Lazily compiles and caches the fused prewarp min-max/z-score/shift+clip ``RawKernel`` (module-level singleton; pickle-safe)."""
     global _PREWARP_TRANSFORM_KERNEL
     if _PREWARP_TRANSFORM_KERNEL is None:
         _PREWARP_TRANSFORM_KERNEL = cp.RawKernel(_PREWARP_TRANSFORM_SRC, "prewarp_transform")
     return _PREWARP_TRANSFORM_KERNEL
-
 
 def _gpu_apply_prewarp(cp, x, spec):
     """Device port of ``hermite_fe.apply_operand_prewarp``. ``x`` is a device array (native float dtype);
@@ -645,7 +619,6 @@ def _gpu_apply_prewarp(cp, x, spec):
     coef_list = [float(v) for v in np.asarray(spec["coef"], dtype=np.float64).reshape(-1)]
     return clen(cp, z, coef_list)
 
-
 def _binary_apply(xp, name, x, y):
     """Apply binary ``name`` to ``(x, y)`` mirroring ``feature_engineering.create_binary_transformations``
     EXACTLY (full catalog minus the temporarily-disabled agm/logn/binom - see _FULL_BINARY), incl. safe
@@ -702,11 +675,9 @@ def _binary_apply(xp, name, x, y):
     #     return _xp_special(xp).binom(x, y)
     raise ValueError(f"unknown binary {name!r}")
 
-
 def _candidate_names(a_label: str = "a", b_label: str = "b") -> list[str]:
     """Builds the human-readable ``bop(ua(a),ub(b))`` candidate name strings in the same nested-loop order as ``_COMBOS``/the candidate matrix columns."""
     return [f"{bop}({ua}({a_label}),{ub}({b_label}))" for ua in _MINIMAL_UNARY for ub in _MINIMAL_UNARY for bop in _MINIMAL_BINARY]
-
 
 # (ua, ub, bop) combo order, matching _candidate_names / _build_candidate_matrix column order.
 _COMBOS = [(ua, ub, bop) for ua in _MINIMAL_UNARY for ub in _MINIMAL_UNARY for bop in _MINIMAL_BINARY]
@@ -798,7 +769,6 @@ _FUSED_GEN_CM_F32_SRC = (
 )
 _FUSED_GEN_CM_F32_KERNEL = None
 
-
 def _get_fused_gen_kernel():
     """Lazily compiles and caches the row-major fused-generation ``RawKernel`` (one launch fills the whole (n,K) candidate matrix)."""
     global _FUSED_GEN_KERNEL
@@ -820,7 +790,6 @@ def _get_fused_gen_cm_kernel(float32: bool = False):
     if _FUSED_GEN_CM_KERNEL is None:
         _FUSED_GEN_CM_KERNEL = cp.RawKernel(_FUSED_GEN_CM_SRC, "fused_gen_cm")
     return _FUSED_GEN_CM_KERNEL
-
 
 # GRAND-FUSION kernel (roadmap #5 + #3, 2026-06-20). One launch computes the joint histograms for ALL
 # candidate columns against the original-y AND every shuffled-y, WITHOUT ever materialising the (n,K)
@@ -906,7 +875,6 @@ void fused_gen_bin_hist(const double* __restrict__ ua, const double* __restrict_
 """
 _FUSED_GEN_BIN_HIST_KERNEL = None  # module-level singleton (lazy-compiled; pickle-safe)
 
-
 def _get_fused_gen_bin_hist_kernel():
     """Lazily compiles and caches the grand-fusion RawKernel that generates, bins, and joint-histograms every candidate against all y-vectors in one launch, without ever materialising the (n,K) candidate matrix."""
     global _FUSED_GEN_BIN_HIST_KERNEL
@@ -915,13 +883,11 @@ def _get_fused_gen_bin_hist_kernel():
         _FUSED_GEN_BIN_HIST_KERNEL = cp.RawKernel(_FUSED_GEN_BIN_HIST_SRC, "fused_gen_bin_hist")
     return _FUSED_GEN_BIN_HIST_KERNEL
 
-
 def fe_gpu_grand_fusion_enabled() -> bool:
     """Whether the grand-fusion histogram path (never materialise (n,K)) is active. ON unless
     ``MLFRAME_FE_GPU_GRAND_FUSION`` is explicitly falsy (it is the selection-safe data-movement win;
     the non-fused ``grand_fused_pair_mi`` path stays one env flip away as the exact fallback)."""
     return os.environ.get("MLFRAME_FE_GPU_GRAND_FUSION", "1").strip().lower() in ("1", "true", "on", "yes")
-
 
 _COMBO_IDX_CACHE: dict = {}  # block-tuple -> (ua_idx, ub_idx, bop) device int32; module-level -> pickle-safe
 _QLEVELS_CACHE: dict = {}  # (nbins, work-dtype) -> cp.linspace(0,100,nbins+1) device vector; read-only, shared
@@ -930,7 +896,6 @@ _QLEVELS_CACHE: dict = {}  # (nbins, work-dtype) -> cp.linspace(0,100,nbins+1) d
 # compute and one's result silently overwrite the other's (harmless here since both are deterministic
 # and content-identical, but the race still wastes a device alloc/kernel launch every time it happens).
 _GPU_RESIDENT_FE_CACHE_LOCK = threading.Lock()
-
 
 def _quantile_levels_dev(cp, nbins: int, work):
     """Cached cp.linspace(0,100,nbins+1, dtype=work) percentile-level vector (depends only on (nbins, work),
@@ -943,7 +908,6 @@ def _quantile_levels_dev(cp, nbins: int, work):
             hit = cp.linspace(0.0, 100.0, int(nbins) + 1, dtype=work)
             _QLEVELS_CACHE[key] = hit
     return hit
-
 
 def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = False):
     """Generate the (n, len(combos_block)) candidate matrix for ``combos_block`` in ONE kernel launch.
@@ -990,7 +954,6 @@ def _fused_generate_block(ua_cm, ub_cm, combos_block, *, column_major: bool = Fa
     _get_fused_gen_kernel()((blocks,), (threads,), (ua_cm, ub_cm, ua_idx, ub_idx, bop, np.int64(n), np.int32(K), out))
     return out
 
-
 def _unary_stack_cm(xp, x):
     """(U, n) C-contiguous stack of the minimal unary transforms of ``x`` (U=len(_MINIMAL_UNARY), row u = _UNARY_IDX[name]).
 
@@ -1022,11 +985,9 @@ _GPU_MI_WORKING_MULTIPLE = 5
 _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT = 0.25
 _GPU_K_CHUNK_VRAM_FRACTIONS = (0.25, 0.40, 0.55, 0.70)  # discrete grid the per-host sweep ranks
 
-
 # Below this n the GPU launch/transfer dominates and the CPU njit grid wins (bench: 20k -> 0.76x,
 # 100k -> 1.79x); the dispatcher routes < this to CPU. Provisional crossover; a later sweep can tune it.
 _GPU_RESIDENT_MIN_N = 50_000
-
 
 def _gpu_k_chunk_vram_fraction(n: int) -> float:
     """Per-host VRAM fraction for :func:`_gpu_k_chunk` (lazy KTC resolver in sibling); safe default on miss."""
@@ -1036,7 +997,6 @@ def _gpu_k_chunk_vram_fraction(n: int) -> float:
     except Exception as e:
         logger.debug("_gpu_k_chunk_vram_fraction: KTC lookup failed, using the safe default fraction %.2f: %s", _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT, e)
         return _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
-
 
 def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
                  bytes_per_elem: int = 8, working_multiple: int | None = None,
@@ -1082,7 +1042,6 @@ def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
     cap = len(_COMBOS) if max_cols is None else int(max_cols)
     return int(min(cap, max(1, budget // per_col)))
 
-
 def _build_candidate_matrix(xp, a, b):
     """Generate the full minimal unary x unary x binary candidate grid for operands ``a``, ``b`` as one
     contiguous ``(n, K)`` matrix in array module ``xp``. Non-finite cells -> 0 (the FE scrub). With ``xp``
@@ -1101,8 +1060,7 @@ def _build_candidate_matrix(xp, a, b):
                 j += 1
     return out
 
-
-def cpu_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
+def cpu_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20) -> tuple[list[str], np.ndarray]:
     """Reference CPU path: build the grid in numpy + score with the production njit batch MI. Returns
     ``(names, mi)`` - the baseline the GPU-resident path must match (ranking + values to fp round-off)."""
     from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit
@@ -1113,8 +1071,7 @@ def cpu_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, 
     mi = _plugin_mi_classif_batch_njit(cand, np.ascontiguousarray(y_codes, dtype=np.int64), nbins)
     return _candidate_names(), np.asarray(mi, dtype=np.float64)
 
-
-def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20):
+def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20) -> tuple[list[str], np.ndarray]:
     """GPU-RESIDENT path: upload ``a``, ``b``, ``y`` ONCE, build the whole candidate grid on the device,
     and score it in ONE big-k batch-MI call - the array never round-trips per candidate. Returns
     ``(names, mi)`` with ``mi`` brought back to host (the only D2H, a (K,) vector). Raises if cupy is
@@ -1162,7 +1119,6 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
         del cand
     return _candidate_names(), np.concatenate(mi_parts) if mi_parts else np.empty(0)
 
-
 # G3: the per-fraction PROBE + sweep + kernel_tuner registration live in the
 # ``_gpu_resident_k_chunk_ktc`` sibling (LOC budget), re-exported at the bottom of this module.
 
@@ -1195,7 +1151,6 @@ def _sortfree_mi_gpu(cand_gpu, y_i64, nbins, *, sub: int = 4096):
                       - cp.log(cp.where(hx > 0, hx, 1.0))[:, :, None]
                       - cp.log(cp.where(hy > 0, hy, 1.0))[:, None, :])
     return cp.maximum(cp.where(m, term, 0.0).sum(axis=(1, 2)), 0.0)
-
 
 def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refine_k: int = 48):
     """APPROXIMATE-with-exact-head GPU pair MI (opt-in, NOT the default): prescreen ALL candidates with
@@ -1250,7 +1205,6 @@ def gpu_resident_pair_candidate_mi_fast(a, b, y_codes, *, nbins: int = 20, refin
     # argsort's in-kernel share. Real + exact, but modest; the bigger lever is cutting generation/math
     # (or a fused sort-free EXACT kernel), not just the sort. Kept as a validated option, not the default.
 
-
 # --- Tier E carve re-exports: prewarp/orth-basis block -> _gpu_resident_basis.py, its own further carve
 # (analytic pair-MI + grand-fusion + dispatch) -> _gpu_resident_pair_mi.py, residency-buffer + radix-select
 # block -> _gpu_resident_select.py (all carved VERBATIM under the 1k ceiling). Rebind EVERY moved name
@@ -1275,7 +1229,6 @@ _REEXPORT_SIBLINGS = (
     "_gpu_resident_basis", "_gpu_resident_pair_mi", "_gpu_resident_select", "_gpu_resident_k_chunk_ktc",
     "_gpu_resident_materialise", "_gpu_resident_discretize", "_gpu_resident_select_kernels",
 )
-
 
 def __getattr__(name: str):
     """Late lookup of a re-exported name in the carved sibling modules (PEP 562), for the partial-initialisation import orders."""

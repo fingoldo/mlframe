@@ -402,7 +402,7 @@ def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st
                 _unwrap_selector=_unwrap_selector,
             )
 
-            if cached_dfs is None:
+            if cached_dfs is None and st.train_df_transformed is not None:
                 st.pipeline_cache.set(cache_key, st.train_df_transformed, val_df_transformed, test_df_transformed)
                 st.pipeline_cache.set_fitted_pipeline(cache_key, pre_pipeline)
 

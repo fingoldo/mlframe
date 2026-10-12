@@ -26,6 +26,8 @@ import pandas as pd
 from ._fe_gain_stats import held_out_codes, paired_gain_se, pointwise_mi, quantile_codes
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._offset_product_kernels import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
+if TYPE_CHECKING:
+    import polars as pl
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -47,16 +49,13 @@ _MIN_ROWS = 200
 MIX_DIRECTIONS = 32  # directions of the weighted-sum baseline: mixing angles over the full circle
 SYNERGY_MIN = 0.02  # a pair is scanned only if its joint 10 x 10 Miller-Madow MI exceeds the larger marginal MI by this many nats; the 25 planted pairs of the pre-filter study had >= 0.041
 
-
 def _op_label(unary: str, col: str) -> str:
     """Display form of ``unary(col)``."""
     return col if unary == "identity" else f"{unary}({col})"
 
-
 def _shift_label(v: float) -> str:
     """Signed compact number for a column name."""
     return f"{v:+.4g}"
-
 
 @functools.cache
 def _unary_funcs(preset: str) -> "dict[str, Callable]":
@@ -65,18 +64,15 @@ def _unary_funcs(preset: str) -> "dict[str, Callable]":
 
     return cast("dict[str, Callable]", create_unary_transformations(preset=preset))
 
-
 def _unary_column(fn: Callable, x: np.ndarray) -> np.ndarray:
     """``fn(x)`` as float64 with the invalid-value warnings of the registry's domain-restricted maps silenced."""
     with np.errstate(all="ignore"):
         return np.asarray(fn(x), dtype=np.float64)
 
-
 def _log_anchor(x: np.ndarray) -> float:
     """The shift ``smart_log`` applies to the fit column (``1e-5 - min`` for a column with non-positive values, else 0), frozen so replay on another batch cannot shift differently."""
     lo = float(np.nanmin(x)) if np.isfinite(x).any() else 1.0
     return 0.0 if lo > 0 else 1e-5 - lo
-
 
 def _apply_unary(funcs: "dict[str, Callable]", name: str, x: np.ndarray, log_shift: float = 0.0) -> np.ndarray:
     """Unary map ``name`` of ``x``; ``log`` uses the frozen ``log_shift`` instead of the batch-dependent shift of the registry's ``smart_log``."""
@@ -85,12 +81,10 @@ def _apply_unary(funcs: "dict[str, Callable]", name: str, x: np.ndarray, log_shi
             return np.asarray(np.log(x + log_shift) if log_shift != 0.0 else np.log(x), dtype=np.float64)
     return _unary_column(funcs[name], x)
 
-
 def _finite_fill(u: np.ndarray) -> float:
     """Mean of the finite entries of ``u`` (0.0 when there are none): the value a non-finite unary output is replaced with, at fit and at replay."""
     ok = np.isfinite(u)
     return float(u[ok].mean()) if ok.any() else 0.0
-
 
 def _rank_all_rows(y: np.ndarray, rows: np.ndarray) -> np.ndarray:
     """Average ranks of every row of ``y`` scaled into ``(0, 1]``, taken against the sorted scan rows when ``y`` has more rows than that (a binary search per row instead of a full argsort:
@@ -101,7 +95,6 @@ def _rank_all_rows(y: np.ndarray, rows: np.ndarray) -> np.ndarray:
     left = np.searchsorted(ref, y, side="left")
     right = np.searchsorted(ref, y, side="right") if (ref[1:] == ref[:-1]).any() else left
     return (left + right + 1) / (2.0 * len(ref))
-
 
 def build_offset_product_recipe(
     *, name: str, src_names: Sequence[str], unary_names: Sequence[str], unary_preset: str, shifts: Sequence[float], fills: Sequence[float], out_clip: Sequence[float],
@@ -128,15 +121,13 @@ def build_offset_product_recipe(
         },
     )
 
-
 def _product(u: np.ndarray, v: np.ndarray, s: float, t: float, fill_u: float, fill_v: float) -> np.ndarray:
     """``(u + s) * (v + t)`` with non-finite unary outputs replaced by their fit-time fills."""
     u = np.where(np.isfinite(u), u, fill_u)
     v = np.where(np.isfinite(v), v, fill_v)
     return (u + s) * (v + t)
 
-
-def apply_offset_product_recipe(recipe, X) -> np.ndarray:
+def apply_offset_product_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataFrame) -> np.ndarray:
     """Replay one offset-product column from the stored shifts; a pure function of the two source columns."""
     from .engineered_recipes.shared import extract_column
 
@@ -152,7 +143,6 @@ def apply_offset_product_recipe(recipe, X) -> np.ndarray:
     v = _apply_unary(funcs, ub, np.asarray(extract_column(X, recipe.src_names[1]), dtype=np.float64), ex["log_shift_v"])
     out = _product(u, v, ex["s"], ex["t"], ex["fill_u"], ex["fill_v"])
     return np.asarray(np.clip(out, ex["clip_lo"], ex["clip_hi"]))
-
 
 def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries: Sequence[str], rows: np.ndarray, log_shifts: Optional[Sequence[float]] = None):
     """Unary outputs of every pooled column on the scan rows, non-finite entries filled, plus the winsorisation bounds fitted on the even (training) rows.
@@ -171,7 +161,6 @@ def _scan_inputs(cols: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries
         clips[ci] = np.quantile(U[ci][:, ::2], _WINSOR_Q, axis=1).T
     return U, clips
 
-
 def _mm_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> float:
     """Miller-Madow corrected plug-in MI (nats) of integer ``codes`` in ``[0, n_codes)`` and ``y_codes`` in ``[0, ky)``."""
     n = len(codes)
@@ -181,7 +170,6 @@ def _mm_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> flo
     nz = joint > 0
     mi = float((joint[nz] / n * np.log(joint[nz] * n / (px @ py)[nz])).sum())
     return mi - (int((px > 0).sum()) - 1) * (int((py > 0).sum()) - 1) / (2.0 * n)
-
 
 def synergy_pairs(
     xs: "list[np.ndarray]", rows: np.ndarray, codes: np.ndarray, ky: int, min_synergy: float = SYNERGY_MIN, q: "Optional[list[np.ndarray]]" = None
@@ -197,12 +185,10 @@ def synergy_pairs(
         if _mm_mi(q[i] * N_MI_BINS + q[j], N_MI_BINS * N_MI_BINS, codes, ky) - max(marg[i], marg[j]) > min_synergy
     ]
 
-
 def _unary_rows(x: np.ndarray, name: str, rows: np.ndarray, funcs: "dict[str, Callable]") -> np.ndarray:
     """Unary output ``name`` of ``x`` on the scan rows with the frozen log anchor of the whole column and the non-finite entries filled, exactly the block the scan used."""
     u = _apply_unary(funcs, name, x[rows], _log_anchor(x))
     return np.where(np.isfinite(u), u, _finite_fill(u))
-
 
 def _winner_standard_error(u: np.ndarray, v: np.ndarray, yr: np.ndarray, codes: np.ndarray, ky: int, clip_u: np.ndarray, clip_v: np.ndarray) -> float:
     """Standard error of the odd-row MI gain of the shifted product ``(u + s) (v + t)`` over the strongest of its own shift-free baselines (``u*v``, ``u+v``, ``u``, ``v``, the least-squares
@@ -219,7 +205,6 @@ def _winner_standard_error(u: np.ndarray, v: np.ndarray, yr: np.ndarray, codes: 
     cods = [held_out_codes(f, even, ~even, N_MI_BINS) for f in feats]
     best = 1 + int(np.argmax([pointwise_mi(c, N_MI_BINS, y_odd, ky).mean() for c in cods[1:]]))
     return paired_gain_se(cods[0], cods[best], y_odd, ky, N_MI_BINS)
-
 
 def _scan_all(
     xs: "list[np.ndarray]", funcs: "dict[str, Callable]", unaries: Sequence[str], rows: np.ndarray, tasks: np.ndarray, yr: np.ndarray, codes: np.ndarray, ky: int, anchors: "list[float]"
@@ -243,7 +228,6 @@ def _scan_all(
     out_mi = np.empty((len(tasks), 2, 1 + N_BASELINES))
     scan_offset_products(U, tasks, yr, codes, ky, N_MI_BINS, clips, out_shift, out_mi)
     return out_mi, clips
-
 
 def hybrid_offset_product_fe(
     X: "pd.DataFrame",

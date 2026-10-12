@@ -95,7 +95,6 @@ __all__ = [
 
 _BASIS_CODE = {"hermite": "He", "legendre": "L", "chebyshev": "T", "laguerre": "LL"}
 
-
 def _source_from_engineered_name(name: str, raw_names) -> str:
     """Recover the TRUE source column of an engineered name ``"{src}__{suffix}"``.
 
@@ -140,7 +139,6 @@ def _source_from_engineered_name(name: str, raw_names) -> str:
     if best is not None:
         return str(best)
     return name.split("__", 1)[0] if "__" in name else name
-
 
 def _evaluate_basis_column(
     x: np.ndarray,
@@ -202,11 +200,9 @@ def _evaluate_basis_column(
     out = polyeval_dispatch(basis, z, coef)
     return (out, params) if return_params else out
 
-
 # Carved out to _orth_dedup.py (2026-06-22 monolith-split, LOC budget); re-exported here so the
 # package-facade name `_dedup_collinear_source_cols` and all internal callers keep working.
 from ._orth_dedup import _dedup_collinear_source_cols
-
 
 def basis_route_by_signal(
     x: np.ndarray,
@@ -289,7 +285,6 @@ def basis_route_by_signal(
     if best_basis is None:
         return basis_route_by_moments(x)
     return best_basis
-
 
 def generate_univariate_basis_features(
     X: pd.DataFrame,
@@ -454,11 +449,9 @@ def generate_univariate_basis_features(
                 continue
     return pd.DataFrame(out_cols, index=X.index)
 
-
 # Carved out to _orth_gpu_resident.py (2026-07-09 monolith-split, LOC budget); re-exported here so the
 # package-facade names and all internal callers keep working.
 from ._orth_gpu_resident import _raise_if_vram_insufficient, _gpu_build_and_score_univariate
-
 
 def score_features_by_mi_uplift(
     raw_X: pd.DataFrame,
@@ -550,7 +543,6 @@ def score_features_by_mi_uplift(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
-
 def _target_entropy_nats(y: np.ndarray) -> float:
     """Plug-in Shannon entropy of the target, in nats -- the hard ceiling on any ``MI(X; y)``.
 
@@ -575,7 +567,6 @@ def _target_entropy_nats(y: np.ndarray) -> float:
             type(exc).__name__, exc, getattr(y, "dtype", type(y).__name__),
         )
         return 0.0
-
 
 def hybrid_orth_mi_fe(
     X: pd.DataFrame,
@@ -752,7 +743,6 @@ def hybrid_orth_mi_fe(
         X_aug = pd.concat([X, pd.DataFrame(_cols_host, index=X.index)], axis=1) if _cols_host else X.copy(deep=False)
     return X_aug, scores
 
-
 # ---------------------------------------------------------------------------
 # Layer 23: recipe-emitting wrappers
 # ---------------------------------------------------------------------------
@@ -764,7 +754,6 @@ def hybrid_orth_mi_fe(
 # degree per source column). The wrappers below re-derive the per-col basis
 # the same way ``generate_univariate_basis_features`` did, build one recipe
 # per appended column, and return them alongside the existing outputs.
-
 
 def hybrid_orth_mi_fe_with_recipes(
     X: pd.DataFrame,
@@ -779,7 +768,7 @@ def hybrid_orth_mi_fe_with_recipes(
     nbins: int = 10,
     subsample_n: int = 0,
     subsample_seed: int = 42,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_fe` but additionally returns a list of
     ``EngineeredRecipe`` objects - one per appended univariate column -
     so that ``MRMR.transform`` can recompute each engineered column on
@@ -900,7 +889,6 @@ def hybrid_orth_mi_fe_with_recipes(
         X_aug = X_aug_fit
     return X_aug, scores, recipes
 
-
 from ._orth_pair_cross_fe import (
     _pair_eng_col_name,
     generate_pair_cross_basis_features,
@@ -924,6 +912,9 @@ from ._orth_extra_basis_fe import (
     generate_extra_basis_features,
     hybrid_orth_extra_basis_fe_with_recipes,
 )
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 # ---------------------------------------------------------------------------
 # Layer 56: TRI-PRODUCT cross-basis FE lives in sibling module

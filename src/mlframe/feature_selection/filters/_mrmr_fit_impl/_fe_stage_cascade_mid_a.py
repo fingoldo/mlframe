@@ -13,6 +13,11 @@ confirmed via a systematic reassignment-vs-mutation check), so no return is need
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..engineered_recipes import EngineeredRecipe
+
 import logging
 import warnings
 
@@ -21,7 +26,6 @@ from .._y_encoding import encode_y_for_classif_mi
 from ._fe_stage_merge import _fe_merge_new_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
-
 
 def _fe_stage_cascade_mid_a(
     self,
@@ -219,7 +223,8 @@ def _fe_stage_cascade_mid_a(
 
                 # Class-MI floor: 1D classification feeds directly, continuous 1D is quantile-binned once, 2D stays skipped (see modular note).
                 # Reuses the shared _y_class_mi_* binned above.
-                _il_appended, _il_recipes = ([], [])
+                _il_appended: list[str] = []
+                _il_recipes: list[EngineeredRecipe] = []
                 if _y_class_mi_applicable:
                     _y_il_binned = _y_class_mi_binned
                     # Raw-column operands only (excludes pmod_/orth engineered columns added upstream); see the modular note.
@@ -271,7 +276,6 @@ def _fe_stage_cascade_mid_a(
     # (mask) routed by a third column's data-dependent threshold tau (frozen in the recipe). HARDENED detector gates vs the
     # best-existing-op MI (not the raw single-operand floor) so smooth/ordinary_mul controls stay silent. Budget-guarded.
     return _fe_merge_new_columns(X_acc, _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_class_mi_applicable, _y_class_mi_binned, _conditional_gate_pre_recipes, verbose), X)
-
 
 def _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_agg_pre_recipes, verbose):
     """Run the composite group-aggregate feature family when it is enabled."""
@@ -330,7 +334,6 @@ def _stage_composite_group_agg(self, _fe_family_on, X, _y_np, _composite_group_a
                     _cga_exc,
                 )
     return X
-
 
 def _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _grouped_quantile_pre_recipes, verbose):
     """Run the grouped-quantile feature family when it is enabled."""
@@ -404,7 +407,6 @@ def _stage_grouped_quantile(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_f
                 )
     return X
 
-
 def _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_pair_pre_recipes, verbose):
     """Run the categorical pair-synergy feature family when it is enabled."""
     if _fe_family_on("fe_cat_pair_enable", False):
@@ -466,7 +468,6 @@ def _stage_cat_pair(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_
                 )
     return X
 
-
 def _stage_cat_triple(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _cat_triple_pre_recipes, verbose):
     """Run the categorical triple-interaction feature family when it is enabled."""
     if _fe_family_on("fe_cat_triple_enable", False):
@@ -525,7 +526,6 @@ def _stage_cat_triple(self, _fe_family_on, X, _y_np, _raw_input_cols_pre_fe, _ca
                 )
     return X
 
-
 def _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_pre_recipes, verbose):
     """Run the numeric-decompose feature family when it is enabled."""
     if _fe_family_on("fe_numeric_decompose_enable", False):
@@ -580,7 +580,6 @@ def _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_p
                 )
     return X
 
-
 def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose):
     """Run the modular (auto-period) feature family when it is enabled."""
     if _fe_family_on("fe_modular_enable", False):
@@ -629,7 +628,6 @@ def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
                 )
     return X
 
-
 def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned, _pairwise_modular_pre_recipes, verbose):
     """Run the pairwise-modular feature family (pandas input only)."""
     if not isinstance(X, pd.DataFrame):
@@ -649,7 +647,8 @@ def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned,
             # (bin_y_for_class_mi, nbins=quantization_nbins) so the kernel sees a discrete target - the prior int64 cast collapsed continuous y
             # to ~n bogus classes. Only a 2D (multilabel/multi-target) y stays skipped (binning a label matrix is out of scope). Reuses the
             # shared _y_class_mi_* computed once above (identical y + nbins across all four discrete-structural operators).
-            _pm_appended, _pm_recipes = ([], [])
+            _pm_appended: list[str] = []
+            _pm_recipes: list[EngineeredRecipe] = []
             if _y_class_mi_applicable:
                 _y_pm_binned = _y_class_mi_binned
                 # Restrict operands to raw input columns: combining on already-engineered columns yields nested recipes
@@ -694,7 +693,6 @@ def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned,
             )
     return X
 
-
 def _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_argmax_pre_recipes, verbose):
     """Run the row-argmax feature family (pandas input only)."""
     if not isinstance(X, pd.DataFrame):
@@ -712,7 +710,8 @@ def _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_
 
             # Class-MI floor: 1D classification feeds directly, continuous 1D is quantile-binned once, 2D stays skipped (see modular note).
             # Reuses the shared _y_class_mi_* binned above.
-            _am_appended, _am_recipes = ([], [])
+            _am_appended: list[str] = []
+            _am_recipes: list[EngineeredRecipe] = []
             if _y_class_mi_applicable:
                 _y_am_binned = _y_class_mi_binned
                 # Raw-column operands only (excludes pmod_/il_/orth engineered columns added upstream); combining on already-
@@ -759,7 +758,6 @@ def _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_
             )
     return X
 
-
 def _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_class_mi_applicable, _y_class_mi_binned, _conditional_gate_pre_recipes, verbose):
     """Run the conditional-gate feature family on discrete data when it is enabled."""
     if _discrete_fe_master and _fe_family_on("fe_conditional_gate_enable", False):
@@ -780,7 +778,8 @@ def _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_clas
                 # (bin_y_for_class_mi) before the tau-grid + conditional-divergence sweep - the prior int64 cast turned continuous y into ~n
                 # distinct classes (the tau-sweep MI exploded / never completed). A 2D y stays skipped (the kernel reads a dead signal).
                 # Reuses the shared _y_class_mi_* binned above.
-                _cg_appended, _cg_recipes = ([], [])
+                _cg_appended: list[str] = []
+                _cg_recipes: list[EngineeredRecipe] = []
                 if _y_class_mi_applicable:
                     _y_cg_binned = _y_class_mi_binned
                     # Raw-column operands only (see the row-argmax / modular note); engineered operands would orphan at replay.

@@ -84,6 +84,9 @@ import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +101,6 @@ __all__ = [
     "hybrid_orth_mi_lasso_fe",
     "hybrid_orth_mi_lasso_fe_with_recipes",
 ]
-
 
 def _fit_lasso_abs_coefs(
     X_stack: np.ndarray,
@@ -168,7 +170,6 @@ def _fit_lasso_abs_coefs(
         return best
     return _fit_lasso_abs_coefs_scaled(X_scaled, y_arr, alpha=alpha, random_state=random_state)
 
-
 def _fit_lasso_abs_coefs_scaled(
     X_scaled: np.ndarray,
     y_arr: np.ndarray,
@@ -195,7 +196,6 @@ def _fit_lasso_abs_coefs_scaled(
         )
         model.fit(X_scaled, y_arr)
     return np.abs(np.asarray(model.coef_, dtype=np.float64)).ravel()
-
 
 def score_features_by_lasso_coef(
     raw_X: pd.DataFrame,
@@ -301,7 +301,6 @@ def score_features_by_lasso_coef(
         ).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_lasso_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -377,7 +376,6 @@ def hybrid_orth_mi_lasso_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_lasso_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -391,7 +389,7 @@ def hybrid_orth_mi_lasso_fe_with_recipes(
     alpha: float = 0.01,
     standardize: bool = True,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_lasso_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data

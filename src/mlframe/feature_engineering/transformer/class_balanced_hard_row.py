@@ -53,6 +53,36 @@ from ._baseline_oof import fit_baseline_predict_oof as _fit_baseline_predict
 _topk_within_subset = topk_within_subset
 
 
+def _class_balanced_frame(
+    feats: np.ndarray,
+    n_hard_per_side: int,
+    task: str,
+    column_prefix: str,
+    dtype: type,
+) -> dict[str, np.ndarray]:
+    """Name the flat ``feats`` columns; anchor-weight columns are tagged pos/neg for binary or topy/boty for regression, matching the two anchor sides `_process` built."""
+    n_total_anchors = 2 * n_hard_per_side
+    cols: dict[str, np.ndarray] = {}
+    # pos weights
+    for a in range(n_hard_per_side):
+        tag = "pos" if task == "binary" else "topy"
+        cols[f"{column_prefix}_w_{tag}_h{a}"] = feats[:, a].astype(dtype, copy=False)
+    for a in range(n_hard_per_side):
+        tag = "neg" if task == "binary" else "boty"
+        cols[f"{column_prefix}_w_{tag}_h{a}"] = feats[:, n_hard_per_side + a].astype(dtype, copy=False)
+    col_idx = n_total_anchors
+    cols[f"{column_prefix}_entropy"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_y_agg_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_y_agg_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_abs_resid_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_abs_resid_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_best_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_best_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_mindist_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    cols[f"{column_prefix}_mindist_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
+    return cols
+
+
 def compute_class_balanced_hard_row_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -172,34 +202,12 @@ def compute_class_balanced_hard_row_features(
             min_dist_pos, min_dist_neg,
         ])
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        """Name the flat ``feats`` columns; anchor-weight columns are tagged pos/neg for binary or topy/boty for regression, matching the two anchor sides `_process` built."""
-        cols: dict[str, np.ndarray] = {}
-        # pos weights
-        for a in range(n_hard_per_side):
-            tag = "pos" if task == "binary" else "topy"
-            cols[f"{column_prefix}_w_{tag}_h{a}"] = feats[:, a].astype(dtype, copy=False)
-        for a in range(n_hard_per_side):
-            tag = "neg" if task == "binary" else "boty"
-            cols[f"{column_prefix}_w_{tag}_h{a}"] = feats[:, n_hard_per_side + a].astype(dtype, copy=False)
-        col_idx = n_total_anchors
-        cols[f"{column_prefix}_entropy"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_y_agg_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_y_agg_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_abs_resid_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_abs_resid_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_best_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_best_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_mindist_side1"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        cols[f"{column_prefix}_mindist_side2"] = feats[:, col_idx].astype(dtype, copy=False); col_idx += 1
-        return cols
-
     n_features = n_total_anchors + 9
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         feats = _process(X_train_f, Xq, y_train_f, seed)
-        return pl.DataFrame(_make_df(feats))
+        return pl.DataFrame(_class_balanced_frame(feats, n_hard_per_side, task, column_prefix, dtype))
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
@@ -211,4 +219,4 @@ def compute_class_balanced_hard_row_features(
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("class_balanced_hard_row: fold %d/%d done", fold_idx + 1, len(splits))
 
-    return pl.DataFrame(_make_df(out))
+    return pl.DataFrame(_class_balanced_frame(out, n_hard_per_side, task, column_prefix, dtype))

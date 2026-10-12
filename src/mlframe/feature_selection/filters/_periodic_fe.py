@@ -55,12 +55,14 @@ import pandas as pd
 from mlframe.utils.log_throttle import log_throttle
 
 from ._numeric_decompose_fe import _numeric_cols, score_decompose_by_bootstrap_mi as score_modular_by_bootstrap_mi
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     from mlframe._numba_fallback import njit
-
 
 # op codes for the fused kernel: 0=mod, 1=sin, 2=cos
 @njit(cache=True)
@@ -118,7 +120,6 @@ def _modular_all_ops_njit(arr: np.ndarray, p: float):
         out_cos[i] = c if np.isfinite(c) else 0.0
     return out_mod, out_sin, out_cos
 
-
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -141,7 +142,6 @@ DEFAULT_PERIODS = (7, 12, 24, 30, 365)
 _OP_FRAGMENT = {"mod": "mod", "sin": "modsin", "cos": "modcos"}
 _VALID_OPS = ("mod", "sin", "cos")
 
-
 def _fmt_period(period: float) -> str:
     """Stable, name-safe token for a period (``24`` -> ``"24"``, ``0.5`` ->
     ``"0p5"``)."""
@@ -149,7 +149,6 @@ def _fmt_period(period: float) -> str:
     if p == int(p):
         return str(int(p))
     return repr(p).replace("-", "m").replace(".", "p")
-
 
 def engineered_name_modular(col: str, period: float, op: str) -> str:
     """Canonical engineered column name for a modular feature.
@@ -162,7 +161,6 @@ def engineered_name_modular(col: str, period: float, op: str) -> str:
     if op not in _OP_FRAGMENT:
         raise ValueError(f"modular op must be one of {_VALID_OPS}; got {op!r}")
     return f"{col}__{_OP_FRAGMENT[op]}_{_fmt_period(period)}"
-
 
 def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     """Replay one modular transform on a numeric column.
@@ -184,7 +182,6 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     arr = np.ascontiguousarray(x, dtype=np.float64)
     op_code = 0 if op == "mod" else (1 if op == "sin" else 2)
     return np.asarray(_modular_njit(arr, p, op_code))
-
 
 def generate_modular_features(
     X: pd.DataFrame,
@@ -211,7 +208,6 @@ def generate_modular_features(
             out[engineered_name_modular(c, p, "cos")] = cos_v
     return pd.DataFrame(out, index=X.index)
 
-
 def _parse_modular_name(name: str):
     """``"{src}__modsin_24"`` -> ('sin', src, 24.0). Returns None on a name that
     does not match the modular convention. The op fragment must be matched
@@ -230,7 +226,6 @@ def _parse_modular_name(name: str):
                 return None
             return (op, src, period)
     return None
-
 
 def hybrid_modular_fe(
     X: pd.DataFrame,
@@ -299,7 +294,6 @@ def hybrid_modular_fe(
     X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_modular_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -312,7 +306,7 @@ def hybrid_modular_fe_with_recipes(
     seed: int = 0,
     nbins: int = 10,
     min_uplift_lcb: float = 1.0,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """Same as :func:`hybrid_modular_fe` but additionally returns a list of
     recipes - one per appended column - so ``MRMR.transform`` can recompute
     each modular feature on test data without re-running the bootstrap MI gate.
@@ -345,8 +339,7 @@ def hybrid_modular_fe_with_recipes(
         ))
     return X_aug, appended, recipes, scores
 
-
-def build_modular_recipe(*, name: str, src_name: str, period: float, op: str):
+def build_modular_recipe(*, name: str, src_name: str, period: float, op: str) -> EngineeredRecipe:
     """Frozen recipe for one modular transform of ``X[src_name]``. Replay is
     pure arithmetic on the source column - no y reference, no fitted state, so
     transform() is leakage-free and train/test exact."""

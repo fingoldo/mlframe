@@ -51,6 +51,9 @@ import numpy as np
 import pandas as pd
 
 from ._internals import canonical_group_token, group_key_strings
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -70,26 +73,21 @@ STAT_NAMES = ("mean", "std", "min", "max", "nunique", "skew", "median")
 # Stats whose per-group lookup also doubles as the residual base (mean/std).
 _RESIDUAL_STATS = ("mean", "std")
 
-
 def engineered_name_grouped_agg(num_col: str, group_col: str, stat: str) -> str:
     """Canonical engineered-column name for a per-group aggregate (e.g. group mean/std), parseable back by the recipe replay path."""
     return f"grpagg_{stat}({num_col}|{group_col})"
-
 
 def engineered_name_grouped_z(num_col: str, group_col: str) -> str:
     """Canonical engineered-column name for the within-group z-score (``(x - group_mean) / group_std``)."""
     return f"grpz({num_col}|{group_col})"
 
-
 def engineered_name_grouped_ratio(num_col: str, group_col: str) -> str:
     """Canonical engineered-column name for the value-to-group-mean ratio."""
     return f"grpratio({num_col}|{group_col})"
 
-
 # ---------------------------------------------------------------------------
 # Per-group statistic computation
 # ---------------------------------------------------------------------------
-
 
 def _agg_func_for_stat(stat: str) -> str:
     """Pandas groupby-agg name for ``stat``; this module's set does NOT include ``count``."""
@@ -97,13 +95,11 @@ def _agg_func_for_stat(stat: str) -> str:
 
     return agg_func_for_stat(stat, STAT_NAMES, "grouped_agg")
 
-
 def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
     """Global fallback statistic for unseen groups at replay time."""
     from ._agg_stat_helpers import global_value_for_stat
 
     return global_value_for_stat(stat, x, "grouped_agg")
-
 
 def _broadcast_lookup(
     group_keys: np.ndarray, lookup: dict, global_value: float,
@@ -138,13 +134,12 @@ def _broadcast_lookup(
         )
     return cast("np.ndarray", np.nan_to_num(out, nan=global_value, posinf=global_value, neginf=global_value))
 
-
 def generate_grouped_agg_features(
     X: pd.DataFrame,
     group_cols: Sequence[str],
     num_cols: Sequence[str],
     stats: Sequence[str] = STAT_NAMES,
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Compute per-(group_col, num_col, stat) broadcasts plus the z-within-group
     and ratio-to-group residuals.
 
@@ -268,7 +263,6 @@ def generate_grouped_agg_features(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay one grouped-agg column from the stored recipe dict, reading
     only ``X_test``. ``op`` selects the variant: ``broadcast`` (per-group
@@ -306,7 +300,6 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0))
     raise ValueError(f"apply_grouped_agg: unknown op {op!r}")
 
-
 def _apply_grouped_agg_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe``: pulls the
     stored payload out of ``recipe.extra`` and replays via
@@ -330,14 +323,13 @@ def _apply_grouped_agg_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 def grouped_agg_with_recipes(
     X: pd.DataFrame,
     *,
     group_cols: Optional[Sequence[str]] = None,
     num_cols: Optional[Sequence[str]] = None,
     stats: Sequence[str] = STAT_NAMES,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append grouped-agg columns and emit one recipe per engineered column."""
     from .engineered_recipes import build_grouped_agg_recipe
 
@@ -357,11 +349,9 @@ def grouped_agg_with_recipes(
     recipes = [build_grouped_agg_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
-
 # ---------------------------------------------------------------------------
 # CMI-uplift scorer / gate
 # ---------------------------------------------------------------------------
-
 
 def score_grouped_agg_by_cmi_uplift(
     raw_X: pd.DataFrame,
@@ -456,11 +446,9 @@ def score_grouped_agg_by_cmi_uplift(
     out = pd.DataFrame(rows)
     return out.sort_values("cmi", ascending=False, kind="mergesort").reset_index(drop=True)
 
-
 # ---------------------------------------------------------------------------
 # End-to-end pipeline with auto-detection
 # ---------------------------------------------------------------------------
-
 
 def _filter_num_cols_by_relevance(
     X: pd.DataFrame, y, num_cols: Sequence[str], *, n_bins: int = 10,
@@ -497,7 +485,6 @@ def _filter_num_cols_by_relevance(
         logger.debug("grouped_agg num_col relevance filter failed (%s); using unfiltered auto set.", _e)
         return cols
 
-
 def hybrid_grouped_agg_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -509,7 +496,7 @@ def hybrid_grouped_agg_fe(
     n_bins: int = 10,
     min_cmi: float = 1e-4,
     min_uplift: float = 0.0,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end grouped-agg FE pipeline.
 
     1. Auto-detect ``group_cols`` (int-as-cat heuristic, cardinality 3..500)

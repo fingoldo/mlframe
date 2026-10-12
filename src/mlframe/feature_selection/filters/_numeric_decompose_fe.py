@@ -61,12 +61,14 @@ import numpy as np
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     from mlframe._numba_fallback import njit
-
 
 @njit(cache=True)
 def _digit_extract_njit(arr: np.ndarray, scale: float) -> np.ndarray:
@@ -83,7 +85,6 @@ def _digit_extract_njit(arr: np.ndarray, scale: float) -> np.ndarray:
             f = math.floor(v)
             out[i] = f - 10.0 * math.floor(f / 10.0)  # floor-mod 10
     return out
-
 
 logger = logging.getLogger(__name__)
 
@@ -103,26 +104,21 @@ __all__ = [
     "build_digit_extract_recipe",
 ]
 
-
 ROUNDING_PREFIX = "round"
 DIGIT_PREFIX = "digit"
-
 
 def _fmt_precision(precision: float) -> str:
     """Stable, name-safe token for a precision (``0.01`` -> ``"0p01"``)."""
     s = repr(float(precision))
     return s.replace("-", "m").replace(".", "p")
 
-
 def engineered_name_rounding(col: str, precision: float) -> str:
     """Canonical engineered column name for a rounding feature."""
     return f"{col}__{ROUNDING_PREFIX}_{_fmt_precision(precision)}"
 
-
 def engineered_name_digit(col: str, digit_position: int) -> str:
     """Canonical engineered column name for a digit-extraction feature."""
     return f"{col}__{DIGIT_PREFIX}_{int(digit_position)}"
-
 
 def apply_rounding(x: np.ndarray, precision: float) -> np.ndarray:
     """``round(x / precision) * precision`` as float64. NaN-preserving;
@@ -133,7 +129,6 @@ def apply_rounding(x: np.ndarray, precision: float) -> np.ndarray:
         raise ValueError(f"rounding precision must be > 0; got {p!r}")
     arr = np.asarray(x, dtype=np.float64)
     return cast("np.ndarray", np.round(arr / p) * p)
-
 
 def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
     """``floor(x * 10^k) mod 10`` - the ``k``-th decimal digit (k=0 -> the
@@ -152,12 +147,10 @@ def apply_digit_extract(x: np.ndarray, digit_position: int) -> np.ndarray:
     # numpy mul->floor->mod->nan_to_num 4-pass.
     return np.asarray(_digit_extract_njit(arr, 10.0**k))
 
-
 def _numeric_cols(X: pd.DataFrame, cols: Optional[Sequence[str]]) -> list[str]:
     """Filter ``cols`` (or all of ``X``'s columns when None) down to those present in ``X`` with a numeric dtype."""
     candidates = list(cols) if cols is not None else list(X.columns)
     return [c for c in candidates if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
-
 
 def generate_rounding_features(
     X: pd.DataFrame,
@@ -178,7 +171,6 @@ def generate_rounding_features(
             out[engineered_name_rounding(c, p)] = apply_rounding(x, p)
     return pd.DataFrame(out, index=X.index)
 
-
 def generate_digit_features(
     X: pd.DataFrame,
     num_cols: Optional[Sequence[str]] = None,
@@ -195,7 +187,6 @@ def generate_digit_features(
         for k in digit_positions:
             out[engineered_name_digit(c, k)] = apply_digit_extract(x, k)
     return pd.DataFrame(out, index=X.index)
-
 
 def score_decompose_by_bootstrap_mi(
     raw_X: pd.DataFrame,
@@ -229,7 +220,6 @@ def score_decompose_by_bootstrap_mi(
         seed=seed, nbins=nbins,
     )
 
-
 def _parse_engineered_name(name: str):
     """``"{src}__round_0p1"`` -> ('numeric_rounding', src, 0.1);
     ``"{src}__digit_2"`` -> ('digit_extract', src, 2). Returns None on a name
@@ -261,7 +251,6 @@ def _parse_engineered_name(name: str):
             return None
         return ("digit_extract", src, int(tok))
     return None
-
 
 def hybrid_numeric_decompose_fe(
     X: pd.DataFrame,
@@ -364,7 +353,6 @@ def hybrid_numeric_decompose_fe(
     X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_numeric_decompose_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -378,7 +366,7 @@ def hybrid_numeric_decompose_fe_with_recipes(
     seed: int = 0,
     nbins: int = 10,
     min_uplift_lcb: float = 1.0,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """Same as :func:`hybrid_numeric_decompose_fe` but additionally returns a
     list of recipes - one per appended column - so ``MRMR.transform`` can
     recompute each decomposition on test data without re-running the bootstrap
@@ -422,10 +410,9 @@ def hybrid_numeric_decompose_fe_with_recipes(
             ))
     return X_aug, appended, recipes, scores
 
-
 def build_numeric_rounding_recipe(
     *, name: str, src_name: str, precision: float,
-):
+) -> EngineeredRecipe:
     """Frozen recipe for ``round(X[src_name] / precision) * precision``. Replay
     is pure arithmetic on the source column - no y reference, no fitted state,
     so transform() is leakage-free and train/test exact."""
@@ -441,10 +428,9 @@ def build_numeric_rounding_recipe(
         extra={"precision": p},
     )
 
-
 def build_digit_extract_recipe(
     *, name: str, src_name: str, digit_position: int,
-):
+) -> EngineeredRecipe:
     """Frozen recipe for ``floor(X[src_name] * 10^k) mod 10`` (the k-th decimal
     digit). Replay is pure arithmetic on the source column - no y reference."""
     from .engineered_recipes import EngineeredRecipe

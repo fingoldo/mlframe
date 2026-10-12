@@ -21,9 +21,9 @@ from typing import Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
+from numpy.typing import DTypeLike
 
 _SCORING_MEMO = threading.local()
-
 
 @contextlib.contextmanager
 def orth_scoring_memo_scope():
@@ -38,7 +38,6 @@ def orth_scoring_memo_scope():
     finally:
         _SCORING_MEMO.cache = None
 
-
 def _col_hash(X: pd.DataFrame, c: str) -> tuple:
     """Content-hash key for one column, float64-normalized so two callers casting to different dtypes
     for OTHER purposes still key identically here (the actual computation below still uses each caller's
@@ -47,7 +46,6 @@ def _col_hash(X: pd.DataFrame, c: str) -> tuple:
 
     arr = np.ascontiguousarray(np.asarray(X[c].to_numpy(), dtype=np.float64))
     return (arr.shape, _content_hash(arr))
-
 
 def cached_raw_mi_baseline(
     cols: Sequence[str], raw_mat: np.ndarray, y_int: np.ndarray, *, nbins: int,
@@ -104,9 +102,8 @@ def cached_raw_mi_baseline(
             _memo[keys[c]] = fv
     return result
 
-
 def cached_dense_finite_corr_matrix(
-    X: pd.DataFrame, cols: Optional[Sequence[str]], *, dtype,
+    X: pd.DataFrame, cols: Optional[Sequence[str]], *, dtype: DTypeLike,
 ) -> tuple[list[str], np.ndarray]:
     """Dense NaN-mean-filled Pearson ``|corr|`` matrix over ``cols`` (``None`` = all numeric columns of
     ``X``), dropping constant / all-NaN columns - the shared build both

@@ -14,6 +14,8 @@ import threading
 import weakref
 
 import numpy as np
+from types import ModuleType
+from typing import Any
 
 try:
     from numba import njit, prange
@@ -37,7 +39,6 @@ try:
 except ImportError:
     _quantile_bin_njit = None  # bound by _bind_parent_kernels() before the first kernel call
 
-
 def _bind_parent_kernels() -> None:
     """Bind the parent-resident ``_quantile_bin_njit`` global if a sibling-first import deferred it."""
     global _quantile_bin_njit
@@ -47,7 +48,6 @@ def _bind_parent_kernels() -> None:
         _quantile_bin_njit = _qb
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
-
 
 @njit(cache=True, fastmath=True)
 def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
@@ -188,7 +188,6 @@ def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray, n_bins: int
         mi = 0.0
     return mi
 
-
 def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Faster single-column plug-in MI: numpy argsort + njit histogram math.
 
@@ -232,7 +231,6 @@ def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> fl
 # FE-selection threshold). Default ON; ``MLFRAME_FE_GPU_FUSE_MI=0`` restores the exact unfused chain.
 _FUSED_MI_TERM = None  # module-level cp.fuse singleton (lazy-built; never on an instance -> pickle-safe)
 
-
 def _get_fused_mi_term():
     """Lazy-build the cp.fuse'd per-cell MI-contribution kernel. Inputs are broadcastable f64 arrays:
     ``hxyc`` (k,nb,nc) joint counts, ``logx`` (k,nb,1) = log(safe hist_x), ``logy`` (k,1,nc) = log(safe
@@ -254,12 +252,10 @@ def _get_fused_mi_term():
         _FUSED_MI_TERM = _term
     return _FUSED_MI_TERM
 
-
 def _fe_gpu_fuse_mi_enabled() -> bool:
     """Whether the fused per-cell MI-contribution kernel is used. ON unless ``MLFRAME_FE_GPU_FUSE_MI`` is
     explicitly falsy (the unfused chain stays the exact, bit-identical fallback one env flip away)."""
     return os.environ.get("MLFRAME_FE_GPU_FUSE_MI", "1").strip().lower() in ("1", "true", "on", "yes")
-
 
 def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Cupy batch plug-in MI. Quantile-bins each column on GPU via
@@ -282,13 +278,11 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     y_gpu = resident_operand(y, "y_mi_classif", dtype=np.int64)
     return np.asarray(_plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins))
 
-
 # (id(y_gpu), y_min) -> (weakref to y_gpu, shifted (y - y_min) device vector); a hit must be the SAME live y_gpu, an id alone can be reused. y is a fit-constant, so the shift recurs identically
 # across the per-chunk MI calls; memoize to launch it ONCE per fit (module-level -> never on a pickled instance).
 _SHIFTED_Y_CACHE: dict = {}
 # Held across the check-clear-insert below: threaded FE workers share this dict.
 _SHIFTED_Y_CACHE_LOCK = threading.Lock()
-
 
 def _shifted_y_cached(y_gpu, y_min: int):
     """``y_gpu - y_min``, memoized per (live y_gpu, y_min): a hit must be the SAME array object, since an ``id`` is reused once its array is freed."""
@@ -303,8 +297,7 @@ def _shifted_y_cached(y_gpu, y_min: int):
         _SHIFTED_Y_CACHE[key] = (weakref.ref(y_gpu), shifted)
         return shifted
 
-
-def relaxed_candidate_dtype(cp):
+def relaxed_candidate_dtype(cp: ModuleType) -> Any:
     """The dtype a selection-gate producer should emit its candidate block in: float32 when the relaxed criterion dtype is on (the plug-in MI would otherwise cast the finished
     float64 block to float32 itself, a full extra pass and a double-width buffer), else float64. Casting each element at the store gives the same float32 values as casting the finished block."""
     try:
@@ -314,7 +307,6 @@ def relaxed_candidate_dtype(cp):
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("crit_float_dtype() lookup failed, producers keep float64: %s", e)
         return cp.float64
-
 
 def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
                                            keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False):
@@ -444,7 +436,6 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # binned_mi_from_values_gpu call above that already trusts these same codes.
     return binned_mi_from_codes_gpu(X_binned, y_gpu, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
 
-
 def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Single-column plug-in MI for continuous x and discrete y.
 
@@ -476,7 +467,6 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     # concurrency-aware tuner still under-counts this path by ~5x vs the end-to-end fit). MLFRAME_MI_BACKEND
     # =cuda forces GPU.
     return float(_plugin_mi_classif_njit(x, y, n_bins))
-
 
 def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Batch plug-in MI per column of ``X_cols`` against discrete ``y``.
@@ -529,7 +519,6 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
 
 _CUDA_KERNELS: dict = {}
 _CUDA_KERNELS_LOCK = threading.Lock()
-
 
 def _ensure_cuda_kernels():
     """Lazy-compile CUDA RawKernels on first use."""

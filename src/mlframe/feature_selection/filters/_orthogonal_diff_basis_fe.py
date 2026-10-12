@@ -62,6 +62,9 @@ from ._orthogonal_univariate_fe import (
     cached_dense_finite_corr_matrix,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +76,6 @@ __all__ = [
     "parse_diff_basis_col_name",
 ]
 
-
 def _diff_col_name(col_a: str, col_b: str, basis: str, degree: int) -> str:
     """Stable engineered column name for a diff-basis column. The prefix
     ``diff_`` is used so the recipe parser can detect the kind directly
@@ -82,7 +84,6 @@ def _diff_col_name(col_a: str, col_b: str, basis: str, degree: int) -> str:
     """
     code = _BASIS_CODE.get(basis, basis)
     return f"diff_{col_a}_{col_b}__{code}{int(degree)}"
-
 
 def parse_diff_basis_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
     """Inverse of :func:`_diff_col_name`. Returns ``(col_a, col_b, basis,
@@ -114,7 +115,6 @@ def parse_diff_basis_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
                 col_a, col_b = body.rsplit("_", 1)
                 return (col_a, col_b, code_to_basis[code], int(deg_str))
     return None
-
 
 def detect_correlated_pairs(
     X: pd.DataFrame,
@@ -189,7 +189,6 @@ def detect_correlated_pairs(
     if len(out) > int(max_pairs):
         out = out[: int(max_pairs)]
     return out
-
 
 def generate_diff_basis_features(
     X: pd.DataFrame,
@@ -417,7 +416,6 @@ def generate_diff_basis_features(
         }
     return pd.DataFrame(out_cols, index=X.index), meta
 
-
 def _resolve_pairs_and_corr(pairs, X, cols, pair_corr_threshold, max_pairs, _dt):
     """Step 1: the pair list (the explicit one, or the auto-detected correlated pairs) and the pair -> correlation map."""
     if pairs is None:
@@ -459,7 +457,6 @@ def _resolve_pairs_and_corr(pairs, X, cols, pair_corr_threshold, max_pairs, _dt)
             else:
                 pair_corr_map[(a, b)] = 0.0
     return pair_corr_map, pairs_norm
-
 
 def hybrid_orth_mi_diff_basis_fe(
     X: pd.DataFrame,
@@ -528,7 +525,6 @@ def hybrid_orth_mi_diff_basis_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_diff_basis_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -543,7 +539,7 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_diff_basis_fe` but additionally returns
     a list of ``EngineeredRecipe`` objects (kind ``"orth_diff_basis"``) so
     ``MRMR.transform`` can replay each appended column on test data without
@@ -617,7 +613,6 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
             preprocess_params=_pp_d,
         ))
     return X_aug, scores, recipes
-
 
 def _apply_orth_diff_basis(recipe, X) -> np.ndarray:
     """Replay a diff-basis column. Lazy-imported by the recipes dispatcher

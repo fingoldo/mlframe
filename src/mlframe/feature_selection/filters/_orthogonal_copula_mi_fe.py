@@ -58,6 +58,9 @@ from scipy.stats import rankdata
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +70,6 @@ __all__ = [
     "hybrid_orth_mi_copula_fe",
     "hybrid_orth_mi_copula_fe_with_recipes",
 ]
-
 
 def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
     """Rank-transform x to ``(0, 1)`` uniforms.
@@ -86,7 +88,6 @@ def _rank_to_uniform(x: np.ndarray) -> np.ndarray:
         return arr
     r = rankdata(arr, method="average")
     return np.asarray(r / float(n + 1))
-
 
 def _bin_mi_uniform_pair(
     u: np.ndarray, v: np.ndarray, *, n_bins: int = 20,
@@ -145,7 +146,6 @@ def _bin_mi_uniform_pair(
         mi = 0.0
     return mi
 
-
 def copula_mi(
     x: np.ndarray, y: np.ndarray, *, n_bins: int = 20,
 ) -> float:
@@ -188,7 +188,6 @@ def copula_mi(
     u = _rank_to_uniform(x_arr)
     v = _rank_to_uniform(y_arr)
     return _bin_mi_uniform_pair(u, v, n_bins=int(n_bins))
-
 
 def _copula_mi_batch(
     X: np.ndarray, y: np.ndarray, *, n_bins: int = 20, y_side: Optional[np.ndarray] = None,
@@ -239,7 +238,6 @@ def _copula_mi_batch(
             continue
         out[j] = _bin_mi_uniform_pair(u, v, n_bins=int(n_bins))
     return out
-
 
 def score_features_by_copula_mi_uplift(
     raw_X: pd.DataFrame,
@@ -327,7 +325,6 @@ def score_features_by_copula_mi_uplift(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_copula_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -404,7 +401,6 @@ def hybrid_orth_mi_copula_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_copula_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -416,7 +412,7 @@ def hybrid_orth_mi_copula_fe_with_recipes(
     min_uplift: float = 1.05,
     min_abs_mi_frac: float = 0.1,
     n_bins: int = 20,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_copula_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data

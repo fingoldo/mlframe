@@ -49,9 +49,11 @@ from typing import Callable, Optional, Sequence
 import numpy as np
 import pandas as pd
 from numba import njit, prange
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
-
 
 @njit(cache=True, parallel=True)
 def _bitpack_rows_njit(arr: np.ndarray) -> np.ndarray:
@@ -86,31 +88,25 @@ __all__ = [
     "missingness_pattern_with_recipes",
 ]
 
-
 # ---------------------------------------------------------------------------
 # Naming
 # ---------------------------------------------------------------------------
-
 
 def engineered_name_missing_indicator(col: str) -> str:
     """Stable engineered name for the per-column missingness indicator."""
     return f"is_missing__{col}"
 
-
 def engineered_name_missingness_count() -> str:
     """Stable engineered name for the per-row missingness count."""
     return "missingness_count"
-
 
 def engineered_name_missingness_pattern() -> str:
     """Stable engineered name for the per-row missingness pattern label."""
     return "missingness_pattern"
 
-
 # ---------------------------------------------------------------------------
 # Auto-detect: pick columns whose NaN rate clears a minimum threshold.
 # ---------------------------------------------------------------------------
-
 
 def auto_detect_missing_cols(
     X: pd.DataFrame,
@@ -149,7 +145,6 @@ def auto_detect_missing_cols(
             candidates.append(col)
     return candidates
 
-
 def _count_row_nans(X: pd.DataFrame, cols: Sequence[str]) -> np.ndarray:
     """Per-row count of NaNs across ``cols`` as int32.
 
@@ -161,11 +156,9 @@ def _count_row_nans(X: pd.DataFrame, cols: Sequence[str]) -> np.ndarray:
         out += X[c].isna().to_numpy()
     return out
 
-
 # ---------------------------------------------------------------------------
 # Per-column indicator: ``is_missing__{col}`` - stateless (just isna)
 # ---------------------------------------------------------------------------
-
 
 def missing_indicator_fit(
     X: pd.DataFrame,
@@ -194,7 +187,6 @@ def missing_indicator_fit(
     enc_df = pd.DataFrame(encoded_cols, index=X.index)
     return enc_df, recipes
 
-
 def apply_missing_indicator(
     X_test: pd.DataFrame, col: str, recipe: dict,
 ) -> np.ndarray:
@@ -206,11 +198,9 @@ def apply_missing_indicator(
         raise KeyError(f"apply_missing_indicator: column {col!r} missing from X_test")
     return np.asarray(X_test[col].isna().to_numpy().astype(np.int8, copy=False))
 
-
 # ---------------------------------------------------------------------------
 # Per-row count of missing fields across a fixed subset of columns.
 # ---------------------------------------------------------------------------
-
 
 def missingness_count_fit(
     X: pd.DataFrame,
@@ -237,7 +227,6 @@ def missingness_count_fit(
     counts = _count_row_nans(X, cols)
     return counts, {"cols": tuple(str(c) for c in cols)}
 
-
 def apply_missingness_count(
     X_test: pd.DataFrame, recipe: dict,
 ) -> np.ndarray:
@@ -258,11 +247,9 @@ def apply_missingness_count(
         return np.zeros(len(X_test), dtype=np.int32)
     return _count_row_nans(X_test, cols_present)
 
-
 # ---------------------------------------------------------------------------
 # Per-row top-K pattern label.
 # ---------------------------------------------------------------------------
-
 
 def _row_pattern_signature(isna_block: np.ndarray) -> np.ndarray:
     """Convert an (n, k) bool / int isna block into one int64 hash per row.
@@ -285,7 +272,6 @@ def _row_pattern_signature(isna_block: np.ndarray) -> np.ndarray:
     for i in range(n):
         out[i] = hash(tuple(arr[i].tolist()))
     return out
-
 
 def missingness_pattern_fit(
     X: pd.DataFrame,
@@ -347,7 +333,6 @@ def missingness_pattern_fit(
         "top_k": int(top_k),
     }
 
-
 def apply_missingness_pattern(
     X_test: pd.DataFrame, recipe: dict,
 ) -> np.ndarray:
@@ -390,11 +375,9 @@ def apply_missingness_pattern(
     labels[hit] = vals_sorted[pos[hit]]
     return labels
 
-
 # ---------------------------------------------------------------------------
 # End-to-end wrappers (recipe-emitting) for MRMR.fit auto-wiring.
 # ---------------------------------------------------------------------------
-
 
 def missing_indicator_with_recipes(
     X: pd.DataFrame,
@@ -407,7 +390,7 @@ def missing_indicator_with_recipes(
     reject_sink: Optional[Callable[..., None]] = None,
     raw_columns: Optional[Sequence[str]] = None,
     return_augmented: bool = True,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append ``is_missing__{col}`` columns to X and emit one recipe per col.
 
     ``return_augmented=False`` returns only the indicator columns (same index as ``X``) instead of ``X`` with them appended, so a caller that
@@ -456,13 +439,12 @@ def missing_indicator_with_recipes(
     ]
     return X_aug, appended, recipes
 
-
 def missingness_count_with_recipes(
     X: pd.DataFrame,
     *,
     cols: Optional[Sequence[str]] = None,
     return_augmented: bool = True,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append one ``missingness_count`` column to X and emit a single
     recipe carrying the source-column subset.
 
@@ -486,13 +468,11 @@ def missingness_count_with_recipes(
     )
     return X_aug, [name], [recipe]
 
-
 # ---------------------------------------------------------------------------
 # Recipe-apply adapters: thin wrappers consumed by ``engineered_recipes.
 # apply_recipe`` via lazy import (the recipe dispatcher dispatches on
 # ``recipe.kind`` and forwards to one of the helpers below).
 # ---------------------------------------------------------------------------
-
 
 def _apply_missing_indicator_recipe(recipe, X) -> np.ndarray:
     """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): coerces ``X`` to a pandas view of the single source column and replays ``apply_missing_indicator``."""
@@ -519,7 +499,6 @@ def _apply_missing_indicator_recipe(recipe, X) -> np.ndarray:
         )
     raise TypeError(f"missing_indicator recipe '{recipe.name}': cannot extract column " f"{src!r} from X of type {type(X).__name__}")
 
-
 def _coerce_X_to_pandas_with_cols(X, cols, recipe_name) -> pd.DataFrame:
     """Shared X coercion helper for count / pattern replay."""
     if isinstance(X, pd.DataFrame):
@@ -542,13 +521,11 @@ def _coerce_X_to_pandas_with_cols(X, cols, recipe_name) -> pd.DataFrame:
         return pd.DataFrame(data)
     raise TypeError(f"recipe '{recipe_name}': cannot extract columns from X of type " f"{type(X).__name__}")
 
-
 def _apply_missingness_count_recipe(recipe, X) -> np.ndarray:
     """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): coerces ``X`` to a pandas view of the recorded columns and replays ``apply_missingness_count``."""
     cols = tuple(recipe.extra.get("cols", ()))
     X_view = _coerce_X_to_pandas_with_cols(X, cols, recipe.name)
     return apply_missingness_count(X_view, {"cols": cols})
-
 
 def _apply_missingness_pattern_recipe(recipe, X) -> np.ndarray:
     """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): coerces ``X`` to a pandas view of the recorded columns and replays ``apply_missingness_pattern``."""
@@ -564,14 +541,13 @@ def _apply_missingness_pattern_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 def missingness_pattern_with_recipes(
     X: pd.DataFrame,
     *,
     cols: Optional[Sequence[str]] = None,
     top_k: int = 5,
     return_augmented: bool = True,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append one ``missingness_pattern`` column to X and emit a single
     recipe carrying the top-K pattern signatures.
 
