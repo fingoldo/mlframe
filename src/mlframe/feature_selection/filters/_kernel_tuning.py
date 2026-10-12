@@ -70,7 +70,7 @@ def _register_default_tuning_cache() -> None:
             from pyutilz.performance.kernel_tuning.cache import register_default_cache
         except ImportError:
             _DEFAULTS_REGISTERED = True  # genuinely absent, and it will not appear later in this process
-            logger.debug("pyutilz.performance.kernel_tuning unavailable; skipping default-cache registration")
+            logger.warning("pyutilz.performance.kernel_tuning unavailable; default kernel-tuning cache not registered, hand-tuned defaults used")
             return
         try:
             register_default_cache(_DEFAULT_TUNING_JSON)
@@ -113,7 +113,7 @@ def get_kernel_tuning_cache() -> Optional[Any]:
                 from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
                 _CACHE_SINGLETON = KernelTuningCache()
             except ImportError:
-                logger.debug("pyutilz.performance.kernel_tuning.cache unavailable; " "filters will use hand-tuned fallbacks")
+                logger.warning("pyutilz.performance.kernel_tuning.cache unavailable; " "filters will use hand-tuned fallbacks")
                 _CACHE_SINGLETON = False
                 return None
             except Exception as _exc:

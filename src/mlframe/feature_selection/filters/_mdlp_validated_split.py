@@ -605,7 +605,7 @@ def mdlp_bin_edges_validated(
             import pandas as _pd
             _y_arr, _ = _pd.factorize(_y_arr, sort=True)
         except Exception as e:
-            logger.debug("pandas factorize failed, falling back to np.unique: %s", e)
+            logger.warning("pandas factorize failed, result degraded to np.unique class codes: %s", e)
             _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
     else:
         _y_finite = _y_arr[np.isfinite(_y_arr)] if _y_arr.dtype.kind == "f" else _y_arr
@@ -833,7 +833,7 @@ def mdlp_bin_edges_oos_validated(
             import pandas as _pd
             _y_arr, _ = _pd.factorize(_y_arr, sort=True)
         except Exception as e:
-            logger.debug("pandas factorize failed, falling back to np.unique: %s", e)
+            logger.warning("pandas factorize failed, result degraded to np.unique class codes: %s", e)
             _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
     else:
         _y_finite = _y_arr[np.isfinite(_y_arr)] if _y_arr.dtype.kind == "f" else _y_arr

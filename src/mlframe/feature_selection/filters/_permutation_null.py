@@ -172,7 +172,7 @@ def _generate_target_shuffles(y_codes: np.ndarray, nperm: int, dtype, rng, *, ra
 
         use_numba = shufflegen_use_numba(n, nperm)
     except Exception as e:
-        logger.debug("shufflegen_use_numba() check failed, defaulting to False: %s", e)
+        logger.warning("shufflegen_use_numba() check failed, result degraded to the numpy shuffle path: %s", e)
         use_numba = False
     if use_numba:
         base = 0x9E3779B9 if random_seed is None else (int(random_seed) & 0x7FFFFFFF)
