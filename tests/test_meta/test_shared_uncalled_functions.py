@@ -777,14 +777,12 @@ _TEST_UTILITIES = {
     "reset_fe_family_wall",  # test-isolation reset of the FE family wall-clock accumulator
     "_reset_fe_gpu_pool_limit_flag",  # test-isolation reset of the GPU pool-limit flag
     "_reset_for_tests",  # test-isolation reset of the kernel-tuning state
-    "_xgb_cache_clear",  # test-isolation reset of the xgboost shim cache
     "_lib_versions_cache_clear",  # test-isolation reset of the library-version cache
     "cache_bytes",  # recorded-size readout for tests and diagnostics of the CatBoost pool budget
     "is_triton_available",  # Triton availability probe for callers and tests
     "reset_gpu_probe",  # test hook that re-probes GPU availability after monkeypatching
     "reset_cmi_forder_cache",  # test/free-memory reset of cached F-order copies
     "reset_gpu_metrics_probe",  # test hook that re-probes GPU availability for metrics
-    "_lgb_cache_clear",  # test-isolation reset of the LightGBM dataset cache
     "_is_windows",  # single chokepoint for OS detection, monkeypatched by tests
     "_ranknet_pair_cache_clear",  # test-only reset of the RankNet pair cache
     "set_default_cache",  # test hook that replaces the process-wide cache singleton
