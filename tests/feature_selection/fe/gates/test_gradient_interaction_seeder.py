@@ -190,14 +190,13 @@ def test_end_to_end_regression_proposes_saddle():
     X, y = _make("sin_prod")
     Xdf = pd.DataFrame(X, columns=[f"x{i}" for i in range(P)])
 
-    captured = {}
+    calls = []
     orig = G.rank_gradient_interaction_pairs
 
     def traced(*a, **k):
-        """Helper that traced."""
+        """Record every invocation: MRMR calls the seeder more than once (the full fit, then smaller later stages), and only the first learns the surrogate."""
         r = orig(*a, **k)
-        captured["diag"] = r[2]
-        captured["proposed"] = r[0]
+        calls.append({"diag": r[2], "proposed": r[0]})
         return r
 
     G.rank_gradient_interaction_pairs = traced
@@ -207,9 +206,10 @@ def test_end_to_end_regression_proposes_saddle():
     finally:
         G.rank_gradient_interaction_pairs = orig
 
-    assert "proposed" in captured, "gradient seeder was not invoked"
-    assert captured["diag"]["learned"] is True
-    assert FOCUS in captured["proposed"], f"saddle not proposed; got {captured['proposed']}"
+    assert calls, "gradient seeder was not invoked"
+    learned = [c for c in calls if c["diag"]["learned"] is True]
+    assert learned, f"no invocation learned the surrogate: {[c['diag'] for c in calls]}"
+    assert any(FOCUS in c["proposed"] for c in learned), f"saddle not proposed by any learning invocation; got {[c['proposed'] for c in learned]}"
 
 
 def test_end_to_end_default_off_is_noop():
