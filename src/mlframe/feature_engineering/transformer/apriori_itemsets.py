@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # effect of every call) so the compat shim is applied exactly once, the same way a real compat package
 # would install it.
 if not hasattr(np, "in1d"):
-    np.in1d = np.isin  # type: ignore[attr-defined]  # noqa: NPY201 -- this IS the removed-API compat shim, not a use of the removed API
+    np.in1d = np.isin  # type: ignore[assignment]  # noqa: NPY201 -- this IS the removed-API compat shim, not a use of the removed API
 
 
 def compute_apriori_itemsets_features(

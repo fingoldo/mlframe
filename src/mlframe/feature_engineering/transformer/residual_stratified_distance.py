@@ -41,6 +41,7 @@ fits per fold. ~5x cheaper than iter69 (which fits 3 baselines + does kNN).
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 from typing import Any, Literal, Optional
 
@@ -101,7 +102,7 @@ def _compute_oof_residuals(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int
             )
             m.fit(Xt[in_tr], y_t[in_tr])
             oof[in_val] = np.asarray(m.predict(Xt[in_val])).astype(np.float32)
-    return np.abs(y_t - oof).astype(np.float32)
+    return cast("np.ndarray", np.abs(y_t - oof).astype(np.float32))
 
 
 def _kth_nearest_dists_and_residuals(

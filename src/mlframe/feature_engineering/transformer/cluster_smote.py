@@ -27,6 +27,7 @@ The published K-Means-SMOTE uses cluster-density weighting (more virtuals in den
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import warnings
 from typing import Any, Literal, Optional
@@ -116,7 +117,7 @@ def compute_cluster_smote_features(
             # subset just below. Emit what that sentinel would produce for BOTH sides: 1e6 distance
             # columns, and log_gap = log(1e6) - log(1e6) = 0.0 ("no discriminating signal").
             n_k = len(_K_SCALES)
-            return np.concatenate([np.full((Xq_s.shape[0], n_k), 1e6), np.zeros((Xq_s.shape[0], n_k))], axis=1).astype(np.float32)
+            return cast("np.ndarray", np.concatenate([np.full((Xq_s.shape[0], n_k), 1e6), np.zeros((Xq_s.shape[0], n_k))], axis=1).astype(np.float32))
         n_synthetic = max(50, int(Xt_pos.shape[0] * oversample))
         n_clusters_eff = max(2, min(n_clusters, Xt_pos.shape[0] // 4))
         X_synth_pos = _cluster_smote_synthesize(Xt_pos, n_clusters=n_clusters_eff, n_synthetic_total=n_synthetic, k_neighbors=k_smote, seed=fold_seed)

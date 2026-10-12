@@ -323,7 +323,7 @@ def build_supervised_projections_pls(
     base_proj = pls.x_weights_.astype(dtype, copy=False)  # (d_input, rank_cap)
     if rank_cap < head_dim:
         # Pad missing dims with zero columns; they'll be effectively dead but keep shape consistent.
-        pad = np.zeros((d_input, head_dim - rank_cap), dtype=dtype)
+        pad: np.ndarray = np.zeros((d_input, head_dim - rank_cap), dtype=dtype)
         base_proj = np.concatenate([base_proj, pad], axis=1)
     # Normalise each column so per-row dot products live in a comparable scale to random Gaussian (1/sqrt(head_dim)).
     col_norms = np.linalg.norm(base_proj, axis=0, keepdims=True)
