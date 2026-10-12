@@ -67,6 +67,14 @@ FE_GATE_LABELS = (
     "marginal_uplift_floor",  # gate 5: marginal-uplift / joint-recovery (abs-MAD) fallback floor
     "cmi_redundancy",  # gate 3: S5 conditional-MI redundancy gate
     "stability_vote",  # gate 4: cross-fold stability quorum vote
+    "operand_uplift_floor",  # gate: engineered MI must beat the larger operand by its permutation-null uplift bar
+    "binagg_source_redundancy",  # binned-numeric-agg candidate dropped as redundant with its own source column
+    "fast_search_cross_group_overmaterialization",  # fast-search cross-group candidate over the materialisation budget
+    "gate_composite_overmaterialization",  # gate composite over the materialisation budget
+    "offset_product_gain",  # offset-product candidate below the gain floor
+    "oof_warp_gain",  # out-of-fold warp candidate below the gain floor
+    "pair_candidate_generation",  # pair never proposed by candidate generation
+    "row_stat_gain",  # row-statistic candidate below the gain floor
     "ledger_capped",  # synthetic marker: records dropped past the memory cap
 )
 

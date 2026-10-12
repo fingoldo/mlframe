@@ -403,7 +403,7 @@ def _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr
     return _max_single_op_corr
 
 
-def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept, _marginal_uplift_accept, _usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, best_config, raw_vars_pair, cols, _gate_ratio, rejection_records, rejection_ledger_out):
+def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept, _marginal_uplift_accept, _usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, best_config, raw_vars_pair, cols, _gate_ratio, rejection_records, rejection_ledger_out, ratio_ok=True):
     """Block of _score_one_pair starting at ``if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_acce``."""
     if not (_passes_joint_gate or _prewarp_accept or _marginal_uplift_accept or _usability_accept):
         try:
@@ -418,14 +418,14 @@ def _score_one_pair_all_values_were_already(_passes_joint_gate, _prewarp_accept,
                     _rej_op = None
             if not _passes_joint_gate:
                 _rej_rec = {
-                    "gate": "engineered_mi_prevalence",
+                    "gate": "engineered_mi_prevalence" if not ratio_ok else "operand_uplift_floor",
                     "candidate": str(raw_vars_pair),
                     "operands": tuple(raw_vars_pair),
                     "operand_names": "(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
                     "operator": _rej_op,
                     "observed": float(_gate_ratio),
                     "threshold": _rej_thr,
-                    "reason": "best_mi_over_pair_mi_below_floor",
+                    "reason": "best_mi_over_pair_mi_below_floor" if not ratio_ok else "best_mi_under_larger_operand_uplift",
                 }
             else:
                 _rej_rec = {

@@ -52,7 +52,7 @@ import pandas as pd
 from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
-from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis, noise_aware_floor as _noise_aware_floor
+from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch, mi_classif_batch_chunked,
@@ -212,6 +212,10 @@ def generate_triplet_cross_basis_features(
                             continue
     return pd.DataFrame(out_cols, index=X.index)
 
+_TRIPLET_CMI_COLS = [
+    "engineered_col", "source_col_i", "source_col_j", "source_col_k", "best_leg",
+    "conditional_mi", "null_conditional_mi", "cmi_gain",
+]
 _TRIPLET_SCORE_EMPTY_COLS = [
     "engineered_col",
     "source_col_i", "source_col_j", "source_col_k",
@@ -245,6 +249,89 @@ def _triplet_device_col_specs(eng_columns, raw_cols):
             return None
         specs.append({"legs": [(legs[i], degs[i]) for i in range(3)]})
     return specs
+
+def _quantile_codes(values, nbins: int) -> np.ndarray:
+    """Quantile-bin a numeric column into integer codes (ties resolved by the bin edges, NaN mapped to its own code)."""
+    v = np.asarray(values, dtype=np.float64)
+    finite = np.isfinite(v)
+    codes = np.full(v.shape[0], nbins, dtype=np.int64)
+    if finite.any():
+        edges = np.unique(np.quantile(v[finite], np.linspace(0.0, 1.0, nbins + 1)[1:-1]))
+        codes[finite] = np.searchsorted(edges, v[finite], side="right")
+    return codes
+
+
+def _stratified_cmi(x_codes: np.ndarray, y_codes: np.ndarray, s_codes: np.ndarray) -> float:
+    """Plug-in I(x; y | s) summed over the strata of s, skipping strata below 30 rows."""
+    from sklearn.metrics import mutual_info_score
+
+    n = y_codes.shape[0]
+    total = 0.0
+    for sv in np.unique(s_codes):
+        mask = s_codes == sv
+        m = int(mask.sum())
+        if m < 30:
+            continue
+        total += (m / n) * mutual_info_score(x_codes[mask], y_codes[mask])
+    return total
+
+
+def _stratum_permutation(x_codes: np.ndarray, s_codes: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Permute x inside each stratum of s: keeps the x-s association, breaks only the x-y relation given s."""
+    out = x_codes.copy()
+    for sv in np.unique(s_codes):
+        idx = np.flatnonzero(s_codes == sv)
+        out[idx] = x_codes[rng.permutation(idx)]
+    return out
+
+
+def score_triplet_cross_basis_by_cmi(
+    raw_X: pd.DataFrame,
+    engineered_X: pd.DataFrame,
+    y: np.ndarray,
+    *,
+    nbins: int = 10,
+    n_perm: int = 20,
+    quantile: float = 0.99,
+    seed: int = 0,
+) -> pd.DataFrame:
+    """Score each triplet cross-basis column by its conditional MI with y given its strongest leg.
+
+    A genuine 3-way interaction such as ``y ~ A*B*C`` has its signal inside the strongest leg's strata: its marginal MI can
+    sit below the leg's own MI while I(triplet; y | A) stays far above chance. The gain is the observed conditional MI minus
+    the *quantile* of the same statistic under a within-stratum permutation of the triplet, so the bar is data-driven.
+    """
+    y_codes = np.asarray(coerce_y_classif(y))
+    rng = np.random.default_rng(seed)
+    raw_codes = {c: _quantile_codes(raw_X[c].to_numpy(dtype=np.float64), nbins) for c in raw_X.columns}
+    rows = []
+    for eng_name in engineered_X.columns:
+        head = eng_name.split("__", 1)[0] if "__" in eng_name else eng_name
+        legs = head.split("*")
+        if len(legs) != 3 or not all(leg in raw_codes for leg in legs):
+            continue
+        leg_mi = {leg: _stratified_cmi(raw_codes[leg], y_codes, np.zeros_like(y_codes)) for leg in legs}
+        best_leg = max(legs, key=lambda leg: leg_mi[leg])
+        strata = raw_codes[best_leg]
+        eng_codes = _quantile_codes(engineered_X[eng_name].to_numpy(dtype=np.float64), nbins)
+        cmi = _stratified_cmi(eng_codes, y_codes, strata)
+        null = np.array([_stratified_cmi(_stratum_permutation(eng_codes, strata, rng), y_codes, strata) for _ in range(n_perm)])
+        null_q = float(np.quantile(null, quantile))
+        rows.append({
+            "engineered_col": eng_name,
+            "source_col_i": legs[0],
+            "source_col_j": legs[1],
+            "source_col_k": legs[2],
+            "best_leg": best_leg,
+            "conditional_mi": cmi,
+            "null_conditional_mi": null_q,
+            "cmi_gain": cmi - null_q,
+        })
+    df = pd.DataFrame(rows, columns=_TRIPLET_CMI_COLS)
+    if not df.empty:
+        df = df.sort_values("cmi_gain", ascending=False).reset_index(drop=True)
+    return df
+
 
 def score_triplet_cross_basis_by_mi_uplift(
     raw_X: pd.DataFrame,
@@ -443,7 +530,16 @@ def hybrid_orth_mi_triplet_fe(
                 _baseline_map.update(cached_raw_mi_baseline(_missing, X[_missing].to_numpy(dtype=_dt), y_arr, nbins=nbins))
             raw_mi_arr = np.array([float(_baseline_map.get(c, 0.0)) for c in raw_cols_all])
             order = np.argsort(-raw_mi_arr, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
-            seed_sources = [raw_cols_all[i] for i in order[: int(top_triplet_seed_k)]]
+            # The strongest raw column seeds the pool; the rest are ranked by I(x; y | strongest), not by marginal MI.
+            # A leg of a 3-way interaction has near-zero marginal MI, so marginal ranking let decoys of the strongest
+            # column fill the pool; conditioning on it keeps true co-operands and rejects copies of it.
+            _first = raw_cols_all[int(order[0])]
+            _y_codes = np.asarray(coerce_y_classif(y))
+            _first_codes = _quantile_codes(X[_first].to_numpy(dtype=np.float64), nbins)
+            _rest = [c for c in raw_cols_all if c != _first]
+            _cond = {c: _stratified_cmi(_quantile_codes(X[c].to_numpy(dtype=np.float64), nbins), _y_codes, _first_codes) for c in _rest}
+            _rest.sort(key=lambda c: -_cond[c])
+            seed_sources = [_first, *_rest[: max(0, int(top_triplet_seed_k) - 1)]]
 
     # EXPLICIT TRIPLETS (GBM seeder): when the caller passes an order-3
     # proposer's surviving triples (each already order-3-maxT-floored), enumerate EXACTLY
@@ -487,39 +583,15 @@ def hybrid_orth_mi_triplet_fe(
         return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
 
     raw_X_seed = X[seed_sources]
-    triplet_scores = score_triplet_cross_basis_by_mi_uplift(
-        raw_X_seed, triplet_eng, y, nbins=nbins, basis=basis,
-    )
-
-    # Two-gate selection mirrors Layer 22's pair stage. Triplet candidate
-    # counts are larger (O(seed_k^3 * deg^3)) so the Bonferroni-scaled
-    # sigma threshold is correspondingly stricter.
-    max_raw_baseline = float(triplet_scores["baseline_mi"].max()) if not triplet_scores.empty else 0.0
-    if not uni_scores.empty:
-        max_raw_baseline = max(max_raw_baseline, float(uni_scores["baseline_mi"].max()))
-    max_triplet_engineered = float(triplet_scores["engineered_mi"].max()) if not triplet_scores.empty else 0.0
-    legacy_floor = float(triplet_min_abs_mi_frac) * max(
-        max_raw_baseline,
-        max_triplet_engineered,
-    )
-    _baselines = triplet_scores["baseline_mi"].to_numpy() if not triplet_scores.empty else np.array([])
-    n_cands = int(_baselines.size)
-    sigma_thresh = max(
-        5.0,
-        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
-    )
-    noise_floor = _noise_aware_floor(_baselines, sigma_thresh)
-    _eng_mis = triplet_scores["engineered_mi"].to_numpy() if not triplet_scores.empty else np.array([])
-    eng_noise_floor = _noise_aware_floor(_eng_mis, sigma_thresh)
-    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
-    qualified = triplet_scores[(triplet_scores["uplift"] >= float(triplet_min_uplift)) & (triplet_scores["engineered_mi"] >= abs_floor)]
-    winners = qualified.head(int(top_triplet_count))
+    triplet_scores = score_triplet_cross_basis_by_cmi(raw_X_seed, triplet_eng, y, nbins=nbins)
+    winners = triplet_scores[triplet_scores["cmi_gain"] > 0].head(int(top_triplet_count))
     keep_triplet = list(winners["engineered_col"])
     if keep_triplet:
         X_aug = pd.concat([X_aug_uni, triplet_eng[keep_triplet]], axis=1)
     else:
         X_aug = X_aug_uni
     return X_aug, uni_scores, triplet_scores
+
 
 from ._fe_family_timing import fe_timed
 from typing import TYPE_CHECKING

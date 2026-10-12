@@ -9,7 +9,7 @@ from functools import partial
 
 import numpy as np
 
-from ._pairs_operand_floor import _beats_the_larger_operand
+from ._pairs_operand_floor import _beats_the_larger_operand, operand_uplift_null_bar
 from ._pairs_abs_corr_gpu import abs_corr_or_none, candidate_abs_corr
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
@@ -653,8 +653,11 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
     # MI-threshold/ratio fix here. Numbers + verdict in D:/Temp/null_prev_results.md.
     st._gate_ratio = (st.best_mi / pair_mi) if pair_mi > 0.0 else 0.0
     st._gate_ratio = _score_one_pair_mi_threshold_ratio_fix(fe_mm_debias_prevalence, pair_mi, st.best_config, classes_y, freqs_y, quantization_nbins, discretize_array, _resolve_col, quantization_method, quantization_dtype, _operand_discretized, raw_vars_pair, st.best_mi, st._gate_ratio)
-    st._passes_joint_gate = st._gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
-    st._passes_joint_gate = st._passes_joint_gate and _beats_the_larger_operand(st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi)
+    st._ratio_ok = st._gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
+    _operand_floor = max(_operand_marginal_mi(raw_vars_pair[0]), _operand_marginal_mi(raw_vars_pair[1]))
+    _uplift_bar = operand_uplift_null_bar(_operand_discretized(raw_vars_pair[0]), _operand_discretized(raw_vars_pair[1]), classes_y, _operand_floor) if st._ratio_ok else 1.0
+    st._operand_ok = st._ratio_ok and _beats_the_larger_operand(st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi, uplift_bar=_uplift_bar)
+    st._passes_joint_gate = st._ratio_ok and st._operand_ok
 
     # Alternative pre-warp acceptance: the joint-prevalence gate
     # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner

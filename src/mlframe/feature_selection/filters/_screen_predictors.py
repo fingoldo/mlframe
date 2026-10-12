@@ -120,7 +120,7 @@ def screen_predictors(
     # H(y)-relative floor at 1% imbalance, but noise is 2.5% of signal).
     # 0.0 disables; default 0.05 = stop once gain drops below 5% of first
     # gain. Only applies from the second selected feature onward.
-    min_relevance_gain_relative_to_first: float = 0.05,
+    min_relevance_gain_relative_to_first: float = 0.0,
     # Miller-Madow MI bias correction at the selection gate.
     # Plug-in mutual information OVERESTIMATES MI for high-cardinality
     # features (Paninski 2003, Miller 1955). For a binned feature with

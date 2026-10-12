@@ -285,7 +285,7 @@ def _score_one_pair(
     # session hand-diagnoses) is the primary gate; if the ratio DID clear that bar (so the
     # prewarp/uplift path declined for another reason) tag the marginal-uplift floor.
     # All values were already computed above (no recompute).
-    _score_one_pair_all_values_were_already(st._passes_joint_gate, st._prewarp_accept, st._marginal_uplift_accept, st._usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, st.best_config, raw_vars_pair, cols, st._gate_ratio, rejection_records, rejection_ledger_out)
+    _score_one_pair_all_values_were_already(st._passes_joint_gate, st._prewarp_accept, st._marginal_uplift_accept, st._usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, st.best_config, raw_vars_pair, cols, st._gate_ratio, rejection_records, rejection_ledger_out, ratio_ok=getattr(st, "_ratio_ok", True))
 
     if st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept:  # Best transformation is good enough
         st._pair_res_entry = _emit_pair_features(
