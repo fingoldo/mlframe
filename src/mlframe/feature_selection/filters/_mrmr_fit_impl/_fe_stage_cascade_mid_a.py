@@ -27,6 +27,51 @@ from ._fe_stage_merge import _fe_merge_new_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
+def _stage_layer87_grouped_agg(self, X_acc, X, _y_np, _grouped_agg_pre_recipes, verbose):
+    """Layer 87 grouped multi-stat aggregates for a pandas frame; returns ``X_acc`` with the surviving columns merged in."""
+    try:
+        from .._grouped_agg_fe import hybrid_grouped_agg_fe
+
+        # CMI gate needs a class-typed target; bin continuous y the
+        # same way the Layer 60 CMI-greedy stage does.
+        _y_for_ga = _y_np
+        _y_for_ga = encode_y_for_classif_mi(_y_for_ga)
+        _ga_groups = tuple(getattr(self, "fe_grouped_agg_group_cols", ()) or ())
+        _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
+        _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
+        _ga_nums = [c for c in _ga_nums if c in X.columns] or None  # type: ignore[assignment]
+        _ga_stats_raw = getattr(self, "fe_grouped_agg_stats", None)
+        _ga_stats = tuple(_ga_stats_raw) if _ga_stats_raw is not None else ("mean", "std", "min", "max", "nunique", "skew", "median")
+        _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
+        _X_before_ga_cols = list(X.columns)
+        X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
+            X, _y_for_ga,
+            group_cols=_ga_groups, num_cols=_ga_nums,
+            stats=_ga_stats, top_k=_ga_top_k,
+        )
+        _ga_appended = [c for c in _ga_appended if c not in _X_before_ga_cols]
+        if _ga_appended:
+            X_acc = _fe_merge_new_columns(X_acc, X_ga, X)
+            self.grouped_agg_features_ = list(_ga_appended)
+            self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ga_appended)
+            for _r in _ga_recipes:
+                if _r.name in _ga_appended:
+                    _grouped_agg_pre_recipes[_r.name] = _r
+            if verbose:
+                logger.info(
+                    "MRMR.fit grouped_agg: appended %d engineered " "column(s): %s",
+                    len(_ga_appended),
+                    _ga_appended[:8],
+                )
+    except Exception as _ga_exc:
+        logger.warning(
+            "MRMR.fit grouped_agg FE raised %s: %s; continuing " "without grouped-aggregate columns.",
+            type(_ga_exc).__name__,
+            _ga_exc,
+        )
+    return X_acc
+
+
 def _fe_stage_cascade_mid_a(
     self,
     *,
@@ -69,46 +114,7 @@ def _fe_stage_cascade_mid_a(
                 UserWarning, stacklevel=3,
             )
         else:
-            try:
-                from .._grouped_agg_fe import hybrid_grouped_agg_fe
-
-                # CMI gate needs a class-typed target; bin continuous y the
-                # same way the Layer 60 CMI-greedy stage does.
-                _y_for_ga = _y_np
-                _y_for_ga = encode_y_for_classif_mi(_y_for_ga)
-                _ga_groups = tuple(getattr(self, "fe_grouped_agg_group_cols", ()) or ())
-                _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
-                _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
-                _ga_nums = [c for c in _ga_nums if c in X.columns] or None  # type: ignore[assignment]
-                _ga_stats_raw = getattr(self, "fe_grouped_agg_stats", None)
-                _ga_stats = tuple(_ga_stats_raw) if _ga_stats_raw is not None else ("mean", "std", "min", "max", "nunique", "skew", "median")
-                _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
-                _X_before_ga_cols = list(X.columns)
-                X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
-                    X, _y_for_ga,
-                    group_cols=_ga_groups, num_cols=_ga_nums,
-                    stats=_ga_stats, top_k=_ga_top_k,
-                )
-                _ga_appended = [c for c in _ga_appended if c not in _X_before_ga_cols]
-                if _ga_appended:
-                    X_acc = _fe_merge_new_columns(X_acc, X_ga, X)
-                    self.grouped_agg_features_ = list(_ga_appended)
-                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ga_appended)
-                    for _r in _ga_recipes:
-                        if _r.name in _ga_appended:
-                            _grouped_agg_pre_recipes[_r.name] = _r
-                    if verbose:
-                        logger.info(
-                            "MRMR.fit grouped_agg: appended %d engineered " "column(s): %s",
-                            len(_ga_appended),
-                            _ga_appended[:8],
-                        )
-            except Exception as _ga_exc:
-                logger.warning(
-                    "MRMR.fit grouped_agg FE raised %s: %s; continuing " "without grouped-aggregate columns.",
-                    type(_ga_exc).__name__,
-                    _ga_exc,
-                )
+            X_acc = _stage_layer87_grouped_agg(self, X_acc, X, _y_np, _grouped_agg_pre_recipes, verbose)
 
     # Layer 93: COMPOSITE (multi-column) group-key aggregates.
     # Multi-col extension of Layer 87: each composite key is factorized into
