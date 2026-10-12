@@ -513,6 +513,27 @@ def _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair
             pool.append(c)
 
 
+def _usability_greedy_try_gpu_resident(pool, y_cont, *, w, K, seed, n_folds, mae_improve_rel, shortlist, shortlist_diversity_corr, classification):
+    """Return the GPU-resident greedy result when its flags are on and it applies; ``None`` sends the caller to the exact CPU body."""
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        # The per-call work floor STRICT applies to every other dispatch (n * p >= 1e6): a greedy over a handful of candidates on a few thousand rows is ~6k tiny launches
+        # (0.14-0.25 s resident against 0.03-0.06 s on the host, same selection). ``min_p=2`` because the pool is the shortlisted candidate set, not a wide batch.
+        if fe_gpu_strict_resident_enabled() and fe_gpu_strict_enabled(n=int(np.asarray(y_cont).shape[0]), p=len(pool), min_p=2):
+            from ._usability_greedy_gpu_resident import usability_greedy_gpu_resident
+            _res = usability_greedy_gpu_resident(
+                pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,
+                mae_improve_rel=mae_improve_rel, shortlist=shortlist, shortlist_diversity_corr=shortlist_diversity_corr,
+                classification=classification,
+            )
+            if _res is not None:
+                return _res
+    except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+        logger.debug("GPU-resident greedy path unavailable, falling back to the exact CPU greedy: %s", e)
+    return None
+
+
 def usability_greedy(
     pool: list[UsableCandidate],
     y_cont: np.ndarray,
@@ -561,22 +582,12 @@ def usability_greedy(
     ``None`` -> the exact CPU body below for classification, a degenerate pool, a singular border, or any
     cupy/device error. The default (flag-off) path never imports it -> byte-identical."""
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
-    try:
-        from ._fe_gpu_strict import fe_gpu_strict_enabled
-        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-        # The per-call work floor STRICT applies to every other dispatch (n * p >= 1e6): a greedy over a handful of candidates on a few thousand rows is ~6k tiny launches
-        # (0.14-0.25 s resident against 0.03-0.06 s on the host, same selection). ``min_p=2`` because the pool is the shortlisted candidate set, not a wide batch.
-        if fe_gpu_strict_resident_enabled() and fe_gpu_strict_enabled(n=int(np.asarray(y_cont).shape[0]), p=len(pool), min_p=2):
-            from ._usability_greedy_gpu_resident import usability_greedy_gpu_resident
-            _res = usability_greedy_gpu_resident(
-                pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds,
-                mae_improve_rel=mae_improve_rel, shortlist=shortlist, shortlist_diversity_corr=shortlist_diversity_corr,
-                classification=classification,
-            )
-            if _res is not None:
-                return _res
-    except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-        logger.debug("GPU-resident greedy path unavailable, falling back to the exact CPU greedy: %s", e)
+    _gpu_res = _usability_greedy_try_gpu_resident(
+        pool, y_cont, w=w, K=K, seed=seed, n_folds=n_folds, mae_improve_rel=mae_improve_rel,
+        shortlist=shortlist, shortlist_diversity_corr=shortlist_diversity_corr, classification=classification,
+    )
+    if _gpu_res is not None:
+        return _gpu_res
     from sklearn.linear_model import LinearRegression, LogisticRegression
     from sklearn.preprocessing import StandardScaler
     from sklearn.pipeline import make_pipeline
