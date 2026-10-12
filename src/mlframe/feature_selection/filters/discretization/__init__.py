@@ -44,7 +44,7 @@ def _safe_code_dtype(n_bins: int, dtype: type, reserve_nan_slot: bool = False) -
     real code ``n_bins-1`` and keeps the tighter default.
     """
     try:
-        info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type]  # dtype may be non-integer (e.g. float64); caught below at runtime
+        info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type, unused-ignore]  # dtype may be non-integer (e.g. float64); caught below at runtime
     except (ValueError, TypeError):
         return dtype  # non-integer requested dtype: caller owns the contract
     top_code = n_bins if reserve_nan_slot else n_bins - 1
@@ -444,7 +444,7 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype: type = np.int32) -> np.nd
 @njit(cache=True)
 def quantize_dig(arr: np.ndarray, bins: np.ndarray) -> np.ndarray:
     """Bin-code assignment via ``np.digitize`` on the interior bin edges (excludes the outer -inf/+inf sentinels)."""
-    return np.digitize(arr, bins[1:-1], right=True)
+    return np.digitize(arr, bins[1:-1], right=True)  # type: ignore[no-any-return, unused-ignore]  # numpy stubs type digitize's result as Any; the array is what the caller receives
 
 @njit(cache=True)
 def quantize_search(arr: np.ndarray, bins: np.ndarray) -> np.ndarray:

@@ -705,8 +705,8 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
 
         self.history_x_ = pd.DataFrame(data=self.history_x_, columns=self.all_columns_)
 
-        self.history_x_["Max_Shadow"] = [max(i) for i in self.history_shadow_]  # type: ignore[call-overload]  # numpy stubs narrow the per-row iteration element to a scalar float64; each row is actually a 1D ndarray
-        self.history_x_["Min_Shadow"] = [min(i) for i in self.history_shadow_]  # type: ignore[call-overload]
+        self.history_x_["Max_Shadow"] = [max(i) for i in self.history_shadow_]  # type: ignore[call-overload, unused-ignore]  # numpy stubs narrow the per-row iteration element to a scalar float64; each row is actually a 1D ndarray
+        self.history_x_["Min_Shadow"] = [min(i) for i in self.history_shadow_]  # type: ignore[call-overload, unused-ignore]
         self.history_x_["Mean_Shadow"] = [np.nanmean(i) for i in self.history_shadow_]
         self.history_x_["Median_Shadow"] = [np.nanmedian(i) for i in self.history_shadow_]
 

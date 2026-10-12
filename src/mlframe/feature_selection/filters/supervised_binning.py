@@ -636,7 +636,7 @@ def apply_bin_edges(
     else:
         # Caller forced a dtype - validate it can hold n_codes.
         try:
-            _info_max = int(np.iinfo(np.dtype(dtype)).max)  # type: ignore[type-var]  # caller may pass a non-integer dtype; guarded by the except below
+            _info_max = int(np.iinfo(np.dtype(dtype)).max)  # type: ignore[type-var, unused-ignore]  # caller may pass a non-integer dtype; guarded by the except below
         except (TypeError, ValueError):
             _info_max = None
         if _info_max is not None and n_codes > _info_max:
