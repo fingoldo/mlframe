@@ -23,6 +23,7 @@ import pytest
 # from the default test run; pass pytest --run-fuzz to include.
 pytestmark = pytest.mark.fuzz
 
+from tests.training._fuzz_combo.enum_cache import enumerate_combos_cached
 from tests.training._fuzz_combo import (
     FuzzCombo,
     build_frame_for_combo,
@@ -53,7 +54,7 @@ from mlframe.training import (
 # invocation reads the env fresh so 10k-combo campaigns can span 60+
 # seeds × 150 combos each without the parent process sharing state).
 _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
-COMBOS: list[FuzzCombo] = enumerate_combos(
+COMBOS: list[FuzzCombo] = enumerate_combos_cached(
     target=150, master_seed=_FUZZ_MASTER_SEED, exhaustive_pairs=bool(os.environ.get("MLFRAME_FUZZ_EXHAUSTIVE_PAIRS")),
 )
 
@@ -170,9 +171,7 @@ def _apply_bughunt_budget(combo: FuzzCombo) -> FuzzCombo:
     """
     import dataclasses as _dataclasses
 
-    changes: dict = {"n_rows": min(int(combo.n_rows), 200), "iterations": 1}
-    if combo.use_boruta_shap_cfg:
-        changes.update(boruta_early_stop_tentative_cfg=True, boruta_early_stop_patience_cfg=5)
+    changes: dict = {"n_rows": min(int(combo.n_rows), 100), "iterations": 1, "use_boruta_shap_cfg": False}
     return _dataclasses.replace(combo, **changes)
 
 

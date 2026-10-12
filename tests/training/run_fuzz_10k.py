@@ -283,6 +283,9 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
     env["FUZZ_SEED"] = str(seed)
     env["PYTHONUNBUFFERED"] = "1"
     env["PYTHONFAULTHANDLER"] = "1"
+    if os.environ.get("MLFRAME_FUZZ_BUGHUNT_BUDGET", "").lower() in ("1", "yes", "true", "on"):
+        # Each combo runs in its own pytest process; the numba prewarm would recompile every kernel per combo.
+        env.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")
     cmd = [
         sys.executable,
         "-m",
@@ -396,7 +399,7 @@ def _run_one_combo(seed: int, short_id: str, per_combo_timeout_s: int) -> tuple[
 def _run_isolate(args: argparse.Namespace) -> int:
     """Combo-isolated bug-hunt sweep: one fresh subprocess per (seed, combo)."""
     sys.path.insert(0, str(REPO_ROOT))
-    from tests.training._fuzz_combo import enumerate_combos
+    from tests.training._fuzz_combo.enum_cache import enumerate_combos_cached
 
     print(
         f"[driver] ISOLATE mode: target={args.target} combos, "
@@ -412,7 +415,7 @@ def _run_isolate(args: argparse.Namespace) -> int:
         if done >= args.target:
             break
         seed = args.seed_start + i
-        combos = enumerate_combos(target=150, master_seed=seed, exhaustive_pairs=bool(os.environ.get("MLFRAME_FUZZ_EXHAUSTIVE_PAIRS")))
+        combos = enumerate_combos_cached(target=150, master_seed=seed, exhaustive_pairs=bool(os.environ.get("MLFRAME_FUZZ_EXHAUSTIVE_PAIRS")))
         for combo in combos:
             if done >= args.target:
                 break
