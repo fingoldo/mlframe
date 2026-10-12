@@ -125,6 +125,7 @@ from ..info_theory import (
     use_jmim_aggregator,
     get_bur_lambda,
     use_mi_miller_madow,
+    get_group_mi,
     get_relaxmrmr_alpha,
     get_pid_synergy_bonus,
     get_cmi_perm_stop,
@@ -3740,6 +3741,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             get_cmi_perm_stop(),
             get_cpt_test(),
             use_mi_chao_shen(),
+            get_group_mi(),
         )
 
         def _restore_toggles_snapshot_and_raise(exc: BaseException) -> NoReturn:
@@ -3750,7 +3752,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             ValueError here would leave the corrupted thread-local state active for every subsequent,
             unrelated fit on this thread.
             """
-            _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e = _toggles_snapshot
+            _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e, _gmi0e = _toggles_snapshot
             _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
             _safe_restore(lambda: set_jmim_aggregator(_jmim0e), "JMIM aggregator thread-local (activation-block exception)")
             _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")

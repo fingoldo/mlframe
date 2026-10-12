@@ -659,6 +659,33 @@ def _retain_usable_pure_cand_usable(usable, covered_pairs, existing_names, out, 
             break
 
 
+def _is_group_leak_raw(X_fit, name, y_values, n_bins: int = 8) -> bool:
+    """True when group_aware_mi is active and raw column ``name`` is a between-group leak (no within-group signal).
+
+    Both sides are quantile-binned here (the retention probe is continuous); the group segments must cover the same rows as
+    ``X_fit``, otherwise the verdict cannot be formed and the column is not treated as a leak.
+    """
+    from mlframe.feature_selection.filters.info_theory.shared import get_group_mi, group_leak_verdict
+
+    payload = get_group_mi()
+    if payload is None:
+        return False
+    sort_idx, group_offsets, min_rows, size_weighted = payload
+    n = len(y_values)
+    if int(np.asarray(sort_idx).shape[0]) != n or len(X_fit) != n:
+        return False
+
+    def _quantile_codes(v: np.ndarray) -> np.ndarray:
+        """Quantile bin codes of a continuous vector, in ``[0, n_bins)``."""
+        edges = np.quantile(v, np.linspace(0.0, 1.0, n_bins + 1)[1:-1])
+        return np.searchsorted(edges, v, side="right").astype(np.int64)
+
+    codes_x = _quantile_codes(np.nan_to_num(np.asarray(X_fit[name].to_numpy())))
+    codes_y = _quantile_codes(np.nan_to_num(np.asarray(y_values)))
+    _, is_leak = group_leak_verdict(codes_x, codes_y, sort_idx, group_offsets, n_bins, n_bins, min_rows=min_rows, size_weighted=size_weighted)
+    return bool(is_leak)
+
+
 def retain_usable_raw_columns(
     mrmr: Any,
     X: Any,
@@ -770,6 +797,9 @@ def retain_usable_raw_columns(
         for cand in usable:
             nm = getattr(cand, "name", None)
             if nm is None or nm in already or nm not in X.columns:
+                continue
+            if _is_group_leak_raw(X_fit, nm, _yv):
+                # A between-group leak is demoted under group_aware_mi; the global linear probe must not re-admit it.
                 continue
             out.append(nm)
             if len(out) >= max_added:

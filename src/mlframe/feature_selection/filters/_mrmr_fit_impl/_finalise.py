@@ -532,7 +532,7 @@ def _finalise_fs_results(
     _eng_recipes_final = getattr(self, "_engineered_recipes_", None) or []
     if _gmi_final_payload is not None and _eng_recipes_final:
         try:
-            from mlframe.feature_selection.filters.info_theory.shared import group_blocked_mi as _group_blocked_mi_final
+            from mlframe.feature_selection.filters.info_theory.shared import group_leak_verdict as _group_leak_verdict_final
             from mlframe.feature_selection.filters.info_theory.shared import group_relevance_mi as _group_relevance_mi_final
 
             _cols_idx_f = {nm: i for i, nm in enumerate(cols)}
@@ -545,9 +545,16 @@ def _finalise_fs_results(
                 _cidx = _cols_idx_f.get(_rname)
                 if _cidx is not None:
                     # Fast path: the engineered column is still materialised in ``data``/``cols``.
-                    _grp_mi_f = _group_relevance_mi_final(
+                    _grp_obs_f = _group_relevance_mi_final(
                         data, (int(_cidx),), _classes_y_arr_f, np.asarray(nbins), _g_n_bins_y_f,
                         _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
+                    )
+                    _is_leak_f = _grp_obs_f == 0.0 or (
+                        _grp_obs_f == _grp_obs_f
+                        and _group_leak_verdict_final(
+                            np.asarray(data[:, int(_cidx)]), _classes_y_arr_f, _gsi_f, _goff_f,
+                            int(np.asarray(data[:, int(_cidx)]).max()) + 1, _g_n_bins_y_f, min_rows=_gmr_f, size_weighted=_gsw_f,
+                        )[1]
                     )
                 else:
                     # Retention-only recipe (usability-aware retention re-attaches it from its OWN
@@ -563,16 +570,24 @@ def _finalise_fs_results(
                         if _cv_f.shape[0] != _classes_y_arr_f.shape[0]:
                             continue  # can't align - leave this recipe alone
                         _codes_f = _discretize_array_final(_cv_f, n_bins=int(self.quantization_nbins), method=self.quantization_method, dtype=self.quantization_dtype)
-                        _grp_mi_f = _group_blocked_mi_final(
-                            _codes_f, _classes_y_arr_f, _gsi_f, _goff_f,
-                            n_bins_x=int(self.quantization_nbins), n_bins_y=_g_n_bins_y_f,
-                            min_rows=_gmr_f, size_weighted=_gsw_f, use_mm=True,
+                        _codes_mat_f = np.ascontiguousarray(np.asarray(_codes_f, dtype=self.quantization_dtype).reshape(-1, 1))
+                        _nbins_mat_f = np.asarray([int(_codes_mat_f.max()) + 1])
+                        _grp_obs_f = _group_relevance_mi_final(
+                            _codes_mat_f, (0,), _classes_y_arr_f, _nbins_mat_f, _g_n_bins_y_f,
+                            _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
+                        )
+                        _is_leak_f = _grp_obs_f == 0.0 or (
+                            _grp_obs_f == _grp_obs_f
+                            and _group_leak_verdict_final(
+                                _codes_f, _classes_y_arr_f, _gsi_f, _goff_f,
+                                int(_nbins_mat_f[0]), _g_n_bins_y_f, min_rows=_gmr_f, size_weighted=_gsw_f,
+                            )[1]
                         )
                     except Exception as e:
                         logger.debug("_fit: within-group MI replay/discretise failed for recipe %r, leaving it alone: %s", _rname, e)
                         continue  # can't replay/discretise - leave this recipe alone (conservative)
-                # Not nan and exactly zero within-group signal. group_blocked_mi floors every group's contribution at 0, so this is never negative.
-                if _grp_mi_f == _grp_mi_f and _grp_mi_f == 0.0:
+                # No within-group signal beyond the within-group permutation null (see group_leak_verdict).
+                if _is_leak_f:
                     _group_dropped_final.add(_rname)
             if _group_dropped_final:
                 self._engineered_recipes_ = [_r for _r in _eng_recipes_final if str(getattr(_r, "name", "")) not in _group_dropped_final]

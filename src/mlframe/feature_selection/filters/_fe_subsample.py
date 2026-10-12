@@ -17,7 +17,6 @@ degrades gracefully (single class / constant y / size>=n) back to a uniform / fu
 """
 from __future__ import annotations
 
-from typing import cast
 from typing import Optional
 
 import logging
@@ -105,7 +104,7 @@ def _strat_clf_kernel(codes, n_classes, size, n, seed):
         if a > cnt:
             a = cnt
         alloc[c] = a
-        total += cast(int, a)
+        total += int(a)
 
     out = np.empty(total, dtype=np.int64)
     pos = 0
@@ -153,7 +152,7 @@ def _strat_reg_kernel(bin_ids, n_bins, size, n, seed):
         if a > cnt:
             a = cnt
         alloc[b] = a
-        total += cast(int, a)
+        total += int(a)
 
     out = np.empty(total, dtype=np.int64)
     pos = 0

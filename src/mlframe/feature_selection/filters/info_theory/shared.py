@@ -19,6 +19,7 @@ from ._cmi_cuda import (
 )
 from ._group_mi import (
     group_blocked_mi,
+    group_leak_verdict,
     group_relevance_mi,
     prepare_group_segments,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "cpu_cmi_loop_parallel",
     "get_group_mi",
     "group_blocked_mi",
+    "group_leak_verdict",
     "group_relevance_mi",
     "joint_cardinality_cap",
     "prepare_group_segments",

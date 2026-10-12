@@ -241,11 +241,13 @@ class TestHermitePairRecipeBizValueViaMRMR:
         recipes = mrmr._engineered_recipes_ or []
         hermite_pair_recipes = [r for r in recipes if r.kind == "hermite_pair"]
         if hermite_pair_recipes:
-            # Selection promoted the engineered column - replay must work.
+            # Selection promoted the engineered column - replay must work. Replayed through ``transform``: the recipe's
+            # sources are engineered intermediates of the same fit, which only the transform resolves. A standalone
+            # ``apply_recipe`` NaN-degrades those by design (``_apply_hermite_pair``), so it is not the replay contract.
             recipe = hermite_pair_recipes[0]
-            out = apply_recipe(recipe, X)
+            out = np.asarray(mrmr.transform(X)[recipe.name])
             assert out.shape == (n,)
-            assert np.isfinite(out).all(), "hermite_pair replay produced non-finite values on training X"
+            assert np.isfinite(out).all(), "hermite_pair replay through transform produced non-finite values on training X"
         # If selection didn't promote, the recipe is still verifiably
         # built in mrmr.py's polynom-FE block (T1#3 wiring covered by
         # test_optimiser_finds_xor_and_recipe_persists in

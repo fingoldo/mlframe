@@ -146,6 +146,10 @@ def _apply_loss_recommendation_in_place(
                 return ("eval_metric", "RMSE")
             if _value == "MAE":
                 return ("eval_metric", "MAE")
+            if _value == "MultiRMSE":
+                # MTR target: CatBoost refuses a MultiRMSE loss beside the default RMSE eval_metric
+                # ("metric [RMSE] and loss [MultiRMSE] are incompatible"), so ES tracks the same multi-output surface.
+                return ("eval_metric", "MultiRMSE")
             if _value.startswith("Huber"):
                 # Huber:delta=X IS a valid CB eval_metric (CatBoost 1.0+);
                 # match the loss exactly so ES tracks the same surface

@@ -821,7 +821,7 @@ def _drop_redundant_raw_o_step2_st_gmi_payload(st, y_binned, cols, data, verbose
     """Step 2 of drop_redundant_raw_operands: lines starting at ``if st._gmi_payload is not None and st.drop_names:``."""
     if st._gmi_payload is not None and st.drop_names:
         try:
-            from mlframe.feature_selection.filters.info_theory.shared import group_blocked_mi
+            from mlframe.feature_selection.filters.info_theory.shared import group_leak_verdict
 
             _gsi, _goff, _gmr, _gsw = st._gmi_payload
             _yb_arr = np.asarray(y_binned)
@@ -835,7 +835,7 @@ def _drop_redundant_raw_o_step2_st_gmi_payload(st, y_binned, cols, data, verbose
                 _n_bins_x = int(_codes.max()) + 1
                 if _n_bins_x <= 0:
                     continue
-                _grp_mi = group_blocked_mi(
+                _, _is_leak = group_leak_verdict(
                     _codes,
                     _yb_arr,
                     _gsi,
@@ -844,9 +844,8 @@ def _drop_redundant_raw_o_step2_st_gmi_payload(st, y_binned, cols, data, verbose
                     _g_n_bins_y,
                     min_rows=_gmr,
                     size_weighted=_gsw,
-                    use_mm=True,
                 )
-                if _grp_mi == _grp_mi and _grp_mi <= 0.0:  # not nan and exactly zero within-group signal
+                if _is_leak:  # no within-group signal beyond the within-group permutation null
                     st._group_leak_names.add(_dname)
             if st._group_leak_names and verbose:
                 logger.info(

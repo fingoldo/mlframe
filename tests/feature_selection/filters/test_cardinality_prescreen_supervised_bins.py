@@ -223,7 +223,9 @@ class TestAcrossBinningStrategies:
         X, y = two_subpopulation_frame
         counts = _bin_counts(X, y, "mdlp")
         assert counts["A"] == max(counts.values())
-        assert counts["A"] > CEILING
+        # No absolute bin floor: the validated MDLP search runs on 16 pseudo-classes (commit 677ebe01c), which
+        # gives the driving column fewer bins than the full-class search did (21 against the former 44.7 floor)
+        # at equal held-out MI. The mechanism claim is the ranking above, not the count.
 
 
 @pytest.mark.slow

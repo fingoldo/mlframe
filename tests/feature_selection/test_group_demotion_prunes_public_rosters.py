@@ -37,8 +37,13 @@ def _fit(X, y, groups):
 
 
 def _roster_names(m) -> dict:
-    """Every non-empty FE roster on the fitted estimator."""
-    return {a: list(getattr(m, a, None) or []) for a in FE_ROSTER_ATTRS if getattr(m, a, None)}
+    """Every non-empty FE roster on the fitted estimator.
+
+    ``_engineered_features_`` is the public list of every engineered survivor. The per-family rosters do not cover the
+    pair-FE (unary x binary) survivors, so a survivor of that kind would otherwise never be checked against any roster.
+    """
+    attrs = (*FE_ROSTER_ATTRS, "_engineered_features_")
+    return {a: list(getattr(m, a, None) or []) for a in attrs if getattr(m, a, None)}
 
 
 def test_group_demotion_prunes_public_rosters(monkeypatch):

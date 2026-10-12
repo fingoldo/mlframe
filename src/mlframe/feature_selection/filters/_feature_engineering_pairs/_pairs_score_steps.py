@@ -483,7 +483,8 @@ def _pair_batch_codes(binary_transformations, param_a, param_b, quantization_nbi
         for bin_func_name, bin_func in binary_transformations.items():
             try:
                 col = np.asarray(bin_func(param_a, param_b)).ravel()
-            except Exception:
+            except Exception as _exc:
+                logger.debug("pair-step: candidate %r skipped: %s", bin_func_name, _exc)
                 continue
             names.append(bin_func_name)
             cols.append(col)
@@ -495,7 +496,8 @@ def _pair_batch_codes(binary_transformations, param_a, param_b, quantization_nbi
     np.nan_to_num(block, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
     try:
         codes = discretize_2d_quantile_batch(block, n_bins=quantization_nbins, dtype=quantization_dtype, parallel=True)
-    except Exception:
+    except Exception as _exc:
+        logger.debug("pair-step: batched recompute failed, falling back to per-transform: %s", _exc)
         return None
     return {nm: codes[:, j] for j, nm in enumerate(names)}
 

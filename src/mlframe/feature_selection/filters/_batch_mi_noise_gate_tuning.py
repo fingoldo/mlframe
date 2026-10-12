@@ -50,7 +50,7 @@ from ._batch_mi_noise_gate_kernels import (
 GPU_MIN_ROWS = 2_000
 GPU_MIN_COLS = 256
 # Work (rows x columns of the code matrix) above which the GPU wins whatever the column count. The sweep grid ends at 100 000 rows, so a 1M-row call finds no region and takes this fallback;
-# measured 2026-10-11 (GTX 1050 Ti, 8 CPU threads) at 1M rows: K = 4 and 16 (4M and 16M cells) CPU 0.03 s and 0.07 s against cupy 0.06 s and 0.08 s, K = 64 (64M cells) CPU 1.44 s against cupy 0.21 s
+# measured (GTX 1050 Ti, 8 CPU threads) at 1M rows: K = 4 and 16 (4M and 16M cells) CPU 0.03 s and 0.07 s against cupy 0.06 s and 0.08 s, K = 64 (64M cells) CPU 1.44 s against cupy 0.21 s
 # (7x): the CPU kernel degrades once the (n, K) code matrix leaves the last-level cache. The break-even is between 16M and 64M cells.
 GPU_MIN_WORK = 32_000_000
 

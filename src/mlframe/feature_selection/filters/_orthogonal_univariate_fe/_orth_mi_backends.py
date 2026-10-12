@@ -207,7 +207,8 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                         logger.debug("GPU block MI failed for a column block; using the CPU dispatch for it.", exc_info=True)
                 try:
                     mis[_sel] = plugin_mi_classif_batch_dispatch(_Xb, y_i64, nbins)
-                except Exception:
+                except Exception as _exc:
+                    logger.debug("streamed MI block failed, using sklearn for it: %s", _exc)
                     mis[_sel] = _mi_classif_batch_sklearn(_Xb, y_i64, nbins=nbins)
 
     if partial_cols.size:
@@ -534,7 +535,8 @@ def _block_mi_gpu_fn():
             return None
         from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda
         return _plugin_mi_classif_batch_cuda
-    except Exception:
+    except Exception as _exc:
+        logger.debug("GPU MI block unavailable, falling back: %s", _exc)
         return None
 
 

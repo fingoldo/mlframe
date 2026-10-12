@@ -156,6 +156,13 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
     return pruned
 
 
+def _is_group_leak_raw(X, name, y):
+    """Lazy bridge to the retention-pass group-leak test (import deferred to keep this module's import order unchanged)."""
+    from mlframe.feature_selection.filters._fe_pure_form_retention import _is_group_leak_raw as _impl
+
+    return _impl(X, name, y)
+
+
 def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retention_added_eng_names, verbose) -> bool:
     """Admit the pool columns that reduce the held-out residual of the selected design and prune the redundant raws (``redundancy_policy='drop'``); True when the selection changed."""
     if not getattr(self, "fe_residual_rescue_enable", False):
@@ -235,6 +242,9 @@ def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retent
             self._engineered_features_.append(name)
             retention_added_eng_names.add(name)
         elif name in col_index and col_index[name] not in selected_vars:
+            # A between-group leak raw column is not re-admitted by the global residual test under group_aware_mi.
+            if _is_group_leak_raw(X, name, np.asarray(y).ravel()):
+                continue
             selected_vars.append(col_index[name])
         else:
             continue

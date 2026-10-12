@@ -46,7 +46,7 @@ def _devices(max_devices: Optional[int] = None) -> list[tuple[int, int]]:
                 # (the same correction the FE VRAM gate applies); without it the block width shrinks after every run
                 free += int(cp.get_default_memory_pool().free_bytes())
             out.append((d, int(free)))
-        return out[:max_devices] if max_devices else out
+        return out[:max_devices] if max_devices is not None else out
     except Exception:
         logger.debug("streamed GPU MI: no CUDA device", exc_info=True)
         return []
@@ -57,7 +57,8 @@ def _host_free_bytes() -> int:
     try:
         import psutil
         return int(psutil.virtual_memory().available)
-    except Exception:
+    except Exception as _exc:
+        logger.debug("free-memory probe failed, assuming 2 GiB: %s", _exc)
         return 2 * 1024**3
 
 

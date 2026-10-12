@@ -60,7 +60,7 @@ def _child(estimator: Any):
     from sklearn.base import clone
 
     child = clone(estimator)
-    child.set_params(fe_target_mix_enable=False, fe_max_steps=1, verbose=0)  # one FE step: the second step re-searches the pool the first step enlarged, which is most of the cost on a structured base (see audits/2026-10-11)
+    child.set_params(fe_target_mix_enable=False, fe_max_steps=1, verbose=0)  # one FE step: the second step re-searches the pool the first step enlarged, which is most of the cost on a structured base
     child._lean_second_pass_ = True  # skips the linear-usability retention of the support assembly: the child only proposes candidates
     return child
 

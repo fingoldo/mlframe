@@ -498,7 +498,8 @@ def collect_garbage_if_frame_is_large(X) -> bool:
 
         frame_bytes = int(X.memory_usage(index=False, deep=False).sum()) if hasattr(X, "memory_usage") else int(getattr(X, "estimated_size", lambda: 0)())
         collect = frame_bytes * 8 >= int(psutil.virtual_memory().available) // 64
-    except Exception:
+    except Exception as _exc:
+        logger.debug("frame-size probe failed, collecting garbage unconditionally: %s", _exc)
         collect = True
     if collect:
         gc.collect()

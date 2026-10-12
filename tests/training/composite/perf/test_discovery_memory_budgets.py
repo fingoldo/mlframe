@@ -80,6 +80,7 @@ def test_the_leak_corr_filter_peaks_at_one_sample_matrix_and_its_mask(carrier, m
 def _resident_after_rerank(n: int, f: int, bases: int, monkeypatch) -> tuple[int, int]:
     """(traced bytes held at the rerank checkpoint beyond the fit's entry, screen rows)."""
     import mlframe.training.composite.discovery._fit as fit_mod
+    import mlframe.training.composite.discovery._fit_steps as steps_mod
     from mlframe.training.composite import CompositeTargetDiscovery
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
 
@@ -107,6 +108,8 @@ def _resident_after_rerank(n: int, f: int, bases: int, monkeypatch) -> tuple[int
 
     fit(_frame(3000, f, seed=1), 2000)  # imports, kernel compilation and one-time caches stay out of the measured fit
     monkeypatch.setattr(fit_mod, "_phase_ram_report", report)
+    # _fit_steps binds its own reference (``from ._fit_ram import _phase_ram_report``), so the rerank checkpoint is emitted there.
+    monkeypatch.setattr(steps_mod, "_phase_ram_report", report)
     monkeypatch.setattr(fit_mod, "_prebin_feature_columns_cached", prebin)
     monkeypatch.setenv("MLFRAME_DISCOVERY_RAM_PROFILER", "1")
     tracemalloc.start()

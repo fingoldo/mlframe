@@ -656,6 +656,10 @@ class _MRMRFitHelpersMixin:
                 _si, _off = _prepare_group_segments(_g_arr)
                 _size_weighted = getattr(self, "group_mi_aggregate", "size") == "size"
                 st._gmi_payload = (_si, _off, int(getattr(self, "group_mi_min_rows", 20)), _size_weighted)
+                # Publish the payload now, not after the whole fit body: the final demotion pass (_finalise.py) runs inside
+                # the body and reads the thread-local, which the caller only sets after the body returns (it was None there).
+                from mlframe.feature_selection.filters.info_theory.shared import set_group_mi as _set_group_mi_now
+                _set_group_mi_now(st._gmi_payload)
                 self.groups_ignored_ = False
 
     def _fit_body_step1_anything_below_reads(self, X):
@@ -687,7 +691,7 @@ class _MRMRFitHelpersMixin:
     def _fit_body_step2_prev_restore_evaluation(self, _toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_nbins_strategy, _orig_quantization_nbins, _fe_auto_restore):
         """Step 2 of _fit_body: lines starting at ``_su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0 = _toggl``."""
         from ._mrmr_class import _UNSET, _hashable_params_signature, _safe_restore, _set_dcd_active, _set_group_mi, set_bur_lambda, set_cmi_perm_stop, set_cpt_test, set_jmim_aggregator, set_mi_chao_shen, set_mi_miller_madow, set_pid_synergy_bonus, set_relaxmrmr_alpha, set_su_normalization  # resolved on the class module so patches of its names reach this method
-        _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0 = _toggles_snapshot
+        _su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0, _gmi0 = _toggles_snapshot
 
         def _restore_synergy_bonuses() -> None:
             """Restore RelaxMRMR/PID/CMI-perm/CPT thread-locals to their fit-entry snapshot."""
@@ -712,7 +716,7 @@ class _MRMRFitHelpersMixin:
         _safe_restore(lambda: set_bur_lambda(_bur0), "BUR lambda thread-local")
         _safe_restore(lambda: set_mi_miller_madow(_mm0), "Miller-Madow thread-local")
         _safe_restore(lambda: set_mi_chao_shen(_cs0), "Chao-Shen thread-local")
-        _safe_restore(lambda: _set_group_mi(None), "group-aware MI thread-local")
+        _safe_restore(lambda: _set_group_mi(_gmi0), "group-aware MI thread-local")
         _safe_restore(_restore_synergy_bonuses, "RelaxMRMR/PID/CMI-perm/CPT synergy thread-locals")
         # reset DCD thread-local and restore cluster_aggregate_enable to its constructor value
         # (Critic2 fix: missing reset in v1 plan).
