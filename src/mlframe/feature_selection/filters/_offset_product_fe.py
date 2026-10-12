@@ -25,7 +25,7 @@ import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, pointwise_mi, quantile_codes
 from ._fe_scan_common import rank_scaled as _rank_scaled
-from ._offset_product_kernels import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
+from ._numba_utils import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
 if TYPE_CHECKING:
     import polars as pl
 

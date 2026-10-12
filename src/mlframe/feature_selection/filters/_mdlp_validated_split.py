@@ -95,7 +95,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 logger = logging.getLogger(__name__)
 
 from ._analytic_mi_null import analytic_mi_null, analytic_null_applicable
-from .supervised_binning import _entropy_from_counts_njit
+from ._numba_utils import _entropy_from_counts_njit
 
 # The best-split search of every significance-validated path (the observed split and each of the permutation draws) is the incremental kernel: O(1) per candidate instead of O(K_y), 6.5x faster at
 # n = 10 000, K_y = 16 with the same candidates and tie rule (gains agree to 1e-13; the best index differs only where two candidates tie exactly). The old kernel stays in supervised_binning.

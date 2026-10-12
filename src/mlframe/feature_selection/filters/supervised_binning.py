@@ -26,6 +26,8 @@ import math
 import numpy as np
 from numba import njit
 
+from ._numba_utils import _entropy_from_counts_njit
+
 logger = logging.getLogger(__name__)
 
 
@@ -277,21 +279,6 @@ def _entropy_from_labels(y: np.ndarray) -> float:
 # =============================================================================
 # njit-accelerated hot loop (audit recommendation - 10-30x speedup target)
 # =============================================================================
-
-
-@njit(nogil=True, cache=True)
-def _entropy_from_counts_njit(counts: np.ndarray, n: int) -> float:
-    """Shannon entropy in nats from already-tabulated label counts."""
-    if n <= 0:
-        return 0.0
-    h = 0.0
-    n_f = float(n)
-    for k in range(counts.shape[0]):
-        c = counts[k]
-        if c > 0:
-            p = c / n_f
-            h -= p * math.log(p)
-    return h
 
 
 @njit(nogil=True, cache=True)

@@ -22,7 +22,7 @@ import pandas as pd
 from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes, quantile_codes
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
-from ._row_stat_kernels import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
+from ._numba_utils import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
 from ._y_encoding import FEW_CLASSES_MAX
 if TYPE_CHECKING:
     import polars as pl

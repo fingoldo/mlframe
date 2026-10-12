@@ -22,7 +22,8 @@ from typing import Mapping, Optional
 import numpy as np
 from numba import njit, prange
 
-from ._pair_residual_screen import BACKFIT_SWEEPS, FAMILY_ALPHA, OUTER_FENCE, SHRINK, _backfit, _winsorised, main_effect_bins
+from ._numba_utils import _backfit
+from ._pair_residual_screen import BACKFIT_SWEEPS, FAMILY_ALPHA, OUTER_FENCE, SHRINK, _winsorised, main_effect_bins
 from ._y_encoding import FEW_CLASSES_MAX
 
 __all__ = ["residual_rescue", "design_residual", "linear_oos_gain", "MAX_POOL", "DEFAULT_SCAN_ROWS", "MIN_ROWS"]
