@@ -212,29 +212,36 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                     mis[_sel] = _mi_classif_batch_sklearn(_Xb, y_i64, nbins=nbins)
 
     if partial_cols.size:
-        # Partial-NaN columns get the per-column path (mask + sklearn). The
-        # production hybrid path nan-fills before calling MI so this branch
-        # is essentially dead code in practice; keep it for API parity.
-        for j in partial_cols:
-            col = X[:, j]
-            finite = np.isfinite(col)
-            if not finite.any():
-                mis[j] = 0.0
-                continue
-            col_f = np.ascontiguousarray(col[finite].reshape(-1, 1))
-            y_f = np.ascontiguousarray(y_i64[finite])
-            try:
-                mis[j] = float(
-                    plugin_mi_classif_batch_dispatch(col_f, y_f, nbins)[0],
-                )
-            except Exception as e:
-                # Same reasoning as the sklearn loop: scoring the column 0.0 would silently delete it from the ranking.
-                logger.warning(
-                    "plugin_mi_classif_batch_dispatch failed for column %d (dtype=%s, %d of %d values finite): %s: %s",
-                    j, col.dtype, int(finite.sum()), col.shape[0], type(e).__name__, e,
-                )
-                raise
+        _mi_partial_nan_columns(X, y_i64, nbins, partial_cols, mis)
     return mis
+
+
+def _mi_partial_nan_columns(X: np.ndarray, y_i64: np.ndarray, nbins: int, partial_cols: np.ndarray, mis: np.ndarray) -> None:
+    """Score the partial-NaN columns one at a time (mask to the finite rows, then the batch dispatch); writes into ``mis``."""
+    from ..hermite_fe import plugin_mi_classif_batch_dispatch
+
+    # Partial-NaN columns get the per-column path (mask + sklearn). The
+    # production hybrid path nan-fills before calling MI so this branch
+    # is essentially dead code in practice; keep it for API parity.
+    for j in partial_cols:
+        col = X[:, j]
+        finite = np.isfinite(col)
+        if not finite.any():
+            mis[j] = 0.0
+            continue
+        col_f = np.ascontiguousarray(col[finite].reshape(-1, 1))
+        y_f = np.ascontiguousarray(y_i64[finite])
+        try:
+            mis[j] = float(
+                plugin_mi_classif_batch_dispatch(col_f, y_f, nbins)[0],
+            )
+        except Exception as e:
+            # Same reasoning as the sklearn loop: scoring the column 0.0 would silently delete it from the ranking.
+            logger.warning(
+                "plugin_mi_classif_batch_dispatch failed for column %d (dtype=%s, %d of %d values finite): %s: %s",
+                j, col.dtype, int(finite.sum()), col.shape[0], type(e).__name__, e,
+            )
+            raise
 
 
 # Module-import-time decision: which backend does ``_mi_classif_batch`` use?
