@@ -10,6 +10,7 @@ from __future__ import annotations
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -461,7 +462,22 @@ def _evaluate_estimator_show_classification_report(show_classification_report, y
 
             log_result(results_log, "classification_report_dict", classification_report_dict)
             log_result(results_log, "classification_report_text", classification_report_text)
+            _log_classification_report_to_active_mlflow_run(classification_report_dict)
     return classification_report_dict, classification_report_text
+
+
+def _log_classification_report_to_active_mlflow_run(report: dict) -> None:
+    """Mirror a classification report onto the MLflow run the caller already has open, if there is one.
+
+    Nothing is imported here: the check only runs when ``mlflow`` is already loaded, so environments without MLflow pay nothing and never fail.
+    The ``accuracy`` and ``balanced_accuracy`` scalars are passed as separate metrics because they are not per-class dicts.
+    """
+    mlflow_module = sys.modules.get("mlflow")
+    if mlflow_module is None or mlflow_module.active_run() is None:
+        return
+    from mlframe.integrations.mlflow import log_classification_report_to_mlflow
+
+    log_classification_report_to_mlflow(report, step=0, separate_metrics=("accuracy", "balanced_accuracy"))
 
 
 def _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklearn_calibration, nclasses, probs, y_test_test, calibration_nbins, figsize, est_name, display_labels, competing_probs, X_test_test):
