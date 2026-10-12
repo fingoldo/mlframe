@@ -98,3 +98,15 @@ def test_optimal_threshold_perfect_separation():
     thr, val = optimal_threshold(y_true, y_score, metric="f1")
     assert val == pytest.approx(1.0)
     assert 0.3 < thr <= 0.7
+
+
+@pytest.mark.timeout(60)
+def test_nan_scores_do_not_hang_and_never_become_positive():
+    """A NaN score never satisfies ``score >= threshold``; the sweep used to spin forever on it (NaN != NaN left the cut index unchanged)."""
+    from mlframe.metrics.classification._threshold_optimization import optimal_threshold
+
+    y = np.array([0, 1, 0, 1, 1, 0, 1, 0], dtype=float)
+    s = np.array([0.1, 0.9, np.nan, 0.8, 0.7, 0.2, np.nan, 0.3])
+    thr, score = optimal_threshold(y, s, metric="f1")
+    assert np.isfinite(thr)
+    assert score == pytest.approx(6.0 / 7.0)

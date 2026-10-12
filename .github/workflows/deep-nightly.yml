@@ -83,11 +83,11 @@ jobs:
           enable-cache: true
           cache-dependency-glob: pyproject.toml
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.4  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@8c19f17a4537e66db1c86245502fc6883791d632  # v1.22.5  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: d64ac2c2a2cf121c24c8c093126fe8f9553f03a7  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: 38532cd5c943e4624bdb687c1c5fc4381779c573  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
@@ -178,11 +178,11 @@ jobs:
 
       # Installs pyutilz AND this project in one uv call, exactly as ci.yml does -- the extras are what
       # the action installs, so leaving them empty asks it to install nothing.
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.4  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@8c19f17a4537e66db1c86245502fc6883791d632  # v1.22.5  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
-          pyutilz-ref: d64ac2c2a2cf121c24c8c093126fe8f9553f03a7  # pragma: allowlist secret -- git commit SHA, not a secret
+          pyutilz-ref: 38532cd5c943e4624bdb687c1c5fc4381779c573  # pragma: allowlist secret -- git commit SHA, not a secret
 
       - name: Install contributor tooling not declarable in [dev]
         run: |
@@ -244,7 +244,7 @@ jobs:
       #                       it, and adding two flags' percentages double-counts instead of unioning.
       - name: Upload coverage to Codecov (deep flag)
         if: success() || failure()
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@9d0cc27e67fbee91ee00b357551c130e0b59a0eb  # v1.22.4  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@8c19f17a4537e66db1c86245502fc6883791d632  # v1.22.5  # pragma: allowlist secret
         with:
           files: ./coverage.xml
           flags: deep

@@ -106,6 +106,9 @@ _DATE_METHOD_ALIASES: Dict[str, Tuple[Optional[str], Optional[str]]] = {
     "quarter": ("quarter", "quarter"),
     "week_of_year": ("isocalendar", "week"),
     "day_of_year": ("dayofyear", "ordinal_day"),
+    # Each backend's native spelling resolves on the other one too, so a method list written for either frame type is portable.
+    "dayofyear": ("dayofyear", "ordinal_day"),
+    "ordinal_day": ("dayofyear", "ordinal_day"),
     "is_weekend": (None, None),
 }
 

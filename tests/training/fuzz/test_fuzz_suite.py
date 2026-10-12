@@ -30,6 +30,7 @@ from tests.training._fuzz_combo import (
     log_combo_outcome,
     xfail_reason,
 )
+from tests.training._fuzz_combo.semantic_fields import register_combo_frame, training_config_for_combo
 from py_ci_shared.pytest_known_gap import known_gap
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
 
@@ -81,6 +82,8 @@ from tests.training._fuzz_suite_helpers import (
     _feature_selection_config_for_combo,
     _maybe_to_parquet,
     _preprocessing_for_combo,
+    _randomize_hyperparams_dict,
+    _randomize_one,
     _skip_if_deps_missing,
     _assert_prediction_invariants,
     _assert_serialization_roundtrip,
@@ -214,7 +217,10 @@ def _build_ltr_models_and_config(combo: FuzzCombo, _is_ltr: bool) -> tuple[list,
     # composite_classification) to the sampled model subset when the combo
     # asks for one and it's compatible with the resolved target_type.
     _extra_registry_model = combo._canonical_extra_registry_model()
-    _ltr_models = list(combo.models) + ([_extra_registry_model] if _extra_registry_model is not None else [])
+    # linear_model_type_cfg substitutes the "linear" entry with the resolved variant name
+    # (ridge/lasso/elasticnet/.../sgd) -- see combo.py's _canonical_models_for_suite docstring. A no-op
+    # when the axis is at its default "linear" or "linear" isn't in combo.models.
+    _ltr_models = list(combo._canonical_models_for_suite()) + ([_extra_registry_model] if _extra_registry_model is not None else [])
     _ltr_ranking_config = None
     if _is_ltr:
         _supported = {"cb", "xgb", "lgb", "mlp"}  # 2026-05-07: MLP via RankNet/ListNet
@@ -293,6 +299,7 @@ def _build_linear_cfg(combo: FuzzCombo) -> Any:
                 l1_ratio=_l1_ratio,
             )
         )
+        _linear_cfg = _randomize_one(_linear_cfg, combo, salt=4)
     return _linear_cfg
 
 
@@ -482,6 +489,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
     reason = xfail_reason(combo)
 
     df, target_col, _cat_names = build_frame_for_combo(combo)
+    register_combo_frame(combo, df)
 
     frame_shape_before, frame_cols_before = _snapshot_caller_frame(combo, df)
 
@@ -566,7 +574,12 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
         # 2026-05-21 iter151 P0 suite-level kwargs.
         if _quantile_cfg is not None:
             _suite_kwargs["quantile_regression_config"] = _quantile_cfg
-        if _linear_cfg is not None:
+        # Aggregate ``training_config=`` carrier (semantic randomizer): when drawn it carries the linear config in place of
+        # ``linear_model_config=``, so its linear_config / metamodel_func are what the suite actually consumes.
+        _training_cfg = training_config_for_combo(combo, combo.short_id(), combo.short_id(), _linear_cfg)
+        if _training_cfg is not None:
+            _suite_kwargs["training_config"] = _training_cfg
+        if _linear_cfg is not None and (_training_cfg is None or _training_cfg.linear_config is None):
             _suite_kwargs["linear_model_config"] = _linear_cfg
         if _fhc is not None:
             _suite_kwargs["feature_handling_config"] = _fhc
@@ -581,7 +594,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
         _rfecv_on = combo._canonical_rfecv_estimator() is not None
         trained, _meta = train_mlframe_models_suite(
             **_suite_kwargs,
-            hyperparams_config=_config_for_models(
+            hyperparams_config=_randomize_hyperparams_dict(_config_for_models(
                 combo.models,
                 combo.n_rows,
                 iterations=combo.iterations,
@@ -609,7 +622,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
                 cb_bernoulli_subsample=combo.cb_bernoulli_subsample_cfg,
                 cb_grow_policy=combo.cb_grow_policy_cfg,
                 cb_lossguide_max_leaves=combo.cb_lossguide_max_leaves_cfg,
-            ),
+            ), combo),
             preprocessing_config=_preprocessing_for_combo(combo),
             verbose=0,
             use_ordinary_models=True,
@@ -624,7 +637,7 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
             # n_rows tier only, see canonical_key) so the chart/report-generation code (perf chart, FI, calibration/reliability, slice_finder,
             # model_card, decision_curve, pdp_ice, shap_panels, model_comparison, risk_coverage) actually executes and is fuzz-exercised. The
             # matplotlib Agg backend is forced below so a headless box renders without a display; _fuzz_combo_cleanup plt.close("all")s per combo.
-            output_config=OutputConfig(
+            output_config=_randomize_one(OutputConfig(
                 data_dir=str(tmp_path),
                 models_dir="models",
                 save_charts=_viz_on,
@@ -643,35 +656,42 @@ def test_fuzz_train_mlframe_models_suite(combo: FuzzCombo, tmp_path):
                     if combo.run_diagnostics_cfg is not None
                     else {}
                 ),
+                ),
+                combo,
+                salt=2,
             ),
-            reporting_config=ReportingConfig(
-                show_perf_chart=_viz_on,
-                show_fi=_viz_on,
-                # iter162: nested ReportingConfig fields. matplotlib_rcparams
-                # parsed from JSON-string axis value (so the axis dict stays
-                # hashable for canonical_key).
-                prob_histogram_yscale=combo.reporting_prob_histogram_yscale_cfg,
-                title_metrics_template=combo.reporting_title_metrics_template_cfg,
-                matplotlib_rcparams=(
-                    None if combo.reporting_matplotlib_rcparams_cfg is None else __import__("json").loads(combo.reporting_matplotlib_rcparams_cfg)
+            reporting_config=_randomize_one(
+                ReportingConfig(
+                    show_perf_chart=_viz_on,
+                    show_fi=_viz_on,
+                    # iter162: nested ReportingConfig fields. matplotlib_rcparams
+                    # parsed from JSON-string axis value (so the axis dict stays
+                    # hashable for canonical_key).
+                    prob_histogram_yscale=combo.reporting_prob_histogram_yscale_cfg,
+                    title_metrics_template=combo.reporting_title_metrics_template_cfg,
+                    matplotlib_rcparams=(
+                        None if combo.reporting_matplotlib_rcparams_cfg is None else __import__("json").loads(combo.reporting_matplotlib_rcparams_cfg)
+                    ),
+                    multiclass_panels=combo.reporting_multiclass_panels_cfg,
+                    # 2026-05-28 W5: ReportingConfig.mase_seasonality (int, default
+                    # 1 at _reporting_configs.py:140). Thread the fuzz-axis value
+                    # through so regression combos exercise the non-default
+                    # seasonality on the report-metadata path.
+                    mase_seasonality=combo.reporting_mase_seasonality_cfg,
+                    # iter170 deep reporting axes -- defensive _safe_cfg_kwargs
+                    # absorbs fields that don't exist post-refactor.
+                    **_safe_cfg_kwargs(
+                        ReportingConfig,
+                        figsize=((15, 5) if combo.reporting_figsize_cfg == "default" else (10, 4)),
+                        plot_dpi=combo.reporting_plot_dpi_cfg,
+                        quantile_panels=(None if combo.reporting_quantile_panels_cfg == "default" else "RELIABILITY PINBALL_BY_ALPHA"),
+                        ltr_panels=(None if combo.reporting_ltr_panels_cfg == "default" else "NDCG_K LIFT"),
+                        plotly_template=combo.reporting_plotly_template_cfg,
+                        matplotlib_style=combo.reporting_matplotlib_style_cfg,
+                    ),
                 ),
-                multiclass_panels=combo.reporting_multiclass_panels_cfg,
-                # 2026-05-28 W5: ReportingConfig.mase_seasonality (int, default
-                # 1 at _reporting_configs.py:140). Thread the fuzz-axis value
-                # through so regression combos exercise the non-default
-                # seasonality on the report-metadata path.
-                mase_seasonality=combo.reporting_mase_seasonality_cfg,
-                # iter170 deep reporting axes -- defensive _safe_cfg_kwargs
-                # absorbs fields that don't exist post-refactor.
-                **_safe_cfg_kwargs(
-                    ReportingConfig,
-                    figsize=((15, 5) if combo.reporting_figsize_cfg == "default" else (10, 4)),
-                    plot_dpi=combo.reporting_plot_dpi_cfg,
-                    quantile_panels=(None if combo.reporting_quantile_panels_cfg == "default" else "RELIABILITY PINBALL_BY_ALPHA"),
-                    ltr_panels=(None if combo.reporting_ltr_panels_cfg == "default" else "NDCG_K LIFT"),
-                    plotly_template=combo.reporting_plotly_template_cfg,
-                    matplotlib_style=combo.reporting_matplotlib_style_cfg,
-                ),
+                combo,
+                salt=3,
             ),
             # 2026-07-13 -- Batch F: RegressionCalibrationConfig.apply_confidence_shrinkage
             # flipped True (DEFAULTS_CHANGELOG.md). Never previously threaded into the fuzz

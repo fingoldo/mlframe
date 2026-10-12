@@ -495,7 +495,8 @@ def test_f7_continuous_baseline_not_truncated(monkeypatch):
             """Return fixed fractional values in (0, 1)."""
             return np.linspace(0.1, 0.9, len(X))
 
-    monkeypatch.setattr(reports, "Pool", _FakePool)
+    catboost = pytest.importorskip("catboost")
+    monkeypatch.setattr(catboost, "Pool", _FakePool)
 
     rng = np.random.default_rng(0)
     n = 40

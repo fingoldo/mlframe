@@ -36,6 +36,13 @@ Frames can be 100+ GB — never `.copy()`/`.clone()`/reconstruct a frame to work
 ## `/loop` fuzz-profile-optimize: stop after 100 consecutive rejects (CRITICAL)
 Track a REJECT streak (reset on any RESOLVED), not a fixed iteration cap — stop only after 100 in a row.
 
+## `/loop` fuzz-profile-optimize: sync both mlframe and pyutilz with origin/master at the start of EVERY iteration (CRITICAL)
+Before picking a combo, profiling, or touching anything else, `git fetch` + fast-forward (or rebase an active worktree) both repos. Combo identity hashes are code-sensitive (`short_id()` shifts on any upstream change), so a stale tree can profile a combo that no longer matches what's actually on master, miss a concurrent session's fix to the same hotspot, or commit on top of history that's about to be superseded. Do this even when the previous iteration just pushed — another session may have landed something in the meantime.
+
+## "Too small to matter" is not a valid REJECT reason (CRITICAL)
+Every cycle optimizes 5 genuinely-not-yet-optimized hotspots, full stop — a hotspot's absolute tottime/share of wall-clock is NEVER grounds to skip it. "Sub-material" / "<0.4% of wall" / "only a few hundred ms" are not REJECT reasons on their own; the only valid REJECT reasons are the ones the njit-check rule already lists (an `@njit`/`parallel=True`/`cuda.jit`/`cupy`/`KernelTuningCache` lever is confirmed already covering this exact code path, or a genuine bench-attempt-rejected note already tested THIS lever, or the cost is dominated by a third-party call with no first-party loop to fuse). A function with real tottime and no such lever gets optimized regardless of how small it looks next to the total — small, un-levered hotspots accumulate across a long-running pipeline exactly like large ones.
+**Why:** a 2026-10-11 cycle REJECTed `_mrmr_degenerate._is_constant`/`_gram_matrix` and `_probe_cuda_is_usable` purely on "~3s of 775s, <0.4%" / "sub-material" grounds, without checking whether any acceleration lever actually covered them — the user explicitly rejected that reasoning: "there is not such thing. you should optimize 5 yet unoptimized hotspots regardless of that!"
+
 ## REJECTED ≠ DELETED (CRITICAL)
 A rejected optimization keeps: the committed bench/prototype (runnable), a tracker row with exact numbers + bench filename, the option itself in prod if it's a tunable (only the *default* stays unchanged), and a `# bench-attempt-rejected` note at any touched call site. Never silent-revert or silent-delete.
 
@@ -777,3 +784,49 @@ A cache attached to an instance at runtime (memo dicts, warmed kernels, device b
 
 ## Pushing to a busy master
 Several sessions push to `master` at once and the pre-push hooks (whole-project mypy, smoke tests) take minutes, so a plain `git push` is usually rejected as non-fast-forward. Use `scripts/sync_and_push.sh`: it fetches, merges what arrived, commits the merge (retrying the hook that rewrites line endings) and pushes, up to six times; a conflict stops it with exit 3 and nothing is reset, stashed or forced. Do not edit the working tree while a commit or push is running: the hooks stash and auto-fix files, which makes them report "files were modified" and can revert an edit made in that window.
+
+## BUG FIX (2026-10-11): Captum IntegratedGradients silently fell to the ~50x-slower permutation-importance fallback on every MLP-with-categoricals combo
+2M-row cProfile on combo `c0693_88c02e1c` (hgb+mlp+xgb, multi_target_regression) showed `_feature_importances.get_model_feature_importances` falling through to `_permutation_feature_importances` for the MLP member, costing 282 `Trainer.predict()` calls/run, because Captum crashed on every real (string-categorical) frame: `pandas.DataFrame.to_numpy()` upcasts the whole array to `dtype=object` once ANY column is a raw string, and `torch.as_tensor` rejects that outright. The crash itself was silent (caught, degraded to the slow fallback) — found only by pushing back on a premature "third-party cost, nothing to fuse" verdict.
+
+Root cause took three iterations to pin down (reconstructing mlframe's real preprocessing architecture empirically, not by reading code): `model` reaching this code is `_TTRWithEvalSetScaling(TransformedTargetRegressor)`, never a `Pipeline` with the encoder as an earlier step (iteration 1's assumption); no `Pipeline` is reachable by walking the wrapper chain at all for this shape (iteration 2's assumption). The real shape chains two INDEPENDENT sibling sources: `model._mlframe_pre_pipeline` (stamped onto `model` at fit time in `_apply_pre_pipeline_transforms`, `_pipeline_helpers_apply.py`) handles numeric imputation/scaling but, for the MLP strategy specifically, deliberately leaves categoricals as raw strings (`_NumericOnlyTransformer`'s own docstring: so the MLP's own embedding layer can factorize them) — and `_apply_cat_codes` (the MLP wrapper's OWN fit-time string-to-index factorizer, `neural/base/_base_fit_prep.py`) is what actually finishes that encoding, and was never consulted by the direct-net FI path at all.
+
+Fixed in `_feature_importances.py`: `_net_input_frame` now chains `pre_pipeline.transform(X)` (via `_find_stamped_pre_pipeline`, falling back to `_find_pipeline_in_chain` for a model that genuinely does embed the encoder) THEN `_apply_cat_codes(X)` (via `_find_cat_code_applier`) before handing the result to Captum/the CUDA-batched permutation kernel. Verified empirically via a live debug-instrumented 2000-row run (zero Captum failures, down from every call) and confirmed at the full 2M-row scale on the same combo: zero Captum failures, zero permutation-fallback calls, the FI cost no longer appears in the top-30 cumtime at all. 7 tests in `test_feature_importances_captum_pipeline_encoding.py` pin both the real chained architecture and the secondary Pipeline-embedding fallback shape.
+
+## PERF cycle REJECT (2026-10-11): post-Captum-fix 2M-row reprofile of c0693_88c02e1c, all fresh tottime candidates already saturated or sub-material
+Re-profiling the same combo after the Captum fix (FI cost gone from the profile entirely) surfaced a new tottime ranking topped by MRMR's `binned_numeric_agg`/FE-cascade stages. Checked every candidate above ~0.5s tottime not already covered elsewhere in this file against the njit-check rule:
+- `_renumber_joint`/`_joint_entropy_two`/`_entropy_from_classes` (`_mi_greedy_cmi_fe_steps.py`) — already njit-fused, with a documented 2026-07-18 bench-rejected GPU-dispatch attempt at these exact call shapes (host 4-16x faster than GPU for k<=4 conditioning columns).
+- `_per_cell_moments_stable` (`_binned_numeric_agg_fe.py`) — already the numerically-stable two-pass fused njit kernel from the earlier skew/kurt cancellation-bug fix.
+- `spearmanr_scalar_dispatch` (`metrics/rank_correlation.py`) — already dispatches to a 2-way-prange-parallel njit kernel for single-series Spearman.
+- `discretize_2d_array` / `_discretize_2d_array_col_cached` (`discretization/__init__.py`) — saturated with prior njit/parallel/GPU work and multiple documented bench-rejected attempts; this run's GPU path OOM'd (4GB card contention) and fell back to the already-parallel CPU prange path, not a regression.
+- `_mrmr_degenerate.audit_degenerate_columns`/`_is_constant`/`_gram_matrix` — the Gram matrix already GPU-dispatches under `fe_gpu_strict_enabled`; the diagnostic per-column scan is a one-shot O(p) pass, ~3s of 775s (<0.4%) — sub-material.
+- `_probe_cuda_is_usable` (`training/neural/_base_tensor_helpers.py`) — already cached (`_CUDA_PROBE_CACHE`); the 16 calls are cold per-process re-probes from joblib worker respawn, ~40ms each, sub-material.
+No safe, well-scoped, materially-sized fresh win identified this cycle.
+
+## PERF cycle REJECT (2026-10-11): fresh combo c0505_36bd8bea (cb+hgb+lgb+mlp, learning_to_rank), the MLP RankNet DataLoader path is the top hotspot but has no confirmed lever gap
+2M-row cProfile on combo `c0505_36bd8bea` (hgb correctly drops for LTR; surviving native rankers cb/lgb/mlp)
+surfaced `ranker.py`'s DataLoader/pairwise-loss machinery as the dominant self-time: `__getitems__`
+(30.6s/56260 calls), `ranknet_pairwise_loss_precomputed` (24.8s/56260 calls), `install_pair_index_cache`
+(9.3s/2 calls), `GroupBatchSampler.__iter__` (8.3s/56280 calls) -- together ~13% of the 556s MLP ranker
+fit. None of these have a missing `@njit`/`parallel=True`/`cuda.jit`/`cupy` lever: the loss kernel is
+already TorchScript-traced (with a documented 2026-05-23 bench-rejected attempt to strip its thin Python
+wrapper, 0.1-0.2% of wall), and `__getitems__`/`install_pair_index_cache` already carry extensive
+per-query caching (iter357, iter364) that collapses the cache-hit path to a single dict lookup -- the
+measured cost is concentrated in the OPT-7 multi-query batch path (`queries_per_batch > 1`), which this
+combo's config apparently exercises. OPT-7's own docstring already explains why that path's batch-level
+cache can't be reused across epochs (the multi-query partition key depends on the shuffled batch
+composition, which changes every epoch) -- the PER-QUERY pair/X/y slices it reads ARE still cached
+(`_pair_idx_by_query`/`_batch_by_query`, keyed by query, not by batch), so the remaining cost is the
+per-batch list-building + `torch.cat` composition over those already-cached per-query pieces.
+
+NOT a REJECT on smallness grounds (13% of a 556s fit is clearly material) -- REJECTed because no
+confirmed acceleration lever is missing without a deeper redesign, and this module has an unusually dense
+history of prior tuning (OPT-7, iter357, iter183, iter364) that a shallow pass risks silently undoing.
+**Lead for whoever picks this up**: the OPT-7 branch's per-batch `torch.cat(concat_i_parts)` /
+`torch.cat(concat_j_parts)` loop over `partition` could potentially be replaced by precomputing, ONCE per
+epoch (inside `GroupBatchSampler.__iter__`, which already rebuilds the partition each epoch), the
+FULL-EPOCH concatenated pair-index tensors with per-batch offset ranges, turning each `__getitems__` call
+under OPT-7 into a single tensor slice instead of a per-query Python loop + list append + `torch.cat` --
+but this needs a standalone wall-clock microbench first (cProfile's per-call instrumentation tax on many
+small torch-op dispatches inside a tight loop is a known inflation risk here, per this project's own
+"microbench the wrapper standalone before trusting a flagged frame" rule) and careful bit-identity
+verification against the existing OPT-7 output before touching a path this heavily tuned.

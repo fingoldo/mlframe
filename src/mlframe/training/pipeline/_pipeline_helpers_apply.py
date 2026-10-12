@@ -216,6 +216,19 @@ def _apply_pre_pipeline_transforms(
             except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
                 logger.debug("could not stamp _mlframe_identity_equivalent on non-writable pre_pipeline: %s", e)
 
+        # Stamp the fitted pre_pipeline onto model itself (mirrors the _mlframe_identity_equivalent
+        # bookkeeping attr above) so the direct-net FI paths (Captum, the CUDA-batched permutation
+        # kernel) -- which receive only `model`, several call layers away from here -- can later replay
+        # pre_pipeline.transform(raw_df) to get the net's actual numeric input instead of the raw
+        # caller-supplied frame with un-encoded categoricals. model and pre_pipeline are SIBLING objects
+        # (the net is fit on pre_pipeline's OUTPUT, pre_pipeline is never embedded inside model), so
+        # there is no other way to reach this transform from model alone. See
+        # mlframe.training._feature_importances._net_input_frame.
+        try:
+            model._mlframe_pre_pipeline = pre_pipeline
+        except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
+            logger.debug("could not stamp _mlframe_pre_pipeline on non-writable model: %s", e)
+
         # Validate the pre_pipeline output against what the model expects.
         # A mis-shaped pre_pipeline output (e.g. a custom step that drops a
         # column the fitted model needs) otherwise surfaces as an opaque

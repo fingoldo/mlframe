@@ -42,6 +42,147 @@ _PERM_FI_N_REPEATS: int = 3
 _PERM_FI_RANDOM_STATE: int = 0
 
 
+def _find_stamped_pre_pipeline(model: Any) -> Any:
+    """``model._mlframe_pre_pipeline`` (stamped by ``_apply_pre_pipeline_transforms`` at fit time), found by
+    walking the same wrapper chain ``_unwrap_estimator_chain`` walks -- the stamp is applied to the
+    OUTERMOST ``model`` reference the training loop holds, so a direct ``getattr`` is the common case;
+    the chain walk is a defensive fallback should a future wrapper layer end up stamped instead.
+    """
+    seen: set = set()
+    cur = model
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        stamped = getattr(cur, "_mlframe_pre_pipeline", None)
+        if stamped is not None:
+            return stamped
+        nxt = None
+        for attr in ("regressor_", "regressor", "estimator_", "base_estimator_", "best_estimator_"):
+            inner = getattr(cur, attr, None)
+            if inner is not None and id(inner) not in seen:
+                nxt = inner
+                break
+        if nxt is None:
+            return None
+        cur = nxt
+    return None
+
+
+def _find_cat_code_applier(model: Any) -> Any:
+    """The wrapper object exposing ``_apply_cat_codes`` (``neural/base/_base_fit_prep.py``'s mixin), found by
+    walking the same wrapper chain ``_unwrap_estimator_chain`` walks.
+
+    The MLP strategy's ``pre_pipeline`` deliberately leaves categorical columns as raw strings (see
+    ``_NumericOnlyTransformer``'s docstring: "the raw categorical columns must reach the MLP estimator
+    un-scaled / un-imputed so its fit-boundary factorizer + nn.Embedding can index them") -- the actual
+    string-to-embedding-index factorization happens one level deeper, inside the Lightning wrapper's own
+    fit-time ``_cat_code_maps_``, replayed via ``_apply_cat_codes``. ``pre_pipeline.transform(X)`` alone is
+    therefore not enough for an MLP with categorical features; this finds the object ``_net_input_frame``
+    must also call to finish the encoding.
+    """
+    seen: set = set()
+    cur = model
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if hasattr(cur, "_apply_cat_codes"):
+            return cur
+        nxt = None
+        for attr in ("regressor_", "regressor", "estimator_", "base_estimator_", "best_estimator_"):
+            inner = getattr(cur, attr, None)
+            if inner is not None and id(inner) not in seen:
+                nxt = inner
+                break
+        if nxt is None:
+            return None
+        cur = nxt
+    return None
+
+
+def _find_pipeline_in_chain(model: Any) -> Optional[Pipeline]:
+    """The first multi-step sklearn ``Pipeline`` found walking the SAME wrapper chain
+    ``_unwrap_estimator_chain`` walks. Secondary fallback for :func:`_net_input_frame` when no
+    ``_mlframe_pre_pipeline`` stamp is found (``model`` fitted by an older code path, or a caller that
+    bypassed ``_apply_pre_pipeline_transforms``) AND ``model`` itself genuinely embeds the encoder as an
+    earlier Pipeline step rather than as a sibling object. Returns ``None`` when no multi-step ``Pipeline``
+    is found anywhere in the chain.
+    """
+    seen: set = set()
+    cur = model
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, Pipeline):
+            return cur if len(cur.steps) >= 2 else None
+        nxt = None
+        for attr in ("regressor_", "regressor", "estimator_", "base_estimator_", "best_estimator_"):
+            inner = getattr(cur, attr, None)
+            if inner is not None and id(inner) not in seen:
+                nxt = inner
+                break
+        if nxt is None:
+            return None
+        cur = nxt
+    return None
+
+
+def _net_input_frame(model: Any, X: Any) -> Any:
+    """``X`` encoded the SAME way the training loop encoded it before the net ever saw it.
+
+    The direct-net FI paths (Captum IntegratedGradients, the CUDA-batched permutation importance) call
+    ``net(X_tensor)`` directly, bypassing the training loop's own preprocessing -- so they need X in
+    whatever representation the net actually trained on, not the raw caller-supplied frame. A raw frame
+    with still-string categorical columns (the category encoder has not run on it yet) makes
+    ``pandas.DataFrame.to_numpy()`` upcast the WHOLE array to ``dtype=object`` (float + string columns have
+    no common numeric supertype), which ``torch.as_tensor`` then rejects outright -- the loud failure that
+    surfaced this gap. The quieter, more dangerous case this guards against is a raw frame that LOOKS
+    numeric (e.g. an already-int-coded categorical) but isn't in the SAME encoding the net's embedding
+    table expects: re-deriving an ad hoc encoding (e.g. factorizing strings on the spot) would silently
+    feed the net values it never saw in that arrangement during training, producing wrong-but-not-crashing
+    attributions -- worse than the loud failure, since nothing would flag it.
+
+    Two sources, chained in order (each is independently optional):
+
+    1. ``model._mlframe_pre_pipeline`` (see :func:`_find_stamped_pre_pipeline`) -- the common case.
+       ``model`` and the preprocessing pipeline (imputer / scaler, and for tree/boosting strategies a
+       category encoder too, built once per suite by ``build_pipeline``) are SIBLING objects in this
+       codebase: the net is fit on the pipeline's OUTPUT, the pipeline is never embedded inside ``model``.
+       ``_apply_pre_pipeline_transforms`` stamps the fitted pipeline onto ``model`` at fit time (mirroring
+       its existing ``pre_pipeline._mlframe_identity_equivalent`` bookkeeping-attr convention) specifically
+       so this function, several call layers away, can replay the FULL ``pre_pipeline.transform(X)``.
+       For an MLP, this step deliberately leaves categoricals as raw strings (see
+       ``_NumericOnlyTransformer``) -- step 2 below finishes them.
+    2. ``_apply_cat_codes`` (see :func:`_find_cat_code_applier`) -- the MLP strategy's own fit-time
+       string-to-embedding-index factorization (``_cat_code_maps_``), which never runs inside
+       ``pre_pipeline`` at all. A no-op for a model with no categorical factorization (tree/boosting
+       strategies encode categoricals via step 1's category encoder instead, not this).
+
+    Falls back to ``X`` unchanged for whichever step finds nothing to replay, and to the INPUT of a step
+    that raises (an unfitted stage, a shape mismatch, ...) -- this is a best-effort diagnostic path, not a
+    training-critical one, so a partial result is still better than aborting Captum/the CUDA kernel
+    outright. :func:`_find_pipeline_in_chain` is a last-resort fallback for the case ``model`` itself
+    embeds the encoder as an earlier Pipeline step rather than as a sibling ``pre_pipeline``.
+    """
+    out = X
+    pre_pipeline = _find_stamped_pre_pipeline(model)
+    if pre_pipeline is not None:
+        try:
+            out = pre_pipeline.transform(out)
+        except Exception as exc:
+            logger.debug("_net_input_frame: replaying the stamped pre_pipeline on X failed (%s); using X as-is for the next step.", exc)
+    else:
+        pipeline = _find_pipeline_in_chain(model)
+        if pipeline is not None:
+            try:
+                out = pipeline[:-1].transform(out)
+            except Exception as exc:
+                logger.debug("_net_input_frame: replaying the embedded pipeline's pre-estimator steps on X failed (%s); using X as-is for the next step.", exc)
+    cat_applier = _find_cat_code_applier(model)
+    if cat_applier is not None:
+        try:
+            out = cat_applier._apply_cat_codes(out)
+        except Exception as exc:
+            logger.debug("_net_input_frame: replaying _apply_cat_codes on X failed (%s); returning the frame as of the previous step.", exc)
+    return out
+
+
 def _unwrap_estimator_chain(model: Any) -> Any:
     """Walk standard sklearn / mlframe wrappers to the inner estimator.
 
@@ -587,20 +728,25 @@ def get_model_feature_importances(
         #   * "permutation_cuda"-> Force the CUDA-batched kernel
         #                          (skips when no CUDA / not a torch model).
         net = _torch_module_from_model(model)
+        # Captum / the CUDA-batched kernel call the net DIRECTLY (bypassing the pipeline's own
+        # .predict(), which applies the category encoder / scaler steps first) -- replay those steps
+        # here so the net sees the SAME representation it was trained on, not the raw caller frame.
+        # Only worth computing when there IS a net to feed it to (tree/coef models never reach here).
+        _net_X = _net_input_frame(model, X) if X is not None and net is not None else None
         if nn_fi_method == "first_layer" and net is not None:
             feature_importances = _first_layer_weight_importance(net)
         elif nn_fi_method in ("auto", "captum") and net is not None and X is not None:
-            feature_importances = _captum_integrated_gradients_importance(net, X)
+            feature_importances = _captum_integrated_gradients_importance(net, _net_X)
             if feature_importances is None and nn_fi_method == "auto" and y is not None:
                 # Captum unavailable -> try CUDA-batched permutation when
                 # n_features justifies the warmup amortisation.
-                _n_feats = X.shape[1] if hasattr(X, "shape") and len(X.shape) == 2 else None
+                _n_feats = _net_X.shape[1] if _net_X is not None and hasattr(_net_X, "shape") and len(_net_X.shape) == 2 else None
                 if net is not None and _n_feats is not None and _n_feats >= _CUDA_PERM_MIN_FEATURES:
-                    feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
+                    feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, _net_X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
                 if feature_importances is None:
                     feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
         elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None:
-            feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
+            feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, _net_X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
             if feature_importances is None:
                 logger.info("CUDA-batched FI unavailable; falling back to threading permutation.")
                 feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form

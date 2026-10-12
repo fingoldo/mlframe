@@ -317,6 +317,10 @@ class DataConfig(BaseConfig):
     calib_df: Optional[Any] = None  # pd.DataFrame | pl.DataFrame - raw calib rows, same schema as train_df
     calib_target: Optional[Any] = None  # np.ndarray or pd.Series aligned with calib_df rows
     calib_idx: Optional[Any] = None  # np.ndarray - source positions of the calib rows (diagnostics only)
+    # Suite-supplied: calib_df is then already replayed through the suite-level fitted stages (post-main-pipeline), and this is
+    # the same rows stopped before the main pipeline. The trainer picks whichever carries test_df's columns. None for direct
+    # trainer callers, whose calib_df already has train_df's schema.
+    calib_df_pre_pipeline: Optional[Any] = None
 
     # Additional data
     group_ids: Optional[Any] = None  # np.ndarray - for per-group AUC computation

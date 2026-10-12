@@ -116,7 +116,7 @@ class TrainingBehaviorConfig(BaseConfig):
     prefer_cpu_for_xgboost: bool = False
     prefer_calibrated_classifiers: bool = True
     use_robust_eval_metric: bool = True
-    nbins: int = DEFAULT_CALIBRATION_BINS
+    nbins: int = Field(default=DEFAULT_CALIBRATION_BINS, ge=2)  # MetricsConfig needs >= 2; checked here so the bad value fails at construction
     xgboost_verbose: int = 0
     rfecv_model_verbose: int = 0
     fairness_features: Optional[List[str]] = None

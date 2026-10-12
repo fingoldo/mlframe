@@ -132,6 +132,8 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
                 "train_df_polars", "val_df_polars", "test_df_polars",
                 "calib_df",  # the calibration slice is predicted on with the same models; it must lose the same columns
             )
+            # The raw calib slice is kept for replay: the fitted pipeline still expects the screened columns as input.
+            ctx.calib_df_raw = getattr(ctx, "calib_df", None)
             _staged: dict[str, object] = {}
             for _frame_attr in _frame_attrs:
                 _f = getattr(ctx, _frame_attr, None)

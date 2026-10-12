@@ -33,9 +33,9 @@ def _must_not_run(*args, **kwargs):
 @pytest.fixture(autouse=True)
 def _fresh_throttle(monkeypatch):
     """Reset the shared log throttle so the fallback warnings are not swallowed by earlier tests."""
-    import importlib
+    from mlframe.utils.log_throttle import reset_throttle_counts
 
-    monkeypatch.setattr(importlib.import_module("mlframe.utils.log_throttle"), "_counts", {})
+    reset_throttle_counts()
 
 
 def _run(process_fn, parallel_run_fn=_must_not_run, methods=("arithm", "harm"), levels=2, n_jobs=1, base_params=None, members=("m0", "m1")):

@@ -98,10 +98,14 @@ def apply_per_target_supervised_fe(
     per_target: Dict[str, dict] = {}
     base = (train_df, val_df, test_df)
     added: Tuple[List[Any], List[Any], List[Any]] = ([], [], [])
+    # Hoisted out of the per-target loop below: ``train_idx`` is a function parameter that never changes across
+    # targets, so recasting it with ``np.asarray`` once per misaligned target repeated the same conversion for
+    # nothing.
+    _idx_all = None if train_idx is None else np.asarray(train_idx)
     for t, name, y in targets:
         y_train = y
-        if train_idx is not None and train_df is not None and len(y) != train_df.shape[0]:
-            idx = np.asarray(train_idx)
+        if _idx_all is not None and train_df is not None and len(y) != train_df.shape[0]:
+            idx = _idx_all
             if len(idx) != train_df.shape[0] or int(idx.max()) >= len(y):
                 logger.warning("Per-target composite FE: target %s/%s does not align with the train rows; skipped.", t, name)
                 continue

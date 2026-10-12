@@ -35,6 +35,10 @@ _CANCEL_RE = re.compile(r"The operation was cancell?ed|##\[error\]The run was ca
 MAX_E_LINES = 3
 
 
+class GhNotFound(RuntimeError):
+    """A 404 from the GitHub API: retrying cannot help and the caller decides whether the missing object matters."""
+
+
 class GhError(RuntimeError):
     """Raised when a gh invocation keeps failing after all retries."""
 
@@ -202,6 +206,8 @@ def retry_gh(
     for attempt in range(retries):
         try:
             return exec_once(args)
+        except GhNotFound:
+            raise
         except (GhError, subprocess.TimeoutExpired) as exc:  # noqa: PERF203
             last = str(exc)
             if attempt < retries - 1:
@@ -213,7 +219,13 @@ def _exec_gh_once(args: Sequence[str]) -> str:
     """Run one gh command via subprocess (no shell) and return stdout, raising GhError on a non-zero exit."""
     proc = subprocess.run(["gh", *args], capture_output=True, encoding="utf-8", errors="replace", timeout=GH_TIMEOUT_S, check=False)
     if proc.returncode != 0:
-        raise GhError(proc.stderr.strip() or f"exit code {proc.returncode}")
+        err = proc.stderr.strip()
+        # Newer gh refuses to print an API response (a job log) that holds terminal escape sequences unless told to; older gh has no such flag.
+        if "--allow-escape-sequences" in err and args and args[0] == "api" and "--allow-escape-sequences" not in args:
+            return _exec_gh_once([*args, "--allow-escape-sequences"])
+        if "HTTP 404" in err:
+            raise GhNotFound(err)
+        raise GhError(err or f"exit code {proc.returncode}")
     return proc.stdout
 
 
@@ -235,11 +247,14 @@ def list_workflows(run_gh: RunGh) -> List[Tuple[int, str]]:
 
 def latest_completed_runs(run_gh: RunGh, repo: str, workflow_id: int, branch: str) -> List[Dict[str, Any]]:
     """Return up to two latest completed runs (newest first) of a workflow on the branch."""
-    data = gh_json(
-        run_gh,
-        ["run", "list", "-R", repo, "--workflow", str(workflow_id), "--branch", branch, "--status", "completed", "--limit", "2",
-         "--json", "databaseId,conclusion,headSha,createdAt"],
-    )
+    try:
+        data = gh_json(
+            run_gh,
+            ["run", "list", "-R", repo, "--workflow", str(workflow_id), "--branch", branch, "--status", "completed", "--limit", "2",
+             "--json", "databaseId,conclusion,headSha,createdAt"],
+        )
+    except GhNotFound:
+        return []  # a workflow that no longer exists on the default branch has no runs to report
     return list(data)
 
 

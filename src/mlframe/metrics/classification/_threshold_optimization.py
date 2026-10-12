@@ -82,6 +82,9 @@ def _optimal_threshold_kernel(y_sorted: np.ndarray, s_sorted: np.ndarray, code: 
     while i < n:
         # advance through all points sharing this score (a threshold can only cut between distinct scores)
         cur = s_sorted[i]
+        # NaN never satisfies ``score >= threshold``, so no cut may include it; NaN sorts last, so stop here.
+        if cur != cur:
+            break
         while i < n and s_sorted[i] == cur:
             if y_sorted[i] > 0.5:
                 tp += 1.0
@@ -165,6 +168,8 @@ def _bootstrap_threshold_kernel(y_sorted: np.ndarray, s_sorted: np.ndarray, idx:
         i = 0
         while i < n:
             cur = s_sorted[idx[b, i]]
+            if cur != cur:
+                break
             while i < n and s_sorted[idx[b, i]] == cur:
                 if y_sorted[idx[b, i]] > 0.5:
                     tp += 1.0

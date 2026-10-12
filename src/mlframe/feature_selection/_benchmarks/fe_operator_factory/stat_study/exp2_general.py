@@ -11,6 +11,9 @@ warnings.simplefilter("ignore")
 from mlframe.feature_selection.filters.feature_engineering import create_binary_transformations, create_unary_transformations
 
 from ..common.binning import mi, mi_b, qbin
+import logging
+
+logger = logging.getLogger(__name__)
 
 UN = create_unary_transformations("minimal")
 BI = create_binary_transformations("minimal")
@@ -34,7 +37,8 @@ def preset(x, z, rows):
         for bn, fb in BI.items():
             try:
                 val = clean(fb(u, v))
-            except Exception:
+            except Exception as exc:
+                logger.debug("operator %s failed on the study inputs: %s", bn, exc)
                 continue
             if val[rows].std() > 0:
                 out[f"{bn}({n1}(x),{n2}(z))"] = val

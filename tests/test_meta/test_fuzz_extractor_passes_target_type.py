@@ -12,6 +12,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FUZZ_DIR = REPO_ROOT / "tests" / "training" / "fuzz"
 EXTRACTOR = "SimpleFeaturesAndTargetsExtractor"
@@ -59,7 +61,9 @@ def test_every_fuzz_suite_passes_the_exact_target_type() -> None:
     """No fuzz file builds the extractor from the regression flag alone."""
     total = 0
     offenders: dict[str, list[int]] = {}
-    for path in sorted(FUZZ_DIR.glob("*.py")):
+    scanned = sorted(FUZZ_DIR.glob("*.py"))
+    assert_scanned_enough(len(scanned), "tests/training/fuzz", minimum=5)
+    for path in scanned:
         source = path.read_text(encoding="utf-8")
         total += _count_constructions(source)
         lines = constructions_without_target_type(source)

@@ -100,6 +100,11 @@ def create_fairness_subgroups(
         # whitelist-style: only int/float/bool/numeric extension types reach
         # qcut; everything else uses the value_counts categorical path below.
         if pd.api.types.is_numeric_dtype(feature_vals):
+            # An infinite value becomes an infinite quantile edge, and pandas then fails building the interval labels ("missing values must be
+            # missing in the same location both left and right sides"). Rows with no finite value belong to no bin, the same as NaN rows.
+            if not pd.api.types.is_bool_dtype(feature_vals) and np.isinf(feature_vals.to_numpy(dtype=np.float64, na_value=np.nan)).any():
+                feature_vals = feature_vals.replace([np.inf, -np.inf], np.nan)
+                val_cnts = feature_vals.value_counts()
             if len(val_cnts) > cont_nbins:
                 # duplicates="drop" so tie-heavy / zero-inflated features (non-unique quantile edges) collapse to fewer
                 # bins instead of raising the opaque "Bin edges must be unique" ValueError deep in pandas.

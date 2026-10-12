@@ -4,6 +4,9 @@ import warnings
 
 import numpy as np
 from numba import njit, prange
+import logging
+
+logger = logging.getLogger(__name__)
 
 warnings.simplefilter("ignore")
 
@@ -294,7 +297,8 @@ def preset_cands(UX, UZ, BI):
             for bn, fb in BI.items():
                 try:
                     val = clean(fb(UX[iu], UZ[iv]))
-                except Exception:
+                except Exception as exc:
+                    logger.debug("operator %s failed on the study inputs: %s", bn, exc)
                     continue
                 if val.std() > 0:
                     rows.append(val)

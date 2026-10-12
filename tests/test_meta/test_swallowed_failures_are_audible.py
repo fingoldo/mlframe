@@ -289,7 +289,7 @@ class TestTheGpuFallbackNamesItself:
 
         results, cpu_reference, messages = _failing_gpu_cmi_run(monkeypatch, caplog, repeats=12)
         assert results == [cpu_reference] * 12
-        assert throttle._counts["cmi_gpu_kernel_fallback"] == 12
+        assert throttle.log_throttle_count("cmi_gpu_kernel_fallback") == 12
         failures = [m for m in messages if "_cmi_from_binned_cupy failed" in m]
         assert len(failures) == 5, f"expected the warning throttled to 5 occurrences, got {len(failures)}"
         assert len(messages) == 6
@@ -301,7 +301,7 @@ class TestTheGpuFallbackNamesItself:
 
         assert len(set(SITES.values())) == len(SITES), "two handlers share a throttle key and would silence each other"
         _failing_gpu_cmi_run(monkeypatch, caplog, repeats=1)
-        assert throttle._counts[SITES["_mi_greedy_cmi_fe.py"]] == 1
+        assert throttle.log_throttle_count(SITES["_mi_greedy_cmi_fe.py"]) == 1
 
     def test_the_throttle_key_is_distinct_per_site(self):
         """The re-add probe counts its failures under its own key, so it cannot silence the CMI fallback site."""
@@ -310,8 +310,8 @@ class TestTheGpuFallbackNamesItself:
         throttle.reset_throttle_counts(SITES[_GROUP1])
         throttle.reset_throttle_counts(SITES["_mi_greedy_cmi_fe.py"])
         _probe_with_failing_estimator(0)
-        assert throttle._counts[SITES[_GROUP1]] == 1
-        assert throttle._counts.get(SITES["_mi_greedy_cmi_fe.py"], 0) == 0
+        assert throttle.log_throttle_count(SITES[_GROUP1]) == 1
+        assert throttle.log_throttle_count(SITES["_mi_greedy_cmi_fe.py"]) == 0
 
 
 def test_all_four_modules_still_import():

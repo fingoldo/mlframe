@@ -143,12 +143,19 @@ class _FitPrepMixin:
                 if col not in X.columns:
                     continue
                 mapping = code_maps[col]
-                # ``.astype(object)`` BEFORE ``.map``: Series.map on a pandas CATEGORICAL column returns a Categorical (it maps the categories and keeps
-                # the dtype), so the ``.fillna(card)`` unknown-code fill below would try to add ``card`` as a NEW category and raise "Cannot setitem on a
-                # Categorical with a new category". Mapping the plain object values yields a numeric/object Series whose NaN fill (values unseen at fit)
-                # lands as the reserved unknown code, never a new category.
-                mapped = X[col].astype(object).map(mapping)
-                encoded_cols[col] = mapped.fillna(float(card)).astype(np.float32)
+                # Vectorised hash-table lookup (``Index.get_indexer``, a single C-level pass over the whole
+                # column) instead of ``Series.map(mapping)``: ``map`` on an object-dtype column dispatches the
+                # dict's ``__getitem__`` once PER ROW through a Cython loop, which this replaced version (18
+                # calls / 6.3s cumtime on a 2M-row profile, now the hottest call site since the Captum fix wires
+                # this path into every direct-net FI call) paid in full every time. ``.astype(object)`` first for
+                # the same reason the old code needed it: a pandas CATEGORICAL column's own index-based lookup
+                # would otherwise try to add the reserved unknown code as a new category.
+                mapping_index = pd.Index(mapping.keys())
+                code_array = np.asarray(list(mapping.values()), dtype=np.float64)
+                raw_idx = mapping_index.get_indexer(X[col].astype(object))
+                safe_idx = np.where(raw_idx >= 0, raw_idx, 0)
+                codes = np.where(raw_idx >= 0, code_array[safe_idx], float(card))
+                encoded_cols[col] = codes.astype(np.float32)
         # A column outside the fit-time cat set was numeric (not embedded) when the network was built, so it must
         # arrive numeric here too. If a null-fill sentinel (e.g. the "__MISSING__" categorical-fill convention) or
         # any other non-numeric value slipped into it at predict time -- a split-dependent fill applied to a column

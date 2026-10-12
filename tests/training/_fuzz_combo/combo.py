@@ -172,6 +172,18 @@ class FuzzCombo:
     enable_quantile_regression_cfg: bool = False
     linear_alpha_cfg: float = 1.0
     linear_solver_cfg: str = "lbfgs"
+    # 2026-10-11 -- LinearModelConfig.model_type fuzz gap closed. train_mlframe_models_suite's linear
+    # dispatch keys off the NAME string in the models/mlframe_models allowlist (LINEAR_MODEL_TYPES &
+    # models_set), not off LinearModelConfig.model_type -- the trainer explicitly strips model_type from
+    # the user-supplied linear_model_config (``model_dump(exclude={"model_type"})``) before merging it,
+    # so the field itself has zero effect on which sklearn estimator gets built. Pre-this-axis, the fuzz
+    # MODELS tuple only ever emitted the "linear" name, so ridge/lasso/elasticnet/huber/ransac/sgd (6 of
+    # VALID_LINEAR_MODEL_TYPES' 7 values) had NO fuzz lever at all. This axis substitutes the "linear"
+    # entry in the models list actually sent to the suite (see test_fuzz_suite.py's
+    # _canonical_models_for_suite) with the chosen variant name; "linear" in self.models still gates every
+    # other linear-family canon check (alpha/solver/l1_ratio axes above) since those fields are shared
+    # across all 7 variants via the same LinearModelConfig.
+    linear_model_type_cfg: str = "linear"
     enable_feature_handling_config_cfg: bool = False
     enable_precomputed_cfg: bool = False
     test_sequential_fraction_cfg: "float | None" = None
@@ -844,6 +856,28 @@ class FuzzCombo:
     # ``mlframe_models`` default (["cb","lgb","xgb","mlp","linear"]).
     _DEFAULT_MLFRAME_MODELS_ALLOWLIST = frozenset({"cb", "lgb", "xgb", "mlp", "linear"})
 
+    def _canonical_linear_model_type(self) -> str:
+        """The linear-family model NAME actually sent to the suite's models/mlframe_models allowlist --
+        ``self.linear_model_type_cfg`` when a non-default variant is requested AND "linear" is actually
+        in play, else "linear" (a no-op collapse so dedup doesn't split on this axis for non-linear
+        combos). Also collapsed for ``learning_to_rank`` -- the LTR path filters the model list down to
+        the native-ranker set ({cb,xgb,lgb,mlp}) before use, so "linear" never survives into the ranker's
+        model allowlist there and the axis would otherwise split dedup buckets for zero behavioural
+        difference."""
+        if self.target_type == "learning_to_rank":
+            return "linear"
+        return self.linear_model_type_cfg if "linear" in self.models else "linear"
+
+    def _canonical_models_for_suite(self) -> "tuple[str, ...]":
+        """``self.models`` with the "linear" entry substituted by the resolved linear variant name
+        (ridge/lasso/elasticnet/huber/ransac/sgd) -- the real dispatch lever (see
+        ``linear_model_type_cfg``'s docstring); every OTHER canon check keeps reading ``self.models``
+        unchanged (alpha/solver/l1_ratio axes apply identically across all 7 variants)."""
+        _variant = self._canonical_linear_model_type()
+        if _variant == "linear":
+            return self.models
+        return tuple(_variant if m == "linear" else m for m in self.models)
+
     def _canonical_mlframe_models_explicit(self) -> bool:
         """False only for regression combos whose model subset is entirely
         within the real default allowlist and that don't also need an
@@ -855,6 +889,7 @@ class FuzzCombo:
             and self.target_type == "regression"
             and set(self.models).issubset(self._DEFAULT_MLFRAME_MODELS_ALLOWLIST)
             and self.extra_registry_model_cfg is None
+            and self._canonical_linear_model_type() == "linear"
         ):
             return False
         return True
@@ -1275,6 +1310,7 @@ class FuzzCombo:
             # P0-2: linear axes only meaningful when "linear" in models.
             (self.linear_alpha_cfg if "linear" in self.models else 1.0),
             (self.linear_solver_cfg if "linear" in self.models else "lbfgs"),
+            self._canonical_linear_model_type(),
             # P0-3 / P0-4: enable flags carry through; FHC/precomputed have
             # no preconditions on other combo axes so no further canon.
             self.enable_feature_handling_config_cfg,

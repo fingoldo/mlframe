@@ -15,6 +15,13 @@ module.
 """
 from __future__ import annotations
 
+# Importing mlframe.metrics.core installs the sklearn.clone()-identity-check-bypass patch for
+# CatBoostClassifier/Regressor's eval_metric AND custom_metric (see
+# mlframe.metrics._ice_metric._install_catboost_sklearn_clone_patch). This package constructs CatBoost
+# estimators from configs that may carry either, so the import guarantees the patch is installed
+# regardless of what else has (or hasn't) imported mlframe.metrics first.
+import mlframe.metrics.core
+
 from ._cb_text_probe import (
     unigram_rescues_text_features,
     single_token_text_features,

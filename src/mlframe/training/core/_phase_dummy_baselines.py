@@ -232,6 +232,7 @@ def run_dummy_baselines(
                     # regression_title_metrics_tokens; before this the dummy
                     # report path raised NameError on every regression run.
                     reporting_config=reporting_config,
+                    quantile_alphas=_q_alphas,
                 )
                 _emit_val = bool(getattr(reporting_config, "compute_valset_metrics", True))
                 _emit_test = bool(getattr(reporting_config, "compute_testset_metrics", True))

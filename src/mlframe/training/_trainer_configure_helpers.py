@@ -28,6 +28,13 @@ from mlframe.training._polars_native_support import catboost_polars_fastpath_bro
 # Optional model backends: lazy/tolerant of missing deps.
 try:
     from catboost import CatBoostRegressor, CatBoostClassifier
+
+    # Importing mlframe.metrics.core installs the sklearn.clone()-identity-check-bypass patch for
+    # CatBoostClassifier/Regressor's eval_metric/custom_metric params (see
+    # mlframe.metrics._ice_metric._install_catboost_sklearn_clone_patch) -- needed because this module
+    # constructs CatBoost estimators (line ~388) from configs that may carry either and are later
+    # cloned (e.g. train_eval.py's per-weight-schema sklearn.clone(), noted below).
+    import mlframe.metrics.core  # noqa: F401
 except ImportError:  # pragma: no cover
     CatBoostRegressor = CatBoostClassifier = None
 try:
