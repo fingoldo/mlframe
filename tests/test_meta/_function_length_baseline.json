@@ -37,7 +37,7 @@
   "src/mlframe/feature_selection/filters/_fe_additive_fusion_gpu_resident.py::propose_additive_fusions_gpu": 274,
   "src/mlframe/feature_selection/filters/_fe_auto_escalation.py::run_fe_auto_escalation": 253,
   "src/mlframe/feature_selection/filters/_fe_cmi_perm_null_gpu.py::conditional_perm_null_gpu": 163,
-  "src/mlframe/feature_selection/filters/_fe_cmi_redundancy_gate.py::apply_cmi_redundancy_gate": 388,
+  "src/mlframe/feature_selection/filters/_fe_cmi_redundancy_gate.py::apply_cmi_redundancy_gate": 381,
   "src/mlframe/feature_selection/filters/_fe_pure_form_retention.py::retain_usable_pure_forms": 301,
   "src/mlframe/feature_selection/filters/_fe_pure_form_retention_gpu_resident.py::adds_nonlinear_value_batch_gpu_resident": 183,
   "src/mlframe/feature_selection/filters/_fe_raw_redundancy_drop.py::_drop_redundant_raw_o_step1_ri_st_raw": 170,
