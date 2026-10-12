@@ -65,14 +65,8 @@ def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanc
 def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("accuracy",),source:str=""):
     """Logging all metrics from a dict-like classification_report as flat MLFlow entries."""
 
-    cr = dict(cr)
-    for metric in separate_metrics:
-        if metric in cr:
-            mlflow.log_metric(source + metric, cr.pop(metric), step=step)
-    for class_or_avg, metrics_dict in cr.items():
-        prefix = class_or_avg if class_or_avg in ("macro avg", "weighted avg") else "class " + str(class_or_avg)
-        for metric, value in metrics_dict.items():
-            mlflow.log_metric(source + prefix + "_" + metric, value, step=step)
+    for name, value in flatten_classification_report(cr, separate_metrics=separate_metrics, source=source).items():
+        mlflow.log_metric(name, value, step=step)
 
 def embed_website_to_mlflow(url:str,fname:str="url",extension:str='.html',width:int=700,height:int=450)->None:
     """Creates a html file with desired url embedded to be shown nicely in MLFlow UI.

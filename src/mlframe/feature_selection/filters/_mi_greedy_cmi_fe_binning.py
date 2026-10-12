@@ -22,6 +22,8 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
     from mlframe._numba_fallback import njit
 
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
@@ -218,7 +220,7 @@ def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np
             from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
             _gpu_on = fe_gpu_strict_resident_enabled()
         except Exception as e:
-            logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+            log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
             _gpu_on = False
         if _gpu_on and (not host_only or a.size >= _HOST_ONLY_DEVICE_MIN_N):
             _g = _quantile_bin_gpu(a, nbins)

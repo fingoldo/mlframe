@@ -25,6 +25,8 @@ from pyutilz.pythonlib import sort_dict_by_value
 from ._pairs_gates import _PREWARP_UNARY, _select_single_best
 from types import SimpleNamespace as _SimpleNamespace
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -397,7 +399,7 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                     from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_on
                     _ev_use_dev = bool(_ev_resident_on())
                 except Exception as e:
-                    logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+                    log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
                     _ev_use_dev = False
                 if _ev_use_dev:
                     from mlframe.feature_selection.filters._gpu_resident_extval import gpu_materialise_extval_codes_host

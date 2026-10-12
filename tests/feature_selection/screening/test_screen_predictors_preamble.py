@@ -38,21 +38,15 @@ import pandas as pd
 
 
 def test_factors_names_none_does_not_crash():
-    """``screen_predictors`` with ``factors_names=None`` (the documented
-    signature default) MUST not crash on ``len(None)``. The function
-    is internal but the MRMR.fit happy-path exercises it - just verify
-    the public surface still works.
-    """
+    """MRMR.fit on a frame whose target depends only on column ``a`` must select exactly column 0 and not crash on the preamble."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)
     n = 200
     X = pd.DataFrame(rng.standard_normal((n, 4)), columns=["a", "b", "c", "d"])
     y = pd.Series((X["a"] > 0).astype(np.int64), name="y")
-    # Happy path - if iter-25 broke the preamble we'd see a TypeError
-    # / ValueError here.
     sel = MRMR(verbose=0).fit(X, y)
-    assert sel.support_ is not None
+    assert list(sel.support_) == [0]
 
 
 def test_screen_predictors_factors_names_empty_list_no_mismatch():

@@ -64,12 +64,15 @@ import numpy as np
 
 from ._y_encoding import encode_y_for_classif_mi
 
+from mlframe.utils.log_throttle import log_throttle
+
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
     from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
+
 
 def _is_cupy_ndarray(x) -> bool:
     """True iff ``x`` is a resident cupy ndarray - WITHOUT hard-importing cupy (no import when it is a host array).
@@ -141,7 +144,7 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         _rb = False
     if _is_cupy_ndarray(col):
         arr = col  # resident (n,) or (n,1) cupy -> _mi_classif_batch reshapes 1-D to a column itself
@@ -221,7 +224,7 @@ def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         _rb = False
     from ._pairwise_modular_resident import combiner_mi_resident
 
@@ -281,7 +284,7 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         _rb = False
     from ._pairwise_modular_resident import perm_null_residue_mis_resident
 
@@ -339,7 +342,7 @@ def cheap_modular_scan(
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _scan_rb = fe_gpu_strict_resident_enabled()
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         _scan_rb = False
     from ._pairwise_modular_resident import combiner_mi_resident
 

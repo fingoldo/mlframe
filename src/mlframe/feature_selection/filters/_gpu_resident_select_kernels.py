@@ -16,6 +16,7 @@ import logging
 import os
 from typing import Any
 
+from mlframe.utils.log_throttle import log_throttle
 import numpy as np
 
 _RADIX_SELECT_F64_SRC = r"""
@@ -763,7 +764,8 @@ def _get_radix_select_interp_f64_v3_kernel():
             _RADIX_SELECT_INTERP_F64_V3_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_V3_SRC, "radix_select_interp_f64_v3")
         except Exception:
             import logging
-            logging.getLogger(__name__).debug("f64 v3 compaction kernel compile failed; v2", exc_info=True)
+            log_throttle(logging.getLogger(__name__), "gpu_select.f64_v3_compile", logging.WARNING,
+                                "f64 v3 compaction kernel compile failed; v2", exc_info=True)
             _RADIX_SELECT_INTERP_F64_V3_KERNEL = False
     return _RADIX_SELECT_INTERP_F64_V3_KERNEL or None
 
@@ -779,7 +781,8 @@ def _get_radix_select_interp_f64_kernel():
                 _RADIX_SELECT_INTERP_F64_V2_KERNEL = cp.RawKernel(_RADIX_SELECT_INTERP_F64_V2_SRC, "radix_select_interp_f64_v2")
             except Exception:
                 import logging
-                logging.getLogger(__name__).debug("f64 v2 fused kernel compile failed; original", exc_info=True)
+                log_throttle(logging.getLogger(__name__), "gpu_select.f64_v2_compile", logging.WARNING,
+                                    "f64 v2 fused kernel compile failed; original", exc_info=True)
                 _RADIX_SELECT_INTERP_F64_V2_KERNEL = False
         if _RADIX_SELECT_INTERP_F64_V2_KERNEL:
             return _RADIX_SELECT_INTERP_F64_V2_KERNEL
@@ -844,7 +847,8 @@ def _get_radix_select_f32_dispatch(n: int):
             return _get_radix_select_f32_v3_kernel()
         except Exception:
             import logging
-            logging.getLogger(__name__).debug("v3 radix kernel compile failed; bsearch fallback", exc_info=True)
+            log_throttle(logging.getLogger(__name__), "gpu_select.f32_v3_compile", logging.WARNING,
+                                "v3 radix kernel compile failed; bsearch fallback", exc_info=True)
             variant = "bsearch"
     if variant == "bsearch":
         try:
