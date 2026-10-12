@@ -61,7 +61,12 @@ def _detect_budget_param(model_category: str, model_obj: Any) -> str | None:
     # ``None`` -- so a category explicitly opted OUT of the runtime probe below would silently fall
     # through to it anyway. Use membership to distinguish the two cases.
     if model_category in _BUDGET_PARAM_BY_CATEGORY:
-        return _BUDGET_PARAM_BY_CATEGORY[model_category]
+        # The category names the knob, but the object handed in may not carry it (a Pipeline or other wrapper around a
+        # Ridge/Lasso has no ``max_iter`` of its own); the wrapper would then refuse it, so report no budget knob here.
+        _mapped = _BUDGET_PARAM_BY_CATEGORY[model_category]
+        if _mapped is not None and model_obj is not None and not hasattr(model_obj, _mapped):
+            return None
+        return _mapped
     if model_obj is None:
         return None
     try:
