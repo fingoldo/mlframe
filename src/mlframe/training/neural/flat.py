@@ -75,6 +75,27 @@ class Snake(nn.Module):
         return f"alpha={float(self.alpha):.4g}"
 
 
+def _warn_identity_activation_footgun(activation_function, nlayers: int, num_classes) -> None:
+    """Warn when an identity/None activation is stacked over two or more layers, since that collapses to one affine map."""
+    _is_identity_activation = activation_function is None or activation_function is nn.Identity
+    if _is_identity_activation and nlayers >= 2 and num_classes != 0:
+        logger.warning(
+            "generate_mlp: activation_function=%s with nlayers=%d on a %s "
+            "head will COLLAPSE to a single affine map at inference. "
+            "The 3+ redundantly-parameterised matrices DO NOT add "
+            "expressivity (any composition of linear maps is linear), "
+            "but they DO degrade optimisation and catastrophically "
+            "amplify OOD-extrapolation on unseen-groups test splits "
+            "(observed in prod: Identity-MLP R^2=-326 vs Ridge R^2=1.00 "
+            "on identical data). Pick one: set nlayers=1 for an honest "
+            "linear model, OR pick a real nonlinearity (nn.ReLU, nn.GELU, "
+            "nn.LeakyReLU) for an actual nonlinear function.",
+            "Identity/None" if activation_function is None else activation_function.__name__,
+            nlayers,
+            "regression" if num_classes == 1 else "classification",
+        )
+
+
 def generate_mlp(
     num_features: int,
     num_classes: int,
@@ -246,23 +267,7 @@ def generate_mlp(
     # gives an honest single Linear -> Identity which is well-conditioned
     # AND has the same expressivity. Multi-layer Identity is always a
     # mistake; warn loudly so the operator picks one or the other.
-    _is_identity_activation = activation_function is None or activation_function is nn.Identity
-    if _is_identity_activation and nlayers >= 2 and num_classes != 0:
-        logger.warning(
-            "generate_mlp: activation_function=%s with nlayers=%d on a %s "
-            "head will COLLAPSE to a single affine map at inference. "
-            "The 3+ redundantly-parameterised matrices DO NOT add "
-            "expressivity (any composition of linear maps is linear), "
-            "but they DO degrade optimisation and catastrophically "
-            "amplify OOD-extrapolation on unseen-groups test splits "
-            "(observed in prod: Identity-MLP R^2=-326 vs Ridge R^2=1.00 "
-            "on identical data). Pick one: set nlayers=1 for an honest "
-            "linear model, OR pick a real nonlinearity (nn.ReLU, nn.GELU, "
-            "nn.LeakyReLU) for an actual nonlinear function.",
-            "Identity/None" if activation_function is None else activation_function.__name__,
-            nlayers,
-            "regression" if num_classes == 1 else "classification",
-        )
+    _warn_identity_activation_footgun(activation_function, nlayers, num_classes)
 
     # ``spectral_norm`` wrap helper. Bounds the spectral norm
     # (largest singular value) of each Linear's weight matrix to <= 1

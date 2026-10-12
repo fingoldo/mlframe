@@ -270,7 +270,7 @@
   "src/mlframe/training/neural/_flat_torch_module/_flat_torch_predict_accel.py::_PredictAccelMixin._maybe_cuda_graph_forward": 163,
   "src/mlframe/training/neural/base/_base_fit.py::_FitMixin._fit_common": 456,
   "src/mlframe/training/neural/base/_base_predict.py::_PredictMixin._predict_raw": 253,
-  "src/mlframe/training/neural/flat.py::generate_mlp": 317,
+  "src/mlframe/training/neural/flat.py::generate_mlp": 304,
   "src/mlframe/training/neural/ranker.py::MLPRanker.fit": 188,
   "src/mlframe/training/pipeline/__init__.py::create_polarsds_pipeline": 152,
   "src/mlframe/training/pipeline/_pipeline_cache.py::_full_x_content_hash": 156,
