@@ -128,7 +128,6 @@ def one(process: str, n: int, seed: int) -> dict:
     c = float(np.dot(b[tr] - b[tr].mean(), y[tr] - y[tr].mean()) / np.dot(b[tr] - b[tr].mean(), b[tr] - b[tr].mean()))
     for name, make in MODELS.items():
         Xb = X if base_col else np.column_stack([X, b])
-        raw = _fit_predict(make, X, y[tr] if False else y, X)[te] if False else None
         raw = _fit_predict(make, X[tr], y[tr], X[te])
         plus = _fit_predict(make, Xb[tr], y[tr], Xb[te])
         if multiplicative:

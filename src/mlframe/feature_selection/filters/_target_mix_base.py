@@ -60,10 +60,10 @@ class FixedBetaOffsetRegressor:
         return [self.base_column]
 
     def _split(self, X: Any):
-        """The frame without the base column, and the base as float64; raises when the column is missing or non-finite."""
+        """The frame without the base column, and the base values; raises when the column is missing or non-finite."""
         if self.base_column not in getattr(X, "columns", ()):
             raise KeyError(f"FixedBetaOffsetRegressor: base column {self.base_column!r} missing from X.")
-        base = np.asarray(X[self.base_column].to_numpy(dtype=np.float64), dtype=np.float64)
+        base = np.asarray(X[self.base_column].to_numpy())
         if not np.all(np.isfinite(base)):
             raise ValueError(f"FixedBetaOffsetRegressor: base column {self.base_column!r} has non-finite values; refusing to fill them silently.")
         return X.drop(columns=[self.base_column]), base
@@ -71,10 +71,12 @@ class FixedBetaOffsetRegressor:
     def fit(self, X: Any, y: Any) -> "FixedBetaOffsetRegressor":
         """Fit the inner regressor on ``y - beta * base``."""
         Xf, base = self._split(X)
-        self.regressor_ = self.regressor.fit(Xf, np.asarray(y, dtype=np.float64).ravel() - self.beta * base)
+        yy = np.asarray(y).ravel()
+        self.regressor_ = self.regressor.fit(Xf, yy - self.beta * base)
         return self
 
     def predict(self, X: Any) -> np.ndarray:
         """``regressor(X without the base) + beta * base``."""
         Xf, base = self._split(X)
-        return np.asarray(self.regressor_.predict(Xf), dtype=np.float64) + self.beta * base
+        out: np.ndarray = np.asarray(self.regressor_.predict(Xf)) + self.beta * base
+        return out

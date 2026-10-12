@@ -183,7 +183,9 @@ def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retent
                 design[name] = np.asarray(X[name].to_numpy(), dtype=np.float64)
         for name, rec in zip(eng_names, self._engineered_recipes_ or []):
             design[name] = np.nan_to_num(np.asarray(apply_recipe(rec, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
-        raw_cols = frozenset(str(c) for c in (getattr(self, "feature_names_in_", None) if getattr(self, "feature_names_in_", None) is not None else cols) if str(c) not in engineered_recipes)
+        _names = getattr(self, "feature_names_in_", None)
+        _cols_src = _names if _names is not None else cols
+        raw_cols = frozenset(str(c) for c in _cols_src if str(c) not in engineered_recipes)
         # prune first: a column without held-out gain must not shield the raw operands it holds from the pool (the sources of a pruned carrier are free again)
         prune_names = _unsupported_columns(self, design, y, raw_cols, residual_rescue)
         for name in prune_names:
@@ -245,7 +247,7 @@ def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retent
         corr = {i: abs(float(np.corrcoef(np.asarray(X[cols[i]].to_numpy(), dtype=np.float64), y)[0, 1])) for i in dropped if cols[i] in X.columns}
         corr = {i: (c if np.isfinite(c) else 0.0) for i, c in corr.items()}
         if corr:
-            dropped.remove(max(corr, key=corr.get))
+            dropped.remove(max(corr, key=lambda k: corr[k]))
     for idx in dropped:
         selected_vars.remove(idx)
         if verbose:

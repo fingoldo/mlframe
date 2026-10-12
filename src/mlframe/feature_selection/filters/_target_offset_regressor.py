@@ -25,10 +25,10 @@ __all__ = ["TargetOffsetRegressor"]
 def _replay_base(recipe: Any, X: pd.DataFrame) -> np.ndarray:
     """Values of the base column on ``X``: a raw column by name, or an engineered recipe replayed from ``X`` (no target)."""
     if isinstance(recipe, dict) and "raw" in recipe:
-        return np.nan_to_num(np.asarray(X[recipe["raw"]].to_numpy(), dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        return np.nan_to_num(np.asarray(X[recipe["raw"]].to_numpy()), nan=0.0, posinf=0.0, neginf=0.0)
     from .engineered_recipes.shared import apply_recipe
 
-    return np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+    return np.nan_to_num(np.asarray(apply_recipe(recipe, X)).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
 
 
 class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
@@ -57,14 +57,15 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
     def _offset(self, X: pd.DataFrame) -> np.ndarray:
         """``beta * u(X)`` of the first recorded base, or zeros when the selector recorded none."""
         if self.offset_base_ is None:
-            return np.zeros(len(X), dtype=np.float64)
+            return np.zeros(len(X), dtype=self._y_dtype_)
         return self.offset_beta_ * _replay_base(self.offset_base_, X)
 
     def fit(self, X, y):
         """Fit the selector, then the regressor on the selected features against ``y - beta * u(X)``."""
         self.decide(X, y)
         X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
-        y = np.asarray(y, dtype=np.float64).ravel()
+        y = np.asarray(y).ravel()
+        self._y_dtype_ = y.dtype
         self.regressor_ = clone(self.regressor).fit(self.selector_.transform(X), y - self._offset(X))
         return self
 
@@ -73,7 +74,8 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
 
         Used on its own where only the decision and the slope are needed (building the mix-offset target); ``fit`` is this plus the final fit."""
         X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
-        y = np.asarray(y, dtype=np.float64).ravel()
+        y = np.asarray(y).ravel()
+        self._y_dtype_ = y.dtype
         # Selection and the slope beta see the even rows only; the held-out gate below reads the odd rows, which neither the selector nor beta has seen.
         even = np.arange(len(y)) % 2 == 0
         self.selector_ = clone(self.selector).fit(X.iloc[np.flatnonzero(even)].reset_index(drop=True), y[even])
@@ -110,4 +112,4 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
     def predict(self, X):
         """``regressor(selector.transform(X)) + beta * u(X)``."""
         X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
-        return np.asarray(self.regressor_.predict(self.selector_.transform(X)), dtype=np.float64) + self._offset(X)
+        return np.asarray(self.regressor_.predict(self.selector_.transform(X))) + self._offset(X)

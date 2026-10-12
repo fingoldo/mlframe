@@ -42,7 +42,7 @@ def choose_bases(design: Mapping[str, np.ndarray], y: np.ndarray, max_bases: int
     even = np.arange(len(y)) % 2 == 0
     scored = []
     for name, u in design.items():
-        u = np.nan_to_num(np.asarray(u, dtype=np.float64), nan=0.0, posinf=0.0, neginf=0.0)
+        u = np.nan_to_num(np.asarray(u), nan=0.0, posinf=0.0, neginf=0.0)
         if float(u.std()) <= 0.0:
             continue
         t_stat, rel = linear_oos_gain({}, u, y)

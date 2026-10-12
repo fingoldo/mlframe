@@ -35,7 +35,7 @@ def build_mix_offset_target(
     decision is made for (the held-out comparison is done with it)."""
     from ._target_offset_regressor import TargetOffsetRegressor, _replay_base
 
-    y = np.asarray(y, dtype=np.float64).ravel()
+    y = np.asarray(y).ravel()
     tr = np.asarray(train_idx, dtype=np.int64)
     Xtr = X.iloc[tr].reset_index(drop=True)
     # The decision and the slope only: the final regressor is not fitted here, so the target build costs two gate fits, not three.
@@ -58,14 +58,16 @@ def add_back_mix_offset(predictions: Any, X: pd.DataFrame, record: dict) -> np.n
     u = _replay_base(record["recipe"], X)
     if not np.all(np.isfinite(u)):
         raise ValueError("the mix base replays to non-finite values on this frame; refusing to fill them silently.")
-    return np.asarray(predictions, dtype=np.float64).ravel() + float(record["beta"]) * u
+    out: np.ndarray = np.asarray(predictions).ravel() + float(record["beta"]) * u
+    return out
 
 
 def mix_offset_record(metadata: Any, target_type: Any, target_name: Any) -> Optional[dict]:
     """The feature-base mix record of a ``<name>__mixoff`` companion target (``metadata["mix_offset_targets"]``), or None for any other target."""
     if not isinstance(metadata, dict):
         return None
-    return metadata.get("mix_offset_targets", {}).get(str(target_type), {}).get(target_name)
+    record: Optional[dict] = metadata.get("mix_offset_targets", {}).get(str(target_type), {}).get(target_name)
+    return record
 
 
 def assemble_full_frame(train_df: Any, val_df: Any, test_df: Any, train_idx: Any, val_idx: Any, test_idx: Any, n_rows: int) -> Optional[pd.DataFrame]:
