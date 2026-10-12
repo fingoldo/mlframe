@@ -102,6 +102,7 @@ _SUPERSEDED = {
     "_oof_column_foldloop",  # parity oracle for _oof_column_gather (tests/feature_selection/fe/gpu/test_binagg_oof_gather_parity.py)
     "_pair_combo_mi_cupy_loop",  # per-combo cupy twin of _pair_combo_mi_cupy; parity pinned in tests/feature_selection/gpu/test_usability_pool_cupy_batched_twin.py
     "_propose_fourier",  # predecessor of _propose_fourier_both_warps; parity pinned in tests/feature_selection/fe/adaptive/test_propose_fourier_parity.py
+    "mi_classif_streamed",  # copy-into-staging predecessor of mi_classif_streamed_fill (the production path); kept as its reference, parity pinned in tests/feature_selection/filters/test_streamed_gpu_mi.py::test_streamed_fill_matches_copy_path
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.

@@ -90,7 +90,10 @@ def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: i
     """Plug-in MI of every column of every block against ``y``, concatenated in block order.
 
     ``blocks`` yields ``(n_rows, w)`` arrays of ``dtype`` (each block may have its own width up to the planned one). Returns the
-    MI per column. Raises when no CUDA device is usable: the caller decides the fallback."""
+    MI per column. Raises when no CUDA device is usable: the caller decides the fallback.
+
+    The copy-into-staging predecessor of :func:`mi_classif_streamed_fill`, kept as its reference: the production path calls the fill
+    variant, and the parity test pins the two to identical output."""
     import cupy as cp
     from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 
