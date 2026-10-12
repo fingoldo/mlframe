@@ -162,7 +162,7 @@ def _frame_row_hashes(frame: pd.DataFrame) -> np.ndarray:
     for col in cells.columns:
         if cells[col].dtype == object:
             cells[col] = cells[col].map(_cell_fingerprint)
-    return pd.util.hash_pandas_object(cells, index=False).to_numpy()
+    return np.asarray(pd.util.hash_pandas_object(cells, index=False).to_numpy())
 
 
 def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None, disc_df: Any = None, time_column: Any = None,

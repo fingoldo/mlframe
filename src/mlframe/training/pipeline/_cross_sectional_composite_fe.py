@@ -58,8 +58,7 @@ def apply_cross_sectional_composite_fe(
     # give val/test a different neighbor radius than what the model was fit on) -- a split with too few
     # of its own snapshots to support it degrades further, with an explicit WARN, rather than silently.
     pd_train = _to_pandas(train_df)
-    train_has_inputs = pd_train is not None and snapshot_col in pd_train.columns and all(c in pd_train.columns for c in feature_cols)
-    if not train_has_inputs:
+    if pd_train is None or not (snapshot_col in pd_train.columns and all(c in pd_train.columns for c in feature_cols)):
         # Upstream steps can prune the snapshot key or feature columns from every split before this one; then there is
         # nothing to compute and every split keeps its schema, as documented above.
         return train_df, val_df, test_df
