@@ -453,3 +453,22 @@ def test_cprofile_rung_screen_negligible():
         f"rung-0 screen took {rung_cum:.4f}s of {total:.2f}s ({100 * rung_cum / max(total, 1e-9):.2f}%); "
         "expected negligible (reuses the gate's pair_mi, no MI compute)"
     )
+
+
+def test_aggressive_keep_frac_switch_keeps_the_aggressive_fraction():
+    """keep_frac='aggressive' applies the per-pool aggressive fraction, not the per-host default."""
+    from mlframe.feature_selection.filters._fe_rung_schedule import _optin_keep_frac
+
+    pool = _mk_pool([0.5 * 0.8**i for i in range(30)])
+    frac = _optin_keep_frac(len(pool))
+    assert frac < 1.0
+    kept, info = apply_rung_schedule(pool, n_rows=5000, keep_frac="aggressive", rel_floor=0.9, min_pairs=6)
+    assert info["applied"] is True
+    assert info["keep_frac"] == frac
+    assert len(kept) == info["n_kept"] < len(pool)
+
+
+def test_unknown_keep_frac_string_is_rejected():
+    """Only the 'aggressive' string is a valid keep_frac switch."""
+    with pytest.raises(ValueError):
+        apply_rung_schedule(_mk_pool([0.5] * 8), n_rows=5000, keep_frac="fast", min_pairs=6)
