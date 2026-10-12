@@ -47,7 +47,7 @@ from ._orth_extra_basis_fe import (
 )
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from ..engineered_recipes import EngineeredRecipe
 
 def generate_extra_basis_features(
     X: pd.DataFrame,

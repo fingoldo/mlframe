@@ -914,7 +914,7 @@ from ._orth_extra_basis_fe import (
 )
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from ..engineered_recipes import EngineeredRecipe
 
 # ---------------------------------------------------------------------------
 # Layer 56: TRI-PRODUCT cross-basis FE lives in sibling module

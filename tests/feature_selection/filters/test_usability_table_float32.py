@@ -30,8 +30,9 @@ def test_float32_table_keeps_the_ranking_of_the_float64_table():
     assert a is not None and b is not None and a.shape == b.shape
     assert np.array_equal(a < 0, b < 0)
     assert float(np.abs(a - b)[(a >= 0) & (b >= 0)].max()) < 1e-3
-    assert a.shape[0] > 0, "no pairs in the table: the loop below would pass vacuously"
-    for p in range(a.shape[0]):
+    pairs = list(range(a.shape[0]))
+    assert pairs, "no pairs in the table: the loop below would pass vacuously"
+    for p in pairs:
         assert set(np.argsort(-a[p], kind="stable")[:12]) == set(np.argsort(-b[p], kind="stable")[:12])
         assert np.argmax(a[p]) == np.argmax(b[p])
 

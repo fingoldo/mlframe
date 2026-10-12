@@ -512,7 +512,7 @@ def hybrid_orth_mi_pair_fe(
 from .._fe_family_timing import fe_timed
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from ..engineered_recipes import EngineeredRecipe
 
 @fe_timed("orth_pair")
 def hybrid_orth_mi_pair_fe_with_recipes(

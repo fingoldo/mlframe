@@ -73,10 +73,14 @@ def _kernels(cp) -> Optional[tuple]:
         _KERNELS = (cp.RawKernel(_PASS1_SRC, "cell_sums"), cp.RawKernel(_PASS2_SRC, "cell_centred"))
         _KERNELS[0].compile()
         _KERNELS[1].compile()
-    except Exception as exc:
+    except ImportError as exc:
         _KERNELS = None
-        _UNAVAILABLE = True
+        _UNAVAILABLE = True  # a missing toolkit stays missing for the process
         logger.warning("fused cell-moment kernels unavailable (%s: %s); per-cell moments use the slower scatter-add form for this process", type(exc).__name__, exc)
+    except Exception as exc:
+        # A transient failure (allocation, driver reset) must not pin the slow form for the process: warn and re-probe on the next call.
+        _KERNELS = None
+        log_throttle(logger, "cell_moments.kernels", logging.WARNING, "fused cell-moment kernels failed to build (%s: %s); the scatter-add form is used for this call", type(exc).__name__, exc)
     return _KERNELS
 
 def masked_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, w: Any, n_cells: int) -> Optional[tuple]:
@@ -176,10 +180,13 @@ def _fold_kernels(cp) -> Optional[tuple]:
         _FOLD_KERNELS = (cp.RawKernel(_FOLDS_PASS1_SRC, "fold_cell_sums"), cp.RawKernel(_FOLDS_PASS2_SRC, "fold_cell_centred"))
         _FOLD_KERNELS[0].compile()
         _FOLD_KERNELS[1].compile()
-    except Exception as exc:
-        log_throttle(logger, "cell_moments.fold_kernels", logging.WARNING, "cell moments: the all-folds kernels could not be built (%s: %s), the per-fold form is used", type(exc).__name__, exc)
+    except ImportError:
         _FOLD_KERNELS = None
-        _FOLD_UNAVAILABLE = True
+        _FOLD_UNAVAILABLE = True  # a missing toolkit stays missing for the process
+    except Exception as exc:
+        # A transient failure must not pin the per-fold form for the process: warn and re-probe on the next call.
+        _FOLD_KERNELS = None
+        log_throttle(logger, "cell_moments.fold_kernels", logging.WARNING, "cell moments: the all-folds kernels failed to build (%s: %s), the per-fold form is used for this call", type(exc).__name__, exc)
     return _FOLD_KERNELS
 
 def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, fold_g: Any, n_folds: int, n_cells: int) -> Optional[tuple]:

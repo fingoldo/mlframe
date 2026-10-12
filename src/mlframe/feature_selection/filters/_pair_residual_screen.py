@@ -96,12 +96,13 @@ def _score_pairs(Q, resid, even, pairs, n_bins, shrink):
                 mc = s[cell] / (c[cell] + shrink)
                 e = resid[i]
                 d = e * e - (e - mc) * (e - mc)
-                m1 += d
-                m2 += d * d
                 cnt += 1
+                delta = d - m1
+                m1 += delta / cnt
+                m2 += delta * (d - m1)
         if cnt > 1:
-            mean = m1 / cnt
-            var = max(m2 / cnt - mean * mean, 0.0)
+            mean = m1
+            var = max(m2 / cnt, 0.0)  # Welford running mean and M2: no E[d^2] - mean^2 cancellation
             se = np.sqrt(var / cnt)
             out[k] = mean / se if se > 0.0 else mean * 1e300
     return out

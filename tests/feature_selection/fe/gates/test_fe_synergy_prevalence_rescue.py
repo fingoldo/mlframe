@@ -75,9 +75,6 @@ def _ab_escalation_names(sel) -> list[str]:
     for r in getattr(sel, "_engineered_recipes_", None) or []:
         if pat.search(r.name):
             names.add(r.name)
-        # also match the base by its exact raw source pair
-        if set(getattr(r, "src_names", ()) or ()) == {"a", "b"}:
-            names.add(r.name)
     for nm in sel.get_feature_names_out():
         if pat.search(nm):
             names.add(nm)

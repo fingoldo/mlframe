@@ -210,7 +210,8 @@ def _dyadic_haar_leg_njit_serial(z: np.ndarray, left: float, mid: float, right: 
 # found the crossover between n=20M (parallel 1.18x) and n=50M (parallel 1.33x) -- the fallback threshold
 # below (used only pre-sweep / on tuner failure) is deliberately close to the loss side for that reason,
 # but the REAL per-host decision comes from the tuner's measured sweep, not this constant.
-_HAAR_LEG_SWEEP_N = [1_000, 1_000_000, 30_000_000]
+# Capped at 4M rows: a 30M-row cell is ~240 MB per float64 column and repeats per variant; the fallback covers larger n.
+_HAAR_LEG_SWEEP_N = [1_000, 1_000_000, 4_000_000]
 _HAAR_LEG_SALT = 1
 
 

@@ -466,6 +466,8 @@ _REGISTRY_REPLAY_WRITERS = {
     "_register_or_get": "per-process provider cache (weakref lifecycle); no pickled object names an entry",
     "_do_load": "per-process provider cache load path; no pickled object names an entry",
     "register_metric": "public plugin API for custom metrics; the built-ins register at import",
+    "create_binary_transformations": "a memo of a deterministic builder keyed by the preset: every process that asks for a preset rebuilds the entry on its first call, so no load-time replay is needed",
+    "create_unary_transformations": "a memo of a deterministic builder keyed by the preset: every process that asks for a preset rebuilds the entry on its first call, so no load-time replay is needed",
 }
 
 

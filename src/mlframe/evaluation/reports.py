@@ -221,17 +221,7 @@ def evaluate_estimators(
             # Make complete pipeline
             # ****************************************************************************************************************************
 
-            est_type = type(est).__name__
-
-            if type(est) is tuple:
-                est_name, est = est
-            else:
-                est_name = est_type
-
-            if target_wrapper:
-                pipe = Pipeline([*pre_pipeline, ("est", target_wrapper(est))])
-            else:
-                pipe = Pipeline([*pre_pipeline, ("est", est)])
+            est_name, est, pipe = _named_estimator_pipe(est, pre_pipeline, target_wrapper)
 
             # ****************************************************************************************************************************
             # Fit that estimator to the train set
@@ -350,6 +340,15 @@ def evaluate_estimators(
 def _is_catboost_pool_or_path(obj) -> bool:
     """True for a CatBoost ``Pool`` or a ``str`` path, the inputs ``pipe.fit`` must receive without a separate ``y``."""
     return isinstance(obj, str) or (type(obj).__name__ == "Pool" and type(obj).__module__.startswith("catboost"))
+
+
+def _named_estimator_pipe(est, pre_pipeline, target_wrapper):
+    """``(est_name, est, pipe)`` for one entry of the estimator list: a ``(name, estimator)`` tuple or a bare estimator, wrapped in the pre-pipeline."""
+    est_name = type(est).__name__
+    if type(est) is tuple:
+        est_name, est = est
+    wrapped = target_wrapper(est) if target_wrapper else est
+    return est_name, est, Pipeline([*pre_pipeline, ("est", wrapped)])
 
 
 def _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, groups, baseline_model, X_train, pipe, plot, init_model, y_train):

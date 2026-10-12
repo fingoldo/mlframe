@@ -51,7 +51,8 @@ _GPU_PERM_KERNEL_THRESHOLD_N: int = 1_000_000
 # per-host cache has no entry yet (mirrors ``signal/dtw.py``). 2-D axes, BOTH swept
 # (full grid, not a fixed-n_perms 1-D crossover): ``n_samples`` (dominant) x ``n_perms``.
 _PERM_SWEEP_N_PERMS_GRID = [10, 50, 200]  # full n_perms axis (was a single fixed 50)
-_PERM_SWEEP_N_SAMPLES = [100_000, 300_000, 1_000_000, 3_000_000, 5_000_000]
+# Capped at 1M rows: a cell costs n * n_perms (up to 1e9 row-permutations at 5M x 200), repeated per backend; a sweep must finish in minutes.
+_PERM_SWEEP_N_SAMPLES = [100_000, 300_000, 1_000_000]
 _PERM_SWEEP_K_PAIR = 10
 _PERM_SWEEP_K_X = 5
 _PERM_SWEEP_K_Y = 3
