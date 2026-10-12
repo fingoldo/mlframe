@@ -108,7 +108,7 @@
   "src/mlframe/feature_selection/filters/_permutation_null.py::pooled_permutation_null_gain_floor": 192,
   "src/mlframe/feature_selection/filters/_prewarm.py::_prewarm_fs_numba_cache_impl": 203,
   "src/mlframe/feature_selection/filters/_screen_predictors.py::_screen_predictors_step2_interactions_order_subsets": 171,
-  "src/mlframe/feature_selection/filters/_screen_predictors.py::screen_predictors": 541,
+  "src/mlframe/feature_selection/filters/_screen_predictors.py::screen_predictors": 536,
   "src/mlframe/feature_selection/filters/_stability_cluster.py::cluster_stability_selection": 221,
   "src/mlframe/feature_selection/filters/_surrogate_interaction_seeder.py::surrogate_gbm_interaction_seeds": 233,
   "src/mlframe/feature_selection/filters/_target_encoding_fe.py::kfold_target_encode_fit": 163,

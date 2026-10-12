@@ -74,6 +74,71 @@ def _pool_warmup_noop(i):
     return None
 
 
+def _init_screen_caches(seed_caches):
+    """Seed the screen caches from the prior round when supplied, else build empty typed dicts; returns the four caches."""
+    if seed_caches is not None:
+        entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs = seed_caches
+    else:
+        cached_MIs = dict()
+        cached_confident_MIs = dict()
+        # PERF NOTE (profiled 2026-07): constructing the first numba typed.Dict
+        # (unicode->float64) in a process JIT-compiles the whole typed-dict method
+        # suite - ~5s of LLVM codegen (27% of a cold F2 fit wall), recurring per
+        # process and NOT numba-disk-cacheable. That machinery is now warmed
+        # synchronously at import (warmup_typed_dict, above), moving the ~5s off
+        # every fit's critical path (fit 42.9s -> 37.9s; import +5.2s). A background
+        # daemon-thread warm-up was tried and rejected first: numba's global compile
+        # lock serialises it against the fit's own njit compilation and this
+        # host-serial pipeline has no concurrent GPU work to overlap it with.
+        # The warm-up only SHIFTS the cost (per-process, amortises to zero across
+        # fits in a long-running process); ELIMINATING it would need replacing the
+        # unicode-keyed caches below with a 128-bit-hash (UniTuple int64) key - a
+        # ~7-file core rewrite gated on the selection-equivalence contract, deferred
+        # as poor ROI (saves ~5s, already zero for multi-fit processes).
+        entropy_cache = numba.typed.Dict.empty(
+            key_type=types.unicode_type,
+            value_type=types.float64,
+        )
+        cached_cond_MIs = numba.typed.Dict.empty(
+            key_type=types.unicode_type,
+            value_type=types.float64,
+        )
+    return entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs
+
+
+def _resident_screen_targets(use_gpu, classes_y, freqs_y, classes_y_safe):
+    """Return ``(classes_y_safe, freqs_y_safe)`` for the screen: a shuffle-safe resident device copy of the target codes on GPU, else the host arrays."""
+    if use_gpu:
+        # RESIDENT UPLOAD: ``screen_predictors`` runs 3-10 rounds per fit with an IDENTICAL
+        # ``classes_y``/``freqs_y`` across rounds (the target never changes mid-fit; ``seed_maxt_floor_cache``
+        # / ``seed_workers_pool`` above already thread other round-carried state through this same call, so
+        # the pattern for reusing state across rounds is established) - resident_operand needs no caller-side
+        # plumbing beyond this call site since it self-caches by content, unlike those explicit seed_* kwargs.
+        #
+        # ``.copy()`` on ``classes_y_safe`` is NOT optional: ``ctx.classes_y_safe`` reaches
+        # ``gpu.py:mi_direct_gpu``'s pre-warmed-buffer path, which SHUFFLES it IN PLACE
+        # (``classes_y_safe[:] = classes_y_safe[cp.argsort(...)]``) once per permutation, for every
+        # candidate confirmed this round. Pre-fix that was harmless - ``classes_y_safe`` was a fresh
+        # disposable ``cp.asarray`` built new every ``screen_predictors()`` call, never read by anyone
+        # else. Handing the RESIDENT (shared, content-keyed, cross-call, cross-file) buffer straight into
+        # that mutator would let one candidate's permutation shuffle permanently corrupt the row-order
+        # every OTHER resident-cache consumer of the same target content relies on (e.g.
+        # ``_gpu_batched.py``'s ``classes_y_gpu``, which assumes its rows stay aligned with
+        # ``classes_x_gpu``) - a real cross-file aliasing regression this exact copy is NOT theoretical
+        # (it was live: 4 GPU/CPU selection-equivalence tests hit it before this ``.copy()`` was added).
+        # ``.copy()`` is a cheap device-to-device memcpy (not a host re-upload), so the H2D-avoidance win
+        # from ``resident_operand`` is preserved; only the shuffle-safety copy is paid, once per round.
+        # ``freqs_y_safe`` is never mutated in place anywhere in this package (verified by grep), so it is
+        # shared directly with no copy.
+        from ._fe_resident_operands import resident_operand
+
+        classes_y_safe = resident_operand(classes_y, "screen_classes_y", dtype=np.int32).copy()  # device buffer for ctx -> mi_direct_gpu
+        freqs_y_safe = resident_operand(freqs_y, "screen_freqs_y", dtype=np.float64)
+    else:
+        freqs_y_safe = None
+    return classes_y_safe, freqs_y_safe
+
+
 def screen_predictors(
     # factors
     factors_data: np.ndarray,
@@ -387,33 +452,7 @@ def screen_predictors(
         # 2026-07-09 fix: seed from the PRIOR screen round's caches when supplied (see seed_caches'
         # docstring above) instead of always starting empty - a cache key's value is a deterministic
         # function of the (stable, append-only) data, so reuse across rounds is exact, not approximate.
-        if seed_caches is not None:
-            entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs = seed_caches
-        else:
-            cached_MIs = dict()
-            cached_confident_MIs = dict()
-            # PERF NOTE (profiled 2026-07): constructing the first numba typed.Dict
-            # (unicode->float64) in a process JIT-compiles the whole typed-dict method
-            # suite - ~5s of LLVM codegen (27% of a cold F2 fit wall), recurring per
-            # process and NOT numba-disk-cacheable. That machinery is now warmed
-            # synchronously at import (warmup_typed_dict, above), moving the ~5s off
-            # every fit's critical path (fit 42.9s -> 37.9s; import +5.2s). A background
-            # daemon-thread warm-up was tried and rejected first: numba's global compile
-            # lock serialises it against the fit's own njit compilation and this
-            # host-serial pipeline has no concurrent GPU work to overlap it with.
-            # The warm-up only SHIFTS the cost (per-process, amortises to zero across
-            # fits in a long-running process); ELIMINATING it would need replacing the
-            # unicode-keyed caches below with a 128-bit-hash (UniTuple int64) key - a
-            # ~7-file core rewrite gated on the selection-equivalence contract, deferred
-            # as poor ROI (saves ~5s, already zero for multi-fit processes).
-            entropy_cache = numba.typed.Dict.empty(
-                key_type=types.unicode_type,
-                value_type=types.float64,
-            )
-            cached_cond_MIs = numba.typed.Dict.empty(
-                key_type=types.unicode_type,
-                value_type=types.float64,
-            )
+        entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs = _init_screen_caches(seed_caches)
         # JMIM joint-MI cache, built once per fit alongside cached_cond_MIs so
         # it persists across greedy rounds (the {X} u Z multiset key recurs as selected_vars
         # grows). Plain int64 array counts cache HITS for observability. Both are forwarded
@@ -493,34 +532,7 @@ def screen_predictors(
         # (or ``np.asarray`` on a cupy array raising in the subsample path). Now the
         # numpy buffer survives for the return; the device buffer only goes to ctx.
         classes_y_safe_host = classes_y_safe  # numpy, returned to the FE step
-        if use_gpu:
-            # RESIDENT UPLOAD: ``screen_predictors`` runs 3-10 rounds per fit with an IDENTICAL
-            # ``classes_y``/``freqs_y`` across rounds (the target never changes mid-fit; ``seed_maxt_floor_cache``
-            # / ``seed_workers_pool`` above already thread other round-carried state through this same call, so
-            # the pattern for reusing state across rounds is established) - resident_operand needs no caller-side
-            # plumbing beyond this call site since it self-caches by content, unlike those explicit seed_* kwargs.
-            #
-            # ``.copy()`` on ``classes_y_safe`` is NOT optional: ``ctx.classes_y_safe`` reaches
-            # ``gpu.py:mi_direct_gpu``'s pre-warmed-buffer path, which SHUFFLES it IN PLACE
-            # (``classes_y_safe[:] = classes_y_safe[cp.argsort(...)]``) once per permutation, for every
-            # candidate confirmed this round. Pre-fix that was harmless - ``classes_y_safe`` was a fresh
-            # disposable ``cp.asarray`` built new every ``screen_predictors()`` call, never read by anyone
-            # else. Handing the RESIDENT (shared, content-keyed, cross-call, cross-file) buffer straight into
-            # that mutator would let one candidate's permutation shuffle permanently corrupt the row-order
-            # every OTHER resident-cache consumer of the same target content relies on (e.g.
-            # ``_gpu_batched.py``'s ``classes_y_gpu``, which assumes its rows stay aligned with
-            # ``classes_x_gpu``) - a real cross-file aliasing regression this exact copy is NOT theoretical
-            # (it was live: 4 GPU/CPU selection-equivalence tests hit it before this ``.copy()`` was added).
-            # ``.copy()`` is a cheap device-to-device memcpy (not a host re-upload), so the H2D-avoidance win
-            # from ``resident_operand`` is preserved; only the shuffle-safety copy is paid, once per round.
-            # ``freqs_y_safe`` is never mutated in place anywhere in this package (verified by grep), so it is
-            # shared directly with no copy.
-            from ._fe_resident_operands import resident_operand
-
-            classes_y_safe = resident_operand(classes_y, "screen_classes_y", dtype=np.int32).copy()  # device buffer for ctx -> mi_direct_gpu
-            freqs_y_safe = resident_operand(freqs_y, "screen_freqs_y", dtype=np.float64)
-        else:
-            freqs_y_safe = None
+        classes_y_safe, freqs_y_safe = _resident_screen_targets(use_gpu, classes_y, freqs_y, classes_y_safe)
 
         # RESOLVED (2026-07-19, 7-site joblib.Parallel audit - follow-up to the 2026-07-09
         # UNRESOLVED note this comment used to carry): the "releases the GIL" claim below was never
