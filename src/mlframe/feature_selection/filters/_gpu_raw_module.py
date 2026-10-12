@@ -28,3 +28,14 @@ class LazyRawModule:
             if self._module is None:
                 self._module = cp.RawModule(code=self._source, options=self._options)
             return self._module
+
+    def __getstate__(self) -> dict:
+        """Drop the lock and the compiled module: a device handle does not survive pickling, and the next ``get`` recompiles."""
+        state = self.__dict__.copy()
+        del state["_lock"]
+        state["_module"] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._lock = threading.Lock()

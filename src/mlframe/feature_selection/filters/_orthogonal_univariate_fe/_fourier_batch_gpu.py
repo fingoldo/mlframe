@@ -152,17 +152,12 @@ __global__ void apply_deflate_b(const double* Z, const double* Y, const double* 
 _KERNEL = LazyRawModule(_SRC, ("-std=c++14",))
 
 
-def _module(cp: Any) -> Any:
-    """Compile the kernels once."""
-    return _KERNEL.get(cp)
-
-
 def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
     """``(C, F)`` periodogram power of each column's centred target at its own frequencies (padded entries are -1)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
     F = int(freqs.shape[1])
     out = cp.empty((C, F), dtype=cp.float64)
-    _module(cp).get_function("periodogram_power_b")((F, C), (_THREADS,), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
+    _KERNEL.get(cp).get_function("periodogram_power_b")((F, C), (_THREADS,), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
     return out
 
 
@@ -170,7 +165,7 @@ def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.
     """Deflate ``[1, sin, cos]`` at ``fvec[c]`` out of every ACTIVE column; returns the new block and the host mask of columns whose 3x3 system was singular (their rows hold NaN)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
     blocks = max(1, min(64, (n + _THREADS - 1) // _THREADS))
-    mod = _module(cp)
+    mod = _KERNEL.get(cp)
     part = cp.empty((C * blocks, 9), dtype=cp.float64)
     coef = cp.empty((C, 3), dtype=cp.float64)
     out = cp.empty((C, n), dtype=cp.float64)

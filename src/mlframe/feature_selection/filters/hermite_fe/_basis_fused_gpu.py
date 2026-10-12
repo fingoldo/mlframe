@@ -57,11 +57,6 @@ extern "C" __global__ void build_basis(const double* __restrict__ x, double* __r
 _KERNEL = LazyRawModule(_SRC, ("-std=c++14", "--fmad=false"))  # --fmad=false: every operation rounds where the separate cupy kernels round
 
 
-def _module(cp: Any) -> Any:
-    """Compile the kernel once."""
-    return _KERNEL.get(cp)
-
-
 def build_basis_fused(cp: Any, basis: str, x: Any, n_columns: int) -> Optional[Any]:
     """``(n, n_columns)`` design of the named basis for the float64 resident column ``x``, or ``None`` when the fused kernel does not cover the request (unknown basis, too wide)."""
     code = _BASIS_CODE.get(basis)
@@ -70,5 +65,5 @@ def build_basis_fused(cp: Any, basis: str, x: Any, n_columns: int) -> Optional[A
     n = int(x.shape[0])
     B = cp.empty((n, n_columns), dtype=cp.float64)
     blocks = max(1, min(4096, (n + 255) // 256))
-    _module(cp).get_function("build_basis")((blocks,), (256,), (x, B, cp.int64(n), cp.int32(n_columns), cp.int32(code)))
+    _KERNEL.get(cp).get_function("build_basis")((blocks,), (256,), (x, B, cp.int64(n), cp.int32(n_columns), cp.int32(code)))
     return B
