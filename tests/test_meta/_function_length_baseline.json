@@ -66,7 +66,7 @@
   "src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_score.py::materialise_and_finalise_fe_candidates": 235,
   "src/mlframe/feature_selection/filters/_mrmr_fe_step_helpers.py::apply_synergy_bootstrap": 168,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_assign_support.py::_assign_support": 356,
-  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_early_a.py::_fe_stage_cascade_early_a": 437,
+  "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_early_a.py::_fe_stage_cascade_early_a": 385,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_early_b.py::_fe_stage_cascade_early_b": 252,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_mid_a.py::_fe_stage_cascade_mid_a": 210,
   "src/mlframe/feature_selection/filters/_mrmr_fit_impl/_fe_stage_cascade_mid_b.py::_fe_stage_cascade_mid_b": 195,

@@ -22,6 +22,69 @@ from .._y_encoding import encode_y_for_classif_mi
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def _stage_mi_greedy(self, X_acc, X, _y_np, _mi_greedy_pre_recipes, verbose):
+    """MI-greedy FE constructor stage: merges its surviving columns into ``X_acc`` and returns it (failures are logged and skipped)."""
+    try:
+        from .._mi_greedy_fe import greedy_mi_fe_construct_with_recipes
+        from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+        # W6: record abs-MAD floor kills in the mi_greedy stage into the
+        # FE rejection ledger (pure-record; selection unchanged).
+        _mig_step = int(getattr(self, "_fe_steps_executed_", -1))
+
+        def _mig_reject_sink(**_kw):
+            """Reject-sink callback for the greedy MI-construction FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
+            _record_fe_rejection(self, step=_mig_step, **_kw)
+
+        _y_for_mig = _y_np
+        _y_for_mig = encode_y_for_classif_mi(_y_for_mig)
+        # Restrict the MI-greedy seed pool to RAW source columns only
+        # (i.e. exclude hybrid-orth-appended columns from the prior
+        # stage). Compound transforms like ``log(He2(x))`` would
+        # create recipes whose ``src_names`` reference an engineered
+        # column that does not exist at transform time - replay
+        # would KeyError. Each constructor explores its OWN design
+        # space; the union of winners is screened by MRMR.
+        _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
+        _mig_cols = None
+        if getattr(self, "factors_names_to_use", None):
+            _mig_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
+        else:
+            _mig_cols = [c for c in X.columns if c not in _hybrid_already_appended]
+        _X_before_mig_cols = list(X.columns)
+        X_mg, _mig_scores, _mig_recipes = fe_decide_on_subsample(
+            greedy_mi_fe_construct_with_recipes,
+            X, _y_for_mig,
+            subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
+            subsample_seed=int(getattr(self, "random_seed", 0) or 0),
+            shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
+            cols=_mig_cols,
+            seed_cols_count=int(self.fe_mi_greedy_seed_cols_count),
+            top_k=int(self.fe_mi_greedy_top_k),
+            include_unary=bool(self.fe_mi_greedy_include_unary),
+            include_binary=bool(self.fe_mi_greedy_include_binary),
+            reject_sink=_mig_reject_sink,
+        )
+        _mig_appended = [c for c in X_mg.columns if c not in _X_before_mig_cols]
+        if _mig_appended:
+            X_acc = fe_append_columns(X_acc, fe_extract_columns(X_mg, _mig_appended))
+            self.mi_greedy_features_ = list(_mig_appended)
+            for _r in _mig_recipes:
+                _mi_greedy_pre_recipes[_r.name] = _r
+            if verbose:
+                logger.info(
+                    "MRMR.fit mi_greedy: appended %d engineered " "column(s): %s",
+                    len(_mig_appended),
+                    _mig_appended[:8],
+                )
+    except Exception as _mig_exc:
+        logger.warning(
+            "MRMR.fit mi_greedy FE raised %s: %s; continuing " "without MI-greedy columns.",
+            type(_mig_exc).__name__,
+            _mig_exc,
+        )
+    return X_acc
+
+
 def _fe_stage_cascade_early_a(
     self, *, X, y, verbose, fe_max_steps, _y_np, _fe_family_on, _fe_budget_ok,
     _hybrid_orth_pre_recipes, _mi_greedy_pre_recipes,
@@ -394,64 +457,7 @@ def _fe_stage_cascade_early_a(
     self.mi_greedy_features_ = []
     if _fe_family_on("fe_mi_greedy_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
-        try:
-            from .._mi_greedy_fe import greedy_mi_fe_construct_with_recipes
-            from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
-            # W6: record abs-MAD floor kills in the mi_greedy stage into the
-            # FE rejection ledger (pure-record; selection unchanged).
-            _mig_step = int(getattr(self, "_fe_steps_executed_", -1))
-
-            def _mig_reject_sink(**_kw):
-                """Reject-sink callback for the greedy MI-construction FE stage; records abs-MAD floor kills into the FE rejection ledger (pure-record, does not affect selection)."""
-                _record_fe_rejection(self, step=_mig_step, **_kw)
-
-            _y_for_mig = _y_np
-            _y_for_mig = encode_y_for_classif_mi(_y_for_mig)
-            # Restrict the MI-greedy seed pool to RAW source columns only
-            # (i.e. exclude hybrid-orth-appended columns from the prior
-            # stage). Compound transforms like ``log(He2(x))`` would
-            # create recipes whose ``src_names`` reference an engineered
-            # column that does not exist at transform time - replay
-            # would KeyError. Each constructor explores its OWN design
-            # space; the union of winners is screened by MRMR.
-            _hybrid_already_appended = set(getattr(self, "hybrid_orth_features_", None) or [])
-            _mig_cols = None
-            if getattr(self, "factors_names_to_use", None):
-                _mig_cols = [c for c in self.factors_names_to_use if c in X.columns and c not in _hybrid_already_appended]
-            else:
-                _mig_cols = [c for c in X.columns if c not in _hybrid_already_appended]
-            _X_before_mig_cols = list(X.columns)
-            X_mg, _mig_scores, _mig_recipes = fe_decide_on_subsample(
-                greedy_mi_fe_construct_with_recipes,
-                X, _y_for_mig,
-                subsample_n=int(getattr(self, "fe_check_pairs_subsample_n", 0) or 0),
-                subsample_seed=int(getattr(self, "random_seed", 0) or 0),
-                shared_subsample_idx=getattr(self, "_fe_shared_subsample_idx", None),
-                cols=_mig_cols,
-                seed_cols_count=int(self.fe_mi_greedy_seed_cols_count),
-                top_k=int(self.fe_mi_greedy_top_k),
-                include_unary=bool(self.fe_mi_greedy_include_unary),
-                include_binary=bool(self.fe_mi_greedy_include_binary),
-                reject_sink=_mig_reject_sink,
-            )
-            _mig_appended = [c for c in X_mg.columns if c not in _X_before_mig_cols]
-            if _mig_appended:
-                X_acc = fe_append_columns(X_acc, fe_extract_columns(X_mg, _mig_appended))
-                self.mi_greedy_features_ = list(_mig_appended)
-                for _r in _mig_recipes:
-                    _mi_greedy_pre_recipes[_r.name] = _r
-                if verbose:
-                    logger.info(
-                        "MRMR.fit mi_greedy: appended %d engineered " "column(s): %s",
-                        len(_mig_appended),
-                        _mig_appended[:8],
-                    )
-        except Exception as _mig_exc:
-            logger.warning(
-                "MRMR.fit mi_greedy FE raised %s: %s; continuing " "without MI-greedy columns.",
-                type(_mig_exc).__name__,
-                _mig_exc,
-            )
+        X_acc = _stage_mi_greedy(self, X_acc, X, _y_np, _mi_greedy_pre_recipes, verbose)
 
     # 2026-05-31 Layer 60 — CMI-greedy FE constructor (sibling to Layer 26).
     # Ranks the same candidate library by ``CMI(candidate; y | support)``
