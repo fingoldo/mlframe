@@ -116,7 +116,7 @@
   "src/mlframe/feature_selection/filters/_usability_aware_selection.py::usability_greedy": 241,
   "src/mlframe/feature_selection/filters/_usability_greedy_clf_gpu_resident.py::usability_greedy_clf_gpu_resident": 173,
   "src/mlframe/feature_selection/filters/_usability_pool_resident.py::score_pair_combos_table_resident": 155,
-  "src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py::batch_mi_with_noise_gate_cuda_resident": 200,
+  "src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py::batch_mi_with_noise_gate_cuda_resident": 179,
   "src/mlframe/feature_selection/filters/batch_mi_noise_gate_gpu.py::batch_mi_with_noise_gate_cupy": 158,
   "src/mlframe/feature_selection/filters/composition.py::compose_pair_fe": 154,
   "src/mlframe/feature_selection/filters/discretization/__init__.py::discretize_2d_array": 153,

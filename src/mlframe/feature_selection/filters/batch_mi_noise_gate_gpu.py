@@ -478,6 +478,34 @@ def _resident_y_all_device_for_cupy(classes_y, classes_y_safe, base_seed, nperm,
     return _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P)
 
 
+def _batch_mi_noise_gate_su_delegate(disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block):
+    """SU-entropy noise gate: delegates to the CPU-entropy cuda twin, handing it the cached device shuffle matrix."""
+    # SU (Symmetric Uncertainty) has no on-device entropy form, so this delegates to the CPU-entropy
+    # ``batch_mi_with_noise_gate_cuda`` twin - but that twin's per-permutation loop used to rebuild
+    # (CPU Fisher-Yates) AND re-upload (H2D) the shuffled-y codes from scratch on every one of the
+    # ~30 noise-gate dispatches of a fit, even though the target/seed/nperm are fit-constant and the
+    # SAME (P, n) shuffle matrix is exactly what ``_resident_y_all_device`` already builds+caches for
+    # the non-SU resident path. Build/fetch that cached device matrix here and hand it through
+    # (``d_y_all_resident``) so the SU delegate slices its rows directly instead of re-shuffling +
+    # re-uploading - BIT-IDENTICAL (same LCG stream; a device-array row slice returns the exact bytes
+    # ``_fisher_yates_shuffle`` + ``to_device`` produced, confirmed no host round-trip).
+    _n_su = int(disc_2d.shape[0])
+    _nperm_su = int(npermutations) if npermutations and npermutations > 0 else 0
+    _d_y_all_su = None
+    if cuda_available() and _n_su > 0:
+        try:
+            _d_y_all_su = _resident_y_all_device(classes_y, classes_y_safe, base_seed, _nperm_su, _n_su, _nperm_su + 1)
+        except Exception as e:
+            log_throttle(logger, "noise_gate.resident_y", logging.WARNING, "noise gate: _resident_y_all_device failed (%s), using the per-call shuffle and upload path", e)
+            _d_y_all_su = None
+    return batch_mi_with_noise_gate_cuda(
+        disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
+        base_seed, min_nonzero_confidence, use_su, dtype,
+        128 if threads_per_block is None else threads_per_block,
+        d_y_all_resident=_d_y_all_su,
+    )
+
+
 def batch_mi_with_noise_gate_cuda_resident(
     disc_2d: np.ndarray,
     factors_nbins: np.ndarray,
@@ -506,30 +534,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     D2H'd) -> counts, MI and the gate decision are BIT-IDENTICAL to the host-codes path. ``None`` (the
     default, and any narrow-dtype mismatch) keeps the H2D-from-host path unchanged."""
     if use_su:
-        # SU (Symmetric Uncertainty) has no on-device entropy form, so this delegates to the CPU-entropy
-        # ``batch_mi_with_noise_gate_cuda`` twin - but that twin's per-permutation loop used to rebuild
-        # (CPU Fisher-Yates) AND re-upload (H2D) the shuffled-y codes from scratch on every one of the
-        # ~30 noise-gate dispatches of a fit, even though the target/seed/nperm are fit-constant and the
-        # SAME (P, n) shuffle matrix is exactly what ``_resident_y_all_device`` already builds+caches for
-        # the non-SU resident path. Build/fetch that cached device matrix here and hand it through
-        # (``d_y_all_resident``) so the SU delegate slices its rows directly instead of re-shuffling +
-        # re-uploading - BIT-IDENTICAL (same LCG stream; a device-array row slice returns the exact bytes
-        # ``_fisher_yates_shuffle`` + ``to_device`` produced, confirmed no host round-trip).
-        _n_su = int(disc_2d.shape[0])
-        _nperm_su = int(npermutations) if npermutations and npermutations > 0 else 0
-        _d_y_all_su = None
-        if cuda_available() and _n_su > 0:
-            try:
-                _d_y_all_su = _resident_y_all_device(classes_y, classes_y_safe, base_seed, _nperm_su, _n_su, _nperm_su + 1)
-            except Exception as e:
-                log_throttle(logger, "noise_gate.resident_y", logging.WARNING, "noise gate: _resident_y_all_device failed (%s), using the per-call shuffle and upload path", e)
-                _d_y_all_su = None
-        return batch_mi_with_noise_gate_cuda(
-            disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
-            base_seed, min_nonzero_confidence, use_su, dtype,
-            128 if threads_per_block is None else threads_per_block,
-            d_y_all_resident=_d_y_all_su,
-        )
+        return _batch_mi_noise_gate_su_delegate(disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block)
     global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_HIST_KERNEL_BATCHED_SHARED_CM, _CUDA_MI_KERNEL
     if not cuda_available():
         raise RuntimeError("numba.cuda is not available on this host")
