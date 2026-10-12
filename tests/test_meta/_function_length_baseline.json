@@ -6,7 +6,7 @@
   "src/mlframe/evaluation/bootstrap.py::bootstrap_metric": 201,
   "src/mlframe/evaluation/bootstrap.py::bootstrap_metrics": 207,
   "src/mlframe/evaluation/distribution_matching_subset_search.py::distribution_matching_subset_search": 192,
-  "src/mlframe/evaluation/reports.py::evaluate_estimators": 208,
+  "src/mlframe/evaluation/reports.py::evaluate_estimators": 203,
   "src/mlframe/feature_engineering/_numerical_numba.py::_make_compute_moments_slope_mi": 189,
   "src/mlframe/feature_engineering/_numerical_numba.py::_make_compute_moments_slope_mi.<locals>.kernel": 174,
   "src/mlframe/feature_engineering/_numerical_numba.py::compute_numerical_aggregates_numba": 267,
