@@ -825,7 +825,8 @@ def compose_regression_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(f"Unknown regression panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_REGRESSION_PANEL_TOKENS)}")
+        from mlframe.reporting.catalog import unknown_panel_tokens_message
+        raise ValueError(unknown_panel_tokens_message("regression", "regression", unknown))
 
     # Fold the Spearman/heteroscedasticity line into the scatter title so the diagnostic stays visible on the headline panel.
     scatter_title = metrics_str

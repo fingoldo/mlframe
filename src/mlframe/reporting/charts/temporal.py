@@ -301,7 +301,8 @@ def compose_target_acf_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(f"Unknown temporal panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_TEMPORAL_PANEL_TOKENS)}")
+        from mlframe.reporting.catalog import unknown_panel_tokens_message
+        raise ValueError(unknown_panel_tokens_message("temporal", "temporal", unknown))
     panels: List[PanelSpec] = [_TOKEN_BUILDERS[tok](y_arr, nlags=nlags) for tok in tokens]
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)

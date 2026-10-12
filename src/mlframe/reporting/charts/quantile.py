@@ -822,7 +822,8 @@ def compose_quantile_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(f"Unknown quantile panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_QUANTILE_PANEL_TOKENS)}")
+        from mlframe.reporting.catalog import unknown_panel_tokens_message
+        raise ValueError(unknown_panel_tokens_message("quantile_regression", "quantile", unknown))
     panels: List[PanelSpec] = [_TOKEN_BUILDERS[tok](y, P, alphas) for tok in tokens]
     grid = pack_panels(panels, max_cols=max_cols)
     n_rows = len(grid)

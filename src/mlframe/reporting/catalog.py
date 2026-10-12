@@ -10,6 +10,7 @@ rather than silently omitting it).
 
 from __future__ import annotations
 
+import io
 from typing import Dict, List, Optional, TextIO, Tuple
 
 from mlframe.reporting.charts.binary import ALLOWED_BINARY_PANEL_TOKENS
@@ -187,8 +188,30 @@ def standalone_diagnostics() -> List[Tuple[str, str]]:
     return list(_STANDALONE_DIAGNOSTICS)
 
 
+def unknown_panel_tokens_message(task_type: str, label: str, unknown: List[str]) -> str:
+    """Error text for unknown panel tokens: the offending tokens plus that task type's catalogue block.
+
+    Built from ``describe_available_panels`` output so the message carries each allowed token's description, not
+    only the bare names. Every panel-template validator raises with this text.
+    """
+    buf = io.StringIO()
+    describe_available_panels(file=buf)
+    block: List[str] = []
+    inside = False
+    for line in buf.getvalue().splitlines():
+        if line == f"[{task_type}]":
+            inside = True
+            block.append(line)
+        elif inside and (line == "" or line.startswith("[")):
+            break
+        elif inside:
+            block.append(line)
+    return f"Unknown {label} panel tokens {unknown}.\n" + "\n".join(block)
+
+
 __all__ = [
     "available_panels",
     "describe_available_panels",
+    "unknown_panel_tokens_message",
     "standalone_diagnostics",
 ]

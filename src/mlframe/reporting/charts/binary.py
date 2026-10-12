@@ -748,7 +748,8 @@ def compose_binary_figure(
     tokens = parse_panel_template(panels_template)
     unknown = [t for t in tokens if t not in _TOKEN_BUILDERS]
     if unknown:
-        raise ValueError(f"Unknown binary panel tokens {unknown}. " f"Allowed: {sorted(ALLOWED_BINARY_PANEL_TOKENS)}")
+        from mlframe.reporting.catalog import unknown_panel_tokens_message
+        raise ValueError(unknown_panel_tokens_message("binary_classification", "binary", unknown))
     yt, ys = _finite_binary(y_true, y_score)
     # Single descending-score sort + cumulative counts shared by every rank-threshold panel.
     sort = _ScoreSort(yt, ys)
