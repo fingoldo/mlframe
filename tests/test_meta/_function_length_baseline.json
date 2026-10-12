@@ -16,7 +16,7 @@
   "src/mlframe/feature_engineering/transformer/multi_temp_cbhr.py::compute_multi_temp_cbhr_features": 157,
   "src/mlframe/feature_selection/boruta_shap/_fit_explain.py::fit": 289,
   "src/mlframe/feature_selection/filters/_batch_pair_mi_cuda_kernels.py::batch_pair_mi_cuda_row_chunked": 187,
-  "src/mlframe/feature_selection/filters/_binned_numeric_agg_fe.py::binned_numeric_agg_with_recipes": 185,
+  "src/mlframe/feature_selection/filters/_binned_numeric_agg_fe.py::binned_numeric_agg_with_recipes": 177,
   "src/mlframe/feature_selection/filters/_boruta.py::boruta_select": 182,
   "src/mlframe/feature_selection/filters/_cat_confirm_bandit.py::_confirm_pairs_bandit_ucb1": 211,
   "src/mlframe/feature_selection/filters/_cat_confirm_permutation.py::_confirm_pairs_via_permutation": 298,
