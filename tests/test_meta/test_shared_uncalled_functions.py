@@ -736,7 +736,6 @@ _RETAINED_KERNELS = {
     # reference twin of the tiled radix quantile kernel (keep-all-kernels rule); parity pinned in
     # tests/feature_selection/discretization/test_multiselect_quantile_edges.py
     "_quantile_edges_2d_radix_njit",
-    "_lnc_correction",  # deprecated first-pass LNC kept behind a flag for A/B parity; no switch currently reaches it
     "_get_mi_mm_from_values_kernel",  # superseded by the length-aware _nek kernel; kept as the original, nothing switches to it
     # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
     "_resample_desc_order_counting",
@@ -850,6 +849,7 @@ _NAME_DISPATCHED = {
 #: Replaced by a faster or more efficient version and kept as the reference the replacement is checked against. Each entry
 #: names its replacement; a superseded function with no parity test is a gap, not a reference.
 _SUPERSEDED = {
+    "_lnc_correction",  # stub returning 0.0 superseded by _lnc_correction_v2, the canonical NPEET_LNC correction; no implementation to compare, so no parity test (see the docstring in _ksg.py)
     "smote_synthesize_rowloop",  # row-loop SMOTE reference; replaced by smote_synthesize_vectorized (production via smote_synthesize_minority_vectorized)
     "subset_redundancy",  # scalar form of subset_redundancy_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_calibrate.py
     "subset_uncertainty",  # scalar form of subset_uncertainty_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_objective.py

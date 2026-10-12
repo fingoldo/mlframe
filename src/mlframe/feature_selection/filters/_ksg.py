@@ -358,8 +358,9 @@ def _lnc_correction_v2(knn_xy: np.ndarray, log_d_x: float, log_d_y: float, alpha
 
 @njit(nogil=True, cache=True)
 def _lnc_correction(neighbours_xy: np.ndarray, eps: float, alpha: float) -> float:
-    """DEPRECATED first-pass LNC impl - retained behind flag for A/B parity.
-    Use ``_lnc_correction_v2`` for the canonical NPEET_LNC algorithm."""
+    """Superseded by ``_lnc_correction_v2``, the canonical NPEET_LNC correction; this body is a stub that returns 0.0.
+
+    No implementation exists to check against, so there is no parity test. Kept only so the name stays importable."""
     return 0.0
 
 
