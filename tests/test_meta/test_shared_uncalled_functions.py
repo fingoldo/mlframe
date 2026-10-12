@@ -137,109 +137,10 @@ _REEXPORTED_PUBLIC_API = {
     "compose_spectral_embedding_figure",
     "composite_model_card",
     "composite_report",
-    "compute_active_virtual_features",
-    "compute_adaptive_bandwidth_attention",
-    "compute_adasyn_smote_features",
-    "compute_adversarial_flip_features",
-    "compute_anchor_attention",
-    "compute_anomaly_score_features",
-    "compute_apriori_itemsets_features",
-    "compute_autoencoder_features",
-    "compute_aux_mlp_features",
     "compute_auxiliary_feature_prediction_features",
-    "compute_band_conditional_anchor_features",
-    "compute_baseline_disagreement_balanced_features",
-    "compute_baseline_disagreement_smote_features",
-    "compute_baseline_disagreement_v2_features",
-    "compute_baseline_surprise_features",
-    "compute_bgm_clustered_smote_features",
-    "compute_bgmm_density_ratio_features",
-    "compute_bgmm_dual_class_features",
-    "compute_bgmm_multiscale_features",
-    "compute_bgmm_quantile_bands_features",
-    "compute_bgmm_virtual_features",
-    "compute_bidir_residual_band_features",
-    "compute_boosted_attention",
-    "compute_boosting_leaf_features",
-    "compute_borderline_smote_features",
-    "compute_class_balanced_hard_row_features",
-    "compute_class_conditional_anchor_attention",
-    "compute_class_distance_features",
-    "compute_class_mahalanobis_features",
-    "compute_cluster_smote_features",
-    "compute_conformal_coverage_failure_features",
-    "compute_conformal_locally_adaptive_features",
-    "compute_counterfactual_substitution_features",
-    "compute_cross_feature_reconstruction_features",
-    "compute_cutmix_features",
-    "compute_decision_region_depth_features",
-    "compute_denoising_autoencoder_features",
-    "compute_density_ratio_features",
-    "compute_density_weighted_smote_features",
-    "compute_diffusion_noise_features",
-    "compute_disagreement_band_features",
-    "compute_distributional_moments_features",
-    "compute_fca_closed_concepts_features",
-    "compute_fisher_weighted_residual_features",
-    "compute_focal_lgb_features",
-    "compute_geodesic_kgraph_features",
-    "compute_gradient_direction_agreement_features",
-    "compute_hard_row_attention_features",
-    "compute_ib_baseline_codes_features",
-    "compute_inducing_attention_features",
-    "compute_jackknife_endpoint_stability_features",
-    "compute_ks_shift_features",
-    "compute_lda_projection_features",
-    "compute_local_classifier_features",
-    "compute_local_curvature_features",
-    "compute_local_density_gradient_features",
-    "compute_local_intrinsic_dim_features",
-    "compute_local_lift_features",
-    "compute_local_linear_attention",
-    "compute_mdl_binning_pairwise_features",
-    "compute_mixup_boundary_features",
-    "compute_multi_baseline_hard_row_features",
-    "compute_multi_temp_band_attention_features",
-    "compute_multi_temp_cbhr_features",
-    "compute_multi_temp_residual_band_features",
-    "compute_multi_temperature_attention",
-    "compute_multi_threshold_ordinal_features",
-    "compute_multiscale_rate_features",
-    "compute_multiscale_smote_features",
-    "compute_nca_projection_features",
-    "compute_neighbor_aggregate_features",
     "compute_numaggs_parallel",
-    "compute_pairwise_kl_features",
-    "compute_per_class_spectral_attention",
-    "compute_per_column_rff",
-    "compute_performer_attention_features",
-    "compute_persistence_diagram_features",
-    "compute_positional_encoding",
-    "compute_pred_augmented_attention",
-    "compute_prediction_band_attention_features",
-    "compute_predictive_info_delta_features",
-    "compute_pseudo_smote_features",
-    "compute_pure_pos_smote_features",
-    "compute_quantile_band_attention_features",
-    "compute_quantile_spread_fan_features",
-    "compute_residual_attention",
-    "compute_residual_band_attention_features",
-    "compute_residual_stratified_distance_features",
-    "compute_rf_proximity_attention",
-    "compute_rff_features",
-    "compute_robustness_budget_features",
     "compute_row_level_then_average_predictions",
-    "compute_sign_residual_baseline_features",
-    "compute_signed_residual_band_features",
-    "compute_smote_distance_features",
-    "compute_spectral_attention",
-    "compute_stacked_quantile_neighbours",
-    "compute_stacked_row_attention",
-    "compute_target_kmeans_codebook_features",
-    "compute_target_quantile_attention",
     "compute_test_likeness",
-    "compute_tree_path_boolean_features",
-    "compute_variance_baseline_features",
     "config_from_dict",
     "control_difference_augment",
     "create_experiment",
@@ -1069,6 +970,105 @@ _OPT_IN_SLOW: set[str] = {
     "smoothed_target_encode_column",
     "suggest_non_outlying_data_indices",
     "train_test_support_screen",
+    "compute_active_virtual_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_active_virtual_features") in transformer/_suite_adapter.py, off by default
+    "compute_adaptive_bandwidth_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_adaptive_bandwidth_attention") in transformer/_suite_adapter.py, off by default
+    "compute_adasyn_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_adasyn_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_adversarial_flip_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_adversarial_flip_features") in transformer/_suite_adapter.py, off by default
+    "compute_anchor_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_anchor_attention") in transformer/_suite_adapter.py, off by default
+    "compute_anomaly_score_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_anomaly_score_features") in transformer/_suite_adapter.py, off by default
+    "compute_apriori_itemsets_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_apriori_itemsets_features") in transformer/_suite_adapter.py, off by default
+    "compute_autoencoder_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_autoencoder_features") in transformer/_suite_adapter.py, off by default
+    "compute_aux_mlp_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_aux_mlp_features") in transformer/_suite_adapter.py, off by default
+    "compute_band_conditional_anchor_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_band_conditional_anchor_features") in transformer/_suite_adapter.py, off by default
+    "compute_baseline_disagreement_balanced_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_baseline_disagreement_balanced_features") in transformer/_suite_adapter.py, off by default
+    "compute_baseline_disagreement_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_baseline_disagreement_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_baseline_disagreement_v2_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_baseline_disagreement_v2_features") in transformer/_suite_adapter.py, off by default
+    "compute_baseline_surprise_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_baseline_surprise_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgm_clustered_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgm_clustered_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_density_ratio_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_density_ratio_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_dual_class_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_dual_class_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_multiscale_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_multiscale_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_quantile_bands_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_quantile_bands_features") in transformer/_suite_adapter.py, off by default
+    "compute_bgmm_virtual_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bgmm_virtual_features") in transformer/_suite_adapter.py, off by default
+    "compute_bidir_residual_band_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_bidir_residual_band_features") in transformer/_suite_adapter.py, off by default
+    "compute_boosted_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_boosted_attention") in transformer/_suite_adapter.py, off by default
+    "compute_boosting_leaf_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_boosting_leaf_features") in transformer/_suite_adapter.py, off by default
+    "compute_borderline_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_borderline_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_class_balanced_hard_row_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_class_balanced_hard_row_features") in transformer/_suite_adapter.py, off by default
+    "compute_class_conditional_anchor_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_class_conditional_anchor_attention") in transformer/_suite_adapter.py, off by default
+    "compute_class_distance_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_class_distance_features") in transformer/_suite_adapter.py, off by default
+    "compute_class_mahalanobis_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_class_mahalanobis_features") in transformer/_suite_adapter.py, off by default
+    "compute_cluster_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_cluster_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_conformal_coverage_failure_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_conformal_coverage_failure_features") in transformer/_suite_adapter.py, off by default
+    "compute_conformal_locally_adaptive_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_conformal_locally_adaptive_features") in transformer/_suite_adapter.py, off by default
+    "compute_counterfactual_substitution_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_counterfactual_substitution_features") in transformer/_suite_adapter.py, off by default
+    "compute_cross_feature_reconstruction_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_cross_feature_reconstruction_features") in transformer/_suite_adapter.py, off by default
+    "compute_cutmix_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_cutmix_features") in transformer/_suite_adapter.py, off by default
+    "compute_decision_region_depth_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_decision_region_depth_features") in transformer/_suite_adapter.py, off by default
+    "compute_denoising_autoencoder_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_denoising_autoencoder_features") in transformer/_suite_adapter.py, off by default
+    "compute_density_ratio_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_density_ratio_features") in transformer/_suite_adapter.py, off by default
+    "compute_density_weighted_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_density_weighted_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_diffusion_noise_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_diffusion_noise_features") in transformer/_suite_adapter.py, off by default
+    "compute_disagreement_band_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_disagreement_band_features") in transformer/_suite_adapter.py, off by default
+    "compute_distributional_moments_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_distributional_moments_features") in transformer/_suite_adapter.py, off by default
+    "compute_fca_closed_concepts_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_fca_closed_concepts_features") in transformer/_suite_adapter.py, off by default
+    "compute_fisher_weighted_residual_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_fisher_weighted_residual_features") in transformer/_suite_adapter.py, off by default
+    "compute_focal_lgb_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_focal_lgb_features") in transformer/_suite_adapter.py, off by default
+    "compute_geodesic_kgraph_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_geodesic_kgraph_features") in transformer/_suite_adapter.py, off by default
+    "compute_gradient_direction_agreement_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_gradient_direction_agreement_features") in transformer/_suite_adapter.py, off by default
+    "compute_hard_row_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_hard_row_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_ib_baseline_codes_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_ib_baseline_codes_features") in transformer/_suite_adapter.py, off by default
+    "compute_inducing_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_inducing_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_jackknife_endpoint_stability_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_jackknife_endpoint_stability_features") in transformer/_suite_adapter.py, off by default
+    "compute_ks_shift_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_ks_shift_features") in transformer/_suite_adapter.py, off by default
+    "compute_lda_projection_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_lda_projection_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_classifier_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_classifier_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_curvature_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_curvature_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_density_gradient_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_density_gradient_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_intrinsic_dim_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_intrinsic_dim_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_lift_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_lift_features") in transformer/_suite_adapter.py, off by default
+    "compute_local_linear_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_local_linear_attention") in transformer/_suite_adapter.py, off by default
+    "compute_mdl_binning_pairwise_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_mdl_binning_pairwise_features") in transformer/_suite_adapter.py, off by default
+    "compute_mixup_boundary_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_mixup_boundary_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_baseline_hard_row_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_baseline_hard_row_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_temp_band_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_temp_band_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_temp_cbhr_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_temp_cbhr_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_temp_residual_band_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_temp_residual_band_features") in transformer/_suite_adapter.py, off by default
+    "compute_multi_temperature_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_temperature_attention") in transformer/_suite_adapter.py, off by default
+    "compute_multi_threshold_ordinal_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multi_threshold_ordinal_features") in transformer/_suite_adapter.py, off by default
+    "compute_multiscale_rate_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multiscale_rate_features") in transformer/_suite_adapter.py, off by default
+    "compute_multiscale_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_multiscale_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_nca_projection_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_nca_projection_features") in transformer/_suite_adapter.py, off by default
+    "compute_neighbor_aggregate_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_neighbor_aggregate_features") in transformer/_suite_adapter.py, off by default
+    "compute_pairwise_kl_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_pairwise_kl_features") in transformer/_suite_adapter.py, off by default
+    "compute_per_class_spectral_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_per_class_spectral_attention") in transformer/_suite_adapter.py, off by default
+    "compute_per_column_rff",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_per_column_rff") in transformer/_suite_adapter.py, off by default
+    "compute_performer_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_performer_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_persistence_diagram_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_persistence_diagram_features") in transformer/_suite_adapter.py, off by default
+    "compute_positional_encoding",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_positional_encoding") in transformer/_suite_adapter.py, off by default
+    "compute_pred_augmented_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_pred_augmented_attention") in transformer/_suite_adapter.py, off by default
+    "compute_prediction_band_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_prediction_band_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_predictive_info_delta_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_predictive_info_delta_features") in transformer/_suite_adapter.py, off by default
+    "compute_pseudo_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_pseudo_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_pure_pos_smote_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_pure_pos_smote_features") in transformer/_suite_adapter.py, off by default
+    "compute_quantile_band_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_quantile_band_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_quantile_spread_fan_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_quantile_spread_fan_features") in transformer/_suite_adapter.py, off by default
+    "compute_residual_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_residual_attention") in transformer/_suite_adapter.py, off by default
+    "compute_residual_band_attention_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_residual_band_attention_features") in transformer/_suite_adapter.py, off by default
+    "compute_residual_stratified_distance_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_residual_stratified_distance_features") in transformer/_suite_adapter.py, off by default
+    "compute_rf_proximity_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_rf_proximity_attention") in transformer/_suite_adapter.py, off by default
+    "compute_rff_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_rff_features") in transformer/_suite_adapter.py, off by default
+    "compute_robustness_budget_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_robustness_budget_features") in transformer/_suite_adapter.py, off by default
+    "compute_sign_residual_baseline_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_sign_residual_baseline_features") in transformer/_suite_adapter.py, off by default
+    "compute_signed_residual_band_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_signed_residual_band_features") in transformer/_suite_adapter.py, off by default
+    "compute_smote_distance_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_smote_distance_features") in transformer/_suite_adapter.py, off by default
+    "compute_spectral_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_spectral_attention") in transformer/_suite_adapter.py, off by default
+    "compute_stacked_quantile_neighbours",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_stacked_quantile_neighbours") in transformer/_suite_adapter.py, off by default
+    "compute_stacked_row_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_stacked_row_attention") in transformer/_suite_adapter.py, off by default
+    "compute_target_kmeans_codebook_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_target_kmeans_codebook_features") in transformer/_suite_adapter.py, off by default
+    "compute_target_quantile_attention",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_target_quantile_attention") in transformer/_suite_adapter.py, off by default
+    "compute_tree_path_boolean_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_tree_path_boolean_features") in transformer/_suite_adapter.py, off by default
+    "compute_variance_baseline_features",  # transformer catalogue: opt-in via ShortlistTransformerAdapter("compute_variance_baseline_features") in transformer/_suite_adapter.py, off by default
 }
 
 #: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.
