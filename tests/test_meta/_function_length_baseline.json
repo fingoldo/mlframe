@@ -295,6 +295,6 @@
   "src/mlframe/training/train_eval.py::process_model": 230,
   "src/mlframe/training/trainer.py::_build_configs_from_params": 260,
   "src/mlframe/training/trainer.py::_configure_mlp_params": 211,
-  "src/mlframe/training/utils.py::get_pandas_view_of_polars_df": 371,
+  "src/mlframe/training/utils.py::get_pandas_view_of_polars_df": 358,
   "src/mlframe/training/xgb_shim.py::_DMatrixReuseMixin.fit": 251
 }
