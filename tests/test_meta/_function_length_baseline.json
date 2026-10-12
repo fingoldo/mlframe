@@ -20,7 +20,7 @@
   "src/mlframe/feature_selection/filters/_boruta.py::boruta_select": 156,
   "src/mlframe/feature_selection/filters/_cat_confirm_bandit.py::_confirm_pairs_bandit_ucb1": 211,
   "src/mlframe/feature_selection/filters/_cat_confirm_permutation.py::_confirm_pairs_via_permutation": 298,
-  "src/mlframe/feature_selection/filters/_cat_interactions_step.py::run_cat_interaction_step": 316,
+  "src/mlframe/feature_selection/filters/_cat_interactions_step.py::run_cat_interaction_step": 315,
   "src/mlframe/feature_selection/filters/_cluster_aggregate.py::run_cluster_aggregate_step": 181,
   "src/mlframe/feature_selection/filters/_cluster_hierarchy.py::build_cluster_hierarchy": 172,
   "src/mlframe/feature_selection/filters/_composite_group_agg_fe.py::generate_composite_group_agg_features": 174,
