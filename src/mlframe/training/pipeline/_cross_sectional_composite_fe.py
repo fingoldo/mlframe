@@ -58,7 +58,12 @@ def apply_cross_sectional_composite_fe(
     # give val/test a different neighbor radius than what the model was fit on) -- a split with too few
     # of its own snapshots to support it degrades further, with an explicit WARN, rather than silently.
     pd_train = _to_pandas(train_df)
-    train_n_snapshots = pd_train[snapshot_col].nunique() if pd_train is not None and snapshot_col in pd_train.columns else 0
+    train_has_inputs = pd_train is not None and snapshot_col in pd_train.columns and all(c in pd_train.columns for c in feature_cols)
+    if not train_has_inputs:
+        # Upstream steps can prune the snapshot key or feature columns from every split before this one; then there is
+        # nothing to compute and every split keeps its schema, as documented above.
+        return train_df, val_df, test_df
+    train_n_snapshots = pd_train[snapshot_col].nunique()
     effective_k = min(k, max(train_n_snapshots - 1, 0))
 
     if metadata is not None:
@@ -75,8 +80,12 @@ def apply_cross_sectional_composite_fe(
             continue
         pd_df = _to_pandas(df)
         if pd_df is None or snapshot_col not in pd_df.columns or not all(c in pd_df.columns for c in feature_cols):
-            out[split_name] = df
-            continue
+            # The model is fit on the neighbor columns, so a split that cannot produce them would reach predict with a
+            # different schema. Fail here, at the boundary, rather than let the mismatch surface later as a shape error.
+            raise ValueError(
+                f"apply_cross_sectional_composite_fe: split {split_name!r} lacks snapshot column {snapshot_col!r} "
+                f"or feature columns {feature_cols}; the train split has them, so this split cannot match its schema."
+            )
         n_snapshots = pd_df[snapshot_col].nunique()
         # A split with a single snapshot has no neighbors: it still gets the full column set (NaN aggregates, distance_ratio 1.0)
         # so its schema matches the train frame the model was fit on.
@@ -90,18 +99,16 @@ def apply_cross_sectional_composite_fe(
                 "derived from train); forcing k=%d for this split.",
                 split_name, n_snapshots, effective_k, split_k,
             )
-        try:
-            result = compute_cross_sectional_neighbor_features(
-                pd_df, snapshot_col=snapshot_col, feature_cols=feature_cols, k=split_k, agg_stats=agg_stats,
-            )
-            new_cols = result.to_pandas() if isinstance(result, pl.DataFrame) else result
-            new_cols = new_cols.reset_index(drop=True)
-            out[split_name] = attach_new_columns(df, new_cols)
-            if verbose:
-                logger.info("apply_cross_sectional_composite_fe[%s]: added %d column(s)", split_name, new_cols.shape[1])
-        except Exception:
-            log_throttle(logger, "cross_sectional_fe_step_failed", logging.ERROR, "apply_cross_sectional_composite_fe: step failed for split %r; skipping.", split_name, exc_info=True)
-            out[split_name] = df
+        # No try/except: a failed neighbor computation must surface. Swallowing it returned the split with its raw
+        # schema, which is the train/test column mismatch this step was built to prevent.
+        result = compute_cross_sectional_neighbor_features(
+            pd_df, snapshot_col=snapshot_col, feature_cols=feature_cols, k=split_k, agg_stats=agg_stats,
+        )
+        new_cols = result.to_pandas() if isinstance(result, pl.DataFrame) else result
+        new_cols = new_cols.reset_index(drop=True)
+        out[split_name] = attach_new_columns(df, new_cols)
+        if verbose:
+            logger.info("apply_cross_sectional_composite_fe[%s]: added %d column(s)", split_name, new_cols.shape[1])
 
     return out["train"], out["val"], out["test"]
 

@@ -118,6 +118,9 @@ def compute_cross_sectional_neighbor_features(
         distant, a local-density/outlier-confidence signal reusable well beyond this specific feature block.
     """
     snapshot_vectors = df.groupby(snapshot_col, sort=False)[list(feature_cols)].mean()
+    # A snapshot whose rows are all NaN in a feature has no mean there; the kNN search cannot take NaN, so such
+    # cells fall back to the cross-snapshot mean (mean imputation), and to 0 when the whole column is empty.
+    snapshot_vectors = snapshot_vectors.fillna(snapshot_vectors.mean()).fillna(0.0)
     snapshot_ids = snapshot_vectors.index.to_numpy()
     vectors = snapshot_vectors.to_numpy(dtype=np.float32)
     n_snapshots = vectors.shape[0]

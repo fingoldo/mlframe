@@ -423,9 +423,11 @@ def _fill_cb_cat_nan_sentinel(model: Any, X: pd.DataFrame) -> pd.DataFrame:
             _has_any_nan_in_cat = any(X[c].isna().any() for c in _cat_in_df)
             if _has_any_nan_in_cat:
                 # Shallow copy: only the cat columns carrying NaN are reassigned below; deep-copying a 100+ GB predict frame to mutate a few columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
-                X = X.copy(deep=False) if not getattr(X, "_mlframe_filled", False) else X
+                _frame_in = X
                 for _c in _cat_in_df:
                     if X[_c].isna().any():
+                        if X is _frame_in:
+                            X = X.copy(deep=False)
                         _orig = X[_c]
                         X[_c] = _orig.astype("string").fillna("__MISSING__")
                         if isinstance(_orig.dtype, pd.CategoricalDtype):

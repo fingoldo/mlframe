@@ -45,7 +45,7 @@ def forward_select(
     y: np.ndarray,
     estimator_factory: Callable[[], Any],
     scoring: Optional[str] = None,
-    cv: int = 5,
+    cv: int = 3,
     max_features: Optional[int] = None,
     min_improvement: float = 0.0,
     candidate_features: Optional[Sequence[Any]] = None,

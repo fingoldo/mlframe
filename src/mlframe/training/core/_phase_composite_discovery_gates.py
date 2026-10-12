@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any, Optional
 
@@ -146,6 +147,24 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
     return dropped
 
 
+def _cell_fingerprint(value: Any) -> Any:
+    """Hashable stand-in for one cell: arrays and lists hash by their bytes, everything else passes through unchanged."""
+    if isinstance(value, np.ndarray):
+        return f"nd:{value.dtype.str}:{value.shape}:{hashlib.blake2b(np.ascontiguousarray(value).tobytes(), digest_size=16).hexdigest()}"
+    if isinstance(value, (list, tuple)):
+        return repr(value)
+    return value
+
+
+def _frame_row_hashes(frame: pd.DataFrame) -> np.ndarray:
+    """Per-row hashes of ``frame``. ``pd.util.hash_pandas_object`` rejects array-valued cells (an embedding column), so those are fingerprinted first."""
+    cells = frame.copy(deep=False)
+    for col in cells.columns:
+        if cells[col].dtype == object:
+            cells[col] = cells[col].map(_cell_fingerprint)
+    return pd.util.hash_pandas_object(cells, index=False).to_numpy()
+
+
 def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None, disc_df: Any = None, time_column: Any = None,
                             val_df: Any = None, val_y: Any = None, y_full: Any = None, val_idx: Any = None) -> str:
     """A digest of the discovery inputs that change the selected specs but are neither data columns nor config fields.
@@ -154,8 +173,6 @@ def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None
     the hint cap and the ablation skip; the time-column values order the screen; the val frame is the y-scale gate's
     evaluation set. Without them in the key a rerun under a new group split or val set replayed specs gated on the old one.
     """
-    import hashlib
-
     if val_y is None and y_full is not None and val_idx is not None:
         val_y = np.asarray(y_full)[val_idx]  # the val targets as the phase hands them to the y-scale gate
     if val_y is None:
@@ -185,7 +202,7 @@ def discovery_inputs_digest(*, group_ids: Any = None, hint_strengths: Any = None
     else:
         h.update(str((tuple(getattr(val_df, "columns", ())), getattr(val_df, "shape", None))).encode())
         head = val_df.head(2000)
-        _rows = head.hash_rows().to_numpy() if hasattr(head, "hash_rows") else pd.util.hash_pandas_object(head, index=False).to_numpy()
+        _rows = head.hash_rows().to_numpy() if hasattr(head, "hash_rows") else _frame_row_hashes(head)
         h.update(np.ascontiguousarray(_rows).view(np.uint8).data)
     return h.hexdigest()
 

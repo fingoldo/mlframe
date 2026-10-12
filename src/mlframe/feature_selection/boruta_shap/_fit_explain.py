@@ -34,6 +34,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Row count below which the default surrogate forest runs single-threaded (see the gate in fit()). Crossover measured between 300 and 3000 rows.
+_SERIAL_SURROGATE_MAX_ROWS = 1000
+
 
 def _uses_held_out_split(self) -> bool:
     """Whether the fit ran on the 70% train slice ('test' mode), reading the resolved working copy like ``_fit_model``."""
@@ -385,6 +388,11 @@ def fit(self, X, y):
         # snapshot, so we reference it rather than taking a second copy. ``self.y_`` is never mutated (only
         # read for splits / model fit), so it is referenced, not copied.
         self.starting_X_ = X
+        # Below this many rows the default surrogate's per-trial forest is cheaper single-threaded: joblib's worker
+        # dispatch on every trial costs more than the tree fits themselves (measured at 300 rows: n_jobs=-1 1.8x slower,
+        # 3000 rows: 2.4x faster, 30000 rows: 6.9x faster; crossover between 300 and 3000).
+        if self.model is None and getattr(self, "model_", None) is not None and len(X) < _SERIAL_SURROGATE_MAX_ROWS:
+            self.model_.set_params(n_jobs=1)
         # The encoder below only REPLACES whole columns and rejected columns are dropped into a new frame, so no cell of the caller's data is ever
         # written: a shallow copy gives the working frame its own column set while sharing the untouched column buffers.
         self.X_ = X.copy(deep=False) if isinstance(X, pd.DataFrame) else X.copy()
