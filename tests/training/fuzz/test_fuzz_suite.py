@@ -157,7 +157,23 @@ def _apply_env_overrides(combo: FuzzCombo) -> FuzzCombo:
         import dataclasses as _dataclasses
 
         combo = _dataclasses.replace(combo, n_rows=int(_forced_n_rows))
+    if _os.environ.get("MLFRAME_FUZZ_BUGHUNT_BUDGET", "").lower() in ("1", "yes", "true", "on"):
+        combo = _apply_bughunt_budget(combo)
     return combo
+
+
+def _apply_bughunt_budget(combo: FuzzCombo) -> FuzzCombo:
+    """Bug-hunt per-combo budget: a small frame, one boosting iteration, and BorutaShap's early stop (patience 5) when it is on.
+
+    The coverage of each config lever stays in place; only the cost levers shrink, so one combo fits in seconds. Without this a
+    combo ran for minutes, mostly in BorutaShap's 150-trial loop and in the iteration count.
+    """
+    import dataclasses as _dataclasses
+
+    changes: dict = {"n_rows": min(int(combo.n_rows), 200), "iterations": 1}
+    if combo.use_boruta_shap_cfg:
+        changes.update(boruta_early_stop_tentative_cfg=True, boruta_early_stop_patience_cfg=5)
+    return _dataclasses.replace(combo, **changes)
 
 
 def _innermost_mlframe_frame(exc: BaseException) -> str:
