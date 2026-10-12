@@ -208,7 +208,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                 try:
                     mis[_sel] = plugin_mi_classif_batch_dispatch(_Xb, y_i64, nbins)
                 except Exception as _exc:
-                    logger.debug("streamed MI block failed, using sklearn for it: %s", _exc)
+                    logger.warning("streamed MI block failed, using sklearn for it: %s", _exc)
                     mis[_sel] = _mi_classif_batch_sklearn(_Xb, y_i64, nbins=nbins)
 
     if partial_cols.size:
