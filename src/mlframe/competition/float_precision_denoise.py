@@ -30,6 +30,7 @@ modules or exported from mlframe's top-level ``__init__.py``.
 
 from __future__ import annotations
 
+from typing import cast
 import numpy as np
 import numpy.typing as npt
 
@@ -91,7 +92,7 @@ class FloatPrecisionDenoiser:
         """Build the pool of candidate denominators to try (powers of 10 plus small integers)."""
         pows = np.power(10.0, np.arange(0, self.max_decimal_pow + 1, dtype=np.float64))
         ints = np.arange(1, self.max_denominator + 1, dtype=np.float64)
-        return np.unique(np.concatenate([pows, ints]))
+        return cast("np.ndarray", np.unique(np.concatenate([pows, ints])))
 
     def _residual_for_denominator(self, x: npt.NDArray[np.float64], denominator: float) -> float:
         """Mean fractional residual of ``x * denominator`` -- lower means a better-fitting denominator."""
@@ -134,7 +135,7 @@ class FloatPrecisionDenoiser:
         x = np.asarray(series, dtype=np.float64)
         scaled = x * self.denominator_
         rounded = np.floor(scaled) if self.use_floor else np.round(scaled)
-        return rounded / self.denominator_
+        return cast("np.ndarray", rounded / self.denominator_)
 
     def fit_transform(self, series: npt.ArrayLike) -> DenoiseResult:
         """Fit and transform in one call, returning a :class:`DenoiseResult`.

@@ -29,6 +29,7 @@ actionable speedup beyond the sort floor.
 
 from __future__ import annotations
 
+from typing import cast
 from dataclasses import dataclass
 from typing import Literal, Optional, Tuple
 
@@ -69,7 +70,7 @@ class RiskCoverageResult:
 
 def _binary_confidence(y_score: np.ndarray) -> np.ndarray:
     """Confidence of a binary positive-class probability: distance from the 0.5 decision boundary, scaled to [0,1]."""
-    return np.abs(y_score - 0.5) * 2.0
+    return cast("np.ndarray", np.abs(y_score - 0.5) * 2.0)
 
 
 def _multiclass_confidence(proba: np.ndarray) -> np.ndarray:

@@ -9,6 +9,8 @@ import functools
 import logging
 
 import numba
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -874,7 +876,7 @@ def fast_numba_aucs_with_ks(y_true: np.ndarray, y_score: np.ndarray, desc_score_
     last_counted_fps = np.int64(0)
     last_counted_tps = np.int64(0)
     tps, fps = np.int64(0), np.int64(0)
-    roc_auc = 0.0
+    roc_auc: float | np.floating = 0.0
     prev_recall = 0.0
     pr_auc = 0.0
     ks = 0.0
@@ -911,7 +913,7 @@ def fast_numba_aucs_with_ks(y_true: np.ndarray, y_score: np.ndarray, desc_score_
     else:
         roc_auc = np.nan
 
-    return roc_auc, pr_auc, ks
+    return cast(float, roc_auc), pr_auc, ks
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -935,7 +937,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
     last_counted_fps = np.int64(0)
     last_counted_tps = np.int64(0)
     tps, fps = np.int64(0), np.int64(0)
-    roc_auc = 0.0
+    roc_auc: float | np.floating = 0.0
 
     # Variables for PR AUC. sklearn.average_precision_score computes
     #   AP = sum_n (R_n - R_{n-1}) * P_n
@@ -973,7 +975,7 @@ def fast_numba_aucs(y_true: np.ndarray, y_score: np.ndarray, desc_score_indices:
         # Should not reach here due to early return, but handle defensively
         roc_auc = np.nan
 
-    return roc_auc, pr_auc
+    return cast(float, roc_auc), pr_auc
 
 
 # Brier score kernels + scorers live in the sibling ``_core_brier`` (carved out to keep this module

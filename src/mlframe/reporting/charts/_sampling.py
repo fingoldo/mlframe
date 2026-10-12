@@ -23,6 +23,7 @@ cost under 50 ms on a single core.
 
 from __future__ import annotations
 
+from typing import cast
 from typing import Optional, Union
 
 import numpy as np
@@ -52,7 +53,7 @@ def subsample_for_density(
         return arr
     rng = np.random.default_rng(seed)
     idx = rng.choice(len(arr), size=cap, replace=False)
-    return arr[idx]
+    return cast("np.ndarray", arr[idx])
 
 
 def _finite_argmin_argmax(arr: np.ndarray) -> list:
