@@ -75,7 +75,7 @@ def _select_swap_method_auto(
         try:
             y_arr = np.asarray(state.factors_data[:, int(state.target_indices[0])], dtype=np.int64)
         except Exception as e:
-            logger.debug("reading target column from factors_data failed: %s", e)
+            logger.warning("reading target column from factors_data failed, result degraded to the pca_pc1 method: %s", e)
             y_arr = None
     if y_arr is None and target_y is not None:
         y_arr = np.asarray(target_y, dtype=np.int64).ravel()

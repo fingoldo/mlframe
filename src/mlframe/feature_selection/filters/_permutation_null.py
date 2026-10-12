@@ -55,7 +55,7 @@ def _default_pair_maxt_max_rows() -> int:
     try:
         from .feature_engineering import UNIFIED_FE_SUBSAMPLE_N
     except ImportError as e:
-        logger.debug("UNIFIED_FE_SUBSAMPLE_N import failed, using the bootstrap fallback: %s", e)
+        logger.warning("UNIFIED_FE_SUBSAMPLE_N import failed, result degraded to the bootstrap cap of 30000 rows: %s", e)
         UNIFIED_FE_SUBSAMPLE_N = 30_000
     return int(UNIFIED_FE_SUBSAMPLE_N) // 2
 
