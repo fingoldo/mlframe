@@ -10,6 +10,8 @@ raw through ``selected_vars`` / ``support_``. Regression targets only (the conti
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import re
 
@@ -163,7 +165,7 @@ def _is_group_leak_raw(X, name, y):
     return _impl(X, name, y)
 
 
-def run_residual_rescue(self, X, selected_vars, cols, engineered_recipes, retention_added_eng_names, verbose) -> bool:
+def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_recipes: Any, retention_added_eng_names: Any, verbose: Any) -> bool:
     """Admit the pool columns that reduce the held-out residual of the selected design and prune the redundant raws (``redundancy_policy='drop'``); True when the selection changed."""
     if not getattr(self, "fe_residual_rescue_enable", False):
         return False

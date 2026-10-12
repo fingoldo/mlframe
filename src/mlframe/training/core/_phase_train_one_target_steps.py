@@ -35,7 +35,7 @@ from ._phase_train_one_target_schema import (
     _build_and_record_model_schema,
     _clone_model_with_sticky_flags,
 )
-from ..composite._frame_columns import frame_columns
+from ..composite import frame_columns
 from ._phase_train_one_target_mlp_helpers import (
     _apply_mlp_extreme_ar_output_activation,
     _apply_mlp_extreme_ar_weight_decay_bump,

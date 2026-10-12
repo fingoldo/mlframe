@@ -49,7 +49,7 @@ from typing import Any, NamedTuple, Optional
 import numba
 import numpy as np
 
-from mlframe.metrics._numba_params import NUMBA_NJIT_PARAMS
+from mlframe.metrics import NUMBA_NJIT_PARAMS
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)

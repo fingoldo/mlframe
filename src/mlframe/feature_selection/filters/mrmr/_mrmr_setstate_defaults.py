@@ -430,6 +430,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "_fe_budget_wall_pre_fit_": None,
     "fe_family_budget_": None,
     "_fe_recommended_flags_": None,
+    "fe_target_mix_provenance_": [],
     "_identity_cache_ycorr_": None,
     "_own_last_identity_fp_": None,
     "_synergy_auto_decision_": None,

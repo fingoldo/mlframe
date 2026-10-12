@@ -15,7 +15,7 @@ Safety margins (measured, pinned against pageable on this host: 5.8 vs 3.8 GB/s 
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import numpy as np
 
@@ -62,7 +62,7 @@ def _host_free_bytes() -> int:
         return 2 * 1024**3
 
 
-def plan_streamed_mi(n_rows: int, devices: list[tuple[int, int]], host_free: int, dtype) -> dict:
+def plan_streamed_mi(n_rows: int, devices: list[tuple[int, int]], host_free: int, dtype: Any) -> dict:
     """Block width (columns), staging bytes and the pinned budget for a run; ``width`` is 0 when no device fits one column."""
     if not devices:
         return {"width": 0, "block_bytes": 0, "pinned_total": 0, "devices": []}
@@ -86,7 +86,7 @@ def plan_streamed_mi(n_rows: int, devices: list[tuple[int, int]], host_free: int
     }
 
 
-def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: int, n_rows: int, dtype, max_devices: Optional[int] = None) -> np.ndarray:
+def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: int, n_rows: int, dtype: Any, max_devices: Optional[int] = None) -> np.ndarray:
     """Plug-in MI of every column of every block against ``y``, concatenated in block order.
 
     ``blocks`` yields ``(n_rows, w)`` arrays of ``dtype`` (each block may have its own width up to the planned one). Returns the
@@ -132,7 +132,7 @@ def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: i
     return np.concatenate(out)
 
 
-def mi_classif_streamed_fill(fill, n_blocks: int, widths: list, y: np.ndarray, *, nbins: int, n_rows: int, dtype, max_devices: Optional[int] = None) -> np.ndarray:
+def mi_classif_streamed_fill(fill: Any, n_blocks: int, widths: list, y: np.ndarray, *, nbins: int, n_rows: int, dtype: Any, max_devices: Optional[int] = None) -> np.ndarray:
     """Like :func:`mi_classif_streamed`, but the source writes each block straight into the pinned staging buffer.
 
     ``fill(k, out)`` receives a writable ``(n_rows, widths[k])`` view of ``dtype`` of the pinned buffer and must fill it in place; this

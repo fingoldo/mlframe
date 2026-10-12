@@ -21,7 +21,7 @@ from typing import Any
 
 import numpy as np
 
-from ..composite._frame_columns import frame_columns
+from ..composite import frame_columns
 from ._phase_train_one_target_mlp_helpers import extreme_ar_skip_decision
 
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")

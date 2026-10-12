@@ -56,6 +56,7 @@ def test_columns_with_different_grids_and_a_batch_of_one():
     z0, y0, _ = jobs[0]
     mixed = [(z0, y0, GRID), (jobs[1][0], jobs[1][1], GRID[:10]), (jobs[2][0], jobs[2][1], GRID[4:])]
     got = detect_fourier_freqs_batch_gpu(mixed, single=_single, **PARAMS)
+    assert len(got) == len(mixed) > 0, "no results: the loop below would pass vacuously"
     for (z, y, g), res in zip(mixed, got):
         assert res == pytest.approx(_single(z, y, g), abs=1e-9)
     one = detect_fourier_freqs_batch_gpu([jobs[0]], single=_single, **PARAMS)

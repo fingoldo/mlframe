@@ -13,6 +13,8 @@ import json
 import re
 from pathlib import Path
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 ROOT = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection"
 BASELINE = Path(__file__).resolve().parent / "data" / "float64_baseline.json"
 MARKER = "Intentional float64"
@@ -37,13 +39,16 @@ def _current_counts() -> dict[str, int]:
     """Counts per file, keyed by the path relative to ``src/mlframe``, for the feature-selection tree (benchmarks excluded)."""
     base = ROOT.parent
     out: dict[str, int] = {}
+    scanned = 0
     for path in sorted(ROOT.rglob("*.py")):
         rel = path.relative_to(base).as_posix()
+        scanned += 1
         if "_benchmarks" in rel or "/tests/" in rel:
             continue
         c = _counted_lines(path)
         if c:
             out[rel] = c
+    assert_scanned_enough(scanned, "explicit float64 ratchet")
     return out
 
 

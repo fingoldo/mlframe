@@ -662,7 +662,7 @@ def _mix_offset_inputs_for_discovery(config, train_df_pd, val_df_pd, test_df_pd,
         return None
     import numpy as np
 
-    from ...feature_selection.filters._target_mix_target import assemble_full_frame
+    from ...feature_selection.filters import assemble_full_frame
     from ...feature_selection.filters.mrmr import MRMR
     from sklearn.ensemble import HistGradientBoostingRegressor
 

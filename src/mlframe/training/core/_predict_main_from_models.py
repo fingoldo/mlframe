@@ -466,11 +466,11 @@ def _predict_from_model_all_native_path_only(df_pre_pipeline, _all_polars_native
                         per_target_preds.setdefault((target_type, target_name), []).append(preds)
                     else:
                         preds = _try_predict(model.predict, _primary_for_model, df_pre_pipeline)
-                        from ...feature_selection.filters._target_mix_target import mix_offset_record
+                        from ...feature_selection.filters import mix_offset_record
 
                         _mixoff = mix_offset_record(metadata, target_type, target_name)
                         if _mixoff is not None:
-                            from ...feature_selection.filters._target_mix_target import add_back_mix_offset
+                            from ...feature_selection.filters import add_back_mix_offset
 
                             preds = add_back_mix_offset(preds, _ensure_pandas_view(df, _pandas_view_cache), _mixoff)
                         results["predictions"][model_name] = preds

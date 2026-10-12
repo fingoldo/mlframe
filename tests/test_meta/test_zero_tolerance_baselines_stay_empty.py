@@ -58,6 +58,9 @@ def _load(name: str):
 def test_zero_tolerance_baseline_is_still_empty(name: str):
     """Adding an entry here downgrades a blocking gate to one that tolerates the new violation."""
     entries = _load(name)
+    # ratchet-managed files carry metadata keys (``_comment``) next to the accepted-violations map; only that map counts.
+    if isinstance(entries, dict) and "accepted" in entries:
+        entries = entries["accepted"]
     assert len(entries) == 0, (
         f"{name} gained {len(entries)} entr(y/ies). This baseline is empty by design: its gate is "
         f"zero-tolerance, and appending to it silences the exact violation that was just introduced "

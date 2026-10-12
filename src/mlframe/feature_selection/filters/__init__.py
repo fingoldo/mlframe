@@ -65,8 +65,16 @@ from ._boruta import boruta_select
 from ._per_fold_majority_accept import per_fold_majority_accept, seed_averaged_fold_scores
 from ._ks_stability import ks_stability_filter
 
+from ._target_mix_target import (
+    add_back_mix_offset,
+    assemble_full_frame,
+    build_mix_offset_target,
+    mix_offset_record,
+)
+
 __all__ = [
     "MRMR",
+    "assemble_full_frame",
     "MRMRTreeRescued",
     "canonical_group_token",
     "analytic_mi_null",
