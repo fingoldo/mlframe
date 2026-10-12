@@ -66,6 +66,70 @@ def _oof_train_predictions(Xt: np.ndarray, y_t: np.ndarray, is_binary: bool, see
     return preds
 
 
+def _finite_difference_grad_norm(model, X: np.ndarray, is_binary: bool, eps: float) -> np.ndarray:
+    """Finite-difference L2 norm of the model's prediction gradient per row (a Fisher-information proxy), batching all d per-feature perturbations into one stacked predict call when the stack fits under ``_MAX_STACK_ELEMS``, else falling back to d separate calls; both paths accumulate in the same feature order for bit-identical results."""
+    n, d = X.shape
+    if is_binary:
+        p_base = model.predict_proba(X)[:, 1].astype(np.float32)
+    else:
+        p_base = model.predict(X).astype(np.float32)
+    grad_sq_sum = np.zeros(n, dtype=np.float32)
+    # Batched finite-difference: stack d copies of X into one (d*n, d) matrix, add eps to
+    # block j's column j, then a SINGLE predict over the stack instead of d separate calls.
+    # Bit-identical to the per-feature predict (tree models predict per-row independently);
+    # amortizes LightGBM per-call overhead. Gated on stack size to bound peak RAM.
+    stack_elems = d * n * d
+    if stack_elems <= _MAX_STACK_ELEMS and d > 1:
+        # No `.copy()`. `broadcast_to` gives a zero-stride view, and reshaping a non-contiguous broadcast
+        # view cannot itself be a view -- numpy has already allocated a full, writeable, independent
+        # (d*n, d) array by this point (verified: it shares no memory with X and is writeable). Copying it
+        # again allocated a second one, so the transient peak was twice what `_MAX_STACK_ELEMS` budgets:
+        # 1.02 GB rather than 512 MB at the cap, before `predict_proba`'s own (d*n, n_classes) output.
+        stack = np.broadcast_to(X, (d, n, d)).reshape(d * n, d)
+        block_starts = np.arange(d) * n
+        for j in range(d):
+            stack[block_starts[j] : block_starts[j] + n, j] += eps
+        if is_binary:
+            p_plus_all = model.predict_proba(stack)[:, 1].astype(np.float32).reshape(d, n)
+        else:
+            p_plus_all = model.predict(stack).astype(np.float32).reshape(d, n)
+        # Accumulate in the SAME sequential per-feature order as the fallback loop so the
+        # float32 reduction order (and thus the result) is bit-identical, not pairwise-summed.
+        contrib = (((p_plus_all - p_base[None, :]) / eps) ** 2).astype(np.float32)
+        for j in range(d):
+            grad_sq_sum += contrib[j]
+    else:
+        for j in range(d):
+            X_plus = X.copy()
+            X_plus[:, j] += eps
+            if is_binary:
+                p_plus = model.predict_proba(X_plus)[:, 1].astype(np.float32)
+            else:
+                p_plus = model.predict(X_plus).astype(np.float32)
+            grad_sq_sum += ((p_plus - p_base) / eps) ** 2
+    return np.sqrt(grad_sq_sum) + 1e-9
+
+
+def _quantile_band_mask(values: np.ndarray, quantiles: np.ndarray, b: int, n_bands: int) -> np.ndarray:
+    """Boolean mask of ``values`` falling in quantile band ``b``; the first and last bands are open toward the tails."""
+    if b == 0:
+        return np.asarray(values <= quantiles[b + 1])
+    if b == n_bands - 1:
+        return np.asarray(values > quantiles[b])
+    return np.asarray((values > quantiles[b]) & (values <= quantiles[b + 1]))
+
+
+def _fisher_feature_frame(feats: np.ndarray, column_prefix: str, dtype: type) -> dict[str, np.ndarray]:
+    """Slice the ``_process`` output columns into a name-tagged dict (band/band_y_mean/fisher_norm/residual_proxy/weighted_residual), cast to the requested output dtype."""
+    cols: dict[str, np.ndarray] = {}
+    cols[f"{column_prefix}_band"] = feats[:, 0].astype(dtype, copy=False)
+    cols[f"{column_prefix}_band_y_mean"] = feats[:, 1].astype(dtype, copy=False)
+    cols[f"{column_prefix}_fisher_norm"] = feats[:, 2].astype(dtype, copy=False)
+    cols[f"{column_prefix}_residual_proxy"] = feats[:, 3].astype(dtype, copy=False)
+    cols[f"{column_prefix}_weighted_residual"] = feats[:, 4].astype(dtype, copy=False)
+    return cols
+
+
 def compute_fisher_weighted_residual_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -97,49 +161,6 @@ def compute_fisher_weighted_residual_features(
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
     n_features_out = 5
-
-    def _gradient_norm(model, X: np.ndarray, is_binary: bool) -> np.ndarray:
-        """Finite-difference L2 norm of the model's prediction gradient per row (a Fisher-information proxy), batching all d per-feature perturbations into one stacked predict call when the stack fits under ``_MAX_STACK_ELEMS``, else falling back to d separate calls; both paths accumulate in the same feature order for bit-identical results."""
-        n, d = X.shape
-        if is_binary:
-            p_base = model.predict_proba(X)[:, 1].astype(np.float32)
-        else:
-            p_base = model.predict(X).astype(np.float32)
-        grad_sq_sum = np.zeros(n, dtype=np.float32)
-        # Batched finite-difference: stack d copies of X into one (d*n, d) matrix, add eps to
-        # block j's column j, then a SINGLE predict over the stack instead of d separate calls.
-        # Bit-identical to the per-feature predict (tree models predict per-row independently);
-        # amortizes LightGBM per-call overhead. Gated on stack size to bound peak RAM.
-        stack_elems = d * n * d
-        if stack_elems <= _MAX_STACK_ELEMS and d > 1:
-            # No `.copy()`. `broadcast_to` gives a zero-stride view, and reshaping a non-contiguous broadcast
-            # view cannot itself be a view -- numpy has already allocated a full, writeable, independent
-            # (d*n, d) array by this point (verified: it shares no memory with X and is writeable). Copying it
-            # again allocated a second one, so the transient peak was twice what `_MAX_STACK_ELEMS` budgets:
-            # 1.02 GB rather than 512 MB at the cap, before `predict_proba`'s own (d*n, n_classes) output.
-            stack = np.broadcast_to(X, (d, n, d)).reshape(d * n, d)
-            block_starts = np.arange(d) * n
-            for j in range(d):
-                stack[block_starts[j] : block_starts[j] + n, j] += eps
-            if is_binary:
-                p_plus_all = model.predict_proba(stack)[:, 1].astype(np.float32).reshape(d, n)
-            else:
-                p_plus_all = model.predict(stack).astype(np.float32).reshape(d, n)
-            # Accumulate in the SAME sequential per-feature order as the fallback loop so the
-            # float32 reduction order (and thus the result) is bit-identical, not pairwise-summed.
-            contrib = (((p_plus_all - p_base[None, :]) / eps) ** 2).astype(np.float32)
-            for j in range(d):
-                grad_sq_sum += contrib[j]
-        else:
-            for j in range(d):
-                X_plus = X.copy()
-                X_plus[:, j] += eps
-                if is_binary:
-                    p_plus = model.predict_proba(X_plus)[:, 1].astype(np.float32)
-                else:
-                    p_plus = model.predict(X_plus).astype(np.float32)
-                grad_sq_sum += ((p_plus - p_base) / eps) ** 2
-        return np.sqrt(grad_sq_sum) + 1e-9
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, fold_seed: int) -> np.ndarray:
         """Fit the baseline on the (optionally scaled) train fold, compute a residual proxy and Fisher-gradient norm per row, form the Fisher-weighted residual (``|residual| * sqrt(fisher_norm)``), bucket train rows into quantile bands of it, and assign each query row to a band + its aggregated y-mean plus its own Fisher/residual/weighted-residual values."""
@@ -174,8 +195,8 @@ def compute_fisher_weighted_residual_features(
             resid_query = np.abs(p_query - float(np.median(y_t))).astype(np.float32)
 
         # Fisher norm per train + query row.
-        fisher_train = _gradient_norm(model, Xt_s, is_binary).astype(np.float32)
-        fisher_query = _gradient_norm(model, Xq_s, is_binary).astype(np.float32)
+        fisher_train = _finite_difference_grad_norm(model, Xt_s, is_binary, eps).astype(np.float32)
+        fisher_query = _finite_difference_grad_norm(model, Xq_s, is_binary, eps).astype(np.float32)
 
         # Weighted residual = |residual| × sqrt(Fisher); use train to set band thresholds.
         weighted_train = resid_train * np.sqrt(fisher_train)
@@ -186,25 +207,14 @@ def compute_fisher_weighted_residual_features(
         # boundary) -- 0.0 misleadingly reads as a genuinely low-residual band rather than "no data".
         band_y_mean = np.full(n_bands, float(y_t.mean()), dtype=np.float32)
         for b in range(n_bands):
-            if b == 0:
-                mask = weighted_train <= quantiles[b + 1]
-            elif b == n_bands - 1:
-                mask = weighted_train > quantiles[b]
-            else:
-                mask = (weighted_train > quantiles[b]) & (weighted_train <= quantiles[b + 1])
+            mask = _quantile_band_mask(weighted_train, quantiles, b, n_bands)
             if mask.sum() > 0:
                 band_y_mean[b] = float(y_t[mask].mean())
 
         # Assign query rows to bands.
         query_band = np.zeros(weighted_query.shape[0], dtype=np.int32)
         for b in range(n_bands):
-            if b == 0:
-                mask = weighted_query <= quantiles[b + 1]
-            elif b == n_bands - 1:
-                mask = weighted_query > quantiles[b]
-            else:
-                mask = (weighted_query > quantiles[b]) & (weighted_query <= quantiles[b + 1])
-            query_band[mask] = b
+            query_band[_quantile_band_mask(weighted_query, quantiles, b, n_bands)] = b
         agg_y = band_y_mean[query_band].astype(np.float32)
 
         return np.column_stack([
@@ -215,20 +225,10 @@ def compute_fisher_weighted_residual_features(
             weighted_query.astype(np.float32),
         ])
 
-    def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
-        """Slice the ``_process`` output columns into a name-tagged dict (band/band_y_mean/fisher_norm/residual_proxy/weighted_residual), cast to the requested output dtype."""
-        cols: dict[str, np.ndarray] = {}
-        cols[f"{column_prefix}_band"] = feats[:, 0].astype(dtype, copy=False)
-        cols[f"{column_prefix}_band_y_mean"] = feats[:, 1].astype(dtype, copy=False)
-        cols[f"{column_prefix}_fisher_norm"] = feats[:, 2].astype(dtype, copy=False)
-        cols[f"{column_prefix}_residual_proxy"] = feats[:, 3].astype(dtype, copy=False)
-        cols[f"{column_prefix}_weighted_residual"] = feats[:, 4].astype(dtype, copy=False)
-        return cols
-
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
         feats = _process(X_train_f, Xq, y_train_f, seed)
-        return pl.DataFrame(_make_df(feats))
+        return pl.DataFrame(_fisher_feature_frame(feats, column_prefix, dtype))
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
@@ -240,4 +240,4 @@ def compute_fisher_weighted_residual_features(
         out[val_idx] = feats.astype(dtype, copy=False)
         logger.info("fisher_weighted_residual: fold %d/%d done", fold_idx + 1, len(splits))
 
-    return pl.DataFrame(_make_df(out))
+    return pl.DataFrame(_fisher_feature_frame(out, column_prefix, dtype))

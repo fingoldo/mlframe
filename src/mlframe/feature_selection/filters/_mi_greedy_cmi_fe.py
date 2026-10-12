@@ -76,20 +76,17 @@ from types import SimpleNamespace as _SimpleNamespace
 # host, where the fixed ~1.7ms device round-trip overhead loses to numpy.
 _GPU_QBIN_MIN_ROWS = 50_000
 
-
 __all__ = [
     "score_candidates_by_cmi",
     "greedy_cmi_fe_construct",
     "greedy_cmi_fe_construct_with_recipes",
 ]
 
-
 # ---------------------------------------------------------------------------
 # Binning + entropy helpers (self-contained — mirrors ``_mi_classif_batch``'s
 # equi-frequency binning so CMI numbers are directly comparable to the
 # marginal-MI numbers Layer 26 reports).
 # ---------------------------------------------------------------------------
-
 
 # Direct-array factorize is used while the joint's max id keeps the ``seen``
 # lookup buffer under this many int64 entries (~128 MB at the cap). Above it
@@ -135,7 +132,9 @@ from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
     _greedy_cmi_fe_constr_step2_rng_raw_small,
     _greedy_cmi_fe_constr_step3_while_st_remaining,
 )
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 @njit(cache=True)
 def _combine_factorize_serial_njit(joint: np.ndarray, c: np.ndarray, mult: int) -> tuple:
@@ -174,7 +173,6 @@ def _combine_factorize_serial_njit(joint: np.ndarray, c: np.ndarray, mult: int) 
                 inv[i] = nc
                 nc += 1
     return inv, nc
-
 
 def _cmi_from_binned(
     x: np.ndarray, y: np.ndarray, z_joint: Optional[np.ndarray], return_cards: bool = False,
@@ -274,7 +272,6 @@ def _cmi_from_binned(
     cmi = max(0.0, cmi_plugin - cmi_bias)
     return (cmi, (int(k_z), int(k_xz), int(k_yz), int(k_xyz))) if return_cards else cmi
 
-
 # Fused entropy + occupied-cell reduction over a bincount histogram (launch-reduction, 2026-06-25). The
 # entropy tail ``c[c>0]; p=c*inv_n; -(p*log p).sum()`` plus the ``c.shape[0]`` count expanded to a
 # boolean-mask getitem + astype + multiply + log + sum (~5 cuLaunchKernel). Two cupy ReductionKernels
@@ -317,14 +314,12 @@ void ent_nnz(const long long* __restrict__ c, const double inv_n, const long lon
 """
 _ENT_NNZ_KERNEL = None
 
-
 def _get_ent_nnz_kernel(cp):
     """Lazily compile and cache the fused entropy+nnz RawKernel (compiled once per process via NVRTC, ~30ms) so repeated calls pay only the ~30us launch cost."""
     global _ENT_NNZ_KERNEL
     if _ENT_NNZ_KERNEL is None:
         _ENT_NNZ_KERNEL = cp.RawKernel(_ENT_NNZ_SRC, "ent_nnz")
     return _ENT_NNZ_KERNEL
-
 
 def _ent_from_counts(c, inv_n: float):
     """Plug-in entropy (h) + occupied-cell count (k) of an int64 count vector in ONE fused RawKernel launch.
@@ -348,7 +343,6 @@ def _ent_from_counts(c, inv_n: float):
             _NNZ_RK = cp.ReductionKernel("int64 c", "int64 k", "c > 0 ? 1 : 0", "a + b", "k = a", "0", "mrmr_nnz_rk")
         return float(_ENT_RK(c, float(inv_n))), int(_NNZ_RK(c))
 
-
 def _nnz_from_counts(c) -> int:
     """Occupied-cell count of a bincount histogram in one ReductionKernel launch (vs >0 elementwise + sum)."""
     import cupy as cp
@@ -358,7 +352,6 @@ def _nnz_from_counts(c) -> int:
                                      "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
         _NNZ_RK = cp.ReductionKernel("int64 c", "int64 k", "c > 0 ? 1 : 0", "a + b", "k = a", "0", "mrmr_nnz_rk")
     return int(_NNZ_RK(c))
-
 
 # content-fingerprint -> max(dev_codes)+1 cardinality. y is a fit-constant and z_support a round-constant
 # across the per-candidate CMI calls, so their dev .max() (a reduction + scalar D2H) recurs identically;
@@ -385,7 +378,6 @@ def _nnz_from_counts(c) -> int:
 # bound (GPU idle ~90%), NOT operand-H2D-bound (only ~118 operand uploads; the 1790 cudaMemcpyAsync are
 # per-kernel scalar D2H, not operand re-uploads). Not worth a DATA cache's stale id()-reuse collision risk for
 # ~10 ms. The real redundancy is the DOUBLE card computation, eliminated by the precomp_cards reuse below.
-
 
 def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0, kz: int = 0):
     """Device twin of :func:`_cmi_from_binned` (marginal + conditional) via cp.unique partition counts.
@@ -480,11 +472,9 @@ def _cmi_from_binned_cupy(x, y, z_joint, return_cards: bool = False, kx: int = 0
     # hand them back so the perm-null reuses them instead of recomputing the four histograms (precomp_cards).
     return (cmi, (int(k_z), int(k_xz), int(k_yz), int(k_xyz))) if return_cards else cmi
 
-
 _YZ_CARD_CACHE: dict = {}  # (y,z)-identity -> (k_z, k_yz, ky, kz); invariant across a round's candidates
 # Same joblib-threading race class as _CARD_MAX_CACHE_LOCK: covers the whole get-or-compute-or-evict sequence.
 _YZ_CARD_CACHE_LOCK = threading.Lock()
-
 
 def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tuple[int, int, int, int]:
     """Occupied-cell counts (k_z, k_xz, k_yz, k_xyz) for the analytic CMI-null df, via device cp.unique.
@@ -545,11 +535,9 @@ def joint_cardinalities_cupy(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> tup
     k_xyz = _nc([dx, dy, dz], [Kx, ky, kz])
     return k_z, k_xz, k_yz, k_xyz
 
-
 # ---------------------------------------------------------------------------
 # Public CMI scorer
 # ---------------------------------------------------------------------------
-
 
 def score_candidates_by_cmi(
     X_cand: pd.DataFrame,
@@ -631,11 +619,9 @@ def score_candidates_by_cmi(
         out[c] = _cmi_from_binned(x_bin, y_bin, z_joint)
     return pd.Series(out, dtype=np.float64)
 
-
 # ---------------------------------------------------------------------------
 # End-to-end greedy CMI constructor
 # ---------------------------------------------------------------------------
-
 
 def greedy_cmi_fe_construct(
     X: pd.DataFrame,
@@ -811,7 +797,6 @@ def greedy_cmi_fe_construct(
         st.X_aug = X.copy(deep=False)
     return st.X_aug, st.scores
 
-
 def greedy_cmi_fe_construct_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -825,7 +810,7 @@ def greedy_cmi_fe_construct_with_recipes(
     min_cmi_gain: float = 0.005,
     nbins: int = 10,
     seed: int = 0xC011,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`greedy_cmi_fe_construct` but additionally returns a list
     of ``EngineeredRecipe`` objects (one per appended column) so MRMR.transform
     can replay each column on test data without re-running CMI scoring AND

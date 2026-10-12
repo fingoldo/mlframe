@@ -56,15 +56,16 @@ __all__ = [
 # floors so rare cells fall back to the global value. Promoting the order-stat winners to the ctor default is a tracked
 # follow-up - it needs a multi-seed sweep confirming the biz_value win generalises before the default flips.
 from ._target_encoding_order_stats import ORDER_STATS as _TE_ORDER_STATS, global_order_stats, per_category_order_stats
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 _TE_MOMENT_STATS = ("mean", "std", "skew", "kurt")
 TE_SUPPORTED_STATS = _TE_MOMENT_STATS + _TE_ORDER_STATS
 
-
 # ---------------------------------------------------------------------------
 # Naming + auto-detection
 # ---------------------------------------------------------------------------
-
 
 def engineered_name_te(col: str) -> str:
     """Stable engineered column name for a target-encoded source column.
@@ -75,12 +76,10 @@ def engineered_name_te(col: str) -> str:
     plotting helpers)."""
     return f"{col}__te"
 
-
 def engineered_name_te_stat(col: str, stat: str) -> str:
     """Engineered column name for a target-encoded source column + statistic. ``mean`` keeps the historical
     ``{col}__te`` name (back-compat with existing recipes / grep consumers); other stats get ``{col}__te_{stat}``."""
     return engineered_name_te(col) if stat == "mean" else f"{col}__te_{stat}"
-
 
 @njit(cache=True)
 def _per_cat_centered_moments_njit(inverse: np.ndarray, y: np.ndarray, n_cats: int) -> tuple:
@@ -119,7 +118,6 @@ def _per_cat_centered_moments_njit(inverse: np.ndarray, y: np.ndarray, n_cats: i
         m3[c] += d2 * d
         m4[c] += d2 * d2
     return cnt, mean, m2, m3, m4
-
 
 def _smooth_moments_from_centered(
     cnt: np.ndarray, mean: np.ndarray, m2: np.ndarray, m3: np.ndarray, m4: np.ndarray,
@@ -172,7 +170,6 @@ def _smooth_moments_from_centered(
         out[stat] = smoothed
     return out
 
-
 def _global_target_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
     """Global (all-rows) value of each requested statistic - the shrink target / unseen-category / rare-cell fallback."""
     from scipy.stats import kurtosis as _kurt, skew as _skew
@@ -189,7 +186,6 @@ def _global_target_stats(y_arr: np.ndarray, stats: Sequence[str]) -> dict:
             g[stat] = float(_kurt(y_arr)) if (y_arr.size > 3 and sd > 1e-12) else 0.0
     g.update(global_order_stats(y_arr, stats))
     return {k: (v if np.isfinite(v) else 0.0) for k, v in g.items()}
-
 
 def auto_detect_te_cols(
     X: pd.DataFrame,
@@ -233,18 +229,15 @@ def auto_detect_te_cols(
             candidates.append(col)
     return candidates
 
-
 # ---------------------------------------------------------------------------
 # K-fold OOF encoder (fit-time)
 # ---------------------------------------------------------------------------
-
 
 def _smooth(raw_mean: float, count: float, global_mean: float, smoothing: float) -> float:
     """Micci-Barreca shrinkage toward ``global_mean`` with strength ``smoothing``."""
     if count <= 0.0:
         return global_mean
     return (count * raw_mean + smoothing * global_mean) / (count + smoothing)
-
 
 def _column_to_str(col: pd.Series) -> np.ndarray:
     """Coerce a categorical / object column to a numpy array of Python
@@ -329,7 +322,6 @@ def _column_to_str(col: pd.Series) -> np.ndarray:
         else:
             out[i] = canonical_group_token(v)
     return out
-
 
 def kfold_target_encode_fit(
     X: pd.DataFrame,
@@ -495,11 +487,9 @@ def kfold_target_encode_fit(
     te_df = pd.DataFrame(encoded_cols, index=X.index)
     return te_df, recipes
 
-
 # ---------------------------------------------------------------------------
 # Transform-time replay
 # ---------------------------------------------------------------------------
-
 
 def apply_target_encoding(
     X_test: pd.DataFrame | np.ndarray,
@@ -570,11 +560,9 @@ def apply_target_encoding(
     out = pd.Series(cats, copy=False).map(lookup).fillna(global_mean).to_numpy(dtype=np.float64)
     return np.asarray(out)
 
-
 # ---------------------------------------------------------------------------
 # End-to-end wrapper for MRMR.fit auto-wiring
 # ---------------------------------------------------------------------------
-
 
 def kfold_target_encode_with_recipes(
     X: pd.DataFrame,
@@ -590,7 +578,7 @@ def kfold_target_encode_with_recipes(
     mi_gate_top_k: Optional[int] = None,
     reject_sink: Optional[Callable[..., None]] = None,
     stats: Sequence[str] = ("mean",),
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """End-to-end: detect / accept cat cols, fit OOF encoding, build
     ``EngineeredRecipe`` objects ready for ``MRMR.transform`` replay.
 

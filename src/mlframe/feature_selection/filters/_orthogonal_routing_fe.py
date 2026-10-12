@@ -82,6 +82,9 @@ from ._orthogonal_univariate_fe import (
     cached_raw_mi_baseline,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +113,6 @@ _PRE_TRANSFORM_TAG = {
 }
 _TAG_TO_PRE_TRANSFORM = {v: k for k, v in _PRE_TRANSFORM_TAG.items()}
 
-
 def apply_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     """Public wrapper around the canonical recipe-side implementation so
     test code and fit-time code use the SAME function (no risk of drift
@@ -119,7 +121,6 @@ def apply_pre_transform(x: np.ndarray, pre_transform: str) -> np.ndarray:
     """
     from mlframe.feature_selection.filters.engineered_recipes.shared import apply_orth_pre_transform as _apply_orth_pre_transform
     return _apply_orth_pre_transform(x, pre_transform)
-
 
 def _routing_col_name(src: str, basis: str, degree: int, pre_transform: str) -> str:
     """Stable engineered column name: ``"{src}__{tag}_{basis_code}{degree}"``.
@@ -132,7 +133,6 @@ def _routing_col_name(src: str, basis: str, degree: int, pre_transform: str) -> 
     code = _BASIS_CODE.get(basis, basis)
     tag = _PRE_TRANSFORM_TAG.get(pre_transform, pre_transform)
     return f"{src}__{tag}_{code}{int(degree)}"
-
 
 def parse_routing_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
     """Inverse of :func:`_routing_col_name`. Returns ``(src, pre_transform,
@@ -155,7 +155,6 @@ def parse_routing_col_name(name: str) -> Optional[tuple[str, str, str, int]]:
             if deg_str.isdigit():
                 return (src, pre_transform, code_to_basis[code], int(deg_str))
     return None
-
 
 def generate_conditional_basis_routing_features(
     X: pd.DataFrame,
@@ -411,7 +410,6 @@ def generate_conditional_basis_routing_features(
         }
     return pd.DataFrame(out_cols, index=X.index), meta
 
-
 def _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache):
     """Evaluate the pre-transform variants of one source column."""
     for pt in transform_variants:
@@ -436,7 +434,6 @@ def _pre_transform_variants_for_column(transform_variants, x_raw, col, pt_cache)
             continue
         pt_cache[pt] = xt
 
-
 def _routing_gain_over_raw_mi(best_per_source, raw_mi_map, min_uplift_f, abs_floor, survivors):
     """Compare each source engineered MI with its raw MI baseline."""
     for src, info in best_per_source.items():
@@ -451,7 +448,6 @@ def _routing_gain_over_raw_mi(best_per_source, raw_mi_map, min_uplift_f, abs_flo
         info_copy["uplift"] = float(uplift)
         info_copy["baseline_mi"] = float(baseline)
         survivors.append(info_copy)
-
 
 def hybrid_orth_mi_conditional_routing_fe(
     X: pd.DataFrame,
@@ -517,7 +513,6 @@ def hybrid_orth_mi_conditional_routing_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_conditional_routing_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -531,7 +526,7 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
     routing_criterion: str = "corr",
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_conditional_routing_fe` but additionally
     returns a list of ``EngineeredRecipe`` objects (kind ``orth_univariate``)
     - one per appended column - so ``MRMR.transform`` can replay each

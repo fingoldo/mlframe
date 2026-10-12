@@ -58,11 +58,18 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 import numpy as np
 
 from ._y_encoding import encode_y_for_classif_mi
+
+from mlframe.utils.log_throttle import log_throttle
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +88,6 @@ def _is_cupy_ndarray(x) -> bool:
     except Exception as e:
         logger.debug("_is_cupy_ndarray: cupy import/isinstance check failed, treating as a host array: %s", e)
         return False
-
 
 __all__ = [
     "ModularHit",
@@ -108,7 +114,6 @@ COARSE_MODULI: tuple[int, ...] = (2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 16, 17, 1
 # "self" uses column a alone (single-column hidden period); the rest are the pair combiners.
 _PAIR_OPS = ("sum", "diff", "prod")
 
-
 # Gate floor shared by ``_responded`` and the cheap-scan early-reject: a combiner whose residue MI does not beat its own
 # raw-combiner baseline by this margin can NEVER respond (``_responded`` requires margin AND null), so the expensive
 # permutation null is skipped for it - bit-identical to ``responded`` by short-circuit, not an approximation.
@@ -119,7 +124,6 @@ _MIN_MARGIN = 0.02
 # z=3 null band then sits just below the inflated residue MI, so a smooth/noise combiner can squeak over by ~0.007 nats of pure chance. A true
 # modular hit clears the null by >1 nat, so this absolute gap floor kills the over-fragmentation false positive while leaving real hits untouched.
 _MIN_NULL_MARGIN = 0.05
-
 
 def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
     """Binned MI of one column vs y, via the shipped classif-MI batch kernel.
@@ -140,14 +144,13 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         _rb = False
     if _is_cupy_ndarray(col):
         arr = col  # resident (n,) or (n,1) cupy -> _mi_classif_batch reshapes 1-D to a column itself
     else:
         arr = np.asarray(col, dtype=np.float64).reshape(-1, 1)
     return float(_mi_classif_batch(arr, encode_y_for_classif_mi(y), nbins=nbins, rank_binning=_rb)[0])
-
 
 def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: int) -> np.ndarray:
     """MI of ``c mod k`` vs y for every k in ``mods``, in one batched kernel call per effective-nbins group.
@@ -185,7 +188,6 @@ def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: i
             out[idx] = float(mis[j])
     return out
 
-
 def _is_integer_col(x: np.ndarray) -> bool:
     """True iff x is integer-typed OR exactly-integer-valued float (no fractional part), finite."""
     a = np.asarray(x)
@@ -195,7 +197,6 @@ def _is_integer_col(x: np.ndarray) -> bool:
         return False
     finite = a[np.isfinite(a)]
     return bool(finite.size > 0 and np.all(finite == np.floor(finite)))
-
 
 def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
     """Fold one to three integer columns into a single combiner column."""
@@ -213,7 +214,6 @@ def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
         return ai + bi + np.asarray(arrs[2], dtype=np.int64)
     raise ValueError(f"unknown combiner op {op!r}")
 
-
 def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
     """MI of ``c mod k`` vs y. For k <= nbins the residue is used as its own bin index (no rebin)."""
     eff = max(nbins, k)
@@ -224,7 +224,7 @@ def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         _rb = False
     from ._pairwise_modular_resident import combiner_mi_resident
 
@@ -233,7 +233,6 @@ def _residue_mi(c: np.ndarray, y: np.ndarray, k: int, nbins: int) -> float:
         return mi
     r = np.mod(c, k).astype(np.float64)
     return _mi(r, y, nbins=eff)
-
 
 @dataclass(frozen=True)
 class ModularHit:
@@ -260,14 +259,12 @@ class ModularHit:
         """Whether this hit clears both the baseline-margin and permutation-null gates (see ``_responded``)."""
         return _responded(self.residue_mi, self.baseline_mi, self.null_hi)
 
-
 def _responded(residue_mi: float, baseline_mi: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the residue MI must clear BOTH the smooth-basis baseline (by ``min_margin``) AND the permutation-null upper band by an absolute
     ``null_margin`` (not just ``> null_hi`` - a high-cardinality residue's cardinality-inflated plug-in MI can sit ~0.007 nats above a z=3
     null on noise; a true hit clears it by >1 nat). ``min_margin`` is the measured separation floor between a true modular hit and the best
     non-modular combiner (see ``_benchmarks/bench_modular_period_detection``)."""
     return (residue_mi - baseline_mi) >= min_margin and residue_mi > (null_hi + null_margin)
-
 
 def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of ``c mod k`` MI under y permutation - the noise reference the
@@ -287,7 +284,7 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _rb = fe_gpu_strict_resident_enabled()
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         _rb = False
     from ._pairwise_modular_resident import perm_null_residue_mis_resident
 
@@ -303,9 +300,8 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
     vals = np.asarray(vals, dtype=np.float64)
     return float(vals.mean() + z * vals.std())
 
-
 def cheap_modular_scan(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     cols: Optional[Sequence[str]] = None,
     *,
@@ -346,7 +342,7 @@ def cheap_modular_scan(
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         _scan_rb = fe_gpu_strict_resident_enabled()
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         _scan_rb = False
     from ._pairwise_modular_resident import combiner_mi_resident
 
@@ -404,9 +400,8 @@ def cheap_modular_scan(
     hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.op), tuple(str(c) for c in h.cols)))
     return hits
 
-
 def escalate_modulus(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     hit: ModularHit,
     *,
@@ -438,9 +433,8 @@ def escalate_modulus(
     residue = np.mod(c_arr, best_m).astype(np.float64)
     return best_m, best_mi, residue
 
-
 def detect_pairwise_modular(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     cols: Optional[Sequence[str]] = None,
     *,
@@ -448,7 +442,7 @@ def detect_pairwise_modular(
     top_k: int = 4,
     nbins: int = 12,
     seed: int = 0,
-):
+) -> list[dict[str, Any]]:
     """End-to-end cheap-first + escalate. Returns the list of responded+refined hits (each a dict with
     the final modulus, MI, and the materialised residue column), capped at ``top_k``. Empty when
     nothing responds - a non-modular frame escalates nothing."""
@@ -469,13 +463,11 @@ def detect_pairwise_modular(
             break
     return out
 
-
 # Recipe plumbing: emit frozen EngineeredRecipe objects so the MRMR selector materialises, scores, selects, and replays
 # the residue column at predict time identically. Replay is pure integer arithmetic on X (combine columns, take mod) -
 # no y reference, so it is leak-free + deterministic + train/test exact, mirroring the single-column ``_periodic_fe`` path.
 
 _RECIPE_VALID_OPS = ("self", "sum", "diff", "prod", "sum3")
-
 
 def engineered_name_pairwise_modular(op: str, cols: Sequence[str], modulus: int) -> str:
     """Canonical engineered column name for one pairwise/n-way modular residue, e.g. ``pmod_sum__a__b__m7``.
@@ -487,8 +479,7 @@ def engineered_name_pairwise_modular(op: str, cols: Sequence[str], modulus: int)
     joined = "__".join(str(c) for c in cols)
     return f"{PAIRWISE_MODULAR_PREFIX}_{op}__{joined}__m{int(modulus)}"
 
-
-def apply_pairwise_modular(X, op: str, cols: Sequence[str], modulus: int) -> np.ndarray:
+def apply_pairwise_modular(X: pd.DataFrame | pl.DataFrame, op: str, cols: Sequence[str], modulus: int) -> np.ndarray:
     """Replay one pairwise/n-way modular residue: combine the source columns via ``op`` then take ``mod modulus``.
 
     Pure integer arithmetic on the source columns - no y reference, no fitted state, so transform() is leak-free and
@@ -514,8 +505,7 @@ def apply_pairwise_modular(X, op: str, cols: Sequence[str], modulus: int) -> np.
         out[bad] = np.nan
     return np.asarray(out)
 
-
-def build_pairwise_modular_recipe(*, name: str, op: str, cols: Sequence[str], modulus: int):
+def build_pairwise_modular_recipe(*, name: str, op: str, cols: Sequence[str], modulus: int) -> EngineeredRecipe:
     """Frozen recipe for one pairwise/n-way modular residue. Replay is pure integer arithmetic on the source columns."""
     from .engineered_recipes import EngineeredRecipe
 
@@ -531,9 +521,8 @@ def build_pairwise_modular_recipe(*, name: str, op: str, cols: Sequence[str], mo
         extra={"op": str(op), "modulus": m},
     )
 
-
 def hybrid_pairwise_modular_fe_with_recipes(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     *,
     cols: Optional[Sequence[str]] = None,
@@ -543,7 +532,7 @@ def hybrid_pairwise_modular_fe_with_recipes(
     seed: int = 0,
     max_int_cols: int = 30,
     max_triple_cols: int = 20,
-):
+) -> tuple[list[str], list[EngineeredRecipe]]:
     """Detect responded pairwise/n-way modular structure and emit it as frozen, replayable ``EngineeredRecipe`` objects.
 
     Column-count BUDGET GUARD (the wide-frame cost is O(p) self-scan + budgeted pairs/triples; see

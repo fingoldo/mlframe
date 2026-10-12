@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 from numba import njit
-
+from typing import Sequence
 
 @njit(cache=True)
 def arr2str(arr) -> str:
@@ -27,9 +27,8 @@ def arr2str(arr) -> str:
         out += str(el)
     return out
 
-
 @njit(cache=True)
-def count_cand_nbins(X, factors_nbins) -> int:
+def count_cand_nbins(X: Sequence[int], factors_nbins: np.ndarray) -> int:
     """Sum the bin count across the factors named in candidate ``X``. Used by ``screen_predictors`` to gate the confirmation step (permutation testing is
     skipped when the conditioning set has more bins than ``MAX_CONFIRMATION_CAND_NBINS``)."""
     sum_cand_nbins = 0
@@ -37,9 +36,8 @@ def count_cand_nbins(X, factors_nbins) -> int:
         sum_cand_nbins += factors_nbins[factor]
     return sum_cand_nbins
 
-
 @njit(cache=True)
-def unpack_and_sort(x, z):
+def unpack_and_sort(x: Sequence[int], z: Sequence[int]) -> np.ndarray:
     """Concatenate two integer iterables into a sorted numpy array. Used by ``conditional_mi`` cache-key construction: the canonical representation of the
     union ``X u Z`` must be ordering-independent so different call paths hit the same cache slot.
     """

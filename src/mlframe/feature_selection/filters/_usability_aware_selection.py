@@ -30,6 +30,8 @@ from typing import Any, Optional, Sequence, cast
 import numpy as np
 from types import SimpleNamespace as _SimpleNamespace
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 from ._usability_greedy_steps import (  # noqa: F401  -- carved sibling, re-exported
@@ -170,7 +172,7 @@ def build_usability_candidate_pool(
         from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
         st._seleq = bool(fe_gpu_strict_resident_enabled())
     except Exception as e:
-        logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-strict tiebreak: %s", e)
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
         st._seleq = False
     st._mi_key = (lambda m: quantize_mi_tiebreak(m)) if st._seleq else (lambda m: m)
 

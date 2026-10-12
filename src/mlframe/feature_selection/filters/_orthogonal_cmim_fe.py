@@ -121,6 +121,9 @@ from ._orthogonal_univariate_fe import (
     generate_univariate_basis_features,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +135,6 @@ __all__ = [
     "hybrid_orth_mi_cmim_fe",
     "hybrid_orth_mi_cmim_fe_with_recipes",
 ]
-
 
 def _factorize_pack(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     """Faster equivalent of :func:`_renumber_joint` for entropy/CMI use.
@@ -173,7 +175,6 @@ def _factorize_pack(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     codes, uniques = pd.factorize(key, sort=False)
     return codes.astype(np.int64, copy=False), len(uniques)
 
-
 def _renumber_joint_safe(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     """Overflow-proof joint renumber: stack columns and factorize the rows
     directly (no Horner radix product), so cardinality cannot overflow int64."""
@@ -182,7 +183,6 @@ def _renumber_joint_safe(*cols: np.ndarray) -> tuple[np.ndarray, int]:
     inv = inv.astype(np.int64, copy=False).ravel()
     k = int(inv.max()) + 1 if inv.size else 1
     return inv, k
-
 
 def _build_cmi_yz_cache(
     y_bin: np.ndarray,
@@ -208,7 +208,6 @@ def _build_cmi_yz_cache(
         h_yz, k_yz = _entropy_from_classes(yz)
         cache.append((yz, z_i, h_z, h_yz, k_z, k_yz))
     return cache
-
 
 def _cmi_from_binned_with_cached_z(
     x_bin: np.ndarray,
@@ -242,7 +241,6 @@ def _cmi_from_binned_with_cached_z(
     cmi_bias = (k_xyz + k_z - k_xz - k_yz) / (2.0 * n)
     return max(0.0, cmi_plugin - cmi_bias)
 
-
 def _cmim_score_cached(
     candidate_bin: np.ndarray,
     y_bin: np.ndarray,
@@ -266,7 +264,6 @@ def _cmim_score_cached(
             # min cannot drop below.
             return 0.0
     return float(best)
-
 
 def cmim_score(
     candidate_bin: np.ndarray,
@@ -310,7 +307,6 @@ def cmim_score(
             # remaining |S|-j-1 evaluations on heavily-redundant candidates.
             return 0.0
     return float(best)
-
 
 def score_features_by_cmim(
     raw_X: pd.DataFrame,
@@ -475,7 +471,6 @@ def score_features_by_cmim(
         ).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_cmim_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -555,7 +550,6 @@ def hybrid_orth_mi_cmim_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_cmim_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -568,7 +562,7 @@ def hybrid_orth_mi_cmim_fe_with_recipes(
     min_uplift: float = 0.95,
     min_abs_mi_frac: float = 0.05,
     n_bins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_cmim_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so
     ``MRMR.transform`` can recompute each engineered column on test

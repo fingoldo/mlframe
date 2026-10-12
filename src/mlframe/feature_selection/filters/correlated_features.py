@@ -37,7 +37,6 @@ try:
 except ImportError:  # numba is an optional dep; SU falls back to the pure-Python pair loop.
     _HAVE_NUMBA = False
 
-
 def _su_pairs_python(codes: np.ndarray, ncats: np.ndarray, h: np.ndarray) -> np.ndarray:
     """Pure-Python reference for the SU pair matrix (used when numba is absent). O(p^2 * n)."""
     p = codes.shape[1]
@@ -52,7 +51,6 @@ def _su_pairs_python(codes: np.ndarray, ncats: np.ndarray, h: np.ndarray) -> np.
             val = 0.0 if denom <= 1e-12 else max(0.0, 2.0 * (h[a] + h[b] - h_ab) / denom)
             su[a, b] = su[b, a] = val
     return su
-
 
 if _HAVE_NUMBA:
 
@@ -85,7 +83,6 @@ if _HAVE_NUMBA:
                     su[a, b] = val if val > 0.0 else 0.0
         return su
 
-
 def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
     """Return a float DataFrame where non-numeric columns are replaced by their
     integer factor codes, so correlation / SU clustering never float-coerces a
@@ -117,7 +114,6 @@ def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
     out = pd.DataFrame(np.column_stack(series_list) if series_list else np.empty((len(X), 0)), index=X.index)
     out.columns = list(X.columns)
     return out
-
 
 def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
     """Pairwise Symmetric-Uncertainty redundancy matrix in [0, 1] (diagonal 0).
@@ -171,7 +167,6 @@ def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
         su = _su_pairs_python(codes, ncats, h)
     return su
 
-
 def _redundancy_matrix(X, method: str) -> np.ndarray:
     """Abs redundancy matrix (diagonal 0) for the given method. ``'su'`` uses Symmetric Uncertainty (captures non-linear redundancy); everything else delegates to ``pandas.DataFrame.corr``."""
     if method == "su":
@@ -184,9 +179,8 @@ def _redundancy_matrix(X, method: str) -> np.ndarray:
     np.fill_diagonal(corr, 0.0)
     return corr
 
-
 def cluster_features_by_correlation(
-    X,
+    X: pd.DataFrame | np.ndarray,
     threshold: float = 0.9,
     method: str = "spearman",
     precomputed_corr: np.ndarray | None = None,
@@ -240,7 +234,6 @@ def cluster_features_by_correlation(
     _, compact = np.unique(roots, return_inverse=True)
     return compact
 
-
 def _cluster_medoids(
     X,
     cluster_id: np.ndarray,
@@ -265,7 +258,6 @@ def _cluster_medoids(
         scores = sub.mean(axis=1)
         medoids.append(int(members[np.argmax(scores)]))
     return medoids
-
 
 # TransformerMixin (not SelectorMixin): the wrapped mRMR estimator's transform can add engineered features,
 # so it is not a pure mask-based selector and SelectorMixin's mask-only contract would be wrong here.

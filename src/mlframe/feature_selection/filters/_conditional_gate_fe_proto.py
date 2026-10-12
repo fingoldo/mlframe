@@ -32,6 +32,10 @@ import numpy as np
 
 from ._pairwise_modular_fe import _mi
 from ._lattice_gate_proto_shared import perm_null_hi as _perm_null_hi
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
 
 __all__ = [
     "GATE_MODES",
@@ -51,7 +55,6 @@ _TAU_QUANTILES = tuple(np.round(np.linspace(0.1, 0.9, 17), 4))
 # ``_pairwise_modular_fe._MIN_MARGIN``); below it the selector can already get the signal from a raw / pairwise column.
 _MIN_MARGIN = 0.02
 
-
 def apply_conditional_gate(a: np.ndarray, b: np.ndarray, c: np.ndarray, tau: float, mode: str = "select") -> np.ndarray:
     """One gate column. ``select``: ``c>tau ? a : b`` (regime switch). ``mask``: ``1[c>tau]*a`` (a active only where c>tau).
 
@@ -65,15 +68,13 @@ def apply_conditional_gate(a: np.ndarray, b: np.ndarray, c: np.ndarray, tau: flo
         return hi.astype(np.float64) * af
     raise ValueError(f"apply_conditional_gate: unknown mode {mode!r}; expected one of {GATE_MODES}")
 
-
 def apply_row_argmax(cols: list[np.ndarray]) -> np.ndarray:
     """``argmax`` over a row's columns -> the integer index of the largest. Pure function of X (no y); leak-free at replay."""
     stk = np.stack([np.asarray(c, dtype=np.float64) for c in cols], axis=1)
     return np.asarray(np.argmax(stk, axis=1).astype(np.float64))
 
-
 def scan_conditional_gate(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     cols: list[str],
     *,
@@ -143,9 +144,8 @@ def scan_conditional_gate(
     hits.sort(key=lambda h: h["mi"], reverse=True)
     return hits
 
-
 def scan_row_argmax(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     cols: list[str],
     *,

@@ -26,12 +26,10 @@ _SHARED_MEM_SET_LOCK = threading.Lock()
 # CUDA gridDim.y is capped at 65535, and the pair index rides on gridDim.y.
 _MAX_PAIRS_PER_LAUNCH = 65535
 
-
 def pair_chunk_bounds(n_pairs: int, limit: int) -> list:
     """``[(start, stop), ...]`` slices of ``range(n_pairs)`` holding at most ``limit`` pairs each."""
     step = max(1, int(limit))
     return [(s, min(s + step, int(n_pairs))) for s in range(0, int(n_pairs), step)]
-
 
 def joint_mi_from_flat_counts(
     joint_counts_host: np.ndarray,
@@ -62,9 +60,7 @@ def joint_mi_from_flat_counts(
         joint_mi_out[k] = float(np.sum(jf * np.log(ratio)))
     return joint_mi_out
 
-
 # ============================================================================
-
 
 def mi_direct_gpu_batched_pairs(
     factors_data: np.ndarray,
@@ -73,7 +69,7 @@ def mi_direct_gpu_batched_pairs(
     factors_nbins: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> np.ndarray:
     """Compute ``I(X_i, X_j; Y)`` for every ``(i, j) in zip(pairs_a, pairs_b)`` on GPU. Returns a 1-D ``float64`` array of joint MIs aligned with the input order.
 

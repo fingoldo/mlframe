@@ -25,7 +25,6 @@ __all__ = [
     "hybrid_orth_extra_basis_fe_with_recipes",
 ]
 
-
 # Backlog #13: ``"wavelet"`` adds the Haar / localized
 # multiresolution basis alongside the global Fourier + fixed-knot spline. Its
 # legs are held-out-scale-selected in ``_wavelet_basis_fe`` and emitted here so
@@ -33,7 +32,6 @@ __all__ = [
 # them through the same MI-uplift gate. The standalone default-on stage
 # (``fe_wavelet_enable``) reuses the same generator + recipe builder.
 _EXTRA_BASIS_KINDS = ("spline", "fourier", "wavelet")
-
 
 from ._orth_extra_basis_fe import (
     _ADAPTIVE_FE_RAW_USABILITY_CAP,
@@ -47,7 +45,9 @@ from ._orth_extra_basis_fe import (
     _heldout_smooth_r2_prep,
     _is_int_as_cat_axis,
 )
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 def generate_extra_basis_features(
     X: pd.DataFrame,
@@ -272,7 +272,6 @@ def generate_extra_basis_features(
         _wavelet_extra_basis(extra_bases, y, x, col, out_cols, meta)
     return pd.DataFrame(out_cols, index=X.index), meta
 
-
 def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr):
     """Build the Fourier extra-basis candidates of one column."""
     if "fourier" in extra_bases and not _is_int_as_cat_axis(x):
@@ -408,7 +407,6 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
                 exc,
             )
 
-
 def _wavelet_extra_basis(extra_bases, y, x, col, out_cols, meta):
     """Build the wavelet extra-basis candidates when requested."""
     if "wavelet" in extra_bases and y is not None:
@@ -444,7 +442,6 @@ def _wavelet_extra_basis(extra_bases, y, x, col, out_cols, meta):
                 col,
                 exc,
             )
-
 
 def _build_recipe_from_meta(name: str, meta_entry: dict):
     """Materialise an ``EngineeredRecipe`` from one ``generate_extra_basis_features``
@@ -484,7 +481,6 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
         )
     return None
 
-
 def hybrid_orth_extra_basis_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -505,7 +501,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     subsample_n: int = 0,
     subsample_seed: int = 42,
     max_adaptive_cols: Optional[int] = None,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Layer 32 hybrid: spline + Fourier univariate basis FE + MI-greedy
     selection. Mirrors :func:`hybrid_orth_mi_fe_with_recipes` for the
     polynomial path but emits extra-basis columns (B-spline, Fourier)
@@ -630,7 +626,6 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     else:
         X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores, recipes
-
 
 def _detect_fourier_freq_for_col(
     z01: np.ndarray,

@@ -672,6 +672,83 @@ def kalman_smoother_posterior_1d(
     return {"mean": out_mean, "var": out_var}
 
 
+def _bocpd_numpy_segment(
+    seg: np.ndarray,
+    idx_seg: np.ndarray,
+    hazard: float,
+    mu0: float,
+    kappa0: float,
+    alpha0: float,
+    beta0: float,
+    max_run_length: int,
+    out_p_change: np.ndarray,
+    out_expected_rl: np.ndarray,
+    out_max_rl: np.ndarray,
+) -> None:
+    """Pure-NumPy Adams-MacKay recursion over one segment, writing the per-row outputs at ``idx_seg``.
+
+    Vectorised over run length via array concatenation, applying the same ``max_run_length`` truncation and renormalisation as the
+    njit kernel. Used when numba is unavailable.
+    """
+    T = seg.size
+    # NumPy fallback (numba unavailable).
+    mu = np.array([mu0], dtype=np.float64)
+    kappa = np.array([kappa0], dtype=np.float64)
+    alpha = np.array([alpha0], dtype=np.float64)
+    beta = np.array([beta0], dtype=np.float64)
+    rl_probs = np.array([1.0], dtype=np.float64)
+    for t in range(T):
+        x = float(seg[t])
+        if not np.isfinite(x):
+            rl_probs_new = np.concatenate(([0.0], rl_probs * (1.0 - hazard)))
+            rl_probs_new[0] = (rl_probs * hazard).sum()
+            rl_probs_new = rl_probs_new / (rl_probs_new.sum() + 1e-300)
+            rl_probs = rl_probs_new
+            mu = np.concatenate(([mu0], mu))
+            kappa = np.concatenate(([kappa0], kappa))
+            alpha = np.concatenate(([alpha0], alpha))
+            beta = np.concatenate(([beta0], beta))
+            if max_run_length > 0 and rl_probs.size > max_run_length:
+                rl_probs = rl_probs[:max_run_length]
+                rl_probs = rl_probs / (rl_probs.sum() + 1e-300)
+                mu = mu[:max_run_length]; kappa = kappa[:max_run_length]
+                alpha = alpha[:max_run_length]; beta = beta[:max_run_length]
+            out_p_change[idx_seg[t]] = rl_probs[0]
+            rl_idx = np.arange(rl_probs.size, dtype=np.float64)
+            out_expected_rl[idx_seg[t]] = float((rl_idx * rl_probs).sum())
+            out_max_rl[idx_seg[t]] = float(np.argmax(rl_probs))
+            continue
+        df = 2.0 * alpha
+        scale_sq = beta * (kappa + 1.0) / (alpha * kappa)
+        half_df = 0.5 * df
+        z2 = (x - mu) ** 2 / scale_sq
+        log_pred = _gammaln(half_df + 0.5) - _gammaln(half_df) - 0.5 * np.log(np.pi * df * scale_sq) - (half_df + 0.5) * np.log1p(z2 / df)
+        pred = np.exp(log_pred - log_pred.max())
+        growth = rl_probs * pred * (1.0 - hazard)
+        cp = (rl_probs * pred * hazard).sum()
+        rl_probs_new = np.concatenate(([cp], growth))
+        rl_probs_new = rl_probs_new / (rl_probs_new.sum() + 1e-300)
+        mu_new = np.concatenate(([mu0], (kappa * mu + x) / (kappa + 1.0)))
+        kappa_new = np.concatenate(([kappa0], kappa + 1.0))
+        alpha_new = np.concatenate(([alpha0], alpha + 0.5))
+        beta_new = np.concatenate((
+            [beta0],
+            beta + 0.5 * (kappa * (x - mu) ** 2) / (kappa + 1.0),
+        ))
+        mu = mu_new; kappa = kappa_new
+        alpha = alpha_new; beta = beta_new
+        rl_probs = rl_probs_new
+        if max_run_length > 0 and rl_probs.size > max_run_length:
+            rl_probs = rl_probs[:max_run_length]
+            rl_probs = rl_probs / (rl_probs.sum() + 1e-300)
+            mu = mu[:max_run_length]; kappa = kappa[:max_run_length]
+            alpha = alpha[:max_run_length]; beta = beta[:max_run_length]
+        out_p_change[idx_seg[t]] = float(rl_probs[0])
+        rl_idx = np.arange(rl_probs.size, dtype=np.float64)
+        out_expected_rl[idx_seg[t]] = float((rl_idx * rl_probs).sum())
+        out_max_rl[idx_seg[t]] = float(np.argmax(rl_probs))
+
+
 def bocpd_features(
     observations: np.ndarray,
     *,
@@ -740,62 +817,7 @@ def bocpd_features(
             out_expected_rl[idx_seg] = seg_ex
             out_max_rl[idx_seg] = seg_max
             return
-        # NumPy fallback (numba unavailable).
-        mu = np.array([mu0], dtype=np.float64)
-        kappa = np.array([kappa0], dtype=np.float64)
-        alpha = np.array([alpha0], dtype=np.float64)
-        beta = np.array([beta0], dtype=np.float64)
-        rl_probs = np.array([1.0], dtype=np.float64)
-        for t in range(T):
-            x = float(seg[t])
-            if not np.isfinite(x):
-                rl_probs_new = np.concatenate(([0.0], rl_probs * (1.0 - hazard)))
-                rl_probs_new[0] = (rl_probs * hazard).sum()
-                rl_probs_new = rl_probs_new / (rl_probs_new.sum() + 1e-300)
-                rl_probs = rl_probs_new
-                mu = np.concatenate(([mu0], mu))
-                kappa = np.concatenate(([kappa0], kappa))
-                alpha = np.concatenate(([alpha0], alpha))
-                beta = np.concatenate(([beta0], beta))
-                if max_run_length > 0 and rl_probs.size > max_run_length:
-                    rl_probs = rl_probs[:max_run_length]
-                    rl_probs = rl_probs / (rl_probs.sum() + 1e-300)
-                    mu = mu[:max_run_length]; kappa = kappa[:max_run_length]
-                    alpha = alpha[:max_run_length]; beta = beta[:max_run_length]
-                out_p_change[idx_seg[t]] = rl_probs[0]
-                rl_idx = np.arange(rl_probs.size, dtype=np.float64)
-                out_expected_rl[idx_seg[t]] = float((rl_idx * rl_probs).sum())
-                out_max_rl[idx_seg[t]] = float(np.argmax(rl_probs))
-                continue
-            df = 2.0 * alpha
-            scale_sq = beta * (kappa + 1.0) / (alpha * kappa)
-            half_df = 0.5 * df
-            z2 = (x - mu) ** 2 / scale_sq
-            log_pred = _gammaln(half_df + 0.5) - _gammaln(half_df) - 0.5 * np.log(np.pi * df * scale_sq) - (half_df + 0.5) * np.log1p(z2 / df)
-            pred = np.exp(log_pred - log_pred.max())
-            growth = rl_probs * pred * (1.0 - hazard)
-            cp = (rl_probs * pred * hazard).sum()
-            rl_probs_new = np.concatenate(([cp], growth))
-            rl_probs_new = rl_probs_new / (rl_probs_new.sum() + 1e-300)
-            mu_new = np.concatenate(([mu0], (kappa * mu + x) / (kappa + 1.0)))
-            kappa_new = np.concatenate(([kappa0], kappa + 1.0))
-            alpha_new = np.concatenate(([alpha0], alpha + 0.5))
-            beta_new = np.concatenate((
-                [beta0],
-                beta + 0.5 * (kappa * (x - mu) ** 2) / (kappa + 1.0),
-            ))
-            mu = mu_new; kappa = kappa_new
-            alpha = alpha_new; beta = beta_new
-            rl_probs = rl_probs_new
-            if max_run_length > 0 and rl_probs.size > max_run_length:
-                rl_probs = rl_probs[:max_run_length]
-                rl_probs = rl_probs / (rl_probs.sum() + 1e-300)
-                mu = mu[:max_run_length]; kappa = kappa[:max_run_length]
-                alpha = alpha[:max_run_length]; beta = beta[:max_run_length]
-            out_p_change[idx_seg[t]] = float(rl_probs[0])
-            rl_idx = np.arange(rl_probs.size, dtype=np.float64)
-            out_expected_rl[idx_seg[t]] = float((rl_idx * rl_probs).sum())
-            out_max_rl[idx_seg[t]] = float(np.argmax(rl_probs))
+        _bocpd_numpy_segment(seg, idx_seg, hazard, mu0, kappa0, alpha0, beta0, max_run_length, out_p_change, out_expected_rl, out_max_rl)
 
     if group_ids is None:
         _run(np.arange(n))

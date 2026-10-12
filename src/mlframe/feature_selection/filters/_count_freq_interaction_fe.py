@@ -49,6 +49,9 @@ import pandas as pd
 
 from ._fold_cell_stats import fold_cell_sum_cnt
 from ._target_encoding_fe import _column_to_str, _smooth
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -67,21 +70,17 @@ __all__ = [
     "cat_num_interaction_with_recipes",
 ]
 
-
 # ---------------------------------------------------------------------------
 # Naming
 # ---------------------------------------------------------------------------
-
 
 def engineered_name_count(col: str) -> str:
     """Stable engineered name for the count-encoded column."""
     return f"{col}__count"
 
-
 def engineered_name_freq(col: str) -> str:
     """Stable engineered name for the frequency-encoded column."""
     return f"{col}__freq"
-
 
 def engineered_name_cat_num_residual(cat_col: str, num_col: str) -> str:
     """Stable engineered name for the cat x num residual column.
@@ -91,11 +90,9 @@ def engineered_name_cat_num_residual(cat_col: str, num_col: str) -> str:
     """
     return f"{num_col}__resid_by__{cat_col}"
 
-
 # ---------------------------------------------------------------------------
 # Count / Frequency encoders - pure X-only kernels (no y reference)
 # ---------------------------------------------------------------------------
-
 
 def count_encode_fit(
     X: pd.DataFrame,
@@ -133,7 +130,6 @@ def count_encode_fit(
     enc_df = pd.DataFrame(encoded_cols, index=X.index)
     return enc_df, recipes
 
-
 def frequency_encode_fit(
     X: pd.DataFrame,
     cat_cols: Sequence[str],
@@ -168,7 +164,6 @@ def frequency_encode_fit(
     enc_df = pd.DataFrame(encoded_cols, index=X.index)
     return enc_df, recipes
 
-
 def apply_count_encoding(
     X_test: pd.DataFrame, col: str, recipe: dict,
 ) -> np.ndarray:
@@ -196,7 +191,6 @@ def apply_count_encoding(
     vals = np.array([int(lookup.get(u, default)) for u in uniques], dtype=np.int64)
     return np.asarray(vals[codes])
 
-
 def apply_frequency_encoding(
     X_test: pd.DataFrame, col: str, recipe: dict,
 ) -> np.ndarray:
@@ -219,7 +213,6 @@ def apply_frequency_encoding(
     vals = np.array([float(lookup.get(u, default)) for u in uniques], dtype=np.float64)
     return np.asarray(vals[codes])
 
-
 # ---------------------------------------------------------------------------
 # Categorical x numeric interaction: OOF target-mean residual
 # ---------------------------------------------------------------------------
@@ -238,7 +231,6 @@ def apply_frequency_encoding(
 # a fold from a y-stratified split when available, else random). The
 # recipe stores ONLY the full-data per-category mean of num, so
 # transform() is a pure function of (X[cat], X[num]) - no y dependency.
-
 
 def cat_num_interaction_fit(
     X: pd.DataFrame,
@@ -374,7 +366,6 @@ def cat_num_interaction_fit(
     }
     return residual, recipe
 
-
 def apply_cat_num_residual(
     X_test: pd.DataFrame, cat_col: str, num_col: str, recipe: dict,
 ) -> np.ndarray:
@@ -406,11 +397,9 @@ def apply_cat_num_residual(
     cell = np.array([float(lookup.get(u, global_mean)) for u in uniques], dtype=np.float64)
     return np.where(finite, num_vals - cell[codes], 0.0).astype(np.float64, copy=False)
 
-
 # ---------------------------------------------------------------------------
 # End-to-end wrappers for MRMR.fit auto-wiring (recipe-emitting variants)
 # ---------------------------------------------------------------------------
-
 
 def _gate_enc(enc_df, y, raw_X, mi_gate, mi_gate_top_k, reject_sink=None):
     """Tier-1 local MI floor over an ``enc_df`` of engineered columns. Returns
@@ -423,7 +412,6 @@ def _gate_enc(enc_df, y, raw_X, mi_gate, mi_gate_top_k, reject_sink=None):
     keep = local_mi_gate(enc_df, y, raw_X=raw_X, top_k=mi_gate_top_k, reject_sink=reject_sink)
     return enc_df[keep]
 
-
 def count_encode_with_recipes(
     X: pd.DataFrame,
     *,
@@ -432,7 +420,7 @@ def count_encode_with_recipes(
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append ``{col}__count`` columns to X and emit one recipe per col.
 
     When ``mi_gate=True`` (and ``y`` supplied) the emitted columns are filtered
@@ -466,7 +454,6 @@ def count_encode_with_recipes(
     ]
     return X_aug, appended, recipes
 
-
 def frequency_encode_with_recipes(
     X: pd.DataFrame,
     *,
@@ -475,7 +462,7 @@ def frequency_encode_with_recipes(
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append ``{col}__freq`` columns to X and emit one recipe per col.
 
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91).
@@ -507,7 +494,6 @@ def frequency_encode_with_recipes(
     ]
     return X_aug, appended, recipes
 
-
 def cat_num_interaction_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -520,7 +506,7 @@ def cat_num_interaction_with_recipes(
     mi_gate: bool = False,
     mi_gate_top_k: Optional[int] = None,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append ``{num}__resid_by__{cat}`` columns for the Cartesian product
     of ``cat_cols`` x ``num_cols`` (only valid combinations: cat in X,
     num in X and numeric).

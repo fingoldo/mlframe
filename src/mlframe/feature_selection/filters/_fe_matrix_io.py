@@ -40,6 +40,11 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
+    import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +54,9 @@ NON_PURE_FE_FAMILIES: tuple[str, ...] = (
     "smart_log", "logn", "safe_div", "prewarp", "gate_med", "grad1", "grad2",
 )
 
-
 def fe_matrix_p0_enabled() -> bool:
     """Whether the P0 matrix adapter is active. OFF unless ``MLFRAME_FE_MATRIX_P0`` is truthy."""
     return os.environ.get("MLFRAME_FE_MATRIX_P0", "").strip().lower() in ("1", "true", "on", "yes")
-
 
 @dataclass
 class FeatureMatrix:
@@ -91,7 +94,6 @@ class FeatureMatrix:
             raise ValueError(f"column {name!r} is not numeric (kind={self.col_kind[j]})")
         return self.numeric[:, self.col_index[j]]
 
-
 def _detect_framework(X) -> str:
     """Classify ``X`` by its defining package's top-level module name (pandas / polars / pyarrow), defaulting to "numpy" for anything else (ndarray, list, etc.)."""
     mod = type(X).__module__.split(".")[0]
@@ -102,7 +104,6 @@ def _detect_framework(X) -> str:
     if mod in ("pyarrow",):
         return "pyarrow"
     return "numpy"
-
 
 def _polars_column_to_arrays(s, dtype):
     """(numeric_values_or_None, codes_or_None, categories_or_None, null_mask) for a polars Series.
@@ -143,7 +144,6 @@ def _polars_column_to_arrays(s, dtype):
     vals = s.to_numpy().astype(dtype, copy=False)
     return vals, None, None, null_mask
 
-
 def _pandas_column_to_arrays(s, dtype):
     """Pandas counterpart of :func:`_polars_column_to_arrays`: returns (numeric_values_or_None, codes_or_None, categories_or_None, null_mask).
 
@@ -165,7 +165,6 @@ def _pandas_column_to_arrays(s, dtype):
             codes, cats = pd.factorize(s, use_na_sentinel=True)
             return None, codes.astype(np.int64, copy=False), list(cats), null_mask
     return s.to_numpy(dtype=dtype, copy=False), None, None, null_mask
-
 
 def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
     """Convert ``X`` (pandas / polars / pyarrow / ndarray) to a :class:`FeatureMatrix` with ONE copy
@@ -228,8 +227,7 @@ def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
         categories=categories, null_mask=null_mask, dtype=dtype,
     )
 
-
-def from_feature_matrix(fm: FeatureMatrix):
+def from_feature_matrix(fm: FeatureMatrix) -> np.ndarray | pl.DataFrame | pd.DataFrame | pa.Table:
     """Reconstruct the source-framework object from a :class:`FeatureMatrix`, restoring categorical
     labels and original missingness. Routes back to the framework that produced ``fm``."""
     # The per-name dicts (col_objs/data) built below are

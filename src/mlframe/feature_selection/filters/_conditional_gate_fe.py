@@ -63,7 +63,6 @@ from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_opera
 
 logger = logging.getLogger(__name__)
 
-
 # The gate-grid build kernels live in a sibling (file-size carve only); re-exported here because the parent
 # is their only caller and `_conditional_gate_fe._gate_select_grid_njit` is the name benchmarks reference.
 from ._conditional_gate_kernels import _gate_mask_grid_njit, _gate_select_grid_njit
@@ -117,14 +116,18 @@ _GATE_BUILD_NJIT_MIN_N = env_int("MLFRAME_GATE_BUILD_NJIT_MIN_N", 20000, minimum
 # plug-in MI can sit ~0.01 nats above a z=3 null on noise; a true regime/argmax hit clears the null by a wide margin.
 _MIN_NULL_MARGIN = 0.05
 
-
 from ._conditional_gate_fe_helpers import (  # noqa: F401  -- carved helpers
     _TAU_QUANTILES,
     _scan_gate_column,
 )
+from typing import TYPE_CHECKING
+from typing import Any
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
+    from .engineered_recipes import EngineeredRecipe
 
-
-def apply_row_argmax(X, cols: Sequence[str]) -> np.ndarray:
+def apply_row_argmax(X: pd.DataFrame | pl.DataFrame, cols: Sequence[str]) -> np.ndarray:
     """Replay one row-argmax column: the integer index (0..k-1) of the row-maximum over the source columns.
 
     Pure function of X (no y, no fitted state) -> transform() is leak-free + deterministic + train/test bit-identical. Output
@@ -141,8 +144,7 @@ def apply_row_argmax(X, cols: Sequence[str]) -> np.ndarray:
         out[nan_rows] = np.nan
     return np.asarray(out)
 
-
-def apply_conditional_gate(X, mode: str, cols: Sequence[str], tau: float) -> np.ndarray:
+def apply_conditional_gate(X: pd.DataFrame | pl.DataFrame, mode: str, cols: Sequence[str], tau: float) -> np.ndarray:
     """Replay one conditional-gate column with the FROZEN threshold ``tau``.
 
     ``select`` (cols = (a, b, c)): ``c > tau ? a : b`` - a regime switch routing a / b by the gating column c.
@@ -165,7 +167,6 @@ def apply_conditional_gate(X, mode: str, cols: Sequence[str], tau: float) -> np.
         res = (c > float(tau)).astype(np.float64) * a
         return np.where(np.isfinite(c), res, np.nan)
     raise ValueError(f"conditional-gate mode must be one of {GATE_MODES}; got {mode!r}")
-
 
 def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins: int) -> float:
     """Max binned-MI over the cheap operators a selector already has on the given operands: raw columns + pairwise
@@ -232,13 +233,11 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
     mis = _mi_classif_batch(np.ascontiguousarray(mat), yi.astype(np.int64), nbins=nbins, rank_binning=_gate_rank)
     return float(np.max(mis))
 
-
 def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the engineered column's MI must clear BOTH the operand baseline (by ``min_margin``) AND the permutation-null upper band by an
     absolute ``null_margin`` (not just ``> null_hi`` - guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
     Mirrors ``_pairwise_modular_fe._responded`` (``baseline`` plays the smooth-basis floor role)."""
     return (feat_mi - baseline) >= min_margin and feat_mi > (null_hi + null_margin)
-
 
 def _gate_cands_resident() -> bool:
     """Whether the SCORED gate / row-argmax candidate float is uploaded ONCE and its resident cupy handle threaded
@@ -256,7 +255,6 @@ def _gate_cands_resident() -> bool:
     except Exception as _flag_exc:
         logger.debug("gate GPU-strict-resident flag probe failed (%s); resident candidates disabled.", _flag_exc)
         return False
-
 
 def _resident_cand(feat: np.ndarray, role):
     """Upload a SCORED candidate float column ONCE and return its RESIDENT cupy handle (content-keyed via
@@ -276,7 +274,6 @@ def _resident_cand(feat: np.ndarray, role):
     except Exception:
         logger.debug("gate resident-candidate upload failed; host fallback", exc_info=True)
         return feat
-
 
 def _argmax_resident(arrs, tri):
     """DEVICE-BORN the row-argmax candidate ``argmax_k(operand_k)`` from the RESIDENT operand columns, returning
@@ -304,7 +301,6 @@ def _argmax_resident(arrs, tri):
     except Exception:
         logger.debug("device-born row-argmax failed; host fallback", exc_info=True)
         return None
-
 
 def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int = 0, z: float = 3.0) -> float:
     """Upper band (mean + z*std) of the fixed feature's MI under y permutation - the noise reference the feature MI must clear.
@@ -350,7 +346,6 @@ def _perm_null_hi(feat, y: np.ndarray, nbins: int, n_perm: int = 12, seed: int =
         vals = np.asarray(_mi_classif_batch(mat, yi, nbins=nbins), dtype=np.float64)
     return float(vals.mean() + z * vals.std())
 
-
 def _gate_rank_binning() -> bool:
     """Whether the conditional-gate MI uses the RANK resident binner - opt-in BYTE-MATCH only.
 
@@ -367,14 +362,12 @@ def _gate_rank_binning() -> bool:
         logger.debug("gate GPU-strict-bytematch flag probe failed (%s); bytematch binning disabled.", _flag_exc)
         return False
 
-
 def _gate_grid_mi(feats: np.ndarray, yi: np.ndarray, nbins: int) -> np.ndarray:
     """MI of every column of the (n, k) tau-grid feature matrix vs y, in one batched kernel call (bit-identical to per-column -
     ``_mi_classif_batch`` bins each column independently, only the per-call dispatch overhead is amortised)."""
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     return np.asarray(_mi_classif_batch(np.ascontiguousarray(feats), yi, nbins=nbins, rank_binning=_gate_rank_binning()), dtype=np.float64)
-
 
 def _is_argmax_eligible(x: np.ndarray) -> bool:
     """True iff the column is finite numeric (int or float) - argmax / gate need an order, not an integer lattice."""
@@ -385,7 +378,6 @@ def _is_argmax_eligible(x: np.ndarray) -> bool:
     # (The prior form ``isfinite(a[isfinite(a)])`` pre-filtered to the finite subset, so the check was always True
     # and NaN columns slipped through, producing NaN taus / first-NaN argmax codes / constant gate features.)
     return bool(a.size == 0 or np.isfinite(a).all())
-
 
 @dataclass(frozen=True)
 class ArgmaxHit:
@@ -402,7 +394,6 @@ class ArgmaxHit:
 
     margin_over_operands = property(_margin_over_operands)
     responded = _responded_property(_responded)
-
 
 @dataclass(frozen=True)
 class GateHit:
@@ -426,9 +417,8 @@ class GateHit:
         """Whether this gate's MI clears both the operand baseline and the null band - i.e. it is a genuine signal, not noise."""
         return _responded(self.feat_mi, self.baseline_mi, self.null_hi)
 
-
 def cheap_row_argmax_scan(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     cols: Optional[Sequence[str]] = None,
     *,
@@ -517,7 +507,6 @@ def cheap_row_argmax_scan(
     # Canonical secondary key on the triple identity so near-ties don't break by enumeration (column) order.
     hits.sort(key=lambda h: (-h.margin_over_operands, tuple(str(c) for c in h.cols)))
     return hits
-
 
 def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: int, k_operand: int) -> tuple[list[str], list[str]]:
     """Cheap-first candidate prune that makes the gate sweep O(k_operand^2 * k_gate), FLAT in p, returning (gate pool, operand pool).
@@ -611,9 +600,8 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
     gate_cols = [cols[i] for i in gate_order][: max(1, int(k_gate))]
     return gate_cols, operand_cols
 
-
 def cheap_conditional_gate_scan(
-    X,
+    X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
     cols: Optional[Sequence[str]] = None,
     *,
@@ -810,11 +798,10 @@ def cheap_conditional_gate_scan(
     hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.mode), tuple(str(c) for c in h.cols)))
     return hits
 
-
 def detect_row_argmax(
-    X, y: np.ndarray, cols: Optional[Sequence[str]] = None, *,
+    X: pd.DataFrame | pl.DataFrame, y: np.ndarray, cols: Optional[Sequence[str]] = None, *,
     top_k: int = 4, nbins: int = 12, seed: int = 0,
-):
+) -> list[dict[str, Any]]:
     """Cheap-first scan; returns the list of responded row-argmax hits (each a dict with the source triple, MI + margin), capped
     at ``top_k``. Empty when nothing responds - a non-argmax frame detects nothing."""
     hits = cheap_row_argmax_scan(X, y, cols, nbins=nbins, seed=seed)
@@ -827,11 +814,10 @@ def detect_row_argmax(
             break
     return out
 
-
 def detect_conditional_gate(
-    X, y: np.ndarray, cols: Optional[Sequence[str]] = None, *,
+    X: pd.DataFrame | pl.DataFrame, y: np.ndarray, cols: Optional[Sequence[str]] = None, *,
     top_k: int = 4, nbins: int = 12, seed: int = 0,
-):
+) -> list[dict[str, Any]]:
     """Cheap-first scan; returns the list of responded conditional-gate hits (each a dict with mode, source columns, frozen tau,
     MI + margin), capped at ``top_k``. Empty when nothing responds - the hardened baseline keeps smooth / ordinary_mul silent."""
     hits = cheap_conditional_gate_scan(X, y, cols, nbins=nbins, seed=seed)
@@ -844,18 +830,16 @@ def detect_conditional_gate(
             break
     return out
 
-
 # Recipe plumbing: emit frozen EngineeredRecipe objects so the MRMR selector materialises, scores, selects, and replays the
 # argmax / gate column at predict time identically. Replay is a pure function of X (argmax index; gate np.where / mask with the
 # FROZEN tau) - no y reference, so it is leak-free + deterministic + train/test bit-identical.
 
-
 def hybrid_row_argmax_fe_with_recipes(
-    X, y: np.ndarray, *,
+    X: pd.DataFrame | pl.DataFrame, y: np.ndarray, *,
     cols: Optional[Sequence[str]] = None,
     top_k: int = 4, nbins: int = 12, seed: int = 0,
     max_cols: int = 30,
-):
+) -> tuple[list[str], list[EngineeredRecipe]]:
     """Detect responded row-argmax structure and emit it as frozen, replayable ``EngineeredRecipe`` objects.
 
     Column-count BUDGET GUARD (the wide-frame cost is the budgeted C(p,3) triple sweep + the batched MI; see
@@ -894,15 +878,14 @@ def hybrid_row_argmax_fe_with_recipes(
             break
     return appended, recipes
 
-
 def hybrid_conditional_gate_fe_with_recipes(
-    X, y: np.ndarray, *,
+    X: pd.DataFrame | pl.DataFrame, y: np.ndarray, *,
     cols: Optional[Sequence[str]] = None,
     top_k: int = 4, nbins: int = 12, seed: int = 0,
     k_gate: int = 8, k_operand: int = 10,
     max_cols: int = 200,
     subsample_n: int = 0,
-):
+) -> tuple[list[str], list[EngineeredRecipe]]:
     """Detect responded conditional-gate structure and emit it as frozen, replayable ``EngineeredRecipe`` objects (tau frozen).
 
     RELEVANCE-PRUNED candidate set: the sweep cost is O(k_operand^2 * k_gate * tau-scan), FLAT in p - the gate column c is drawn

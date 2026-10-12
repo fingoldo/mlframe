@@ -42,6 +42,7 @@ from numba import njit, prange
 
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 from typing import cast
+from typing import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,6 @@ try:
 except ImportError:
     _cp = None
     _CUPY_AVAIL = False
-
 
 # Unary op-code table for the ``medium`` preset (registry order is irrelevant - the caller maps each
 # preset name to its code and falls back to Python if any name is absent). Every entry below is
@@ -71,8 +71,7 @@ _NJIT_USABILITY_BINARY_OP_CODES: dict = {
     "mul": 0, "add": 1, "sub": 2, "div": 3, "max": 4, "min": 5,
 }
 
-
-def njit_unary_codes_or_none(unary_names) -> "np.ndarray | None":
+def njit_unary_codes_or_none(unary_names: Sequence[str]) -> "np.ndarray | None":
     """Map each unary name (preset iteration order) to its op-code, or None if ANY name is not
     njit-coded (the caller then uses the per-candidate numpy path - correctness first)."""
     codes = []
@@ -83,8 +82,7 @@ def njit_unary_codes_or_none(unary_names) -> "np.ndarray | None":
         codes.append(c)
     return np.asarray(codes, dtype=np.int64)
 
-
-def njit_binary_codes_or_none(binary_names) -> "np.ndarray | None":
+def njit_binary_codes_or_none(binary_names: Sequence[str]) -> "np.ndarray | None":
     """Map each binary name to its op-code, or None if ANY name is not njit-coded."""
     codes = []
     for name in binary_names:
@@ -93,7 +91,6 @@ def njit_binary_codes_or_none(binary_names) -> "np.ndarray | None":
             return None
         codes.append(c)
     return np.asarray(codes, dtype=np.int64)
-
 
 # Near-constant when std is within this factor of machine epsilon of the combo's largest |value|.
 _USABILITY_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
@@ -147,7 +144,6 @@ def _apply_unary(v, code, xmin):
     else:  # code == 16: exp
         return np.exp(v)
 
-
 @njit(cache=True, inline="always")
 def _apply_binary(a, b, bn):
     """One element of the minimal-preset binary, returning the float32-scrubbed value cast back to
@@ -176,7 +172,6 @@ def _apply_binary(a, b, bn):
     if not (f == f and f != np.inf and f != -np.inf):
         f = np.float32(0.0)
     return np.float64(f)
-
 
 @njit(cache=True, inline="always")
 def _qbin_into(val, nbins, qs, codes_out):
@@ -242,7 +237,6 @@ def _qbin_into(val, nbins, qs, codes_out):
             kx = lo
     return kx + 1
 
-
 @njit(cache=True, inline="always")
 def _marginal_mi_njit(xb, kx, y_codes, h_y, k_y, n):
     """Plug-in Miller-Madow ``MI(X;Y) = H(X)+H(Y)-H(X,Y)`` minus ``(k_x+k_y-k_xy-1)/(2n)``, clamped
@@ -274,7 +268,6 @@ def _marginal_mi_njit(xb, kx, y_codes, h_y, k_y, n):
     bias = (kx_occ + k_y - kxy - 1) / (2.0 * n)
     r = mi - bias
     return r if r > 0.0 else 0.0
-
 
 @njit(cache=True)
 def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
@@ -331,7 +324,6 @@ def _pair_combo_mi_njit(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
         out[j] = _marginal_mi_njit(codes, kx, y_codes, h_y, k_y, n)
     return out
 
-
 @njit(parallel=True, cache=True)
 def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
     """``parallel=True`` (prange over COMBOS) twin of :func:`_pair_combo_mi_njit` - BYTE-IDENTICAL
@@ -385,7 +377,6 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
         kx = _qbin_into(val, nbins, qs, codes)
         out[j] = _marginal_mi_njit(codes, kx, y_codes, h_y, k_y, n)
     return out
-
 
 # UNARY-TABLE kernels (2026-06-21, ``feedback_keep_all_kernel_versions``). The per-combo loop above
 # recomputes ``_apply_unary(x1[i], ua)`` and ``_apply_unary(x2[i], ub)`` for EVERY combo - so each
@@ -453,7 +444,6 @@ def _pair_combo_mi_njit_table(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_
         out[j] = _marginal_mi_njit(codes, kx, y_codes, h_y, k_y, n)
     return out
 
-
 @njit(parallel=True, cache=True)
 def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b, nu_tab):
     """``parallel=True`` unary-table twin - BIT-IDENTICAL to :func:`_pair_combo_mi_njit_table` (the table
@@ -512,7 +502,6 @@ def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub
         out[j] = _marginal_mi_njit(codes, kx, y_codes, h_y, k_y, n)
     return out
 
-
 # ----------------------------------------------------------------------------------------------
 # GPU (cupy) fused kernel - BIT-FAITHFUL to the CPU njit twins.
 # ----------------------------------------------------------------------------------------------
@@ -538,7 +527,6 @@ def _pair_combo_mi_njit_table_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub
 # Per-chunk combo budget so the (chunk x n) float64 working set + sort/bincount temporaries stay well
 # inside a 4GB card. ~ chunk*n*8 * (a few buffers); 256*50000*8 = ~100MB per buffer.
 _GPU_COMBO_CHUNK = 256
-
 
 def _gpu_apply_unary(x, code, xmin):
     """cupy float64 vectorised twin of :func:`_apply_unary` over the whole column ``x`` (1-D device
@@ -581,7 +569,6 @@ def _gpu_apply_unary(x, code, xmin):
     else:  # exp
         return cp.exp(x)
 
-
 def _gpu_apply_binary(a, b, bn):
     """cupy float64 vectorised twin of :func:`_apply_binary` - including the ``np.float32`` scrub +
     nan/inf->0 at float32 precision - returning a float64 device array of the scrubbed values."""
@@ -603,7 +590,6 @@ def _gpu_apply_binary(a, b, bn):
     f = v.astype(cp.float32)
     f = cp.where(cp.isfinite(f), f, cp.float32(0.0))
     return f.astype(cp.float64)
-
 
 def _gpu_quantile_bin_codes(V, qs):
     """Equi-frequency quantile-bin each ROW of ``V`` (shape ``(m, n)``, finite float64) - BIT-IDENTICAL
@@ -639,7 +625,6 @@ def _gpu_quantile_bin_codes(V, qs):
         kx[r] = int(cr.max()) + 1
     return codes, kx
 
-
 def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
     """Vectorised Miller-Madow marginal MI for each ROW of ``codes`` (shape ``(m, n)`` dense 0..kx[r]-1)
     vs the shared ``y_codes`` (dense 0..k_y-1). BIT-FAITHFUL to :func:`_marginal_mi_njit`: same plug-in
@@ -670,9 +655,7 @@ def _gpu_marginal_mi(codes, kx, y_codes, h_y, k_y, n):
         out[r] = r_mi if r_mi > 0.0 else 0.0
     return out
 
-
 _GPU_BATCH_BYTES = 768 * 1024 * 1024  # budget for the (n, m) candidate block of one batch (it is sorted, so ~3 copies are live)
-
 
 def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
     """cupy GPU twin of :func:`_pair_combo_mi_njit`, batched: per-combo MI (or -1.0 std-sentinel) for ``m`` combos at once.
@@ -725,7 +708,6 @@ def _pair_combo_mi_cupy(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, x
         out[start:stop] = cp.asnumpy(cp.where(live, mi, cp.float64(-1.0)))
     return out
 
-
 def _pair_combo_mi_cupy_loop(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_arr, xmin_a, xmin_b):
     """Per-combo cupy twin of :func:`_pair_combo_mi_njit` - per-combo MI (or -1.0 std-sentinel), BIT-FAITHFUL
     to the CPU kernels (see the section docstring). Precomputes the ``nu`` distinct unary transforms of
@@ -775,7 +757,6 @@ def _pair_combo_mi_cupy_loop(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_a
         out[start:stop] = cp.asnumpy(mi)
     return out
 
-
 # ----------------------------------------------------------------------------------------------
 # Per-host backend crossover (serial njit / parallel njit / GPU cupy), resolved via the canonical
 # kernel_tuning_cache - NO hardcoded threshold (feedback_use_kernel_tuning_cache_for_gpu /
@@ -790,7 +771,6 @@ def _pair_combo_mi_cupy_loop(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, bn_a
 _USABILITY_SWEEP_COMBOS = [64, 289, 578, 1156, 1734]  # ~ |unary|^2*|binary| neighbourhood (17^2*{...})
 _USABILITY_SWEEP_ROWS = [2_000, 10_000, 50_000]  # n_rows axis: GPU H2D/launch overhead amortises with n
 _USABILITY_SALT = 3  # bumped: the cupy twin is batched (was per-combo launches), so stored crossovers are stale
-
 
 def _make_usability_inputs(dims: dict):
     """An (n_rows x 2) operand pair + (n_combos) op-code arrays mirroring the kernel's call shape so
@@ -813,7 +793,6 @@ def _make_usability_inputs(dims: dict):
     bn = (rng.integers(0, 6, size=nc)).astype(np.int64)
     return (x1, x2, y_codes, h_y, k_y, qs, ua, ub, bn, float(x1.min()), float(x2.min()))
 
-
 def _run_usability_sweep() -> list:
     """Runs the serial/parallel/gpu crossover sweep over the configured (n_rows, n_combos) grid, checking each
     variant's output against the serial reference within the loosened GPU-reassociation tolerance."""
@@ -835,14 +814,12 @@ def _run_usability_sweep() -> list:
         reference="serial", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-9,
     ))
 
-
 def _usability_fallback_choice(n_rows: int, n_combos: int) -> str:
     """Pre-sweep heuristic (the spec's dynamic fallback callable): parallel njit above a conservative
     combo count where the prange fork-join overhead is amortised by the per-combo work. NEVER defaults
     to GPU - the GPU path only fires once the per-host tuner has MEASURED it faster (on the dev GTX
     1050 Ti it is HW-bound, so the measured choice stays CPU)."""
     return "parallel" if int(n_combos) >= 64 else "serial"
-
 
 _USABILITY_PARALLELISM_SPEC = kernel_tuner(
     kernel_name="usability_pool_kernel_parallelism",
@@ -854,7 +831,6 @@ _USABILITY_PARALLELISM_SPEC = kernel_tuner(
     salt=_USABILITY_SALT,
     cli_label="usability_pool_kernel_parallelism",
 )
-
 
 def _usability_backend_choice(n_rows: int, n_combos: int) -> str:
     """Per-host backend ('serial'/'parallel'/'gpu') for this (n_rows, n_combos) via the spec's
@@ -873,7 +849,6 @@ def _usability_backend_choice(n_rows: int, n_combos: int) -> str:
     except Exception as e:
         logger.debug("kernel_tuning_cache choose() failed, using the size-based fallback: %s", e)
         return _usability_fallback_choice(int(n_rows), int(n_combos))
-
 
 def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_codes):
     """Score every ``(ua, ub, bn)`` combo for a pair, returning the per-combo MI array (sentinel -1.0

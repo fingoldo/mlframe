@@ -24,6 +24,8 @@ from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
 from ._row_stat_kernels import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
 from ._y_encoding import FEW_CLASSES_MAX
+if TYPE_CHECKING:
+    import polars as pl
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -39,7 +41,6 @@ N_MI_BINS = 10
 _MIN_ROWS = 800
 _OUTPUT_CLIP_Q = (0.001, 0.999)
 
-
 def build_row_stat_recipe(*, name: str, src: Sequence[str], stat: str, mu: np.ndarray, sd: np.ndarray, lo: float, hi: float) -> "EngineeredRecipe":
     """Frozen recipe of one row-statistic column: source columns, statistic, frozen standardisation and output range."""
     from .engineered_recipes import EngineeredRecipe
@@ -51,14 +52,12 @@ def build_row_stat_recipe(*, name: str, src: Sequence[str], stat: str, mu: np.nd
         extra={"stat": str(stat), "mu": np.asarray(mu, dtype=np.float64).copy(), "sd": np.asarray(sd, dtype=np.float64).copy(), "lo": float(lo), "hi": float(hi)},
     )
 
-
 def _standardised_block(A: np.ndarray, mu: np.ndarray, sd: np.ndarray) -> np.ndarray:
     """``(p, n)`` C-contiguous block of the standardised columns of the ``(n, p)`` array ``A``; a non-finite value becomes 0 (the training mean)."""
     Z = (A - mu) / sd
     return np.ascontiguousarray(np.where(np.isfinite(Z), Z, 0.0).T)
 
-
-def apply_row_stat_recipe(recipe, X, _block_cache: Optional[dict] = None) -> np.ndarray:
+def apply_row_stat_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataFrame, _block_cache: Optional[dict] = None) -> np.ndarray:
     """Replay one row-statistic column from the stored standardisation; a pure function of the source columns.
 
     ``_block_cache`` (fit time only): statistics over the same source columns share one standardised ``(p, n)`` block instead of rebuilding it."""
@@ -77,11 +76,9 @@ def apply_row_stat_recipe(recipe, X, _block_cache: Optional[dict] = None) -> np.
     out = stat_column(Zt, subset, k, STAT_NAMES.index(ex["stat"]))
     return np.asarray(np.clip(out, ex["lo"], ex["hi"]))
 
-
 def _noise_scale(n_even: int, nb: int, ky: int) -> float:
     """Standard deviation of a plug-in MI under independence, ``sqrt(2 df) / (2 n)`` with ``df = (nb - 1)(ky - 1)`` (``2 n MI`` is chi-square distributed): the growth step must beat ``Z`` of them."""
     return float(np.sqrt(2.0 * (nb - 1) * (ky - 1)) / (2.0 * n_even))
-
 
 def _pool_columns(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, codes: np.ndarray, ky: int) -> "list[str]":
     """Up to ``MAX_POOL`` numeric columns, ranked by the larger of the MI of the column and the MI of its distance from the median (a spread effect is symmetric and invisible to the first)."""
@@ -97,14 +94,12 @@ def _pool_columns(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, code
     scored.sort(key=lambda t: -t[0])
     return [c for _, c in scored[:MAX_POOL]]
 
-
 def _subset_matrix(subsets: "list[list[int]]") -> "tuple[np.ndarray, np.ndarray]":
     """``(B, MAX_SUBSET)`` padded index matrix and the sizes of the candidate subsets."""
     mat = np.zeros((len(subsets), MAX_SUBSET), dtype=np.int64)
     for b, s in enumerate(subsets):
         mat[b, : len(s)] = s
     return mat, np.array([len(s) for s in subsets], dtype=np.int64)
-
 
 def _search(Zt: np.ndarray, codes: np.ndarray, ky: int) -> "list[tuple[float, int, list[int]]]":
     """Per statistic, the best subset (all pairs, then greedy growth); returns ``(even-row MI, statistic id, subset)`` sorted by MI, best first."""
@@ -147,7 +142,6 @@ def _search(Zt: np.ndarray, codes: np.ndarray, ky: int) -> "list[tuple[float, in
             break
     best.sort(key=lambda t: -t[0])
     return [(mi, s, sorted(sub)) for mi, s, sub in best]
-
 
 def row_stat_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS) -> "list[dict]":
     """The finalists of the subset search with their held-out evidence.
@@ -195,7 +189,6 @@ def row_stat_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *
             }
         )
     return out
-
 
 def hybrid_row_stat_fe(
     X: "pd.DataFrame",

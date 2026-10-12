@@ -71,6 +71,9 @@ import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +83,6 @@ __all__ = [
     "hybrid_orth_mi_dcor_fe",
     "hybrid_orth_mi_dcor_fe_with_recipes",
 ]
-
 
 def _u_centered_distance_matrix(z: np.ndarray) -> np.ndarray:
     """Build the double-centred Euclidean distance matrix used by the
@@ -100,7 +102,6 @@ def _u_centered_distance_matrix(z: np.ndarray) -> np.ndarray:
     grand_mean = a.mean()
     return np.asarray(a - row_mean - col_mean + grand_mean)
 
-
 def _subsample_indices(
     n: int, n_sample: int, random_state: int,
 ) -> np.ndarray:
@@ -116,7 +117,6 @@ def _subsample_indices(
     idx = rng.choice(n, size=int(n_sample), replace=False)
     idx.sort()
     return idx
-
 
 def distance_correlation(
     x: np.ndarray, y: np.ndarray, *,
@@ -190,7 +190,6 @@ def distance_correlation(
         dcov2 = 0.0
     return float(np.sqrt(dcov2 / np.sqrt(denom)))
 
-
 def _dcor_y_side_prep(y: np.ndarray, n_total: int, *, n_sample: int, random_state: int) -> tuple:
     """Compute the y-ONLY dependence primitive :func:`_dcor_batch` needs (subsample index set + the
     y-side U-centered distance matrix + its variance), factored out so a caller scoring BOTH a
@@ -204,7 +203,6 @@ def _dcor_y_side_prep(y: np.ndarray, n_total: int, *, n_sample: int, random_stat
     B = _u_centered_distance_matrix(ys)
     dvar2_y = float(np.mean(B * B))
     return (idx, B, dvar2_y)
-
 
 def _dcor_batch(
     X: np.ndarray, y: np.ndarray, *,
@@ -246,7 +244,6 @@ def _dcor_batch(
             dcov2 = 0.0
         out[j] = float(np.sqrt(dcov2 / np.sqrt(denom)))
     return out
-
 
 def score_features_by_dcor_uplift(
     raw_X: pd.DataFrame,
@@ -335,7 +332,6 @@ def score_features_by_dcor_uplift(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_dcor_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -410,7 +406,6 @@ def hybrid_orth_mi_dcor_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_dcor_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -423,7 +418,7 @@ def hybrid_orth_mi_dcor_fe_with_recipes(
     min_abs_mi_frac: float = 0.1,
     n_sample: int = 500,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_dcor_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data

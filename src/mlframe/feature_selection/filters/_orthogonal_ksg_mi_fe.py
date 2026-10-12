@@ -53,6 +53,9 @@ import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +70,6 @@ __all__ = [
     "hybrid_orth_mi_ksg_fe",
     "hybrid_orth_mi_ksg_fe_with_recipes",
 ]
-
 
 def _is_discrete_target(y: np.ndarray) -> bool:
     """Decide classif vs regression dispatch for KSG MI.
@@ -86,7 +88,6 @@ def _is_discrete_target(y: np.ndarray) -> bool:
     if arr.dtype.kind in "fc":
         return int(np.unique(arr).size) <= 32
     return True
-
 
 def _ksg_mi_batch(
     X: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3,
@@ -135,7 +136,6 @@ def _ksg_mi_batch(
             random_state=int(random_state),
         )
     return np.asarray(mi, dtype=np.float64)
-
 
 def score_features_by_ksg_mi_uplift(
     raw_X: pd.DataFrame,
@@ -233,7 +233,6 @@ def score_features_by_ksg_mi_uplift(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_ksg_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -314,7 +313,6 @@ def hybrid_orth_mi_ksg_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_ksg_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -327,7 +325,7 @@ def hybrid_orth_mi_ksg_fe_with_recipes(
     min_abs_mi_frac: float = 0.1,
     n_neighbors: int = 3,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_ksg_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so that
     ``MRMR.transform`` can recompute each engineered column on test data

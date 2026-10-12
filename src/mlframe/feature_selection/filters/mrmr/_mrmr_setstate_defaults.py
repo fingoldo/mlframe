@@ -414,6 +414,19 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # False, not None: an estimator from before this flag existed did run the audit, so "it did not fail" is the truthful default.
     "degenerate_audit_failed_": False,
     "_passthrough_features_": [],
+    # Fitted attributes below are read only through getattr(..., None) or written by the fit that produces them, so an old pickle that
+    # lacks one reads back the same as a fresh instance whose fit never reached that stage.
+    "_engineered_names_cache_": None,  # runtime memo, dropped by __getstate__; None means rebuild on first use
+    "_fe_budget_fingerprint_": None,
+    "_fe_budget_prev_": None,
+    "_fe_budget_wall_pre_fit_": None,
+    "fe_family_budget_": None,
+    "_fe_recommended_flags_": None,
+    "_identity_cache_ycorr_": None,
+    "_own_last_identity_fp_": None,
+    "_synergy_auto_decision_": None,
+    "degenerate_columns_": {},  # an estimator that never ran the degenerate-column audit has nothing to report
+    "groups_ignored_": False,
 }
 
 

@@ -87,7 +87,6 @@ __all__ = [
     "hybrid_orth_mi_ensemble_fe_with_recipes",
 ]
 
-
 # Canonical aggregator identifiers for ensemble-of-scorers rank fusion.
 # - mean_rank: average of per-scorer ranks (1 = best); the standard rank-
 #   fusion baseline, robust to monotone score transforms because it only
@@ -112,7 +111,6 @@ ENSEMBLE_AGGREGATORS = (
 # than the cost of missing a borderline signal.
 MUTUAL_RANK_AGGREGATORS = ("mutual_top_k",)
 
-
 # ---------------------------------------------------------------------------
 # Layer 69: ENSEMBLE-OF-SCORERS rank fusion
 # ---------------------------------------------------------------------------
@@ -133,7 +131,6 @@ MUTUAL_RANK_AGGREGATORS = ("mutual_top_k",)
 #   any single column AND the bootstrap-LCB-pick is unstable across
 #   seeds. Rank fusion averages the noise out and the consensus rank
 #   stabilises faster than the per-column-winner identity.
-
 
 def _compute_per_scorer_rank_table(
     raw_X: pd.DataFrame,
@@ -257,7 +254,6 @@ def _compute_per_scorer_rank_table(
         rank_per_scorer[s] = dict(zip(score_table["engineered_col"], ranks))
     return score_table, baseline_per_source, rank_per_scorer
 
-
 def _aggregate_ranks(
     rank_per_scorer: dict,
     eng_cols: Sequence[str],
@@ -331,7 +327,6 @@ def _aggregate_ranks(
                 out[col] = sentinel
         return out
     raise ValueError(f"unknown aggregator {aggregator!r}; expected one of " f"{ENSEMBLE_AGGREGATORS}")
-
 
 def score_features_by_ensemble_uplift(
     raw_X: pd.DataFrame,
@@ -478,7 +473,6 @@ def score_features_by_ensemble_uplift(
         ).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_ensemble_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -577,7 +571,6 @@ def hybrid_orth_mi_ensemble_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X
     return X_aug, scores
 
-
 def hybrid_orth_mi_ensemble_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -596,7 +589,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
     n_neighbors: int = 3,
     copula_n_bins: int = 20,
     dcor_n_sample: int = 500,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """:func:`hybrid_orth_mi_ensemble_fe` + ``orth_univariate`` recipes.
 
     Recipes are byte-identical to Layer 21 because the engineered
@@ -659,10 +652,12 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
         ))
     return X_aug, scores, recipes
 
-
 from ._orth_auto_scorer_fe import (
     hybrid_orth_mi_auto_scorer_fe,
     hybrid_orth_mi_auto_scorer_fe_with_recipes,
     score_features_by_auto_scorer_uplift,
     select_best_scorer_per_column,
 )
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe

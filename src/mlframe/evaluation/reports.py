@@ -10,6 +10,7 @@ from __future__ import annotations
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import logging
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ from pyutilz.pythonlib import get_human_readable_set_size
 from pyutilz.logginglib import log_result
 
 from mlframe._optional_imports import import_optional
-from mlframe.calibration.quality import make_custom_calibration_plot
+from mlframe.calibration.quality import make_custom_calibration_plot, plot_pit_diagram
 
 from contextlib import nullcontext
 
@@ -461,7 +462,22 @@ def _evaluate_estimator_show_classification_report(show_classification_report, y
 
             log_result(results_log, "classification_report_dict", classification_report_dict)
             log_result(results_log, "classification_report_text", classification_report_text)
+            _log_classification_report_to_active_mlflow_run(classification_report_dict)
     return classification_report_dict, classification_report_text
+
+
+def _log_classification_report_to_active_mlflow_run(report: dict) -> None:
+    """Mirror a classification report onto the MLflow run the caller already has open, if there is one.
+
+    Nothing is imported here: the check only runs when ``mlflow`` is already loaded, so environments without MLflow pay nothing and never fail.
+    The ``accuracy`` and ``balanced_accuracy`` scalars are passed as separate metrics because they are not per-class dicts.
+    """
+    mlflow_module = sys.modules.get("mlflow")
+    if mlflow_module is None or mlflow_module.active_run() is None:
+        return
+    from mlframe.integrations.mlflow import log_classification_report_to_mlflow
+
+    log_classification_report_to_mlflow(report, step=0, separate_metrics=("accuracy", "balanced_accuracy"))
 
 
 def _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklearn_calibration, nclasses, probs, y_test_test, calibration_nbins, figsize, est_name, display_labels, competing_probs, X_test_test):
@@ -518,6 +534,16 @@ def _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklea
             if fig is not None:
                 # Close instead of show: library code must not leak the calibration figure nor block.
                 plt.close(fig)
+            if nclasses == 2:
+                _plot_binary_pit_for_evaluation(probs, y_test_test, figsize, est_name)
+
+
+def _plot_binary_pit_for_evaluation(probs: np.ndarray, y_test_test: np.ndarray, figsize, est_name: str) -> None:
+    """Render the binary PIT histogram next to the calibration plot; skipped unless labels are coded 0/1."""
+    labels = np.asarray(y_test_test)
+    if not np.isin(np.unique(labels), (0, 1)).all():
+        return
+    plot_pit_diagram(predicted_probs=np.asarray(probs)[:, 1], true_labels=labels, title_prefix=f"{est_name}: ", figsize=figsize)
 
 
 def evaluate_grouped(

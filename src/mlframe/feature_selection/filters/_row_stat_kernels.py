@@ -22,7 +22,6 @@ N_EDGE_SAMPLE = 2048  # even rows whose statistic defines the bin edges
 
 _MIN, _MAX, _MED, _RNG, _STD, _LSE_POS, _LSE_NEG = 0, 1, 2, 3, 4, 5, 6
 
-
 @njit(cache=True, nogil=True)
 def _stat_of(vals, k, stat):
     """The statistic ``stat`` of the first ``k`` entries of ``vals`` (``vals`` may be reordered by the median)."""
@@ -73,14 +72,12 @@ def _stat_of(vals, k, stat):
         acc += np.exp(beta * vals[j] - mx)
     return (mx + np.log(acc / k)) / beta
 
-
 @njit(cache=True, nogil=True)
 def _row_value(Zt, subset, k, stat, i, vals):
     """The statistic of row ``i`` over the columns ``subset[:k]`` of the ``(p, n)`` block ``Zt``."""
     for j in range(k):
         vals[j] = Zt[subset[j], i]
     return _stat_of(vals, k, stat)
-
 
 @njit(cache=True, nogil=True)
 def _mi(counts, nb, ky, n_tot):
@@ -101,9 +98,8 @@ def _mi(counts, nb, ky, n_tot):
                 mi += (kk / n_tot) * np.log(kk * n_tot / (px[b] * py[c]))
     return mi
 
-
 @njit(parallel=True, cache=True)
-def eval_candidates(Zt, subsets, sizes, stats, ycodes, ky, nb, out_even, out_odd):
+def eval_candidates(Zt: np.ndarray, subsets: np.ndarray, sizes: np.ndarray, stats: np.ndarray, ycodes: np.ndarray, ky: int, nb: int, out_even: np.ndarray, out_odd: np.ndarray) -> None:
     """Even-row and odd-row plug-in MI of each candidate.
 
     ``Zt``: ``(p, n)`` standardised columns; ``subsets``: ``(B, MAX_SUBSET)`` column indices, the first ``sizes[b]`` valid; ``stats``: ``(B,)`` statistic ids; ``ycodes``: class codes in
@@ -129,9 +125,8 @@ def eval_candidates(Zt, subsets, sizes, stats, ycodes, ky, nb, out_even, out_odd
         out_even[b] = _mi(counts[0], nb, ky, n_even)
         out_odd[b] = _mi(counts[1], nb, ky, n - n_even)
 
-
 @njit(parallel=True, cache=True)
-def stat_column(Zt, subset, k, stat):
+def stat_column(Zt: np.ndarray, subset: np.ndarray, k: int, stat: int) -> np.ndarray:
     """The statistic of every row of ``Zt`` over the columns ``subset[:k]`` (rows in parallel)."""
     n = Zt.shape[1]
     out = np.empty(n)

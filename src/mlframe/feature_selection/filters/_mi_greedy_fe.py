@@ -37,6 +37,9 @@ from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -53,34 +56,28 @@ __all__ = [
     "engineered_name_binary",
 ]
 
-
 # ---------------------------------------------------------------------------
 # Transform registry. Each callable takes ndarray input(s) and returns one
 # ndarray of the same length. Outputs are scrubbed of NaN/Inf downstream.
 # ---------------------------------------------------------------------------
 
-
 def _log_abs(x: np.ndarray) -> np.ndarray:
     """``log1p(|x|)`` - sign-agnostic log compression, good for heavy-tailed / power-law columns."""
     return np.asarray(np.log1p(np.abs(np.asarray(x, dtype=np.float64))))
 
-
 def _sqrt_abs(x: np.ndarray) -> np.ndarray:
     """``sqrt(|x|)`` - sign-agnostic square-root compression, milder than ``log_abs`` on the tail."""
     return np.asarray(np.sqrt(np.abs(np.asarray(x, dtype=np.float64))))
-
 
 def _square(x: np.ndarray) -> np.ndarray:
     """``x**2`` - exposes magnitude / symmetric-around-zero relationships (e.g. ``y = sign(x**2 - c)``)."""
     a = np.asarray(x, dtype=np.float64)
     return a * a
 
-
 def _cube(x: np.ndarray) -> np.ndarray:
     """``x**3`` - odd power, preserves sign while amplifying the tail (unlike ``square``)."""
     a = np.asarray(x, dtype=np.float64)
     return a * a * a
-
 
 def _reciprocal_safe(x: np.ndarray) -> np.ndarray:
     """``1 / (x + eps_with_sign)``. ``eps`` matches the sign of x so the
@@ -93,11 +90,9 @@ def _reciprocal_safe(x: np.ndarray) -> np.ndarray:
     sgn = np.where(sgn == 0.0, 1.0, sgn)
     return 1.0 / (a + 1e-12 * sgn)
 
-
 def _tanh(x: np.ndarray) -> np.ndarray:
     """``tanh(x)`` - smooth saturating squash, captures threshold / diminishing-returns non-linearities."""
     return np.tanh(np.asarray(x, dtype=np.float64))
-
 
 def _expm1_clip(x: np.ndarray) -> np.ndarray:
     """``expm1`` with input clipped to [-20, 20] so ``expm1`` doesn't
@@ -106,21 +101,17 @@ def _expm1_clip(x: np.ndarray) -> np.ndarray:
     a = np.clip(np.asarray(x, dtype=np.float64), -20.0, 20.0)
     return np.expm1(a)
 
-
 def _abs(x: np.ndarray) -> np.ndarray:
     """``|x|`` - folds sign, exposing magnitude-only relationships (e.g. ``y = sign(|x| - c)``)."""
     return np.abs(np.asarray(x, dtype=np.float64))
-
 
 def _sin(x: np.ndarray) -> np.ndarray:
     """``sin(x)`` - periodic transform; only enumerated on columns ``_is_bounded_column`` flags as bounded, since sin of an unbounded/heavy-tailed column is uninformative."""
     return np.sin(np.asarray(x, dtype=np.float64))
 
-
 def _cos(x: np.ndarray) -> np.ndarray:
     """``cos(x)`` - periodic transform, ``sin``'s phase-shifted sibling; same bounded-column gating applies."""
     return np.cos(np.asarray(x, dtype=np.float64))
-
 
 UNARY_TRANSFORMS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
     "log_abs": _log_abs,
@@ -133,7 +124,6 @@ UNARY_TRANSFORMS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
     "abs": _abs,
 }
 
-
 # Trigonometric: only meaningful on BOUNDED columns. Auto-iter applies these
 # only when the column range / std fingerprint says "bounded".
 TRIG_BOUNDED_TRANSFORMS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
@@ -141,21 +131,17 @@ TRIG_BOUNDED_TRANSFORMS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
     "cos": _cos,
 }
 
-
 def _bin_add(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``a + b`` - linear combination; catches additive interactions two raw columns don't expose alone."""
     return np.asarray(a, dtype=np.float64) + np.asarray(b, dtype=np.float64)
-
 
 def _bin_sub(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``a - b`` - signed difference; useful when the target depends on the gap/spread between two columns."""
     return np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64)
 
-
 def _bin_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``a * b`` - product interaction; catches multiplicative/AND-like relationships between two columns."""
     return np.asarray(a, dtype=np.float64) * np.asarray(b, dtype=np.float64)
-
 
 def _bin_div_safe(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``a / (b + eps_with_sign)`` - mirrors ``_reciprocal_safe`` to keep
@@ -166,21 +152,17 @@ def _bin_div_safe(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     sgn = np.where(sgn == 0.0, 1.0, sgn)
     return av / (bv + 1e-12 * sgn)
 
-
 def _bin_max(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``max(a, b)`` - elementwise maximum; catches "worst/best of two" or OR-like decision boundaries (e.g. ``y = sign(max(x_i, x_j) > c)``)."""
     return np.maximum(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
-
 
 def _bin_min(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``min(a, b)`` - elementwise minimum, the AND-like counterpart to ``_bin_max``."""
     return np.minimum(np.asarray(a, dtype=np.float64), np.asarray(b, dtype=np.float64))
 
-
 def _bin_abs_diff(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``|a - b|`` - unsigned gap between two columns; catches "how far apart" relationships regardless of which column is larger."""
     return np.abs(np.asarray(a, dtype=np.float64) - np.asarray(b, dtype=np.float64))
-
 
 def _bin_ratio_log(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """``log1p(|a|) - log1p(|b|)`` - scale-stable ratio surrogate that
@@ -190,7 +172,6 @@ def _bin_ratio_log(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     av = np.asarray(a, dtype=np.float64)
     bv = np.asarray(b, dtype=np.float64)
     return np.asarray(np.log1p(np.abs(av)) - np.log1p(np.abs(bv)))
-
 
 BINARY_TRANSFORMS: dict[str, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {
     "add": _bin_add,
@@ -203,22 +184,18 @@ BINARY_TRANSFORMS: dict[str, Callable[[np.ndarray, np.ndarray], np.ndarray]] = {
     "ratio_log": _bin_ratio_log,
 }
 
-
 # ---------------------------------------------------------------------------
 # Naming helpers. The names below are PARSED at recipe-build time to recover
 # (source_cols_tuple, transform_name); keep them stable.
 # ---------------------------------------------------------------------------
 
-
 def engineered_name_unary(col: str, transform: str) -> str:
     """Build the canonical engineered-column name for a unary transform, e.g. ``"log_abs(revenue)"``. Must stay parseable by ``_parse_unary_name``."""
     return f"{transform}({col})"
 
-
 def engineered_name_binary(col_i: str, col_j: str, transform: str) -> str:
     """Build the canonical engineered-column name for a binary transform, e.g. ``"(revenue__ratio_log__cost)"``. Outer parens + double-underscore delimiters must stay parseable by ``_parse_binary_name``."""
     return f"({col_i}__{transform}__{col_j})"
-
 
 def _parse_unary_name(name: str) -> Optional[tuple[str, str]]:
     """``"transform(col)"`` -> ``(transform, col)`` or None on miss."""
@@ -229,7 +206,6 @@ def _parse_unary_name(name: str) -> Optional[tuple[str, str]]:
     if head not in UNARY_TRANSFORMS and head not in TRIG_BOUNDED_TRANSFORMS:
         return None
     return head, inner
-
 
 def _parse_binary_name(name: str) -> Optional[tuple[str, str, str]]:
     """``"(col_i__transform__col_j)"`` -> ``(transform, col_i, col_j)``
@@ -252,11 +228,9 @@ def _parse_binary_name(name: str) -> Optional[tuple[str, str, str]]:
             return tname, col_i, col_j
     return None
 
-
 # ---------------------------------------------------------------------------
 # Bounded-column fingerprint for trig auto-application.
 # ---------------------------------------------------------------------------
-
 
 def _is_bounded_column(x: np.ndarray) -> bool:
     """Heuristic ``bounded?`` check used to decide whether to enumerate
@@ -285,11 +259,9 @@ def _is_bounded_column(x: np.ndarray) -> bool:
         return False
     return (rng / sd) <= 5.0
 
-
 # ---------------------------------------------------------------------------
 # Candidate iterator.
 # ---------------------------------------------------------------------------
-
 
 def iter_candidates(
     X: pd.DataFrame,
@@ -341,11 +313,9 @@ def iter_candidates(
                         continue
                     yield (col_i, col_j), tname
 
-
 # ---------------------------------------------------------------------------
 # Materialisation + scoring.
 # ---------------------------------------------------------------------------
-
 
 def _materialise_candidate(
     X: pd.DataFrame, src_cols: tuple[str, ...], tname: str,
@@ -375,7 +345,6 @@ def _materialise_candidate(
         return None
     out = np.asarray(out, dtype=np.float64)
     return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
-
 
 def generate_mi_greedy_features(
     X: pd.DataFrame,
@@ -416,7 +385,6 @@ def generate_mi_greedy_features(
         parsed.append((src_cols, tname))
         seen_names.add(name)
     return pd.DataFrame(out_cols, index=X.index), parsed
-
 
 def _greedy_score_and_select(
     raw_X: pd.DataFrame,
@@ -540,7 +508,6 @@ def _greedy_score_and_select(
     parsed_winners = [name_to_parsed[n] for n in keep]
     return keep, scores, parsed_winners
 
-
 def greedy_mi_fe_construct(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -620,11 +587,9 @@ def greedy_mi_fe_construct(
         X_aug = X.copy(deep=False)
     return X_aug, scores
 
-
 # ---------------------------------------------------------------------------
 # Recipe-aware wrapper for MRMR.fit auto-wiring.
 # ---------------------------------------------------------------------------
-
 
 def greedy_mi_fe_construct_with_recipes(
     X: pd.DataFrame,
@@ -640,7 +605,7 @@ def greedy_mi_fe_construct_with_recipes(
     min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`greedy_mi_fe_construct` but additionally returns a list of
     ``EngineeredRecipe`` objects (one per appended column) so MRMR.transform
     can replay each column on test data without re-running the MI ranking
@@ -689,14 +654,12 @@ def greedy_mi_fe_construct_with_recipes(
             )
     return X_aug, scores, recipes
 
-
 # ---------------------------------------------------------------------------
 # Recipe replay helper - imported by engineered_recipes._apply_mi_greedy_transform.
 # Defined here so the transform registry lookup lives next to the registry
 # itself (single source of truth) instead of being duplicated inside the
 # recipes module.
 # ---------------------------------------------------------------------------
-
 
 def apply_mi_greedy_transform(
     transform: str, src_values: list[np.ndarray],

@@ -15,6 +15,7 @@ dispatch-threshold, residency, or selection behavior changed.
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
 import numpy as np
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
@@ -365,7 +366,8 @@ def _gpu_robust_scale_batched(cp, M, med, *, q25=None, q75=None):
         return out
     except Exception as e:
         import logging
-        logging.getLogger(__name__).debug("robust-scale RawKernel failed, falling back to the cupy chain: %s", e)
+        log_throttle(logging.getLogger(__name__), "gpu_resident_basis.robust_scale_kernel", logging.WARNING,
+                     "robust-scale RawKernel failed, falling back to the cupy chain: %s", e)
         scale = 1.4826 * mad
         iqr = (q75 - q25) / 1.349
         return cp.where(scale > 1e-12, scale, cp.where(iqr > 1e-12, iqr, 0.0))
@@ -456,7 +458,8 @@ def _gpu_detect_heavy_tail_batched(cp, M):
         return out_v.astype(cp.bool_)
     except Exception as e:
         import logging
-        logging.getLogger(__name__).debug("robust-axis-outlier RawKernel failed, falling back to the cupy chain: %s", e)
+        log_throttle(logging.getLogger(__name__), "gpu_resident_basis.robust_axis_kernel", logging.WARNING,
+                     "robust-axis-outlier RawKernel failed, falling back to the cupy chain: %s", e)
         dev = cp.abs(M - med)
         outer = dev > (_GPU_ROBUST_AXIS_OUTER_K * scale)
         n_outer = outer.sum(axis=0)
@@ -825,7 +828,8 @@ def _gpu_batched_abs_corr(cp, cand, y_cont):
         return out
     except Exception as e:
         import logging
-        logging.getLogger(__name__).debug("abs-corr RawKernel failed, falling back to the cupy chain: %s", e)
+        log_throttle(logging.getLogger(__name__), "gpu_resident_basis.abs_corr_kernel", logging.WARNING,
+                     "abs-corr RawKernel failed, falling back to the cupy chain: %s", e)
         yc = y_cont - y_cont.mean()
         yn = cp.sqrt((yc * yc).sum())
         cc = cand - cand.mean(axis=0)

@@ -23,6 +23,8 @@ from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
 from ._oof_warp_service import apply_warp1d, fit_oof_warp1d
 from ._y_encoding import FEW_CLASSES_MAX
+if TYPE_CHECKING:
+    import polars as pl
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -35,7 +37,6 @@ DEFAULT_SCAN_ROWS = 100_000  # the warp is fitted and scored on at most this man
 N_MI_BINS = 10
 _MIN_ROWS = 400
 
-
 def build_oof_warp1d_recipe(*, name: str, src: str, cx: np.ndarray, cy: np.ndarray, fill: float, lo: float, hi: float) -> "EngineeredRecipe":
     """Frozen recipe of one warp column: the full table, the fill for a non-finite value and the output range."""
     from .engineered_recipes import EngineeredRecipe
@@ -47,15 +48,13 @@ def build_oof_warp1d_recipe(*, name: str, src: str, cx: np.ndarray, cy: np.ndarr
         extra={"cx": np.asarray(cx, dtype=np.float64).copy(), "cy": np.asarray(cy, dtype=np.float64).copy(), "fill": float(fill), "lo": float(lo), "hi": float(hi)},
     )
 
-
-def apply_oof_warp1d_recipe(recipe, X) -> np.ndarray:
+def apply_oof_warp1d_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataFrame) -> np.ndarray:
     """Replay one warp column from the stored table; a pure function of the source column."""
     from .engineered_recipes.shared import extract_column
 
     ex = recipe.extra
     x = np.asarray(extract_column(X, recipe.src_names[0]), dtype=np.float64)
     return np.asarray(np.clip(apply_warp1d(x, ex["cx"], ex["cy"], ex["fill"]), ex["lo"], ex["hi"]))
-
 
 def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0) -> "list[dict]":
     """Fit the warp of each numeric column of ``cols`` and score it against the raw column on the odd rows of the scan sample.
@@ -88,14 +87,12 @@ def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, sc
         out.append({"col": c, "x": x, "fit": fit, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS)})
     return out
 
-
 def training_column(cand: dict) -> np.ndarray:
     """The warp column over every row: the cross-fitted value on the fitting rows, the full table on the others."""
     fit = cand["fit"]
     col = apply_warp1d(cand["x"], fit["cx"], fit["cy"], fit["fill"])
     col[cand["rows"]] = fit["oof"]
     return col
-
 
 def hybrid_oof_warp_fe(
     X: "pd.DataFrame",

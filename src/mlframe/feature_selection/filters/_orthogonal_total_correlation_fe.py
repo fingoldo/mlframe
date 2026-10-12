@@ -94,6 +94,9 @@ from ._orthogonal_univariate_fe import (
     cached_raw_mi_baseline,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +108,6 @@ __all__ = [
     "hybrid_orth_mi_tc_fe",
     "hybrid_orth_mi_tc_fe_with_recipes",
 ]
-
 
 def _entropy_from_classes(classes: np.ndarray) -> float:
     """Plug-in Shannon entropy (natural log) of a dense integer class array.
@@ -120,7 +122,6 @@ def _entropy_from_classes(classes: np.ndarray) -> float:
         return 0.0
     p = counts.astype(np.float64) / float(classes.size)
     return float(-(p * np.log(p)).sum())
-
 
 def _factorize_pack(*cols: np.ndarray) -> np.ndarray:
     """Layer 86: Horner-packed int64 dedup via ``pd.factorize``.
@@ -159,7 +160,6 @@ def _factorize_pack(*cols: np.ndarray) -> np.ndarray:
     codes, _ = pd.factorize(key, sort=False)
     return np.asarray(codes.astype(np.int64, copy=False))
 
-
 def _bin_dataframe_batched(
     df: pd.DataFrame, nbins: int,
 ) -> list[np.ndarray]:
@@ -191,7 +191,6 @@ def _bin_dataframe_batched(
         )
         for c in cols
     ]
-
 
 def total_correlation(
     cols_2d_arr: np.ndarray,
@@ -255,7 +254,6 @@ def total_correlation(
     joint_H = _entropy_from_classes(joint)
     return float(sum_marginal_H - joint_H)
 
-
 def _build_support_bins(
     raw_X: pd.DataFrame,
     current_support: Optional[pd.DataFrame],
@@ -285,7 +283,6 @@ def _build_support_bins(
         bins.append(b)
         sum_H += _entropy_from_classes(b)
     return bins, sum_H
-
 
 def score_features_by_tc_uplift(
     raw_X: pd.DataFrame,
@@ -463,7 +460,6 @@ def score_features_by_tc_uplift(
         ).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_tc_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -533,7 +529,6 @@ def hybrid_orth_mi_tc_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_tc_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -546,7 +541,7 @@ def hybrid_orth_mi_tc_fe_with_recipes(
     min_uplift: float = 0.95,
     min_abs_mi_frac: float = 0.05,
     n_bins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_tc_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so
     ``MRMR.transform`` can recompute each engineered column on test

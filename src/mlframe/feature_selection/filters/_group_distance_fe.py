@@ -60,6 +60,9 @@ except ImportError:  # numba is an optional dep; fall back to scipy below.
 
 from ._grouped_coerce_shared import auto_detect_group_cols, auto_detect_num_cols_plain as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 from ._internals import group_key_strings
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -83,21 +86,17 @@ _KL_EPS = 1e-9
 
 _VALID_DISTANCE_TYPES = ("zdist", "kl", "wasserstein")
 
-
 def engineered_name_group_zdist(num_col: str, group_col: str) -> str:
     """Canonical name for the per-row z-scored-distance-from-group-mean feature of ``num_col`` within ``group_col``."""
     return f"gzdist({num_col}|{group_col})"
-
 
 def engineered_name_group_kl(num_col: str, group_col: str) -> str:
     """Canonical name for the KL-divergence-from-global-histogram feature of ``num_col`` within ``group_col``."""
     return f"gkldist({num_col}|{group_col})"
 
-
 def engineered_name_group_wasserstein(num_col: str, group_col: str) -> str:
     """Canonical name for the 1-D Wasserstein-distance-from-global-distribution feature of ``num_col`` within ``group_col``."""
     return f"gwdist({num_col}|{group_col})"
-
 
 def _kl_divergence(group_vals: np.ndarray, global_edges: np.ndarray, global_hist: np.ndarray) -> float:
     """``KL(P_group || P_global)`` over the fixed global bin edges. Both
@@ -111,7 +110,6 @@ def _kl_divergence(group_vals: np.ndarray, global_edges: np.ndarray, global_hist
     q = global_hist.astype(np.float64) + _KL_EPS
     q /= q.sum()
     return float(np.sum(p * np.log(p / q)))
-
 
 if _HAVE_NUMBA:
 
@@ -149,7 +147,6 @@ if _HAVE_NUMBA:
             else:
                 j += 1
         return total
-
 
 def _wasserstein1(group_vals: np.ndarray, global_sorted: np.ndarray) -> float:
     """Wasserstein-1 (earth-mover) distance between the group's empirical
@@ -194,7 +191,6 @@ def _wasserstein1(group_vals: np.ndarray, global_sorted: np.ndarray) -> float:
         )
     return _wasserstein_quantile_approx(group_vals, global_sorted)
 
-
 def _wasserstein_quantile_approx(group_vals, global_sorted) -> float:
     """Wasserstein-1 approximated as the mean |Q_group(u) - Q_global(u)| over a fixed 101-point quantile grid.
 
@@ -206,12 +202,11 @@ def _wasserstein_quantile_approx(group_vals, global_sorted) -> float:
     qglob = np.quantile(global_sorted, u)
     return float(np.mean(np.abs(qg - qglob)))
 
-
 def generate_group_distance_features(
     X: pd.DataFrame,
     group_cols: Sequence[str],
     num_cols: Sequence[str],
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Compute per-(group_col, num_col) group-level z / KL / Wasserstein-1
     distance from the global distribution, broadcast to rows.
 
@@ -305,7 +300,6 @@ def generate_group_distance_features(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 def apply_group_distance(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay one group-distance column from the stored recipe, reading only
     ``X_test``. ``distance_type`` selects the per-group scalar lookup
@@ -328,11 +322,9 @@ def apply_group_distance(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         raise ValueError(f"apply_group_distance: unknown distance_type {distance_type!r}")
     return _broadcast_lookup(g_keys, lookup, 0.0)
 
-
 # ---------------------------------------------------------------------------
 # Recipe adapter consumed by engineered_recipes.apply_recipe
 # ---------------------------------------------------------------------------
-
 
 def _coerce_X(X, group_col: str, recipe_name: str) -> pd.DataFrame:
     """Normalize a recipe-replay input (pandas/polars DataFrame or structured ndarray) to a pandas frame exposing ``group_col``; raises TypeError for anything the recipe cannot replay against."""
@@ -347,7 +339,6 @@ def _coerce_X(X, group_col: str, recipe_name: str) -> pd.DataFrame:
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return pd.DataFrame({group_col: X[group_col]})
     raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r} from X of type " f"{type(X).__name__}")
-
 
 def _apply_group_distance_recipe(recipe, X) -> np.ndarray:
     """Adapter: pull the stored payload from ``recipe.extra`` and replay via
@@ -365,12 +356,11 @@ def _apply_group_distance_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 def build_group_distance_recipe(
     *, name: str, group_col: str, num_col: str, distance_type: str,
     z_lookup: dict, kl_lookup: dict, w_lookup: dict,
     global_mean: float = 0.0, global_std: float = 1.0,
-):
+) -> EngineeredRecipe:
     """Layer 95 PART B: frozen recipe for one per-group distribution-distance
     feature. Stores the per-group distance scalar lookups + the pooled-global
     stats; replay maps a row's group key through the lookup for
@@ -396,11 +386,9 @@ def build_group_distance_recipe(
         },
     )
 
-
 # ---------------------------------------------------------------------------
 # Auto-detection helpers (shared shape with Layer 88)
 # ---------------------------------------------------------------------------
-
 
 def hybrid_group_distance_fe(
     X: pd.DataFrame,
@@ -412,7 +400,7 @@ def hybrid_group_distance_fe(
     n_bins_mi: int = 10,
     min_mi: float = 1e-4,
     min_uplift: float = 0.0,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end per-group distribution-distance FE pipeline.
 
     1. Auto-detect ``group_cols`` / ``num_cols`` when not supplied.
