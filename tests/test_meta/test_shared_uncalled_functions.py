@@ -36,6 +36,8 @@ _PUBLIC_API = {
     "predict_mlframe_models_suite", "serving_base_from_columns", "blend",  # blend is exported as pseudo_bma_blend
     "bootstrap_metric_clustered",  # single-metric form, re-exported from mlframe.evaluation.bootstrap
     "track_package",  # extension hook: a downstream package opts its numba kernels into the dependency-aware cache stamp
+    "create_mlflow_run_label", "get_or_create_mlflow_run", "embed_website_to_mlflow",  # user-facing helpers of mlframe.integrations.mlflow, each pinned by tests/integrations/test_mlflow.py
+    "reset_throttle_counts",  # documented in mlframe.utils.log_throttle.__all__; the test-isolation reset for every throttle key, used by 30+ tests
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -88,7 +90,23 @@ _NAME_DISPATCHED = {
     "_apply_sir_direction_recipe",
     "_apply_target_encoding",
     "_apply_unary_binary",
+    "apply_offset_product_recipe",
+    "apply_oof_cell2d_recipe",
+    "apply_oof_warp1d_recipe",
 }
+
+#: Replaced by a faster or more efficient version and kept as the reference the replacement is checked against. Each entry
+#: names its replacement; a superseded function with no parity test is a gap, not a reference.
+_SUPERSEDED = {
+    "_oof_column_gather",  # stacks the per-fold tables first; _oof_column_from_table does the same gather on the table already stacked and is what the builder calls
+    "_oof_column_foldloop",  # parity oracle for _oof_column_gather (tests/feature_selection/fe/gpu/test_binagg_oof_gather_parity.py)
+    "_pair_combo_mi_cupy_loop",  # per-combo cupy twin of _pair_combo_mi_cupy; parity pinned in tests/feature_selection/gpu/test_usability_pool_cupy_batched_twin.py
+    "_propose_fourier",  # predecessor of _propose_fourier_both_warps; parity pinned in tests/feature_selection/fe/adaptive/test_propose_fourier_parity.py
+}
+
+#: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
+#: Each entry names the switch that reaches it. Empty until a function is classified this way.
+_OPT_IN_SLOW: set[str] = set()
 
 
 def _production_files() -> list[Path]:
@@ -103,4 +121,4 @@ def test_no_new_function_without_a_caller(request):
     files = _production_files()
     assert len(files) > 1000, f"only {len(files)} production files found -- the scan lost its subject"
 
-    assert_no_new_uncalled_function(files, REPO_ROOT, BASELINE, ignore=_INTERPRETER_INVOKED | _PUBLIC_API | _RETAINED_KERNELS | _SCANNER_LAG | _NAME_DISPATCHED)
+    assert_no_new_uncalled_function(files, REPO_ROOT, BASELINE, ignore=_INTERPRETER_INVOKED | _PUBLIC_API | _RETAINED_KERNELS | _SCANNER_LAG | _NAME_DISPATCHED | _SUPERSEDED | _OPT_IN_SLOW)

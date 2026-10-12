@@ -63,7 +63,7 @@ from pyutilz.pythonlib import get_human_readable_set_size
 from pyutilz.logginglib import log_result
 
 from mlframe._optional_imports import import_optional
-from mlframe.calibration.quality import make_custom_calibration_plot
+from mlframe.calibration.quality import make_custom_calibration_plot, plot_pit_diagram
 
 from contextlib import nullcontext
 
@@ -518,6 +518,16 @@ def _evaluate_estimator_library_code_must_leave(show_calibration_plot, use_sklea
             if fig is not None:
                 # Close instead of show: library code must not leak the calibration figure nor block.
                 plt.close(fig)
+            if nclasses == 2:
+                _plot_binary_pit_for_evaluation(probs, y_test_test, figsize, est_name)
+
+
+def _plot_binary_pit_for_evaluation(probs: np.ndarray, y_test_test: np.ndarray, figsize, est_name: str) -> None:
+    """Render the binary PIT histogram next to the calibration plot; skipped unless labels are coded 0/1."""
+    labels = np.asarray(y_test_test)
+    if not np.isin(np.unique(labels), (0, 1)).all():
+        return
+    plot_pit_diagram(predicted_probs=np.asarray(probs)[:, 1], true_labels=labels, title_prefix=f"{est_name}: ", figsize=figsize)
 
 
 def evaluate_grouped(
