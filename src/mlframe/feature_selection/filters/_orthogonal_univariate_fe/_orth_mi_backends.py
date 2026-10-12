@@ -7,7 +7,6 @@ backend chooser (`_select_mi_backend` / `_MI_BACKEND`) and the public
 ``_mi_classif_batch`` entry point the orth-FE family and many sibling
 modules import.
 """
-
 from __future__ import annotations
 
 from typing import Any
@@ -26,7 +25,6 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
     explicitly opts out via ``MLFRAME_NUMBA_MI=0``. Returns MI in nats.
     """
     from sklearn.metrics import mutual_info_score
-
     _n, p = X.shape
     mis = np.zeros(p, dtype=np.float64)
     for j in range(p):
@@ -47,13 +45,7 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
         except Exception as e:
             # 0.0 is MRMR's never-select score, so substituting it would silently delete this column from the ranking.
             logger.warning(
-                "mutual_info_score failed for column %d (dtype=%s, %d of %d values finite): %s: %s",
-                j,
-                col.dtype,
-                int(finite.sum()),
-                col.shape[0],
-                type(e).__name__,
-                e,
+                "mutual_info_score failed for column %d (dtype=%s, %d of %d values finite): %s: %s", j, col.dtype, int(finite.sum()), col.shape[0], type(e).__name__, e
             )
             raise
     return mis
@@ -69,12 +61,10 @@ def _orth_mi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool:
     ``n``/``p`` (optional): the calling batch's own (rows, cols) shape, forwarded to ``fe_gpu_strict_enabled``
     so the STRICT/AUTO decision is size-aware for THIS call. Omit to preserve the shape-blind default."""
     import os as _os
-
     if _os.environ.get("MLFRAME_CMI_GPU", "") == "1":
         return True
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
-
         return bool(fe_gpu_strict_enabled(n=n, p=p))
     except Exception as e:
         logger.debug("_orth_mi_gpu_enabled: fe_gpu_strict_enabled() check failed, staying on the njit dispatcher: %s", e)
@@ -87,7 +77,6 @@ def _fe_edge_binning_enabled() -> bool:
     fixtures it perturbs a razor-edge redundancy decision (the over-drop pin), so it is gated until the
     redundancy/admission gate is hardened to absorb a sub-noise MI perturbation. See gate-hardening."""
     import os as _os
-
     return _os.environ.get("MLFRAME_FE_EDGE_BINNING", "").strip().lower() in ("1", "true", "on", "yes")
 
 
@@ -133,7 +122,6 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
     the outer STRICT gate.
     """
     from .._fe_usability_signal import _crit_np_dtype
-
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     from ..hermite_fe import plugin_mi_classif_batch_dispatch
 
@@ -169,7 +157,6 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                 # + multi-GPU. The CPU default branch below stays RANK binning (see the docstring).
                 from .._fe_gpu_batch import multi_gpu_fe_batch_mi
                 from .._fe_gpu_batch._devices import fe_gpu_f32_enabled
-
                 # X_dense is the FINITE-filtered dense subset (finite_per_col) -> scrub=False skips cupy's
                 # full-array nan scan (~12% of the GPU MI wall) that would otherwise be a pure no-op cost here.
                 # f32 opt-in (MLFRAME_FE_VRAM_F32): ~2.2x faster, selection-equivalent (Spearman rank 1.0).
@@ -177,7 +164,6 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                 mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_dt)
             elif _fe_edge_binning_enabled():
                 from .._fe_edge_mi import plugin_mi_classif_batch_edge_njit
-
                 mis[dense_cols] = plugin_mi_classif_batch_edge_njit(X_dense, y_i64, nbins)
             else:
                 mis_dense = plugin_mi_classif_batch_dispatch(X_dense, y_i64, nbins)
@@ -195,15 +181,13 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
             # skipped that often. WARN (visible, not silent) with the exception type/message so a future
             # profiling cycle can tell "GPU contention/OOM" from "a genuine kernel-dispatch regression"
             # instead of re-discovering this fallback blind every time.
-            logger.warning(
-                "_mi_classif_batch_numba: batch dispatch failed for a %d-col slice (%s: %s); retrying in column blocks.",
-                dense_cols.size,
-                type(e).__name__,
-                e,
-            )
             # OOM on the full slice (the (n, cols) float64 batch and its intermediates exceed the memory limit) is not a
             # kernel fault: the MI of each column is independent, so the same numba dispatch runs on column blocks sized to
             # the RAM budget, with identical values. Only a single column that still fails goes to the sklearn reference.
+            logger.warning(
+                "_mi_classif_batch_numba: batch dispatch failed for a %d-col slice (%s: %s); retrying in column blocks.",
+                dense_cols.size, type(e).__name__, e,
+            )
             _blk = _mi_chunk_cols_for(_n)
             for _a in range(0, dense_cols.size, _blk):
                 _sel = dense_cols[_a : _a + _blk]
@@ -232,12 +216,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                 # Same reasoning as the sklearn loop: scoring the column 0.0 would silently delete it from the ranking.
                 logger.warning(
                     "plugin_mi_classif_batch_dispatch failed for column %d (dtype=%s, %d of %d values finite): %s: %s",
-                    j,
-                    col.dtype,
-                    int(finite.sum()),
-                    col.shape[0],
-                    type(e).__name__,
-                    e,
+                    j, col.dtype, int(finite.sum()), col.shape[0], type(e).__name__, e,
                 )
                 raise
     return mis
@@ -253,7 +232,6 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
 def _select_mi_backend() -> str:
     """Resolve the ``_mi_classif_batch`` backend: ``MLFRAME_NUMBA_MI`` env override, else auto-detect via a trial import of the numba dispatcher, falling back to sklearn."""
     import os as _os
-
     flag = _os.environ.get("MLFRAME_NUMBA_MI", "").strip().lower()
     if flag in ("0", "false", "off", "no"):
         return "sklearn"
@@ -264,7 +242,6 @@ def _select_mi_backend() -> str:
     # at first call.
     try:
         from ..hermite_fe import plugin_mi_classif_batch_dispatch  # noqa: F401
-
         return "numba"
     except ImportError as e:
         # Genuinely no numba dispatcher available (e.g. a stripped-down install without numba) -- the
@@ -290,8 +267,7 @@ def _select_mi_backend() -> str:
             "a transient device/driver fault unrelated to the CPU njit dispatcher; defaulting to 'numba' "
             "rather than permanently downgrading this process to the sklearn reference loop. Set "
             "MLFRAME_NUMBA_MI=0 to force sklearn explicitly.",
-            type(e).__name__,
-            e,
+            type(e).__name__, e,
         )
         return "numba"
 
@@ -308,15 +284,12 @@ def _device_error_classes() -> tuple:
         _dev_errs.append(_cp_e.cuda.runtime.CUDARuntimeError)
         _dev_errs.append(_cp_e.cuda.memory.OutOfMemoryError)
         from cupy_backends.cuda.libs import cusolver as _cusolver_e
-
         _dev_errs.append(getattr(_cusolver_e, "CUSOLVERError", None))
         from cupy_backends.cuda.libs import cublas as _cublas_e
-
         _dev_errs.append(getattr(_cublas_e, "CUBLASError", None))
     except Exception as _e_dev_errs:  # nosec B110 - optional dependency import guard
         logger.debug("Could not register cupy device-error classes (%s); GPU-specific errors won't be distinguished from generic failures", _e_dev_errs)
     return tuple(e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException))
-
 
 def _resident_labels(y: Any, cp: Any) -> tuple:
     """Device label vector plus ``(y_min, n_classes)`` for the resident plug-in MI: a device ``y`` is used in place (min/max read in ONE bounded D2H); a host fit-constant ``y`` rides the content-keyed resident cache and its min/max come from the host."""
@@ -335,7 +308,6 @@ def _resident_labels(y: Any, cp: Any) -> tuple:
     else:
         _yi = np.ascontiguousarray(np.asarray(y)).astype(np.int64).ravel()
         from .._fe_resident_operands import resident_operand
-
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         # y is a fit-constant: derive y_min / n_classes on the HOST (cheap O(n) pass) and pass them down so
         # the resident plug-in skips the per-call GPU cp.min + cp.max + stack reduction (nsys's #1
@@ -344,7 +316,6 @@ def _resident_labels(y: Any, cp: Any) -> tuple:
         _ymin = int(_yi.min()) if _yi.size else 0
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
     return yd, _ymin, _ncls
-
 
 def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
     """Batch MI(X_j; y) for classification target.
@@ -385,7 +356,6 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # Fast OFF short-circuit (the default): a single env read, no import / no
     # bincount, so the common path is byte-for-byte and ~free vs plain numba.
     import os as _os
-
     if _os.environ.get("MLFRAME_FE_IMBALANCE_MI", "").strip().lower() in ("on", "1", "true", "yes", "auto"):
         class_w = _maybe_class_weights(y)  # opt-in only
         if class_w is not None:
@@ -481,7 +451,6 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
             if rank_binning:
                 try:
                     from .._gpu_strict_fe import fe_gpu_strict_resident_enabled
-
                     _resident_on = fe_gpu_strict_resident_enabled()
                 except Exception as e:
                     logger.debug("fe_gpu_strict_resident_enabled() check failed, defaulting to non-resident: %s", e)
@@ -502,7 +471,6 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     # njit / sklearn path actually runs instead of crashing on ``np.asarray(cupy)``. Host inputs pass through.
     try:
         import cupy as _cp_fb
-
         if isinstance(X, _cp_fb.ndarray):
             X = _cp_fb.asnumpy(X)
         if isinstance(y, _cp_fb.ndarray):
@@ -522,7 +490,6 @@ def _mi_chunk_cols_for(n_rows: int) -> int:
     block BYTES makes the chunked scorer safe in n as well as p. Conservative 2 GiB fallback if psutil missing."""
     try:
         import psutil
-
         free = int(psutil.virtual_memory().available)
     except Exception as e:
         logger.debug("psutil.virtual_memory() probe failed, using the conservative 2GiB default: %s", e)
@@ -553,7 +520,6 @@ def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int | None = 
     if chunk_cols is None:
         chunk_cols = _mi_chunk_cols_for(n)
     from .._fe_usability_signal import _crit_np_dtype
-
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) - MI binning is scale-robust; f64 in strict mode
     if p <= chunk_cols:
         arr = X.to_numpy(dtype=_dt) if is_df else np.asarray(X, dtype=_dt)
@@ -578,7 +544,6 @@ def _maybe_class_weights(y: np.ndarray):
     """
     try:
         from ._imbalance_mi import compute_class_weights
-
         return compute_class_weights(y)
     except Exception as e:
         logger.debug("compute_class_weights failed (%s: %s) -- falling through to the plain-MI path unweighted", type(e).__name__, e)
