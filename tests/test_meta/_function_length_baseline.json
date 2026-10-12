@@ -122,7 +122,7 @@
   "src/mlframe/feature_selection/filters/discretization/__init__.py::discretize_2d_array": 153,
   "src/mlframe/feature_selection/filters/discretization/_discretization_dataset.py::categorize_dataset": 223,
   "src/mlframe/feature_selection/filters/engineered_recipes/_recipe_unary_binary.py::_apply_unary_binary": 182,
-  "src/mlframe/feature_selection/filters/evaluation.py::evaluate_candidate": 309,
+  "src/mlframe/feature_selection/filters/evaluation.py::evaluate_candidate": 268,
   "src/mlframe/feature_selection/filters/evaluation.py::evaluate_gain": 207,
   "src/mlframe/feature_selection/filters/friend_graph.py::build_friend_graph": 216,
   "src/mlframe/feature_selection/filters/friend_graph_gpu.py::friend_graph_stats_cupy": 185,
