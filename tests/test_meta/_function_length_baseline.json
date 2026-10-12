@@ -278,7 +278,7 @@
   "src/mlframe/training/pipeline/_pipeline_extensions_pysr.py::_apply_pysr_fe": 235,
   "src/mlframe/training/pipeline/_pipeline_fit_transform.py::fit_and_transform_pipeline": 189,
   "src/mlframe/training/ranking/_ranker_suite_train.py::train_mlframe_ranker_suite": 523,
-  "src/mlframe/training/reporting/_reporting.py::report_model_perf": 339,
+  "src/mlframe/training/reporting/_reporting.py::report_model_perf": 336,
   "src/mlframe/training/reporting/_reporting_diagnostics.py::_render_post_fit_diagnostics": 211,
   "src/mlframe/training/reporting/_reporting_probabilistic.py::_report_probabilistic_step1_produced_single_most": 158,
   "src/mlframe/training/reporting/_reporting_probabilistic.py::report_probabilistic_model_perf": 232,
