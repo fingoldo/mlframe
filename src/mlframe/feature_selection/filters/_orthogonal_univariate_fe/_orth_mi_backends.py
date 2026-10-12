@@ -189,8 +189,12 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                 dense_cols.size, type(e).__name__, e,
             )
             _blk = _mi_chunk_cols_for(_n)
-            _gpu_mi = _block_mi_gpu_fn()
-            for _a in range(0, dense_cols.size, _blk):
+            _streamed = _streamed_block_mi(X_dense, y_i64, nbins, _dt)
+            if _streamed is not None:
+                mis[dense_cols] = _streamed
+                _blk = 0  # every block already scored by the streamed path
+            _gpu_mi = None if _streamed is not None else _block_mi_gpu_fn()
+            for _a in range(0, dense_cols.size, _blk) if _blk > 0 else ():
                 _sel = dense_cols[_a : _a + _blk]
                 _Xb = X_dense[:, _a : _a + _blk]
                 if _gpu_mi is not None:
@@ -489,6 +493,31 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
     if _MI_BACKEND == "numba":
         return _mi_classif_batch_numba(X, y, nbins=nbins, rank_binning=rank_binning)
     return _mi_classif_batch_sklearn(X, y, nbins=nbins)
+
+
+def _streamed_block_mi(X_dense, y_i64, nbins, dtype):
+    """MI of every column of ``X_dense`` through the streamed GPU path (VRAM-sized blocks, pinned staging), or None.
+
+    None when no CUDA device is usable or the streamed path fails; the caller then uses the column-block CPU dispatch."""
+    try:
+        from ._streamed_gpu_mi import mi_classif_streamed_fill, plan_streamed_mi, _devices, _host_free_bytes
+        n, p = X_dense.shape
+        plan = plan_streamed_mi(n, _devices(), _host_free_bytes(), dtype)
+        if plan["width"] <= 0:
+            return None
+        w = int(plan["width"])
+        starts = list(range(0, p, w))
+        widths = [min(w, p - a) for a in starts]
+
+        def _fill(k, out):
+            """Copy block ``k`` of ``X_dense`` into the pinned staging view ``out``."""
+            a = starts[k]
+            np.copyto(out, X_dense[:, a : a + widths[k]])
+
+        return mi_classif_streamed_fill(_fill, len(starts), widths, y_i64, nbins=int(nbins), n_rows=n, dtype=dtype)
+    except Exception:
+        logger.debug("streamed GPU MI unavailable for this slice; using the CPU column blocks.", exc_info=True)
+        return None
 
 
 def _block_mi_gpu_fn():
