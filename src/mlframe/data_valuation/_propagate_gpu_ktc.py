@@ -20,7 +20,9 @@ from typing import cast
 
 logger = logging.getLogger(__name__)
 
-_PROPAGATE_SWEEP_N_FULL = [50_000, 200_000, 1_000_000]
+# The 1M-row cell measured 200 s per host run (1M x 20k subsample, peak RSS 8.6 GB) and runs three repeats per variant; a tuning
+# sweep must not cost minutes per kernel on a laptop. Above 200k rows the host path (memory-bounded by batch_full) is the default.
+_PROPAGATE_SWEEP_N_FULL = [50_000, 200_000]
 _PROPAGATE_SWEEP_N_SUB = [2_000, 20_000]
 _PROPAGATE_SALT = 1
 
@@ -61,6 +63,11 @@ def nearest_neighbor_value_resident(X_full: np.ndarray, X_subsample: np.ndarray,
     values_gpu = cp.asarray(np.asarray(subsample_values, dtype=np.float64))
     n_full = X_full.shape[0]
     out = np.empty(n_full, dtype=np.float64)
+    # Bound the per-batch device footprint by half the free VRAM (capped at 8 GiB): cross, sq_dist and their broadcast temporaries are ~3 float64
+    # rows of width n_sub per batch row. A fixed row count assumed a large card and needed tens of GB on a 4 GB one.
+    free_bytes = int(cp.cuda.runtime.memGetInfo()[0])
+    budget = min(free_bytes // 2, 8 << 30)
+    batch_full = max(1, min(int(batch_full), budget // (3 * 8 * max(int(X_subsample.shape[0]), 1))))
 
     for start in range(0, n_full, batch_full):
         end = min(start + batch_full, n_full)

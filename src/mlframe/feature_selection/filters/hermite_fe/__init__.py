@@ -612,7 +612,8 @@ def _apply_minmax_njit_serial(x: np.ndarray, lo: float, span: float, has_clip: b
 # found the crossover between n=5M (parallel 2.41x SLOWER) and n=20M (parallel 1.56x faster) -- the
 # fallback threshold below (used only pre-sweep / on tuner failure) is deliberately close to the loss
 # side for that reason, but the REAL per-host decision comes from the tuner's measured sweep.
-_MINMAX_SWEEP_N = [1_000, 1_000_000, 15_000_000]
+# Capped at 4M rows, as the other row sweeps: a 15M-row cell repeats per variant for seconds of work the crossover does not need.
+_MINMAX_SWEEP_N = [1_000, 1_000_000, 4_000_000]
 _MINMAX_SALT = 1
 
 

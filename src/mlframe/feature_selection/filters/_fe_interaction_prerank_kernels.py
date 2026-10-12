@@ -303,7 +303,9 @@ _VARIANTS = {
 # given BLAS, but kept as a HW-dependent option the sweep can elect).
 _DEFAULT_CUPY_WORK_THRESHOLD = 8000 * 50000 * 2  # ~ p>=50k at n=8000,K=2
 
-_SWEEP_WORK = [8000 * 1000 * 2, 8000 * 10000 * 2, 8000 * 50000 * 2, 8000 * 100000 * 2, 20000 * 100000 * 2]
+# Capped at p = 10 000 columns: the work value fixes p = work / (n * K), and the inputs hold two (n, p) float64 matrices, so
+# 100 000 columns at n = 8000 is 6.4 GB per matrix and the 4e9 cell was 16 GB per matrix before any compute.
+_SWEEP_WORK = [8000 * 1000 * 2, 8000 * 5000 * 2, 8000 * 10000 * 2]
 
 
 def _gpu_available() -> bool:
