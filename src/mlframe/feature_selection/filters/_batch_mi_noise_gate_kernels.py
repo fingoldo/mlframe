@@ -564,7 +564,7 @@ def _cuda_shared_mem_per_block() -> int:
     try:
         val = int(getattr(_nb_cuda.get_current_device(), "MAX_SHARED_MEMORY_PER_BLOCK", 0)) or 0
     except Exception as e:
-        logger.debug("querying MAX_SHARED_MEMORY_PER_BLOCK failed, using 0: %s", e)
+        logger.warning("querying MAX_SHARED_MEMORY_PER_BLOCK failed, using 0: %s", e)
         val = 0
     _CUDA_SHARED_BYTES_PER_BLOCK = val
     return val

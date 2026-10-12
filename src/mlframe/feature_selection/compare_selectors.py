@@ -298,7 +298,7 @@ def compare_selectors(
                 # Broad by design: this is a best-effort cross-selector comparison harness, so any selector that cannot fit (missing optional dep, GPU-only path on a
                 # CPU host, an input it rejects) must not abort the whole comparison. The failure is RECORDED in ``skipped`` with its type+message and surfaced to the
                 # caller - it is visible, not swallowed - so the broad catch is the correct policy for an exploratory comparison rather than a masked error.
-                logger.debug("selector %r fit failed: %s", name, exc)
+                logger.warning("selector %r fit failed: %s", name, exc)
                 skipped[name] = f"fit failed: {type(exc).__name__}: {exc}"
                 continue
         elif not already:
@@ -308,7 +308,7 @@ def compare_selectors(
         try:
             sel = extract_selected(selector, feature_names)
         except Exception as exc:
-            logger.debug("selector %r has no readable support: %s", name, exc)
+            logger.warning("selector %r has no readable support: %s", name, exc)
             skipped[name] = f"no readable support: {exc}"
             continue
 

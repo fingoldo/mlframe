@@ -128,7 +128,6 @@
   "feature_selection/filters/_fe_synergy_exhaustive.py::decide_exhaustive_sweep",
   "feature_selection/filters/_fe_synergy_screen.py::detect_synergy_combos",
   "feature_selection/filters/_feature_engineering_pairs/_pairs_core.py::check_prospective_fe_pairs",
-  "feature_selection/filters/_gpu_resident_fe.py::gpu_resident_pair_candidate_mi_fast",
   "feature_selection/filters/_gpu_resident_fe.py::take_resident_codes",
   "feature_selection/filters/_hinge_detect_gpu_resident.py::detect_hinge_breakpoints_gpu",
   "feature_selection/filters/_internals.py::sanitize",

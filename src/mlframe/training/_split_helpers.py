@@ -49,13 +49,24 @@ def _stratified_split(
         # member" deep inside the splitter. Pre-check and fall back to a non-stratified shuffle split with a clear warning,
         # matching the graceful degradation of the group / 3-way paths.
         _classes, _counts = np.unique(stratify_y, return_counts=True)
-        if _counts.min() < 2:
-            _singleton = _classes[np.argmin(_counts)]
-            logger.warning(
-                "Stratified split requested but class %r has only %d member(s); a stratified split needs >=2 per class. "
-                "Falling back to a non-stratified random split.",
-                _singleton, int(_counts.min()),
-            )
+        # sklearn needs at least one row per class on each side of the cut, so more classes than rows on either side is as
+        # fatal as a singleton class (a 36-class target carved into a 24-row test side).
+        _n_test_rows = int(np.ceil(test_size * len(stratify_y)))
+        _too_many_classes = len(_classes) > min(_n_test_rows, len(stratify_y) - _n_test_rows)
+        if _counts.min() < 2 or _too_many_classes:
+            if _counts.min() < 2:
+                _singleton = _classes[np.argmin(_counts)]
+                logger.warning(
+                    "Stratified split requested but class %r has only %d member(s); a stratified split needs >=2 per class. "
+                    "Falling back to a non-stratified random split.",
+                    _singleton, int(_counts.min()),
+                )
+            else:
+                logger.warning(
+                    "Stratified split requested but the target has %d classes and a side holds fewer rows than that; a stratified "
+                    "split needs at least one row per class on each side. Falling back to a non-stratified random split.",
+                    len(_classes),
+                )
             from sklearn.model_selection import ShuffleSplit
 
             splitter = ShuffleSplit(n_splits=1, test_size=test_size, random_state=random_state)

@@ -262,7 +262,7 @@ def pair_su_batch(
                 _joint_cache = {(int(a_arr[i]), int(b_arr[i])): float(h_ab_vals[i]) for i in range(a_arr.shape[0])}
                 state._joint_entropy_batch_cache = _joint_cache
             except Exception as e:  # pragma: no cover - defensive: fall back to serial joints
-                logger.debug("batched joint-entropy computation failed, falling back to serial joints: %s", e)
+                logger.warning("batched joint-entropy computation failed, falling back to serial joints: %s", e)
                 _joint_cache = None
                 state._joint_entropy_batch_cache = None
 

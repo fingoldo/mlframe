@@ -75,7 +75,7 @@ def _select_swap_method_auto(
         try:
             y_arr = np.asarray(state.factors_data[:, int(state.target_indices[0])], dtype=np.int64)
         except Exception as e:
-            logger.debug("reading target column from factors_data failed: %s", e)
+            logger.warning("reading target column from factors_data failed, result degraded to the pca_pc1 method: %s", e)
             y_arr = None
     if y_arr is None and target_y is not None:
         y_arr = np.asarray(target_y, dtype=np.int64).ravel()
@@ -560,7 +560,7 @@ def _evaluate_swap_cand_its_own_per_member(state, _sorted_cluster, target_arr, S
                 best_member_rel = m_rel
                 best_member_idx = int(m_idx)
     except Exception as e:
-        logger.debug("member-relevance computation failed: %s", e)
+        logger.warning("member-relevance computation failed, result degraded to the per-member path: %s", e)
         member_relevances = {}
         best_member_idx = -1
         best_member_rel = float("-inf")
@@ -584,7 +584,7 @@ def _evaluate_swap_cand_its_own_per_member(state, _sorted_cluster, target_arr, S
                         target_arr, state.factors_nbins,
                     ))
             except Exception as e:
-                logger.debug("relevance computation failed for member %r, recording 0.0: %s", m_idx, e)
+                logger.warning("relevance computation failed for member %r, result degraded: recording 0.0: %s", m_idx, e)
                 m_rel = 0.0
             member_relevances[int(m_idx)] = m_rel
             if m_rel > best_member_rel:
