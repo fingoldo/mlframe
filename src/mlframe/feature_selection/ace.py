@@ -22,6 +22,7 @@ permutation importance instead of the in-bag native importance (removes the impu
 """
 from __future__ import annotations
 
+from typing import cast
 import logging
 import time
 from dataclasses import dataclass, field
@@ -137,7 +138,7 @@ def _pfi_split(n: int, y: np.ndarray, rng: np.random.Generator, cv_policy=None, 
     policy_split = holdout_indices(cv_policy, n, _PFI_HOLDOUT_FRACTION, random_state=split_seed)
     if policy_split is not None:
         return policy_split
-    seed = rng.integers(0, 2**31 - 1).item()
+    seed = cast(np.generic, rng.integers(0, 2**31 - 1)).item()
     try:
         from sklearn.model_selection import train_test_split
 
