@@ -640,7 +640,6 @@ _REEXPORTED_PUBLIC_API = {
     "random_fourier_features",
     "rank_subpopulation_drift_severity",
     "recency_step_weight",
-    "recency_weights",
     "reconstruct_pseudo_group_ids",
     "reject_outliers",
     "renyi_alpha_cmi",
@@ -1004,6 +1003,8 @@ _SUPERSEDED = {
     "_propose_fourier",  # predecessor of _propose_fourier_both_warps; parity pinned in tests/feature_selection/fe/adaptive/test_propose_fourier_parity.py
     # reference form of the honest-null cut search; the null kernels use the presorted twin, equality pinned in
     # tests/feature_selection/discretization/test_mdlp_presorted_cuts_parity.py
+    # dense reference for the fused per-group recency kernels in feature_engineering/recency_aggregation.py (same weight formulas); parity pinned in tests/core/test_recency_weights_fused_parity.py
+    "recency_weights",
     "mdlp_inner_cuts",
     # predecessor of score_triplet_cross_basis_by_cmi (the production scorer); kept public, pinned in
     # tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
