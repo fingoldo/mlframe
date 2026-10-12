@@ -225,3 +225,15 @@ Bonferroni over eight processes at one-sided 5%: threshold about z = 2.49. Signi
 Null calibration (exp_offset_null_calibration, 200 draws, n_train 2000): the offset was accepted 0 times (rate 0.000, 95% upper bound 0.000) against level 0.05. The gate is conservative: no false accepts, some power lost on weak signals (regime accepted 7/20).
 
 Decision (2026-10-12): mix_offset_enabled defaults to True. The composite config tests pass (tests/training/composite exit 0), and the discovery-hook and end-to-end tests pass. Cost: one extra MRMR fit per regression target and, when the gate accepts, one companion model.
+
+## L-25 status (2026-10-12), measured on the 10k fit (cProfile, mix off)
+
+* F-1 (usability pair table in float64): already fixed. The float32 table path is the default; the table now costs 0.196 s per fit, against the 0.8 s quoted in the original profile, which predates the float32 commit.
+* F-2 (two usability pools): not duplicated work. The first pool builds the pair forms (max_pairs=10, the pure-form retention); the second builds raw passthroughs only (max_pairs=0) for the linear-usability probe. Both are needed, and merging them would change the candidates. Not done.
+* F-3 (39 conditional permutation nulls): the nulls run on different conditioning supports per call, so they are not one launch set. The earlier bench-attempt note rejects batching; the total is 0.28 s. Not done.
+* F-4 (24 per-operand excess/floor evaluations): about 0.18 s in total, same pattern as F-3. Not done.
+* F-5 (explicit gc.collect): already gated by frame size (cf8deb3df, saves about 0.16 s on a 10k fit).
+* F-6 (quantile edges cache): the 100k run already hits the cache; the 10k miss is 0.4 s, not measured again.
+* F-7 (launch count, 35 000 launches): the remaining per-fit floor. Needs CUDA graphs or fused stages; see the cold-start and launch-count notes.
+
+Remaining achievable without touching selection: about 0.3-0.5 s of the 2.9 s floor. The rest is launch count, which is a separate project.
