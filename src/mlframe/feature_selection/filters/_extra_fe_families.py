@@ -97,7 +97,6 @@ __all__ = [
     "hybrid_conditional_dispersion_fe",
 ]
 
-
 def _column_to_str(col) -> np.ndarray:
     """Canonicalise a (categorical / object / numeric) column to a 1-D str
     ndarray, mapping NaN to the sentinel ``"__nan__"`` so it is a stable lookup
@@ -113,7 +112,6 @@ def _column_to_str(col) -> np.ndarray:
 
     return _canonical_column_to_str(pd.Series(col))
 
-
 # ===========================================================================
 # FAMILY A - rare-category indicator + frequency-band encoding
 # ===========================================================================
@@ -124,16 +122,13 @@ def _column_to_str(col) -> np.ndarray:
 _RARE_BAND_MULT = 4.0
 _FREQ_BANDS = {"very_rare": 0, "rare": 1, "common": 2, "dominant": 3}
 
-
 def engineered_name_is_rare(col: str) -> str:
     """Canonical engineered-feature name for the rare-category indicator derived from ``col``."""
     return f"is_rare__{col}"
 
-
 def engineered_name_freq_band(col: str) -> str:
     """Canonical engineered-feature name for the frequency-band code derived from ``col``."""
     return f"freq_band__{col}"
-
 
 def _freq_band_codes(
     freqs: np.ndarray, rare_threshold: float, dominant_cut: float,
@@ -148,13 +143,12 @@ def _freq_band_codes(
     cuts = np.maximum.accumulate(cuts)  # guard monotonicity for searchsorted
     return np.searchsorted(cuts, np.asarray(freqs, dtype=np.float64), side="right").astype(np.float64)
 
-
 def generate_rare_category_features(
     X: pd.DataFrame,
     cat_cols: Sequence[str],
     *,
     rare_threshold: float = 0.01,
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Per categorical column, emit ``is_rare_{col}`` + ``freq_band_{col}``.
 
     Returns ``(enc_df, raw_recipes)``. Each ``raw_recipes[name]`` payload stores
@@ -209,7 +203,6 @@ def generate_rare_category_features(
 
     return pd.DataFrame(encoded, index=X.index), raw_recipes
 
-
 def apply_rare_category(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay one rare-category column. ``kind`` selects is_rare / freq_band.
     Unseen categories map to frequency 0 (=> very_rare / is_rare=1), the natural
@@ -234,11 +227,10 @@ def apply_rare_category(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         return _freq_band_codes(row_freq, rare_threshold, dominant_cut)
     raise ValueError(f"apply_rare_category: unknown kind {kind!r}")
 
-
 def build_rare_category_recipe(
     *, name: str, src_col: str, kind: str, freq_lookup: dict,
     rare_threshold: float, dominant_cut: float,
-):
+) -> EngineeredRecipe:
     """Frozen recipe for one rare-category column (``is_rare`` or
     ``freq_band``). Stores the per-category frequency lookup + band cut points;
     replay reads only X (no y), so transform() is leakage-free."""
@@ -258,7 +250,6 @@ def build_rare_category_recipe(
             "dominant_cut": float(dominant_cut),
         },
     )
-
 
 def _apply_rare_category_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe``."""
@@ -288,7 +279,6 @@ def _apply_rare_category_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 def _auto_detect_cat_cols(X: pd.DataFrame, max_cols: int = 8) -> list[str]:
     """Reuse Layer 33's categorical auto-detector when available; fall back to a
     low-cardinality scan."""
@@ -308,7 +298,6 @@ def _auto_detect_cat_cols(X: pd.DataFrame, max_cols: int = 8) -> list[str]:
                 out.append(str(c))
         return out[:max_cols]
 
-
 def hybrid_rare_category_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -320,7 +309,7 @@ def hybrid_rare_category_fe(
     mi_gate_top_k: Optional[int] = None,
     reject_sink: Optional[Callable[..., None]] = None,
     raw_floor_X: Optional[pd.DataFrame] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end rare-category FE: materialise is_rare / freq_band columns,
     MI-gate against the raw-baseline noise floor (Layer 91), keep top ``top_k``.
 
@@ -374,17 +363,14 @@ def hybrid_rare_category_fe(
     ]
     return X_aug, winners, recipes, enc_df
 
-
 # ===========================================================================
 # FAMILY B - cross-feature conditional residual (NUM x NUM)
 # ===========================================================================
-
 
 def engineered_name_conditional_residual(x_i: str, x_j: str) -> str:
     """``x_i - E[x_i | bin(x_j)]`` reads as "deviation of x_i from its
     x_j-conditional expectation"."""
     return f"{x_i}__cond_resid_by__{x_j}"
-
 
 def _quantile_edges(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Fit-time quantile bin EDGES for the conditioning column (finite values
@@ -414,7 +400,6 @@ def _quantile_edges(x: np.ndarray, n_bins: int) -> np.ndarray:
         q = np.array([lo, lo + 1.0], dtype=np.float64)
     return q.astype(np.float64)
 
-
 def _digitize_with_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     """Assign each value to a bin in ``[0, len(edges)-2]`` using the interior
     edges (``edges[1:-1]``). NaN -> bin 0 (matches the fit-time fill)."""
@@ -425,7 +410,6 @@ def _digitize_with_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:
     codes = np.clip(codes, 0, max(0, edges.size - 2))
     codes[~np.isfinite(x)] = 0
     return np.asarray(codes).astype(np.int64)
-
 
 @njit(cache=True)
 def _bin_sum_count_masked_njit(codes_j: np.ndarray, xi: np.ndarray, finite_i: np.ndarray, n_bins_eff: int) -> tuple:
@@ -445,13 +429,12 @@ def _bin_sum_count_masked_njit(codes_j: np.ndarray, xi: np.ndarray, finite_i: np
             bin_cnt[c] += 1.0
     return bin_sum, bin_cnt
 
-
 def generate_conditional_residual_features(
     X: pd.DataFrame,
     num_cols: Sequence[str],
     *,
     n_bins: int = 10,
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """For every ordered pair ``(x_i, x_j)`` from ``num_cols`` emit
     ``x_i - E[x_i | bin(x_j)]``.
 
@@ -509,7 +492,6 @@ def generate_conditional_residual_features(
 
     return pd.DataFrame(encoded, index=X.index), raw_recipes
 
-
 def apply_conditional_residual(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay ``x_i - E[x_i | bin(x_j)]`` from the stored x_j edges + per-bin
     mean. NaN ``x_i`` rows emit 0.0 (no deviation information). Reads only X."""
@@ -529,11 +511,10 @@ def apply_conditional_residual(X_test: pd.DataFrame, recipe: dict) -> np.ndarray
     finite_i = np.isfinite(xi)
     return np.where(finite_i, xi - per_row_mean, 0.0).astype(np.float64)
 
-
 def build_conditional_residual_recipe(
     *, name: str, x_i: str, x_j: str, edges: np.ndarray, bin_mean: np.ndarray,
     global_mean: float,
-):
+) -> EngineeredRecipe:
     """Frozen recipe for one NUM x NUM conditional-residual column. Stores the
     ``x_j`` quantile edges + the per-bin mean of ``x_i``; replay reads only X
     (no y), so transform() is leakage-free."""
@@ -551,7 +532,6 @@ def build_conditional_residual_recipe(
             "global_mean": float(global_mean),
         },
     )
-
 
 def _apply_conditional_residual_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe``."""
@@ -582,7 +562,6 @@ def _apply_conditional_residual_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 def _top_mi_num_cols(
     X: pd.DataFrame, num_cols: Sequence[str], y: np.ndarray, max_cols: int,
 ) -> list[str]:
@@ -601,7 +580,6 @@ def _top_mi_num_cols(
     order = np.argsort(-mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     return [num_cols[i] for i in order[: int(max_cols)]]
 
-
 def hybrid_conditional_residual_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -614,7 +592,7 @@ def hybrid_conditional_residual_fe(
     mi_gate_top_k: Optional[int] = None,
     reject_sink: Optional[Callable[..., None]] = None,
     raw_floor_X: Optional[pd.DataFrame] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end conditional-residual FE: bound the column set by top raw-MI
     (cardinality bound on the O(p^2) pair pool), materialise residuals, MI-gate
     against the raw-baseline floor (Layer 91), keep top ``top_k``.
@@ -666,7 +644,6 @@ def hybrid_conditional_residual_fe(
     recipes = [build_conditional_residual_recipe(name=name, **raw_recipes[name]) for name in winners]
     return X_aug, winners, recipes, enc_df
 
-
 # ===========================================================================
 # FAMILY C - RankGauss (quantile / rank-Gaussianisation)
 # ===========================================================================
@@ -693,11 +670,9 @@ def hybrid_conditional_residual_fe(
 # kind / fe_isotonic_enable was added. Don't re-attempt as a default-on feature.
 # Numbers: D:/Temp/isotonic_results.md.
 
-
 def engineered_name_rankgauss(col: str) -> str:
     """Canonical engineered-feature name for the rank-Gauss transform derived from ``col``."""
     return f"rankgauss__{col}"
-
 
 def _rank_to_gauss(ranks: np.ndarray, n: int) -> np.ndarray:
     """Map 0-based ranks in ``[0, n-1]`` to Gaussian quantiles via
@@ -708,7 +683,6 @@ def _rank_to_gauss(ranks: np.ndarray, n: int) -> np.ndarray:
     u = np.clip(u, 1e-6, 1.0 - 1e-6)
     # ndtri == norm.ppf for the standard normal (bit-identical), ~2.4x faster - skips the rv_continuous broadcast/validation wrapper.
     return np.asarray(ndtri(u).astype(np.float64))
-
 
 def _avg_tie_rank(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
     """Average (mid) rank of each ``vals`` element among ``fit_sorted`` == ``(lo + hi - 1)/2``.
@@ -728,7 +702,6 @@ def _avg_tie_rank(fit_sorted: np.ndarray, vals: np.ndarray) -> np.ndarray:
             hi = np.searchsorted(fit_sorted, vals, side="right")
             return (lo + hi - 1) / 2.0
     return lo - 0.5
-
 
 def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
     """Average (mid) 0-based rank of each element of ``fit_finite`` AMONG ITSELF.
@@ -752,11 +725,10 @@ def _self_avg_tie_rank(fit_finite: np.ndarray) -> np.ndarray:
     out[order] = mid[grp_id]
     return out
 
-
 def generate_rankgauss_features(
     X: pd.DataFrame,
     num_cols: Sequence[str],
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Map each numeric column to its rank-based Gaussian quantile (RankGauss).
 
     Returns ``(enc_df, raw_recipes)``. Each payload stores the FULL SORTED finite fit values (WITH duplicates - the
@@ -806,7 +778,6 @@ def generate_rankgauss_features(
 
     return pd.DataFrame(encoded, index=X.index), raw_recipes
 
-
 def apply_rankgauss(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay RankGauss: interpolate each test value's rank against the stored
     sorted fit values, then map to a Gaussian quantile. Unseen / out-of-range
@@ -830,10 +801,9 @@ def apply_rankgauss(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         out[finite] = _rank_to_gauss(avg_rank, n_fit)
     return out
 
-
 def build_rankgauss_recipe(
     *, name: str, src_col: str, fit_sorted: np.ndarray, n_fit: int,
-):
+) -> EngineeredRecipe:
     """Frozen recipe for one RankGauss column. Stores the sorted unique fit
     values + count; replay interpolates each test value's rank against them and
     maps to a Gaussian quantile. Reads only X (no y), so transform() is
@@ -851,7 +821,6 @@ def build_rankgauss_recipe(
             "n_fit": int(n_fit),
         },
     )
-
 
 def _apply_rankgauss_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe``."""
@@ -879,14 +848,13 @@ def _apply_rankgauss_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 def hybrid_rankgauss_fe(
     X: pd.DataFrame,
     y: np.ndarray,
     *,
     num_cols: Optional[Sequence[str]] = None,
     top_k: int = 10,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end RankGauss FE. Bounds the pool by ranking candidate columns on
     their RAW marginal ``MI(col; y)`` and keeping the top ``top_k`` (NOT an
     MI-gain gate on the engineered column - RankGauss is monotone, so by the
@@ -920,7 +888,6 @@ def hybrid_rankgauss_fe(
     recipes = [build_rankgauss_recipe(name=name, **raw_recipes[name]) for name in winners]
     return X_aug, winners, recipes, enc_df
 
-
 # ===========================================================================
 # FAMILY D - cross-feature conditional DISPERSION / 2nd-moment (NUM x NUM)
 # ===========================================================================
@@ -941,3 +908,6 @@ from ._extra_fe_families_dispersion import (
     _apply_conditional_dispersion_recipe,
     hybrid_conditional_dispersion_fe,
 )
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe

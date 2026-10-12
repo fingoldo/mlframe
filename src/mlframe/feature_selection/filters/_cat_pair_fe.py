@@ -59,6 +59,9 @@ import pandas as pd
 
 from ._fold_cell_stats import fold_cell_sum_cnt
 from ._target_encoding_fe import _column_to_str, _smooth
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -70,21 +73,17 @@ __all__ = [
     "auto_detect_cat_pair_cols",
 ]
 
-
 # ---------------------------------------------------------------------------
 # Naming
 # ---------------------------------------------------------------------------
-
 
 def engineered_name_cat_pair_cross(cat_i: str, cat_j: str) -> str:
     """Stable engineered column name for the (cat_i, cat_j) cross."""
     return f"cross_{cat_i}_{cat_j}"
 
-
 # ---------------------------------------------------------------------------
 # Cardinality control threshold (Layer 29 pre-screen)
 # ---------------------------------------------------------------------------
-
 
 def _cross_too_high_card(n_distinct_cells: int, n_samples: int) -> bool:
     """Layer 29 pre-screen: a cross with more distinct cells than ``0.5 * n``
@@ -92,11 +91,9 @@ def _cross_too_high_card(n_distinct_cells: int, n_samples: int) -> bool:
     Such crosses are routed through target encoding instead."""
     return n_distinct_cells > 0.5 * float(max(n_samples, 1))
 
-
 # ---------------------------------------------------------------------------
 # Cross materialisation - pure X-only kernel (no y reference)
 # ---------------------------------------------------------------------------
-
 
 def _encode_pair(
     cats_i: Optional[np.ndarray] = None,
@@ -152,7 +149,6 @@ def _encode_pair(
         jj = int(key) % len(uniq_j)
         mapping[(uniq_i[ii], uniq_j[jj])] = code
     return codes, mapping
-
 
 def generate_cat_pair_crosses(
     X: pd.DataFrame,
@@ -211,11 +207,9 @@ def generate_cat_pair_crosses(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 # ---------------------------------------------------------------------------
 # Interaction-information pre-filter (THE KEY)
 # ---------------------------------------------------------------------------
-
 
 def _bin_target(y: np.ndarray, n_bins: int = 10) -> np.ndarray:
     """Coerce y to integer class codes (regression -> n_bins quantile bins)."""
@@ -231,7 +225,6 @@ def _bin_target(y: np.ndarray, n_bins: int = 10) -> np.ndarray:
         return np.searchsorted(q[1:-1], y_arr.astype(np.float64), side="right").astype(np.int64)
     _, codes = np.unique(y_arr, return_inverse=True)
     return codes.astype(np.int64)
-
 
 def score_cat_pairs_by_interaction_information(
     X: pd.DataFrame,
@@ -330,11 +323,9 @@ def score_cat_pairs_by_interaction_information(
     out = pd.DataFrame(rows)
     return out.sort_values("ii", ascending=False, kind="mergesort").reset_index(drop=True)
 
-
 # ---------------------------------------------------------------------------
 # Auto-detection of categorical columns
 # ---------------------------------------------------------------------------
-
 
 def auto_detect_cat_pair_cols(
     X: pd.DataFrame,
@@ -370,11 +361,9 @@ def auto_detect_cat_pair_cols(
             out.append(str(col))
     return out[:max_cols]
 
-
 # ---------------------------------------------------------------------------
 # End-to-end pipeline: II pre-filter -> emit cross -> route TE / raw
 # ---------------------------------------------------------------------------
-
 
 def _kfold_target_encode_codes(
     codes: np.ndarray,
@@ -430,7 +419,6 @@ def _kfold_target_encode_codes(
             lookup[c] = global_mean
     return oof, lookup, global_mean
 
-
 def hybrid_cat_pair_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -443,7 +431,7 @@ def hybrid_cat_pair_fe(
     n_folds: int = 5,
     smoothing: float = 10.0,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end cat x cat synergy-cross FE pipeline.
 
     1. Auto-detect ``cat_cols`` when not supplied.
@@ -531,11 +519,9 @@ def hybrid_cat_pair_fe(
     X_aug = pd.concat([X, new_df], axis=1)
     return X_aug, appended, recipes, scores
 
-
 # ---------------------------------------------------------------------------
 # Transform-time replay
 # ---------------------------------------------------------------------------
-
 
 def apply_cat_pair_cross(
     X_test: pd.DataFrame,

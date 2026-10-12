@@ -52,6 +52,9 @@ import pandas as pd
 
 from ._internals import group_key_strings
 from ._y_encoding import encode_y_for_classif_mi
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -75,31 +78,25 @@ DEFAULT_QUANTILES = (0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95)
 # supervised bin; smaller groups fall back to the pooled global edges.
 _MIN_GROUP_SIZE = 8
 
-
 def engineered_name_grouped_pctrank(num_col: str, group_col: str) -> str:
     """Column name for the percentile-rank-within-group feature of ``num_col`` grouped by ``group_col``."""
     return f"grppct({num_col}|{group_col})"
-
 
 def engineered_name_grouped_iqr(num_col: str, group_col: str) -> str:
     """Column name for the per-group IQR (q75-q25) spread broadcast of ``num_col`` grouped by ``group_col``."""
     return f"grpiqr({num_col}|{group_col})"
 
-
 def engineered_name_grouped_p90p10(num_col: str, group_col: str) -> str:
     """Column name for the per-group p90-p10 spread broadcast of ``num_col`` grouped by ``group_col``."""
     return f"grpp90p10({num_col}|{group_col})"
-
 
 def engineered_name_target_aware_bin(num_col: str, group_col: str) -> str:
     """Column name for the target-aware (MDLP-supervised) per-group bin index of ``num_col`` grouped by ``group_col``."""
     return f"grptabin({num_col}|{group_col})"
 
-
 # ---------------------------------------------------------------------------
 # Percentile-rank-within-group + spread
 # ---------------------------------------------------------------------------
-
 
 def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     """Empirical CDF position of each ``x`` in ``sorted_vals`` - the fraction
@@ -115,13 +112,12 @@ def _pct_rank_in_sorted(sorted_vals: np.ndarray, x: np.ndarray) -> np.ndarray:
     # Average rank for ties; normalise by m so the result is a CDF position.
     return (lo + hi) / (2.0 * m)
 
-
 def generate_grouped_quantile_features(
     X: pd.DataFrame,
     group_cols: Sequence[str],
     num_cols: Sequence[str],
     quantiles: Sequence[float] = DEFAULT_QUANTILES,
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Compute per-(group_col, num_col) percentile-rank-within-group plus the
     group IQR / p90-p10 spread broadcasts.
 
@@ -238,7 +234,6 @@ def generate_grouped_quantile_features(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay one grouped-quantile column from the stored recipe, reading only
     ``X_test``. ``op`` selects the variant: ``pct_rank`` (CDF position of x in
@@ -283,11 +278,9 @@ def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         return np.nan_to_num(out, nan=0.5, posinf=1.0, neginf=0.0)
     raise ValueError(f"apply_grouped_quantile: unknown op {op!r}")
 
-
 # ---------------------------------------------------------------------------
 # Target-aware per-group supervised bins (IT enhancement, OOF leak-safe)
 # ---------------------------------------------------------------------------
-
 
 def _fit_group_edges(vals: np.ndarray, yv: np.ndarray, n_bins: int) -> np.ndarray:
     """Supervised MDLP edges for one group's ``(vals, yv)``; falls back to
@@ -313,7 +306,6 @@ def _fit_group_edges(vals: np.ndarray, yv: np.ndarray, n_bins: int) -> np.ndarra
         edges = np.unique(np.quantile(vals, qs))
     return np.asarray(edges, dtype=np.float64)
 
-
 def generate_target_aware_group_bins(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -322,7 +314,7 @@ def generate_target_aware_group_bins(
     n_bins: int = 5,
     n_folds: int = 5,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Per-group supervised bin index that maximises ``I(bin; y)`` within each
     group, assigned OOF (K-fold) to be leak-safe.
 
@@ -430,7 +422,6 @@ def generate_target_aware_group_bins(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay a target-aware group bin index from the stored per-group edges,
     reading only ``X_test``. Each row maps its value through ``searchsorted`` on
@@ -461,11 +452,9 @@ def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
         out[rows] = np.searchsorted(edges, x[rows], side="right")
     return np.nan_to_num(out, nan=0.0)
 
-
 # ---------------------------------------------------------------------------
 # Recipe adapters consumed by engineered_recipes.apply_recipe
 # ---------------------------------------------------------------------------
-
 
 def _apply_grouped_quantile_recipe(recipe, X) -> np.ndarray:
     """Adapter: pulls the stored payload from ``recipe.extra`` and replays via
@@ -488,7 +477,6 @@ def _apply_grouped_quantile_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 def _apply_target_aware_group_bin_recipe(recipe, X) -> np.ndarray:
     """Adapter: pulls the stored payload from ``recipe.extra`` and replays via
     :func:`apply_target_aware_group_bin`."""
@@ -506,11 +494,9 @@ def _apply_target_aware_group_bin_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 # ---------------------------------------------------------------------------
 # MI-uplift scorer / gate
 # ---------------------------------------------------------------------------
-
 
 def score_grouped_quantile_by_mi_uplift(
     raw_X: pd.DataFrame,
@@ -603,16 +589,13 @@ def score_grouped_quantile_by_mi_uplift(
     out = pd.DataFrame(rows)
     return out.sort_values("mi", ascending=False, kind="mergesort").reset_index(drop=True)
 
-
 # ---------------------------------------------------------------------------
 # Auto-detection helpers (shared shape with Layer 87)
 # ---------------------------------------------------------------------------
 
-
 # ---------------------------------------------------------------------------
 # End-to-end pipeline with MI uplift gate
 # ---------------------------------------------------------------------------
-
 
 def hybrid_grouped_quantile_fe(
     X: pd.DataFrame,
@@ -629,7 +612,7 @@ def hybrid_grouped_quantile_fe(
     min_uplift: float = 0.0,
     n_folds: int = 5,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end per-group quantile / histogram FE pipeline.
 
     1. Auto-detect ``group_cols`` / ``num_cols`` when not supplied.

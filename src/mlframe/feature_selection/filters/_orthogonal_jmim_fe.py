@@ -102,6 +102,9 @@ from ._orthogonal_univariate_fe import (
     generate_univariate_basis_features,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +114,6 @@ __all__ = [
     "hybrid_orth_mi_jmim_fe",
     "hybrid_orth_mi_jmim_fe_with_recipes",
 ]
-
 
 def _bin_columns(
     df: pd.DataFrame, nbins: int,
@@ -159,7 +161,6 @@ def _bin_columns(
         bins.append(b)
         ks.append(max(1, k))
     return bins, ks, names
-
 
 def score_features_by_jmim(
     raw_X: pd.DataFrame,
@@ -333,7 +334,6 @@ def score_features_by_jmim(
         ).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_jmim_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -417,7 +417,6 @@ def hybrid_orth_mi_jmim_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_jmim_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -430,7 +429,7 @@ def hybrid_orth_mi_jmim_fe_with_recipes(
     min_uplift: float = 0.95,
     min_abs_mi_frac: float = 0.05,
     n_bins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_jmim_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so
     ``MRMR.transform`` can recompute each engineered column on test

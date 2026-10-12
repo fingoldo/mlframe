@@ -22,6 +22,9 @@ import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +36,6 @@ __all__ = [
     "hybrid_orth_mi_auto_scorer_fe_with_recipes",
 ]
 
-
 # Canonical scorer identifiers used in the auto-selection table. HSIC joined
 # the pool as kernel-based dependence with the same iff-independence guarantee
 # dCor offers but at a bandwidth-tuned length scale - complementary to dCor on
@@ -42,7 +44,6 @@ __all__ = [
 # ``fe_hybrid_orth_ensemble_scorers`` keep the old behaviour; the auto pool
 # picks HSIC when its bootstrap LCB dominates the other four.
 SCORER_NAMES = ("plug_in", "ksg", "copula", "dcor", "hsic", "xi", "tail_dep")
-
 
 def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
     """Plug-in quantile-binned MI(x; y) - the Layer 21 scorer.
@@ -77,7 +78,6 @@ def _score_plug_in(x: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> float:
     )
     return float(out[0])
 
-
 def _score_ksg(x: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3, random_state: int = 0) -> float:
     """KSG / k-NN MI(x; y) - Layer 65's Kraskov estimator.
 
@@ -95,7 +95,6 @@ def _score_ksg(x: np.ndarray, y: np.ndarray, *, n_neighbors: int = 3, random_sta
     )
     return float(out[0])
 
-
 def _score_copula(x: np.ndarray, y: np.ndarray, *, n_bins: int = 20) -> float:
     """Copula MI(rank(x); rank(y)) - Layer 66 rank-uniform MI."""
     from ._orthogonal_copula_mi_fe import copula_mi
@@ -103,7 +102,6 @@ def _score_copula(x: np.ndarray, y: np.ndarray, *, n_bins: int = 20) -> float:
     return float(copula_mi(
         np.asarray(x).ravel(), np.asarray(y).ravel(), n_bins=int(n_bins),
     ))
-
 
 def _score_dcor(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_state: int = 0) -> float:
     """Szekely-Rizzo distance correlation - Layer 67's non-MI dependence."""
@@ -113,7 +111,6 @@ def _score_dcor(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_sta
         np.asarray(x).ravel(), np.asarray(y).ravel(),
         n_sample=int(n_sample), random_state=int(random_state),
     ))
-
 
 def _score_hsic(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_state: int = 0) -> float:
     """HSIC - Layer 71's kernel-based non-MI dependence (RBF, median heuristic)."""
@@ -125,7 +122,6 @@ def _score_hsic(x: np.ndarray, y: np.ndarray, *, n_sample: int = 500, random_sta
         random_state=int(random_state),
     ))
 
-
 def _score_xi(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> float:
     """Chatterjee's Xi rank correlation - Layer 72's sort-then-walk dependence measure, distinct
     from every distance/kernel/binning scorer above (catches high-frequency oscillatory signal a
@@ -135,7 +131,6 @@ def _score_xi(x: np.ndarray, y: np.ndarray, *, random_state: int = 0) -> float:
     return float(xi_correlation(
         np.asarray(x).ravel(), np.asarray(y).ravel(), random_state=int(random_state),
     ))
-
 
 def _score_tail_dep(x: np.ndarray, y: np.ndarray, *, q: float = 0.95, n_perm: int = 50, random_state: int = 0) -> float:
     """Tail-dependence coefficient - Layer 73's co-exceedance-rate scorer, distinct from every
@@ -150,7 +145,6 @@ def _score_tail_dep(x: np.ndarray, y: np.ndarray, *, q: float = 0.95, n_perm: in
     upper = tail_dependence_score(x_arr, y_arr, q=q, tail="upper", n_perm=n_perm, random_state=random_state)
     lower = tail_dependence_score(x_arr, y_arr, q=q, tail="lower", n_perm=n_perm, random_state=random_state)
     return float(max(upper, lower))
-
 
 def _dispatch_scorer(name, x_vec, y_vec, seed, *, nbins, n_neighbors, copula_n_bins, dcor_n_sample):
     """Dispatch to the named dependence scorer (plug_in/ksg/copula/dcor/hsic/xi/tail_dep) with the caller's shared hyperparameters."""
@@ -169,7 +163,6 @@ def _dispatch_scorer(name, x_vec, y_vec, seed, *, nbins, n_neighbors, copula_n_b
     if name == "tail_dep":
         return _score_tail_dep(x_vec, y_vec, random_state=int(seed))
     raise ValueError(f"unknown scorer name: {name!r}")
-
 
 def _compute_lcb(values: np.ndarray) -> float:
     """LCB = mean - 1.96 * std (95 % lower confidence bound).
@@ -190,7 +183,6 @@ def _compute_lcb(values: np.ndarray) -> float:
     # variance estimate, matching Layer 62's bootstrap-LCB convention.
     std = float(np.std(arr, ddof=1))
     return max(0.0, mean - 1.96 * std)
-
 
 def _bootstrap_subsample_indices(
     n: int, n_boot: int, random_state: int,
@@ -220,7 +212,6 @@ def _bootstrap_subsample_indices(
         idx.sort()
         out.append(idx.astype(np.int64))
     return out
-
 
 def select_best_scorer_per_column(
     raw_X: pd.DataFrame,
@@ -395,7 +386,6 @@ def select_best_scorer_per_column(
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
 
-
 def score_features_by_auto_scorer_uplift(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -460,7 +450,6 @@ def score_features_by_auto_scorer_uplift(
             "lcb_norm_per_scorer",
         ]
     ]
-
 
 def hybrid_orth_mi_auto_scorer_fe(
     X: pd.DataFrame,
@@ -549,7 +538,6 @@ def hybrid_orth_mi_auto_scorer_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X
     return X_aug, scores
 
-
 def hybrid_orth_mi_auto_scorer_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -566,7 +554,7 @@ def hybrid_orth_mi_auto_scorer_fe_with_recipes(
     n_neighbors: int = 3,
     copula_n_bins: int = 20,
     dcor_n_sample: int = 500,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_auto_scorer_fe` plus a list of
     ``orth_univariate`` recipes - one per appended column - so
     ``MRMR.transform`` can recompute each engineered column on test data

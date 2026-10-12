@@ -22,7 +22,6 @@ N_BASELINES = 5  # u*v, u+v, u, v, the least-squares weighted sum b*u + c*v
 _SINGULAR_REL_TOL = 1e-12
 _MIN_SPAN = 1e-300
 
-
 @njit(cache=True, nogil=True)
 def _solve4(acc, coef):
     """Solve the 4x4 normal equations stored in ``acc`` (see ``NACC``) by Gaussian elimination with partial pivoting; NaN coefficients when singular."""
@@ -64,9 +63,8 @@ def _solve4(acc, coef):
             s -= M[r, k] * coef[k]
         coef[r] = s / M[r, r]
 
-
 @njit(cache=True, nogil=True)
-def ols2_shift(u, v, yr, start, step, clip_u_lo, clip_u_hi, clip_v_lo, clip_v_hi, shifts):
+def ols2_shift(u: np.ndarray, v: np.ndarray, yr: np.ndarray, start: int, step: int, clip_u_lo: float, clip_u_hi: float, clip_v_lo: float, clip_v_hi: float, shifts: np.ndarray) -> None:
     """Fit ``yr ~ a + b*x + c*w + d*x*w`` (``x``, ``w`` the winsorised, centred ``u``, ``v``) on rows ``start, start+step, ...`` and write the shifts ``(s, t)`` with
     ``(u + s) * (v + t) = (x + c/d) * (w + b/d)`` (up to the constant) to ``shifts[0:2]``; ``shifts[2:4]`` get the main-effect weights ``(b, c)`` of the
     interaction-free fit ``yr ~ a + b*x + c*w``. NaN shifts when the system is singular or ``d`` vanishes.
@@ -125,7 +123,6 @@ def ols2_shift(u, v, yr, start, step, clip_u_lo, clip_u_hi, clip_v_lo, clip_v_hi
     shifts[0] = min(max(s, -clip_u_hi - span_u), -clip_u_lo + span_u)
     shifts[1] = min(max(t, -clip_v_hi - span_v), -clip_v_lo + span_v)
 
-
 @njit(cache=True, nogil=True)
 def _edges_of(vals, edges):
     """Interior quantile edges (``edges.shape[0]`` of them) of the subsample ``vals``, sorted in place."""
@@ -134,7 +131,6 @@ def _edges_of(vals, edges):
     nb = edges.shape[0] + 1
     for k in range(1, nb):
         edges[k - 1] = vals[min(m - 1, (k * m) // nb)]
-
 
 @njit(cache=True, nogil=True)
 def _bin_of(x, edges):
@@ -148,7 +144,6 @@ def _bin_of(x, edges):
         else:
             hi = mid
     return lo
-
 
 @njit(cache=True, nogil=True)
 def _mi_from_counts(counts, nb, ky, n_tot):
@@ -169,9 +164,8 @@ def _mi_from_counts(counts, nb, ky, n_tot):
                 mi += (k / n_tot) * np.log(k * n_tot / (px[b] * py[c]))
     return mi
 
-
 @njit(parallel=True, cache=True)
-def scan_offset_products(U, tasks, yr, ycodes, ky, nb, clips, out_shift, out_mi):
+def scan_offset_products(U: np.ndarray, tasks: np.ndarray, yr: np.ndarray, ycodes: np.ndarray, ky: int, nb: int, clips: np.ndarray, out_shift: np.ndarray, out_mi: np.ndarray) -> None:
     """Score every ``(column pair, unary pair)`` task.
 
     ``U``: ``(m, nu, n)`` float64 unary outputs of ``m`` columns (non-finite values already replaced). ``tasks``: ``(T, 4)`` int rows ``(col_u, col_v, unary_u, unary_v)``.
@@ -236,9 +230,8 @@ def scan_offset_products(U, tasks, yr, ycodes, ky, nb, clips, out_shift, out_mi)
             for q in range(nf):
                 out_mi[k, sp, q] = _mi_from_counts(counts[q, sp], nb, ky, n_sp)
 
-
 @njit(parallel=True, cache=True)
-def weighted_sum_heldout_mi(u, v, codes, ky, nb, n_dirs):
+def weighted_sum_heldout_mi(u: np.ndarray, v: np.ndarray, codes: np.ndarray, ky: int, nb: int, n_dirs: int) -> float:
     """Held-out MI of the best weighted sum ``cos(t) * u / sd(u) + sin(t) * v / sd(v)`` of the two factors, the direction ``t`` chosen over ``n_dirs`` directions of the full circle by the MI on
     the even rows and scored on the odd rows (edges from a ``N_EDGE_SUBSAMPLE``-row sample of the even rows, as in the scan).
 
@@ -282,4 +275,4 @@ def weighted_sum_heldout_mi(u, v, codes, ky, nb, n_dirs):
     for k in range(1, n_dirs):
         if mi_even[k] > mi_even[best]:
             best = k
-    return mi_odd[best]
+    return float(mi_odd[best])

@@ -43,9 +43,11 @@ import numpy as np
 import pandas as pd
 
 from ._internals import group_key_strings
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
-
 
 __all__ = [
     "engineered_name_ratio",
@@ -67,36 +69,29 @@ __all__ = [
     "lagged_diff_with_recipes",
 ]
 
-
 # ---------------------------------------------------------------------------
 # Naming
 # ---------------------------------------------------------------------------
-
 
 def engineered_name_ratio(a: str, b: str) -> str:
     """Canonical column name for the ``a / b`` ratio feature; must match the name recipes replay under."""
     return f"ratio__{a}__{b}"
 
-
 def engineered_name_log_ratio(a: str, b: str) -> str:
     """Canonical column name for the ``log1p(|a|) - log1p(|b|)`` log-ratio feature."""
     return f"log_ratio__{a}__{b}"
-
 
 def engineered_name_grouped_delta_mean(num_col: str, group_col: str) -> str:
     """Canonical column name for the ``num_col - mean(num_col | group_col)`` grouped-delta feature."""
     return f"grouped_delta_{num_col}__{group_col}"
 
-
 def engineered_name_grouped_delta_std(num_col: str, group_col: str) -> str:
     """Canonical column name for the grouped z-score ``(num_col - mean) / std(num_col | group_col)`` feature."""
     return f"grouped_zscore_{num_col}__{group_col}"
 
-
 def engineered_name_lagged_diff(value_col: str, period: int) -> str:
     """Canonical column name for the ``value_col_t - value_col_{t-period}`` lagged-difference feature."""
     return f"lagged_diff_{value_col}__period{int(period)}"
-
 
 def _map_group_keys(
     keys, lookup: dict, global_value: float,
@@ -132,11 +127,9 @@ def _map_group_keys(
         out[absent] = global_value
     return np.asarray(out)
 
-
 # ---------------------------------------------------------------------------
 # Pairwise ratio: a / (sign(b) * max(|b|, eps))
 # ---------------------------------------------------------------------------
-
 
 def _safe_div(a: np.ndarray, b: np.ndarray, eps: float) -> np.ndarray:
     """Sign-preserving safe division: ``a / b`` with the denominator floored
@@ -148,7 +141,6 @@ def _safe_div(a: np.ndarray, b: np.ndarray, eps: float) -> np.ndarray:
     sign_b = np.where(b >= 0.0, 1.0, -1.0)
     denom = sign_b * np.maximum(np.abs(b), eps)
     return np.asarray(a / denom)
-
 
 def pairwise_ratio_features(
     X: pd.DataFrame,
@@ -194,7 +186,6 @@ def pairwise_ratio_features(
     enc_df = pd.DataFrame(encoded, index=X.index) if encoded else pd.DataFrame(index=X.index)
     return enc_df, accepted
 
-
 def pairwise_log_ratio_features(
     X: pd.DataFrame,
     cols: Sequence[str],
@@ -231,7 +222,6 @@ def pairwise_log_ratio_features(
     enc_df = pd.DataFrame(encoded, index=X.index) if encoded else pd.DataFrame(index=X.index)
     return enc_df, accepted
 
-
 def _passes_redundancy(
     candidate: np.ndarray, a_vals: np.ndarray, b_vals: np.ndarray, threshold: float,
 ) -> bool:
@@ -263,7 +253,6 @@ def _passes_redundancy(
             return False
     return True
 
-
 def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
     """Replay a fitted ratio recipe on new data: recompute ``a / b`` with the same sign-preserving safe division as fit time."""
     if not isinstance(X_test, pd.DataFrame):
@@ -274,7 +263,6 @@ def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
     b_vals = np.asarray(X_test[b].to_numpy(), dtype=np.float64)
     r = _safe_div(a_vals, b_vals, float(eps))
     return np.asarray(np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0))
-
 
 def apply_log_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
     """Replay a fitted log-ratio recipe on new data: recompute ``log1p(|a|+eps) - log1p(|b|+eps)``."""
@@ -287,11 +275,9 @@ def apply_log_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndar
     lr = np.log1p(np.abs(a_vals) + float(eps)) - np.log1p(np.abs(b_vals) + float(eps))
     return np.asarray(np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0))
 
-
 # ---------------------------------------------------------------------------
 # Grouped delta: x - mean(x | g) and x / std(x | g)
 # ---------------------------------------------------------------------------
-
 
 def grouped_delta_features(
     X: pd.DataFrame,
@@ -369,7 +355,6 @@ def grouped_delta_features(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, recipes
 
-
 def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay a fitted grouped-delta/z-score recipe on new data using the TRAIN-time per-group mean/std lookups; unseen groups fall back to the stored global mean/std."""
     if not isinstance(X_test, pd.DataFrame):
@@ -401,11 +386,9 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         raise ValueError(f"apply_grouped_delta: unknown op {op!r}")
     return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
 
-
 # ---------------------------------------------------------------------------
 # Lagged diff: sort by time_col, compute x - x.shift(period)
 # ---------------------------------------------------------------------------
-
 
 def lagged_diff_features(
     X: pd.DataFrame,
@@ -485,7 +468,6 @@ def lagged_diff_features(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, recipes
 
-
 def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay a fitted lagged-diff recipe on new data: resort ``X_test`` by ``time_col`` (or ``(entity_cols,
     time_col)`` when the recipe carries ``entity_cols``),
@@ -521,11 +503,9 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     out = diff_sorted[inv_perm]
     return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
 
-
 # ---------------------------------------------------------------------------
 # End-to-end wrappers for MRMR.fit auto-wiring
 # ---------------------------------------------------------------------------
-
 
 def _gate_ratio_pairs(enc_df, accepted, name_fn, y, raw_X, mi_gate, mi_gate_top_k, reject_sink=None):
     """Tier-1 local MI floor over an ordered-pair ratio pool. Returns the
@@ -543,7 +523,6 @@ def _gate_ratio_pairs(enc_df, accepted, name_fn, y, raw_X, mi_gate, mi_gate_top_
     enc_df = enc_df[[name_fn(a, b) for (a, b) in accepted]]
     return enc_df, accepted
 
-
 def pairwise_ratio_with_recipes(
     X: pd.DataFrame,
     *,
@@ -553,7 +532,7 @@ def pairwise_ratio_with_recipes(
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append ratio columns to X and emit one recipe per accepted pair.
 
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
@@ -587,7 +566,6 @@ def pairwise_ratio_with_recipes(
     ]
     return X_aug, appended, recipes
 
-
 def pairwise_log_ratio_with_recipes(
     X: pd.DataFrame,
     *,
@@ -597,7 +575,7 @@ def pairwise_log_ratio_with_recipes(
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append log-ratio columns and emit one recipe per accepted pair.
 
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91).
@@ -629,7 +607,6 @@ def pairwise_log_ratio_with_recipes(
     ]
     return X_aug, appended, recipes
 
-
 def grouped_delta_with_recipes(
     X: pd.DataFrame,
     *,
@@ -639,7 +616,7 @@ def grouped_delta_with_recipes(
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append grouped-delta + grouped-zscore columns and emit one recipe per
     engineered column.
 
@@ -668,7 +645,6 @@ def grouped_delta_with_recipes(
     recipes = [build_grouped_delta_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
-
 def lagged_diff_with_recipes(
     X: pd.DataFrame,
     *,
@@ -680,7 +656,7 @@ def lagged_diff_with_recipes(
     mi_gate_top_k: Optional[int] = None,
     y: Optional[np.ndarray] = None,
     reject_sink: Optional[Callable[..., None]] = None,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append lagged-diff columns and emit one recipe per (value_col, period).
 
     ``mi_gate=True`` (with ``y``) applies the Tier-1 local MI floor (Layer 91)
@@ -715,11 +691,9 @@ def lagged_diff_with_recipes(
     recipes = [build_lagged_diff_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
-
 # ---------------------------------------------------------------------------
 # Recipe-apply adapters consumed by engineered_recipes.apply_recipe
 # ---------------------------------------------------------------------------
-
 
 def _coerce_X_for_pair(X, a: str, b: str, recipe_name: str) -> pd.DataFrame:
     """Extract the two source columns ``a``/``b`` from an arbitrary carrier (pandas, polars, or structured ndarray) as a pandas DataFrame so ``apply_ratio``/``apply_log_ratio`` can run at recipe-replay time."""
@@ -735,7 +709,6 @@ def _coerce_X_for_pair(X, a: str, b: str, recipe_name: str) -> pd.DataFrame:
         return pd.DataFrame({a: X[a], b: X[b]})
     raise TypeError(f"recipe '{recipe_name}': cannot extract columns {a!r}/{b!r} from " f"X of type {type(X).__name__}")
 
-
 def _apply_pairwise_ratio_recipe(recipe, X) -> np.ndarray:
     """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): dispatches to ``apply_ratio`` or ``apply_log_ratio`` based on the recipe's stored ``kind``."""
     if len(recipe.src_names) != 2:
@@ -749,7 +722,6 @@ def _apply_pairwise_ratio_recipe(recipe, X) -> np.ndarray:
     if kind == "log_div":
         return apply_log_ratio(X_view, a, b, eps)
     raise ValueError(f"pairwise_ratio recipe '{recipe.name}': unknown kind {kind!r}")
-
 
 def _apply_grouped_delta_recipe(recipe, X) -> np.ndarray:
     """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): rebuilds the ``apply_grouped_delta`` recipe dict from the frozen ``recipe.extra`` payload and replays it on ``X``."""
@@ -768,7 +740,6 @@ def _apply_grouped_delta_recipe(recipe, X) -> np.ndarray:
             "global_std": float(recipe.extra.get("global_std", 1.0)),
         },
     )
-
 
 def _coerce_X_for_lagged_diff(X, time_col: str, value_col: str, recipe_name: str, entity_cols: "tuple[str, ...] | None" = None) -> pd.DataFrame:
     """Extract ``time_col``/``value_col``/``entity_cols`` from an arbitrary carrier (pandas, polars, or structured ndarray) as a pandas DataFrame for ``apply_lagged_diff`` at recipe-replay time."""
@@ -790,7 +761,6 @@ def _coerce_X_for_lagged_diff(X, time_col: str, value_col: str, recipe_name: str
             cols_np[c] = X[c]
         return pd.DataFrame(cols_np)
     raise TypeError(f"recipe '{recipe_name}': cannot extract {time_col!r}/{value_col!r} " f"from X of type {type(X).__name__}")
-
 
 def _apply_lagged_diff_recipe(recipe, X) -> np.ndarray:
     """Recipe-apply adapter (consumed by ``engineered_recipes.apply_recipe``): rebuilds the ``apply_lagged_diff`` recipe dict from the frozen ``recipe.extra`` payload and replays it on ``X``."""

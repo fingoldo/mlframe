@@ -38,6 +38,9 @@ import numpy as np
 import pandas as pd
 
 from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +67,9 @@ _VALID_STATS = ("mean", "std", "min", "max", "median", "skew", "nunique", "count
 # Stats whose per-group lookup doubles as the residual base (mean / std).
 _RESIDUAL_STATS = ("mean", "std")
 
-
 def composite_key_label(group_cols: Sequence[str]) -> str:
     """Human-readable composite-key label, e.g. ``"region,month"``."""
     return ",".join(str(c) for c in group_cols)
-
 
 def engineered_name_composite_agg(
     num_col: str, group_cols: Sequence[str], stat: str,
@@ -76,21 +77,17 @@ def engineered_name_composite_agg(
     """Column name for a per-composite-key ``stat`` broadcast of ``num_col``, e.g. ``"cgrpagg_mean(x|region,month)"``."""
     return f"cgrpagg_{stat}({num_col}|{composite_key_label(group_cols)})"
 
-
 def engineered_name_composite_z(num_col: str, group_cols: Sequence[str]) -> str:
     """Column name for the z-score-within-composite-group residual of ``num_col``."""
     return f"cgrpz({num_col}|{composite_key_label(group_cols)})"
-
 
 def engineered_name_composite_ratio(num_col: str, group_cols: Sequence[str]) -> str:
     """Column name for the ratio-to-composite-group-mean residual of ``num_col``."""
     return f"cgrpratio({num_col}|{composite_key_label(group_cols)})"
 
-
 # ---------------------------------------------------------------------------
 # Composite-key construction
 # ---------------------------------------------------------------------------
-
 
 def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarray:
     """Build a single string-coded composite key per row from ``group_cols``.
@@ -147,13 +144,11 @@ def build_composite_keys(X: pd.DataFrame, group_cols: Sequence[str]) -> np.ndarr
         keys = keys + sep + p
     return np.asarray(keys, dtype=object)
 
-
 def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
     """Global fallback statistic for unseen composite cells at replay time."""
     from ._agg_stat_helpers import global_value_for_stat
 
     return global_value_for_stat(stat, x, "composite_group_agg")
-
 
 def _ratio_denominator(per_row_mean: np.ndarray, global_mean: float, global_std: float) -> np.ndarray:
     """Per-row group mean with near-zero cells set to NaN; "near zero" is 1e-12 of the column scale, capped at the absolute 1e-12 for scale >= 1."""
@@ -161,13 +156,11 @@ def _ratio_denominator(per_row_mean: np.ndarray, global_mean: float, global_std:
     tiny = 1e-12 * min(1.0, scale)
     return np.where(np.abs(per_row_mean) > tiny, per_row_mean, np.nan)
 
-
 def _agg_func_for_stat(stat: str) -> str:
     """Pandas groupby-agg name for ``stat``; this module's set includes ``count``."""
     from ._agg_stat_helpers import agg_func_for_stat
 
     return agg_func_for_stat(stat, _VALID_STATS, "composite_group_agg")
-
 
 def _unique_inverse(keys: np.ndarray):
     """``np.unique(keys, return_inverse=True)`` with a 1-D inverse, or
@@ -180,7 +173,6 @@ def _unique_inverse(keys: np.ndarray):
         return uniq, np.asarray(inverse).reshape(-1)
     except (TypeError, ValueError):
         return None, None
-
 
 def _broadcast_lookup(
     keys: np.ndarray, lookup: dict, global_value: float,
@@ -208,11 +200,9 @@ def _broadcast_lookup(
         out, nan=global_value, posinf=global_value, neginf=global_value,
     ))
 
-
 # ---------------------------------------------------------------------------
 # Per-composite-key statistic computation
 # ---------------------------------------------------------------------------
-
 
 def composite_cardinality_ok(
     n_distinct: int, n_rows: int, max_card_frac: float = 0.5,
@@ -224,7 +214,6 @@ def composite_cardinality_ok(
         return False
     return n_distinct <= int(max_card_frac * n_rows)
 
-
 def generate_composite_group_agg_features(
     X: pd.DataFrame,
     group_col_sets: Sequence[Sequence[str]],
@@ -233,7 +222,7 @@ def generate_composite_group_agg_features(
     *,
     max_card_frac: float = 0.5,
     _precomputed_keys: Optional[dict] = None,
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Compute per-(composite_key, num_col, stat) broadcasts plus the
     z-within-composite-group and ratio-to-composite-group residuals.
 
@@ -400,11 +389,9 @@ def generate_composite_group_agg_features(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 # ---------------------------------------------------------------------------
 # Replay
 # ---------------------------------------------------------------------------
-
 
 def apply_composite_group_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay one composite-group-agg column from the stored recipe dict,
@@ -443,7 +430,6 @@ def apply_composite_group_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0))
     raise ValueError(f"apply_composite_group_agg: unknown op {op!r}")
 
-
 def _coerce_X_for_composite_agg(X, group_cols, num_col, recipe_name: str) -> pd.DataFrame:
     """Extract only the columns a replay needs (``group_cols`` + ``num_col``) as a pandas frame, accepting polars or a structured ndarray so recipe replay is format-agnostic without materialising the full input."""
     if isinstance(X, pd.DataFrame):
@@ -461,7 +447,6 @@ def _coerce_X_for_composite_agg(X, group_cols, num_col, recipe_name: str) -> pd.
         cols[num_col] = X[num_col]
         return pd.DataFrame(cols)
     raise TypeError(f"recipe '{recipe_name}': cannot extract {group_cols}/{num_col!r} " f"from X of type {type(X).__name__}")
-
 
 def _apply_composite_group_agg_recipe(recipe, X) -> np.ndarray:
     """Adapter consumed by ``engineered_recipes.apply_recipe``."""
@@ -484,7 +469,6 @@ def _apply_composite_group_agg_recipe(recipe, X) -> np.ndarray:
         },
     )
 
-
 def composite_group_agg_with_recipes(
     X: pd.DataFrame,
     *,
@@ -492,7 +476,7 @@ def composite_group_agg_with_recipes(
     num_cols: Optional[Sequence[str]] = None,
     stats: Sequence[str] = COMPOSITE_STAT_NAMES,
     max_card_frac: float = 0.5,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe]]:
     """Append composite-group-agg columns and emit one recipe per column."""
     from .engineered_recipes import build_composite_group_agg_recipe
 
@@ -508,11 +492,9 @@ def composite_group_agg_with_recipes(
     recipes = [build_composite_group_agg_recipe(name=name, **raw_recipes[name]) for name in appended]
     return X_aug, appended, recipes
 
-
 # ---------------------------------------------------------------------------
 # Auto-detect composite key sets
 # ---------------------------------------------------------------------------
-
 
 def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
     """Reuse the Layer 87 / composite_auto_detect int-as-cat detector."""
@@ -535,7 +517,6 @@ def _auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 6) -> list[str]:
         if 3 <= nun <= min(500, max(3, n // 2)):
             out.append(str(c))
     return out[:max_cols]
-
 
 def auto_detect_key_sets(
     X: pd.DataFrame,
@@ -570,7 +551,6 @@ def auto_detect_key_sets(
     cand.sort(key=lambda t: t[1])
     return [c for c, _ in cand[:max_sets]]
 
-
 def hybrid_composite_group_agg_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -584,7 +564,7 @@ def hybrid_composite_group_agg_fe(
     n_bins: int = 10,
     min_cmi: float = 1e-4,
     min_uplift: float = 0.0,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end composite-group-agg FE pipeline.
 
     1. Auto-detect ``group_col_sets`` (combinations of detected group columns up

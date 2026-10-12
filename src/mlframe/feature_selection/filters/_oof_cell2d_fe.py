@@ -16,6 +16,9 @@ import logging
 from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -30,14 +33,12 @@ N_FOLDS = 5
 MAX_PAIRS = 3  # tables offered to the pool: bounds the extra cross-validated candidates
 DEFAULT_SCAN_ROWS = 100_000
 
-
 def _edges(x: np.ndarray, k: int = K_BINS) -> np.ndarray:
     """Unique interior equal-frequency edges of the finite values of ``x``."""
     finite = x[np.isfinite(x)]
     if finite.size == 0:
         return np.empty(0)
     return np.unique(np.quantile(finite, np.linspace(0.0, 1.0, k + 1)[1:-1]))
-
 
 def _cells(a: np.ndarray, b: np.ndarray, ea: np.ndarray, eb: np.ndarray) -> "tuple[np.ndarray, np.int64]":
     """Cell indices of the rows (``-1`` where either value is not finite) and the cell count ``(len(ea) + 1) * (len(eb) + 1)``."""
@@ -47,14 +48,12 @@ def _cells(a: np.ndarray, b: np.ndarray, ea: np.ndarray, eb: np.ndarray) -> "tup
     cell = ia * nb + ib
     return np.where(np.isfinite(a) & np.isfinite(b), cell, -1), np.int64((len(ea) + 1) * nb)
 
-
 def _table(sums: np.ndarray, counts: np.ndarray, mu: float, shrink: float) -> np.ndarray:
     """Shrunk cell means of a ``(rows, cols)`` sum / count table: the prior of a cell is ``row mean + column mean - grand mean`` (each mean shrunk toward ``mu``)."""
     rx = (sums.sum(1) + shrink * mu) / (counts.sum(1) + shrink)
     cz = (sums.sum(0) + shrink * mu) / (counts.sum(0) + shrink)
     prior = rx[:, None] + cz[None, :] - mu
     return np.asarray((sums + shrink * prior) / (counts + shrink))
-
 
 def fit_oof_cell2d(a: np.ndarray, b: np.ndarray, y: np.ndarray, *, n_folds: int = N_FOLDS, shrink: float = SHRINK, seed: int = 0) -> dict:
     """Fit the table of the pair ``(a, b)`` against the bounded target ``y`` and return ``{"oof", "ea", "eb", "tab", "fill"}``.
@@ -84,7 +83,6 @@ def fit_oof_cell2d(a: np.ndarray, b: np.ndarray, y: np.ndarray, *, n_folds: int 
         oof[(fold == f) & (cell < 0)] = mu_f
     return {"oof": oof, "ea": ea, "eb": eb, "tab": tab_all, "fill": mu_all}
 
-
 def build_oof_cell2d_recipe(*, name: str, src: Sequence[str], ea: np.ndarray, eb: np.ndarray, tab: np.ndarray, fill: float, lo: float, hi: float) -> "EngineeredRecipe":
     """Frozen recipe of one table column: the two edge vectors, the full table, the fill and the output range."""
     from .engineered_recipes import EngineeredRecipe
@@ -99,8 +97,7 @@ def build_oof_cell2d_recipe(*, name: str, src: Sequence[str], ea: np.ndarray, eb
         },
     )
 
-
-def apply_oof_cell2d_recipe(recipe, X) -> np.ndarray:
+def apply_oof_cell2d_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataFrame) -> np.ndarray:
     """Replay one table column from the stored table; a pure function of the two source columns."""
     from .engineered_recipes.shared import extract_column
 
@@ -110,7 +107,6 @@ def apply_oof_cell2d_recipe(recipe, X) -> np.ndarray:
     cell, _ = _cells(a, b, ex["ea"], ex["eb"])
     out = np.where(cell >= 0, ex["tab"].reshape(-1)[np.maximum(cell, 0)], ex["fill"])
     return np.asarray(np.clip(out, ex["lo"], ex["hi"]))
-
 
 def cell2d_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[str], feature_dtype: Any, quantization_nbins: int, *, scan_rows: int = DEFAULT_SCAN_ROWS) -> list:
     """``UsableCandidate`` objects for the tables of the pairs with a significant interaction beyond the additive model (empty on any failure or when no pair is significant)."""

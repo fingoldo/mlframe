@@ -18,7 +18,9 @@ from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 from contextlib import contextmanager as _contextmanager
 
 from mlframe.utils.warning_filters import install_filter_once
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
 
 @_contextmanager
 def suppress_numba_warnings():
@@ -39,7 +41,6 @@ def suppress_numba_warnings():
     install_filter_once(category=NumbaPendingDeprecationWarning)
     yield
 
-
 _NUMBA_CUDA_CAN_COMPILE: bool | None = None
 
 def _permanent_cuda_faults() -> tuple:
@@ -53,12 +54,10 @@ def _permanent_cuda_faults() -> tuple:
         pass
     return tuple(faults)
 
-
 _PERMANENT_CUDA_FAULTS = _permanent_cuda_faults()
 
 # Attempts inside ONE probe call before a transient fault is accepted as the process-wide answer.
 _CUDA_PROBE_ATTEMPTS = 3
-
 
 def numba_cuda_can_compile() -> bool:
     """True only if numba.cuda can actually COMPILE + LAUNCH a kernel on this host.
@@ -90,7 +89,6 @@ def numba_cuda_can_compile() -> bool:
     )
     _NUMBA_CUDA_CAN_COMPILE = False
     return False
-
 
 def _probe_numba_cuda_once(attempt: int) -> "bool | None":
     """One compile+launch probe. Returns the verdict, or ``None`` when the failure looks transient."""
@@ -124,7 +122,6 @@ def _probe_numba_cuda_once(attempt: int) -> "bool | None":
         )
         return None
 
-
 # =============================================================================
 # Constants
 # =============================================================================
@@ -156,11 +153,9 @@ MAX_CONFIRMATION_CAND_NBINS: int = 50
 #: Arrow-extension columns via positional iloc; by-name access is safe across every supported version.
 ENSURE_ARROW_DF_SUPPORT: bool = True
 
-
 # =============================================================================
 # Pure-Python helpers
 # =============================================================================
-
 
 def smart_log(x: np.ndarray) -> np.ndarray:
     """Numerically-safe ``log(x)``: additively shifts non-positive inputs. Preserves input dtype (a prior cast to float32 silently demoted float64).
@@ -180,8 +175,7 @@ def smart_log(x: np.ndarray) -> np.ndarray:
             return np.asarray(np.log(x))
         return np.asarray(np.log(x + (1e-5 - x_min)))
 
-
-def canonical_group_token(value) -> str:
+def canonical_group_token(value: object) -> str:
     """Stable per-value group/category key robust to int<->float dtype drift.
 
     Fit and predict can see the SAME group/category values arriving in different
@@ -207,8 +201,7 @@ def canonical_group_token(value) -> str:
         return repr(f)
     return str(value)
 
-
-def group_key_strings(col) -> np.ndarray:
+def group_key_strings(col: pd.Series) -> np.ndarray:
     """Object array of per-row canonical group keys (int<->float drift safe).
 
     Group columns are low-cardinality, so only the distinct values are
@@ -237,7 +230,6 @@ def group_key_strings(col) -> np.ndarray:
     # python ints/floats embedded in object arrays, NaN sentinels via str()).
     return np.asarray(col.astype(object).map(canonical_group_token).to_numpy())
 
-
 # Process-global cache of already-njit-compiled dispatchers, keyed by the SOURCE
 # IDENTITY of the original Python callable. ``create_unary_transformations`` /
 # ``create_binary_transformations`` are rebuilt many times per fit (FE step, recipe
@@ -258,7 +250,6 @@ def group_key_strings(col) -> np.ndarray:
 # would serialise every dispatch on the hot path to prevent a duplicated compile.
 _NJIT_DISPATCHER_CACHE: dict = {}
 
-
 def _njit_cache_key(func):
     """Build a hashable key identifying ``func``'s compiled form for ``_NJIT_DISPATCHER_CACHE`` (code object + defaults + closure-cell identities); returns ``None`` when the function is not cacheable (no ``__code__``, or an unhashable default)."""
     code = getattr(func, "__code__", None)
@@ -275,7 +266,6 @@ def _njit_cache_key(func):
     except TypeError:
         return None
     return key
-
 
 def njit_functions_dict(
     dict_: dict,
@@ -300,7 +290,6 @@ def njit_functions_dict(
                     dict_[key] = njit(cache=True)(func)
             except Exception as e:  # nosec B110 - best-effort path
                 logger.debug("njit-wrapping %r failed, leaving it un-cached: %s", key, e)
-
 
 def sanitize(obj):
     """Recursively convert ``numba.typed.Dict`` and friends back to plain Python / NumPy so the result can be pickled by joblib / cloudpickle."""

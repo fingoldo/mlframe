@@ -83,24 +83,23 @@ from ._temporal_agg_fe_rolling import (
     _numeric_window,  # noqa: F401 - re-exported for tests exercising the rolling njit kernel by its historical module path
     _rolling_stat_past_only,  # noqa: F401 - re-exported for tests exercising the rolling njit kernel by its historical module path
 )
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 EXPANDING_STATS = ("mean", "std", "count", "min", "max")
-
 
 def engineered_name_expanding(value_col: str, entity_col: str, stat: str) -> str:
     """Canonical feature name for an expanding-stat feature, e.g. ``texp_mean(amount|user_id)``."""
     return f"texp_{stat}({value_col}|{entity_col})"
 
-
 def engineered_name_lag(value_col: str, entity_col: str, lag: int) -> str:
     """Canonical feature name for a lag feature, e.g. ``tlag3(amount|user_id)``."""
     return f"tlag{int(lag)}({value_col}|{entity_col})"
 
-
 # ---------------------------------------------------------------------------
 # Helpers shared by the three families
 # ---------------------------------------------------------------------------
-
 
 def _entity_key_series(X: pd.DataFrame, entity_cols: Sequence[str]) -> pd.Series:
     """Collapse one or more entity columns into a single str key per row,
@@ -121,7 +120,6 @@ def _entity_key_series(X: pd.DataFrame, entity_cols: Sequence[str]) -> pd.Series
         key = key.str.cat(p, sep="\x00")
     return key
 
-
 def _global_prior(values: np.ndarray, stat: str) -> float:
     """Fallback statistic used for rows with no per-entity history (row 0 of an entity, or out-of-history lag positions): the same ``stat`` computed globally over all finite ``values``."""
     finite = values[np.isfinite(values)]
@@ -141,7 +139,6 @@ def _global_prior(values: np.ndarray, stat: str) -> float:
         return float(np.median(finite))
     raise ValueError(f"temporal_agg: unknown stat {stat!r}")
 
-
 def _validate(X, entity_cols, value_cols, time_col, fn_name):
     """Type/column-presence gate shared by the three feature generators: X must be a DataFrame, ``time_col`` must exist; ``entity_cols``/``value_cols`` are silently filtered to existing (and, for values, numeric) columns rather than raising."""
     if not isinstance(X, pd.DataFrame):
@@ -152,12 +149,10 @@ def _validate(X, entity_cols, value_cols, time_col, fn_name):
         raise KeyError(f"{fn_name}: time_col {time_col!r} not present in X.columns")
     return entity_cols, value_cols
 
-
 def _stable_time_order(time_vals: np.ndarray) -> np.ndarray:
     """Mergesort (stable) argsort over a time column. Stability guarantees a
     deterministic order for ties so fit / transform agree row-for-row."""
     return np.argsort(time_vals, kind="mergesort")
-
 
 def _group_row_slices(codes_sorted: np.ndarray, n_codes: int) -> list[np.ndarray]:
     """Return, for each dense group code 0..n_codes-1, the array of row indices
@@ -182,14 +177,11 @@ def _group_row_slices(codes_sorted: np.ndarray, n_codes: int) -> list[np.ndarray
         start = end
     return out
 
-
 # ---------------------------------------------------------------------------
 # Expanding aggregations
 # ---------------------------------------------------------------------------
 
-
 _EXPANDING_STAT_CODE = {"count": 0, "mean": 1, "std": 2, "min": 3, "max": 4}
-
 
 @numba.njit(cache=True)
 def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups):
@@ -229,7 +221,6 @@ def _expanding_stat_past_only_njit(sorted_vals, group_codes, stat_code, n_groups
                 run_max[g] = v
     return out
 
-
 def _expanding_stat_past_only(
     sorted_vals: np.ndarray, group_codes: np.ndarray, stat: str,
 ) -> np.ndarray:
@@ -253,14 +244,13 @@ def _expanding_stat_past_only(
         np.ascontiguousarray(sorted_vals, dtype=np.float64), gc, _EXPANDING_STAT_CODE[stat], n_groups,
     ))
 
-
 def generate_expanding_agg_features(
     X: pd.DataFrame,
     entity_cols: Sequence[str],
     value_cols: Sequence[str],
     time_col: str,
     stats: Sequence[str] = EXPANDING_STATS,
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Leak-safe expanding aggregations: per-entity stat over the strict past.
 
     Returns ``(enc_df, raw_recipes)`` where each recipe carries the per-entity
@@ -320,17 +310,14 @@ def generate_expanding_agg_features(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 # ---------------------------------------------------------------------------
 # Rolling time-window aggregations: carved to ``_temporal_agg_fe_rolling`` (generation, the njit
 # two-pointer kernel, the recipe builder, and transform-time replay); re-exported below.
 # ---------------------------------------------------------------------------
 
-
 def _is_datetime_like(arr: np.ndarray) -> bool:
     """True if ``arr`` has a numpy datetime64 dtype; selects whether the rolling window is treated as a wall-clock ``Timedelta`` or a raw numeric span."""
     return np.issubdtype(np.asarray(arr).dtype, np.datetime64)
-
 
 def _reduce(arr: np.ndarray, stat: str) -> float:
     """Reduce an array of past-window values to the requested statistic (mean/std/count/min/max/median); used by the pandas-fallback rolling path."""
@@ -348,11 +335,9 @@ def _reduce(arr: np.ndarray, stat: str) -> float:
         return float(np.median(arr))
     raise ValueError(f"temporal_agg rolling: unknown stat {stat!r}")
 
-
 # ---------------------------------------------------------------------------
 # Lag features
 # ---------------------------------------------------------------------------
-
 
 @numba.njit(cache=True)
 def _lag_ring_buffer_njit(sorted_vals, group_codes, lags_arr, n_groups):
@@ -385,14 +370,13 @@ def _lag_ring_buffer_njit(sorted_vals, group_codes, lags_arr, n_groups):
         cnt[g] = c + 1
     return out
 
-
 def generate_lag_features(
     X: pd.DataFrame,
     entity_cols: Sequence[str],
     value_cols: Sequence[str],
     time_col: str,
     lags: Sequence[int] = (1, 2, 3),
-):
+) -> tuple[pd.DataFrame, dict[str, dict]]:
     """Leak-safe lag features: the entity's value at ``t - lag`` (in sorted
     time order). Positions with no ``lag``-th predecessor fall back to the
     global prior. Returns ``(enc_df, raw_recipes)``.
@@ -456,11 +440,9 @@ def generate_lag_features(
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, raw_recipes
 
-
 # ---------------------------------------------------------------------------
 # Recipe builders (re-exported from engineered_recipes)
 # ---------------------------------------------------------------------------
-
 
 def build_temporal_expanding_recipe(*, name, entity_cols, value_col, time_col, stat, history, global_prior):
     """Build an ``EngineeredRecipe`` carrying the per-entity TRAIN history + global prior needed to leak-safely replay an expanding-stat feature at transform time."""
@@ -478,7 +460,6 @@ def build_temporal_expanding_recipe(*, name, entity_cols, value_col, time_col, s
         },
     )
 
-
 def build_temporal_lag_recipe(*, name, entity_cols, value_col, time_col, lag, history, global_prior):
     """Build an ``EngineeredRecipe`` carrying the per-entity TRAIN history + global prior needed to leak-safely replay a lag feature at transform time."""
     from .engineered_recipes import EngineeredRecipe
@@ -495,12 +476,10 @@ def build_temporal_lag_recipe(*, name, entity_cols, value_col, time_col, lag, hi
         },
     )
 
-
 # ---------------------------------------------------------------------------
 # Replay (transform-time). Reads only X; computes against the stored TRAIN
 # history plus earlier rows within the test frame itself.
 # ---------------------------------------------------------------------------
-
 
 def _coerce_replay_frame(X, entity_cols, value_col, time_col, recipe_name):
     """Coerce a transform-time ``X`` (pandas, polars, or a structured numpy array) to a pandas DataFrame exposing exactly the entity/value/time columns the recipe needs; raises for unsupported types."""
@@ -517,13 +496,11 @@ def _coerce_replay_frame(X, entity_cols, value_col, time_col, recipe_name):
         return pd.DataFrame({c: X[c] for c in cols})
     raise TypeError(f"recipe '{recipe_name}': cannot extract temporal columns from X of " f"type {type(X).__name__}")
 
-
 def _replay_keys_times(X_test, entity_cols, time_col):
     """Extract the per-row entity key array and raw time-column values from a replay frame, ready for time-ordered per-entity accumulation."""
     key = _entity_key_series(X_test, entity_cols).to_numpy()
     times = X_test[time_col].to_numpy()
     return key, times
-
 
 def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     """Replay an expanding stat for each test row against the stored TRAIN
@@ -637,13 +614,11 @@ def apply_temporal_expanding(X_test: pd.DataFrame, recipe_extra: dict) -> np.nda
             _fold(ent, v)
     return out
 
-
 def _reduce_expanding(arr: np.ndarray, stat: str) -> float:
     """Fallback reducer for expanding stats not handled by the fast running accumulators in :func:`apply_temporal_expanding` (e.g. ``median``); delegates to :func:`_reduce`."""
     if stat == "count":
         return float(arr.size)
     return _reduce(arr, stat)
-
 
 def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
     """Replay a lag feature: the entity's value ``lag`` positions earlier in
@@ -709,18 +684,15 @@ def apply_temporal_lag(X_test: pd.DataFrame, recipe_extra: dict) -> np.ndarray:
         buf.append(vals[idx])
     return out
 
-
 # ---------------------------------------------------------------------------
 # MI gate + end-to-end pipeline
 # ---------------------------------------------------------------------------
-
 
 def _mi_score(col: np.ndarray, y_bin: np.ndarray, n_bins: int = 10) -> float:
     """Quantile-bin a candidate temporal feature and compute its mutual information against the pre-binned target; used by :func:`hybrid_temporal_agg_fe` to rank/gate candidates before they enter the recipe pool."""
     from ._mi_greedy_cmi_fe import _quantile_bin, _cmi_from_binned
     x_bin = _quantile_bin(np.asarray(col, dtype=np.float64), nbins=n_bins)
     return float(_cmi_from_binned(x_bin, y_bin, None))
-
 
 def hybrid_temporal_agg_fe(
     X: pd.DataFrame,
@@ -735,7 +707,7 @@ def hybrid_temporal_agg_fe(
     top_k: int = 10,
     n_bins: int = 10,
     min_mi: float = 1e-4,
-):
+) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end leak-safe temporal FE pipeline.
 
     1. Materialise expanding (always), rolling (if ``windows``), and lag
@@ -758,7 +730,7 @@ def hybrid_temporal_agg_fe(
         X, entity_cols, value_cols, time_col, stats=stats,
     )
     enc_parts = [enc_exp]
-    raw_recipes: dict[str, dict] = {}
+    raw_recipes: dict[str, tuple[str, dict]] = {}
     raw_recipes.update({k: ("exp", v) for k, v in rec_exp.items()})
     if windows:
         enc_roll, rec_roll = generate_rolling_window_agg_features(

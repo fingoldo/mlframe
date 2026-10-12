@@ -87,7 +87,6 @@ __all__ = [
     "hybrid_orth_mi_adaptive_arity_fe_with_recipes",
 ]
 
-
 _ADAPTIVE_SCORE_EMPTY_COLS = [
     "engineered_col",
     "source_cols",
@@ -96,7 +95,6 @@ _ADAPTIVE_SCORE_EMPTY_COLS = [
     "engineered_mi",
     "uplift",
 ]
-
 
 def _adaptive_eng_col_name(
     cols: Sequence[str], basis: str, degrees: Sequence[int],
@@ -113,7 +111,6 @@ def _adaptive_eng_col_name(
     deg = "_".join(f"{code}{d}" for d in degrees)
     return f"{star}__{deg}"
 
-
 def _coerce_y_classif(y) -> np.ndarray:
     """Match _mi_classif_batch contract: dense int64 labels.
 
@@ -125,7 +122,6 @@ def _coerce_y_classif(y) -> np.ndarray:
         return y_arr.astype(np.int64, copy=False)
     _, inv = np.unique(y_arr, return_inverse=True)
     return inv.astype(np.int64, copy=False)
-
 
 def generate_adaptive_arity_cross_basis(
     X: pd.DataFrame,
@@ -310,7 +306,6 @@ def generate_adaptive_arity_cross_basis(
     eng_X.attrs["basis_per_col"] = basis_per_col
     return eng_X, score_df
 
-
 def _emit_arity_winners(winners, eclipsed):
     """Emit the arity winners ordered by size and MI."""
     for key, (k, mi_val, _degs, _name, _prod) in sorted(
@@ -334,7 +329,6 @@ def _emit_arity_winners(winners, eclipsed):
             if sup_k > k and key.issubset(sup_key) and sup_mi < mi_val:
                 eclipsed.add(sup_key)
 
-
 def _prepare_source_columns(src, X, _dt, basis, basis_per_col, max_d, leg_cache):
     """Prepare the finite, standardised arrays of the source columns."""
     for col in src:
@@ -354,7 +348,6 @@ def _prepare_source_columns(src, X, _dt, basis, basis_per_col, max_d, leg_cache)
         basis_per_col[col] = chosen
         for d in range(1, max_d + 1):
             leg_cache[(col, d)] = _evaluate_basis_column(x, chosen, d)
-
 
 def _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols, rows):
     """Emit the kept arity winners that no other winner eclipses."""
@@ -379,7 +372,6 @@ def _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols,
             "engineered_mi": mi_val,
             "uplift": relative_uplift(mi_val, baseline_mi),
         })
-
 
 def _adaptive_device_col_specs(eng_columns, raw_cols):
     """Per-column device leg specs aligned 1:1 with ``eng_columns`` for the adaptive-arity family (VARIABLE
@@ -407,7 +399,6 @@ def _adaptive_device_col_specs(eng_columns, raw_cols):
         specs.append({"legs": [(legs[i], degs[i]) for i in range(len(legs))]})
     return specs
 
-
 def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, nbins: int):
     """DEVICE-BORN MI of one arity's candidate product matrix for ``generate_adaptive_arity_cross_basis``.
 
@@ -434,7 +425,6 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
     except Exception as _gpu_exc:
         logger.debug("_adaptive_arity_mi_resident_block: GPU-resident path failed (%s); caller falls back to the host _mi_classif_batch.", _gpu_exc)
         return None
-
 
 def score_adaptive_arity_cross_basis(
     raw_X: pd.DataFrame,
@@ -498,10 +488,9 @@ def score_adaptive_arity_cross_basis(
     df.attrs["basis_per_col"] = engineered_X.attrs.get("basis_per_col")
     return df
 
-
 def hybrid_orth_mi_adaptive_arity_fe(
     X: pd.DataFrame,
-    y,
+    y: np.ndarray,
     *,
     cols: Optional[Sequence[str]] = None,
     degrees: Sequence[int] = (2, 3),
@@ -621,14 +610,15 @@ def hybrid_orth_mi_adaptive_arity_fe(
         X_aug = X_aug_uni
     return X_aug, uni_scores, reranked
 
-
 from ._fe_family_timing import fe_timed
-
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 @fe_timed("adaptive_arity")
 def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
     X: pd.DataFrame,
-    y,
+    y: np.ndarray,
     *,
     cols: Optional[Sequence[str]] = None,
     degrees: Sequence[int] = (2, 3),
@@ -643,7 +633,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
     adaptive_min_uplift: float = 1.05,
     adaptive_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_adaptive_arity_fe` plus a flat list of
     recipes so ``MRMR.transform`` can replay each engineered column.
 

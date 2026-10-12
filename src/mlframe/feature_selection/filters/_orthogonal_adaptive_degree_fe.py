@@ -52,6 +52,9 @@ from ._orthogonal_univariate_fe import (
     cached_raw_mi_baseline,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +69,6 @@ __all__ = [
     "hybrid_orth_mi_adaptive_degree_fe",
     "hybrid_orth_mi_adaptive_degree_fe_with_recipes",
 ]
-
 
 def generate_adaptive_degree_basis_features(
     X: pd.DataFrame,
@@ -252,7 +254,6 @@ def generate_adaptive_degree_basis_features(
 
     return pd.DataFrame(out_cols, index=X.index), meta
 
-
 def hybrid_orth_mi_adaptive_degree_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -306,7 +307,6 @@ def hybrid_orth_mi_adaptive_degree_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -316,7 +316,7 @@ def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
     basis: str = "auto",
     min_uplift: float = 1.05,
     nbins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_adaptive_degree_fe` but additionally
     returns a list of ``EngineeredRecipe`` objects (kind
     ``orth_univariate``) - one per appended column - so ``MRMR.transform``

@@ -11,10 +11,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .._internals import canonical_group_token
+from typing import Sequence
 
 if TYPE_CHECKING:
     from . import EngineeredRecipe
-
 
 def build_grouped_delta_recipe(
     *, name: str, group_col: str, num_col: str, op: str,
@@ -44,7 +44,6 @@ def build_grouped_delta_recipe(
             "global_std": float(global_std),
         },
     )
-
 
 def build_grouped_agg_recipe(
     *, name: str, group_col: str, num_col: str, stat: str, op: str,
@@ -82,9 +81,8 @@ def build_grouped_agg_recipe(
         },
     )
 
-
 def build_composite_group_agg_recipe(
-    *, name: str, group_cols, num_col: str, stat: str, op: str,
+    *, name: str, group_cols: Sequence[str], num_col: str, stat: str, op: str,
     group_lookup_dict: dict, global_value: float,
     lookup_mean: dict, lookup_std: dict,
     global_mean: float, global_std: float,
@@ -124,13 +122,12 @@ def build_composite_group_agg_recipe(
         },
     )
 
-
 def build_grouped_quantile_recipe(
     *, name: str, group_col: str, num_col: str, op: str,
     group_sorted: dict, global_sorted: list,
     iqr_lookup: dict, p90p10_lookup: dict,
     global_iqr: float, global_p90p10: float,
-    quantiles=(),
+    quantiles: Sequence[float]=(),
 ) -> EngineeredRecipe:
     """Layer 88: frozen recipe for one per-group distributional
     feature. ``op='pct_rank'`` emits the empirical-CDF position of x within its
@@ -160,7 +157,6 @@ def build_grouped_quantile_recipe(
         },
     )
 
-
 def build_target_aware_group_bin_recipe(
     *, name: str, group_col: str, num_col: str,
     group_edges: dict, global_edges: list, n_bins: int,
@@ -188,7 +184,6 @@ def build_target_aware_group_bin_recipe(
             "n_bins": int(n_bins),
         },
     )
-
 
 def build_lagged_diff_recipe(
     *, name: str, time_col: str, value_col: str, period: int, entity_cols: "tuple[str, ...] | None" = None,

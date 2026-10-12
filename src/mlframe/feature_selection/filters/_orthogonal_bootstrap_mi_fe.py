@@ -59,6 +59,9 @@ from ._orthogonal_univariate_fe import (
     generate_univariate_basis_features,
 )
 from mlframe.utils.log_throttle import log_throttle
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +71,11 @@ __all__ = [
     "hybrid_orth_mi_bootstrap_fe_with_recipes",
 ]
 
-
 # Z-score for the 95 % normal-CI lower bound. Mirrors the literature
 # convention; using 1.645 (one-sided 95 %) is also defensible but 1.96 is
 # the canonical "approximate 95 % CI" half-width and what downstream
 # callers will pattern-match.
 _LCB_Z = 1.96
-
 
 def _all_columns_distinct(arr: np.ndarray) -> bool:
     """True iff every column of ``arr`` (n, k) has all-distinct values.
@@ -94,7 +95,6 @@ def _all_columns_distinct(arr: np.ndarray) -> bool:
         if np.unique(arr[:, j]).size < n:
             return False
     return True
-
 
 def score_features_by_bootstrap_mi(
     raw_X: pd.DataFrame,
@@ -280,7 +280,6 @@ def score_features_by_bootstrap_mi(
         df = df.sort_values("uplift_lcb", ascending=False).reset_index(drop=True)
     return df
 
-
 def hybrid_orth_mi_bootstrap_fe(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -366,7 +365,6 @@ def hybrid_orth_mi_bootstrap_fe(
     X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
 
-
 def hybrid_orth_mi_bootstrap_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -381,7 +379,7 @@ def hybrid_orth_mi_bootstrap_fe_with_recipes(
     sample_fraction: float = 0.8,
     seed: int = 0,
     nbins: int = 10,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`hybrid_orth_mi_bootstrap_fe` but additionally returns
     a list of ``orth_univariate`` recipes - one per appended column - so
     that ``MRMR.transform`` can recompute each engineered column on test

@@ -20,7 +20,6 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
-
 def _is_foreign(state, factors_data, factors_nbins) -> bool:
     """Whether the caller passed a factors matrix or bin counts that describe different data from the state's own.
 
@@ -40,7 +39,6 @@ def _is_foreign(state, factors_data, factors_nbins) -> bool:
             return True
     return False
 
-
 def _scratch_state(state, factors_data, factors_nbins):
     """A shallow copy of ``state`` pointed at the override data, with empty caches so nothing crosses datasets."""
     import copy
@@ -55,7 +53,6 @@ def _scratch_state(state, factors_data, factors_nbins):
     scratch._pair_idx_buf = None
     return scratch
 
-
 def _no_matrix(fn_name: str, a: int, b: int) -> float:
     """NaN for a pair that cannot be scored because the state carries no factors matrix, said once per process.
 
@@ -67,8 +64,7 @@ def _no_matrix(fn_name: str, a: int, b: int) -> float:
     )
     return float("nan")
 
-
-def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = None, factors_data=None, factors_nbins=None, dtype=np.int32) -> float:
+def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = None, factors_data: Optional[np.ndarray]=None, factors_nbins: Optional[np.ndarray]=None, dtype: type=np.int32) -> float:
     """Cached symmetric-uncertainty between columns ``a`` and ``b``.
 
     Returns SU(X_a, X_b) in [0, 1] under ``distance='su'`` (default). For ``distance='vi'`` returns ``1 - VI/log(2*n_bins)``
@@ -327,8 +323,7 @@ def pair_su(state: DCDState, a: int, b: int, entropy_cache: Optional[dict] = Non
     state.cache_evict_lru()
     return float(su)
 
-
-def pair_vi(state: DCDState, a: int, b: int, factors_data=None, factors_nbins=None, dtype=np.int32) -> float:
+def pair_vi(state: DCDState, a: int, b: int, factors_data: Optional[np.ndarray]=None, factors_nbins: Optional[np.ndarray]=None, dtype: type=np.int32) -> float:
     """Variation-of-Information distance between columns ``a`` and ``b``
     in nats: ``VI(X_a, X_b) = H(X_a) + H(X_b) - 2 I(X_a; X_b)``.
 
@@ -380,7 +375,7 @@ def pair_vi(state: DCDState, a: int, b: int, factors_data=None, factors_nbins=No
     mi_ab = float(mi(fd, pair_buf[0:1], pair_buf[1:2], fn_arr, dtype=dtype))
     return max(0.0, h_a + h_b - 2.0 * mi_ab)
 
-def should_be_pruned(state: DCDState, candidate) -> bool:
+def should_be_pruned(state: DCDState, candidate: int | tuple[int, ...]) -> bool:
     """Return True iff ``candidate`` (int column index OR tuple of indices
     for higher-order interactions) is DCD-pruned.
 
@@ -406,7 +401,6 @@ def should_be_pruned(state: DCDState, candidate) -> bool:
         if not (0 <= idx < n_cols and bool(mask[idx])):
             return False
     return True
-
 
 def _binarize_aggregate(values: np.ndarray, *, method: str, n_bins: int, dtype) -> np.ndarray:
     """Discretise a continuous aggregate to integer bin codes matching the

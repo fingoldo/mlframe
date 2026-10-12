@@ -11,6 +11,7 @@ import logging
 from typing import Any, Optional
 
 from mlframe.utils.log_throttle import log_throttle
+from types import ModuleType
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,6 @@ extern "C" __global__ void cell_centred(const long long* codes, const double* v,
 _KERNELS: Optional[tuple] = None
 _UNAVAILABLE = False
 
-
 def _kernels(cp) -> Optional[tuple]:
     """Compile (once) the two kernels; ``None`` when the device cannot build them (shared-memory double atomics need compute capability 6.0)."""
     global _KERNELS, _UNAVAILABLE
@@ -79,8 +79,7 @@ def _kernels(cp) -> Optional[tuple]:
         logger.warning("fused cell-moment kernels unavailable (%s: %s); per-cell moments use the slower scatter-add form for this process", type(exc).__name__, exc)
     return _KERNELS
 
-
-def masked_cell_moments(cp, codes_g: Any, v_safe: Any, w: Any, n_cells: int) -> Optional[tuple]:
+def masked_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, w: Any, n_cells: int) -> Optional[tuple]:
     """``(cnt, mean, cm2, cm3, cm4)`` per cell over the rows weighted by ``w`` (``codes_g`` int64 in ``[0, n_cells)``, ``v_safe`` finite float64), or ``None`` when the
     fused kernels cannot be used (too many cells for shared memory, or no support) and the caller should take the scatter-add form."""
     nc = int(n_cells)
@@ -103,7 +102,6 @@ def masked_cell_moments(cp, codes_g: Any, v_safe: Any, w: Any, n_cells: int) -> 
     cm4 = cp.zeros(nc, dtype=cp.float64)
     k2((blocks,), (threads,), (codes, v_safe, w, mean, cp.int64(n), cp.int32(nc), cm2, cm3, cm4), shared_mem=3 * nc * 8)
     return cnt, mean, cm2, cm3, cm4
-
 
 # --- all folds in two launches -------------------------------------------------------------------------------------------------------------------------------------------------
 # A fold's train rows are every finite row outside the fold. ``masked_cell_moments`` is launched per fold (two launches, a weight vector and the output arrays each), and the per-fold
@@ -169,7 +167,6 @@ _FOLD_KERNELS: Optional[tuple] = None
 _FOLD_UNAVAILABLE = False
 _SHARED_DOUBLES = 6144  # 48 KB of shared memory per block
 
-
 def _fold_kernels(cp) -> Optional[tuple]:
     """Compile (once) the two all-folds kernels; ``None`` when the device cannot build them."""
     global _FOLD_KERNELS, _FOLD_UNAVAILABLE
@@ -185,8 +182,7 @@ def _fold_kernels(cp) -> Optional[tuple]:
         _FOLD_UNAVAILABLE = True
     return _FOLD_KERNELS
 
-
-def fold_cell_moments(cp, codes_g: Any, v_safe: Any, finite_f: Any, fold_g: Any, n_folds: int, n_cells: int) -> Optional[tuple]:
+def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, fold_g: Any, n_folds: int, n_cells: int) -> Optional[tuple]:
     """``(cnt, mean, cm2, cm3, cm4)`` as ``(n_folds, n_cells)`` tables: row ``f`` holds the moments of the TRAIN rows of fold ``f`` (every finite row whose fold is not ``f``).
 
     Two moment launches for all folds instead of two per fold, and the tables come out stacked. ``None`` when the kernels cannot be used (``3 * n_folds * n_cells`` doubles must fit in

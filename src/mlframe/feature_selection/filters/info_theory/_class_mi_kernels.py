@@ -8,7 +8,6 @@ from numba import njit
 
 from ._state_and_dispatch import use_mi_chao_shen, use_mi_miller_madow, use_su_normalization
 
-
 @njit(nogil=True, cache=True)
 def _mm_bias(freqs_x: np.ndarray, freqs_y: np.ndarray, n: int) -> float:
     """Closed-form Miller-Madow MI bias ``(k_x-1)(k_y-1)/(2n)`` from occupied-bin counts of the pre-computed marginals (freqs are probabilities, ``>0`` = occupied)."""
@@ -24,14 +23,13 @@ def _mm_bias(freqs_x: np.ndarray, freqs_y: np.ndarray, n: int) -> float:
         return 0.0
     return (k_x - 1) * (k_y - 1) / (2.0 * n)
 
-
 @njit(nogil=True, cache=True)
 def compute_mi_mm_from_classes(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Miller-Madow bias-corrected MI from pre-computed class arrays + marginals: ``I_plugin - (k_x-1)(k_y-1)/(2n)``, floored at 0.
 
@@ -42,7 +40,6 @@ def compute_mi_mm_from_classes(
     mi_xy = compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype)
     corrected = mi_xy - _mm_bias(freqs_x, freqs_y, len(classes_x))
     return corrected if corrected > 0.0 else 0.0
-
 
 @njit(nogil=True, cache=True)
 def _chao_shen_entropy_from_counts(counts: np.ndarray, n: int) -> float:
@@ -79,7 +76,6 @@ def _chao_shen_entropy_from_counts(counts: np.ndarray, n: int) -> float:
         h += term
     return h
 
-
 @njit(nogil=True, cache=True)
 def compute_mi_cs_from_classes(
     classes_x: np.ndarray,
@@ -113,14 +109,13 @@ def compute_mi_cs_from_classes(
     mi = h_x + h_y - h_xy
     return mi if mi > 0.0 else 0.0
 
-
 @njit(nogil=True, cache=True)
 def compute_mi_from_classes(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    dtype=np.int32,  # kept for signature parity across the class-MI kernel family; the joint counter is hardcoded int64 (overflow-safe), so dtype is unused
+    dtype: type = np.int32,  # kept for signature parity across the class-MI kernel family; the joint counter is hardcoded int64 (overflow-safe), so dtype is unused
 ) -> float:
     """Mutual information from two pre-computed class arrays + their marginals. Used by the permutation loop where ``classes_y`` is shuffled in place and we don't want to re-bin from scratch each time.
 
@@ -150,7 +145,6 @@ def compute_mi_from_classes(
                 total += jf * math.log(jf / (prob_x * prob_y))
     return total
 
-
 @njit(nogil=True, cache=True)
 def weighted_class_freqs(classes: np.ndarray, weights: np.ndarray, n_classes: int) -> np.ndarray:
     """Weighted marginal frequencies ``P(class)`` from a pre-computed class array + per-row weights.
@@ -169,7 +163,6 @@ def weighted_class_freqs(classes: np.ndarray, weights: np.ndarray, n_classes: in
         for i in range(n_classes):
             out[i] /= total
     return out
-
 
 @njit(nogil=True, cache=True)
 def compute_mi_from_classes_weighted(
@@ -219,14 +212,13 @@ def compute_mi_from_classes_weighted(
                 total += jf * math.log(jf / (prob_x * prob_y))
     return total
 
-
 @njit(nogil=True, cache=True)
 def compute_su_from_classes(
     classes_x: np.ndarray,
     freqs_x: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> float:
     """Symmetric Uncertainty from pre-computed class arrays + marginals.
 
@@ -271,7 +263,6 @@ def compute_su_from_classes(
         mi_xy = 0.0
     return 2.0 * mi_xy / denom
 
-
 @njit(nogil=True, cache=True)
 def compute_relevance_score(
     use_su: bool,
@@ -279,7 +270,7 @@ def compute_relevance_score(
     freqs_x: np.ndarray,
     classes_y: np.ndarray,
     freqs_y: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
     use_mm: bool = False,
     use_cs: bool = False,
 ) -> float:
@@ -305,8 +296,7 @@ def compute_relevance_score(
         return float(compute_mi_mm_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
     return float(compute_mi_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=dtype))
 
-
-def mi_or_su_from_classes(classes_x, freqs_x, classes_y, freqs_y, dtype=np.int32) -> float:
+def mi_or_su_from_classes(classes_x: np.ndarray, freqs_x: np.ndarray, classes_y: np.ndarray, freqs_y: np.ndarray, dtype: type = np.int32) -> float:
     """Dispatch raw MI or SU from pre-computed classes based on the thread-local toggle.
 
     Cheap when SU is off: one Python-call delegation to the njit ``compute_mi_from_classes``.

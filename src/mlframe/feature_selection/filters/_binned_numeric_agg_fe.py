@@ -45,7 +45,6 @@ from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
 
 logger = logging.getLogger(__name__)
 
-
 @njit(cache=True)
 def _per_cell_count_sum_njit(codes, v, n_cells):
     """Per-cell ``(cnt, s1)`` only -- pass 1 of the two-pass stable scheme, with the dead higher moments gone.
@@ -61,7 +60,6 @@ def _per_cell_count_sum_njit(codes, v, n_cells):
         cnt[c] += 1.0
         s1[c] += v[i]
     return cnt, s1
-
 
 @njit(cache=True)
 def _per_cell_raw_moments_njit(codes, v, n_cells):
@@ -109,7 +107,6 @@ def _per_cell_centered_moments_njit(codes, v, cell_mean, n_cells):
         cm4[c] += d2 * d2
     return cm2, cm3, cm4
 
-
 def _per_cell_moments_stable(codes: np.ndarray, v: np.ndarray, n_cells: int) -> tuple:
     """Per-cell ``(cnt, mean, cm2, cm3, cm4)`` via the numerically-stable two-pass scheme: pass 1
     (:func:`_per_cell_raw_moments_njit`, cnt/s1 only used) gets each cell's mean -- a plain additive sum,
@@ -126,7 +123,6 @@ def _per_cell_moments_stable(codes: np.ndarray, v: np.ndarray, n_cells: int) -> 
     cm2, cm3, cm4 = _per_cell_centered_moments_njit(codes_i, v_f, mean, int(n_cells))
     return cnt, mean, cm2, cm3, cm4
 
-
 SUPPORTED_STATS = ("mean", "std", "skew", "kurt")
 # Minimum rows-per-cell for a stable estimate of each moment order (rule-of-thumb, used by the moment cap).
 _N_MIN = {"mean": 5, "std": 12, "skew": 30, "kurt": 100}
@@ -141,11 +137,9 @@ __all__ = [
     "apply_binned_numeric_agg",
 ]
 
-
 def engineered_name_binned_agg(num_col: str, group_col: str, stat: str) -> str:
     """Canonical engineered-feature name for a binned-numeric aggregate, e.g. ``binagg_mean(price|qbin(area))``."""
     return f"binagg_{stat}({num_col}|qbin({group_col}))"
-
 
 def resolve_nbins_and_stats(n: int, stats: Sequence[str], nbins_base: int, k: int = 1) -> tuple:
     """Return (nbins, kept_stats): nbins = min(nbins_base, moment cap for the highest KEPT moment), dropping
@@ -161,7 +155,6 @@ def resolve_nbins_and_stats(n: int, stats: Sequence[str], nbins_base: int, k: in
             return nbins, kept
         kept.pop()  # even 2 bins can't satisfy this moment's floor -> drop it
     return 2, ["mean"]  # degenerate fallback
-
 
 def _derive_cell_stats(cnt: np.ndarray, mean: np.ndarray, cm2: np.ndarray, cm3: np.ndarray, cm4: np.ndarray, stats: Sequence[str]) -> dict:
     """Derive per-cell statistics from ``(cnt, mean, cm2, cm3, cm4)`` -- CENTERED moment sums (see
@@ -204,7 +197,6 @@ def _derive_cell_stats(cnt: np.ndarray, mean: np.ndarray, cm2: np.ndarray, cm3: 
         out[stat] = np.where(cnt > 0, raw, np.nan)
     return out
 
-
 def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stats: Sequence[str]) -> dict:
     """Vectorised per-cell statistics of ``v`` via one-pass njit centered-moment accumulation (O(n), no
     Python per-row loop, no ``np.bincount``). Returns ``{stat: np.ndarray(n_cells)}``. Empty cells get NaN
@@ -212,7 +204,6 @@ def per_cell_stats_bincount(codes: np.ndarray, v: np.ndarray, n_cells: int, stat
     stable, see :func:`_derive_cell_stats`."""
     cnt, mean, cm2, cm3, cm4 = _per_cell_moments_stable(codes, v, n_cells)
     return _derive_cell_stats(cnt, mean, cm2, cm3, cm4, stats)
-
 
 def _global_stat(v: np.ndarray, stat: str) -> float:
     """Fallback statistic computed over the whole (finite-valued) column, used to fill empty bin cells at fit/apply time."""
@@ -232,7 +223,6 @@ def _global_stat(v: np.ndarray, stat: str) -> float:
     if stat == "kurt":
         return float(kurtosis(vf)) if vf.size > 3 else 0.0
     return 0.0
-
 
 @njit(cache=True)
 def _centered_moments_njit(vf: np.ndarray) -> tuple:
@@ -263,7 +253,6 @@ def _centered_moments_njit(vf: np.ndarray) -> tuple:
         s3 += d2 * d
         s4 += d2 * d2
     return mean, s2, s3, s4
-
 
 def _global_stats_all(v: np.ndarray, needed: Sequence[str]) -> dict:
     """Fused replacement for calling :func:`_global_stat` separately per stat.
@@ -323,7 +312,6 @@ def _global_stats_all(v: np.ndarray, needed: Sequence[str]) -> dict:
         m4 = s4 / n
         out["kurt"] = (m4 / (var * var) - 3.0) if n > 3 else 0.0
     return out
-
 
 def fit_binned_numeric_agg(
     X: pd.DataFrame, y: np.ndarray, *,
@@ -442,7 +430,6 @@ def fit_binned_numeric_agg(
     feat_df = pd.DataFrame(feat_cols, index=X.index)
     return feat_df, recipes
 
-
 def apply_binned_numeric_agg(X: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Leak-free replay: bin the raw group column through the stored quantile edges and gather the per-cell
     statistic; unseen / out-of-range / non-finite group values fall back to the global statistic."""
@@ -456,8 +443,7 @@ def apply_binned_numeric_agg(X: pd.DataFrame, recipe: dict) -> np.ndarray:
     out[~np.isfinite(gv)] = g
     return out
 
-
-def build_binned_numeric_agg_recipe(name: str, info: dict):
+def build_binned_numeric_agg_recipe(name: str, info: dict) -> EngineeredRecipe:
     """Wrap a per-output fit ``info`` dict into a leak-safe ``EngineeredRecipe(kind='binned_numeric_agg')``.
     ``src_names = (group_col, agg_col)`` so the fit-end recipe router resolves both parents; the quantile
     ``edges`` + per-cell ``lookup`` + ``global`` fallback ride in ``extra`` for ``apply_binned_numeric_agg``."""
@@ -472,7 +458,6 @@ def build_binned_numeric_agg_recipe(name: str, info: dict):
             "global": float(info["global"]),
         },
     )
-
 
 def _auto_detect_numeric_cols(X: pd.DataFrame) -> list:
     """RAW numeric columns eligible as group / aggregate sources (finite, non-constant)."""
@@ -490,13 +475,11 @@ def _auto_detect_numeric_cols(X: pd.DataFrame) -> list:
         out.append(c)
     return out
 
-
 def _family_wise_null_z(n_candidates: int, alpha: float = 0.05, min_z: float = 2.0) -> float:
     """One-sided normal quantile at the Bonferroni level ``alpha / n_candidates``, floored at ``min_z``."""
     from scipy.stats import norm
 
     return max(float(min_z), float(norm.isf(float(alpha) / max(1, int(n_candidates)))))
-
 
 def binned_numeric_agg_with_recipes(
     X: pd.DataFrame, y: np.ndarray, *,
@@ -684,5 +667,7 @@ def binned_numeric_agg_with_recipes(
     recipes = [build_binned_numeric_agg_recipe(n, raw[n]) for n in feat_df.columns]
     return X_aug, list(feat_df.columns), recipes
 
-
 from ._binned_numeric_agg_redundancy import _candidate_codes, _build_binned_agg_recipes
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .engineered_recipes import EngineeredRecipe
