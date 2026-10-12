@@ -58,33 +58,13 @@ def smote_synthesize_minority_rowloop(X_minority: np.ndarray, n_synthetic: int, 
 
 def smote_synthesize_minority_vectorized(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int, seed: int) -> np.ndarray:
     """Draw-then-vectorise SMOTE intra-minority interpolation with an explicit ``n_min < 2`` fallback
-    (returns a copy, or an empty ``(0, 0)`` array): the variant shared by ``pseudo_smote.py`` / ``borderline_smote.py``."""
+    (returns a copy, or an empty ``(0, 0)`` array): the variant shared by ``pseudo_smote.py`` / ``borderline_smote.py``.
+
+    The gather+lerp itself lives in ``smote_synthesize_vectorized``, which this delegates to after the fallback."""
     n_min = X_minority.shape[0]
     if n_min < 2:
         return X_minority.copy() if n_min > 0 else np.zeros((0, 0), dtype=np.float32)
-    from sklearn.neighbors import NearestNeighbors
-
-    k_used = min(k_neighbors + 1, n_min)
-    nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
-    _dists, ids = nn.kneighbors(X_minority)
-    rng = np.random.default_rng(seed)
-    # Draw indices/alphas in the exact per-iteration order (interleaved src/nbr/alpha) the PCG64 stream
-    # produced before, then do the gather+lerp as one vectorised pass -- bit-identical to the row loop.
-    src = np.empty(n_synthetic, dtype=np.int64)
-    nbr = np.empty(n_synthetic, dtype=np.int64)
-    alpha = np.empty(n_synthetic, dtype=np.float32)
-    for i in range(n_synthetic):
-        s = rng.integers(0, n_min)
-        candidates = ids[s, 1:k_used]
-        src[i] = s
-        if candidates.size == 0:
-            nbr[i] = s
-            alpha[i] = np.float32(0.0)
-            continue
-        nbr[i] = candidates[rng.integers(0, candidates.size)]
-        alpha[i] = rng.random()
-    x_src = X_minority[src]
-    return np.asarray((x_src + alpha[:, None] * (X_minority[nbr] - x_src)).astype(np.float32))
+    return smote_synthesize_vectorized(X_minority, n_synthetic, k_neighbors, seed)
 
 
 def smote_synthesize_rowloop(X: np.ndarray, n_syn: int, k_neighbors: int, seed: int) -> np.ndarray:
@@ -121,7 +101,7 @@ def smote_synthesize_vectorized(X: np.ndarray, n_syn: int, k_neighbors: int, see
     ``smote_within_cluster``, but the gather+lerp is hoisted out of the per-iteration loop -- bit-identical,
     ~35% faster (see ``bench_pseudo_smote_synthesize_vectorized.py`` / ``bench_borderline_smote_synthesize_vectorized.py``).
 
-    NOT a production entry point (see ``smote_synthesize_rowloop``'s docstring)."""
+    Reached in production through ``smote_synthesize_minority_vectorized``."""
     n_min = X.shape[0]
     from sklearn.neighbors import NearestNeighbors
 

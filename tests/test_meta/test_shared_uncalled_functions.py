@@ -759,7 +759,6 @@ _RETAINED_KERNELS = {
     "kahan_two_pass_var_seq",  # compensated two-pass variance kept for the numerical-stability bench
     "welford_mean_var_seq",  # single-pass Welford kept for the numerical-stability bench
     "welford_moments_seq",  # single-pass Welford moments kept for the numerical-stability bench
-    "smote_synthesize_rowloop",  # row-loop SMOTE kept as the pre-vectorisation reference
     "_rff_analytic_mixed_partial_energy_loop",  # per-pair reference kernel kept for the exact RFF energy check
     "_combine_factorize_serial_njit",  # fully-serial reference of the combine-factorize kernel, kept as the baseline
     "_pack_for_bitmap_numpy",  # numpy reference packer kept for the bit-identity bench and test
@@ -851,6 +850,7 @@ _NAME_DISPATCHED = {
 #: Replaced by a faster or more efficient version and kept as the reference the replacement is checked against. Each entry
 #: names its replacement; a superseded function with no parity test is a gap, not a reference.
 _SUPERSEDED = {
+    "smote_synthesize_rowloop",  # row-loop SMOTE reference; replaced by smote_synthesize_vectorized (production via smote_synthesize_minority_vectorized)
     "subset_redundancy",  # scalar form of subset_redundancy_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_calibrate.py
     "subset_uncertainty",  # scalar form of subset_uncertainty_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_objective.py
     # per-column Python loop replaced by _compute_marginals_packed; parity pinned in
