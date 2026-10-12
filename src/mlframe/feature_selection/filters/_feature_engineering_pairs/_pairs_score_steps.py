@@ -384,6 +384,11 @@ def _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations
         # dwarfing the bin_func work itself; one context per pair-comb
         # removes that. numba kernels (discretize/mi_direct) ignore errstate
         # and nan_to_num emits nothing, so the wider scope is value-identical.
+        # RECOMPUTE PATH (L-24): the per-column quantile binning of this pair's candidates runs as ONE batch over the pair's
+        # columns (bit-identical to the per-column discretize_array, parallel over columns), instead of one np.quantile per candidate.
+        _pair_codes = None
+        if _need_recompute_map and len(binary_transformations) > 1:
+            _pair_codes = _pair_batch_codes(binary_transformations, param_a, param_b, quantization_nbins, quantization_dtype, st._col_buf_1d.dtype)
         with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
             for bin_func_name, bin_func in binary_transformations.items():
 
@@ -417,9 +422,12 @@ def _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations
                     # hot path. Totals are identical.
                     st._local_times[bin_func_name] = st._local_times.get(bin_func_name, 0.0) + (timer() - start)
 
-                    discretized_transformed_values = discretize_array(
-                        arr=_col_view, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
-                    )
+                    if _pair_codes is not None and bin_func_name in _pair_codes:
+                        discretized_transformed_values = _pair_codes[bin_func_name]
+                    else:
+                        discretized_transformed_values = discretize_array(
+                            arr=_col_view, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
+                        )
                     fe_mi, _fe_conf = mi_direct(
                         discretized_transformed_values.reshape(-1, 1),
                         x=np.array([0], dtype=np.int64),
@@ -459,6 +467,37 @@ def _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations
                             if verbose > 2:
                                 logger.debug("MI of transformed pair %s(%s)=%.4f, MI of the plain pair %.4f", bin_func_name, transformations_pair, fe_mi, pair_mi)
                     st.i += 1
+
+
+def _pair_batch_codes(binary_transformations, param_a, param_b, quantization_nbins, quantization_dtype, scratch_dtype):
+    """Quantile codes of every binary transform of one pair, from one batched discretisation (recompute path only).
+
+    Each transform is evaluated as in the per-column loop, the results are written into a block with the scratch buffer's dtype
+    (so both paths see the same values), non-finite values are scrubbed the same way, and ``discretize_2d_quantile_batch`` bins all
+    columns together (bit-identical to per-column ``discretize_array``). A transform that raises is left out, so the caller's
+    per-column path reports it exactly as before. Returns ``{name: codes}``, or None when the batch cannot be built."""
+    from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
+    names, cols = [], []
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for bin_func_name, bin_func in binary_transformations.items():
+            try:
+                col = np.asarray(bin_func(param_a, param_b)).ravel()
+            except Exception:
+                continue
+            names.append(bin_func_name)
+            cols.append(col)
+    if not cols:
+        return None
+    block = np.empty((len(param_a), len(cols)), dtype=scratch_dtype)
+    for j, col in enumerate(cols):
+        block[:, j] = col
+    np.nan_to_num(block, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    try:
+        codes = discretize_2d_quantile_batch(block, n_bins=quantization_nbins, dtype=quantization_dtype, parallel=True)
+    except Exception:
+        return None
+    return {nm: codes[:, j] for j, nm in enumerate(names)}
 
 
 def _config_corr(_cfg, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr):
