@@ -46,6 +46,9 @@ from ._binned_numeric_agg_cands import HostCandidates, device_born_candidates
 logger = logging.getLogger(__name__)
 
 
+_AGG_VAR_BLOCK_COLS = 8  # columns per variance block: bounds the transient copy to 8 columns at any row count
+
+
 @njit(cache=True)
 def _per_cell_count_sum_njit(codes, v, n_cells):
     """Per-cell ``(cnt, s1)`` only -- pass 1 of the two-pass stable scheme, with the dead higher moments gone.
@@ -539,7 +542,9 @@ def binned_numeric_agg_with_recipes(
     # 1.94x at p=300 cols/n=1500, max diff 3.3e-15 vs the per-column loop -- machine-epsilon float-summation-
     # order noise, not a behavioural change; only feeds a descending sort so exact equality isn't even load-
     # bearing here).
-    _a_var_vals = np.var(X[acands].to_numpy(dtype=np.float64), axis=0)
+    # Blocks of columns in their own dtype: one whole-frame float64 copy of the candidates is p x n x 8 bytes (5.96 GiB at 10M x 80).
+    _var_blocks = [np.var(X[acands[i : i + _AGG_VAR_BLOCK_COLS]].to_numpy(), axis=0) for i in range(0, len(acands), _AGG_VAR_BLOCK_COLS)]
+    _a_var_vals = np.concatenate(_var_blocks) if _var_blocks else np.zeros(0)
     a_var = dict(zip(acands, _a_var_vals.tolist()))
     asel = sorted(acands, key=lambda a: a_var.get(a, 0.0), reverse=True)[: max(1, int(max_agg_cols))]
     if not gsel or not asel:
