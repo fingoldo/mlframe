@@ -53,7 +53,6 @@ _PUBLIC_API = {
     "create_mlflow_run_label",
     "get_or_create_mlflow_run",
     "embed_website_to_mlflow",  # user-facing helpers of mlframe.integrations.mlflow, each pinned by tests/integrations/test_mlflow.py
-    "reset_throttle_counts",  # documented in mlframe.utils.log_throttle.__all__; the test-isolation reset for every throttle key, used by 30+ tests
     "clip_to_quantiles_hard",  # documented preset for choosing a target transform (1%/99% quantile clip)
     "clip_to_quantiles_winsor_quantile",  # documented preset for choosing a target transform (soft winsorise)
     "set_wavedec_dispatch_threshold",  # documented tuning knob for the wavelet single/batched dispatch; a user sets it
@@ -108,7 +107,6 @@ _REEXPORTED_PUBLIC_API = {
     "anchor_residual_rmse_features",
     "apply_calendar_anomaly_flag",
     "apply_cat_cooccurrence_svd",
-    "apply_decision_threshold",
     "apply_feature_direction",
     "apply_gaussian_power_transform",
     "apply_group_bias_correction",
