@@ -412,7 +412,7 @@ def _run_isolate(args: argparse.Namespace) -> int:
         if done >= args.target:
             break
         seed = args.seed_start + i
-        combos = enumerate_combos(target=150, master_seed=seed)
+        combos = enumerate_combos(target=150, master_seed=seed, exhaustive_pairs=bool(os.environ.get("MLFRAME_FUZZ_EXHAUSTIVE_PAIRS")))
         for combo in combos:
             if done >= args.target:
                 break
@@ -420,6 +420,9 @@ def _run_isolate(args: argparse.Namespace) -> int:
             size_before = _file_size()
             t0 = time.time()
             rc, tail, timed_out = _run_one_combo(seed, short_id, args.per_combo_timeout_s)
+            _ld = RESULTS_LOG.parent / "_fuzz_child_logs"
+            _ld.mkdir(parents=True, exist_ok=True)
+            (_ld / f"{short_id}_seed{seed}.log").write_text(tail, encoding="utf-8")
             dur = time.time() - t0
             wrote_row = _file_size() > size_before
 

@@ -187,7 +187,11 @@ class CompositeClassificationEstimator(ClassifierMixin, BaseEstimator):
             _default_base = make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True), LogisticRegression(max_iter=1000))
             self.base_margin_estimator_ = clone(self.base_margin_estimator if self.base_margin_estimator is not None else _default_base)
             if sample_weight is not None:
-                self.base_margin_estimator_.fit(X, y_enc, sample_weight=sample_weight)
+                _base = self.base_margin_estimator_
+                if hasattr(_base, "steps"):
+                    _base.fit(X, y_enc, **{f"{_base.steps[-1][0]}__sample_weight": sample_weight})
+                else:
+                    _base.fit(X, y_enc, sample_weight=sample_weight)
             else:
                 self.base_margin_estimator_.fit(X, y_enc)
             base_margin = self._margin_from_estimator(self.base_margin_estimator_, X)
