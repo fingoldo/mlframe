@@ -259,7 +259,7 @@ def score_pair_combos_table_resident(
                         mi_table_d[base + c0:base + c1] = cp.where(live_d, mi_d, -1.0)
                         wrote_resident = True
                 except Exception as e:
-                    logger.debug("resident MI-table write failed, falling back to the per-row sync path: %s", e)
+                    logger.warning("resident MI-table write failed, falling back to the per-row sync path: %s", e)
                     wrote_resident = False
                 if not wrote_resident:  # per-row sync fallback (bit-faithful)
                     codes, kx = _gpu_quantile_bin_codes(cand if col_major else cp.ascontiguousarray(cand.T), d_qs)

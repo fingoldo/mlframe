@@ -196,7 +196,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
         )
         return out
     except Exception as e:
-        logger.debug("batched-fill kernel failed, falling back to the per-candidate loop: %s", e)
+        logger.warning("batched-fill kernel failed, falling back to the per-candidate loop: %s", e)
         cands = list(cols_arr_gpu)
         for i in range(m):
             for j in range(i + 1, m):
