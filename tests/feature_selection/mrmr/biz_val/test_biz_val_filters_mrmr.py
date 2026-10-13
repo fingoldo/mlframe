@@ -59,7 +59,7 @@ def test_biz_val_mrmr_interactions_max_order_3way_xor_recovery():
 
     def _top5_overlap(order):
         """Top5 overlap."""
-        sel = MRMR(interactions_max_order=order, verbose=0, random_seed=42)
+        sel = MRMR(interactions_max_order=order, verbose=0, random_state=42)
         sel.fit(df, ys)
         return len(set(int(i) for i in sel.support_[:5]) & {0, 1, 2})
 
@@ -125,9 +125,9 @@ def test_biz_val_mrmr_min_relevance_gain_stops_at_noise():
     y = (X_signal.sum(axis=1) > 0).astype(np.int64)
     df, ys = _to_df(X, y)
 
-    sel_loose = MRMR(min_relevance_gain=1e-6, verbose=0, random_seed=42)
+    sel_loose = MRMR(min_relevance_gain=1e-6, verbose=0, random_state=42)
     sel_loose.fit(df, ys)
-    sel_tight = MRMR(min_relevance_gain=0.05, verbose=0, random_seed=42)
+    sel_tight = MRMR(min_relevance_gain=0.05, verbose=0, random_state=42)
     sel_tight.fit(df, ys)
 
     # Re-baselined for full-mode default: under full mode the signal trio
@@ -181,9 +181,9 @@ def test_biz_val_mrmr_n_workers_threading_no_crash_no_regression():
     # fe_fast_search=False + explicit fe_max_steps=1) -- a separate framework bug tracked for follow-up,
     # NOT introduced by the fast toggle. Pin the exhaustive path so this sensor keeps guarding what it was
     # written to guard; the fast-path determinism is covered once that order-2 threading bug is fixed.
-    sel_1 = MRMR(interactions_max_order=2, verbose=0, random_seed=42, n_workers=1, fe_fast_search=False)
+    sel_1 = MRMR(interactions_max_order=2, verbose=0, random_state=42, n_workers=1, fe_fast_search=False)
     sel_1.fit(df.copy(), ys)
-    sel_4 = MRMR(interactions_max_order=2, verbose=0, random_seed=42, n_workers=4, fe_fast_search=False)
+    sel_4 = MRMR(interactions_max_order=2, verbose=0, random_state=42, n_workers=4, fe_fast_search=False)
     sel_4.fit(df.copy(), ys)
     # Threading parallelism CAN change candidate-evaluation order when
     # multiple workers tie on score; the SET of selected features must
@@ -272,7 +272,7 @@ def test_biz_val_mrmr_quantization_method_recovers_signal_on_linear(method):
 
     X, y, signal = make_signal_plus_noise(n=1500, p_signal=3, p_noise=8, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, quantization_method=method)
+    sel = MRMR(verbose=0, random_state=42, quantization_method=method)
     sel.fit(df, ys)
     # Re-baselined for full-mode default: full mode de-duplicates the
     # redundant signal trio into engineered combos, so raw `support_`
@@ -323,12 +323,12 @@ def test_biz_val_mrmr_use_simple_mode_faster_on_redundant_data():
 
     # Warmup numba (both modes share kernels). Fit on private copies: full
     # mode appends engineered cols to the input frame in place.
-    MRMR(verbose=0, random_seed=42, use_simple_mode=False).fit(df.copy(), ys)
+    MRMR(verbose=0, random_state=42, use_simple_mode=False).fit(df.copy(), ys)
 
     def _fit_timed(simple: bool):
         """The fitted selector and the wall seconds of its fit."""
         t0 = time.perf_counter()
-        sel = MRMR(verbose=0, random_seed=42, use_simple_mode=simple)
+        sel = MRMR(verbose=0, random_state=42, use_simple_mode=simple)
         sel.fit(df.copy(), ys)
         return sel, time.perf_counter() - t0
 
@@ -367,12 +367,12 @@ def test_biz_val_mrmr_full_npermutations_low_value_faster_same_topk():
     df, ys = as_df(X, y)
     # Warmup. Fit on private copies: full-mode FE appends engineered cols
     # to the input frame in place, which would otherwise bleed across fits.
-    MRMR(verbose=0, random_seed=42).fit(df.copy(), ys)
+    MRMR(verbose=0, random_state=42).fit(df.copy(), ys)
 
     def _fit_timed(n_perm: int):
         """The fitted selector and the wall seconds of its fit."""
         t0 = time.perf_counter()
-        sel = MRMR(verbose=0, random_seed=42, full_npermutations=n_perm)
+        sel = MRMR(verbose=0, random_state=42, full_npermutations=n_perm)
         sel.fit(df.copy(), ys)
         return sel, time.perf_counter() - t0
 
@@ -426,8 +426,8 @@ def test_biz_val_mrmr_extra_x_shuffling_changes_selection_distribution():
 
     # Fit on private copies: full-mode FE appends engineered cols in place,
     # so sharing `df` across the two fits would pollute the second.
-    sel_on = MRMR(verbose=0, random_seed=42, extra_x_shuffling=True)
-    sel_off = MRMR(verbose=0, random_seed=42, extra_x_shuffling=False)
+    sel_on = MRMR(verbose=0, random_state=42, extra_x_shuffling=True)
+    sel_off = MRMR(verbose=0, random_state=42, extra_x_shuffling=False)
     sel_on.fit(df.copy(), ys)
     sel_off.fit(df.copy(), ys)
 
@@ -552,7 +552,7 @@ def test_biz_val_mrmr_max_consec_unconfirmed_higher_keeps_more(max_consec):
 
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=10, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, max_consec_unconfirmed=max_consec)
+    sel = MRMR(verbose=0, random_state=42, max_consec_unconfirmed=max_consec)
     sel.fit(df, ys)
     # ``support_`` tracks RAW column indices only and is legitimately empty when the final
     # selection is 100% engineered composites (e.g. every raw operand got fused into one
@@ -574,7 +574,7 @@ def test_biz_val_mrmr_baseline_npermutations_robust_topk(baseline_n):
 
     X, y, signal = make_signal_plus_noise(n=1000, p_signal=3, p_noise=8, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, baseline_npermutations=baseline_n)
+    sel = MRMR(verbose=0, random_state=42, baseline_npermutations=baseline_n)
     sel.fit(df, ys)
     # Re-baselined for full-mode default: the redundant signal trio is
     # de-duplicated into engineered combos outside raw `support_`; credit
@@ -597,7 +597,7 @@ def test_biz_val_mrmr_redundancy_algo_smoke(redundancy_algo):
 
     X, y, unique_idx = make_correlated_redundant(n=800, n_corr=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, mrmr_redundancy_algo=redundancy_algo)
+    sel = MRMR(verbose=0, random_state=42, mrmr_redundancy_algo=redundancy_algo)
     sel.fit(df, ys)
     names = list(sel.get_feature_names_out())
     assert signal_recovery_count(sel, [unique_idx]) == 1, f"the orthogonal informative column x{unique_idx} must be selected; got {names}"
@@ -633,8 +633,8 @@ def test_biz_val_mrmr_only_unknown_interactions_actual_semantic():
     df, ys = as_df(X, y)
 
     # Both modes must complete on 3-way XOR with order=3.
-    sel_full = MRMR(verbose=0, random_seed=42, interactions_max_order=3, only_unknown_interactions=False)
-    sel_skip = MRMR(verbose=0, random_seed=42, interactions_max_order=3, only_unknown_interactions=True)
+    sel_full = MRMR(verbose=0, random_state=42, interactions_max_order=3, only_unknown_interactions=False)
+    sel_skip = MRMR(verbose=0, random_state=42, interactions_max_order=3, only_unknown_interactions=True)
     sel_full.fit(df, ys)
     sel_skip.fit(df, ys)
     # Structural invariants.
@@ -665,8 +665,8 @@ def test_biz_val_mrmr_only_unknown_interactions_completes_smoke():
 
     X, y, _ = make_3way_xor(n=1000, p=8, seed=42)
     df, ys = as_df(X, y)
-    sel_full = MRMR(verbose=0, random_seed=42, interactions_max_order=3, only_unknown_interactions=False)
-    sel_skip = MRMR(verbose=0, random_seed=42, interactions_max_order=3, only_unknown_interactions=True)
+    sel_full = MRMR(verbose=0, random_state=42, interactions_max_order=3, only_unknown_interactions=False)
+    sel_skip = MRMR(verbose=0, random_state=42, interactions_max_order=3, only_unknown_interactions=True)
     sel_full.fit(df, ys)
     sel_skip.fit(df, ys)
     assert 1 <= len(sel_full.support_) <= df.shape[1]
@@ -689,7 +689,7 @@ def test_biz_val_mrmr_robust_signal_recovery_across_seeds(seed):
 
     X, y, signal = make_signal_plus_noise(n=1000, p_signal=3, p_noise=8, seed=seed)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=seed)
+    sel = MRMR(verbose=0, random_state=seed)
     sel.fit(df, ys)
     # Re-baselined for full-mode default (use_simple_mode=False): on
     # y=sign(x0+x1+x2) full mode DE-DUPLICATES the redundant raw signal
@@ -730,7 +730,7 @@ def test_biz_val_mrmr_scales_across_dataset_sizes(n_samples, p_features):
     X = rng.normal(size=(n_samples, p_features))
     y = (X[:, 0] + X[:, 1] > 0).astype(np.int64)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42)
+    sel = MRMR(verbose=0, random_state=42)
     sel.fit(df, ys)
     # Re-baselined for full-mode default: full mode often de-duplicates the
     # x0+x1 signal into a single ENGINEERED feature (e.g. add(x0,x1)) with
@@ -795,7 +795,7 @@ def test_biz_val_mrmr_factors_names_to_use_restricts_search(factors_names_subset
 
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, factors_names_to_use=factors_names_subset)
+    sel = MRMR(verbose=0, random_state=42, factors_names_to_use=factors_names_subset)
     sel.fit(df, ys)
     selected_names = set(df.columns[i] for i in sel.support_)
     # All selected features must be in the requested subset.
@@ -818,7 +818,7 @@ def test_biz_val_mrmr_factors_names_to_use_restricts_empty_screen_rescue():
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
     subset = ["x3"]  # pure-noise column; forces the empty-screen rescue
-    sel = MRMR(verbose=0, random_seed=42, min_features_fallback=2, factors_names_to_use=subset)
+    sel = MRMR(verbose=0, random_state=42, min_features_fallback=2, factors_names_to_use=subset)
     sel.fit(df, ys)
     selected_names = set(df.columns[i] for i in sel.support_)
     assert selected_names.issubset(set(subset)), f"empty-screen rescue leaked a forbidden feature; factors_names_to_use={subset}, got {selected_names}"
@@ -936,7 +936,7 @@ def test_biz_val_mrmr_factors_to_use_int_indices_restricts_search():
 
     X, y, _ = make_signal_plus_noise(n=800, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, factors_to_use=[0, 1, 2])
+    sel = MRMR(verbose=0, random_state=42, factors_to_use=[0, 1, 2])
     sel.fit(df, ys)
     selected = set(int(i) for i in sel.support_)
     allowed = {0, 1, 2}
@@ -954,7 +954,7 @@ def test_biz_val_mrmr_cv_int_parametrize_completes(cv_value):
 
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, cv=cv_value)
+    sel = MRMR(verbose=0, random_state=42, cv=cv_value)
     sel.fit(df, ys)
     assert 1 <= len(sel.support_) <= df.shape[1]
 
@@ -970,7 +970,7 @@ def test_biz_val_mrmr_cv_shuffle_parametrize_completes(cv_shuffle_flag):
 
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, cv_shuffle=cv_shuffle_flag)
+    sel = MRMR(verbose=0, random_state=42, cv_shuffle=cv_shuffle_flag)
     sel.fit(df, ys)
     assert 1 <= len(sel.support_) <= df.shape[1]
 
@@ -987,7 +987,7 @@ def test_biz_val_mrmr_max_veteranes_interactions_order_parametrize(max_veteranes
 
     X, y, _ = make_correlated_redundant(n=600, n_corr=3, p_noise=4, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, max_veteranes_interactions_order=max_veteranes_order)
+    sel = MRMR(verbose=0, random_state=42, max_veteranes_interactions_order=max_veteranes_order)
     sel.fit(df, ys)
     # Re-baselined for full-mode default: full-mode dedup can leave the raw
     # `support_` empty when the survivor is an engineered feature; count
@@ -1137,7 +1137,7 @@ def test_biz_val_mrmr_quantization_nbins_range_parametrize(nbins):
 
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, quantization_nbins=nbins)
+    sel = MRMR(verbose=0, random_state=42, quantization_nbins=nbins)
     sel.fit(df, ys)
     # Full-mode honest invariant: assert on the TOTAL selection (raw +
     # engineered), not the RAW ``support_`` alone. At some bin counts (e.g.
@@ -1167,7 +1167,7 @@ def test_biz_val_mrmr_dtype_parametrize(dtype):
 
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, dtype=dtype)
+    sel = MRMR(verbose=0, random_state=42, dtype=dtype)
     sel.fit(df, ys)
     assert 1 <= len(sel.support_) <= df.shape[1]
 
@@ -1210,7 +1210,7 @@ def test_biz_val_mrmr_property_no_crash_on_random_configs():
             seed=seed,
         )
         df, ys = as_df(X, y)
-        sel = MRMR(verbose=0, random_seed=seed)
+        sel = MRMR(verbose=0, random_state=seed)
         sel.fit(df, ys)
         # Re-baselined for full-mode default: full mode may de-duplicate all
         # signal into engineered features leaving an EMPTY raw `support_`,
@@ -1244,7 +1244,7 @@ def test_biz_val_mrmr_regression_target_completes(target_type):
     y = X_sig.sum(axis=1) + 0.3 * rng.normal(size=n)
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p_signal + p_noise)])
     ys = pd.Series(y, name="y")
-    sel = MRMR(verbose=0, random_seed=42)
+    sel = MRMR(verbose=0, random_state=42)
     sel.fit(df, ys)
     # Regression: still expect signal features (0, 1, 2) in top-5
     top5 = set(int(i) for i in sel.support_[:5])
@@ -1264,7 +1264,7 @@ def test_biz_val_mrmr_min_occupancy_parametrize(min_occupancy):
 
     X, y, _ = make_signal_plus_noise(n=600, p_signal=3, p_noise=5, seed=42)
     df, ys = as_df(X, y)
-    sel = MRMR(verbose=0, random_seed=42, min_occupancy=min_occupancy)
+    sel = MRMR(verbose=0, random_state=42, min_occupancy=min_occupancy)
     sel.fit(df, ys)
     assert 1 <= len(sel.support_) <= df.shape[1]
 
@@ -1281,8 +1281,8 @@ def test_biz_val_mrmr_min_nonzero_confidence_high_picks_fewer():
 
     X, y, _ = make_signal_plus_noise(n=1000, p_signal=2, p_noise=15, seed=42)
     df, ys = as_df(X, y)
-    sel_loose = MRMR(verbose=0, random_seed=42, min_nonzero_confidence=0.90)
-    sel_strict = MRMR(verbose=0, random_seed=42, min_nonzero_confidence=0.999)
+    sel_loose = MRMR(verbose=0, random_state=42, min_nonzero_confidence=0.90)
+    sel_strict = MRMR(verbose=0, random_state=42, min_nonzero_confidence=0.999)
     sel_loose.fit(df, ys)
     sel_strict.fit(df, ys)
     # Re-baselined for full-mode default: full-mode dedup routes confirmed
@@ -1326,7 +1326,7 @@ def test_biz_val_mrmr_min_relevance_gain_relative_mode_scales_with_target_entrop
 
     def _resolved_floor(df, ys):
         """Resolved floor."""
-        sel = MRMR(verbose=2, random_seed=42, min_relevance_gain_frac=0.01)
+        sel = MRMR(verbose=2, random_state=42, min_relevance_gain_frac=0.01)
         with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
             caplog.clear()
             sel.fit(df, ys)

@@ -56,7 +56,7 @@ def test_every_roster_is_present_after_a_multioutput_fit(kind):
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(p)})
     y = (rng.random((n, 3)) < 0.3).astype(int) if kind == "multilabel" else rng.standard_normal((n, 3))
 
-    m = MRMR(verbose=0, fe_max_steps=1, dcd_enable=False, cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None, random_seed=0)
+    m = MRMR(verbose=0, fe_max_steps=1, dcd_enable=False, cluster_aggregate_enable=False, build_friend_graph=False, cat_fe_config=None, random_state=0)
     m.fit(X, y)
 
     missing = [name for name in FE_ROSTER_ATTRS if not hasattr(m, name)]

@@ -47,7 +47,7 @@ _RAW = dict(
 
 def _select(X_df, y, **axis_kwargs):
     """Fit a raw-mode MRMR and return the selected feature names as plain strings."""
-    sel = MRMR(verbose=0, max_runtime_mins=1, n_workers=1, quantization_nbins=8, random_seed=0, **_RAW, **axis_kwargs)
+    sel = MRMR(verbose=0, max_runtime_mins=1, n_workers=1, quantization_nbins=8, random_state=0, **_RAW, **axis_kwargs)
     sel.fit(X_df, pd.Series(y))
     return [str(c) for c in sel.get_feature_names_out()]
 

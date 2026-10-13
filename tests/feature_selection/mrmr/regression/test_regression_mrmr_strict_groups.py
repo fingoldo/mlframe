@@ -35,7 +35,7 @@ def _tiny_xy(seed: int = 0):
 def test_mrmr_strict_groups_true_raises_on_groups():
     """strict_groups=True must raise NotImplementedError when groups is passed without group_aware_mi."""
     X, y, groups = _tiny_xy()
-    sel = MRMR(verbose=0, random_seed=42, strict_groups=True)
+    sel = MRMR(verbose=0, random_state=42, strict_groups=True)
     with pytest.raises(NotImplementedError, match="groups"):
         sel.fit(X, y, groups=groups)
 
@@ -43,7 +43,7 @@ def test_mrmr_strict_groups_true_raises_on_groups():
 def test_mrmr_strict_groups_false_warns_on_groups():
     """strict_groups=False must warn-only and stamp groups_ignored_=True instead of raising."""
     X, y, groups = _tiny_xy()
-    sel = MRMR(verbose=0, random_seed=42, strict_groups=False)
+    sel = MRMR(verbose=0, random_state=42, strict_groups=False)
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         sel.fit(X, y, groups=groups)
@@ -61,7 +61,7 @@ def test_mrmr_strict_groups_default_is_true():
 def test_mrmr_strict_groups_no_op_when_groups_none():
     """strict_groups=True with groups=None must NOT raise."""
     X, y, _ = _tiny_xy()
-    sel = MRMR(verbose=0, random_seed=42, strict_groups=True, fe_max_steps=0)
+    sel = MRMR(verbose=0, random_state=42, strict_groups=True, fe_max_steps=0)
     sel.fit(X, y, groups=None)
     assert hasattr(sel, "support_")
 

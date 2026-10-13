@@ -39,7 +39,7 @@ def _fit(df, y, seed=0, verbose=0):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return MRMR(verbose=verbose, random_seed=seed).fit(X=df, y=y)
+        return MRMR(verbose=verbose, random_state=seed).fit(X=df, y=y)
 
 
 def _retained_pair_recipes(fs):

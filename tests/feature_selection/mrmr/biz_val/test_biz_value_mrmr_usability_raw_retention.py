@@ -52,7 +52,7 @@ def test_biz_value_usability_retention_keeps_linearly_usable_raws():
     X, y = _make_ratio_plus_trig(5000)
 
     np.random.seed(SEED)
-    fs = MRMR(verbose=0, random_seed=SEED, fe_max_steps=1)
+    fs = MRMR(verbose=0, random_state=SEED, fe_max_steps=1)
     fs.fit(X, y)
     selected = list(fs.get_feature_names_out())
     Xt = np.asarray(fs.transform(X), dtype=float)

@@ -25,7 +25,7 @@ def _frame(seed=0, n=600):
 def _fit(X, y):
     """A fresh fit with an explicit seed and the fit cache cleared, so nothing is replayed."""
     MRMR._FIT_CACHE.clear()
-    return MRMR(random_seed=42, n_jobs=1, verbose=0, fe_max_steps=1, full_npermutations=3, baseline_npermutations=2, skip_retraining_on_same_content=False).fit(X, y)
+    return MRMR(random_state=42, n_jobs=1, verbose=0, fe_max_steps=1, full_npermutations=3, baseline_npermutations=2, skip_retraining_on_same_content=False).fit(X, y)
 
 
 def test_selection_independent_of_global_numpy_seed():

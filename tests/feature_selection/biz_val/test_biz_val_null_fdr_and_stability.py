@@ -183,7 +183,7 @@ def _mrmr_null_count(seed: int, full_npermutations: int):
     X, y = _null_data(seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        sel = MRMR(verbose=0, min_features_fallback=0, full_npermutations=full_npermutations, random_seed=seed, cv=3).fit(X, y)
+        sel = MRMR(verbose=0, min_features_fallback=0, full_npermutations=full_npermutations, random_state=seed, cv=3).fit(X, y)
     return len(sel.support_), bool(getattr(sel, "fallback_used_", False))
 
 
@@ -300,7 +300,7 @@ def _bootstrap_masks_mrmr_and_mi(Xnp, ynp, B: int, seed0: int, mi_k: int | None,
             # masks, so engineered features are irrelevant to it; disabling FE keeps the
             # measurement correct AND drops the per-fit confirm_recipes_cross_fold cost
             # that otherwise makes the B-resample bootstrap intractable in a plain run.
-            m = MRMR(verbose=0, min_features_fallback=1, full_npermutations=3, random_seed=0, cv=3, fe_max_steps=0).fit(Xb, yb)
+            m = MRMR(verbose=0, min_features_fallback=1, full_npermutations=3, random_state=0, cv=3, fe_max_steps=0).fit(Xb, yb)
         names = set(selected_names(m))
         mask = np.array([c in names for c in cols], dtype=bool)
         mrmr_masks.append(mask)

@@ -122,7 +122,7 @@ def one_group_fit(request):
     tr, te = (0, 4000), (4000, 6000)
     Xtr, Xte, ytr, yte = df.iloc[tr[0] : tr[1]], df.iloc[te[0] : te[1]], y[tr[0] : tr[1]], y[te[0] : te[1]]
     s_rep = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode=mode, **_CA_KW).fit(Xtr, ytr)
-    s_off = MRMR(cluster_aggregate_enable=False, verbose=0, random_seed=42, use_simple_mode=False).fit(Xtr, ytr)
+    s_off = MRMR(cluster_aggregate_enable=False, verbose=0, random_state=42, use_simple_mode=False).fit(Xtr, ytr)
     return dict(mode=mode, s_rep=s_rep, s_off=s_off, df=df, Xtr=Xtr, Xte=Xte, ytr=ytr, yte=yte, info=info, refl_names=[f"x{i}" for i in info["reflections"]])
 
 
@@ -136,7 +136,7 @@ def two_group_fit():
     tr, te = (0, 4000), (4000, 6000)
     Xtr, Xte, ytr, yte = df.iloc[tr[0] : tr[1]], df.iloc[te[0] : te[1]], y[tr[0] : tr[1]], y[te[0] : te[1]]
     s_rep = MRMR(cluster_aggregate_enable=True, cluster_aggregate_mode="replace", **_CA_KW).fit(Xtr, ytr)
-    s_off = MRMR(cluster_aggregate_enable=False, verbose=0, random_seed=42, use_simple_mode=False).fit(Xtr, ytr)
+    s_off = MRMR(cluster_aggregate_enable=False, verbose=0, random_state=42, use_simple_mode=False).fit(Xtr, ytr)
     return dict(s_rep=s_rep, s_off=s_off, df=df, Xtr=Xtr, Xte=Xte, ytr=ytr, yte=yte, info=info)
 
 

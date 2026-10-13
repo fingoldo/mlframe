@@ -69,7 +69,7 @@ def _make_data(n=600, d=4, seed=0):
 def _rmse_via_mrmr_passthrough(df, y):
     """End-to-end WITH passthrough: MRMR keeps the embedding, the MLP boundary encoder expands it."""
     tr_df, te_df, tr_y, te_y = _split(df, y)
-    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_seed=0, embedding_passthrough=True)
+    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_state=0, embedding_passthrough=True)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m.fit(tr_df, tr_y)
@@ -84,7 +84,7 @@ def _rmse_dropping_embedding(df, y):
     sees only the noise columns the screen could keep."""
     df_drop = df.drop(columns=["emb"])
     tr_df, te_df, tr_y, te_y = _split(df_drop, y)
-    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_seed=0)
+    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_state=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m.fit(tr_df, tr_y)
@@ -111,7 +111,7 @@ def _fit_predict_rmse(tr_sel, tr_y, te_sel, te_y, emb_in):
 def test_biz_val_mrmr_embedding_passthrough_legacy_drops_then_crashes():
     """Pin the bug the feature fixes: with passthrough OFF, MRMR.fit chokes on the unhashable ndarray cells."""
     df, y = _make_data(n=200)
-    m = MRMR(max_runtime_mins=0.2, fe_max_steps=0, random_seed=0, embedding_passthrough=False)
+    m = MRMR(max_runtime_mins=0.2, fe_max_steps=0, random_state=0, embedding_passthrough=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with pytest.raises(TypeError, match="unhashable"):

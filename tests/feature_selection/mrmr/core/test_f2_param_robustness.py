@@ -63,7 +63,7 @@ def _run_f2(full: int, baseline: int, n: int = 10_000, seed: int = 42) -> list:
         "from tests.feature_selection.mrmr.core.test_f2_single_compound_across_distributions import _make\n"
         f"df, y = _make('uniform', {n}, {seed})\n"
         "from mlframe.feature_selection.filters.mrmr import MRMR\n"
-        f"fs=MRMR(verbose=0, random_seed={seed}, n_jobs=1, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05,"
+        f"fs=MRMR(verbose=0, random_state={seed}, n_jobs=1, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05,"
         f" full_npermutations={full}, baseline_npermutations={baseline}).fit(df, y)\n"
         "print('RESULT_JSON='+json.dumps(list(fs.get_feature_names_out())))\n"
     )

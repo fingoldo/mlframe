@@ -46,7 +46,7 @@ def test_fit_rearms_cmi_gpu_breaker():
     """Fit rearms cmi gpu breaker."""
     _cmi_cuda._CMI_GPU_FAILED = True  # simulate a fault tripped by a PRIOR, unrelated fit
     X, y = _make_data(seed=1)
-    MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)
+    MRMR(verbose=0, random_state=42, fe_max_steps=0).fit(X, y)
     assert _cmi_cuda._CMI_GPU_FAILED is False, "fit() must re-arm the CMI GPU circuit breaker"
 
 
@@ -54,7 +54,7 @@ def test_fit_rearms_mi_direct_gpu_breaker():
     """Fit rearms mi direct gpu breaker."""
     _permutation_mod._MI_DIRECT_GPU_FAILED = True
     X, y = _make_data(seed=2)
-    MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)
+    MRMR(verbose=0, random_state=42, fe_max_steps=0).fit(X, y)
     assert _permutation_mod._MI_DIRECT_GPU_FAILED is False, "fit() must re-arm the mi_direct GPU circuit breaker"
 
 
@@ -62,7 +62,7 @@ def test_fit_rearms_pair_maxt_gpu_breaker():
     """Fit rearms pair maxt gpu breaker."""
     _pair_resident_mod._PAIR_MAXT_GPU_FAILED = True
     X, y = _make_data(seed=3)
-    MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)
+    MRMR(verbose=0, random_state=42, fe_max_steps=0).fit(X, y)
     assert _pair_resident_mod._PAIR_MAXT_GPU_FAILED is False, "fit() must re-arm the pair-maxT GPU circuit breaker"
 
 
@@ -80,7 +80,7 @@ def test_breaker_reset_is_resilient_to_missing_gpu_modules(monkeypatch):
     # Patch the re-arm targets' own reset functions to raise, proving fit() swallows the failure.
     monkeypatch.setattr(_fit_helpers_mod, "reset_cmi_gpu_circuit_breaker", _boom)
     X, y = _make_data(seed=4)
-    m = MRMR(verbose=0, random_seed=42, fe_max_steps=0).fit(X, y)
+    m = MRMR(verbose=0, random_state=42, fe_max_steps=0).fit(X, y)
     assert len(calls) >= 1, "fit() never reached the failing re-arm hook"
     assert m.n_features_in_ == X.shape[1]
     assert len(m.support_) >= 1

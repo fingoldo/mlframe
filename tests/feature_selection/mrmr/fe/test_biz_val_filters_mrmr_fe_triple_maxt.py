@@ -173,7 +173,7 @@ class TestGateSeededTriplesOrder3Consumer:
         seeded = [gk] + [tuple(noise_idx[i : i + 3]) for i in range(0, 15, 3)]
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            m = MRMR(verbose=0, random_seed=42, fe_triple_maxt_null_permutations=perms)
+            m = MRMR(verbose=0, random_state=42, fe_triple_maxt_null_permutations=perms)
         kept = _gate_seeded_triples_order3(
             m,
             seeded,

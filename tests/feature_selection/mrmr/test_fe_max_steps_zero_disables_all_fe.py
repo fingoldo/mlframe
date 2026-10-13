@@ -69,7 +69,7 @@ def _engineered(support) -> list[str]:
 def test_fe_max_steps_zero_engineers_nothing_even_with_every_family_enabled():
     """With every family explicitly ON, fe_max_steps=0 must still produce a raw-only fit."""
     X, y = _fixture()
-    m = MRMR(fe_max_steps=0, verbose=0, random_seed=0, n_workers=1, quantization_nbins=10, **_ALL_FAMILIES_ON)
+    m = MRMR(fe_max_steps=0, verbose=0, random_state=0, n_workers=1, quantization_nbins=10, **_ALL_FAMILIES_ON)
     m.fit(X, y)
 
     support = list(m.get_feature_names_out())
@@ -85,7 +85,7 @@ def test_fe_budget_of_one_lets_the_same_families_fire():
     """Control: the identical config with fe_max_steps=1 DOES engineer -- so the test above pins the budget
     rule, not a frame on which no family could have found anything."""
     X, y = _fixture()
-    m = MRMR(fe_max_steps=1, verbose=0, random_seed=0, n_workers=1, quantization_nbins=10, **_ALL_FAMILIES_ON)
+    m = MRMR(fe_max_steps=1, verbose=0, random_state=0, n_workers=1, quantization_nbins=10, **_ALL_FAMILIES_ON)
     m.fit(X, y)
 
     produced = list(getattr(m, "hybrid_orth_candidates_", []) or [])
@@ -97,7 +97,7 @@ def test_fe_budget_of_one_lets_the_same_families_fire():
 def test_single_family_cannot_opt_past_a_zero_budget(flag):
     """Each family individually: its own flag must not override fe_max_steps=0."""
     X, y = _fixture(n=800)
-    m = MRMR(fe_max_steps=0, verbose=0, random_seed=0, n_workers=1, quantization_nbins=10, **{flag: True})
+    m = MRMR(fe_max_steps=0, verbose=0, random_state=0, n_workers=1, quantization_nbins=10, **{flag: True})
     m.fit(X, y)
     engineered = _engineered(list(m.get_feature_names_out()))
     assert not engineered, f"{flag}=True must not engineer anything at fe_max_steps=0; got {engineered}"

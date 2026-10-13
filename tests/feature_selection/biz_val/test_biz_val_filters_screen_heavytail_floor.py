@@ -196,7 +196,7 @@ class TestLognormalEndToEndNoNoiseLeaks:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_lognormal(seed)
-        sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_seed=seed)
+        sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_state=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel.fit(X, y)

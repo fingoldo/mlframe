@@ -54,7 +54,7 @@ def test_detect_passthrough_classifies_embedding_and_text():
 def test_mrmr_embedding_passed_through_untouched_numerics_selected():
     """Mrmr embedding passed through untouched numerics selected."""
     df, y = _make_frame()
-    m = MRMR(max_runtime_mins=0.5, fe_max_steps=0, random_seed=0)
+    m = MRMR(max_runtime_mins=0.5, fe_max_steps=0, random_state=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m.fit(df, y)
@@ -77,7 +77,7 @@ def test_mrmr_embedding_passed_through_untouched_numerics_selected():
 def test_mrmr_embedding_passthrough_opt_out_is_legacy():
     """With passthrough disabled the ndarray-celled column is not routed through, and the legacy discretiser fails on its unhashable cells."""
     df, y = _make_frame(n=200)
-    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_seed=0, embedding_passthrough=False)
+    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_state=0, embedding_passthrough=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with pytest.raises(TypeError, match="unhashable type: 'numpy.ndarray'"):
@@ -92,7 +92,7 @@ def test_mrmr_no_embedding_columns_is_noop():
     sig = rng.normal(size=n)
     df = pd.DataFrame({"a": sig, "b": rng.normal(size=n), "cat": (["x", "y", "z"] * n)[:n]})
     y = (sig > 0).astype(int)
-    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_seed=0)
+    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_state=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m.fit(df, y)
@@ -112,7 +112,7 @@ def test_mrmr_text_column_passed_through():
         }
     )
     y = (sig > 0).astype(int)
-    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_seed=0)
+    m = MRMR(max_runtime_mins=0.3, fe_max_steps=0, random_state=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m.fit(df, y)

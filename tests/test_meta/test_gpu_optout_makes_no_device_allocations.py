@@ -121,7 +121,7 @@ def test_gpu_optout_allocates_nothing_on_device(monkeypatch, device_alloc_counte
     # a pure-noise target can short-circuit early and never reach a dispatcher.
     y = ((X[:, 0] * X[:, 1] + np.sin(3.0 * X[:, 2]) + 0.3 * rng.normal(size=n)) > 0).astype(np.int64)
 
-    sel = MRMR(verbose=0, random_seed=0, fe_max_steps=2)
+    sel = MRMR(verbose=0, random_state=0, fe_max_steps=2)
     sel.fit(X, y)
 
     assert getattr(sel, "support_", None) is not None, "fit did not complete - allocation count is meaningless"

@@ -139,7 +139,7 @@ def test_greedy_still_selects_signal_after_refactor():
     X = rng.normal(size=(400, 6))
     y = ((X[:, 0] + X[:, 1]) > 0).astype(np.int64)
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(6)])
-    sel = MRMR(verbose=0, random_seed=42, use_simple_mode=False).fit(df, pd.Series(y, name="y"))
+    sel = MRMR(verbose=0, random_state=42, use_simple_mode=False).fit(df, pd.Series(y, name="y"))
 
     names = list(sel.feature_names_in_)
     referenced = {names[int(i)] for i in sel.support_}  # raw selections

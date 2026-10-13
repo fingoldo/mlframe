@@ -57,8 +57,8 @@ def test_relaxmrmr_fit_deterministic_same_seed():
     df, ys = _build_xor_fixture()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        sel1 = MRMR(verbose=0, random_seed=42, n_workers=1, max_runtime_mins=1, quantization_nbins=8, relaxmrmr_alpha=1.0).fit(df, ys)
-        sel2 = MRMR(verbose=0, random_seed=42, n_workers=1, max_runtime_mins=1, quantization_nbins=8, relaxmrmr_alpha=1.0).fit(df, ys)
+        sel1 = MRMR(verbose=0, random_state=42, n_workers=1, max_runtime_mins=1, quantization_nbins=8, relaxmrmr_alpha=1.0).fit(df, ys)
+        sel2 = MRMR(verbose=0, random_state=42, n_workers=1, max_runtime_mins=1, quantization_nbins=8, relaxmrmr_alpha=1.0).fit(df, ys)
     assert list(sel1.get_feature_names_out()) == list(sel2.get_feature_names_out())
 
 

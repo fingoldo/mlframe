@@ -31,7 +31,7 @@ def test_hinge_gate_skips_raw_categorical_selected_column():
     y = 0.5 * x + 2.5 * np.maximum(x - tau, 0.0) + cat_effect + rng.normal(0.0, 0.1, n)
     X = pd.DataFrame({"x_kink": x, "c_cat": pd.Categorical(cats), "noise": rng.normal(0.0, 1.0, n)})
 
-    fs = MRMR(verbose=0, random_seed=0).fit(X, y)  # pre-fix: ValueError "could not convert string to float" inside the hinge protection gate
+    fs = MRMR(verbose=0, random_state=0).fit(X, y)  # pre-fix: ValueError "could not convert string to float" inside the hinge protection gate
     names = list(fs.get_feature_names_out())
     assert names, "MRMR selected nothing"
     # The categorical carried the dominant signal, so it must be in support (proving the gate iterated a non-numeric selected column and survived).

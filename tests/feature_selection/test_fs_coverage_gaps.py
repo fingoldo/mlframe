@@ -61,11 +61,11 @@ def test_mrmr_fit_cache_distinguishes_distinct_y_in_same_process():
     y_b = (X_df["f3"] > 0).astype(int).to_numpy()  # different target -> different signal column
 
     MRMR.clear_fit_cache()
-    a = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_seed=0)
+    a = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_state=0)
     a.fit(X_df, y_a)
     sig_a = a.signature
 
-    b = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_seed=0)
+    b = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_state=0)
     b.fit(X_df, y_b)
     sig_b = b.signature
     assert sig_a != sig_b, "MRMR fit-cache must distinguish suites with different y content (shape collision should not trigger a cross-suite cache hit)."
@@ -98,7 +98,7 @@ def test_mrmr_fe_fallback_to_all_legacy_branch_constructs_cleanly():
     The constructor must accept the flag and retain it; no immediate crash on instantiation."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    mrmr = MRMR(fe_fallback_to_all=True, verbose=0, random_seed=0)
+    mrmr = MRMR(fe_fallback_to_all=True, verbose=0, random_state=0)
     assert mrmr.fe_fallback_to_all is True
 
 

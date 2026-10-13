@@ -141,7 +141,7 @@ def test_a1_13_fallback_metadata_populated():
     n = 500
     X = pd.DataFrame({f"n{i}": rng.normal(size=n) for i in range(6)})
     y = pd.Series(rng.integers(0, 2, n), name="t")  # pure noise: this draw drives the screen to zero features
-    m = MRMR(verbose=0, fe_max_steps=0, random_seed=7, min_features_fallback=1)
+    m = MRMR(verbose=0, fe_max_steps=0, random_state=7, min_features_fallback=1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         m.fit(X, y)

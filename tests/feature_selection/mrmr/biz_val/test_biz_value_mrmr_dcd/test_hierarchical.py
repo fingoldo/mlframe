@@ -270,7 +270,7 @@ class TestLayer48_FitIntegration:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _hierarchical_two_super_three_sub(n=500, seed=20)
-        m = MRMR(dcd_enable=False, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=False, verbose=0, random_state=0).fit(X, y)
         assert hasattr(m, "cluster_hierarchy_")
         assert m.cluster_hierarchy_ is None
 

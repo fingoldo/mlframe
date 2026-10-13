@@ -61,7 +61,7 @@ def test_rc2_diabetes_full_mode_recovers_features_and_r2():
     X, y = load_diabetes(return_X_y=True, as_frame=True)
     assert len(X) == 442  # the small-n regime that triggered the bug
 
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=0, use_simple_mode=False)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=0, use_simple_mode=False)
     sel.fit(X, y)
     feats = _raw_selected(sel, X.columns)
 
@@ -112,7 +112,7 @@ def test_rc2_exact_duplicate_dropped():
     Xd = X.copy()
     Xd["s5_dup"] = Xd["s5"]  # exact copy of a strong feature
 
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=0, use_simple_mode=False)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=0, use_simple_mode=False)
     sel.fit(Xd, y)
     feats = sel.get_feature_names_out()
 
@@ -131,7 +131,7 @@ def test_rc2_pure_noise_rejected_small_n():
     Xn = pd.DataFrame(rng.randn(n, 8), columns=[f"n{i}" for i in range(8)])
     yn = pd.Series(rng.randn(n), name="t")  # independent of every column
 
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=0, use_simple_mode=False)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=0, use_simple_mode=False)
     sel.fit(Xn, yn)
     feats = list(sel.get_feature_names_out())
 
@@ -173,7 +173,7 @@ def test_rc2_fallback_does_not_resurrect_genuine_duplicate():
     )
     yv = pd.Series(latent + 0.3 * rng.randn(n), name="t")
 
-    sel_on = MRMR(verbose=0, random_seed=1, fe_max_steps=0, use_simple_mode=False)
+    sel_on = MRMR(verbose=0, random_state=1, fe_max_steps=0, use_simple_mode=False)
     sel_on.fit(df, yv)
     feats_on = [f for f in sel_on.get_feature_names_out() if f in ("anchor", "collinear")]
 

@@ -31,7 +31,7 @@ def test_maximal_preset_excludes_non_rowwise_pure_and_replays_slice_consistent()
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(verbose=0, random_seed=0, fe_unary_preset="maximal", fe_binary_preset="maximal").fit(X=df, y=pd.Series(y, name="y"))
+        fs = MRMR(verbose=0, random_state=0, fe_unary_preset="maximal", fe_binary_preset="maximal").fit(X=df, y=pd.Series(y, name="y"))
 
     names = list(fs.get_feature_names_out())
     bad = [nm for nm in names if any(tok in nm for tok in ("grad1", "grad2", "logn"))]

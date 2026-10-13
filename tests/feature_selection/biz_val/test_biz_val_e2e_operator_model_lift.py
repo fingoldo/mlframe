@@ -80,7 +80,7 @@ def _split(df, y, frac: float = 0.7):
 def _select_train_predict(kwargs, df, y):
     """Fit MRMR(**kwargs) on TRAIN, replay onto TEST, train a small fixed-seed LGBM, return (test_auc, selected_names)."""
     df_tr, y_tr, df_te, y_te = _split(df, y)
-    fs = MRMR(verbose=0, random_seed=42, **kwargs)
+    fs = MRMR(verbose=0, random_state=42, **kwargs)
     fs.fit(df_tr, y_tr)
     names = list(fs.get_feature_names_out())
     Xtr = np.nan_to_num(np.asarray(fs.transform(df_tr), float), nan=0.0, posinf=0.0, neginf=0.0)

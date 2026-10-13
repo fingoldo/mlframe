@@ -50,10 +50,10 @@ def _capture_gate_seeds(monkeypatch):
 
 
 def test_fe_cmi_gate_seeded_from_random_seed_not_zero(monkeypatch):
-    """``MRMR(random_seed=K)`` (no ``random_state``) must seed the FE CMI gate with K, not 0."""
+    """``MRMR(random_state=K)`` (no ``random_state``) must seed the FE CMI gate with K, not 0."""
     seen = _capture_gate_seeds(monkeypatch)
     X, y = _fe_world(seed=0)
-    MRMR(random_seed=12345, max_runtime_mins=2.0).fit(X, y)
+    MRMR(random_state=12345, max_runtime_mins=2.0).fit(X, y)
     assert seen, "FE conditional-MI gate was never reached -- fixture failed to engineer >=2 candidates"
     assert all(s == 12345 for s in seen), f"gate seeded {seen}, expected all 12345 (random_seed dropped to 0?)"
 

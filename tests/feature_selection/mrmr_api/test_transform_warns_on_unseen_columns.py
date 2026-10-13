@@ -15,7 +15,7 @@ def _fitted():
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.normal(size=(300, 3)), columns=["a", "b", "c"])
     y = (X["a"] + 0.5 * X["b"] > 0).astype(np.int32).to_numpy()
-    m = MRMR(full_npermutations=3, baseline_npermutations=2, n_jobs=1, verbose=0, fe_max_steps=0, random_seed=0).fit(X, y)
+    m = MRMR(full_npermutations=3, baseline_npermutations=2, n_jobs=1, verbose=0, fe_max_steps=0, random_state=0).fit(X, y)
     return m, X
 
 

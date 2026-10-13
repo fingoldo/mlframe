@@ -35,7 +35,7 @@ def _escalate(nominal: bool):
     X = pd.DataFrame(rng.normal(size=(n, 3)), columns=["x0", "x1", "x2"])
     y = np.sin(3.7 * X["x0"].to_numpy()) * X["x1"].to_numpy() + 0.1 * rng.normal(size=n)
     classes_y = np.digitize(y, np.quantile(y, np.linspace(0, 1, 11)[1:-1])).astype(np.int32)
-    sel = MRMR(verbose=0, random_seed=0)
+    sel = MRMR(verbose=0, random_state=0)
     sel.feature_names_in_ = list(X.columns)
     sel._fe_escalation_nominal_target_ = nominal
     out = run_fe_auto_escalation(

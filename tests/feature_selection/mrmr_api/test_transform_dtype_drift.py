@@ -23,7 +23,7 @@ def _fitted():
     X = pd.DataFrame({"k": k, "x": x, "noise": rng.normal(size=n)})
     y = ((x + 0.8 * (k - 2)) > 0).astype(np.int64)
     MRMR._FIT_CACHE.clear()
-    m = MRMR(random_seed=0, n_jobs=1, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
+    m = MRMR(random_state=0, n_jobs=1, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
     names = set(map(str, m.get_feature_names_out()))
     assert {"k", "x"} <= names, f"fixture precondition: k and x must be selected, got {names}"
     return m, X
@@ -71,7 +71,7 @@ def _fitted_nullable_int_with_engineered_recipe():
     pdf = pd.DataFrame({"w": w, "a": a, "b": b})
     pldf = pl.DataFrame({"w": pl.Series("w", [None if np.isnan(v) else int(v) for v in w], dtype=pl.Int16), "a": a, "b": b})
     MRMR._FIT_CACHE.clear()
-    m = MRMR(random_seed=0, n_jobs=1, n_workers=1, verbose=0, fe_max_steps=1, use_simple_mode=True, quantization_nbins=8, full_npermutations=5,
+    m = MRMR(random_state=0, n_jobs=1, n_workers=1, verbose=0, fe_max_steps=1, use_simple_mode=True, quantization_nbins=8, full_npermutations=5,
              max_consec_unconfirmed=3, min_nonzero_confidence=0.9, max_runtime_mins=1).fit(pdf, y)
     return m, pdf, pldf
 

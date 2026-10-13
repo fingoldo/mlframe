@@ -231,7 +231,7 @@ class TestDeterminismProduction:
         y = pd.Series((sig > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            sel = MRMR(verbose=0, random_seed=7).fit(X, y)
+            sel = MRMR(verbose=0, random_state=7).fit(X, y)
         sel2 = pickle.loads(pickle.dumps(sel))  # nosec B301 -- round-trip of a locally-created, trusted object
         np.testing.assert_array_equal(sel.support_, sel2.support_)
         out1 = sel.transform(X)
@@ -244,7 +244,7 @@ class TestDeterminismProduction:
         from mlframe.feature_selection.filters.mrmr import MRMR
         from sklearn.base import clone
 
-        sel = MRMR(verbose=0, random_seed=42, dcd_enable=True, quantization_nbins=8)
+        sel = MRMR(verbose=0, random_state=42, dcd_enable=True, quantization_nbins=8)
         sel2 = clone(sel)
         # Same params
         assert sel.get_params() == sel2.get_params()

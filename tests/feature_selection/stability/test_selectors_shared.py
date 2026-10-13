@@ -57,7 +57,7 @@ def _make_mrmr():
         # random_seed is the MRMR-specific RNG knob (vs RFECV's random_state).
         # Set it for determinism tests; MRMR uses permutation-based MI which
         # is non-deterministic without a fixed seed.
-        return MRMR(verbose=False, random_seed=0)
+        return MRMR(verbose=False, random_state=0)
     except ImportError:
         pytest.skip("MRMR not importable")
 

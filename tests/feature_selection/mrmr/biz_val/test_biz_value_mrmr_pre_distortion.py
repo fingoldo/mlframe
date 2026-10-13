@@ -184,7 +184,7 @@ def _unb():
     # see ``test_fpoly_unary_binary_prewarp_recovers``), so it must be disabled
     # here for the boundary tests to measure the elementary library-unary search
     # in isolation, which is what their docstrings describe.
-    return MRMR(verbose=0, n_jobs=1, random_seed=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=False, **_LEAN)
+    return MRMR(verbose=0, n_jobs=1, random_state=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=False, **_LEAN)
 
 
 def _unb_no_escalation():
@@ -226,7 +226,7 @@ def _orth_hybrid_pair_no_escalation():
 def _unb_prewarp():
     """Elementary unary/binary pair search with the production-default prewarp on."""
     # Elementary unary/binary search WITH the production-default prewarp on.
-    return MRMR(verbose=0, n_jobs=1, random_seed=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=True, **_LEAN)
+    return MRMR(verbose=0, n_jobs=1, random_state=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=True, **_LEAN)
 
 
 def _orth_smart_polynom(basis="chebyshev"):

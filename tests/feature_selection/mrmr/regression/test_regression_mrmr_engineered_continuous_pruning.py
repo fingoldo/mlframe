@@ -175,7 +175,7 @@ def test_prune_hook_fires_during_real_multi_round_fit():
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(_h, "_prune_engineered_continuous_store", spy)
-        m = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_seed=42)
+        m = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_state=42)
         m.fit(df, y)
 
     assert calls, "expected the prune hook to run at least once during a multi-round FE fit"
@@ -191,12 +191,12 @@ def test_selection_unchanged_vs_no_pruning_baseline():
     df, y = _canonical_composite_fixture()
 
     with pytest.MonkeyPatch.context() as mp:
-        m_pruned = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_seed=42)
+        m_pruned = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_state=42)
         m_pruned.fit(df, y)
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(_h, "_prune_engineered_continuous_store", lambda *a, **k: 0)
-        m_baseline = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_seed=42)
+        m_baseline = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_state=42)
         m_baseline.fit(df, y)
 
     assert list(m_pruned.get_feature_names_out()) == list(m_baseline.get_feature_names_out()), "pruning must not change the final selection"
@@ -208,6 +208,6 @@ def test_engineered_continuous_store_freed_at_fit_end():
     """Post-fit, the scratch store must not be a populated instance attribute (pre-existing contract,
     unaffected by mid-fit pruning -- the final delete still fires)."""
     df, y = _canonical_composite_fixture(seed=5)
-    m = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_seed=5)
+    m = MRMR(verbose=0, fe_max_steps=1, n_workers=1, fit_cache_max=0, random_state=5)
     m.fit(df, y)
     assert not getattr(m, "_engineered_continuous_", None), "engineered-continuous scratch must be empty/absent after fit"

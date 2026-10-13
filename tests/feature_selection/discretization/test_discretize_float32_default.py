@@ -94,13 +94,13 @@ def test_float32_default_selection_matches_float64_forced():
 
     os.environ["MLFRAME_DISCRETIZE_FLOAT32"] = "0"
     try:
-        m64 = MRMR(n_jobs=1, n_workers=1, random_seed=13, verbose=0, fe_max_steps=0)
+        m64 = MRMR(n_jobs=1, n_workers=1, random_state=13, verbose=0, fe_max_steps=0)
         m64.fit(X, y)
     finally:
         del os.environ["MLFRAME_DISCRETIZE_FLOAT32"]
 
     # Default path (float32) -- env left unset by the autouse fixture.
-    m32 = MRMR(n_jobs=1, n_workers=1, random_seed=13, verbose=0, fe_max_steps=0)
+    m32 = MRMR(n_jobs=1, n_workers=1, random_state=13, verbose=0, fe_max_steps=0)
     m32.fit(X, y)
 
     assert list(m64.support_) == list(

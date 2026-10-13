@@ -269,7 +269,7 @@ class TestMiscDegenerate:
             # noise column's spurious relevance clears the screen by chance -- and therefore whether the
             # fallback path fires at all -- is itself non-deterministic across runs, making fallback_used_
             # flake independent of the actual no-garbage-output contract (which held either way).
-            sel = MRMR(verbose=0, fe_max_steps=0, random_seed=7).fit(X, y)
+            sel = MRMR(verbose=0, fe_max_steps=0, random_state=7).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert _no_garbage_names(names)
         assert all(n0 in X.columns for n0 in names), f"fallback returned a non-raw / garbage name: {names}"
@@ -337,6 +337,6 @@ class TestDeterminism:
         y = pd.Series((a > 0).astype(int))
         with _q():
             warnings.simplefilter("ignore")
-            s1 = MRMR(verbose=0, random_seed=7, fe_max_steps=0).fit(X, y)
-            s2 = MRMR(verbose=0, random_seed=7, fe_max_steps=0).fit(X, y)
+            s1 = MRMR(verbose=0, random_state=7, fe_max_steps=0).fit(X, y)
+            s2 = MRMR(verbose=0, random_state=7, fe_max_steps=0).fit(X, y)
         assert list(s1.get_feature_names_out()) == list(s2.get_feature_names_out())

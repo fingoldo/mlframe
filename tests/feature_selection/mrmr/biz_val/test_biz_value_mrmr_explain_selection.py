@@ -188,7 +188,7 @@ def test_explain_selection_never_raises_on_unfitted():
     """Explain selection never raises on unfitted."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    est = MRMR(verbose=0, random_seed=0)
+    est = MRMR(verbose=0, random_state=0)
     # unfitted: must not raise, returns a valid (degraded) report.
     report = est.explain_selection()
     assert isinstance(report, str) and report

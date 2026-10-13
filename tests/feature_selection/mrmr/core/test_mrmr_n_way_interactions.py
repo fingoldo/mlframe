@@ -55,7 +55,7 @@ def test_3way_screening_finds_signal_triplet(seed):
     X, y = _make_3way_xor(n=2000, n_features=8, seed=seed)
     X_df, y_ser = _to_df(X, y)
 
-    sel = MRMR(interactions_max_order=3, verbose=0, random_seed=seed)
+    sel = MRMR(interactions_max_order=3, verbose=0, random_state=seed)
     sel.fit(X_df, y_ser)
 
     # Top-K features in selection order should include at least 2 of
@@ -107,7 +107,7 @@ def test_3way_signal_recovery_better_than_2way():
 
     def top5_overlap(order):
         """Top5 overlap."""
-        sel = MRMR(interactions_max_order=order, verbose=0, random_seed=42)
+        sel = MRMR(interactions_max_order=order, verbose=0, random_state=42)
         sel.fit(X_df, y_ser)
         top5 = set(int(i) for i in sel.support_[:5])
         return len(top5 & {0, 1, 2})
@@ -128,7 +128,7 @@ def test_4way_screening_does_not_crash():
     X, y = _make_4way_xor(n=2500, n_features=8, seed=42)
     X_df, y_ser = _to_df(X, y)
 
-    sel = MRMR(interactions_max_order=4, verbose=0, random_seed=42)
+    sel = MRMR(interactions_max_order=4, verbose=0, random_state=42)
     sel.fit(X_df, y_ser)
     assert sel.support_ is not None
     # MRMR returns CONFIRMED features; with order=4 on 4-way XOR
@@ -149,7 +149,7 @@ def test_3way_no_zero_division_on_pure_xor():
     X_df, y_ser = _to_df(X, y)
 
     # The FE step is gated by ``fe_max_steps``; we exercise it.
-    sel = MRMR(interactions_max_order=3, verbose=0, fe_max_steps=1, random_seed=42)
+    sel = MRMR(interactions_max_order=3, verbose=0, fe_max_steps=1, random_state=42)
     sel.fit(X_df, y_ser)  # Must not raise.
     assert sel.support_ is not None
 
@@ -165,10 +165,10 @@ def test_n_way_runtime_scales_polynomially(order):
     X, y = _make_3way_xor(n=1500, n_features=8, seed=42)
     X_df, y_ser = _to_df(X, y)
     # Warmup: pre-compile numba kernels via order=1 first.
-    MRMR(interactions_max_order=1, verbose=0, random_seed=42).fit(X_df, y_ser)
+    MRMR(interactions_max_order=1, verbose=0, random_state=42).fit(X_df, y_ser)
 
     t0 = time.perf_counter()
-    sel = MRMR(interactions_max_order=order, verbose=0, random_seed=42)
+    sel = MRMR(interactions_max_order=order, verbose=0, random_state=42)
     sel.fit(X_df, y_ser)
     dt = time.perf_counter() - t0
     # 30s quiet-box cap (real measurement <5s); xdist-relaxed under full-suite ``-n`` contention. This still trips a

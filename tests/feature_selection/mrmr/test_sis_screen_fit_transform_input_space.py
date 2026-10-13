@@ -38,7 +38,7 @@ def _data(seed=0):
 
 def _mrmr():
     """A light, deterministic selector whose SIS gate fires at this fixture's width."""
-    return MRMR(verbose=0, random_seed=0, fe_max_steps=0, fe_hinge_enable=False, dcd_enable=False, build_friend_graph=False, sis_screen_threshold=20)
+    return MRMR(verbose=0, random_state=0, fe_max_steps=0, fe_hinge_enable=False, dcd_enable=False, build_friend_graph=False, sis_screen_threshold=20)
 
 
 def test_sis_screen_ran_so_this_test_observes_the_gate():

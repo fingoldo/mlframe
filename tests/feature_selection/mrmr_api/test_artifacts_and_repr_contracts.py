@@ -58,7 +58,7 @@ def test_names_memo_is_not_pickled_and_names_survive():
     rng = np.random.default_rng(1)
     X = pd.DataFrame(rng.normal(size=(300, 3)), columns=["a", "b", "c"])
     y = (X["a"] > 0).astype(np.int32).to_numpy()
-    m = MRMR(full_npermutations=3, baseline_npermutations=2, n_jobs=1, verbose=0, fe_max_steps=0, random_seed=0).fit(X, y)
+    m = MRMR(full_npermutations=3, baseline_npermutations=2, n_jobs=1, verbose=0, fe_max_steps=0, random_state=0).fit(X, y)
     names = list(m.get_feature_names_out())
     assert "_engineered_names_cache_" not in m.__getstate__()
     assert list(pickle.loads(pickle.dumps(m)).get_feature_names_out()) == names  # nosec B301

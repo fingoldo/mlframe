@@ -9,7 +9,7 @@ Two gaps the per-mechanism FE suite never closes:
     never inspects ``_engineered_recipes_``. The joint family-wise error rate of
     the multi-family ``fe_max_steps=2`` default -- including whether it MANUFACTURES
     engineered features out of pure noise -- is untested. This file fits plain
-    ``MRMR(verbose=0, random_seed=seed)`` (NO other kwargs: the point is the default
+    ``MRMR(verbose=0, random_state=seed)`` (NO other kwargs: the point is the default
     users actually get) on a pure-noise frame with a few low-card int columns to
     wake the cat / count-freq paths, for both a binary-clf and a continuous-reg
     target, and pins a calibrated per-seed ceiling on ``len(get_feature_names_out())``
@@ -79,7 +79,7 @@ def _fit_default(X, y, seed: int):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return MRMR(verbose=0, random_seed=int(seed)).fit(X, y)
+        return MRMR(verbose=0, random_state=int(seed)).fit(X, y)
 
 
 def _n_selected(sel) -> int:
@@ -297,7 +297,7 @@ def test_all_fe_on_prod_default_redundancy_holds_auc(seed):
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        sel_default = MRMR(verbose=0, random_seed=seed, **_all_fe_kwargs()).fit(X_tr, y_tr)
+        sel_default = MRMR(verbose=0, random_state=seed, **_all_fe_kwargs()).fit(X_tr, y_tr)
         sel_isolated = MRMR(
             verbose=0,
             random_seed=seed,
@@ -333,7 +333,7 @@ def test_all_fe_on_prod_default_redundancy_holds_auc_fast():
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        sel_default = MRMR(verbose=0, random_seed=seed, **_all_fe_kwargs()).fit(X_tr, y_tr)
+        sel_default = MRMR(verbose=0, random_state=seed, **_all_fe_kwargs()).fit(X_tr, y_tr)
         sel_isolated = MRMR(
             verbose=0,
             random_seed=seed,

@@ -209,8 +209,8 @@ class TestStabilityQuant:
         y = pd.Series(y_arr)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            sel1 = MRMR(verbose=0, random_seed=42).fit(X, y)
-            sel2 = MRMR(verbose=0, random_seed=42).fit(X, y)
+            sel1 = MRMR(verbose=0, random_state=42).fit(X, y)
+            sel2 = MRMR(verbose=0, random_state=42).fit(X, y)
         sup1 = set(sel1.support_.tolist())
         sup2 = set(sel2.support_.tolist())
         # Jaccard similarity
@@ -233,8 +233,8 @@ class TestStabilityQuant:
         y = pd.Series((sig > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            sel1 = MRMR(verbose=0, random_seed=1).fit(X, y)
-            sel2 = MRMR(verbose=0, random_seed=99).fit(X, y)
+            sel1 = MRMR(verbose=0, random_state=1).fit(X, y)
+            sel2 = MRMR(verbose=0, random_state=99).fit(X, y)
         sup1 = set(sel1.support_.tolist())
         sup2 = set(sel2.support_.tolist())
         jaccard = len(sup1 & sup2) / max(len(sup1 | sup2), 1)

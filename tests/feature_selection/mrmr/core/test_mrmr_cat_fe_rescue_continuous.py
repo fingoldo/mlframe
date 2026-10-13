@@ -65,7 +65,7 @@ _SCORER_KW = dict(
 def test_count_encoding_survives_when_raw_cat_is_selected():
     """count_encoding survives when raw cat is selected."""
     X, y = _categorical(20)
-    sel = MRMR(verbose=0, random_seed=0, fe_count_encoding_enable=True, fe_count_encoding_cols=("cat",), **_SCORER_KW)
+    sel = MRMR(verbose=0, random_state=0, fe_count_encoding_enable=True, fe_count_encoding_cols=("cat",), **_SCORER_KW)
     sel.fit(X, y)
     assert sel.count_encoding_features_ == ["cat__count"], (
         f"count_encoding should survive the cat-FE floor-drop rescue on this fixture (raw 'cat' is an imperfect "
@@ -78,7 +78,7 @@ def test_frequency_encoding_survives_alongside_count_encoding():
     """frequency_encoding (an exact monotone rescale of count_encoding: freq = count / n) must survive under the
     SAME fixture/mechanism -- info-equivalent encodings should get the same rescue outcome."""
     X, y = _categorical(20)
-    sel = MRMR(verbose=0, random_seed=0, fe_frequency_encoding_enable=True, fe_frequency_encoding_cols=("cat",), **_SCORER_KW)
+    sel = MRMR(verbose=0, random_state=0, fe_frequency_encoding_enable=True, fe_frequency_encoding_cols=("cat",), **_SCORER_KW)
     sel.fit(X, y)
     msg = f"frequency_encoding should survive alongside count_encoding on an info-equivalent fixture; got {sel.frequency_encoding_features_!r}"
     assert sel.frequency_encoding_features_ == ["cat__freq"], msg

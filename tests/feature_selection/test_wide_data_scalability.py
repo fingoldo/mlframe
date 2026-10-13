@@ -53,7 +53,7 @@ def test_mrmr_core_filter_completes_wide(p):
     n = 2000 if p == 1000 else 1500
     X, y = _make_wide(n, p, seed=1)
     # n_jobs=1: avoid loky multiprocessing stalls on a contended box; the core filter path / guard is unaffected.
-    m = MRMR(verbose=0, fe_max_steps=0, n_jobs=1, random_seed=0)
+    m = MRMR(verbose=0, fe_max_steps=0, n_jobs=1, random_state=0)
     t0 = time.time()
     m.fit(X, y)
     dt = time.time() - t0

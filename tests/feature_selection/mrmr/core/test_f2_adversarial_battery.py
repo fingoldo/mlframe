@@ -106,7 +106,7 @@ def _fit(df: pd.DataFrame, y: pd.Series, seed: int = 0, **kw) -> MRMR:
     # per fit so each adversarial case's verdict is order-independent (was flaky across cases).
     """Helper that fit."""
     np.random.seed(seed)
-    fs = MRMR(verbose=0, random_seed=seed, **kw)
+    fs = MRMR(verbose=0, random_state=seed, **kw)
     fs.fit(df, y)
     return fs
 

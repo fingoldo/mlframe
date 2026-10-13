@@ -129,7 +129,7 @@ def _fit_mrmr(df, y, seed: int):
     relevance path under test."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_seed=seed)
+    sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_state=seed)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         sel.fit(df.copy(), y)
@@ -504,7 +504,7 @@ class TestNeverEmptyRawSupport:
         df, ys = as_df(X, y)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            sel = MRMR(verbose=0, random_seed=42, quantization_nbins=nbins).fit(df, ys)
+            sel = MRMR(verbose=0, random_state=42, quantization_nbins=nbins).fit(df, ys)
         names = list(sel.get_feature_names_out())
         assert len(names) >= 1, f"the never-empty guarantee: some feature must be confirmed; nbins={nbins}, names={names}"
         # support_ holds RAW indices; it may be empty in the engineered-only case, but never out of bounds.

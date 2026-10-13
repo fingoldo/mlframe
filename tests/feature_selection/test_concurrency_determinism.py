@@ -43,7 +43,7 @@ def test_mrmr_repeated_fit_deterministic_with_seed():
 
     sup_runs = []
     for _ in range(2):
-        sel = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=1, verbose=0, random_seed=42)
+        sel = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=1, verbose=0, random_state=42)
         sel.fit(df, y)
         sup_runs.append(np.sort(np.asarray(sel.support_)))
         MRMR._FIT_CACHE.clear()  # force re-fit, not cache replay
@@ -63,12 +63,12 @@ def test_mrmr_n_workers_1_vs_4_identical_with_seed():
     df, y = _make_data(seed=42)
 
     MRMR._FIT_CACHE.clear()
-    a = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=1, verbose=0, random_seed=42)
+    a = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=1, verbose=0, random_state=42)
     a.fit(df, y)
     sup_a = np.sort(np.asarray(a.support_))
 
     MRMR._FIT_CACHE.clear()
-    b = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=4, verbose=0, random_seed=42)
+    b = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=4, verbose=0, random_state=42)
     b.fit(df, y)
     sup_b = np.sort(np.asarray(b.support_))
 
@@ -262,7 +262,7 @@ def test_mrmr_concurrent_fit_no_cache_corruption():
     def _fit_a():
         """Fit a."""
         try:
-            sel = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_seed=11)
+            sel = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_state=11)
             sel.fit(df_a, y_a)
             supports["a"] = np.sort(np.asarray(sel.support_))
         except BaseException as exc:
@@ -271,7 +271,7 @@ def test_mrmr_concurrent_fit_no_cache_corruption():
     def _fit_b():
         """Fit b."""
         try:
-            sel = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_seed=22)
+            sel = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=1, verbose=0, random_state=22)
             sel.fit(df_b, y_b)
             supports["b"] = np.sort(np.asarray(sel.support_))
         except BaseException as exc:
@@ -303,11 +303,11 @@ def test_joblib_loky_vs_threading_backend_identical():
     df, y = _make_data(seed=42)
 
     MRMR._FIT_CACHE.clear()
-    sel_loky = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=2, parallel_kwargs={"backend": "loky"}, verbose=0, random_seed=42)
+    sel_loky = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=2, parallel_kwargs={"backend": "loky"}, verbose=0, random_state=42)
     sel_loky.fit(df, y)
 
     MRMR._FIT_CACHE.clear()
-    sel_thr = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=2, parallel_kwargs={"backend": "threading"}, verbose=0, random_seed=42)
+    sel_thr = MRMR(full_npermutations=5, baseline_npermutations=3, n_jobs=2, parallel_kwargs={"backend": "threading"}, verbose=0, random_state=42)
     sel_thr.fit(df, y)
 
     assert np.asarray(sel_loky.support_).size >= 1

@@ -23,7 +23,7 @@ def _frame(dtype, seed=0, n=1500):
 def _fit(X, y):
     """A deterministic light fit without FE."""
     MRMR._FIT_CACHE.clear()
-    return MRMR(random_seed=3, n_jobs=1, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
+    return MRMR(random_state=3, n_jobs=1, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
 
 
 def test_float32_X_matches_float64_X_support():

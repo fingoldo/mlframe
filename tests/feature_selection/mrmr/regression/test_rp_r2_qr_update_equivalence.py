@@ -138,7 +138,7 @@ def test_mrmr_fit_with_raw_protection_path_exercised_runs_clean():
     X = pd.DataFrame({f"x{i}": rng.standard_normal(n) for i in range(20)})
     y = X["x0"] * 2.0 + X["x1"] * 1.5 + rng.standard_normal(n) * 0.5
 
-    m = MRMR(fe_max_steps=1, fe_unary_preset="minimal", fe_binary_preset="minimal", verbose=0, random_seed=0)
+    m = MRMR(fe_max_steps=1, fe_unary_preset="minimal", fe_binary_preset="minimal", verbose=0, random_state=0)
     m.fit(X, y)
 
     assert m.support_ is not None

@@ -179,7 +179,7 @@ def test_setstate_injects_legacy_defaults():
     # Pretend old pickle: strip every newer attribute
     for k in ("max_confirmation_cand_nbins", "fe_fallback_to_all", "_engineered_features_", "_engineered_recipes_", "ran_out_of_time_"):
         state.pop(k, None)
-    fresh = _fast_mrmr.__wrapped__() if hasattr(_fast_mrmr, "__wrapped__") else MRMR(random_seed=42, verbose=0)
+    fresh = _fast_mrmr.__wrapped__() if hasattr(_fast_mrmr, "__wrapped__") else MRMR(random_state=42, verbose=0)
     fresh.__setstate__(state)
     # All legacy-default attrs are now present:
     assert hasattr(fresh, "_engineered_features_")

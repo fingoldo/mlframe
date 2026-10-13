@@ -103,14 +103,14 @@ def test_fast_search_recovers_signal_and_skips_the_cleanup_passes(case, monkeypa
 
     # Default reference (fast OFF) -- establishes the MAE bar and the passes the fast profile drops.
     MRMR._FIT_CACHE.clear()
-    m_ref = MRMR(verbose=0, random_seed=0, fe_fast_search=False).fit(df.copy(), y.copy())
+    m_ref = MRMR(verbose=0, random_state=0, fe_fast_search=False).fit(df.copy(), y.copy())
     ref_calls = dict(calls)
     mae_ref = _ridge_holdout_mae(m_ref, df, y)
 
     # Fast path.
     calls.update(vote=0, escalation=0)
     MRMR._FIT_CACHE.clear()
-    m_fast = MRMR(verbose=0, random_seed=0, fe_fast_search=True).fit(df.copy(), y.copy())
+    m_fast = MRMR(verbose=0, random_state=0, fe_fast_search=True).fit(df.copy(), y.copy())
     fast_calls = dict(calls)
     names_fast = list(m_fast.get_feature_names_out())
     mae_fast = _ridge_holdout_mae(m_fast, df, y)
@@ -175,7 +175,7 @@ def test_fast_search_toggle_restores_knobs():
     """fe_fast_search must NOT permanently mutate the constructor-arg knobs (clone/pickle/repeat-fit
     stability) -- the fast profile is applied per-fit and restored in ``finally``."""
     df, y = _make_case(1, n=4000)
-    m = MRMR(verbose=0, random_seed=0, fe_fast_search=True)
+    m = MRMR(verbose=0, random_state=0, fe_fast_search=True)
     before = (m.fe_max_steps, m.fe_pair_prewarp_enable, m.fe_stability_vote_enable, m.fe_escalation_underdelivery_enable, m.fe_check_pairs_subsample_n)
     m.fit(df, y)
     after = (m.fe_max_steps, m.fe_pair_prewarp_enable, m.fe_stability_vote_enable, m.fe_escalation_underdelivery_enable, m.fe_check_pairs_subsample_n)

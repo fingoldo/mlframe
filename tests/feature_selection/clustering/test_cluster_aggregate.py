@@ -345,7 +345,7 @@ def test_enabled_by_default():
     X, y, _z = _reflection_frame(seed=7)
     # dcd_enable=False so DCD doesn't auto-suppress the post-hoc cluster
     # aggregate FE step (mrmr.py:1294); the gate fires the OLD default.
-    s = MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5, dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
+    s = MRMR(verbose=0, random_state=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5, dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
     assert any("clusteragg" in c for c in s.get_feature_names_out())
     # The fitted summary is populated for meta_info.
     assert getattr(s, "cluster_aggregate_", None) and s.cluster_aggregate_[0]["method"] in {"mean_z", "mean_inv_var", "median", "pca_pc1", "factor_score"}
@@ -429,7 +429,7 @@ def test_cluster_aggregate_surfaces_in_meta_info():
     from mlframe.training.core._phase_train_one_target_helpers import _build_feature_selection_report
 
     X, y, _z = _reflection_frame(seed=30)
-    s = MRMR(verbose=0, random_seed=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5, dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
+    s = MRMR(verbose=0, random_state=42, use_simple_mode=False, cluster_aggregate_corr_threshold=0.5, dcd_enable=False).fit(X.iloc[:2000], y.iloc[:2000])
     assert s.cluster_aggregate_, "fit should populate cluster_aggregate_"
     report = _build_feature_selection_report(s, "MRMR", list(X.columns), list(s.get_feature_names_out()))
     assert "cluster_aggregate" in report, f"report should carry the cluster_aggregate summary; got {list(report)}"

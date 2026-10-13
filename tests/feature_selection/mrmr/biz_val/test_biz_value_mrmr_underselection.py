@@ -235,7 +235,7 @@ def test_empty_screen_rescue_conditions_on_engineered_survivors(seed):
     e = rng.normal(0, 1, n)
     y = a**2 / b + 3.0 * np.log(c) * np.sin(d) + 0.3 * e
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
-    fs = MRMR(verbose=0, random_seed=seed).fit(df, pd.Series(y, name="y"))
+    fs = MRMR(verbose=0, random_state=seed).fit(df, pd.Series(y, name="y"))
     selected = list(fs.get_feature_names_out())
     raw_operands = {"a", "b", "c", "d"}
     re_admitted = raw_operands & set(selected)

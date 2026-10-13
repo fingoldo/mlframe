@@ -102,7 +102,7 @@ def test_unit_rescue_fires_for_weak_smooth_interaction_inert_on_noise():
 
     df, y = _make_f2(seed=11, n=12000)
     MRMR.clear_fit_cache()
-    sel = MRMR(verbose=0, n_jobs=1, random_seed=0, **_LEAN)
+    sel = MRMR(verbose=0, n_jobs=1, random_state=0, **_LEAN)
     sel.fit(df, y)
 
     hist = getattr(sel, "fe_escalation_history_", []) or []
@@ -136,7 +136,7 @@ def test_unit_rescue_can_be_disabled():
 
     df, y = _make_f2(seed=11, n=12000)
     MRMR.clear_fit_cache()
-    sel = MRMR(verbose=0, n_jobs=1, random_seed=0, fe_synergy_prevalence_rescue_enable=False, **_LEAN)
+    sel = MRMR(verbose=0, n_jobs=1, random_state=0, fe_synergy_prevalence_rescue_enable=False, **_LEAN)
     sel.fit(df, y)
     assert not _ab_from_recipes(sel), "rescue OFF must NOT produce an (a,b) feature (true-negative control)"
 
@@ -171,12 +171,12 @@ def test_biz_value_rescue_improves_f2_downstream_r2():
         return cross_val_score(m, X, y.values, cv=KFold(5, shuffle=True, random_state=0), scoring="r2").mean()
 
     MRMR.clear_fit_cache()
-    off = MRMR(verbose=0, n_jobs=1, random_seed=0, fe_synergy_prevalence_rescue_enable=False, **_LEAN)
+    off = MRMR(verbose=0, n_jobs=1, random_state=0, fe_synergy_prevalence_rescue_enable=False, **_LEAN)
     off.fit(df, y)
     r2_off = _r2(off)
 
     MRMR.clear_fit_cache()
-    on = MRMR(verbose=0, n_jobs=1, random_seed=0, **_LEAN)
+    on = MRMR(verbose=0, n_jobs=1, random_state=0, **_LEAN)
     on.fit(df, y)
     r2_on = _r2(on)
 

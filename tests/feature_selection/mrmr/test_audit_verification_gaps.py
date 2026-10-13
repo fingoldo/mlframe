@@ -124,7 +124,7 @@ def test_fe_step_maxt_floor_runs_on_a_real_fit(caplog):
     n = 600
     df = pd.DataFrame({f"f{i}": rng.normal(size=n) for i in range(6)})
     y = ((df["f0"] * df["f1"]) > 0).astype(int)
-    est = MRMR(fe_max_steps=1, fe_pair_maxt_null_permutations=8, fe_pair_maxt_min_pairs=1, random_seed=0, n_workers=1, verbose=0)
+    est = MRMR(fe_max_steps=1, fe_pair_maxt_null_permutations=8, fe_pair_maxt_min_pairs=1, random_state=0, n_workers=1, verbose=0)
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.filters.mrmr"):
         est.fit(df, y)
     bad = [r.message for r in caplog.records if "maxT permutation-null floor failed" in r.message]

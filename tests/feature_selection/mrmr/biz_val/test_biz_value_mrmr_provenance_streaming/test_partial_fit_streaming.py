@@ -422,7 +422,7 @@ class TestLayer53_C6_Regressions:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _simple_binary_frame(n=300, seed=100)
-        m = MRMR(dcd_enable=False, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=False, verbose=0, random_state=0).fit(X, y)
         assert hasattr(m, "cluster_members_")
         assert m.cluster_members_ is None
 

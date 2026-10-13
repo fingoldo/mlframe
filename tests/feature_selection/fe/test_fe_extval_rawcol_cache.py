@@ -53,7 +53,7 @@ def test_extval_rawcol_cache_fit_is_deterministic_and_selects():
 
     def _fit_cols():
         """Fit a fresh MRMR on the shared competition frame and return its transformed output columns."""
-        m = MRMR(verbose=0, fe_max_steps=1, n_jobs=1, random_seed=0)
+        m = MRMR(verbose=0, fe_max_steps=1, n_jobs=1, random_state=0)
         m.fit(X, y)
         return list(m.transform(X.iloc[:5]).columns)
 

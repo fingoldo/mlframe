@@ -10,7 +10,7 @@ observed across seeds 0-4 for a 10-column input. That order is fed
 into RFECV's CatBoost, whose tie-broken feature importances produce
 different ``support_`` across runs that differ only in their hash seed.
 
-Effect: ``MRMR(random_seed=42, run_additional_rfecv_minutes=5)`` violates
+Effect: ``MRMR(random_state=42, run_additional_rfecv_minutes=5)`` violates
 the "same seed -> identical support_" contract. Different processes
 (different OS-randomized PYTHONHASHSEED) silently disagree. Breaks
 stability_iters audits, blocks bit-exact regression tests.

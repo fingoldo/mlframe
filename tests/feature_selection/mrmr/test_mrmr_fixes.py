@@ -192,7 +192,7 @@ def test_validate_inputs_catches_non_builtin_float_inf_in_object_column():
     df["obj_col"] = pd.array([np.float32(1.0)] * (n - 1) + [np.float32("inf")], dtype=object)
     y = (df["a"] > 0).astype(int)
 
-    est = MRMR(random_seed=0, n_workers=1, verbose=0)
+    est = MRMR(random_state=0, n_workers=1, verbose=0)
     with pytest.raises(ValueError, match="obj_col"):
         est._validate_inputs(df, y)
 
@@ -221,7 +221,7 @@ def test_validate_string_params_rejects_none_for_params_without_none_sentinel():
     literal string "None" deep inside the fit-impl discretisation dispatch."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    est = MRMR(quantization_method=None, random_seed=0, n_workers=1, verbose=0)
+    est = MRMR(quantization_method=None, random_state=0, n_workers=1, verbose=0)
     with pytest.raises(ValueError, match="quantization_method cannot be None"):
         est._validate_string_params()
 
@@ -231,7 +231,7 @@ def test_validate_string_params_still_allows_none_where_it_is_a_real_sentinel():
     redundancy_aggregator) must NOT start raising after the fix -- None stays a valid sentinel there."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    est = MRMR(nbins_strategy=None, redundancy_aggregator=None, random_seed=0, n_workers=1, verbose=0)
+    est = MRMR(nbins_strategy=None, redundancy_aggregator=None, random_state=0, n_workers=1, verbose=0)
     assert est._validate_string_params() is None
     assert est.nbins_strategy is None and est.redundancy_aggregator is None
     with pytest.raises(ValueError, match="nbins_strategy='bogus' is not a recognised value"):

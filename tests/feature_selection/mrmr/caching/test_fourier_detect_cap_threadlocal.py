@@ -84,7 +84,7 @@ def test_fit_does_not_mutate_os_environ_and_clears_cap():
     y = pd.Series(((X["a"] + X["b"]) > 0).astype(np.int64), name="targ")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        MRMR(verbose=0, random_seed=0, fe_check_pairs_subsample_n=64).fit(X, y)
+        MRMR(verbose=0, random_state=0, fe_check_pairs_subsample_n=64).fit(X, y)
     after = os.environ.get("MLFRAME_FOURIER_DETECT_MAX_N", "<unset>")
     assert after == before, "fit mutated the process-global os.environ Fourier cap"
     assert peek_fourier_detect_cap() is None, "fit left a thread-local Fourier cap set"

@@ -37,7 +37,7 @@ def test_fe_pair_cpu_fallback_does_not_overrun_buffer(monkeypatch):
     X, y = _xy()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m = MRMR(verbose=0, random_seed=7).fit(X, y)
+        m = MRMR(verbose=0, random_state=7).fit(X, y)
     # The fit completing at all is the regression assertion (pre-fix it raised IndexError inside _score_one_pair).
     assert hasattr(m, "support_")
     assert int(np.asarray(m.support_).sum()) >= 1

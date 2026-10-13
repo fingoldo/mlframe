@@ -201,7 +201,7 @@ def test_end_to_end_regression_proposes_saddle():
 
     G.rank_gradient_interaction_pairs = traced
     try:
-        m = MRMR(max_runtime_mins=3, verbose=1, random_seed=0, fe_gradient_interaction_enable=True, fe_synergy_screen_max_features=80)
+        m = MRMR(max_runtime_mins=3, verbose=1, random_state=0, fe_gradient_interaction_enable=True, fe_synergy_screen_max_features=80)
         m.fit(Xdf, pd.Series(y, name="target"))  # continuous -> regression -> multi-bin target
     finally:
         G.rank_gradient_interaction_pairs = orig
@@ -230,7 +230,7 @@ def test_end_to_end_default_off_is_noop():
 
     G.rank_gradient_interaction_pairs = traced
     try:
-        m = MRMR(max_runtime_mins=2, verbose=1, random_seed=0)  # default: flag OFF
+        m = MRMR(max_runtime_mins=2, verbose=1, random_state=0)  # default: flag OFF
         assert m.fe_gradient_interaction_enable is False
         m.fit(Xdf, pd.Series(y, name="target"))
     finally:

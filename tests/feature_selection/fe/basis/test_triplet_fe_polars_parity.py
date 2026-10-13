@@ -77,7 +77,7 @@ def test_quadruplet_fe_runs_on_polars_and_matches_pandas():
 
     def _fit_q(df):
         """Fit q."""
-        s = MRMR(fe_hybrid_orth_quadruplet_enable=True, fe_hybrid_orth_quadruplet_max_degree=1, verbose=0, random_seed=1)
+        s = MRMR(fe_hybrid_orth_quadruplet_enable=True, fe_hybrid_orth_quadruplet_max_degree=1, verbose=0, random_state=1)
         s.fit(df, pd.Series(y))
         return s
 

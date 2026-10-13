@@ -319,7 +319,7 @@ class TestMRMRIntegration:
         n = 600
         X = pd.DataFrame(rng.normal(size=(n, 8)), columns=[f"x{i}" for i in range(8)])
         y = 2.0 * X["x0"].to_numpy() + 0.3 * rng.normal(size=n)  # single-driver smooth continuous target (no regime / no multi-driver sum)
-        m = MRMR(verbose=0, random_seed=42)
+        m = MRMR(verbose=0, random_state=42)
         assert bool(m.fe_conditional_gate_enable) is True
         m.fit(X, pd.Series(y, name="y"))
         assert (

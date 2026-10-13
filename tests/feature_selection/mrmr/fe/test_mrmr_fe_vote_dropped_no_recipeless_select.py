@@ -73,7 +73,7 @@ def test_mrmr_fe_vote_dropped_feature_not_select_then_dropped(n):
     logger.setLevel(logging.DEBUG)
     logger.addHandler(handler)
     try:
-        m = MRMR(max_runtime_mins=5, verbose=1, fe_max_steps=2, random_seed=0)
+        m = MRMR(max_runtime_mins=5, verbose=1, fe_max_steps=2, random_state=0)
         m.fit(df, y)
         names_out = list(m.get_feature_names_out())
         discovered = list(getattr(m, "_engineered_features_", []) or [])

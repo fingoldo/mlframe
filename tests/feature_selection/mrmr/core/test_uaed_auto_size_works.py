@@ -125,7 +125,7 @@ def test_mrmr_gains_non_increasing_within_raw_screen_prefix():
     y = ((sig @ np.array([1.0, 0.8, 0.6]) + 0.3 * rng.normal(size=n)) > 0).astype(np.int64)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        sel = MRMR(verbose=0, fe_max_steps=0, random_seed=0).fit(X, y)
+        sel = MRMR(verbose=0, fe_max_steps=0, random_state=0).fit(X, y)
     gains = np.asarray(sel.mrmr_gains_, dtype=np.float64)
     assert gains.size >= 2, "fixture precondition: the raw screen must select at least two features"
     assert np.all(np.diff(gains) <= 1e-12), f"raw-screen gains rose between rounds: {gains}"
