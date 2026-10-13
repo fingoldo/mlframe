@@ -12,4 +12,3 @@ training:
   batchsize: 32
   seq_len: 5000
   learning_rate: 0.0002
-  
