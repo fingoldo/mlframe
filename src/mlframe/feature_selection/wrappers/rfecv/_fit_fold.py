@@ -472,7 +472,7 @@ def _record_signed_linear_coef(self, _fitted, fit_features, X_train, must_includ
                 coef_scale_source=getattr(self, "coef_scale_source", "train"),
             )
         except Exception as e:
-            logger.debug("signed-coefficient extraction failed for this fold: %s", e)
+            logger.warning("signed-coefficient extraction failed for this fold: %s", e)
             _signed_full = None
         if _signed_full is not None:
             if must_include_resolved:
