@@ -230,7 +230,7 @@ def mi_direct_gpu_batched_pairs(
         _budget_bytes = get_shared_mem_budget_per_block(_summary["cc_major"], _summary["cc_minor"], allow_opt_in=True)
         _SHARED_MULTI_PAIR_MAX = max(4096, _budget_bytes // 4 // 8)
     except Exception as e:
-        logger.debug("shared-mem budget probe failed, falling back to pre-2026-05-20 default: %s", e)
+        logger.warning("shared-mem budget probe failed, falling back to pre-2026-05-20 default: %s", e)
         # No probe available -> fall back to the pre-2026-05-20 default.
         _budget_bytes = 0
         _SHARED_MULTI_PAIR_MAX = 4096

@@ -162,7 +162,7 @@ def _fe_structure(X, y=None) -> dict:
             try:
                 card = int(np.unique(vals).size)
             except Exception as _card_exc:
-                logger.debug("_fe_structure: cardinality probe failed (%s); falling back to n_finite as a conservative card estimate.", _card_exc)
+                logger.warning("_fe_structure: cardinality probe failed (%s); falling back to n_finite as a conservative card estimate.", _card_exc)
                 card = n_finite
 
             is_intish = kind in ("i", "u") or _is_integral(vals)

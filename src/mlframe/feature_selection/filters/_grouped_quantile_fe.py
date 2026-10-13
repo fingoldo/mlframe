@@ -297,7 +297,7 @@ def _fit_group_edges(vals: np.ndarray, yv: np.ndarray, n_bins: int) -> np.ndarra
     try:
         edges = edges_fayyad_irani(vals, yv.astype(np.int64))
     except Exception as e:
-        logger.debug("edges_fayyad_irani failed: %s", e)
+        logger.warning("edges_fayyad_irani failed: %s", e)
         edges = np.array([], dtype=np.float64)
     if edges.size == 0:
         # Fallback: fixed quantile edges capped at n_bins.

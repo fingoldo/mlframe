@@ -861,6 +861,6 @@ def _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_p
                         raw_vars_pair, _cand_i, _anchor_i, _cmi_obs, _floor, _cmi_obs - _null_mean,
                     )
         except Exception as e:
-            logger.debug("permutation-based admission check failed, not admitting via permutation: %s", e)
+            logger.warning("permutation-based admission check failed, not admitting via permutation: %s", e)
             _admit_via_perm = False
     return _admit_via_perm

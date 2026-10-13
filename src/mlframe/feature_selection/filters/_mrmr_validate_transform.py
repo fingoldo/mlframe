@@ -553,7 +553,7 @@ def transform(self, X, y=None):
         _cfg = _get_output_config("transform", estimator=self)
         _want_pandas = (_cfg.get("dense") or "default") == "pandas"
     except Exception as e:
-        logger.debug("sklearn set_output config lookup failed, defaulting to non-pandas: %s", e)
+        logger.warning("sklearn set_output config lookup failed, defaulting to non-pandas: %s", e)
         _want_pandas = False
     if _want_pandas:
         try:

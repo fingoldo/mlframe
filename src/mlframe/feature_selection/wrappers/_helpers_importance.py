@@ -165,7 +165,7 @@ def _make_fast_default_scorer(model: object) -> Callable:
         try:
             fast_val = _fast_value(_est, _Xc, _y)
         except Exception as e:
-            logger.debug("_fast_value computation failed: %s", e)
+            logger.warning("_fast_value computation failed: %s", e)
             fast_val = None
         # Bit-identity gate: latch fast ONLY on an exact match (handles NaN equally on both sides).
         if fast_val is not None and (fast_val == safe_val or (fast_val != fast_val and safe_val != safe_val)):
@@ -441,7 +441,7 @@ def _get_feature_importan_step1_importance_getter_none(importance_getter, target
             _shape = getattr(data, "shape", None)
             _cells = int(_shape[0]) * (int(_shape[1]) if len(_shape) > 1 else 1) if _shape else 0
         except Exception as e:
-            logger.debug("cell-count computation failed: %s", e)
+            logger.warning("cell-count computation failed: %s", e)
             _cells = 0
         if 0 < _cells <= _PERM_AUTO_CELL_CAP:
             importance_getter = "permutation"  # accuracy winner; below the cost cap

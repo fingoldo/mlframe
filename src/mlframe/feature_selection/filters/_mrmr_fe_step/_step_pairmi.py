@@ -239,7 +239,7 @@ def compute_pair_mis_and_floor(
         try:
             from mlframe.feature_selection.filters.batch_pair_mi_gpu import _CUDA_AVAIL
         except ImportError as e:
-            logger.debug("batch_pair_mi_gpu._CUDA_AVAIL import failed: %s", e)
+            logger.warning("batch_pair_mi_gpu._CUDA_AVAIL import failed: %s", e)
             _CUDA_AVAIL = False
         _exhaustive_backend = "cuda" if _CUDA_AVAIL else "njit_parallel"
     _batch_precompute_t0 = perf_counter()

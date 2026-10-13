@@ -220,7 +220,7 @@ def infer_classification(y: np.ndarray) -> bool:
         if _hit is not None:
             return bool(_hit)
     except Exception as e:
-        logger.debug("classification-inference memo lookup failed: %s", e)
+        logger.warning("classification-inference memo lookup failed: %s", e)
         _key = None
     finite = y[np.isfinite(y)] if y.dtype.kind == "f" else y
     if finite.size == 0:

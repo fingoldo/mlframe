@@ -401,7 +401,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
                     x_cm = _transpose_to_cm(X_gpu) if X_gpu.flags.c_contiguous and X_gpu.dtype in (cp.float32, cp.float64) else None
                     interior = _radix_select_interior_edges(X_gpu, n_bins, cm_hint=x_cm)  # (n_bins-1, k), sort-free, == edges[1:-1]
         except Exception as e:
-            logger.debug("_radix_select_interior_edges failed, falling back to the exact percentile path: %s", e)
+            logger.warning("_radix_select_interior_edges failed, falling back to the exact percentile path: %s", e)
             interior = None
     if interior is None and x_is_cm:
         X_gpu = cp.ascontiguousarray(X_gpu.T)  # the percentile fallback and the code-path MI work on the (n, k) matrix
