@@ -147,7 +147,7 @@ def _pfi_split(n: int, y: np.ndarray, rng: np.random.Generator, cv_policy=None, 
         fit_idx, score_idx = train_test_split(np.arange(n), test_size=n_hold, random_state=seed, stratify=stratify)
         return np.asarray(fit_idx), np.asarray(score_idx)
     except Exception as exc:
-        logger.debug("ACE held-out PFI split failed (%s); falling back to a plain permutation split.", exc)
+        logger.warning("ACE held-out PFI split failed (%s); falling back to a plain permutation split.", exc)
         perm = np.random.default_rng(seed).permutation(n)
         return perm[n_hold:], perm[:n_hold]
 

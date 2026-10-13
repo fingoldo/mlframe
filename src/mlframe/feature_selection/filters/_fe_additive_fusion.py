@@ -223,7 +223,7 @@ def propose_additive_fusions(
                 _Xh[:, _j] = _t[4]
             _mis = np.asarray(batched_cmi_gpu(_Xh, y_dense, None), dtype=np.float64)
     except Exception as e:
-        logger.debug("batched_cmi_gpu failed, falling back to the per-candidate CPU path: %s", e)
+        logger.warning("batched_cmi_gpu failed, falling back to the per-candidate CPU path: %s", e)
         _mis = None
     for _j, (nm, rec, vals, toks, vb) in enumerate(_pre):
         mi = float(_mis[_j]) if _mis is not None else float(_cmi_from_binned(vb, y_dense, None))
@@ -404,7 +404,7 @@ def _subsumed_raw_operand_check(self, ha, hb, subsumed_raws, X, _raw_bin_cache, 
             if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
                 _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
         except Exception as e:
-            logger.debug("reading raw column %r for the fusion residual failed: %s", _rn, e)
+            logger.warning("reading raw column %r for the fusion residual failed: %s", _rn, e)
             _rv = None
         _rvb = _raw_bin_cache.get(_rn)
         if _rvb is None:

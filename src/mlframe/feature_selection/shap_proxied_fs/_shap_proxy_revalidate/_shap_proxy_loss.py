@@ -75,7 +75,7 @@ def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, cla
         try:
             params = model_template.get_params(deep=False)
         except Exception as e:
-            logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
+            logger.warning("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
         x_tr_key = hash_array_summary(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
         y_tr_key = hash_array_summary(np.asarray(y_tr))
@@ -116,7 +116,7 @@ def _build_perm_fit_disk_key(model_template, X_tr, y_tr, idx, n_estimators_cap, 
         try:
             params = model_template.get_params(deep=False)
         except Exception as e:
-            logger.debug("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
+            logger.warning("get_params(deep=False) failed, using repr() as the cache-key params: %s", e)
             params = {"_repr": repr(model_template)}
         x_tr_key = hash_array_summary(X_tr.values if hasattr(X_tr, "values") else np.asarray(X_tr))
         y_tr_key = hash_array_summary(np.asarray(y_tr))
@@ -365,7 +365,7 @@ def _honest_loss(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, me
             try:
                 disk_hit = disk_cache.get(disk_key)
             except Exception as exc:
-                logger.debug("_honest_loss: disk cache get failed (%s); skipping", exc)
+                logger.warning("_honest_loss: disk cache get failed (%s); skipping", exc)
                 disk_hit = None
             if disk_hit is not None:
                 # Warm the in-memory cache too, so further same-fit calls don't pay the disk
@@ -449,7 +449,7 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
             try:
                 cached_est = disk_cache.get(fit_disk_key)
             except Exception as exc:
-                logger.debug("_permutation_importance_ranking: disk cache get failed (%s); skipping", exc)
+                logger.warning("_permutation_importance_ranking: disk cache get failed (%s); skipping", exc)
                 cached_est = None
             if cached_est is not None:
                 est = cached_est

@@ -258,7 +258,7 @@ def friend_graph_stats_cupy(
             h_node = entropy_segments_gpu(cp, d_node_counts, n, off_node)
             H = {int(sel_arr[i]): float(h_node[i]) for i in range(k)}
         except Exception as e:
-            logger.debug("entropy_segments_gpu (node) failed, falling back to per-node CPU entropy: %s", e)
+            logger.warning("entropy_segments_gpu (node) failed, falling back to per-node CPU entropy: %s", e)
             H = {}
     if not H:
         node_counts = cp.asnumpy(d_node_counts)
@@ -299,7 +299,7 @@ def friend_graph_stats_cupy(
 
                 h_xy_by_i = entropy_segments_gpu(cp, d_rel_counts, n, off_rel)
             except Exception as e:
-                logger.debug("entropy_segments_gpu (rel) failed, falling back to the per-relation CPU path: %s", e)
+                logger.warning("entropy_segments_gpu (rel) failed, falling back to the per-relation CPU path: %s", e)
                 h_xy_by_i = None
         if h_xy_by_i is None:
             rel_counts = cp.asnumpy(d_rel_counts)
@@ -334,7 +334,7 @@ def friend_graph_stats_cupy(
         try:
             free_b, _tot_b = cp.cuda.runtime.memGetInfo()
         except Exception as e:
-            logger.debug("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
+            logger.warning("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
             free_b = 512 * 1024 * 1024
         budget = int(free_b * 0.35)
         # per-pair tile cost ~ n int64 (index col) + joint_card int64 (count slot).
@@ -375,7 +375,7 @@ def friend_graph_stats_cupy(
 
                     h_ab_by_r = entropy_segments_gpu(cp, d_tile_counts, n, tile_off_bounds)
                 except Exception as e:
-                    logger.debug("entropy_segments_gpu (tile) failed, falling back to the per-tile CPU path: %s", e)
+                    logger.warning("entropy_segments_gpu (tile) failed, falling back to the per-tile CPU path: %s", e)
                     h_ab_by_r = None
             if h_ab_by_r is None:
                 tile_counts = cp.asnumpy(d_tile_counts)

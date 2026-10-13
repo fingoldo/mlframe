@@ -288,7 +288,7 @@ def fingerprint_signal(
                     centered = (col_vals - float(col_vals.mean())).abs()
                     r_sym = float(centered.corr(y_sub, method="pearson"))
                 except _NUMERIC_ERRORS as exc:
-                    logger.debug("meta_scorer symmetric-pearson corr failed for column %r: %r", c, exc)
+                    logger.warning("meta_scorer symmetric-pearson corr failed for column %r: %r", c, exc)
                     r_sym = float("nan")
                 candidates = [abs(r) for r in (r_sp, r_sym) if np.isfinite(r)]
                 if candidates:

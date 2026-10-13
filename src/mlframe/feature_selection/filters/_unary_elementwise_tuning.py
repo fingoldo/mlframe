@@ -38,7 +38,8 @@ except ImportError:
 # Source-code default GPU breakeven (cells) for DRAM-resident input, used until a
 # per-host kernel_tuning_cache entry exists.
 _UNARY_DEFAULT_MIN_CELLS = 500_000
-_UNARY_SWEEP_N = [50_000, 200_000, 800_000, 3_200_000, 12_800_000]
+# Capped at 3.2M rows: the 12.8M cell repeated per variant and location costs tens of seconds on a laptop-class host.
+_UNARY_SWEEP_N = [50_000, 200_000, 800_000, 3_200_000]
 _UNARY_SALT = 3  # residency-aware sweep + cupy variant now includes output D2H
 
 

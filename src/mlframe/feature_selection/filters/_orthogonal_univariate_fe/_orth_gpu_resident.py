@@ -18,6 +18,7 @@ import pandas as pd
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orth_dedup import _dedup_collinear_source_cols
 from ._orth_extra_basis_fe import _is_int_as_cat_axis
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def _raise_if_vram_insufficient(n_rows: int, k_cols: int) -> None:
 
         frac = _gpu_k_chunk_vram_fraction(int(n_rows))
     except Exception as e:
-        logger.debug("_raise_if_vram_insufficient: VRAM-fraction lookup failed, using the 0.5 fallback fraction: %s", e)
+        logger.warning("_raise_if_vram_insufficient: VRAM-fraction lookup failed, using the 0.5 fallback fraction: %s", e)
         frac = 0.5
     # raw (n x k) + engineered (n x k*degrees, ~2 degrees) + MI scratch; ~4x the raw matrix is a safe floor estimate.
     needed = int(n_rows) * max(1, int(k_cols)) * 8 * 4
@@ -159,7 +160,7 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
                     cp, _Mr, _yc_gpu, list(_POLY_BASES), tuple(degrees), robust_axis=ra,
                 )
             except Exception as e:
-                logger.debug("GPU-resident batched basis routing failed: %s", e)
+                log_throttle(logger, "orth_gpu_batched_routing_failed", logging.WARNING, "GPU-resident batched basis routing failed: %s", e)
                 _gpu_routed = None
                 _Mr = None
     used_x: list = []

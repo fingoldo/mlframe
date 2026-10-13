@@ -73,7 +73,7 @@ class GroupTimeSeriesSplit:
 
             return np.asarray(pd.unique(np.asarray(groups)))
         except Exception as e:
-            logger.debug("pandas unique() group-order extraction failed, falling back to np.unique: %s", e)
+            logger.warning("pandas unique() group-order extraction failed, falling back to np.unique: %s", e)
             g = np.asarray(groups)
             _, idx = np.unique(g, return_index=True)
             return cast("np.ndarray", g[np.sort(idx)])

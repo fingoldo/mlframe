@@ -239,7 +239,7 @@ def _calibrate_tau_auto(
     try:
         batch_scores = pair_su_batch(cal_state, pairs)
     except Exception as e:
-        logger.debug("pair_su_batch failed, falling back to the per-pair loop: %s", e)
+        logger.warning("pair_su_batch failed, falling back to the per-pair loop: %s", e)
         batch_scores = None
     if batch_scores is not None:
         su_scores.extend(float(s) for s in batch_scores if np.isfinite(s))

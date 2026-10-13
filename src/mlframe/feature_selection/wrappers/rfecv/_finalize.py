@@ -75,7 +75,7 @@ def _finalize_fit_results(
         _est_type_name = type(estimator.steps[-1][1]).__name__ if isinstance(estimator, _Pipeline) else type(estimator).__name__
         _es_active = bool(_has_es(_est_type_name))
     except Exception as e:
-        logger.debug("early-stopping-active detection failed, defaulting to False: %s", e)
+        logger.warning("early-stopping-active detection failed, defaulting to False: %s", e)
         _es_active = False
     _has_val_cv = _val_cv_knob_set and _es_active
     _allow_swap_without_es = bool(getattr(self, "swap_top_k_allow_no_es", False))

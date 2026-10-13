@@ -127,7 +127,7 @@ def build_leg_product_matrix_gpu(cp: Any, X: pd.DataFrame, col_specs: Sequence[d
         from mlframe.feature_selection.filters.hermite_fe.shared import robust_axis_enabled as _robust_axis_enabled
         robust_axis = bool(_robust_axis_enabled())
     except Exception as e:
-        logger.debug("_robust_axis_enabled() check failed, defaulting to False: %s", e)
+        logger.warning("_robust_axis_enabled() check failed, defaulting to False: %s", e)
         robust_axis = False
 
     n = len(X)

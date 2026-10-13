@@ -224,7 +224,7 @@ def _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_c
                 if _cf_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_cf_yv)):
                     _cf_y = _cf_yv
             except Exception as exc:
-                logger.debug("mrmr: y coercion for the cat-FE floor-drop protection probe failed; protection disabled: %r", exc, exc_info=True)
+                logger.warning("mrmr: y coercion for the cat-FE floor-drop protection probe failed; protection disabled: %r", exc, exc_info=True)
                 _cf_y = None
             if _cf_y is not None:
                 _CF_PROTECT_MIN_INCR_R2 = 0.005  # genuine encoding lifts held-out R^2 >> 0.005; noise ~0 (same bar as raw protection)
@@ -246,7 +246,7 @@ def _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_c
                         try:
                             _cv = X[_sn].to_numpy()
                         except Exception as exc:
-                            logger.debug("mrmr: continuous-value lookup failed for this candidate; treating as unavailable: %r", exc, exc_info=True)
+                            logger.warning("mrmr: continuous-value lookup failed for this candidate; treating as unavailable: %r", exc, exc_info=True)
                             _cv = None
                     if _cv is None:
                         _si = _cf_cols_index.get(_sn)
@@ -287,7 +287,7 @@ def _score_encoded_features_heldout(_cf_tr, _cf_va, _cf_base, _cf_y, _cf_names, 
                 try:
                     _cvv_raw = X[_cn].to_numpy()
                 except Exception as exc:
-                    logger.debug("mrmr: raw continuous-value lookup failed for this candidate: %r", exc, exc_info=True)
+                    logger.warning("mrmr: raw continuous-value lookup failed for this candidate: %r", exc, exc_info=True)
                     _cvv_raw = None
             if _cvv_raw is not None:
                 try:
@@ -373,7 +373,7 @@ def _drop_redundant_raw_operands_sweep(self, selected_vars, cols, classes_y, _y_
                 try:
                     from mlframe.feature_selection.filters.permutation import mi_direct as _pcr_mi_direct
                 except Exception as exc:
-                    logger.debug("mrmr: mi_direct import/binding failed for the post-cluster-rescue significance probe; probe disabled: %r", exc, exc_info=True)
+                    logger.warning("mrmr: mi_direct import/binding failed for the post-cluster-rescue significance probe; probe disabled: %r", exc, exc_info=True)
                     _pcr_mi_direct = None  # type: ignore[assignment]
                 from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
 

@@ -260,7 +260,7 @@ def basis_route_by_signal(
                     _zf, _ = _POLY_BASES[basis]["fit"](x)
                     _zc = np.ascontiguousarray(_zf, dtype=np.float64)
                 except Exception as e:
-                    logger.debug("basis fit for %r failed: %s", basis, e)
+                    log_throttle(logger, "orth_basis_fit_failed_route", logging.WARNING, "basis fit for %r failed: %s", basis, e)
                     _zc = None
             for d in degrees:
                 try:
@@ -428,7 +428,7 @@ def generate_univariate_basis_features(
                     _z_fit, _ = _POLY_BASES[chosen_basis]["fit"](x)
                     _z_cached = np.ascontiguousarray(_z_fit, dtype=np.float64)
                 except Exception as e:
-                    logger.debug("basis fit for %r failed: %s", chosen_basis, e)
+                    log_throttle(logger, "orth_basis_fit_failed_gen", logging.WARNING, "basis fit for %r failed: %s", chosen_basis, e)
                     _z_cached = None
         for d in degrees:
             try:
@@ -636,7 +636,7 @@ def hybrid_orth_mi_fe(
                 return X, scores
             _gpu_eng = (_g_mat, _g_names)
     except Exception:
-        logger.debug("hybrid_orth_mi_fe: GPU resident basis-MI path failed; host fallback", exc_info=True)
+        logger.warning("hybrid_orth_mi_fe: GPU resident basis-MI path failed; host fallback", exc_info=True)
         _gpu_eng = None
     if _gpu_eng is None:
         engineered = generate_univariate_basis_features(X, cols=cols, degrees=degrees, basis=basis, y=y)
@@ -868,7 +868,7 @@ def hybrid_orth_mi_fe_with_recipes(
             if _do_sub:
                 _full_eng_cols[name] = np.asarray(_vals_full)
         except Exception as e:
-            logger.debug("prewarp-replay full-data fit path failed, falling back to legacy refit-at-replay: %s", e)
+            log_throttle(logger, "orth_prewarp_replay_fallback", logging.WARNING, "prewarp-replay full-data fit path failed, falling back to legacy refit-at-replay: %s", e)
             _pp = None  # best-effort: fall back to legacy refit-at-replay path
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,
@@ -914,7 +914,7 @@ from ._orth_extra_basis_fe import (
 )
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from ..engineered_recipes import EngineeredRecipe
 
 # ---------------------------------------------------------------------------
 # Layer 56: TRI-PRODUCT cross-basis FE lives in sibling module

@@ -485,6 +485,18 @@ def _family_wise_null_z(n_candidates: int, alpha: float = 0.05, min_z: float = 2
 
     return max(float(min_z), float(norm.isf(float(alpha) / max(1, int(n_candidates)))))
 
+def _top_agg_by_variance(X, acands, max_agg_cols):
+    """``(top max_agg_cols aggregated-source columns of largest variance, {column: variance})`` (unsupervised: the aggregated column needs spread to have per-cell shape).
+
+    Vectorised over columns in blocks of ``_AGG_VAR_BLOCK_COLS`` (one ``np.var(axis=0)`` per block) instead of a per-column Python loop. Each column's
+    variance is independent of every other; the block form measured 1.94x at p=300 cols / n=1500 with max diff 3.3e-15, machine-epsilon summation
+    noise that only feeds a descending sort. A whole-frame float64 copy of the candidates would be p x n x 8 bytes (5.96 GiB at 10M x 80), so blocks."""
+    _var_blocks = [np.var(X[acands[i : i + _AGG_VAR_BLOCK_COLS]].to_numpy(), axis=0) for i in range(0, len(acands), _AGG_VAR_BLOCK_COLS)]
+    _a_var_vals = np.concatenate(_var_blocks) if _var_blocks else np.zeros(0)
+    a_var = dict(zip(acands, _a_var_vals.tolist()))
+    return sorted(acands, key=lambda a: a_var.get(a, 0.0), reverse=True)[: max(1, int(max_agg_cols))], a_var
+
+
 def binned_numeric_agg_with_recipes(
     X: pd.DataFrame, y: np.ndarray, *,
     group_num_cols: Sequence[str] | None = None, agg_num_cols: Sequence[str] | None = None,
@@ -520,17 +532,7 @@ def binned_numeric_agg_with_recipes(
         y_codes = np.searchsorted(quantile_edges(y_arr, 10), y_arr, side="right")
     g_mi = _cheap_mi_group_selection(X, gcands, y_codes)
     gsel = sorted([g for g in gcands if g_mi[g] > 0.0], key=lambda g: g_mi[g], reverse=True)[: max(1, int(max_group_cols))]
-    # AGG pre-selection by variance (unsupervised - the aggregated column needs spread to have per-cell shape).
-    # Vectorised over columns (one np.var(axis=0) call) instead of a per-column Python loop -- each column's
-    # variance is independent of every other, the classic "fuse into one batched call" pattern (measured
-    # 1.94x at p=300 cols/n=1500, max diff 3.3e-15 vs the per-column loop -- machine-epsilon float-summation-
-    # order noise, not a behavioural change; only feeds a descending sort so exact equality isn't even load-
-    # bearing here).
-    # Blocks of columns in their own dtype: one whole-frame float64 copy of the candidates is p x n x 8 bytes (5.96 GiB at 10M x 80).
-    _var_blocks = [np.var(X[acands[i : i + _AGG_VAR_BLOCK_COLS]].to_numpy(), axis=0) for i in range(0, len(acands), _AGG_VAR_BLOCK_COLS)]
-    _a_var_vals = np.concatenate(_var_blocks) if _var_blocks else np.zeros(0)
-    a_var = dict(zip(acands, _a_var_vals.tolist()))
-    asel = sorted(acands, key=lambda a: a_var.get(a, 0.0), reverse=True)[: max(1, int(max_agg_cols))]
+    asel, a_var = _top_agg_by_variance(X, acands, max_agg_cols)
     if not gsel or not asel:
         return X, [], []
 

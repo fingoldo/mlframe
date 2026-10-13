@@ -172,7 +172,7 @@ def _check_prospective_fe_step1_def_extval_raw(_extval_raw_col_cache, original_c
                     else:
                         _vals = None
                 except Exception as e:
-                    logger.debug("reading column %r as numpy failed, skipping: %s", _name, e)
+                    logger.warning("reading column %r as numpy failed, skipping: %s", _name, e)
                     _vals = None
             if _vals is not None:
                 _vals = np.asarray(_vals)
@@ -254,7 +254,7 @@ def _check_prospective_fe_step3_gpu_clock_variance(_operand_marginal_mi_cache, v
                 # is dropped-on-uncertainty); it can still be admitted by the joint/prewarp gates, which
                 # do not use this marginal. The whole-pair both-operand-fail case was already
                 # fail-closed via the ``_max_operand_marginal > 0.0`` guard.
-                logger.debug(
+                logger.warning(
                     "MRMR FE: operand %s marginal-MI computation failed (%s); failing the marginal-uplift gate CLOSED (+inf) so it cannot loosen admission.",
                     _var,
                     type(_mm_exc).__name__,
@@ -287,7 +287,7 @@ def _check_prospective_fe_step4_int_code_array(_operand_disc_cache, vars_transfo
                     dtype=quantization_dtype,
                 )
             except Exception as e:
-                logger.debug("discretizing operand %r failed, caching None: %s", _var, e)
+                logger.warning("discretizing operand %r failed, caching None: %s", _var, e)
                 _codes = None
         _operand_disc_cache[_var] = _codes
         return _codes

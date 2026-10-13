@@ -197,6 +197,19 @@ _Y_DENSE_MEMO: dict = {}
 _Y_DENSE_MEMO_LOCK = threading.Lock()
 
 
+def _cmi_gate_resident_eligible(y_bin, names) -> bool:
+    """Whether the CMI gate's candidate binning stays on the GPU: the env switch is on, the strict-resident mode is on and the CMI kernel accepts this size."""
+    if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() not in ("1", "true", "on", "yes"):
+        return False
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+        from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
+        return bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(np.asarray(y_bin).shape[0]), p=len(names)))
+    except Exception as e:
+        log_throttle(logger, "cmi_gate.resident_probe", logging.WARNING, "CMI gate: the resident-GPU eligibility probe failed, using the host path: %s", e)
+        return False
+
+
 def apply_cmi_redundancy_gate(
     candidates: dict,
     y_bin: np.ndarray,
@@ -283,15 +296,7 @@ def apply_cmi_redundancy_gate(
     # ``qbin_x`` float that the host binner used to D2H back). The host int64 copy (``cand_bins``) is the D2H of the SAME resident partition, retained for the
     # host-only sites (partition-dedup hashing, ``_renumber_joint`` support building on admit, and the CPU fallbacks) - byte-identical to the device codes, so
     # selection is unchanged. Falls back per-candidate to the host ``_quantile_bin`` on any cupy fault.
-    _gate_resident = False
-    if _os.environ.get("MLFRAME_FE_GATE_RESIDENT_CANDS", "1").strip().lower() in ("1", "true", "on", "yes"):
-        try:
-            from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-            from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
-            _gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(np.asarray(y_bin).shape[0]), p=len(names)))
-        except Exception as e:
-            log_throttle(logger, "cmi_gate.resident_probe", logging.WARNING, "CMI gate: the resident-GPU eligibility probe failed, using the host path: %s", e)
-            _gate_resident = False
+    _gate_resident = _cmi_gate_resident_eligible(y_bin, names)
 
     y_arr = np.asarray(y_bin)
     if not np.issubdtype(y_arr.dtype, np.integer):

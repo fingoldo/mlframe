@@ -112,7 +112,7 @@ def auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4, caller: str = 'gr
         cands = detect_group_column_candidates(X)
         return [name for name, _info in cands[:max_cols]]
     except Exception as _e:
-        logger.debug("%s auto-detect: detector import failed (%s); using fallback cardinality scan.", caller, _e)
+        logger.warning("%s auto-detect: detector import failed (%s); result degraded to the fallback cardinality scan.", caller, _e)
         out: list = []
         n = len(X)
         for c in X.columns:

@@ -246,7 +246,7 @@ def family_eval(UX, UZ, yb, yr, mode, k, ky, mm, nbz, zthr, interp, fb, winsor, 
             continue
         t = 0.0
         if mode == 1 or mode == 5:
-            t = -np.median(u)
+            t = -_median_njit(u)
         elif mode == 2:
             t = zc_t(u, v, yr, nbz, zthr, interp, fb)
             if np.isnan(t):
@@ -256,7 +256,7 @@ def family_eval(UX, UZ, yb, yr, mode, k, ky, mm, nbz, zthr, interp, fb, winsor, 
             if np.isnan(t):
                 t = 0.0
         if mode == 5:
-            mv_ = np.median(v)
+            mv_ = _median_njit(v)
             for i in range(n):
                 f[i] = (u[i] + t) * (v[i] - mv_)
         else:

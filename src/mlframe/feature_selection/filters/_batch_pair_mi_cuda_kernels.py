@@ -370,7 +370,7 @@ def _hist_kernel_shared_fits_budget(max_joint: int, n_classes_y: int) -> int:
     try:
         budget = _nb_cuda.get_current_device().MAX_SHARED_MEMORY_PER_BLOCK
     except Exception as e:
-        logger.debug("querying MAX_SHARED_MEMORY_PER_BLOCK failed, using the cc 6.x+ safe default: %s", e)
+        logger.warning("querying MAX_SHARED_MEMORY_PER_BLOCK failed, using the cc 6.x+ safe default: %s", e)
         budget = 49152  # cc 6.x+ safe default without opt-in
     # Leave headroom for the driver's own per-block reserved shared memory (a few hundred bytes,
     # observed ~1KB on cc 8.9 via ncu's "Driver Shared Memory Per Block").
@@ -616,7 +616,7 @@ def batch_pair_mi_cuda_row_chunked(
 
         free_b, _total_b = cp.cuda.runtime.memGetInfo()
     except Exception as e:
-        logger.debug("cp.cuda.runtime.memGetInfo() probe failed, using the conservative 512MiB fallback: %s", e)
+        logger.warning("cp.cuda.runtime.memGetInfo() probe failed, using the conservative 512MiB fallback: %s", e)
         free_b = 512 * 1024 * 1024  # conservative fallback if the probe is unavailable
 
     row_chunk_rows = _choose_row_chunk_rows(n_cols, free_b)

@@ -61,7 +61,7 @@ def heldout_r2_scorer(base_mat: np.ndarray | Sequence[np.ndarray], y: np.ndarray
         else:
             Q = R = None
     except Exception as exc:
-        logger.debug("mrmr: QR of the raw-protection base design failed; scoring with lstsq: %r", exc, exc_info=True)
+        logger.warning("mrmr: QR of the raw-protection base design failed; scoring with lstsq: %r", exc, exc_info=True)
         Q = R = None
 
     def _extended_coef(e_tr: np.ndarray):

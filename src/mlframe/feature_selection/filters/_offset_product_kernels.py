@@ -109,7 +109,7 @@ def ols2_shift(u: np.ndarray, v: np.ndarray, yr: np.ndarray, start: int, step: i
         acc[13] += f3 * yy
     coef = np.empty(4)
     _solve4(acc, coef)
-    det = acc[4] * acc[7] - acc[5] * acc[5]
+    det = acc[4] * acc[7] - acc[5] * acc[5]  # moment-ok: the inputs are winsorised and centred upstream (see the ols2_shift docstring), so the sums are small-offset
     if det > _SINGULAR_REL_TOL * acc[4] * acc[7]:
         shifts[2] = (acc[11] * acc[7] - acc[12] * acc[5]) / det
         shifts[3] = (acc[12] * acc[4] - acc[11] * acc[5]) / det

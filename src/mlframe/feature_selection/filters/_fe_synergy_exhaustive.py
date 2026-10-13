@@ -204,7 +204,7 @@ def warm_exhaustive_cpu_throughput_cache() -> None:
                     try:
                         pps = _measure_exhaustive_cpu_throughput({"n_samples": n, "n_pairs": npairs})
                     except Exception as e:
-                        logger.debug("exhaustive-CPU throughput measurement failed, using the fallback rate: %s", e)
+                        logger.warning("exhaustive-CPU throughput measurement failed, using the fallback rate: %s", e)
                         pps = float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC)
                     regions.append({"n_samples": n, "n_pairs": npairs, "value": pps})
             return regions
@@ -254,7 +254,7 @@ def warm_exhaustive_throughput_cache() -> None:
                     try:
                         pps = _measure_exhaustive_throughput({"n_samples": n, "n_pairs": npairs})
                     except Exception as e:
-                        logger.debug("exhaustive throughput measurement failed, using the fallback rate: %s", e)
+                        logger.warning("exhaustive throughput measurement failed, using the fallback rate: %s", e)
                         pps = float(_EXHAUSTIVE_FALLBACK_PAIRS_PER_SEC)
                     regions.append({"n_samples": n, "n_pairs": npairs, "value": pps})
             return regions
@@ -372,7 +372,7 @@ def decide_exhaustive_sweep(
     try:
         from .batch_pair_mi_gpu import _CUDA_AVAIL
     except ImportError as e:
-        logger.debug("batch_pair_mi_gpu._CUDA_AVAIL import failed: %s", e)
+        logger.warning("batch_pair_mi_gpu._CUDA_AVAIL import failed: %s", e)
         _CUDA_AVAIL = False
 
     budget = _resolve_exhaustive_budget_seconds(self)  # always a finite float now; see _DEFAULT_EXHAUSTIVE_BUDGET_SECONDS

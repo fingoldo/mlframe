@@ -438,7 +438,7 @@ def _optimise_hermite_pai_step4_st_bf_callables(st, bin_funcs, multi_fidelity, s
             st.B_a_search = build_basis_matrix(basis, st.z_a_search, max_degree)
             st.B_b_search = build_basis_matrix(basis, st.z_b_search, max_degree)
         except Exception as _bm_err:
-            logger.debug("build_basis_matrix failed for %r: %s", basis, _bm_err)
+            logger.warning("build_basis_matrix failed for %r: %s", basis, _bm_err)
             st.B_a_search = None
             st.B_b_search = None
     return eval_func_b
@@ -640,7 +640,7 @@ def _optimise_hermite_pai_step1_try(optimizer, ca_size, cb_size, coef_range, n_t
                 from mlframe.feature_selection.filters._cupy_polynom_optimizer import run_cupy_kernel_search
                 _kernel_search = run_cupy_kernel_search
             except Exception:
-                logger.debug("cupy unavailable or GPU disabled; cupy_kernel default falls back to random_batch")
+                logger.warning("cupy unavailable or GPU disabled; cupy_kernel default falls back to random_batch")
                 from mlframe.feature_selection.filters._hermite_fe_optimise import _run_random_batch_search
                 _kernel_search = lambda **kw: _run_random_batch_search(**kw)  # noqa: E731
             cma_result = _kernel_search(
@@ -820,7 +820,7 @@ def _optimise_hermite_pai_step2_basis_matrix_factory(warm_start_als, st, ca_size
                 z_a=st.z_a_search, z_b=st.z_b_search, basis=basis,
             )
         except Exception as _als_err:
-            logger.debug("warm_start_als_seed failed at degree %d: %s", degree, _als_err)
+            logger.warning("warm_start_als_seed failed at degree %d: %s", degree, _als_err)
             als_a = als_b = None
         if als_a is not None and als_b is not None:
             # The ALS direction is what matters (mul MI is scale-invariant);

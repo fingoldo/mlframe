@@ -407,7 +407,7 @@ def fe_decide_on_subsample(
             if _s.ndim == 1 and 0 < _s.shape[0] < n and int(_s.max()) < n:
                 _shared = _s.astype(np.int64, copy=False)
         except Exception as e:
-            logger.debug("shared_subsample_idx validation/cast failed: %s", e)
+            logger.warning("shared_subsample_idx validation/cast failed: %s", e)
             _shared = None
     if _shared is None and not (isinstance(subsample_n, int) and 0 < subsample_n < n):
         return fit_with_recipes_fn(fe_to_pandas(X), y, **kwargs)
@@ -499,7 +499,7 @@ def collect_garbage_if_frame_is_large(X: Any) -> bool:
         frame_bytes = int(X.memory_usage(index=False, deep=False).sum()) if hasattr(X, "memory_usage") else int(getattr(X, "estimated_size", lambda: 0)())
         collect = frame_bytes * 8 >= int(psutil.virtual_memory().available) // 64
     except Exception as _exc:
-        logger.debug("frame-size probe failed, collecting garbage unconditionally: %s", _exc)
+        logger.warning("frame-size probe failed, collecting garbage unconditionally: %s", _exc)
         collect = True
     if collect:
         gc.collect()

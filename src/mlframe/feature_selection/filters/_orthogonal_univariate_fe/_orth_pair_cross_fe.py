@@ -512,7 +512,7 @@ def hybrid_orth_mi_pair_fe(
 from .._fe_family_timing import fe_timed
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from .engineered_recipes import EngineeredRecipe
+    from ..engineered_recipes import EngineeredRecipe
 
 @fe_timed("orth_pair")
 def hybrid_orth_mi_pair_fe_with_recipes(
@@ -608,13 +608,13 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                 _xi = X[col_i].to_numpy(dtype=_dt)
                 _, _ppi = _ebc(_xi, basis_a, int(deg_a), return_params=True)
             except Exception as e:
-                logger.debug("basis param extraction for column i failed: %s", e)
+                log_throttle(logger, "orth_pair_param_extract_i", logging.WARNING, "basis param extraction for column i failed: %s", e)
                 _ppi = None
             try:
                 _xj = X[col_j].to_numpy(dtype=_dt)
                 _, _ppj = _ebc(_xj, basis_b, int(deg_b), return_params=True)
             except Exception as e:
-                logger.debug("basis param extraction for column j failed: %s", e)
+                log_throttle(logger, "orth_pair_param_extract_j", logging.WARNING, "basis param extraction for column j failed: %s", e)
                 _ppj = None
             recipes.append(build_orth_pair_cross_recipe(
                 name=name, src_a_name=col_i, src_b_name=col_j,
@@ -650,7 +650,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
                 _xc = X[src].to_numpy(dtype=_dt)
                 _, _pp = _ebc(_xc, chosen_basis, int(chosen_degree), return_params=True)
             except Exception as e:
-                logger.debug("basis param extraction failed: %s", e)
+                log_throttle(logger, "orth_pair_param_extract_uni", logging.WARNING, "basis param extraction failed: %s", e)
                 _pp = None
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=src,

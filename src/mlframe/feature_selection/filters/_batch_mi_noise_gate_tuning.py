@@ -130,7 +130,7 @@ def _run_batch_mi_noise_gate_sweep() -> list:
         import psutil
         free = int(psutil.virtual_memory().available)
     except Exception as e:
-        logger.debug("psutil.virtual_memory() probe failed, using the conservative 4GiB default: %s", e)
+        logger.warning("psutil.virtual_memory() probe failed, using the conservative 4GiB default: %s", e)
         free = 4 * 1024**3
     budget = int(free * 0.4)
     max_n = max(n_rows) if n_rows else 1

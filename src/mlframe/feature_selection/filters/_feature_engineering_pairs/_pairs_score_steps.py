@@ -308,7 +308,7 @@ def _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, 
                     # same keys the chunk path keeps in ``chunk_state``: the operand table is uploaded once and resolved columns are cached
                     st._pair_defer_state = {"defer_meta": _defer_meta, "tv_gpu": None, "resolved_cols": {}}
         except Exception:
-            logger.debug("FE per-pair GPU fused materialise+bin failed; CPU materialise", exc_info=True)
+            log_throttle(logger, "pairs_score_gpu_fused", logging.WARNING, "FE per-pair GPU fused materialise+bin failed; CPU materialise", exc_info=True)
             _gpu_fused_done = False
             _disc_2d = None
             _batch_candidates = []
@@ -776,7 +776,7 @@ def _score_one_pair_step5_any_error_leaves(fe_pair_usability_admission_enable, _
                             f"rank-MI leader."
                         )
         except Exception as e:
-            logger.debug("usability-acceptance computation failed, defaulting to reject: %s", e)
+            log_throttle(logger, "pairs_score_usability_accept", logging.WARNING, "usability-acceptance computation failed, defaulting to reject: %s", e)
             st._usability_accept = False
             st._usability_primary = False
 

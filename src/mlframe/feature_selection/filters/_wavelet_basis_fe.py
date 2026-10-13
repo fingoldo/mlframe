@@ -210,7 +210,8 @@ def _dyadic_haar_leg_njit_serial(z: np.ndarray, left: float, mid: float, right: 
 # found the crossover between n=20M (parallel 1.18x) and n=50M (parallel 1.33x) -- the fallback threshold
 # below (used only pre-sweep / on tuner failure) is deliberately close to the loss side for that reason,
 # but the REAL per-host decision comes from the tuner's measured sweep, not this constant.
-_HAAR_LEG_SWEEP_N = [1_000, 1_000_000, 30_000_000]
+# Capped at 4M rows: a 30M-row cell is ~240 MB per float64 column and repeats per variant; the fallback covers larger n.
+_HAAR_LEG_SWEEP_N = [1_000, 1_000_000, 4_000_000]
 _HAAR_LEG_SALT = 1
 
 
@@ -298,7 +299,7 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     try:
         choice = _HAAR_LEG_PARALLELISM_SPEC.choose(n=int(zc.shape[0]))
     except Exception as e:
-        logger.debug("haar_leg_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+        logger.warning("haar_leg_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
         choice = _haar_leg_fallback_choice(int(zc.shape[0]))
     fn = _dyadic_haar_leg_njit if choice == "parallel" else _dyadic_haar_leg_njit_serial
     fn(zc, left, mid, right, leg)
@@ -561,7 +562,7 @@ def _heldout_incremental_mi_prep(x: np.ndarray, y: np.ndarray, *, nbins: int = 1
                 xc_d = cp.asarray(np.ascontiguousarray(xc.astype(np.int64)))
                 bm = np.asarray(binned_mi_from_codes_gpu(Yp_d, xc_d, kx_per_col=[n_cls] * n_perm, ky=int(base_nb)), dtype=np.float64)
             except Exception as e:
-                logger.debug("binned_mi_from_codes_gpu (base) failed, falling back to the CPU path: %s", e)
+                logger.warning("binned_mi_from_codes_gpu (base) failed, falling back to the CPU path: %s", e)
                 bm = None
         if bm is None:
             bm = np.empty(n_perm, dtype=np.float64)
@@ -625,7 +626,7 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
                 jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
                 null = jm - bm
             except Exception as e:
-                logger.debug("binned_mi_from_codes_gpu (joint) failed, falling back to the CPU path: %s", e)
+                logger.warning("binned_mi_from_codes_gpu (joint) failed, falling back to the CPU path: %s", e)
                 null = None
         if null is None:
             null = np.empty(n_perm, dtype=np.float64)

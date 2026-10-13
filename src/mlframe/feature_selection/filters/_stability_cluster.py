@@ -237,7 +237,7 @@ def cluster_stability_selection(
         except Exception as exc:
             # Log at debug so a systematically-broken
             # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
-            logger.debug("cluster_stability_selection: bootstrap %d's selector_fn raised: %r", _b, exc)
+            logger.warning("cluster_stability_selection: bootstrap %d's selector_fn raised, bootstrap skipped (result degraded): %r", _b, exc)
             n_failed += 1
             continue
         n_success += 1
@@ -339,7 +339,7 @@ def complementary_pairs_stability(
         except Exception as exc:
             # Log at debug so a systematically-broken
             # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
-            logger.debug("complementary_pairs_stability: pair %d's selector_fn raised: %r", _b, exc)
+            logger.warning("complementary_pairs_stability: pair %d's selector_fn raised, pair skipped (result degraded): %r", _b, exc)
             n_failed += 1
             continue
         n_success += 1
