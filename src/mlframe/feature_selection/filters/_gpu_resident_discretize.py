@@ -135,7 +135,7 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
         return out
     except Exception:
         import logging
-        logging.getLogger(__name__).debug("fused bin-codes kernel failed; per-column searchsorted fallback", exc_info=True)
+        logging.getLogger(__name__).warning("fused bin-codes kernel failed; per-column searchsorted fallback", exc_info=True)
         _od = cp.dtype(out_dtype) if out_dtype is not None else cp.dtype(cp.int32)
         out = cp.empty((n, K), dtype=_od)
         ec = cp.ascontiguousarray(interior_edges)
@@ -190,7 +190,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
             interior = _radix_select_interior_edges(_cand_c, int(nbins), cm_hint=_hint)
         except Exception:
             import logging
-            logging.getLogger(__name__).debug("radix-select edges failed; cp.percentile fallback", exc_info=True)
+            logging.getLogger(__name__).warning("radix-select edges failed; cp.percentile fallback", exc_info=True)
             interior = None
         if interior is not None:
             return _searchsorted_codes(cand_gpu, interior, out_dtype=out_dtype)

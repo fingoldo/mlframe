@@ -524,7 +524,7 @@ def _conditional_perm_n_precomp_cards_supplied_never(cand_bin, cand_dev):
         if isinstance(cand_bin, _cp_c.ndarray):
             cand_dev = cand_bin.astype(_cp_c.int64, copy=False).ravel()
     except Exception as e:
-        logger.debug("cupy candidate-code conversion failed, falling back to the host path: %s", e)
+        logger.warning("cupy candidate-code conversion failed, falling back to the host path: %s", e)
         cand_dev = None
     return cand_dev
 
@@ -543,6 +543,6 @@ def _conditional_perm_n_label_invariant_same_df(precomp_cards, n_size, cand_dev,
             # branch) -> no re-upload at the ``card_cand_x`` / ``cmi_z`` sites; host code otherwise.
             _ks = joint_cardinalities_cupy(cand_dev if cand_dev is not None else _host_x(), y, _z if _z is not None else z_support_dev)
         except Exception as e:
-            logger.debug("joint_cardinalities_cupy failed, falling back to the host cardinality path: %s", e)
+            logger.warning("joint_cardinalities_cupy failed, falling back to the host cardinality path: %s", e)
             _ks = None
     return _ks
