@@ -155,7 +155,7 @@ def _assign_support_tai_f_step1_identical_seed_iloc(self, X, verbose, _retention
                             if _yv.shape[0] == int(data.shape[0]) and np.issubdtype(np.asarray(_yv).dtype, np.number):
                                 _ret_y_cont = _yv
                         except Exception as exc:
-                            logger.debug("mrmr: continuous-y coercion failed for pure-form retention; retention skipped for this column: %r", exc, exc_info=True)
+                            logger.warning("mrmr: continuous-y coercion failed for pure-form retention; retention skipped for this column: %r", exc, exc_info=True)
                             _ret_y_cont = None
                     _ret_seed = int(getattr(self, "random_seed", 0) or 0)
                     _kept_extra = []
@@ -362,7 +362,7 @@ def _assign_support_tai_identical_seed_iloc_idx(self, X, _retention_prep_cache):
                 self, X, _ret_y_prep, seed=int(getattr(self, "random_seed", 0) or 0),
             )
     except Exception as exc:
-        logger.debug("mrmr: retention-prep cache build failed; pure-form retention will recompute per-call: %r", exc, exc_info=True)
+        logger.warning("mrmr: retention-prep cache build failed; pure-form retention will recompute per-call: %r", exc, exc_info=True)
         _retention_prep_cache = None
     return _retention_prep_cache
 
@@ -519,7 +519,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
                 if _yv.shape[0] == _n_rows_post and np.issubdtype(np.asarray(_yv).dtype, np.number):
                     _y_cont_post = _yv
             except Exception as exc:
-                logger.debug("mrmr: continuous-y coercion failed for the post-selection drop pass; column skipped: %r", exc, exc_info=True)
+                logger.warning("mrmr: continuous-y coercion failed for the post-selection drop pass; column skipped: %r", exc, exc_info=True)
                 _y_cont_post = None
             _, _post_dropped = _post_drop(
                 data=_post_data, cols=_post_cols, selected_cols_idx=_post_sel_idx,
