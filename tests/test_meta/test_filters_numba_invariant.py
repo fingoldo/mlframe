@@ -42,7 +42,6 @@ _KNOWN_VIOLATIONS = frozenset(
             "_numba_polynom_optimizer.py imports @njit symbol(s) ['_plugin_mi_classif_njit', '_plugin_mi_regression_njit'] from sibling _hermite_fe_mi.py"
             " (should live in _numba_utils.py)"
         ),
-        "_orthogonal_jmim_fe.py imports @njit symbol(s) ['_joint_mi_3d_njit'] from sibling _jmim_scorer.py (should live in _numba_utils.py)",
         "_synergy_detector.py imports @njit symbol(s) ['_pair_mm_mi_njit'] from sibling _fe_synergy_screen.py (should live in _numba_utils.py)",
         "fleuret.py imports @njit symbol(s) ['evaluate_gain'] from sibling evaluation.py (should live in _numba_utils.py)",
     }

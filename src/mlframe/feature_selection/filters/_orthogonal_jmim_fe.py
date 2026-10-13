@@ -94,7 +94,8 @@ import numpy as np
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
-from ._jmim_scorer import _joint_mi_3d_njit, jmim_score
+from ._jmim_scorer import jmim_score
+from ._numba_utils import _joint_mi_3d_njit
 from ._mi_greedy_cmi_fe import _quantile_bin
 from ._orthogonal_shared import coerce_y_classif, quantile_bin_batched as _quantile_bin_batched
 from ._orthogonal_univariate_fe import (
