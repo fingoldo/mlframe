@@ -513,7 +513,7 @@ def _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair
             pool.append(c)
 
 
-def _usability_greedy_try_gpu_resident(pool, y_cont, *, w, K, seed, n_folds, mae_improve_rel, shortlist, shortlist_diversity_corr, classification):
+def _usability_greedy_try_gpu_resident(pool, y_cont, *, w, K, seed, n_folds, mae_improve_rel, shortlist, shortlist_diversity_corr, classification) -> list[UsableCandidate] | None:
     """Return the GPU-resident greedy result when its flags are on and it applies; ``None`` sends the caller to the exact CPU body."""
     try:
         from ._fe_gpu_strict import fe_gpu_strict_enabled

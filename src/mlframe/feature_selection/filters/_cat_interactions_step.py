@@ -122,7 +122,7 @@ def _warn_weighted_bandit_fallback(cfg, use_weights):
         )
 
 
-def _drop_bootstrap_ci_unstable(cfg, st, pairs_a, pairs_b, verbose):
+def _drop_bootstrap_ci_unstable(cfg, st, pairs_a, pairs_b, verbose) -> tuple[Any, Any, Any, Any] | None:
     """Drop survivors whose bootstrap lower-CI falls below the floor; returns the skipped result when none survive, else None."""
     from mlframe.feature_selection.filters.cat_interactions import resolve_min_interaction_information
     if st.bootstrap_ci_dict:

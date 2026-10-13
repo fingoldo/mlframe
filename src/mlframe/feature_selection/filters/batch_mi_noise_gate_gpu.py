@@ -478,7 +478,7 @@ def _resident_y_all_device_for_cupy(classes_y, classes_y_safe, base_seed, nperm,
     return _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P)
 
 
-def _batch_mi_noise_gate_su_delegate(disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block):
+def _batch_mi_noise_gate_su_delegate(disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block) -> np.ndarray:
     """SU-entropy noise gate: delegates to the CPU-entropy cuda twin, handing it the cached device shuffle matrix."""
     # SU (Symmetric Uncertainty) has no on-device entropy form, so this delegates to the CPU-entropy
     # ``batch_mi_with_noise_gate_cuda`` twin - but that twin's per-permutation loop used to rebuild
