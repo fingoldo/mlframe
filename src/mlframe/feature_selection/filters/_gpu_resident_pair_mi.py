@@ -401,7 +401,7 @@ def grand_fused_pair_mi(
         try:
             return grand_fused_pair_mi_fused(
                 a, b, y_codes, classes_y_safe, freqs_y, nbins=nbins, npermutations=npermutations,
-                min_nonzero_confidence=min_nonzero_confidence, use_su=use_su,
+                min_nonzero_confidence=min_nonzero_confidence, use_su=use_su, random_seed=random_seed,
             )
         except Exception as e:
             import logging
@@ -565,6 +565,7 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
 def grand_fused_pair_mi_fused(
     a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, classes_y_safe: np.ndarray, freqs_y: np.ndarray, *,
     nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
+    random_seed: int = 0,
 ) -> tuple[list, np.ndarray]:
     """GRAND-FUSION (never materialise (n,K)): the fully-fused twin of :func:`grand_fused_pair_mi`.
 
@@ -598,7 +599,7 @@ def grand_fused_pair_mi_fused(
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
     if nperm > 0:
-        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(0), nperm)
+        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(random_seed), nperm)
         y_all_host = np.empty((nperm + 1, n), dtype=np.int64)
         y_all_host[0, :] = y_orig[0, :]
         y_all_host[1:, :] = shuf.astype(np.int64)
