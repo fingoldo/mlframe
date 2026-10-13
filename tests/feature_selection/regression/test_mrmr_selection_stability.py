@@ -167,14 +167,19 @@ def test_regression_null_importance_filter_rejects_zero_shuffles():
 
 
 def test_regression_boruta_select_bh_correction_scales_with_rounds():
-    """Post-fix: the BH branch's per-round critical values shrink with rounds_run the same way the
-    bonferroni branch's corrected_alpha does (both / rounds_run), instead of staying fixed at `alpha`."""
-    import inspect
+    """Post-fix: the BH branch's per-round critical values shrink with rounds_run the same way the bonferroni branch's
+    corrected_alpha does (both / rounds_run), instead of staying fixed at alpha. A feature hit 9 times in 10 rounds has a
+    two-sided p of about 0.0215: under the scaled level alpha/rounds_run = 0.005 it must stay undecided, while a feature
+    hit 10 times in 10 rounds (p of about 0.00195) is still confirmed."""
+    from mlframe.feature_selection.filters._boruta import _resolve_undecided_features_for_round
 
-    from mlframe.feature_selection.filters._boruta import boruta_select
+    borderline = [None]
+    _resolve_undecided_features_for_round(borderline, np.array([9]), 10, 1, 0.05, "bh")
+    assert borderline == [None], f"a p of about 0.0215 must not clear the rounds-corrected level 0.005; got {borderline}"
 
-    src = inspect.getsource(boruta_select)
-    assert "round_alpha = alpha / rounds_run" in src
+    clear = [None]
+    _resolve_undecided_features_for_round(clear, np.array([10]), 10, 1, 0.05, "bh")
+    assert clear == ["confirmed"], f"a p of about 0.00195 must clear the rounds-corrected level 0.005; got {clear}"
 
 
 # ---------------------------------------------------------------------------
