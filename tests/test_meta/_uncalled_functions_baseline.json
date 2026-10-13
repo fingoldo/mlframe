@@ -1,14 +1,6 @@
 {
   "entries": {
-    "src/mlframe/calibration/_post_train_calibrators.py::train_postcalibrators": {
-      "count": 1,
-      "note": ""
-    },
     "src/mlframe/calibration/prediction_band_correction.py::assess_prediction_band_stability": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/calibration/quality.py::hyvarinen_score": {
       "count": 1,
       "note": ""
     },

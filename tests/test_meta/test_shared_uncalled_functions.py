@@ -43,6 +43,7 @@ _PUBLIC_API = {
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
 #: users, so no production call site is expected. Classified as public API; new names must be added here with the export.
 _REEXPORTED_PUBLIC_API = {
+    "train_postcalibrators",  # re-exported by the calibration.post facade (from ._post_train_calibrators import ...)
     "_baseline_inputs_hash", "_detect_fourier_freq_for_col", "_ewma_compute_batched", "_frac_diff_inverse_compute_batched", "_knuth_log_posterior",
     "_ksg_mi_1d", "_polars_df_has_null_in_categorical", "_pre_pipeline_cache_clear", "_pre_pipeline_cache_set", "_quantile_edges_2d_njit_partition",
     "_residualise", "_resolve_model_spec", "acquire_provider", "add_anchor_extrapolation_features", "add_fast_rolling_stats",
@@ -212,6 +213,7 @@ _NAME_DISPATCHED = {
 #: Replaced by a faster or more efficient version and kept as the reference the replacement is checked against. Each entry
 #: names its replacement; a superseded function with no parity test is a gap, not a reference.
 _SUPERSEDED = {
+    "hyvarinen_score",  # deprecated alias of mutual_information_score; parity + DeprecationWarning pinned in tests/calibration/test_mutual_information_rename.py
     "_oof_column_gather",  # stacks the per-fold tables first; _oof_column_from_table does the same gather on the table already stacked and is what the builder calls
     "_oof_column_foldloop",  # parity oracle for _oof_column_gather (tests/feature_selection/fe/gpu/test_binagg_oof_gather_parity.py)
     "_pair_combo_mi_cupy_loop",  # per-combo cupy twin of _pair_combo_mi_cupy; parity pinned in tests/feature_selection/gpu/test_usability_pool_cupy_batched_twin.py
