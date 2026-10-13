@@ -218,7 +218,11 @@ def test_regression_scorer_zoo_preprocess_params_except_is_logged(modname, funcn
 
     from mlframe.feature_selection.filters import _orthogonal_univariate_fe as uni
 
-    real_evaluate = uni._evaluate_basis_column
+    scorer_mod = importlib.import_module(f"mlframe.feature_selection.filters.{modname}")
+    # Patch the binding the scorer actually calls. Some scorers import _evaluate_basis_column by name, so patching only the
+    # univariate module is order-dependent: it takes effect only if the scorer was first imported inside this patch window.
+    owner = scorer_mod if hasattr(scorer_mod, "_evaluate_basis_column") else uni
+    real_evaluate = owner._evaluate_basis_column
 
     def _fail_only_when_freezing(*args, **kwargs):
         """Test double method _fail_only_when_freezing."""
@@ -226,8 +230,8 @@ def test_regression_scorer_zoo_preprocess_params_except_is_logged(modname, funcn
             raise RuntimeError("forced freeze failure")
         return real_evaluate(*args, **kwargs)
 
-    monkeypatch.setattr(uni, "_evaluate_basis_column", _fail_only_when_freezing)
-    fn = getattr(importlib.import_module(f"mlframe.feature_selection.filters.{modname}"), funcname)
+    monkeypatch.setattr(owner, "_evaluate_basis_column", _fail_only_when_freezing)
+    fn = getattr(scorer_mod, funcname)
 
     rng = np.random.default_rng(0)
     n = 2000
@@ -307,12 +311,18 @@ def test_regression_near_zero_baseline_uplift_defers_to_dynamic_floor(modname):
     floor would accept). Post-fix: uplift is always inf for a near-zero baseline, deferring entirely to
     gate 2's dynamic floor."""
     import importlib
-    import inspect
 
     mod = importlib.import_module(f"mlframe.feature_selection.filters.{modname}")
-    src = inspect.getsource(mod)
-    assert '0.0 if emi < _ABS_MI_FLOOR else float("inf")' not in src
-    assert 'uplift = float("inf")' in src
+    score = mod.score_features_by_ksg_mi_uplift if modname == "_orthogonal_ksg_mi_fe" else mod.score_features_by_hsic_uplift
+    rng = np.random.default_rng(0)
+    n = 400
+    y = rng.integers(0, 2, n)
+    raw_X = pd.DataFrame({"a": np.full(n, 3.0, dtype=np.float32)})  # constant source: zero baseline MI
+    eng_X = pd.DataFrame({"a__h1": np.full(n, 0.5, dtype=np.float32)})  # constant engineered column: MI ~ 0
+    row = score(raw_X, eng_X, y).iloc[0]
+    # The engineered MI sits below the old fixed _ABS_MI_FLOOR, the band where the pre-fix code hard-set uplift=0.0.
+    assert row["engineered_mi"] < mod._ABS_MI_FLOOR
+    assert np.isinf(row["uplift"]), f"near-zero baseline must defer to gate 2 with uplift=inf; got {row['uplift']}"
 
 
 # ---------------------------------------------------------------------------
@@ -446,16 +456,56 @@ def test_regression_raws_linearly_explain_y_still_fires_on_real_signal():
 # ---------------------------------------------------------------------------
 
 
+def _nested_composite_anchor_kwargs(n=1500, seed=7, n_unreferenced=200):
+    """Fused ``sub(div(sqr(a),neg(b)),mul(log(c),sin(d)))`` engineered survivor over raws a..d, with y built from
+    per-raw above-median indicators so each of a..d is signal bearing, plus raw names no recipe consumes."""
+    from mlframe.feature_selection.filters.engineered_recipes import apply_recipe, build_unary_binary_recipe
+
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame({
+        "a": rng.uniform(0.1, 10.0, n).astype(np.float32),
+        "b": rng.uniform(0.5, 5.0, n).astype(np.float32),
+        "c": rng.uniform(0.1, 10.0, n).astype(np.float32),
+        "d": rng.uniform(0.0, 6.28, n).astype(np.float32),
+    })
+    kw = dict(unary_preset="minimal", binary_preset="minimal", quantization_nbins=None, quantization_method=None, quantization_dtype=np.float32)
+    parent_a = build_unary_binary_recipe(name="div(sqr(a),neg(b))", src_a_name="a", src_b_name="b", unary_a_name="sqr", unary_b_name="neg", binary_name="div", **kw)
+    parent_b = build_unary_binary_recipe(name="mul(log(c),sin(d))", src_a_name="c", src_b_name="d", unary_a_name="log", unary_b_name="sin", binary_name="mul", **kw)
+    va = apply_recipe(parent_a, df)
+    vb = apply_recipe(parent_b, df)
+    fused_name = "sub(div(sqr(a),neg(b)),mul(log(c),sin(d)))"
+    fused = build_unary_binary_recipe(
+        name=fused_name, src_a_name="div(sqr(a),neg(b))", src_b_name="mul(log(c),sin(d))", unary_a_name="identity", unary_b_name="identity",
+        binary_name="sub", fit_values_for_edges=(va - vb), nested_parent_a=parent_a, nested_parent_b=parent_b, **kw,
+    )
+    above = [(df[c].to_numpy() > np.median(df[c].to_numpy())).astype(np.int32) for c in ("a", "b", "c", "d")]
+    y = (sum(above) >= 2).astype(np.int32)
+
+    def _qbin(v, k=10):
+        """Quantile-bin a continuous column into k int codes, as the fit path hands binned columns to the anchor builder."""
+        edges = np.quantile(v, np.linspace(0, 1, k + 1)[1:-1])
+        return np.searchsorted(edges, v, side="right").astype(np.int32)
+
+    eng = np.asarray(apply_recipe(fused, df), dtype=np.float32)
+    data = np.column_stack([_qbin(df[c].to_numpy(np.float32)) for c in ("a", "b", "c", "d")] + [_qbin(eng)]).astype(np.int32)
+    raw_names = ["a", "b", "c", "d"] + [f"n{i}" for i in range(n_unreferenced)]
+    return dict(
+        data=data, cols=["a", "b", "c", "d", fused_name], sel=[0, 1, 2, 3, 4], raw_name_set=set(raw_names),
+        y_binned=y, y_continuous=None, engineered_continuous=None, replayable_eng_names=None,
+        recipes={fused_name: fused}, raw_X=df, seed=0, verbose=0, n_rows=n, gate_resident=False,
+    )
+
+
 def test_regression_raw_redundancy_anchors_iterates_bounded_raw_set():
-    """Post-fix: the inner loop iterates the bounded union of actually-referenced parents
-    (_all_relevant_raws), not the caller's full raw_name_set."""
-    import inspect
+    """Post-fix: the inner loop iterates the bounded union of actually-referenced parents (_all_relevant_raws), not the
+    caller's full raw_name_set. Output pin: the clean sub-expression anchors land on exactly the four referenced raws
+    and on none of the unreferenced raw names carried in raw_name_set."""
+    from mlframe.feature_selection.filters._fe_raw_redundancy_anchors import build_raw_redundancy_anchors
 
-    from mlframe.feature_selection.filters import _fe_raw_redundancy_anchors as mod
-
-    src = inspect.getsource(mod)
-    assert "_all_relevant_raws = set().union(*_sub_parents.values())" in src
-    assert "for _rn in _all_relevant_raws:" in src
+    ctx = build_raw_redundancy_anchors(**_nested_composite_anchor_kwargs())
+    assert ctx.early_return is None
+    assert {rn for rn, _ei in ctx.clean_subexpr_bin} == {"a", "b", "c", "d"}
+    assert {ei for _rn, ei in ctx.clean_subexpr_bin} == {4}
 
 
 # ---------------------------------------------------------------------------
@@ -584,15 +634,33 @@ def test_regression_hybrid_orth_noise_floor_active_with_one_raw_column():
     assert X_aug.shape[1] == X.shape[1], f"expected no engineered columns admitted on pure noise; got {list(X_aug.columns)}"
 
 
-def test_regression_noise_floor_computed_without_size_gate():
-    """Direct pin: the noise-floor computation no longer gates on raw_baselines.size >= 4 / eng_mis.size >= 4."""
-    import inspect
-
+def test_regression_noise_floor_computed_without_size_gate(monkeypatch):
+    """Post-fix: the MAD noise floors are computed from the scored candidates even when fewer than four exist.
+    Injected scores (three candidates) put two weak engineered columns inside the noise band, so the gate must reject
+    them and keep only the clear winner. Pre-fix, both floors collapsed to 0.0 below size 4 and all three were admitted."""
+    from mlframe.feature_selection.filters import _fe_gpu_strict, _gpu_resident_fe
     from mlframe.feature_selection.filters import _orthogonal_univariate_fe as mod
 
-    src = inspect.getsource(mod)
-    assert "if raw_baselines.size >= 4:" not in src
-    assert "if eng_mis.size >= 4:" not in src
+    monkeypatch.setattr(_gpu_resident_fe, "fe_gpu_resident_basis_mi_enabled", lambda: False)
+    monkeypatch.setattr(_fe_gpu_strict, "fe_gpu_strict_enabled", lambda **_kw: False)
+    rng = np.random.default_rng(0)
+    n = 400
+    y = rng.integers(0, 2, n)
+    X = pd.DataFrame({"x1": rng.standard_normal(n).astype(np.float32)})
+    names = ["x1__He2", "x1__He3", "x1__He4"]
+    engineered = pd.DataFrame({nm: rng.standard_normal(n).astype(np.float32) for nm in names})
+    scores = pd.DataFrame({
+        "engineered_col": names,
+        "source_col": ["x1", "x1", "x1"],
+        "baseline_mi": [0.10, 0.12, 0.10],
+        "engineered_mi": [0.30, 0.31, 0.60],
+        "uplift": [3.0, 2.6, 6.0],
+    })
+    monkeypatch.setattr(mod, "generate_univariate_basis_features", lambda *a, **k: engineered)
+    monkeypatch.setattr(mod, "score_features_by_mi_uplift", lambda *a, **k: scores.copy())
+
+    X_aug, _scores = mod.hybrid_orth_mi_fe(X, y, degrees=(2, 3, 4), basis="hermite")
+    assert list(X_aug.columns) == ["x1", "x1__He4"]
 
 
 # ---------------------------------------------------------------------------
@@ -610,19 +678,39 @@ def test_regression_orth_univariate_docstring_no_longer_claims_not_wired():
     assert "NOT wired into MRMR.fit by default" not in doc
 
 
-def test_regression_orth_univariate_bails_to_host_when_aux_pool_active():
-    """X_EFFICIENCY_ARCHITECTURE-3: with a semi-supervised unlabeled pool installed, hybrid_orth_mi_fe
-    must not take the GPU-resident path (which ignores the pool) -- forced GPU-resident flags must be
-    overridden by the aux-pool gate. Runs on CPU regardless of CUDA availability (only checks the gating
-    logic's inputs, not actual GPU execution)."""
-    import inspect
+def test_regression_orth_univariate_bails_to_host_when_aux_pool_active(monkeypatch):
+    """X_EFFICIENCY_ARCHITECTURE-3: with a semi-supervised unlabeled pool installed, hybrid_orth_mi_fe must not take the
+    GPU-resident path (which ignores the pool), even when the GPU flags are forced on. The GPU twin is replaced by a
+    recorder, so this runs on CPU regardless of CUDA availability."""
+    from mlframe.feature_selection.filters import _fe_gpu_strict, _gpu_resident_fe
+    from mlframe.feature_selection.filters import _orthogonal_univariate_fe as mod
+    from mlframe.feature_selection.filters._semi_supervised_fe import unlabeled_pool_active
 
-    from mlframe.feature_selection.filters._orthogonal_univariate_fe import hybrid_orth_mi_fe
+    monkeypatch.setattr(_gpu_resident_fe, "fe_gpu_resident_basis_mi_enabled", lambda: True)
+    monkeypatch.setattr(_gpu_resident_fe, "_cuda_present", lambda: True)
+    monkeypatch.setattr(_fe_gpu_strict, "fe_gpu_strict_enabled", lambda **_kw: True)
+    gpu_calls = []
 
-    src = inspect.getsource(hybrid_orth_mi_fe)
-    assert "get_unlabeled_pool" in src
-    assert "_aux_pool_active" in src
-    assert "not _aux_pool_active" in src
+    def _gpu_recorder(X, cols, degrees, basis, y, nbins):
+        """Record that the GPU-resident twin was taken and return the no-candidates result."""
+        gpu_calls.append(cols)
+        return None, [], pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
+
+    monkeypatch.setattr(mod, "_gpu_build_and_score_univariate", _gpu_recorder)
+    rng = np.random.default_rng(1)
+    n = 500
+    X = pd.DataFrame({"x1": rng.standard_normal(n).astype(np.float32)})
+    y = (X["x1"].to_numpy() > 0).astype(np.int32)
+    pool = {"x1": rng.standard_normal(2000).astype(np.float32)}
+
+    mod.hybrid_orth_mi_fe(X, y, degrees=(2, 3), basis="hermite")
+    assert len(gpu_calls) == 1, "control: with no pool installed the forced GPU flags must take the GPU-resident twin"
+
+    gpu_calls.clear()
+    with unlabeled_pool_active(pool):
+        _X_aug, scores = mod.hybrid_orth_mi_fe(X, y, degrees=(2, 3), basis="hermite")
+    assert gpu_calls == [], "GPU-resident path must not run while an aux pool is active"
+    assert "x1__He2" in set(scores["engineered_col"]), "host path must score the candidates"
 
 
 def test_regression_build_raw_redundancy_anchors_identifies_consumer():
