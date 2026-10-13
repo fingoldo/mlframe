@@ -824,14 +824,6 @@
       "count": 1,
       "note": ""
     },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_compose.py::per_fold_stability_select": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_compose.py::proposal_generator": {
-      "count": 1,
-      "note": ""
-    },
     "src/mlframe/feature_selection/wrappers/_univariate_ht.py::_kruskal_wallis_h": {
       "count": 1,
       "note": ""

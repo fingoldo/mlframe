@@ -234,7 +234,10 @@ _SUPERSEDED = {
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
 #: Each entry names the switch that reaches it. Empty until a function is classified this way.
-_OPT_IN_SLOW: set[str] = set()
+_OPT_IN_SLOW: set[str] = {
+    "per_fold_stability_select",  # ShapProxiedFS once per outer fold (n_folds fits); opt-in via the function call, ~3-7x the default fit cost
+    "proposal_generator",  # cheap-proxy candidate seeds for an external honest search; opt-in via the function call
+}
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
 _OPTIN = {
