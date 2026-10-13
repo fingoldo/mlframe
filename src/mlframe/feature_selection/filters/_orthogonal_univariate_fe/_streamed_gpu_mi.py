@@ -29,7 +29,8 @@ WORK_FACTOR = 3  # block bytes x this = VRAM the MI intermediates need
 BLOCK_BYTES_MAX = 512 << 20  # no block larger than this, whatever the VRAM
 
 HOST_BLOCK_FRAC = 0.10  # share of free host RAM the CPU batch MI may take for one whole matrix (same budget _mi_chunk_cols_for blocks to)
-CPU_WORK_ITEMSIZE = 8  # the CPU batch MI works in float64 whatever the caller's dtype
+# Intentional float64: the CPU batch MI accumulates in float64 whatever the caller's dtype, so the budget uses 8 bytes per value.
+CPU_WORK_ITEMSIZE = 8
 
 __all__ = ["plan_streamed_mi", "mi_classif_streamed", "choose_mi_path"]
 
@@ -93,7 +94,7 @@ def choose_mi_path(n_rows: int, n_cols: int, dtype: Any, devices: list[tuple[int
     """Which MI path a ``(n_rows, n_cols)`` batch takes, decided from free memory alone.
 
     * ``"resident"``: the whole matrix is scored in one batch. On a GPU when the planner's block width (the widest block every
-      device can hold, see :func:`plan_streamed_mi`) covers all ``n_cols``; on the CPU when the whole batch's float64 working set
+      device can hold, see :func:`plan_streamed_mi`) covers all ``n_cols``; on the CPU when the whole batch's 8-byte-per-value working set
       (``n_rows * n_cols * 8 * WORK_FACTOR``) fits ``HOST_BLOCK_FRAC`` of free host RAM.
     * ``"streamed"``: GPU present, but the matrix must go through VRAM in blocks (:func:`mi_classif_streamed`).
     * ``"cpu_blocks"``: no usable GPU (or it cannot hold one column) and the whole batch does not fit host RAM; the CPU scores
