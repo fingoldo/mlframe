@@ -5,26 +5,25 @@ See ``screen.py`` for the screening orchestrator that calls these functions.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Sequence, Tuple, Any
 
 import numba
 import numpy as np
-from numba import njit
 from numba.core import types
 
-from pyutilz.numbalib import _generate_combinations_recursive_njit_core
+from pyutilz.numbalib import _generate_combinations_recursive_njit_core  # noqa: F401 -- re-exported; read by the numba-dispatcher contract test
 # Module-level import so cloudpickle can resolve tqdmu when the function ships to a joblib worker.
 
-from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS
-from ._numba_utils import arr2str, count_cand_nbins
+from ._internals import LARGE_CONST
+from ._numba_utils import evaluate_gain
+from ._numba_utils import _EVALUATE_GAIN_DISK_CACHE  # noqa: F401 -- re-exported; read by the disk-cache contract tests
 from .gpu import mi_direct_gpu
 from .info_theory import (
-    conditional_mi, entropy, merge_vars, mi,
+    entropy, merge_vars, mi,
     # SU normalization dispatcher. ``cmi_or_csu`` reads a thread-local
     # toggle set by ``MRMR.fit`` when ``mi_normalization='su'``; legacy path
     # (toggle off) is one extra Python call ahead of njit kernels.
-    use_su_normalization, conditional_symmetric_uncertainty, use_mi_miller_madow,
+    use_su_normalization, use_mi_miller_madow,
     # JMIM aggregator + BUR weight thread-local toggles
     # used in evaluate_gain / evaluate_candidate.
     use_jmim_aggregator, get_bur_lambda,
@@ -134,273 +133,6 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
 # carved to _evaluation_candidate.py to keep this file under the 1k-LOC gate; re-imported so every
 # ``from .evaluation import ...`` call site is unchanged.
 from ._evaluation_candidate import get_candidate_name, handle_best_candidate, should_skip_candidate  # noqa: F401  (re-export for external callers)
-
-# Disk caching is off only under CI: a restore-keys prefix fallback there restored a NUMBA_CACHE_DIR from a different source-tree state and the
-# kernel then failed with a stale-cache TypingError. Locally the cache is on, saving ~40 s of cold compile per process on a default MRMR fit.
-_EVALUATE_GAIN_DISK_CACHE = os.environ.get("CI", "").strip().lower() not in ("1", "true", "yes")
-
-
-@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
-def _jmim_additional_knowledge(X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only):
-    """JMIM joint MI ``I({X, Z}; Y)`` for one ``(X, Z)`` pair, read from / written to the JMIM cache, with the ``nexisting`` exponent applied.
-
-    The aggregator branch of ``evaluate_gain``, split out as its own njit function; the cache arguments may be None (a direct caller without the
-    cache wired), which numba narrows below exactly as it did inside ``evaluate_gain``.
-    """
-    # Build the joint variable index multiset {X, Z} for JMIM's
-    # I({X, Z}; Y). np.concatenate is supported in @njit but the
-    # numba type-inferencer can fail to unify dtypes when X and Z
-    # come from different upstream call paths; coerce both sides
-    # to int64 explicitly so the unification is bit-identical to
-    # mi()'s internal x = np.asarray(x, dtype=np.int64) cast.
-    _x_int = np.asarray(X, dtype=np.int64)
-    _z_int = np.asarray(Z, dtype=np.int64)
-    xz_combined = np.unique(np.concatenate((_x_int, _z_int)))
-    # JMIM joint-MI cache. The multiset {X} u Z recurs
-    # across greedy rounds (and across (X, Z) swaps within a round),
-    # so memoise the raw mi({X,Z}; y) keyed on arr2str(xz_combined).
-    # Stored RAW; nexisting exponent applied below at read time, as
-    # the plain-CMI branch does. ``y`` is fixed per fit -> not in key.
-    # Independent of the cond-MI cache so JMIM and CMI values never
-    # collide under the same arr2str(X)+"|"+arr2str(Z) key.
-    # ``cached_jmim_MIs`` / ``jmim_hit_counter`` may be None when a
-    # direct caller invokes evaluate_gain without the cache wired
-    # (e.g. focused unit tests). Guard with ``is not None`` - numba
-    # narrows the Optional so the typed-dict ``in``/index ops only
-    # type-check on the non-None branch; the uncached fallback just
-    # recomputes mi() every time (pre-cache behaviour).
-    _jmim_key = arr2str(xz_combined)
-    if (not confidence_mode) and (cached_jmim_MIs is not None) and (_jmim_key in cached_jmim_MIs):
-        additional_knowledge = cached_jmim_MIs[_jmim_key]
-        if jmim_hit_counter is not None:
-            jmim_hit_counter[0] += 1
-    else:
-        additional_knowledge = mi(
-            factors_data=factors_data,
-            x=xz_combined, y=y,
-            factors_nbins=factors_nbins, dtype=dtype,
-        )
-        if (not confidence_mode) and (cached_jmim_MIs is not None):
-            cached_jmim_MIs[_jmim_key] = additional_knowledge
-    if nexisting > 0:
-        _disc = additional_knowledge ** (nexisting + 1)
-        if jmim_discount_only and _disc > additional_knowledge:
-            # joint MI > 1 -> the exponent would amplify; clamp to discount-only (never increase the joint MI).
-            pass
-        else:
-            additional_knowledge = _disc
-    return additional_knowledge
-
-
-@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
-def evaluate_gain(
-    current_gain: float,
-    last_checked_k: int,
-    direct_gain: float,
-    X: np.ndarray,
-    y: np.ndarray,
-    nexisting: int,
-    best_gain: float,
-    factors_data: np.ndarray,
-    factors_nbins: np.ndarray,
-    selected_vars: np.ndarray,
-    mrmr_relevance_algo: str = "fleuret",
-    mrmr_redundancy_algo: str = "fleuret",
-    max_veteranes_interactions_order: int = 2,
-    extra_knowledge_multipler: float = -1.0,
-    sink_threshold: float = -1.0,
-    entropy_cache: dict | None = None,
-    cached_cond_MIs: dict | None = None,
-    # JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it is not
-    # part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent is applied at READ time, exactly as the plain-CMI branch does for its cache.
-    cached_jmim_MIs: dict | None = None,
-    # 1-element int64 array hit counter for the JMIM cache. An array
-    # (not a scalar) so the @njit kernel can mutate it in place and the caller can
-    # read the post-loop count - proves the cache actually HITS, not just that it
-    # is harmless. Counter[0] is incremented on every JMIM cache read-hit.
-    jmim_hit_counter: np.ndarray | None = None,
-    can_use_x_cache=False,
-    can_use_y_cache=False,
-    dtype=np.int32,
-    confidence_mode: bool = False,
-    max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
-    use_su: bool = False,  # SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
-    use_jmim: bool = False,  # JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` - ``@njit`` cannot do ``from X import Y`` or call a non-njit thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
-    jmim_discount_only: bool = False,  # MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY, read by the Python caller (see jmim_exponent_discount_only)
-    use_mm: bool = False,  # N-F2: Miller-Madow toggle for the redundancy CMI, threaded like use_su so the redundancy carries the SAME bias correction as the MM relevance. Default False -> plug-in redundancy, unchanged.
-) -> tuple:
-    """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
-
-    positive_mode = False
-    stopped_early = False
-    sink_reasons = None
-
-    k = 0
-    for interactions_order in range(max_veteranes_interactions_order):
-        # calls the njit-compiled core directly rather than pyutilz's plain-Python validating wrapper
-        # (generate_combinations_recursive_njit): a bare Python function with a `raise` cannot be called
-        # from this @njit context in nopython mode - numba reports "Untyped global name" on any cold
-        # compile (a warm on-disk cache from before pyutilz's wrapper regressed to plain Python can mask
-        # this). r = interactions_order + 1 is always >= 1 here, so the wrapper's r<0 validation is moot.
-        # .astype(np.int32), not np.array(selected_vars, dtype=np.int32): now that every caller passes
-        # a real ndarray (see the call site's own comment on why the reflected-list-typed np.array()
-        # call this replaced existed at all), nopython mode's np.array() no longer accepts an ndarray
-        # input ("not allowed in a homogeneous sequence") -- .astype() is the correct nopython-mode
-        # array-to-array dtype cast and works for both an int64 and an already-int32 input.
-        combs = _generate_combinations_recursive_njit_core(selected_vars.astype(np.int32), interactions_order + 1)[::-1]
-
-        for Z in combs:
-
-            if k > last_checked_k:
-                if confidence_mode and count_cand_nbins(Z, factors_nbins) > max_confirmation_cand_nbins:
-                    additional_knowledge = 0.0  # this is needed to skip checking against hi cardinality approved factors
-                else:
-                    # Gated on mrmr_redundancy_algo, not mrmr_relevance_algo: the conditional-MI machinery
-                    # below is the REDUNDANCY mechanism (I(X;Y|Z) checked against every already-selected Z),
-                    # independent of how relevance itself was scored (direct_gain, computed by the caller
-                    # before entering evaluate_gain at all). Gating on mrmr_relevance_algo instead left
-                    # `additional_knowledge` completely unset -- UnboundLocalError -- for the entirely valid
-                    # mrmr_relevance_algo="pld" + mrmr_redundancy_algo="fleuret" (the redundancy default)
-                    # combination, since neither branch of the original condition ever ran for it. The `or
-                    # mrmr_relevance_algo == "fleuret"` disjunct preserves every previously-reachable
-                    # combination byte-for-byte (relevance="fleuret" always entered this branch before,
-                    # regardless of redundancy_algo, so it still does). mrmr_redundancy_algo in
-                    # {"pld_max", "pld_mean"} is a separate, still-unimplemented gap (see
-                    # _screen_predictors.py's docstring) -- not addressed here, and not newly broken by this
-                    # fix (that combination never worked either way).
-                    if mrmr_redundancy_algo == "fleuret" or mrmr_relevance_algo == "fleuret":
-                        # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.
-                        key_found = False
-                        if not confidence_mode:
-                            #
-                            # ``arr2str`` already uses ``_`` as its element
-                            # separator, so the prior boundary ``"_"`` between
-                            # ``arr2str(X)`` and ``arr2str(Z)`` aliased every
-                            # partition of the multiset ``X u Z``. Confirmed:
-                            # X=[1,2] Z=[3,4], X=[1] Z=[2,3,4], X=[1,2,3] Z=[4]
-                            # all produced ``"1_2_3_4"`` -> wrong-answer cache
-                            # hits, silent. Affects every config with
-                            # ``max_veteranes_interactions_order >= 2`` or
-                            # engineered multi-element X/Z, biasing
-                            # conditional-MI scoring. Switching to ``"|"``
-                            # (a character ``arr2str`` cannot emit) makes the
-                            # boundary unambiguous.
-                            #
-                            # cache the RAW (pre-exponent) conditional MI
-                            # and apply ``** (nexisting + 1)`` at every
-                            # read site. Pre-fix the cache stored the
-                            # already-exponentiated value but the key
-                            # omitted ``nexisting``, so a subsequent
-                            # ``(X, Z)`` lookup with a different
-                            # ``nexisting`` returned the WRONG exponent
-                            # (and silently biased the Fleuret/CMIM
-                            # redundancy score). Caching the raw value
-                            # lets all nexisting tiers share the
-                            # underlying CMI compute.
-                            key = arr2str(X) + "|" + arr2str(Z)
-                            if key in cached_cond_MIs:  # type: ignore[operator]  # caller always supplies a dict on the non-JMIM path (see docstring)
-                                additional_knowledge = cached_cond_MIs[key]  # type: ignore[index]
-                                # Apply the nexisting exponent at read time.
-                                if nexisting > 0:
-                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
-                                key_found = True
-
-                        if not key_found:
-
-                            # JMIM aggregator (Bennasar 2015).
-                            # When the thread-local JMIM toggle is on, replace
-                            # Fleuret's conditional MI ``I(X; Y | Z)`` with the
-                            # joint MI ``I({X, Z}; Y)``. Both feed the same
-                            # outer ``min_k`` aggregator. JMIM preserves the
-                            # synergistic information that CMIM rejects on
-                            # multi-collinear groups (Brown 2012 / Bennasar 2015
-                            # framework). Caching skipped on the JMIM branch
-                            # because the joint-MI computation has its own
-                            # per-pair entropy cost; future sprint may add a
-                            # joint-MI cache keyed on the multiset {X, Z, Y}.
-                            # SU branch bypasses entropy caches because the SU denominator
-                            # is path-dependent and re-using cached unconditional CMI numbers would
-                            # silently desync the normalization. Cheap (no caching) is correct here;
-                            # legacy raw-CMI path keeps cache wired in. ``use_su`` AND ``use_jmim``
-                            # are threaded from the Python-level caller (evaluate_candidate ->
-                            # evaluate_gain) - the njit kernel cannot read the Python thread-locals
-                            # at runtime (IMPORT_NAME / dynamic Python call are unsupported in @njit).
-                            if use_jmim:
-                                additional_knowledge = _jmim_additional_knowledge(
-                                    X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only,
-                                )
-                            elif use_su:
-                                additional_knowledge = conditional_symmetric_uncertainty(
-                                    factors_data=factors_data, x=X, y=y, z=Z,
-                                    factors_nbins=factors_nbins, dtype=dtype,
-                                )
-                            else:
-                                additional_knowledge = conditional_mi(
-                                    factors_data=factors_data,
-                                    x=X,
-                                    y=y,
-                                    z=Z,
-                                    var_is_nominal=None,
-                                    factors_nbins=factors_nbins,
-                                    entropy_cache=entropy_cache,
-                                    can_use_x_cache=can_use_x_cache,
-                                    can_use_y_cache=can_use_y_cache,
-                                    dtype=dtype,
-                                    use_mm=use_mm,  # N-F2: redundancy carries the SAME MM bias correction as the relevance
-                                )
-
-                            #
-                            # write the RAW additional_knowledge to the
-                            # cache BEFORE applying the nexisting
-                            # exponent. Apply the exponent only to the
-                            # local ``additional_knowledge`` after the
-                            # write. This makes the cache nexisting-
-                            # independent and lets all callers share
-                            # the underlying CMI compute.
-                            # JMIM manages its OWN cache + exponent above
-                            # (cached_jmim_MIs, keyed on the {X} u Z multiset). Skip the
-                            # shared cond-MI write/exponent here so JMIM values are neither
-                            # stored under the CMI key nor double-exponentiated. The SU
-                            # branch is uncached by design; the plain-CMI branch keeps the
-                            # legacy write/exponent. ``key`` is undefined when use_jmim, so
-                            # this guard also avoids a NameError under JMIM.
-                            if not use_jmim:
-                                if not confidence_mode:
-                                    cached_cond_MIs[key] = additional_knowledge  # type: ignore[index]  # caller always supplies a dict on the non-JMIM path
-                                if nexisting > 0:
-                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
-
-                    # Account for possible extra knowledge from conditioning on Z; must update best_gain globally and log such cases. Order of discovery is
-                    # not guaranteed, but cases are too precious to ignore. Also enables skipping higher-order interactions containing all approved candidates.
-                    # CAVEAT (extra_knowledge_multipler > 0): this is NOT MRMR redundancy for that candidate. Once a single Z yields additional_knowledge above the
-                    # multiplied direct_gain, ``positive_mode`` flips and the score becomes the MAX over Z of that extra-knowledge term, NOT the MIN-redundancy MRMR
-                    # objective - the candidate is ranked by its single BEST synergistic relationship instead of its worst-case redundancy. Default is -1.0 (off), so
-                    # the default selection stays pure MRMR; enable this only when you deliberately want a synergy-seeking (max-extra-knowledge) ranking.
-                    if extra_knowledge_multipler > 0 and additional_knowledge > direct_gain * extra_knowledge_multipler:
-                        if not positive_mode:
-                            current_gain = additional_knowledge
-                            positive_mode = True
-                        else:
-                            # rare chance that a candidate has many excellent relationships
-                            if additional_knowledge > current_gain:
-                                current_gain = additional_knowledge
-
-                if not positive_mode and (additional_knowledge < current_gain):
-
-                    current_gain = additional_knowledge
-
-                    if best_gain is not None and current_gain <= best_gain:
-                        # No point checking other Zs - current_gain already won't beat best_gain (assuming best_gain was estimated confidently; checked at end).
-                        # Also fix what Z caused X (the most) to sink.
-                        if sink_threshold > -1 and current_gain < sink_threshold:
-                            sink_reasons = Z
-
-                        stopped_early = True
-                        return stopped_early, current_gain, k, sink_reasons
-            k += 1
-
-    return stopped_early, current_gain, k - 1, sink_reasons
-
 
 from ._evaluation_knob_columns import _materialise_knob_columns  # carved to keep this file under 1000 lines; re-exported
 

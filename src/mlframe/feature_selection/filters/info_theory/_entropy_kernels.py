@@ -6,7 +6,7 @@ from typing import Optional
 import numpy as np
 from numba import njit
 
-from .._numba_utils import arr2str, unpack_and_sort
+from .._njit_key_helpers import arr2str, unpack_and_sort
 from ._class_encoding import merge_vars, joint_freqs_2var
 
 @njit(cache=True)

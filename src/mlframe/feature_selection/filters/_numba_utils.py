@@ -13,21 +13,50 @@ import math
 
 import numpy as np
 from numba import njit, prange
-from typing import Sequence
+from typing import Optional, Sequence
 
-@njit(cache=True)
-def arr2str(arr) -> str:
-    """Collision-safe ``@njit`` stringification of an integer array. Elements separated by ``_`` so distinct multisets always produce distinct strings; the
-    naive concatenation collapsed ``sorted([1, 11])`` and ``sorted([1, 1, 1])`` to the same ``"111"`` and aliased entropy-cache slots in ``conditional_mi``.
-    Returns ``""`` for empty input. The pyutilz analogue (``pyutilz.data.numbalib.arr2str``) is pure-Python by design (numba string ops are O(N^2)) and
-    cannot replace this one because it's called from inside ``conditional_mi``'s @njit body.
-    """
-    out = ""
-    for k, el in enumerate(arr):
-        if k > 0:
-            out += "_"
-        out += str(el)
-    return out
+from ._njit_key_helpers import arr2str, unpack_and_sort  # noqa: F401 -- re-exported; defined in the leaf so info_theory can import them without a cycle
+
+import os
+
+from pyutilz.numbalib import _generate_combinations_recursive_njit_core
+
+from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS
+from .info_theory import conditional_mi, conditional_symmetric_uncertainty, mi
+
+# Re-exported from the split-out sibling (see its module docstring): row-statistic, offset-product and entropy kernels.
+from ._numba_utils_offset import (  # noqa: F401
+    STAT_NAMES,
+    MAX_SUBSET,
+    LSE_BETA,
+    N_EDGE_SAMPLE,
+    _MIN,
+    _MAX,
+    _MED,
+    _RNG,
+    _STD,
+    _LSE_POS,
+    _LSE_NEG,
+    _stat_of,
+    _row_value,
+    _mi,
+    eval_candidates,
+    stat_column,
+    NACC,
+    N_EDGE_SUBSAMPLE,
+    N_BASELINES,
+    _SINGULAR_REL_TOL,
+    _MIN_SPAN,
+    _solve4,
+    ols2_shift,
+    _edges_of,
+    _bin_of,
+    _mi_from_counts,
+    scan_offset_products,
+    weighted_sum_heldout_mi,
+    _backfit,
+    _entropy_from_counts_njit,
+)
 
 @njit(cache=True)
 def count_cand_nbins(X: Sequence[int], factors_nbins: np.ndarray) -> int:
@@ -37,456 +66,6 @@ def count_cand_nbins(X: Sequence[int], factors_nbins: np.ndarray) -> int:
     for factor in X:
         sum_cand_nbins += factors_nbins[factor]
     return sum_cand_nbins
-
-@njit(cache=True)
-def unpack_and_sort(x: Sequence[int], z: Sequence[int]) -> np.ndarray:
-    """Concatenate two integer iterables into a sorted numpy array. Used by ``conditional_mi`` cache-key construction: the canonical representation of the
-    union ``X u Z`` must be ordering-independent so different call paths hit the same cache slot.
-    """
-    res = np.empty(len(x) + len(z), dtype=np.int64)
-    idx = 0
-    for el in x:
-        res[idx] = el
-        idx += 1
-    for el in z:
-        res[idx] = el
-        idx += 1
-    return np.sort(res)
-
-
-# Row-statistic operator kernels (moved from _row_stat_kernels.py).
-STAT_NAMES = ("min", "max", "med", "rng", "std", "lse_pos", "lse_neg")
-MAX_SUBSET = 8  # columns in a subset (the search stops growing here)
-LSE_BETA = 4.0  # sharpness of the soft max / soft min
-N_EDGE_SAMPLE = 2048  # even rows whose statistic defines the bin edges
-
-_MIN, _MAX, _MED, _RNG, _STD, _LSE_POS, _LSE_NEG = 0, 1, 2, 3, 4, 5, 6
-
-@njit(cache=True, nogil=True)
-def _stat_of(vals, k, stat):
-    """The statistic ``stat`` of the first ``k`` entries of ``vals`` (``vals`` may be reordered by the median)."""
-    if stat == _MIN:
-        r = vals[0]
-        for j in range(1, k):
-            r = min(r, vals[j])
-        return r
-    if stat == _MAX:
-        r = vals[0]
-        for j in range(1, k):
-            r = max(r, vals[j])
-        return r
-    if stat == _RNG:
-        lo = vals[0]
-        hi = vals[0]
-        for j in range(1, k):
-            lo = min(lo, vals[j])
-            hi = max(hi, vals[j])
-        return hi - lo
-    if stat == _MED:
-        for a in range(1, k):
-            v = vals[a]
-            b = a - 1
-            while b >= 0 and vals[b] > v:
-                vals[b + 1] = vals[b]
-                b -= 1
-            vals[b + 1] = v
-        if k % 2 == 1:
-            return vals[k // 2]
-        return 0.5 * (vals[k // 2 - 1] + vals[k // 2])
-    if stat == _STD:
-        m = 0.0
-        for j in range(k):
-            m += vals[j]
-        m /= k
-        s = 0.0
-        for j in range(k):
-            d = vals[j] - m
-            s += d * d
-        return np.sqrt(s / k)
-    beta = LSE_BETA if stat == _LSE_POS else -LSE_BETA
-    mx = beta * vals[0]
-    for j in range(1, k):
-        mx = max(mx, beta * vals[j])
-    acc = 0.0
-    for j in range(k):
-        acc += np.exp(beta * vals[j] - mx)
-    return (mx + np.log(acc / k)) / beta
-
-@njit(cache=True, nogil=True)
-def _row_value(Zt, subset, k, stat, i, vals):
-    """The statistic of row ``i`` over the columns ``subset[:k]`` of the ``(p, n)`` block ``Zt``."""
-    for j in range(k):
-        vals[j] = Zt[subset[j], i]
-    return _stat_of(vals, k, stat)
-
-@njit(cache=True, nogil=True)
-def _mi(counts, nb, ky, n_tot):
-    """Plug-in MI (nats) of an ``(nb, ky)`` count table holding ``n_tot`` rows."""
-    if n_tot <= 0:
-        return 0.0
-    px = np.zeros(nb)
-    py = np.zeros(ky)
-    for b in range(nb):
-        for c in range(ky):
-            px[b] += counts[b, c]
-            py[c] += counts[b, c]
-    mi = 0.0
-    for b in range(nb):
-        for c in range(ky):
-            kk = counts[b, c]
-            if kk > 0:
-                mi += (kk / n_tot) * np.log(kk * n_tot / (px[b] * py[c]))
-    return mi
-
-@njit(parallel=True, cache=True)
-def eval_candidates(Zt: np.ndarray, subsets: np.ndarray, sizes: np.ndarray, stats: np.ndarray, ycodes: np.ndarray, ky: int, nb: int, out_even: np.ndarray, out_odd: np.ndarray) -> None:
-    """Even-row and odd-row plug-in MI of each candidate.
-
-    ``Zt``: ``(p, n)`` standardised columns; ``subsets``: ``(B, MAX_SUBSET)`` column indices, the first ``sizes[b]`` valid; ``stats``: ``(B,)`` statistic ids; ``ycodes``: class codes in
-    ``[0, ky)`` of the ``n`` rows. Bin edges are the interior quantiles of the statistic over a sample of the even rows."""
-    B = subsets.shape[0]
-    n = Zt.shape[1]
-    n_even = (n + 1) // 2
-    m = min(N_EDGE_SAMPLE, n_even)
-    for b in prange(B):
-        k = sizes[b]
-        vals = np.empty(MAX_SUBSET)
-        sub = np.empty(m)
-        for j in range(m):
-            sub[j] = _row_value(Zt, subsets[b], k, stats[b], 2 * ((j * n_even) // m), vals)
-        sub.sort()
-        edges = np.empty(nb - 1)
-        for q in range(1, nb):
-            edges[q - 1] = sub[min(m - 1, (q * m) // nb)]
-        counts = np.zeros((2, nb, ky), dtype=np.int64)
-        for i in range(n):
-            x = _row_value(Zt, subsets[b], k, stats[b], i, vals)
-            counts[i & 1, _bin_of(x, edges), ycodes[i]] += 1
-        out_even[b] = _mi(counts[0], nb, ky, n_even)
-        out_odd[b] = _mi(counts[1], nb, ky, n - n_even)
-
-@njit(parallel=True, cache=True)
-def stat_column(Zt: np.ndarray, subset: np.ndarray, k: int, stat: int) -> np.ndarray:
-    """The statistic of every row of ``Zt`` over the columns ``subset[:k]`` (rows in parallel)."""
-    n = Zt.shape[1]
-    out = np.empty(n)
-    for i in prange(n):
-        vals = np.empty(MAX_SUBSET)
-        out[i] = _row_value(Zt, subset, k, stat, i, vals)
-    return out
-
-
-# CPU kernels of the offset-product operator (moved from _offset_product_kernels.py).
-NACC = 14  # upper triangle of the Gram matrix of [1, x, w, x*w] (10 entries) + the 4 right-hand sides
-N_EDGE_SUBSAMPLE = 2048  # rows whose candidate value defines the bin edges
-N_BASELINES = 5  # u*v, u+v, u, v, the least-squares weighted sum b*u + c*v
-_SINGULAR_REL_TOL = 1e-12
-_MIN_SPAN = 1e-300
-
-@njit(cache=True, nogil=True)
-def _solve4(acc, coef):
-    """Solve the 4x4 normal equations stored in ``acc`` (see ``NACC``) by Gaussian elimination with partial pivoting; NaN coefficients when singular."""
-    M = np.empty((4, 5))
-    t = 0
-    for j in range(4):
-        for k in range(j, 4):
-            M[j, k] = acc[t]
-            M[k, j] = acc[t]
-            t += 1
-    for j in range(4):
-        M[j, 4] = acc[10 + j]
-    scale = 0.0
-    for j in range(4):
-        scale = max(scale, abs(M[j, j]))
-    for col in range(4):
-        piv = col
-        best = abs(M[col, col])
-        for r in range(col + 1, 4):
-            if abs(M[r, col]) > best:
-                best = abs(M[r, col])
-                piv = r
-        if not (best > _SINGULAR_REL_TOL * scale) or not np.isfinite(best):
-            for k in range(4):
-                coef[k] = np.nan
-            return
-        if piv != col:
-            for k in range(5):
-                tmp = M[col, k]
-                M[col, k] = M[piv, k]
-                M[piv, k] = tmp
-        for r in range(col + 1, 4):
-            f = M[r, col] / M[col, col]
-            for k in range(col, 5):
-                M[r, k] -= f * M[col, k]
-    for r in range(3, -1, -1):
-        s = M[r, 4]
-        for k in range(r + 1, 4):
-            s -= M[r, k] * coef[k]
-        coef[r] = s / M[r, r]
-
-@njit(cache=True, nogil=True)
-def ols2_shift(u: np.ndarray, v: np.ndarray, yr: np.ndarray, start: int, step: int, clip_u_lo: float, clip_u_hi: float, clip_v_lo: float, clip_v_hi: float, shifts: np.ndarray) -> None:
-    """Fit ``yr ~ a + b*x + c*w + d*x*w`` (``x``, ``w`` the winsorised, centred ``u``, ``v``) on rows ``start, start+step, ...`` and write the shifts ``(s, t)`` with
-    ``(u + s) * (v + t) = (x + c/d) * (w + b/d)`` (up to the constant) to ``shifts[0:2]``; ``shifts[2:4]`` get the main-effect weights ``(b, c)`` of the
-    interaction-free fit ``yr ~ a + b*x + c*w``. NaN shifts when the system is singular or ``d`` vanishes.
-
-    The zero of each factor is clipped to one data span beyond the winsorisation range, so a near-zero ``d`` cannot place the crossing far outside the data."""
-    n = u.shape[0]
-    mu = 0.0
-    mv = 0.0
-    my = 0.0
-    cnt = 0
-    for i in range(start, n, step):
-        mu += min(max(u[i], clip_u_lo), clip_u_hi)
-        mv += min(max(v[i], clip_v_lo), clip_v_hi)
-        my += yr[i]
-        cnt += 1
-    for q in range(4):
-        shifts[q] = np.nan
-    if cnt < 8:
-        return
-    mu /= cnt
-    mv /= cnt
-    my /= cnt
-    acc = np.zeros(NACC)
-    for i in range(start, n, step):
-        x = min(max(u[i], clip_u_lo), clip_u_hi) - mu
-        w = min(max(v[i], clip_v_lo), clip_v_hi) - mv
-        yy = yr[i] - my
-        f3 = x * w
-        acc[0] += 1.0
-        acc[1] += x
-        acc[2] += w
-        acc[3] += f3
-        acc[4] += x * x
-        acc[5] += x * w
-        acc[6] += x * f3
-        acc[7] += w * w
-        acc[8] += w * f3
-        acc[9] += f3 * f3
-        acc[10] += yy
-        acc[11] += x * yy
-        acc[12] += w * yy
-        acc[13] += f3 * yy
-    coef = np.empty(4)
-    _solve4(acc, coef)
-    det = acc[4] * acc[7] - acc[5] * acc[5]  # moment-ok: the inputs are winsorised and centred upstream (see the ols2_shift docstring), so the sums are small-offset
-    if det > _SINGULAR_REL_TOL * acc[4] * acc[7]:
-        shifts[2] = (acc[11] * acc[7] - acc[12] * acc[5]) / det
-        shifts[3] = (acc[12] * acc[4] - acc[11] * acc[5]) / det
-    d = coef[3]
-    if not np.isfinite(d) or d == 0.0:
-        return
-    s = coef[2] / d - mu
-    t = coef[1] / d - mv
-    span_u = max(clip_u_hi - clip_u_lo, _MIN_SPAN)
-    span_v = max(clip_v_hi - clip_v_lo, _MIN_SPAN)
-    shifts[0] = min(max(s, -clip_u_hi - span_u), -clip_u_lo + span_u)
-    shifts[1] = min(max(t, -clip_v_hi - span_v), -clip_v_lo + span_v)
-
-@njit(cache=True, nogil=True)
-def _edges_of(vals, edges):
-    """Interior quantile edges (``edges.shape[0]`` of them) of the subsample ``vals``, sorted in place."""
-    vals.sort()
-    m = vals.shape[0]
-    nb = edges.shape[0] + 1
-    for k in range(1, nb):
-        edges[k - 1] = vals[min(m - 1, (k * m) // nb)]
-
-@njit(cache=True, nogil=True)
-def _bin_of(x, edges):
-    """Bin index of ``x``: the number of interior edges ``<= x`` (binary search)."""
-    lo = 0
-    hi = edges.shape[0]
-    while lo < hi:
-        mid = (lo + hi) >> 1
-        if edges[mid] <= x:
-            lo = mid + 1
-        else:
-            hi = mid
-    return lo
-
-@njit(cache=True, nogil=True)
-def _mi_from_counts(counts, nb, ky, n_tot):
-    """Plug-in MI (nats) of an ``(nb, ky)`` joint count table holding ``n_tot`` rows."""
-    if n_tot <= 0:
-        return 0.0
-    px = np.zeros(nb)
-    py = np.zeros(ky)
-    for b in range(nb):
-        for c in range(ky):
-            px[b] += counts[b, c]
-            py[c] += counts[b, c]
-    mi = 0.0
-    for b in range(nb):
-        for c in range(ky):
-            k = counts[b, c]
-            if k > 0:
-                mi += (k / n_tot) * np.log(k * n_tot / (px[b] * py[c]))
-    return mi
-
-@njit(parallel=True, cache=True)
-def scan_offset_products(U: np.ndarray, tasks: np.ndarray, yr: np.ndarray, ycodes: np.ndarray, ky: int, nb: int, clips: np.ndarray, out_shift: np.ndarray, out_mi: np.ndarray) -> None:
-    """Score every ``(column pair, unary pair)`` task.
-
-    ``U``: ``(m, nu, n)`` float64 unary outputs of ``m`` columns (non-finite values already replaced). ``tasks``: ``(T, 4)`` int rows ``(col_u, col_v, unary_u, unary_v)``.
-    ``yr``: rank-scaled target ``(n,)``; ``ycodes``: int class codes in ``[0, ky)``. ``clips``: ``(m, nu, 2)`` winsorisation bounds of each unary column.
-    Writes ``out_shift[T, 2] = (s, t)`` and ``out_mi[T, 2, 1 + N_BASELINES]``: per split (0 = even rows the shifts were fitted on, 1 = odd held-out rows) the MI of the shifted
-    product followed by the MI of ``u*v``, ``u+v``, ``u``, ``v``. All NaN for a task whose shifts could not be fitted."""
-    T = tasks.shape[0]
-    n = U.shape[2]
-    nsub = N_EDGE_SUBSAMPLE
-    n_even = (n + 1) // 2
-    for k in prange(T):
-        cu, cv, ui, vi = tasks[k, 0], tasks[k, 1], tasks[k, 2], tasks[k, 3]
-        u = U[cu, ui]
-        v = U[cv, vi]
-        shifts = np.empty(4)
-        ols2_shift(u, v, yr, 0, 2, clips[cu, ui, 0], clips[cu, ui, 1], clips[cv, vi, 0], clips[cv, vi, 1], shifts)
-        s = shifts[0]
-        t = shifts[1]
-        wb = shifts[2]
-        wc = shifts[3]
-        out_shift[k, 0] = s
-        out_shift[k, 1] = t
-        if not (np.isfinite(s) and np.isfinite(t) and np.isfinite(wb) and np.isfinite(wc)):
-            for sp in range(2):
-                for q in range(1 + N_BASELINES):
-                    out_mi[k, sp, q] = np.nan
-            continue
-        nf = 1 + N_BASELINES
-        edges = np.empty((nf, nb - 1))
-        sub = np.empty(nsub)
-        m = min(nsub, n_even)
-        for q in range(nf):
-            for j in range(m):
-                i = 2 * ((j * n_even) // m)
-                if q == 0:
-                    sub[j] = (u[i] + s) * (v[i] + t)
-                elif q == 1:
-                    sub[j] = u[i] * v[i]
-                elif q == 2:
-                    sub[j] = u[i] + v[i]
-                elif q == 3:
-                    sub[j] = u[i]
-                elif q == 4:
-                    sub[j] = v[i]
-                else:
-                    sub[j] = wb * u[i] + wc * v[i]
-            _edges_of(sub[:m], edges[q])
-        counts = np.zeros((nf, 2, nb, ky), dtype=np.int64)
-        for i in range(n):
-            sp = i & 1
-            c = ycodes[i]
-            ui_ = u[i]
-            vi_ = v[i]
-            counts[0, sp, _bin_of((ui_ + s) * (vi_ + t), edges[0]), c] += 1
-            counts[1, sp, _bin_of(ui_ * vi_, edges[1]), c] += 1
-            counts[2, sp, _bin_of(ui_ + vi_, edges[2]), c] += 1
-            counts[3, sp, _bin_of(ui_, edges[3]), c] += 1
-            counts[4, sp, _bin_of(vi_, edges[4]), c] += 1
-            counts[5, sp, _bin_of(wb * ui_ + wc * vi_, edges[5]), c] += 1
-        for sp in range(2):
-            n_sp = n_even if sp == 0 else n - n_even
-            for q in range(nf):
-                out_mi[k, sp, q] = _mi_from_counts(counts[q, sp], nb, ky, n_sp)
-
-@njit(parallel=True, cache=True)
-def weighted_sum_heldout_mi(u: np.ndarray, v: np.ndarray, codes: np.ndarray, ky: int, nb: int, n_dirs: int) -> float:
-    """Held-out MI of the best weighted sum ``cos(t) * u / sd(u) + sin(t) * v / sd(v)`` of the two factors, the direction ``t`` chosen over ``n_dirs`` directions of the full circle by the MI on
-    the even rows and scored on the odd rows (edges from a ``N_EDGE_SUBSAMPLE``-row sample of the even rows, as in the scan).
-
-    A shifted product with large shifts degenerates into a weighted sum of its factors, and a weighted sum with better weights than the least-squares baseline wins without any interaction;
-    only a gain over THIS baseline, the best additive mix of the candidate's own factors, is evidence of an interaction."""
-    n = u.shape[0]
-    n_even = (n + 1) // 2
-    m = min(N_EDGE_SUBSAMPLE, n_even)
-    su = 0.0
-    sv = 0.0
-    mu = 0.0
-    mv = 0.0
-    for i in range(0, n, 2):
-        mu += u[i]
-        mv += v[i]
-    mu /= n_even
-    mv /= n_even
-    for i in range(0, n, 2):
-        su += (u[i] - mu) ** 2
-        sv += (v[i] - mv) ** 2
-    su = np.sqrt(su / n_even) if su > 0 else 1.0
-    sv = np.sqrt(sv / n_even) if sv > 0 else 1.0
-    mi_even = np.empty(n_dirs)
-    mi_odd = np.empty(n_dirs)
-    for k in prange(n_dirs):
-        th = 2.0 * np.pi * k / n_dirs
-        cu = np.cos(th) / su
-        cv = np.sin(th) / sv
-        sub = np.empty(m)
-        for j in range(m):
-            i = 2 * ((j * n_even) // m)
-            sub[j] = cu * u[i] + cv * v[i]
-        edges = np.empty(nb - 1)
-        _edges_of(sub, edges)
-        counts = np.zeros((2, nb, ky), dtype=np.int64)
-        for i in range(n):
-            counts[i & 1, _bin_of(cu * u[i] + cv * v[i], edges), codes[i]] += 1
-        mi_even[k] = _mi_from_counts(counts[0], nb, ky, n_even)
-        mi_odd[k] = _mi_from_counts(counts[1], nb, ky, n - n_even)
-    best = 0
-    for k in range(1, n_dirs):
-        if mi_even[k] > mi_even[best]:
-            best = k
-    return float(mi_odd[best])
-
-
-# Gauss-Seidel backfit of the additive model (moved from _pair_residual_screen.py).
-@njit(cache=True, nogil=True)
-def _backfit(Q, y, even, n_bins, sweeps):
-    """Gauss-Seidel backfit of ``p`` free-form main effects on the even rows; returns the ``(p, n_bins)`` effect tables and the intercept."""
-    p, n = Q.shape
-    f = np.zeros((p, n_bins))
-    n_even = 0
-    mu = 0.0
-    for i in range(n):
-        if even[i]:
-            mu += y[i]
-            n_even += 1
-    mu /= max(n_even, 1)
-    pred = np.zeros(n)
-    for _ in range(sweeps):
-        for j in range(p):
-            s = np.zeros(n_bins)
-            c = np.zeros(n_bins)
-            for i in range(n):
-                if even[i]:
-                    b = Q[j, i]
-                    s[b] += y[i] - mu - (pred[i] - f[j, b])
-                    c[b] += 1.0
-            for b in range(n_bins):
-                new = s[b] / c[b] if c[b] > 0.0 else 0.0
-                f[j, b] = new
-            for i in range(n):
-                pred[i] = 0.0
-            for jj in range(p):
-                for i in range(n):
-                    pred[i] += f[jj, Q[jj, i]]
-    return f, mu
-
-
-# Entropy from tabulated counts (moved from supervised_binning.py).
-@njit(nogil=True, cache=True)
-def _entropy_from_counts_njit(counts: np.ndarray, n: int) -> float:
-    """Shannon entropy in nats from already-tabulated label counts."""
-    if n <= 0:
-        return 0.0
-    h = 0.0
-    n_f = float(n)
-    for k in range(counts.shape[0]):
-        c = counts[k]
-        if c > 0:
-            p = c / n_f
-            h -= p * math.log(p)
-    return h
 
 
 @njit(cache=True)
@@ -835,3 +414,406 @@ def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
             out[sort_idx[pos]] = b
             pos += 1
     return out
+
+
+# Disk caching is off only under CI: a restore-keys prefix fallback there restored a NUMBA_CACHE_DIR from a different source-tree state and the
+# kernel then failed with a stale-cache TypingError. Locally the cache is on, saving ~40 s of cold compile per process on a default MRMR fit.
+_EVALUATE_GAIN_DISK_CACHE = os.environ.get("CI", "").strip().lower() not in ("1", "true", "yes")
+
+
+@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
+def _jmim_additional_knowledge(X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only):
+    """JMIM joint MI ``I({X, Z}; Y)`` for one ``(X, Z)`` pair, read from / written to the JMIM cache, with the ``nexisting`` exponent applied.
+
+    The aggregator branch of ``evaluate_gain``, split out as its own njit function; the cache arguments may be None (a direct caller without the
+    cache wired), which numba narrows below exactly as it did inside ``evaluate_gain``.
+    """
+    # Build the joint variable index multiset {X, Z} for JMIM's
+    # I({X, Z}; Y). np.concatenate is supported in @njit but the
+    # numba type-inferencer can fail to unify dtypes when X and Z
+    # come from different upstream call paths; coerce both sides
+    # to int64 explicitly so the unification is bit-identical to
+    # mi()'s internal x = np.asarray(x, dtype=np.int64) cast.
+    _x_int = np.asarray(X, dtype=np.int64)
+    _z_int = np.asarray(Z, dtype=np.int64)
+    xz_combined = np.unique(np.concatenate((_x_int, _z_int)))
+    # JMIM joint-MI cache. The multiset {X} u Z recurs
+    # across greedy rounds (and across (X, Z) swaps within a round),
+    # so memoise the raw mi({X,Z}; y) keyed on arr2str(xz_combined).
+    # Stored RAW; nexisting exponent applied below at read time, as
+    # the plain-CMI branch does. ``y`` is fixed per fit -> not in key.
+    # Independent of the cond-MI cache so JMIM and CMI values never
+    # collide under the same arr2str(X)+"|"+arr2str(Z) key.
+    # ``cached_jmim_MIs`` / ``jmim_hit_counter`` may be None when a
+    # direct caller invokes evaluate_gain without the cache wired
+    # (e.g. focused unit tests). Guard with ``is not None`` - numba
+    # narrows the Optional so the typed-dict ``in``/index ops only
+    # type-check on the non-None branch; the uncached fallback just
+    # recomputes mi() every time (pre-cache behaviour).
+    _jmim_key = arr2str(xz_combined)
+    if (not confidence_mode) and (cached_jmim_MIs is not None) and (_jmim_key in cached_jmim_MIs):
+        additional_knowledge = cached_jmim_MIs[_jmim_key]
+        if jmim_hit_counter is not None:
+            jmim_hit_counter[0] += 1
+    else:
+        additional_knowledge = mi(
+            factors_data=factors_data,
+            x=xz_combined, y=y,
+            factors_nbins=factors_nbins, dtype=dtype,
+        )
+        if (not confidence_mode) and (cached_jmim_MIs is not None):
+            cached_jmim_MIs[_jmim_key] = additional_knowledge
+    if nexisting > 0:
+        _disc = additional_knowledge ** (nexisting + 1)
+        if jmim_discount_only and _disc > additional_knowledge:
+            # joint MI > 1 -> the exponent would amplify; clamp to discount-only (never increase the joint MI).
+            pass
+        else:
+            additional_knowledge = _disc
+    return additional_knowledge
+
+
+@njit(cache=_EVALUATE_GAIN_DISK_CACHE)
+def evaluate_gain(
+    current_gain: float,
+    last_checked_k: int,
+    direct_gain: float,
+    X: np.ndarray,
+    y: np.ndarray,
+    nexisting: int,
+    best_gain: float,
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    selected_vars: np.ndarray,
+    mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 2,
+    extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0,
+    entropy_cache: dict | None = None,
+    cached_cond_MIs: dict | None = None,
+    # JMIM joint-MI cache. Mirrors ``cached_cond_MIs`` but keyed on the multiset ``{X} u Z`` only (``arr2str(xz_combined)``); y is fixed per fit so it is not
+    # part of the key. Stores the RAW ``mi({X,Z}; y)``; the nexisting exponent is applied at READ time, exactly as the plain-CMI branch does for its cache.
+    cached_jmim_MIs: dict | None = None,
+    # 1-element int64 array hit counter for the JMIM cache. An array
+    # (not a scalar) so the @njit kernel can mutate it in place and the caller can
+    # read the post-loop count - proves the cache actually HITS, not just that it
+    # is harmless. Counter[0] is incremented on every JMIM cache read-hit.
+    jmim_hit_counter: np.ndarray | None = None,
+    can_use_x_cache=False,
+    can_use_y_cache=False,
+    dtype=np.int32,
+    confidence_mode: bool = False,
+    max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
+    use_su: bool = False,  # SU normalization toggle threaded from process_candidates / mrmr_fit_impl.
+    use_jmim: bool = False,  # JMIM aggregator toggle, threaded from the Python-level caller for the same reason as ``use_su`` - ``@njit`` cannot do ``from X import Y`` or call a non-njit thread-local reader at runtime (IMPORT_NAME opcode is unsupported).
+    jmim_discount_only: bool = False,  # MLFRAME_JMIM_EXPONENT_DISCOUNT_ONLY, read by the Python caller (see jmim_exponent_discount_only)
+    use_mm: bool = False,  # N-F2: Miller-Madow toggle for the redundancy CMI, threaded like use_su so the redundancy carries the SAME bias correction as the MM relevance. Default False -> plug-in redundancy, unchanged.
+) -> tuple:
+    """``max_confirmation_cand_nbins`` is a parameter (not a baked-in constant). Default mirrors the legacy value; ``MRMR.fit`` overrides with ``quantization_nbins ** interactions_max_order * 2`` unless the user pins it explicitly."""
+
+    positive_mode = False
+    stopped_early = False
+    sink_reasons = None
+
+    k = 0
+    for interactions_order in range(max_veteranes_interactions_order):
+        # calls the njit-compiled core directly rather than pyutilz's plain-Python validating wrapper
+        # (generate_combinations_recursive_njit): a bare Python function with a `raise` cannot be called
+        # from this @njit context in nopython mode - numba reports "Untyped global name" on any cold
+        # compile (a warm on-disk cache from before pyutilz's wrapper regressed to plain Python can mask
+        # this). r = interactions_order + 1 is always >= 1 here, so the wrapper's r<0 validation is moot.
+        # .astype(np.int32), not np.array(selected_vars, dtype=np.int32): now that every caller passes
+        # a real ndarray (see the call site's own comment on why the reflected-list-typed np.array()
+        # call this replaced existed at all), nopython mode's np.array() no longer accepts an ndarray
+        # input ("not allowed in a homogeneous sequence") -- .astype() is the correct nopython-mode
+        # array-to-array dtype cast and works for both an int64 and an already-int32 input.
+        combs = _generate_combinations_recursive_njit_core(selected_vars.astype(np.int32), interactions_order + 1)[::-1]
+
+        for Z in combs:
+
+            if k > last_checked_k:
+                if confidence_mode and count_cand_nbins(Z, factors_nbins) > max_confirmation_cand_nbins:
+                    additional_knowledge = 0.0  # this is needed to skip checking against hi cardinality approved factors
+                else:
+                    # Gated on mrmr_redundancy_algo, not mrmr_relevance_algo: the conditional-MI machinery
+                    # below is the REDUNDANCY mechanism (I(X;Y|Z) checked against every already-selected Z),
+                    # independent of how relevance itself was scored (direct_gain, computed by the caller
+                    # before entering evaluate_gain at all). Gating on mrmr_relevance_algo instead left
+                    # `additional_knowledge` completely unset -- UnboundLocalError -- for the entirely valid
+                    # mrmr_relevance_algo="pld" + mrmr_redundancy_algo="fleuret" (the redundancy default)
+                    # combination, since neither branch of the original condition ever ran for it. The `or
+                    # mrmr_relevance_algo == "fleuret"` disjunct preserves every previously-reachable
+                    # combination byte-for-byte (relevance="fleuret" always entered this branch before,
+                    # regardless of redundancy_algo, so it still does). mrmr_redundancy_algo in
+                    # {"pld_max", "pld_mean"} is a separate, still-unimplemented gap (see
+                    # _screen_predictors.py's docstring) -- not addressed here, and not newly broken by this
+                    # fix (that combination never worked either way).
+                    if mrmr_redundancy_algo == "fleuret" or mrmr_relevance_algo == "fleuret":
+                        # additional_knowledge = I(X; Y | Z) = H(X, Z) + H(Y, Z) - H(Z) - H(X, Y, Z); I(X, Z) = entropy_x + entropy_z - entropy_xz.
+                        key_found = False
+                        if not confidence_mode:
+                            #
+                            # ``arr2str`` already uses ``_`` as its element
+                            # separator, so the prior boundary ``"_"`` between
+                            # ``arr2str(X)`` and ``arr2str(Z)`` aliased every
+                            # partition of the multiset ``X u Z``. Confirmed:
+                            # X=[1,2] Z=[3,4], X=[1] Z=[2,3,4], X=[1,2,3] Z=[4]
+                            # all produced ``"1_2_3_4"`` -> wrong-answer cache
+                            # hits, silent. Affects every config with
+                            # ``max_veteranes_interactions_order >= 2`` or
+                            # engineered multi-element X/Z, biasing
+                            # conditional-MI scoring. Switching to ``"|"``
+                            # (a character ``arr2str`` cannot emit) makes the
+                            # boundary unambiguous.
+                            #
+                            # cache the RAW (pre-exponent) conditional MI
+                            # and apply ``** (nexisting + 1)`` at every
+                            # read site. Pre-fix the cache stored the
+                            # already-exponentiated value but the key
+                            # omitted ``nexisting``, so a subsequent
+                            # ``(X, Z)`` lookup with a different
+                            # ``nexisting`` returned the WRONG exponent
+                            # (and silently biased the Fleuret/CMIM
+                            # redundancy score). Caching the raw value
+                            # lets all nexisting tiers share the
+                            # underlying CMI compute.
+                            key = arr2str(X) + "|" + arr2str(Z)
+                            if key in cached_cond_MIs:  # type: ignore[operator]  # caller always supplies a dict on the non-JMIM path (see docstring)
+                                additional_knowledge = cached_cond_MIs[key]  # type: ignore[index]
+                                # Apply the nexisting exponent at read time.
+                                if nexisting > 0:
+                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
+                                key_found = True
+
+                        if not key_found:
+
+                            # JMIM aggregator (Bennasar 2015).
+                            # When the thread-local JMIM toggle is on, replace
+                            # Fleuret's conditional MI ``I(X; Y | Z)`` with the
+                            # joint MI ``I({X, Z}; Y)``. Both feed the same
+                            # outer ``min_k`` aggregator. JMIM preserves the
+                            # synergistic information that CMIM rejects on
+                            # multi-collinear groups (Brown 2012 / Bennasar 2015
+                            # framework). Caching skipped on the JMIM branch
+                            # because the joint-MI computation has its own
+                            # per-pair entropy cost; future sprint may add a
+                            # joint-MI cache keyed on the multiset {X, Z, Y}.
+                            # SU branch bypasses entropy caches because the SU denominator
+                            # is path-dependent and re-using cached unconditional CMI numbers would
+                            # silently desync the normalization. Cheap (no caching) is correct here;
+                            # legacy raw-CMI path keeps cache wired in. ``use_su`` AND ``use_jmim``
+                            # are threaded from the Python-level caller (evaluate_candidate ->
+                            # evaluate_gain) - the njit kernel cannot read the Python thread-locals
+                            # at runtime (IMPORT_NAME / dynamic Python call are unsupported in @njit).
+                            if use_jmim:
+                                additional_knowledge = _jmim_additional_knowledge(
+                                    X, Z, y, factors_data, factors_nbins, dtype, nexisting, confidence_mode, cached_jmim_MIs, jmim_hit_counter, jmim_discount_only,
+                                )
+                            elif use_su:
+                                additional_knowledge = conditional_symmetric_uncertainty(
+                                    factors_data=factors_data, x=X, y=y, z=Z,
+                                    factors_nbins=factors_nbins, dtype=dtype,
+                                )
+                            else:
+                                additional_knowledge = conditional_mi(
+                                    factors_data=factors_data,
+                                    x=X,
+                                    y=y,
+                                    z=Z,
+                                    var_is_nominal=None,
+                                    factors_nbins=factors_nbins,
+                                    entropy_cache=entropy_cache,
+                                    can_use_x_cache=can_use_x_cache,
+                                    can_use_y_cache=can_use_y_cache,
+                                    dtype=dtype,
+                                    use_mm=use_mm,  # N-F2: redundancy carries the SAME MM bias correction as the relevance
+                                )
+
+                            #
+                            # write the RAW additional_knowledge to the
+                            # cache BEFORE applying the nexisting
+                            # exponent. Apply the exponent only to the
+                            # local ``additional_knowledge`` after the
+                            # write. This makes the cache nexisting-
+                            # independent and lets all callers share
+                            # the underlying CMI compute.
+                            # JMIM manages its OWN cache + exponent above
+                            # (cached_jmim_MIs, keyed on the {X} u Z multiset). Skip the
+                            # shared cond-MI write/exponent here so JMIM values are neither
+                            # stored under the CMI key nor double-exponentiated. The SU
+                            # branch is uncached by design; the plain-CMI branch keeps the
+                            # legacy write/exponent. ``key`` is undefined when use_jmim, so
+                            # this guard also avoids a NameError under JMIM.
+                            if not use_jmim:
+                                if not confidence_mode:
+                                    cached_cond_MIs[key] = additional_knowledge  # type: ignore[index]  # caller always supplies a dict on the non-JMIM path
+                                if nexisting > 0:
+                                    additional_knowledge = additional_knowledge ** (nexisting + 1)
+
+                    # Account for possible extra knowledge from conditioning on Z; must update best_gain globally and log such cases. Order of discovery is
+                    # not guaranteed, but cases are too precious to ignore. Also enables skipping higher-order interactions containing all approved candidates.
+                    # CAVEAT (extra_knowledge_multipler > 0): this is NOT MRMR redundancy for that candidate. Once a single Z yields additional_knowledge above the
+                    # multiplied direct_gain, ``positive_mode`` flips and the score becomes the MAX over Z of that extra-knowledge term, NOT the MIN-redundancy MRMR
+                    # objective - the candidate is ranked by its single BEST synergistic relationship instead of its worst-case redundancy. Default is -1.0 (off), so
+                    # the default selection stays pure MRMR; enable this only when you deliberately want a synergy-seeking (max-extra-knowledge) ranking.
+                    if extra_knowledge_multipler > 0 and additional_knowledge > direct_gain * extra_knowledge_multipler:
+                        if not positive_mode:
+                            current_gain = additional_knowledge
+                            positive_mode = True
+                        else:
+                            # rare chance that a candidate has many excellent relationships
+                            if additional_knowledge > current_gain:
+                                current_gain = additional_knowledge
+
+                if not positive_mode and (additional_knowledge < current_gain):
+
+                    current_gain = additional_knowledge
+
+                    if best_gain is not None and current_gain <= best_gain:
+                        # No point checking other Zs - current_gain already won't beat best_gain (assuming best_gain was estimated confidently; checked at end).
+                        # Also fix what Z caused X (the most) to sink.
+                        if sink_threshold > -1 and current_gain < sink_threshold:
+                            sink_reasons = Z
+
+                        stopped_early = True
+                        return stopped_early, current_gain, k, sink_reasons
+            k += 1
+
+    return stopped_early, current_gain, k - 1, sink_reasons
+
+
+# Typed uint64 zero used as the default ``base_seed`` for the njit permutation kernels. Built once as a
+# module-level singleton so the argument default keeps its exact ``np.uint64`` dtype (the kernels do
+# ``state >> np.uint64(..)`` arithmetic) without a function call in the signature default.
+_DEFAULT_BASE_SEED = np.uint64(0)
+
+
+@njit(cache=True)
+def _fleuret_shuffle_col_lcg(col: np.ndarray, state: np.uint64) -> np.uint64:
+    """Inline Fisher-Yates over a 1-D column slice using the same LCG schedule as ``permutation.shuffle_arr_lcg``.
+
+    Returns the post-shuffle state so the caller threads it across per-column and per-permutation calls. Replaces ``np.random.shuffle(data_copy[:, idx])`` whose global numpy RNG state is process-wide
+    and races under joblib parallel workers / multi-suite invocations.
+    """
+    n = len(col)
+    for j in range(n - 1, 0, -1):
+        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
+        k = int(state >> np.uint64(33)) % (j + 1)
+        tmp = col[j]
+        col[j] = col[k]
+        col[k] = tmp
+    return state
+
+
+@njit(cache=True)
+def get_fleuret_criteria_confidence(
+    data_copy: np.ndarray,
+    factors_nbins: np.ndarray,
+    x: tuple,
+    y: tuple,
+    selected_vars: list,
+    npermutations: int,
+    bootstrapped_gain: float,
+    max_failed: int,
+    nexisting: int,
+    mrmr_relevance_algo: str = "fleuret",
+    mrmr_redundancy_algo: str = "fleuret",
+    max_veteranes_interactions_order: int = 1,
+    extra_knowledge_multipler: float = -1.0,
+    sink_threshold: float = -1.0,
+    cached_cond_MIs: Optional[dict] = None,
+    entropy_cache: Optional[dict] = None,
+    extra_x_shuffling: bool = True,
+    dtype=np.int32,
+    base_seed: np.uint64 = _DEFAULT_BASE_SEED,
+    use_su: bool = False,  # Threaded from Python-level parallel_fleuret.
+    use_mm: bool = False,  # N-F2: threaded from parallel_fleuret (MM redundancy consistency).
+    use_jmim: bool = False,  # S-F2: threaded from parallel_fleuret (JMIM confirmation statistic).
+    jmim_discount_only: bool = False,  # threaded like use_jmim
+) -> tuple:
+    """Sub to njit work with random shuffling as well.
+
+    Zero-permutation guard returns ``(0, 0)`` cleanly. The legacy code raised ``UnboundLocalError`` on ``i`` because the for-loop never assigned it.
+
+    ``base_seed`` threads through inline LCG Fisher-Yates so per-permutation column shuffles are reproducible from a single seed; pre-fix code used ``np.random.shuffle`` on the process-global numpy RNG which raced under joblib parallel workers and made two parallel suite calls produce non-deterministic confidence values.
+    """
+    if npermutations == 0:
+        return 0, 0
+
+    # Mutate-and-restore: ``data_copy`` may ALIAS the caller's real ``factors_data`` (screen no longer takes a whole-matrix copy), so save the
+    # original values of the ONLY columns we permute in place (y always, x when ``extra_x_shuffling``) and restore them before returning. Extra RAM
+    # is O((len(y)+len(x))*n), never O(p*n). Shuffles stay cumulative WITHIN this call (matching the prior per-iteration behaviour); the restore only
+    # affects cross-call state, which the parallel worker path already reset by copying, so the serial path now matches it.
+    n_rows = data_copy.shape[0]
+    _saved_y = np.empty((len(y), n_rows), dtype=data_copy.dtype)
+    for _sj in range(len(y)):
+        _saved_y[_sj, :] = data_copy[:, y[_sj]]
+    _saved_x = np.empty((len(x), n_rows), dtype=data_copy.dtype)
+    if extra_x_shuffling:
+        for _sj in range(len(x)):
+            _saved_x[_sj, :] = data_copy[:, x[_sj]]
+
+    nfailed = 0
+    _i = 0
+    _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
+    # np.array(...), not the raw list: evaluate_gain is @njit and a plain Python list slipping
+    # through gets numba's "reflected list" typing, which breaks on any ndarray-only method the
+    # kernel calls (e.g. `.astype()`) -- see the identical conversion + rationale at evaluate_gain's
+    # other call site in evaluation.py. Hoisted out of the permutation loop below (``selected_vars``
+    # never changes across permutations) as well as out of the call's kwargs (rather than an inline
+    # ternary there) because this function is itself @njit -- numba's bytecode interpreter rejects
+    # a conditional expression inlined into a many-kwarg CALL_FUNCTION_EX call.
+    if len(selected_vars) > 0:
+        selected_vars_arr = np.array(selected_vars, dtype=np.int64)
+    else:
+        selected_vars_arr = np.empty(0, dtype=np.int64)
+    for _i in range(npermutations):
+
+        for idx in y:
+            _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
+
+        if extra_x_shuffling:
+            for idx in x:
+                _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
+
+        _stopped_early, current_gain, _k, _sink_reasons = evaluate_gain(
+            current_gain=LARGE_CONST,
+            last_checked_k=-1,
+            X=x,
+            y=y,
+            best_gain=None,
+            factors_data=data_copy,
+            factors_nbins=factors_nbins,
+            selected_vars=selected_vars_arr,
+            nexisting=nexisting,
+            direct_gain=bootstrapped_gain,
+            mrmr_relevance_algo=mrmr_relevance_algo,
+            mrmr_redundancy_algo=mrmr_redundancy_algo,
+            max_veteranes_interactions_order=max_veteranes_interactions_order,
+            extra_knowledge_multipler=extra_knowledge_multipler,
+            sink_threshold=sink_threshold,
+            cached_cond_MIs=cached_cond_MIs,
+            entropy_cache=entropy_cache,
+            can_use_x_cache=not extra_x_shuffling,
+            can_use_y_cache=False,
+            confidence_mode=True,
+            use_su=use_su,
+            use_mm=use_mm,
+            use_jmim=use_jmim,
+            jmim_discount_only=jmim_discount_only,
+        )
+
+        if current_gain >= bootstrapped_gain:
+            nfailed += 1
+            if nfailed >= max_failed:
+                break
+
+    # Restore the permuted columns so an aliased ``factors_data`` is left byte-identical to entry (reached on both normal and early-break exit).
+    for _sj in range(len(y)):
+        data_copy[:, y[_sj]] = _saved_y[_sj, :]
+    if extra_x_shuffling:
+        for _sj in range(len(x)):
+            data_copy[:, x[_sj]] = _saved_x[_sj, :]
+
+    return nfailed, _i + 1

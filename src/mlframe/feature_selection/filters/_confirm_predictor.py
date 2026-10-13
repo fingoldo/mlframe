@@ -48,7 +48,8 @@ from .evaluation import (
     should_skip_candidate,
     _prefill_cond_MIs_gpu,
 )
-from .fleuret import get_fleuret_criteria_confidence, get_fleuret_criteria_confidence_parallel
+from ._numba_utils import get_fleuret_criteria_confidence
+from .fleuret import get_fleuret_criteria_confidence_parallel
 from .gpu import mi_direct_gpu
 from .permutation import mi_direct, _addone_pvalue_enabled
 

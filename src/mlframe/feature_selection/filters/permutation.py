@@ -25,12 +25,7 @@ from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 from ._internals import NMAX_NONPARALLEL_ITERS
 # Re-exported: ``distribute_permutations`` is a cross-module @njit helper and lives in ``_numba_utils`` (see its module docstring).
-from ._numba_utils import distribute_permutations  # noqa: F401
-
-# Typed uint64 zero used as the default ``base_seed`` for the njit permutation kernels. Built once as a
-# module-level singleton so the argument default keeps its exact ``np.uint64`` dtype (the kernels do
-# ``state >> np.uint64(..)`` arithmetic) without a function call in the signature default.
-_DEFAULT_BASE_SEED = np.uint64(0)
+from ._numba_utils import _DEFAULT_BASE_SEED, distribute_permutations  # noqa: F401
 
 # HISTORICAL: a first pass at this fix gated the "outer" joblib.Parallel pool behind a measured
 # floor, ``_OUTER_PARALLEL_MIN_PERMUTATIONS = 64`` (npermutations=10 -> 0.36-0.40x SLOWER than serial at
