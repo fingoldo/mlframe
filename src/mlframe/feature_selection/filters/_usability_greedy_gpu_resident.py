@@ -58,6 +58,8 @@ fault never breaking a fit.
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 import math
 from typing import Optional
@@ -376,7 +378,7 @@ def _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, 
                     try:
                         beta = cp.linalg.solve(G, rhs)
                     except Exception as e:
-                        logger.warning("cp.linalg.solve failed (likely a singular Gram matrix), stopping the greedy: %s", e)
+                        log_throttle(logger, "usability_greedy_gpu_resident.hot_loop_warning", logging.WARNING, "cp.linalg.solve failed (likely a singular Gram matrix), stopping the greedy: %s", e)
                         singular = True
                         break
                     pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]
