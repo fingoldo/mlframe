@@ -30,7 +30,8 @@ import numpy as np
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-from ._fe_synergy_screen import _pair_mm_mi_njit, joint_synergy_mi  # noqa: F401
+from ._fe_synergy_screen import joint_synergy_mi  # noqa: F401
+from ._numba_utils import _pair_mm_mi_njit
 
 
 def _pair_mm_mi(code_x: np.ndarray, code_y: np.ndarray, yc: np.ndarray, min_rows_per_cell: float = 5.0) -> float:
