@@ -102,7 +102,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
             dev = cp.cuda.Device()
             sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
         except Exception as e:
-            logger.debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
+            logger.warning("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
             sh_limit = 48 * 1024
         if R > _RADIX_SELECT_MAXR or shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
             _RADIX_INTERP_CACHE[_ik] = None  # radix path inapplicable for this (n, nbins)
@@ -219,7 +219,7 @@ def _radix_quantiles(cand_gpu, q_fracs):
         dev = cp.cuda.Device()
         sh_limit = int(dev.attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
     except Exception as e:
-        logger.debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
+        logger.warning("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
         sh_limit = 48 * 1024
     # Reserve the kernels' STATIC __shared__ footprint (see _RADIX_STATIC_SHARED_BYTES): dynamic + static must
     # fit the per-block limit, else cuLaunchKernel raises CUDA_ERROR_INVALID_VALUE.
