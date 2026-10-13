@@ -27,6 +27,9 @@ from mlframe.reporting._async_render import ReportRenderQueue, physical_core_cou
 
 logger = logging.getLogger(__name__)
 
+# Upper bound on how long suite finalisation waits for queued chart renders before continuing without the stragglers.
+_SUITE_JOIN_TIMEOUT_S = 900.0
+
 _TLS = threading.local()
 
 # Fewer physical cores than this and the render worker would fight training for CPU; 'auto' stays synchronous below it.
@@ -206,7 +209,11 @@ def join_suite_render_queue(queue: Optional[ReportRenderQueue], metadata: Option
     if queue is None:
         return
     try:
-        summary = queue.close() if final else queue.join()
+        # A render task that never finishes (a native chart backend stuck) must not hang the suite's finalisation: the join is
+        # bounded, and whatever is still pending is reported rather than waited on.
+        summary = queue.close() if final else queue.join(timeout=_SUITE_JOIN_TIMEOUT_S)
+        if not final and queue.pending():
+            logger.warning("[async-render] %d chart task(s) still pending after %.0fs; continuing without them", queue.pending(), _SUITE_JOIN_TIMEOUT_S)
     except KeyboardInterrupt:
         queue.close(wait=False)
         raise
