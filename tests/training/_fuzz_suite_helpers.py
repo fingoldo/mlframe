@@ -1030,7 +1030,17 @@ def _feature_selection_config_for_combo(combo: FuzzCombo, rfecv_on: bool, custom
 
     selectors = {}
     if combo.use_mrmr_fs:
-        selectors["mrmr"] = {**(build_mrmr_kwargs(combo) or {}), "identity_cache_scope": combo.mrmr_identity_cache_scope_cfg}
+        mrmr_kwargs = {**(build_mrmr_kwargs(combo) or {}), "identity_cache_scope": combo.mrmr_identity_cache_scope_cfg}
+        if _os.environ.get("MLFRAME_FUZZ_BUGHUNT_BUDGET", "").lower() in ("1", "yes", "true", "on"):
+            # Bug-hunt budget: the permutation significance tests dominate MRMR's cost. Fewer permutations keep the code path covered.
+            mrmr_kwargs.update(
+                cmi_perm_n_permutations=10,
+                cpt_n_permutations=20,
+                # Candidate count is what the profile showed dominating (mi_direct runs once per engineered candidate).
+                fe_max_pair_features=3,
+                fe_max_engineered_operands=3,
+            )
+        selectors["mrmr"] = mrmr_kwargs
     if combo.fs_new_selectors_enabled_cfg:
         for name in ("forward_select", "greedy_backward_elimination", "zero_importance_pruning", "cascade_select"):
             selectors[name] = True

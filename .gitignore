@@ -247,3 +247,4 @@ audit/**/*_commitmsg.txt
 # Scratch logs written next to audits and in the repo root by ad-hoc runs
 audits/**/*.log
 /sc_*.log
+tests/training/_fuzz_combo/.enum_cache/

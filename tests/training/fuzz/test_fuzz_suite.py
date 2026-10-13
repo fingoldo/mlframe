@@ -23,6 +23,7 @@ import pytest
 # from the default test run; pass pytest --run-fuzz to include.
 pytestmark = pytest.mark.fuzz
 
+from tests.training._fuzz_combo.enum_cache import enumerate_combos_cached
 from tests.training._fuzz_combo import (
     FuzzCombo,
     build_frame_for_combo,
@@ -53,7 +54,7 @@ from mlframe.training import (
 # invocation reads the env fresh so 10k-combo campaigns can span 60+
 # seeds × 150 combos each without the parent process sharing state).
 _FUZZ_MASTER_SEED = int(os.environ.get("FUZZ_SEED", "20260422"))
-COMBOS: list[FuzzCombo] = enumerate_combos(
+COMBOS: list[FuzzCombo] = enumerate_combos_cached(
     target=150, master_seed=_FUZZ_MASTER_SEED, exhaustive_pairs=bool(os.environ.get("MLFRAME_FUZZ_EXHAUSTIVE_PAIRS")),
 )
 
@@ -157,7 +158,21 @@ def _apply_env_overrides(combo: FuzzCombo) -> FuzzCombo:
         import dataclasses as _dataclasses
 
         combo = _dataclasses.replace(combo, n_rows=int(_forced_n_rows))
+    if _os.environ.get("MLFRAME_FUZZ_BUGHUNT_BUDGET", "").lower() in ("1", "yes", "true", "on"):
+        combo = _apply_bughunt_budget(combo)
     return combo
+
+
+def _apply_bughunt_budget(combo: FuzzCombo) -> FuzzCombo:
+    """Bug-hunt per-combo budget: a small frame, one boosting iteration, and BorutaShap's early stop (patience 5) when it is on.
+
+    The coverage of each config lever stays in place; only the cost levers shrink, so one combo fits in seconds. Without this a
+    combo ran for minutes, mostly in BorutaShap's 150-trial loop and in the iteration count.
+    """
+    import dataclasses as _dataclasses
+
+    changes: dict = {"n_rows": min(int(combo.n_rows), 100), "iterations": 1, "use_boruta_shap_cfg": False}
+    return _dataclasses.replace(combo, **changes)
 
 
 def _innermost_mlframe_frame(exc: BaseException) -> str:
