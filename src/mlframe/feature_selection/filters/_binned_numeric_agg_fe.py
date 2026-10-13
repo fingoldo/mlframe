@@ -490,7 +490,7 @@ def _top_agg_by_variance(X, acands, max_agg_cols):
 
     Vectorised over columns in blocks of ``_AGG_VAR_BLOCK_COLS`` (one ``np.var(axis=0)`` per block) instead of a per-column Python loop. Each column's
     variance is independent of every other; the block form measured 1.94x at p=300 cols / n=1500 with max diff 3.3e-15, machine-epsilon summation
-    noise that only feeds a descending sort. A whole-frame float64 copy of the candidates would be p x n x 8 bytes (5.96 GiB at 10M x 80), so blocks."""
+    noise that only feeds a descending sort. A whole-frame copy of the candidates would be p x n x 8 bytes (5.96 GiB at 10M x 80), so blocks."""
     _var_blocks = [np.var(X[acands[i : i + _AGG_VAR_BLOCK_COLS]].to_numpy(), axis=0) for i in range(0, len(acands), _AGG_VAR_BLOCK_COLS)]
     _a_var_vals = np.concatenate(_var_blocks) if _var_blocks else np.zeros(0)
     a_var = dict(zip(acands, _a_var_vals.tolist()))
