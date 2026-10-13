@@ -86,7 +86,10 @@ def test_build_pre_pipelines_swaps_cv_param_selectors_to_timestamp_ordered_split
     for name in ("ForwardSelect", "GreedyBackwardElimination", "ZeroImportancePruning", "CascadeSelect"):
         assert isinstance(built[name].cv, TimestampOrderedSplit), name
         assert get_cv_policy(built[name]).kind == "temporal"
-    assert built["ForwardSelect"].cv.n_splits == 5 and built["GreedyBackwardElimination"].cv.n_splits == 5
+    # ForwardSelect keeps its own default fold count: commit 604252129 moved the forward-selection default cv 5 -> 3
+    # (selector, forward_select.py, fs_params), and the wiring must honour that rather than overwrite it with 5.
+    # GreedyBackwardElimination has cv=None, so apply_cv_param supplies the 5-fold default.
+    assert built["ForwardSelect"].cv.n_splits == 3 and built["GreedyBackwardElimination"].cv.n_splits == 5
 
 
 def test_build_pre_pipelines_stamps_holdout_selectors_and_mrmr():
@@ -109,7 +112,8 @@ def test_build_pre_pipelines_explicit_user_cv_wins():
 def test_build_pre_pipelines_without_policy_keeps_selector_defaults():
     """Build pre pipelines without policy keeps selector defaults."""
     pipes, _ = _build_raw(use_forward_select_fs=True, use_zero_importance_pruning_fs=True)
-    assert pipes[0].cv == 5 and pipes[1].cv is None and all(get_cv_policy(p) is None for p in pipes)
+    # Without a policy the ForwardSelect default is its own cv=3 (commit 604252129), not the old 5.
+    assert pipes[0].cv == 3 and pipes[1].cv is None and all(get_cv_policy(p) is None for p in pipes)
 
 
 @pytest.mark.parametrize(

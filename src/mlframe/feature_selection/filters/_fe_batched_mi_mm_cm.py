@@ -9,6 +9,7 @@ is the same number.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import numpy as np
@@ -27,15 +28,17 @@ _COLUMN_MAJOR_READ = "X[(long long)c * n + i]"
 _MM_NEK_CM_SRC = _MI_MM_FROM_VALUES_NEK_SRC.replace(_ROW_MAJOR_READ, _COLUMN_MAJOR_READ).replace("void mi_mm_from_values_nek(", "void mi_mm_from_values_nek_cm(")
 _MM_NEK_CM_F32_SRC = _MI_MM_FROM_VALUES_NEK_F32_SRC.replace(_ROW_MAJOR_READ, _COLUMN_MAJOR_READ).replace("void mi_mm_from_values_nek_f32(", "void mi_mm_from_values_nek_cm_f32(")
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.Lock()
 
 
 def _kernel(cp, f32: bool):
     """Lazily compiled column-major Miller-Madow kernel (f64 or f32 X; edges are always f64)."""
     key = "f32" if f32 else "f64"
-    ker = _KERNELS.get(key)
-    if ker is None:
-        ker = cp.RawKernel(_MM_NEK_CM_F32_SRC if f32 else _MM_NEK_CM_SRC, "mi_mm_from_values_nek_cm_f32" if f32 else "mi_mm_from_values_nek_cm")
-        _KERNELS[key] = ker
+    with _KERNELS_LOCK:
+        ker = _KERNELS.get(key)
+        if ker is None:
+            ker = cp.RawKernel(_MM_NEK_CM_F32_SRC if f32 else _MM_NEK_CM_SRC, "mi_mm_from_values_nek_cm_f32" if f32 else "mi_mm_from_values_nek_cm")
+            _KERNELS[key] = ker
     return ker
 
 

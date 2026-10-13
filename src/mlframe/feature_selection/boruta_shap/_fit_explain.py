@@ -278,6 +278,28 @@ def _selection_summary(self):
     return self.selected_features_, int(self.n_features_in_), f"{len(self.accepted_)} accepted, {len(self.tentative_)} tentative, {len(self.rejected_)} rejected"
 
 
+def _margin_gated_tail_stop(self, trial, _acc, _rej, _accepted_history, _n_total_cols, _early_stop_patience, _early_stop_margin) -> bool:
+    """Record this trial's accepted set and return True when the residual tentative tail is provably stuck (see ``fit``)."""
+    _accepted_history.append(frozenset(_acc))
+    _decided = _acc | _rej
+    _tentative_idx = [idx for idx, col in enumerate(self.all_columns_) if col not in _decided]
+    from ._shadow_stats import calibrated_null_hit_p
+
+    _null_hit_p = calibrated_null_hit_p(self)
+    if not _should_stop_tentative_tail(
+        _accepted_history, self.hits_, _tentative_idx, iteration=trial + 1, n_tests=_n_total_cols,
+        pvalue=self.pvalue, patience=_early_stop_patience, margin=_early_stop_margin, null_p=_null_hit_p,
+    ):
+        return False
+    if self.verbose:
+        logger.info(
+            "BorutaShap: margin-gated stop after %d/%d trials (accepted set plateaued for %d "
+            "trials and %d tentative feature(s) provably stuck).",
+            trial + 1, self.n_trials, _early_stop_patience, len(_tentative_idx),
+        )
+    return True
+
+
 @logs_fit("BorutaShap", _selection_summary)
 def fit(self, X, y):
     """
@@ -512,24 +534,10 @@ def fit(self, X, y):
                 # AND no still-tentative feature can still cross a binomial threshold within the margin (the tail is
                 # provably stuck). This is decision-equivalent to running the full cap; the naive 'plateau-only' rule
                 # is deliberately NOT used (it locks a wrong set on a transient plateau - see helper docstrings).
-                if _early_stop_tentative:
-                    _accepted_history.append(frozenset(_acc))
-                    _decided = _acc | _rej
-                    _tentative_idx = [idx for idx, col in enumerate(self.all_columns_) if col not in _decided]
-                    from ._shadow_stats import calibrated_null_hit_p
-
-                    _null_hit_p = calibrated_null_hit_p(self)
-                    if _should_stop_tentative_tail(
-                        _accepted_history, self.hits_, _tentative_idx, iteration=trial + 1, n_tests=_n_total_cols,
-                        pvalue=self.pvalue, patience=_early_stop_patience, margin=_early_stop_margin, null_p=_null_hit_p,
-                    ):
-                        if self.verbose:
-                            logger.info(
-                                "BorutaShap: margin-gated stop after %d/%d trials (accepted set plateaued for %d "
-                                "trials and %d tentative feature(s) provably stuck).",
-                                trial + 1, self.n_trials, _early_stop_patience, len(_tentative_idx),
-                            )
-                        break
+                if _early_stop_tentative and _margin_gated_tail_stop(
+                    self, trial, _acc, _rej, _accepted_history, _n_total_cols, _early_stop_patience, _early_stop_margin,
+                ):
+                    break
 
             # Control/safety budget + stop-flag (parity with MRMR / RFECV), checked at the END of each
             # trial so the just-completed trial's state is valid (>=1 trial always runs): an over-budget

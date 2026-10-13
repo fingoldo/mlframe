@@ -373,6 +373,20 @@ def _compute_oof_preds_timeseries(
     return oof_pred, None
 
 
+def _reporting_config_with_routed_kwargs(_rep_kwargs, _unused_reporting_kwargs) -> ReportingConfig:
+    """Forward leftover kwargs that name a ReportingConfig field into ``_rep_kwargs``; unknown keys are dropped at DEBUG."""
+    _rep_fields = ReportingConfig.model_fields
+    _rep_unrecognized = []
+    for _k, _v in _unused_reporting_kwargs.items():
+        if _k in _rep_fields and _k not in _rep_kwargs:
+            _rep_kwargs[_k] = _v
+        else:
+            _rep_unrecognized.append(_k)
+    if _rep_unrecognized:
+        logger.debug("_build_configs_from_params dropped unknown kwargs: %s", sorted(_rep_unrecognized))
+    return ReportingConfig(**_rep_kwargs)
+
+
 def _build_configs_from_params(
     # Data params
     df=None,
@@ -584,16 +598,7 @@ def _build_configs_from_params(
     # ReportingConfig field is forwarded so new fields auto-propagate
     # without a per-field gate above. Truly unknown keys are dropped at
     # DEBUG (the splat must survive future additions), never raised.
-    _rep_fields = ReportingConfig.model_fields
-    _rep_unrecognized = []
-    for _k, _v in _unused_reporting_kwargs.items():
-        if _k in _rep_fields and _k not in _rep_kwargs:
-            _rep_kwargs[_k] = _v
-        else:
-            _rep_unrecognized.append(_k)
-    if _rep_unrecognized:
-        logger.debug("_build_configs_from_params dropped unknown kwargs: %s", sorted(_rep_unrecognized))
-    reporting_config = ReportingConfig(**_rep_kwargs)
+    reporting_config = _reporting_config_with_routed_kwargs(_rep_kwargs, _unused_reporting_kwargs)
 
     output_config = OutputConfig(
         plot_file=plot_file or "",

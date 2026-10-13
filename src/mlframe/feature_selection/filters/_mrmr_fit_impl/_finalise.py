@@ -376,6 +376,46 @@ def _rescue_empty_topk(self, _topk, n_engineered_out, _raw_mi, _rescue_allowed_i
     return _topk
 
 
+def _apply_uaed_elbow_trim(self):
+    """UAED post-fit elbow trim: trims raw support and engineered recipes in lockstep to the elbow of the combined gain trace (best-effort, never breaks fit)."""
+    if getattr(self, "uaed_auto_size", False):
+        try:
+            from .._cmi_perm_stop import uaed_elbow
+            gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
+            # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
+            # raw GREEDY log (one entry per confirmed greedy round) - often SHORTER than n_features_ when
+            # FE/retention appended features the greedy never scored. The public ``mrmr_gains_`` the caller
+            # sees is the n_features_-aligned (zero-padded) trace, so the elbow must be computed on that SAME
+            # trace; otherwise a frame whose greedy log has <3 rounds but >=3 final features silently skips
+            # the elbow (uaed_elbow_ never set, support never trimmed). Zero-extend to n_features_ to match.
+            _nf_uaed = int(getattr(self, "n_features_", gains.size) or gains.size)
+            if 0 < gains.size < _nf_uaed:
+                gains = np.concatenate([gains, np.zeros(_nf_uaed - gains.size, dtype=np.float64)])
+            if gains.size >= 3:
+                elbow = int(uaed_elbow(gains))
+                if 0 < elbow < gains.size and hasattr(self, "support_"):
+                    # ``gains`` is the COMBINED trace (raw greedy gains + zero-padded engineered tail), matching the
+                    # transform-time feature order [support_ ..., engineered recipes ...]. The elbow index therefore
+                    # lives in COMBINED space, but ``support_`` holds RAW indices only. Slicing raw support by a
+                    # combined elbow (and setting n_features_ = support_.size) dropped the engineered count while the
+                    # recipes still fired in transform - transform emitted MORE columns than n_features_/mrmr_gains_
+                    # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
+                    # the retained feature count is exactly elbow+1 in both the state and the transform output.
+                    _sup = np.asarray(self.support_)
+                    _uaed_recipes = list(getattr(self, "_engineered_recipes_", []) or [])
+                    _uaed_keep = elbow + 1  # combined features to retain
+                    _uaed_raw_keep = min(_uaed_keep, _sup.size)
+                    _uaed_eng_keep = max(0, _uaed_keep - _sup.size)  # <= len(_uaed_recipes): gains was zero-extended to n_features_
+                    self.support_ = _sup[:_uaed_raw_keep]
+                    if _uaed_recipes and _uaed_eng_keep < len(_uaed_recipes):
+                        self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
+                    self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
+                    self.uaed_elbow_ = int(elbow)
+        except Exception as e:  # nosec B110 - non-trivial body
+            # UAED is best-effort post-fit; don't break fit() on internal hiccup.
+            logger.debug("UAED post-fit adjustment failed (%s: %s) -- keeping the pre-UAED support", type(e).__name__, e)
+
+
 def _finalise_fs_results(
     self,
     *,
@@ -442,42 +482,7 @@ def _finalise_fs_results(
     # the per-feature MI gain curve. Relevance trace is taken from the
     # ``mrmr_gains_`` attribute (Wave-7 audit landed this trace in the
     # standard fit output); if missing, this step no-ops.
-    if getattr(self, "uaed_auto_size", False):
-        try:
-            from .._cmi_perm_stop import uaed_elbow
-            gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
-            # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
-            # raw GREEDY log (one entry per confirmed greedy round) - often SHORTER than n_features_ when
-            # FE/retention appended features the greedy never scored. The public ``mrmr_gains_`` the caller
-            # sees is the n_features_-aligned (zero-padded) trace, so the elbow must be computed on that SAME
-            # trace; otherwise a frame whose greedy log has <3 rounds but >=3 final features silently skips
-            # the elbow (uaed_elbow_ never set, support never trimmed). Zero-extend to n_features_ to match.
-            _nf_uaed = int(getattr(self, "n_features_", gains.size) or gains.size)
-            if 0 < gains.size < _nf_uaed:
-                gains = np.concatenate([gains, np.zeros(_nf_uaed - gains.size, dtype=np.float64)])
-            if gains.size >= 3:
-                elbow = int(uaed_elbow(gains))
-                if 0 < elbow < gains.size and hasattr(self, "support_"):
-                    # ``gains`` is the COMBINED trace (raw greedy gains + zero-padded engineered tail), matching the
-                    # transform-time feature order [support_ ..., engineered recipes ...]. The elbow index therefore
-                    # lives in COMBINED space, but ``support_`` holds RAW indices only. Slicing raw support by a
-                    # combined elbow (and setting n_features_ = support_.size) dropped the engineered count while the
-                    # recipes still fired in transform - transform emitted MORE columns than n_features_/mrmr_gains_
-                    # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
-                    # the retained feature count is exactly elbow+1 in both the state and the transform output.
-                    _sup = np.asarray(self.support_)
-                    _uaed_recipes = list(getattr(self, "_engineered_recipes_", []) or [])
-                    _uaed_keep = elbow + 1  # combined features to retain
-                    _uaed_raw_keep = min(_uaed_keep, _sup.size)
-                    _uaed_eng_keep = max(0, _uaed_keep - _sup.size)  # <= len(_uaed_recipes): gains was zero-extended to n_features_
-                    self.support_ = _sup[:_uaed_raw_keep]
-                    if _uaed_recipes and _uaed_eng_keep < len(_uaed_recipes):
-                        self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
-                    self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
-                    self.uaed_elbow_ = int(elbow)
-        except Exception as e:  # nosec B110 - non-trivial body
-            # UAED is best-effort post-fit; don't break fit() on internal hiccup.
-            logger.debug("UAED post-fit adjustment failed (%s: %s) -- keeping the pre-UAED support", type(e).__name__, e)
+    _apply_uaed_elbow_trim(self)
     # Transient FE-escalation fitting target: full-n array, fit-time only.
     self._fe_escalation_y_rank_ = None
     # Transient prewarp ALS reconstruction target: full-n continuous y, fit-time only.
@@ -549,13 +554,14 @@ def _finalise_fs_results(
                         data, (int(_cidx),), _classes_y_arr_f, np.asarray(nbins), _g_n_bins_y_f,
                         _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
                     )
-                    _is_leak_f = _grp_obs_f == 0.0 or (
-                        _grp_obs_f == _grp_obs_f
-                        and _group_leak_verdict_final(
+                    _is_leak_f = False
+                    if _grp_obs_f == 0.0:
+                        _is_leak_f = True
+                    elif _grp_obs_f == _grp_obs_f:  # NaN is neither a leak nor a verdict, so the recipe is kept
+                        _is_leak_f = _group_leak_verdict_final(
                             np.asarray(data[:, int(_cidx)]), _classes_y_arr_f, _gsi_f, _goff_f,
                             int(np.asarray(data[:, int(_cidx)]).max()) + 1, _g_n_bins_y_f, min_rows=_gmr_f, size_weighted=_gsw_f,
                         )[1]
-                    )
                 else:
                     # Retention-only recipe (usability-aware retention re-attaches it from its OWN
                     # recompute, bypassing ``cols``/``data`` entirely - see the comment above). Replay
@@ -576,13 +582,14 @@ def _finalise_fs_results(
                             _codes_mat_f, (0,), _classes_y_arr_f, _nbins_mat_f, _g_n_bins_y_f,
                             _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
                         )
-                        _is_leak_f = _grp_obs_f == 0.0 or (
-                            _grp_obs_f == _grp_obs_f
-                            and _group_leak_verdict_final(
+                        _is_leak_f = False
+                        if _grp_obs_f == 0.0:
+                            _is_leak_f = True
+                        elif _grp_obs_f == _grp_obs_f:  # NaN is neither a leak nor a verdict, so the recipe is kept
+                            _is_leak_f = _group_leak_verdict_final(
                                 _codes_f, _classes_y_arr_f, _gsi_f, _goff_f,
                                 int(_nbins_mat_f[0]), _g_n_bins_y_f, min_rows=_gmr_f, size_weighted=_gsw_f,
                             )[1]
-                        )
                     except Exception as e:
                         logger.debug("_fit: within-group MI replay/discretise failed for recipe %r, leaving it alone: %s", _rname, e)
                         continue  # can't replay/discretise - leave this recipe alone (conservative)

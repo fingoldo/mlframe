@@ -29,6 +29,7 @@ gate returns ``None`` and the caller stays on the exact njit path - byte-for-byt
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Optional, Sequence
 
 import numpy as np
@@ -110,6 +111,7 @@ _BUILD_OPCANDS_CM_F32_SRC = _BUILD_OPCANDS_CM_SRC.replace("void build_op_cands_c
     "out[(long long)c * n + row] = val;", "out[(long long)c * n + row] = (float)val;"
 )
 _BUILD_OPCANDS_CM_KERNELS: dict = {}
+_BUILD_OPCANDS_CM_KERNELS_LOCK = threading.Lock()
 
 
 def _pair_index_arrays(cp, pairs: list):
@@ -121,10 +123,11 @@ def _pair_index_arrays(cp, pairs: list):
 def _get_build_opcands_cm_kernel(cp, f32: bool = False):
     """Lazily compile and cache the column-major ``build_op_cands_cm`` RawKernel (the ``f32`` twin rounds each value to float32 at the store)."""
     key = "f32" if f32 else "f64"
-    ker = _BUILD_OPCANDS_CM_KERNELS.get(key)
-    if ker is None:
-        ker = cp.RawKernel(_BUILD_OPCANDS_CM_F32_SRC if f32 else _BUILD_OPCANDS_CM_SRC, "build_op_cands_cm_f32" if f32 else "build_op_cands_cm")
-        _BUILD_OPCANDS_CM_KERNELS[key] = ker
+    with _BUILD_OPCANDS_CM_KERNELS_LOCK:
+        ker = _BUILD_OPCANDS_CM_KERNELS.get(key)
+        if ker is None:
+            ker = cp.RawKernel(_BUILD_OPCANDS_CM_F32_SRC if f32 else _BUILD_OPCANDS_CM_SRC, "build_op_cands_cm_f32" if f32 else "build_op_cands_cm")
+            _BUILD_OPCANDS_CM_KERNELS[key] = ker
     return ker
 
 

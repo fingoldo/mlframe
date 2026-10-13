@@ -138,60 +138,7 @@ def _apply_pre_pipeline_transforms(
             sample_weight=sample_weight, key=_cache_key_entry,
         )
         if _cache_hit is not None and not skip_pre_pipeline_transform and not skip_preprocessing and not _is_fitted(pre_pipeline):
-            _cache_entry = _cache_hit
-            # Older entries hold a 2-tuple; new entries hold (train, val, fitted_pipeline).
-            if len(_cache_entry) == 3:
-                train_df_cached, val_df_cached, fitted_cached = _cache_entry
-            else:
-                train_df_cached, val_df_cached = _cache_entry
-                fitted_cached = None
-            # Transfer fit state from cached pipeline so the caller's (cloned, unfitted) instance
-            # can transform test_df at predict time. Without this, _prepare_test_split called
-            # pre_pipeline.transform on an unfitted Pipeline and raised NotFittedError (surfaced
-            # by test_train_mixed_linear_and_lgb after value-transforming pipelines
-            # stopped being marked identity-equivalent).
-            if fitted_cached is not None:
-                try:
-                    # Audit D P1-8 (2026-05-18): a shallow ``__dict__.update`` shares mutable
-                    # state between the cached pipeline and pre_pipeline -- any per-call mutation
-                    # (e.g. ``set_params`` on a wrapper, or a transformer that lazily mutates
-                    # ``self.fitted_state_``) silently corrupts the cached copy because both
-                    # instances point to the SAME dict entries. Shallow-copy the dict and copy
-                    # the fitted attributes; downstream sklearn transforms only read fitted
-                    # attributes, not mutate them, so a shallow attribute-copy is enough.
-                    # ``copy.copy`` per-attribute is cheaper than ``copy.deepcopy`` (which
-                    # duplicates trained model weights -- ranges in GB for tree ensembles).
-                    import copy as _cp
-                    for _k, _v in fitted_cached.__dict__.items():
-                        try:
-                            pre_pipeline.__dict__[_k] = _cp.copy(_v)
-                        except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                            logger.debug("shallow-copy of attribute %r failed, keeping original reference: %s", _k, e)
-                            # Defensive: a non-copyable attribute (e.g. file handle wrapper)
-                            # falls back to the original reference. Logged at debug because the
-                            # standard sklearn fitted attributes are all copyable.
-                            pre_pipeline.__dict__[_k] = _v
-                except (AttributeError, TypeError) as _state_err:
-                    # Whole-transfer failure (e.g. ``fitted_cached`` has no ``__dict__`` -- a
-                    # ``__slots__``-only object). Unlike the per-attribute fallback above, this
-                    # leaves ``pre_pipeline`` with NO fitted state, so the caller's predict-time
-                    # ``transform`` will raise NotFittedError. Surface at WARNING -- a real
-                    # incomplete state transfer must not be hidden at debug level.
-                    logger.warning(
-                        "pre_pipeline cache state transfer FAILED (%s: %s); pre_pipeline left "
-                        "without fitted state -- predict-time transform may raise NotFittedError",
-                        type(_state_err).__name__, _state_err,
-                    )
-            if verbose:
-                logger.info("Reusing pre_pipeline fit-transform from cache " "(same train_df + structurally identical pipeline).")
-            shape_str = f"{train_df_cached.shape[0]:_}x{train_df_cached.shape[1]}" if hasattr(train_df_cached, "shape") else ""
-            if verbose:
-                logger.info(
-                    "  pre_pipeline done (cached) -- train: %s, %.1fs",
-                    shape_str,
-                    timer() - t0_pre,
-                )
-            return train_df_cached, val_df_cached
+            return _apply_pre_pipeline_restore_cached(_cache_hit, pre_pipeline, verbose, t0_pre)
         train_df, val_df = _apply_pre_pipeline_phase_pre_pipeline_fit(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df, t0_pre, cache_max, _cache_key_entry)
 
         # Identity-equivalent = column set unchanged AND no value-transforming
@@ -536,3 +483,65 @@ def _validate_pre_pipeline_output_against_model(model, pre_pipeline, train_df) -
         f"Extra (produced by pre_pipeline, unknown to model): {extra}. "
         f"Check the pre_pipeline step {_step}."
     )
+
+
+def _apply_pre_pipeline_restore_cached(cache_hit, pre_pipeline, verbose, t0_pre) -> tuple:
+    """Serve a pre_pipeline fit-transform from the structural cache.
+
+    Copies the cached fitted state onto the caller's unfitted ``pre_pipeline`` so predict-time transforms work,
+    then returns the cached ``(train_df, val_df)``.
+    """
+    _cache_entry = cache_hit
+    # Older entries hold a 2-tuple; new entries hold (train, val, fitted_pipeline).
+    if len(_cache_entry) == 3:
+        train_df_cached, val_df_cached, fitted_cached = _cache_entry
+    else:
+        train_df_cached, val_df_cached = _cache_entry
+        fitted_cached = None
+    # Transfer fit state from cached pipeline so the caller's (cloned, unfitted) instance
+    # can transform test_df at predict time. Without this, _prepare_test_split called
+    # pre_pipeline.transform on an unfitted Pipeline and raised NotFittedError (surfaced
+    # by test_train_mixed_linear_and_lgb after value-transforming pipelines
+    # stopped being marked identity-equivalent).
+    if fitted_cached is not None:
+        try:
+            # Audit D P1-8 (2026-05-18): a shallow ``__dict__.update`` shares mutable
+            # state between the cached pipeline and pre_pipeline -- any per-call mutation
+            # (e.g. ``set_params`` on a wrapper, or a transformer that lazily mutates
+            # ``self.fitted_state_``) silently corrupts the cached copy because both
+            # instances point to the SAME dict entries. Shallow-copy the dict and copy
+            # the fitted attributes; downstream sklearn transforms only read fitted
+            # attributes, not mutate them, so a shallow attribute-copy is enough.
+            # ``copy.copy`` per-attribute is cheaper than ``copy.deepcopy`` (which
+            # duplicates trained model weights -- ranges in GB for tree ensembles).
+            import copy as _cp
+            for _k, _v in fitted_cached.__dict__.items():
+                try:
+                    pre_pipeline.__dict__[_k] = _cp.copy(_v)
+                except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                    logger.debug("shallow-copy of attribute %r failed, keeping original reference: %s", _k, e)
+                    # Defensive: a non-copyable attribute (e.g. file handle wrapper)
+                    # falls back to the original reference. Logged at debug because the
+                    # standard sklearn fitted attributes are all copyable.
+                    pre_pipeline.__dict__[_k] = _v
+        except (AttributeError, TypeError) as _state_err:
+            # Whole-transfer failure (e.g. ``fitted_cached`` has no ``__dict__`` -- a
+            # ``__slots__``-only object). Unlike the per-attribute fallback above, this
+            # leaves ``pre_pipeline`` with NO fitted state, so the caller's predict-time
+            # ``transform`` will raise NotFittedError. Surface at WARNING -- a real
+            # incomplete state transfer must not be hidden at debug level.
+            logger.warning(
+                "pre_pipeline cache state transfer FAILED (%s: %s); pre_pipeline left "
+                "without fitted state -- predict-time transform may raise NotFittedError",
+                type(_state_err).__name__, _state_err,
+            )
+    if verbose:
+        logger.info("Reusing pre_pipeline fit-transform from cache " "(same train_df + structurally identical pipeline).")
+    shape_str = f"{train_df_cached.shape[0]:_}x{train_df_cached.shape[1]}" if hasattr(train_df_cached, "shape") else ""
+    if verbose:
+        logger.info(
+            "  pre_pipeline done (cached) -- train: %s, %.1fs",
+            shape_str,
+            timer() - t0_pre,
+        )
+    return train_df_cached, val_df_cached

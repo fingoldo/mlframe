@@ -128,20 +128,68 @@ def test_regression_genie_weights_not_uniform_for_differentiated_bias_rates():
     assert not np.allclose(w, 1.0 / 3.0), "genie_weights must not degenerate to a plain uniform mean"
 
 
-def test_regression_grand_fused_pair_mi_threads_random_seed():
-    """Pre-fix: grand_fused_pair_mi ignored any caller-supplied seed (hardcoded base_seed=np.uint64(0)).
-    Post-fix: a random_seed kwarg exists and is threaded through to the permutation-null base_seed."""
-    import inspect
+def _grand_fusion_fixture(n=4000, seed=3):
+    """Continuous a, b and a 20-bin target carrying an a**2/b signal, as the grand-fusion pair search receives them."""
+    rng = np.random.default_rng(seed)
+    a = rng.uniform(0.5, 4.0, n)
+    b = rng.uniform(0.5, 4.0, n)
+    y = a**2 / b + 0.5 * rng.standard_normal(n)
+    edges = np.quantile(y, np.linspace(0, 1, 21)[1:-1])
+    y_codes = np.searchsorted(edges, y).astype(np.int64)
+    freqs_y = np.bincount(y_codes, minlength=int(y_codes.max()) + 1) / n
+    return a, b, y_codes, y_codes, freqs_y
 
+
+def _cuda_device_count(cp):
+    """Visible CUDA device count, or 0 when the CUDA runtime cannot be queried."""
+    try:
+        return int(cp.cuda.runtime.getDeviceCount())
+    except Exception:
+        return 0
+
+
+def _require_cuda():
+    """Skip unless cupy imports and a CUDA device is visible; the grand-fusion path has no CPU form."""
+    cp = pytest.importorskip("cupy")
+    if _cuda_device_count(cp) < 1:
+        pytest.skip("no usable CUDA device")
+
+
+@pytest.mark.parametrize("fusion", ["1", "0"])
+def test_regression_grand_fused_pair_mi_threads_random_seed(fusion, monkeypatch):
+    """Pre-fix: grand_fused_pair_mi ignored any caller-supplied seed (hardcoded base_seed=np.uint64(0)), and the fused
+    default path never received one at all. Post-fix: random_seed reaches the permutation null on both the fused
+    (default) and the non-fused path, and 0 remains the default."""
+    _require_cuda()
+    from mlframe.feature_selection.filters import batch_mi_noise_gate_gpu as gate
     from mlframe.feature_selection.filters._gpu_resident_pair_mi import grand_fused_pair_mi
 
-    sig = inspect.signature(grand_fused_pair_mi)
-    assert "random_seed" in sig.parameters
-    assert sig.parameters["random_seed"].default == 0
+    monkeypatch.setenv("MLFRAME_FE_GPU_GRAND_FUSION", fusion)
+    real_shuffle = gate._build_shuffle_matrix
+    real_resident = gate.batch_mi_with_noise_gate_cuda_resident
+    seeds = []
 
-    src = inspect.getsource(grand_fused_pair_mi)
-    assert "base_seed=np.uint64(0)" not in src
-    assert "base_seed=np.uint64(random_seed)" in src
+    def _shuffle_spy(classes_y_safe, base_seed, npermutations):
+        """Record the seed the fused path builds its shuffle matrix from, then delegate."""
+        seeds.append(int(base_seed))
+        return real_shuffle(classes_y_safe, base_seed, npermutations)
+
+    def _resident_spy(*args, base_seed, **kwargs):
+        """Record the seed the non-fused resident noise gate receives, then delegate."""
+        seeds.append(int(base_seed))
+        return real_resident(*args, base_seed=base_seed, **kwargs)
+
+    monkeypatch.setattr(gate, "_build_shuffle_matrix", _shuffle_spy)
+    monkeypatch.setattr(gate, "batch_mi_with_noise_gate_cuda_resident", _resident_spy)
+    a, b, y_codes, classes_y_safe, freqs_y = _grand_fusion_fixture()
+
+    names, fe_mi = grand_fused_pair_mi(a, b, y_codes, classes_y_safe, freqs_y, nbins=20, npermutations=25, random_seed=7)
+    assert seeds and set(seeds) == {7}, f"random_seed=7 must reach the permutation null; saw {seeds}"
+    assert len(fe_mi) == len(names)
+
+    seeds.clear()
+    grand_fused_pair_mi(a, b, y_codes, classes_y_safe, freqs_y, nbins=20, npermutations=25)
+    assert seeds and set(seeds) == {0}, f"the default seed must stay 0; saw {seeds}"
 
 
 # ---------------------------------------------------------------------------
@@ -179,18 +227,48 @@ def test_regression_marginal_screen_weighted_differs_from_unweighted():
 
 
 def test_regression_cat_interactions_step_recomputes_weighted_marginal():
-    """Post-fix: run_cat_interaction_step's weighted branch calls _marginal_screen_weighted and overwrites
-    marginal_mi_full before the pair-search dispatch, rather than leaving it unweighted."""
-    import inspect
-    import sys
-
+    """Post-fix: with sample weights, run_cat_interaction_step overwrites the unweighted marginal MIs with the weighted
+    ones before the pair search, so the emitted diagnostics report the weighted marginals."""
     from mlframe.feature_selection.filters._cat_interactions_step import run_cat_interaction_step
+    from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+    from mlframe.feature_selection.filters.cat_interactions import _marginal_screen_weighted
+    from mlframe.feature_selection.filters.info_theory import merge_vars
 
-    src = inspect.getsource(
-        sys.modules[run_cat_interaction_step.__module__]
-    )  # the step is split into module-level helpers; the pinned statement lives in one of them
-    assert "_marginal_screen_weighted" in src
-    assert "marginal_mi_full[int(_idx)] = candidate_mi[_k]" in src
+    rng = np.random.default_rng(9)
+    n = 1200
+    x1 = rng.integers(0, 2, n).astype(np.int32)
+    x2 = rng.integers(0, 2, n).astype(np.int32)
+    # Rows 0..299 carry x1 as the signal and the rest carry the XOR synergy, so the weights below move x1's marginal.
+    y = np.where(np.arange(n) < 300, x1, x1 ^ x2).astype(np.int32)
+    data = np.column_stack([x1, x2, y]).astype(np.int32)
+    nbins = np.array([2, 2, 2], dtype=np.int64)
+    cls_y, fq_y, _ = merge_vars(
+        factors_data=data, vars_indices=np.array([2], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+    )
+    weights = np.ones(n, dtype=np.float32)
+    weights[:300] = 3.0
+    candidates = np.array([0, 1], dtype=np.int64)
+    weighted = _marginal_screen_weighted(
+        factors_data=data, candidate_idxs=candidates, nbins=nbins, classes_y=cls_y, weights=weights, dtype=np.int32,
+    )
+    unweighted = _marginal_screen_weighted(
+        factors_data=data, candidate_idxs=candidates, nbins=nbins, classes_y=cls_y, weights=np.ones(n, dtype=np.float32), dtype=np.int32,
+    )
+    assert not np.allclose(weighted, unweighted), "the fixture must move the weighted marginals, or the test cannot tell them apart"
+
+    cfg = CatFEConfig(
+        enable=True, top_k_pairs=2, min_interaction_information=0.05, full_npermutations=100,
+        fwer_correction="none", perm_budget_strategy="fixed", emit_diagnostics=True,
+    )
+    _, _, _, state = run_cat_interaction_step(
+        data=data, cols=["x1", "x2", "y"], nbins=nbins, target_indices=np.array([2], dtype=np.int64),
+        classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y, categorical_vars=[0, 1], cfg=cfg, dtype=np.int32, weights=weights,
+    )
+    assert state.diagnostics, "the XOR pair must survive so that its marginals are reported"
+    for entry in state.diagnostics.values():
+        i, j = entry["src_indices"]
+        assert entry["marginal_X1_MI"] == pytest.approx(weighted[i])
+        assert entry["marginal_X2_MI"] == pytest.approx(weighted[j])
 
 
 # ---------------------------------------------------------------------------
@@ -199,19 +277,65 @@ def test_regression_cat_interactions_step_recomputes_weighted_marginal():
 # ---------------------------------------------------------------------------
 
 
-def test_regression_bandit_ucb1_auto_falls_back_to_fixed_when_weighted():
-    """Post-fix: run_cat_interaction_step skips the bandit-UCB1 path entirely (falling back to the
-    correctly-weighted fixed path) whenever use_weights is True, regardless of perm_budget_strategy."""
-    import inspect
-    import sys
+def test_regression_bandit_ucb1_auto_falls_back_to_fixed_when_weighted(monkeypatch, caplog):
+    """Post-fix: run_cat_interaction_step skips the bandit-UCB1 path entirely (falling back to the correctly-weighted
+    fixed path) whenever use_weights is True, regardless of perm_budget_strategy. An unweighted fit keeps the bandit path."""
+    import logging
 
+    from mlframe.feature_selection.filters import cat_interactions as ci
     from mlframe.feature_selection.filters._cat_interactions_step import run_cat_interaction_step
+    from mlframe.feature_selection.filters.cat_fe_state import CatFEConfig
+    from mlframe.feature_selection.filters.info_theory import merge_vars
 
-    src = inspect.getsource(
-        sys.modules[run_cat_interaction_step.__module__]
-    )  # the step is split into module-level helpers; the pinned statement lives in one of them
-    assert "and not use_weights" in src
-    assert "falling back to the fixed-budget permutation path" in src
+    calls = []
+    real_bandit = ci._confirm_pairs_bandit_ucb1
+    real_fixed = ci._confirm_pairs_via_permutation
+
+    def _bandit_spy(*args, **kwargs):
+        """Record that the bandit-UCB1 confirmation ran, then delegate."""
+        calls.append("bandit")
+        return real_bandit(*args, **kwargs)
+
+    def _fixed_spy(*args, **kwargs):
+        """Record that the fixed-budget permutation confirmation ran, then delegate."""
+        calls.append("fixed")
+        return real_fixed(*args, **kwargs)
+
+    monkeypatch.setattr(ci, "_confirm_pairs_bandit_ucb1", _bandit_spy)
+    monkeypatch.setattr(ci, "_confirm_pairs_via_permutation", _fixed_spy)
+
+    rng = np.random.default_rng(9)
+    n = 1200
+    x1 = rng.integers(0, 2, n).astype(np.int32)
+    x2 = rng.integers(0, 2, n).astype(np.int32)
+    y = (x1 ^ x2).astype(np.int32)
+    data = np.column_stack([x1, x2, y]).astype(np.int32)
+    nbins = np.array([2, 2, 2], dtype=np.int64)
+    cls_y, fq_y, _ = merge_vars(
+        factors_data=data, vars_indices=np.array([2], dtype=np.int64), var_is_nominal=None, factors_nbins=nbins, dtype=np.int32,
+    )
+    cfg = CatFEConfig(
+        enable=True, top_k_pairs=2, min_interaction_information=0.05, full_npermutations=100,
+        fwer_correction="none", perm_budget_strategy="bandit_ucb1",
+    )
+    weights = np.ones(n, dtype=np.float32)
+    weights[:300] = 3.0
+
+    def _confirm_path(w):
+        """Run the cat-interaction step with the given weights and return which confirmation paths it invoked."""
+        calls.clear()
+        run_cat_interaction_step(
+            data=data, cols=["x1", "x2", "y"], nbins=nbins, target_indices=np.array([2], dtype=np.int64),
+            classes_y=cls_y, classes_y_safe=cls_y, freqs_y=fq_y, categorical_vars=[0, 1], cfg=cfg, dtype=np.int32, weights=w,
+        )
+        return list(calls)
+
+    assert "bandit" in _confirm_path(None), "control: the bandit path must run for an unweighted fit"
+    with caplog.at_level(logging.WARNING):
+        weighted_calls = _confirm_path(weights)
+    assert "bandit" not in weighted_calls, f"a weighted fit must not take the bandit path; saw {weighted_calls}"
+    assert "fixed" in weighted_calls, f"a weighted fit must take the fixed-budget path; saw {weighted_calls}"
+    assert any("falling back to the fixed-budget permutation path" in r.getMessage() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -246,18 +370,6 @@ def test_regression_cat_fe_config_rejects_out_of_range_fields(kwarg, bad_value, 
 # CAT_INTERACTION_A-5 (P2): a mojibake-corrupted comment in cat_interactions.py ("n/30 + 1" preceded by
 # garbled encoding-round-trip bytes instead of "~=").
 # ---------------------------------------------------------------------------
-
-
-def test_regression_cat_interactions_no_mojibake_comment():
-    """Post-fix: the corrupted comment is repaired; no other file in the repo shares the same corruption
-    signature."""
-    import inspect
-
-    from mlframe.feature_selection.filters import cat_interactions as mod
-
-    src = inspect.getsource(mod)
-    assert "n/30 + 1" in src
-    assert "РІР‚В°РІвЂљВ¬" not in src
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +407,7 @@ def test_regression_grouped_agg_nunique_fallback_is_group_scale_not_population_s
     enc_df, _recipes = generate_grouped_agg_features(X, ["grp"], ["num"], stats=["nunique"])
     col = next(c for c in enc_df.columns if "nunique" in c)
     real_per_group_values = enc_df[col].unique()
+    assert len(real_per_group_values) > 0, "grouped nunique produced no values, so the scale check below would pass vacuously"
     # The whole-population cardinality (the pre-fix fallback) must NOT appear as a "fallback" value mixed
     # into an otherwise per-group-scale column -- every observed value should be well below n (real groups
     # were all seen at fit time here, so this just pins the per-group scale is sane, not degenerate).
@@ -596,30 +709,43 @@ def test_regression_gbm_split_propensity_exception_is_logged(monkeypatch, caplog
 # ---------------------------------------------------------------------------
 
 
-def test_regression_greedy_cmi_fe_construct_seed_varies_permutation():
-    """Pre-fix: rng_floor was always np.random.default_rng(0xC011) regardless of caller. Post-fix: a
-    seed= parameter exists and different seeds draw different noise-floor permutations."""
-    import inspect
+def test_regression_greedy_cmi_fe_construct_seed_varies_permutation(monkeypatch):
+    """Pre-fix: rng_floor was always np.random.default_rng(0xC011) regardless of caller. Post-fix: the seed reaches the
+    noise-floor permutation draws, so different seeds give different floors, the same seed reproduces its floors, and the
+    default equals the historical 0xC011."""
+    from mlframe.feature_selection.filters import _mi_greedy_cmi_fe as mod
 
-    from mlframe.feature_selection.filters._mi_greedy_cmi_fe import greedy_cmi_fe_construct
+    real_step3 = mod._greedy_cmi_fe_constr_step3_while_st_remaining
+    recorded = []
 
-    sig = inspect.signature(greedy_cmi_fe_construct)
-    assert "seed" in sig.parameters
-    assert sig.parameters["seed"].default == 0xC011  # historical default preserved for byte-identical legacy behaviour
+    def _recording_step3(st, top_k, noise_floor, *rest):
+        """Wrap the per-round noise-floor callable so every floor value the construction draws is recorded."""
 
-    from mlframe.feature_selection.filters import _mi_greedy_cmi_fe_steps
+        def _floor():
+            """Draw the noise floor and record it."""
+            value = noise_floor()
+            recorded.append(value)
+            return value
 
-    src = inspect.getsource(inspect.getmodule(greedy_cmi_fe_construct)) + inspect.getsource(_mi_greedy_cmi_fe_steps)
-    assert "SeedSequence([0xC011, seed" in src
-    assert not any(line.strip() == "rng_floor = np.random.default_rng(0xC011)" for line in src.splitlines())
+        return real_step3(st, top_k, _floor, *rest)
 
-    # Direct RNG-level pin: different seeds must draw different permutations.
-    rng_a = np.random.default_rng(1)
-    rng_b = np.random.default_rng(2)
-    n = 500
-    perm_a = rng_a.permutation(n)
-    perm_b = rng_b.permutation(n)
-    assert not np.array_equal(perm_a, perm_b)
+    monkeypatch.setattr(mod, "_greedy_cmi_fe_constr_step3_while_st_remaining", _recording_step3)
+    rng = np.random.default_rng(4)
+    n = 600
+    X = pd.DataFrame({f"x{i}": rng.standard_normal(n) for i in range(6)})
+    y = ((X["x0"] * X["x1"] + 0.3 * rng.standard_normal(n)) > 0).astype(np.int64)
+
+    def _floors(**kwargs):
+        """Run the construction with the given seed arguments and return the noise floors it drew."""
+        recorded.clear()
+        mod.greedy_cmi_fe_construct(X, y, top_k=2, nbins=10, **kwargs)
+        return list(recorded)
+
+    floors_seed1 = _floors(seed=1)
+    assert floors_seed1, "the construction must draw at least one noise floor for the test to observe"
+    assert _floors(seed=1) == floors_seed1, "the same seed must reproduce the same noise floors"
+    assert _floors(seed=2) != floors_seed1, "different seeds must draw different noise-floor permutations"
+    assert _floors() == _floors(seed=0xC011), "the default seed must stay the historical 0xC011"
 
 
 def test_regression_score_candidates_by_cmi_handles_fractional_y_confined_to_one_bucket():

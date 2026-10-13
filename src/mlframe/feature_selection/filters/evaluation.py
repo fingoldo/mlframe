@@ -432,6 +432,57 @@ def _group_leak_without_synergy(X, y, factors_data, factors_nbins, dtype) -> boo
     return float(mi(factors_data=factors_data, x=X, y=y, factors_nbins=factors_nbins, dtype=dtype)) > 0.0
 
 
+def _apply_bur_bonus(current_gain, direct_gain, selected_vars, factors_data, X, factors_nbins, dtype, cand_idx, partial_gains, expected_gains):
+    """Add the BUR additive bonus to ``current_gain`` (and republish it into ``partial_gains``/``expected_gains``) when enabled; returns the updated gain."""
+    # BUR additive bonus (Gao 2022). Off by default
+    # (``bur_lambda`` thread-local = 0.0). When enabled, adds
+    # ``lambda * (I(X; Y) - max_j I(X; X_j))`` to the post-Fleuret score.
+    # ``direct_gain`` already holds ``I(X; Y)``; max-correlation to selected
+    # is computed once per candidate. Cheap because no new MI estimator —
+    # reuses existing ``mi`` njit on multi-index slices. Floored at zero so
+    # a fully-redundant candidate gets zero bonus, not a penalty.
+    _bur_lambda = get_bur_lambda()
+    if _bur_lambda > 0.0 and direct_gain > 0 and selected_vars:
+        try:
+            max_xz = 0.0
+            max_xz = _evaluate_candidate_selected_vars(selected_vars, factors_data, X, factors_nbins, dtype, max_xz)
+            bonus = max(0.0, float(direct_gain) - max_xz) * _bur_lambda
+            current_gain = float(current_gain) + bonus
+            if cand_idx in partial_gains:
+                _g, _k = partial_gains[cand_idx]
+                partial_gains[cand_idx] = (float(_g) + bonus, _k)
+            # Publish the BUR-
+            # bonus-inflated gain into ``expected_gains[cand_idx]``
+            # unconditionally. Pre-fix the publish was gated on
+            # ``if expected_gains[cand_idx]:`` which:
+            #   - raised KeyError on the dict-path stopped_early branch
+            #     (line 575-577 only sets expected_gains when fully
+            #     evaluated - on stopped_early it stays absent)
+            #   - returned 0 (falsy) on the ndarray-path stopped_early
+            #     branch, skipping the publish
+            # In both cases ``partial_gains[cand_idx]`` and ``current_gain``
+            # carried the BUR bonus but the dense ranking vector
+            # ``expected_gains`` did not - the confirmation loop's
+            # lexsort then ranked the BUR-bonus winner BELOW peers
+            # whose ``expected_gains`` entries reflected pre-bonus
+            # scores. The bare ``except Exception: pass`` silently
+            # masked the KeyError on dict-path. Drop both the gate
+            # and the bare-except so BUR actually affects ranking and
+            # programming errors surface.
+            expected_gains[cand_idx] = current_gain
+        except (KeyError, IndexError) as _bur_publish_exc:
+            # ``expected_gains`` is preallocated by ``screen_predictors``
+            # before any candidate evaluation, so a missing slot here
+            # would indicate a true invariant break - re-raise.
+            raise RuntimeError(f"BUR publish failed for cand_idx={cand_idx}: {_bur_publish_exc!r}") from _bur_publish_exc
+        except Exception as _bur_exc:
+            # Real numerical / mi-kernel failures (degenerate joints,
+            # all-NaN slices) stay best-effort: warn and continue rather
+            # than aborting the whole screen.
+            logger.warning("BUR bonus computation failed silently: %r", _bur_exc)
+    return current_gain
+
+
 def evaluate_candidate(
     cand_idx: int,
     X: Sequence[int],
@@ -600,52 +651,7 @@ def evaluate_candidate(
         # exactly 0.0, which now routes a non-synergy candidate through this branch.
         current_gain = 0.0
 
-    # BUR additive bonus (Gao 2022). Off by default
-    # (``bur_lambda`` thread-local = 0.0). When enabled, adds
-    # ``lambda * (I(X; Y) - max_j I(X; X_j))`` to the post-Fleuret score.
-    # ``direct_gain`` already holds ``I(X; Y)``; max-correlation to selected
-    # is computed once per candidate. Cheap because no new MI estimator —
-    # reuses existing ``mi`` njit on multi-index slices. Floored at zero so
-    # a fully-redundant candidate gets zero bonus, not a penalty.
-    _bur_lambda = get_bur_lambda()
-    if _bur_lambda > 0.0 and direct_gain > 0 and selected_vars:
-        try:
-            max_xz = 0.0
-            max_xz = _evaluate_candidate_selected_vars(selected_vars, factors_data, X, factors_nbins, dtype, max_xz)
-            bonus = max(0.0, float(direct_gain) - max_xz) * _bur_lambda
-            current_gain = float(current_gain) + bonus
-            if cand_idx in partial_gains:
-                _g, _k = partial_gains[cand_idx]
-                partial_gains[cand_idx] = (float(_g) + bonus, _k)
-            # Publish the BUR-
-            # bonus-inflated gain into ``expected_gains[cand_idx]``
-            # unconditionally. Pre-fix the publish was gated on
-            # ``if expected_gains[cand_idx]:`` which:
-            #   - raised KeyError on the dict-path stopped_early branch
-            #     (line 575-577 only sets expected_gains when fully
-            #     evaluated - on stopped_early it stays absent)
-            #   - returned 0 (falsy) on the ndarray-path stopped_early
-            #     branch, skipping the publish
-            # In both cases ``partial_gains[cand_idx]`` and ``current_gain``
-            # carried the BUR bonus but the dense ranking vector
-            # ``expected_gains`` did not - the confirmation loop's
-            # lexsort then ranked the BUR-bonus winner BELOW peers
-            # whose ``expected_gains`` entries reflected pre-bonus
-            # scores. The bare ``except Exception: pass`` silently
-            # masked the KeyError on dict-path. Drop both the gate
-            # and the bare-except so BUR actually affects ranking and
-            # programming errors surface.
-            expected_gains[cand_idx] = current_gain
-        except (KeyError, IndexError) as _bur_publish_exc:
-            # ``expected_gains`` is preallocated by ``screen_predictors``
-            # before any candidate evaluation, so a missing slot here
-            # would indicate a true invariant break - re-raise.
-            raise RuntimeError(f"BUR publish failed for cand_idx={cand_idx}: {_bur_publish_exc!r}") from _bur_publish_exc
-        except Exception as _bur_exc:
-            # Real numerical / mi-kernel failures (degenerate joints,
-            # all-NaN slices) stay best-effort: warn and continue rather
-            # than aborting the whole screen.
-            logger.warning("BUR bonus computation failed silently: %r", _bur_exc)
+    current_gain = _apply_bur_bonus(current_gain, direct_gain, selected_vars, factors_data, X, factors_nbins, dtype, cand_idx, partial_gains, expected_gains)
 
     # The research knobs below (RelaxMRMR, PID, CMI-permutation stop, CPT) all want the same three things: the candidate's codes, the
     # target's, and the selected set's. Each block used to materialise all of them for itself, so with two knobs on, the same candidate was

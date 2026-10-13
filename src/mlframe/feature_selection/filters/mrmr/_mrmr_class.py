@@ -21,6 +21,7 @@ import time
 import warnings
 from collections import OrderedDict
 from collections.abc import Iterable, MutableMapping, Sequence
+from functools import partial
 from typing import Any, Callable, ClassVar, NoReturn, Optional, cast
 
 import numpy as np
@@ -35,6 +36,7 @@ from sklearn.model_selection import BaseCrossValidator
 # downstream callers continue to resolve historical names.
 # Pure-data constants carved out of this module (no class refs -> safe top-level import):
 # the constructor-param validation allow-lists and the legacy-pickle default-injection roster.
+from ._mrmr_y_multioutput import _mrmr_y_is_multioutput
 from ._mrmr_param_constants import (
     _VALID_QUANTIZATION_METHODS,
     _VALID_NAN_STRATEGIES,
@@ -156,18 +158,30 @@ _UNSET = object()
 _MACOS_NUMBA_PARALLEL_FIT_LOCK = threading.Lock() if sys.platform == "darwin" else None
 
 
-def _mrmr_y_is_multioutput(y) -> bool:
-    """True when y carries >=2 target columns (2D DataFrame / 2D ndarray); a Series / 1D array / single-column frame is single-target."""
-    if isinstance(y, pd.DataFrame):
-        return bool(y.shape[1] >= 2)
-    if str(type(y).__module__).startswith("polars") and type(y).__name__ == "DataFrame":
-        return bool(y.shape[1] >= 2)
-    try:
-        arr = np.asarray(y)
-    except Exception as exc:
-        # Guessing single-target here would route a possibly multi-target y down the single-target fit, which mishandles the extra columns.
-        raise TypeError(f"MRMR.fit: cannot read y of type {type(y).__name__} as an array to tell single- from multi-target ({type(exc).__name__}: {exc})") from exc
-    return arr.ndim >= 2 and arr.shape[-1] >= 2
+def _restore_toggles_snapshot_and_raise_impl(_toggles_snapshot, exc: BaseException) -> NoReturn:
+    """Restore the MI-correction thread-locals to their fit-entry snapshot then re-raise ``exc``.
+
+    The validation checks below can fire AFTER some of these thread-locals have already been
+    activated but BEFORE the protective try/finally further down starts - without this, a raised
+    ValueError here would leave the corrupted thread-local state active for every subsequent,
+    unrelated fit on this thread.
+    """
+    _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e, _gmi0e = _toggles_snapshot
+    _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
+    _safe_restore(lambda: set_jmim_aggregator(_jmim0e), "JMIM aggregator thread-local (activation-block exception)")
+    _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")
+    _safe_restore(lambda: set_mi_miller_madow(_mm0e), "Miller-Madow thread-local (activation-block exception)")
+    _safe_restore(lambda: set_mi_chao_shen(_cs0e), "Chao-Shen thread-local (activation-block exception)")
+    # Currently dormant (relaxmrmr_alpha/pid_synergy_bonus/cmi_perm_stop/cpt_test are only
+    # activated further below, strictly after both call sites of this helper) - restored anyway
+    # so a future reordering that moves those activations earlier, or a new raise point added
+    # between them and the protective try/finally, cannot silently reintroduce the same
+    # thread-local-leak bug class this helper exists to prevent.
+    _safe_restore(lambda: set_relaxmrmr_alpha(_relax0e), "RelaxMRMR alpha thread-local (activation-block exception)")
+    _safe_restore(lambda: set_pid_synergy_bonus(_pid0e), "PID synergy-bonus thread-local (activation-block exception)")
+    _safe_restore(lambda: set_cmi_perm_stop(_cmi0e[0], _cmi0e[1], _cmi0e[2]), "CMI-perm-stop thread-local (activation-block exception)")
+    _safe_restore(lambda: set_cpt_test(_cpt0e[0], _cpt0e[1]), "CPT-test thread-local (activation-block exception)")
+    raise exc
 
 
 def _safe_restore(action: Callable[[], Any], description: str) -> None:
@@ -346,6 +360,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     # vs full-n screen), headroom for the gate-detection MI band.
     _DEFAULT_SCREEN_SUBSAMPLE_N = UNIFIED_FE_SUBSAMPLE_N
 
+    # Long by design: most of this signature is per-parameter rationale comments; the parameters stay here for sklearn introspection.
     def __init__(
         self,
         # quantization
@@ -3744,30 +3759,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             get_group_mi(),
         )
 
-        def _restore_toggles_snapshot_and_raise(exc: BaseException) -> NoReturn:
-            """Restore the MI-correction thread-locals to their fit-entry snapshot then re-raise ``exc``.
-
-            The validation checks below can fire AFTER some of these thread-locals have already been
-            activated but BEFORE the protective try/finally further down starts - without this, a raised
-            ValueError here would leave the corrupted thread-local state active for every subsequent,
-            unrelated fit on this thread.
-            """
-            _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e, _gmi0e = _toggles_snapshot
-            _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
-            _safe_restore(lambda: set_jmim_aggregator(_jmim0e), "JMIM aggregator thread-local (activation-block exception)")
-            _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")
-            _safe_restore(lambda: set_mi_miller_madow(_mm0e), "Miller-Madow thread-local (activation-block exception)")
-            _safe_restore(lambda: set_mi_chao_shen(_cs0e), "Chao-Shen thread-local (activation-block exception)")
-            # Currently dormant (relaxmrmr_alpha/pid_synergy_bonus/cmi_perm_stop/cpt_test are only
-            # activated further below, strictly after both call sites of this helper) - restored anyway
-            # so a future reordering that moves those activations earlier, or a new raise point added
-            # between them and the protective try/finally, cannot silently reintroduce the same
-            # thread-local-leak bug class this helper exists to prevent.
-            _safe_restore(lambda: set_relaxmrmr_alpha(_relax0e), "RelaxMRMR alpha thread-local (activation-block exception)")
-            _safe_restore(lambda: set_pid_synergy_bonus(_pid0e), "PID synergy-bonus thread-local (activation-block exception)")
-            _safe_restore(lambda: set_cmi_perm_stop(_cmi0e[0], _cmi0e[1], _cmi0e[2]), "CMI-perm-stop thread-local (activation-block exception)")
-            _safe_restore(lambda: set_cpt_test(_cpt0e[0], _cpt0e[1]), "CPT-test thread-local (activation-block exception)")
-            raise exc
+        _restore_toggles_snapshot_and_raise = partial(_restore_toggles_snapshot_and_raise_impl, _toggles_snapshot)
 
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):

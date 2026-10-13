@@ -30,6 +30,7 @@ from typing import Any, List, Mapping, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.core.set_similarity import jaccard as _jaccard_similarity
 
 logger = logging.getLogger(__name__)
@@ -298,7 +299,7 @@ def compare_selectors(
                 # Broad by design: this is a best-effort cross-selector comparison harness, so any selector that cannot fit (missing optional dep, GPU-only path on a
                 # CPU host, an input it rejects) must not abort the whole comparison. The failure is RECORDED in ``skipped`` with its type+message and surfaced to the
                 # caller - it is visible, not swallowed - so the broad catch is the correct policy for an exploratory comparison rather than a masked error.
-                logger.warning("selector %r fit failed: %s", name, exc)
+                log_throttle(logger, "compare_selectors.fit_failed", logging.WARNING, "selector %r fit failed: %s", name, exc)
                 skipped[name] = f"fit failed: {type(exc).__name__}: {exc}"
                 continue
         elif not already:
@@ -308,7 +309,7 @@ def compare_selectors(
         try:
             sel = extract_selected(selector, feature_names)
         except Exception as exc:
-            logger.warning("selector %r has no readable support: %s", name, exc)
+            log_throttle(logger, "compare_selectors.no_readable_support", logging.WARNING, "selector %r has no readable support: %s", name, exc)
             skipped[name] = f"no readable support: {exc}"
             continue
 

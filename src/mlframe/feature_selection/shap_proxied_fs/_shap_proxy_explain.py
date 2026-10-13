@@ -618,6 +618,13 @@ def _oof_split_iter(cv_policy: Any, X, y, n: int, n_splits: int, classification:
     return KFold(n_splits=n_splits, shuffle=True, random_state=int(rng.integers(0, 2**31 - 1))).split(X)
 
 
+def _prepare_oof_inputs(X: pd.DataFrame, y, rng: Optional[np.random.Generator]):
+    """``(X with a fresh 0..n-1 index, y as an array, rng or the fixed default seed-0 generator)`` for the out-of-fold SHAP stage."""
+    if rng is None:
+        rng = np.random.default_rng(0)
+    return X.reset_index(drop=True), np.asarray(y), rng
+
+
 def compute_shap_matrix(
     model_template,
     X: pd.DataFrame,
@@ -678,10 +685,7 @@ def compute_shap_matrix(
     array (the in-sample mean) so the consumer's contract stays uniform.
     """
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
-    if rng is None:
-        rng = np.random.default_rng(0)
-    X = X.reset_index(drop=True)
-    y = np.asarray(y)
+    X, y, rng = _prepare_oof_inputs(X, y, rng)
     st.n, f = X.shape
 
     # Content-addressable disk cache: keyed by (X summary, y summary, booster params, fold/model

@@ -33,6 +33,7 @@ from ._gpu_resident_fe import (
     _BINOP_CODE,
     _COMBOS,
     _COMBO_IDX_CACHE,
+    _GPU_RESIDENT_FE_CACHE_LOCK,
     _GPU_RESIDENT_MIN_N,
     _UNARY_IDX,
     _binary_apply,
@@ -400,7 +401,7 @@ def grand_fused_pair_mi(
         try:
             return grand_fused_pair_mi_fused(
                 a, b, y_codes, classes_y_safe, freqs_y, nbins=nbins, npermutations=npermutations,
-                min_nonzero_confidence=min_nonzero_confidence, use_su=use_su,
+                min_nonzero_confidence=min_nonzero_confidence, use_su=use_su, random_seed=random_seed,
             )
         except Exception as e:
             import logging
@@ -521,14 +522,15 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
     # Same fit-invariant index trio as _fused_generate_block (block is a slice of the module constant
     # _COMBOS); reuse the shared cache to drop the per-chunk-per-pair list-comps + tiny H2D.
     _ck = tuple(block)
-    _cc = _COMBO_IDX_CACHE.get(_ck)
-    if _cc is None:
-        ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in block], dtype=np.int32))
-        ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in block], dtype=np.int32))
-        bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in block], dtype=np.int32))
-        _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
-    else:
-        ua_idx, ub_idx, bop = _cc
+    with _GPU_RESIDENT_FE_CACHE_LOCK:
+        _cc = _COMBO_IDX_CACHE.get(_ck)
+        if _cc is None:
+            ua_idx = cp.asarray(np.asarray([_UNARY_IDX[ua] for ua, _, _ in block], dtype=np.int32))
+            ub_idx = cp.asarray(np.asarray([_UNARY_IDX[ub] for _, ub, _ in block], dtype=np.int32))
+            bop = cp.asarray(np.asarray([_BINOP_CODE[bp] for _, _, bp in block], dtype=np.int32))
+            _COMBO_IDX_CACHE[_ck] = (ua_idx, ub_idx, bop)
+        else:
+            ua_idx, ub_idx, bop = _cc
     col_off = cp.arange(K, dtype=cp.int64) * (int(nbins) * int(K_y))
     P1 = int(y_all_dev.shape[0])
     # OOB SCREEN (FIX2): the grand-fusion kernel (_gpu_resident_fe.py:744) uses the y code
@@ -563,6 +565,7 @@ def _grand_fusion_block_counts(ua_cm, ub_cm, block, edges_int, y_all_dev, nbins,
 def grand_fused_pair_mi_fused(
     a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, classes_y_safe: np.ndarray, freqs_y: np.ndarray, *,
     nbins: int = 20, npermutations: int = 25, min_nonzero_confidence: float = 0.0, use_su: bool = False,
+    random_seed: int = 0,
 ) -> tuple[list, np.ndarray]:
     """GRAND-FUSION (never materialise (n,K)): the fully-fused twin of :func:`grand_fused_pair_mi`.
 
@@ -596,7 +599,7 @@ def grand_fused_pair_mi_fused(
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
     nperm = int(npermutations) if npermutations and npermutations > 0 else 0
     if nperm > 0:
-        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(0), nperm)
+        shuf = _build_shuffle_matrix(np.asarray(classes_y_safe), np.uint64(random_seed), nperm)
         y_all_host = np.empty((nperm + 1, n), dtype=np.int64)
         y_all_host[0, :] = y_orig[0, :]
         y_all_host[1:, :] = shuf.astype(np.int64)

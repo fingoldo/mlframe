@@ -770,22 +770,7 @@ def get_pandas_view_of_polars_df(
     # Restore datetime64[ns] for any Arrow date / timestamp column the pandas
     # bridge demoted to string / object on this pyarrow version. ``errors="coerce"``
     # keeps malformed cells as NaT rather than blowing the bridge.
-    _coerced_temporal_cols = []
-    for name in _arrow_temporal_cols:
-        if not pd.api.types.is_datetime64_any_dtype(pandas_df[name]):
-            _pre_na = int(pandas_df[name].isna().sum())
-            pandas_df[name] = pd.to_datetime(pandas_df[name], errors="coerce")
-            _new_nat = int(pandas_df[name].isna().sum()) - _pre_na
-            if _new_nat > 0:
-                log_throttle(
-                    logger,
-                    "training_utils_temporal_col_coerced_nat",
-                    logging.WARNING,
-                    "get_pandas_view_of_polars_df: restoring temporal column %r coerced %d "
-                    "additional cell(s) to NaT (unparseable timestamps silently dropped).",
-                    name, _new_nat,
-                )
-            _coerced_temporal_cols.append(name)
+    _coerced_temporal_cols = _restore_datetime_columns(pandas_df, _arrow_temporal_cols)
     if _coerced_temporal_cols and logger.isEnabledFor(logging.DEBUG):
         logger.debug(
             "get_pandas_view_of_polars_df: restored %d Arrow date/timestamp " "column(s) to datetime64[ns] after pandas bridge demoted them: %s",
@@ -842,6 +827,27 @@ def get_pandas_view_of_polars_df(
             logger.debug("get_pandas_view_of_polars_df: single-entry memo population failed, skipping cache: %s", exc)
 
     return pandas_df
+
+
+def _restore_datetime_columns(pandas_df, names):
+    """Restore datetime64[ns] for Arrow date/timestamp columns the pandas bridge demoted; returns the coerced names."""
+    coerced = []
+    for name in names:
+        if not pd.api.types.is_datetime64_any_dtype(pandas_df[name]):
+            _pre_na = int(pandas_df[name].isna().sum())
+            pandas_df[name] = pd.to_datetime(pandas_df[name], errors="coerce")
+            _new_nat = int(pandas_df[name].isna().sum()) - _pre_na
+            if _new_nat > 0:
+                log_throttle(
+                    logger,
+                    "training_utils_temporal_col_coerced_nat",
+                    logging.WARNING,
+                    "get_pandas_view_of_polars_df: restoring temporal column %r coerced %d "
+                    "additional cell(s) to NaT (unparseable timestamps silently dropped).",
+                    name, _new_nat,
+                )
+            coerced.append(name)
+    return coerced
 
 
 def _warn_nested_dtype_once(nested_cols):

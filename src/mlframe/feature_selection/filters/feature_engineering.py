@@ -10,6 +10,7 @@ Public functions:
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Sequence
 
 import numpy as np
@@ -457,6 +458,7 @@ def _safe_pow(x, exponent):
 
 
 _REGISTRY_CACHE: "dict[tuple[str, str], dict]" = {}
+_REGISTRY_CACHE_LOCK = threading.Lock()
 
 
 def create_unary_transformations(preset: str = "minimal"):
@@ -465,9 +467,10 @@ def create_unary_transformations(preset: str = "minimal"):
     The registry is built once per preset and process, and every call returns a fresh dict over the SAME callables. Building it wraps new lambdas in ``njit`` each time, so a fresh registry
     meant fresh numba dispatchers whose first call on each argument type loads (or compiles) the kernel again: about 13 of those loads, 0.24 s, in every fit that used the usability pool."""
     key = ("unary", _resolve_preset(preset))
-    built = _REGISTRY_CACHE.get(key)
-    if built is None:
-        built = _REGISTRY_CACHE.setdefault(key, _build_unary_transformations(key[1]))
+    with _REGISTRY_CACHE_LOCK:
+        built = _REGISTRY_CACHE.get(key)
+        if built is None:
+            built = _REGISTRY_CACHE.setdefault(key, _build_unary_transformations(key[1]))
     return dict(built)
 
 
@@ -622,9 +625,10 @@ def create_binary_transformations(preset: str = "minimal"):
     """The ``{name: callable}`` binary-transform registry of the given preset (``minimal``/``medium``/``maximal``, monotone supersets); built once per preset and process, a fresh dict per call
     (see :func:`create_unary_transformations`)."""
     key = ("binary", _resolve_preset(preset))
-    built = _REGISTRY_CACHE.get(key)
-    if built is None:
-        built = _REGISTRY_CACHE.setdefault(key, _build_binary_transformations(key[1]))
+    with _REGISTRY_CACHE_LOCK:
+        built = _REGISTRY_CACHE.get(key)
+        if built is None:
+            built = _REGISTRY_CACHE.setdefault(key, _build_binary_transformations(key[1]))
     return dict(built)
 
 

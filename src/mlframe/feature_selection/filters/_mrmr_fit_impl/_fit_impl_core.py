@@ -115,6 +115,21 @@ in the sibling _helpers.py.
 
 from ._helpers import _mrmr_cache_bytes_total
 
+def _resolve_screen_shared_idx(self, data, target_indices):
+    """Resolve the fit's one shared FE row draw for the screen (None at small n, meaning full-n screening)."""
+    # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
+    # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
+    # SAME rows). None at small n -> full-n screen, unchanged.
+    try:
+        from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
+        _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), len(data))
+    except Exception as _sub_exc:
+        # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
+        log_throttle(logger, "mrmr_fit_shared_fe_subsample_failed", logging.WARNING, "mrmr: shared FE subsample resolution failed; screening at FULL n: %r", _sub_exc, exc_info=True)
+        _screen_shared_idx = None
+    return _screen_shared_idx
+
+
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
     # Lazy import: ``.mrmr`` re-imports this module at its module bottom for
@@ -607,16 +622,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     times_spent: defaultdict = defaultdict(float)
     while True:
         n_recommended_features = 0
-        # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
-        # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
-        # SAME rows). None at small n -> full-n screen, unchanged.
-        try:
-            from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
-            _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), len(data))
-        except Exception as _sub_exc:
-            # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
-            log_throttle(logger, "mrmr_fit_shared_fe_subsample_failed", logging.WARNING, "mrmr: shared FE subsample resolution failed; screening at FULL n: %r", _sub_exc, exc_info=True)
-            _screen_shared_idx = None
+        _screen_shared_idx = _resolve_screen_shared_idx(self, data, target_indices)
         (
             selected_vars,
             predictors,

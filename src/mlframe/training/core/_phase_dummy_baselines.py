@@ -40,6 +40,27 @@ def _resolve_spec_raw_target(matching_spec: dict, target_type, target_by_type: d
     return raw_target_col, raw_y_full
 
 
+def _slice_group_ids_to_splits(group_ids, filtered_train_idx, filtered_val_idx, test_idx):
+    """Slice ``group_ids`` to each split's indices; a split without indices or with no ids gets None."""
+    _gid_train = _gid_val = _gid_test = None
+    if group_ids is not None:
+        import numpy as _np_gid
+        try:
+            _gid_arr = _np_gid.asarray(group_ids)
+            if filtered_train_idx is not None:
+                _gid_train = _gid_arr[filtered_train_idx]
+            if filtered_val_idx is not None:
+                _gid_val = _gid_arr[filtered_val_idx]
+            if test_idx is not None:
+                _gid_test = _gid_arr[test_idx]
+        except (TypeError, IndexError) as _gid_err:
+            logger.warning(
+                "run_dummy_baselines: failed to slice group_ids to split indices " "(%s); LTR-popularity baseline will be skipped.",
+                _gid_err,
+            )
+    return _gid_train, _gid_val, _gid_test
+
+
 def run_dummy_baselines(
     *,
     target_type,
@@ -139,22 +160,7 @@ def run_dummy_baselines(
         # arrays passed below. Pre-fix group_ids was never received by this function so the
         # LTR-Popularity / per-group baselines hit extras["ltr_skip_reason"] = "group_ids
         # missing" and the LTR baseline table came back blank.
-        _gid_train = _gid_val = _gid_test = None
-        if group_ids is not None:
-            import numpy as _np_gid
-            try:
-                _gid_arr = _np_gid.asarray(group_ids)
-                if filtered_train_idx is not None:
-                    _gid_train = _gid_arr[filtered_train_idx]
-                if filtered_val_idx is not None:
-                    _gid_val = _gid_arr[filtered_val_idx]
-                if test_idx is not None:
-                    _gid_test = _gid_arr[test_idx]
-            except (TypeError, IndexError) as _gid_err:
-                logger.warning(
-                    "run_dummy_baselines: failed to slice group_ids to split indices " "(%s); LTR-popularity baseline will be skipped.",
-                    _gid_err,
-                )
+        _gid_train, _gid_val, _gid_test = _slice_group_ids_to_splits(group_ids, filtered_train_idx, filtered_val_idx, test_idx)
         with phase(f"dummy_baselines:{target_type!s}", target=cur_target_name):
             _db_report = compute_dummy_baselines(
                 target_type=str(target_type),

@@ -354,6 +354,17 @@ def _stamp_binary_decile_table(metrics: dict, targets: Any, probs: Any) -> None:
         logger.exception("binary_decile_table computation failed; continuing.")
 
 
+def _train_envelope_bounds(y_train_envelope_stats) -> tuple:
+    """Return ``(y_min, y_max, y_std)`` of the train envelope stats, or ``(None, None, None)`` when they are absent."""
+    if y_train_envelope_stats is None:
+        return None, None, None
+    return (
+        getattr(y_train_envelope_stats, "y_min", None),
+        getattr(y_train_envelope_stats, "y_max", None),
+        getattr(y_train_envelope_stats, "y_std", None),
+    )
+
+
 def report_model_perf(
     targets: np.ndarray | pd.Series,
     columns: Sequence[str],
@@ -565,11 +576,7 @@ def report_model_perf(
             # bound (k=10 sigma). Composite-target wrap pass attaches
             # its own y-scale stats; degenerate train targets pass
             # None and the reporter falls back to eval-derived bounds.
-            _ytmin = _ytmax = _ytstd = None
-            if y_train_envelope_stats is not None:
-                _ytmin = getattr(y_train_envelope_stats, "y_min", None)
-                _ytmax = getattr(y_train_envelope_stats, "y_max", None)
-                _ytstd = getattr(y_train_envelope_stats, "y_std", None)
+            _ytmin, _ytmax, _ytstd = _train_envelope_bounds(y_train_envelope_stats)
             _scatter_sample = getattr(reporting_config, "regression_scatter_sample_size", DEFAULT_PLOT_SAMPLE_SIZE)
             preds, probs = report_regression_model_perf(
                 **common_params, plot_outputs=plot_outputs, plot_dpi=plot_dpi,

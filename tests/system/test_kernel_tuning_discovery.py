@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import types
+from unittest.mock import patch
 
 import pytest
 
@@ -34,9 +35,8 @@ def package(tmp_path, monkeypatch):
     (pkg / "bench_poison.py").write_text('import os, sys\nos.environ["CUDA_VISIBLE_DEVICES"] = ""\nsys.modules["cupy"] = None\n', encoding="utf-8")
     (pkg / "mentions_only.py").write_text('"""Docs: a module registers with ``kernel_tuner(...)`` at import."""\n# kernel_tuner(x) is explained here\nVALUE = 1\n', encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
-    yield "ktcpkg"
-    for name in [m for m in sys.modules if m == "ktcpkg" or m.startswith("ktcpkg.")]:
-        del sys.modules[name]
+    with patch.dict(sys.modules):
+        yield "ktcpkg"
 
 
 def test_only_modules_that_call_kernel_tuner_are_selected(package):
@@ -72,10 +72,10 @@ def test_cupy_is_protected_in_a_fresh_process_too(package, tmp_path, monkeypatch
     (stub_dir / "cupy.py").write_text("IS_STUB = True" + chr(10), encoding="utf-8")
     (tmp_path / "ktcpkg" / "reg_poison.py").write_text('import sys\n\n\ndef kernel_tuner(**kw):\n    return kw\n\n\nSPEC = kernel_tuner(kernel_name="p")\nsys.modules["cupy"] = None\n', encoding="utf-8")
     monkeypatch.syspath_prepend(str(stub_dir))
-    monkeypatch.delitem(sys.modules, "cupy", raising=False)
-    _discovery.discover_specs(package)
-    assert getattr(sys.modules["cupy"], "IS_STUB", False) is True
-    sys.modules.pop("cupy", None)
+    with patch.dict(sys.modules):
+        sys.modules.pop("cupy", None)
+        _discovery.discover_specs(package)
+        assert getattr(sys.modules["cupy"], "IS_STUB", False) is True
 
 
 def test_a_cupy_that_was_blocked_before_discovery_stays_blocked(package, monkeypatch):

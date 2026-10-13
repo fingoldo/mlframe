@@ -112,6 +112,30 @@ def _skipped(st: Any, verbose: Any, message: str, *args: Any) -> tuple[Any, Any,
     return st.orig_data, st.orig_cols, st.orig_nbins, st.state
 
 
+def _warn_weighted_bandit_fallback(cfg, use_weights):
+    """Warn that a weighted fit leaves the bandit UCB1 permutation path for the fixed-budget one, which is the weighted-correct path."""
+    if use_weights and getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1":
+        logger.warning(
+            "cat-FE: perm_budget_strategy='bandit_ucb1' has no weighted bulk-shuffle kernel yet; "
+            "falling back to the fixed-budget permutation path (which IS correctly weighted) for this "
+            "weighted fit. Set perm_budget_strategy='fixed' explicitly to silence this message."
+        )
+
+
+def _drop_bootstrap_ci_unstable(cfg, st, pairs_a, pairs_b, verbose) -> tuple[Any, Any, Any, Any] | None:
+    """Drop survivors whose bootstrap lower-CI falls below the floor; returns the skipped result when none survive, else None."""
+    from mlframe.feature_selection.filters.cat_interactions import resolve_min_interaction_information
+    if st.bootstrap_ci_dict:
+        # Drop survivors whose lower-CI < floor (unstable signal)
+        floor_ci = resolve_min_interaction_information(cfg, st.n_samples)
+        kept_after_ci: list[Any] = []
+        _run_cat_interactio_drop_survivors_whose_lower(st.selected_idx, pairs_a, pairs_b, st.bootstrap_ci_dict, floor_ci, kept_after_ci, verbose)
+        st.selected_idx = np.asarray(kept_after_ci, dtype=st.selected_idx.dtype)
+        if len(st.selected_idx) == 0:
+            return _skipped(st, verbose, "cat-FE: 0 pairs survived bootstrap CI floor")
+    return None
+
+
 def run_cat_interaction_step(
     *,
     data: np.ndarray,
@@ -358,12 +382,7 @@ def run_cat_interaction_step(
     # permutation null (the one warning that existed was gated behind `verbose`, invisible at the library's
     # normal verbose=0). Auto-fall-back to the fixed path (which IS correctly weighted) whenever weighting
     # is active, rather than silently dropping the weighting.
-    if use_weights and getattr(cfg, "perm_budget_strategy", "fixed") == "bandit_ucb1":
-        logger.warning(
-            "cat-FE: perm_budget_strategy='bandit_ucb1' has no weighted bulk-shuffle kernel yet; "
-            "falling back to the fixed-budget permutation path (which IS correctly weighted) for this "
-            "weighted fit. Set perm_budget_strategy='fixed' explicitly to silence this message."
-        )
+    _warn_weighted_bandit_fallback(cfg, use_weights)
     # Bandit UCB1 budget allocation overrides the fixed path when cfg.perm_budget_strategy='bandit_ucb1' (and full_npermutations>0 AND not using full WY which has its own coordination).
     st.confidence_dict, st.selected_idx = _run_cat_interactio_bandit_ucb1_budget_allocation(cfg, st.use_full_wy, use_weights, data, pairs_a, pairs_b, st.selected_idx, st.ii_arr, nbins, classes_y, freqs_y, dtype, verbose, weights, marginal_mi_full)
     if len(st.selected_idx) == 0:
@@ -377,14 +396,9 @@ def run_cat_interaction_step(
         cfg=cfg, dtype=dtype, verbose=verbose,
         weights=weights if use_weights else None,
     )
-    if st.bootstrap_ci_dict:
-        # Drop survivors whose lower-CI < floor (unstable signal)
-        floor_ci = resolve_min_interaction_information(cfg, st.n_samples)
-        kept_after_ci: list[Any] = []
-        _run_cat_interactio_drop_survivors_whose_lower(st.selected_idx, pairs_a, pairs_b, st.bootstrap_ci_dict, floor_ci, kept_after_ci, verbose)
-        st.selected_idx = np.asarray(kept_after_ci, dtype=st.selected_idx.dtype)
-        if len(st.selected_idx) == 0:
-            return _skipped(st, verbose, "cat-FE: 0 pairs survived bootstrap CI floor")
+    _ci_skipped = _drop_bootstrap_ci_unstable(cfg, st, pairs_a, pairs_b, verbose)
+    if _ci_skipped is not None:
+        return _ci_skipped
 
     # ---- K-way greedy expansion (opt-in via max_kway_order > 2) ----
     # HYBRID seeding - first try only the top-K confirmed pairs, which is O(top_k * N) = ~6400 merge_vars at top_k=64, N=100. If that produces ZERO k-way results

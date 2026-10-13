@@ -26,7 +26,47 @@ import math
 import numpy as np
 from numba import njit
 
+from ._numba_utils import _entropy_from_counts_njit
+
 logger = logging.getLogger(__name__)
+
+
+def _encode_mdlp_target(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth):
+    """Encode the MDLP target into integer class labels (factorize for non-numeric, quantile pseudo-classes above the cap); returns the labels and the possibly capped depth."""
+    _y_arr = np.asarray(y).ravel()
+    if _y_arr.dtype.kind in ("O", "U", "S") or _y_arr.dtype.name in (
+        "category", "string", "object",
+    ):
+        try:
+            import pandas as _pd_iter50
+            _y_arr, _ = _pd_iter50.factorize(_y_arr, sort=True)
+        except Exception as e:
+            logger.warning("pandas factorize failed, falling back to numpy-only label encode: %s", e)
+            # Fallback: numpy-only label encode via unique.
+            _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
+    else:
+        # Continuous / high-cardinality numeric y (typically a regression target):
+        # quantile-discretize into a bounded number of pseudo-classes BEFORE the
+        # int64 truncation below, which would otherwise fabricate one spurious
+        # "class" per distinct truncated value (see ``max_y_classes`` docstring).
+        _y_finite = _y_arr[np.isfinite(_y_arr)] if _y_arr.dtype.kind == "f" else _y_arr
+        if _y_finite.size and int(np.unique(_y_finite).size) > int(max_y_classes):
+            _n_pseudo = int(max_y_classes) if fast_mode else max(2, min(int(max_y_classes), int(y_pseudo_classes)))
+            _q = np.linspace(0.0, 1.0, _n_pseudo + 1)[1:-1]
+            _y_edges = np.unique(np.quantile(_y_finite, _q))
+            _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
+            # This blunt depth cap now applies ONLY when ``fast_mode=True``.
+            # The DEFAULT path (``fast_mode=False``) replaces the depth heuristic with a
+            # per-split significance gate (``_mdlp_recurse_validated``) that decides, per
+            # COLUMN and per NODE, whether the extra x-resolution reflects real signal
+            # instead of applying one fixed ratio to every column regardless of its
+            # actual signal depth - measured to both reject pure-noise splits (matches
+            # the capped baseline, 1 bin) AND recover real signal the uniform cap
+            # truncates (real wellbore GR: 450.4 vs 491.1 RMSE; GR_diff_5: 576.0 vs
+            # 585.8 RMSE - see ``_mdlp_validated_split.py`` module docstring).
+            if fast_mode:
+                max_depth = min(int(max_depth), max(1, math.ceil(math.log2(int(max_y_classes)))))
+    return _y_arr, max_depth
 
 
 def mdlp_bin_edges(
@@ -156,39 +196,7 @@ def mdlp_bin_edges(
     # caller debugging was hard. MDLP only needs class-IDENTITY (label
     # equality at split-purity computation), so factorize is sufficient
     # and order-preserving for already-integer-encoded inputs.
-    _y_arr = np.asarray(y).ravel()
-    if _y_arr.dtype.kind in ("O", "U", "S") or _y_arr.dtype.name in (
-        "category", "string", "object",
-    ):
-        try:
-            import pandas as _pd_iter50
-            _y_arr, _ = _pd_iter50.factorize(_y_arr, sort=True)
-        except Exception as e:
-            logger.warning("pandas factorize failed, falling back to numpy-only label encode: %s", e)
-            # Fallback: numpy-only label encode via unique.
-            _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
-    else:
-        # Continuous / high-cardinality numeric y (typically a regression target):
-        # quantile-discretize into a bounded number of pseudo-classes BEFORE the
-        # int64 truncation below, which would otherwise fabricate one spurious
-        # "class" per distinct truncated value (see ``max_y_classes`` docstring).
-        _y_finite = _y_arr[np.isfinite(_y_arr)] if _y_arr.dtype.kind == "f" else _y_arr
-        if _y_finite.size and int(np.unique(_y_finite).size) > int(max_y_classes):
-            _n_pseudo = int(max_y_classes) if fast_mode else max(2, min(int(max_y_classes), int(y_pseudo_classes)))
-            _q = np.linspace(0.0, 1.0, _n_pseudo + 1)[1:-1]
-            _y_edges = np.unique(np.quantile(_y_finite, _q))
-            _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
-            # This blunt depth cap now applies ONLY when ``fast_mode=True``.
-            # The DEFAULT path (``fast_mode=False``) replaces the depth heuristic with a
-            # per-split significance gate (``_mdlp_recurse_validated``) that decides, per
-            # COLUMN and per NODE, whether the extra x-resolution reflects real signal
-            # instead of applying one fixed ratio to every column regardless of its
-            # actual signal depth - measured to both reject pure-noise splits (matches
-            # the capped baseline, 1 bin) AND recover real signal the uniform cap
-            # truncates (real wellbore GR: 450.4 vs 491.1 RMSE; GR_diff_5: 576.0 vs
-            # 585.8 RMSE - see ``_mdlp_validated_split.py`` module docstring).
-            if fast_mode:
-                max_depth = min(int(max_depth), max(1, math.ceil(math.log2(int(max_y_classes)))))
+    _y_arr, max_depth = _encode_mdlp_target(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth)
     if len(x) != len(_y_arr):
         raise ValueError(f"len(x)={len(x)} != len(y)={len(_y_arr)}")
     if scaled_min_split:
@@ -277,21 +285,6 @@ def _entropy_from_labels(y: np.ndarray) -> float:
 # =============================================================================
 # njit-accelerated hot loop (audit recommendation - 10-30x speedup target)
 # =============================================================================
-
-
-@njit(nogil=True, cache=True)
-def _entropy_from_counts_njit(counts: np.ndarray, n: int) -> float:
-    """Shannon entropy in nats from already-tabulated label counts."""
-    if n <= 0:
-        return 0.0
-    h = 0.0
-    n_f = float(n)
-    for k in range(counts.shape[0]):
-        c = counts[k]
-        if c > 0:
-            p = c / n_f
-            h -= p * math.log(p)
-    return h
 
 
 @njit(nogil=True, cache=True)
