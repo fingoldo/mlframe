@@ -245,7 +245,11 @@ def residual_rescue(
     rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
     yr = _winsorised(np.asarray(y, dtype=np.float64).ravel()[rows])
     even = np.arange(len(rows)) % 2 == 0
-    total = float(np.mean((yr[~even] - yr[~even].mean()) ** 2)) or 1.0  # odd-row variance of the target: gains are relative to it, not to the shrinking residual
+    # Odd-row variance of the target: gains are relative to it, not to the shrinking residual. A zero variance (constant target) is a real value
+    # that would divide by zero, so it is replaced explicitly by 1.0 here rather than through a truthiness default that would also swallow a genuine 0.0.
+    total = float(np.mean((yr[~even] - yr[~even].mean()) ** 2))
+    if total == 0.0:
+        total = 1.0
     n_main = main_effect_bins((len(rows) + 1) // 2)
     _, dcodes = _code_columns(design, rows, n_main)
     design_codes = list(dcodes)

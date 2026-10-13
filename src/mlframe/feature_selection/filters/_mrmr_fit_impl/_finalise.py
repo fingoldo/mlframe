@@ -554,13 +554,14 @@ def _finalise_fs_results(
                         data, (int(_cidx),), _classes_y_arr_f, np.asarray(nbins), _g_n_bins_y_f,
                         _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
                     )
-                    _is_leak_f = _grp_obs_f == 0.0 or (
-                        _grp_obs_f == _grp_obs_f
-                        and _group_leak_verdict_final(
+                    _is_leak_f = False
+                    if _grp_obs_f == 0.0:
+                        _is_leak_f = True
+                    elif _grp_obs_f == _grp_obs_f:  # NaN is neither a leak nor a verdict, so the recipe is kept
+                        _is_leak_f = _group_leak_verdict_final(
                             np.asarray(data[:, int(_cidx)]), _classes_y_arr_f, _gsi_f, _goff_f,
                             int(np.asarray(data[:, int(_cidx)]).max()) + 1, _g_n_bins_y_f, min_rows=_gmr_f, size_weighted=_gsw_f,
                         )[1]
-                    )
                 else:
                     # Retention-only recipe (usability-aware retention re-attaches it from its OWN
                     # recompute, bypassing ``cols``/``data`` entirely - see the comment above). Replay
@@ -581,13 +582,14 @@ def _finalise_fs_results(
                             _codes_mat_f, (0,), _classes_y_arr_f, _nbins_mat_f, _g_n_bins_y_f,
                             _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
                         )
-                        _is_leak_f = _grp_obs_f == 0.0 or (
-                            _grp_obs_f == _grp_obs_f
-                            and _group_leak_verdict_final(
+                        _is_leak_f = False
+                        if _grp_obs_f == 0.0:
+                            _is_leak_f = True
+                        elif _grp_obs_f == _grp_obs_f:  # NaN is neither a leak nor a verdict, so the recipe is kept
+                            _is_leak_f = _group_leak_verdict_final(
                                 _codes_f, _classes_y_arr_f, _gsi_f, _goff_f,
                                 int(_nbins_mat_f[0]), _g_n_bins_y_f, min_rows=_gmr_f, size_weighted=_gsw_f,
                             )[1]
-                        )
                     except Exception as e:
                         logger.debug("_fit: within-group MI replay/discretise failed for recipe %r, leaving it alone: %s", _rname, e)
                         continue  # can't replay/discretise - leave this recipe alone (conservative)
