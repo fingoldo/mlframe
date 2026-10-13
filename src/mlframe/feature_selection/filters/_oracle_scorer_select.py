@@ -140,7 +140,7 @@ def _quality_objective(output: Any, elapsed_s: float, rss_delta_mb):
         # numeric-error conventions elsewhere - a malformed bake-off output (e.g. a future refactor
         # changing the closure's return shape) silently persisted quality=NaN into the on-disk Param-Oracle
         # store with zero diagnostic trace.
-        logger.debug("_quality_objective: could not unpack (scorer_name, quality) from output=%r: %r", output, exc)
+        logger.warning("_quality_objective: could not unpack (scorer_name, quality) from output=%r: %r", output, exc)
         q = float("nan")
     return {"quality": float(q), "elapsed_s": float(elapsed_s)}
 

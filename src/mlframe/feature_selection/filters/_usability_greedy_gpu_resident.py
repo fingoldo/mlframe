@@ -376,7 +376,7 @@ def _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, 
                     try:
                         beta = cp.linalg.solve(G, rhs)
                     except Exception as e:
-                        logger.debug("cp.linalg.solve failed (likely a singular Gram matrix), stopping the greedy: %s", e)
+                        logger.warning("cp.linalg.solve failed (likely a singular Gram matrix), stopping the greedy: %s", e)
                         singular = True
                         break
                     pred = ybar + Sc_va @ beta[:k] + cc_va * beta[k]

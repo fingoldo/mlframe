@@ -537,7 +537,7 @@ def find_best_partial_gain(
         except Exception as exc:
             # Log so a genuine import-time bug is not
             # indistinguishable from "DCD not configured".
-            logger.debug("mrmr: importing should_be_pruned failed; DCD pruning disabled for this call: %r", exc, exc_info=True)
+            logger.warning("mrmr: importing should_be_pruned failed; DCD pruning disabled for this call: %r", exc, exc_info=True)
             _should_be_pruned = None
     best_partial_gain = -LARGE_CONST
     best_key = None

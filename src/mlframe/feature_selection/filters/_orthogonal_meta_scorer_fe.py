@@ -212,7 +212,7 @@ def fingerprint_signal(
                     # Was a bare `except Exception`, broader
                     # than this module's own declared _NUMERIC_ERRORS convention (and the module docstring's
                     # explicit invariant that a genuine programming error must propagate); unlogged.
-                    logger.debug("meta_scorer pearson corr failed for column %r: %r", c, exc)
+                    logger.warning("meta_scorer pearson corr failed for column %r: %r", c, exc)
                     r = float("nan")
                 if np.isfinite(r):
                     pears.append(abs(r))
@@ -284,7 +284,7 @@ def fingerprint_signal(
                 except _NUMERIC_ERRORS as exc:
                     # See the mean_abs_pearson site's matching
                     # fix above for the full rationale.
-                    logger.debug("meta_scorer spearman corr failed for column %r: %r", c, exc)
+                    logger.warning("meta_scorer spearman corr failed for column %r: %r", c, exc)
                     r_sp = float("nan")
                 try:
                     centered = (col_vals - float(col_vals.mean())).abs()

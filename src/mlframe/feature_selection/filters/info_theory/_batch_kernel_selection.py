@@ -63,7 +63,7 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
     except Exception as exc:
         # a genuine kernel-selection bug silently degrades
         # every fit to the hardcoded v2 default with no diagnostic trail.
-        logger.debug("mrmr: batch-MI kernel selection failed; defaulting to v2: %r", exc, exc_info=True)
+        logger.warning("mrmr: batch-MI kernel selection failed; defaulting to v2: %r", exc, exc_info=True)
         choice = "v2"
     return cast(Callable, batch_mi_with_noise_gate if choice == "v1" else batch_mi_with_noise_gate_v2)
 

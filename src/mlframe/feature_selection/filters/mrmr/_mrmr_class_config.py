@@ -469,7 +469,7 @@ class _MRMRConfigMixin:
                 _fresh = cls()
                 result: Optional[dict] = dict(_fresh.__dict__)
             except Exception as exc:
-                logger.debug("mrmr: fresh-instance ctor-default cache-population failed; setstate will use raw ctor defaults: %r", exc, exc_info=True)
+                logger.warning("mrmr: fresh-instance ctor-default cache-population failed; setstate will use raw ctor defaults: %r", exc, exc_info=True)
                 result = None
             _FRESH_INSTANCE_DEFAULTS_CACHE[cls] = result
             return result
