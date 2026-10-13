@@ -711,3 +711,127 @@ def plugin_mi_classif_batch_edge_njit(X_cols: np.ndarray, y: np.ndarray, n_bins:
     for j in prange(k):
         out[j] = _plugin_mi_classif_edge_njit(np.ascontiguousarray(X_cols[:, j]), y, n_bins)
     return out
+
+
+@njit(cache=True, fastmath=True)
+def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
+    """Plug-in MI estimator for continuous x (1-D float64) and discrete y (1-D int64). Returns MI in nats.
+    ~50x faster than sklearn for n<=10k, single-thread."""
+    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
+    # this sibling at its bottom, so a top-level ``from .hermite_fe
+    # import ...`` would create a hard cycle the meta-test flags.
+    n = x.shape[0]
+    if n == 0:
+        return 0.0  # empty column (fully-filtered subsample / empty finite mask): y[0] below would OOB-crash
+    # Class axis spans [y_min, y_max]; labels may be negative / non-dense (a binned continuous target shifted below 0).
+    # Sizing on max(y)+1 alone and indexing with the raw label underflows the histogram into out-of-bounds memory -> native AV.
+    y_min = y[0]
+    y_max = y[0]
+    for i in range(1, n):
+        if y[i] < y_min:
+            y_min = y[i]
+        if y[i] > y_max:
+            y_max = y[i]
+    n_classes = (y_max - y_min) + 1
+
+    x_binned = _quantile_bin_njit(x, n_bins)
+
+    hist_xy = np.zeros((n_bins, n_classes), dtype=np.int64)
+    hist_x = np.zeros(n_bins, dtype=np.int64)
+    hist_y = np.zeros(n_classes, dtype=np.int64)
+    for i in range(n):
+        b = x_binned[i]
+        c = y[i] - y_min
+        hist_xy[b, c] += 1
+        hist_x[b] += 1
+        hist_y[c] += 1
+
+    log_n = math.log(n)
+    mi = 0.0
+    for b in range(n_bins):
+        if hist_x[b] == 0:
+            continue
+        log_hx = math.log(hist_x[b])
+        for c in range(n_classes):
+            n_xy = hist_xy[b, c]
+            if n_xy == 0 or hist_y[c] == 0:
+                continue
+            mi += (n_xy / n) * (math.log(n_xy) + log_n - log_hx - math.log(hist_y[c]))
+    if mi < 0.0:
+        mi = 0.0
+    return mi
+
+@njit(cache=True, fastmath=True)
+def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
+    """Plug-in MI for continuous x (1-D) and continuous y (1-D). Bin both into n_bins equi-frequency bins, then plug-in estimator."""
+    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
+    # this sibling at its bottom, so a top-level ``from .hermite_fe
+    # import ...`` would create a hard cycle the meta-test flags.
+    n = x.shape[0]
+    if n == 0:
+        return 0.0  # empty column: log(n) and the binning below are undefined on n=0
+    x_binned = _quantile_bin_njit(x, n_bins)
+    y_binned = _quantile_bin_njit(y, n_bins)
+
+    hist_xy = np.zeros((n_bins, n_bins), dtype=np.int64)
+    hist_x = np.zeros(n_bins, dtype=np.int64)
+    hist_y = np.zeros(n_bins, dtype=np.int64)
+    for i in range(n):
+        bx = x_binned[i]
+        by = y_binned[i]
+        hist_xy[bx, by] += 1
+        hist_x[bx] += 1
+        hist_y[by] += 1
+
+    log_n = math.log(n)
+    mi = 0.0
+    for bx in range(n_bins):
+        if hist_x[bx] == 0:
+            continue
+        log_hx = math.log(hist_x[bx])
+        for by in range(n_bins):
+            n_xy = hist_xy[bx, by]
+            if n_xy == 0 or hist_y[by] == 0:
+                continue
+            mi += (n_xy / n) * (math.log(n_xy) + log_n - log_hx - math.log(hist_y[by]))
+    if mi < 0.0:
+        mi = 0.0
+    return mi
+
+
+@njit(cache=True, fastmath=True)
+def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
+    """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
+
+    bench-attempt-rejected: kth-order-statistic edges via numba np.partition + searchsorted (the CPU analogue
+    of the GPU radix-edge binner) measured 2.6x SLOWER than this argsort form (99401: 17.8ms vs 46.5ms) -
+    numba's np.partition re-copies the array per edge, and no multi-kth variant exists. argsort stays optimal
+    (third measured rejection at this site; see also the two in _plugin_mi_classif_batch_njit).
+
+    ``kind="mergesort"`` (2026-07-16, cProfile/cross-backend-parity investigation): numba's default argsort
+    (quicksort family) is NOT stable, so on tie-heavy columns (e.g. an integer combiner with many exact
+    duplicate values) its tie order is an unspecified implementation detail - and it does NOT match cupy's
+    ``cp.argsort`` (verified stable, matches ``np.argsort(..., kind="stable")`` bit-for-bit). Every GPU rank-
+    binning path in this codebase (``_gpu_resident_rank_bin.rank_bin_codes_batch_gpu_resident`` et al.) is
+    documented as "byte-identical to this CPU njit rank binner" - a contract that silently broke on tied
+    data (found via test_sf2_combiner_baseline_and_residue_mi_byte_identical: ~6%% MI divergence on a
+    -999..999 integer combiner, n=50000, traced to exactly this tie-order mismatch). Mergesort is numba's
+    stable-sort kind (verified bit-identical to ``np.argsort(kind="stable")``, which cupy's argsort already
+    matches), so this is the ROOT fix, not a narrower patch on one caller - every GPU-vs-CPU rank-binning
+    byte-identity claim in the codebase now actually holds instead of only holding on tie-free data.
+    Measured cost: 0.93x-1.22x vs the old (arbitrary-tie-order) quicksort default across n in
+    {5k,20k,99k,500k} on continuous AND tie-heavy synthetic columns - within noise to a modest ~20%% on this
+    one sort step, accepted for a correctness fix (this function was never a documented-arbitrary-tie-order
+    contract; nothing should have depended on quicksort's specific, unspecified tie behaviour)."""
+    n = x.shape[0]
+    sort_idx = np.argsort(x, kind="mergesort")
+    out = np.empty(n, dtype=np.int32)
+    pos = 0
+    base = n // n_bins
+    rem = n % n_bins
+    for b in range(n_bins):
+        size = base + (1 if b < rem else 0)
+        for _ in range(size):
+            out[sort_idx[pos]] = b
+            pos += 1
+    return out

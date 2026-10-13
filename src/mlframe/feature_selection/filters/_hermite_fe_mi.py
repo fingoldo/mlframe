@@ -27,112 +27,10 @@ except ImportError:
         """No-numba fallback: plain ``range``."""
         return range(n)
 
-# Parent-resident numba kernel the @njit'd functions below reference by bare name (numba's ``@njit`` does
-# not compile ``IMPORT_NAME`` bytecode, so it must be a module global before the first kernel call). The
-# ``hermite_fe -> _hermite_fe_mi -> hermite_fe`` cycle is benign parent-first (the parent binds
-# ``_quantile_bin_njit`` at line 77 before re-importing this sibling at its bottom), but importing THIS
-# sibling first would fault on the partially-initialised parent. Bind defensively/lazily: the parent calls
-# ``_bind_parent_kernels()`` at its module bottom and every public dispatcher calls it before invoking a
-# kernel, so the global is always bound before first use regardless of import order.
-try:
-    from mlframe.feature_selection.filters.hermite_fe.shared import quantile_bin_njit as _quantile_bin_njit
-except ImportError:
-    _quantile_bin_njit = None  # bound by _bind_parent_kernels() before the first kernel call
-
-def _bind_parent_kernels() -> None:
-    """Bind the parent-resident ``_quantile_bin_njit`` global if a sibling-first import deferred it."""
-    global _quantile_bin_njit
-    if _quantile_bin_njit is None:
-        from mlframe.feature_selection.filters.hermite_fe.shared import quantile_bin_njit as _qb
-
-        _quantile_bin_njit = _qb
+# The plug-in MI kernels moved to _numba_utils (cross-module @njit invariant); re-imported here for the in-file dispatchers.
+from ._numba_utils import _plugin_mi_classif_njit, _plugin_mi_regression_njit  # noqa: F401 -- used by plugin_mi_classif_dispatch and re-exported
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
-
-@njit(cache=True, fastmath=True)
-def _plugin_mi_classif_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
-    """Plug-in MI estimator for continuous x (1-D float64) and discrete y (1-D int64). Returns MI in nats.
-    ~50x faster than sklearn for n<=10k, single-thread."""
-    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
-    # this sibling at its bottom, so a top-level ``from .hermite_fe
-    # import ...`` would create a hard cycle the meta-test flags.
-    n = x.shape[0]
-    if n == 0:
-        return 0.0  # empty column (fully-filtered subsample / empty finite mask): y[0] below would OOB-crash
-    # Class axis spans [y_min, y_max]; labels may be negative / non-dense (a binned continuous target shifted below 0).
-    # Sizing on max(y)+1 alone and indexing with the raw label underflows the histogram into out-of-bounds memory -> native AV.
-    y_min = y[0]
-    y_max = y[0]
-    for i in range(1, n):
-        if y[i] < y_min:
-            y_min = y[i]
-        if y[i] > y_max:
-            y_max = y[i]
-    n_classes = (y_max - y_min) + 1
-
-    x_binned = _quantile_bin_njit(x, n_bins)
-
-    hist_xy = np.zeros((n_bins, n_classes), dtype=np.int64)
-    hist_x = np.zeros(n_bins, dtype=np.int64)
-    hist_y = np.zeros(n_classes, dtype=np.int64)
-    for i in range(n):
-        b = x_binned[i]
-        c = y[i] - y_min
-        hist_xy[b, c] += 1
-        hist_x[b] += 1
-        hist_y[c] += 1
-
-    log_n = math.log(n)
-    mi = 0.0
-    for b in range(n_bins):
-        if hist_x[b] == 0:
-            continue
-        log_hx = math.log(hist_x[b])
-        for c in range(n_classes):
-            n_xy = hist_xy[b, c]
-            if n_xy == 0 or hist_y[c] == 0:
-                continue
-            mi += (n_xy / n) * (math.log(n_xy) + log_n - log_hx - math.log(hist_y[c]))
-    if mi < 0.0:
-        mi = 0.0
-    return mi
-
-@njit(cache=True, fastmath=True)
-def _plugin_mi_regression_njit(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
-    """Plug-in MI for continuous x (1-D) and continuous y (1-D). Bin both into n_bins equi-frequency bins, then plug-in estimator."""
-    # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
-    # this sibling at its bottom, so a top-level ``from .hermite_fe
-    # import ...`` would create a hard cycle the meta-test flags.
-    n = x.shape[0]
-    if n == 0:
-        return 0.0  # empty column: log(n) and the binning below are undefined on n=0
-    x_binned = _quantile_bin_njit(x, n_bins)
-    y_binned = _quantile_bin_njit(y, n_bins)
-
-    hist_xy = np.zeros((n_bins, n_bins), dtype=np.int64)
-    hist_x = np.zeros(n_bins, dtype=np.int64)
-    hist_y = np.zeros(n_bins, dtype=np.int64)
-    for i in range(n):
-        bx = x_binned[i]
-        by = y_binned[i]
-        hist_xy[bx, by] += 1
-        hist_x[bx] += 1
-        hist_y[by] += 1
-
-    log_n = math.log(n)
-    mi = 0.0
-    for bx in range(n_bins):
-        if hist_x[bx] == 0:
-            continue
-        log_hx = math.log(hist_x[bx])
-        for by in range(n_bins):
-            n_xy = hist_xy[bx, by]
-            if n_xy == 0 or hist_y[by] == 0:
-                continue
-            mi += (n_xy / n) * (math.log(n_xy) + log_n - log_hx - math.log(hist_y[by]))
-    if mi < 0.0:
-        mi = 0.0
-    return mi
 
 @njit(cache=True, fastmath=True)
 def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray, n_bins: int) -> float:
@@ -446,7 +344,6 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     does happen for a DIFFERENT kernel (``polyeval``'s CPU/CUDA crossover, in ``_hermite_oracle.py``) -
     not here. Override via ``MLFRAME_MI_BACKEND`` env var (``njit`` | ``cuda``) to force a specific backend.
     """
-    _bind_parent_kernels()  # ensure the parent-resident njit global is bound (sibling-first import safety)
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
@@ -476,7 +373,6 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     GROUND-TRUTH OVERRIDE returning the njit (prange CPU) backend, per real end-to-end measurements.
     Override via ``MLFRAME_MI_BACKEND`` env var.
     """
-    _bind_parent_kernels()  # ensure the parent-resident njit global is bound (sibling-first import safety)
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.

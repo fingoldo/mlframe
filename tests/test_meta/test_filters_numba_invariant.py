@@ -34,10 +34,6 @@ _KNOWN_VIOLATIONS = frozenset(
             "_mdlp_validated_split.py imports @njit symbol(s) ['_entropy_from_counts_njit', '_mdlp_best_split_njit'] from sibling supervised_binning.py"
             " (should live in _numba_utils.py)"
         ),
-        (
-            "_numba_polynom_optimizer.py imports @njit symbol(s) ['_plugin_mi_classif_njit', '_plugin_mi_regression_njit'] from sibling _hermite_fe_mi.py"
-            " (should live in _numba_utils.py)"
-        ),
         "fleuret.py imports @njit symbol(s) ['evaluate_gain'] from sibling evaluation.py (should live in _numba_utils.py)",
     }
 )
