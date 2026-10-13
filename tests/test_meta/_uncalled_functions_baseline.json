@@ -1,13 +1,5 @@
 {
   "entries": {
-    "src/mlframe/calibration/prediction_band_correction.py::assess_prediction_band_stability": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/calibration/sticky_state_persistence_floor.py::optimize_persistence_floor_per_class": {
-      "count": 1,
-      "note": ""
-    },
     "src/mlframe/core/arrays.py::arrayCountingArgSort": {
       "count": 1,
       "note": ""

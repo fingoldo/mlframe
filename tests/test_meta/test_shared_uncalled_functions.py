@@ -153,6 +153,7 @@ _REEXPORTED_PUBLIC_API = {
 _OFFLINE_GENERATORS = {
     "generate_probs_from_outcomes", "generate_similar_probs", "generate_similar_probs_by_ranking",
     "generate_similar_probs_logit_space", "generate_similar_probs_random_walk",
+    "assess_prediction_band_stability", "optimize_persistence_floor_per_class",  # benchmark-only calibration helpers
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
