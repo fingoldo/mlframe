@@ -31,10 +31,6 @@ _KNOWN_VIOLATIONS = frozenset(
     {
         "_confirm_predictor.py imports @njit symbol(s) ['get_fleuret_criteria_confidence'] from sibling fleuret.py (should live in _numba_utils.py)",
         (
-            "_fe_cpu_batch.py imports @njit symbol(s) ['_plugin_mi_classif_edge_njit', 'plugin_mi_classif_batch_edge_njit'] from sibling _fe_edge_mi.py"
-            " (should live in _numba_utils.py)"
-        ),
-        (
             "_mdlp_validated_split.py imports @njit symbol(s) ['_entropy_from_counts_njit', '_mdlp_best_split_njit'] from sibling supervised_binning.py"
             " (should live in _numba_utils.py)"
         ),
