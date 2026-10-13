@@ -406,7 +406,8 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
             from mlframe.feature_selection.filters._mrmr_fit_impl._friend_graph_and_redundancy._raw_protect_r2 import heldout_r2_scorer
 
             _rp_r2 = heldout_r2_scorer(_rp_base, _rp_y, _rp_tr, _rp_va)
-            del _rp_base  # the scorer holds only the train/validation blocks
+            _rp_base_cur = list(_rp_base)  # grows with each accepted re-add so later candidates are judged against it
+            del _rp_base
 
             if int(_rp_tr.sum()) >= 32 and int(_rp_va.sum()) >= 16:
                 _rp_r2_base = _rp_r2(None)
@@ -442,6 +443,9 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                         continue
                     _readd_raw.append(_ridx)
                     _sv_set_r.add(_ridx)
+                    _rp_base_cur.append(_rv)
+                    _rp_r2 = heldout_r2_scorer(_rp_base_cur, _rp_y, _rp_tr, _rp_va)
+                    _rp_r2_base = _rp_r2(None)
                 if _readd_raw:
                     selected_vars = list(selected_vars) + _readd_raw
                     if verbose:
