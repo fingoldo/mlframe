@@ -107,7 +107,7 @@ class MRMRParams(BaseModel):
     n_workers: int = 1
     min_occupancy: int | None = None
     min_nonzero_confidence: float = 0.99
-    full_npermutations: int = 3
+    full_npermutations: int = 99
     baseline_npermutations: int = 2
     fe_confirm_undersample_rows_per_cell: float = 5.0
     fe_auto_prevalence_debias_chunk_size: int = 50000

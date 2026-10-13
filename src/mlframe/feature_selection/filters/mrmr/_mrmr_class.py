@@ -513,7 +513,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # confidence
         min_occupancy: int | None = None,
         min_nonzero_confidence: float = 0.99,
-        full_npermutations: int = 3,
+        full_npermutations: int = 99,
         baseline_npermutations: int = 2,
         # sample-size-aware Fleuret confirmation. With the
         # default ``use_simple_mode=False`` (full Fleuret conditional-MI
