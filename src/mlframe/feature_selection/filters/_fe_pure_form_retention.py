@@ -473,7 +473,7 @@ def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_co
                     from mlframe.feature_selection.filters._usability_gpu import gpu_additive_basis_residual
                     resid = gpu_additive_basis_residual(fv, xa, xb)
                 except Exception as e:
-                    logger.debug("gpu_additive_basis_residual failed, falling back to the host residual: %s", e)
+                    logger.warning("gpu_additive_basis_residual failed, falling back to the host residual: %s", e)
                     resid = None
             if resid is None:
                 _pair_key = frozenset((nm_a, nm_b))
@@ -623,7 +623,7 @@ def _retain_usable_pure_exact_per_candidate_cpu(is_clf, pool, base_names, _scrub
                     if _verdicts is not None and len(_verdicts) == len(_pair_cands):
                         _resid_verdicts = {id(c): bool(v) for c, v in zip(_pair_cands, _verdicts)}
             except Exception as e:
-                logger.debug("resident-batch verdict computation failed, falling back to the per-candidate CPU path: %s", e)
+                logger.warning("resident-batch verdict computation failed, falling back to the per-candidate CPU path: %s", e)
                 _resid_verdicts = None  # any failure -> exact per-candidate CPU path below
     return _resid_verdicts
 

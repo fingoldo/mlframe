@@ -183,7 +183,7 @@ def retention_form_is_subsumed(
                 from ._mi_greedy_cmi_fe import _cmi_gpu_enabled
                 _resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(cand.shape[0]), p=1 + len(inc)))
             except Exception as e:
-                logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
+                logger.warning("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
                 _resident = False
         cand_dev = None
         z_support_dev = None
@@ -205,7 +205,7 @@ def retention_form_is_subsumed(
                 else:
                     cand_dev = None
             except Exception as e:
-                logger.debug("resident candidate/support upload failed, falling back to the host path: %s", e)
+                logger.warning("resident candidate/support upload failed, falling back to the host path: %s", e)
                 cand_dev = None
                 z_support_dev = None
         cand_bin = None
