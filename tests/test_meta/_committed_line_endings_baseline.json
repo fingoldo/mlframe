@@ -56,10 +56,6 @@
       "count": 1,
       "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
     },
-    "committed-crlf::src/mlframe/core/ewma.py": {
-      "count": 1,
-      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
-    },
     "committed-crlf::src/mlframe/core/stats.py": {
       "count": 1,
       "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
@@ -336,10 +332,6 @@
       "count": 1,
       "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
     },
-    "committed-crlf::tests/training/composite/perf/test_discovery_memory_budgets.py": {
-      "count": 1,
-      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
-    },
     "committed-crlf::tests/training/composite/screening/test_tiny_cv_refits_transform_per_fold.py": {
       "count": 1,
       "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
@@ -409,10 +401,6 @@
       "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
     },
     "committed-crlf::tests/training/test_cb_ordinal_autoflip.py": {
-      "count": 1,
-      "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
-    },
-    "committed-crlf::tests/training/test_cb_polars_fallback.py": {
       "count": 1,
       "note": "blob committed with CRLF before the gate existed; convert to LF when the file is next edited"
     },
