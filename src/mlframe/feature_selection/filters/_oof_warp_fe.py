@@ -25,6 +25,7 @@ from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes
 from ._fe_usability_signal import _crit_np_dtype
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
+from ._multiclass_ovr import ovr_indicators, validate_multiclass_mode
 from ._oof_warp_service import apply_warp1d, fit_oof_warp1d
 from ._y_encoding import FEW_CLASSES_MAX
 if TYPE_CHECKING:
@@ -62,13 +63,16 @@ def apply_oof_warp1d_recipe(recipe: EngineeredRecipe, X: pd.DataFrame | pl.DataF
     x = np.asarray(extract_column(X, recipe.src_names[0]), dtype=_crit_np_dtype())
     return np.asarray(np.clip(apply_warp1d(x, ex["cx"], ex["cy"], ex["fill"]), ex["lo"], ex["hi"]))
 
-def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0) -> "list[dict]":
+def warp_candidates(
+    X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0, multiclass: str = "rank"
+) -> "list[dict]":
     """Fit the warp of each numeric column of ``cols`` and score it against the raw column on the odd rows of the scan sample.
 
-    Returns one dict per usable column: ``col``, ``x`` (the full column), ``fit`` (the service result on the scan rows), ``rows`` (the scan index), ``mi_raw``, ``mi_warp``, ``gain``, ``se``, ``bulk_gain``, ``bulk_se`` (the same gain and its standard error on the central rows only).
+    Returns one dict per usable column: ``col``, ``x`` (the full column), ``fit`` (the service result on the scan rows), ``rows`` (the scan index), ``mi_raw``, ``mi_warp``, ``gain``, ``se``, ``bulk_gain``, ``bulk_se`` (the same gain and its standard error on the central rows only), ``cls`` (``None`` for the rank-scaled warp; the class of the 0/1 indicator with ``multiclass="ovr"``).
     Columns that are constant, nominal-like (at most ``FEW_CLASSES_MAX`` distinct values) or too short are skipped."""
     from ._y_encoding import encode_y_for_classif_mi
 
+    validate_multiclass_mode(multiclass)
     n = len(X)
     if n < _MIN_ROWS:
         return []
@@ -76,9 +80,9 @@ def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, sc
     rows = _scan_index(n, scan_rows)
     codes = np.asarray(encode_y_for_classif_mi(y_arr[rows]), dtype=np.int64)
     ky = int(codes.max()) + 1
-    yr = _rank_scaled(y_arr[rows])
     even = np.arange(len(rows)) % 2 == 0
     y_odd = codes[~even]
+    targets: list[tuple[Optional[int], np.ndarray]] = list(ovr_indicators(codes, ky) if multiclass == "ovr" else []) or [(None, _rank_scaled(y_arr[rows]))]
     out = []
     for c in cols:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())
@@ -86,24 +90,26 @@ def warp_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, sc
         finite = np.isfinite(xr)
         if finite.sum() < _MIN_ROWS or np.unique(xr[finite]).size <= FEW_CLASSES_MAX:
             continue
-        fit = fit_oof_warp1d(xr, yr, seed=seed)
-        cw = held_out_codes(fit["oof"], even, ~even, N_MI_BINS)
         cr = held_out_codes(np.where(finite, xr, np.min(xr[finite])), even, ~even, N_MI_BINS)
-        mi_w, mi_r = plugin_mi_of_codes(cw, N_MI_BINS, y_odd, ky), plugin_mi_of_codes(cr, N_MI_BINS, y_odd, ky)
+        mi_r = plugin_mi_of_codes(cr, N_MI_BINS, y_odd, ky)
         x_odd = xr[~even]
         lo, hi = np.quantile(xr[finite], [BULK_TRIM, 1.0 - BULK_TRIM])
         bulk = np.isfinite(x_odd) & (x_odd >= lo) & (x_odd <= hi)
-        if bulk.sum() >= _MIN_ROWS // 2:
-            bulk_gain = plugin_mi_of_codes(cw[bulk], N_MI_BINS, y_odd[bulk], ky) - plugin_mi_of_codes(cr[bulk], N_MI_BINS, y_odd[bulk], ky)
-            bulk_se = paired_gain_se(cw[bulk], cr[bulk], y_odd[bulk], ky, N_MI_BINS)
-        else:
-            bulk_gain, bulk_se = mi_w - mi_r, paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS)
-        out.append(
-            {
-                "col": c, "x": x, "fit": fit, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS),
-                "bulk_gain": bulk_gain, "bulk_se": bulk_se,
-            }
-        )
+        for cls, target in targets:
+            fit = fit_oof_warp1d(xr, target, seed=seed)
+            cw = held_out_codes(fit["oof"], even, ~even, N_MI_BINS)
+            mi_w = plugin_mi_of_codes(cw, N_MI_BINS, y_odd, ky)
+            if bulk.sum() >= _MIN_ROWS // 2:
+                bulk_gain = plugin_mi_of_codes(cw[bulk], N_MI_BINS, y_odd[bulk], ky) - plugin_mi_of_codes(cr[bulk], N_MI_BINS, y_odd[bulk], ky)
+                bulk_se = paired_gain_se(cw[bulk], cr[bulk], y_odd[bulk], ky, N_MI_BINS)
+            else:
+                bulk_gain, bulk_se = mi_w - mi_r, paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS)
+            out.append(
+                {
+                    "col": c, "cls": cls, "x": x, "fit": fit, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS),
+                    "bulk_gain": bulk_gain, "bulk_se": bulk_se,
+                }
+            )
     return out
 
 def training_column(cand: dict) -> np.ndarray:
@@ -122,6 +128,7 @@ def hybrid_oof_warp_fe(
     scan_rows: int = DEFAULT_SCAN_ROWS,
     min_relative_gain: float = DEFAULT_MIN_RELATIVE_GAIN,
     reject_sink: Optional[Callable[..., None]] = None,
+    multiclass: str = "rank",
 ) -> "tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]":
     """Warp every usable numeric column and keep at most ``top_k`` whose held-out MI beats the raw column significantly (see the module docstring).
 
@@ -133,7 +140,7 @@ def hybrid_oof_warp_fe(
     if not cols or y is None:
         return empty
     accepted = []
-    for cand in warp_candidates(X, y, cols, scan_rows=scan_rows):
+    for cand in warp_candidates(X, y, cols, scan_rows=scan_rows, multiclass=multiclass):
         if (
             cand["gain"] > SIGNIFICANCE_Z * cand["se"]
             and cand["gain"] > float(min_relative_gain) * max(cand["mi_raw"], 0.0)
@@ -148,7 +155,7 @@ def hybrid_oof_warp_fe(
     accepted.sort(key=lambda c: -c["gain"])
     new_cols, recipes = {}, []
     for cand in accepted[: int(top_k)]:
-        name = f"oofwarp({cand['col']})"
+        name = f"oofwarp({cand['col']})" if cand["cls"] is None else f"oofwarp({cand['col']},ovr{cand['cls']})"
         if name in X.columns or name in new_cols:
             continue
         col = training_column(cand)
