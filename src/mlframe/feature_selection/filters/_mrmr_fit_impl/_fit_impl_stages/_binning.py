@@ -141,7 +141,7 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
                 else:
                     _y_for_strategy = np.asarray(_x_for_cat[target_names[0]])
             except Exception as exc:
-                logger.debug("mrmr: y coercion for discretization-strategy selection failed: %r", exc, exc_info=True)
+                logger.warning("mrmr: y coercion for discretization-strategy selection failed: %r", exc, exc_info=True)
                 _y_for_strategy = None
     data, cols, nbins = categorize_dataset(
         df=_x_for_cat,

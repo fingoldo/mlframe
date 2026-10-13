@@ -58,7 +58,7 @@ def _materialise_and_fina_step1_st_simplenamespace_long(self, _is_polars_input, 
             from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_gpu_enabled
             st._gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=int(X.shape[0]), p=len(cols)))
         except Exception as e:
-            logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
+            logger.warning("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
             st._gate_resident = False
 
     # CONDITIONAL-MI REDUNDANCY GATE (strategy S5). The PRINCIPLED,

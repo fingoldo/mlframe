@@ -232,7 +232,7 @@ def _report_extract_shap_proxied_fs(selector, kept) -> dict:
             if isinstance(_imp, dict) and _imp:
                 out["scores"] = {str(k): float(v) for k, v in _imp.items()}
     except Exception as e:
-        logger.debug("importance-scores extraction failed: %s", e)
+        logger.warning("importance-scores extraction failed: %s", e)
         out["scores"] = None
     try:
         _sel = set(str(c) for c in (getattr(selector, "selected_features_", None) or []))

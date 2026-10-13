@@ -378,7 +378,7 @@ def pooled_permutation_null_gain_floor(
 
         _resident_ok = bool(permnull_use_resident(n, n_cand, nperm)) and not gpu_globally_disabled() and not order1_maxt_gpu_circuit_breaker_tripped()
     except Exception as e:
-        logger.debug("resident permutation-null availability check failed, defaulting to False: %s", e)
+        logger.warning("resident permutation-null availability check failed, defaulting to False: %s", e)
         _resident_ok = False
     y_perms = None
     y_perms_dev = None

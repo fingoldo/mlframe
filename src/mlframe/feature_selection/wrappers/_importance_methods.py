@@ -127,7 +127,7 @@ def _drop_column(model: object, data: Any, target: Any, train_data: Any, **_: An
             _m.fit(_X_drop, target)
             _scores[_j] = _baseline - float(_m.score(_X_drop, target))
         except Exception as e:
-            logger.debug("drop-column importance fit/score failed for column %d, recording NaN: %s", _j, e)
+            logger.warning("drop-column importance fit/score failed for column %d, recording NaN: %s", _j, e)
             _scores[_j] = np.nan  # a 0.0 would outrank every column whose removal IMPROVED the score
     return _scores
 

@@ -41,7 +41,7 @@ def _encode_mdlp_target(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth
             import pandas as _pd_iter50
             _y_arr, _ = _pd_iter50.factorize(_y_arr, sort=True)
         except Exception as e:
-            logger.debug("pandas factorize failed, falling back to numpy-only label encode: %s", e)
+            logger.warning("pandas factorize failed, falling back to numpy-only label encode: %s", e)
             # Fallback: numpy-only label encode via unique.
             _uniq, _y_arr = np.unique(_y_arr, return_inverse=True)
     else:
