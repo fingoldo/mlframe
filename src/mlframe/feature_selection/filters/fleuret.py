@@ -37,7 +37,8 @@ from numba.core import types
 
 from pyutilz.numbalib import python_dict_2_numba_dict
 
-from .permutation import distribute_permutations, _perm_pvalue, _DEFAULT_BASE_SEED
+from ._numba_utils import distribute_permutations
+from .permutation import _perm_pvalue, _DEFAULT_BASE_SEED
 from ._internals import LARGE_CONST
 from .evaluation import jmim_exponent_discount_only, evaluate_gain
 from .info_theory import use_su_normalization, use_mi_miller_madow, use_jmim_aggregator

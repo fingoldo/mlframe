@@ -487,3 +487,14 @@ def _entropy_from_counts_njit(counts: np.ndarray, n: int) -> float:
             p = c / n_f
             h -= p * math.log(p)
     return h
+
+
+@njit(cache=True)
+def distribute_permutations(npermutations: int, n_workers: int) -> list:
+    """Split ``npermutations`` across ``n_workers``; the remainder lands on the last worker."""
+    avg_perms_per_worker = npermutations // n_workers
+    diff = npermutations - avg_perms_per_worker * n_workers
+    workload = [avg_perms_per_worker] * n_workers
+    if diff > 0:
+        workload[-1] = workload[-1] + diff
+    return workload

@@ -24,6 +24,8 @@ from numba import njit, prange
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 
 from ._internals import NMAX_NONPARALLEL_ITERS
+# Re-exported: ``distribute_permutations`` is a cross-module @njit helper and lives in ``_numba_utils`` (see its module docstring).
+from ._numba_utils import distribute_permutations  # noqa: F401
 
 # Typed uint64 zero used as the default ``base_seed`` for the njit permutation kernels. Built once as a
 # module-level singleton so the argument default keeps its exact ``np.uint64`` dtype (the kernels do
@@ -192,17 +194,6 @@ def perm_pvalues(nfailed: np.ndarray, nchecked: int) -> np.ndarray:
     if _addone_pvalue_enabled():
         return (1.0 + counts) / (float(nchecked) + 1.0)
     return counts / float(nchecked)
-
-@njit(cache=True)
-def distribute_permutations(npermutations: int, n_workers: int) -> list:
-    """Split ``npermutations`` across ``n_workers``; the remainder lands on the last worker."""
-    avg_perms_per_worker = npermutations // n_workers
-    diff = npermutations - avg_perms_per_worker * n_workers
-    workload = [avg_perms_per_worker] * n_workers
-    if diff > 0:
-        workload[-1] = workload[-1] + diff
-    return workload
-
 
 @njit(nogil=True, cache=True)
 def shuffle_arr(arr: np.ndarray) -> None:
