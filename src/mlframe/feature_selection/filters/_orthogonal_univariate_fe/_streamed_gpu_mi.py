@@ -29,7 +29,8 @@ WORK_FACTOR = 3  # block bytes x this = VRAM the MI intermediates need
 BLOCK_BYTES_MAX = 512 << 20  # no block larger than this, whatever the VRAM
 
 HOST_BLOCK_FRAC = 0.10  # share of free host RAM the CPU batch MI may take for one whole matrix (same budget _mi_chunk_cols_for blocks to)
-# Intentional float64: the CPU batch MI accumulates in float64 whatever the caller's dtype, so the budget uses 8 bytes per value.
+# Sized for the wider of the two working widths (8 bytes per value), so the budget also covers the float32 default that the CPU
+# batch MI uses through _crit_np_dtype(); the budget only over-estimates when the narrower width is in effect.
 CPU_WORK_ITEMSIZE = 8
 
 __all__ = ["plan_streamed_mi", "mi_classif_streamed", "choose_mi_path"]
