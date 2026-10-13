@@ -356,7 +356,7 @@ def _build_operand_table(
     try:
         _resident_operands_on = fe_gpu_resident_operands_enabled() and _cuda_present()
     except Exception as e:
-        _module_logger.debug("fe_gpu_resident_operands_enabled/_cuda_present check failed, defaulting to non-resident: %s", e)
+        log_throttle(_module_logger, "pairs_setup_resident_check", logging.WARNING, "fe_gpu_resident_operands_enabled/_cuda_present check failed, defaulting to non-resident: %s", e)
         _resident_operands_on = False
     _operand_col_specs: list | None = [] if _resident_operands_on else None
     i = 0
@@ -482,7 +482,7 @@ def _materialise_pair_operands(prospective_pairs, _extval_raw_col, _unary_names_
                                             transformed_vars[:, i] = cp.asnumpy(d_res)
                                             _gpu_used = True
                                 except Exception as e:
-                                    _module_logger.debug("GPU unary-transform application failed, falling through to CPU: %s", e)
+                                    log_throttle(_module_logger, "pairs_setup_gpu_unary", logging.WARNING, "GPU unary-transform application failed, falling through to CPU: %s", e)
                                     _gpu_used = False  # fall through to CPU
                             if not _gpu_used:
                                 # Suppress unary-transform NaN/inf RuntimeWarnings

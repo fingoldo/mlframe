@@ -427,7 +427,7 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                             defer_host_fill=True,
                         )
                 except Exception as e:
-                    logger.debug("resident discretization failed, falling back to the host path: %s", e)
+                    log_throttle(logger, "pairs_emit_resident_discretize", logging.WARNING, "resident discretization failed, falling back to the host path: %s", e)
                     _ev_disc = None
                 if _ev_disc is None:
                     _ev_disc = discretize_2d_quantile_batch(

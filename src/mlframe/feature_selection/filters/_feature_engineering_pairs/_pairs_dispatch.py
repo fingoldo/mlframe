@@ -217,7 +217,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
         from mlframe.feature_selection.filters.info_theory.shared import select_batch_mi_kernel
         _cpu_kernel = select_batch_mi_kernel(int(n), int(K))
     except Exception as e:
-        _module_logger.debug("select_batch_mi_kernel failed, using the default batch_mi_kernel: %s", e)
+        log_throttle(_module_logger, "pairs_dispatch_select_kernel", logging.WARNING, "select_batch_mi_kernel failed, using the default batch_mi_kernel: %s", e)
         _cpu_kernel = batch_mi_kernel
 
     # RESIDENT-CODES HANDOFF (gated, default OFF): if the FE chunk binned these codes ON the GPU and kept
@@ -236,7 +236,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
         if fe_gpu_resident_codes_enabled():
             device_codes = take_resident_codes(disc_2d)
     except Exception as e:
-        _module_logger.debug("GPU-resident codes acquisition failed, falling back to host codes: %s", e)
+        log_throttle(_module_logger, "pairs_dispatch_resident_codes", logging.WARNING, "GPU-resident codes acquisition failed, falling back to host codes: %s", e)
         device_codes = None
         _ensure_host = None
 
@@ -279,7 +279,7 @@ def _dispatch_batch_mi_with_noise_gate_impl(
                 int(n), int(quantization_nbins), _by_occ,
             )
         except Exception as e:
-            _module_logger.debug("analytic_null applicability check failed, skipping the analytic gate: %s", e)
+            log_throttle(_module_logger, "pairs_dispatch_analytic_applicability", logging.WARNING, "analytic_null applicability check failed, skipping the analytic gate: %s", e)
             _an_ok = False
         if _an_ok and device_codes is not None and env_gate.resident_gate_on and not env_gate.gpu_opted_out:
             # Resident codes: the observed MI and the occupied-bin counts are one device pass each, so the (n, K) codes are neither copied back nor
