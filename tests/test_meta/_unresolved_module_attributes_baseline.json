@@ -17,7 +17,7 @@
       "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
     },
     "unresolved-module-attributes::mlframe/integrations/mlflow.py::'mlflow.log_metric': module 'mlflow' (mlframe/integrations/mlflow.py) does not define 'log_metric'": {
-      "count": 2,
+      "count": 1,
       "note": "gate resolves a bare module name to a same-named sibling file (implicit-relative false positive) or a case-folded package directory"
     },
     "unresolved-module-attributes::mlframe/integrations/mlflow.py::'mlflow.search_runs': module 'mlflow' (mlframe/integrations/mlflow.py) does not define 'search_runs'": {
