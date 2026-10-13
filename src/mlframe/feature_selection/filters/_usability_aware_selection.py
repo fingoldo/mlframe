@@ -505,7 +505,7 @@ def _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair
                     replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
                     ok = bool(replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
             except Exception as e:
-                logger.warning("recipe replay verification raised, treating this combo as unverified: %s", e)
+                log_throttle(logger, "usability_aware_selection.hot_loop_warning", logging.WARNING, "recipe replay verification raised, treating this combo as unverified: %s", e)
                 ok = False
             _combo_replay_ok[combo] = ok
         if ok:

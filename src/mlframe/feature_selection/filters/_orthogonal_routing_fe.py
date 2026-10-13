@@ -573,7 +573,7 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
             _col_full = apply_pre_transform(_col_full, _pre_transform)
             _, _pp = _evaluate_basis_column(_col_full, _basis, _degree, return_params=True)
         except Exception as e:
-            logger.warning("basis-params recompute failed for %s: %s", _src_name, e)
+            log_throttle(logger, "orthogonal_routing_fe.hot_loop_warning", logging.WARNING, "basis-params recompute failed for %s: %s", _src_name, e)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name,

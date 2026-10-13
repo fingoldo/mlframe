@@ -8,6 +8,8 @@ section this fans out from and the ``(selected_vars, cols, data, nbins)`` thread
 
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 
 import numpy as np
@@ -246,7 +248,7 @@ def _encoded_feature_gate_pass(self, X, selected_vars, _y_np, data, cols, _eng_c
                         try:
                             _cv = X[_sn].to_numpy()
                         except Exception as exc:
-                            logger.warning("mrmr: continuous-value lookup failed for this candidate; treating as unavailable: %r", exc, exc_info=True)
+                            log_throttle(logger, "group3.hot_loop_warning", logging.WARNING, "mrmr: continuous-value lookup failed for this candidate; treating as unavailable: %r", exc, exc_info=True)
                             _cv = None
                     if _cv is None:
                         _si = _cf_cols_index.get(_sn)
@@ -287,7 +289,7 @@ def _score_encoded_features_heldout(_cf_tr, _cf_va, _cf_base, _cf_y, _cf_names, 
                 try:
                     _cvv_raw = X[_cn].to_numpy()
                 except Exception as exc:
-                    logger.warning("mrmr: raw continuous-value lookup failed for this candidate: %r", exc, exc_info=True)
+                    log_throttle(logger, "group3.hot_loop_warning", logging.WARNING, "mrmr: raw continuous-value lookup failed for this candidate: %r", exc, exc_info=True)
                     _cvv_raw = None
             if _cvv_raw is not None:
                 try:

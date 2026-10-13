@@ -35,6 +35,8 @@ on every target that does not exhibit the unfused-additive-halves pattern.
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 import re
 from typing import Any
@@ -404,7 +406,7 @@ def _subsumed_raw_operand_check(self, ha, hb, subsumed_raws, X, _raw_bin_cache, 
             if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
                 _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
         except Exception as e:
-            logger.warning("reading raw column %r for the fusion residual failed: %s", _rn, e)
+            log_throttle(logger, "fe_additive_fusion.hot_loop_warning", logging.WARNING, "reading raw column %r for the fusion residual failed: %s", _rn, e)
             _rv = None
         _rvb = _raw_bin_cache.get(_rn)
         if _rvb is None:

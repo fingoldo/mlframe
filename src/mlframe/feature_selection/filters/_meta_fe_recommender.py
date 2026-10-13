@@ -31,6 +31,8 @@ arrays never do.
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 from typing import Any, Mapping, Optional
 
@@ -162,7 +164,7 @@ def _fe_structure(X, y=None) -> dict:
             try:
                 card = int(np.unique(vals).size)
             except Exception as _card_exc:
-                logger.warning("_fe_structure: cardinality probe failed (%s); falling back to n_finite as a conservative card estimate.", _card_exc)
+                log_throttle(logger, "meta_fe_recommender.hot_loop_warning", logging.WARNING, "_fe_structure: cardinality probe failed (%s); falling back to n_finite as a conservative card estimate.", _card_exc)
                 card = n_finite
 
             is_intish = kind in ("i", "u") or _is_integral(vals)

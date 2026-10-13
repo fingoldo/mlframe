@@ -643,7 +643,7 @@ def hybrid_orth_mi_ensemble_fe_with_recipes(
             _col_full = np.asarray(X[src].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as e:
-            logger.warning("basis-params recompute failed for %s: %s", src, e)
+            log_throttle(logger, "orthogonal_scorer_auto_fe.hot_loop_warning", logging.WARNING, "basis-params recompute failed for %s: %s", src, e)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,

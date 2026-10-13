@@ -433,7 +433,7 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
                         from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _quantile_bin_gpu_resident as _qbr_esc
                         _cb = _qbr_esc(_cv, int(self.quantization_nbins))
                     except Exception as e:
-                        logger.warning("_quantile_bin_gpu_resident (escape) failed, falling back to the host path: %s", e)
+                        log_throttle(logger, "step_score_parts2.hot_loop_warning", logging.WARNING, "_quantile_bin_gpu_resident (escape) failed, falling back to the host path: %s", e)
                         _cb = None
                 if _cb is None:
                     _cb = _esc_qbin(_cv, nbins=int(self.quantization_nbins))

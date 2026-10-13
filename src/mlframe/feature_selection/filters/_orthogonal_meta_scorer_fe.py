@@ -105,6 +105,8 @@ pin a specific scorer regardless of the fingerprint.
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 from typing import Optional, Sequence
 
@@ -288,7 +290,7 @@ def fingerprint_signal(
                     centered = (col_vals - float(col_vals.mean())).abs()
                     r_sym = float(centered.corr(y_sub, method="pearson"))
                 except _NUMERIC_ERRORS as exc:
-                    logger.warning("meta_scorer symmetric-pearson corr failed for column %r: %r", c, exc)
+                    log_throttle(logger, "orthogonal_meta_scorer_fe.hot_loop_warning", logging.WARNING, "meta_scorer symmetric-pearson corr failed for column %r: %r", c, exc)
                     r_sym = float("nan")
                 candidates = [abs(r) for r in (r_sp, r_sym) if np.isfinite(r)]
                 if candidates:

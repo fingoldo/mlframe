@@ -99,7 +99,7 @@ def compute_unsupervised_drops(
             try:
                 null_count = int(col.null_count())
             except Exception as e:
-                logger.warning("null_count() failed for column %r, treating as 0: %s", col_name, e)
+                log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "null_count() failed for column %r, treating as 0: %s", col_name, e)
                 null_count = 0
             if null_count > null_cutoff:
                 drops.add(col_name)
@@ -112,14 +112,14 @@ def compute_unsupervised_drops(
                 dt = col.dtype
                 is_numeric = dt.is_numeric() if hasattr(dt, "is_numeric") else False
             except Exception as e:
-                logger.warning("dtype numeric check failed for column %r, treating as non-numeric: %s", col_name, e)
+                log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "dtype numeric check failed for column %r, treating as non-numeric: %s", col_name, e)
                 is_numeric = False
             if not is_numeric:
                 continue
             try:
                 var_val = col.var()
             except Exception as e:
-                logger.warning("var() failed for column %r: %s", col_name, e)
+                log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "var() failed for column %r: %s", col_name, e)
                 var_val = None
             if var_val is None:
                 # All-null after the null check would have been caught above; treat as constant.

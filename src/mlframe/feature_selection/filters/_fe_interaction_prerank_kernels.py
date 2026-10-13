@@ -149,7 +149,7 @@ def warm_gbm_cost_cache() -> None:
                 try:
                     cps = _measure_gbm_cols_per_second(n)
                 except Exception as exc:
-                    logger.warning("gbm-cost measurement failed at n_samples=%d, using fallback (%s: %s)", n, type(exc).__name__, exc)
+                    log_throttle(logger, "fe_interaction_prerank_kernels.hot_loop_warning", logging.WARNING, "gbm-cost measurement failed at n_samples=%d, using fallback (%s: %s)", n, type(exc).__name__, exc)
                     cps = float(_GBM_FALLBACK_COLS_PER_SEC)
                 regions.append({"n_samples": n, "value": cps})
             return regions

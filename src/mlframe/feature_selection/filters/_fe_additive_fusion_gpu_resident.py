@@ -49,6 +49,8 @@ keeping the default (flag-off) path byte-identical and a GPU fault never breakin
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 import os
 from typing import Any
@@ -392,7 +394,7 @@ def _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_c
             if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
                 _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
         except Exception as e:
-            logger.warning("reading raw column %r failed: %s", _rn, e)
+            log_throttle(logger, "fe_additive_fusion_gpu_resident.hot_loop_warning", logging.WARNING, "reading raw column %r failed: %s", _rn, e)
             _rv = None
         if _rv is None or _rv.shape[0] != n_rows:
             continue

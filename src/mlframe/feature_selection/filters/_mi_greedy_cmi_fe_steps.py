@@ -819,7 +819,7 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
                 best_cmi = float(_bv); best_name = _scan[_bi]
                 _batched_done = True
         except Exception as e:
-            logger.warning("batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
+            log_throttle(logger, "mi_greedy_cmi_fe_steps.hot_loop_warning", logging.WARNING, "batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
             _batched_done = False
         if _batched_done:
             pass

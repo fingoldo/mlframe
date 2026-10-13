@@ -40,6 +40,8 @@ This module owns NO kernel: the exhaustive sweep reuses the existing
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 import time
 
@@ -204,7 +206,7 @@ def warm_exhaustive_cpu_throughput_cache() -> None:
                     try:
                         pps = _measure_exhaustive_cpu_throughput({"n_samples": n, "n_pairs": npairs})
                     except Exception as e:
-                        logger.warning("exhaustive-CPU throughput measurement failed, using the fallback rate: %s", e)
+                        log_throttle(logger, "fe_synergy_exhaustive.hot_loop_warning", logging.WARNING, "exhaustive-CPU throughput measurement failed, using the fallback rate: %s", e)
                         pps = float(_EXHAUSTIVE_CPU_FALLBACK_PAIRS_PER_SEC)
                     regions.append({"n_samples": n, "n_pairs": npairs, "value": pps})
             return regions
@@ -254,7 +256,7 @@ def warm_exhaustive_throughput_cache() -> None:
                     try:
                         pps = _measure_exhaustive_throughput({"n_samples": n, "n_pairs": npairs})
                     except Exception as e:
-                        logger.warning("exhaustive throughput measurement failed, using the fallback rate: %s", e)
+                        log_throttle(logger, "fe_synergy_exhaustive.hot_loop_warning", logging.WARNING, "exhaustive throughput measurement failed, using the fallback rate: %s", e)
                         pps = float(_EXHAUSTIVE_FALLBACK_PAIRS_PER_SEC)
                     regions.append({"n_samples": n, "n_pairs": npairs, "value": pps})
             return regions

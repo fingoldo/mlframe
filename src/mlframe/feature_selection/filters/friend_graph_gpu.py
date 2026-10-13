@@ -49,6 +49,8 @@ entropy + every keep/drop decision stay on the bit-exact CPU path. Verified by
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 from typing import Any, Callable, Optional, cast
 
@@ -375,7 +377,7 @@ def friend_graph_stats_cupy(
 
                     h_ab_by_r = entropy_segments_gpu(cp, d_tile_counts, n, tile_off_bounds)
                 except Exception as e:
-                    logger.warning("entropy_segments_gpu (tile) failed, falling back to the per-tile CPU path: %s", e)
+                    log_throttle(logger, "friend_graph_gpu.hot_loop_warning", logging.WARNING, "entropy_segments_gpu (tile) failed, falling back to the per-tile CPU path: %s", e)
                     h_ab_by_r = None
             if h_ab_by_r is None:
                 tile_counts = cp.asnumpy(d_tile_counts)

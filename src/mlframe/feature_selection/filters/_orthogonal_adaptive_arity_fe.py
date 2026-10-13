@@ -728,7 +728,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                 _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
             except Exception as exc:
                 # Was a bare except with zero logging.
-                logger.warning("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
+                log_throttle(logger, "orthogonal_adaptive_arity_fe.hot_loop_warning", logging.WARNING, "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
                 _pp = None
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=legs[0],
