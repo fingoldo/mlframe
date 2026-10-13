@@ -37,6 +37,11 @@ def build_mix_offset_target(
 
     y = np.asarray(y).ravel()
     tr = np.asarray(train_idx, dtype=np.int64)
+    # ``values`` must be one entry per row of ``X``; a target on another row set (a pinned split holds only the training and
+    # validation rows, for instance) cannot be aligned to the frame, so the companion is skipped rather than built wrong.
+    if len(y) != len(X):
+        logger.warning("mix-offset target skipped: the target has %d rows, the frame %d; rows do not align.", len(y), len(X))
+        return None
     Xtr = X.iloc[tr].reset_index(drop=True)
     # The decision and the slope only: the final regressor is not fitted here, so the target build costs two gate fits, not three.
     wrapper = TargetOffsetRegressor(selector=selector, regressor=gate_regressor, offset_alpha=offset_alpha).decide(Xtr, y[tr])
