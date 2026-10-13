@@ -31,9 +31,9 @@ def set_no_significant_policy(policy: str) -> None:
 
 def resolve_no_significant_policy(instance) -> str:
     """The policy for one selector instance: its own ``no_significant_policy`` when set, else the global one."""
-    own = getattr(instance, "no_significant_policy", None)
+    own: str | None = getattr(instance, "no_significant_policy", None)
     if own is None:
         return _policy
     if own not in NO_SIGNIFICANT_POLICIES:
         raise ValueError(f"no_significant_policy must be one of {NO_SIGNIFICANT_POLICIES}; got {own!r}")
-    return own
+    return str(own)
