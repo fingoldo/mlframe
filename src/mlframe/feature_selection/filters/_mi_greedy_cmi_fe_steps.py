@@ -653,7 +653,7 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
                     st.cand_fp[_name] = int(_cp.sum((_c + 1) * _weights, dtype=_cp.int64).item())
                 st._resident_fp_ok = True
     except Exception:
-        logger.debug("resident candidate binning failed; host fingerprint fallback", exc_info=True)
+        logger.warning("resident candidate binning failed; host fingerprint fallback", exc_info=True)
         cand_bins_dev = {}
         st.cand_fp = {}
         st._resident_fp_ok = False
@@ -832,7 +832,7 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
                 best_cmi = float(_bv); best_name = _scan[_bi]
                 _batched_done = True
         except Exception as e:
-            logger.debug("batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
+            logger.warning("batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
             _batched_done = False
         if _batched_done:
             pass

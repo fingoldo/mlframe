@@ -331,6 +331,7 @@ def _assign_support(
     except Exception as _usability_exc:  # never let the optional second list break a fit
         self.support_nonlinear_ = getattr(self, "support_", None)
         self.support_linear_ = None
+        logger.warning("mrmr: the optional linear support list failed, support_linear_ is unavailable (%s: %s)", type(_usability_exc).__name__, _usability_exc)
         self.support_universal_ = None
         logger.debug("Usability-aware multi-list post-pass skipped (%s: %s).", type(_usability_exc).__name__, _usability_exc)
 
@@ -348,7 +349,7 @@ def _assign_support(
         )
     except Exception as _stab_exc:  # never let the diagnostic accessor break a fit
         self._stability_replay_state_ = None
-        logger.debug("Stability replay-state capture skipped (%s: %s).", type(_stab_exc).__name__, _stab_exc)
+        logger.warning("Stability replay-state capture skipped (%s: %s).", type(_stab_exc).__name__, _stab_exc)
 
     # ROSTER RECONCILIATION: the per-stage engineered rosters (``hybrid_orth_features_``, ``_adaptive_fourier_features_``, the Layer-33/34/37/38/87+ family lists) are
     # populated as each FE stage APPENDS its columns, but the MRMR screen / accuracy gate / dedup then drop a subset before support is finalised. ``self._engineered_features_`` is the

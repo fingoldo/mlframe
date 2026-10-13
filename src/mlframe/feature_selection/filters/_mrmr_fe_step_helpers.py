@@ -703,12 +703,12 @@ def log_fe_summary(
     try:
         _n_pairs_considered = len(prospective_pairs)
     except Exception as e:
-        logger.debug("counting prospective_pairs failed: %s", e)
+        logger.warning("counting prospective_pairs failed: %s", e)
         _n_pairs_considered = -1
     try:
         _n_pairs_with_additions = sum(1 for v in prospective_additions.values() if v[0])  # this_pair_features non-empty
     except Exception as e:
-        logger.debug("counting prospective_additions with results failed: %s", e)
+        logger.warning("counting prospective_additions with results failed: %s", e)
         _n_pairs_with_additions = -1
     if verbose >= 1:
         logger.info(
