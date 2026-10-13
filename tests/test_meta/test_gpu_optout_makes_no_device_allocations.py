@@ -17,7 +17,7 @@ cupy's allocator entirely).
 
 from __future__ import annotations
 
-import traceback
+import sys
 
 import numpy as np
 import pytest
@@ -41,8 +41,17 @@ def device_alloc_counter(monkeypatch):
     _PROBE_FRAMES = frozenset({"_disable_broken_cupy", "_ensure_gpu_runtime_configured", "numba_cuda_can_compile"})
 
     def _is_probe() -> bool:
-        """True when the current stack is one of the documented capability probes."""
-        return any(fr.name in _PROBE_FRAMES for fr in traceback.extract_stack())
+        """True when the current stack is one of the documented capability probes.
+
+        Walks the frame chain directly: ``traceback.extract_stack()`` reads the source text of every frame, and this runs
+        on every device allocation of a full fit, which turned the test into a multi-hour hang.
+        """
+        frame = sys._getframe()
+        while frame is not None:
+            if frame.f_code.co_name in _PROBE_FRAMES:
+                return True
+            frame = frame.f_back
+        return False
 
     try:
         import cupy as cp
