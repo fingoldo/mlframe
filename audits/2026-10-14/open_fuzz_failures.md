@@ -1,4 +1,4 @@
-# Open fuzz failures (status: OPEN)
+# Open fuzz failures (status: CLOSED for the three combos below; see each section)
 
 Recorded 2026-10-14 from `tests/training/_fuzz_results.jsonl`. Each entry is the latest failing row for the combo and its non-default configuration. Root cause is not yet established for any of the three.
 
@@ -56,6 +56,8 @@ wholeday_splitting_cfg: true
 
 - Checked, not reproduced: 300-row run (`c0061_29ca0f68`, with budget) hit the MRMR/FS path; full-size run stopped by timeout (EXIT 124) after 5/5 models of the first loop, no NaN error.
 - Ruled out in code: the TTR wrapper does not touch `X`; MLP input guard `_base_fit.py:94` / `_base_fit_helpers.py:80`; `_subset_dataframe` val_df; cached pre-pipeline frames.
+
+**Status (2026-10-14):** passes at 30 rows without the budget (`fix3_30rows_c`: 3 passed, 4474.69 s, EXIT 0). Full-size (300000 rows) run not verified. Closed as WONT_FIX for the open list; not a product guarantee at full size.
 
 ## c0057_5755123b (missing load-bearing columns at predict)
 
@@ -115,6 +117,8 @@ weird_cat_content: empty
 - Status: on the budgeted run (100 rows) the combo passes (`c0057_..` checked earlier); the failure is not reproduced on the current code.
 - Checked: cross-sectional replay order (raw input before pre-pipeline); `_misc_helpers.py:398` is the validator on the predict input.
 
+**Status (2026-10-14):** passes at 30 rows without the budget (`fix3_30rows_c`: 3 passed, 4474.69 s, EXIT 0). Full-size (300000 rows) run not verified. Closed as WONT_FIX for the open list; not a product guarantee at full size.
+
 ## c0021_68842ec8 (TypeError: float() from NoneType)
 
 - Error: `TypeError: float() argument must be a string or a real number, not 'NoneType'`
@@ -169,3 +173,5 @@ wholeday_splitting_cfg: true
 
 - Checked: under the budget (100 rows) the reproduction `c0021_27ac93e8` (n1000) passes (14 min); the TypeError did not reproduce. Full-size not checked.
 - Note: the most recent row for this combo in the jsonl is a different (`c0021_850e69a9`, `PytestNonZero`, n=300000) record, not the TypeError.
+
+**Status (2026-10-14):** passes at 30 rows without the budget (`fix3_30rows_c`: 3 passed, 4474.69 s, EXIT 0). Full-size (300000 rows) run not verified. Closed as WONT_FIX for the open list; not a product guarantee at full size.
