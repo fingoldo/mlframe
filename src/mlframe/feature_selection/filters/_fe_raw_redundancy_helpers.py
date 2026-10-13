@@ -131,7 +131,7 @@ def raw_retains_signal_given_genuine_children(
                 from ._fe_resident_operands import resident_code_operand
                 _rb_cand = resident_code_operand(rb, "cmi_cand_x")
         except Exception as e:
-            logger.debug("resident_code_operand for rb failed, using the host codes: %s", e)
+            logger.warning("resident_code_operand for rb failed, using the host codes: %s", e)
             _rb_cand = rb
     if rb is not None:
         _rb_kx = int(rb.max()) + 1 if getattr(rb, "size", 0) else 1  # host raw codes -> free cardinality
@@ -151,7 +151,7 @@ def raw_retains_signal_given_genuine_children(
                 from ._mi_greedy_cmi_fe import _renumber_joint_gpu
                 z_support_dev, _zcard = _renumber_joint_gpu(*_gcd)
             except Exception as e:
-                logger.debug("_renumber_joint_gpu failed, falling back to the host join: %s", e)
+                logger.warning("_renumber_joint_gpu failed, falling back to the host join: %s", e)
                 z_support_dev = None
     # HOST join only when the device join is unavailable: _excess_and_floor explicitly supports
     # ``z_support=None`` with a resident ``z_support_dev`` (its perm-null / analytic legs D2H the device form

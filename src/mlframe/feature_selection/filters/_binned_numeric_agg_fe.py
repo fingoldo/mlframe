@@ -571,7 +571,7 @@ def binned_numeric_agg_with_recipes(
             from ._gpu_strict_fe import fe_gpu_device_born_binagg_enabled
             _device_binagg = bool(fe_gpu_device_born_binagg_enabled())
         except Exception as e:
-            logger.debug("fe_gpu_device_born_binagg_enabled() check failed, defaulting to False: %s", e)
+            logger.warning("fe_gpu_device_born_binagg_enabled() check failed, defaulting to False: %s", e)
             _device_binagg = False
 
     feat_df = None

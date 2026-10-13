@@ -199,7 +199,7 @@ def ensure_fe_gpu_pool_limit() -> bool:
         try:
             _, total_b = cp.cuda.runtime.memGetInfo()
         except Exception as e:
-            logger.debug("cp.cuda.runtime.memGetInfo() failed, treating total VRAM as 0: %s", e)
+            logger.warning("cp.cuda.runtime.memGetInfo() failed, treating total VRAM as 0: %s", e)
             total_b = 0
         frac = requested_frac
         if total_b > 0:

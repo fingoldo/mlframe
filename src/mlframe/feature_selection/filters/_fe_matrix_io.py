@@ -137,7 +137,7 @@ def _polars_column_to_arrays(s, dtype):
 
                 categories = categorical_labels(s)
             except Exception as e:
-                logger.debug("could not resolve categories for polars Categorical column: %s", e)
+                logger.warning("could not resolve categories for polars Categorical column: %s", e)
                 categories = []
         codes = np.where(null_mask, -1, codes)
         return None, codes, categories, null_mask

@@ -466,7 +466,7 @@ def _finalise_fs_results(
     try:
         signature = (*signature[:-1], _hashable_params_signature(self.get_params(deep=True)))
     except Exception as exc:
-        logger.debug("mrmr: final signature hash failed; using a unique sentinel (forces a cache miss / no replay for this fit): %r", exc, exc_info=True)
+        logger.warning("mrmr: final signature hash failed; using a unique sentinel (forces a cache miss / no replay for this fit): %r", exc, exc_info=True)
         signature = (*signature[:-1], object())  # unique token => next identical fit refits (conservative)
     self.signature = signature
     # ran_out_of_time was set only by the outer FE-loop deadline. screen_predictors honours
@@ -532,7 +532,7 @@ def _finalise_fs_results(
         from mlframe.feature_selection.filters.info_theory.shared import get_group_mi as _get_group_mi_final
         _gmi_final_payload = _get_group_mi_final()
     except Exception as e:
-        logger.debug("get_group_mi_final() failed: %s", e)
+        logger.warning("get_group_mi_final() failed: %s", e)
         _gmi_final_payload = None
     _eng_recipes_final = getattr(self, "_engineered_recipes_", None) or []
     if _gmi_final_payload is not None and _eng_recipes_final:

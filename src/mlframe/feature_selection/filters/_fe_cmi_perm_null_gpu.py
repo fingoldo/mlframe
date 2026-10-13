@@ -343,7 +343,7 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z):
     try:
         free_b, _ = cp.cuda.runtime.memGetInfo()
     except Exception as e:
-        logger.debug("cp.cuda.runtime.memGetInfo() failed, assuming 1GiB free: %s", e)
+        logger.warning("cp.cuda.runtime.memGetInfo() failed, assuming 1GiB free: %s", e)
         free_b = 1 << 30
     # 0.30 of free VRAM leaves headroom for batched_cmi_gpu's sort / entropy temporaries beyond the dense joint.
     chunk = max(1, min(nperm, int(free_b * 0.30) // joint_bytes))

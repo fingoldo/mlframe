@@ -208,7 +208,7 @@ def _mi_prange_dispatch(
     try:
         choice = _MI_PRANGE_PARALLELISM_SPEC.choose(n=n, npermutations=int(npermutations))
     except Exception as e:
-        logger.debug("mi_prange_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+        logger.warning("mi_prange_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
         choice = _mi_prange_fallback_choice(n, int(npermutations))
     fn = parallel_mi_prange if choice == "parallel" else _parallel_mi_prange_serial
     with parallel_kernel_entry():

@@ -571,7 +571,7 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
             _yi_dev = resident_operand(np.ascontiguousarray(np.asarray(yi)).astype(np.int64), "y_mi_classif", dtype=np.int64)
             _gate_dev = (_cp, _mat_dev, _yi_dev, _mat_dev[:, probe_idx])
     except Exception as _gate_dev_exc:
-        logger.debug("gate resident-matrix assembly failed (%s); host prune path used.", _gate_dev_exc)
+        logger.warning("gate resident-matrix assembly failed (%s); host prune path used.", _gate_dev_exc)
         _gate_dev = None
     for gi in range(len(cols)):
         if _gate_dev is not None:

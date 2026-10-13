@@ -308,7 +308,7 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
     try:
         from .._fe_gpu_vram import fe_gpu_has_vram_cushion as _cushion
     except ImportError as e:
-        logger.debug("fe_gpu_has_vram_cushion import failed: %s", e)
+        logger.warning("fe_gpu_has_vram_cushion import failed: %s", e)
         _cushion = None
     fits = []
     for d in range(ndev):
@@ -668,7 +668,7 @@ def _apply_minmax(x, params):
         try:
             choice = _MINMAX_PARALLELISM_SPEC.choose(n=int(xf.shape[0]))
         except Exception as e:
-            logger.debug("hermite_minmax_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+            logger.warning("hermite_minmax_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
             choice = _minmax_fallback_choice(int(xf.shape[0]))
         fn = _apply_minmax_njit if choice == "parallel" else _apply_minmax_njit_serial
         return fn(xf, float(params["lo"]), float(span), clip is not None, float(clip) if clip is not None else 0.0)

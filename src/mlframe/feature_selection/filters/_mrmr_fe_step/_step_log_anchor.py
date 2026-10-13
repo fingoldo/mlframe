@@ -38,7 +38,7 @@ def smart_log_anchor(src_name: str, nested: Any, X: Any, memo: dict) -> Optional
         mn = float(np.nanmin(operand))
         value = (1e-5 - mn) if mn <= 0 else 0.0
     except Exception as e:
-        logger.debug("smart_log_anchor: fit-time operand reconstruction failed, recipe replay falls back to the legacy refit path: %s", e)
+        logger.warning("smart_log_anchor: fit-time operand reconstruction failed, recipe replay falls back to the legacy refit path: %s", e)
         value = None
     memo[key] = (nested, value)
     return value

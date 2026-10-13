@@ -73,11 +73,11 @@ def _device_props_uncached() -> dict:
             props["regs_per_sm"] = int(p.get("regsPerMultiprocessor", props["regs_per_block"])) or props["regs_per_block"]
             props["shared_per_sm"] = int(p.get("sharedMemPerMultiprocessor", props["shared_per_block"])) or props["shared_per_block"]
         except Exception as e:
-            logger.debug("querying regs/shared-per-multiprocessor failed, using per-block values: %s", e)
+            logger.warning("querying regs/shared-per-multiprocessor failed, using per-block values: %s", e)
             props["regs_per_sm"] = props["regs_per_block"]
             props["shared_per_sm"] = props["shared_per_block"]
     except Exception as e:
-        logger.debug("device-property probe failed: %s", e)
+        logger.warning("device-property probe failed: %s", e)
         props = {}
     _DEV_PROPS = props
     return props
