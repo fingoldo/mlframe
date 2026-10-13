@@ -312,7 +312,7 @@ def _build_usability_cand_step1_rank_pairs_joint(rank_pairs_by_joint_mi, base_na
                 _mis = np.asarray(binned_mi_from_codes_gpu(_joint, y_codes, ky=_ky, codes_trusted=True), dtype=np.float64)
                 _pj = {p: quantize_mi_tiebreak(float(_mis[i])) for i, p in enumerate(pairs)}
             except Exception as e:
-                logger.debug("binned_mi_from_codes_gpu batch failed, falling back to the per-pair CPU path: %s", e)
+                logger.warning("binned_mi_from_codes_gpu batch failed, falling back to the per-pair CPU path: %s", e)
                 _pj = None
         if _pj is None:
             _pj = {p: _mi_key(_pair_joint_mi(p)) for p in pairs}
@@ -339,7 +339,7 @@ def _build_usability_cand_step2_residency_win_mi(_seleq, _ua_codes, _ub_codes, _
                 _res_ops, y_codes, y_terms, quantization_nbins, _ua_codes, _ub_codes, _bn_codes,
             )
         except Exception as e:
-            logger.debug("GPU-resident candidate table build failed, falling back to the host path: %s", e)
+            logger.warning("GPU-resident candidate table build failed, falling back to the host path: %s", e)
             _resident_table = None
     return _resident_table
 
@@ -505,7 +505,7 @@ def _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair
                     replay = _scrub(apply_recipe(recipe, X_df), feature_dtype)
                     ok = bool(replay.shape == c.values.shape and np.allclose(_f64(replay), _f64(c.values), atol=1e-4, equal_nan=True))
             except Exception as e:
-                logger.debug("recipe replay verification raised, treating this combo as unverified: %s", e)
+                logger.warning("recipe replay verification raised, treating this combo as unverified: %s", e)
                 ok = False
             _combo_replay_ok[combo] = ok
         if ok:

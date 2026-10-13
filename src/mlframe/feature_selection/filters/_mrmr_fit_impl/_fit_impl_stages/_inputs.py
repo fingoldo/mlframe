@@ -36,7 +36,7 @@ def _stash_fe_targets(self, _y_np, X):
         else:
             self._fe_escalation_y_rank_ = None
     except Exception as exc:
-        logger.debug("mrmr: FE-escalation y-rank computation failed; rank unavailable this fit: %r", exc, exc_info=True)
+        logger.warning("mrmr: FE-escalation y-rank computation failed; rank unavailable this fit: %r", exc, exc_info=True)
         self._fe_escalation_y_rank_ = None
 
     # PREWARP ALS RECONSTRUCTION TARGET: stash the RAW CONTINUOUS y so
@@ -57,7 +57,7 @@ def _stash_fe_targets(self, _y_np, X):
         else:
             self._fe_prewarp_y_continuous_ = None
     except Exception as exc:
-        logger.debug("mrmr: prewarp continuous-y stash failed; ALS reconstruction target unavailable: %r", exc, exc_info=True)
+        logger.warning("mrmr: prewarp continuous-y stash failed; ALS reconstruction target unavailable: %r", exc, exc_info=True)
         self._fe_prewarp_y_continuous_ = None
 
 

@@ -66,7 +66,7 @@ def _friend_graph_and_redundancy_passes_group4(
                     if _yv.shape[0] == int(data.shape[0]) and np.issubdtype(np.asarray(_yv).dtype, np.number):
                         _y_cont_for_redund = _yv
                 except Exception as exc:
-                    logger.debug("mrmr: continuous-y coercion failed for raw-redundancy transform-time replay; replay skipped for this column: %r", exc, exc_info=True)
+                    logger.warning("mrmr: continuous-y coercion failed for raw-redundancy transform-time replay; replay skipped for this column: %r", exc, exc_info=True)
                     _y_cont_for_redund = None
                 # Only engineered survivors with a replayable recipe (1-deep, in
                 # ``engineered_recipes``) survive into transform output; a nested-
@@ -167,7 +167,7 @@ def _friend_graph_and_redundancy_passes_group4(
                             _yv_floor = np.asarray(_y_np)
                             _yv_floor = np.asarray(_yv_floor, dtype=np.float64).reshape(-1)
                         except Exception as exc:
-                            logger.debug("mrmr: y coercion failed for the floor-drop rescue; falling back to classes_y: %r", exc, exc_info=True)
+                            logger.warning("mrmr: y coercion failed for the floor-drop rescue; falling back to classes_y: %r", exc, exc_info=True)
                             _yv_floor = np.asarray(classes_y, dtype=np.float64).reshape(-1)
                         # name -> index map built once (O(F)) instead of a ``.index()`` rescan of
                         # ``cols`` per ``_dn`` (O(F) each) - turns the O(K*F) loop below into O(K+F).

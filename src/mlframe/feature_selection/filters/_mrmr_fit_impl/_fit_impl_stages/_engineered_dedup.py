@@ -131,7 +131,7 @@ def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
                 _mi_vals = _mi_classif_batch(_mi_mat, _y_for_eng_mi, nbins=10)
                 _eng_mi = {_name: float(_v) for _name, _v in zip(_mi_cols, _mi_vals)}
     except Exception as exc:
-        logger.debug("mrmr: engineered-MI dict computation failed; treating as empty (no engineered candidates this round): %r", exc, exc_info=True)
+        logger.warning("mrmr: engineered-MI dict computation failed; treating as empty (no engineered candidates this round): %r", exc, exc_info=True)
         _eng_mi = {}
 
     def _eng_dedup_prefer(cand: str, kept: str) -> bool:

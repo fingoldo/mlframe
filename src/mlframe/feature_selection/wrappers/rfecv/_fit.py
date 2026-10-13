@@ -217,7 +217,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
             _y_arr = np.asarray(y)
             _is_2d = _y_arr.ndim >= 2 and _y_arr.shape[-1] > 1
         except Exception as e:
-            logger.debug("y-shape 2D check failed, assuming 1D: %s", e)
+            logger.warning("y-shape 2D check failed, assuming 1D: %s", e)
             _is_2d = False
         if _is_2d:
             from ._multioutput import fit_multioutput
@@ -476,7 +476,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     try:
         state.ram_df_size_mb = _estimate_df_size_mb(X)
     except Exception as e:
-        logger.debug("_estimate_df_size_mb failed, recording ram_df_size_mb as 0.0: %s", e)
+        logger.warning("_estimate_df_size_mb failed, recording ram_df_size_mb as 0.0: %s", e)
         state.ram_df_size_mb = 0.0
 
     while state.nsteps < len(original_features):
@@ -577,7 +577,7 @@ def _numpy_view_of_numeric_X(_force_pandas, X, X_estimator, col_pos):
             # tree handles it; float64 carries NaN bit-identically); object / category / string disqualify.
             _all_numeric = bool(len(X.columns)) and all(_is_num(X[c]) or _is_bool(X[c]) for c in X.columns)
         except Exception as e:
-            logger.debug("all-numeric dtype check failed, assuming not all-numeric: %s", e)
+            logger.warning("all-numeric dtype check failed, assuming not all-numeric: %s", e)
             _all_numeric = False
         if _all_numeric:
             try:

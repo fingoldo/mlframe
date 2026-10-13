@@ -373,7 +373,7 @@ def _prefe_raw_sole_parent_pass(self, _prefe_raw, selected_vars, cols, data, tar
         try:
             from mlframe.feature_selection.filters.permutation import mi_direct as _mi_direct_rr
         except Exception as exc:
-            logger.debug("mrmr: mi_direct import/binding failed for the raw-redundancy significance probe; probe disabled: %r", exc, exc_info=True)
+            logger.warning("mrmr: mi_direct import/binding failed for the raw-redundancy significance probe; probe disabled: %r", exc, exc_info=True)
             _mi_direct_rr = None  # type: ignore[assignment]
         from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
 

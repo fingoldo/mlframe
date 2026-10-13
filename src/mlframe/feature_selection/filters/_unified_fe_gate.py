@@ -95,7 +95,7 @@ def _coerce_y_classes(y) -> np.ndarray:
         if _hit is not None:
             return np.asarray(_hit.copy())
     except Exception as e:
-        logger.debug("y-coerce memo key computation failed, skipping the memo: %s", e)
+        logger.warning("y-coerce memo key computation failed, skipping the memo: %s", e)
         _key = None
     _res = _coerce_y_classes_impl(y_arr)
     if _key is not None:
@@ -236,7 +236,7 @@ def raw_mi_noise_floor(
         if _hit is not None:
             return _hit
     except Exception as e:
-        logger.debug("raw-MI-floor memo key computation failed, skipping the memo: %s", e)
+        logger.warning("raw-MI-floor memo key computation failed, skipping the memo: %s", e)
         _key = None
 
     # Class-B :311 collapse: under STRICT-residency ``_mi_classif_batch(arr)`` already routes

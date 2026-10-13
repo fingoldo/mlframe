@@ -287,7 +287,7 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
                 if _psi.ndim == 1 and 0 < _psi.shape[0] < len(vals_a_full) and int(_psi.max()) < len(vals_a_full):
                     _poly_shared_idx = _psi.astype(np.int64, copy=False)
             except Exception as e:
-                logger.debug("shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
+                logger.warning("shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
                 _poly_shared_idx = None
         if _poly_shared_idx is not None:
             # Reuse the fit's ONE shared draw (same rows as the pair-search / sufficiency floor).
@@ -366,7 +366,7 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
                         if _tf.size == _yv.size and float(np.std(_tf)) > 1e-12 and float(np.std(_yv)) > 1e-12:
                             _trivial_corr = abs(float(np.corrcoef(_tf, _yv)[0, 1]))
                     except Exception as e:
-                        logger.debug("trivial-correlation pre-check failed, falling back to MI-only skip: %s", e)
+                        logger.warning("trivial-correlation pre-check failed, falling back to MI-only skip: %s", e)
                         _trivial_corr = 1.0  # corr unavailable -> fall back to MI-only skip
                 if poly_cheap_skip_min_corr <= 0.0 or _trivial_corr >= poly_cheap_skip_min_corr:
                     return (raw_vars_pair, _POLY_CHEAP_SKIP, vals_a_full, vals_b_full)
@@ -667,7 +667,7 @@ def _run_polynom_pair_f_synergy_kept_operand_indices(X, _numeric_pos):
                 import pandas as _pd
                 _numeric_pos = {i for i, _dt in enumerate(_dtypes) if _pd.api.types.is_numeric_dtype(_dt)}
     except Exception as e:
-        logger.debug("numeric-dtype position detection failed: %s", e)
+        logger.warning("numeric-dtype position detection failed: %s", e)
         _numeric_pos = None
     return _numeric_pos
 

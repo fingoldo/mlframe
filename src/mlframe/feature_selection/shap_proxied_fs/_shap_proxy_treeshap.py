@@ -605,11 +605,11 @@ def _lightgbm_booster_and_nfeatures(estimator):
     try:
         n_features = int(estimator.n_features_in_)
     except Exception as e:
-        logger.debug("estimator.n_features_in_ unavailable, falling back to booster.num_feature(): %s", e)
+        logger.warning("estimator.n_features_in_ unavailable, falling back to booster.num_feature(): %s", e)
         try:
             n_features = int(booster.num_feature())
         except Exception as e2:
-            logger.debug("booster.num_feature() failed, falling back to dump_model(): %s", e2)
+            logger.warning("booster.num_feature() failed, falling back to dump_model(): %s", e2)
             n_features = int(booster.dump_model().get("max_feature_idx", 0)) + 1
     return booster, n_features
 
@@ -624,7 +624,7 @@ def extract_ensemble(estimator) -> Optional[TreeEnsemble]:
         try:
             n_features = int(estimator.n_features_in_)
         except Exception as e:
-            logger.debug("estimator.n_features_in_ unavailable, falling back to booster.feature_names: %s", e)
+            logger.warning("estimator.n_features_in_ unavailable, falling back to booster.feature_names: %s", e)
             n_features = len(booster.feature_names) if booster.feature_names else 0
         return _extract_xgboost_ensemble(booster, n_features)
     if is_supported_lightgbm(estimator):

@@ -266,7 +266,7 @@ def _compute_one_fe_chunk(
                         _defer_b_cols = np.asarray(_b_cols, dtype=np.int64)
                         _defer_ops = np.asarray(_ops, dtype=np.int8)
             except Exception:
-                logger.debug("FE chunk GPU materialise+binning failed; CPU materialise", exc_info=True)
+                log_throttle(logger, "pairs_chunk_gpu_materialise", logging.WARNING, "FE chunk GPU materialise+binning failed; CPU materialise", exc_info=True)
                 _gpu_disc_2d = None
                 _gpu_materialise_done = False
         if col > 0 and not _gpu_materialise_done:
@@ -362,7 +362,7 @@ def _compute_one_fe_chunk(
                 from .._gpu_resident_fe import gpu_discretize_codes_host
                 disc_2d = gpu_discretize_codes_host(chunk_buffer[:, :col], int(quantization_nbins), dtype=_code_dtype)
         except Exception:
-            logger.debug("FE chunk GPU binning failed; CPU discretise", exc_info=True)
+            log_throttle(logger, "pairs_chunk_gpu_binning", logging.WARNING, "FE chunk GPU binning failed; CPU discretise", exc_info=True)
             disc_2d = None
     if disc_2d is None:
         disc_2d = discretize_2d_quantile_batch(
