@@ -23,6 +23,7 @@ imports stay inside the function to preserve the original import timing and the
 from __future__ import annotations
 
 import logging
+import warnings
 import os
 import textwrap
 from timeit import default_timer as timer
@@ -322,6 +323,20 @@ def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbin
             _above_floor = [(i, _mi, _c) for i, _mi, _c in _raw_mi if _mi > _floor]
 
             _topk = _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap)
+            # No raw feature is significant and no engineered one survived: say so on the instance, then return what the policy chooses.
+            if not _topk and n_engineered_out == 0:
+                from .._no_significant_policy import resolve_no_significant_policy
+
+                self.no_significant_features_ = True
+                _policy = resolve_no_significant_policy(self)
+                _msg = (
+                    "MRMR: no feature is significant against its permutation null; "
+                    f"returning per the no_significant policy {_policy!r} (no_significant_features_ is set on the estimator)."
+                )
+                warnings.warn(_msg, UserWarning, stacklevel=2)
+                logger.warning(_msg)
+                if _policy == "all_orig_features":
+                    _topk = list(range(self.n_features_in_))
             # ``min_features_fallback`` count floor: if the significance/redundancy gates left fewer than the requested K, top up from the remaining above-absolute-floor
             # candidates (magnitude order) so legacy callers asking for >=K always get at least K. The never-empty guarantee then keeps one column even on a fully-null pool.
             # SURVIVING ENGINEERED FEATURES COUNT TOWARD THE FLOOR: the floor is "support is never empty / has >= K features", and ``get_feature_names_out`` returns

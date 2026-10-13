@@ -487,6 +487,7 @@ class _MRMRFitHelpersMixin:
         self._engineered_features_: list = []
         self._engineered_recipes_: list = []  # list invariant (matches the full-fit paths); consumers iterate it as a list
         self.fallback_used_ = False
+        self.no_significant_features_ = False
         self.dcd_ = None
         # None when DCD was disabled or did not run.
         self.cluster_members_ = None
