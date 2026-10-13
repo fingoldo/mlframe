@@ -150,7 +150,7 @@ def _drop_specs_whose_bases_the_suite_cannot_materialise(disc, split_frames, tar
 def _cell_fingerprint(value: Any) -> Any:
     """Hashable stand-in for one cell: arrays and lists hash by their bytes, everything else passes through unchanged."""
     if isinstance(value, np.ndarray):
-        return f"nd:{value.dtype.str}:{value.shape}:{hashlib.blake2b(np.ascontiguousarray(value).tobytes(), digest_size=16).hexdigest()}"
+        return f"nd:{value.dtype.str}:{value.shape}:{hashlib.blake2b(np.ascontiguousarray(value).view(np.uint8).data, digest_size=16).hexdigest()}"
     if isinstance(value, (list, tuple)):
         return repr(value)
     return value
