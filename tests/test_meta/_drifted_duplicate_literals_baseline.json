@@ -64,14 +64,6 @@
       "count": 1,
       "note": "kernel-tuning sweep grids are per-kernel measurement points that coincide by choice, not a shared constant"
     },
-    "literal-set::(50000, 200000, 1000000)::data_valuation/_propagate_gpu_ktc.py feature_selection/filters/_fe_synergy_exhaustive.py feature_selection/filters/batch_pair_mi_gpu.py metrics/_gpu_metrics.py": {
-      "count": 1,
-      "note": "kernel-tuning sweep grids are per-kernel measurement points that coincide by choice, not a shared constant"
-    },
-    "literal-set::(50000, 200000, 500000, 2000000)::feature_selection/filters/batch_pair_mi_gpu.py feature_selection/filters/discretization/__init__.py": {
-      "count": 1,
-      "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
-    },
     "literal-set::(7, 11, 13, 17, 19, 23)::feature_selection/filters/_gpu_resident_materialise.py feature_selection/filters/_pairwise_modular_fe.py": {
       "count": 1,
       "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
@@ -83,6 +75,26 @@
     "literal-set::(7, 9, 11, 13, 14, 15)::feature_selection/filters/_gpu_resident_materialise.py feature_selection/filters/_usability_njit_pool.py": {
       "count": 1,
       "note": "a round-number default grid or ladder that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(0.001, 0.999)::feature_selection/filters/_offset_product_fe.py feature_selection/filters/_row_stat_fe.py": {
+      "count": 1,
+      "note": "a round-number clip default that each module picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(10000, 50000, 100000)::feature_selection/filters/_batch_mi_noise_gate_tuning.py feature_selection/filters/_usability_pool_resident_ktc.py models/ensembling/per_member_tuning.py training/composite/discovery/_ktc_dispatch.py": {
+      "count": 1,
+      "note": "a KTC sweep grid that each kernel tuner picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(100000, 300000, 1000000)::feature_selection/filters/_cat_confirm_permutation_tuning.py feature_selection/filters/_gpu_resident_k_chunk_ktc.py feature_selection/filters/_gpu_resident_radix_ktc.py feature_selection/filters/info_theory/_cmi_cuda_ktc.py models/ensembling/per_member_tuning.py": {
+      "count": 1,
+      "note": "a KTC sweep grid that each kernel tuner picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(1000000, 4000000)::feature_selection/filters/_wavelet_basis_fe.py feature_selection/filters/hermite_fe/__init__.py": {
+      "count": 1,
+      "note": "a KTC sweep grid that each kernel tuner picks independently; the values coincide, they do not have to move together"
+    },
+    "literal-set::(50000, 200000)::data_valuation/_propagate_gpu_ktc.py feature_selection/filters/_fe_synergy_exhaustive.py feature_selection/filters/_unary_elementwise_tuning.py feature_selection/filters/batch_pair_mi_gpu.py feature_selection/filters/discretization/__init__.py metrics/_gpu_metrics.py": {
+      "count": 1,
+      "note": "a KTC sweep grid that each kernel tuner picks independently; the values coincide, they do not have to move together"
     }
   },
   "gate": "drifted-duplicate-literals",
