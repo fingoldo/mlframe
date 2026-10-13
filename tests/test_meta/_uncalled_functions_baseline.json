@@ -8,26 +8,6 @@
       "count": 1,
       "note": ""
     },
-    "src/mlframe/calibration/probabilities.py::generate_probs_from_outcomes": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/calibration/probabilities.py::generate_similar_probs": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/calibration/probabilities.py::generate_similar_probs_by_ranking": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/calibration/probabilities.py::generate_similar_probs_logit_space": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/calibration/probabilities.py::generate_similar_probs_random_walk": {
-      "count": 1,
-      "note": ""
-    },
     "src/mlframe/calibration/quality.py::hyvarinen_score": {
       "count": 1,
       "note": ""

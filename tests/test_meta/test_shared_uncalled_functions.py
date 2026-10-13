@@ -146,6 +146,14 @@ _REEXPORTED_PUBLIC_API = {
     "winkler_score_per_group", "winkler_score_per_row"
 }
 
+#: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
+#: controlled inputs, never by the shipped pipeline. The gate scans production files only, so a benchmark call would not
+#: clear the entry; the reason is recorded here instead.
+_OFFLINE_GENERATORS = {
+    "generate_probs_from_outcomes", "generate_similar_probs", "generate_similar_probs_by_ranking",
+    "generate_similar_probs_logit_space", "generate_similar_probs_random_walk",
+}
+
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
 #: fallback): the typed-list DWT pair, the DFS MDLP twin of the BFS default, the CUDA DTW diagonal step, the numba column-
 #: stats kernel the benchmark compares against.
@@ -237,4 +245,4 @@ def test_no_new_function_without_a_caller(request):
     files = _production_files()
     assert len(files) > 1000, f"only {len(files)} production files found -- the scan lost its subject"
 
-    assert_no_new_uncalled_function(files, REPO_ROOT, BASELINE, ignore=_INTERPRETER_INVOKED | _PUBLIC_API | _REEXPORTED_PUBLIC_API | _RETAINED_KERNELS | _SCANNER_LAG | _NAME_DISPATCHED | _SUPERSEDED | _OPT_IN_SLOW | _OPTIN)
+    assert_no_new_uncalled_function(files, REPO_ROOT, BASELINE, ignore=_INTERPRETER_INVOKED | _PUBLIC_API | _REEXPORTED_PUBLIC_API | _OFFLINE_GENERATORS | _RETAINED_KERNELS | _SCANNER_LAG | _NAME_DISPATCHED | _SUPERSEDED | _OPT_IN_SLOW | _OPTIN)
