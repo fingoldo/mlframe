@@ -93,7 +93,7 @@ def cluster_su_gpu_available() -> bool:
         return True
     except ImportError as exc:
         # cupy genuinely absent: a fact about the install, so caching it for the process is correct.
-        logger.debug("cupy not importable, cluster-SU GPU unavailable: %s", exc)
+        logger.warning("cupy not importable, cluster-SU GPU unavailable: %s", exc)
         _GPU_AVAILABLE_CACHE = False
         return False
     except Exception as exc:

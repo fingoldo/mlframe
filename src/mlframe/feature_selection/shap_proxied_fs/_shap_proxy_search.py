@@ -262,7 +262,7 @@ def _resolve_brute_force_n_chunks() -> int:
 
         val = max(8, 2 * int(get_num_threads()))
     except Exception as e:
-        logger.debug("numba.get_num_threads() failed, using the default 8: %s", e)
+        logger.warning("numba.get_num_threads() failed, using the default 8: %s", e)
         val = 8
     try:
         from mlframe.feature_selection.filters import get_kernel_tuning_cache

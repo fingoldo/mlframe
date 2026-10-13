@@ -204,7 +204,7 @@ def gpu_model_available() -> bool:
     try:
         import cupy as cp
     except ImportError as e:
-        logger.debug("cupy not installed (%s); GPU model path unavailable.", e)
+        logger.warning("cupy not installed (%s); GPU model path unavailable.", e)
         _GPU_MODEL_AVAILABLE_CACHE = False
         return False
     try:
@@ -225,7 +225,7 @@ def gpu_model_available() -> bool:
     try:
         import xgboost as xgb
     except ImportError as e:
-        logger.debug("xgboost not installed (%s); GPU model path unavailable.", e)
+        logger.warning("xgboost not installed (%s); GPU model path unavailable.", e)
         _GPU_MODEL_AVAILABLE_CACHE = False
         return False
     try:
