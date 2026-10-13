@@ -143,7 +143,10 @@ else:  # pragma: no cover
 # in every unrelated test that transitively imports this module.
 import importlib.util as _ilu
 
-_HAS_LIGHTNING = _ilu.find_spec("pytorch_lightning") is not None
+try:
+    _HAS_LIGHTNING = _ilu.find_spec("pytorch_lightning") is not None
+except ImportError:  # a blocked or broken import path means Lightning is not usable here
+    _HAS_LIGHTNING = False
 
 
 class LightningStopFileCallback:
