@@ -20,7 +20,6 @@ import numpy as np
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
-_COMPOUND_VIEWS_LINEAR = True  # a view of the operands of a multi-source compound is scored by the linear channel only (False: skipped); a free-form gain is impossible there, a linear gain is not
 _TOKEN_SPLIT = re.compile(r"[(),|\s]+|__")
 
 __all__ = ["run_residual_rescue"]
@@ -209,7 +208,9 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
             """'skip': a view of the operands of one multi-source ENGINEERED design column (a refinement of a term the selection has); 'linear': a form of operands one RAW (or one-column
             engineered) design column holds: no free-form gain is possible, a linear model can still gain; 'free': anything else."""
             if _is_refinement(sources, engineered_held):
-                return "linear" if _COMPOUND_VIEWS_LINEAR else "skip"
+                # A view of the operands of a multi-source compound is scored by the linear channel only: a free-form gain is impossible there, a linear gain is not.
+                # The rejected alternative (skip such views entirely) was never the production arm and is no longer reachable from configuration.
+                return "linear"
             return "linear" if sources and _is_refinement(sources, raw_held) else "free"
 
         pool = {

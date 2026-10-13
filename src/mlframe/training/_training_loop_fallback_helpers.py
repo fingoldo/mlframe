@@ -469,8 +469,8 @@ def _train_model_with_f_pandas_model_type_name(_is_pandas, model_type_name, fit_
                     # Copy once per call, never trust a pre-existing ``_mlframe_filled`` flag (see the text-route block above).
                     if train_df is _frame_in:
                         train_df = train_df.copy(deep=False)
+                        train_df._mlframe_filled = True
                     train_df[_c] = _s.astype("string").fillna("__MISSING__").astype("category")
-                    train_df._mlframe_filled = True
             # Symmetric fill on eval_set so val/test slices don't trip the
             # same NaN check during early-stopping evaluation.
             _eval_set = fit_params.get("eval_set")
