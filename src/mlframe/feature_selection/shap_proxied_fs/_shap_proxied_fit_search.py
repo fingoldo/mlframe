@@ -103,7 +103,9 @@ def run_search(self: Any, optimizer: str, phi: np.ndarray, base: np.ndarray, y: 
             top_n=self.top_n,
         ))
     if optimizer == "gradient":
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gradient import gradient_top_n
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gradient import gradient_top_n, torch_available
 
+        if not torch_available():
+            raise ImportError("optimizer='gradient' needs PyTorch, which is not importable in this environment")
         return list(gradient_top_n(phi, base, y, classification=self.classification, metric=self.metric, random_state=int(self.random_state), top_n=self.top_n))
     raise ValueError(f"Unknown optimizer={optimizer!r}")

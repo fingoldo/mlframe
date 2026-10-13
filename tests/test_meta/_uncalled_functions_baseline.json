@@ -824,51 +824,11 @@
       "count": 1,
       "note": ""
     },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_calibrate.py::subset_redundancy": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_catboost.py::reset_catboost_available_cache": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py::_pack_bins_for_kernel": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py::reset_cluster_su_gpu_probe": {
-      "count": 1,
-      "note": ""
-    },
     "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_compose.py::per_fold_stability_select": {
       "count": 1,
       "note": ""
     },
     "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_compose.py::proposal_generator": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_gradient.py::torch_available": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_objective.py::subset_uncertainty": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_prefilter.py::get_stage1_survivors": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_prefilter.py::reset_gpu_model_available_cache": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_search.py::_topn_fixed_r": {
-      "count": 1,
-      "note": ""
-    },
-    "src/mlframe/feature_selection/shap_proxied_fs/_shap_proxy_search.py::_topn_fixed_r_parallel": {
       "count": 1,
       "note": ""
     },

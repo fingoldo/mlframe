@@ -43,6 +43,7 @@ _PUBLIC_API = {
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
 #: users, so no production call site is expected. Classified as public API; new names must be added here with the export.
 _REEXPORTED_PUBLIC_API = {
+    "get_stage1_survivors",  # listed in the _shap_proxy_prefilter module __all__: public accessor for the stage-1 survivor mask
     "train_postcalibrators",  # re-exported by the calibration.post facade (from ._post_train_calibrators import ...)
     "_baseline_inputs_hash", "_detect_fourier_freq_for_col", "_ewma_compute_batched", "_frac_diff_inverse_compute_batched", "_knuth_log_posterior",
     "_ksg_mi_1d", "_polars_df_has_null_in_categorical", "_pre_pipeline_cache_clear", "_pre_pipeline_cache_set", "_quantile_edges_2d_njit_partition",
@@ -150,6 +151,11 @@ _REEXPORTED_PUBLIC_API = {
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
 #: controlled inputs, never by the shipped pipeline. The gate scans production files only, so a benchmark call would not
 #: clear the entry; the reason is recorded here instead.
+#: Cache-reset helpers that tests call to isolate a memoised availability probe (documented in each docstring).
+_TEST_UTILITIES = {
+    "reset_catboost_available_cache", "reset_cluster_su_gpu_probe", "reset_gpu_model_available_cache",
+}
+
 _OFFLINE_GENERATORS = {
     "generate_probs_from_outcomes", "generate_similar_probs", "generate_similar_probs_by_ranking",
     "generate_similar_probs_logit_space", "generate_similar_probs_random_walk",
@@ -160,6 +166,7 @@ _OFFLINE_GENERATORS = {
 #: fallback): the typed-list DWT pair, the DFS MDLP twin of the BFS default, the CUDA DTW diagonal step, the numba column-
 #: stats kernel the benchmark compares against.
 _RETAINED_KERNELS = {
+    "_topn_fixed_r", "_topn_fixed_r_parallel",  # keep-all-kernels rule: serial and chunk-parallel top-N kernels kept side by side (A/B), see _shap_proxy_search docstring
     "_wavedec_numba_typedlist", "_waverec_numba_typedlist", "_mdlp_recurse_validated", "_numba_cuda_diagonal_step",
     "_col_stats_float_numba_kernel",
 }
@@ -214,6 +221,9 @@ _NAME_DISPATCHED = {
 #: Replaced by a faster or more efficient version and kept as the reference the replacement is checked against. Each entry
 #: names its replacement; a superseded function with no parity test is a gap, not a reference.
 _SUPERSEDED = {
+    "subset_redundancy",  # scalar form of subset_redundancy_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_calibrate.py
+    "subset_uncertainty",  # scalar form of subset_uncertainty_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_objective.py
+    "_pack_bins_for_kernel",  # per-column Python loop replaced by _compute_marginals_packed; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_cluster_su_fused_setup.py
     "hyvarinen_score",  # deprecated alias of mutual_information_score; parity + DeprecationWarning pinned in tests/calibration/test_mutual_information_rename.py
     "_oof_column_gather",  # stacks the per-fold tables first; _oof_column_from_table does the same gather on the table already stacked and is what the builder calls
     "_oof_column_foldloop",  # parity oracle for _oof_column_gather (tests/feature_selection/fe/gpu/test_binagg_oof_gather_parity.py)
@@ -248,4 +258,4 @@ def test_no_new_function_without_a_caller(request):
     files = _production_files()
     assert len(files) > 1000, f"only {len(files)} production files found -- the scan lost its subject"
 
-    assert_no_new_uncalled_function(files, REPO_ROOT, BASELINE, ignore=_INTERPRETER_INVOKED | _PUBLIC_API | _REEXPORTED_PUBLIC_API | _OFFLINE_GENERATORS | _RETAINED_KERNELS | _SCANNER_LAG | _NAME_DISPATCHED | _SUPERSEDED | _OPT_IN_SLOW | _OPTIN)
+    assert_no_new_uncalled_function(files, REPO_ROOT, BASELINE, ignore=_INTERPRETER_INVOKED | _PUBLIC_API | _REEXPORTED_PUBLIC_API | _OFFLINE_GENERATORS | _TEST_UTILITIES | _RETAINED_KERNELS | _SCANNER_LAG | _NAME_DISPATCHED | _SUPERSEDED | _OPT_IN_SLOW | _OPTIN)
