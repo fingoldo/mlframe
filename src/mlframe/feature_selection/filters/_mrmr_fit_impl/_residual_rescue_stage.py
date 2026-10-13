@@ -17,6 +17,8 @@ import re
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 _COMPOUND_VIEWS_LINEAR = True  # a view of the operands of a multi-source compound is scored by the linear channel only (False: skipped); a free-form gain is impossible there, a linear gain is not
 _TOKEN_SPLIT = re.compile(r"[(),|\s]+|__")
@@ -104,7 +106,7 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
         try:
             pool[name] = np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
         except Exception:
-            logger.warning("MRMR target-mix candidate %r failed to replay; skipped.", name, exc_info=True)
+            log_throttle(logger, "residual_rescue_stage.target_mix_replay_failed", logging.WARNING, "MRMR target-mix candidate %r failed to replay; skipped.", name, exc_info=True)
             continue
         recipes[name] = recipe
         if kind == "linear":

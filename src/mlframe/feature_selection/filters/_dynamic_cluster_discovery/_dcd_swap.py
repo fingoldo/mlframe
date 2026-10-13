@@ -13,6 +13,7 @@ import logging
 import zlib
 from typing import TYPE_CHECKING, Optional
 
+from mlframe.utils.log_throttle import log_throttle
 from ._dcd_swap_matrix import _resolve_member_matrix
 
 import numpy as np
@@ -584,7 +585,7 @@ def _evaluate_swap_cand_its_own_per_member(state, _sorted_cluster, target_arr, S
                         target_arr, state.factors_nbins,
                     ))
             except Exception as e:
-                logger.warning("relevance computation failed for member %r, result degraded: recording 0.0: %s", m_idx, e)
+                log_throttle(logger, "dcd_swap.relevance_failed", logging.WARNING, "relevance computation failed for member %r, result degraded: recording 0.0: %s", m_idx, e)
                 m_rel = 0.0
             member_relevances[int(m_idx)] = m_rel
             if m_rel > best_member_rel:
