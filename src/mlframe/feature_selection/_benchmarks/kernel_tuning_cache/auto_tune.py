@@ -101,7 +101,7 @@ def _measure_single_region(
             try:
                 wall = _measure_one(kernel, grid_x, bs, args, n_iters=n_iters, shared_mem_bytes=smem)
             except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed in auto_tune.py:104: %s", e)
+                logger.debug("suppressed in the kernel timing probe: %s", e)
                 continue
             if wall < best_wall:
                 best_wall = wall
