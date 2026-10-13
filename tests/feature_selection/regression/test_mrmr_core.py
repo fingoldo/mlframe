@@ -756,7 +756,7 @@ def test_regression_pyproject_pins_pyutilz_commit():
     py-ci-shared stays deliberately unpinned (first-party CI tooling, never shipped to PyPI consumers), so only
     pyutilz is asserted here.
     """
-    import tomllib
+    tomllib = pytest.importorskip("tomllib", reason="tomllib is stdlib from Python 3.11; this check needs it")
     from pathlib import Path
 
     pyproject_path, lock_path = (Path(__file__).resolve().parents[3] / name for name in ("pyproject.toml", "uv.lock"))
