@@ -295,6 +295,7 @@ def test_regression_grouped_agg_nunique_fallback_is_group_scale_not_population_s
     enc_df, _recipes = generate_grouped_agg_features(X, ["grp"], ["num"], stats=["nunique"])
     col = next(c for c in enc_df.columns if "nunique" in c)
     real_per_group_values = enc_df[col].unique()
+    assert len(real_per_group_values) > 0, "grouped nunique produced no values, so the scale check below would pass vacuously"
     # The whole-population cardinality (the pre-fix fallback) must NOT appear as a "fallback" value mixed
     # into an otherwise per-group-scale column -- every observed value should be well below n (real groups
     # were all seen at fit time here, so this just pins the per-group scale is sane, not degenerate).
