@@ -725,7 +725,7 @@ def get_fleuret_criteria_confidence(
     cached_cond_MIs: Optional[dict] = None,
     entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
-    dtype=np.int32,
+    dtype: type = np.int32,
     base_seed: np.uint64 = _DEFAULT_BASE_SEED,
     use_su: bool = False,  # Threaded from Python-level parallel_fleuret.
     use_mm: bool = False,  # N-F2: threaded from parallel_fleuret (MM redundancy consistency).
