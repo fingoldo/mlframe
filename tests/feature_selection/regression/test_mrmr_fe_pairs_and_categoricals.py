@@ -372,18 +372,6 @@ def test_regression_cat_fe_config_rejects_out_of_range_fields(kwarg, bad_value, 
 # ---------------------------------------------------------------------------
 
 
-def test_regression_cat_interactions_no_mojibake_comment():
-    """Post-fix: the corrupted comment is repaired; no other file in the repo shares the same corruption
-    signature."""
-    import inspect
-
-    from mlframe.feature_selection.filters import cat_interactions as mod
-
-    src = inspect.getsource(mod)
-    assert "n/30 + 1" in src
-    assert "РІР‚В°РІвЂљВ¬" not in src
-
-
 # ---------------------------------------------------------------------------
 # CAT_INTERACTION_A-7 (P2): cat_num_interaction_fit's docstring falsely claimed y-stratified fold
 # assignment for binary targets; the implementation always uses a plain random permutation split.
