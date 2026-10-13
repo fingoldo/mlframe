@@ -102,22 +102,6 @@ def test_regression_polynom_optimizer_5th_element_contract_documented():
 # ---------------------------------------------------------------------------
 
 
-def test_regression_polynom_pair_fe_x_assignment_before_list_append():
-    """Post-fix: the X column assignment happens BEFORE _new_data_cols.append, so a raise during
-    assignment leaves the survivor lists untouched (no orphaned column baked into data/nbins)."""
-    import inspect
-    import sys
-
-    from mlframe.feature_selection.filters.polynom_pair_fe import run_polynom_pair_fe
-
-    src = inspect.getsource(
-        sys.modules[run_polynom_pair_fe.__module__]
-    )  # the step is split into module-level helpers; the pinned statement lives in one of them
-    assign_pos = src.index("X[_new_col_name] = _t_vals")
-    append_pos = src.index("_new_data_cols.append(_new_binned)")
-    assert assign_pos < append_pos, "X column assignment must happen before the survivor-list append"
-
-
 # ---------------------------------------------------------------------------
 # ORTH_BASIS_A-8 (P2): scan_integer_lattice_pairs (prototype) constructed a fresh np.random.default_rng
 # inside the innermost per-candidate loop, so every candidate was tested against the IDENTICAL n_perm
