@@ -373,6 +373,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     # vs full-n screen), headroom for the gate-detection MI band.
     _DEFAULT_SCREEN_SUBSAMPLE_N = UNIFIED_FE_SUBSAMPLE_N
 
+    # Long by design: most of this signature is per-parameter rationale comments; the parameters stay here for sklearn introspection.
     def __init__(
         self,
         # quantization
