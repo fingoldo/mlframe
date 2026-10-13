@@ -549,7 +549,7 @@ def _mi_chunk_cols_for(n_rows: int) -> int:
         import psutil
         free = int(psutil.virtual_memory().available)
     except Exception as e:
-        logger.debug("psutil.virtual_memory() probe failed, using the conservative 2GiB default: %s", e)
+        logger.warning("psutil.virtual_memory() probe failed, using the conservative 2GiB default: %s", e)
         free = 2 * 1024**3
     budget = max(1, int(free * 0.10))
     by_ram = budget // (max(1, int(n_rows)) * 8 * 3)
