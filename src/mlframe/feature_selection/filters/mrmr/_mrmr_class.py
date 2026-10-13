@@ -537,7 +537,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # 1% imbalance, but noise is only 2.5% of signal). 0.0 disables; 0.05
         # = stop once gain falls below 5% of first gain. Applies from the
         # SECOND selected feature onward (the first feature is the anchor).
-        min_relevance_gain_relative_to_first: float = 0.0,
+        min_relevance_gain_relative_to_first: float = 0.05,
         # Miller-Madow MI bias correction at the selection gate.
         # Plug-in MI overestimates by ~(|X|-1)*(|Y|-1)/(2n) for high-card
         # X (Miller 1955, Paninski 2003). On 1200-level user_id at n=2500

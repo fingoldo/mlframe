@@ -114,7 +114,7 @@ class MRMRParams(BaseModel):
     min_relevance_gain: float = 0.0001
     min_relevance_gain_frac: float = 0.001
     min_relevance_gain_mode: str = "relative_to_entropy"
-    min_relevance_gain_relative_to_first: float = 0.0
+    min_relevance_gain_relative_to_first: float = 0.05
     cardinality_bias_correction: bool = True
     max_consec_unconfirmed: int = 10
     max_runtime_mins: float | None = None
