@@ -480,7 +480,7 @@ class MRMRParams(BaseModel):
     fe_numeric_decompose_digits: tuple = (0, 1, 2)
     fe_numeric_decompose_n_boot: int = 10
     fe_numeric_decompose_top_k: int = 5
-    fe_modular_enable: bool = False
+    fe_modular_enable: bool = True
     fe_modular_periods: tuple = (7, 12, 24, 30, 365)
     fe_modular_top_k: int = 6
     fe_discrete_structural_operators_enable: bool = True

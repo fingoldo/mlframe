@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 import logging
 import warnings
 
+import numpy as np
 import pandas as pd
 from .._y_encoding import encode_y_for_classif_mi
 from ._fe_stage_merge import _fe_merge_new_columns
@@ -588,7 +589,7 @@ def _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_p
 
 def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose):
     """Run the modular (auto-period) feature family when it is enabled."""
-    if _fe_family_on("fe_modular_enable", False):
+    if _fe_family_on("fe_modular_enable", True):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 95 modular FE enabled but X is not a pandas "
@@ -632,6 +633,24 @@ def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
                     type(_md_exc).__name__,
                     _md_exc,
                 )
+        # Floor-parity family rides on the same flag: a square wave of one column with a scanned period. The period scan
+        # scores candidates by discrete MI, so it runs only on a classification-like target (few distinct values).
+        if isinstance(X, pd.DataFrame) and len(np.unique(_y_np)) <= 10:
+            try:
+                from mlframe.feature_selection.filters._parity_fe import hybrid_parity_fe_with_recipes
+
+                _raw_par_cols = [c for c in X.columns if "__" not in str(c)]
+                X_par, _par_appended, _par_recipes, _ = hybrid_parity_fe_with_recipes(X, _y_np, cols=_raw_par_cols)
+                if _par_appended:
+                    X = X_par
+                    self.parity_features_ = list(_par_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_par_appended)
+                    for _r in _par_recipes:
+                        _modular_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info("MRMR.fit parity: appended %d engineered column(s): %s", len(_par_appended), _par_appended[:8])
+            except Exception as _par_exc:
+                logger.warning("MRMR.fit parity FE raised %s: %s; continuing without parity columns.", type(_par_exc).__name__, _par_exc)
     return X
 
 def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned, _pairwise_modular_pre_recipes, verbose):

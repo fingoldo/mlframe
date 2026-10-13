@@ -41,7 +41,7 @@ One recipe kind ``modular`` with ``extra = {period: float, op: str}`` where
 ``op in {"mod", "sin", "cos"}``. Replay is pure arithmetic on the single source
 column - no y reference, leakage-free by construction, train/test exact.
 
-NOT wired into ``MRMR.fit`` by default - opt-in via ``fe_modular_enable=True``.
+Wired into ``MRMR.fit`` by default; disable with ``fe_modular_enable=False``.
 """
 from __future__ import annotations
 
@@ -139,8 +139,8 @@ DEFAULT_PERIODS = (7, 12, 24, 30, 365)
 
 # op token -> name fragment. ``mod`` -> ``mod``, ``sin`` -> ``modsin``,
 # ``cos`` -> ``modcos`` (per the design spec).
-_OP_FRAGMENT = {"mod": "mod", "sin": "modsin", "cos": "modcos"}
-_VALID_OPS = ("mod", "sin", "cos")
+_OP_FRAGMENT = {"mod": "mod", "sin": "modsin", "cos": "modcos", "parity": "par"}
+_VALID_OPS = ("mod", "sin", "cos", "parity")
 
 def _fmt_period(period: float) -> str:
     """Stable, name-safe token for a period (``24`` -> ``"24"``, ``0.5`` ->
@@ -180,6 +180,9 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     if op not in _VALID_OPS:
         raise ValueError(f"modular op must be one of {_VALID_OPS}; got {op!r}")
     arr = np.ascontiguousarray(x, dtype=np.float64)
+    if op == "parity":
+        # Square wave: floor(x / period) mod 2. NaN / inf scrub to 0 like the other ops.
+        return np.nan_to_num(np.floor(arr / p) % 2.0, nan=0.0, posinf=0.0, neginf=0.0)
     op_code = 0 if op == "mod" else (1 if op == "sin" else 2)
     return np.asarray(_modular_njit(arr, p, op_code))
 
@@ -216,7 +219,7 @@ def _parse_modular_name(name: str):
         return None
     src, suffix = name.split("__", 1)
     # Longest fragment first: modsin / modcos before mod.
-    for op, frag in (("sin", "modsin"), ("cos", "modcos"), ("mod", "mod")):
+    for op, frag in (("sin", "modsin"), ("cos", "modcos"), ("mod", "mod"), ("parity", "par")):
         prefix = frag + "_"
         if suffix.startswith(prefix):
             tok = suffix[len(prefix) :]

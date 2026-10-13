@@ -2760,7 +2760,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the signal and survives, wrong periods scramble it into noise and fall
         # below the floor. Default OFF -> byte-identical legacy path. ``cols``
         # empty => all numeric columns.
-        fe_modular_enable: bool = False,
+        fe_modular_enable: bool = True,
         fe_modular_periods: tuple = (7, 12, 24, 30, 365),
         fe_modular_top_k: int = 6,
         # PAIRWISE / N-WAY MODULAR FE (extends the single-column modular path above).

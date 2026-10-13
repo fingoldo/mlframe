@@ -21,6 +21,8 @@ from mlframe.feature_selection.filters._periodic_fe import (
     generate_modular_features,
 )
 
+_FIXED_OPS = tuple(op for op in _VALID_OPS if op != "parity")
+
 
 def _legacy_generate(X, periods):
     """Legacy generate."""
@@ -28,7 +30,8 @@ def _legacy_generate(X, periods):
     for c in X.columns:
         x = np.ascontiguousarray(X[c].to_numpy(), dtype=np.float64)
         for p in periods:
-            for op in _VALID_OPS:
+            # ``parity`` is target-scanned (its period is chosen against y), so the y-free fused generator does not emit it.
+            for op in _FIXED_OPS:
                 oc = 0 if op == "mod" else (1 if op == "sin" else 2)
                 out[engineered_name_modular(c, p, op)] = _modular_njit(x, float(p), oc)
     return pd.DataFrame(out, index=X.index)
