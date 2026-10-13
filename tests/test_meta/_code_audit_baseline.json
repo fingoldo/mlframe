@@ -368,7 +368,6 @@
   "non_neutral_except_fallback::feature_selection/filters/_resident_candidate_mi_ktc.py::6d5cbc59aea6",
   "non_neutral_except_fallback::feature_selection/filters/_screen_predictors.py::6d5cbc59aea6",
   "non_neutral_except_fallback::feature_selection/filters/_usability_aware_selection.py::76e1a3ffae4c",
-  "non_neutral_except_fallback::feature_selection/filters/_usability_greedy_gpu_resident.py::6d5cbc59aea6",
   "non_neutral_except_fallback::feature_selection/filters/_usability_pool_resident_ktc.py::6d5cbc59aea6",
   "non_neutral_except_fallback::feature_selection/filters/engineered_recipes/_recipe_core.py::1aefb7efdf44",
   "non_neutral_except_fallback::feature_selection/filters/engineered_recipes/_recipe_core.py::3b7799b368b1",
