@@ -14,8 +14,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 import pandas as pd
-from numba import njit
-from sklearn.metrics import mutual_info_score
+from numba import njit, prange
 
 from ._periodic_fe import apply_modular, build_modular_recipe, engineered_name_modular
 
@@ -27,27 +26,26 @@ _GRID_POINTS = 120
 _BINS = 10
 
 
-@njit(cache=True)
+@njit(cache=True, parallel=True)
 def _parity_mi_grid_njit(v: np.ndarray, y_codes: np.ndarray, n_classes: int, periods: np.ndarray) -> np.ndarray:
-    """MI (nats) of ``floor(v / p) mod 2`` with the discrete target for every candidate period ``p``, in one pass.
+    """MI (nats) of ``floor(v / p) mod 2`` with the discrete target for every candidate period ``p``, periods scanned in parallel.
 
     Counts the 2 x n_classes contingency table per period straight from the codes, so the scan costs O(n) per period with no
-    per-call allocation; the MI matches ``sklearn.metrics.mutual_info_score`` on the same codes.
+    per-call allocation; the class totals do not depend on the period and are counted once. The period is applied as a multiply
+    by its reciprocal, which can move a value that sits exactly on a bin edge into the neighbouring bin; the selected feature is
+    unchanged because the grid is geometric and the MI is flat across that edge.
     """
     n = v.shape[0]
     out = np.zeros(periods.shape[0], dtype=np.float64)
-    counts = np.zeros((2, n_classes), dtype=np.int64)
     cls_tot = np.zeros(n_classes, dtype=np.int64)
-    for g in range(periods.shape[0]):
-        p = periods[g]
-        counts[:, :] = 0
-        cls_tot[:] = 0
+    for i in range(n):
+        cls_tot[y_codes[i]] += 1
+    for g in prange(periods.shape[0]):
+        inv = 1.0 / periods[g]
+        counts = np.zeros((2, n_classes), dtype=np.int64)
         for i in range(n):
-            c = int(np.floor(v[i] / p)) % 2
-            if c < 0:
-                c += 2
+            c = int(np.floor(v[i] * inv)) & 1
             counts[c, y_codes[i]] += 1
-            cls_tot[y_codes[i]] += 1
         mi = 0.0
         for c in range(2):
             row = counts[c, :].sum()
@@ -62,6 +60,27 @@ def _parity_mi_grid_njit(v: np.ndarray, y_codes: np.ndarray, n_classes: int, per
     return out
 
 
+@njit(cache=True)
+def _mi_codes_njit(x_codes: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int) -> float:
+    """Plug-in MI (nats) of two integer-coded vectors from one contingency pass; equals ``sklearn.metrics.mutual_info_score``."""
+    n = x_codes.shape[0]
+    joint = np.zeros((n_x, n_y), dtype=np.int64)
+    for i in range(n):
+        joint[x_codes[i], y_codes[i]] += 1
+    px = joint.sum(axis=1)
+    py = joint.sum(axis=0)
+    mi = 0.0
+    for a in range(n_x):
+        if px[a] == 0:
+            continue
+        for b in range(n_y):
+            nab = joint[a, b]
+            if nab == 0:
+                continue
+            mi += (nab / n) * np.log((nab * n) / (px[a] * py[b]))
+    return mi
+
+
 def _parity_grid(v: np.ndarray) -> np.ndarray:
     """Geometric grid of candidate periods spanning the column's central range, from a small fraction to twice its span."""
     lo, hi = np.nanquantile(v, [0.01, 0.99])
@@ -74,8 +93,9 @@ def _parity_grid(v: np.ndarray) -> np.ndarray:
 def _raw_mi(v: np.ndarray, y: np.ndarray) -> float:
     """MI of the raw column with the target, after quantile binning into ``_BINS`` bins."""
     edges = np.unique(np.nanquantile(v, np.linspace(0.0, 1.0, _BINS + 1)))
-    codes = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, max(len(edges) - 2, 0))
-    return float(mutual_info_score(y, codes))
+    codes = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, max(len(edges) - 2, 0)).astype(np.int64)
+    _, y_codes = np.unique(y, return_inverse=True)
+    return float(_mi_codes_njit(codes, max(len(edges) - 1, 1), y_codes.astype(np.int64).ravel(), int(y_codes.max()) + 1))
 
 
 def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
