@@ -639,7 +639,7 @@ def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
             try:
                 from mlframe.feature_selection.filters._parity_fe import hybrid_parity_fe_with_recipes
 
-                _raw_par_cols = [c for c in X.columns if "__" not in str(c)]
+                _raw_par_cols = [c for c in X.columns if "__" not in str(c) and pd.api.types.is_numeric_dtype(X[c])]
                 X_par, _par_appended, _par_recipes, _ = hybrid_parity_fe_with_recipes(X, _y_np, cols=_raw_par_cols)
                 if _par_appended:
                     X = X_par
