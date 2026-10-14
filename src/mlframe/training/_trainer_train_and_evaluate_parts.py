@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import polars as pl
 
-from mlframe.training.io import safe_joblib_load
+from mlframe.training.io import load_mlframe_model
 from .utils import maybe_clean_ram_adaptive as _maybe_clean_ram
 
 # Heavy optional deps: defer failures to first actual use so `import mlframe.training` stays cheap and does not crash when a given backend is not installed.
@@ -117,19 +117,24 @@ def _train_and_evaluate_use_cache_exists_model(use_cache, model_file_name, trust
         # Security: verify the model path is inside a trusted root before the joblib.load (pickle). Default `trusted_root` to the model file's parent dir when
         # not provided, preserving backward compat for the in-process trained-then-loaded flow (the trainer wrote this file itself). RESIDUAL RISK (audit2 F2):
         # path-containment cannot catch a pickle an attacker plants AT the expected model_file_name (it's exactly where we look) -- only integrity can.
-        # safe_joblib_load below closes the RCE-gadget half (denylists eval/exec/os/subprocess/etc. reconstructors), but NOT the authenticity half: the complete
-        # fix is to write + verify a sha256 sidecar around this save/load pair via utils.safe_pickle.safe_load (fail-closed on a missing/mismatched sidecar);
-        # tracked as an owned follow-up since it needs the paired SAVE site (not in this file) to emit the sidecar first. Until then this default only blocks
-        # gross path escapes and known RCE gadgets, not a planted-at-path pickle built from an otherwise-permitted class.
+        # load_mlframe_model below resolves classes through the allowlist of _SafeUnpickler, which closes the RCE-gadget half. The authenticity half is still
+        # open: a sha256 sidecar verified fail-closed around this save/load pair (utils.safe_pickle.safe_load) needs the SAVE site to emit it first. Until then
+        # this default blocks gross path escapes and any class outside the allowlist, not a planted-at-path pickle built from an allowlisted class.
         _root = trusted_root if trusted_root is not None else os.path.dirname(os.path.abspath(model_file_name))
         _validate_trusted_path(model_file_name, _root)
         try:
-            model, *_, pre_pipeline = safe_joblib_load(model_file_name)
+            entry = load_mlframe_model(model_file_name)
         except (EOFError, OSError, ModuleNotFoundError, pickle.UnpicklingError, AttributeError):
             # retraining is expensive; preserve traceback so the
             # operator can distinguish pickle-version mismatch / torch attribute drift /
             # disk corruption rather than re-investigating after each fallback.
             logger.warning("Failed to load cached model from %s; will retrain instead.", model_file_name, exc_info=True)
+        else:
+            if entry is None or not hasattr(entry, "model"):
+                logger.warning("Cached file %s is not a model entry; will retrain instead.", model_file_name)
+            else:
+                model = entry.model
+                pre_pipeline = getattr(entry, "pre_pipeline", pre_pipeline)
     return model, pre_pipeline
 
 
