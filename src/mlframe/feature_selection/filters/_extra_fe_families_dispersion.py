@@ -317,7 +317,7 @@ def generate_conditional_dispersion_features(
         return pd.DataFrame(index=X.index), raw_recipes
 
     from ._extra_fe_families import _digitize_with_edges, _quantile_edges  # lazy: break parent<->sibling cycle
-    # Intentional float64: the device dispersion path must match these host columns to a 1e-10 ULP band (tests/feature_selection/fe/gpu/test_conditional_dispersion_resident.py), which float32 breaks.
+    # Intentional float64: the device dispersion path must match these host columns to a 1e-6 band (tests/feature_selection/fe/gpu/test_conditional_dispersion_resident.py), which float32 breaks.
     col_vals = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}
     col_stats: dict = {}  # x_i -> _column_finite_stats, shared by every pair that uses x_i
     for x_j in num_cols:
@@ -488,9 +488,14 @@ def _dual_uplift_filter(
     raw_cols = sorted({xi for (xi, _xj) in pairs if xi is not None and xi in X.columns})
     raw_mi = {}
     if raw_cols:
-        raw_arr = X[raw_cols].to_numpy(dtype=np.float64)
-        rmi = np.asarray(_mi_classif_batch(raw_arr, y_bin, nbins=n_bins), dtype=np.float64)
-        raw_mi = {c: float(rmi[j]) for j, c in enumerate(raw_cols)}
+        # Column blocks bound the float64 copy to one RAM-sized slab instead of the whole raw frame (L-27 MemoryError).
+        from ._orthogonal_univariate_fe._orth_mi_backends import _mi_chunk_cols_for
+        block_width = _mi_chunk_cols_for(len(X))
+        for start in range(0, len(raw_cols), block_width):
+            block = raw_cols[start : start + block_width]
+            block_arr = X[block].to_numpy(dtype=np.float64)
+            rmi = np.asarray(_mi_classif_batch(block_arr, y_bin, nbins=n_bins), dtype=np.float64)
+            raw_mi.update({c: float(rmi[j]) for j, c in enumerate(block)})
 
     # Family-B mean-residual sibling MI per distinct pair.
     sib_cols = [xi for (xi, xj) in pairs if xi is not None and xj is not None]
