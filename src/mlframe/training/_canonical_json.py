@@ -10,6 +10,9 @@ from __future__ import annotations
 import json
 import math
 from typing import Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 try:
     import orjson
@@ -48,7 +51,8 @@ def _canon(obj: Any, depth: int) -> Any:
     if hasattr(obj, "tolist") and callable(obj.tolist):
         try:
             return _canon(obj.tolist(), depth + 1)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            logger.debug("_canon fell back to its default after %s", type(_exc).__name__)
             return str(obj)
     return str(obj)
 
@@ -64,5 +68,6 @@ def canonical_json_bytes(obj: Any) -> bytes:
     """Deterministic JSON bytes of ``obj`` for digesting; key order never matters and distinct values keep distinct bytes."""
     try:
         return _dumps_tree(_canon(obj, 0))
-    except (RecursionError, ValueError, TypeError, OverflowError):
+    except (RecursionError, ValueError, TypeError, OverflowError) as _exc:
+        logger.debug("canonical_json_bytes fell back to its default after %s", type(_exc).__name__)
         return b"\x00repr:" + repr(obj).encode("utf-8", "backslashreplace")

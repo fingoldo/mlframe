@@ -169,7 +169,8 @@ def _additive_in_t(spec) -> bool:
     """True when the spec's transform is additive in T (its T is in y units)."""
     try:
         return bool(getattr(get_transform(spec.transform_name), "additive_in_t", False))
-    except UnknownTransformError:  # an unregistered transform is simply not WAIC-comparable; anything else is a real bug
+    except UnknownTransformError as _exc:  # an unregistered transform is simply not WAIC-comparable; anything else is a real bug
+        logger.debug("_additive_in_t fell back to its default after %s", type(_exc).__name__)
         return False
 
 

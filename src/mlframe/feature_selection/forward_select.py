@@ -19,6 +19,9 @@ from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 import numpy as np
 
 from ._selection_log import logs_selection, summ_selected_of_x
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -150,7 +153,8 @@ def forward_select(
         """Float view of ``cols`` for the masking test, or None when any of them is non-numeric."""
         try:
             return np.asarray(_subset(cols), dtype=np.float64)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            logger.debug("_numeric fell back to its default after %s", type(_exc).__name__)
             return None
 
     while remaining and len(selected) < cap:

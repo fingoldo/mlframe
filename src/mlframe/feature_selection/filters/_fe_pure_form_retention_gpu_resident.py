@@ -245,7 +245,8 @@ def adds_nonlinear_value_batch_gpu_resident(
             corr = abs(num / denom) if denom > 0.0 and np.isfinite(num / denom) else 0.0
             out[j] = corr >= min_resid_corr
         return out
-    except _DEV_ERRS:
+    except _DEV_ERRS as _exc:
+        logger.debug("adds_nonlinear_value_batch_gpu_resident fell back to its default after %s", type(_exc).__name__)
         return None  # genuine cupy/device/linalg fault in setup/upload -> exact CPU path (logic bugs propagate)
 
 

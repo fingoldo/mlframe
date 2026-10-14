@@ -79,7 +79,8 @@ def _probe(library: str) -> bool:
     """
     try:
         import polars as pl  # noqa: F401
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_probe fell back to its default after %s", type(_exc).__name__)
         return False
     if not sys.executable:
         logger.debug("no interpreter to run the %s polars probe in; assuming not native", library)
@@ -105,7 +106,8 @@ def _version(library: str) -> Optional[str]:
     """Installed version string of ``library``, or None when it is absent."""
     try:
         module = __import__(library)
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_version fell back to its default after %s", type(_exc).__name__)
         return None
     return str(getattr(module, "__version__", "unknown"))
 

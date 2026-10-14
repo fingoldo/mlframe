@@ -13,7 +13,7 @@ it instead of probing again. A module that is already imported is importable by 
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Optional, cast
 
 import logging
 import os
@@ -49,13 +49,23 @@ def _describe_failure(returncode: int, stderr: str) -> str:
     return f"import failed with exit code {returncode}" + (f": {last[-1][:300]}" if last else "")
 
 
-def native_module_importable(name: str) -> bool:
-    """True when ``import name`` succeeds in a child interpreter (or ``name`` is already imported here)."""
-    if name in sys.modules:
-        return True
-    cached = _verdicts.get(name)
-    if cached is not None:
-        return cast(bool, cached)
+def _probe_child(name: str) -> subprocess.CompletedProcess[str] | None:
+    """Run ``import name`` in a child interpreter; None when the child cannot be started at all."""
+    try:
+        return subprocess.run(  # nosec B603 - fixed trusted executable and argument list
+            [sys.executable, "-c", f"import {name}"],
+            capture_output=True,
+            text=True,
+            timeout=_PROBE_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        # A probe that cannot run says nothing about the module; importing directly is what happened before the probe existed.
+        logger.warning("native import probe for %s could not run (%s); importing without it.", name, exc)
+        return None
+
+
+def _cached_verdict(name: str) -> Optional[bool]:
+    """The verdict already recorded for ``name`` in this process, or in the environment a parent process exported; None if unknown."""
     with _lock:
         cached = _verdicts.get(name)
         if cached is not None:
@@ -64,25 +74,37 @@ def native_module_importable(name: str) -> bool:
         if inherited in ("0", "1"):
             _verdicts[name] = inherited == "1"
             return cast(bool, _verdicts[name])
-        try:
-            proc = subprocess.run(  # nosec B603 - fixed trusted executable and argument list
-                [sys.executable, "-c", f"import {name}"],
-                capture_output=True,
-                text=True,
-                timeout=_PROBE_TIMEOUT_S,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            # A probe that cannot run says nothing about the module; importing directly is what happened before the probe existed.
-            logger.warning("native import probe for %s could not run (%s); importing without it.", name, exc)
-            _verdicts[name] = True
-            return True
-        ok = proc.returncode == 0
-        if not ok and "No module named" not in (proc.stderr or ""):
-            logger.warning("Optional native module %r is unusable in this environment: %s. Falling back to the alternative backend.",
-                           name, _describe_failure(proc.returncode, proc.stderr))
+    return None
+
+
+def _record_verdict(name: str, ok: bool, *, export: bool) -> bool:
+    """Store the first verdict recorded for ``name`` and return it, so concurrent probes of one module agree on one answer."""
+    with _lock:
+        if name in _verdicts:
+            return cast(bool, _verdicts[name])
         _verdicts[name] = ok
-        os.environ[_env_key(name)] = "1" if ok else "0"
-        return ok
+        if export:
+            os.environ[_env_key(name)] = "1" if ok else "0"
+    return ok
+
+
+def native_module_importable(name: str) -> bool:
+    """True when ``import name`` succeeds in a child interpreter (or ``name`` is already imported here)."""
+    if name in sys.modules:
+        return True
+    cached = _cached_verdict(name)
+    if cached is not None:
+        return cached
+    # The child interpreter can take seconds, so it runs outside the lock. Two threads may probe the same name at once;
+    # whichever verdict is recorded first is the one every caller gets.
+    proc = _probe_child(name)
+    if proc is None:
+        return _record_verdict(name, True, export=False)
+    ok = proc.returncode == 0
+    if not ok and "No module named" not in (proc.stderr or ""):
+        logger.warning("Optional native module %r is unusable in this environment: %s. Falling back to the alternative backend.",
+                       name, _describe_failure(proc.returncode, proc.stderr))
+    return _record_verdict(name, ok, export=True)
 
 
 __all__ = ["native_module_importable"]

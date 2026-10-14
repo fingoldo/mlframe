@@ -126,7 +126,8 @@ def cluster_stability_selection(
         (PERF203)."""
         try:
             return np.asarray(col_values, dtype=dtype)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            logger.debug("_try_cast_col fell back to its default after %s", type(_exc).__name__)
             return None
 
     if not _is_df and np.issubdtype(np.asarray(X).dtype, np.number):

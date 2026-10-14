@@ -29,6 +29,9 @@ from mlframe.metrics.calibration import compute_ece_debiased
 from mlframe.metrics.calibration import fast_calibration_binning
 from mlframe.reporting.charts._calibration_chart_shared import null_ece_scale
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Below this per-window count the ECE estimate is too noisy to trust; the window's ECE is set to NaN
 # (the renderer skips it) rather than reporting a spuriously-large miscalibration off a handful of rows.
@@ -324,7 +327,8 @@ def _window_label(result: Any, i: int) -> str:
     """Human label for window ``i``: its centre (a date when the axis is datetime) plus its row count."""
     try:
         centre = np.asarray(result.window_centers)[i]
-    except (IndexError, AttributeError, TypeError):
+    except (IndexError, AttributeError, TypeError) as _exc:
+        logger.debug("_window_label fell back to its default after %s", type(_exc).__name__)
         return f"w{i}"
     if isinstance(centre, np.datetime64):
         centre_txt = str(centre.astype("datetime64[D]"))

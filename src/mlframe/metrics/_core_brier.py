@@ -11,6 +11,9 @@ import numba
 import numpy as np
 
 from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -193,7 +196,8 @@ def make_brier_precision_scorer(precision_threshold: float = 0.5, brier_threshol
             precision_threshold=precision_threshold,
             brier_threshold=brier_threshold,
         ))
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("make_brier_precision_scorer fell back to its default after %s", type(_exc).__name__)
         return cast(Callable, make_scorer(
             brier_and_precision_score,
             needs_proba=True,

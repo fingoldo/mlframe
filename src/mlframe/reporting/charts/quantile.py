@@ -578,8 +578,9 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
             miscal[k] = float(df["miscalibration"][0])
             discr[k] = float(df["discrimination"][0])
             uncert[k] = float(df["uncertainty"][0])
-    except (ValueError, IndexError):
+    except (ValueError, IndexError) as _exc:
         # Degenerate predictions push isotonic recalibration outside the scoring range; plain pinball still informs.
+        logger.warning("_pinball_decomp_panel fell back to its default after %s", type(_exc).__name__)
         return _plain_pinball_bar()
     return BarPanelSpec(
         categories=cats,

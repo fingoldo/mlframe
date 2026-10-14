@@ -183,7 +183,8 @@ def _densify_sparse_input(X):
     """Densify a scipy.sparse ``X`` at the boundary (the FS pipeline is dense-frame-centric); refuse one whose dense form would exceed ~2 GB rather than silently doubling host memory."""
     try:
         from scipy.sparse import issparse
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_densify_sparse_input fell back to its default after %s", type(_exc).__name__)
         return X
     if not issparse(X):
         return X

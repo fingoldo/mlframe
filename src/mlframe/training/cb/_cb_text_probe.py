@@ -52,6 +52,7 @@ def _probe_one(frame: Any, y: np.ndarray, column: str) -> Tuple[bool, str]:
     try:
         from catboost import CatBoostClassifier
     except ImportError as exc:
+        logger.warning("_probe_one fell back to its default after %s", type(exc).__name__)
         return True, f"catboost import failed ({exc}); probe skipped"
     try:
         CatBoostClassifier(iterations=1, depth=1, verbose=0, allow_writing_files=False).fit(frame, y, text_features=[column])
@@ -92,7 +93,8 @@ def unusable_text_features(
         return {}
     try:
         import pandas as pd
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("unusable_text_features fell back to its default after %s", type(_exc).__name__)
         return {}
 
     y_arr = np.asarray(y).ravel()
@@ -201,7 +203,8 @@ def unigram_rescues_text_features(
     try:
         import pandas as pd
         from catboost import CatBoostClassifier
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("unigram_rescues_text_features fell back to its default after %s", type(_exc).__name__)
         return False
 
     y_arr = np.asarray(y).ravel()

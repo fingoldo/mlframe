@@ -457,14 +457,16 @@ def _perm_kernel_dispatch_use_gpu(
         try:
             import cupy as _cp
             return True
-        except ImportError:
+        except ImportError as _exc:
+            logger.debug("_perm_kernel_dispatch_use_gpu fell back to its default after %s", type(_exc).__name__)
             return False
     if backend == "auto":
         if _perm_kernel_backend_choice(n_samples, n_perms) == "cupy":
             try:
                 import cupy as _cp  # noqa: F401
                 return True
-            except ImportError:
+            except ImportError as _exc:
+                logger.debug("_perm_kernel_dispatch_use_gpu fell back to its default after %s", type(_exc).__name__)
                 return False
     return False
 

@@ -178,18 +178,19 @@ def test_get_or_create_mlflow_run_finds_existing_run():
 def test_get_or_create_mlflow_run_retries_past_already_active_error():
     """The retry loop's core contract: an 'already active' start_run() failure ends the stale run
     and retries, rather than propagating or silently giving up on the first attempt."""
-    fake_new_run = MagicMock()
     fake_active_run = MagicMock()
     fake_active_run.info.run_id = "stale-run-id"
 
     call_count = {"n": 0}
+    started_runs = []
 
     def _start_run(*args, **kwargs):
-        """Fail with an 'already active' error on the first call, succeed on the retry."""
+        """Fail with an 'already active' error on the first call, succeed on the retry with a fresh run."""
         call_count["n"] += 1
         if call_count["n"] == 1:
             raise RuntimeError("Run with UUID x is already active. To start a new run, first end the current run.")
-        return fake_new_run
+        started_runs.append(MagicMock())
+        return started_runs[-1]
 
     with patch("mlframe.integrations.mlflow.mlflow") as mock_mlflow:
         mock_mlflow.search_runs.return_value = []
@@ -197,7 +198,7 @@ def test_get_or_create_mlflow_run_retries_past_already_active_error():
         mock_mlflow.active_run.return_value = fake_active_run
         run, found = get_or_create_mlflow_run("my_run")
 
-    assert run is fake_new_run
+    assert run is started_runs[-1]
     assert found is False
     assert call_count["n"] == 2, "must retry start_run() after ending the stale active run"
     mock_mlflow.end_run.assert_called()

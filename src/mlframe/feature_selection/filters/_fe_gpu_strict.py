@@ -151,7 +151,8 @@ def _auto_min_n() -> int:
     unparsable value. See ``_auto_gate_passes`` for the column-aware alternate path below this floor."""
     try:
         return int(os.environ.get("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", _DEFAULT_AUTO_MIN_N))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_auto_min_n fell back to its default after %s", type(_exc).__name__)
         return _DEFAULT_AUTO_MIN_N
 
 

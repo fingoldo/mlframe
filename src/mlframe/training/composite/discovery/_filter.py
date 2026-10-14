@@ -175,7 +175,8 @@ def _is_every_row(train_idx: Any, df: Any) -> bool:
     idx = np.asarray(train_idx)
     try:
         n = len(df)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_is_every_row fell back to its default after %s", type(_exc).__name__)
         return False
     return idx.ndim == 1 and idx.size == n and (n == 0 or (int(idx[0]) == 0 and int(idx[-1]) == n - 1 and np.array_equal(idx, np.arange(n))))
 

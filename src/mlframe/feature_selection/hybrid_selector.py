@@ -43,7 +43,8 @@ def _as_pandas_view(X):
     Non-polars inputs pass through untouched."""
     try:
         import polars as pl
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_as_pandas_view fell back to its default after %s", type(_exc).__name__)
         return X
     if not isinstance(X, pl.DataFrame):
         return X

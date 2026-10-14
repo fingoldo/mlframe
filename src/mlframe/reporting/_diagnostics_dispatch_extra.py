@@ -274,7 +274,8 @@ def _find_html_fragment(base: str) -> Optional[str]:
             try:
                 with open(cand, encoding="utf-8") as fh:
                     return fh.read()
-            except OSError:
+            except OSError as _exc:
+                logger.debug("_find_html_fragment fell back to its default after %s", type(_exc).__name__)
                 return None
     return None
 

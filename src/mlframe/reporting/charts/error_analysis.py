@@ -130,19 +130,18 @@ def _resolve_feature_matrix(
     _key = (id(X), tuple(feature_names) if feature_names is not None else None)
     with _MATRIX_LOCK:
         _entry = _MATRIX_CACHE.get(_key)
-    if _entry is not None:
-        _ref, _cached = _entry
-        if _ref() is X:
-            _mat, _names = _cached
-            return _mat, list(_names)
-    _result = _resolve_feature_matrix_uncached(X, feature_names)
-    _weak_x = None
-    try:
-        _weak_x = weakref.ref(X)
-    except TypeError:
-        pass  # not weak-referenceable (a bare ndarray): skip the cache rather than risk a stale hit
-    if _weak_x is not None:
-        with _MATRIX_LOCK:
+        if _entry is not None:
+            _ref, _cached = _entry
+            if _ref() is X:
+                _mat, _names = _cached
+                return _mat, list(_names)
+        _result = _resolve_feature_matrix_uncached(X, feature_names)
+        _weak_x = None
+        try:
+            _weak_x = weakref.ref(X)
+        except TypeError:
+            pass  # not weak-referenceable (a bare ndarray): skip the cache rather than risk a stale hit
+        if _weak_x is not None:
             if len(_MATRIX_CACHE) >= _MATRIX_CACHE_MAX:
                 # evict-ok: memo; a miss recomputes the value
                 _MATRIX_CACHE.pop(next(iter(_MATRIX_CACHE)), None)

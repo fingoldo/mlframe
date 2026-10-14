@@ -140,17 +140,17 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
         # cheap for small N (~5us at N=11). dtype + device.type included so a
         # CPU-built entry isn't accidentally indexed on GPU.
         cache_key = (n, rel.dtype, rel.device.type, tuple(rel.tolist()))
-        cached = _ranknet_pair_cache.get(cache_key)
-        if cached is None:
-            i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
-            with _ranknet_pair_cache_lock:
+        with _ranknet_pair_cache_lock:
+            cached = _ranknet_pair_cache.get(cache_key)
+            if cached is None:
+                i_idx, j_idx = torch.where(rel.unsqueeze(1) > rel.unsqueeze(0))
                 if len(_ranknet_pair_cache) >= _RANKNET_PAIR_CACHE_SIZE:
                     # FIFO eviction (Python 3.7+ dict preserves insertion order).
                     # evict-ok: memo; a miss recomputes the value
                     _ranknet_pair_cache.pop(next(iter(_ranknet_pair_cache), None), None)
                 _ranknet_pair_cache[cache_key] = (i_idx, j_idx)
-        else:
-            i_idx, j_idx = cached
+            else:
+                i_idx, j_idx = cached
     else:
         # Large-N fall-through (N > _RANKNET_PAIR_CACHE_MAX_N). Here torch.where
         # materialises a (N, N) bool mask -> grows quadratically (N=1000 ->

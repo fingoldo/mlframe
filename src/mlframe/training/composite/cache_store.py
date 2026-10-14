@@ -249,7 +249,8 @@ class DiscoveryCache:
         size = 0
         try:
             size = os.path.getsize(path)
-        except OSError:
+        except OSError as _exc:
+            logger.debug("_entry_size_on_disk fell back to its default after %s", type(_exc).__name__)
             return 0
         try:
             size += os.path.getsize(path + ".sha256")
@@ -349,10 +350,11 @@ class DiscoveryCache:
             _max_bytes = 1024 * 1024 * 1024
         try:
             _file_size = os.path.getsize(path)
-        except OSError:
+        except OSError as _exc:
             # No payload on disk: a plain cache miss. safe_load would otherwise report it as a verification
             # failure (ERROR log from verify_sidecar + PickleVerificationError), turning every first-run miss
             # into an error-level log line and a "unreadable/unverifiable entry" warning.
+            logger.debug("get fell back to its default after %s", type(_exc).__name__)
             return default
         if _file_size > _max_bytes:
             logger.warning(
@@ -380,7 +382,8 @@ class DiscoveryCache:
                 # path. The broad except below converts the mismatch to a cache miss so callers see
                 # consistent semantics.
                 value = _safe_pickle_load(path, allow_unverified=True)
-        except FileNotFoundError:
+        except FileNotFoundError as _exc:
+            logger.debug("get fell back to its default after %s", type(_exc).__name__)
             return default
         except Exception as _e:  # best-effort: logged once, then treated as a cache miss (return default)
             # A persistent corrupt / unverifiable entry would otherwise return a silent miss every run, triggering unbounded multi-minute recomputes with no operator signal. Surface it once per read, then treat as a miss.
@@ -420,7 +423,8 @@ class DiscoveryCache:
         path = os.path.join(self.cache_dir, f"{safe_key}.pkl")
         try:
             return os.path.getsize(path)
-        except OSError:
+        except OSError as _exc:
+            logger.debug("_entry_size_bytes fell back to its default after %s", type(_exc).__name__)
             return 0
 
     def _evict_to_caps(self) -> int:
@@ -638,7 +642,8 @@ class DiscoveryCache:
         # loser. try/except makes concurrent invalidations of the same key idempotent.
         try:
             os.remove(path)
-        except FileNotFoundError:
+        except FileNotFoundError as _exc:
+            logger.debug("invalidate fell back to its default after %s", type(_exc).__name__)
             return False
         # Also drop the sha256 sidecar so a future write of the same key starts fresh.
         try:
@@ -725,6 +730,7 @@ def _discovery_cache_bytes_total(cache: DiscoveryCache) -> int:
                     total += de.stat().st_size
                 except OSError:
                     pass
-    except FileNotFoundError:
+    except FileNotFoundError as _exc:
+        logger.debug("_discovery_cache_bytes_total fell back to its default after %s", type(_exc).__name__)
         return 0
     return total

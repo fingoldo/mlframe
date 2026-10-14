@@ -82,7 +82,8 @@ def _get_cache(source: Any) -> Optional[_SourceCache]:
         if cache is None:
             try:
                 cache = _SourceCache(source)
-            except TypeError:
+            except TypeError as _exc:
+                logger.debug("_get_cache fell back to its default after %s", type(_exc).__name__)
                 return None
             _CACHES[key] = cache
             weakref.finalize(source, _CACHES.pop, key, None)

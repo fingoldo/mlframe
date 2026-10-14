@@ -137,7 +137,8 @@ def candidate_values(name: str, *, X: Any, eng_continuous_snapshot: dict, y_ref:
         return None
     try:
         values = np.asarray(values, dtype=np.float64).reshape(-1)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("candidate_values fell back to its default after %s", type(_exc).__name__)
         return None
     if values.shape[0] != y_ref.shape[0] or not np.all(np.isfinite(values)):
         return None

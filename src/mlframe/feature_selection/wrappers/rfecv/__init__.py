@@ -751,7 +751,8 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
             # Route the caller-supplied resume checkpoint through the sidecar-gated loader: a missing/mismatched .sha256 fails closed
             # (refuse to unpickle, start fresh) rather than running arbitrary pickle from a tampered checkpoint file.
             state = safe_load(path)
-        except FileNotFoundError:
+        except FileNotFoundError as _exc:
+            logger.debug("_load_checkpoint fell back to its default after %s", type(_exc).__name__)
             return None
         except PickleVerificationError as exc:
             logger.warning(

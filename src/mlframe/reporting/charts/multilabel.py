@@ -40,6 +40,9 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
     HistogramPanelSpec, LinePanelSpec, PanelSpec,
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Above this K the per-label ROC / reliability overlays put K curves in one panel: slow (K sklearn fits) and unreadable.
 # Past it the composer draws only the OVERLAY_TOP_N worst-by-AUC labels + a macro-average.
@@ -414,7 +417,8 @@ def _f1_sweep_uniform_grid(yt: np.ndarray, P: np.ndarray, T: int):
     """
     try:
         from ._threshold_sweep_kernel import f1_sweep_kernel
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_f1_sweep_uniform_grid fell back to its default after %s", type(_exc).__name__)
         return None
     return f1_sweep_kernel(
         np.ascontiguousarray(yt, dtype=np.uint8),

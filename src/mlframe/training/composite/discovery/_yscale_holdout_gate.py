@@ -147,7 +147,8 @@ def apply_structural_fragility_gate(
     try:
         y_tr = np.asarray(y_full)[train_idx].astype(np.float64)
         g_tr = group_ids[train_idx]
-    except (IndexError, TypeError):
+    except (IndexError, TypeError) as _exc:
+        logger.debug("apply_structural_fragility_gate fell back to its default after %s", type(_exc).__name__)
         return kept_specs
     std_y = float(np.std(y_tr[np.isfinite(y_tr)])) if y_tr.size else 0.0
     if std_y <= 0:

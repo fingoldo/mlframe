@@ -236,7 +236,8 @@ def _rescore_one_spec(spec, *, df, holdout_idx, y_holdout, x_remaining_for, preb
     fields untouched."""
     try:
         transform = get_transform(spec.transform_name)
-    except UnknownTransformError:
+    except UnknownTransformError as _exc:
+        logger.warning("_rescore_one_spec fell back to its default after %s", type(_exc).__name__)
         return
     base_columns = spec_base_columns(spec)
     x_remaining = x_remaining_for(base_columns)

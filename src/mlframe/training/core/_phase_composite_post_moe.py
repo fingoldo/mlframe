@@ -150,7 +150,8 @@ def _select_rows(values: Any, idx: Any, dtype: Any = None) -> Optional[np.ndarra
         return None
     try:
         return cast(np.ndarray, np.asarray(values, dtype=dtype).reshape(-1)[idx])
-    except (TypeError, IndexError):
+    except (TypeError, IndexError) as _exc:
+        logger.warning("_select_rows fell back to its default after %s", type(_exc).__name__)
         return None
 
 

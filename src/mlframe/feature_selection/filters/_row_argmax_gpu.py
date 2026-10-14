@@ -15,6 +15,9 @@ import weakref
 from typing import Any, Optional, Sequence
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 _SRC = r"""
 extern "C" __global__ void row_argmax(const double* __restrict__ M, const long long n, const int m, double* __restrict__ out) {
@@ -55,12 +58,12 @@ def all_finite_cached(arr: np.ndarray) -> bool:
         hit = _FINITE.get(key)
         if hit is not None and hit[0]() is arr:
             return bool(hit[1])
-    flag = bool(np.all(np.isfinite(arr)))
-    try:
-        ref = weakref.ref(arr)
-    except TypeError:  # not weak-referenceable: no memo
-        return flag
-    with _LOCK:
+        flag = bool(np.all(np.isfinite(arr)))
+        try:
+            ref = weakref.ref(arr)
+        except TypeError as _exc:  # not weak-referenceable: no memo
+            logger.debug("all_finite_cached fell back to its default after %s", type(_exc).__name__)
+            return flag
         if len(_FINITE) >= _FINITE_MAX:
             for stale in [k for k, (r, _f) in _FINITE.items() if r() is None]:
                 del _FINITE[stale]

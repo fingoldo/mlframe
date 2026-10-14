@@ -461,7 +461,8 @@ def _accepts_sample_weight(metric: Callable) -> bool:
     target = metric if inspect.isfunction(metric) or inspect.ismethod(metric) else (cast(Any, metric).__call__ if callable(metric) else metric)
     try:
         params = inspect.signature(target).parameters
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_accepts_sample_weight fell back to its default after %s", type(_exc).__name__)
         return False
     if "sample_weight" in params:
         return True
@@ -696,7 +697,8 @@ def _install_catboost_sklearn_clone_patch() -> None:
     """Monkeypatch ``__sklearn_clone__`` onto ``CatBoostClassifier``/``CatBoostRegressor`` so ``sklearn.base.clone()`` reuses the caller's ``eval_metric``/``custom_metric`` instead of tripping on CatBoost's internal deep-copy / per-call list re-normalization (see the module comment above for both failure modes)."""
     try:
         from catboost import CatBoostClassifier, CatBoostRegressor
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_install_catboost_sklearn_clone_patch fell back to its default after %s", type(_exc).__name__)
         return
 
     def _cb_sklearn_clone(self):

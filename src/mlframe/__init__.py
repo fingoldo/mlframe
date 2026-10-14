@@ -203,8 +203,9 @@ def _disable_broken_cupy() -> None:
     import sys
     try:
         import cupy as _cp
-    except ImportError:
+    except ImportError as _exc:
         # cupy not installed - clean state, nothing to disable.
+        logger.debug("_disable_broken_cupy fell back to its default after %s", type(_exc).__name__)
         return
     except Exception as _imp_exc:
         # cupy IS installed but its native deps fail to load (e.g. a broken
@@ -481,5 +482,8 @@ def __getattr__(name: str):
 
 # No kernel module is imported above, and numba picks its cache locator when a ``cache=True`` kernel is decorated, so this is early enough.
 from mlframe import _numba_cache_deps
+import logging
+
+logger = logging.getLogger(__name__)
 
 _numba_cache_deps.install()

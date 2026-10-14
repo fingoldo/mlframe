@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # _FE_RESIDENT_OPERANDS used to be read/evicted
 # with no lock while multi_gpu_fe_batch_mi's ThreadPoolExecutor calls into it concurrently from every
 # device thread - the same unlocked-cache class flagged repeatedly elsewhere this audit wave.
-_FE_RESIDENT_OPERANDS_LOCK = threading.Lock()
+_FE_RESIDENT_OPERANDS_LOCK = threading.RLock()
 
 try:
     from numba import njit as _njit
@@ -139,8 +139,7 @@ def _content_hash_memoized(host: Any) -> int:
             if ref() is host and shape == host.shape and dtype_str == host.dtype.str:
                 _HASH_MEMO.move_to_end(key)  # LRU: this identity is hot
                 return int(h)
-    h = _content_hash(host)
-    with _HASH_MEMO_LOCK:
+        h = _content_hash(host)
         _HASH_MEMO[key] = (_weakref.ref(host), host.shape, host.dtype.str, h)
         if len(_HASH_MEMO) > _HASH_MEMO_MAX_ENTRIES:
             # evict-ok: memo; a miss recomputes the value
@@ -347,12 +346,11 @@ def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
         if dev is not None:
             _FE_RESIDENT_QBIN_CODES.move_to_end(sig)  # LRU: this content is hot
             return dev.astype(cp.int64)  # widen the narrow store to the int64 the kernels index
-    xd = resident_operand(host, "qbin_x", dtype=dtype)
-    codes = compute_fn(cp, xd, int(nbins))  # sync-free binner, resident int64 codes
-    # Store narrow: codes are 0..nbins-1 (a few dozen bins), int16 holds them exactly (int64 escape only if some
-    # binner ever emits a value outside int16, keeping the store bit-identical either way).
-    narrow = codes.astype(cp.int16) if (int(nbins) <= 32767) else codes
-    with _FE_RESIDENT_OPERANDS_LOCK:
+        xd = resident_operand(host, "qbin_x", dtype=dtype)
+        codes = compute_fn(cp, xd, int(nbins))  # sync-free binner, resident int64 codes
+        # Store narrow: codes are 0..nbins-1 (a few dozen bins), int16 holds them exactly (int64 escape only if some
+        # binner ever emits a value outside int16, keeping the store bit-identical either way).
+        narrow = codes.astype(cp.int16) if (int(nbins) <= 32767) else codes
         _FE_RESIDENT_QBIN_CODES[sig] = narrow
         if len(_FE_RESIDENT_QBIN_CODES) > _MAX_QBIN_CODE_ENTRIES:
             # evict-ok: a miss re-bins on the device

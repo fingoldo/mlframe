@@ -58,7 +58,7 @@ def _cupy_raising(monkeypatch, exc: BaseException | None):
         if name == "cupy":
             if exc is not None:
                 raise exc
-            return stub
+            return types.SimpleNamespace(**vars(stub))
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", _fake_import)

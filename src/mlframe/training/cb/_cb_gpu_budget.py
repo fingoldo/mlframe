@@ -36,7 +36,8 @@ def _float_env(name: str, default: float) -> float:
         return default
     try:
         return max(0.0, float(raw))
-    except ValueError:
+    except ValueError as _exc:
+        logger.warning("_float_env fell back to its default after %s", type(_exc).__name__)
         return default
 
 
@@ -61,7 +62,8 @@ def snapshot_params(snapshot_file: str) -> Optional[dict]:
             return None
         obj, _ = json.JSONDecoder().raw_decode(blob[start:].decode("utf-8", errors="replace"))
         return obj if isinstance(obj, dict) else None
-    except (OSError, ValueError):
+    except (OSError, ValueError) as _exc:
+        logger.warning("snapshot_params fell back to its default after %s", type(_exc).__name__)
         return None
 
 

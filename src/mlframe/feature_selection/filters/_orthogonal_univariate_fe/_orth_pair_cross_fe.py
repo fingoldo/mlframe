@@ -244,7 +244,8 @@ def _pair_device_col_specs(eng_columns, raw_cols, *, nbins: int):
             return None
         try:
             left, right = suffix.split("_", 1)
-        except ValueError:
+        except ValueError as _exc:
+            logger.debug("_pair_device_col_specs fell back to its default after %s", type(_exc).__name__)
             return None
         deg_a = _parse_code_deg(left)
         deg_b = _parse_code_deg(right)

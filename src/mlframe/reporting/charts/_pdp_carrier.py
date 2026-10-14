@@ -53,7 +53,8 @@ def _carrier_with_categoricals(carrier: Any, model: Any = None) -> Any:
     carriers are returned unchanged."""
     try:
         import pandas as pd
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_carrier_with_categoricals fell back to its default after %s", type(_exc).__name__)
         return carrier
     if not isinstance(carrier, pd.DataFrame):
         return carrier

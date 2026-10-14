@@ -58,7 +58,8 @@ def _read_int_env(name: str, default: int) -> int:
         if val <= 0:
             return default
         return val
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.warning("_read_int_env fell back to its default after %s", type(_exc).__name__)
         return default
 
 
@@ -287,7 +288,8 @@ def _weakref_cache_put(cache: "OrderedDict[tuple, tuple[weakref.ReferenceType, s
     """Store ``digest`` under ``key`` alongside a weakref to ``arr`` (see ``_weakref_cache_get``); no-ops if ``arr`` doesn't support weak references (rare; just skips caching, not a correctness issue)."""
     try:
         ref = weakref.ref(arr)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_weakref_cache_put fell back to its default after %s", type(_exc).__name__)
         return
     cache[key] = (ref, digest)
     if len(cache) > max_entries:
@@ -342,8 +344,9 @@ def _full_x_content_hash(arr) -> str:
                 # Cast to UInt64 then sum mod 2^64 -- polars sum on UInt64
                 # wraps natively, giving a deterministic 64-bit summary.
                 row_sum = int(row_hashes.sum())
-            except _HASH_FASTPATH_EXC:
+            except _HASH_FASTPATH_EXC as _exc:
                 # Tuple includes pyo3 PanicException (zero-column hash_rows).
+                logger.debug("_full_x_content_hash fell back to its default after %s", type(_exc).__name__)
                 return ""
             col_names = ",".join(str(c) for c in arr.columns)
             h = hashlib.blake2b(digest_size=16)
@@ -592,7 +595,8 @@ def _weak_refs(objs) -> "tuple | None":
     """Weak references to ``objs`` (``None`` stays ``None``); ``None`` overall when any object cannot be weakly referenced."""
     try:
         return tuple(None if o is None else weakref.ref(o) for o in objs)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_weak_refs fell back to its default after %s", type(_exc).__name__)
         return None
 
 

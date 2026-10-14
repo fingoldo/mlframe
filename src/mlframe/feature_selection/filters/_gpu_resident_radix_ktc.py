@@ -94,7 +94,8 @@ def radix_select_threads(n: int) -> int:
     if isinstance(choice, str) and choice.startswith("th_"):
         try:
             return int(choice[len("th_") :])
-        except ValueError:
+        except ValueError as _exc:
+            logger.warning("radix_select_threads fell back to its default after %s", type(_exc).__name__)
             return _RADIX_THREADS_DEFAULT
     return _RADIX_THREADS_DEFAULT
 

@@ -18,6 +18,9 @@ import os
 from typing import Any, Protocol, cast
 
 from mlframe.utils.env_flags import env_float
+import logging
+
+logger = logging.getLogger(__name__)
 
 _CP_SAT_TIME_LIMIT_S = env_float("MLFRAME_FE_VRAM_CPSAT_TIME_LIMIT_S", 1.0, minimum=0.0)
 _SCALE = 1000  # integer scale for the relative speed weights
@@ -57,7 +60,8 @@ def _cpsat_pack(works: list[int], speeds: list[float]) -> list[int] | None:
     """Exact speed-weighted makespan assignment via CP-SAT; None if ortools is unavailable / no solution."""
     try:
         from ortools.sat.python import cp_model
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_cpsat_pack fell back to its default after %s", type(_exc).__name__)
         return None
     B, D = len(works), len(speeds)
     mn = min(speeds)

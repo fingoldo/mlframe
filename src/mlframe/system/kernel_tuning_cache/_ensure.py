@@ -161,7 +161,8 @@ def _run_sweep(spec: Any, timeout_s: float) -> tuple:
     cmd = [sys.executable, "-m", "mlframe.system.kernel_tuning_cache", "refresh", spec.kernel_name]
     try:
         proc = subprocess.run(cmd, timeout=timeout_s, check=False)  # nosec B603 - fixed argv: this interpreter, this package, a registered kernel name
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as _exc:
+        logger.warning("_run_sweep fell back to its default after %s", type(_exc).__name__)
         return "timeout", f"exceeded the {timeout_s / 60:.0f} min per-kernel limit"
     if proc.returncode != 0:
         return "failed", f"the sweep process exited with code {proc.returncode}"

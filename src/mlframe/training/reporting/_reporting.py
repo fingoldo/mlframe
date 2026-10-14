@@ -130,7 +130,8 @@ def _style_with_caption(df, caption: str):
     """
     try:
         return df.style.set_caption(caption)
-    except (AttributeError, ImportError):
+    except (AttributeError, ImportError) as _exc:
+        logger.debug("_style_with_caption fell back to its default after %s", type(_exc).__name__)
         return df
 
 

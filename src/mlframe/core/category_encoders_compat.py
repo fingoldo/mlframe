@@ -54,6 +54,9 @@ natively (>=2.8.0) or sklearn itself predates 1.6 (no ``__sklearn_tags__`` conce
 """
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 
 _PATCHED = False
 
@@ -68,7 +71,8 @@ def ensure_category_encoders_sklearn_tags_shim() -> None:
 
     try:
         import category_encoders.utils as ce_utils
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("ensure_category_encoders_sklearn_tags_shim fell back to its default after %s", type(_exc).__name__)
         return
     # Check the class's OWN __dict__, not hasattr() -- inheriting __sklearn_tags__ from
     # sklearn.BaseEstimator (which every category-encoders release has always done) is not the same
@@ -79,11 +83,13 @@ def ensure_category_encoders_sklearn_tags_shim() -> None:
 
     try:
         import sklearn
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("ensure_category_encoders_sklearn_tags_shim fell back to its default after %s", type(_exc).__name__)
         return
     try:
         _major, _minor = (int(p) for p in sklearn.__version__.split(".")[:2])
-    except (ValueError, IndexError):
+    except (ValueError, IndexError) as _exc:
+        logger.debug("ensure_category_encoders_sklearn_tags_shim fell back to its default after %s", type(_exc).__name__)
         return
     if (_major, _minor) < (1, 6):
         return

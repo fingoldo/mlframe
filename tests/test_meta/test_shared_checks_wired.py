@@ -459,6 +459,52 @@ def test_no_new_fail_open_handlers():
     assert_no_new_fail_open_handlers(files=files, repo_root=REPO_ROOT, baseline_path=_FAIL_OPEN_BASELINE)
 
 
+# Library code is where a silent fallback changes a result; the benchmark folders and test helpers are not judged by it.
+_CONCURRENCY_SCAN_FILES_SRC = sorted(p for p in (REPO_ROOT / "src").rglob("*.py") if "_benchmarks" not in p.parts)
+_CONCURRENCY_SCAN_FILES = _CONCURRENCY_SCAN_FILES_SRC + sorted((REPO_ROOT / "tests").rglob("*.py"))
+
+
+def test_no_silent_default_return_in_library():
+    """An ``except`` that returns a default and logs nothing hands the failure to the caller as an ordinary value.
+
+    Same rule family as the fail-open gate, scoped to the library: the handler must log the exception type, at WARNING where the
+    default changes a visible result and at DEBUG for an expected fallback.
+    """
+    from py_ci_shared.fail_open_handlers import find_fail_open_handlers
+
+    assert len(_CONCURRENCY_SCAN_FILES_SRC) > 1000, "the library scan lost most of its files"
+    found = [h for h in find_fail_open_handlers(_CONCURRENCY_SCAN_FILES_SRC, REPO_ROOT) if h.rule == "silent_default_return"]
+    assert not found, f"{len(found)} silent default returns: " + "; ".join(h.scope + f" line {h.lineno}" for h in found)
+
+
+def test_no_lock_held_across_io():
+    """A blocking call (connect, subprocess, sleep, file write) inside a ``with lock:`` stalls every thread waiting for that lock."""
+    from py_ci_shared.lock_held_across_io import assert_no_lock_held_across_io
+
+    assert_no_lock_held_across_io(_CONCURRENCY_SCAN_FILES, min_files=1000)
+
+
+def test_no_check_then_act_outside_lock():
+    """A membership test and a later write to the same shared dict must share one lock block, or two threads both act on the test."""
+    from py_ci_shared.check_then_act_outside_lock import assert_no_check_then_act_outside_lock
+
+    assert_no_check_then_act_outside_lock(_CONCURRENCY_SCAN_FILES, min_files=1000)
+
+
+def test_no_shared_mutable_placeholder_returned_by_reference():
+    """A mutable module- or enclosing-scope placeholder returned by name hands every caller the same object."""
+    from py_ci_shared.shared_mutable_placeholder import assert_no_shared_mutable_placeholders
+
+    assert_no_shared_mutable_placeholders(_CONCURRENCY_SCAN_FILES, min_files=1000)
+
+
+def test_no_source_text_sql_probes_in_tests():
+    """A test asserting on the spelling of a SQL statement passes for a query that filters nothing; run the query and check its rows."""
+    from py_ci_shared.no_source_text_tests import assert_no_source_text_tests
+
+    assert_no_source_text_tests(sorted((REPO_ROOT / "tests").rglob("*.py")), min_files=3000)
+
+
 # Each function allowed to write a module registry at runtime, with how its entries survive into another process.
 _REGISTRY_REPLAY_WRITERS = {
     "reregister_auto_chain_transforms": "the replay itself: CompositeTargetEstimator routing calls it for a chain transform on load",

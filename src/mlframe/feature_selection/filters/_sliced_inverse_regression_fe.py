@@ -27,6 +27,9 @@ import pandas as pd
 import scipy.linalg
 
 from ._mi_greedy_cmi_fe import _quantile_bin
+import logging
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
@@ -115,7 +118,8 @@ def sir_direction_features(
 
     try:
         eigvals, eigvecs = scipy.linalg.eigh(M, Sigma_ridge)
-    except (scipy.linalg.LinAlgError, ValueError):
+    except (scipy.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("sir_direction_features fell back to its default after %s", type(_exc).__name__)
         return np.empty((n, 0), dtype=np.float64)
 
     # scipy.linalg.eigh returns ascending eigenvalues; SIR wants the LARGEST (most y-variation).
@@ -172,7 +176,8 @@ def generate_sir_direction_features(
 
     try:
         eigvals, eigvecs = scipy.linalg.eigh(M, Sigma_ridge)
-    except (scipy.linalg.LinAlgError, ValueError):
+    except (scipy.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("generate_sir_direction_features fell back to its default after %s", type(_exc).__name__)
         return pd.DataFrame(index=X.index), {}
 
     order = np.argsort(eigvals)[::-1]

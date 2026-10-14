@@ -164,7 +164,8 @@ def _hinge_max_rows() -> int:
     """Row cap for the hinge breakpoint search (0 = full-n). See the subsample note in the function body."""
     try:
         return int(os.environ.get("MLFRAME_HINGE_MAX_ROWS", "250000"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_hinge_max_rows fell back to its default after %s", type(_exc).__name__)
         return 250000
 
 

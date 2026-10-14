@@ -216,7 +216,8 @@ def warm_start_als_seed_gpu(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray, *, 
 
     try:
         return _als_sweep_gpu(cp, Ba, Bb, yc, iters)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("warm_start_als_seed_gpu fell back to its default after %s", type(_exc).__name__)
         return None, None
 
 
@@ -271,5 +272,6 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
         Ba = _build_basis_matrix_gpu(cp, str(basis), za, deg)
         Bb = _build_basis_matrix_gpu(cp, str(basis), zb, deg)
         return _als_sweep_gpu(cp, Ba, Bb, yc, iters)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("warm_start_als_seed_gpu_from_z fell back to its default after %s", type(_exc).__name__)
         return None, None

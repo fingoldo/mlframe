@@ -212,7 +212,8 @@ def _extract_single_raw_parent(cand, factors_names, raw_names):
     for sub in cand:
         try:
             name = factors_names[sub]
-        except (IndexError, TypeError, KeyError):
+        except (IndexError, TypeError, KeyError) as _exc:
+            logger.debug("_extract_single_raw_parent fell back to its default after %s", type(_exc).__name__)
             return None
         if name in raw_names:
             parents.add(name)
@@ -271,7 +272,8 @@ def _confirmable_engineered_child(ctx, X, winner_idx, winner_gain, expected_gain
     factors_names = ctx.factors_names
     try:
         parent_name = factors_names[X[0]]
-    except (IndexError, TypeError, KeyError):
+    except (IndexError, TypeError, KeyError) as _exc:
+        logger.debug("_confirmable_engineered_child fell back to its default after %s", type(_exc).__name__)
         return None
     if parent_name not in raw_names:
         return None  # the winner is itself engineered -> nothing to substitute

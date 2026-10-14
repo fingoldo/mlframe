@@ -27,6 +27,7 @@ holding it is by definition still only one thread inside.
 
 from __future__ import annotations
 
+import functools
 import threading
 
 __all__ = ["parallel_kernel_entry"]
@@ -34,7 +35,10 @@ __all__ = ["parallel_kernel_entry"]
 #: Process-wide, deliberately: numba's threading layer is a process-wide resource, so a per-module lock
 #: would let two different fan-outs enter it at the same time and reproduce the crash between them.
 #: RLock, not Lock: see the reentrancy note above -- nested guards on the SAME thread must not deadlock.
-_ENTRY = threading.RLock()
+@functools.lru_cache(maxsize=1)
+def _entry_lock() -> threading.RLock:
+    """The one process-wide RLock; created on first use and cached so every caller receives the same object."""
+    return threading.RLock()
 
 
 def parallel_kernel_entry() -> threading.RLock:
@@ -44,4 +48,4 @@ def parallel_kernel_entry() -> threading.RLock:
     may hold it across nested guarded calls (a caller guarding a callee that already guards itself)
     without deadlocking; a DIFFERENT thread still blocks until every level on the holding thread exits.
     """
-    return _ENTRY
+    return _entry_lock()

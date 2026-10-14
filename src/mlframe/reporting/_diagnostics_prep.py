@@ -33,7 +33,8 @@ def _weak(obj: Any) -> Optional[Callable[[], Any]]:
     """A weak reference to ``obj``, or ``None`` when the object does not support one."""
     try:
         return weakref.ref(obj)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_weak fell back to its default after %s", type(_exc).__name__)
         return None
 
 
@@ -53,12 +54,11 @@ def shared_error_prep(df: Any, y_true: Any, y_pred: Any, task: str, seed: int, b
     key = (id(df), id(y_true), id(y_pred), task, int(seed), extra)
     with _PREP_LOCK:
         entry = _PREP_CACHE.get(key)
-    if entry is not None:
-        held, result = entry
-        if all(r() is o for r, o in zip(held, (df, y_true, y_pred))):
-            return tuple(result)
-    result = build()
-    with _PREP_LOCK:
+        if entry is not None:
+            held, result = entry
+            if all(r() is o for r, o in zip(held, (df, y_true, y_pred))):
+                return tuple(result)
+        result = build()
         if len(_PREP_CACHE) >= _PREP_CACHE_MAX:
             # evict-ok: memo; a miss recomputes the value
             _PREP_CACHE.pop(next(iter(_PREP_CACHE)), None)

@@ -75,7 +75,8 @@ def _num(s: str) -> Optional[float]:
     """``float(s)``, or ``None`` for nvidia-smi placeholders such as ``[N/A]``."""
     try:
         return float(s)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_num fell back to its default after %s", type(_exc).__name__)
         return None
 
 

@@ -156,6 +156,7 @@ _UNSET = object()
 # same instant. Linux/Windows are unaffected (numba's workqueue layer tolerates concurrent launch
 # there) so the lock is a no-op everywhere else.
 _MACOS_NUMBA_PARALLEL_FIT_LOCK = threading.Lock() if sys.platform == "darwin" else None
+_FIT_REENTRANCY_LOCK_CREATE_LOCK = threading.Lock()
 
 
 def _restore_toggles_snapshot_and_raise_impl(_toggles_snapshot, exc: BaseException) -> NoReturn:
@@ -3330,10 +3331,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         object. Not a real constructor param / fitted attribute - stored
         under a private ``__dict__`` key and excluded from pickling via ``__getstate__`` below (a
         ``threading.Lock`` is not picklable); a fresh lock is lazily recreated after unpickle on first use."""
-        lock = self.__dict__.get("_fit_reentrancy_lock_")
-        if lock is None:
-            lock = threading.Lock()
-            self.__dict__["_fit_reentrancy_lock_"] = lock
+        with _FIT_REENTRANCY_LOCK_CREATE_LOCK:
+            lock = self.__dict__.get("_fit_reentrancy_lock_")
+            if lock is None:
+                lock = threading.Lock()
+                self.__dict__["_fit_reentrancy_lock_"] = lock
         return lock
 
     def __getstate__(self):

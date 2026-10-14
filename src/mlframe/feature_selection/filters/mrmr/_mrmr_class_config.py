@@ -416,8 +416,6 @@ class _MRMRConfigMixin:
         (``_apply_default_screen_subsample``, ``_apply_fast_search_profile``, ``__setstate__``'s
         legacy-pickle path) now shares this one cached dict instead of re-deriving it.
         """
-        if cls in _CTOR_DEFAULTS_CACHE:
-            return _CTOR_DEFAULTS_CACHE[cls]
         with _CLASS_CACHES_LOCK:
             if cls not in _CTOR_DEFAULTS_CACHE:
                 sig = inspect.signature(cls.__init__)
@@ -431,8 +429,6 @@ class _MRMRConfigMixin:
         new FE generators are added. Lets ``fit()`` answer "will any FE stage run" by checking
         only these ~70 known attribute names via ``getattr``, instead of scanning the FULL
         instance ``__dict__`` (~300 attrs, two string ops each) on every single fit."""
-        if cls in _FE_ENABLE_ATTR_NAMES_CACHE:
-            return _FE_ENABLE_ATTR_NAMES_CACHE[cls]
         with _CLASS_CACHES_LOCK:
             if cls not in _FE_ENABLE_ATTR_NAMES_CACHE:
                 _FE_ENABLE_ATTR_NAMES_CACHE[cls] = frozenset(name for name in cls._ctor_defaults() if name.startswith("fe_") and name.endswith("_enable"))
@@ -460,8 +456,6 @@ class _MRMRConfigMixin:
         construction fails (e.g. a legacy pickle in a version whose ctor now requires
         something unavailable), matching the pre-cache fallback behaviour.
         """
-        if cls in _FRESH_INSTANCE_DEFAULTS_CACHE:
-            return _FRESH_INSTANCE_DEFAULTS_CACHE[cls]
         with _CLASS_CACHES_LOCK:
             if cls in _FRESH_INSTANCE_DEFAULTS_CACHE:
                 return _FRESH_INSTANCE_DEFAULTS_CACHE[cls]

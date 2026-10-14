@@ -20,19 +20,18 @@ import pytest
 @pytest.fixture(autouse=True)
 def _stub_pysr(monkeypatch):
     """Helper: Stub pysr."""
-    fake_model = MagicMock()
-    fake_model.fit = MagicMock(return_value=None)
-    fake_model.get_best = MagicMock(return_value="x0")
-    # ``equations.equation.tolist()`` chain used by the verbose-logging branch.
-    fake_eqs = MagicMock()
-    fake_eqs.equation.tolist = MagicMock(return_value=["x0"])
-    fake_model.equations = fake_eqs
-    # Track which columns PySR's ``fit`` actually saw.
-    fake_model.feature_names_in_ = None
+    def _new_fake_model():
+        """Build one fake PySR model with the attributes the FE code reads."""
+        fake_model = MagicMock()
+        fake_model.fit = MagicMock(return_value=None)
+        fake_model.get_best = MagicMock(return_value="x0")
+        # ``equations.equation.tolist()`` chain used by the verbose-logging branch.
+        fake_eqs = MagicMock()
+        fake_eqs.equation.tolist = MagicMock(return_value=["x0"])
+        fake_model.equations = fake_eqs
+        # Track which columns PySR's ``fit`` actually saw.
+        fake_model.feature_names_in_ = None
 
-    def _make_regressor(**_kwargs):
-        # On every fit, capture the column order from the X passed.
-        """Helper: Make regressor."""
         def _fake_fit(X, y):
             """Helper: Fake fit."""
             if hasattr(X, "columns"):
@@ -43,10 +42,14 @@ def _stub_pysr(monkeypatch):
         fake_model.fit.side_effect = _fake_fit
         return fake_model
 
+    def _make_regressor(**_kwargs):
+        """Helper: Make regressor. Each fit gets its own model, so the column order it records is not shared across callers."""
+        return _new_fake_model()
+
     fake_pysr = types.ModuleType("pysr")
     fake_pysr.PySRRegressor = _make_regressor
     monkeypatch.setitem(sys.modules, "pysr", fake_pysr)
-    yield fake_model
+    yield
 
 
 def _import_target():

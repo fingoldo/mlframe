@@ -45,7 +45,8 @@ def _safe_code_dtype(n_bins: int, dtype: type, reserve_nan_slot: bool = False) -
     """
     try:
         info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type, unused-ignore]  # dtype may be non-integer (e.g. float64); caught below at runtime
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.debug("_safe_code_dtype fell back to its default after %s", type(_exc).__name__)
         return dtype  # non-integer requested dtype: caller owns the contract
     top_code = n_bins if reserve_nan_slot else n_bins - 1
     if top_code <= info.max:
@@ -280,7 +281,8 @@ def _maybe_collect_lazy(df):
     streaming, they should pass ``MRMR`` a frame that fits in memory."""
     try:
         import polars as pl
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_maybe_collect_lazy fell back to its default after %s", type(_exc).__name__)
         return df
     if isinstance(df, pl.LazyFrame):
         logger.warning("MRMR autocollecting LazyFrame at boundary. Pass a materialised DataFrame to skip this copy.")

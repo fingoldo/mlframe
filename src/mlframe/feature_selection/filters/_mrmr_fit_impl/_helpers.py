@@ -203,7 +203,8 @@ def _mrmr_instance_state_size_bytes(instance: Any) -> int:
         # Worst case with the snapshot is a slightly stale byte estimate, already the documented
         # "best-effort" contract.
         _attrs = vars(instance).copy()
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_mrmr_instance_state_size_bytes fell back to its default after %s", type(_exc).__name__)
         return 0
     for _v in _attrs.values():
         try:

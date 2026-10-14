@@ -60,7 +60,8 @@ def _process_special_values(
         # Single combined diagnostic scan
         try:
             import polars.selectors as cs
-        except ImportError:
+        except ImportError as _exc:
+            logger.debug("_process_special_values fell back to its default after %s", type(_exc).__name__)
             return df
         diag = df.select(
             cs.numeric().is_null().sum().name.prefix("nulls_"),
@@ -179,7 +180,8 @@ def _frame_contains_inf(df) -> bool:
         # _pandas_float_like_columns helper that covers both legacy and extension floats.
         try:
             _float_cols = _pandas_float_like_columns(df)
-        except (AttributeError, TypeError):
+        except (AttributeError, TypeError) as _exc:
+            logger.debug("_frame_contains_inf fell back to its default after %s", type(_exc).__name__)
             return False
         if not _float_cols:
             return False

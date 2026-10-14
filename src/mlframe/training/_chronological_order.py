@@ -94,7 +94,8 @@ def chronological_order_index(idx: Any, timestamps: Any) -> Tuple[Any, str]:
         return idx, "skipped"
     try:
         n_ts = len(timestamps)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("chronological_order_index fell back to its default after %s", type(_exc).__name__)
         return idx, "skipped"
     if n_ts == 0 or int(idx_arr.max()) >= n_ts or int(idx_arr.min()) < 0:
         return idx, "skipped"

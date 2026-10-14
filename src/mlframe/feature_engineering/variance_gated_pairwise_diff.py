@@ -21,6 +21,9 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.drop_near_noise_univariate_auc import drop_near_noise_univariate_auc
+import logging
+
+logger = logging.getLogger(__name__)
 
 # RAM ceiling (bytes) for the surviving-pairs diff-column output (float64, n_rows x n_surviving_pairs).
 # Default ~1 GiB; override at runtime via MLFRAME_VARIANCE_GATED_DIFF_MAX_BYTES (read per-call). Mirrors
@@ -35,7 +38,8 @@ def _max_output_bytes() -> int:
         return _DEFAULT_MAX_OUTPUT_BYTES
     try:
         return int(raw)
-    except ValueError:
+    except ValueError as _exc:
+        logger.warning("_max_output_bytes fell back to its default after %s", type(_exc).__name__)
         return _DEFAULT_MAX_OUTPUT_BYTES
 
 

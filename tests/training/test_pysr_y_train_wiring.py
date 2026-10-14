@@ -106,12 +106,6 @@ def test_pysr_enabled_with_y_train_calls_pysr():
 
     # Build a minimal stub: model.equations_ has 1 row (so eq_df is non-empty);
     # model.predict returns zeros.
-    fake_model = MagicMock()
-    fake_eq_df = pd.DataFrame({"score": [1.0], "complexity": [3], "loss": [0.1]})
-    fake_eq_df.index = [0]
-    fake_model.equations_ = fake_eq_df
-    fake_model.predict = MagicMock(return_value=np.zeros(len(X_train)))
-
     call_log = []
 
     def fake_run_pysr(df, target_col, sample_size, encode_categoricals, verbose, pysr_params_override, **kwargs):
@@ -132,7 +126,11 @@ def test_pysr_enabled_with_y_train_calls_pysr():
             """Pred."""
             return np.zeros(len(_df))
 
-        fake_model.predict.side_effect = _pred
+        fake_model = MagicMock()
+        fake_eq_df = pd.DataFrame({"score": [1.0], "complexity": [3], "loss": [0.1]})
+        fake_eq_df.index = [0]
+        fake_model.equations_ = fake_eq_df
+        fake_model.predict = MagicMock(side_effect=_pred)
         return fake_model
 
     with patch("mlframe.feature_engineering.bruteforce.run_pysr_feature_engineering", side_effect=fake_run_pysr):

@@ -362,7 +362,8 @@ class CompositeMultiOutputEstimator(MultiOutputMixin, RegressorMixin, BaseEstima
         pandas / polars / ndarray; ``shape[0]`` is the ndarray fallback."""
         try:
             return len(X)
-        except TypeError:
+        except TypeError as _exc:
+            logger.debug("_infer_n_rows fell back to its default after %s", type(_exc).__name__)
             return int(np.asarray(X).shape[0])
 
     @property

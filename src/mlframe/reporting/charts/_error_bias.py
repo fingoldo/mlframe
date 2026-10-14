@@ -19,6 +19,9 @@ from ._error_analysis_shared import (
     _row_count,
 )
 from ._layout import figsize_for_grid, pack_panels
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ErrorBiasResult:
@@ -169,12 +172,13 @@ def _error_bias_panel(col: np.ndarray, name: str, *, masks: Dict[str, np.ndarray
         return None
     try:
         edges = np.histogram_bin_edges(cf, bins=nbins)
-    except ValueError:
+    except ValueError as _exc:
         # A near-constant finite column (e.g. an MLP-engineered feature with ~zero variance) has a range so
         # tiny that numpy can't carve it into ``nbins`` distinct finite-precision edges -- raises "Too many
         # bins for data range" (caught live via a fuzz combo with mlp in the model mix). This one feature's
         # bias panel isn't meaningful anyway (no spread to bin), so skip it rather than aborting the whole
         # diagnostic (best-effort, matches every other panel in this dispatcher).
+        logger.warning("_error_bias_panel fell back to its default after %s", type(_exc).__name__)
         return None
     if edges.size < 2 or not np.all(np.diff(edges) > 0):
         # numpy doesn't always raise on a near-constant huge-magnitude column -- it can instead

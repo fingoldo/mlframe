@@ -138,6 +138,9 @@ _DETECT_HEAVY_TAIL_NJIT_MAX_N = env_int("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", 
 # alive for the scope body), else it recomputes. threading.local -> no cross-worker contamination.
 import threading as _threading
 import contextlib as _contextlib
+import logging
+
+logger = logging.getLogger(__name__)
 _HEAVY_TAIL_MEMO = _threading.local()
 
 
@@ -274,7 +277,8 @@ def _ols_lstsq(B: np.ndarray, y: np.ndarray) -> np.ndarray | None:
     stays byte-identical to legacy."""
     try:
         coef, *_ = np.linalg.lstsq(B, y, rcond=None)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("_ols_lstsq fell back to its default after %s", type(_exc).__name__)
         return None
     if not np.all(np.isfinite(coef)):
         return None

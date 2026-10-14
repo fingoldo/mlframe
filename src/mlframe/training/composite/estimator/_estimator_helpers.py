@@ -30,10 +30,11 @@ def _callable_accepts_param(fn: Callable[..., Any], name: str) -> bool:
     """
     try:
         sig = inspect.signature(fn)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
         # Builtins / C-extensions without an introspectable signature: be permissive (assume the param is accepted) so
         # we never silently drop weighting on an estimator we could not introspect; a real "no such param" TypeError
         # then surfaces loudly to the caller.
+        logger.debug("_callable_accepts_param fell back to its default after %s", type(_exc).__name__)
         return True
     params = sig.parameters
     if name in params:

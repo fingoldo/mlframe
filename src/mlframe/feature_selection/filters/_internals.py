@@ -264,7 +264,8 @@ def _njit_cache_key(func):
     # fresh (correct, just uncached) instead of letting a hash error drop it back to pure-Python.
     try:
         hash(key)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_njit_cache_key fell back to its default after %s", type(_exc).__name__)
         return None
     return key
 

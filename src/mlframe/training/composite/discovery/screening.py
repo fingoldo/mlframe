@@ -101,7 +101,8 @@ def _is_numeric_column(df: Any, col: str) -> bool:
             # versions that ship the dtypes but not the helper.
             try:
                 return bool(dtype.is_numeric())
-            except AttributeError:
+            except AttributeError as _exc:
+                logger.debug("_is_numeric_column fell back to its default after %s", type(_exc).__name__)
                 return dtype in {
                     pl.Float32, pl.Float64,
                     pl.Int8, pl.Int16, pl.Int32, pl.Int64,

@@ -247,7 +247,8 @@ def _fmt_num(value: Any) -> str:
         return "-"
     try:
         f = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_fmt_num fell back to its default after %s", type(_exc).__name__)
         return str(value)
     if not np.isfinite(f):
         return "-"

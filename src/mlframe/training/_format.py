@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import math
 from typing import Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 _SHIM_SUFFIXES = ("WithDMatrixReuse", "WithDatasetReuse")
 
@@ -124,7 +127,8 @@ def format_metric(value: Any, ndigits: int = 2) -> str:
         return "None"
     try:
         v = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("format_metric fell back to its default after %s", type(_exc).__name__)
         return str(value)
     if not math.isfinite(v):
         return str(v)

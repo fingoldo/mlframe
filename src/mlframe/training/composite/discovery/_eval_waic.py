@@ -73,10 +73,12 @@ class WaicScore:
         return self.valid
 
 
-_INVALID = WaicScore(
-    waic=float("-inf"), elpd=float("-inf"), p_eff=float("nan"),
-    n_points=0, n_folds=0, valid=False,
-)
+def _invalid_score() -> WaicScore:
+    """A fresh unusable score; built per call so no caller shares one instance."""
+    return WaicScore(
+        waic=float("-inf"), elpd=float("-inf"), p_eff=float("nan"),
+        n_points=0, n_folds=0, valid=False,
+    )
 
 
 def waic_from_oof_residuals(
@@ -146,7 +148,7 @@ def waic_from_oof_residuals(
             else:
                 scale_resid.append(None)
     if len(clean) < 2:
-        return _INVALID
+        return _invalid_score()
 
     pooled = np.concatenate(clean)
     if target_scale is not None and math.isfinite(target_scale) and target_scale > 0:
@@ -315,7 +317,7 @@ def compute_transform_waic(
         n_folds=n_folds, random_state=random_state, model_factory=model_factory, groups=groups, time_aware=time_aware,
     )
     if len(fold_residuals) < 2:
-        return _INVALID
+        return _invalid_score()
     scale = float(np.std(np.asarray(y_target, dtype=np.float64).ravel()))
     return waic_from_oof_residuals(
         fold_residuals, target_scale=scale, fold_scale_residuals=train_fold_residuals,

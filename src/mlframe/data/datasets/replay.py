@@ -59,7 +59,8 @@ def spec_hash_for(scenario: str, seed: int = 0) -> Optional[str]:
 
     try:
         return registry.get(scenario).build(seed=seed).content_hash()
-    except KeyError:
+    except KeyError as _exc:
+        logger.debug("spec_hash_for fell back to its default after %s", type(_exc).__name__)
         return None
 
 
@@ -82,7 +83,8 @@ def replay(scenario: str, seed: int, expected_hash: Optional[str] = None) -> Rep
 
     try:
         entry = registry.get(scenario)
-    except KeyError:
+    except KeyError as _exc:
+        logger.debug("replay fell back to its default after %s", type(_exc).__name__)
         return ReplayResult(scenario=scenario, seed=seed, status="absent", expected_hash=expected_hash, actual_hash=None, reason=f"no scenario named {scenario!r} is registered, so nothing can be rebuilt", dataset=None)
 
     spec = entry.build(seed=seed)

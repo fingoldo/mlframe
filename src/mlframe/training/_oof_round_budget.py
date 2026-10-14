@@ -46,13 +46,15 @@ def apply_round_budget(estimator: Any, rounds: Optional[int]) -> Optional[str]:
         return None
     try:
         params = estimator.get_params(deep=False)
-    except (AttributeError, TypeError):
+    except (AttributeError, TypeError) as _exc:
+        logger.warning("apply_round_budget fell back to its default after %s", type(_exc).__name__)
         return None
     for name in _ROUND_PARAMS:
         if name in params:
             try:
                 estimator.set_params(**{name: int(rounds)})
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as _exc:
+                logger.warning("apply_round_budget fell back to its default after %s", type(_exc).__name__)
                 return None
             return name
     return None

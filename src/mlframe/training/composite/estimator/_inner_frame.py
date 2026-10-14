@@ -52,7 +52,8 @@ def frame_for_inner(estimator: Any, X: Any) -> Any:
     """
     try:
         import polars as pl
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("frame_for_inner fell back to its default after %s", type(_exc).__name__)
         return X
     if not isinstance(X, pl.DataFrame):
         return X

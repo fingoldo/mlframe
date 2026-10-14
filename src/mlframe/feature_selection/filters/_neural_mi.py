@@ -277,8 +277,6 @@ def _get_infonet_model(device: str = "auto"):
     """Lazy-load + cache the InfoNet pre-trained model from the local cache
     or trigger a one-time download instruction."""
     cache_key = device
-    if cache_key in _INFONET_MODEL_CACHE:
-        return _INFONET_MODEL_CACHE[cache_key]
     with _NEURAL_MI_CACHE_LOCK:
         if cache_key in _INFONET_MODEL_CACHE:
             return _INFONET_MODEL_CACHE[cache_key]
@@ -380,18 +378,15 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     _y_key = None
     try:
         _y_key = (y.shape, hash(y.tobytes()), int(seed), int(point_cloud_size))
-        _cached_yr = _INFONET_Y_PREP_CACHE.get(_y_key)
     except Exception as e:
         logger.warning("y-prep cache key computation failed, skipping the memo: %s", e)
         _y_key = None
-        _cached_yr = None
 
     rng = np.random.default_rng(int(seed))
     if n > point_cloud_size:
         idx = rng.choice(n, size=point_cloud_size, replace=False)
         x = x[idx]
-        if _cached_yr is None:
-            y = y[idx]
+        y = y[idx]
         n = point_cloud_size
 
     # 2026-05-29 fix: jitter discrete inputs so rank-normalise doesn't collapse to
@@ -405,14 +400,15 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
     # Rank-normalise to (0, 1] per InfoNet README contract.
     xr = rankdata(x_j) / n
 
-    if _cached_yr is not None:
-        yr = _cached_yr
-    else:
-        rng_y_jitter = np.random.default_rng([int(seed), 1])
-        y_j = _jitter_if_discrete(y, rng_y_jitter)
-        yr = rankdata(y_j) / n
-        if _y_key is not None:
-            with _NEURAL_MI_CACHE_LOCK:
+    with _NEURAL_MI_CACHE_LOCK:
+        _cached_yr = _INFONET_Y_PREP_CACHE.get(_y_key) if _y_key is not None else None
+        if _cached_yr is not None:
+            yr = _cached_yr
+        else:
+            rng_y_jitter = np.random.default_rng([int(seed), 1])
+            y_j = _jitter_if_discrete(y, rng_y_jitter)
+            yr = rankdata(y_j) / n
+            if _y_key is not None:
                 if len(_INFONET_Y_PREP_CACHE) > 8:
                     # evict-ok: memo; a miss recomputes the value
                     _INFONET_Y_PREP_CACHE.pop(next(iter(_INFONET_Y_PREP_CACHE)))
@@ -465,8 +461,6 @@ def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
         The loaded MIST model, cached per ``(loss, device)`` after the first call.
     """
     cache_key = (loss, device)
-    if cache_key in _MIST_MODEL_CACHE:
-        return _MIST_MODEL_CACHE[cache_key]
     with _NEURAL_MI_CACHE_LOCK:
         if cache_key in _MIST_MODEL_CACHE:
             return _MIST_MODEL_CACHE[cache_key]
@@ -600,21 +594,22 @@ def _classify_y_kind(y: np.ndarray) -> str:
     _key = None
     try:
         _key = (y.shape, str(y.dtype), hash(y.tobytes()))
-        _hit = _Y_KIND_CACHE.get(_key)
-        if _hit is not None:
-            return _hit
     except Exception as e:
         logger.warning("y-kind cache key computation failed, skipping the memo: %s", e)
         _key = None
-    uniq = np.unique(y)
-    if uniq.size == 2:
-        _res = "binary"
-    elif uniq.size <= 32 and np.all(uniq == uniq.astype(np.int64)):
-        _res = "multiclass"
-    else:
-        _res = "continuous"
-    if _key is not None:
-        with _NEURAL_MI_CACHE_LOCK:
+    with _NEURAL_MI_CACHE_LOCK:
+        if _key is not None:
+            _hit = _Y_KIND_CACHE.get(_key)
+            if _hit is not None:
+                return _hit
+        uniq = np.unique(y)
+        if uniq.size == 2:
+            _res = "binary"
+        elif uniq.size <= 32 and np.all(uniq == uniq.astype(np.int64)):
+            _res = "multiclass"
+        else:
+            _res = "continuous"
+        if _key is not None:
             if len(_Y_KIND_CACHE) > 8:
                 # evict-ok: memo; a miss recomputes the value
                 _Y_KIND_CACHE.pop(next(iter(_Y_KIND_CACHE)))

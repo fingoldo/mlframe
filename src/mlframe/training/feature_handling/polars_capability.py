@@ -101,7 +101,8 @@ def detect_polars_ds_capabilities() -> FrozenSet[str]:
     try:
         import polars_ds as pds
         from polars_ds.pipeline import Blueprint
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("detect_polars_ds_capabilities fell back to its default after %s", type(_exc).__name__)
         return frozenset()
 
     caps = {f"polars_ds:{getattr(pds, '__version__', 'unknown')}"}

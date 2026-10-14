@@ -148,7 +148,8 @@ def _restart_kaleido_server() -> bool:
     with _KALEIDO_STATE_LOCK:
         try:
             import kaleido
-        except ImportError:
+        except ImportError as _exc:
+            logger.warning("_restart_kaleido_server fell back to its default after %s", type(_exc).__name__)
             return False
         if _KALEIDO_SERVER_STARTED:
             try:
@@ -175,7 +176,8 @@ def _ensure_kaleido_server_started() -> bool:
             return True
         try:
             import kaleido
-        except ImportError:
+        except ImportError as _exc:
+            logger.warning("_ensure_kaleido_server_started fell back to its default after %s", type(_exc).__name__)
             return False
         try:
             # silence_warnings=True so the "already started" message doesn't spam logs if some other

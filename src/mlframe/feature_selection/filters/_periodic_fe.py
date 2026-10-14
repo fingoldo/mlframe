@@ -225,7 +225,8 @@ def _parse_modular_name(name: str):
             tok = suffix[len(prefix) :]
             try:
                 period = float(tok.replace("m", "-").replace("p", "."))
-            except ValueError:
+            except ValueError as _exc:
+                logger.debug("_parse_modular_name fell back to its default after %s", type(_exc).__name__)
                 return None
             return (op, src, period)
     return None

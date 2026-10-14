@@ -130,7 +130,8 @@ def _maybe_get_or_build_cb_pool(
         return None
     try:
         from catboost import Pool as _Pool
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_maybe_get_or_build_cb_pool fell back to its default after %s", type(_exc).__name__)
         return None
 
     sample_weight = fit_params.get("sample_weight")

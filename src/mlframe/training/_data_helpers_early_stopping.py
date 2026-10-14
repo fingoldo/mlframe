@@ -196,7 +196,8 @@ def _build_cb_iteration_metrics_callback(fit_params, model_obj, stride):
     pair = eval_set[0] if isinstance(eval_set, (list, tuple)) and eval_set and isinstance(eval_set[0], (list, tuple)) else eval_set
     try:
         X_val, y_val = pair[0], pair[1]
-    except (TypeError, IndexError, KeyError):
+    except (TypeError, IndexError, KeyError) as _exc:
+        logger.debug("_build_cb_iteration_metrics_callback fell back to its default after %s", type(_exc).__name__)
         return None
     try:
         from sklearn.base import is_classifier as _sk_is_classifier

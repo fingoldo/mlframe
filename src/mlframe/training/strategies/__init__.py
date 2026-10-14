@@ -8,6 +8,7 @@ Each model type may require different preprocessing (scaling, encoding, imputati
 from __future__ import annotations
 
 
+import copy
 import importlib.util
 import logging
 import re
@@ -160,8 +161,8 @@ def get_strategy(model_name: Any) -> ModelPipelineStrategy:
         strategy = MODEL_STRATEGIES.get(model_name.lower())
         if strategy is None:
             warnings.warn(f"Unknown model '{model_name}', defaulting to TreeModelStrategy", stacklevel=2)
-            return _TREE_STRATEGY
-        return strategy
+            return copy.copy(_TREE_STRATEGY)
+        return copy.copy(strategy)
 
     # Anything else is treated as an estimator instance.
     return _strategy_for_estimator(model_name)
@@ -223,22 +224,22 @@ def _strategy_of_halves(estimator: Any) -> "ModelPipelineStrategy | None":
     if any(hasattr(h, "classifier") and hasattr(h, "regressor") for h in halves):
         return None  # no nesting: a half that is itself two-part is not a case this resolves
     first, second = (_known_strategy(h) for h in halves)
-    return first if first is not None and first is second else None
+    return first if first is not None and type(first) is type(second) else None
 
 
 def _known_strategy(estimator: Any) -> "ModelPipelineStrategy | None":
     """The registered strategy of a single estimator, or None when it has none (no fallback, no warning)."""
     cb = _catboost_classes()
     if cb and isinstance(estimator, cb):
-        return _CATBOOST_STRATEGY
+        return copy.copy(_CATBOOST_STRATEGY)
     lgb = _lightgbm_classes()
     if lgb and isinstance(estimator, lgb):
-        return _TREE_STRATEGY
+        return copy.copy(_TREE_STRATEGY)
     xgb = _xgboost_classes()
     if xgb and isinstance(estimator, xgb):
-        return _XGBOOST_STRATEGY
+        return copy.copy(_XGBOOST_STRATEGY)
     if isinstance(estimator, _hgb_classes()):
-        return _HGB_STRATEGY
+        return copy.copy(_HGB_STRATEGY)
     return None
 
 
@@ -258,7 +259,7 @@ def _strategy_for_estimator(estimator: Any) -> ModelPipelineStrategy:
         "No registered strategy for %s; defaulting to LinearModelStrategy",
         type(estimator).__name__,
     )
-    return _LINEAR_STRATEGY
+    return copy.copy(_LINEAR_STRATEGY)
 
 
 def _slugify(name: str) -> str:

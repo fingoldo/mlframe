@@ -72,7 +72,8 @@ def _is_regression_target_type(target_type: Any) -> bool:
     """
     try:
         from ..configs import TargetTypes
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_is_regression_target_type fell back to its default after %s", type(_exc).__name__)
         return False
     return bool(target_type == TargetTypes.REGRESSION)
 

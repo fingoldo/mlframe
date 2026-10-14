@@ -206,7 +206,8 @@ def apply_rung_schedule(
         """Extract the pair MI (``key[1]``) used to rank/threshold pairs for the rung cut; returns 0.0 for a malformed key."""
         try:
             return float(key[1])
-        except (TypeError, IndexError, ValueError):
+        except (TypeError, IndexError, ValueError) as _exc:
+            logger.debug("_pm fell back to its default after %s", type(_exc).__name__)
             return 0.0
 
     keys = list(prospective_pairs.keys())

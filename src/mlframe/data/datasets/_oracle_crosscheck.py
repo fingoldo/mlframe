@@ -248,6 +248,7 @@ def reference_crosscheck(n_levels: Tuple[int, ...] = (2, 5, 17, 64), n_samples: 
     try:
         checks = crosscheck_exact_mi(columns, law)
     except ImportError as exc:
+        logger.debug("reference_crosscheck fell back to its default after %s", type(exc).__name__)
         return {"ran": False, "reason": str(exc)}
     summary = crosscheck_summary(checks)
     if summary is None:

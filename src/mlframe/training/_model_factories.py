@@ -48,7 +48,8 @@ def _patch_lgb_feature_names_in_setter() -> None:
     # target of the patch and doesn't depend on our lazy class-cache state.
     try:
         import lightgbm.sklearn as _lgbm_sk
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_patch_lgb_feature_names_in_setter fell back to its default after %s", type(_exc).__name__)
         return
 
     _model_cls = _lgbm_sk.LGBMModel

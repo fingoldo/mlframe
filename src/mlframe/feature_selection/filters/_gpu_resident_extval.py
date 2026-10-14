@@ -78,7 +78,8 @@ def gpu_materialise_extval_codes_host(
             fe_gpu_defer_host_codes_enabled,
             fe_gpu_resident_codes_enabled,
         )
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("gpu_materialise_extval_codes_host fell back to its default after %s", type(_exc).__name__)
         return None
     try:
         # param_a + each external-factor column ride the content-keyed resident cache: the SAME ext-factor

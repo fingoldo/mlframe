@@ -403,11 +403,12 @@ def _chi2_sf(x: float, df: int) -> float:
     try:
         from scipy.stats import chi2 as _c2
         return float(_c2.sf(x, df))
-    except ImportError:
+    except ImportError as _exc:
         # df-aware fallback: chi-squared SF == Q(df/2, x/2). The previous
         # erfc(sqrt(x/2)) collapsed every df to the df=1 case, producing wrong
         # p-values (Kruskal-Wallis/chi-squared independence have df = k-1 or
         # (r-1)(c-1) >> 1), corrupting the BY-FDR prescreen.
+        logger.debug("_chi2_sf fell back to its default after %s", type(_exc).__name__)
         return float(_regularized_upper_gamma_q(df / 2.0, x / 2.0))
 
 

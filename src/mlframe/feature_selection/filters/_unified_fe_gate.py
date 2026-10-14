@@ -90,16 +90,16 @@ def _coerce_y_classes(y) -> np.ndarray:
     _key = None
     try:
         _key = (y_arr.shape, str(y_arr.dtype), hash(y_arr.tobytes()))
-        with _FE_GATE_MEMO_LOCK:
-            _hit = _COERCE_Y_MEMO.get(_key)
-        if _hit is not None:
-            return np.asarray(_hit.copy())
     except Exception as e:
         logger.warning("y-coerce memo key computation failed, skipping the memo: %s", e)
         _key = None
-    _res = _coerce_y_classes_impl(y_arr)
-    if _key is not None:
-        with _FE_GATE_MEMO_LOCK:
+    with _FE_GATE_MEMO_LOCK:
+        if _key is not None:
+            _hit = _COERCE_Y_MEMO.get(_key)
+            if _hit is not None:
+                return np.asarray(_hit.copy())
+        _res = _coerce_y_classes_impl(y_arr)
+        if _key is not None:
             if len(_COERCE_Y_MEMO) > 8:
                 # evict-ok: memo; a miss recomputes the value
                 _COERCE_Y_MEMO.pop(next(iter(_COERCE_Y_MEMO)))
@@ -231,43 +231,43 @@ def raw_mi_noise_floor(
     try:
         # Hash the buffers directly; tobytes() would copy the whole matrix just to key the memo.
         _key = (tuple(num_cols), arr.shape, _buffer_hash(arr), _buffer_hash(y_bin), int(nbins), float(mad_mult))
-        with _FE_GATE_MEMO_LOCK:
-            _hit = _RAW_MI_FLOOR_MEMO.get(_key)
-        if _hit is not None:
-            return _hit
     except Exception as e:
         logger.warning("raw-MI-floor memo key computation failed, skipping the memo: %s", e)
         _key = None
 
-    # Class-B :311 collapse: under STRICT-residency ``_mi_classif_batch(arr)`` already routes
-    # through the resident plug-in but re-uploads this FIT-CONSTANT raw matrix fresh at _orth_mi_backends:311.
-    # The matrix is the raw numeric columns verbatim (a pure baseline, re-scored across the fit), so route it
-    # through the resident-operand cache -> uploaded ONCE. Same percentile-edge resident estimator the host
-    # STRICT path uses -> byte-identical per-column MI -> byte-identical median+MAD floor. None on any cupy
-    # failure / non-strict -> the EXACT host scorer below (byte-identical default path untouched).
-    from ._resident_raw_mi import resident_raw_baseline_mi
+    with _FE_GATE_MEMO_LOCK:
+        if _key is not None:
+            _hit = _RAW_MI_FLOOR_MEMO.get(_key)
+            if _hit is not None:
+                return _hit
+        # Class-B :311 collapse: under STRICT-residency ``_mi_classif_batch(arr)`` already routes
+        # through the resident plug-in but re-uploads this FIT-CONSTANT raw matrix fresh at _orth_mi_backends:311.
+        # The matrix is the raw numeric columns verbatim (a pure baseline, re-scored across the fit), so route it
+        # through the resident-operand cache -> uploaded ONCE. Same percentile-edge resident estimator the host
+        # STRICT path uses -> byte-identical per-column MI -> byte-identical median+MAD floor. None on any cupy
+        # failure / non-strict -> the EXACT host scorer below (byte-identical default path untouched).
+        from ._resident_raw_mi import resident_raw_baseline_mi
 
-    raw_mi = resident_raw_baseline_mi(arr, y_bin, ("raw_noise_floor", tuple(num_cols)), nbins=nbins)
-    if raw_mi is None:
-        raw_mi = _mi_classif_batch(arr, y_bin, nbins=nbins)
-    raw_mi = np.asarray(raw_mi, dtype=np.float64)
-    raw_mi = raw_mi[np.isfinite(raw_mi)]
-    if raw_mi.size == 0:
-        _res = 0.0
-    else:
-        _null_floor = _null_mi_floor(int(arr.shape[0]), int(nbins), count_distinct_int(y_bin))
-        med = float(np.median(raw_mi))
-        mad = float(np.median(np.abs(raw_mi - med)))
-        # MAD scaled to a std-equivalent (1.4826) so ``mad_mult`` reads like a
-        # sigma multiplier on a roughly-normal raw-MI distribution.
-        _est = med + float(mad_mult) * 1.4826 * mad
-        # Median + MAD of a handful of columns is erratic (on four raw columns it landed above the strongest one; with one more noise column it dropped
-        # 15x), so it is bounded on both sides: never above the strongest raw column's MI (a "noise floor" over every real column is outside the scale
-        # it was calibrated on), and never below the analytic independence quantile (a floor under the noise level is not a floor).
-        _res = max(min(_est, float(raw_mi.max())), _null_floor)
+        raw_mi = resident_raw_baseline_mi(arr, y_bin, ("raw_noise_floor", tuple(num_cols)), nbins=nbins)
+        if raw_mi is None:
+            raw_mi = _mi_classif_batch(arr, y_bin, nbins=nbins)
+        raw_mi = np.asarray(raw_mi, dtype=np.float64)
+        raw_mi = raw_mi[np.isfinite(raw_mi)]
+        if raw_mi.size == 0:
+            _res = 0.0
+        else:
+            _null_floor = _null_mi_floor(int(arr.shape[0]), int(nbins), count_distinct_int(y_bin))
+            med = float(np.median(raw_mi))
+            mad = float(np.median(np.abs(raw_mi - med)))
+            # MAD scaled to a std-equivalent (1.4826) so ``mad_mult`` reads like a
+            # sigma multiplier on a roughly-normal raw-MI distribution.
+            _est = med + float(mad_mult) * 1.4826 * mad
+            # Median + MAD of a handful of columns is erratic (on four raw columns it landed above the strongest one; with one more noise column it dropped
+            # 15x), so it is bounded on both sides: never above the strongest raw column's MI (a "noise floor" over every real column is outside the scale
+            # it was calibrated on), and never below the analytic independence quantile (a floor under the noise level is not a floor).
+            _res = max(min(_est, float(raw_mi.max())), _null_floor)
 
-    if _key is not None:
-        with _FE_GATE_MEMO_LOCK:
+        if _key is not None:
             if len(_RAW_MI_FLOOR_MEMO) > 8:
                 # evict-ok: memo; a miss recomputes the value
                 _RAW_MI_FLOOR_MEMO.pop(next(iter(_RAW_MI_FLOOR_MEMO)))

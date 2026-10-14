@@ -71,7 +71,8 @@ def _pair_maxt_max_rows() -> int:
         return _default_pair_maxt_max_rows()
     try:
         v = int(raw)
-    except ValueError:
+    except ValueError as _exc:
+        logger.warning("_pair_maxt_max_rows fell back to its default after %s", type(_exc).__name__)
         return _default_pair_maxt_max_rows()
     return v if v >= 0 else _default_pair_maxt_max_rows()
 

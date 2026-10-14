@@ -217,7 +217,8 @@ def _run_group(
     try:
         VtT = Vt.transpose(0, 2, 1)
         coef = cp.linalg.solve(VtT @ Vt, VtT @ yt[:, :, None])
-    except np.linalg.LinAlgError:
+    except np.linalg.LinAlgError as _exc:
+        logger.warning("_run_group fell back to its default after %s", type(_exc).__name__)
         return [single(k) for k in range(C)]
     yt = yt - (Vt @ coef)[:, :, 0]
     yv = yv - (Vv @ coef)[:, :, 0]

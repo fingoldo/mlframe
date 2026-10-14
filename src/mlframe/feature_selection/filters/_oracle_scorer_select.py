@@ -106,18 +106,17 @@ def _cached_read_rows(store: Any) -> "list[dict]":
         return list(store.read_rows())
     try:
         mtime = os.path.getmtime(path) if os.path.isfile(path) else -1.0
-    except OSError:
+    except OSError as _exc:
+        logger.debug("_cached_read_rows fell back to its default after %s", type(_exc).__name__)
         return list(store.read_rows())
     key = (path, mtime)
+    # The lookup, the read on a miss and the store share one lock block, so a concurrent miss waits for the first read
+    # instead of parsing the same file again.
     with _ROWS_CACHE_LOCK:
         cached = _ROWS_CACHE.get(key)
         if cached is not None:
             return cached
-    # store.read_rows() (real file I/O) deliberately runs OUTSIDE the lock so a slow read from one
-    # thread never blocks other threads' cache lookups; a duplicate concurrent read on a cache miss is
-    # a harmless (if wasteful) recompute, never a correctness issue.
-    rows: "list[dict]" = list(store.read_rows())
-    with _ROWS_CACHE_LOCK:
+        rows: "list[dict]" = list(store.read_rows())
         if len(_ROWS_CACHE) >= _ROWS_CACHE_MAX:
             # evict-ok: memo; a miss recomputes the value
             _ROWS_CACHE.pop(next(iter(_ROWS_CACHE)))  # evict oldest (insertion order)

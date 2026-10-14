@@ -68,7 +68,8 @@ def _resolve_lgb_device() -> str:
     try:
         from mlframe.training import LGB_GPU_AVAILABLE
         return "cuda" if LGB_GPU_AVAILABLE else "cpu"
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_resolve_lgb_device fell back to its default after %s", type(_exc).__name__)
         return "cpu"
 
 

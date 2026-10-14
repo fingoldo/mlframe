@@ -307,7 +307,8 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
         if ca is None or not (np.all(np.isfinite(ca)) and np.all(np.isfinite(cb))):
             return None, None
         return np.ascontiguousarray(ca, dtype=np.float64), np.ascontiguousarray(cb, dtype=np.float64)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("warm_start_als_seed fell back to its default after %s", type(_exc).__name__)
         return None, None
 
 
@@ -387,7 +388,8 @@ def fit_operand_prewarp(
         # warp tracks the bulk instead of chasing the outlier rows.
         from ._hermite_robust import fit_basis_coef_robust
         coef, _robust_used, _winsor = fit_basis_coef_robust(B, yc, xf)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("fit_operand_prewarp fell back to its default after %s", type(_exc).__name__)
         return None
     if coef is None or not np.all(np.isfinite(coef)):
         return None
@@ -464,7 +466,8 @@ def fit_pair_prewarp_als(
         # GPU branch rebuilds Ba/Bb on device (the ~374MB matrix upload collapses to
         # the two tiny (n,) columns). The CPU path uses the host Ba/Bb built above.
         coef_a, coef_b = warm_start_als_seed(Ba, Bb, yf, iters=3, x_a=xa, x_b=xb, z_a=za, z_b=zb, basis=basis)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("fit_pair_prewarp_als fell back to its default after %s", type(_exc).__name__)
         return None, None
     if coef_a is None or coef_b is None:
         return None, None

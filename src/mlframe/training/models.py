@@ -57,7 +57,8 @@ def _sklearn_deprecates_penalty() -> bool:
     try:
         major, minor = _sklearn.__version__.split(".", 2)[:2]
         return (int(major), int(minor)) >= (1, 8)
-    except (ValueError, AttributeError):
+    except (ValueError, AttributeError) as _exc:
+        logger.debug("_sklearn_deprecates_penalty fell back to its default after %s", type(_exc).__name__)
         return False
 
 

@@ -757,7 +757,8 @@ def _cb_reuse_capable() -> bool:
     swap between fits)."""
     try:
         from catboost import Pool as _Pool
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_cb_reuse_capable fell back to its default after %s", type(_exc).__name__)
         return False
     return callable(getattr(_Pool, "set_label", None)) and callable(getattr(_Pool, "set_weight", None))
 
@@ -781,7 +782,8 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
         return
     try:
         from catboost import Pool as _Pool
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_maybe_rewrite_eval_set_as_cb_pool fell back to its default after %s", type(_exc).__name__)
         return
 
     es = fit_params.get("eval_set")

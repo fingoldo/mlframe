@@ -20,6 +20,9 @@ import numpy as np
 # ``mlframe.feature_engineering`` is imported lazily in the function below: at module scope it dragged the feature
 # engineering package - and transitively feature_selection.filters - into ``import mlframe.reporting``.
 from mlframe.reporting.spec import FIGSIZE_STANDARD, AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Cap the length-n fit backing so the quantile sort stays bounded on 100+ GB frames; a random subsample leaves the centre
 # quantiles statistically unchanged and never copies the caller's frame (only <=200k floats are pulled).
@@ -63,6 +66,7 @@ def fuzzy_membership_panel(x, *, n_partitions: int = 5, kind: str = "triangular"
     except ValueError as exc:
         # Every sibling builder degrades to an annotation on empty input; this one alone propagated the exception
         # and took the caller's whole figure down with it.
+        logger.warning("fuzzy_membership_panel fell back to its default after %s", type(exc).__name__)
         return AnnotationPanelSpec(text=f"Fuzzy partition unavailable: {exc}", title="Fuzzy partition")
     from mlframe.feature_engineering.fuzzy_features import fuzzy_partition_names
 

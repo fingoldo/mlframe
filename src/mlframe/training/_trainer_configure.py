@@ -207,11 +207,10 @@ def _get_training_configs_cached(**kwargs):
     key = tuple(items)
     with _GTC_CACHE_LOCK:
         hit = _GTC_CACHE.get(key)
-    if hit is not None:
-        return copy.deepcopy(hit)
-    res = get_training_configs(**kwargs)
-    _stored = copy.deepcopy(res)
-    with _GTC_CACHE_LOCK:
+        if hit is not None:
+            return copy.deepcopy(hit)
+        res = get_training_configs(**kwargs)
+        _stored = copy.deepcopy(res)
         if len(_GTC_CACHE) >= _GTC_CACHE_MAX:
             # FIFO eviction (Python dict insertion order). Cheap; the cache is small
             # so an LRU dance via OrderedDict would add complexity without measurable

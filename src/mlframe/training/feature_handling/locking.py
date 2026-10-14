@@ -219,7 +219,9 @@ class PIDAwareFileLock:
         try:
             with open(self._meta_path(), encoding="utf-8") as f:
                 return int(f.read().strip())
-        except (FileNotFoundError, ValueError):
+        except (FileNotFoundError, ValueError) as _exc:
+            logger.debug("_read_holder_pid fell back to its default after %s", type(_exc).__name__)
             return None
-        except OSError:  # pragma: no cover
+        except OSError as _exc:  # pragma: no cover
+            logger.debug("_read_holder_pid fell back to its default after %s", type(_exc).__name__)
             return None

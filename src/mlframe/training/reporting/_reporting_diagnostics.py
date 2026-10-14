@@ -102,7 +102,8 @@ def _booster_metric_period(model: Any) -> int | None:
         if period is not None:
             try:
                 period = int(period)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as _exc:
+                logger.warning("_booster_metric_period fell back to its default after %s", type(_exc).__name__)
                 return None
             return period if period > 1 else None
     return None

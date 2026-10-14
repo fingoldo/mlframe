@@ -115,7 +115,8 @@ class ValLossDivergenceCallback(Callback):
             return
         try:
             current = float(metrics[self._monitor])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            logger.debug("on_validation_epoch_end fell back to its default after %s", type(_exc).__name__)
             return
         if not (current == current) or current <= 0:  # NaN / non-positive guard
             return
@@ -176,7 +177,8 @@ class MonotonicDeclineStopCallback(Callback):
             return
         try:
             current = float(metrics[self._monitor])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            logger.debug("on_validation_epoch_end fell back to its default after %s", type(_exc).__name__)
             return
         if self._stopper.update(current):
             logger.info(

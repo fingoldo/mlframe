@@ -62,7 +62,8 @@ def _pp_is_fitted(pp: Any) -> bool:
     """
     try:
         from mlframe.training.pipeline.shared import is_fitted as _is_fitted
-    except ImportError:  # pragma: no cover - defensive; treat as unfitted
+    except ImportError as _exc:  # pragma: no cover - defensive; treat as unfitted
+        logger.debug("_pp_is_fitted fell back to its default after %s", type(_exc).__name__)
         return False
     return bool(_is_fitted(pp))
 
@@ -360,7 +361,8 @@ def _spec_is_recurrent(spec: Any) -> bool:
         return False
     try:
         return bool(getattr(get_transform(spec["transform_name"]), "recurrent", False))
-    except UnknownTransformError:  # an unregistered transform is simply not recurrent; anything else is a real bug
+    except UnknownTransformError as _exc:  # an unregistered transform is simply not recurrent; anything else is a real bug
+        logger.debug("_spec_is_recurrent fell back to its default after %s", type(_exc).__name__)
         return False
 
 

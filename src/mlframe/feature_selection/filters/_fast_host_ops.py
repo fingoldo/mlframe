@@ -96,8 +96,7 @@ class ContentMemo:
             if hit is not None:
                 self._data.move_to_end(key)
                 return cast(np.ndarray, hit.copy())
-        out = np.asarray(compute(a))
-        with self._lock:
+            out = np.asarray(compute(a))
             self._data[key] = out.copy()
             while len(self._data) > self._max:
                 self._data.popitem(last=False)  # evict-ok: memo; a miss recomputes the value

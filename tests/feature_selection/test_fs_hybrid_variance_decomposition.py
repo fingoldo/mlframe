@@ -151,5 +151,10 @@ def test_the_report_block_names_the_arm_and_its_bed_share() -> None:
     lines = variance_table(records, model="lightgbm", k_label="k=10")
 
     assert any("`treated`" in line for line in lines)
-    assert any("WHERE THE ADVANTAGE MOVES" in line for line in lines)
     assert not any("`all-features`" in line for line in lines)
+    rows = [line for line in lines if line.startswith("| `")]
+    assert len(rows) == 1
+    cells = [c.strip() for c in rows[0].strip("|").split("|")]
+    assert cells[0] == "`treated`"
+    assert cells[1] == "6" and cells[2] == str(6 * 8 * 4), cells[:3]
+    assert float(cells[3].rstrip("%")) > 50.0, cells[3]

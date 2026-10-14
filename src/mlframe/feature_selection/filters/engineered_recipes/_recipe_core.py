@@ -66,10 +66,11 @@ def _extra_equal(a: dict, b: dict) -> bool:
             try:
                 if va != vb:
                     return False
-            except ValueError:
+            except ValueError as _exc:
                 # Nested list-of-arrays / ambiguous truth value: be
                 # conservative and report unequal rather than raising
                 # from inside __eq__.
+                logger.debug("_extra_equal fell back to its default after %s", type(_exc).__name__)
                 return False
     return True
 

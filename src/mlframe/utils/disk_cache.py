@@ -423,16 +423,26 @@ class DiskCache:
         path = self._key_path(key)
         tmp_name = f"tmp_{uuid.uuid4().hex}.pkl"
         tmp_path = self.cache_dir / tmp_name
+        # The payload goes to a uuid-named temp file that no other thread can touch, so the write runs outside the key lock.
+        # Only the publish (rename and sidecar) is serialised under it.
+        try:
+            with open(tmp_path, "wb") as f:
+                pickle.dump(value, f, protocol=_PICKLE_PROTOCOL)
+        except (OSError, pickle.PicklingError) as exc:
+            logger.debug("DiskCache: put failed for key=%s: %s", key, exc)
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            return
         with self._get_key_lock(key):
             try:
-                with open(tmp_path, "wb") as f:
-                    pickle.dump(value, f, protocol=_PICKLE_PROTOCOL)
                 os.replace(tmp_path, path)
                 try:
                     write_sidecar(str(path))
                 except OSError as exc:
                     logger.debug("DiskCache: sidecar write failed for %s: %s", path, exc)
-            except (OSError, pickle.PicklingError) as exc:
+            except OSError as exc:
                 logger.debug("DiskCache: put failed for key=%s: %s", key, exc)
                 try:
                     tmp_path.unlink()
@@ -459,7 +469,8 @@ class DiskCache:
                         continue
                     files.append((st.st_mtime, st.st_size, Path(entry.path)))
                     total += st.st_size
-        except OSError:
+        except OSError as _exc:
+            logger.debug("_evict_if_needed fell back to its default after %s", type(_exc).__name__)
             return
         if total <= self.max_size_bytes:
             return

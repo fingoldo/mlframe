@@ -172,7 +172,8 @@ def _gpu_min_free_vram_mb() -> int:
     Env-tunable ``MLFRAME_FE_GPU_MIN_FREE_VRAM_MB`` (default 1024). 0 disables the check (legacy: present-only gate)."""
     try:
         return int(os.environ.get("MLFRAME_FE_GPU_MIN_FREE_VRAM_MB", "1024"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_gpu_min_free_vram_mb fell back to its default after %s", type(_exc).__name__)
         return 1024
 
 def _gpu_has_free_vram() -> bool:

@@ -48,7 +48,8 @@ def _nan_fraction_of(_report: Any, _col: str) -> float:
         if _m.startswith("nan_fraction="):
             try:
                 return float(_m.split("=", 1)[1].split()[0])
-            except (ValueError, IndexError):
+            except (ValueError, IndexError) as _exc:
+                logger.warning("_nan_fraction_of fell back to its default after %s", type(_exc).__name__)
                 return 0.0
     return 0.0
 
@@ -236,8 +237,9 @@ def _maybe_auto_drop_after_feature_analyzer(
         # except swallowed the failure (auto-drop silently no-op'd on every pandas train_df).
         try:
             return df.drop(columns=present)
-        except TypeError:
+        except TypeError as _exc:
             # polars: .drop() takes column names positionally, no columns= kwarg.
+            logger.debug("_drop fell back to its default after %s", type(_exc).__name__)
             return df.drop(present)
     train_df = _drop(train_df, drop_list)
     val_df = _drop(val_df, drop_list)

@@ -67,7 +67,8 @@ def _init_param_names(cls: type) -> set:
     """Keyword parameters of ``cls.__init__``, the same introspection sklearn's own splitter ``__repr__`` relies on."""
     try:
         return {p.name for p in inspect.signature(cls).parameters.values() if p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)}
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_init_param_names fell back to its default after %s", type(_exc).__name__)
         return set()
 
 
@@ -136,7 +137,8 @@ def _timestamp_hint_is_sorted(ts_hint: Any, n_rows: int):
         if arr.ndim != 1 or arr.size != n_rows:
             return None
         return bool(np.all(arr[1:] >= arr[:-1]))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_timestamp_hint_is_sorted fell back to its default after %s", type(_exc).__name__)
         return None
 
 

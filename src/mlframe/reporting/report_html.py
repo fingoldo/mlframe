@@ -19,6 +19,9 @@ import html
 import os
 from dataclasses import dataclass
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Small PNGs are inlined as base64 (one self-contained file, no broken relative links when the page is
 # moved); larger ones are referenced by relative path so the HTML stays light. 256 KB keeps a typical
@@ -99,7 +102,8 @@ def _img_tag(
     """
     try:
         size = os.path.getsize(png_path)
-    except OSError:
+    except OSError as _exc:
+        logger.debug("_img_tag fell back to its default after %s", type(_exc).__name__)
         return f'<div class="missing">missing image: {html.escape(png_path)}</div>'
     alt_attr = html.escape(alt, quote=True)
     if size <= inline_png_max_bytes and (budget is None or budget[0] + size <= DEFAULT_INLINE_TOTAL_MAX_BYTES):

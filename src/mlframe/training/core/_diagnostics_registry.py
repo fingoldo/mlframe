@@ -133,6 +133,7 @@ def adapt_group_leakage(train_df, val_df, test_df, target_col, cat_features, gro
         try:
             assert_no_group_leakage(cv_splits=cv_splits, groups=fold_groups, **kwargs)
         except ValueError as leak_err:
+            logger.warning("adapt_group_leakage fell back to its default after %s", type(leak_err).__name__)
             return {"leakage_detected": True, "detail": str(leak_err)}
         return {"leakage_detected": False}
     except Exception as e:

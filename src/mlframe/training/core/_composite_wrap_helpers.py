@@ -23,7 +23,8 @@ def fitted_pre_pipeline(entry: Any) -> Any:
         return None
     try:
         from mlframe.training.pipeline.shared import is_fitted as _is_fitted
-    except ImportError:  # pragma: no cover - the helper ships with mlframe
+    except ImportError as _exc:  # pragma: no cover - the helper ships with mlframe
+        logger.debug("fitted_pre_pipeline fell back to its default after %s", type(_exc).__name__)
         return None
     try:
         return pp if _is_fitted(pp) else None

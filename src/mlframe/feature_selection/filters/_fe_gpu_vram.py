@@ -57,7 +57,8 @@ def _min_free_mb() -> int:
     """Absolute free-VRAM floor in MB from ``MLFRAME_FE_GPU_MIN_FREE_MB`` (default 1024)."""
     try:
         return int(os.environ.get("MLFRAME_FE_GPU_MIN_FREE_MB", _DEFAULT_MIN_FREE_MB))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_min_free_mb fell back to its default after %s", type(_exc).__name__)
         return _DEFAULT_MIN_FREE_MB
 
 
@@ -65,7 +66,8 @@ def _pool_fraction() -> float:
     """Own-pool cap fraction from ``MLFRAME_FE_GPU_POOL_FRACTION`` (default 0.6)."""
     try:
         frac = float(os.environ.get("MLFRAME_FE_GPU_POOL_FRACTION", _DEFAULT_POOL_FRACTION))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_pool_fraction fell back to its default after %s", type(_exc).__name__)
         return _DEFAULT_POOL_FRACTION
     # Clamp to a sane (0, 1] range; a nonsense value must not disable the cap or over-cap.
     if not (0.0 < frac <= 1.0):
@@ -107,7 +109,8 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     if not caller_supplied_probe:
         try:
             import cupy as cp
-        except ImportError:  # - no cupy: non-GPU host, stay permissive (caller's other gates decide)
+        except ImportError as _exc:  # - no cupy: non-GPU host, stay permissive (caller's other gates decide)
+            logger.debug("fe_gpu_has_vram_cushion fell back to its default after %s", type(_exc).__name__)
             return True
         # Lazily cap our own pool so even the first cushion probe benefits from headroom.
         ensure_fe_gpu_pool_limit()
@@ -192,7 +195,8 @@ def ensure_fe_gpu_pool_limit() -> bool:
         _POOL_LIMIT_DONE = True  # set first (still under lock): a failed attempt must not retry every dispatch
     try:
         import cupy as cp
-    except ImportError:  # - no cupy: nothing to cap
+    except ImportError as _exc:  # - no cupy: nothing to cap
+        logger.debug("ensure_fe_gpu_pool_limit fell back to its default after %s", type(_exc).__name__)
         return False
     try:
         requested_frac = _pool_fraction()

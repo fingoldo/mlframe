@@ -13,6 +13,9 @@ import inspect
 from typing import Any, Callable
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 _OPS = ("fit", "forward", "inverse")
 
@@ -22,7 +25,8 @@ def _accepted_kwargs(fn: Callable[..., Any]) -> tuple[frozenset[str], bool]:
     """Declared keyword-capable parameter names of ``fn`` and whether it takes ``**kwargs`` (cached per callable)."""
     try:
         sig = inspect.signature(fn)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_accepted_kwargs fell back to its default after %s", type(_exc).__name__)
         return frozenset(), True
     names = frozenset(name for name, p in sig.parameters.items() if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY))
     var_kw = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())

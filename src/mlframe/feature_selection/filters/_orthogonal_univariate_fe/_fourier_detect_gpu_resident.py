@@ -207,10 +207,11 @@ def _deflate_sincos_gpu(cp, z, y, freq: float):
         except np.linalg.LinAlgError:
             coef = cp.linalg.lstsq(A, y, rcond=None)[0]
         return y - A @ coef
-    except np.linalg.LinAlgError:
+    except np.linalg.LinAlgError as _exc:
         # Degenerate [1,sin,cos] design (singular even for lstsq) -> no deflation this freq (graceful).
         # Narrowed from bare Exception: a device fault now propagates to the dispatch-site CPU fallback and a
         # logic bug surfaces, instead of silently returning an UN-DEFLATED y (which would diverge from CPU).
+        logger.warning("_deflate_sincos_gpu fell back to its default after %s", type(_exc).__name__)
         return y
 
 

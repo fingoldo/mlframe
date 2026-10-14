@@ -364,7 +364,8 @@ def _step_is_fitted(step) -> bool:
         try:
             check_is_fitted(step)
             return True
-        except NotFittedError:
+        except NotFittedError as _exc:
+            logger.debug("_step_is_fitted fell back to its default after %s", type(_exc).__name__)
             return False
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
@@ -383,14 +384,16 @@ def _step_is_fitted(step) -> bool:
         else:
             check_is_fitted(step)
         return True
-    except NotFittedError:
+    except NotFittedError as _exc:
+        logger.debug("_step_is_fitted fell back to its default after %s", type(_exc).__name__)
         return False
     except Exception as exc:
         logger.debug("_step_is_fitted: attribute-scoped check_is_fitted failed (%s); retrying unscoped.", exc)
         try:
             check_is_fitted(step)
             return True
-        except NotFittedError:
+        except NotFittedError as _exc:
+            logger.debug("_step_is_fitted fell back to its default after %s", type(_exc).__name__)
             return False
 
 

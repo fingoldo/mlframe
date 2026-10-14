@@ -57,7 +57,8 @@ def _read_cgroup_memory_limit_bytes() -> Optional[int]:
             if value == "max":
                 return None
             return int(value)
-        except (OSError, ValueError):
+        except (OSError, ValueError) as _exc:
+            logger.debug("_read_cgroup_memory_limit_bytes fell back to its default after %s", type(_exc).__name__)
             return None
     # cgroup v1
     if os.path.exists(_CGROUP_V1_LIMIT):
@@ -67,7 +68,8 @@ def _read_cgroup_memory_limit_bytes() -> Optional[int]:
             if limit >= _CGROUP_V1_UNLIMITED_SENTINEL:
                 return None
             return limit
-        except (OSError, ValueError):
+        except (OSError, ValueError) as _exc:
+            logger.debug("_read_cgroup_memory_limit_bytes fell back to its default after %s", type(_exc).__name__)
             return None
     return None
 

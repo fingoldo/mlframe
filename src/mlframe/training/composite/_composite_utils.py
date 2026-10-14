@@ -21,7 +21,8 @@ def is_polars_df(x: Any) -> bool:
         import polars as pl
 
         return isinstance(x, pl.DataFrame)
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("is_polars_df fell back to its default after %s", type(_exc).__name__)
         return False
 
 

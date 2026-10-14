@@ -37,6 +37,9 @@ class _Probe(Protocol):
 # ``import mlframe.preprocessing`` pull in the whole filters stack (measured ~20 s, most of it the numba typed-dict
 # warm-up and cupy) for callers that never rank-gauss anything.
 from mlframe.preprocessing.scalers import make_all_scalers
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _candidate_transforms() -> List[str]:
@@ -65,7 +68,8 @@ def _apply_transform(x: np.ndarray, transform_name: str) -> Optional[np.ndarray]
         if name == transform_name:
             try:
                 return np.asarray(scaler.fit_transform(x.reshape(-1, 1)).ravel(), dtype=np.float64)
-            except ValueError:
+            except ValueError as _exc:
+                logger.warning("_apply_transform fell back to its default after %s", type(_exc).__name__)
                 return None
     raise ValueError(f"_apply_transform: unknown transform_name {transform_name!r}")
 
@@ -121,7 +125,8 @@ def _fit_transform_fold(x: np.ndarray, transform_name: str, train_idx: np.ndarra
                 train_out = np.asarray(scaler.transform(x_train.reshape(-1, 1)).ravel(), dtype=np.float64)
                 test_out = np.asarray(scaler.transform(x_test.reshape(-1, 1)).ravel(), dtype=np.float64)
                 return train_out, test_out
-            except ValueError:
+            except ValueError as _exc:
+                logger.warning("_fit_transform_fold fell back to its default after %s", type(_exc).__name__)
                 return None
     raise ValueError(f"_fit_transform_fold: unknown transform_name {transform_name!r}")
 
@@ -173,7 +178,8 @@ def _classification_probe_score(model, y_test: np.ndarray, proba: np.ndarray) ->
     labels = list(getattr(model, "classes_", range(proba.shape[1])))
     try:
         return float(roc_auc_score(y_test, proba, multi_class="ovr", average="macro", labels=labels))
-    except ValueError:
+    except ValueError as _exc:
+        logger.warning("_classification_probe_score fell back to its default after %s", type(_exc).__name__)
         return -float(log_loss(y_test, proba, labels=labels))
 
 

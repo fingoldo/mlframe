@@ -65,11 +65,9 @@ def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
         cached = _KFOLD_SPLIT_CACHE.get(key)
         if cached is not None:
             _KFOLD_SPLIT_CACHE.move_to_end(key)
-    if cached is not None:
-        return cached
-    kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]  # the one place a shuffled discovery KFold is built
-    splits = list(kf.split(np.empty(n_rows, dtype=np.uint8)))
-    with _KFOLD_SPLIT_CACHE_LOCK:
+            return cached
+        kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]  # the one place a shuffled discovery KFold is built
+        splits = list(kf.split(np.empty(n_rows, dtype=np.uint8)))
         _KFOLD_SPLIT_CACHE[key] = splits
         while len(_KFOLD_SPLIT_CACHE) > _KFOLD_SPLIT_CACHE_MAX:
             # evict-ok: the splits are a pure function of the key; a miss rebuilds the identical list

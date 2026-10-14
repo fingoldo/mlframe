@@ -59,7 +59,8 @@ def _try_astype_float32(series: pd.Series) -> tuple[pd.Series, bool]:
     """
     try:
         return series.astype("float32"), True
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.debug("_try_astype_float32 fell back to its default after %s", type(_exc).__name__)
         return series, False
 
 

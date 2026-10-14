@@ -350,7 +350,8 @@ def heartbeat_interval_from_env(default: float = DEFAULT_HEARTBEAT_S) -> float:
         return default
     try:
         return max(0.0, float(raw))
-    except ValueError:
+    except ValueError as _exc:
+        logger.warning("heartbeat_interval_from_env fell back to its default after %s", type(_exc).__name__)
         return default
 
 
