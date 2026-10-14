@@ -10,7 +10,8 @@ the column name, the period and the op, so ``transform`` reproduces them exactly
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Optional
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -26,6 +27,8 @@ _GRID_POINTS = 120
 _BINS = 10
 
 
+# bench-attempt-rejected (2026-10-14): cupy grid scan (per-period bincount, MI on device, data resident) vs this njit kernel on GTX 1050 Ti,
+# n=1e5: 0.030 s vs 0.026 s; n=1e6: 0.257 s vs 0.227 s. The 8-core prange kernel stays the only backend for this scan.
 @njit(cache=True, parallel=True)
 def _parity_mi_grid_njit(v: np.ndarray, y_codes: np.ndarray, n_classes: int, periods: np.ndarray) -> np.ndarray:
     """MI (nats) of ``floor(v / p) mod 2`` with the discrete target for every candidate period ``p``, periods scanned in parallel.
