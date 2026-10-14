@@ -476,12 +476,12 @@ _PERM_FANOUT_MIN_PERMUTATIONS = 32
 _PERM_FANOUT_BATCH_SIZE = 64
 
 def mi_direct_gpu(
-    factors_data,
+    factors_data: np.ndarray,
     x: tuple,
     y: tuple,
     factors_nbins: np.ndarray,
     min_occupancy: Optional[int] = None,
-    dtype=np.int32,
+    dtype: type = np.int32,
     npermutations: int = 10,
     max_failed: Optional[int] = None,
     min_nonzero_confidence: float = 0.95,

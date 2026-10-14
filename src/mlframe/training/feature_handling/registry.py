@@ -207,7 +207,7 @@ def _bump_lru(signature: str, entry: _ProviderEntry, keep_n: int) -> None:
 @contextlib.contextmanager
 def acquire_provider(
     provider: FrozenFeaturizerProvider,
-    cache_cfg,
+    cache_cfg: Any,
 ) -> Iterator[FrozenFeaturizerProvider]:
     """Context-manager around provider load + refcount.
 

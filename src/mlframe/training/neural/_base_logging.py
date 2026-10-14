@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import warnings as _warnings
 from contextlib import contextmanager as _contextmanager
-from typing import Callable
+from typing import Callable, Iterator
 
 from pydantic import BaseModel
 from sklearn.metrics import root_mean_squared_error
@@ -49,7 +49,7 @@ for _quiet_logger_name in (
 
 # Scoped Lightning DataLoader warning suppressor. Lightning's data_connector emits "does not have many workers which may be a bottleneck" for every train/val/predict DataLoader; the recommendation is wrong for mlframe (num_workers > 0 pickles the full polars/pandas frame into every worker -- catastrophic on 100+ GB frames per the bench at _benchmarks/bench_dataloader_workers.py). Suppress at call sites, NOT at module import time (was poisoning the process-global filter for every importer of this neural base).
 @_contextmanager
-def suppress_lightning_workers_warning():
+def suppress_lightning_workers_warning() -> Iterator[None]:
     """Scope-local suppression of Lightning's num_workers DataLoader warning.
     Wrap the trainer.fit() / trainer.predict() invocations in this neural base."""
     with _warnings.catch_warnings():

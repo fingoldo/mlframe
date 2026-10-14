@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import threading
-from typing import Optional, Sequence, cast
+from typing import Iterator, Optional, Sequence, cast
 
 import numpy as np
 import pandas as pd
@@ -26,7 +26,7 @@ from numpy.typing import DTypeLike
 _SCORING_MEMO = threading.local()
 
 @contextlib.contextmanager
-def orth_scoring_memo_scope():
+def orth_scoring_memo_scope() -> Iterator[None]:
     """Enable the fit-scoped raw-MI-baseline / corr-matrix memo for one ``MRMR.fit()`` call, then clear
     it. Nesting-safe: an inner scope reuses the outer cache; the outer owner clears it."""
     if getattr(_SCORING_MEMO, "cache", None) is not None:

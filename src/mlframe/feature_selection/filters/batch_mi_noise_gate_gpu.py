@@ -36,7 +36,10 @@ import os
 import logging
 import threading
 from collections import OrderedDict
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import cupy
 
 import numpy as np
 from mlframe.utils.log_throttle import log_throttle
@@ -518,7 +521,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     use_su: bool,
     dtype: type = np.int32,
     threads_per_block: "int | None" = None,
-    d_disc_resident=None,
+    d_disc_resident: cupy.ndarray | None = None,
 ) -> np.ndarray:
     """FULL-GPU-RESIDENT noise gate: batched histogram (all perms, one launch) -> GPU MI kernel -> only
     the (P, K) MI matrix D2H -> host gate decision. The entire permutation noise gate runs on the device
@@ -856,7 +859,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
     use_su: bool,
     dtype: type = np.int32,
     force_backend: str | None = None,
-):
+) -> tuple[np.ndarray, str] | None:
     """Run the chosen GPU backend, returning ``(fe_mi, backend_name)`` or ``None``
     when GPU is unavailable / not chosen (so the caller falls back to the CPU
     kernel). Mirrors ``dispatch_batch_pair_mi``'s force_backend + availability

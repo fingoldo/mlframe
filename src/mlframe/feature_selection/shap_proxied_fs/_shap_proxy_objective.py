@@ -19,7 +19,7 @@ not inside the numba hot loop - documented in ``METRIC_CODES``.
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any, Sequence, cast
 
 import numpy as np
 
@@ -224,7 +224,7 @@ def score_margin_auto(margin: np.ndarray, y: np.ndarray, metric_code: int) -> fl
     return float(score_margin(margin, y, metric_code))
 
 
-def coalition_margin(phi: np.ndarray, base: np.ndarray, feature_idx) -> np.ndarray:
+def coalition_margin(phi: np.ndarray, base: np.ndarray, feature_idx: Sequence[int] | np.ndarray) -> np.ndarray:
     """``base + sum over selected features of phi`` - the proxy margin for one subset (numpy path).
 
     ``phi`` is row-major (n_samples, n_units) so ``phi[:, idx]`` is a strided multi-column gather.
@@ -235,7 +235,7 @@ def coalition_margin(phi: np.ndarray, base: np.ndarray, feature_idx) -> np.ndarr
     return np.asarray(base + phi[:, idx].sum(axis=1))
 
 
-def coalition_margin_T(phi_T: np.ndarray, base: np.ndarray, feature_idx) -> np.ndarray:
+def coalition_margin_T(phi_T: np.ndarray, base: np.ndarray, feature_idx: Sequence[int] | np.ndarray) -> np.ndarray:
     """``coalition_margin`` against a transposed phi (``phi_T`` shape (n_units, n_samples)).
 
     Gathering ``phi_T[idx]`` selects contiguous rows (unit-stride per unit) and sums down axis 0,
@@ -266,12 +266,12 @@ def proxy_loss(margin: np.ndarray, y: np.ndarray, metric: str) -> float:
     return float(score_margin_auto(np.asarray(margin, np.float64), np.asarray(y, np.float64), code))
 
 
-def subset_loss(phi: np.ndarray, base: np.ndarray, y: np.ndarray, feature_idx, metric: str) -> float:
+def subset_loss(phi: np.ndarray, base: np.ndarray, y: np.ndarray, feature_idx: Sequence[int] | np.ndarray, metric: str) -> float:
     """Convenience: coalition margin of a subset then its loss. Used by heuristics / re-validation."""
     return proxy_loss(coalition_margin(phi, base, feature_idx), y, metric)
 
 
-def subset_uncertainty(phi_var: np.ndarray, feature_idx) -> float:
+def subset_uncertainty(phi_var: np.ndarray, feature_idx: Sequence[int] | np.ndarray) -> float:
     """Attribution instability of a subset (lever #7): mean over rows of
     ``sqrt(sum_{j in S} Var_models(phi_j))``. Subsets whose SHAP attributions are unstable across the
     config-jittered models get a higher value -> can be penalised so the optimiser prefers subsets the
@@ -284,7 +284,7 @@ def subset_uncertainty(phi_var: np.ndarray, feature_idx) -> float:
     return float(np.sqrt(phi_var[:, idx].sum(axis=1)).mean())
 
 
-def subset_uncertainty_many(phi_var: np.ndarray, idx_list) -> np.ndarray:
+def subset_uncertainty_many(phi_var: np.ndarray, idx_list: Sequence[Sequence[int] | np.ndarray]) -> np.ndarray:
     """Vectorised :func:`subset_uncertainty` over many subsets sharing one ``phi_var``.
 
     ``phi_var`` is row-major (n_samples, n_units); the per-subset column gather ``phi_var[:, idx]``

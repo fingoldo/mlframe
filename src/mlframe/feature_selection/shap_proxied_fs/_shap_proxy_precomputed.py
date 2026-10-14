@@ -27,11 +27,12 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from numpy.typing import ArrayLike
 
 logger = logging.getLogger(__name__)
 
 
-def restrict_artifacts(artifacts: dict, kept_indices) -> dict:
+def restrict_artifacts(artifacts: dict, kept_indices: ArrayLike) -> dict:
     """Slice an MRMR artifact dict to the subset of features actually kept.
 
     Useful in the canonical pipeline where MRMR narrowed ``X`` from N to K

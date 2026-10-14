@@ -850,7 +850,16 @@ def _usability_backend_choice(n_rows: int, n_combos: int) -> str:
         logger.debug("kernel_tuning_cache choose() failed, using the size-based fallback: %s", e)
         return _usability_fallback_choice(int(n_rows), int(n_combos))
 
-def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_codes):
+def score_pair_combos(
+    x1: np.ndarray,
+    x2: np.ndarray,
+    y_codes: np.ndarray,
+    y_terms: tuple[np.ndarray, float, int],
+    nbins: int,
+    ua_codes: Sequence[int],
+    ub_codes: Sequence[int],
+    bn_codes: Sequence[int],
+) -> np.ndarray:
     """Score every ``(ua, ub, bn)`` combo for a pair, returning the per-combo MI array (sentinel -1.0
     for an ``std<=1e-9`` value). ``ua_codes``/``ub_codes`` are the per-unary op-codes (in preset order),
     ``bn_codes`` the per-binary op-codes; this enumerates the full ``ua x ub x bn`` product in the
@@ -904,7 +913,7 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
         from ._gpu_policy import gpu_globally_disabled
         if _CUPY_AVAIL and not gpu_globally_disabled():
             try:
-                return _pair_combo_mi_cupy(*args)
+                return cast(np.ndarray, _pair_combo_mi_cupy(*args))
             except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
                 logger.debug("_pair_combo_mi_cupy failed, falling through to CPU: %s", e)
         # cupy missing / disabled / device error -> CPU. Re-resolve serial-vs-parallel for the CPU twin.
@@ -917,4 +926,4 @@ def score_pair_combos(x1, x2, y_codes, y_terms, nbins, ua_codes, ub_codes, bn_co
     # CPU bodies + an instant rollback (feedback_keep_all_kernel_versions).
     nu_tab = int(max(int(ua_arr.max()), int(ub_arr.max())) + 1) if nc else 1
     table_kernel = _pair_combo_mi_njit_table_parallel if choice == "parallel" else _pair_combo_mi_njit_table
-    return table_kernel(*args, nu_tab)
+    return cast(np.ndarray, table_kernel(*args, nu_tab))

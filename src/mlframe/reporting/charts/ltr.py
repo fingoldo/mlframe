@@ -28,7 +28,7 @@ build, so the group sort and kernels run once per figure, not per panel.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 
@@ -514,9 +514,9 @@ _TOKEN_CAPTIONS: Dict[str, str] = {
 
 
 def compose_ltr_figure(
-    y_true,
-    y_score,
-    group_ids,
+    y_true: Any,
+    y_score: np.ndarray,
+    group_ids: Any,
     *,
     panels_template: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL",
     suptitle: str = "",

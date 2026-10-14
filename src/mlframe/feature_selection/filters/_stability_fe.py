@@ -217,8 +217,8 @@ def _aggregate_frequencies(
 
 
 def stability_select_fe(
-    X,
-    y,
+    X: pd.DataFrame,
+    y: np.ndarray | pd.Series,
     base_mrmr_params: Mapping[str, Any] | None = None,
     n_bootstraps: int = 10,
     sample_fraction: float = 0.75,

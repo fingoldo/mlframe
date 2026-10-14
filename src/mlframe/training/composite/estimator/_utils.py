@@ -81,7 +81,7 @@ def intercept_(self) -> float:
     return float(self._require_inner_attr("intercept_"))
 
 
-def get_booster(self):
+def get_booster(self) -> Any:
     """XGBoost shim. Uses the same ``_require_fitted`` path as the
     sklearn-convention properties so the error class is
     ``NotFittedError`` rather than the bespoke ``RuntimeError`` it
@@ -96,7 +96,7 @@ def get_booster(self):
     return self._require_inner_attr("get_booster")()
 
 
-def booster_(self):
+def booster_(self) -> Any:
     """LightGBM shim. Raises ``NotFittedError`` when called before ``fit``
     so callers fail loudly instead of receiving a silent ``None`` and
     crashing downstream (sklearn convention).

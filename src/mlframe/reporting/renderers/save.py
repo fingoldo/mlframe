@@ -220,7 +220,7 @@ def detect_interactive_session() -> bool:
         return hasattr(sys, "ps1")
 
 
-def set_inline_display_mode(mode):
+def set_inline_display_mode(mode: bool | None) -> None:
     """Set the inline-display override for the CURRENT thread.
 
     Stored in thread-local state (not the process-wide env), so concurrent suites in different threads do
@@ -242,7 +242,7 @@ def set_inline_display_mode(mode):
         _INLINE_OVERRIDE.value = mode
 
 
-def get_inline_display_mode():
+def get_inline_display_mode() -> bool | None:
     """Return the current inline-display override for this thread.
 
     Returns the same tri-state set_inline_display_mode accepts:

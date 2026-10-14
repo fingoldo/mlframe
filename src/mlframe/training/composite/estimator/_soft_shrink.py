@@ -95,7 +95,7 @@ def _iqr_floor(col_finite: np.ndarray, lo: float, hi: float) -> float:
     return max(abs(hi) * 1e-3, 1e-12)
 
 
-def capture_base_fit_range(self, transform, base_train: np.ndarray) -> None:
+def capture_base_fit_range(self, transform: Any, base_train: np.ndarray) -> None:
     """Record the base calibration range into ``self.fitted_params_[BASE_FIT_RANGE_KEY]`` (fit-time).
 
     No-op for non-base / non-additive transforms and when no base column has any finite train value, so
@@ -124,7 +124,7 @@ def capture_base_fit_range(self, transform, base_train: np.ndarray) -> None:
         params[BASE_FIT_RANGE_KEY] = {"lo": lo, "hi": hi, "iqr": iqr}
 
 
-def is_enabled(self, transform, params: dict[str, Any]) -> bool:
+def is_enabled(self, transform: Any, params: dict[str, Any]) -> bool:
     """True when soft base-shrink should run for this predict call.
 
     Requires the gate flag ON (default True), a base-additive transform, and a fit-range captured at fit
@@ -225,7 +225,7 @@ def shrink_base(
     return base_eff, d_row
 
 
-def compute(self, transform, base_arr: np.ndarray, params: dict[str, Any]):
+def compute(self, transform: Any, base_arr: np.ndarray, params: dict[str, Any]) -> tuple[np.ndarray, Any, Any]:
     """Return ``(base_eff, shrunk_mask, deep_ood_mask)`` for the predict path.
 
     When soft-shrink is disabled/inapplicable returns ``(base_arr, None, None)`` (the caller then runs the
@@ -293,7 +293,7 @@ def _median_constant(self, params: dict[str, Any]) -> float:
 
 def apply_smart_fallback(
     self, y_hat: np.ndarray, deep_ood: np.ndarray, base_raw: np.ndarray,
-    domain_ok: np.ndarray, X, params: dict[str, Any],
+    domain_ok: np.ndarray, X: Any, params: dict[str, Any],
 ) -> None:
     """Overwrite deeply-OOD rows in ``y_hat`` (in place) with the smart fallback.
 
@@ -338,7 +338,7 @@ def set_thread_info(est: Any, info: Any) -> None:
     table[est] = info
 
 
-def record_info(self, shrunk, deep_ood, n_rows: int) -> None:
+def record_info(self, shrunk: Any, deep_ood: Any, n_rows: int) -> None:
     """Expose the per-row shrink / fallback flags on ``self.soft_shrink_info_`` (this thread's last predict batch)."""
     if shrunk is None:
         self.soft_shrink_info_ = {

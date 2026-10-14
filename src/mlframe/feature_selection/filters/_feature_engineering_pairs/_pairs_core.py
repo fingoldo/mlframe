@@ -9,7 +9,7 @@ and are re-exported from the package ``__init__``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import os
 import threading
@@ -274,30 +274,30 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
 
 
 def check_prospective_fe_pairs(
-    prospective_pairs,
-    X,
-    unary_transformations,
-    binary_transformations,
-    classes_y,
-    classes_y_safe,
-    freqs_y,
-    num_fs_steps,
-    cols,
-    original_cols,
-    fe_max_steps,
-    fe_npermutations,
-    fe_max_pair_features,
-    fe_print_best_mis_only,
-    fe_min_nonzero_confidence,
-    fe_min_engineered_mi_prevalence,
-    fe_good_to_best_feature_mi_threshold,
-    fe_max_external_validation_factors,
-    numeric_vars_to_consider,
-    quantization_nbins,
-    quantization_method,
-    quantization_dtype,
-    times_spent,
-    verbose,
+    prospective_pairs: dict,
+    X: Any,
+    unary_transformations: dict,
+    binary_transformations: dict,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    num_fs_steps: int,
+    cols: list[str],
+    original_cols: list[str],
+    fe_max_steps: int,
+    fe_npermutations: int,
+    fe_max_pair_features: int,
+    fe_print_best_mis_only: bool,
+    fe_min_nonzero_confidence: float,
+    fe_min_engineered_mi_prevalence: float,
+    fe_good_to_best_feature_mi_threshold: float,
+    fe_max_external_validation_factors: int,
+    numeric_vars_to_consider: list,
+    quantization_nbins: int,
+    quantization_method: str | None,
+    quantization_dtype: type | str,
+    times_spent: dict,
+    verbose: int,
     # CRITICAL #2 follow-up: subsample rows for the MI sweep so the
     # transformed_vars + shared_buffer allocations scale with subsample_n rather
     # than the (possibly multi-million-row) full X. Survivor columns are still
@@ -312,7 +312,7 @@ def check_prospective_fe_pairs(
     # shared row-index draw, the MI-sweep REUSES it verbatim instead of drawing its own subsample here -
     # so the pair-search, the polynom path and the sufficient-summary maxT floor all score the SAME rows
     # (one draw per fit, not N independent re-draws). ``None`` keeps the legacy per-call draw below.
-    shared_subsample_idx=None,
+    shared_subsample_idx: np.ndarray | None = None,
     # STRATIFIED SUBSAMPLE (R1, 2026-06-18). When True the MI-sweep row subsample below draws a
     # TARGET-STRATIFIED set of rows (per-class proportional for classification - guaranteeing the
     # rare class survives; y-quantile-bin proportional for regression - preserving the tails)
@@ -479,7 +479,7 @@ def check_prospective_fe_pairs(
     # no recompute. The caller (``_mrmr_fe_step``) drains it into ``self``'s fe rejection
     # ledger. ``None`` (default) = legacy behaviour, no records captured.
     rejection_ledger_out: list | None = None,
-):
+) -> dict:
     """Search ``prospective_pairs`` for engineered unary/binary transforms whose MI against ``classes_y`` clears the
     joint-prevalence and external-validation gates, and materialise the surviving engineered columns.
 
@@ -1030,4 +1030,4 @@ def check_prospective_fe_pairs(
         st._chunk_state.pop("pipeline_buffers", None)
         st._chunk_state.pop("pipeline_futures", None)
 
-    return st.res
+    return cast(dict, st.res)

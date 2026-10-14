@@ -24,7 +24,7 @@ import os
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings
 from collections import defaultdict
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -74,7 +74,7 @@ _TREE_OPS = {
 CORR_BLOCK_THRESHOLD = 1500
 
 
-def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = CORR_BLOCK_THRESHOLD):
+def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = CORR_BLOCK_THRESHOLD) -> tuple[list, dict[Any, list]]:
     """Greedy |Pearson| >= thr clustering. Returns (reps, members) where reps is the representative list (first
     column of each cluster) and members maps rep -> [member columns incl. the rep]. Computed once and shared.
 

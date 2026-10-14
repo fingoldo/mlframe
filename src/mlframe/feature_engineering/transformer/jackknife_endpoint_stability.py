@@ -8,6 +8,8 @@ of quantile-prediction endpoints across the K runs. Separate upper- vs lower-end
 5 features.
 """
 from __future__ import annotations
+
+from typing import Any
 import logging
 import numpy as np
 import polars as pl
@@ -17,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def compute_jackknife_endpoint_stability_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    n_subsamples=10, subsample_drop=0.05, standardize=True, column_prefix="jkep", dtype=np.float32,
-):
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
+    n_subsamples: int=10, subsample_drop: float=0.05, standardize: bool=True, column_prefix: str="jkep", dtype: type=np.float32,
+) -> pl.DataFrame:
     """Fit K jackknife-subsample upper/lower quantile-endpoint models (dropping ``subsample_drop`` of rows each run) and emit per-query spread (std) and location (mean) of both endpoints plus the resulting interval width, in OOF (Mode A, ``splitter``) or direct-query (Mode B, ``X_query``) mode."""
     try:
         import lightgbm as lgb
@@ -98,7 +100,7 @@ def compute_jackknife_endpoint_stability_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("jackknife_endpoint_stability: fold %d done", fold_idx + 1)

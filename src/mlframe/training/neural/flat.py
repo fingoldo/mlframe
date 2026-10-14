@@ -126,7 +126,7 @@ def generate_mlp(
     spectral_norm: bool = False,
     spectral_norm_n_power_iterations: int = 1,
     verbose: int = 1,
-):
+) -> nn.Module:
     """Generates multilayer perceptron with specific architecture.
     If first_layer_num_neurons is not specified, uses num_features.
     Suitable in NAS and HPT/HPO procedures for generating ANN candidates.

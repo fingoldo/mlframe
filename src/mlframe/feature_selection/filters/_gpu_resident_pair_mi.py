@@ -482,13 +482,14 @@ def grand_fused_pair_mi(
         if out is None:
             disc_host = _ensure_disc_host(_disc_host_cache, disc_dev)
             for _fb in ("cupy", "cuda"):
-                out = dispatch_batch_mi_with_noise_gate_gpu(
+                gpu_res = dispatch_batch_mi_with_noise_gate_gpu(
                     disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
                     npermutations=int(npermutations), base_seed=np.uint64(random_seed),
                     min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
                     dtype=np.int32, force_backend=_fb,
                 )
-                if out is not None:
+                if gpu_res is not None:
+                    out = gpu_res[0]
                     break
         if out is None:  # GPU noise-gate unavailable -> the always-correct CPU kernel on the same disc
             from ._feature_engineering_pairs._pairs_dispatch import _fe_classes_dtype

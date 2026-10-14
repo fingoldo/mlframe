@@ -127,7 +127,7 @@ def estimate_features_relevancy(
     leave_progressbar: bool = False,
     max_log_text_width: int = 300,
     verbose: int = 1,
-):
+) -> tuple[list, dict, dict, list]:
     """Computes relevancy of all features to the targets, using integer bins computed at previous step.
     Suggests for droppping columns that have no firm impact on any of the targets.
 

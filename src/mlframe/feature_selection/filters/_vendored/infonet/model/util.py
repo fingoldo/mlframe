@@ -4,13 +4,13 @@ lower-bound mutual information estimator built on top of them."""
 import torch
 import torch.nn.functional as F
 
-def log_mean_exp(a):
+def log_mean_exp(a: torch.Tensor) -> torch.Tensor:
     """Numerically stable log(mean(exp(a))) along dim=1, via the max-subtraction trick (avoids overflow in exp())."""
     b = torch.max(a, dim=1, keepdim=True).values
     # Compute the mean of exponentials instead of the sum, by dividing by the number of elements in a
     return torch.log(torch.mean(torch.exp(a - b), dim=1)) + b[:, 0]
 
-def lookup_value_grid(matrix, vector, mode):
+def lookup_value_grid(matrix: torch.Tensor, vector: torch.Tensor, mode: str) -> torch.Tensor:
     """Bilinearly sample the [B, d, d] lookup table at the [B, N, 2] query coordinates via torch's grid_sample
     (border padding, aligned corners)."""
     ## look up value from the lookup-table, table(matrix) has shape [B, d, d], vector has shape [B, N, 2]
@@ -22,7 +22,7 @@ def lookup_value_grid(matrix, vector, mode):
     value = (F.grid_sample(matrix, vector, mode, padding_mode="border", align_corners=True)).squeeze()
     return value
 
-def mutual_information(batch, matrix, num_resampling=5):
+def mutual_information(batch: torch.Tensor, matrix: torch.Tensor, num_resampling: int = 5) -> torch.Tensor:
     """MINE-style lower-bound MI estimate: joint term from the batch's own pairing, marginal term averaged over
     ``num_resampling`` random shuffles of the y-column (cheap surrogate for true marginal samples), both read off
     the learned lookup table via bilinear interpolation. Raises if the resulting bound is NaN."""
@@ -34,7 +34,7 @@ def mutual_information(batch, matrix, num_resampling=5):
     if len(t.shape) == 1:
         t = t.unsqueeze(0)
 
-    log_mean_exp_et = 0
+    log_mean_exp_et: torch.Tensor | int = 0
     for _i in range(num_resampling):
         perm = torch.randperm(batch.shape[1])
         marginal = torch.cat((batch[:, :, 0].unsqueeze(2), batch[:, perm, 1].unsqueeze(2)), dim=2)

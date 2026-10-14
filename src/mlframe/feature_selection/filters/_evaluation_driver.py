@@ -208,7 +208,7 @@ def evaluate_candidates(
     mrmr_relevance_algo: str = "fleuret",
     mrmr_redundancy_algo: str = "fleuret",
     max_veteranes_interactions_order: int = 1,
-    dtype=np.int32,
+    dtype: type = np.int32,
     max_runtime_mins: Optional[float] = None,
     start_time: Optional[float] = None,
     min_relevance_gain: Optional[float] = None,
@@ -231,7 +231,7 @@ def evaluate_candidates(
     cmi_perm: tuple = (False, 0.05, 100),
     cpt: tuple = (False, 200),
     mi_miller_madow: bool = False,
-    group_mi=None,
+    group_mi: Optional[tuple] = None,
     random_seed: Optional[int] = None,
 ) -> tuple:
     """Thread-worker entry point: re-publish the Wave 8 ``threading.local`` toggles (SU/JMIM/Bur-lambda/relax-mrmr/PID/CMI-perm/CPT/Miller-Madow/group-MI) into this worker thread, run ``_evaluate_candidates_inner`` over the workload, then restore the prior thread-local values in ``finally`` so a reused worker doesn't leak this call's settings into the next dispatch."""

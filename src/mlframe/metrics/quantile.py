@@ -32,6 +32,7 @@ from __future__ import annotations
 from typing import Any, Dict, Sequence
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 try:
     import numba
@@ -215,7 +216,7 @@ else:
 # ----------------------------------------------------------------------------
 
 
-def pinball_loss(y_true, y_pred, alpha: float) -> float:
+def pinball_loss(y_true: ArrayLike, y_pred: ArrayLike, alpha: float) -> float:
     """Mean pinball loss at level ``alpha``.
 
     Equivalent to ``sklearn.metrics.mean_pinball_loss(y_true, y_pred, alpha=alpha)``.
@@ -228,7 +229,7 @@ def pinball_loss(y_true, y_pred, alpha: float) -> float:
 
 
 def pinball_loss_per_alpha(
-    y_true, preds_NK, alphas: Sequence[float],
+    y_true: ArrayLike, preds_NK: ArrayLike, alphas: Sequence[float],
 ) -> Dict[float, float]:
     """Per-alpha pinball loss; key = alpha (float), value = mean loss."""
     y = np.ascontiguousarray(np.asarray(y_true, dtype=np.float64).ravel())
@@ -248,7 +249,7 @@ def pinball_loss_per_alpha(
     return {float(a): float(means[j]) for j, a in enumerate(alphas)}
 
 
-def coverage(y_true, q_lo, q_hi) -> float:
+def coverage(y_true: ArrayLike, q_lo: ArrayLike, q_hi: ArrayLike) -> float:
     """Empirical coverage: fraction of y in [q_lo, q_hi]. In [0, 1].
 
     HOLDOUT CONTRACT: coverage is only an honest interval-calibration check on rows the model did NOT
@@ -271,7 +272,7 @@ def coverage(y_true, q_lo, q_hi) -> float:
     return float(_fast_coverage(y, lo, hi))
 
 
-def mean_interval_width(q_lo, q_hi) -> float:
+def mean_interval_width(q_lo: ArrayLike, q_hi: ArrayLike) -> float:
     """Mean width ``q_hi - q_lo`` (sharpness; lower is sharper)."""
     lo = np.asarray(q_lo, dtype=np.float64).ravel()
     hi = np.asarray(q_hi, dtype=np.float64).ravel()
@@ -280,7 +281,7 @@ def mean_interval_width(q_lo, q_hi) -> float:
     return float(np.mean(hi - lo))
 
 
-def winkler_score(y_true, q_lo, q_hi, alpha_miscov: float) -> float:
+def winkler_score(y_true: ArrayLike, q_lo: ArrayLike, q_hi: ArrayLike, alpha_miscov: float) -> float:
     """Mean Winkler interval score at nominal miscoverage ``alpha_miscov``.
 
     For an 80% nominal interval (alphas = (0.1, 0.9)),
@@ -311,7 +312,7 @@ def winkler_score(y_true, q_lo, q_hi, alpha_miscov: float) -> float:
     return float(_fast_winkler(y, lo, hi, float(alpha_miscov)))
 
 
-def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
+def pit_values(y_true: ArrayLike, preds_NK: ArrayLike, alphas: Sequence[float]) -> np.ndarray:
     """Probability-integral-transform values per row.
 
     For each row i, find the alpha-grid position where ``y_true[i]``
@@ -375,7 +376,7 @@ def pit_values(y_true, preds_NK, alphas: Sequence[float]) -> np.ndarray:
 
 
 def quantile_summary(
-    y_true, preds_NK, alphas: Sequence[float],
+    y_true: ArrayLike, preds_NK: ArrayLike, alphas: Sequence[float],
     coverage_pairs: Sequence[Sequence[float]] = ((0.1, 0.9),),
 ) -> Dict[str, Any]:
     """Convenience: returns dict with pinball-per-alpha + per-pair

@@ -65,7 +65,7 @@ def resolve_gate_target_arr(
 
 def select_gate_source_split(
     *,
-    level_models_and_predictions,
+    level_models_and_predictions: List[Any],
     require_oof_for_gate: bool,
     coarse_gate_max_mae_relative: float,
     coarse_gate_max_std_relative: float,
@@ -188,14 +188,14 @@ def realign_gate_preds(pre_gate_members: List[Any], post_gate_members: List[Any]
 
 def catastrophic_drop_kn(
     *,
-    level_models_and_predictions,
+    level_models_and_predictions: List[Any],
     _gate_preds_for_check: Optional[List[np.ndarray]],
     _gate_source_split: Optional[str],
     _ensemble_member_tags: List[str],
     _ensemble_short_tags: List[str],
-    train_target_arr,
-    val_target_arr,
-    test_target_arr,
+    train_target_arr: Optional[np.ndarray],
+    val_target_arr: Optional[np.ndarray],
+    test_target_arr: Optional[np.ndarray],
     k2_catastrophic_mae_ratio: float,
     verbose: bool,
     res: dict,
@@ -313,15 +313,15 @@ def catastrophic_drop_kn(
 
 def catastrophic_drop_k2(
     *,
-    level_models_and_predictions,
+    level_models_and_predictions: List[Any],
     _gate_preds_for_check: Optional[List[np.ndarray]],
     _gate_source_split: Optional[str],
     _ensemble_member_tags: List[str],
     _ensemble_short_tags: List[str],
     ensemble_name: str,
-    train_target_arr,
-    val_target_arr,
-    test_target_arr,
+    train_target_arr: Optional[np.ndarray],
+    val_target_arr: Optional[np.ndarray],
+    test_target_arr: Optional[np.ndarray],
     k2_catastrophic_mae_ratio: float,
     verbose: bool,
     res: dict,

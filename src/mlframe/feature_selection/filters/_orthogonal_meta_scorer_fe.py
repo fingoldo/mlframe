@@ -636,7 +636,7 @@ def hybrid_orth_mi_meta_fe_with_recipes(
     min_abs_mi_frac: float = 0.05,
     force_scorer: Optional[str] = None,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list, str, dict]:
     """Same as :func:`hybrid_orth_mi_meta_fe` plus a list of
     ``orth_univariate`` recipes from the dispatched scorer - one per
     appended column - so that ``MRMR.transform`` can recompute each

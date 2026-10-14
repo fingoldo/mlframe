@@ -23,7 +23,7 @@ Token catalogue (all 9):
 from __future__ import annotations
 
 import warnings
-from typing import Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence
 
 import numpy as np
 
@@ -592,7 +592,7 @@ _TOKEN_CAPTIONS: Dict[str, str] = {
 
 
 def compose_multiclass_figure(
-    y_true,
+    y_true: Any,
     y_proba: np.ndarray,
     classes: Sequence,
     *,

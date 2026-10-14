@@ -25,9 +25,12 @@ from __future__ import annotations
 
 import logging
 import multiprocessing
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import _cuda_demote_errors
 
@@ -288,7 +291,7 @@ def _defines_header() -> str:
     return f"#define MAXW {maxw}\n#define MAXLVL {maxlvl}\n#define MAXP {_MAX_SUPPORTED_FEATURES}\n"
 
 
-def interaction_tensor_gpu(ensemble, X: np.ndarray):
+def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     """cupy path-dependent TreeSHAP interaction tensor. Identical contract to
     ``interaction_tensor_numba``: returns ``(Phi (n,P,P) float64, phi (n,P) float64, base float)``.
 

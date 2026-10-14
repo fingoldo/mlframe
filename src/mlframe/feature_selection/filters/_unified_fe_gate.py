@@ -192,7 +192,7 @@ def _null_mi_floor(n_rows: int, nbins: int, n_y_classes: int) -> float:
 
 def raw_mi_noise_floor(
     raw_X: pd.DataFrame,
-    y,
+    y: np.ndarray | pd.Series,
     *,
     nbins: int = 10,
     mad_mult: float = 3.5,
@@ -277,7 +277,7 @@ def raw_mi_noise_floor(
 
 def local_mi_gate(
     enc_df: pd.DataFrame,
-    y,
+    y: np.ndarray | pd.Series,
     raw_X: Optional[pd.DataFrame] = None,
     *,
     top_k: Optional[int] = None,
@@ -353,7 +353,7 @@ def local_mi_gate(
 
 def unified_second_pass_gate(
     X_with_all_engineered: pd.DataFrame,
-    y,
+    y: np.ndarray | pd.Series,
     raw_cols: Sequence[str],
     engineered_cols: Sequence[str],
     *,

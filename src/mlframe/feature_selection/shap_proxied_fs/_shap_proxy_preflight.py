@@ -17,9 +17,12 @@ trust guard measured during ``fit``.
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 
 import numpy as np
+import pandas as pd
 from sklearn.model_selection import cross_val_score
 
 logger = logging.getLogger(__name__)
@@ -37,8 +40,9 @@ def _cv_score(estimator, X, y, classification):
 
 
 def dataset_diagnostics(
-    X, y, *, classification, max_rows=2000, max_rows_corr=5000, max_corr_features=400, n_estimators=100, random_state=0, inner_n_jobs_cap=False
-):
+    X: pd.DataFrame | np.ndarray, y: Any, *, classification: bool, max_rows: int = 2000, max_rows_corr: int = 5000, max_corr_features: int = 400,
+    n_estimators: int = 100, random_state: int = 0, inner_n_jobs_cap: bool = False
+) -> dict[str, Any]:
     """Cheap statistics that gate ShapProxiedFS's full pipeline. See module docstring.
 
     ``max_rows`` (iter25, lowered 5000 -> 2000): row subsample for the cheap booster probes. The
@@ -185,10 +189,10 @@ def dataset_diagnostics(
 
 
 def preflight(
-    X, y, *, classification, cluster_auto_threshold=40, redundancy_threshold=0.7,
-    additive_ratio_floor=0.6, min_fit_gain=0.03, imbalance_floor=0.05, random_state=0,
-    max_rows=2000, max_rows_corr=5000, n_estimators=100, inner_n_jobs_cap=False,
-):
+    X: pd.DataFrame | np.ndarray, y: Any, *, classification: bool, cluster_auto_threshold: int = 40, redundancy_threshold: float = 0.7,
+    additive_ratio_floor: float = 0.6, min_fit_gain: float = 0.03, imbalance_floor: float = 0.05, random_state: int = 0,
+    max_rows: int = 2000, max_rows_corr: int = 5000, n_estimators: int = 100, inner_n_jobs_cap: bool = False,
+) -> dict[str, Any]:
     """Cheap recommendation on whether / how to run ShapProxiedFS. Returns a dict with
     ``recommendation`` in {run, caution, fallback}, the diagnostics, and the reasons.
 

@@ -23,6 +23,8 @@ the native runtime converts the error into an OS-level signal.
 """
 from __future__ import annotations
 
+from typing import TextIO
+
 import logging
 import sys
 
@@ -34,7 +36,7 @@ logger = logging.getLogger(__name__)
 _ENABLED: bool = False
 
 
-def enable_crash_reporting(file=None, all_threads: bool = True, crash_dir=None, heartbeat_s=None) -> bool:
+def enable_crash_reporting(file: TextIO | None = None, all_threads: bool = True, crash_dir: str | None = None, heartbeat_s: float | None = None) -> bool:
     """Enable faulthandler + suppress Windows Error Reporting popup.
 
     Parameters

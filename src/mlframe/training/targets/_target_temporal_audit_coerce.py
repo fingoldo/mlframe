@@ -6,6 +6,8 @@ no upward dependency on the audit dataclasses or aggregation kernels.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 
 import numpy as np
@@ -36,7 +38,7 @@ _AUDIT_UNIT_NS_FACTOR: dict[str, int] = {
 
 
 def coerce_timestamps_for_audit(
-    arr,
+    arr: Any,
     *,
     explicit_unit: str | None = None,
 ) -> np.ndarray:

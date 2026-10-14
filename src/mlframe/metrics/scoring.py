@@ -7,6 +7,8 @@ RandomizedSearchCV, and a proxy for scoring probabilistic classifier outputs.
 from __future__ import annotations
 
 
+from typing import Callable
+
 import numpy as np
 import numba
 from scipy.stats import uniform
@@ -62,17 +64,17 @@ def fast_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(_fast_rmse_kernel(y_true, y_pred))
 
 
-def rmse_loss(y_true, y_pred):
+def rmse_loss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Root mean squared error."""
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
-    return np.sqrt(np.mean((y_true - y_pred) ** 2))
+    return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
 
 rmse_score = make_scorer(rmse_loss, greater_is_better=False)
 
 
-def rmsle_loss(y_true, y_pred):
+def rmsle_loss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Root mean squared logarithmic error. Negative predictions AND negative true values are clipped to 0.
 
     ``y_pred`` was already clipped; ``y_true`` was not, so a negative true value silently produced a NaN (or
@@ -97,7 +99,7 @@ def rmsle_loss(y_true, y_pred):
         # Every row clipped: both sides collapse to 0 and the score would read 0.0, the best possible value, on data
         # where RMSLE is not defined at all.
         return float("nan")
-    return np.sqrt(np.mean(np.power(np.log1p(np.clip(y_true, 0, None)) - np.log1p(np.clip(y_pred, 0, None)), 2)))
+    return float(np.sqrt(np.mean(np.power(np.log1p(np.clip(y_true, 0, None)) - np.log1p(np.clip(y_pred, 0, None)), 2))))
 
 
 rmsle_score = make_scorer(rmsle_loss, greater_is_better=False)
@@ -123,7 +125,7 @@ class LogUniform:
         return np.power(self.base, myuniform.rvs(size=size, random_state=random_state))
 
 
-def ProbaScoreProxy(y_true, y_probs, class_idx, proxied_func, **kwargs):
+def ProbaScoreProxy(y_true: np.ndarray, y_probs: np.ndarray, class_idx: int, proxied_func: Callable[..., float], **kwargs) -> float:
     """Wrap a scalar-target scorer so it can consume probability matrices.
 
     Passes column ``class_idx`` of ``y_probs`` to ``proxied_func(y_true, ...)``.

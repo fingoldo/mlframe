@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import itertools
 import logging
+from collections.abc import Sequence
 from typing import Any, cast
 
 import numpy as np
+import pandas as pd
 from numba import njit
 
 from mlframe.feature_selection.filters.info_theory import compute_su_from_classes
@@ -131,7 +133,9 @@ def _interaction_tensor_gpu(est, X, *, classification):
     return Phi, _broadcast_base(base, Phi.shape[0])
 
 
-def compute_interaction_tensor(model_template, X, y, *, classification, rng=None, backend="auto"):
+def compute_interaction_tensor(
+    model_template: Any, X: pd.DataFrame, y: np.ndarray, *, classification: bool, rng: np.random.Generator | None = None, backend: str = "auto"
+) -> Any:
     """Fit one model on X and return ``(Phi, base)`` where Phi is (n, P, P) SHAP interaction values
     (positive class for binary) and base is the scalar expected value broadcast to (n,).
 
@@ -218,7 +222,7 @@ def compute_interaction_tensor(model_template, X, y, *, classification, rng=None
     return Phi, np.full(n, base, dtype=np.float64)
 
 
-def interaction_margin(Phi: np.ndarray, base: np.ndarray, idx) -> np.ndarray:
+def interaction_margin(Phi: np.ndarray, base: np.ndarray, idx: Sequence[int] | np.ndarray) -> np.ndarray:
     """``base + sum_{i,k in S} Phi_ik`` - coalition value keeping only within-subset interactions."""
     idx = np.asarray(idx, dtype=np.int64)
     if idx.size == 0:
@@ -227,15 +231,15 @@ def interaction_margin(Phi: np.ndarray, base: np.ndarray, idx) -> np.ndarray:
     return np.asarray(base + sub.sum(axis=(1, 2)))
 
 
-def interaction_subset_loss(Phi, base, y, idx, metric) -> float:
+def interaction_subset_loss(Phi: np.ndarray, base: np.ndarray, y: np.ndarray, idx: Sequence[int] | np.ndarray, metric: str) -> float:
     """Proxy-loss of the coalition margin for feature subset ``idx`` (base value plus its within-subset pairwise SHAP interactions), under ``metric``."""
     return proxy_loss(interaction_margin(Phi, base, idx), y, metric)
 
 
 def interaction_top_n(
-    Phi, base, y, *, classification, metric=None, min_card=1, max_card=None, top_n=30,
-    exhaustive_max=16,
-):
+    Phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, min_card: int = 1, max_card: int | None = None, top_n: int = 30,
+    exhaustive_max: int = 16,
+) -> list[tuple[float, tuple[int, ...]]]:
     """Rank subsets by the interaction-aware coalition loss. Exhaustive for small P; always also runs
     a greedy-forward pass (which recovers interacting pairs a main-effect search would miss)."""
     metric = resolve_metric(classification, metric)
@@ -387,8 +391,8 @@ def _pair_synergy_bins_njit(bins_a: np.ndarray, bins_b: np.ndarray, nb_a: int, n
 
 
 def su_synergy_screen(
-    X,
-    y,
+    X: pd.DataFrame,
+    y: np.ndarray,
     *,
     n_bins: int = 8,
     top_k: int = 8,
@@ -398,8 +402,8 @@ def su_synergy_screen(
     snr_abs_floor: float = 1e-3,
     n_permutations: int = 3,
     importance: np.ndarray | None = None,
-    rng=None,
-):
+    rng: np.random.Generator | None = None,
+) -> tuple[list[tuple[float, float, Any, Any]], dict[str, Any]]:
     """Rank feature PAIRS by SU synergy and return only those clearing a permutation-null SNR gate.
 
     Parameters
@@ -546,18 +550,18 @@ def su_synergy_screen(
 
 
 def sparse_interaction_candidates(
-    model_template,
-    X_proxy,
-    y,
-    kept_pairs,
+    model_template: Any,
+    X_proxy: pd.DataFrame,
+    y: np.ndarray,
+    kept_pairs: Sequence[Sequence[Any]],
     *,
-    classification,
-    metric=None,
-    min_card=1,
-    max_card=None,
-    top_n=30,
-    rng=None,
-):
+    classification: bool,
+    metric: str | None = None,
+    min_card: int = 1,
+    max_card: int | None = None,
+    top_n: int = 30,
+    rng: np.random.Generator | None = None,
+) -> tuple[list[tuple[float, tuple[int, ...]]], dict[int, tuple[int, int]]]:
     """Run the interaction objective on ONLY the ``kept_pairs`` - a SPARSE interaction path.
 
     Engineers one product column ``a * b`` per surviving synergistic pair, fits ONE in-sample model on

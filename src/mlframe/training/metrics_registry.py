@@ -37,6 +37,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterator, Optional, Any
 
+import numpy as np
+
 from .configs import TargetTypes
 
 
@@ -90,7 +92,7 @@ def unregister_metric(target_type: TargetTypes, name: str) -> None:
         _REGISTRY[target_type].pop(name, None)
 
 
-def iter_extra_metrics(target_type: TargetTypes, y_true, probs_NK, preds_NK) -> Iterator[tuple[str, Any]]:
+def iter_extra_metrics(target_type: TargetTypes, y_true: np.ndarray, probs_NK: np.ndarray, preds_NK: np.ndarray) -> Iterator[tuple[str, Any]]:
     """Yield (name, value) for every registered metric on this target type.
 
     Narrow exception catch: only the documented failure modes for sklearn

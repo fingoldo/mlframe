@@ -55,7 +55,7 @@ Probabilistic-forecast communication plot:
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence
 
 import numpy as np
 
@@ -786,8 +786,8 @@ DEFAULT_QUANTILE_PANELS: str = (
 
 
 def compose_quantile_figure(
-    y_true,
-    preds_NK,
+    y_true: Any,
+    preds_NK: np.ndarray,
     alphas: Sequence[float],
     *,
     panels_template: str = DEFAULT_QUANTILE_PANELS,

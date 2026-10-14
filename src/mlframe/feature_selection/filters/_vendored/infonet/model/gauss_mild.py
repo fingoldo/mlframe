@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def gauss_kernel(kernlen=5, nsig=3, channels=1):
+def gauss_kernel(kernlen: int = 5, nsig: float = 3, channels: int = 1) -> torch.Tensor:
     """Build a ``(1, 1, kernlen, kernlen)`` 2D Gaussian kernel (outer product of a 1D CDF-difference kernel with
     itself, normalized to sum 1), replicated to ``channels`` along the input-channel axis, as a torch tensor."""
     interval = (2 * nsig + 1.0) / (kernlen)
@@ -19,7 +19,7 @@ def gauss_kernel(kernlen=5, nsig=3, channels=1):
     out_filter = np.repeat(out_filter, channels, axis=2)
     return torch.from_numpy(out_filter)
 
-def make_gauss_var(size, nsig, c_i):
+def make_gauss_var(size: int, nsig: float, c_i: int) -> torch.nn.Parameter:
     """Wrap ``gauss_kernel(size, nsig, c_i)`` in a non-trainable ``torch.nn.Parameter`` (``requires_grad=False``)."""
     kernel = gauss_kernel(size, nsig, c_i)
     var = torch.nn.Parameter(kernel, requires_grad=False)

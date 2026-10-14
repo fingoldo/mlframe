@@ -38,7 +38,7 @@ from ._ram_helpers import _caller_logger, log_ram_usage, maybe_clean_ram_adaptiv
 from pyutilz.system import get_own_memory_usage
 
 
-def coerce_to_numpy(arr, *, allow_none: bool = False):
+def coerce_to_numpy(arr: Any, *, allow_none: bool = False) -> Any:
     """Coerce a pandas/polars/array-like value to a numpy ndarray without reshaping.
 
     Single source of truth for the 3-way coercion previously duplicated in
@@ -91,12 +91,12 @@ def coerce_to_numpy(arr, *, allow_none: bool = False):
     return np.asarray(arr)
 
 
-def coerce_to_1d_numpy(arr) -> np.ndarray:
+def coerce_to_1d_numpy(arr: Any) -> np.ndarray:
     """Coerce to numpy then flatten to 1-D. Raises ``TypeError`` on ``None``."""
     return np.asarray(coerce_to_numpy(arr)).reshape(-1)
 
 
-def filter_existing(df, cols) -> list:
+def filter_existing(df: Any, cols: Any) -> list:
     """Return only the column names from `cols` that exist in `df.columns`.
 
     Preserves input order. Accepts any iterable of column names. When `df`

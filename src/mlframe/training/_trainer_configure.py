@@ -285,7 +285,7 @@ def configure_training_params(
     # would break the splat with TypeError. Bind the splat catch-all so the suite
     # stays forward-compatible with new TrainingBehaviorConfig fields.
     **_unused_behavior_kwargs,
-):
+) -> tuple[dict[str, Any], dict[str, Any], Any, Any, Any, Any, Any]:
     """Configure training parameters for all model types.
 
     Parameters

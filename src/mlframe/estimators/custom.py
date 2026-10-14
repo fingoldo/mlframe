@@ -20,6 +20,7 @@ from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin
 
 from numbers import Number
+from typing import cast
 
 from scipy.special import boxcox
 from sklearn.preprocessing import PowerTransformer
@@ -471,12 +472,12 @@ def create_dummy_lagged_predictions(y_true: np.ndarray, strategy: str = "constan
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def qubed(x):
+def qubed(x: np.ndarray) -> np.ndarray:
     """Return ``x ** 3`` elementwise (a target transform; its inverse is the cube root)."""
-    return np.power(x, 3)
+    return cast(np.ndarray, np.power(x, 3))
 
 
-def log_plus_c(x, c: float = 0.0):
+def log_plus_c(x: np.ndarray, c: float = 0.0) -> np.ndarray:
     """Return ``log(x + c)`` with the argument clipped to a tiny positive floor to avoid ``log(0)``/negatives.
 
     Shift ``c`` moves the domain so non-positive targets become loggable. Inverse: ``inv_log_plus_c``.
@@ -484,20 +485,20 @@ def log_plus_c(x, c: float = 0.0):
     return np.log(np.clip(x + c, 1e-16, None))
 
 
-def inv_log_plus_c(x, c: float = 0.0):
+def inv_log_plus_c(x: np.ndarray, c: float = 0.0) -> np.ndarray:
     """Inverse of ``log_plus_c``: return ``exp(x) - c``."""
-    return np.exp(x) - c
+    return cast(np.ndarray, np.exp(x) - c)
 
 
-def box_cox_plus_c(x, c: float = 50.0, lmbda: float = -1):
+def box_cox_plus_c(x: np.ndarray, c: float = 50.0, lmbda: float = -1) -> np.ndarray:
     """Return the Box-Cox transform of ``x + c`` with fixed power ``lmbda`` (argument clipped positive).
 
     The ``+ c`` shift makes non-positive targets Box-Cox-able. Inverse: ``inv_box_cox_plus_c``.
     """
-    return boxcox(np.clip(x + c, 1e-16, None), lmbda)
+    return cast(np.ndarray, boxcox(np.clip(x + c, 1e-16, None), lmbda))
 
 
-def inv_box_cox_plus_c(x, c: float = 50.0, lmbda: float = -1, transformer: "PowerTransformer | None" = None):
+def inv_box_cox_plus_c(x: np.ndarray, c: float = 50.0, lmbda: float = -1, transformer: "PowerTransformer | None" = None) -> np.ndarray:
     """Inverse of ``box_cox_plus_c``: undo the Box-Cox with the given ``lmbda`` then subtract ``c``.
 
     Requires a fitted ``PowerTransformer`` passed via ``transformer=`` (used for the inverse
@@ -508,7 +509,7 @@ def inv_box_cox_plus_c(x, c: float = 50.0, lmbda: float = -1, transformer: "Powe
             "inv_box_cox_plus_c requires a fitted PowerTransformer passed via `transformer=`. "
             "The previous module-level instance was removed because it was never fit and was unsafe across threads."
         )
-    return transformer._box_cox_inverse_tranform(x, lmbda=lmbda) - c
+    return cast(np.ndarray, transformer._box_cox_inverse_tranform(x, lmbda=lmbda) - c)
 
 
 def soft_winsorize(
@@ -574,7 +575,7 @@ def soft_winsorize(
     return target
 
 
-def identity(x):
+def identity(x: np.ndarray) -> np.ndarray:
     """Return ``x`` unchanged (no-op target transform / its own inverse)."""
     return x
 
@@ -629,7 +630,7 @@ def clip_to_quantiles(arr: np.ndarray, quantile: float = 0.01, method: str = "wi
     raise AssertionError(f"unreachable: method={method!r} already validated above")  # nosec B101 - static-analysis exhaustiveness fallback, not a security boundary
 
 
-def clip_to_quantiles_winsor_quantile(arr):
+def clip_to_quantiles_winsor_quantile(arr: np.ndarray) -> np.ndarray:
     """Soft-winsorize ``arr`` to its 1%/99% quantiles (quantile-spread tails, 5% relative margin).
 
     Preset wrapper over ``clip_to_quantiles`` for use as a target transform.
@@ -642,7 +643,7 @@ def clip_to_quantiles_winsor_quantile(arr):
     )
 
 
-def clip_to_quantiles_hard(arr):
+def clip_to_quantiles_hard(arr: np.ndarray) -> np.ndarray:
     """Hard-clip (``np.clip``) ``arr`` to its 1%/99% quantiles. Preset wrapper over ``clip_to_quantiles``."""
     return clip_to_quantiles(arr, quantile=0.01, method="hard")
 

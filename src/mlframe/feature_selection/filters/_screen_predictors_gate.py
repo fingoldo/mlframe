@@ -9,9 +9,12 @@ used for the relative-floor comparison on the NEXT candidate. Neither mutates ca
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from ._dynamic_cluster_discovery import DCDState
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +31,9 @@ def build_dcd_state(
     factors_nbins: Sequence[int],
     factors_names: Sequence[str] | None,
     y: Sequence[int] | None,
-    existing_dcd_state,
+    existing_dcd_state: DCDState | None,
     verbose: int,
-):
+) -> DCDState | None:
     """Construct the Wave 9 Dynamic Cluster Discovery state from ``dcd_config``, or return
     ``None`` when DCD is not requested / config is missing / init fails (fallback to legacy
     path - DCD is an opt-in accelerator, never a hard requirement for screening to proceed)."""
@@ -88,8 +91,8 @@ def compute_selection_gate(
     *,
     min_relevance_gain: float,
     interactions_order: int,
-    best_candidate,
-    best_gain,
+    best_candidate: tuple[int, ...] | None,
+    best_gain: float,
     cardinality_bias_correction: bool,
     factors_data: np.ndarray,
     y: Sequence[int] | None,

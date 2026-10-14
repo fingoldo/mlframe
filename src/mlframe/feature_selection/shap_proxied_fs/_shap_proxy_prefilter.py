@@ -541,7 +541,7 @@ def _rank_univariate(X, y, *, classification: bool, batch_size: Optional[int] = 
 
 
 def prefilter_columns(
-    model_template,
+    model_template: Any,
     X: pd.DataFrame,
     y: np.ndarray,
     *,

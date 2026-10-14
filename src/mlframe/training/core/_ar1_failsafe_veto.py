@@ -22,7 +22,7 @@ had rather than trusting that the tolerance was enough.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 
@@ -91,11 +91,11 @@ def compute_val_veto(
     oof_names: Sequence[str],
     oof_rmses: Sequence[float] | np.ndarray,
     oof_components: Sequence,
-    filtered_val_df,
-    filtered_val_idx,
-    oof_y_full,
+    filtered_val_df: Any,
+    filtered_val_idx: Any,
+    oof_y_full: Any,
     lag_failsafe_tol: float,
-    config,
+    config: Any,
 ) -> Optional[int]:
     """Call-site wrapper: build the per-component val-RMSE probe and run :func:`decide_ar1_failsafe_val_veto`.
 

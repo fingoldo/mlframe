@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _FIT_SUBSAMPLE_CAP: int = 200_000
 
 
-def fuzzy_membership_curves(x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0) -> Tuple[np.ndarray, np.ndarray]:
+def fuzzy_membership_curves(x: np.ndarray, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0) -> Tuple[np.ndarray, np.ndarray]:
     """Fit a fuzzy partition on ``x`` and evaluate each set's membership over a ``grid``-point linspace of ``x``'s range.
 
     Returns ``(grid_x (grid,), memberships (n_sets, grid))`` where ``n_sets`` is the number of fitted sets (equal to
@@ -55,7 +55,7 @@ def fuzzy_membership_curves(x, *, n_partitions: int = 5, kind: str = "triangular
     return grid_x, np.ascontiguousarray(memberships.T)
 
 
-def fuzzy_membership_panel(x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0, feature_name: str = "x") -> PanelSpec:
+def fuzzy_membership_panel(x: np.ndarray, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0, feature_name: str = "x") -> PanelSpec:
     """Multi-series ``LinePanelSpec`` of the fuzzy-partition membership curves (one series per set).
 
     ``feature_name`` names the sets in the legend. It used to be hardcoded to "x", so every chart in a report read
@@ -83,7 +83,7 @@ def fuzzy_membership_panel(x, *, n_partitions: int = 5, kind: str = "triangular"
 
 
 def compose_fuzzy_membership_figure(
-    x, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0,
+    x: np.ndarray, *, n_partitions: int = 5, kind: str = "triangular", grid: int = 200, seed: int = 0,
     suptitle: str = "Fuzzy partition membership",
 ) -> FigureSpec:
     """One-panel ``FigureSpec`` wrapping :func:`fuzzy_membership_panel`."""

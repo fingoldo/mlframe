@@ -284,7 +284,7 @@ def cat_cooccurrence_svd_with_recipes(
     other_cols: Sequence[str],
     n_components: int = 1,
     normalize: str = "ca",
-):
+) -> tuple[pd.DataFrame, list, list]:
     """Append SVD co-occurrence embedding columns for each (src, other) pair.
 
     For every ordered pair ``(src, other)`` with ``src != other`` and both in

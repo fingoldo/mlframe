@@ -534,7 +534,7 @@ def run_pysr_fe(
     target_columns_prefix: str = "target_",
     timeout_mins: int = 5,
     fill_nans: bool = True,
-):
+) -> Any:
     """Fit a PySR symbolic regressor on a sampled polars frame.
 
     DEPRECATED: use :func:`mlframe.feature_engineering.bruteforce.run_pysr_feature_engineering` instead -- that path adds leakage-free OOF support, preset wiring, reserved-name handling, and the global Julia lock. This legacy single-target entry point is retained for back-compat only.

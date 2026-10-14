@@ -190,7 +190,7 @@ def _column_values(X, name):
     return np.asarray(X)[:, name]
 
 
-def audit_degenerate_columns(X, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS, max_collinearity_bytes: int = _COLLINEARITY_PASS_MAX_BYTES) -> dict:
+def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_PASS_MAX_COLS, max_collinearity_bytes: int = _COLLINEARITY_PASS_MAX_BYTES) -> dict:
     """Cheap O(p) degenerate-column scan. Returns ``{column: reason}``.
 
     Order of precedence per column: all_nan > constant > duplicate_of > collinear_with.

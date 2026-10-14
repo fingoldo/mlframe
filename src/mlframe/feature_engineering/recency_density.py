@@ -178,16 +178,16 @@ def _scatter(per_group, sort_idx, starts, ends, n, broadcast):
 
 
 def per_group_recency_weighted_mode(
-    values,
-    group_ids,
+    values: np.ndarray,
+    group_ids: np.ndarray,
     *,
-    order=None,
-    scheme="poly",
-    param=1.0,
-    bandwidth=-1.0,
-    n_grid=64,
-    broadcast=True,
-):
+    order: np.ndarray | None = None,
+    scheme: str = "poly",
+    param: float = 1.0,
+    bandwidth: float = -1.0,
+    n_grid: int = 64,
+    broadcast: bool = True,
+) -> np.ndarray:
     """Per-entity mode of the recency-weighted Gaussian Parzen density of ``values``.
 
     ``bandwidth <= 0`` picks a per-group Silverman rule. Returns shape ``(n,)`` if broadcast else one per entity.
@@ -202,20 +202,20 @@ def per_group_recency_weighted_mode(
     if n == 0:
         return np.empty(0, dtype=np.float64)
     modes, _ = _dispatch_kde(v_sorted, starts, ends, SCHEMES.index(scheme), float(param), float(bandwidth), int(n_grid), 0.0)
-    return _scatter(modes, sort_idx, starts, ends, n, broadcast)
+    return np.asarray(_scatter(modes, sort_idx, starts, ends, n, broadcast))
 
 
 def per_group_behavioral_stability(
-    values,
-    group_ids,
+    values: np.ndarray,
+    group_ids: np.ndarray,
     *,
-    order=None,
-    scheme="poly",
-    param=1.0,
-    stability_span_frac=0.15,
-    n_grid=64,
-    broadcast=True,
-):
+    order: np.ndarray | None = None,
+    scheme: str = "poly",
+    param: float = 1.0,
+    stability_span_frac: float = 0.15,
+    n_grid: int = 64,
+    broadcast: bool = True,
+) -> np.ndarray:
     """Per-entity behavioral-stability score = peak height of the recency-weighted density (higher = more predictable)."""
     if scheme not in SCHEMES:
         raise ValueError(f"scheme must be one of {SCHEMES}, got {scheme!r}.")
@@ -227,4 +227,4 @@ def per_group_behavioral_stability(
     if n == 0:
         return np.empty(0, dtype=np.float64)
     _, peaks = _dispatch_kde(v_sorted, starts, ends, SCHEMES.index(scheme), float(param), -1.0, int(n_grid), float(stability_span_frac))
-    return _scatter(peaks, sort_idx, starts, ends, n, broadcast)
+    return np.asarray(_scatter(peaks, sort_idx, starts, ends, n, broadcast))

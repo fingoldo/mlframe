@@ -35,7 +35,7 @@ import orjson
 import logging
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from numba import njit, prange
@@ -551,7 +551,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
     )
 
 
-def is_supported_xgboost(estimator) -> bool:
+def is_supported_xgboost(estimator: Any) -> bool:
     """True for a fitted xgboost regressor / binary classifier we can extract a booster from."""
     name = type(estimator).__name__
     if name not in ("XGBRegressor", "XGBClassifier"):
@@ -574,7 +574,7 @@ def is_supported_xgboost(estimator) -> bool:
     return True
 
 
-def is_supported_lightgbm(estimator) -> bool:
+def is_supported_lightgbm(estimator: Any) -> bool:
     """True for a fitted lightgbm regressor / binary classifier we can extract a booster from.
 
     Multiclass (``num_tree_per_iteration`` > 1 / ``num_class`` > 1) is out of scope (single-output
@@ -614,7 +614,7 @@ def _lightgbm_booster_and_nfeatures(estimator):
     return booster, n_features
 
 
-def extract_ensemble(estimator) -> Optional[TreeEnsemble]:
+def extract_ensemble(estimator: Any) -> Optional[TreeEnsemble]:
     """Extract the flat ensemble tensors from a supported xgboost OR lightgbm estimator, else ``None``.
 
     Both model families map onto the SAME flat node tensors so the numba/cupy kernels are shared

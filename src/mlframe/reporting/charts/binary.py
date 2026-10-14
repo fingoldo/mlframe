@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 
 import hashlib
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -712,12 +712,12 @@ DEFAULT_BINARY_PANELS: str = "ROC PR SCORE_DIST THRESHOLD"
 
 
 def compose_binary_figure(
-    y_true,
+    y_true: Any,
     y_score: np.ndarray,
     *,
     panels_template: str = DEFAULT_BINARY_PANELS,
     threshold: float = 0.5,
-    cost_ratio=None,
+    cost_ratio: float | None = None,
     suptitle: str = "",
     max_cols: int = 2,
     cell_width: float = 6.0,

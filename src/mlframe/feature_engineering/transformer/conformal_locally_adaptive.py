@@ -9,6 +9,8 @@ at α ∈ {0.1, 0.2}, plus the row's own sigma_hat and z-score-style ratio.
 5 features.
 """
 from __future__ import annotations
+
+from typing import Any
 import logging
 import numpy as np
 import polars as pl
@@ -18,9 +20,9 @@ logger = logging.getLogger(__name__)
 
 
 def compute_conformal_locally_adaptive_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    k_sigma=16, alphas=(0.1, 0.2), standardize=True, column_prefix="cla", dtype=np.float32,
-):
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
+    k_sigma: int=16, alphas: tuple=(0.1, 0.2), standardize: bool=True, column_prefix: str="cla", dtype: type=np.float32,
+) -> pl.DataFrame:
     """Mondrian split-conformal interval-width features: fit a baseline on half the train fold, compute nonconformity scores locally normalized by a kNN-MAD sigma_hat on the other half, and emit the resulting interval half-widths at each alpha plus sigma_hat, the point prediction, and a width ratio."""
     try:
         import lightgbm as lgb
@@ -106,7 +108,7 @@ def compute_conformal_locally_adaptive_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("conformal_locally_adaptive: fold %d done", fold_idx + 1)

@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 
 from collections.abc import Sequence
-from typing import Optional, Any
+from typing import Callable, Optional, Any
 
 import numpy as np
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
@@ -504,7 +504,7 @@ def binned_numeric_agg_with_recipes(
     n_folds: int = 5, random_state: int = 0, max_pairs: int = 64,
     max_group_cols: int = 16, max_agg_cols: int = 16,
     mi_gate: bool = True, redundancy_gate: bool = True,
-    min_cmi_gain: float = 0.005, reject_sink=None,
+    min_cmi_gain: float = 0.005, reject_sink: Callable[..., None] | None = None,
 ) -> tuple:
     """End-to-end: relevance-select numeric group/aggregate columns, OOF-fit per-cell stats, append ``binagg_*``
     columns and build replay recipes. Returns ``(X_aug, appended, recipes)`` mirroring ``kfold_target_encode_with_recipes``.

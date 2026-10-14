@@ -38,7 +38,7 @@ across seeds plus a constant / degenerate column.
 """
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 import logging
 
 import numpy as np
@@ -132,7 +132,7 @@ def _safe_corr_single(y_dev: np.ndarray, var_y: float, col: np.ndarray) -> float
 
 
 def safe_abs_corr_all_dispatch(
-    y: np.ndarray, X: np.ndarray, *, reference_fn,
+    y: np.ndarray, X: np.ndarray, *, reference_fn: Callable[..., Any],
 ) -> np.ndarray:
     """Size-aware dispatcher for ``|corr(y, X[:, j])|`` over all columns.
 

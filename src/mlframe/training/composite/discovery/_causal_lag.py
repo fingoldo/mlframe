@@ -18,6 +18,8 @@ leakage -- the exemption is granted by provenance, never by a marginal correlati
 """
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 # Same suffix set as the dummy-baseline lag_predict probe (``_dummy_baseline_regression.py``); keep in sync. A feature
@@ -49,7 +51,7 @@ def is_causal_base_name(name: str, target_col: str | None = None) -> bool:
     return False
 
 
-def detect_causal_lag_column(df, target_col: str) -> str | None:
+def detect_causal_lag_column(df: Any, target_col: str) -> str | None:
     """Return the causal-lag feature name for ``target_col`` present in ``df`` (first matching suffix), else ``None``.
 
     Works for both pandas (``.columns``) and polars (``.columns`` / ``.schema``) carriers; a narrow name lookup only, no

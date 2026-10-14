@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Callable, Sequence
 
 import numpy as np
 
@@ -94,7 +95,7 @@ class CompositeSimilarityResult:
         return combine_block_similarities(block_sims, self.weights, self.deformation)
 
 
-def combine_block_similarities(block_sims, weights, deformation: str = "linear") -> np.ndarray:
+def combine_block_similarities(block_sims: Sequence[np.ndarray], weights: Sequence[float] | np.ndarray, deformation: str = "linear") -> np.ndarray:
     """Weighted (optionally sqrt-deformed) combination of per-block similarity matrices."""
     w = np.asarray(weights, dtype=np.float64)
     S = np.zeros_like(np.asarray(block_sims[0], dtype=np.float64))
@@ -121,15 +122,15 @@ def _default_metric(classification):
 
 
 def fit_composite_similarity(
-    block_sims,
-    y,
+    block_sims: Sequence[np.ndarray],
+    y: np.ndarray,
     *,
     k: int = 10,
-    metric=None,
+    metric: Callable[[np.ndarray, np.ndarray], float] | None = None,
     greater_is_better: bool = True,
     classification: bool | None = None,
     deformation: str = "linear",
-    grid=None,
+    grid: Sequence[float] | np.ndarray | None = None,
     max_iter: int = 15,
 ) -> CompositeSimilarityResult:
     """Tune per-block similarity weights by coordinate descent to maximize a leave-one-out kNN prediction metric.

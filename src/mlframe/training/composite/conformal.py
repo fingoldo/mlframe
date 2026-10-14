@@ -33,7 +33,10 @@ from __future__ import annotations
 import math
 import warnings
 
+from typing import Any, Optional, Sequence
+
 import numpy as np
+from numpy.typing import ArrayLike
 
 
 def conformal_quantile(residuals: np.ndarray, alpha: float) -> float:
@@ -146,7 +149,7 @@ def _sigma_for(edges: np.ndarray, sigma: np.ndarray, y_pred: np.ndarray) -> np.n
     return sigma[idx]
 
 
-def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_ordering=None, random_state: int = 0):
+def calibrate_conformal(self, X_cal: ArrayLike, y_cal: ArrayLike, alpha: float | Sequence[float] = 0.1, score: str = "normalized", time_ordering: Any = None, random_state: int = 0) -> Any:
     """Fit the split-conformal radius from a held-out calibration set.
 
     ``X_cal`` / ``y_cal`` MUST be rows the inner estimator did NOT train on
@@ -203,7 +206,7 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_
     if y_pred.shape[0] != y_true.shape[0]:
         raise ValueError("calibrate_conformal: predict produced " f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - y_pred
-    alphas: list = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas: list = [alpha] if isinstance(alpha, (int, float, np.number)) else list(alpha)
     if not hasattr(self, "_conformal_q_") or self._conformal_q_ is None:
         self._conformal_q_ = {}
     if not hasattr(self, "_conformal_sigma_") or self._conformal_sigma_ is None:
@@ -246,7 +249,7 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1, score="normalized", time_
     return self
 
 
-def predict_interval(self, X, alpha=0.1):
+def predict_interval(self, X: ArrayLike, alpha: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
     """Return ``(lower, upper)`` y-scale prediction intervals of marginal
     coverage ``>= 1 - alpha``.
 
@@ -307,7 +310,7 @@ def _signed_finite_sample_quantile(scores: np.ndarray, alpha: float) -> float:
     return float(np.sort(s)[rank - 1])
 
 
-def calibrate_conformal_cqr(self, X_cal, y_cal, alpha=0.1):
+def calibrate_conformal_cqr(self, X_cal: ArrayLike, y_cal: ArrayLike, alpha: float = 0.1) -> Any:
     """Calibrate Conformalized Quantile Regression (CQR) for ADAPTIVE-width
     prediction intervals.
 
@@ -345,7 +348,7 @@ def calibrate_conformal_cqr(self, X_cal, y_cal, alpha=0.1):
     return self
 
 
-def predict_interval_cqr(self, X, alpha=0.1):
+def predict_interval_cqr(self, X: ArrayLike, alpha: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
     """Return adaptive ``(lower, upper)`` CQR intervals of marginal coverage
     ``>= 1 - alpha``.
 
@@ -439,7 +442,7 @@ def _mondrian_ood_radius(certified_radii: list, global_r: float, alpha: float) -
     return float(q)
 
 
-def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
+def calibrate_conformal_mondrian(self, X_cal: ArrayLike, y_cal: ArrayLike, groups_cal: ArrayLike, alpha: float | Sequence[float] = 0.1) -> Any:
     """Mondrian (group-conditional) split-conformal: a SEPARATE finite-sample
     radius per group, for conditional coverage ``>= 1-alpha`` WITHIN each group.
 
@@ -478,7 +481,7 @@ def calibrate_conformal_mondrian(self, X_cal, y_cal, groups_cal, alpha=0.1):
         raise ValueError("calibrate_conformal_mondrian: predict produced " f"{y_pred.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - y_pred
     g = _normalize_groups(groups_cal, residuals.shape[0])
-    alphas: list = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas: list = [alpha] if isinstance(alpha, (int, float, np.number)) else list(alpha)
     if not hasattr(self, "_mondrian_q_") or self._mondrian_q_ is None:
         self._mondrian_q_ = {}
     if not hasattr(self, "_mondrian_ood_") or self._mondrian_ood_ is None:
@@ -562,7 +565,9 @@ def mondrian_ood_summary(self, alpha: float = 0.1) -> dict:
     return dict(snap.get(key, {"n_rows": 0, "n_ood": 0, "fraction_ood": 0.0}))
 
 
-def predict_interval_mondrian(self, X, groups, alpha=0.1, return_ood=False):
+def predict_interval_mondrian(
+    self, X: ArrayLike, groups: ArrayLike, alpha: float = 0.1, return_ood: bool = False
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return group-conditional ``(lower, upper)`` y-scale intervals, each of
     conditional coverage ``>= 1-alpha`` within its group.
 
@@ -725,7 +730,7 @@ def _resolve_weights(weights, X_cal, n: int) -> np.ndarray:
     return w
 
 
-def calibrate_conformal_weighted(self, X_cal, y_cal, alpha=0.1, weights=None):
+def calibrate_conformal_weighted(self, X_cal: ArrayLike, y_cal: ArrayLike, alpha: float | Sequence[float] = 0.1, weights: Optional[ArrayLike] = None) -> Any:
     """Weighted (covariate-shift) split-conformal calibration.
 
     Under covariate shift the plain band (:func:`calibrate_conformal`) mis-covers
@@ -757,7 +762,7 @@ def calibrate_conformal_weighted(self, X_cal, y_cal, alpha=0.1, weights=None):
         w = np.ones(n, dtype=np.float64)
     else:
         w = _resolve_weights(weights, X_cal, n)
-    alphas: list = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas: list = [alpha] if isinstance(alpha, (int, float, np.number)) else list(alpha)
     if not hasattr(self, "_weighted_conformal_q_") or self._weighted_conformal_q_ is None:
         self._weighted_conformal_q_ = {}
     for a in alphas:
@@ -768,7 +773,7 @@ def calibrate_conformal_weighted(self, X_cal, y_cal, alpha=0.1, weights=None):
     return self
 
 
-def predict_interval_weighted(self, X, alpha=0.1):
+def predict_interval_weighted(self, X: ArrayLike, alpha: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
     """Return covariate-shift-corrected ``(lower, upper)`` y-scale intervals of
     marginal coverage ``>= 1 - alpha`` under the shifted test law.
 

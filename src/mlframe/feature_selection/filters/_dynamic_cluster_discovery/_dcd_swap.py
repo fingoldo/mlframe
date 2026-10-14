@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import zlib
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from mlframe.utils.log_throttle import log_throttle
 from ._dcd_swap_matrix import _resolve_member_matrix
@@ -186,10 +186,10 @@ def evaluate_swap_candidate(
     anchor: int,
     selected_vars: list,
     *,
-    X_raw=None,
-    target_y=None,
-    factors_data=None,
-    factors_nbins=None,
+    X_raw: Any = None,
+    target_y: Optional[np.ndarray] = None,
+    factors_data: Optional[np.ndarray] = None,
+    factors_nbins: Optional[np.ndarray] = None,
     cached_MIs: Optional[dict] = None,
     entropy_cache: Optional[dict] = None,
     full_npermutations: int = 0,

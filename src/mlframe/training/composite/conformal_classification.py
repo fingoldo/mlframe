@@ -42,7 +42,10 @@ from __future__ import annotations
 
 import math
 
+from typing import Any, Sequence
+
 import numpy as np
+from numpy.typing import ArrayLike
 
 
 def conformal_set_threshold(scores: np.ndarray, alpha: float) -> float:
@@ -98,7 +101,7 @@ def _proba_matrix(self, X) -> np.ndarray:
     return np.clip(proba, 0.0, 1.0)
 
 
-def calibrate_conformal_set(self, X_cal, y_cal, alpha=0.1, score: str = "lac"):
+def calibrate_conformal_set(self, X_cal: ArrayLike, y_cal: ArrayLike, alpha: float | Sequence[float] = 0.1, score: str = "lac") -> Any:
     """Fit the conformal-set threshold from a held-out calibration set.
 
     ``X_cal`` / ``y_cal`` MUST be rows the inner estimator did NOT train on (the
@@ -129,12 +132,12 @@ def calibrate_conformal_set(self, X_cal, y_cal, alpha=0.1, score: str = "lac"):
     if (y_enc < 0).any() or (y_enc >= proba.shape[1]).any() or not np.all(self.classes_[np.clip(y_enc, 0, proba.shape[1] - 1)] == y_true):
         raise ValueError("calibrate_conformal_set: y_cal contains labels unseen at fit; " f"fitted classes_={list(self.classes_)}")
     scores = _lac_true_label_scores(proba, y_enc) if score == "lac" else _aps_true_label_scores(proba, y_enc)
-    alphas = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas = [alpha] if isinstance(alpha, (int, float, np.number)) else list(alpha)
     if not hasattr(self, "_conformal_set_q_") or self._conformal_set_q_ is None:
         self._conformal_set_q_ = {}
     table = self._conformal_set_q_.setdefault(score, {})
     for a in alphas:
-        table[round(float(a), 6)] = conformal_set_threshold(scores, float(a))  # type: ignore[arg-type]  # a is a scalar drawn from alphas (float | Sequence[float])
+        table[round(float(a), 6)] = conformal_set_threshold(scores, float(a))  # a is a scalar drawn from alphas (float | Sequence[float])
     self._conformal_set_n_cal_ = int(proba.shape[0])
     return self
 
@@ -161,7 +164,7 @@ def _label_in_set_mask(proba: np.ndarray, q: float, score: str) -> np.ndarray:
     return mask
 
 
-def predict_set(self, X, alpha=0.1, score: str = "lac"):
+def predict_set(self, X: ArrayLike, alpha: float = 0.1, score: str = "lac") -> list[Any]:
     """Return, per row, the SET of class labels of marginal coverage ``>= 1-alpha``.
 
     Requires a prior :func:`calibrate_conformal_set` at this ``alpha`` and

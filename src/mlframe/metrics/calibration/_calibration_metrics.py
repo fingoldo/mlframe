@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from math import floor
 
+from typing import cast
+
 import numpy as np
 import numba
 
@@ -36,7 +38,7 @@ def calibration_metrics_from_freqs(
     use_log_weighting: bool = False,
     use_sqrt_weighting: bool = False,
     use_power_weighting: bool = True,
-):
+) -> tuple[float, float, float]:
     """Weighted calibration MAE/STD and coverage from pre-binned reliability-curve frequencies.
 
     Given per-bin mean predicted probability (``freqs_predicted``), observed positive rate
@@ -94,7 +96,7 @@ def compute_ece_and_brier_decomposition(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     nbins: int,
-):
+) -> tuple[float, float, float, float, float]:
     """Plug-in ECE plus Murphy 1973 Brier score decomposition on a FIXED [0,1] grid.
 
     Returns ``(ece, reliability, resolution, uncertainty, brier_binned)``.
@@ -178,7 +180,7 @@ def compute_ece_debiased(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     nbins: int,
-):
+) -> float:
     """Bias-corrected binned ECE (Kumar et al. NeurIPS 2019; Roelofs et al. AISTATS 2022).
 
     The plug-in binned ECE ``sum_b (n_b/N)*|conf_b - acc_b|`` is a POSITIVELY biased estimator of the
@@ -252,7 +254,7 @@ def compute_brier_decomposition_debiased(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     nbins: int,
-):
+) -> tuple[float, float, float, float]:
     """Bias-corrected Murphy/Brier reliability + resolution (Broecker 2009).
 
     The plug-in binned Brier decomposition terms ``REL = sum_b w_b (conf_b - acc_b)^2`` and
@@ -430,7 +432,7 @@ def compute_ece_brier_full_and_debiased(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
+def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0) -> tuple[float, float, float]:
     """One-shot calibration MAE/STD/coverage: bin ``(y_true, y_pred)`` into ``nbins`` then reduce.
 
     Convenience wrapper that runs the equal-mass binning pass and feeds the per-bin frequencies to
@@ -440,7 +442,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
     if verbose:
         print(freqs_predicted, freqs_true)  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
-    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights)
+    return cast(tuple[float, float, float], calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights))
 
 
 # Finite worst-case ICE for an input the metric cannot score. Finite because CatBoost refuses a non-finite custom

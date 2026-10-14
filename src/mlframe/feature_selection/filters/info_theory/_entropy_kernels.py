@@ -596,14 +596,14 @@ def conditional_mi(
     return res
 
 def conditional_mi_redundancy_batched(
-    factors_data,
-    cand_indices,
-    y_index,
-    z_index,
-    factors_nbins,
-    dtype=np.int32,
-    force=None,
-):
+    factors_data: np.ndarray,
+    cand_indices: np.ndarray,
+    y_index: int,
+    z_index: int,
+    factors_nbins: np.ndarray,
+    dtype: type = np.int32,
+    force: Optional[str] = None,
+) -> np.ndarray:
     """Batched ``I(X_j; Y | Z)`` over all candidate columns for the greedy Fleuret redundancy round.
 
     DISPATCH POINT for the MRMR redundancy loop's dominant cost: instead of calling the serial njit

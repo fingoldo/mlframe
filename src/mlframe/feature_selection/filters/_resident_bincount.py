@@ -26,8 +26,23 @@ since the whole point of this function is avoiding that sync on the hot path) to
 
 from __future__ import annotations
 
+from types import ModuleType
+from typing import TYPE_CHECKING
 
-def resident_bincount(cp, x, nc, weights=None, dtype=None, debug_check_bounds: bool = False):
+from numpy.typing import DTypeLike
+
+if TYPE_CHECKING:
+    import cupy
+
+
+def resident_bincount(
+    cp: ModuleType,
+    x: cupy.ndarray,
+    nc: int,
+    weights: cupy.ndarray | None = None,
+    dtype: DTypeLike | None = None,
+    debug_check_bounds: bool = False,
+) -> cupy.ndarray:
     """``cupy.bincount(x, weights, minlength=nc)[:nc]`` without the internal ``int(cupy.max(x))`` sync.
 
     Parameters

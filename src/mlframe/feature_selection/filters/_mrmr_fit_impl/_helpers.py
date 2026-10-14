@@ -14,7 +14,7 @@ live in the parent and are imported lazily inside this body to avoid the
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -355,15 +355,15 @@ def _build_stability_replay_state(
     }
 
 def fe_decide_on_subsample(
-    fit_with_recipes_fn,
-    X,
-    y,
+    fit_with_recipes_fn: Callable[..., tuple],
+    X: Any,
+    y: Any,
     *,
     subsample_n: int = 0,
     subsample_seed: int = 42,
-    shared_subsample_idx=None,
-    **kwargs,
-):
+    shared_subsample_idx: np.ndarray | None = None,
+    **kwargs: Any,
+) -> tuple:
     """Run an ``*_with_recipes`` FE family on a row-SUBSAMPLE for its DECISION, then
     rebuild the chosen columns at FULL n by replaying the returned recipes.
 

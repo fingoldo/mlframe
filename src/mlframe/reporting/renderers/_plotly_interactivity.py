@@ -65,7 +65,7 @@ def html_config() -> dict:
     return dict(displaylogo=False, modeBarButtonsToRemove=list(_MODEBAR_REMOVE), responsive=True)
 
 
-def apply_interactivity(fig: Any, spec, *, static_legend: bool = False) -> None:
+def apply_interactivity(fig: Any, spec: Any, *, static_legend: bool = False) -> None:
     """Set per-panel-type interactivity props on an already-rendered figure.
 
     Gating: unified hover + rich line templates only on LinePanelSpec; rangeslider only on temporal line

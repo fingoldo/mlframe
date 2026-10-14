@@ -28,9 +28,9 @@ _coerce_timestamps_for_audit = _coerce_timestamps_for_audit_lib
 
 def run_temporal_audit_batch(
     *,
-    behavior_config,
-    features_and_targets_extractor,
-    timestamps,  # FTE-returned ndarray; df was already del'd by the caller, so this is the only source
+    behavior_config: Any,
+    features_and_targets_extractor: Any,
+    timestamps: Any,  # FTE-returned ndarray; df was already del'd by the caller, so this is the only source
     target_by_type: dict,
     verbose: bool = True,
 ) -> dict[Any, dict[str, Any]]:  # unused-ok: verbose: uniform suite-phase signature; logging goes through logger levels

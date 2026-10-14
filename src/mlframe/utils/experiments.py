@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from typing import Sequence, Union
+from typing import Any, Iterable, Sequence, Union
 from pyutilz.db import safe_execute, safe_execute_values
 
 # Whitelists for SQL field injection protection.
@@ -57,13 +57,13 @@ def get_experiment_routes(experiment_id: str, fields: Union[str, Sequence[str]] 
     )
     return list(routes)
 
-def read_experiment(experiment) -> tuple:
+def read_experiment(experiment: Any) -> tuple[Any, Any, Any, Any]:
     """Unpack a raw ``get_experiments`` row into ``(id, name, started_at, finished_at)``."""
     experiment_id, experiment_name, experiment_started_at, experiment_finished_at, *_ = experiment
 
     return experiment_id,experiment_name,experiment_started_at,experiment_finished_at
 
-def read_route(route) -> tuple:
+def read_route(route: Any) -> tuple[Any, Any, set, Any]:
     """Unpack a raw ``get_experiment_routes`` row into ``(id, name, audience_set, type)``, normalizing a null audience to an empty set."""
     route_id, route_name, route_audience, route_type, *_ = route
     if route_audience is None:
@@ -72,7 +72,7 @@ def read_route(route) -> tuple:
 
     return route_id, route_name, route_audience, route_type
 
-def update_routes_audiences(records) -> None:
+def update_routes_audiences(records: Iterable[tuple[Any, Any]]) -> None:
     """Bulk-update the ``audience`` JSONB column of ``experiments_routes`` for each ``(experiment_id, audience)`` in ``records``."""
     safe_execute_values(
         "with data (experiment_id,audience) as (VALUES %s) update experiments_routes set audience=data.audience::jsonb from data where id=data.experiment_id::uuid",

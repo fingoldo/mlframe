@@ -57,6 +57,8 @@ exact cp.percentile sort is at the bandwidth floor; beating it needs a rank-EXAC
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import os
 import threading
@@ -386,7 +388,7 @@ def ensure_host_codes_filled(host_codes: np.ndarray) -> None:
         # D2H the resident device codes into the caller's host buffer (the exact bytes the eager path produced).
         _fill_deferred(h)
 
-def take_resident_codes(host_codes):
+def take_resident_codes(host_codes: Any) -> Any:
     """Return the resident device codes stashed for ``host_codes`` iff they match it (same id, shape,
     dtype); else None. The resident-CUDA gate consumes the returned device codes IN PLACE (no host read).
     The handoff is NOT cleared here (so a later host-reading branch in the SAME dispatch - e.g. the

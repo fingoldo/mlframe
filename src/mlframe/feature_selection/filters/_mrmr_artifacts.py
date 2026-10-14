@@ -182,7 +182,7 @@ def compute_mrmr_artifacts(
     feature_names_in: list[str],
     support_original: np.ndarray,
     retain_bins: bool,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> dict[str, Any]:
     """Build the artifact dict from in-fit state, called inside MRMR.fit() when
     ``retain_artifacts=True``.

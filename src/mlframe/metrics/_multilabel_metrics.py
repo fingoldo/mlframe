@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import numpy as np
 import numba
+from numpy.typing import ArrayLike
 
 from ._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_MULTILABEL_THRESHOLD
 
@@ -327,7 +328,7 @@ def _validate_multilabel_pair(y_true, y_pred) -> tuple:
     return yt, yp
 
 
-def hamming_loss(y_true, y_pred) -> float:
+def hamming_loss(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     """sklearn-compatible Hamming loss for multilabel targets.
 
     Accepts (N,) binary or (N, K) multilabel. For N*K > 1M, auto-routes
@@ -343,7 +344,7 @@ def hamming_loss(y_true, y_pred) -> float:
     return float(_fast_hamming_loss_seq(yt, yp))
 
 
-def subset_accuracy(y_true, y_pred) -> float:
+def subset_accuracy(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     """Subset accuracy (a.k.a. exact-match) for multilabel targets.
 
     Equivalent to ``sklearn.metrics.accuracy_score(y_true, y_pred)`` on
@@ -357,7 +358,7 @@ def subset_accuracy(y_true, y_pred) -> float:
     return float(_fast_subset_accuracy_seq(yt, yp))
 
 
-def jaccard_score_multilabel(y_true, y_pred, *, force_elementwise: bool = False) -> float:
+def jaccard_score_multilabel(y_true: ArrayLike, y_pred: ArrayLike, *, force_elementwise: bool = False) -> float:
     """Per-row averaged Jaccard score for multilabel targets.
 
     Equivalent to ``sklearn.metrics.jaccard_score(y_true, y_pred, average='samples')``

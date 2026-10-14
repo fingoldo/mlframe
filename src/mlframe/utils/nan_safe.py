@@ -31,7 +31,7 @@ contract.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Sequence, cast
 
 import numpy as np
 
@@ -127,13 +127,13 @@ def argmax_classes_safe(
 
 def quantile_safe(
     arr: np.ndarray,
-    q,
+    q: float | Sequence[float] | np.ndarray,
     *,
     fallback: float = float("nan"),
     logger: Optional[logging.Logger] = None,
     context: str = "quantile_safe",
     **kwargs: Any,
-):
+) -> np.ndarray | float:
     """``np.nanquantile`` with an explicit all-NaN guard.
 
     Returns the quantile (or array of quantiles) computed over finite
@@ -155,7 +155,7 @@ def quantile_safe(
         if hasattr(q, "__iter__"):
             return np.full(len(list(q)), fallback, dtype=np.float64)
         return float(fallback)
-    return np.nanquantile(arr_np, q, **kwargs)
+    return cast(np.ndarray | float, np.nanquantile(arr_np, q, **kwargs))
 
 
 def median_safe(

@@ -8,6 +8,8 @@ NO y used — unsupervised feature-space outlierness, complementary to geometric
 5 aggregate features per query: sum_sq_z_residuals, max_z_residual, mean_z_residual, n_extreme, log_l2_norm.
 """
 from __future__ import annotations
+
+from typing import Any
 import logging
 import numpy as np
 import polars as pl
@@ -18,10 +20,10 @@ logger = logging.getLogger(__name__)
 
 
 def compute_cross_feature_reconstruction_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    n_estimators=30, max_depth=3, standardize=True, column_prefix="xfeat", dtype=np.float32,
-    aux_n_splits=5,
-):
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
+    n_estimators: int=30, max_depth: int=3, standardize: bool=True, column_prefix: str="xfeat", dtype: type=np.float32,
+    aux_n_splits: int=5,
+) -> pl.DataFrame:
     """Fit one leave-one-feature-out LightGBM reconstructor per input feature (predicting x_j from all other features), standardize the residuals by their train-set MAD, then emit 5 aggregate outlierness stats over the per-feature z-residuals of each query row. Unsupervised (y is unused). See module docstring for the mechanism rationale.
 
     The MAD scale is estimated from an aux nested-OOF residual within the train bank
@@ -97,7 +99,7 @@ def compute_cross_feature_reconstruction_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("cross_feature_reconstruction: fold %d done", fold_idx + 1)

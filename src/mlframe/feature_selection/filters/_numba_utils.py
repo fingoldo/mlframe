@@ -500,9 +500,9 @@ def evaluate_gain(
     # read the post-loop count - proves the cache actually HITS, not just that it
     # is harmless. Counter[0] is incremented on every JMIM cache read-hit.
     jmim_hit_counter: np.ndarray | None = None,
-    can_use_x_cache=False,
-    can_use_y_cache=False,
-    dtype=np.int32,
+    can_use_x_cache: bool = False,
+    can_use_y_cache: bool = False,
+    dtype: type = np.int32,
     confidence_mode: bool = False,
     max_confirmation_cand_nbins: int = MAX_CONFIRMATION_CAND_NBINS,
     use_su: bool = False,  # SU normalization toggle threaded from process_candidates / mrmr_fit_impl.

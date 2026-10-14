@@ -352,7 +352,7 @@ def decide_exhaustive_sweep(
     *,
     n_samples: int,
     n_raw: int,
-    verbose,
+    verbose: int,
 ) -> tuple[bool, str]:  # unused-ok: verbose: gate signature shared with the other FE step deciders; the decision reason is returned, not printed
     """Decide whether the GPU-exhaustive synergy sweep should run over ALL ``n_raw`` raw numeric columns
     (bypassing the pre-rank cap), recovering balanced (L=0) interactions the O(p) pre-rank cannot.

@@ -244,7 +244,7 @@ def evaluate_candidate(
     max_veteranes_interactions_order: int = 2,
     extra_knowledge_multipler: float = -1.0,
     sink_threshold: float = -1.0,
-    dtype=np.int32,
+    dtype: type = np.int32,
     verbose: int = 1,
     ndigits: int = 5,
     use_simple_mode: bool = True,

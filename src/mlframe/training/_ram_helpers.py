@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import gc, logging, sys, threading
 
 import psutil
@@ -134,7 +136,7 @@ def clean_ram_and_gpu(verbose: bool = False) -> None:
         pass  # PyTorch not installed
 
 
-def estimate_df_size_mb(df) -> float:
+def estimate_df_size_mb(df: Any) -> float:
     """Estimated in-memory size of a Polars/pandas DataFrame in MB.
 
     Returns `inf` for unsupported types so downstream OOM-protection thresholds

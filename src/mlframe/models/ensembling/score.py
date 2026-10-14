@@ -14,7 +14,7 @@ dodge the ``ensembling -> score -> ensembling`` import cycle.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -86,7 +86,7 @@ def score_ensemble(
     max_std_relative: float = 2.5,
     ensure_prob_limits: bool = True,
     nbins: int = 100,
-    ensembling_methods=None,
+    ensembling_methods: Optional[Sequence[str]] = None,
     uncertainty_quantile: float = 0.1,
     normalize_stds_by_mean_preds: bool = False,
     custom_ice_metric: Optional[Callable] = None,
@@ -107,7 +107,7 @@ def score_ensemble(
     group_ids: Optional[np.ndarray] = None,
     rrf_k: int = 60,
     # TargetTypes (or its value): rank-fusion flavours are built only for learning-to-rank (``flavour_policy``); None = infer from members.
-    target_type=None,
+    target_type: Any = None,
     # NO-GUARD-IDENTICAL: short-circuit when every member's predictions on the gate split match
     # numerically (Pearson corr == 1.0 AND elementwise close). One arithmetic-mean ensemble is
     # returned to skip every redundant flavour. Disabled by default so legacy reports keep their
@@ -179,7 +179,7 @@ def score_ensemble(
     # Set False to restore the legacy raw-probs blend behaviour.
     use_ap12_calibrated_probs: bool = True,
     **kwargs,
-):
+) -> dict:
     """Compares different ensembling methods for a list of models.
 
     Parameters

@@ -8,12 +8,15 @@ sibling methods through ``self``.
 
 from __future__ import annotations
 
+from typing import Any, Sequence
+
 import matplotlib.pyplot as plt
 import pandas as pd
+from matplotlib.figure import Figure
 from mlframe._optional_imports import import_optional
 
 
-def results_to_csv(self, filename="feature_importance"):
+def results_to_csv(self, filename: str = "feature_importance") -> None:
     """
     Saves the historical feature importance scores to csv.
 
@@ -43,7 +46,15 @@ def results_to_csv(self, filename="feature_importance"):
     features.to_csv(filename + ".csv", index=False, encoding="utf-8")
 
 
-def plot(self, X_rotation=90, X_size=8, figsize=(12, 8), y_scale="log", which_features="all", display=True):
+def plot(
+    self,
+    X_rotation: int = 90,
+    X_size: int = 8,
+    figsize: tuple[int, int] = (12, 8),
+    y_scale: str = "log",
+    which_features: str = "all",
+    display: bool = True,
+) -> None:
     """
     creates a boxplot of the feature importances
 
@@ -97,7 +108,7 @@ def plot(self, X_rotation=90, X_size=8, figsize=(12, 8), y_scale="log", which_fe
     plt.close(fig)
 
 
-def box_plot(self, data, X_rotation, X_size, y_scale, figsize):
+def box_plot(self, data: pd.DataFrame, X_rotation: int, X_size: int, y_scale: str, figsize: tuple[int, int]) -> Figure:
     """Draw a per-feature box plot of importance z-scores, colored by BorutaShap decision (accepted/rejected/tentative/shadow), ordered by descending mean importance; shifts values positive before a log y-scale."""
     if y_scale == "log":
         minimum = data["value"].min()
@@ -121,7 +132,7 @@ def box_plot(self, data, X_rotation, X_size, y_scale, figsize):
     return fig
 
 
-def create_mapping_of_features_to_attribute(self, maps=None):
+def create_mapping_of_features_to_attribute(self, maps: list[str] | None = None) -> dict:
     """Build a feature-name -> color dict for the box plot, assigning ``maps[0..3]`` to tentative/rejected/accepted/shadow feature groups respectively."""
     if maps is None:
         maps = []
@@ -138,16 +149,16 @@ def create_mapping_of_features_to_attribute(self, maps=None):
     values = tentative_map + rejected_map + accepted_map + shadow_map
     keys = tentative + rejected + accepted + shadow
 
-    return self.to_dictionary(keys, values)
+    return dict(self.to_dictionary(keys, values))
 
 
-def create_list(array, color):
+def create_list(array: Sequence[Any], color: str) -> list[str]:
     """Repeat ``color`` once per element of ``array``, for use as a per-feature color list in the box-plot palette."""
     colors = [color for x in range(len(array))]
     return colors
 
 
-def filter_data(data, column, value):
+def filter_data(data: pd.DataFrame, column: str, value: str) -> pd.DataFrame:
     """Return only rows matching ``value`` in ``column`` plus the "Shadow" rows, on a copy of ``data`` so the caller's frame is untouched."""
     data = data.copy()
     return data.loc[(data[column] == value) | (data[column] == "Shadow")]
@@ -158,7 +169,7 @@ def has_numbers(inputString: str) -> bool:
     return any(char.isdigit() for char in inputString)
 
 
-def check_if_which_features_is_correct(my_string):
+def check_if_which_features_is_correct(my_string: str) -> None:
     """Validate that ``my_string`` (case-insensitive) is one of the accepted feature-selection filters; raises ``ValueError`` otherwise."""
     my_string = str(my_string).lower()
     if my_string in ["tentative", "rejected", "accepted", "all"]:
@@ -168,6 +179,6 @@ def check_if_which_features_is_correct(my_string):
         raise ValueError(my_string + " is not a valid value did you mean to type 'all', 'tentative', 'accepted' or 'rejected' ?")
 
 
-def to_dictionary(list_one, list_two):
+def to_dictionary(list_one: Sequence[Any], list_two: Sequence[Any]) -> dict:
     """Zip two parallel lists (keys, values) into a dict."""
     return dict(zip(list_one, list_two))

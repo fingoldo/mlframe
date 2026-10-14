@@ -22,7 +22,7 @@ permutation importance instead of the in-bag native importance (removes the impu
 """
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 import logging
 import time
 from dataclasses import dataclass, field
@@ -30,8 +30,11 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from mlframe.feature_selection.cv_policy import get_cv_policy
+from mlframe.feature_selection.cv_policy import CVPolicy, get_cv_policy
 from sklearn.base import BaseEstimator, TransformerMixin
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 from ._linear_masking import DEFAULT_MASKING_R2, drop_linearly_masked
 from ._selection_log import log_selection, logs_selection, quiet_fit
@@ -194,9 +197,9 @@ def _summ_ace(res, b):
 
 @logs_selection("ace_select", _summ_ace)
 def ace_select(
-    X,
-    y,
-    estimator=None,
+    X: pd.DataFrame | np.ndarray,
+    y: np.ndarray | pd.Series | Sequence[Any],
+    estimator: BaseEstimator | None = None,
     *,
     n_replicates: int = 20,
     contrast_percentile: float = _DEFAULT_CONTRAST_PERCENTILE,
@@ -209,7 +212,7 @@ def ace_select(
     random_state: int = 0,
     mask_redundant: bool = True,
     masking_r2: float = _DEFAULT_MASKING_R2,
-    cv_policy=None,
+    cv_policy: CVPolicy | None = None,
 ) -> ACEResult:
     """Select relevant features by Artificial Contrasts with Ensembles (Tuv et al. 2009).
 

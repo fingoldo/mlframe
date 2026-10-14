@@ -444,7 +444,16 @@ def generate_lag_features(
 # Recipe builders (re-exported from engineered_recipes)
 # ---------------------------------------------------------------------------
 
-def build_temporal_expanding_recipe(*, name, entity_cols, value_col, time_col, stat, history, global_prior):
+def build_temporal_expanding_recipe(
+    *,
+    name: str,
+    entity_cols: Sequence[str],
+    value_col: str,
+    time_col: str,
+    stat: str,
+    history: dict,
+    global_prior: float,
+) -> EngineeredRecipe:
     """Build an ``EngineeredRecipe`` carrying the per-entity TRAIN history + global prior needed to leak-safely replay an expanding-stat feature at transform time."""
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(
@@ -460,7 +469,16 @@ def build_temporal_expanding_recipe(*, name, entity_cols, value_col, time_col, s
         },
     )
 
-def build_temporal_lag_recipe(*, name, entity_cols, value_col, time_col, lag, history, global_prior):
+def build_temporal_lag_recipe(
+    *,
+    name: str,
+    entity_cols: Sequence[str],
+    value_col: str,
+    time_col: str,
+    lag: int,
+    history: dict,
+    global_prior: float,
+) -> EngineeredRecipe:
     """Build an ``EngineeredRecipe`` carrying the per-entity TRAIN history + global prior needed to leak-safely replay a lag feature at transform time."""
     from .engineered_recipes import EngineeredRecipe
     return EngineeredRecipe(

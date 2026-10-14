@@ -6,6 +6,8 @@ Discretize X to boolean attributes (above/below median per feature), compute top
 via `concepts` library, emit membership in each concept's extent as a categorical feature.
 """
 from __future__ import annotations
+
+from typing import Any
 import logging
 import numpy as np
 import polars as pl
@@ -15,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 def compute_fca_closed_concepts_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    top_k=8, standardize=True, column_prefix="fca", dtype=np.float32,
-):
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
+    top_k: int=8, standardize: bool=True, column_prefix: str="fca", dtype: type=np.float32,
+) -> pl.DataFrame:
     """Formal Concept Analysis membership features: emits per-query indicators for the top-K closed concepts
     (by extent size) of a boolean context built from median-thresholded train attributes, plus n_matched
     and n_concepts summary columns. top_k + 2 features total.
@@ -99,7 +101,7 @@ def compute_fca_closed_concepts_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx]).astype(dtype, copy=False)
         logger.info("fca_closed_concepts: fold %d done", fold_idx + 1)

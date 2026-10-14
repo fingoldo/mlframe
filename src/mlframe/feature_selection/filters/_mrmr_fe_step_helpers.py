@@ -21,14 +21,14 @@ def apply_synergy_bootstrap(
     self,
     *,
     num_fs_steps: int,
-    data,
-    cols,
-    target_indices,
-    categorical_vars,
+    data: np.ndarray,
+    cols: list[str],
+    target_indices: Sequence[int] | np.ndarray,
+    categorical_vars: Any,
     numeric_vars_to_consider: set,
     non_numeric_idx: set,
-    verbose,
-):
+    verbose: int,
+) -> tuple:
     """Synergy bootstrap: widen the FE pair pool with unselected raw numeric columns so zero-marginal synergy pairs get joint-MI screened.
 
     Pure-synergy interactions (a*d, sign products, log(c)*sin(d)) have ~zero marginal MI per factor, so neither factor is screened-in and the pair never reaches the prospective-pair
@@ -381,13 +381,13 @@ def _gate_seeded_triples_order3(
 def compute_pair_maxt_floor(
     self,
     *,
-    numeric_vars_to_consider,
+    numeric_vars_to_consider: set,
     n_pairs: int,
-    data,
-    nbins,
-    classes_y,
-    freqs_y,
-    verbose,
+    data: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    freqs_y: np.ndarray,
+    verbose: int,
 ) -> tuple[float, dict]:
     """Order-2 Westfall-Young permutation-null joint-MI floor over the candidate-pair pool.
 
@@ -518,20 +518,20 @@ def compute_pair_maxt_floor(
 def run_cluster_aggregate_emission(
     self,
     *,
-    data,
-    cols,
-    nbins,
-    X,
-    target_indices,
-    categorical_vars,
-    cached_MIs,
-    engineered_recipes,
-    selected_vars,
+    data: np.ndarray,
+    cols: list[str],
+    nbins: np.ndarray,
+    X: Any,
+    target_indices: Sequence[int] | np.ndarray,
+    categorical_vars: Any,
+    cached_MIs: dict,
+    engineered_recipes: Any,
+    selected_vars: list[int],
     n_recommended_features: int,
     num_fs_steps: int,
     _is_polars_input: bool,
-    verbose,
-):
+    verbose: int,
+) -> tuple:
     """Opt-in clustered-feature aggregation: denoise correlated "reflection" clusters into aggregate columns.
 
     Runs once on the first FE step (clusters only raw ``feature_names_in_`` columns, which don't change across FE steps). Guarded so a failure never aborts fit. Returns the updated
@@ -684,14 +684,14 @@ def apply_interaction_information_routing(
 
 def log_fe_summary(
     *,
-    prospective_pairs,
-    prospective_additions,
+    prospective_pairs: dict,
+    prospective_additions: dict,
     n_recommended_features: int,
-    fe_min_pair_mi_prevalence,
-    fe_min_engineered_mi_prevalence,
-    fe_min_nonzero_confidence,
-    fe_good_to_best_feature_mi_threshold,
-    verbose,
+    fe_min_pair_mi_prevalence: float,
+    fe_min_engineered_mi_prevalence: float,
+    fe_min_nonzero_confidence: float,
+    fe_good_to_best_feature_mi_threshold: float,
+    verbose: int,
     fe_acceptance: str = "conditional_mi",
 ) -> None:
     """Log the per-step FE summary (pairs considered / with additions / total engineered + gate thresholds).

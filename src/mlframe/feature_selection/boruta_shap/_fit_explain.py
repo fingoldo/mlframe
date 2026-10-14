@@ -301,7 +301,7 @@ def _margin_gated_tail_stop(self, trial, _acc, _rej, _accepted_history, _n_total
 
 
 @logs_fit("BorutaShap", _selection_summary)
-def fit(self, X, y):
+def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndarray) -> Any:
     """
     The main body of the program this method it computes the following
 
@@ -583,7 +583,7 @@ def fit(self, X, y):
     return self
 
 
-def explain(self):
+def explain(self) -> None:
     """
     The shap package has numerous variants of explainers which use different assumptions depending on the model
     type this function allows the user to choose explainer

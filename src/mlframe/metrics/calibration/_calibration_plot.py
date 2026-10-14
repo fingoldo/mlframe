@@ -19,9 +19,12 @@ import logging
 import os
 import sys
 from math import floor
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 import numba
 
 
@@ -220,7 +223,7 @@ def _drop_nonfinite_pairs(y_true: np.ndarray, y_pred: np.ndarray):
     return np.asarray(y_true)[finite], yp[finite]
 
 
-def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100):
+def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Computes bins of predicted vs actual events frequencies. Corresponds to sklearn's UNIFORM strategy.
 
     ``freqs_predicted`` is the MEAN predicted probability within each bin (sum(y_pred)/hits),
@@ -243,8 +246,8 @@ def fast_calibration_binning(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
         empty = np.array((), dtype=np.float64)
         return empty, empty, np.array((), dtype=np.int64)
     if len(y_pred) >= _CALIB_BINNING_PRANGE_THRESHOLD:
-        return _fast_calibration_binning_prange(y_true, y_pred, nbins)
-    return _fast_calibration_binning_serial(y_true, y_pred, nbins)
+        return cast(tuple[np.ndarray, np.ndarray, np.ndarray], _fast_calibration_binning_prange(y_true, y_pred, nbins))
+    return cast(tuple[np.ndarray, np.ndarray, np.ndarray], _fast_calibration_binning_serial(y_true, y_pred, nbins))
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
@@ -452,7 +455,7 @@ def calibration_binning(
     y_pred: np.ndarray,
     nbins: int = 100,
     strategy: str = "auto",
-):
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Bin predictions for a reliability diagram. Strategy dispatcher (default ``"auto"``).
 
     - ``"uniform"``: equal-width bins over [min, max] (sklearn UNIFORM). Hot njit path.
@@ -486,10 +489,13 @@ def calibration_binning(
     edges = np.unique(edges)
     if len(edges) < 2:
         return fast_calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins)
-    return _quantile_binning_kernel(
-        np.asarray(y_true).astype(np.int64, copy=False),
-        np.asarray(y_pred, dtype=np.float64),
-        edges.astype(np.float64),
+    return cast(
+        tuple[np.ndarray, np.ndarray, np.ndarray],
+        _quantile_binning_kernel(
+            np.asarray(y_true).astype(np.int64, copy=False),
+            np.asarray(y_pred, dtype=np.float64),
+            edges.astype(np.float64),
+        ),
     )
 
 
@@ -586,7 +592,7 @@ def show_calibration_plot(
     reliability_smoothed: bool = False,
     raw_probs: Optional[np.ndarray] = None,
     raw_labels: Optional[np.ndarray] = None,
-):
+) -> Figure | None:
     """Plots reliability digaram from the binned predictions.
 
     With ``show_prob_histogram=True`` (default) a probability-distribution

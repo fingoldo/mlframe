@@ -79,8 +79,8 @@ def effective_binary_n(y_true: Any, y_score: Any) -> int:
 
 
 def compute_net_benefit(
-    y_true,
-    y_score,
+    y_true: Any,
+    y_score: Any,
     *,
     pt_grid: Optional[np.ndarray] = None,
     pt_range: Tuple[float, float] = DEFAULT_PT_RANGE,
@@ -154,8 +154,8 @@ def _usefulness_margin(n_rows: int) -> float:
 
 
 def build_decision_curve_spec(
-    y_true,
-    y_score,
+    y_true: Any,
+    y_score: Any,
     *,
     pt_range: Tuple[float, float] = DEFAULT_PT_RANGE,
     n_thresholds: int = DEFAULT_N_THRESHOLDS,

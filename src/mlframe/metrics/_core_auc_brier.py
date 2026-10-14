@@ -9,6 +9,8 @@ import functools
 import logging
 
 import numba
+from typing import Callable
+
 import numpy as np
 import pandas as pd
 
@@ -451,7 +453,7 @@ def exact_bootstrap_auc_resample(y_true: np.ndarray, y_score: np.ndarray, idx: n
     return fast_roc_auc_unstable(y_true[idx], y_score[idx])
 
 
-def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray):
+def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray) -> Callable[[np.ndarray], float]:
     """Factory: pre-argsort the BASE score vector ONCE, return a callable
     ``resampler(idx) -> float`` that scores each bootstrap resample without
     re-argsorting the n-length resampled vector (1000x O(n log n) -> O(n)).
@@ -646,7 +648,7 @@ def _roc_curve_kernel(y_true: np.ndarray, y_score: np.ndarray, sample_weight: np
     return fps, tps, thr
 
 
-def fast_roc_curve(y_true, y_score, *, sample_weight=None):
+def fast_roc_curve(y_true: np.ndarray, y_score: np.ndarray, *, sample_weight: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """ROC curve matching ``sklearn.metrics.roc_curve`` semantics: ``(fpr, tpr, thresholds)``.
 
     Own-implementation replacement for sklearn's ``roc_curve``. A single descending-score sweep (numba njit)

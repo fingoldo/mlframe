@@ -207,7 +207,7 @@ def sis_screen(
     mad_c: float = 3.0,
     dedup_corr_thr: float = 0.92,
     return_scores: bool = False,
-):
+) -> np.ndarray | tuple[np.ndarray, dict]:
     """Score every column of a wide ``(n, p)`` matrix by fused (marginal-MI + 2nd-moment) signal in COLUMN
     BLOCKS (the matrix is never fully resident - a memmap is read one block at a time) and return the
     survivor column indices.

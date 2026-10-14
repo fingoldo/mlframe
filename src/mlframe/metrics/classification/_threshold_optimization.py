@@ -100,7 +100,7 @@ def _optimal_threshold_kernel(y_sorted: np.ndarray, s_sorted: np.ndarray, code: 
     return best_thr, best_score
 
 
-def optimal_threshold(y_true: np.ndarray, y_score: np.ndarray, *, metric: str = "f1", fp_cost: float = 1.0, fn_cost: float = 1.0):
+def optimal_threshold(y_true: np.ndarray, y_score: np.ndarray, *, metric: str = "f1", fp_cost: float = 1.0, fn_cost: float = 1.0) -> tuple[float, float]:
     """Find the decision threshold on ``y_score`` that maximizes ``metric`` against binary ``y_true``.
 
     Parameters

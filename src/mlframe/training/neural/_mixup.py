@@ -109,7 +109,7 @@ def mixup_sequence_batch(
     y: torch.Tensor,
     alpha: float,
     aux_features: torch.Tensor | None = None,
-):
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None, torch.Tensor, torch.Tensor, float]:
     """F-70 (2026-05-31): Mixup over a padded sequence batch + optional
     aux features + labels.
 

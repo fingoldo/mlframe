@@ -38,7 +38,7 @@ def prepare_df_for_catboost(
     ensure_categorical: bool = True,
     verbose: bool = False,
     skipped_columns: Optional[list] = None,
-):
+) -> Any:
     """
     Catboost needs NAs in cat features replaced by a string value.
     Possibly extends cat_features list.

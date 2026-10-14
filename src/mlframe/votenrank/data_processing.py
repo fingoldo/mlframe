@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 
 
-def preprocess_glue(glue, head=None):
+def preprocess_glue(glue: pd.DataFrame, head: int | None = None) -> tuple[pd.DataFrame, dict[str, float]]:
     """Clean a scraped GLUE leaderboard table into ``(scores, metric_weights)``.
 
     Deduplicates repeated model names, drops metadata columns, splits the "x/y" composite MRPC/
@@ -49,7 +49,7 @@ def preprocess_glue(glue, head=None):
     return glue, glue_weights
 
 
-def preprocess_sglue(sglue):
+def preprocess_sglue(sglue: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float]]:
     """Clean a scraped SuperGLUE leaderboard table into ``(scores, metric_weights)``.
 
     Same shape as :func:`preprocess_glue` but for SuperGLUE's CB/MultiRC/ReCoRD/AX-g composite
@@ -81,7 +81,7 @@ def preprocess_sglue(sglue):
     return sglue, sglue_weights
 
 
-def preprocess_value(value):
+def preprocess_value(value: pd.DataFrame) -> pd.DataFrame:
     """Clean a scraped VALUE leaderboard table into a model x metric score frame.
 
     Drops the aggregate Mean-Rank/Meta-Ave columns and relabels the row index to the fixed

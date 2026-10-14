@@ -12,7 +12,7 @@ from numba import njit
 
 
 @njit(cache=True)
-def arr2str(arr) -> str:
+def arr2str(arr: np.ndarray) -> str:
     """Collision-safe ``@njit`` stringification of an integer array. Elements separated by ``_`` so distinct multisets always produce distinct strings; the
     naive concatenation collapsed ``sorted([1, 11])`` and ``sorted([1, 1, 1])`` to the same ``"111"`` and aliased entropy-cache slots in ``conditional_mi``.
     Returns ``""`` for empty input. The pyutilz analogue (``pyutilz.data.numbalib.arr2str``) is pure-Python by design (numba string ops are O(N^2)) and

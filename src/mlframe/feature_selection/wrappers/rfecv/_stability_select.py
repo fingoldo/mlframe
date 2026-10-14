@@ -377,10 +377,10 @@ def select_optimal_nfeatures_(
     votes_aggregation_method: VotesAggregation = VotesAggregation.Borda,
     verbose: bool = False,
     show_plot: bool = False,
-    plot_file=None,
+    plot_file: str | None = None,
     font_size: int = 12,
     figsize: tuple = (10, 7),
-):
+) -> None:
     """Pick the RFECV subset size trading off CV performance against ``feature_cost`` per feature, smoothing the performance curve first."""
     base_perf = np.array(cv_mean_perf) * self.mean_perf_weight - np.array(cv_std_perf) * self.std_perf_weight
     if smooth_perf:

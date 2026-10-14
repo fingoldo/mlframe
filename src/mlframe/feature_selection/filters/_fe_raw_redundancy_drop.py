@@ -191,7 +191,7 @@ def drop_redundant_raw_operands(
     engineered_continuous: Optional[dict] = None,
     replayable_eng_names: Optional[set] = None,
     recipes: Optional[dict] = None,
-    raw_X=None,
+    raw_X: Any = None,
     retain_frac: float = DEFAULT_RAW_RETAIN_FRAC,
     floor_margin_mult: float = 1.0,
     linear_usability_keep: bool = False,

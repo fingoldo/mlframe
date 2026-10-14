@@ -48,7 +48,7 @@ def _sanitize_for_filename(s: str, max_len: int = 120) -> str:
 # *****************************************************************************************************************************************************
 
 
-def show_shap_beeswarm_plot(model: object, df: pd.DataFrame, **kwargs):
+def show_shap_beeswarm_plot(model: object, df: pd.DataFrame, **kwargs) -> None:
     """Render a SHAP beeswarm plot for a tree model over ``df`` using ``shap.TreeExplainer``; ``kwargs`` forward to ``shap.plots.beeswarm`` (e.g. ``ax``, ``show``, ``max_display``)."""
     shap = import_optional("shap", "calibration", "SHAP plots")
     shap.initjs()
@@ -127,7 +127,7 @@ def plot_feature_importance(
     max_zero_fi_to_plot: int = _FI_DEFAULT_MAX_ZERO,
     importances_std: np.ndarray | None = None,
     importance_label: str = "Importance",
-):
+) -> pd.DataFrame:
     """Plot + log top-N feature importances.
 
     Parameters

@@ -9,13 +9,16 @@ modules import.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import logging
 
 import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -592,7 +595,7 @@ def _mi_chunk_cols_for(n_rows: int) -> int:
     return int(min(1024, max(1, by_ram)))
 
 
-def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int | None = None) -> np.ndarray:
+def mi_classif_batch_chunked(X: pd.DataFrame | np.ndarray, y: np.ndarray, *, nbins: int = 10, chunk_cols: int | None = None) -> np.ndarray:
     """Column-CHUNKED ``_mi_classif_batch`` for WIDE engineered matrices.
 
     The FE MI-uplift scorers (univariate / pair-cross / triplet / quadruplet / adaptive-arity / mi-greedy)
@@ -615,12 +618,12 @@ def mi_classif_batch_chunked(X, y, *, nbins: int = 10, chunk_cols: int | None = 
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default) - MI binning is scale-robust; f64 in strict mode
     if p <= chunk_cols:
-        arr = X.to_numpy(dtype=_dt) if is_df else np.asarray(X, dtype=_dt)
+        arr = cast("pd.DataFrame", X).to_numpy(dtype=_dt) if is_df else np.asarray(X, dtype=_dt)
         return _mi_classif_batch(arr, y, nbins=nbins)
     parts = []
     for j0 in range(0, p, chunk_cols):
         if is_df:
-            blk = X.iloc[:, j0 : j0 + chunk_cols].to_numpy(dtype=_dt)
+            blk = cast("pd.DataFrame", X).iloc[:, j0 : j0 + chunk_cols].to_numpy(dtype=_dt)
         else:
             blk = np.asarray(X[:, j0 : j0 + chunk_cols], dtype=_dt)
         parts.append(_mi_classif_batch(blk, y, nbins=nbins))

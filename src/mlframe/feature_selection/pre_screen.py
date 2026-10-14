@@ -24,7 +24,7 @@ combos that never use MRMR this saved cold-start time per process.
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 
@@ -52,7 +52,7 @@ def _summ_pre_screen(res, b):
 
 @logs_selection("pre_screen", _summ_pre_screen, what="dropped")
 def compute_unsupervised_drops(
-    train_df,
+    train_df: Any,
     variance_threshold: float = 0.0,
     null_fraction_threshold: float = 0.99,
     protected_columns: Iterable[str] = (),
@@ -255,7 +255,7 @@ def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows
             drops.add(col_name)
 
 
-def apply_drops(df, drop_cols: list[str]):
+def apply_drops(df: Any, drop_cols: list[str]) -> Any:
     """Return df with ``drop_cols`` removed. Polars / pandas agnostic, idempotent on missing columns."""
     if df is None or not drop_cols:
         return df

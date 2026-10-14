@@ -473,7 +473,7 @@ def save_split_artifacts(
     target_name: str,
     model_name: str,
     compression: str = "zstd",
-):
+) -> None:
     """
     Save split artifacts (timestamps, group_ids, artifacts) for each split.
 

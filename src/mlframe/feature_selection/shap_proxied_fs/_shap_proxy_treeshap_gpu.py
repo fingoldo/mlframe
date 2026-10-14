@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import logging
 import multiprocessing
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +216,7 @@ def _kernel_source() -> str:
     return f"#define MAXW {maxw}\n#define MAXSP {maxsp}\n" + _KERNEL_SRC
 
 
-def treeshap_phi_base_gpu(ensemble, X: np.ndarray):
+def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, float]:
     """cupy path-dependent TreeSHAP. Identical contract to ``treeshap_phi_base_numba``: ``(phi, base)``.
 
     Raises ``ValueError`` if the ensemble depth exceeds the local-memory scratch cap (caller falls back

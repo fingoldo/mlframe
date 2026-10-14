@@ -13,11 +13,15 @@ exactly as before, and ``report`` is mutated in place, so behaviour is byte-for-
 
 from __future__ import annotations
 
+from typing import Any, Callable
+
 import pandas as pd
 import numpy as np
 
 
-def materialise_holdout_and_cluster(*, self, working_cols, n_features, _precomputed_aligned, X_search, report, _stage):
+def materialise_holdout_and_cluster(
+    *, self, working_cols: np.ndarray, n_features: int, _precomputed_aligned: Any, X_search: pd.DataFrame, report: dict[str, Any], _stage: Callable[[str], Any]
+) -> tuple[pd.DataFrame, pd.DataFrame, Any]:
     """Materialise the deferred holdout at the working-column count, then optionally cluster.
 
     Returns ``(X_hold, X_proxy, unit_to_members)``. ``report`` is mutated in place and

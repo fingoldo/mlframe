@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import cast
 import logging
 import os
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 
@@ -88,7 +88,7 @@ def raw_retains_signal_given_genuine_children(
     allow_linear_usability: bool = False,
     seed: int = 0,
     genuine_child_bins_dev: Optional[Sequence] = None,
-    raw_bin_dev=None,
+    raw_bin_dev: Any = None,
 ) -> bool:
     """KEEP-rule probe reused by the PSEUDO-CHILD MASKED-RAW RESCUE.
 

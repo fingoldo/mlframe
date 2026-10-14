@@ -52,7 +52,7 @@ trained_models: dict = {}
 _TRAINED_MODELS_LOCK = threading.RLock()
 
 
-def check_condition(condition, params: dict) -> bool:
+def check_condition(condition: Any, params: dict) -> bool:
     """Evaluate a single rule condition against a candidate ``params`` dict.
 
     If ``condition`` is a (Hashable)dict, it maps field names to expected values (or lists of expected values);
@@ -75,12 +75,19 @@ def check_condition(condition, params: dict) -> bool:
         return bool(condition)
 
 
-def value_by_key(dct: dict, key, expected_value) -> bool:
+def value_by_key(dct: dict, key: Any, expected_value: Any) -> bool:
     """Return True if ``dct[key]`` equals ``expected_value`` (False if ``key`` is missing)."""
     return bool(dct.get(key) == expected_value)
 
 
-def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_values_or=None, allow_if_values_or=None, allow_if_values_and=None):
+def check_rules(
+    params: dict,
+    drop_if_rules: Any = None,
+    drop_if_not_rules: Any = None,
+    skip_if_values_or: Any = None,
+    allow_if_values_or: Any = None,
+    allow_if_values_and: Any = None,
+) -> bool:
     """Apply the constraint-filtering rule DSL to a single candidate ``params`` dict, mutating it and/or vetoing it.
 
     Encodes the real inter-parameter compatibility constraints of an estimator (e.g. CatBoost) that
@@ -202,16 +209,16 @@ def double_check_dist_params(cand: dict, rng: Optional[np.random.Generator] = No
 
 
 def generate_valid_candidates(
-    params,
-    drop_if_rules=None,
-    drop_if_not_rules=None,
-    skip_if_values_or=None,
-    allow_if_values_or=None,
-    allow_if_values_and=None,
+    params: dict,
+    drop_if_rules: Any = None,
+    drop_if_not_rules: Any = None,
+    skip_if_values_or: Any = None,
+    allow_if_values_or: Any = None,
+    allow_if_values_and: Any = None,
     n: int = 1,
     max_iters: int = 1000,
     random_state: Union[int, np.random.Generator, None] = None,
-):
+) -> list:
     """Rejection-sample ``n`` valid hyperparameter candidates from ``params`` via sklearn's ``ParameterSampler``.
 
     Repeatedly draws batches from ``ParameterSampler``, resolves any nested distributions via
@@ -253,7 +260,7 @@ def generate_valid_candidates(
     return approved
 
 
-def preprocess_df(df, cat_features):
+def preprocess_df(df: pd.DataFrame, cat_features: list) -> None:
     """Fill NaN with an empty string in each of ``cat_features`` columns of ``df`` (in place); CatBoost requires categorical columns to have no missing values."""
 
     for var in cat_features:
@@ -296,7 +303,7 @@ def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.Data
     return df, cat_features
 
 
-def normalize_probs(probs: np.ndarray):
+def normalize_probs(probs: np.ndarray) -> None:
     """Normalize ``probs`` in place to sum to 1; falls back to a uniform distribution when the sum is non-positive or non-finite."""
     total = probs.sum()
     if total <= 0 or not np.isfinite(total):
@@ -397,7 +404,7 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
             logger.info("Favorized %s previously unexplored candidates", f"{len(favorized_items):_}")
 
 
-def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10, random_state: Union[int, np.random.Generator, None] = None):
+def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10, random_state: Union[int, np.random.Generator, None] = None) -> tuple[Any, list, Any]:
     """Fit (or reuse a cached) CatBoost surrogate model predicting trial objectives from trial params.
 
     Caches by ``(experiment_name, cat_features, feature_cols)`` in the module-level ``trained_models`` dict.
@@ -455,18 +462,18 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
 
 
 def justify_estimator(
-    est,
-    X,
-    y,
-    cv=3,
+    est: Any,
+    X: Any,
+    y: Any,
+    cv: int = 3,
     refit: bool = True,
-    scoring="r2",
+    scoring: str = "r2",
     min_score: float = 0.6,
-    test_size=0.1,
-    plot=False,
+    test_size: float = 0.1,
+    plot: bool = False,
     random_state: Union[int, np.random.Generator, None] = None,
     early_stopping_rounds: Optional[int] = 50,
-):
+) -> tuple[Any, float]:
     """Cross-validate ``est`` on ``(X, y)`` as a gate on whether there is enough signal to use ML-guided sampling; refit on full data if the gate passes.
 
     Runs ``cross_validate`` with ``cv`` folds (an int ``cv`` is turned into a seeded shuffled ``KFold`` so the

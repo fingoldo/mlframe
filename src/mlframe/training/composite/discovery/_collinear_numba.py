@@ -37,7 +37,7 @@ import hashlib
 import logging
 import threading
 from collections import OrderedDict
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from mlframe._array_buffer import array_buffer
@@ -295,7 +295,7 @@ def near_collinear_keep_mask_fast(
     feature_matrix: np.ndarray,
     *,
     corr_threshold: float,
-    reference_fn,
+    reference_fn: Callable[..., Any],
 ) -> np.ndarray:
     """Size-aware dispatcher for the near-collinear keep-mask walk.
 

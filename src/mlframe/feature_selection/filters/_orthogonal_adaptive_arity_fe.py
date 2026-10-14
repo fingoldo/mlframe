@@ -126,7 +126,7 @@ def _coerce_y_classif(y) -> np.ndarray:
 
 def generate_adaptive_arity_cross_basis(
     X: pd.DataFrame,
-    y,
+    y: np.ndarray | pd.Series,
     source_cols: Sequence[str],
     *,
     max_arity: int = 3,
@@ -431,7 +431,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
 def score_adaptive_arity_cross_basis(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
-    y,
+    y: np.ndarray | pd.Series,
     *,
     nbins: int = 10,
     basis: str = "auto",

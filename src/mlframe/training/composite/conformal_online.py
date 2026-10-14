@@ -34,6 +34,7 @@ import math
 from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 
 def _sorted_quantile_radius(r_sorted: Sequence[float], m: int, alpha: float) -> float:
@@ -147,7 +148,7 @@ def _aci_radius(state: Dict[str, Any]) -> float:
     return _sorted_quantile_radius(r_sorted, len(r_sorted), state["alpha_t"])
 
 
-def predict_interval_online(self, X, clip: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+def predict_interval_online(self, X: ArrayLike, clip: bool = True) -> Tuple[np.ndarray, np.ndarray]:
     """Return ``(lower, upper)`` using the CURRENT adaptive radius.
 
     Uses the live ``alpha_t`` + rolling buffer (no per-call argument): the band

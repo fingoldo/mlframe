@@ -25,6 +25,8 @@ This keeps the interaction proxy usable at the same widths as the additive searc
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
+
 import numpy as np
 from numba import njit
 
@@ -40,7 +42,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import (
 _DEFAULT_INTERACTION_TOP_K = 30
 
 
-def build_pair_table(Phi: np.ndarray, phi: np.ndarray, interaction_top_k: int):
+def build_pair_table(Phi: np.ndarray, phi: np.ndarray, interaction_top_k: int) -> tuple[np.ndarray, np.ndarray]:
     """Build the PER-ROW gated interaction tensor used by the interaction proxy scorer.
 
     Returns ``(pair_rows, in_gate)`` where:
@@ -100,8 +102,8 @@ def interaction_proxy_top_n(
     max_card: int | None = None,
     top_n: int = 30,
     interaction_top_k: int = _DEFAULT_INTERACTION_TOP_K,
-    candidate_subsets=None,
-):
+    candidate_subsets: Iterable[Sequence[int]] | None = None,
+) -> list[tuple[float, tuple[int, ...]]]:
     """Rank feature subsets by the interaction-aware coalition loss; return top-N ``(loss, idx_tuple)``.
 
     ``phi`` (n, P) main-effect SHAP, ``Phi`` (n, P, P) interaction tensor, ``base`` (n,) per-row offset.

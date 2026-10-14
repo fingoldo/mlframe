@@ -50,42 +50,42 @@ def _counts(a, b):
     return float(len(sa & sb)), float(len(sa)), float(len(sb))
 
 
-def jaccard(a, b) -> float:
+def jaccard(a: Iterable[Any] | np.ndarray, b: Iterable[Any] | np.ndarray) -> float:
     """Jaccard index ``|A∩B| / |A∪B|``. Both empty -> 1.0 (identical)."""
     inter, na, nb = _counts(a, b)
     union = na + nb - inter
     return 1.0 if union == 0.0 else inter / union
 
 
-def dice(a, b) -> float:
+def dice(a: Iterable[Any] | np.ndarray, b: Iterable[Any] | np.ndarray) -> float:
     """Dice / Sørensen coefficient ``2|A∩B| / (|A|+|B|)``. Both empty -> 1.0."""
     inter, na, nb = _counts(a, b)
     denom = na + nb
     return 1.0 if denom == 0.0 else 2.0 * inter / denom
 
 
-def overlap(a, b) -> float:
+def overlap(a: Iterable[Any] | np.ndarray, b: Iterable[Any] | np.ndarray) -> float:
     """Szymkiewicz-Simpson overlap coefficient ``|A∩B| / min(|A|,|B|)``; 1.0 when one set contains the other. Empty -> 1.0."""
     inter, na, nb = _counts(a, b)
     m = min(na, nb)
     return 1.0 if m == 0.0 else inter / m
 
 
-def braun_blanquet(a, b) -> float:
+def braun_blanquet(a: Iterable[Any] | np.ndarray, b: Iterable[Any] | np.ndarray) -> float:
     """Braun-Blanquet coefficient ``|A∩B| / max(|A|,|B|)``. Empty -> 1.0."""
     inter, na, nb = _counts(a, b)
     m = max(na, nb)
     return 1.0 if m == 0.0 else inter / m
 
 
-def ochiai(a, b) -> float:
+def ochiai(a: Iterable[Any] | np.ndarray, b: Iterable[Any] | np.ndarray) -> float:
     """Ochiai coefficient (set cosine) ``|A∩B| / sqrt(|A|·|B|)``. Empty -> 1.0."""
     inter, na, nb = _counts(a, b)
     denom = na * nb
     return 1.0 if denom == 0.0 else inter / np.sqrt(denom)
 
 
-def kulczynski(a, b) -> float:
+def kulczynski(a: Iterable[Any] | np.ndarray, b: Iterable[Any] | np.ndarray) -> float:
     """Kulczynski coefficient ``(|A∩B|/2)·(1/|A| + 1/|B|)`` = mean of the two inclusion ratios. Empty -> 1.0."""
     inter, na, nb = _counts(a, b)
     if na == 0.0 and nb == 0.0:
@@ -95,7 +95,7 @@ def kulczynski(a, b) -> float:
     return float(0.5 * inter * (1.0 / na + 1.0 / nb))
 
 
-def tversky(a, b, *, alpha: float = 0.5, beta: float = 0.5) -> float:
+def tversky(a: Iterable[Any] | np.ndarray, b: Iterable[Any] | np.ndarray, *, alpha: float = 0.5, beta: float = 0.5) -> float:
     """Asymmetric Tversky index ``|A∩B| / (|A∩B| + alpha·|A\\B| + beta·|B\\A|)``.
 
     Generalizes Jaccard (alpha=beta=1) and Dice (alpha=beta=0.5); asymmetric weights let ``a`` (prediction) and

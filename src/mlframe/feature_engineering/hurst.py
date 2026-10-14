@@ -69,7 +69,7 @@ def precompute_hurst_exponent(
     max_window: int = -1,
     windows_log_step: float = 0.25,
     take_diffs: bool = False,
-):  # pragma: no cover
+) -> tuple[np.ndarray, np.ndarray]:  # pragma: no cover
     """R/S aggregated across a geometric ladder of window sizes.
 
     ``max_window=-1`` is the "auto" sentinel and resolves to ``L-1``.  ``take_diffs`` defaults to
@@ -127,10 +127,10 @@ def precompute_hurst_exponent(
 def compute_hurst_exponent(
     arr: np.ndarray,
     min_window: int = 5,
-    max_window=None,
+    max_window: int | None = None,
     windows_log_step: float = 0.25,
     take_diffs: bool = False,
-) -> tuple:
+) -> tuple[float, float]:
     """Hurst exponent + intercept constant for a 1D array.
 
     Returns ``(H, c)`` such that ``E[R/S(n)] ~= c * n**H``.  Returns ``(nan, nan)`` when the array

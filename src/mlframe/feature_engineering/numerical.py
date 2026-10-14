@@ -57,7 +57,7 @@ def _resolve_astropy_histogram():
     return _astropy_histogram
 
 
-def histogram(a, bins="auto", **kwargs):
+def histogram(a: Any, bins: Any = "auto", **kwargs) -> tuple[np.ndarray, np.ndarray]:
     """Thin shim over astropy.stats.histogram with numpy fallback.
 
     Keeps the module importable when astropy is wedged by a transitive
@@ -66,7 +66,7 @@ def histogram(a, bins="auto", **kwargs):
     """
     _h = _resolve_astropy_histogram()
     if _h is not None:
-        return _h(a, bins=bins, **kwargs)
+        return cast(tuple[np.ndarray, np.ndarray], _h(a, bins=bins, **kwargs))
     return np.histogram(a, bins=bins, **kwargs)
 from scipy.stats import kstest, rv_continuous
 from sklearn.feature_selection import mutual_info_regression
@@ -304,7 +304,7 @@ def compute_simple_stats_numba(arr: np.ndarray, compensated: bool = False) -> tu
     return cast(tuple, _compute_simple_stats_fast(arr))
 
 
-def compute_simple_stats_numba_arr(arr: np.ndarray, dtype=np.float32, compensated: bool = False) -> np.ndarray:
+def compute_simple_stats_numba_arr(arr: np.ndarray, dtype: type = np.float32, compensated: bool = False) -> np.ndarray:
     """``compute_simple_stats_numba`` packed into an ndarray of ``dtype`` for column-stacking."""
     return np.array(compute_simple_stats_numba(arr, compensated=compensated), dtype=dtype)
 
@@ -328,7 +328,7 @@ def get_basic_feature_names(
     return_n_zer_pos_int: bool = True,
     return_exotic_means: bool = True,
     return_unsorted_stats: bool = True,
-):
+) -> list[str]:
     """Feature names produced by ``compute_numerical_aggregates_numba`` under the same kwargs.
 
     Length and order are guaranteed to match the kernel's return tuple. ``has_weights`` is
@@ -427,7 +427,7 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
     return tuple(np.nan_to_num([f(finite) for f in _entropy_funcs], posinf=0, neginf=0))
 
 
-def fit_distribution(dist: rv_continuous, data: np.ndarray, method: str = "mle"):
+def fit_distribution(dist: rv_continuous, data: np.ndarray, method: str = "mle") -> tuple[Any, ...]:
     """Fit a scipy distribution to ``data`` and return parameters + Kolmogorov-Smirnov fit quality.
 
     Returns the distribution's fitted parameters concatenated with ``(ks_stat, ks_pval)``. On any
@@ -485,7 +485,7 @@ def compute_numaggs(
     return_unsorted_stats: bool = True,
     return_lintrend_approx_stats: bool = False,
     compensated: bool = False,
-):
+) -> np.ndarray | tuple[Any, ...]:
     """Compute a plethora of numerical aggregates for all values in an array.
 
     Converts an arbitrarily-length array into a fixed number of aggregates.
@@ -666,7 +666,7 @@ def get_numaggs_names(
     return res
 
 
-def get_moments_slope_mi_feature_names(weights: Optional[np.ndarray] = None, directional_only: bool = False, return_lintrend_approx_stats: bool = True):
+def get_moments_slope_mi_feature_names(weights: Optional[np.ndarray] = None, directional_only: bool = False, return_lintrend_approx_stats: bool = True) -> list[str]:
     """Feature names produced by ``compute_moments_slope_mi``. ``weights is not None`` toggles weighted variants."""
     res = []
     if not directional_only:
@@ -762,7 +762,7 @@ def _defined_relative_changes(numer: np.ndarray, denom: np.ndarray) -> np.ndarra
     return np.asarray(ratios[np.isfinite(ratios)])
 
 
-def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype=np.float32) -> np.ndarray:
+def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: int = 0, use_diffs: bool = False, dtype: type = np.float32) -> np.ndarray:
     """Compute numaggs over rows of a 2D matrix and stack into a (n_rows, n_features) array."""
 
     # Local copy so the caller's dict is not mutated by the `return_float32` override below.
@@ -770,7 +770,7 @@ def numaggs_over_matrix_rows(vals: np.ndarray, numagg_params: dict, rolling_ma: 
     numagg_params["return_float32"] = True
     feature_names = get_numaggs_names(**numagg_params)
 
-    res = np.empty(shape=(len(vals), len(feature_names)), dtype=dtype)
+    res: np.ndarray = np.empty(shape=(len(vals), len(feature_names)), dtype=dtype)
 
     for i in range(vals.shape[0]):
         vals_to_compute = vals[i, :]
@@ -795,8 +795,8 @@ def compute_numaggs_parallel(
     use_diffs: bool = False,
     rolling_ma: int = 0,
     numagg_params: Optional[dict] = None,
-    dtype=np.float32,
-    n_jobs=-1,
+    dtype: type = np.float32,
+    n_jobs: int = -1,
     prefetch_factor: int = 2,
     **parallel_kwargs,
 ) -> np.ndarray:

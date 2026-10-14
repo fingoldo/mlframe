@@ -129,7 +129,7 @@ def _trade_cost(price_t, trades, tc, tc_mode_is_fraction):  # pragma: no cover
 
 
 @numba.njit(fastmath=FASTMATH, cache=True)
-def compute_area_profits(prices, positions):  # pragma: no cover
+def compute_area_profits(prices: np.ndarray, positions: np.ndarray) -> np.ndarray:  # pragma: no cover
     """Per-bar running relative profit within each held-position run, for every consecutive same-position run in ``positions``.
 
     Bars where ``prices`` is non-positive contribute 0 (division guard); trailing bars past the position array default to 0.
@@ -190,7 +190,7 @@ def find_best_mps_sequence(
     optimize_consecutive_regions: bool = True,
     shift: int = 0,
     dtype: type = np.float64,
-):  # pragma: no cover
+) -> tuple[np.ndarray, np.ndarray]:  # pragma: no cover
     """Find the position sequence that maximises profit after transaction costs, by dynamic programming.
 
     Args:
@@ -342,7 +342,7 @@ def find_maximum_profit_system(
     optimize_consecutive_regions: bool = True,
     shift: int = 0,
     dtype: type = np.float64,
-):
+) -> dict:
     """
     prices: 1D array-like of closing prices
     tc: transaction cost (fraction-of-price if tc_mode='fraction', else fixed currency)
@@ -564,7 +564,7 @@ def show_mps_regions(
     shift: int = 0,
     profit_quantile: float = 0.95,
     tc_mode: str = "fraction",
-    figsize=(10, 5),
+    figsize: tuple = (10, 5),
     use_plotly: bool = True,
     show_chart: bool = True,
     title: str = "Optimal Position",
@@ -609,7 +609,7 @@ def show_mps_regions(
     return dict(profit_quantile=profit_quantile_value, max_profit=max_profit, **res)
 
 
-def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=datetime(2024, 1, 1), base_volume=5000, random_seed: int = 42) -> tuple:  # noqa: DTZ001 -- synthetic demo price series, a naive calendar date is the right default here
+def generate_market_price(n_days: int=100, base_price: float=100.0, trend: float=0.1, start_date: datetime=datetime(2024, 1, 1), base_volume: int=5000, random_seed: int = 42) -> tuple[Any, np.ndarray, np.ndarray]:  # noqa: DTZ001 -- synthetic demo price series, a naive calendar date is the right default here
     """Generate a synthetic daily (dates, prices, volumes) series with trend, mean reversion, occasional news-event jumps, and volume that spikes on big price moves. For demos/tests, not real market data."""
     # Wave 49 (2026-05-20): switch to local Generator instead of mutating the
     # global RNG (which broke determinism for any sibling code running in the
@@ -656,7 +656,7 @@ def generate_market_price(n_days=100, base_price=100.0, trend=0.1, start_date=da
     return dates, prices, volumes
 
 
-def safely_compute_mps(f, **kwargs):
+def safely_compute_mps(f: str, **kwargs: Any) -> Any:
     """Wrap :func:`compute_mps_targets` with existence-check + broad exception handling, returning ``None`` on any failure instead of raising (for batch pipelines over many files)."""
     if not exists(f):
         return None

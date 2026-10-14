@@ -13,6 +13,8 @@ No-op-safe: a model with no dropout layers returns spread ~0 (mean over identica
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 
@@ -28,7 +30,7 @@ def _set_dropout_train(module) -> int:
     return n
 
 
-def mc_dropout_predict(module, X, *, n: int = 16):
+def mc_dropout_predict(module: Any, X: Any, *, n: int = 16) -> tuple[np.ndarray, np.ndarray, int]:
     """Return ``(mean, std, n_dropout_layers)`` over ``n`` stochastic-dropout forward passes.
 
     ``module`` is a ``torch.nn.Module``; ``X`` a tensor it accepts. The module's original train/eval mode is

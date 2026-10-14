@@ -9,6 +9,8 @@ single profile on a 1-GPU host, so the multi-GPU path runs unchanged with one de
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import os
 from dataclasses import dataclass
@@ -60,7 +62,7 @@ def crit_dtype_relaxed() -> bool:
     return os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
-def crit_float_dtype():
+def crit_float_dtype() -> Any:
     """``cupy.float32`` when the precision-critical relaxation is on (default), else ``cupy.float64``. The single
     dtype source the relaxed f64 hotspots pick their upload/compute dtype from (see :func:`crit_dtype_relaxed`)."""
     import cupy as cp

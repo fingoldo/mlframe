@@ -7,6 +7,8 @@ final selection. The default (``multioutput_strategy=None``) keeps the historica
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 
 import numpy as np
@@ -28,7 +30,7 @@ def _y_columns(y):
             yield f"y{k}", arr[:, k]
 
 
-def fit_multioutput(self, X, y, groups, sample_weight, fit_params, strategy: str):
+def fit_multioutput(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray | None, sample_weight: np.ndarray | pd.Series | None, fit_params: dict[str, Any] | None, strategy: str) -> Any:
     """Fit one single-target RFECV per output column of ``y`` and aggregate support_ via ``strategy`` ('union'/'intersect').
 
     Sets the standard fitted attributes (support_ as a bool mask over feature_names_in_, n_features_, n_features_in_,

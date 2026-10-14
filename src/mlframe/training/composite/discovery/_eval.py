@@ -262,7 +262,7 @@ def eval_one_transform(
     self,
     base: str,
     transform_name: str,
-    transform,
+    transform: Any,
     *,
     base_contexts: dict,
     y_train: np.ndarray,

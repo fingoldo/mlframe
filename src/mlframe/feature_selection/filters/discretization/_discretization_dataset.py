@@ -12,7 +12,7 @@ import hashlib
 import logging
 import os
 import threading
-from typing import Any, Callable, Optional, Sequence, Set
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, Set
 
 import numpy as np
 
@@ -21,6 +21,9 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 from mlframe.utils.env_flags import env_int
+
+if TYPE_CHECKING:
+    import polars as pl
 
 logger = logging.getLogger(__name__)
 
@@ -229,18 +232,18 @@ def _is_polars_categorical_dtype(dt) -> bool:
 
 
 def categorize_dataset(
-    df,
+    df: pd.DataFrame | pl.DataFrame | pl.LazyFrame,
     method: str = "quantile",
     n_bins: int = 4,
     min_ncats: int = 50,
-    dtype=np.int16,
+    dtype: type = np.int16,
     missing_strategy: str = "fillna_zero",
     nbins_strategy: Optional[str] = None,
     nbins_strategy_kwargs: Optional[dict] = None,
-    y_for_strategy=None,
+    y_for_strategy: np.ndarray | pd.Series | None = None,
     cache_dir: Optional[str] = None,
     max_categorical_cardinality: Optional[int] = None,
-):
+) -> tuple[np.ndarray, list[str], np.ndarray]:
     """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame - materialised at the
     boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
     from . import (
@@ -251,7 +254,7 @@ def categorize_dataset(
 
     df = _maybe_collect_lazy(df)
 
-    data = None
+    data: np.ndarray | None = None
     numerical_cols = []
 
     try:

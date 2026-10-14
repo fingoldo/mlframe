@@ -26,8 +26,10 @@ pairs are exactly the ones worth giving an explicit engineered interaction featu
 from __future__ import annotations
 
 import logging
+from typing import Any, Sequence
 
 import numpy as np
+import pandas as pd
 
 from mlframe.reporting.charts.pdp_ice import DEFAULT_PDP_GRID, DEFAULT_PDP_SAMPLE, compute_pdp, compute_pdp_2d
 from mlframe.reporting.charts.shared import as_2d as _as_2d, resolve_feature_index as _resolve_feature_index, subsample_idx as _subsample_idx
@@ -62,9 +64,9 @@ def _centered_interp_2d(grid0, grid1, surface, xi, xj):
 
 
 def friedman_h_statistic(
-    model,
-    X,
-    features,
+    model: Any,
+    X: pd.DataFrame | np.ndarray,
+    features: Sequence[str | int],
     *,
     grid: int = DEFAULT_PDP_GRID,
     sample: int = DEFAULT_PDP_SAMPLE,
@@ -125,9 +127,9 @@ def _h_from_1d_pdps(model, X, i0, i1, p0, p1, xi, xj, *, grid, sample, seed) -> 
 
 
 def pairwise_interaction_strength(
-    model,
-    X,
-    features,
+    model: Any,
+    X: pd.DataFrame | np.ndarray,
+    features: Sequence[str | int],
     *,
     grid: int = DEFAULT_PDP_GRID,
     sample: int = DEFAULT_PDP_SAMPLE,

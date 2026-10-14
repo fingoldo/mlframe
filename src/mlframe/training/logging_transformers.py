@@ -34,7 +34,7 @@ def log_resources(
     stage: str | None = None,
     level: int = logging.INFO,
     extra_factory: Callable[..., dict] | None = None,
-):
+) -> Callable[[Any], Any]:
     """Decorator logging wall-time and ΔRSS around the wrapped callable.
 
     Parameters
@@ -99,7 +99,7 @@ def log_resources(
     return decorator
 
 
-def log_methods(*method_names: str, stage_prefix: str = ""):
+def log_methods(*method_names: str, stage_prefix: str = "") -> Callable[[Any], Any]:
     """Class decorator applying :func:`log_resources` to named methods in place.
 
     Missing methods are silently skipped so the decorator is safe to use against

@@ -9,7 +9,7 @@ Three pure blocks lifted verbatim so the main ``fit`` body in ``_rfecv_fit.py`` 
 from __future__ import annotations
 
 import logging
-from typing import Any, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 import pandas as pd
 
@@ -60,8 +60,8 @@ def filter_cat_features_by_dtype(
 
 
 def resolve_effective_n_jobs(
-    n_jobs_requested,
-    estimator,
+    n_jobs_requested: int | None,
+    estimator: object,
     force_parallel: bool,
     verbose: int,
 ) -> Tuple[int, bool]:
@@ -92,7 +92,7 @@ def resolve_effective_n_jobs(
     return n_jobs_effective, _is_multithreaded
 
 
-def resolve_default_scoring(scoring, estimator):
+def resolve_default_scoring(scoring: str | Callable[..., Any] | None, estimator: object) -> Any:
     """Pick a default scorer when the caller passed ``scoring=None``.
 
     Classifier -> probabilistic_multiclass_error via make_scorer(response_method='predict_proba'). Regressor -> mean_squared_error (greater_is_better=False). Raises ValueError if estimator is neither.

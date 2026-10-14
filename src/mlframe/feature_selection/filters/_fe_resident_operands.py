@@ -36,7 +36,7 @@ import logging
 import os as _os
 import threading
 from collections import OrderedDict
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as _np
 
@@ -239,7 +239,7 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
         return g
 
 
-def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
+def assemble_resident_matrix(host: _np.ndarray, names: Sequence[str] | None, fallback_key: Any, *, dtype: type | None = None) -> Any:
     """Return a resident ``(n, k)`` device matrix DEVICE-ASSEMBLED from its per-column resident operands.
 
     Several FE scorers upload a fit-constant raw baseline matrix WHOLE via a single ``resident_operand`` keyed
@@ -275,7 +275,7 @@ def assemble_resident_matrix(host, names, fallback_key, *, dtype=None):
     return g[:, None] if g.ndim == 1 else g
 
 
-def resident_code_operand(codes, role):
+def resident_code_operand(codes: _np.ndarray, role: str) -> Any:
     """Upload candidate BIN CODES once as int16 (with an int64 escape for genuinely high-cardinality inputs) and
     return them cast to int64 on the device for the joint-histogram kernels.
 

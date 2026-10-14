@@ -29,7 +29,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Optional, Union, cast
+from typing import Any, Optional, Sequence, Union, cast
 
 import numpy as np
 from mlframe.utils.log_throttle import log_throttle
@@ -382,7 +382,7 @@ def _assert_additivity_and_base(phi: np.ndarray, base: float, fold_tag: str = ""
 _JITTER_DEPTHS = (3, 4, 5, 6)  # cycled across models when config_jitter is on
 
 
-def compute_phi_rank_stability(per_fold_phi_mean, top_k: int = 80) -> float:
+def compute_phi_rank_stability(per_fold_phi_mean: np.ndarray, top_k: int = 80) -> float:
     """Median pairwise Spearman correlation of per-fold mean |phi| feature rankings.
 
     ``per_fold_phi_mean`` is shape (n_folds, n_features): each row is the mean |phi| over that fold's
@@ -510,7 +510,7 @@ def _fit_one(model_template, X, y, classification: bool, seed: Optional[int], ji
 _VALID_BOOSTER_KINDS = ("xgboost", "catboost")
 
 
-def make_default_estimator(classification: bool, random_state: int = 0, n_estimators: int = 300, *, booster_kind: Optional[str] = None, cat_features=None):
+def make_default_estimator(classification: bool, random_state: int = 0, n_estimators: int = 300, *, booster_kind: Optional[str] = None, cat_features: Optional[Sequence] = None) -> Any:
     """Fast tree booster whose SHAP path is exact and well-behaved.
 
     ``booster_kind`` selects the GBT family: ``"xgboost"`` (default, fast hist tree with shap-library
@@ -626,7 +626,7 @@ def _prepare_oof_inputs(X: pd.DataFrame, y, rng: Optional[np.random.Generator]):
 
 
 def compute_shap_matrix(
-    model_template,
+    model_template: Any,
     X: pd.DataFrame,
     y: np.ndarray,
     *,
@@ -645,7 +645,7 @@ def compute_shap_matrix(
     return_per_fold_phi_mean: bool = False,
     cache_dir: Optional[Union[str, Path]] = None,
     cv_policy: Any = None,
-):
+) -> Any:
     """Compute the per-row SHAP value matrix + per-row base value.
 
     ``cv_policy`` (the suite's shared ``CVPolicy``) makes the out-of-fold partition contiguous time blocks (temporal) or whole groups

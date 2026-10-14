@@ -4,6 +4,8 @@ Both run before model training so operators catch selection-bias / temporal-prio
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 
 from ..baselines import BaselineDiagnostics, format_baseline_diagnostics_report
@@ -15,15 +17,15 @@ logger = logging.getLogger(__name__)
 
 def run_per_target_diagnostics(
     *,
-    target_type,
+    target_type: Any,
     cur_target_name: str,
-    current_train_target,
-    current_val_target,
-    current_test_target,
-    filtered_train_df,
-    filtered_val_df=None,
-    filtered_test_df=None,
-    baseline_diagnostics_config,
+    current_train_target: Any,
+    current_val_target: Any,
+    current_test_target: Any,
+    filtered_train_df: Any,
+    filtered_val_df: Any = None,
+    filtered_test_df: Any = None,
+    baseline_diagnostics_config: Any,
     cat_features: list[str] | None,
     metadata: dict,
 ) -> dict:

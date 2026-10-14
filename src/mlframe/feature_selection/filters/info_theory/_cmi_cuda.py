@@ -887,10 +887,10 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
 def conditional_mi_batched_dispatch(
     factors_data: np.ndarray,
     cand_indices: np.ndarray,
-    y_index,
-    z_index,
+    y_index: int,
+    z_index: int,
     factors_nbins: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
     force: Optional[str] = None,
 ) -> np.ndarray:
     """Public entry: ``I(X_j; Y | Z)`` for every candidate column in ``cand_indices`` -> (p,) float64.

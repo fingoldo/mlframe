@@ -56,7 +56,7 @@ def _profile(label, fn, top=12):
     print("\n".join(s.getvalue().splitlines()[: top + 6]))
 
 
-def main(argv):
+def main(argv: list[str]) -> None:
     """CLI entrypoint: build the synthetic dataset (size from ``argv[1]``, default 20k) and profile the four composite-pipeline stages -- discovery, plain regression fit+predict, conformal calibration, and base-margin classification."""
     import numpy as np
     from sklearn.linear_model import LinearRegression

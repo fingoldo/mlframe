@@ -32,6 +32,8 @@ so noise pairs are never admitted.
 """
 from __future__ import annotations
 
+from typing import Iterable, Sequence
+
 import numpy as np
 from numba import njit
 
@@ -209,11 +211,11 @@ def _marginal_mm_mi(code_x: np.ndarray, target_codes: np.ndarray) -> float:
 
 
 def detect_synergy_combos(
-    code_cols, target_codes: np.ndarray, candidate_idx, *,
+    code_cols: Sequence[np.ndarray], target_codes: np.ndarray, candidate_idx: Iterable[int], *,
     max_order: int = 3, min_order: int = 2, synergy_ratio: float = 1.5,
     min_joint_mi: float = 0.05, max_candidates: int = 24, max_combos: int = 4000,
     min_rows_per_cell: float = 5.0,
-):
+) -> list:
     """Find feature COMBOS whose JOINT MI with the target greatly exceeds the SUM of their members'
     marginal MIs - i.e. genuine SYNERGY the marginal/greedy screen misses (pure XOR: marginals ~0,
     joint high). Returns ``[(combo_tuple, joint_mi), ...]`` sorted by joint MI desc, for combos with

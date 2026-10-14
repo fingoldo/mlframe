@@ -143,7 +143,7 @@ def subsample_preserving_extremes(
     return np.union1d(forced_idx, random_idx.astype(np.int64))
 
 
-def prebin_histogram(values: np.ndarray, bins: int, density: bool):
+def prebin_histogram(values: np.ndarray, bins: int, density: bool) -> tuple[np.ndarray | None, np.ndarray | None, float | None]:
     """Bin raw values once with numpy so renderers can draw bars instead of shipping/re-binning raw n.
 
     Returns ``(heights, centers, width)`` or ``(None, None, None)`` when the input can't be binned

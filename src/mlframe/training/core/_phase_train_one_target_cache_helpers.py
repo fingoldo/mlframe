@@ -15,16 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 def compute_model_pipeline_cache_key(
-    strategy,
+    strategy: Any,
     pre_pipeline_name: str,
-    cat_features,
-    text_features,
-    embedding_features,
-    train_df_polars,
-    cur_target_name,
-    current_train_target,
+    cat_features: Any,
+    text_features: Any,
+    embedding_features: Any,
+    train_df_polars: Any,
+    cur_target_name: str,
+    current_train_target: Any,
     _compute_pipeline_cache_key: Callable[..., str],
-    train_df_pd=None,
+    train_df_pd: Any = None,
     pre_pipeline_digest: str = "",
 ) -> str:
     """Build the per-(strategy, pre_pipeline, tier, kind, features) pipeline cache key.
@@ -114,17 +114,17 @@ def pre_pipeline_params_digest(pre_pipeline: Any) -> str:
 
 
 def compute_cached_model_input_fingerprint(
-    ctx,
+    ctx: Any,
     polars_fastpath_active: bool,
-    prepared_train,
+    prepared_train: Any,
     tier_pandas: dict[str, Any],
-    strategy,
+    strategy: Any,
     pre_pipeline_name: str,
-    cat_features,
-    text_features,
-    embedding_features,
-    compute_model_input_fingerprint,
-):
+    cat_features: Any,
+    text_features: Any,
+    embedding_features: Any,
+    compute_model_input_fingerprint: Callable[..., Any],
+) -> tuple[str, Any]:
     """Return ``(schema_hash, input_schema)`` for the current (strategy, tier, kind, pp_name) combo.
 
     Cached on ``ctx._model_input_fingerprint_cache`` per (model, pre_pipeline) so

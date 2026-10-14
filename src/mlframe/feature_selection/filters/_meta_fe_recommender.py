@@ -271,7 +271,7 @@ def _skew_kurt(x):
 # A. Rule-based cold-start recommender
 # ---------------------------------------------------------------------------
 
-def recommend_fe_flags_by_rules(X, y=None) -> dict:
+def recommend_fe_flags_by_rules(X: Any, y: Any = None) -> dict:
     """Cold-start FE-flag recommendation from data shape alone (no history).
 
     Returns a dict over :data:`ALL_FE_MASTER_FLAGS`; every key is present, value

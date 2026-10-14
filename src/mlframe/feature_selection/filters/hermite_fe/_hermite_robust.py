@@ -139,13 +139,14 @@ _DETECT_HEAVY_TAIL_NJIT_MAX_N = env_int("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", 
 import threading as _threading
 import contextlib as _contextlib
 import logging
+from typing import Iterator
 
 logger = logging.getLogger(__name__)
 _HEAVY_TAIL_MEMO = _threading.local()
 
 
 @_contextlib.contextmanager
-def heavy_tail_memo_scope():
+def heavy_tail_memo_scope() -> Iterator[None]:
     """Enable the fit-scoped ``_detect_heavy_tail`` memo for one orth-FE column sweep, then clear it. Nesting-safe:
     an inner scope reuses the outer cache and the outer owner clears it."""
     if getattr(_HEAVY_TAIL_MEMO, "cache", None) is not None:

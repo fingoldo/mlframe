@@ -265,7 +265,7 @@ def _split_polars_categoricals(X) -> tuple[Any, list[str], dict[str, int]]:
 
 
 def analyze_feature_distribution(
-    X,
+    X: Any,
     y: Optional[np.ndarray] = None,
     *,
     feature_names: Optional[list[str]] = None,

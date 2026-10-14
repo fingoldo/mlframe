@@ -149,7 +149,7 @@ def _compute_outlier_gate(
 
 def ensemble_probabilistic_predictions(
     *preds,
-    ensemble_method="harm",
+    ensemble_method: str = "harm",
     ensure_prob_limits: bool = True,
     max_mae: float = 0.0,
     max_std: float = 0.0,

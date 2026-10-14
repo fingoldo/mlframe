@@ -396,6 +396,7 @@ def screen_predictors(
     # ---------------------------------------------------------------------------------------------------------------
     factors_names, max_confirmation_cand_nbins, parallel_kwargs, st, targets_data = _screen_predictors_step1_block(parallel_kwargs, max_confirmation_cand_nbins, mrmr_relevance_algo, mrmr_redundancy_algo, y, factors_data, targets_data, targets_nbins, factors_nbins, factors_names)
     _screen_predictors_step2_initialize_factor_indices(factors_to_use, st, factors_names_to_use, factors_names, factors_data, targets_data, verbose, y)
+    assert y is not None  # _screen_predictors_step1_block rejects y=None before this point
     if random_seed is not None:
         # Capture a fresh entropy-derived seed to restore numba/cupy with on
         # finally; mathematically equivalent (from the consumer's view) to
@@ -502,7 +503,7 @@ def screen_predictors(
         # is 0.0 (no-op) so the clean low-cardinality tabular suite is untouched. See ``_permutation_null.py``.
         _fdr_gain_floor = compute_fdr_gain_floor(
             factors_data,
-            factors_nbins,
+            np.asarray(factors_nbins),
             st.x,
             y,
             screen_fdr_null_permutations=screen_fdr_null_permutations,
@@ -558,7 +559,7 @@ def screen_predictors(
             factors_data=factors_data,
             factors_nbins=factors_nbins,
             factors_names=factors_names,
-            y=y,  # type: ignore[arg-type]  # the early None guard moved into a stage helper; y is a real sequence here
+            y=y,
             data_copy=data_copy,
             classes_y=classes_y,
             classes_y_safe=classes_y_safe,

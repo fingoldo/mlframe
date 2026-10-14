@@ -34,7 +34,7 @@ def knn_graph_edges(
     metric: str = "minkowski",
     timestamp: np.ndarray | None = None,
     return_weights: bool = False,
-):
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
     """k-nearest-neighbour similarity graph on a float feature matrix: edge (i, j) for each of row i's k neighbours.
 
     Parameters
@@ -78,7 +78,7 @@ def shared_attribute_edges(
     timestamp: np.ndarray | None = None,
     max_neighbours: int | None = 100,
     max_group_size: int | None = None,
-):
+) -> np.ndarray:
     """Affiliation graph from a categorical / group column: link rows that share the same code.
 
     A group of ``m`` rows is a clique with ``m*(m-1)/2`` edges, so large categories are bounded:

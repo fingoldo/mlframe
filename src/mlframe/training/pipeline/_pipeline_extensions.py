@@ -19,7 +19,7 @@ from timeit import default_timer as timer
 
 import pandas as pd
 import polars as pl
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from ..configs import PreprocessingExtensionsConfig
 from mlframe.utils.log_throttle import log_throttle
@@ -28,7 +28,7 @@ from types import SimpleNamespace as _SimpleNamespace
 logger = logging.getLogger("mlframe.training.pipeline")
 
 
-def sparse_df_from_spmatrix(spmat, columns, index):
+def sparse_df_from_spmatrix(spmat: Any, columns: Any, index: Any) -> pd.DataFrame:
     """``pd.DataFrame.sparse.from_spmatrix`` with a guaranteed ``0`` fill value.
 
     pandas 3.0 changed ``DataFrame.sparse.from_spmatrix`` to default the
@@ -313,15 +313,15 @@ def _with_passthrough(outs: tuple, pre: tuple, cols: list) -> tuple:
 
 
 def apply_preprocessing_extensions(
-    train_df,
-    val_df,
-    test_df,
+    train_df: Any,
+    val_df: Any,
+    test_df: Any,
     config: Optional[PreprocessingExtensionsConfig],
     verbose: int = 1,
-    y_train=None,
+    y_train: Any = None,
     out_pysr_equations: Optional[Dict[str, str]] = None,
     out_row_wise_replay: Optional[dict] = None,
-):
+) -> tuple[Any, Any, Any, Any]:
     """Apply shared sklearn-based extensions to train/val/test after the Polars-ds pipeline.
 
     Returns (train, val, test, fitted_pipeline_or_None). Fastpath: when ``config``

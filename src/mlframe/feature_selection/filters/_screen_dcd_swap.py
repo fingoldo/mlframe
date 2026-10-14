@@ -15,28 +15,35 @@ Behaviour is byte-for-byte identical to the pre-carve inline block.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Sequence, cast
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from ._confirm_predictor import ScreenContext
+    from ._dynamic_cluster_discovery import DCDState
 
 logger = logging.getLogger(__name__)
 
 
 def screen_dcd_discover_and_swap(
     *,
-    dcd_state,
-    var,
-    factors_data,
-    factors_nbins,
-    factors_names,
-    data_copy,
-    selected_vars,
-    entropy_cache,
-    cached_MIs,
-    full_npermutations,
-    y,
-    engineered_recipes,
-    predictors,
-    ctx,
-    verbose,
-):
+    dcd_state: DCDState,
+    var: int,
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    factors_names: Sequence[str],
+    data_copy: np.ndarray,
+    selected_vars: list[int],
+    entropy_cache: dict,
+    cached_MIs: dict,
+    full_npermutations: int | None,
+    y: np.ndarray,
+    engineered_recipes: dict,
+    predictors: list,
+    ctx: ScreenContext,
+    verbose: bool,
+) -> tuple[np.ndarray, np.ndarray, Sequence[str], np.ndarray]:
     """DCD discover + anchor->PC1 swap step (verbatim carve of the select-loop block).
 
     Returns the (possibly swap-extended) loop-local matrix refs:
@@ -56,6 +63,7 @@ def screen_dcd_discover_and_swap(
         # anchor->member REPLACE) live outside this module, and a replace-in-place leaves ``len()`` unchanged
         # so a length-keyed incremental cache would silently miss it.
         _selected_vars_set = set(selected_vars)
+        assert dcd_state.pool_pruned_mask is not None
         _pool = [i for i in range(factors_data.shape[1]) if i != var and not dcd_state.pool_pruned_mask[i] and i not in _selected_vars_set]
         _dcd_discover(
             dcd_state, var, _pool,
@@ -115,7 +123,8 @@ def screen_dcd_discover_and_swap(
                 # post-swap index -> silent OOB under
                 # numba boundscheck=False, IndexError otherwise.
                 ctx.factors_data = factors_data
-                ctx.factors_nbins = factors_nbins
+                # ScreenContext declares Sequence[int]; the runtime value is the ndarray.
+                ctx.factors_nbins = cast(Sequence[int], factors_nbins)
                 ctx.factors_names = factors_names
                 ctx.data_copy = data_copy
                 if verbose:

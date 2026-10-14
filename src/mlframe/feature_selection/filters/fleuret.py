@@ -63,7 +63,7 @@ def get_fleuret_criteria_confidence_parallel(
     parallel_kwargs: Optional[dict] = None,
     entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
-    dtype=np.int32,
+    dtype: type = np.int32,
     base_seed: int = 0,
 ) -> tuple:
     """Joblib-parallel Fleuret permutation-confirmation: splits ``npermutations`` across workers (with independent-yet-reproducible per-worker seeds), forwarding the SU/Miller-Madow/JMIM scoring toggles into each worker thread."""
@@ -174,13 +174,13 @@ def parallel_fleuret(
     cached_cond_MIs: Optional[dict] = None,
     entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
-    dtype=np.int32,
+    dtype: type = np.int32,
     base_seed: int = 0,
     use_su: bool = False,  # Threaded from get_fleuret_criteria_confidence_parallel.
     use_mm: bool = False,  # N-F2: threaded from get_fleuret_criteria_confidence_parallel (MM redundancy consistency).
     use_jmim: bool = False,  # S-F2: threaded from get_fleuret_criteria_confidence_parallel (JMIM confirmation statistic).
     jmim_discount_only: bool = False,  # threaded like use_jmim
-):
+) -> tuple:
     """Joblib worker: rebuild numba.typed.Dict from pickled Python dicts, run the njit core, return a Python dict for the parent's union."""
     data_copy = data.copy()
 

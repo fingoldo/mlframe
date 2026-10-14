@@ -8,6 +8,7 @@ un-fitted sklearn-compatible estimator classes or instances.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ def apply_third_party_patches_once() -> None:
 # ---------------------------------------------------------------------------
 
 
-def make_pool(*args, **kwargs):
+def make_pool(*args: Any, **kwargs: Any) -> Any:
     """Construct a ``catboost.Pool`` with mlframe build-event logging.
 
     Identical signature to ``catboost.Pool(...)`` -- a thin factory
@@ -131,21 +132,21 @@ def make_pool(*args, **kwargs):
     return _cb.Pool(*args, **kwargs)
 
 
-def make_dmatrix(*args, **kwargs):
+def make_dmatrix(*args: Any, **kwargs: Any) -> Any:
     """Construct an ``xgboost.DMatrix`` with mlframe build-event logging."""
     apply_third_party_patches_once()
     import xgboost as _xgb
     return _xgb.DMatrix(*args, **kwargs)
 
 
-def make_quantile_dmatrix(*args, **kwargs):
+def make_quantile_dmatrix(*args: Any, **kwargs: Any) -> Any:
     """Construct an ``xgboost.QuantileDMatrix`` with mlframe build-event logging."""
     apply_third_party_patches_once()
     import xgboost as _xgb
     return _xgb.QuantileDMatrix(*args, **kwargs)
 
 
-def make_lgb_dataset(*args, **kwargs):
+def make_lgb_dataset(*args: Any, **kwargs: Any) -> Any:
     """Construct a ``lightgbm.Dataset`` with mlframe build-event logging."""
     apply_third_party_patches_once()
     import lightgbm as _lgb

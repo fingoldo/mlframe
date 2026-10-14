@@ -264,7 +264,7 @@ def _get_numba_rmse_kernel():
     return _NUMBA_RMSE_KERNEL
 
 
-def gpu_multiple_rmse_scores(actual, predicted):
+def gpu_multiple_rmse_scores(actual: Any, predicted: Any) -> Any:
     """Vectorized RMSE across columns on GPU.
 
     Computes ``sqrt(mean((actual - predicted)**2, axis=0))`` for an ``(N,)``

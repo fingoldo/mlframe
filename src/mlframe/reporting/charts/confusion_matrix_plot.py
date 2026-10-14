@@ -22,7 +22,7 @@ _CELL_TEXT_MAX = 400
 
 
 def confusion_matrix_counts(
-    y_true, y_pred, *, labels: Optional[Sequence] = None,
+    y_true: Any, y_pred: Any, *, labels: Optional[Sequence] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """``(matrix, labels)`` where ``matrix[i, j]`` = count of true==labels[i] predicted as labels[j].
 
@@ -84,13 +84,13 @@ def _normalize_matrix(matrix: np.ndarray, normalize: Optional[str]) -> np.ndarra
 
 
 def plot_confusion_matrix(
-    y_true,
-    y_pred,
+    y_true: Any,
+    y_pred: Any,
     *,
     labels: Optional[Sequence] = None,
     display_labels: Optional[Sequence] = None,
     normalize: Optional[str] = None,
-    ax=None,
+    ax: Any = None,
     cmap: str = HEATMAP_CMAP,
     colorbar: bool = True,
     values_format: Optional[str] = None,
@@ -99,7 +99,7 @@ def plot_confusion_matrix(
     title: Optional[str] = None,
     xlabel: str = "Predicted label",
     ylabel: str = "True label",
-):
+) -> tuple[Any, Any]:
     """Plot an annotated confusion-matrix heatmap -- own-implementation replacement for
     ``sklearn.metrics.ConfusionMatrixDisplay.from_predictions``.
 

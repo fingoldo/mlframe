@@ -12,7 +12,7 @@ from timeit import default_timer as timer
 from functools import partial
 from os.path import exists
 from types import SimpleNamespace
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._reporting_configs import ConfidenceAnalysisConfig, NamingConfig, PredictionsContainer, ReportingConfig
     from ._training_runtime_configs import DataConfig, MetricsConfig, OutputConfig, TrainingControlConfig
@@ -159,7 +159,7 @@ def train_and_evaluate_model(
     oof_has_time: Optional[bool] = None,
     oof_random_seed: int = 42,
     cur_target_name: str | None = None,
-):
+) -> tuple[SimpleNamespace, Any, Any, Any]:
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
 
     ``oof_has_time`` selects the OOF splitter: when True the K-fold OOF pass forward-chains over the train rows' ``timestamps`` (temporal honesty,

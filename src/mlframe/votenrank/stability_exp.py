@@ -6,6 +6,8 @@ clean-table ranking - quantifies how robust a ranking method is to incomplete be
 """
 from __future__ import annotations
 
+from typing import Any, Sequence
+
 from scipy.stats import spearmanr
 import numpy as np
 import pandas as pd
@@ -20,7 +22,7 @@ from . import Leaderboard
 from mlframe._output_paths import ensure_parent_dir
 
 
-def spearman_exp(lb, num_repeats, exp_range, top_k=7):
+def spearman_exp(lb: Leaderboard, num_repeats: int, exp_range: Sequence[float], top_k: int = 7) -> dict[str, Any]:
     """Measure per-method Spearman correlation between clean and NaN-corrupted rankings across ``exp_range`` missingness fractions, averaged over ``num_repeats`` random corruption draws."""
     res_corrs = []
 
@@ -100,7 +102,7 @@ def spearman_exp(lb, num_repeats, exp_range, top_k=7):
     return final_corrs
 
 
-def count_and_plot(lb, num_repeats, exp_range, top_k=7):
+def count_and_plot(lb: Leaderboard, num_repeats: int, exp_range: Sequence[float], top_k: int = 7) -> None:
     """Run :func:`spearman_exp` and plot each ranking method's correlation-vs-missingness curve onto the current axes."""
     sns = import_optional("seaborn", "viz", "stability plots")
     sns.set(style="whitegrid")
@@ -109,7 +111,7 @@ def count_and_plot(lb, num_repeats, exp_range, top_k=7):
         sns.lineplot(x=exp_range, y=nums, label=col)
 
 
-def get_res_df(exp_range, exp_res):
+def get_res_df(exp_range: Sequence[float], exp_res: dict[str, Any]) -> pd.DataFrame:
     """Reshape a ``{method: correlations}`` mapping and its shared ``exp_range`` x-axis into a long-form DataFrame (``criterion``/``correlation``/``method``) for seaborn plotting."""
     dfs = []
     for name, nums in exp_res.items():
@@ -122,7 +124,7 @@ def get_res_df(exp_range, exp_res):
     return pd.concat(dfs, ignore_index=True)
 
 
-def create_exp_pic(exp_range, exp_res, filename=None):
+def create_exp_pic(exp_range: list[float], exp_res: dict[str, Any], filename: str | None = None) -> None:
     """Render the stability curves as a formatted figure (custom legend labels for the mean/optimality-gap methods) and optionally save it to ``filename`` as PDF."""
     sns = import_optional("seaborn", "viz", "stability plots")
     sns.set(style="whitegrid")

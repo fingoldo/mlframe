@@ -14,6 +14,8 @@ dense decomposition).
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 
 import numpy as np
@@ -68,7 +70,7 @@ def _laplacian_smallest_eigenvectors(n_nodes: int, edges, k: int = 3):
     return vals[:kk], vecs[:, :kk]
 
 
-def spectral_layout(n_nodes: int, edges, *, seed: int = 0) -> np.ndarray:
+def spectral_layout(n_nodes: int, edges: Any, *, seed: int = 0) -> np.ndarray:
     """2-D spectral coordinates ``(n_nodes, 2)`` from the 2nd and 3rd smallest Laplacian eigenvectors.
 
     Handles disconnected / tiny graphs gracefully: missing higher eigenvectors leave a zero coordinate, and a fully
@@ -113,7 +115,7 @@ def _resolve_node_colors(node_color, n_nodes: int) -> tuple:
     return tuple(line_color(int(c)) for c in labels)
 
 
-def spectral_embedding_panel(n_nodes: int, edges, *, node_color=None, node_size=None, seed: int = 0) -> NetworkPanelSpec:
+def spectral_embedding_panel(n_nodes: int, edges: Any, *, node_color: Any = None, node_size: Any = None, seed: int = 0) -> NetworkPanelSpec:
     """``NetworkPanelSpec`` placing nodes at :func:`spectral_layout` coordinates with edges as int src/dst arrays."""
     coords = spectral_layout(n_nodes, edges, seed=seed)
     e = np.asarray(edges, dtype=np.int64).reshape(-1, 2)
@@ -146,7 +148,7 @@ def spectral_embedding_panel(n_nodes: int, edges, *, node_color=None, node_size=
 
 
 def compose_spectral_embedding_figure(
-    n_nodes: int, edges, *, node_color=None, node_size=None, seed: int = 0,
+    n_nodes: int, edges: Any, *, node_color: Any = None, node_size: Any = None, seed: int = 0,
     suptitle: str = "Spectral graph embedding",
 ) -> FigureSpec:
     """One-panel ``FigureSpec`` wrapping :func:`spectral_embedding_panel`."""

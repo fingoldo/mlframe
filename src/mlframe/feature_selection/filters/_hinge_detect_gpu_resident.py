@@ -26,7 +26,7 @@ import logging
 
 from mlframe.utils.log_throttle import log_throttle
 import os
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -175,7 +175,7 @@ def detect_hinge_breakpoints_gpu(
     *,
     max_breakpoints: int,
     min_heldout_r2_uplift: float,
-    precheck_qs,
+    precheck_qs: Sequence[float],
     precheck_min_sse_drop: float,
     cand_q_lo: float,
     cand_q_hi: float,

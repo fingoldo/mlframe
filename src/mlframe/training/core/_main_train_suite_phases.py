@@ -16,7 +16,7 @@ import polars as pl
 logger = logging.getLogger(__name__)
 
 
-def apply_module_global_patches(module) -> None:
+def apply_module_global_patches(module: Any) -> None:
     """Apply the third-party patches the suite relies on (LGBMModel.feature_names_in_ setter; dataset-build logging) lazily at suite entry.
 
     Previously these ran as import-time side effects of ``mlframe.training``; now bare imports leave joblib / lightgbm / catboost / xgboost untouched. The two functions are looked up on ``module`` (the parent of this helper, ``_main_train_suite``) so test code can monkeypatch them in-place to observe call ordering.

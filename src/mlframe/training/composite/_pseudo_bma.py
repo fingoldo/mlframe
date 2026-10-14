@@ -38,6 +38,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from numpy.typing import ArrayLike
+
 import numpy as np
 
 try:
@@ -141,10 +143,10 @@ def _pointwise_lpd(
 
 
 def pseudo_bma_weights(
-    oof_preds,
-    y,
+    oof_preds: np.ndarray,
+    y: np.ndarray,
     *,
-    sample_weight=None,
+    sample_weight: Optional[ArrayLike] = None,
     bb_draws: int = 0,
     quantile: Optional[float] = None,
     random_state: Optional[int] = None,
@@ -215,7 +217,7 @@ def pseudo_bma_weights(
     return np.asarray(_row_softmax(elpd).mean(axis=0))
 
 
-def blend(preds, weights) -> np.ndarray:
+def blend(preds: ArrayLike, weights: ArrayLike) -> np.ndarray:
     """Convex combination of per-component predictions: ``sum_k weights[k] * preds[:, k]``.
 
     Mirrors the ``oof_weighted`` strategy's blend in ``CompositeCrossTargetEnsemble.predict`` so a caller holding the OOF /

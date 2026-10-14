@@ -38,12 +38,13 @@ Design choices mirror the rest of the composite package:
 """
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Any, Sequence, Tuple
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 
-def calibrate_conformal(self, X_cal, y_cal, alpha=0.1):
+def calibrate_conformal(self, X_cal: ArrayLike, y_cal: ArrayLike, alpha: float | Sequence[float] = 0.1) -> Any:
     """Calibrate split-conformal INDEPENDENTLY per output column.
 
     Each fitted per-column :class:`CompositeTargetEstimator` is calibrated on its
@@ -76,7 +77,7 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1):
     y2d = self._to_2d_targets(y_cal)
     if y2d.shape[1] != self.n_outputs_:
         raise ValueError("calibrate_conformal: y_cal has " f"{y2d.shape[1]} columns but the estimator was fit on " f"{self.n_outputs_}.")
-    alphas = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas = [alpha] if isinstance(alpha, (int, float, np.number)) else list(alpha)
     for k, est in enumerate(self.estimators_):
         if est is None:
             # Failed column: constant fallback, no residual distribution to fit.
@@ -85,11 +86,11 @@ def calibrate_conformal(self, X_cal, y_cal, alpha=0.1):
     if not hasattr(self, "_mo_conformal_alphas_") or self._mo_conformal_alphas_ is None:
         self._mo_conformal_alphas_ = set()
     for a in alphas:
-        self._mo_conformal_alphas_.add(round(float(a), 6))  # type: ignore[arg-type]  # a is a scalar drawn from alphas (float | Sequence[float])
+        self._mo_conformal_alphas_.add(round(float(a), 6))  # a is a scalar drawn from alphas (float | Sequence[float])
     return self
 
 
-def predict_interval(self, X, alpha=0.1) -> Tuple[np.ndarray, np.ndarray]:
+def predict_interval(self, X: ArrayLike, alpha: float = 0.1) -> Tuple[np.ndarray, np.ndarray]:
     """Return per-output ``(lower, upper)`` arrays of shape ``(n, K)``.
 
     Each column's band is its per-column estimator's ``predict_interval`` at

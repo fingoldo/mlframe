@@ -216,7 +216,7 @@ def _device_regression_bins(y_arr: np.ndarray, finite: np.ndarray) -> "tuple[np.
         return None
 
 
-def stratified_subsample_idx(rng, y, size: int, *, is_clf: bool) -> np.ndarray:
+def stratified_subsample_idx(rng: np.random.Generator, y: np.ndarray, size: int, *, is_clf: bool) -> np.ndarray:
     """Return SORTED row indices of a target-stratified subsample of ``y`` of (about) ``size`` rows.
 
     Parameters

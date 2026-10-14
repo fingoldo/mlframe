@@ -278,7 +278,7 @@ def _prep(phi, base, y, classification, metric):
     return phi, base, y, resolve_metric(classification, metric)
 
 
-def beam_search(phi, base, y, *, classification, metric=None, beam_width=8, min_card=1, max_card=None, top_n=30):
+def beam_search(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, beam_width: int = 8, min_card: int = 1, max_card: int | None = None, top_n: int = 30) -> list[tuple[float, tuple[int, ...]]]:
     """Deterministic forward beam search: the default, trusted heuristic.
 
     Seeds the beam with the ``beam_width`` best single features, then for ``min_card`` steps grows
@@ -332,7 +332,7 @@ def beam_search(phi, base, y, *, classification, metric=None, beam_width=8, min_
     return ev.top_n(top_n)
 
 
-def greedy_forward(phi, base, y, *, classification, metric=None, max_card=None, top_n=30):
+def greedy_forward(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, max_card: int | None = None, top_n: int = 30) -> list[tuple[float, tuple[int, ...]]]:
     """Classic forward hill-climb: start empty, repeatedly add the single best-improving feature.
 
     At each step, every remaining feature is scored as an add-one-feature child of the current
@@ -366,7 +366,7 @@ def greedy_forward(phi, base, y, *, classification, metric=None, max_card=None, 
     return ev.top_n(top_n)
 
 
-def greedy_backward(phi, base, y, *, classification, metric=None, min_card=1, top_n=30):
+def greedy_backward(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, min_card: int = 1, top_n: int = 30) -> list[tuple[float, tuple[int, ...]]]:
     """Classic backward hill-climb: start with all features, repeatedly drop the single feature whose removal most improves (or least hurts) loss, stopping when no drop improves or ``min_card`` is reached. Returns the evaluator's ``top_n`` best-loss subsets seen along the path."""
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
@@ -435,7 +435,7 @@ def _local_search(ev, start: tuple[int, ...], f: int, max_card: int) -> tuple[in
     return current
 
 
-def multistart_local(phi, base, y, *, classification, metric=None, n_starts=10, max_card=None, rng=None, top_n=30):
+def multistart_local(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, n_starts: int = 10, max_card: int | None = None, rng: np.random.Generator | None = None, top_n: int = 30) -> list[tuple[float, tuple[int, ...]]]:
     """Run ``_local_search`` (add/drop/swap hill-climb) from ``n_starts`` random subsets to escape single-basin local optima; returns the evaluator's ``top_n`` best-loss subsets found across all starts."""
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
@@ -449,7 +449,7 @@ def multistart_local(phi, base, y, *, classification, metric=None, n_starts=10, 
     return ev.top_n(top_n)
 
 
-def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generations=30, mutation_rate=0.1, elitism=4, rng=None, max_card=None, top_n=30):
+def genetic(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, pop_size: int = 40, n_generations: int = 30, mutation_rate: float = 0.1, elitism: int = 4, rng: np.random.Generator | None = None, max_card: int | None = None, top_n: int = 30) -> list[tuple[float, tuple[int, ...]]]:
     """Genetic-algorithm feature subset search: bit-mask population evolved via tournament selection, uniform crossover and bit-flip mutation, with elitism carrying the best individuals forward each generation; returns the evaluator's ``top_n`` best-loss subsets seen across all generations."""
     phi, base, y, metric = _prep(phi, base, y, classification, metric)
     f = phi.shape[1]
@@ -488,7 +488,7 @@ def genetic(phi, base, y, *, classification, metric=None, pop_size=40, n_generat
     return ev.top_n(top_n)
 
 
-def simulated_annealing(phi, base, y, *, classification, metric=None, n_iter=2000, t0=1.0, cooling=0.995, rng=None, max_card=None, top_n=30):
+def simulated_annealing(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classification: bool, metric: str | None = None, n_iter: int = 2000, t0: float = 1.0, cooling: float = 0.995, rng: np.random.Generator | None = None, max_card: int | None = None, top_n: int = 30) -> list[tuple[float, tuple[int, ...]]]:
     """Metropolis bit-flips with geometric cooling.
 
     Maintains ``(cur_key, cur_margin)``; each bit-flip is either an add (+phi[:, j]) or a

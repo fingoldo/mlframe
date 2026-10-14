@@ -52,7 +52,7 @@ Contract:
 from __future__ import annotations
 
 import logging
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import numpy as np
 
@@ -119,12 +119,12 @@ def _validate_batch_joint_entropy_pairs_inputs(a_arr: np.ndarray, b_arr: np.ndar
 
 
 def pair_su_batch(
-    state,
-    pair_indices: Iterable,
+    state: Any,
+    pair_indices: Iterable[tuple[int, int]],
     factors_data: Optional[np.ndarray] = None,
     factors_nbins: Optional[np.ndarray] = None,
     entropy_cache: Optional[dict] = None,
-    dtype=np.int32,
+    dtype: type = np.int32,
 ) -> np.ndarray:
     """Compute SU(a, b) for every (a, b) in ``pair_indices`` via a
     batched marginal-entropy warmup + per-pair joint dispatch.

@@ -28,7 +28,7 @@ is returned unchanged.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -43,17 +43,17 @@ def _is_hostile(name) -> bool:
     return any(ch in s for ch in _HOSTILE_CHARS)
 
 
-def safe_feature_name(name) -> str:
+def safe_feature_name(name: Any) -> str:
     """Map one feature name to a GBM-compatible form (pure + idempotent)."""
     return (name if isinstance(name, str) else str(name)).translate(_TRANS)
 
 
-def has_hostile_name(columns) -> bool:
+def has_hostile_name(columns: Iterable[Any]) -> bool:
     """True iff any column label contains a GBM-hostile character."""
     return any(_is_hostile(c) for c in columns)
 
 
-def build_safe_mapping(columns) -> dict:
+def build_safe_mapping(columns: Iterable[Any]) -> dict[Any, str]:
     """``{original: safe}`` for hostile columns only, deduping any safe-name
     collision against the full set of kept + remapped names. Empty dict when
     every name is already clean."""
@@ -78,7 +78,7 @@ def build_safe_mapping(columns) -> dict:
     return mapping
 
 
-def sanitize_frame_columns(df):
+def sanitize_frame_columns(df: Any) -> Any:
     """Return ``df`` with GBM-hostile column labels renamed (pandas or polars).
 
     Strict no-op -- returns the *same* object -- when no column is hostile.

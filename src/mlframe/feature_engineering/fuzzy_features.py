@@ -106,7 +106,7 @@ def fuzzy_partition_names(prefix: str, n_sets: int) -> list[str]:
 
 
 def fuzzy_partition_fit(
-    x,
+    x: np.ndarray,
     *,
     n_sets: int = 5,
     strategy: str = "quantile",
@@ -149,7 +149,7 @@ def fuzzy_partition_fit(
     return {"centers": centers, "sigmas": sigmas, "kind": kind, "n_sets": int(centers.size)}
 
 
-def fuzzy_partition_transform(x, recipe: dict) -> np.ndarray:
+def fuzzy_partition_transform(x: np.ndarray, recipe: dict) -> np.ndarray:
     """Apply a fitted fuzzy-partition recipe to a numeric column, returning the ``(n, n_sets)`` membership matrix."""
     xx = np.ascontiguousarray(np.asarray(x, dtype=np.float64).ravel())
     centers = np.ascontiguousarray(recipe["centers"], dtype=np.float64)
@@ -161,13 +161,13 @@ def fuzzy_partition_transform(x, recipe: dict) -> np.ndarray:
 
 
 def fuzzy_partition_encode(
-    x,
+    x: np.ndarray,
     *,
     n_sets: int = 5,
     strategy: str = "quantile",
     kind: str = "triangular",
     gaussian_width: float = 1.0,
-):
+) -> tuple[np.ndarray, dict]:
     """Fit + transform in one call. Returns ``(memberships (n, n_sets), recipe)``."""
     recipe = fuzzy_partition_fit(x, n_sets=n_sets, strategy=strategy, kind=kind, gaussian_width=gaussian_width)
     return fuzzy_partition_transform(x, recipe), recipe

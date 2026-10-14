@@ -11,9 +11,13 @@ from __future__ import annotations
 
 import logging
 import os as _os
+from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 from mlframe.utils.env_flags import env_int
+
+if TYPE_CHECKING:
+    from mlframe.utils import ParamOracle
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +73,7 @@ def _polyeval_size_fingerprint(n: int) -> dict:
     return {"n": int(n), "p": 1, "dtype_kind": "f"}
 
 
-def get_polyeval_oracle():
+def get_polyeval_oracle() -> ParamOracle:
     """Lazily build (once per process) the ParamOracle that governs the CPU
     njit/njit_par backend choice. Seeds cold-start observations from the
     existing ``polyeval`` kernel_tuning_cache regions (read-only bridge) so the
@@ -102,7 +106,7 @@ def get_polyeval_oracle():
     return _polyeval_oracle_singleton
 
 
-def benchmark_polyeval_cpu_backends(basis: str, sizes=(200, 500_000), repeats: int = 3, oracle=None) -> dict:
+def benchmark_polyeval_cpu_backends(basis: str, sizes: Sequence[int] = (200, 500_000), repeats: int = 3, oracle: ParamOracle | None = None) -> dict:
     """Sweep njit vs njit_par at the given array sizes, timing each, and record
     the wall-times into the CPU-backend ParamOracle. Populates the oracle so
     later ``inference`` calls recommend the empirically faster backend per size.

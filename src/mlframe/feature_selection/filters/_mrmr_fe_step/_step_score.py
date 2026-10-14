@@ -17,6 +17,7 @@ as they were in the inline block.
 from __future__ import annotations
 
 import os
+from typing import Any, Callable
 
 import numpy as np
 
@@ -76,28 +77,28 @@ def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, 
 def materialise_and_finalise_fe_candidates(
     self,
     *,
-    prospective_additions,
-    prospective_pairs,
-    _prevalence_failed_synergy,
-    _pair_maxt_floor,
-    _polynom_engineered_indices,
-    data, cols, nbins, X,
-    classes_y,
-    selected_vars,
-    engineered_features,
-    engineered_recipes,
-    checked_pairs,
-    n_recommended_features,
-    num_fs_steps,
-    fe_max_steps,
-    fe_unary_preset,
-    fe_binary_preset,
-    _is_polars_input,
-    verbose,
-    discretize_array,
-    get_new_feature_name,
-    _poly_coefs=None,
-):
+    prospective_additions: dict,
+    prospective_pairs: dict,
+    _prevalence_failed_synergy: Any,
+    _pair_maxt_floor: Any,
+    _polynom_engineered_indices: Any,
+    data: np.ndarray, cols: list[str], nbins: np.ndarray, X: Any,
+    classes_y: np.ndarray,
+    selected_vars: list[int],
+    engineered_features: dict,
+    engineered_recipes: Any,
+    checked_pairs: set,
+    n_recommended_features: int,
+    num_fs_steps: int,
+    fe_max_steps: int,
+    fe_unary_preset: str,
+    fe_binary_preset: str,
+    _is_polars_input: bool,
+    verbose: int,
+    discretize_array: Callable[..., Any],
+    get_new_feature_name: Callable[..., str],
+    _poly_coefs: Any = None,
+) -> tuple:
     """Run the redundancy gates, materialise admitted FE candidates, escalate, and stability-vote.
 
     Returns ``(prospective_additions, data, cols, nbins, X, selected_vars, n_recommended_features)``.

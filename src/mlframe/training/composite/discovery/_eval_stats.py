@@ -26,6 +26,7 @@ import logging
 from typing import Any, Callable
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from ._rejection_ledger import RejectStage, ledger_append
 
@@ -192,7 +193,7 @@ def bootstrap_gain_p_value(boot_gains: np.ndarray) -> float:
     return float((n_le0 + 1.0) / (n + 1.0))
 
 
-def benjamini_hochberg_reject(p_values, alpha: float) -> np.ndarray:
+def benjamini_hochberg_reject(p_values: ArrayLike, alpha: float) -> np.ndarray:
     """Benjamini-Hochberg step-up: which of ``p_values`` are rejected at ``alpha``.
 
     Standard BH (1995): sort the m p-values ascending, find the largest rank k
@@ -338,7 +339,7 @@ def apply_alpha_drift_gate(
     self,
     kept_specs: list,
     *,
-    df,
+    df: Any,
     train_idx: np.ndarray,
     y_full: np.ndarray,
     extract_column_array: Callable,

@@ -265,7 +265,7 @@ def _canonicalize_split_names(split_names: list) -> dict:
     return out
 
 
-def model_name_for_title(target_type) -> str:
+def model_name_for_title(target_type: Any) -> str:
     """Short report-title tag from the target_type (combined-HTML page heading)."""
     return str(target_type) if target_type else "Model"
 

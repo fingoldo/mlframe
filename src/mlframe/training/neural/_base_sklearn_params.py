@@ -42,7 +42,7 @@ def get_params(self, deep: bool = True) -> Dict[str, Any]:
     return params
 
 
-def set_params(self, **params: Any):
+def set_params(self, **params: Any) -> Any:
     """Sets parameters for scikit-learn compatibility."""
     for key, value in params.items():
         if key in ("model_params", "datamodule_params"):

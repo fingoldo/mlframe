@@ -38,7 +38,7 @@ USE_FASTMATH: bool = True
 
 
 @njit(fastmath=USE_FASTMATH, cache=False)
-def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: type = np.int64):
+def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: type = np.int64) -> np.ndarray:
     """Scatter-increment joint histogram of two pre-binned integer-coded arrays."""
     hist: np.ndarray = np.zeros((n_bins, n_bins), dtype=dtype)
     for i in range(len(a)):
@@ -50,7 +50,7 @@ def grok_compute_joint_hist(a: np.ndarray, b: np.ndarray, n_bins: int, dtype: ty
 # tests/test_meta/test_dead_helpers.py allowlist as a historical reference
 # point for the kernel-evolution audit trail. Not called from production paths.
 @njit(fastmath=USE_FASTMATH, cache=False)
-def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, hist_dtype: type = np.int64):
+def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, hist_dtype: type = np.int64) -> float:
     """Plug-in MI from a joint histogram via the naive per-cell probability ratio (superseded by ``grok_mutual_information``'s log-space form)."""
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
     a_hist = np.sum(joint_hist, axis=1)
@@ -68,7 +68,7 @@ def grok_mutual_information_old(a: np.ndarray, b: np.ndarray, n_bins: int = 15, 
 
 
 @njit(cache=False)
-def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, log_n_samples: float, n_bins: int = 15, hist_dtype: type = np.int64):
+def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, log_n_samples: float, n_bins: int = 15, hist_dtype: type = np.int64) -> float:
     """Plug-in MI from a joint histogram, computed in log-space with precomputed ``1/n``/``log(n)`` constants to avoid repeated division across cells."""
     joint_hist = grok_compute_joint_hist(a=a, b=b, n_bins=n_bins, dtype=hist_dtype)
     a_hist = np.sum(joint_hist, axis=1)
@@ -135,7 +135,7 @@ def _grok_compute_mutual_information_kernel(
 
 
 def grok_compute_mutual_information(
-    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
+    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype: type = np.int64, out_dtype: type = np.float64
 ) -> np.ndarray:
     """
     MI of every specified target column against every column in `data`.
@@ -218,7 +218,7 @@ def _chatgpt_mi_one_target(
 
 # Public API: many targets vs. all features
 def chatgpt_compute_mutual_information(
-    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
+    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype: type = np.int64, out_dtype: type = np.float64
 ) -> np.ndarray:
     """
     MI of every specified target column against every column in `data`.
@@ -239,7 +239,7 @@ def chatgpt_compute_mutual_information(
     data = _validate_bin_codes(data, "chatgpt_compute_mutual_information")
 
     targets = np.asarray(target_indices, dtype=np.int64)
-    out = np.empty((targets.size, data.shape[1]), dtype=out_dtype)
+    out: np.ndarray = np.empty((targets.size, data.shape[1]), dtype=out_dtype)
 
     # Few targets, many features ⇒ parallel inside _mi_one_target
     for k, t in enumerate(targets):
@@ -315,7 +315,7 @@ def _deepseek_compute_mutual_information_kernel(
 
 
 def deepseek_compute_mutual_information(
-    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype=np.int64, out_dtype=np.float64
+    data: np.ndarray, target_indices: np.ndarray | list[int], n_bins: int = 15, hist_dtype: type = np.int64, out_dtype: type = np.float64
 ) -> np.ndarray:
     """
     MI of every specified target column against every column in `data`.
