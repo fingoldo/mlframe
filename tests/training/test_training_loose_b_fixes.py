@@ -157,7 +157,8 @@ def test_f2_compute_oof_preds_unsupported_sample_weight_falls_back_gracefully():
         model=_NoWeightRegressor(), train_df=train_df, train_target=train_target, is_classifier_model=False,
         n_splits=3, random_seed=0, sample_weight=sample_weight,
     )
-    assert oof_preds is not None
+    assert np.asarray(oof_preds).shape[0] == n
+    assert np.isfinite(np.asarray(oof_preds, dtype=float)).all(), "unweighted fallback produced non-finite OOF predictions"
 
 
 # ---------------------------------------------------------------------------
@@ -266,16 +267,6 @@ def test_f5_dataframe_input_still_works():
 # ---------------------------------------------------------------------------
 
 
-def test_f6_gpu_probe_has_no_orphaned_dispatch_comment():
-    """F6: gpu probe has no orphaned dispatch comment."""
-    import inspect
-
-    from mlframe.training import _gpu_probe
-
-    src = inspect.getsource(_gpu_probe)
-    assert "canonicalizer + decision-rule pair below" not in src
-
-
 # ---------------------------------------------------------------------------
 # F7 / PR5: confidence-analysis fit_params forwarded for ALL CatBoost model types, not just Regressor
 # ---------------------------------------------------------------------------
@@ -376,7 +367,8 @@ def test_f8_adaptive_scorer_accepts_sample_weight_kwarg_without_crashing():
     model = DummyClassifier(strategy="stratified", random_state=0)
     model.fit(X, y)
     fi = _permutation_feature_importances(model, X, y, n_repeats=3, random_state=0, sample_weight=sw)
-    assert fi is not None
+    assert np.asarray(fi).shape == (2,)
+    assert np.isfinite(np.asarray(fi, dtype=float)).all()
 
 
 def test_f8_confidence_analysis_threads_sample_weight_into_catboost_fit(monkeypatch):

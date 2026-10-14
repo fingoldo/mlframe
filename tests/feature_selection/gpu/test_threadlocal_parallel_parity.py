@@ -61,7 +61,8 @@ def test_threadlocal_does_not_propagate_to_joblib_workers_baseline():
     # Pre-iter-5: every worker reports (False, False, 0.0). If this
     # invariant ever flips, the iter-5 republish becomes redundant and
     # the test will catch the change.
-    assert all(s == (False, False, 0.0) for s in worker_states), worker_states
+    assert len(worker_states) == 4, worker_states
+    assert worker_states == [(False, False, 0.0)] * 4, worker_states
 
     # Cleanup.
     set_su_normalization(False)
@@ -108,7 +109,8 @@ def test_evaluate_candidates_republishes_threadlocals_in_worker():
             set_bur_lambda(_prev_bur)
 
     results = Parallel(n_jobs=4, backend="threading")(delayed(worker_using_iter5_pattern)(True, True, 0.3) for _ in range(4))
-    assert all(r == (True, True, 0.3) for r in results), results
+    assert len(results) == 4, results
+    assert results == [(True, True, 0.3)] * 4, results
 
     # And: main-thread state must be untouched after the workers finish
     # (no pollution leaking back).

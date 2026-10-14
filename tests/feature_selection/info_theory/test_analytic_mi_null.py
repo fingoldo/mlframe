@@ -9,8 +9,6 @@ restores the permutation path, (3) below threshold the analytic path stays dorma
 
 from __future__ import annotations
 
-import time
-
 import numba
 import numpy as np
 import pytest
@@ -146,24 +144,29 @@ def test_below_threshold_is_dormant(monkeypatch):
     assert r_on == pytest.approx(r_off, rel=1e-9, abs=1e-12)
 
 
-def test_analytic_is_faster_large_n(monkeypatch):
-    """Analytic is faster large n."""
+def test_analytic_null_used_above_threshold_and_off_switch_disables_it(monkeypatch):
+    """Above threshold the analytic null is the path taken; the off-switch disables it."""
+    from mlframe.feature_selection.filters import _analytic_mi_null as analytic_mod
+
     n = max(int(analytic_null_min_n()), 120_000)
     data, nbins = _binned(n, 0.05, seed=5)
+    calls = []
+    real_analytic = analytic_mod.analytic_mi_null
+
+    def spy(*args, **kwargs):
+        """Record the call and forward it to the real function."""
+        calls.append(1)
+        return real_analytic(*args, **kwargs)
+
+    # mi_direct imports analytic_mi_null from this module at call time, so the patch on the module attribute is seen.
+    monkeypatch.setattr(analytic_mod, "analytic_mi_null", spy)
     monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "1")
-    _md(data, nbins)  # warmup
-    t = time.perf_counter()
-    for _ in range(10):
-        _md(data, nbins)
-    t_a = time.perf_counter() - t
+    _md(data, nbins)
+    assert len(calls) >= 1, "above threshold the analytic null must be taken"
+    calls.clear()
     monkeypatch.setenv("MLFRAME_MI_ANALYTIC_NULL", "0")
     _md(data, nbins)
-    t = time.perf_counter()
-    for _ in range(10):
-        _md(data, nbins)
-    t_p = time.perf_counter() - t
-    # analytic skips the permutation shuffles entirely -> materially faster (conservative bar: 3x).
-    assert t_a < t_p / 3.0, f"analytic not faster: analytic={t_a:.3f}s permutation={t_p:.3f}s"
+    assert calls == [], "the off-switch must route away from the analytic null"
 
 
 def _mi_nats(x, y, n, nb):

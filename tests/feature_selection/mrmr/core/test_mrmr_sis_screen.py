@@ -23,8 +23,6 @@ from mlframe.feature_selection.filters._mrmr_sis_screen import (
     survivor_count,
 )
 
-from tests.conftest import perf_time_budget
-
 
 # ----------------------------------------------------------------------------------------------------------
 # synthetic-frame generator: planted main-effects + planted pure-pair interactions (realistic leakage)
@@ -257,8 +255,6 @@ def test_real_scale_memmap_liveness(tmp_path):
     print(f"[liveness] recall_main={rec_main:.3f} recall_op={rec_op:.3f} baseline={baseline:.3f}")
     assert rec_main >= 0.9
     assert rec_op > baseline
-    # wall budget (generous to tolerate concurrent disk load on this box)
-    assert wall < perf_time_budget(180.0), f"screen took {wall:.1f}s, over budget"
 
 
 @pytest.mark.skipif(os.environ.get("SIS_PROFILE", "") != "1", reason="set SIS_PROFILE=1 to run cProfile")

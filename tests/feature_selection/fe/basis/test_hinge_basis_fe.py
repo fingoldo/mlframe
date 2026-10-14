@@ -388,6 +388,9 @@ def test_batched_detector_matches_percolumn_detector():
     )
     batch_out = detect_hinge_breakpoints_gpu_batch(cols, y, **kw)
     assert batch_out is not None
+    assert len(batch_out) == len(cols)
+    # Genuine-kink columns (i % 4 == 0) must yield breakpoints, else equality below is vacuous on empty lists.
+    assert all(batch_out[j] for j in range(0, len(cols), 4))
     cp.cuda.Stream.null.synchronize()
     for j, x in enumerate(cols):
         ref = detect_hinge_breakpoints_gpu(x, y, **kw)

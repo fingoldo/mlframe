@@ -10,7 +10,7 @@ import pytest
 
 from mlframe.reporting.charts.prediction_stability import compute_prediction_stability
 from mlframe.reporting.charts.quantile import _quantile_crossing_panel, compose_quantile_figure
-from mlframe.reporting.spec import AnnotationPanelSpec
+from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec
 
 
 class TestCrossingPanelDoesNotIssueACleanBillOfHealthFromNoData:
@@ -54,7 +54,9 @@ class TestComposerValidatesTheAlphaGrid:
 
     def test_an_ascending_grid_still_composes(self, data):
         """The guard must not cost the valid case."""
-        assert compose_quantile_figure(data[0], data[1], (0.1, 0.5, 0.9)) is not None
+        spec = compose_quantile_figure(data[0], data[1], (0.1, 0.5, 0.9))
+        assert isinstance(spec, FigureSpec)
+        assert [p for row in spec.panels for p in row if p is not None], "a valid grid must yield at least one panel"
 
 
 class TestAgreementMeasuresTheEnsembleNotItsOwnMedian:

@@ -141,6 +141,7 @@ def test_e7_triu_pair_build_matches_combinations(p):
     assert np.array_equal(b_old, b_new)
     assert pairs_old == pairs_new
     # key-type identity: both must be plain python int tuples (dict-key compatible with the rest of the cache)
+    assert len(pairs_new) == p * (p - 1) // 2
     assert all(type(x) is int for q in pairs_new for x in q)
 
 

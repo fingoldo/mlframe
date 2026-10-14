@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 def test_mrmr_with_bur_runs_and_publishes():
@@ -61,12 +62,27 @@ def test_bur_disabled_still_works_unchanged():
     assert len(sel.support_) >= 1
 
 
-def test_bur_with_collinear_features_publishes_bonus():
-    """When features cluster, BUR bonus should boost the one with the
-    highest unique contribution (Gao 2022). After this iter-26 fix the
-    bonus actually reaches ``expected_gains`` so it can influence the
-    rank order.
-    """
+def test_bur_bonus_publishes_into_dense_expected_gains_and_dict_path(monkeypatch):
+    """The BUR bonus must reach ``expected_gains`` on both the ndarray path (preallocated zeros) and the dict path
+    (key absent). Bonus = lambda * max(0, I(X;Y) - max_j I(X;X_j)) = 0.5 * (1.0 - 0.25) = 0.375."""
+    from mlframe.feature_selection.filters import evaluation as ev
+
+    monkeypatch.setattr(ev, "get_bur_lambda", lambda: 0.5)
+    monkeypatch.setattr(ev, "_evaluate_candidate_selected_vars", lambda selected_vars, *a, **k: 0.25)
+
+    dense = np.zeros(3, dtype=np.float64)
+    out = ev._apply_bur_bonus(2.0, 1.0, [0], None, None, None, None, 1, {}, dense)
+    assert out == pytest.approx(2.375)
+    assert dense[1] == pytest.approx(2.375)
+    assert dense[0] == 0.0 and dense[2] == 0.0
+
+    as_dict: dict = {}
+    ev._apply_bur_bonus(2.0, 1.0, [0], None, None, None, None, 1, {}, as_dict)
+    assert as_dict == {1: pytest.approx(2.375)}
+
+
+def test_bur_with_collinear_features_fits_and_selects_valid_columns():
+    """With clustered features and bur_lambda > 0 the fit completes and returns in-range column indices."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(2)
@@ -82,6 +98,7 @@ def test_bur_with_collinear_features_publishes_bonus():
     )
     y = pd.Series((latent + rng.standard_normal(n) * 0.3 > 0).astype(np.int64), name="y")
     sel_bur = MRMR(verbose=0, bur_lambda=1.0).fit(X, y)
-    # MRMR must complete (the iter-26 fix removed the silent error swallow,
-    # so any real numeric failure would surface as RuntimeError or warning).
-    assert sel_bur.support_ is not None
+    selected = [int(i) for i in np.asarray(sel_bur.support_).ravel()]
+    assert len(selected) >= 1
+    assert all(0 <= i < X.shape[1] for i in selected)
+    assert any(X.columns[i].startswith("lat") for i in selected), f"no latent-cluster column selected: {selected}"

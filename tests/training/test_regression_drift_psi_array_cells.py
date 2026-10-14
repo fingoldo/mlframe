@@ -8,7 +8,6 @@ pandas ``value_counts(dropna=False)``, hashing every ndarray cell via PyObjectHa
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 import pandas as pd
@@ -18,8 +17,6 @@ from mlframe.training.feature_drift_report import (
     _col_value_counts,
     compute_categorical_drift_psi,
 )
-
-from tests.conftest import perf_time_budget
 
 
 def _make_df(n: int, rng: np.random.Generator, with_array: bool) -> pd.DataFrame:
@@ -84,13 +81,23 @@ def test_psi_bit_identical_with_array_column_present():
     assert "emb" not in res_yes["per_feature"]
 
 
-def test_perf_sentinel_array_column_no_hang():
-    """Pre-fix this hashes n ndarray cells and takes many seconds; post-fix it skips and returns in well under 1s."""
+def test_perf_sentinel_array_column_no_hang(monkeypatch):
+    """Pre-fix the array column was hashed cell by cell via value_counts; post-fix it is never handed to the counter at all."""
+    import mlframe.training.feature_drift_report as fdr
+
+    counted_cols = []
+    real_col_value_counts = fdr._col_value_counts
+
+    def _spy(df, col):
+        """Record the call and forward it to the real function."""
+        counted_cols.append(col)
+        return real_col_value_counts(df, col)
+
+    monkeypatch.setattr(fdr, "_col_value_counts", _spy)
     rng = np.random.default_rng(7)
     train = _make_df(5000, rng, with_array=True)
     val = _make_df(5000, rng, with_array=True)
-    t0 = time.perf_counter()
     res = compute_categorical_drift_psi(train, val, None)
-    elapsed = time.perf_counter() - t0
-    assert elapsed < perf_time_budget(1.0), f"drift PSI on array column took {elapsed:.2f}s (expected <1s; pre-fix would hash array cells)"
+    assert counted_cols, "the categorical columns must still be counted"
+    assert "emb" not in counted_cols
     assert "emb" not in res["per_feature"]

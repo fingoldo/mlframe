@@ -83,4 +83,7 @@ def test_sequence_only_still_fits_with_no_aux_features():
     cfg = RecurrentConfig(input_mode=InputMode.SEQUENCE_ONLY, max_epochs=1, hidden_size=8, rnn_type=RNNType.LSTM)
     w = RecurrentClassifierWrapper(config=cfg)
     w.fit(labels=y, sequences=_sequences(), features=None)
+    import torch
+
     assert w.model is not None
+    assert any(isinstance(m, torch.nn.LSTM) for m in w.model.modules()), "SEQUENCE_ONLY must build the recurrent core, not skip"

@@ -75,7 +75,7 @@ def test_no_overflow_warning_under_strict_filterwarnings():
         )
         # The fit must complete without raising.
         sel = MRMR(verbose=0, build_friend_graph=False).fit(df, y)
-    assert sel.support_ is not None
+    assert 1 in set(np.asarray(sel.support_).tolist()), f"signal column 'sig' (index 1) not selected: {sel.support_}"
 
 
 @skip_under_numba_disabled_jit

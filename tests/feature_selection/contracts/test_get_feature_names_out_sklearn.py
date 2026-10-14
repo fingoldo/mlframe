@@ -92,7 +92,8 @@ def test_get_feature_names_out_ndarray_fit_honours_user_names():
     sel = MRMR(verbose=0).fit(X, pd.Series(y, name="y"))
     # Default: synthesized placeholders.
     out_none = list(sel.get_feature_names_out())
-    assert all(n.startswith("feature_") for n in out_none if n in {f"feature_{i}" for i in range(4)})
+    assert out_none, "default get_feature_names_out returned no names for a fitted selector"
+    assert all(n in {f"feature_{i}" for i in range(4)} for n in out_none), out_none
     # With caller-supplied names: honoured (since fit-time names were synthesized).
     out_user = list(sel.get_feature_names_out(["a", "b", "c", "d"]))
     # The base selected feature must come from the user-supplied list,

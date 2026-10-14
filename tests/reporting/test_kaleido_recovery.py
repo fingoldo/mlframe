@@ -19,12 +19,9 @@ hang and the test runner would kill it on timeout.
 from __future__ import annotations
 
 import os
-import time
 import warnings
 
 import pytest
-
-from tests.conftest import perf_time_budget
 
 
 @pytest.mark.timeout(900)
@@ -58,11 +55,9 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
 
     try:
         target = os.path.join(td, "after_error.png")
-        t0 = time.perf_counter()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             r.save(fig, target, "png")
-        elapsed = time.perf_counter() - t0
     finally:
         # Restore for cleanup AND for the next assertion.
         kaleido.write_fig_sync = orig
@@ -72,18 +67,8 @@ def test_kaleido_persistent_failure_falls_back_to_oneshot(tmp_path):
     # Assertions:
     # 1. File exists -- oneshot fallback fired and wrote PNG.
     assert os.path.exists(target), "PlotlyRenderer.save did not produce a fallback PNG after the persistent kaleido path failed -- recovery is broken."
-    # 2. Did not hang -- elapsed should be bounded by oneshot cost
-    # (~30-40s on cold; well under the 60s pytest-timeout).
-    # Failure recovery path: server-restart + oneshot fallback. On
-    # cold disk cache the Chromium re-spawn is ~30-40s; warmer is
-    # ~12-15s. Tolerate up to 90s so test isn't flaky on a busy CI
-    # box (the assertion is "did not HANG", not "was fast").
-    hang_budget = perf_time_budget(90.0)
-    assert elapsed < hang_budget, (
-        f"PlotlyRenderer.save took {elapsed:.1f}s after a kaleido "
-        f"failure (budget {hang_budget:.0f}s); expected the oneshot fallback -- this looks "
-        f"like the deadlock-on-error regression we fixed."
-    )
+    # 2. Did not hang: a deadlock on the failed persistent path surfaces as the test's pytest-timeout, not as a
+    # timing assertion here. The save call above returned, so the fallback completed.
     # 3. File has non-trivial size -- it's a real PNG, not 0-byte stub.
     assert os.path.getsize(target) > 1000, f"Fallback PNG is suspiciously small ({os.path.getsize(target)} bytes)."
 

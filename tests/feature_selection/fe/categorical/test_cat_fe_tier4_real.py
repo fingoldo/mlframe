@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters import MRMR, CatFEConfig
+from mlframe.feature_selection.filters.cat_fe_state import CatFEState
 from mlframe.feature_selection.filters.cat_interactions import (
     _column_signature,
     _kl_divergence,
@@ -283,7 +284,7 @@ class TestFullConditionalIPF:
             permutation_null="conditional",
             enable_full_conditional_perm=True,
         )
-        _, _, _, state = run_cat_interaction_step(
+        data_out, cols_out, nbins_out, state = run_cat_interaction_step(
             data=data,
             cols=["x1", "x2", "y"],
             nbins=nbins,
@@ -295,6 +296,10 @@ class TestFullConditionalIPF:
             cfg=cfg,
             dtype=np.int32,
         )
-        # Smoke: path completes without crashing. XOR may or may not
-        # survive the stricter null on this perm budget.
-        assert state is not None
+        # XOR may or may not survive the stricter null on this perm budget, so the contract is the output's shape
+        # consistency: every engineered column carries a name and a bin count, and the original columns are untouched.
+        assert isinstance(state, CatFEState)
+        assert data_out.shape[0] == n
+        assert data_out.shape[1] >= data.shape[1]
+        assert len(cols_out) == data_out.shape[1] == len(nbins_out)
+        np.testing.assert_array_equal(data_out[:, : data.shape[1]], data)

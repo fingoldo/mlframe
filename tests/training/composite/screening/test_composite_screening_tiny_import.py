@@ -135,5 +135,9 @@ def test_concurrent_import_does_not_raise():
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(_import_and_call) for _ in range(32)]
         results = [f.result(timeout=10.0) for f in futures]
-    # Every result must be a valid (lo, hi) pair, never a propagated exception.
-    assert all(isinstance(r, tuple) and len(r) == 2 for r in results)
+    # Every result must be the same valid (lo, hi) pair the main thread computes, never a propagated exception.
+    from mlframe.training.composite.discovery._screening_tiny import _y_train_clip_bounds
+
+    expected = tuple(float(v) for v in _y_train_clip_bounds(np.array([1.0, 2.0, 3.0, 4.0, 5.0])))
+    assert len(results) == 32
+    assert all(r == expected for r in results), f"threads disagreed with the main-thread bounds {expected}: {results}"

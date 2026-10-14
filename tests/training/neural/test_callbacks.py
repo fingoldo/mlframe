@@ -95,7 +95,8 @@ class TestNetworkGraphLoggingCallback:
     def test_initialization(self):
         """Test callback initialization."""
         callback = NetworkGraphLoggingCallback()
-        assert callback is not None
+        assert isinstance(callback, NetworkGraphLoggingCallback)
+        assert callback.state_dict() == {}
 
     def test_on_train_end_with_logger(self):
         """Test on_train_end logs graph with logger."""

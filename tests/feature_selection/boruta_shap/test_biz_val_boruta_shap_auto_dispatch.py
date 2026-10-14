@@ -81,7 +81,7 @@ def test_biz_val_boruta_auto_beats_gini_on_noisy_replicated():
         asel, _, chosen = _fit("auto", X, y, seed)
         routed.append(chosen)
         deltas.append(_holdout_auc(X, y, asel, seed) - _holdout_auc(X, y, gsel, seed))
-    assert all(r == "permutation" for r in routed), f"auto must route noisy beds to permutation, got {routed}"
+    assert routed == ["permutation"] * 3, f"auto must route noisy beds to permutation, got {routed}"
     wins = sum(1 for d in deltas if d >= -0.005)
     assert wins >= 2, f"auto must win/tie gini on majority of noisy seeds, deltas={deltas}"
     assert float(np.mean(deltas)) >= -0.005, f"auto must not lose to gini on noisy mean, deltas={deltas}"

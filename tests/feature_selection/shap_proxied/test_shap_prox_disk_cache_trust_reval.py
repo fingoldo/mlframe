@@ -269,8 +269,8 @@ def test_disk_cache_cross_stage_namespacing(tmp_path: Path):
     # Both namespaces present, no collision (each prefix has its own entries).
     assert len(honest_files) >= 1, f"revalidate should have written honest_loss_ entries; got {all_files}"
     assert len(shap_files_after) == len(shap_files), "OOF-SHAP entries should be untouched"
-    # No file has BOTH prefixes (sanity: the prefixes never overlap on disk).
-    assert all(not (n.startswith("shap_phi_") and n.startswith("honest_loss_")) for n in all_files)
+    # The two consumers' entries never share a file name, so neither can overwrite the other.
+    assert not set(honest_files) & set(shap_files_after)
 
 
 # -------------------- 5. ShapProxiedFS-level wiring --------------------

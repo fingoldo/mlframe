@@ -160,6 +160,5 @@ def test_run_fe_step_output_equivalence_under_seed():
     m2.fit(X.copy(), y.copy())
 
     # Same seed, same data, same params -> same selected support
-    assert getattr(m1, "support_", None) is not None
-    assert getattr(m2, "support_", None) is not None
+    assert len(m1.support_) > 0
     np.testing.assert_array_equal(m1.support_, m2.support_)

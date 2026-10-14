@@ -1828,28 +1828,22 @@ def test_recurrent_lstm_smoke(tmp_path):
 
     fte = SimpleFeaturesAndTargetsExtractor(regression=False)
 
-    # Wrap in try/skip — recurrent_config defaults may differ between
-    # torch versions; the goal is to catch outright API breakage, not
-    # to assert a specific RecurrentConfig schema.
-    try:
-        trained, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="tgt",
-            model_name="mdl",
-            features_and_targets_extractor=fte,
-            mlframe_models=[],
-            recurrent_models=["lstm"],
-            sequences=sequences,
-            hyperparams_config={"iterations": 2},
-            preprocessing_config=PreprocessingConfig(drop_columns=[]),
-            use_ordinary_models=False,
-            use_mlframe_ensembles=False,
-            verbose=0,
-            output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
-            reporting_config=_LEAN_REPORTING_CONFIG,
-        )
-    except ImportError as e:
-        pytest.skip(f"recurrent path not fully wired in this env: {e}")
+    trained, _ = train_mlframe_models_suite(
+        df=df,
+        target_name="tgt",
+        model_name="mdl",
+        features_and_targets_extractor=fte,
+        mlframe_models=[],
+        recurrent_models=["lstm"],
+        sequences=sequences,
+        hyperparams_config={"iterations": 2},
+        preprocessing_config=PreprocessingConfig(drop_columns=[]),
+        use_ordinary_models=False,
+        use_mlframe_ensembles=False,
+        verbose=0,
+        output_config=OutputConfig(data_dir=str(tmp_path), models_dir="models", save_charts=False, run_diagnostics=["cv_informativeness", "compare_cv_schemes", "group_leakage", "constant_group_leak", "subpopulation_drift"]),
+        reporting_config=_LEAN_REPORTING_CONFIG,
+    )
     # Smoke: trained dict may be empty (LSTM may have its own
     # bookkeeping outside ``trained``), but the call must complete.
     assert trained is not None

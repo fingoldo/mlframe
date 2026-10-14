@@ -44,6 +44,7 @@ class TestTheCallersArraysAreLeftAlone:
         """The direct statement of the defect."""
         members = _members()
         ensemble_probabilistic_predictions(*members)
+        assert len(members) == 3
         assert all(p.flags.writeable for p in members), "the call froze its caller's arrays"
 
     def test_the_caller_can_still_mutate_afterwards(self):
@@ -61,6 +62,7 @@ class TestTheCallersArraysAreLeftAlone:
         for seed in range(5):
             members = _members(seed=seed)
             ensemble_probabilistic_predictions(*members)
+            assert len(members) == 3
             assert all(p.flags.writeable for p in members)
 
 

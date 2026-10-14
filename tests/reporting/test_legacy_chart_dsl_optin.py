@@ -165,7 +165,9 @@ class TestPlotResidualDiagnostics:
                 ax_hist=ax1,
                 ax_resid_vs_pred=ax2,
             )
-        assert audit is not None
+        assert audit.n == len(y)
+        assert audit.n_total == len(y)
+        assert not audit.sampled
         plt.close(fig)
 
     def test_dsl_optin_matplotlib(self, reg_inputs, tmp_path):

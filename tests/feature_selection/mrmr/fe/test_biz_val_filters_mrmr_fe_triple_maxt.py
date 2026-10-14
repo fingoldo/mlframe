@@ -107,6 +107,7 @@ class TestPooledTriplePermutationNullHelper:
             elif all(nm.startswith("noise_") for nm in names):
                 noise_mis.append(mis[k])
         noise_mis = np.array(noise_mis)
+        assert noise_mis.size > 0, "no pure-noise triples found; the null-floor comparison below would be vacuous"
         assert gen_mi is not None
         # Genuine 3-way synergy clears the null-max floor.
         assert gen_mi > floor, f"genuine 3-way joint MI {gen_mi:.5f} not above null floor {floor:.5f}"

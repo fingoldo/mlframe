@@ -193,10 +193,10 @@ def test_screen_max_consec_unconfirmed_one():
 
 
 def test_screen_max_runtime_mins_immediate():
-    """max_runtime_mins=0.0001 triggers the budget-exhausted guard."""
+    """A near-zero budget truncates the greedy selection after the first evaluation; it can never add noise columns."""
     fd, fn, td, tn = _make_data(n=80, m=5, seed=10)
-    out = screen_predictors(**_common_kwargs(fd, fn, td, tn, max_runtime_mins=0.0001))
-    assert out is not None
+    out = screen_predictors(**_common_kwargs(fd, fn, td, tn, max_runtime_mins=1e-9))
+    assert out[0] == [0]
 
 
 def test_screen_use_simple_mode_false():
@@ -233,7 +233,8 @@ def test_screen_engineered_lineage_non_empty():
     # Pretend factor 2 is an engineered combo of (0, 1); selecting f0 with f2 should be skipped.
     lineage = {2: frozenset([0, 1])}
     out = screen_predictors(**_common_kwargs(fd, fn, td, tn, engineered_lineage=lineage))
-    assert out is not None
+    assert out[0] == [0]
+    assert 2 not in out[0]
 
 
 def test_screen_max_confirmation_cand_nbins_override():

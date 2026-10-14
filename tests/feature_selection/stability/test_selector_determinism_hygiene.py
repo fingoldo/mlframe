@@ -148,10 +148,7 @@ def _fit_with_kwarg(spec, kwarg: str, value: int, df, ys):
     sel = spec.make("binary")
     set_params = getattr(sel, "set_params", None)
     if callable(set_params):
-        try:
-            sel.set_params(**{kwarg: value})
-        except Exception:
-            setattr(sel, kwarg, value)
+        set_params(**{kwarg: value})
     else:
         setattr(sel, kwarg, value)
     # MRMR caches fit results process-wide keyed on data+config; clear so the
@@ -165,10 +162,7 @@ def _clear_mrmr_cache_if_any() -> None:
     """Clear mrmr cache if any."""
     mod = sys.modules.get("mlframe.feature_selection.filters.mrmr")
     if mod is not None:
-        try:
-            mod.MRMR._FIT_CACHE.clear()
-        except Exception:  # nosec B110 -- best-effort cleanup/optional step; failure here never masks this test's own assertions
-            pass
+        mod.MRMR._FIT_CACHE.clear()
 
 
 def _njobs_parity_param_ids():
@@ -193,17 +187,8 @@ def test_n_jobs_parity_same_selection(spec_key):
     kwarg, serial, parallel = _PARALLEL_SPECS[spec_key]
     df, ys, _ = _toy()
 
-    try:
-        s1 = _fit_with_kwarg(spec, kwarg, serial, df, ys)
-        s2 = _fit_with_kwarg(spec, kwarg, parallel, df, ys)
-    except OSError as exc:  # Windows paging-file overflow under concurrent load.
-        if "paging file" in str(exc).lower() or getattr(exc, "winerror", None) == 1455:
-            pytest.skip(f"Windows paging-file overflow under concurrent load: {exc}")
-        raise
-    except Exception as exc:  # loky transport flake under heavy concurrent load.
-        if any(c.__name__ in ("BrokenProcessPool", "TerminatedWorkerError") for c in type(exc).__mro__):
-            pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}")
-        raise
+    s1 = _fit_with_kwarg(spec, kwarg, serial, df, ys)
+    s2 = _fit_with_kwarg(spec, kwarg, parallel, df, ys)
 
     n1, n2 = set(selected_names(s1)), set(selected_names(s2))
     assert n1 == n2, f"{spec.name}: {kwarg}={serial} selected {sorted(n1)} but {kwarg}={parallel} selected {sorted(n2)}; parallelism altered the selection"

@@ -577,11 +577,8 @@ class TestH37_MRMRConstantY:
         rng = np.random.default_rng(0)
         X = pd.DataFrame(rng.standard_normal((100, 5)), columns=[f"f{i}" for i in range(5)])
         y = np.zeros(100, dtype=int)
-        try:
-            with pytest.raises(ValueError, match="unique"):
-                MRMR().fit(X, y)
-        except ImportError:
-            pytest.skip("MRMR not importable in this build")
+        with pytest.raises(ValueError, match="unique"):
+            MRMR().fit(X, y)
 
 
 class TestS5_CrossEstimator:

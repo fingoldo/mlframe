@@ -77,17 +77,10 @@ def test_score_pair_mi_signal_exceeds_noise_neural(estimator):
     """Neural estimators (mine / infonet / mist) routed through ``score_pair_mi`` separate signal from noise.
 
     Guarded by torch + slow marker. ``infonet`` needs a downloaded checkpoint and ``mist`` needs the ``mist-statinf``
-    package; when those optional assets are absent the routing layer raises a clear RuntimeError / ImportError, which we
-    treat as a legitimate environment skip (the ``importorskip`` pattern), NOT a reason to weaken the win assertion.
+    package; an absent optional asset fails this test rather than being skipped around the call under test.
     """
     pytest.importorskip("torch")
-    try:
-        _assert_signal_exceeds_noise(estimator)
-    except (ImportError, RuntimeError, FileNotFoundError, OSError) as exc:
-        msg = str(exc).lower()
-        if any(tok in msg for tok in ("checkpoint", "not installed", "not found", "download", "no module")):
-            pytest.skip(f"{estimator}: optional neural asset/package unavailable in this env -- {exc}")
-        raise
+    _assert_signal_exceeds_noise(estimator)
 
 
 def test_unknown_estimator_raises():

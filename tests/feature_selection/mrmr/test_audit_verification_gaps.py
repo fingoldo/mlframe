@@ -85,16 +85,37 @@ def test_encode_y_dense_fast_path_matches_np_unique():
         assert np.array_equal(encode_y_for_classif_mi(arr), expected), f"mismatch on {arr}"
 
 
-def test_pairwise_modular_resident_encodes_y_like_its_cpu_twin():
-    """The resident modular twin must route y through the shared encoder, not a bare int64 cast -- otherwise the
-    GPU path silently keeps the continuous-y truncation its CPU sibling was fixed for."""
-    import inspect
+def test_pairwise_modular_resident_encodes_y_like_its_cpu_twin(monkeypatch):
+    """The resident modular twin must feed the MI kernel the shared dense y encoding, not a bare int64 cast --
+    otherwise the GPU path silently keeps the continuous-y truncation its CPU sibling was fixed for.
 
+    The CUDA seams are replaced by numpy stand-ins so the device-born path runs on any host."""
+    import sys
+    import types
+
+    from mlframe.feature_selection.filters import _fe_resident_operands, _gpu_resident_rank_bin, _gpu_strict_fe
     from mlframe.feature_selection.filters import _pairwise_modular_resident as pmr
 
-    src = inspect.getsource(pmr)
-    assert "encode_y_for_classif_mi" in src
-    assert "np.asarray(y)).astype(np.int64)" not in src, "a bare y int64 cast survives in the resident twin"
+    fake_cupy = types.ModuleType("cupy")
+    fake_cupy.float64 = np.float64
+    monkeypatch.setitem(sys.modules, "cupy", fake_cupy)
+    monkeypatch.setattr(_gpu_strict_fe, "fe_gpu_device_born_modular_enabled", lambda: True)
+    monkeypatch.setattr(_fe_resident_operands, "resident_operand", lambda arr, key, dtype=None: np.asarray(arr, dtype=dtype))
+    seen: dict = {}
+
+    def _fake_kernel(X, y, nbins, *, y_min, n_classes):
+        """Stand in for the kernel and return a fixed value."""
+        seen["y"] = np.asarray(y).copy()
+        seen["n_classes"] = n_classes
+        return np.array([0.5])
+
+    monkeypatch.setattr(_gpu_resident_rank_bin, "plugin_mi_classif_batch_rank_cuda_resident", _fake_kernel)
+    y = np.array([3, 5, 3, 9], dtype=np.int64)
+    c = np.array([0, 1, 2, 3], dtype=np.int64)
+    mi = pmr.combiner_mi_resident(c, y, nbins=4, rank_binning=True)
+    assert mi == 0.5
+    np.testing.assert_array_equal(seen["y"], np.array([0, 1, 0, 2], dtype=np.int64))
+    assert seen["n_classes"] == 3
 
 
 def test_pair_maxt_index_gen_accepts_a_set_and_matches_combinations_order():

@@ -185,8 +185,6 @@ def test_run_temporal_audit_batch_pandas_fallback_when_polars_missing(_audit_cal
         verbose=False,
     )
 
-    # Either polars was successfully blocked (pandas fallback fires) or the
-    # fastpath still finds polars installed via a different cache route --
-    # both are acceptable; what we're really asserting is the wrapper doesn't
-    # raise on the ImportError branch.
-    assert _audit_call_recorder["df_type"] is not None
+    # With polars blocked the wrapper must hand the audit a pandas frame, for exactly one target.
+    assert _audit_call_recorder["df_type"] == "pandas.core.frame.DataFrame"
+    assert _audit_call_recorder["n_targets"] == 1

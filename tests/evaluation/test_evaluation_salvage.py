@@ -360,23 +360,18 @@ def _import_keras_or_skip():
     """Test helper: pytest.importorskip('tensorflow'); pytest.importorskip('keras'); from mlframe.training.neural.keras_compat import build_ke...."""
     pytest.importorskip("tensorflow")
     pytest.importorskip("keras")
-    from mlframe.training.neural.keras_compat import build_keras_mlp
-
-    # Try an actual build; surface broken installs as ImportError via importorskip semantics
-    # rather than silently skipping (memory feedback_no_mask_via_canon_or_guards).
-    try:
-        build_keras_mlp(num_layers=1, num_neurons=2, input_dim=2)
-    except ImportError as exc:
-        pytest.skip(f"keras optional dependency missing: {exc}")
 
 
 def test_build_keras_mlp_smoke():
-    """Build keras mlp smoke."""
+    """A one-hidden-layer MLP has Dense(num_neurons) then the Dense(1) regression head, on the requested input width."""
     _import_keras_or_skip()
     from mlframe.training.neural.keras_compat import build_keras_mlp
 
     m = build_keras_mlp(num_layers=1, num_neurons=8, input_dim=4)
-    assert m is not None
+    dense_units = [layer.units for layer in m.layers if hasattr(layer, "units")]
+    assert dense_units == [8, 1]
+    assert tuple(m.input_shape) == (None, 4)
+    assert tuple(m.output_shape) == (None, 1)
 
 
 def test_keras_compatible_mlp_smoke():

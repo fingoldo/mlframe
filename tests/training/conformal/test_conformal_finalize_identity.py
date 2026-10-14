@@ -23,7 +23,7 @@ def _load_old_module() -> types.ModuleType:
     """Load old module."""
     try:
         src = subprocess.check_output(["git", "show", f"HEAD:{REL}"], cwd=REPO, text=True, stderr=subprocess.DEVNULL)  # nosec B603 B607 -- fixed local argv (sys.executable/git + literal args), not a partial/searched path from untrusted input, no shell
-    except Exception as e:  # pragma: no cover - env without HEAD
+    except (OSError, subprocess.CalledProcessError) as e:  # pragma: no cover - env without git or without HEAD
         pytest.skip(f"cannot load OLD baseline via git show: {e}")
     # Mirror package context so its relative imports (.composite.*) resolve.
 

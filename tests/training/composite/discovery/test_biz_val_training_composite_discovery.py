@@ -110,8 +110,8 @@ def test_smoke_composite_discovery_runs_clean_on_logratio_target():
     # Either path is valid: (a) spec emitted, or (b) all candidates
     # filtered with drops recorded. Both indicate the pipeline ran.
     assert isinstance(specs, list)
-    # filter_drops is a dict of (target, transform, base) -> reason
-    assert drops is None or isinstance(drops, (list, dict))
+    # filter_drops returns one record per filtered candidate, so its type is the contract here.
+    assert isinstance(drops, list)
 
 
 def test_biz_val_composite_discovery_finds_diff_on_a_random_walk():

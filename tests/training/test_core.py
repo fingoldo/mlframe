@@ -707,9 +707,8 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
 
         fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
 
-        # Should handle gracefully or raise appropriate error
-        try:
-            models, metadata = train_mlframe_models_suite(
+        with pytest.raises(ValueError, match="at least 10 rows"):
+            train_mlframe_models_suite(
                 df=df,
                 target_name="test_target",
                 model_name="very_few_samples",
@@ -721,12 +720,6 @@ class TestTrainMLFrameModelsSuiteEdgeCases:
                 output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
                 verbose=0,
             )
-            # Success path: assert we got models back
-            assert models is not None
-            assert metadata is not None
-        except (ValueError, IndexError):
-            # Expected due to small size
-            pytest.skip("Very-few-samples input correctly raised ValueError/IndexError")
 
     def test_with_all_constant_features(self, temp_data_dir, common_init_params):
         """Test with all constant features (should be removed by preprocessing)."""

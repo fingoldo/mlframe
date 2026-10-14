@@ -44,7 +44,8 @@ class TestEveryBinaryEncodingSelectsTheSameModel:
         """The discriminating assertion: pre-fix, only the 0/1 arm produced a number at all."""
         y01, members = _members()
         scores = [caruana_greedy_selection(members, enc(y01), max_picks=10).score for enc in (lambda y: y, lambda y: y + 1, lambda y: 2 * y - 1)]
-        assert all(np.isfinite(s) for s in scores), f"non-finite scores: {scores}"
+        assert len(scores) == 3
+        assert np.isfinite(scores).all(), f"non-finite scores: {scores}"
         assert max(scores) - min(scores) < 1e-12, f"the same problem scored differently per encoding: {scores}"
 
 

@@ -16,8 +16,6 @@ import subprocess  # nosec B404 - runs the repo's own pinned ruff on the repo's 
 import sys
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Counted at pyproject's max-complexity (25). The debt is fully paid: the ceiling is 0.
@@ -34,12 +32,8 @@ def _c901_findings() -> list[str]:
         text=True,
         cwd=str(REPO_ROOT),
     )
-    if proc.returncode not in (0, 1):
-        pytest.skip(f"ruff unavailable or failed to run ({proc.returncode}): {proc.stderr.strip()[:200]}")
-    try:
-        findings = orjson.loads(proc.stdout or "[]")
-    except orjson.JSONDecodeError:  # pragma: no cover - only on a ruff output-format change
-        pytest.skip("could not parse ruff JSON output")
+    assert proc.returncode in (0, 1), f"ruff failed to run ({proc.returncode}): {proc.stderr.strip()[:200]}"
+    findings = orjson.loads(proc.stdout or "[]")
     return [f"{Path(f['filename']).as_posix()}:{f['location']['row']}" for f in findings]
 
 

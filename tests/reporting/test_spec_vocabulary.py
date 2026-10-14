@@ -171,6 +171,7 @@ class TestSubsamplePreservingExtremes:
         resid[planted] = 1e6 + np.arange(10)
         idx = subsample_preserving_extremes(x, sample_size=5_000, extreme_values=resid, k_extremes=10)
         s = set(idx.tolist())
+        assert len(planted) == 10
         assert all(p in s for p in planted), "the k largest-|residual| points must be kept"
 
     def test_nan_extreme_values_do_not_displace_real_extremes(self):
@@ -184,6 +185,7 @@ class TestSubsamplePreservingExtremes:
         resid[planted] = 1e6
         idx = subsample_preserving_extremes(x, sample_size=2_000, extreme_values=resid, k_extremes=5)
         s = set(idx.tolist())
+        assert len(planted) == 5
         assert all(p in s for p in planted)
 
     def test_mismatched_lengths_raise(self):

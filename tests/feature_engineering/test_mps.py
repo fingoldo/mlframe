@@ -26,6 +26,7 @@ def test_mps_positions_valid(prices):
     prices = np.array(prices, dtype=np.float64)
     result = find_maximum_profit_system(prices)
     positions = result["positions"]
+    assert len(positions) == len(prices) - 1
     assert all(p in [-1, 0, 1] for p in positions), f"Invalid positions: {set(positions)}"
 
 

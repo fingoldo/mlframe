@@ -202,7 +202,8 @@ def test_fs_l_2_explicit_target_type_overrides_heuristic():
     sel = MRMR(fe_max_steps=0, verbose=0, run_additional_rfecv_minutes=0.01)
     sel.target_type = "regression"  # explicit override
     sel.fit(df, y)
-    assert sel.support_ is not None  # fit completed via regression branch despite int-binary y
+    assert sel.target_type == "regression"
+    assert isinstance(sel.support_, np.ndarray)  # fit completed via the regression branch despite int-binary y
 
 
 # ----------------------------------------------------------------------------

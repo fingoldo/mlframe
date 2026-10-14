@@ -173,6 +173,7 @@ def test_fold_refit_failure_excludes_component_not_whole_weighting(caplog):
     assert (w >= 0).all()
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert any("excluding component 2" in r.getMessage() for r in warnings), "the excluded component must be named at WARNING"
+    assert warnings, "the exclusion must be logged at WARNING"
     assert all("forfeiting the benched" not in r.getMessage() for r in warnings), "with survivors remaining the win is SALVAGED, not forfeited"
 
 

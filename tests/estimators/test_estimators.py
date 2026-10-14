@@ -91,7 +91,7 @@ def test_estimator_with_early_stopping_logs_and_fits_non_catboost(caplog):
     assert est.n_features_in_ == X.shape[1]
 
 
-def test_default_stratify_none_auto_stratifies_imbalanced_classifier_split():
+def test_default_stratify_none_auto_stratifies_imbalanced_classifier_split(monkeypatch):
     """Regression test for audit F1: stratify=None must not silently mean 'unstratified'.
 
     Before the fix, ``stratify`` was passed straight through to ``train_test_split`` as ``None`` unless the
@@ -112,22 +112,16 @@ def test_default_stratify_none_auto_stratifies_imbalanced_classifier_split():
     real_train_test_split = base_mod.train_test_split
 
     def _spy(*args, **kwargs):
-        """Returns ``real_train_test_split(*args, **kwargs)`` (after 1 setup step)."""
+        """Returns ``real_train_test_split(*args, **kwargs)`` while recording the ``stratify`` argument."""
         captured["stratify"] = kwargs.get("stratify")
         return real_train_test_split(*args, **kwargs)
 
+    monkeypatch.setattr(base_mod, "train_test_split", _spy)
     est = ClassifierWithEarlyStopping(base_estimator=LGBMClassifier(n_estimators=10, verbose=-1), test_size=0.2, random_state=0)
-    import mlframe.estimators.base as _b
+    est.fit(X, y)
 
-    orig = _b.train_test_split
-    _b.train_test_split = _spy
-    try:
-        est.fit(X, y)
-    finally:
-        _b.train_test_split = orig
-
-    assert captured["stratify"] is not None, "stratify must be auto-derived from y for a classifier estimator, not left None"
     np.testing.assert_array_equal(captured["stratify"], y)
+    assert np.bincount(captured["stratify"])[1] == n_minority
 
 
 def test_default_stratify_none_stays_none_for_regressor():

@@ -86,6 +86,11 @@ def test_mtresid_t_scale_chart_returns_early_without_rendering(monkeypatch) -> N
         report_regression_model_perf,
     )
 
+    import mlframe.training.reporting._reporting_regression as rr
+
+    rendered = []
+    monkeypatch.setattr(rr, "_report_regression_mo_step2_frags_render_regression", lambda *a, **k: rendered.append(True))
+
     rng = np.random.default_rng(0)
     y_true = rng.normal(0.0, 1.0, 500)
     y_pred = y_true + rng.normal(0.0, 0.3, 500)
@@ -97,8 +102,6 @@ def test_mtresid_t_scale_chart_returns_early_without_rendering(monkeypatch) -> N
         model=None,
         print_report=False,
         show_perf_chart=False,
-        # plot_file omitted -> no figure file written either way; here
-        # we just sanity-check the call returns predictions and does
-        # not raise.
     )
-    assert preds_out is not None
+    assert rendered == [], "the T-scale composite chart block must not be reached"
+    np.testing.assert_array_equal(np.asarray(preds_out), y_pred)

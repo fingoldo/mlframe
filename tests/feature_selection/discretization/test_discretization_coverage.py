@@ -14,14 +14,8 @@ from mlframe.feature_selection.filters.discretization import (
     digitize,
     get_binning_edges,
     edges,
+    categorize_1d_array,
 )
-
-try:
-    from mlframe.feature_selection.filters.discretization import categorize_1d_array
-
-    _HAVE_1D = True
-except ImportError:
-    _HAVE_1D = False
 
 
 @pytest.mark.fast
@@ -115,8 +109,10 @@ def test_categorize_dataset_smoke():
             "int_ord": rng.integers(0, 5, 200),
         }
     )
-    result = categorize_dataset(df, n_bins=5)
-    assert result is not None
+    data, cols, nbins = categorize_dataset(df, n_bins=5)
+    assert data.shape == (200, 3)
+    assert dict(zip(cols, nbins)) == {"num": 5, "int_ord": 5, "cat": 3}
+    assert (data.max(axis=0) < np.asarray(nbins)).all()
 
 
 def test_digitize_smoke():
@@ -141,7 +137,9 @@ def test_get_binning_edges_uniform():
     rng = np.random.default_rng(9)
     arr = rng.standard_normal(300).astype(np.float64)
     e = get_binning_edges(arr, n_bins=10, method="uniform")
-    assert e is not None
+    assert len(e) == 11
+    assert e[0] == arr.min()
+    assert e[-1] == arr.max()
 
 
 def test_edges_helper():
@@ -180,16 +178,10 @@ def test_discretize_array_n_bins_large():
 
 def test_categorize_1d_array_smoke():
     """Categorize 1d array smoke."""
-    if not _HAVE_1D:
-        # Helper isn't part of the public API in this build - skip is
-        # appropriate (env-only, not a masked bug).
-        pytest.skip("categorize_1d_array not exported")
     rng = np.random.default_rng(12)
     arr = rng.choice(["X", "Y", "Z"], 200)
     # ``categorize_1d_array`` requires explicit ``min_ncats``, ``method``,
-    # ``astropy_sample_size`` and ``method_kwargs`` parameters. Pre-fix
-    # the test wrapped this in a bare-except->skip that masked the
-    # signature drift entirely; pass the smoke-defaults explicitly.
+    # ``astropy_sample_size`` and ``method_kwargs`` parameters.
     out = categorize_1d_array(
         arr,
         min_ncats=50,
@@ -197,16 +189,13 @@ def test_categorize_1d_array_smoke():
         astropy_sample_size=10_000,
         method_kwargs={},
     )
-    assert out is not None
+    assert out.shape == arr.shape
+    np.testing.assert_array_equal(np.unique(out), np.array([0, 1, 2]))
 
 
-def test_discretize_array_unknown_method_raises_or_falls_back():
-    """Unknown method string should raise or silently fall back to default."""
+def test_discretize_array_unknown_method_raises():
+    """An unknown method string is an explicit ValueError, not a silent fallback."""
     rng = np.random.default_rng(13)
     arr = rng.standard_normal(100).astype(np.float64)
-    try:
-        out = discretize_array(arr, n_bins=5, method="nonexistent_method_xyz")
-    except (ValueError, KeyError):
-        return  # acceptable contract: explicit reject
-    # Silent fallback is also acceptable; assert output is valid
-    assert out is not None
+    with pytest.raises(ValueError, match="Unsupported discretization method"):
+        discretize_array(arr, n_bins=5, method="nonexistent_method_xyz")

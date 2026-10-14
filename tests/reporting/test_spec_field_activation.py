@@ -220,7 +220,7 @@ def test_coverage_panel_puts_width_on_secondary_axis():
     preds = preds + shift[:, None]
     spec = compose_quantile_figure(y, preds, alphas, panels_template="COVERAGE")
     line = _panels_of_type(spec, LinePanelSpec)[0]
-    assert line.secondary_y is not None, "COVERAGE must put interval width on a secondary axis"
+    assert tuple(line.secondary_y) == (False, False, True), "COVERAGE must put interval width (3rd series) on a secondary axis"
 
 
 def test_threshold_panel_puts_queue_rate_on_secondary_axis():
@@ -233,7 +233,7 @@ def test_threshold_panel_puts_queue_rate_on_secondary_axis():
     score = np.clip(0.5 + 0.3 * (y - 0.5) + rng.normal(scale=0.2, size=n), 0, 1)
     spec = compose_binary_figure(y, score, panels_template="THRESHOLD")
     line = _panels_of_type(spec, LinePanelSpec)[0]
-    assert line.secondary_y is not None, "THRESHOLD must put queue-rate on a secondary axis"
+    assert any(line.secondary_y), "THRESHOLD must put queue-rate on a secondary axis"
 
 
 # ---------------------------------------------------------------------------

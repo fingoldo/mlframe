@@ -765,8 +765,9 @@ class TestReportModelPerf:
             show_fi=False,
         )
 
-        assert preds is not None
-        assert probs is not None
+        assert preds.shape == (len(y),)
+        assert probs.shape == (len(y), 2)
+        np.testing.assert_allclose(probs.sum(axis=1), 1.0)
 
     def test_with_feature_importances(self, trained_tree_regressor):
         """Test report with feature importances enabled."""
@@ -804,8 +805,8 @@ class TestReportModelPerf:
             show_fi=False,
         )
 
-        assert preds is not None
-        assert returned_probs is not None
+        np.testing.assert_array_equal(returned_probs, probs)
+        np.testing.assert_array_equal(preds, probs.argmax(axis=1))
 
 
 # =============================================================================
@@ -883,8 +884,9 @@ class TestEvaluateModel:
             show_perf_chart=False,
         )
 
-        assert preds is not None
-        assert probs is not None
+        assert preds.shape == (len(y),)
+        assert probs.shape == (len(y), 2)
+        np.testing.assert_allclose(probs.sum(axis=1), 1.0)
 
 
 # =============================================================================

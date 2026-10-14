@@ -151,7 +151,8 @@ def test_find_shifted_column_groups_detects_lagged_pair():
     out = find_shifted_column_groups(df, max_lag=2, corr_threshold=0.95)
     groups = out["groups"]
     assert any(set(g) == {"x", "y_lag1"} for g in groups)
-    assert all("noise" not in g for g in groups)
+    assert [g for g in groups if "noise" in g] == []
+    assert len(groups) >= 1
 
 
 def test_find_shifted_column_groups_empty_on_unrelated_columns():

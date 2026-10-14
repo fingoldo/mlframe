@@ -142,8 +142,9 @@ def test_biz_val_add_sentinel_missing_count_feature_auto_detect_sentinels():
     df, y, cols_a, cols_b = _make_per_column_sentinel_dataset(n=2000, seed=2)
 
     detected = detect_sentinel_values(df, columns=cols_a + cols_b)
-    assert all(detected.get(c) == -1.0 for c in cols_a), f"expected -1.0 auto-detected on block a, got {detected}"
-    assert all(detected.get(c) == -999.0 for c in cols_b), f"expected -999.0 auto-detected on block b, got {detected}"
+    assert cols_a and cols_b, "fixture must provide both sentinel blocks"
+    assert {c: detected.get(c) for c in cols_a} == {c: -1.0 for c in cols_a}, f"expected -1.0 on block a, got {detected}"
+    assert {c: detected.get(c) for c in cols_b} == {c: -999.0 for c in cols_b}, f"expected -999.0 on block b, got {detected}"
 
     auto = add_sentinel_missing_count_feature(df, auto_detect_sentinels=True)
     auc_auto = cross_val_score(LogisticRegression(max_iter=500), auto[["sentinel_missing_count"]].to_numpy(), y, cv=5, scoring="roc_auc").mean()

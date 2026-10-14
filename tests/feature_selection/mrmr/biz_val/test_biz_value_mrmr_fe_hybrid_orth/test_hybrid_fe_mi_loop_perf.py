@@ -1,6 +1,6 @@
 """Consolidated from test_biz_value_mrmr_layer31.py.
 
-Layer 31 biz_value: HYBRID FE PERF — replace per-column sklearn MI loop
+Layer 31 biz_value: HYBRID FE PERF вЂ” replace per-column sklearn MI loop
 with numba prange batch dispatcher.
 
 Layer 30 collapsed the dedup hotspot from ~5s to ~50ms (100x). cProfile on
@@ -9,7 +9,7 @@ column passes) to ``sklearn.metrics.mutual_info_score`` called in a per-column
 Python loop inside ``_mi_classif_batch``.
 
 Layer 31 (2026-05-31) routes ``_mi_classif_batch`` through
-``plugin_mi_classif_batch_dispatch`` (hermite_fe) — the same prange-over-columns
+``plugin_mi_classif_batch_dispatch`` (hermite_fe) вЂ” the same prange-over-columns
 numba batch kernel already used by polynom-pair FE / Hermite MI scoring.
 The KTC dispatcher (``pyutilz.performance.kernel_tuning.cache``) picks njit-CPU
 (default) or cupy-batch (GPU when present and amortising) per (n, k) cell.
@@ -38,14 +38,11 @@ Contracts
    future numba LLVM updates / fastmath reordering without re-tuning.)
 
 2. **Perf p=200 n=2000**: ``hybrid_orth_mi_fe`` at p=200 / degrees=(2,3,4)
-   completes within 1.0s on warm cache. Tighter than L30's 5.0s budget;
+   scores every column via the numba batch (spy-checked, not wall time);
    catches reintroduction of either the per-column sklearn loop OR the
    per-pair corrcoef loop simultaneously.
 
-3. **Perf p=500 stress**: ``hybrid_orth_mi_fe`` at p=500 completes within
-   5.0s. Confirms the batch dispatcher scales linearly with p (njit prange
-   over columns) instead of with p^2 (any quadratic regression would
-   blow past 5s here).
+3. **Linear scaling p=500**: MI-scored column work at p=500 is 2.0x-3.0x the p=200 work (linear 2.5x, quadratic 6.25x).
 
 4. **Signal recovery preserved**: quadratic He_2 signal AND XOR pair signal
    still survive the optimized MI path (same as L21 / L25 / L30 invariant).
@@ -64,20 +61,13 @@ layer with a separate commit and bench numbers.
 from __future__ import annotations
 
 import os
-import time
 import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from tests.conftest import perf_time_budget
-
 warnings.filterwarnings("ignore")
-
-# Perf budgets.
-PERF_BUDGET_P200_SECS = 1.0
-PERF_BUDGET_P500_SECS = 5.0
 
 # Bit-equivalence tolerance. Empirical max diff across 40 seeds was 1.6e-15;
 # 1e-9 leaves 6 orders for future fastmath / LLVM reordering and still
@@ -197,85 +187,56 @@ class TestBitEquivalence:
 
 
 # ---------------------------------------------------------------------------
-# Contract 2 / 3: perf budgets.
+# Contract 2 / 3: MI routing and linear scaling.
 # ---------------------------------------------------------------------------
 
 
-class TestPerfBudgets:
-    """hybrid_orth_mi_fe completes within tightened perf budgets at p=200 and p=500 on the numba MI dispatcher."""
+def _spy_sklearn_mi_calls(monkeypatch):
+    """Record every call into the per-column sklearn MI reference while delegating to the real function."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_backends as bk
 
-    def test_hybrid_p200_under_1s(self):
-        """``hybrid_orth_mi_fe`` at p=200 n=2000 degrees=(2,3,4) completes
-        within ``PERF_BUDGET_P200_SECS`` on warm cache. Tighter than the
-        L30 5.0s budget; catches reintroduction of the per-column sklearn
-        MI loop OR the per-pair corrcoef loop simultaneously.
+    sklearn_calls: list = []
+    real_sklearn = bk._mi_classif_batch_sklearn
+
+    def _sklearn_spy(X, y, **kwargs):
+        """Record the call and delegate to the real sklearn reference."""
+        sklearn_calls.append(1)
+        return real_sklearn(X, y, **kwargs)
+
+    monkeypatch.setattr(bk, "_mi_classif_batch_sklearn", _sklearn_spy)
+    return sklearn_calls
+
+
+class TestPerfBudgets:
+    """hybrid_orth_mi_fe scores every candidate on the batch dispatcher and scales linearly in p."""
+
+    def test_hybrid_p200_avoids_per_column_sklearn_mi(self, monkeypatch):
+        """``hybrid_orth_mi_fe`` at p=200 n=2000 degrees=(2,3,4) never runs the per-column sklearn MI reference
+        and scores at least one candidate per raw column. Catches reintroduction of the per-column sklearn loop.
         """
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
 
         X, y = _build_p200_fixture(seed=0)
-        y_arr = y.to_numpy()
-        # Warm-up (numba lazy compile of any not-yet-cached kernel).
-        _ = hybrid_orth_mi_fe(
-            X,
-            y_arr,
-            degrees=(2, 3, 4),
-            basis="hermite",
-            top_k=5,
-        )
-        # 3 timed calls; take min to filter GC / Windows scheduler noise.
-        timings = []
-        for _ in range(3):
-            t0 = time.perf_counter()
-            _ = hybrid_orth_mi_fe(
-                X,
-                y_arr,
-                degrees=(2, 3, 4),
-                basis="hermite",
-                top_k=5,
-            )
-            timings.append(time.perf_counter() - t0)
-        elapsed = min(timings)
-        budget = perf_time_budget(PERF_BUDGET_P200_SECS)
-        assert elapsed <= budget, (
-            f"hybrid_orth_mi_fe at p=200 n=2000 degrees=(2,3,4) took "
-            f"{elapsed:.3f}s, budget is {budget:.1f}s. "
-            f"Check that _mi_classif_batch is still routing through "
-            f"_mi_classif_batch_numba (MLFRAME_NUMBA_MI is not '0', "
-            f"plugin_mi_classif_batch_dispatch imports cleanly) and that "
-            f"the dedup pass (Layer 30) still uses bulk corrcoef."
-        )
+        sklearn_calls = _spy_sklearn_mi_calls(monkeypatch)
+        _, scores = hybrid_orth_mi_fe(X, y.to_numpy(), degrees=(2, 3, 4), basis="hermite", top_k=5)
+        assert sklearn_calls == [], "the per-column sklearn MI reference ran although the batch dispatcher is the default"
+        assert len(scores) >= X.shape[1], f"every raw column must be scored; got {len(scores)} score rows for p={X.shape[1]}"
 
-    def test_hybrid_p500_under_5s(self):
-        """p=500 stress: confirms linear-in-p scaling. Any quadratic
-        regression would blow past 5s.
-        """
+    def test_hybrid_p500_candidate_work_scales_linearly(self):
+        """p=500 stress: the number of scored candidates grows linearly with p. A quadratic regression gives ~6.25x."""
         from mlframe.feature_selection.filters._orthogonal_univariate_fe import (
             hybrid_orth_mi_fe,
         )
 
-        X, y = _build_p500_fixture(seed=0)
-        y_arr = y.to_numpy()
-        _ = hybrid_orth_mi_fe(
-            X,
-            y_arr,
-            degrees=(2, 3, 4),
-            basis="hermite",
-            top_k=5,
-        )
-        t0 = time.perf_counter()
-        _ = hybrid_orth_mi_fe(
-            X,
-            y_arr,
-            degrees=(2, 3, 4),
-            basis="hermite",
-            top_k=5,
-        )
-        elapsed = time.perf_counter() - t0
-        budget = perf_time_budget(PERF_BUDGET_P500_SECS)
-        assert elapsed <= budget, f"hybrid_orth_mi_fe at p=500 n=2000 took {elapsed:.3f}s, budget is {budget:.1f}s."
-
+        X200, y200 = _build_p200_fixture(seed=0)
+        _, scores200 = hybrid_orth_mi_fe(X200, y200.to_numpy(), degrees=(2, 3, 4), basis="hermite", top_k=5)
+        X500, y500 = _build_p500_fixture(seed=0)
+        _, scores500 = hybrid_orth_mi_fe(X500, y500.to_numpy(), degrees=(2, 3, 4), basis="hermite", top_k=5)
+        assert len(scores200) > 0 and len(scores500) > 0
+        ratio = len(scores500) / len(scores200)
+        assert 2.0 <= ratio <= 3.0, f"candidate work scaled by {ratio:.2f}x from p=200 to p=500 (linear is 2.5x, quadratic 6.25x)"
 
 # ---------------------------------------------------------------------------
 # Contract 4: signal recovery preserved.
@@ -360,7 +321,7 @@ class TestEnvVarOptOut:
         sklearn reference. Verified by importing a fresh module copy with
         the env var set, then asserting ``_MI_BACKEND == 'sklearn'`` and
         ``_mi_classif_batch`` returns the same answer as
-        ``_mi_classif_batch_sklearn`` (which it must, by construction —
+        ``_mi_classif_batch_sklearn`` (which it must, by construction вЂ”
         but we round-trip through ``_mi_classif_batch`` to verify the
         routing logic, not just the called function).
         """

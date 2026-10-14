@@ -296,18 +296,28 @@ class TestMRMRPermutationSubsample:
             full_npermutations=5,
             permutation_subsample=10_000,  # > n, so no-op
         )
-        mrmr = MRMR(
-            full_npermutations=2,
-            baseline_npermutations=2,
-            fe_max_steps=0,
-            cat_fe_config=cfg,
-            verbose=0,
-            n_jobs=1,
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            mrmr.fit(df, y)
-        assert mrmr.support_ is not None
+        cfg_full = CatFEConfig(enable=True, full_npermutations=5)
+
+        def _fit(cat_cfg):
+            """Fit the selector and return it unchanged."""
+            mrmr = MRMR(
+                full_npermutations=2,
+                baseline_npermutations=2,
+                fe_max_steps=0,
+                cat_fe_config=cat_cfg,
+                verbose=0,
+                n_jobs=1,
+                random_state=0,
+            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                mrmr.fit(df, y)
+            return mrmr
+
+        subsampled = _fit(cfg)
+        full = _fit(cfg_full)
+        assert len(subsampled.support_) >= 1
+        np.testing.assert_array_equal(subsampled.support_, full.support_)
 
 
 class TestMRMRPermKernelGPU:
@@ -486,14 +496,8 @@ class TestMRMRWave14Regressions:
             # ``feature_engineering.py:131 X[:, original_cols[var]]``.
             # Post-fix: completes without error.
             mrmr.fit(X, y)
-        assert mrmr.support_ is not None
-        # The fix is only meaningful when cat-FE actually produced
-        # engineered recipes. Assert non-zero so the test stays
-        # meaningful if the cat-FE algorithm changes; skip the recipe
-        # assertion if cat-FE chose not to engineer this combo (the
-        # fix is still proven by the absence of KeyError above).
-        if mrmr._cat_fe_state_ is not None and getattr(mrmr._cat_fe_state_, "recipes", None):
-            assert len(mrmr._cat_fe_state_.recipes) >= 1
+        assert mrmr._cat_fe_state_ is not None
+        assert len(mrmr.support_) >= 1
 
     def test_polars_input_with_pandas_output_preserves_dtypes(self):
         """Bug B regression. When MRMR is configured with

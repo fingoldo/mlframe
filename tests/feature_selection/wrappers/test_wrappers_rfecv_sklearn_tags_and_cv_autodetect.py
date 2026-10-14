@@ -248,7 +248,9 @@ class TestCvResultsDataFrame:
         ).fit(Xdf, y)
         nfs = rfecv.cv_results_["nfeatures"]
         assert isinstance(nfs, list)
-        assert all(isinstance(n, (int, np.integer)) for n in nfs)
+        assert len(nfs) >= 1
+        # 0 is the N=0 dummy-baseline anchor row (rfecv/_fit_fold.py); real feature counts are 1..5.
+        assert all(isinstance(n, (int, np.integer)) and 0 <= n <= 5 for n in nfs)
 
 
 # ----------------------------------------------------------------------------

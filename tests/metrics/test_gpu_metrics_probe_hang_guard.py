@@ -11,8 +11,8 @@ reported, unretried). Fixed by running the actual probe on a bounded-join daemon
 from __future__ import annotations
 
 import threading
+
 import pytest
-import time
 
 from mlframe.metrics import _gpu_metrics
 
@@ -24,6 +24,7 @@ def test_hung_probe_returns_false_within_timeout_bound(monkeypatch):
     monkeypatch.setattr(_gpu_metrics, "_GPU_PROBE_TIMEOUT_S", 0.3)
 
     release = threading.Event()
+    probe_finished = threading.Event()
 
     class _HungCupy:
         """Stub ``cupy`` module whose device-count call blocks until the test releases it."""
@@ -38,6 +39,7 @@ def test_hung_probe_returns_false_within_timeout_bound(monkeypatch):
                 def getDeviceCount():
                     """Block past the test's timeout bound to simulate a hung CUDA driver call."""
                     release.wait(timeout=5.0)
+                    probe_finished.set()
                     return 1
 
     def _fake_import(name, *args, **kwargs):
@@ -51,20 +53,30 @@ def test_hung_probe_returns_false_within_timeout_bound(monkeypatch):
     _real_import = builtins.__import__
     monkeypatch.setattr(builtins, "__import__", _fake_import)
 
-    t0 = time.perf_counter()
     result = _gpu_metrics.is_gpu_metrics_available()
-    elapsed = time.perf_counter() - t0
+    # The probe is still blocked when the call returns: the caller did not wait for the hung driver call to finish.
+    returned_before_probe_finished = not probe_finished.is_set()
 
     release.set()  # let the leaked daemon thread finish so it doesn't outlive the test
     assert result is False, "a hung probe must resolve to unavailable, not raise or return True"
-    assert elapsed < 2.0, f"is_gpu_metrics_available() must return near the {_gpu_metrics._GPU_PROBE_TIMEOUT_S}s bound, took {elapsed:.2f}s"
+    assert returned_before_probe_finished, "is_gpu_metrics_available() must not wait for the hung probe to finish"
 
 
-def test_result_cached_after_hang_so_later_calls_are_instant(monkeypatch):
-    """After one bounded timeout, the cached False must make every subsequent call a no-op (no re-probe, no re-wait)."""
+def test_result_cached_after_hang_so_later_calls_do_not_reprobe(monkeypatch):
+    """After one bounded timeout, the cached False must make every subsequent call a no-op (no re-probe)."""
+    import builtins
+
     monkeypatch.setattr(_gpu_metrics, "_GPU_AVAILABLE", False)
-    t0 = time.perf_counter()
-    assert len(range(1000)) > 0, "the loop below must iterate at least once"
+    real_import = builtins.__import__
+    cupy_imports = []
+
+    def _counting_import(name, *args, **kwargs):
+        """Record every ``import cupy`` attempt and delegate to the real import."""
+        if name == "cupy":
+            cupy_imports.append(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _counting_import)
     for _ in range(1000):
         assert _gpu_metrics.is_gpu_metrics_available() is False
-    assert time.perf_counter() - t0 < 0.1, "cached-False calls must be effectively instant"
+    assert cupy_imports == [], "cached-False calls must not re-probe the driver"

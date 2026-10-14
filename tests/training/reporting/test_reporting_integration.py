@@ -149,8 +149,14 @@ def test_kept_figure_spec_is_picklable(tmp_path):
         reporting_config=_Cfg(),
     )
     # Pure-data spec, no live figure handle -> round-trips through pickle.
-    blob = pickle.dumps(metrics["figure_specs"]["training_curve"])
-    assert pickle.loads(blob) is not None  # nosec B301 -- round-trip of a locally-created, trusted object
+    spec = metrics["figure_specs"]["training_curve"]
+    blob = pickle.dumps(spec)
+    loaded = pickle.loads(blob)  # nosec B301 -- round-trip of a locally-created, trusted object
+    assert type(loaded) is type(spec)
+    assert loaded.suptitle == spec.suptitle
+    assert loaded.figsize == spec.figsize
+    assert len(spec.panels) > 0
+    assert [[type(c) for c in row] for row in loaded.panels] == [[type(c) for c in row] for row in spec.panels]
 
 
 # ---------------------------------------------------------------------------

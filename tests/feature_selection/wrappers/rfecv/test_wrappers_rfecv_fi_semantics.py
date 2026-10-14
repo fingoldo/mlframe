@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 import numpy as np
 import pandas as pd
 
@@ -127,9 +129,8 @@ class TestFiRankingSkipForRankBased:
             use_all_fi_runs=True,
             votes_aggregation_method=VotesAggregation.AM,
         )
-        # AM should have been pre-ranked -> pct values in [0, 1].
-        vals = list(out_am["r0"].values())
-        assert all(0.0 <= v <= 1.0 for v in vals)
+        # AM should have been pre-ranked: ascending pct ranks of {1.0, 0.5, 0.1} are {1.0, 2/3, 1/3}.
+        assert out_am["r0"] == pytest.approx({"a": 1.0, "b": 2.0 / 3.0, "c": 1.0 / 3.0})
 
 
 # ----------------------------------------------------------------------- F4+F5

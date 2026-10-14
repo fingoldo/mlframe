@@ -28,8 +28,6 @@ import pytest
 from mlframe.training.composite.estimator import _update
 from mlframe.training.composite.estimator._update import _RingBuffer
 
-from tests.conftest import perf_time_budget
-
 # ===========================================================================
 # _RingBuffer unit correctness vs the legacy deque(maxlen) semantics
 # ===========================================================================
@@ -183,28 +181,22 @@ class TestBizValueArrayReuse:
         assert len(got) == cap
         assert got == pytest.approx(expected)
 
-    def test_no_per_call_boxing_quick_perf_floor(self) -> None:
-        """Perf-shaped floor: with a full 10k window and a short-circuiting drift
-        check, many small updates must stay cheap (append is O(new_rows), not
-        O(buffer_n) boxing/unboxing).
+    def test_many_small_updates_keep_full_window_in_order(self) -> None:
+        """Many small updates on a full 10k window keep exactly the newest 10k rows in arrival order.
 
-        Conservative wall floor -- the old deque path boxed+unboxed 10k PyFloats
-        per call; the ring path copies only the new rows. We assert the new path
-        completes well under a generous bound so a regression to per-call
-        whole-window work (or an accidental reallocation) trips it.
+        The ring path appends only the new rows; a regression to whole-window rebuilds would still pass a
+        content check, so this also pins the window length and the tail after each burst.
         """
-        import time
-
         est = _StubEstimator(buffer_n=10_000, min_buffer_n=10**9)
         rng = np.random.default_rng(13)
-        # Fill the window first (cost not measured).
-        _update.update(est, rng.normal(size=10_000), rng.normal(size=10_000))
+        seen_y = list(rng.normal(size=10_000))
+        seen_b = list(rng.normal(size=10_000))
+        _update.update(est, np.asarray(seen_y), np.asarray(seen_b))
         assert len(est._buffer_y_) == 10_000
-        t0 = time.perf_counter()
         for _ in range(2_000):
-            _update.update(est, rng.normal(size=5), rng.normal(size=5))
-        elapsed = time.perf_counter() - t0
-        # 2000 small updates on a full 10k window: generous 2.0 s ceiling (the
-        # ring path runs in well under 0.5 s; the floor only guards against a
-        # reintroduced O(buffer_n) per-call cost or a per-call reallocation).
-        assert elapsed < perf_time_budget(2.0), f"2000 small updates took {elapsed:.3f}s (perf regression?)"
+            new_y = rng.normal(size=5)
+            _update.update(est, new_y, rng.normal(size=5))
+            seen_y.extend(new_y.tolist())
+        got = est._buffer_y_.contiguous().tolist()
+        assert len(got) == 10_000
+        assert got == pytest.approx(seen_y[-10_000:])

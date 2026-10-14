@@ -151,7 +151,8 @@ def test_3way_no_zero_division_on_pure_xor():
     # The FE step is gated by ``fe_max_steps``; we exercise it.
     sel = MRMR(interactions_max_order=3, verbose=0, fe_max_steps=1, random_state=42)
     sel.fit(X_df, y_ser)  # Must not raise.
-    assert sel.support_ is not None
+    selected = [int(i) for i in np.asarray(sel.support_).ravel()]
+    assert all(0 <= i < X_df.shape[1] for i in selected)
 
 
 @pytest.mark.parametrize("order", [2, 3, 4])

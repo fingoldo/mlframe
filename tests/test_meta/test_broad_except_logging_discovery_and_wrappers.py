@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 
 def test_screening_is_numeric_column_logs_on_failure(caplog):
     """`_is_numeric_column` must log and return False when the dtype probe raises."""
@@ -210,8 +212,11 @@ def test_per_member_tuning_code_version_returns_str_or_none():
     """`per_member_code_version` must return a str or None, never raise."""
     from mlframe.models.ensembling.per_member_tuning import per_member_code_version
 
+    pytest.importorskip("pyutilz.performance.kernel_tuning.code_versioning")
     out = per_member_code_version()
-    assert out is None or isinstance(out, str)
+    assert isinstance(out, str) and out
+    assert per_member_code_version() == out
+    assert isinstance(out, str) and len(out) > 0, f"pyutilz is installed, so a version string is expected; got {out!r}"
 
 
 def test_ensembling_leaderboard_build_logs_on_failure(caplog, monkeypatch):

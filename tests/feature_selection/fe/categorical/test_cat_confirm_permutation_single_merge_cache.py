@@ -227,6 +227,8 @@ def test_single_merge_cache_bit_identical_to_uncached_reference(n_perms):
 
     assert set(conf) == set(ref)
     values = list(ref.values())
+    assert values, "the reference confidence dict is empty; the comparison below would be vacuous"
+    assert values, "the reference produced no confidences; the comparison below would be vacuous"
     assert all(0.0 < v < 1.0 for v in values), f"the fixture saturated the permutation null; confidences {values} make the comparison below vacuous"
     for key in ref:
         assert conf[key] == ref[key], f"single-merge cache changed confidence for {key}: {conf[key]!r} != reference {ref[key]!r}"

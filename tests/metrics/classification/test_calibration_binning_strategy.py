@@ -170,16 +170,20 @@ def test_nan_probs_dropped_before_binning(caplog):
     assert any("non-finite" in r.message for r in caplog.records)
 
 
-def test_all_nan_probs_does_not_crash():
-    """All nan probs does not crash."""
+def test_all_nan_probs_returns_degenerate_report(caplog):
+    """All-NaN probabilities take the degenerate branch: the placeholder metrics are returned and the skip is logged."""
     from mlframe.metrics.classification._classification_report import fast_calibration_report
 
     n = 100
     y = np.zeros(n, dtype=np.int64)
     p = np.full(n, np.nan)
-    out = fast_calibration_report(y, p, nbins=10, show_plots=False, plot_file="")
-    # All-NaN -> degenerate but no exception.
-    assert out is not None
+    with caplog.at_level(logging.WARNING):
+        out = fast_calibration_report(y, p, nbins=10, show_plots=False, plot_file="")
+    assert out.brier_loss == 1.0
+    assert out.ice == 1.0
+    assert out.ece == 1.0
+    assert out.metrics_string == ""
+    assert any("all probabilities were non-finite" in r.message for r in caplog.records)
 
 
 # --------------------------------------------------------------------------- #

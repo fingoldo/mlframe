@@ -160,10 +160,9 @@ def test_biz_val_timeseries_general_acf_strong_signal_present():
     for t in range(1, n):
         y[t] = 0.9 * y[t - 1] + rng.normal(scale=0.3)
     res = general_acf(Y=y, lag_len=10, min_samples=500)
-    # general_acf returns a tuple or array of acf values. Just sanity:
-    # must return something non-None.
-    assert res is not None
-    # And the strongest lag must show appreciable abs correlation.
-    arr = np.asarray(res)
-    if arr.dtype != object and arr.size > 1:
-        assert float(np.max(np.abs(arr))) > 0.1, f"AR(1) series should have detectable autocorr; got max|acf|={float(np.max(np.abs(arr))):.4f}"
+    acf = res["fixed_offsets"]
+    # Lag 0 is 1 by definition; an AR(1) with phi=0.9 has theoretical acf(k) = 0.9**k.
+    assert list(acf.index) == list(range(11))
+    assert acf.loc[0] == 1.0
+    assert acf.loc[1] == pytest.approx(0.9, abs=0.05)
+    assert acf.loc[1] > acf.loc[5] > acf.loc[10] > 0.0

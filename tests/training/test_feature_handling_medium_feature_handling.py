@@ -305,7 +305,7 @@ def test_m_fh_06_fit_transform_still_falls_back_on_signature_mismatch() -> None:
 
     df = pd.DataFrame({"c": [1, 2, 3]})
     out = handler.fit_transform(df, y=[0, 1, 0])
-    assert out is not None
+    np.testing.assert_array_equal(np.asarray(out).ravel(), np.array([2, 4, 6]))
 
 
 # =====================================================================

@@ -38,16 +38,17 @@ def test_other_gpu_symbols_still_importable() -> None:
         _ensure_kernels_inited,
     )
 
-    for fn in (
-        mi_direct_gpu_batched,
-        mi_direct_gpu_batched_streamed,
-        mi_direct_gpu,
-        init_kernels,
-        _pin_device_if_needed,
-        _ensure_kernels_inited,
+    for name, fn in (
+        ("mi_direct_gpu_batched", mi_direct_gpu_batched),
+        ("mi_direct_gpu_batched_streamed", mi_direct_gpu_batched_streamed),
+        ("mi_direct_gpu", mi_direct_gpu),
+        ("init_kernels", init_kernels),
+        ("_pin_device_if_needed", _pin_device_if_needed),
+        ("_ensure_kernels_inited", _ensure_kernels_inited),
     ):
-        assert callable(fn), fn
-    assert _GpuBufferPool is not None
+        assert callable(fn), name
+        assert fn.__name__ == name, f"facade re-exported {fn.__name__!r} under {name!r}"
+    assert isinstance(_GpuBufferPool, type) and _GpuBufferPool.__name__ == "_GpuBufferPool"
 
 
 def test_facade_below_1k_line_threshold() -> None:

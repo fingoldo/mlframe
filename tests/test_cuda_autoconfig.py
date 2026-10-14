@@ -40,18 +40,20 @@ def test_sets_cuda_home_to_pip_nvvm_when_env_clean(monkeypatch, tmp_path):
 def test_skips_when_cuda_path_already_set(monkeypatch, tmp_path):
     """Skips when cuda path already set."""
     _clear_cuda_env(monkeypatch)
-    monkeypatch.setenv("CUDA_PATH", r"C:\Real\CUDA\v12.3")
+    real_install = str(tmp_path / "Real" / "CUDA" / "v12.3")
+    monkeypatch.setenv("CUDA_PATH", real_install)
     _make_fake_pip_nvvm(tmp_path)
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
     mlframe._autoconfigure_cuda_home()
-    assert os.environ.get("CUDA_PATH") == r"C:\Real\CUDA\v12.3"  # untouched
+    assert os.environ.get("CUDA_PATH") == real_install  # untouched
     assert "CUDA_HOME" not in os.environ
 
 
 def test_skips_when_versioned_system_installer_var_present(monkeypatch, tmp_path):
     """Skips when versioned system installer var present."""
     _clear_cuda_env(monkeypatch)
-    monkeypatch.setenv("CUDA_PATH_V12_3", r"C:\Real\CUDA\v12.3")
+    real_install = str(tmp_path / "Real" / "CUDA" / "v12.3")
+    monkeypatch.setenv("CUDA_PATH_V12_3", real_install)
     _make_fake_pip_nvvm(tmp_path)
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
     mlframe._autoconfigure_cuda_home()

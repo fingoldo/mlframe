@@ -29,12 +29,13 @@ def test_con7_prebuilt_operand_table_does_not_clobber_across_two_host_arrays():
         def __init__(self, arr):
             self.shape = arr.shape
 
-    grs.register_prebuilt_operand_table(a, _FakeDev(a))
-    grs.register_prebuilt_operand_table(b, _FakeDev(b))
+    dev_a, dev_b = _FakeDev(a), _FakeDev(b)
+    grs.register_prebuilt_operand_table(a, dev_a)
+    grs.register_prebuilt_operand_table(b, dev_b)
 
-    # Pre-fix: registering b overwrote a's single slot -> a lookup returns None.
-    assert grs._prebuilt_operand_table(a) is not None
-    assert grs._prebuilt_operand_table(b) is not None
+    # Pre-fix: registering b overwrote a's single slot -> a lookup returned None.
+    assert grs._prebuilt_operand_table(a) is dev_a
+    assert grs._prebuilt_operand_table(b) is dev_b
     grs._PREBUILT_OPERAND_TABLE.clear()
 
 
@@ -197,8 +198,9 @@ def test_con16_neural_mi_cache_lock_is_reentrant():
 
     lock = nm._NEURAL_MI_CACHE_LOCK
     with lock:
-        with lock:  # re-acquire from the same thread -- only an RLock permits this
-            assert True
+        # Re-acquire from the same thread: a non-blocking acquire succeeds only for an RLock (a plain Lock returns False).
+        assert lock.acquire(blocking=False), "_NEURAL_MI_CACHE_LOCK is not reentrant"
+        lock.release()
 
 
 # ---------------------------------------------------------------------------

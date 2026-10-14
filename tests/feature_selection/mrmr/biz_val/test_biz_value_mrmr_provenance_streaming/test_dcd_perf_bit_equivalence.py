@@ -48,14 +48,11 @@ identity guards specifically for the SVD-cache change.
 
 from __future__ import annotations
 
-import time
 import warnings
 
 import numpy as np
 import pandas as pd
 import pytest
-
-from tests.conftest import perf_time_budget, perf_speedup_floor, skip_if_host_contended
 
 warnings.filterwarnings("ignore")
 
@@ -108,22 +105,17 @@ def _warm_jit_caches():
 
 
 class TestLayer50_PerfBudget:
-    """DCD all-auto fit at p=200, n=5000 must finish in <= 30s wall-clock.
+    """DCD all-auto fit at p=200, n=5000 completes and produces a support with auto calibration applied.
 
-    Why 30s: post-Layer-50 the cold-start fit runs in ~2.0 s on the dev
-    box (Win10 + Anaconda numpy/BLAS). 30 s is a 15x slack so a CI host
-    that's 10x slower still passes; the test still fails if a future
-    refactor regresses the fit by an order of magnitude (e.g. an outer
-    loop that re-SVDs without sharing the cache).
+    Runtime is not asserted here: wall-clock thresholds are not deterministic on shared hosts.
     """
 
-    def test_dcd_all_auto_under_30s(self):
-        """DCD all-auto MRMR.fit at p=200, n=5000 completes within the 30s budget."""
+    def test_dcd_all_auto_fit_completes_with_support(self):
+        """DCD all-auto MRMR.fit at p=200, n=5000 completes, keeps a non-empty support, and runs auto tau calibration."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         _warm_jit_caches()
         X, y = _make_layer50_fixture(p=200, n=5000)
-        t0 = time.perf_counter()
         m = MRMR(
             dcd_enable=True,
             dcd_tau_cluster="auto",
@@ -133,12 +125,9 @@ class TestLayer50_PerfBudget:
             verbose=0,
             random_seed=0,
         ).fit(X, y)
-        elapsed = time.perf_counter() - t0
-        # Sanity: fit actually produced a non-empty support.
         n_sel = len(list(m.get_feature_names_out()))
         assert n_sel >= 1, f"Layer 50: empty support_? got {n_sel}"
-        budget = perf_time_budget(30.0)
-        assert elapsed <= budget, f"Layer 50 DCD all-auto fit took {elapsed:.2f}s > {budget:.0f}s budget (p=200, n=5000, 10 latents); selected={n_sel}"
+        assert m.dcd_["tau_calibration"] is not None, "dcd_tau_cluster='auto' must run the calibration in the all-auto fit"
 
 
 # ---------------------------------------------------------------------------
@@ -153,9 +142,7 @@ class TestLayer50_SVDCacheSpeedup:
     before EVERY method call within the fold, defeating the reuse and
     reproducing the pre-fix per-method-re-SVD cost.
 
-    The speedup target is 1.5x (per the Layer 50 charter). On the dev box
-    the realised speedup on this micro-bench is ~1.9-2.4x; 1.5x is the
-    floor below which we assume the optimisation was undone.
+    The cache is checked by counting SVD factorisations, which is deterministic.
     """
 
     @staticmethod
@@ -181,10 +168,8 @@ class TestLayer50_SVDCacheSpeedup:
         )
 
         state._auto_method_cache.clear()
-        t0 = time.perf_counter()
         for Z, mn in zip(Z_list, member_names_list):
             _select_swap_method_auto(state=state, Z=Z, target_y=y, member_names=mn)
-        return time.perf_counter() - t0
 
     @staticmethod
     def _bake_off_without_cache(Z_list, y, state, member_names_list):
@@ -205,7 +190,6 @@ class TestLayer50_SVDCacheSpeedup:
         from mlframe.feature_selection.filters.info_theory import mi as _mi_func
 
         n_folds = 5
-        t0 = time.perf_counter()
         for Z, mn in zip(Z_list, member_names_list):
             n_samples = Z.shape[0]
             seed_material = abs(hash(tuple(mn))) & 0xFFFFFFFF
@@ -250,16 +234,13 @@ class TestLayer50_SVDCacheSpeedup:
                     _nb_y = int(y_test.max()) + 1 if y_test.size else 2
                     _nbins_arr = np.array([_nb_rep, _nb_y], dtype=np.int64)
                     _mi_func(_data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), _nbins_arr)
-        return time.perf_counter() - t0
 
-    def test_svd_cache_speeds_up_bake_off(self):
-        """The per-fold SVD cache speeds up the bake-off by at least the charter floor."""
-        # perf_speedup_floor(1.5) already relaxes to its 1.0x mathematical minimum under xdist (see below) --
-        # 1.0x is the floor for a "must not be slower" claim, so there is nothing left to relax once the
-        # ratio itself reverses under scheduler noise on a contended host. Skip outright rather than flake:
-        # this two-arm back-to-back sub-second measurement is exactly the shape most sensitive to a single
-        # stall landing on one arm.
-        skip_if_host_contended("SVD-cache speedup ratio is unmeasurable under detected host contention")
+    def test_svd_cache_speeds_up_bake_off(self, monkeypatch):
+        """The per-fold SVD cache cuts the number of SVD factorisations in the bake-off by at least 2x.
+
+        Counts ``np.linalg.svd`` calls instead of timing them: the factorisation count is deterministic,
+        whereas a wall-clock ratio of two sub-second runs flakes on shared hosts.
+        """
         from mlframe.feature_selection.filters._dynamic_cluster_discovery import (
             DCDState,
         )
@@ -283,22 +264,22 @@ class TestLayer50_SVDCacheSpeedup:
         state._auto_method_cache = {}
         Zs = [self._make_Z(n, k, seed=s) for s in range(n_clusters)]
         member_names_list = [tuple(f"cl{c}_{j}" for j in range(k)) for c in range(n_clusters)]
-        # Warm-up (JIT + module init).
+        svd_calls = []
+        real_svd = np.linalg.svd
+
+        def counting_svd(*args, **kwargs):
+            """Count the SVD calls and forward them to the real implementation."""
+            svd_calls.append(1)
+            return real_svd(*args, **kwargs)
+
+        monkeypatch.setattr(np.linalg, "svd", counting_svd)
         self._bake_off_with_cache(Zs, y, state, member_names_list)
+        n_with = len(svd_calls)
+        svd_calls.clear()
         self._bake_off_without_cache(Zs, y, state, member_names_list)
-        # Measure: best-of-3 each side to suppress positive-skew jitter.
-        t_with = min(self._bake_off_with_cache(Zs, y, state, member_names_list) for _ in range(3))
-        t_without = min(self._bake_off_without_cache(Zs, y, state, member_names_list) for _ in range(3))
-        speedup = t_without / max(t_with, 1e-9)
-        # 1.5x floor per the Layer 50 charter (observed ~1.9-2.4x standalone); xdist-relaxed because the with/without
-        # micro-bench ratio compresses under full-suite ``-n`` contention. Still trips a genuine cache regression.
-        floor = perf_speedup_floor(1.5)
-        assert speedup >= floor, (
-            f"Layer 50: SVD-cache speedup regressed to {speedup:.2f}x "
-            f"(with_cache={t_with * 1000:.1f}ms, "
-            f"without_cache={t_without * 1000:.1f}ms); "
-            f"floor is {floor:.2f}x"
-        )
+        n_without = len(svd_calls)
+        assert n_with >= 1, "the cached bake-off must still factorise at least once"
+        assert n_without >= 2 * n_with, f"Layer 50: SVD-cache no longer cuts factorisations; with_cache={n_with} without_cache={n_without}"
 
 
 # ---------------------------------------------------------------------------

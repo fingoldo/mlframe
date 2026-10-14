@@ -202,25 +202,12 @@ class TestStabilityMRMRDeterminism:
 
     def test_n_jobs_parallel_branch_matches_sequential(self, small_ndarray_dataset):
         # joblib.Parallel branch (n_jobs != 1) must produce the same aggregate as the sequential branch for the same seed.
-        # Tolerates Windows paging-file overflow (WinError 1455) under concurrent test sessions.
         """N jobs parallel branch matches sequential."""
         X, y = small_ndarray_dataset
         seq = StabilityMRMR(estimator=_SeedDependentSelector(n_features=X.shape[1], k=2), n_bootstraps=6, sample_fraction=0.5, random_state=21, n_jobs=1)
         par = StabilityMRMR(estimator=_SeedDependentSelector(n_features=X.shape[1], k=2), n_bootstraps=6, sample_fraction=0.5, random_state=21, n_jobs=2)
-        try:
-            seq.fit(X, y)
-            par.fit(X, y)
-        except OSError as exc:
-            if "paging file" in str(exc).lower() or getattr(exc, "winerror", None) == 1455:
-                pytest.skip(f"Windows paging-file overflow under concurrent load: {exc}")
-            raise
-        except Exception as exc:
-            # loky BrokenProcessPool / TerminatedWorkerError / pickle-transport
-            # errors during heavy concurrent test load. The Parallel/loky spawn
-            # path was entered - that's what this test asserts existed.
-            if any(c.__name__ in ("BrokenProcessPool", "TerminatedWorkerError") for c in type(exc).__mro__):
-                pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}: {exc}")
-            raise
+        seq.fit(X, y)
+        par.fit(X, y)
         np.testing.assert_array_equal(seq.selection_probabilities_, par.selection_probabilities_)
 
 

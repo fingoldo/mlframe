@@ -112,7 +112,9 @@ def test_guide_symbol_importable_from_composite(name):
 @pytest.mark.parametrize("dotted", GUIDE_MODULES)
 def test_guide_dotted_module_smoke_imports(dotted):
     """Guide dotted module smoke imports."""
-    assert importlib.import_module(dotted) is not None
+    module = importlib.import_module(dotted)
+    assert module.__name__ == dotted
+    assert module.__dict__, f"{dotted} imported as an empty module"
 
 
 @pytest.mark.parametrize("tname", GUIDE_TRANSFORMS)

@@ -494,4 +494,4 @@ def test_cupy_availability_reported():
     # The "assert True" is here so the test never fails; the message
     # is captured by pytest -s.
     print(msg)
-    assert True
+    assert isinstance(_cupy_ok(), bool), "the cupy probe must report a boolean availability"

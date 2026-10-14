@@ -75,7 +75,10 @@ def test_fairness_polars_input():
         fairness_min_pop_cat_thresh=1,
     )
     subs, _feats = _compute_fairness_subgroups(df, bc)
+    subs_pd, _ = _compute_fairness_subgroups(df.to_pandas(), bc)
     assert subs is not None
+    assert len(subs) > 0
+    assert subs.keys() == subs_pd.keys(), "polars and pandas inputs must produce the same fairness subgroups"
 
 
 # ----- _apply_outlier_detection_global -----

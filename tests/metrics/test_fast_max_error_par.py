@@ -17,8 +17,8 @@ import mlframe.metrics.regression._regression_metrics as M
 
 def test_fast_max_error_par_twin_exists_and_is_bit_identical():
     """Fast max error par twin exists and is bit identical."""
-    par = getattr(M, "_fast_max_error_par", None)
-    assert par is not None, "missing _fast_max_error_par parallel twin (iter130 regression)"
+    par = M._fast_max_error_par
+    assert par(np.array([1.0, 2.0]), np.array([4.0, 2.5])) == 3.0
     rng = np.random.default_rng(0)
     for n in (1, 17, 1000, 250_000):
         yt = rng.standard_normal(n)

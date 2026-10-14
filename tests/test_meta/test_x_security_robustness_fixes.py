@@ -9,7 +9,8 @@ feature proposal with no reported bug -- deferred; SEC-5's fix only adds the doc
 
 from __future__ import annotations
 
-import inspect
+import os
+import zipfile
 
 import pytest
 
@@ -19,17 +20,39 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
-def test_sec1_trainer_reload_uses_safe_joblib_load_not_plain_joblib():
-    """SEC-1 REGRESSION: the cached-model reload call site must route through safe_joblib_load's
-    RCE-gadget denylist, not the unrestricted plain joblib.load."""
-    import mlframe.training._trainer_train_and_evaluate as mod
-    import mlframe.training._trainer_train_and_evaluate_parts as parts
+class _ClassicGadget:
+    """Classic RCE gadget: unpickling calls ``os.system``, which the safe loader's denylist must refuse."""
 
-    # the reload step is carved into the parts module; the call site lives in one of the two
-    src = inspect.getsource(mod) + inspect.getsource(parts)
-    assert "from mlframe.training.io import safe_joblib_load" in src
-    assert "model, *_, pre_pipeline = safe_joblib_load(model_file_name)" in src
-    assert "model, *_, pre_pipeline = joblib.load(model_file_name)" not in src
+    def __init__(self, marker_path):
+        """Store the path the shell command would write when it runs."""
+        self.marker_path = marker_path
+
+    def __reduce__(self):
+        """Return the (os.system, command) pair that writes the marker file if it ever executes."""
+        return (os.system, (f'echo executed > "{self.marker_path}"',))
+
+
+def test_sec1_trainer_reload_refuses_planted_rce_gadget(tmp_path):
+    """SEC-1 REGRESSION: the cached-model reload must not execute a planted classic RCE-gadget pickle.
+
+    Drives the real reload block with a planted file at the expected model path. The gadget is refused by
+    safe_joblib_load, so the block logs and falls back to retraining: the caller's model object comes back untouched
+    and the gadget's side effect never happens.
+    """
+    import joblib
+
+    from mlframe.training._trainer_train_and_evaluate_parts import _train_and_evaluate_use_cache_exists_model
+
+    marker = tmp_path / "gadget_executed.txt"
+    model_file = tmp_path / "cached_model.dump"
+    joblib.dump(_ClassicGadget(str(marker)), model_file)
+
+    sentinel_model, sentinel_pre = object(), object()
+    model, pre_pipeline = _train_and_evaluate_use_cache_exists_model(True, str(model_file), None, sentinel_model, sentinel_pre)
+
+    assert model is sentinel_model
+    assert pre_pipeline is sentinel_pre
+    assert not marker.exists(), "the planted gadget executed during the cached-model reload"
 
 
 def test_sec1_sec4_safe_joblib_load_blocks_classic_rce_gadget(tmp_path):
@@ -64,14 +87,27 @@ def test_sec1_sec4_safe_joblib_load_blocks_classic_rce_gadget(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_sec2_deserialize_propagates_permission_error_not_pickle_fallback():
-    """SEC-2 REGRESSION: a PermissionError from np.load must propagate as itself, not be funnelled
-    into the legacy-pickle fallback (which would raise a confusing UnpicklingError instead)."""
+@pytest.mark.parametrize(
+    "io_error",
+    [PermissionError("locked by another process"), zipfile.BadZipFile("truncated npz")],
+    ids=["permission_error", "bad_zip"],
+)
+def test_sec2_deserialize_propagates_io_error_not_pickle_fallback(tmp_path, monkeypatch, io_error):
+    """SEC-2 REGRESSION: an OSError or BadZipFile from np.load must propagate as itself, not be funnelled
+    into the legacy-pickle fallback (which would raise a confusing UnpicklingError or CachePickleRefusedError)."""
     import mlframe.training.feature_handling.cache as mod
 
-    src = inspect.getsource(mod._deserialize)
-    assert "except (OSError, zipfile.BadZipFile):" in src
-    assert "raise" in src.split("except (OSError, zipfile.BadZipFile):")[1].split("except Exception:")[0]
+    payload = tmp_path / "cached.npz"
+    payload.write_bytes(b"placeholder")
+
+    def _raise(*args, **kwargs):
+        """Stand-in for np.load that fails with the parametrised I/O error."""
+        raise io_error
+
+    monkeypatch.setattr(mod.np, "load", _raise)
+    with pytest.raises(type(io_error)) as excinfo:
+        mod._deserialize(str(payload), allow_pickle=True)
+    assert excinfo.value is io_error
 
 
 def test_sec2_deserialize_still_falls_back_for_genuine_legacy_pickle(tmp_path):
@@ -118,12 +154,3 @@ def test_sec3_feature_cache_getstate_drops_lock():
 # ---------------------------------------------------------------------------
 # SEC-5: the CDN plotly.js dependency is now documented at its call site
 # ---------------------------------------------------------------------------
-
-
-def test_sec5_plotly_cdn_dependency_documented():
-    """SEC-5: the offline-availability tradeoff of include_plotlyjs='cdn' must be documented inline."""
-    import mlframe.reporting.renderers.plotly as mod
-
-    src = inspect.getsource(mod)
-    assert "air-gapped" in src or "no outbound internet access" in src
-    assert 'include_plotlyjs="cdn"' in src

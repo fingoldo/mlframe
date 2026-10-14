@@ -89,4 +89,5 @@ def test_optimize_for_storage_metadata_columns_none_no_op():
     m.columns = np.array("only_col")  # 0-d ndarray that would crash list()
     optimize_model_for_storage(m, TargetTypes.REGRESSION, metadata_columns=None)
     # No crash + columns preserved.
-    assert m.columns is not None
+    assert m.columns.shape == ()
+    assert m.columns.item() == "only_col"

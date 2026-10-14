@@ -41,6 +41,16 @@ def _build_inputs(n: int = 200, ts_kind: str = "numeric"):
     return df, ts
 
 
+def _assert_three_way_partition(result, n: int) -> None:
+    """The first three returned index arrays partition all ``n`` rows: sizes 160/20/20 and no overlap or gap."""
+    index_arrays = [np.asarray(result[i]) for i in range(3)]
+    lengths = sorted(len(a) for a in index_arrays)
+    # The two 10% partitions (test and val) must each hold roughly n * 0.1 rows; the remainder is train.
+    assert all(abs(length - n * 0.1) <= 3 for length in lengths[:2]), f"unexpected partition sizes {lengths}"
+    combined = np.concatenate(index_arrays)
+    assert np.array_equal(np.sort(combined), np.arange(n))
+
+
 def test_numeric_ts_no_format_specifier_error() -> None:
     """int64 epoch-seconds ts must not crash the splitter's log
     formatter. Pre-fix this raised
@@ -59,10 +69,7 @@ def test_numeric_ts_no_format_specifier_error() -> None:
         timestamps=ts,
         wholeday_splitting=False,
     )
-    # The splitter returns at least train_idx + val_idx + test_idx.
-    # Don't assert internal tuple shape (varies across versions);
-    # just verify no exception bubbled up.
-    assert result is not None
+    _assert_three_way_partition(result, n=200)
 
 
 def test_datetime_ts_format_unchanged() -> None:
@@ -78,7 +85,7 @@ def test_datetime_ts_format_unchanged() -> None:
         timestamps=ts,
         wholeday_splitting=False,
     )
-    assert result is not None
+    _assert_three_way_partition(result, n=200)
 
 
 def test_format_specifier_helper_contract() -> None:

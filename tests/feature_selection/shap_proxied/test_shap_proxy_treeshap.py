@@ -67,8 +67,8 @@ def test_treeshap_numba_additivity(classification):
     model = _fit_xgb(X, y, classification=classification)
 
     ens = extract_ensemble(model)
-    assert ens is not None
     phi, base = treeshap_phi_base_numba(ens, X.values)
+    assert phi.shape == (200, 8)
     margin = model.predict(X, output_margin=True)
     recon = base + phi.sum(axis=1)
     np.testing.assert_allclose(recon, margin, rtol=0, atol=1e-4)

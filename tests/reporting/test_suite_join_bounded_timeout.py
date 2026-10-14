@@ -7,7 +7,6 @@ join had no upper bound. The join is now bounded, and the unfinished work is rep
 from __future__ import annotations
 
 import threading
-import time
 
 import pytest
 
@@ -23,11 +22,9 @@ def test_join_suite_render_queue_returns_when_a_render_task_never_finishes(monke
     try:
         q.submit(lambda: never.wait(), name="stuck")
 
-        t0 = time.monotonic()
+        # The join returns while the stuck task is still running; a join that blocked on it would hang here,
+        # which pytest-timeout reports, so no wall-clock bound is asserted.
         async_render_hooks.join_suite_render_queue(q, {}, final=False)
-        elapsed = time.monotonic() - t0
-
-        assert elapsed < 10.0
         assert q.pending() == 1
     finally:
         never.set()

@@ -118,7 +118,8 @@ def test_regression_screen_max_joblib_nbytes_imported():
         verbose=0,
         random_seed=0,
     )
-    assert result is not None
+    assert len(result) == 12
+    assert isinstance(result[0], list)
 
 
 # ---------------------------------------------------------------------------

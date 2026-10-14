@@ -12,8 +12,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from tests.conftest import perf_time_budget
-
 
 def _three_way_noisy_bed(n=3000, flip_frac=0.12, seed=0):
     """Two-blob binary classification bed with label noise injected only into the train split."""
@@ -79,27 +77,43 @@ def test_biz_val_weights_never_read_test_labels_or_features():
 
 @pytest.mark.slow
 @pytest.mark.timeout(900)
-def test_scale_wall_clock_bounded_past_the_subsample_cap():
-    """Wall-clock at n_train=300k (capped valuation at max_valued_rows=5000) stays well under the time
-    an UNCAPPED O(n_val * n_train) knn_shapley call would take at this size -- proof the linear
-    propagation path, not the quadratic valuation path, dominates cost once n_train exceeds the cap."""
-    import time
+def test_scale_valuation_work_bounded_past_the_subsample_cap(monkeypatch):
+    """At n_train=300k with max_valued_rows=5000, the quadratic knn_shapley valuation only ever sees the 5000-row
+    subsample; the full training set is reached only through the linear propagation step.
 
+    Asserted through call shapes rather than wall-clock: the valuation call's train side is exactly the cap,
+    and the propagation call covers every training row.
+    """
+    from mlframe.data_valuation import _training_weight_adapter as adapter
     from mlframe.data_valuation import training_sample_weight_from_valuation
 
     rng = np.random.default_rng(3)
-    n_train, n_val = 300_000, 2000
+    n_train, n_val, cap = 300_000, 2000, 5000
     X_train = rng.standard_normal((n_train, 10))
     y_train = (X_train[:, 0] + X_train[:, 1] > 0).astype(np.int64)
     X_val = rng.standard_normal((n_val, 10))
     y_val = (X_val[:, 0] + X_val[:, 1] > 0).astype(np.int64)
 
-    # warm numba JIT on a tiny call first so the timed call below isn't dominated by first-call compile cost.
-    training_sample_weight_from_valuation(X_train[:500], y_train[:500], X_val[:5], y_val[:5], max_valued_rows=200, rng=np.random.default_rng(4))
+    real_knn = adapter.knn_shapley
+    real_propagate = adapter.propagate_subsample_values
+    knn_train_rows = []
+    propagate_full_rows = []
 
-    t0 = time.perf_counter()
-    w = training_sample_weight_from_valuation(X_train, y_train, X_val, y_val, max_valued_rows=5000, rng=np.random.default_rng(5))
-    wall = time.perf_counter() - t0
+    def _spy_knn(X_tr, *args, **kwargs):
+        """Record the train-side row count of every valuation call, then delegate."""
+        knn_train_rows.append(X_tr.shape[0])
+        return real_knn(X_tr, *args, **kwargs)
+
+    def _spy_propagate(X_full, *args, **kwargs):
+        """Record the number of rows propagated to, then delegate."""
+        propagate_full_rows.append(X_full.shape[0])
+        return real_propagate(X_full, *args, **kwargs)
+
+    monkeypatch.setattr(adapter, "knn_shapley", _spy_knn)
+    monkeypatch.setattr(adapter, "propagate_subsample_values", _spy_propagate)
+
+    w = training_sample_weight_from_valuation(X_train, y_train, X_val, y_val, max_valued_rows=cap, rng=np.random.default_rng(5))
 
     assert w.shape == (n_train,)
-    assert wall < perf_time_budget(30.0), f"capped adapter took {wall:.2f}s at n_train={n_train} -- expected well under 30s with max_valued_rows=5000"
+    assert knn_train_rows == [cap], f"valuation must run on exactly the {cap}-row subsample, got {knn_train_rows}"
+    assert propagate_full_rows == [n_train], f"propagation must cover all {n_train} training rows, got {propagate_full_rows}"

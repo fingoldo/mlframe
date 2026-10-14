@@ -26,8 +26,6 @@ import pytest
 
 from mlframe.preprocessing.transforms import prepare_df_for_catboost
 
-from tests.conftest import perf_time_budget
-
 # ---------------------------------------------------------------------------
 # pandas dtype preservation
 # ---------------------------------------------------------------------------
@@ -205,7 +203,6 @@ def test_pandas_text_feature_skips_expensive_astype_rebuild():
     If this sensor ever fires, the most likely cause is a regression of
     the text-feature skip logic in ``prepare_df_for_catboost``.
     """
-    import time
 
     rng = np.random.default_rng(42)
     n = 50_000
@@ -224,15 +221,15 @@ def test_pandas_text_feature_skips_expensive_astype_rebuild():
     # on the cat-loop skip invariant, not the NaN handling contract.
 
     cat_features: list = []
-    t0 = time.perf_counter()
+    before = df["skills_text"].copy()
     prepare_df_for_catboost(df, cat_features=cat_features, text_features=["skills_text"])
-    elapsed = time.perf_counter() - t0
 
     assert "skills_text" not in cat_features
-    # Budget: comfortable for the skip path (<~0.3s on Python 3.11 + pandas
-    # 2.x dev box), tight enough that the astype(str).astype("category")
-    # rebuild over 5k categories would breach it easily.
-    assert elapsed < perf_time_budget(2.0), f"prepare_df_for_catboost took {elapsed:.2f}s on a 50k text column — the text-feature skip likely regressed"
+    # The skip must leave the text column exactly as it was: an astype(str).astype("category") rebuild over
+    # 5k categories would replace the category mapping.
+    assert df["skills_text"].dtype == before.dtype
+    assert list(df["skills_text"].cat.categories) == list(before.cat.categories)
+    assert df["skills_text"].equals(before)
 
 
 def test_pandas_text_feature_dtype_is_not_mutated():
@@ -355,7 +352,6 @@ def test_cat_nan_fill_perf_budget_huge_untrimmed_dict():
     plus copied it. Budget set so the fix passes easily and the bug
     would blow through by >10x even with small strings.
     """
-    import time
 
     huge_dict = [f"cat_value_{i:010d}_with_moderately_long_suffix" for i in range(100_000)]
     n = 10_000
@@ -372,22 +368,14 @@ def test_cat_nan_fill_perf_budget_huge_untrimmed_dict():
         }
     )
 
-    t0 = time.perf_counter()
     prepare_df_for_catboost(df, cat_features=[], text_features=[])
-    elapsed = time.perf_counter() - t0
 
     assert not df["x"].isna().any()
-    # Budget raised 2.0 -> 3.0 (2026-06-01) after observed 2.34s on
-    # contended Windows worker; the original astype(str)-restoration
-    # regression detector still fires at ~10x the 2.0s baseline (the
-    # broken path used to scale O(huge_dict_len) = 100k entries to
-    # tens of seconds), so 3.0s preserves the sensor's intent while
-    # absorbing legitimate cross-worker variance.
-    assert elapsed < perf_time_budget(3.0), (
-        f"prepare_df_for_catboost took {elapsed:.2f}s on a 100k-entry "
-        "untrimmed dict — regression of the 2026-04-19 MemoryError fix "
-        "(likely someone restored the astype(str) path)."
-    )
+    # The untrimmed 100k-entry category mapping must survive: the regressed astype(str) path would turn the
+    # categorical into object strings and drop the mapping.
+    assert isinstance(df["x"].dtype, pd.CategoricalDtype)
+    # The NaN fill appends one empty-string category after the original 100k entries.
+    assert list(df["x"].cat.categories[: len(huge_dict)]) == huge_dict
 
 
 # ---------------------------------------------------------------------------

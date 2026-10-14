@@ -36,6 +36,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import pytest
 
 from mlframe.training.composite.discovery._eval import refit_transform_on_fold
 from mlframe.training.composite.transforms import Transform
@@ -387,8 +388,11 @@ def test_refit_threads_groups_when_fit_accepts():
     groups = np.array([0, 0, 1, 1, 1])
     out = refit_transform_on_fold(transform, y, base, groups_fold=groups)
     assert out is not None
+    params, valid = out
     # Row 2 (y NaN) is dropped pre-fit; groups must be sliced to match.
     np.testing.assert_array_equal(seen["groups"], np.array([0, 0, 1, 1]))
+    np.testing.assert_array_equal(valid, np.array([True, True, False, True, True]))
+    assert params["beta"] == pytest.approx(np.mean([0.0, 1.0, 3.0, 4.0]))
 
 
 def test_refit_groups_ignored_when_fit_rejects():
@@ -399,3 +403,7 @@ def test_refit_groups_ignored_when_fit_rejects():
     groups = np.zeros(60, dtype=int)
     out = refit_transform_on_fold(transform, y, base, groups_fold=groups)
     assert out is not None  # did not raise on the unexpected kwarg
+    baseline = refit_transform_on_fold(transform, y, base)
+    assert baseline is not None
+    assert out[0] == baseline[0]
+    np.testing.assert_array_equal(out[1], baseline[1])

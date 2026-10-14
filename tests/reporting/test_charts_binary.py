@@ -722,7 +722,7 @@ def test_operating_point_marker_renders_on_matplotlib():
     fig_spec = compose_binary_figure(y, s, panels_template="ROC PR", threshold=0.5, ap_ci=False)
     rend = get_renderer("matplotlib")
     fig = rend.render(fig_spec)
-    assert fig is not None
+    assert len(fig.axes) == sum(len(row) for row in fig_spec.panels)
     import matplotlib.pyplot as plt
 
     plt.close(fig)

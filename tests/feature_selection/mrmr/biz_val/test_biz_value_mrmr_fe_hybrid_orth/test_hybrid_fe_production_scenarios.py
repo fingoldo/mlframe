@@ -259,6 +259,8 @@ def _engineered_uses(support, *vars_) -> bool:
     """
     import re
 
+    if not vars_:
+        raise ValueError("_engineered_uses needs at least one variable; an empty list would match every column")
     for col in support:
         s = str(col)
         if not any(tok in s for tok in ("(", "__", "*")):

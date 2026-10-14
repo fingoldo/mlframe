@@ -689,7 +689,7 @@ def test_run_cma_search_track_history():
 
 
 def test_run_cma_search_direction_only():
-    """direction_only=True still lets _run_cma_search converge to a non-None result."""
+    """direction_only=True still lets _run_cma_search converge to a finite positive-MI result on the XOR pair."""
     pytest.importorskip("cma")
     x_a, x_b, y = _xor_pair(n=200)
     kw = _make_eval_kwargs(x_a, x_b, y)
@@ -704,7 +704,11 @@ def test_run_cma_search_direction_only():
         eval_kwargs=kw,
         popsize=6,
     )
-    assert res is not None
+    coef_a, coef_b, _bf_idx, raw_mi, _n_evals = res
+    assert coef_a.shape == (2,)
+    assert coef_b.shape == (2,)
+    assert np.isfinite(raw_mi)
+    assert raw_mi > 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -735,7 +739,7 @@ def test_optimise_hermite_pair_each_polynomial_basis(basis):
         baseline_uplift_threshold=0.0,  # accept any improvement
     )
     # Either a valid result or None when search didn't beat baseline -- both legitimate paths.
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
     if res is not None:
         assert res.basis == basis
         assert res.coef_a.shape == (3,)
@@ -771,7 +775,7 @@ def test_optimise_hermite_pair_extra_bases(basis):
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
     # RBF/Sigmoid are factory-bases where eval_dispatch is built lazily; transform() requires non-None dispatch.
     if res is not None and _POLY_BASES[basis].get("eval_dispatch") is not None:
         out = res.transform(x_a, x_b)
@@ -804,7 +808,7 @@ def test_optimise_hermite_pair_optuna_path():
         baseline_uplift_threshold=0.0,
         early_stop_no_improve=8,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
 
 
 @pytest.mark.slow
@@ -828,7 +832,7 @@ def test_optimise_hermite_pair_optuna_no_early_stop():
         baseline_uplift_threshold=0.0,
         early_stop_no_improve=0,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
 
 
 def test_optimise_hermite_pair_cma_with_sweep_degrees():
@@ -878,7 +882,7 @@ def test_optimise_hermite_pair_direction_only_arg():
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
 
 
 def test_optimise_hermite_pair_warm_start_false():
@@ -900,7 +904,7 @@ def test_optimise_hermite_pair_warm_start_false():
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
 
 
 @pytest.mark.slow
@@ -927,7 +931,7 @@ def test_optimise_hermite_pair_multi_fidelity_path():
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
 
 
 def test_optimise_hermite_pair_trivial_baseline_branch():
@@ -949,7 +953,7 @@ def test_optimise_hermite_pair_trivial_baseline_branch():
         use_trivial_baseline=True,
         baseline_uplift_threshold=0.0,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
 
 
 def test_optimise_hermite_pair_regression_target():
@@ -971,7 +975,7 @@ def test_optimise_hermite_pair_regression_target():
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
 
 
 def test_optimise_hermite_pair_ksg_estimator():
@@ -995,7 +999,7 @@ def test_optimise_hermite_pair_ksg_estimator():
         use_trivial_baseline=False,
         baseline_uplift_threshold=0.0,
     )
-    assert res is None or isinstance(res, HermiteResult)
+    assert isinstance(res, HermiteResult)
 
 
 def test_optimise_hermite_pair_neighbors_auto_pick_small():

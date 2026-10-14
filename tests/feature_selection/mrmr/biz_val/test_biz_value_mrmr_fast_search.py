@@ -57,6 +57,8 @@ def _ridge_holdout_mae(model, df, y):
 def _covers(names, *operands):
     """A selected name 'covers' an interaction when its engineered form names BOTH operands
     inside one feature (a fused composite, a gate composite, or a binary op of the two)."""
+    if not operands:
+        raise ValueError("_covers needs at least one operand; an empty operand list would match every name")
     for nm in names:
         s = str(nm)
         if all((op + ")") in s or (op + ",") in s or ("," + op) in s or ("(" + op) in s or ("_" + op + "_") in s for op in operands):

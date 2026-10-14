@@ -43,9 +43,11 @@ class TestLinearModelCreation:
         model = create_linear_model(model_type, config, use_regression=True)
 
         assert model is not None
-        # Most regression models should be regressors (except RANSAC which is a meta-estimator)
-        if model_type not in ["ransac"]:
-            assert is_regressor(model) or hasattr(model, "fit")
+        # Every regression model is a regressor except RANSAC, which is a meta-estimator wrapping one.
+        if model_type != "ransac":
+            assert is_regressor(model)
+        else:
+            assert hasattr(model, "fit") and hasattr(model, "predict")
 
     @pytest.mark.parametrize("model_type", fast_subset(_ALL_LINEAR_CLF_TYPES, representative="ridge"))
     def test_create_classification_model(self, model_type):

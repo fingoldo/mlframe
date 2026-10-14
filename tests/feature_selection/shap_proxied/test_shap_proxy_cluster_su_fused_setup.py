@@ -18,7 +18,6 @@ from __future__ import annotations
 import math
 
 import numpy as np
-import pytest
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     _column_marginal,
@@ -28,7 +27,6 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su import (
     _setup_su_kernel_inputs,
     cluster_correlated_features_su,
 )
-from tests._perf_paired import assert_paired_speedup
 from tests.conftest import skip_under_numba_disabled_jit
 
 
@@ -138,18 +136,12 @@ def test_fused_setup_parity_with_kernel():
 
 
 @skip_under_numba_disabled_jit
-def test_fused_setup_speedup_at_width_1500():
-    """At width=1500, fused setup path beats two-pass setup ref by >=15%.
+def test_fused_setup_matches_two_pass_reference_at_width_1500():
+    """At width=1500 the fused setup path yields the same packed buffers as the two-pass reference.
 
     Compares ONLY the setup phase (calls _setup_su_kernel_inputs vs the chain
-    _column_marginal + _pack_bins_for_kernel). The downstream pairwise kernel
-    is identical in both cases so we isolate the contribution of the fold.
+    _column_marginal + _pack_bins_for_kernel), element for element.
     """
-    import numba
-
-    if numba.get_num_threads() < 2:
-        pytest.skip(f"numba reports {numba.get_num_threads()} thread(s); parallel setup needs >=2 cores")
-
     width = 1500
     n_samples = 1500
     bins, names = _build_synthetic_bins(
@@ -160,22 +152,17 @@ def test_fused_setup_speedup_at_width_1500():
     )
     _, arrays = _resolve_columns(bins, names)
 
-    # Warmup numba kernel (first call triggers JIT compile).
-    _ = _setup_su_kernel_inputs(arrays[:4], None)
-
-    def _two_pass():
-        """Helper: the old marginal-then-pack reference arm."""
-        marginals = [_column_marginal(a) for a in arrays]
-        return _pack_bins_for_kernel(arrays, marginals)
-
-    old, fused = assert_paired_speedup(
-        _two_pass,
-        lambda: _setup_su_kernel_inputs(arrays, nbins_hints=None),
-        base_ratio=1.15,
-        what="the fused SU setup against the two-pass reference",
-    )
-    assert fused is not None
-    assert old is not None
+    marginals = [_column_marginal(a) for a in arrays]
+    old = _pack_bins_for_kernel(arrays, marginals)
+    fused = _setup_su_kernel_inputs(arrays, nbins_hints=None)
+    assert len(old) > 0
+    assert len(fused) == len(old)
+    for ref_buf, fused_buf in zip(old, fused):
+        if np.issubdtype(np.asarray(ref_buf).dtype, np.floating):
+            # Marginal probabilities / entropies differ only by floating-point summation order between the two paths.
+            np.testing.assert_allclose(fused_buf, ref_buf, rtol=1e-12, atol=1e-15)
+        else:
+            np.testing.assert_array_equal(fused_buf, ref_buf)
 
 
 def test_compute_marginals_packed_handles_padded_constant_column():
