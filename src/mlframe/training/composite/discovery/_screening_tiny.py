@@ -43,9 +43,17 @@ logger = logging.getLogger(__name__)
 # repeat; cache them once per sweep (also skips KFold.split's per-call x re-validation).
 # LRU over keys: each entry holds ``cv_folds x n_rows`` int64 indices (40 MB at 1M rows x 5 folds), so the bound is a
 # handful of keys, not hundreds: a sweep reuses one key set, and 256 keys at 1M rows could hold 10 GB.
-from ._screening_tiny_shared import (  # moved to the leaf module; re-exported for the screen and the per-bin split
+from ._screening_tiny_shared import (  # noqa: F401 - moved to the leaf module; re-exported so existing importers keep working
+    _FEATURE_NAMES_RE,
+    _KFOLD_SPLIT_CACHE,
+    _KFOLD_SPLIT_CACHE_LOCK,
+    _KFOLD_SPLIT_CACHE_MAX,
+    _SKIPPING_FEATURES_RE,
     _build_tiny_model,
+    _cached_kfold_splits,
+    _family_uses_lgb,
     _silence_tiny_model_output,
+    _silence_tiny_state,
     cap_inner_n_jobs,
 )
 
