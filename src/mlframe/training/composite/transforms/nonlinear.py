@@ -2,6 +2,7 @@
 
 Bound back into the parent's namespace via re-export at the parent's module bottom so historical ``from mlframe.training.composite_transforms import _monotonic_residual_fit`` resolves transparently.
 """
+
 from __future__ import annotations
 
 from ._domain_shared import residual_domain_reshaped
@@ -19,6 +20,7 @@ import numpy as np
 
 try:
     import numba as _numba
+
     _HAS_NUMBA = True
 except ImportError:  # pragma: no cover
     _numba = None
@@ -34,7 +36,7 @@ if TYPE_CHECKING:
 # Signature defaults evaluate at module load, so these MUST be top-level (a lazy in-body import
 # wouldn't see them). The parent defines all five BEFORE its bottom-of-module sibling import, so this
 # static cycle resolves at runtime. Whitelisted in tests/test_meta/test_no_import_cycles.py.
-from . import (
+from ._transform_tuning import (
     _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
     _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
     _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
@@ -101,6 +103,7 @@ if _HAS_NUMBA:
                 b = n_bins - 1
             out[i] = b
         return out
+
 else:
     _quantile_assign_bins_kernel = None
 
@@ -109,6 +112,7 @@ logger = logging.getLogger("mlframe.training.composite_transforms")
 
 if TYPE_CHECKING:
     from . import Transform
+
 
 def _james_stein_shrinkage_factor(
     per_group_alphas: np.ndarray,
@@ -153,8 +157,11 @@ def _james_stein_shrinkage_factor(
     # Classic JS factor c in α_shrunk = (1-c) α_g + c α_global; c = (K-3) · mean_g(σ²_g) / Σ_g (α_g - α_global)², clamped to [0, 1]. High noise / low spread => c->1 (full shrink); low noise / high spread => c->0 (keep per-group).
     raw = (k - 3) * mean_per_group_variance / sum_sq
     return float(max(0.0, min(1.0, raw)))
+
+
 def _row_alpha_beta(
-    groups: np.ndarray, params: dict[str, Any],
+    groups: np.ndarray,
+    params: dict[str, Any],
 ) -> tuple[np.ndarray, np.ndarray]:
     """Materialise per-row (alpha, beta) from the grouped params dict.
 
@@ -169,6 +176,7 @@ def _row_alpha_beta(
     # predict does not miss every group and silently fall back to global alpha/beta.
     from . import _canonical_group_key
     from . import _unique_group_labels
+
     uniq, inv = _unique_group_labels(groups)
     uniq_alpha = np.array(
         [pg_alphas.get(_canonical_group_key(g), alpha_global) for g in uniq],
@@ -187,8 +195,12 @@ absolute ``1e-6``: that disabled per-bin scaling on every bin of a 1e-7-scale ta
 
 
 def _quantile_residual_per_bin_stats_v1_pyloop(
-    y_clean: np.ndarray, bin_idx: np.ndarray, actual_n_bins: int,
-    min_bin_n: int, global_median: float, global_iqr: float,
+    y_clean: np.ndarray,
+    bin_idx: np.ndarray,
+    actual_n_bins: int,
+    min_bin_n: int,
+    global_median: float,
+    global_iqr: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Reference: build per-bin boolean masks; under-populated bins keep global fallback."""
     bin_medians = np.full(actual_n_bins, global_median, dtype=np.float64)
@@ -208,11 +220,16 @@ def _quantile_residual_per_bin_stats_v1_pyloop(
 
 
 def _quantile_residual_per_bin_stats_v2_pandas_groupby(
-    y_clean: np.ndarray, bin_idx: np.ndarray, actual_n_bins: int,
-    min_bin_n: int, global_median: float, global_iqr: float,
+    y_clean: np.ndarray,
+    bin_idx: np.ndarray,
+    actual_n_bins: int,
+    min_bin_n: int,
+    global_median: float,
+    global_iqr: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Vectorised via pandas groupby quantile([.25, .5, .75]); under-populated bins (count < min_bin_n) are reset to global fallback to match the v1 semantics exactly."""
     import pandas as _pd
+
     bin_medians = np.full(actual_n_bins, global_median, dtype=np.float64)
     bin_iqrs = np.full(actual_n_bins, global_iqr, dtype=np.float64)
     bin_sizes = np.zeros(actual_n_bins, dtype=np.int64)
@@ -235,19 +252,33 @@ def _quantile_residual_per_bin_stats_v2_pandas_groupby(
 
 
 def _quantile_residual_per_bin_stats(
-    y_clean: np.ndarray, bin_idx: np.ndarray, actual_n_bins: int,
-    min_bin_n: int, global_median: float, global_iqr: float,
+    y_clean: np.ndarray,
+    bin_idx: np.ndarray,
+    actual_n_bins: int,
+    min_bin_n: int,
+    global_median: float,
+    global_iqr: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Size-aware dispatcher across per-bin quantile-stats variants. Bench (bench_median_quantile_residual.py): v2 pandas-groupby wins at small n / large n_bins (n=100k+20bins: 1.72x over v1) and ties / loses on large n with few bins, so route to v2 when ``y_clean.size <= 200_000`` else v1. Sort-based numba variant tried and rejected (extra argsort dominated -- see bench-attempt-rejected note in bench_median_quantile_residual.py)."""
     if y_clean.size <= 200_000:
         try:
             return _quantile_residual_per_bin_stats_v2_pandas_groupby(
-                y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
+                y_clean,
+                bin_idx,
+                actual_n_bins,
+                min_bin_n,
+                global_median,
+                global_iqr,
             )
         except Exception as _exc:
             logger.warning("composite_transforms: pandas-groupby fast path failed (%s); using numpy fallback.", _exc)
     return _quantile_residual_per_bin_stats_v1_pyloop(
-        y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
+        y_clean,
+        bin_idx,
+        actual_n_bins,
+        min_bin_n,
+        global_median,
+        global_iqr,
     )
 
 
@@ -274,7 +305,8 @@ def _robust_y_scale(y_clean: np.ndarray) -> float:
 
 
 def _quantile_residual_fit(
-    y: np.ndarray, base: np.ndarray,
+    y: np.ndarray,
+    base: np.ndarray,
     n_bins: int = _QUANTILE_RESIDUAL_DEFAULT_N_BINS,
     min_bin_n: int = _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N,
     _finite_mask: np.ndarray | None = None,
@@ -334,7 +366,12 @@ def _quantile_residual_fit(
     # Per-bin assignment via np.searchsorted (right-side: edges[i-1] <= x < edges[i]).
     bin_idx = np.clip(np.searchsorted(edges[1:-1], base_clean, side="right"), 0, actual_n_bins - 1)
     bin_medians, bin_iqrs, bin_sizes_arr = _quantile_residual_per_bin_stats(
-        y_clean, bin_idx, actual_n_bins, min_bin_n, global_median, global_iqr,
+        y_clean,
+        bin_idx,
+        actual_n_bins,
+        min_bin_n,
+        global_median,
+        global_iqr,
     )
     bin_sizes: list[int] = bin_sizes_arr.tolist()
     return {
@@ -346,6 +383,8 @@ def _quantile_residual_fit(
         "global_iqr": global_iqr,
         "n_bins": int(actual_n_bins),
     }
+
+
 def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.ndarray:
     """Map each row of ``base`` to a bin index in [0, n_bins-1]. Out-of-range values map to the edge bin (no separate OOR bucket), per the contract documented on the transform."""
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
@@ -354,13 +393,21 @@ def _quantile_residual_assign_bins(base: np.ndarray, edges: np.ndarray) -> np.nd
         return np.zeros(base_f.size, dtype=np.intp)
     # ``edges[1:-1]`` are the INNER cut points; searchsorted returns 0..n_bins.
     if _HAS_NUMBA:
-        return np.asarray(_quantile_assign_bins_kernel(
-            np.ascontiguousarray(base_f), np.ascontiguousarray(edges[1:-1]), n_bins,
-        ))
+        return np.asarray(
+            _quantile_assign_bins_kernel(
+                np.ascontiguousarray(base_f),
+                np.ascontiguousarray(edges[1:-1]),
+                n_bins,
+            )
+        )
     bin_idx = np.searchsorted(edges[1:-1], base_f, side="right")
     return np.clip(bin_idx, 0, n_bins - 1)
+
+
 def _quantile_residual_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    y: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Apply ``T = (y - median_bin(base)) / IQR_bin(base)``: bin-conditional median-centring scaled by the bin's IQR."""
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
@@ -368,8 +415,12 @@ def _quantile_residual_forward(
     iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
     bin_idx = _quantile_residual_assign_bins(base, edges)
     return np.asarray((np.asarray(y, dtype=np.float64) - medians[bin_idx]) / iqrs[bin_idx])
+
+
 def _quantile_residual_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    t_hat: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Undo the transform: ``y = T_hat * IQR_bin(base) + median_bin(base)``."""
     edges = np.asarray(params["bin_edges"], dtype=np.float64)
@@ -377,7 +428,11 @@ def _quantile_residual_inverse(
     iqrs = np.asarray(params["bin_iqrs"], dtype=np.float64)
     bin_idx = _quantile_residual_assign_bins(base, edges)
     return np.asarray(np.asarray(t_hat, dtype=np.float64) * iqrs[bin_idx] + medians[bin_idx])
+
+
 _quantile_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped
+
+
 def _spearman_sign(a: np.ndarray, b: np.ndarray) -> int:
     """Return +1 / -1: the sign of the Spearman rank correlation between ``a`` and ``b``.
 
@@ -402,7 +457,8 @@ def _spearman_sign(a: np.ndarray, b: np.ndarray) -> int:
 
 
 def _monotonic_residual_fit(
-    y: np.ndarray, base: np.ndarray,
+    y: np.ndarray,
+    base: np.ndarray,
     n_knots: int = _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS,
     min_knot_n: int = _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N,
     _finite_mask: np.ndarray | None = None,
@@ -510,7 +566,8 @@ def _monotonic_residual_fit(
         _g_train = _monotonic_residual_g(
             base_clean,
             {
-                "knots_x": knots_x, "knots_y": knots_y,
+                "knots_x": knots_x,
+                "knots_y": knots_y,
                 "y_train_mean": float(np.mean(y_clean)),
                 "monotone_direction": direction,
             },
@@ -530,6 +587,8 @@ def _monotonic_residual_fit(
         "is_degenerate": _is_degenerate,
         "var_explained": _var_explained,
     }
+
+
 def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     """Evaluate the monotone PCHIP interpolant at the requested base values. Out-of-range values clip to the edge knot value (NOT extrapolated)."""
     knots_x = np.asarray(params["knots_x"], dtype=np.float64)
@@ -543,6 +602,7 @@ def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarra
         slope = (knots_y[-1] - knots_y[0]) / max(knots_x[-1] - knots_x[0], 1e-12)
         return np.asarray(knots_y[0] + slope * (clipped - knots_x[0]))
     from scipy.interpolate import PchipInterpolator  # lazy
+
     # extrapolate=False yields NaN outside [x[0], x[-1]]; fill those with the edge knot values to keep predict-time well-defined.
     interp = PchipInterpolator(knots_x, knots_y, extrapolate=False)
     out = interp(base_f)
@@ -552,17 +612,29 @@ def _monotonic_residual_g(base: np.ndarray, params: dict[str, Any]) -> np.ndarra
         out[low_mask] = knots_y[0]
         out[high_mask] = knots_y[-1]
     return np.asarray(out)
+
+
 def _monotonic_residual_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    y: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Apply ``T = y - g(base)`` where ``g`` is the fitted monotone PCHIP spline."""
     return np.asarray(np.asarray(y, dtype=np.float64) - _monotonic_residual_g(base, params))
+
+
 def _monotonic_residual_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    t_hat: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Undo the transform: ``y = T_hat + g(base)``."""
     return np.asarray(np.asarray(t_hat, dtype=np.float64) + _monotonic_residual_g(base, params))
+
+
 _monotonic_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_reshaped
+
+
 def _delegate_domain_check(bivariate_domain):
     """Domain-check factory shared by ``_make_chain_transform`` / ``_make_multi_chain_transform``:
     delegates entirely to the bivariate half, since the unary stage(s) have no base-dependent constraint."""
@@ -575,9 +647,16 @@ def _delegate_domain_check(bivariate_domain):
 
 
 def _make_chain_transform(
-    *, name: str, short_name: str,
-    bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
-    unary_fit, unary_forward, unary_inverse,
+    *,
+    name: str,
+    short_name: str,
+    bivariate_fit,
+    bivariate_forward,
+    bivariate_inverse,
+    bivariate_domain,
+    unary_fit,
+    unary_forward,
+    unary_inverse,
     description: str,
     scale_equivariant: bool = True,
     chain_stages: "tuple[str, str] | None" = None,
@@ -588,12 +667,14 @@ def _make_chain_transform(
     """
     # Lazy import: ``.predict`` re-imports this sibling at its bottom, so a top-level ``from .predict import ...`` would create a hard cycle the meta-test flags.
     from . import TAG_EXTENDED, TAG_REGRESSION, Transform, _chain_fit_raw, _chain_forward_raw, _chain_inverse_raw
+
     unary_tup = (unary_fit, unary_forward, unary_inverse)
 
     def _fit(y, base, sample_weight=None):
         """Fit the bivariate half (weighted when it accepts ``sample_weight``) then the unary half on its output, per :func:`_chain_fit_raw`."""
         return _chain_fit_raw(
-            y=y, base=base,
+            y=y,
+            base=base,
             bivariate_fit=bivariate_fit,
             bivariate_forward=bivariate_forward,
             unary=unary_tup,
@@ -603,7 +684,9 @@ def _make_chain_transform(
     def _forward(y, base, params):
         """Apply bivariate forward then unary forward, per :func:`_chain_forward_raw`."""
         return _chain_forward_raw(
-            y=y, base=base, params=params,
+            y=y,
+            base=base,
+            params=params,
             bivariate_forward=bivariate_forward,
             unary=unary_tup,
         )
@@ -611,7 +694,9 @@ def _make_chain_transform(
     def _inverse(t_hat, base, params):
         """Undo unary then bivariate (reverse order), per :func:`_chain_inverse_raw`."""
         return _chain_inverse_raw(
-            t2=t_hat, base=base, params=params,
+            t2=t_hat,
+            base=base,
+            params=params,
             bivariate_inverse=bivariate_inverse,
             unary=unary_tup,
         )
@@ -629,9 +714,16 @@ def _make_chain_transform(
         scale_equivariant=scale_equivariant,
         chain_stages=chain_stages,
     )
+
+
 def _make_multi_chain_transform(
-    *, name: str, short_name: str,
-    bivariate_fit, bivariate_forward, bivariate_inverse, bivariate_domain,
+    *,
+    name: str,
+    short_name: str,
+    bivariate_fit,
+    bivariate_forward,
+    bivariate_inverse,
+    bivariate_domain,
     unary_stages: list,
     description: str,
 ):
@@ -642,7 +734,8 @@ def _make_multi_chain_transform(
     def _fit(y, base, sample_weight=None):
         """Fit the bivariate half (weighted when it accepts ``sample_weight``) then each unary stage on its predecessor's output, per :func:`_chain_multi_fit_raw`."""
         return _chain_multi_fit_raw(
-            y=y, base=base,
+            y=y,
+            base=base,
             bivariate_fit=bivariate_fit,
             bivariate_forward=bivariate_forward,
             unary_stages=unary_stages,
@@ -652,7 +745,9 @@ def _make_multi_chain_transform(
     def _forward(y, base, params):
         """Apply bivariate forward then every unary stage in order, per :func:`_chain_multi_forward_raw`."""
         return _chain_multi_forward_raw(
-            y=y, base=base, params=params,
+            y=y,
+            base=base,
+            params=params,
             bivariate_forward=bivariate_forward,
             unary_stages=unary_stages,
         )
@@ -660,7 +755,9 @@ def _make_multi_chain_transform(
     def _inverse(t_hat, base, params):
         """Undo the unary stages in reverse order, then the bivariate half, per :func:`_chain_multi_inverse_raw`."""
         return _chain_multi_inverse_raw(
-            t_final=t_hat, base=base, params=params,
+            t_final=t_hat,
+            base=base,
+            params=params,
             bivariate_inverse=bivariate_inverse,
             unary_stages=unary_stages,
         )

@@ -9,6 +9,7 @@ Bound back into the parent's namespace via re-export at the parent's
 module bottom so historical
 ``from mlframe.training.composite_transforms import _TRANSFORMS_REGISTRY`` resolves.
 """
+
 from __future__ import annotations
 
 # Parent's ``Transform`` dataclass + TAG_* sentinel constants live in
@@ -16,7 +17,7 @@ from __future__ import annotations
 # AFTER defining Transform + the TAG constants. The static cycle is
 # whitelisted in ``tests/test_meta/test_no_import_cycles.py`` (same
 # pattern as ``_composite_transforms_linear`` / ``_nonlinear``).
-from . import (
+from ._transform_base import (
     TAG_CORE,
     TAG_EXTENDED,
     TAG_REGRESSION,
@@ -89,7 +90,10 @@ from .nonlinear import (
     _quantile_residual_forward,
     _quantile_residual_inverse,
 )
-from ._registry_shared_adapters import _centered_ratio_domain_fitted, _make_unary_registry_adapter  # noqa: F401 - re-exported: transforms/__init__.py imports this from here
+from ._registry_shared_adapters import (  # noqa: F401 - re-exported: transforms/__init__.py imports this from here
+    _centered_ratio_domain_fitted,
+    _make_unary_registry_adapter,
+)
 from .unary import (
     cbrt_y_domain as _cbrt_y_domain_raw,
     cbrt_y_fit as _cbrt_y_fit_raw,
@@ -117,10 +121,15 @@ from .unary import (
 # is the fitted-params-aware domain adapter (``None`` for transforms whose
 # params-free domain is exact).
 _cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain, _cbrt_domain_fitted = _make_unary_registry_adapter(
-    _cbrt_y_fit_raw, _cbrt_y_forward_raw, _cbrt_y_inverse_raw, _cbrt_y_domain_raw,
+    _cbrt_y_fit_raw,
+    _cbrt_y_forward_raw,
+    _cbrt_y_inverse_raw,
+    _cbrt_y_domain_raw,
 )
 _log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a = _make_unary_registry_adapter(
-    _log_y_fit_raw, _log_y_forward_raw, _log_y_inverse_raw,
+    _log_y_fit_raw,
+    _log_y_forward_raw,
+    _log_y_inverse_raw,
     # log_y_domain is the 2-arg form (y, params); wrap to drop params at fit-time.
     lambda y: _log_y_domain_raw(y),
     # The pre-fit domain only checks isfinite(y); the TRUE log_y domain is
@@ -131,15 +140,21 @@ _log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a 
     domain_fitted_fn=_log_y_domain_raw,
 )
 _yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a = _make_unary_registry_adapter(
-    _yj_y_fit_raw, _yj_y_forward_raw, _yj_y_inverse_raw,
+    _yj_y_fit_raw,
+    _yj_y_forward_raw,
+    _yj_y_inverse_raw,
     lambda y: _yj_y_domain_raw(y),
 )
 _qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _make_unary_registry_adapter(
-    _qn_y_fit_raw, _qn_y_forward_raw, _qn_y_inverse_raw,
+    _qn_y_fit_raw,
+    _qn_y_forward_raw,
+    _qn_y_inverse_raw,
     lambda y: _qn_y_domain_raw(y),
 )
 _sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a = _make_unary_registry_adapter(
-    _sp_y_fit_raw, _sp_y_forward_raw, _sp_y_inverse_raw,
+    _sp_y_fit_raw,
+    _sp_y_forward_raw,
+    _sp_y_inverse_raw,
     lambda y: _sp_y_domain_raw(y),
 )
 
@@ -491,7 +506,9 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     ),
     # Chain transforms: bivariate residual + unary tail compression, composed by the chain factory above.
     "chain_linres_cbrt": _make_chain_transform(
-        name="chain_linres_cbrt", chain_stages=("linear_residual", "cbrt"), short_name="linres+cbrt",
+        name="chain_linres_cbrt",
+        chain_stages=("linear_residual", "cbrt"),
+        short_name="linres+cbrt",
         bivariate_fit=_linear_residual_fit,
         bivariate_forward=_linear_residual_forward,
         bivariate_inverse=_linear_residual_inverse,
@@ -508,7 +525,9 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
     ),
     "chain_linres_yj": _make_chain_transform(
-        name="chain_linres_yj", chain_stages=("linear_residual", "yj"), short_name="linres+yj",
+        name="chain_linres_yj",
+        chain_stages=("linear_residual", "yj"),
+        short_name="linres+yj",
         scale_equivariant=False,
         bivariate_fit=_linear_residual_fit,
         bivariate_forward=_linear_residual_forward,
@@ -523,7 +542,9 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
     ),
     "chain_monres_cbrt": _make_chain_transform(
-        name="chain_monres_cbrt", chain_stages=("monotonic_residual", "cbrt"), short_name="monres+cbrt",
+        name="chain_monres_cbrt",
+        chain_stages=("monotonic_residual", "cbrt"),
+        short_name="monres+cbrt",
         bivariate_fit=_monotonic_residual_fit,
         bivariate_forward=_monotonic_residual_forward,
         bivariate_inverse=_monotonic_residual_inverse,
@@ -536,7 +557,9 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
         ),
     ),
     "chain_monres_yj": _make_chain_transform(
-        name="chain_monres_yj", chain_stages=("monotonic_residual", "yj"), short_name="monres+yj",
+        name="chain_monres_yj",
+        chain_stages=("monotonic_residual", "yj"),
+        short_name="monres+yj",
         scale_equivariant=False,
         bivariate_fit=_monotonic_residual_fit,
         bivariate_forward=_monotonic_residual_forward,
@@ -551,7 +574,8 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
     # any remaining structure to a standard Normal. Lossy on absolute scale (quantile_normal forgets the original units) but RMSE on the
     # doubly-compressed T is cleaner for boosting inners.
     "chain_linres_cbrt_qn": _make_multi_chain_transform(
-        name="chain_linres_cbrt_qn", short_name="linresCbrtQn",
+        name="chain_linres_cbrt_qn",
+        short_name="linresCbrtQn",
         bivariate_fit=_linear_residual_fit,
         bivariate_forward=_linear_residual_forward,
         bivariate_inverse=_linear_residual_inverse,
@@ -578,6 +602,7 @@ _TRANSFORMS_REGISTRY: dict[str, Transform] = {
 # Second half of the registry (newer G2-G8 transforms) lives in the sibling below,
 # carved out to keep this module under the 1k-LOC ceiling.
 from ._registry_extended import _TRANSFORMS_REGISTRY_EXTENDED
+
 # The Box-Cox adapter is built once, in the sibling that registers it; re-exported here for transforms/__init__.py.
 from ._registry_extended import _bc_domain_a, _bc_domain_fitted_a, _bc_fit_a, _bc_forward_a, _bc_inverse_a  # noqa: F401
 

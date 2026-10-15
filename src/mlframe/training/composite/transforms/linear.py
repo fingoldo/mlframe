@@ -6,6 +6,7 @@ module bottom so historical
 ``from mlframe.training.composite_transforms import _linear_residual_fit``
 resolves transparently.
 """
+
 from __future__ import annotations
 
 from typing import cast
@@ -18,6 +19,7 @@ import numpy as np
 
 try:
     import numba as _numba
+
     _HAS_NUMBA = True
 except ImportError:  # pragma: no cover
     _numba = None
@@ -31,7 +33,7 @@ logger = logging.getLogger("mlframe.training.composite_transforms")
 # The parent defines all four BEFORE its bottom-of-module sibling import,
 # so this static cycle resolves at runtime. Whitelisted in
 # tests/test_meta/test_no_import_cycles.py.
-from . import (
+from ._transform_tuning import (
     _GROUPED_MIN_GROUP_SIZE,
     _LINRES_ROBUST_MAD_K,
     _LINRES_ROBUST_MIN_KEEP_FRAC,
@@ -56,6 +58,7 @@ def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from . import _MAD_FLOOR_FRAC, _MAD_SOFT_CAP_K
+
     t_train = np.log(y) - np.log(base)
     median_t = float(np.median(t_train))
     mad_train = float(np.median(np.abs(t_train - median_t)))
@@ -77,9 +80,13 @@ def _logratio_fit(y: np.ndarray, base: np.ndarray) -> dict[str, Any]:
         "t_train_min": float(np.min(t_train)) if t_train.size else median_t,
         "t_train_max": float(np.max(t_train)) if t_train.size else median_t,
     }
+
+
 def _logratio_forward(y: np.ndarray, base: np.ndarray, params: dict[str, Any]) -> np.ndarray:
     """Compute ``log(y) - log(base)`` (``params`` unused; forward is stateless given the domain filter)."""
     return np.asarray(np.log(y) - np.log(base))
+
+
 def logratio_t_band(params: dict[str, Any]) -> tuple[float, float]:
     """The ``T_hat`` band the logratio inverse clips to: ``median_t +/- soft_cap_k * mad_eff``, widened to the training T envelope.
 
@@ -102,14 +109,19 @@ def _logratio_inverse(t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any
     lo, hi = logratio_t_band(params)
     t_capped = np.clip(t_hat, lo, hi)
     return np.asarray(base * np.exp(t_capped))
+
+
 def _logratio_domain(y: np.ndarray | None, base: np.ndarray) -> np.ndarray:
     """Return the boolean row mask where ``base`` (and ``y``, if given) are finite and strictly positive (loggable)."""
     base_ok = np.isfinite(base) & (base > 0)
     if y is None:
         return np.asarray(base_ok)
     return np.asarray(base_ok & np.isfinite(y) & (y > 0))
+
+
 def _linear_residual_fit(
-    y: np.ndarray, base: np.ndarray,
+    y: np.ndarray,
+    base: np.ndarray,
     sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """OLS fit with optional sample weights.
@@ -157,8 +169,11 @@ def _linear_residual_fit(
     alpha = float(coef[0])
     beta = float(coef[1])
     return {"alpha": alpha, "beta": beta}
+
+
 def _linear_residual_fit_closed(
-    x: np.ndarray, y: np.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
 ) -> tuple[float, float]:
     """Single-fold unweighted OLS via the closed-form normal equations.
 
@@ -194,6 +209,8 @@ def _linear_residual_fit_closed(
     alpha = float((dx * (y_f - mean_y)).sum()) / den
     beta = mean_y - alpha * mean_x
     return float(alpha), float(beta)
+
+
 def _linear_residual_fit_batched(
     x_segments: Sequence[np.ndarray],
     y_segments: Sequence[np.ndarray],
@@ -249,23 +266,36 @@ def _linear_residual_fit_batched(
         alphas = np.where(nz, a, alphas)
         betas = np.where(big, np.where(nz, mean_y - alphas * mean_x, mean_y), betas)
     return alphas, betas
+
+
 def _linear_residual_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    y: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Compute the OLS residual ``T = y - alpha*base - beta`` from fitted ``params``."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     return cast("np.ndarray", y - alpha * base - beta)
+
+
 def _linear_residual_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    t_hat: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Invert the linear residual: ``y_hat = t_hat + alpha*base + beta``."""
     alpha = float(params["alpha"])
     beta = float(params["beta"])
     return cast("np.ndarray", t_hat + alpha * base + beta)
+
+
 _linear_residual_domain: Callable[[Optional[np.ndarray], np.ndarray], np.ndarray] = residual_domain_no_cast
+
+
 def _linear_residual_robust_fit(
-    y: np.ndarray, base: np.ndarray,
+    y: np.ndarray,
+    base: np.ndarray,
     sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Trimmed-LS fit: OLS -> drop |resid|>3*MAD -> refit OLS.
@@ -328,8 +358,11 @@ def _linear_residual_robust_fit(
     # Pass 2: OLS on the inlier set.
     sw2 = None if sample_weight is None else np.asarray(sample_weight)[keep]
     return _linear_residual_fit(y[keep], base[keep], sample_weight=sw2)
+
+
 def _theilsen_residual_fit(
-    y: np.ndarray, base: np.ndarray,
+    y: np.ndarray,
+    base: np.ndarray,
     sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:  # unused-ok: sample_weight: transform registry fit signature; the Theil-Sen fit is unweighted by design
     """Theil-Sen (median-of-pairwise-slopes) robust line fit.
@@ -400,8 +433,11 @@ def _theilsen_residual_fit(
     alpha = float(np.median(slopes))
     beta = float(np.median(y_f - alpha * base_f))
     return {"alpha": alpha, "beta": beta}
+
+
 def _linear_residual_multi_fit(
-    y: np.ndarray, base: np.ndarray,
+    y: np.ndarray,
+    base: np.ndarray,
     sample_weight: np.ndarray | None = None,
 ) -> dict[str, Any]:
     """Joint OLS fit for ``T = y - Σⱼ αⱼ·baseⱼ - β``.
@@ -449,8 +485,11 @@ def _linear_residual_multi_fit(
         y_f = y_f[row_finite]
         if sample_weight is not None:
             sample_weight = np.asarray(
-                sample_weight, dtype=np.float64,
-            ).reshape(-1)[row_finite]
+                sample_weight,
+                dtype=np.float64,
+            ).reshape(
+                -1
+            )[row_finite]
     n, k = base_f.shape
     if n < k + 1:
         return {
@@ -531,8 +570,12 @@ def _linear_residual_multi_fit(
         "condition_number": cond,
         "collinear_fallback": False,
     }
+
+
 def _linear_residual_multi_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    y: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Compute the joint-OLS residual ``T = y - base @ alphas - beta``; raises if ``base``'s column count doesn't match ``alphas``."""
     if base.ndim == 1:
@@ -542,8 +585,12 @@ def _linear_residual_multi_forward(
     if base.shape[1] != alphas.size:
         raise ValueError(f"linear_residual_multi: base has {base.shape[1]} columns but " f"fitted alphas has {alphas.size} entries")
     return cast("np.ndarray", y - (np.ascontiguousarray(base, dtype=np.float64) @ alphas) - beta)
+
+
 def _linear_residual_multi_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    t_hat: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
 ) -> np.ndarray:
     """Invert the joint-OLS residual: ``y_hat = t_hat + base @ alphas + beta``."""
     if base.ndim == 1:
@@ -555,8 +602,11 @@ def _linear_residual_multi_inverse(
     # Canonical C-contiguous layout so the (n,K)@(K,) matvec rounds identically regardless of the caller's
     # array order (C vs F differ by ~1 ULP in BLAS dgemv); keeps predict and the serving spec byte-identical.
     return cast("np.ndarray", t_hat + (np.ascontiguousarray(base, dtype=np.float64) @ alphas) + beta)
+
+
 def _linear_residual_multi_domain(
-    y: np.ndarray | None, base: np.ndarray,
+    y: np.ndarray | None,
+    base: np.ndarray,
 ) -> np.ndarray:
     """Return the boolean row mask where every column of ``base`` (and ``y``, if given) is finite."""
     if base.ndim == 1:
@@ -565,8 +615,11 @@ def _linear_residual_multi_domain(
     if y is None:
         return np.asarray(base_ok)
     return np.asarray(base_ok & np.isfinite(y))
+
+
 def _linear_residual_grouped_fit(
-    y: np.ndarray, base: np.ndarray,
+    y: np.ndarray,
+    base: np.ndarray,
     groups: np.ndarray | None = None,
     sample_weight: np.ndarray | None = None,
     min_group_size: int = _GROUPED_MIN_GROUP_SIZE,
@@ -602,6 +655,7 @@ def _linear_residual_grouped_fit(
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from . import _canonical_group_key, _james_stein_shrinkage_factor, _unique_group_labels
+
     if groups is None:
         raise ValueError(
             "linear_residual_grouped requires a 1-D ``groups`` array of "
@@ -762,8 +816,12 @@ def _linear_residual_grouped_fit(
         "group_sizes": group_sizes,
         "min_group_size": int(min_group_size),
     }
+
+
 def _linear_residual_grouped_forward(
-    y: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    y: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
     groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """Compute the per-group residual using each row's group-specific (shrunk) alpha/beta; requires ``groups``."""
@@ -771,13 +829,18 @@ def _linear_residual_grouped_forward(
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from . import _row_alpha_beta
+
     if groups is None:
         raise ValueError("linear_residual_grouped.forward: groups kwarg is required.")
     groups = np.asarray(groups).reshape(-1)
     row_alpha, row_beta = _row_alpha_beta(groups, params)
     return np.asarray(y - row_alpha * base - row_beta)
+
+
 def _linear_residual_grouped_inverse(
-    t_hat: np.ndarray, base: np.ndarray, params: dict[str, Any],
+    t_hat: np.ndarray,
+    base: np.ndarray,
+    params: dict[str, Any],
     groups: np.ndarray | None = None,
 ) -> np.ndarray:
     """Invert the per-group residual using each row's group-specific (shrunk) alpha/beta; requires ``groups``."""
@@ -785,13 +848,17 @@ def _linear_residual_grouped_inverse(
     # this sibling at its bottom, so a top-level ``from .predict
     # import ...`` would create a hard cycle the meta-test flags.
     from . import _row_alpha_beta
+
     if groups is None:
         raise ValueError("linear_residual_grouped.inverse: groups kwarg is required.")
     groups = np.asarray(groups).reshape(-1)
     row_alpha, row_beta = _row_alpha_beta(groups, params)
     return np.asarray(t_hat + row_alpha * base + row_beta)
+
+
 def _linear_residual_grouped_domain(
-    y: np.ndarray | None, base: np.ndarray,
+    y: np.ndarray | None,
+    base: np.ndarray,
 ) -> np.ndarray:
     """Delegate to :func:`_linear_residual_domain`; grouping does not add its own domain restriction."""
     return _linear_residual_domain(y, base)
