@@ -30,31 +30,8 @@ from mlframe.utils.env_flags import env_float, env_int
 # (single-threaded estimator-API overhead) and ~12x faster than astropy.histogram
 # for the supported bin schemes. The legacy methods 'astropy' and 'discretizer'
 # still resolve via thin compat shims below.
-def _safe_code_dtype(n_bins: int, dtype: type, reserve_nan_slot: bool = False) -> type:
-    """Widen ``dtype`` to one that can hold ordinal codes ``0..n_bins-1`` (``0..n_bins`` when ``reserve_nan_slot``).
+from ._code_dtype import _safe_code_dtype  # re-exported from the facade
 
-    Discretiser codes reach ``n_bins-1``; the default ``int8`` only holds 0..127, so an
-    ``astype(int8)`` on ``n_bins>128`` wraps the top bins negative (modulo arithmetic),
-    silently mis-binning the high-magnitude region. Auto-widen instead of silently
-    corrupting: int8->int16->int32->int64 as the bin count grows. No-op for n_bins<=128.
-
-    The uniform path emits a dedicated NaN sentinel at code ``n_bins`` (one past the top real code
-    ``n_bins-1``); pass ``reserve_nan_slot=True`` there so the sentinel never wraps negative at
-    ``n_bins == dtype.max+1`` (int8@128, int16@32768). The quantile path routes NaN to the rightmost
-    real code ``n_bins-1`` and keeps the tighter default.
-    """
-    try:
-        info: np.iinfo = np.iinfo(np.dtype(dtype))  # type: ignore[arg-type, unused-ignore]  # dtype may be non-integer (e.g. float64); caught below at runtime
-    except (ValueError, TypeError) as _exc:
-        logger.debug("_safe_code_dtype fell back to its default after %s", type(_exc).__name__)
-        return dtype  # non-integer requested dtype: caller owns the contract
-    top_code = n_bins if reserve_nan_slot else n_bins - 1
-    if top_code <= info.max:
-        return dtype
-    for cand in (np.int16, np.int32, np.int64):
-        if top_code <= np.iinfo(cand).max:
-            return cand
-    return np.int64
 
 def _native_ordinal_encode_2d(vals: np.ndarray) -> np.ndarray:
     """Drop-in pure-numpy replacement for sklearn OrdinalEncoder().fit_transform on a (n, 1) array.
@@ -66,6 +43,7 @@ def _native_ordinal_encode_2d(vals: np.ndarray) -> np.ndarray:
     flat = vals.reshape(-1)
     codes, _ = pd.factorize(flat, use_na_sentinel=True)
     return np.asarray(codes, dtype=np.float64).reshape(vals.shape)
+
 
 def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> np.ndarray:
     """Collapse the rare-category tail of each column so no column exceeds ``max_cardinality`` distinct codes.
@@ -109,6 +87,7 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
         mask = col >= 0
         out[mask, j] = remap[col[mask].astype(np.int64)]
     return out
+
 
 def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
     """Multi-column ordinal encoding without sklearn OrdinalEncoder.
@@ -173,6 +152,7 @@ def _multi_col_factorize_native(categorical_df: "pd.DataFrame") -> np.ndarray:
                 out[:, _j] = _codes
     return out
 
+
 def _native_kbins_quantile(vals: np.ndarray, n_bins: int) -> np.ndarray:
     """Drop-in pure-numpy replacement for sklearn KBinsDiscretizer(strategy='quantile', encode='ordinal').
 
@@ -187,6 +167,7 @@ def _native_kbins_quantile(vals: np.ndarray, n_bins: int) -> np.ndarray:
     inner = bin_edges[1:-1]
     codes = np.searchsorted(inner, flat, side="right").astype(np.float64)
     return codes.reshape(vals.shape if vals.ndim == 2 else (-1, 1))
+
 
 from mlframe.core.arrays import arrayMinMax
 
@@ -208,6 +189,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Unified missing-value handling for pandas / polars / numpy paths
 # =============================================================================
+
 
 def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask: Optional[np.ndarray] = None) -> np.ndarray:
     """Apply the configured NaN handling strategy.
@@ -272,9 +254,11 @@ def _handle_missing(arr: np.ndarray, *, strategy: str = "fillna_zero", nan_mask:
         raise ValueError("input contains NaN values; pass strategy='fillna_zero' or 'separate_bin' or 'propagate' to discretize anyway")
     raise ValueError(f"unknown missing-value strategy: {strategy!r}")
 
+
 # =============================================================================
 # Polars LazyFrame autocollect
 # =============================================================================
+
 
 def _maybe_collect_lazy(df):
     """If ``df`` is a polars LazyFrame, materialise it; other inputs pass through. ``.collect_streaming()`` is intentionally not used - if the caller wanted
@@ -289,9 +273,11 @@ def _maybe_collect_lazy(df):
         return df.collect()
     return df
 
+
 # =============================================================================
 # 1-D categorisation helpers (legacy `categorize_1d_array` retained)
 # =============================================================================
+
 
 def categorize_1d_array(
     vals: np.ndarray,
@@ -329,7 +315,8 @@ def categorize_1d_array(
         import warnings as _w
 
         _w.warn(
-            f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing " "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
+            f"categorize_1d_array: filling NaN with {nan_filler!r} biases MI by mixing "
+            "NaN rows with real-equal values. Pass nan_filler=None to raise instead.",
             stacklevel=2,
         )
         vals = pd.Series(vals).fillna(nan_filler).values
@@ -378,7 +365,8 @@ def categorize_1d_array(
                 _bins_for_numpy = bins if isinstance(bins, (int, np.integer)) else "auto"
                 bin_edges = np.histogram_bin_edges(vals, bins=_bins_for_numpy)
                 logger.info(
-                    "categorize_1d_array: method='astropy' is deprecated; " "using numpy histogram_bin_edges(bins=%r). astropy removed from install graph 2026-05-28.",
+                    "categorize_1d_array: method='astropy' is deprecated; "
+                    "using numpy histogram_bin_edges(bins=%r). astropy removed from install graph 2026-05-28.",
                     _bins_for_numpy,
                 )
             else:
@@ -416,9 +404,11 @@ def categorize_1d_array(
             raise ValueError(f"categorize_1d_array: cardinality {out_max} exceeds int64 max; cannot encode.")
     return out.astype(dtype)
 
+
 # =============================================================================
 # Low-level numba kernels (pure functions; no module-level side-effects)
 # =============================================================================
+
 
 @njit(cache=True)
 def digitize(arr: np.ndarray, bins: np.ndarray, dtype: type = np.int32) -> np.ndarray:
@@ -443,10 +433,12 @@ def digitize(arr: np.ndarray, bins: np.ndarray, dtype: type = np.int32) -> np.nd
             res[i] = last
     return res
 
+
 @njit(cache=True)
 def quantize_dig(arr: np.ndarray, bins: np.ndarray) -> np.ndarray:
     """Bin-code assignment via ``np.digitize`` on the interior bin edges (excludes the outer -inf/+inf sentinels)."""
     return np.digitize(arr, bins[1:-1], right=True)  # type: ignore[no-any-return, unused-ignore]  # numpy stubs type digitize's result as Any; the array is what the caller receives
+
 
 @njit(cache=True)
 def quantize_search(arr: np.ndarray, bins: np.ndarray) -> np.ndarray:
@@ -457,6 +449,7 @@ def quantize_search(arr: np.ndarray, bins: np.ndarray) -> np.ndarray:
     so a value sitting exactly on a bin edge can land in a different bin between the two. This is the
     function actually used everywhere live; ``quantize_dig`` has zero non-warmup callers."""
     return np.searchsorted(bins[1:-1], arr, side="right")
+
 
 @njit(cache=True)
 def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] = None, max_value: Optional[float] = None, dtype: type = np.int8) -> np.ndarray:
@@ -512,6 +505,7 @@ def discretize_uniform(arr: np.ndarray, n_bins: int, min_value: Optional[float] 
         out[i] = c
     return out
 
+
 @njit(cache=True, parallel=True)
 def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, max_value: float, dtype: type = np.int8) -> np.ndarray:
     """Column-prange twin of ``discretize_uniform`` for large single-column arrays.
@@ -548,9 +542,11 @@ def discretize_uniform_parallel(arr: np.ndarray, n_bins: int, min_value: float, 
         out[i] = v
     return out
 
+
 # Crossover (measured at n=10M float64): serial wins <~50k (prange spawn dominates), parallel wins above
 # (2.2x @100k -> 47.9x @1M). Override via MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD for non-dev hardware.
 _UNIFORM_PAR_THRESHOLD = env_int("MLFRAME_DISCRETIZE_UNIFORM_PAR_THRESHOLD", 50000, minimum=0)
+
 
 def discretize_array(
     arr: np.ndarray,
@@ -616,6 +612,7 @@ def discretize_array(
     bins_edges = np.nanpercentile(arr, quantiles)
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)
 
+
 # The 2-D quantile-edge + searchsorted njit kernels were carved into the sibling
 # _kernels.py (LOC-budget sibling re-export). They are imported here so
 # discretize_2d_quantile_batch below keeps calling them, and re-exported at the
@@ -632,6 +629,7 @@ from ._kernels import (
 
 # Largest interior-edge count for which the branch-free count kernels beat the binary search (measured 1.25x at 31 edges).
 _COUNT_LE_MAX_EDGES = 31
+
 
 def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: type = np.int8, parallel: bool = False, assume_finite: bool = False) -> np.ndarray:
     """Batch (quantile-only) discretiser: bit-identical to per-column ``discretize_array(method='quantile')``.
@@ -761,6 +759,7 @@ def discretize_2d_quantile_batch(arr2d: np.ndarray, n_bins: int = 10, dtype: typ
             _searchsorted_2d_right_njit(edges_inner, arr_c, out)
     return out
 
+
 @njit(cache=True)
 def _discretize_array_impl(
     arr: np.ndarray,
@@ -776,6 +775,7 @@ def _discretize_array_impl(
     elif method == "quantile":
         bins_edges = get_binning_edges(arr=arr, n_bins=n_bins, method=method, min_value=min_value, max_value=max_value)
     return np.asarray(quantize_search(arr, bins_edges).astype(dtype))
+
 
 # cache=True persists the parallel-fused artefact alongside the serial @njit kernels above.
 # Pre-fix iter-366: the only cache=False kernel in this module re-paid ~7.9s LLVM compile
@@ -805,6 +805,7 @@ def _discretize_2d_array_njit(
         )
     return res
 
+
 # Size threshold for CUDA dispatch: below this the per-launch CUDA overhead
 # (~50 ms H2D + first-call kernel JIT amortised across the session) dominates
 # the prange wall. Measured on GTX 1050 Ti: at n_rows * n_cols = 500_000 the
@@ -815,6 +816,7 @@ _DISCRETIZE_2D_CUDA_MIN_CELLS = 500_000
 _DISCRETIZE_SWEEP_CELLS = [50_000, 200_000, 500_000, 2_000_000]
 _DISCRETIZE_SALT = 1
 
+
 def _make_discretize_inputs(dims: dict):
     """A 2-D float64 frame of ~``n_cells`` cells (fixed 8 columns) - the operand
     discretize_2d_array bins per column."""
@@ -822,6 +824,7 @@ def _make_discretize_inputs(dims: dict):
     cols = 8
     rows = max(1, int(dims["n_cells"]) // cols)
     return (rng.standard_normal((rows, cols)).astype(np.float64),)
+
 
 def _run_discretize_sweep() -> list:
     """Full n_cells grid sweep -> backend_choice regions: cpu (njit prange) vs cuda
@@ -863,10 +866,12 @@ def _run_discretize_sweep() -> list:
         )
     )
 
+
 def _discretize_fallback_choice(n_cells: int) -> str:
     """Pre-sweep heuristic (the spec's dynamic fallback callable): cuda above the
     hand-tuned 500k-cell breakeven, else cpu."""
     return "cuda" if int(n_cells) >= _DISCRETIZE_2D_CUDA_MIN_CELLS else "cpu"
+
 
 def discretize_2d_array(
     arr: np.ndarray,
@@ -907,7 +912,14 @@ def discretize_2d_array(
     # Uniform method gained a CUDA path (single-pass vectorised
     # arithmetic + RawKernel searchsorted). Both methods route to GPU when
     # min_values/max_values are absent (the CUDA uniform path computes col_min/max).
-    if prefer_gpu and method in ("quantile", "uniform") and min_values is None and max_values is None and arr.ndim == 2 and _DISCRETIZE_SPEC.choose(n_cells=int(arr.size)) == "cuda":
+    if (
+        prefer_gpu
+        and method in ("quantile", "uniform")
+        and min_values is None
+        and max_values is None
+        and arr.ndim == 2
+        and _DISCRETIZE_SPEC.choose(n_cells=int(arr.size)) == "cuda"
+    ):
         try:
             from .._gpu_policy import cuda_available_for_run
 
@@ -985,7 +997,10 @@ def discretize_2d_array(
                             )
                         else:
                             # min/max is reducible across chunks, so this path is bit-identical here.
-                            logger.info("discretize_2d_array: completed via row-chunked CUDA (GPU speed preserved, VRAM-safe; edges bit-identical for method=%s)", method)
+                            logger.info(
+                                "discretize_2d_array: completed via row-chunked CUDA (GPU speed preserved, VRAM-safe; edges bit-identical for method=%s)",
+                                method,
+                            )
                         return result
                     except Exception as exc:
                         logger.warning(
@@ -1021,6 +1036,7 @@ def discretize_2d_array(
             dtype=dtype,
         )
     )
+
 
 from ._discretization_cuda import (
     discretize_2d_array_cuda,

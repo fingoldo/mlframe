@@ -16,7 +16,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-from . import _safe_code_dtype
+from ._code_dtype import _safe_code_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ def discretize_2d_array_cuda(
 
     try:
         from .._gpu_policy import cuda_available_for_run
+
         if not cuda_available_for_run():
             raise RuntimeError("CUDA not available on this host")
     except ImportError:
@@ -246,9 +247,14 @@ def discretize_2d_array_cuda_row_chunked(
     row_chunk_rows = _choose_discretize_row_chunk_rows(n_cols, arr.dtype.itemsize, free_b, out_itemsize=np.dtype(_out_cp_dtype).itemsize)
     _quantile_subsample_note = f", quantile_subsample_rows={min(n_rows, quantile_subsample_rows)}/{n_rows}" if method == "quantile" else ""
     logger.info(
-        "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d in_dtype=%s -> row_chunk_rows=%d "
-        "(%d chunk(s)), free_vram=%.2fGB%s",
-        method, n_rows, n_cols, arr.dtype, row_chunk_rows, -(-n_rows // row_chunk_rows), free_b / 1024**3,
+        "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d in_dtype=%s -> row_chunk_rows=%d " "(%d chunk(s)), free_vram=%.2fGB%s",
+        method,
+        n_rows,
+        n_cols,
+        arr.dtype,
+        row_chunk_rows,
+        -(-n_rows // row_chunk_rows),
+        free_b / 1024**3,
         _quantile_subsample_note,
     )
 
@@ -321,7 +327,11 @@ def discretize_2d_array_cuda_row_chunked(
 
     logger.debug(
         "discretize_2d_array_cuda_row_chunked: method=%s n_rows=%d n_cols=%d row_chunk_rows=%d n_chunks=%d",
-        method, n_rows, n_cols, row_chunk_rows, n_chunks,
+        method,
+        n_rows,
+        n_cols,
+        row_chunk_rows,
+        n_chunks,
     )
     return out
 
@@ -373,7 +383,8 @@ def _get_searchsorted_right_2d_kernel():
             return _searchsorted_right_2d_cuda
         module = sys.modules[__name__]
         module._searchsorted_right_2d_cuda = cp.RawKernel(  # type: ignore[attr-defined]
-            _SEARCHSORTED_RIGHT_2D_SRC, "searchsorted_right_2d",
+            _SEARCHSORTED_RIGHT_2D_SRC,
+            "searchsorted_right_2d",
         )
         return module._searchsorted_right_2d_cuda
 
@@ -408,13 +419,22 @@ def _discretize_quantile_rawkernel(d_arr, cuts, n_bins, out_cp_dtype):
     them here on every call re-paid an O(n_cols * n_bins) transpose+copy per chunk for identical output.
     """
     import cupy as cp
+
     n_rows, n_cols = d_arr.shape
     out_int32 = cp.empty((n_rows, n_cols), dtype=cp.int32)
     kernel = _get_searchsorted_right_2d_kernel()
     threads = 256
     blocks = _searchsorted_launch_blocks(n_rows, n_cols, threads)
-    kernel((blocks,), (threads,), (
-        d_arr.astype(cp.float64, copy=False), cuts.astype(cp.float64, copy=False),
-        out_int32, np.int64(n_rows), np.int64(n_cols), np.int32(n_bins - 1),
-    ))
+    kernel(
+        (blocks,),
+        (threads,),
+        (
+            d_arr.astype(cp.float64, copy=False),
+            cuts.astype(cp.float64, copy=False),
+            out_int32,
+            np.int64(n_rows),
+            np.int64(n_cols),
+            np.int32(n_bins - 1),
+        ),
+    )
     return out_int32.astype(out_cp_dtype, copy=False)
