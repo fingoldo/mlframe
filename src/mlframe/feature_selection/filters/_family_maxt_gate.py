@@ -13,6 +13,7 @@ from numba import njit, prange
 
 FAMILY_MAXT_PERMUTATIONS = 999
 FAMILY_EARLY_BLOCK = 256
+_FAMILY_DEVICE_MIN_WORK = 3_000_000_000
 
 
 @njit(cache=True)
@@ -69,12 +70,25 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
 def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256) -> np.ndarray:
     """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical)."""
     out = np.empty(int(n_perm), dtype=np.float64)
+    # STRICT GPU mode (MLFRAME_FE_GPU_STRICT=1, or AUTO at scale) runs the null on the device; the permutations are drawn on the host in
+    # the same order either way, so the decisions do not depend on the path.
+    from ._fe_gpu_strict import fe_gpu_strict_enabled
+    from ._family_maxt_cuda import device_supported, family_null_max_device
+
+    # Size-gated device dispatch: the null costs B*K*n histogram updates, so a large family goes to the device even outside STRICT (the
+    # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
+    # crossover on the dev GPU (GTX 1050 Ti: 1.26x at 6e9 updates, slower below) and belongs in the kernel-tuning cache; TODO(KTC).
+    _work = int(n_perm) * int(cols.shape[0]) * int(y.shape[0])
+    use_device = device_supported(n_x, int(n_y)) and (bool(fe_gpu_strict_enabled()) or _work >= _FAMILY_DEVICE_MIN_WORK)
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perms = np.empty((m, y.shape[0]), dtype=np.int64)
         for i in range(m):
             perms[i] = y[rng.permutation(y.shape[0])]
-        out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
+        if use_device:
+            out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
+        else:
+            out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
     return out
 
 
@@ -158,12 +172,24 @@ def family_pass_batches(batches, y_codes: np.ndarray, alpha: float = 0.01, n_per
     bounds = np.cumsum([0, *widths])
     observed_max = np.array([float(observed[bounds[j] : bounds[j + 1]].max()) if widths[j] else 0.0 for j in range(len(widths))], dtype=np.float64)
     rng = np.random.default_rng(seed)
-    first = family_null_max(cols, n_x, y, n_y, min(int(n_perm), FAMILY_EARLY_BLOCK), rng)
+    B = int(n_perm)
+    first = family_null_max(cols, n_x, y, n_y, min(B, FAMILY_EARLY_BLOCK), rng)
     if observed_max.size and float(observed_max.max()) <= float(np.median(first)):
         return [False for _ in observed_max]
-    rest = family_null_max(cols, n_x, y, n_y, int(n_perm) - first.shape[0], rng) if int(n_perm) > first.shape[0] else np.empty(0)
-    null_max = np.concatenate([first, rest])
-    return [bool(p) for p in exact_pvalue_pass(observed_max, null_max, alpha)]
+    # Exact early stop per batch: the pass test is (1 + R) / (B + 1) <= alpha with R the count of null maxima at or above the batch's
+    # observed maximum. R only grows, so a batch whose count already violates the bound fails for every B; the null still spans the whole
+    # family, but the permutation loop ends as soon as no batch is alive.
+    R = np.zeros(observed_max.shape[0], dtype=np.int64)
+    R += (first[:, None] >= observed_max[None, :]).sum(axis=0)
+    done = first.shape[0]
+    alive = (1.0 + R) / (B + 1.0) <= float(alpha)
+    while done < B and alive.any():
+        m = min(FAMILY_EARLY_BLOCK, B - done)
+        blk = family_null_max(cols, n_x, y, n_y, m, rng)
+        done += m
+        R += (blk[:, None] >= observed_max[None, :]).sum(axis=0)
+        alive &= (1.0 + R) / (B + 1.0) <= float(alpha)
+    return [bool(p) for p in alive]
 
 
 __all__ = [
