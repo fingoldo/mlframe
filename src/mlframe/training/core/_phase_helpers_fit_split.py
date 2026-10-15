@@ -82,27 +82,7 @@ class TrainValTestSplitResult(NamedTuple):
     calib_df: Any = None
 
 
-class FitPipelineResult(NamedTuple):
-    """Return shape for ``_phase_fit_pipeline`` (see comment on
-    ``TrainValTestSplitResult``)."""
-
-    train_df: Any
-    val_df: Any
-    test_df: Any
-    pipeline: Any
-    extensions_pipeline: Any
-    cat_features: Any
-    cat_features_polars: Any
-    was_polars_input: Any
-    all_models_polars_native: Any
-    polars_pipeline_applied: Any
-    train_df_polars_pre: Any
-    val_df_polars_pre: Any
-    test_df_polars_pre: Any
-    pipeline_config: Any
-    preprocessing_extensions: Any
-    train_df_pandas_pre_meta: Any
-
+from ._phase_fit_result import FitPipelineResult  # noqa: F401 - re-exported: the split test checks it through this module
 
 logger = logging.getLogger(__name__)
 
@@ -334,10 +314,15 @@ def _phase_train_val_test_split(
         _cfg_dict = {k: v for k, v in split_config.model_dump().items() if k in _splitter_kwargs and k not in _explicit_kwargs}
         if has_pinned_splits(split_config):
             # Some splits are fixed by an id file / date windows; the rest is carved by the same splitter on the remaining rows.
-            (train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details,
-             _pin_info) = pinned_train_val_test_split(
-                n_rows=len(df) if df is not None else 0, row_ids=row_ids, timestamps=timestamps, split_config=split_config,
-                stratify_y=_stratify_y, groups=_groups, splitter=make_train_test_split, splitter_kwargs=_cfg_dict,
+            train_idx, val_idx, test_idx, train_details, val_details, test_details, calib_idx, calib_details, _pin_info = pinned_train_val_test_split(
+                n_rows=len(df) if df is not None else 0,
+                row_ids=row_ids,
+                timestamps=timestamps,
+                split_config=split_config,
+                stratify_y=_stratify_y,
+                groups=_groups,
+                splitter=make_train_test_split,
+                splitter_kwargs=_cfg_dict,
             )
             metadata["split_pinning"] = _pin_info
         else:
@@ -373,8 +358,14 @@ def _phase_train_val_test_split(
     _id_column = getattr(split_config, "id_column", None)
     if _id_column and row_ids is not None:
         metadata["split_membership"] = record_split_membership(
-            row_ids=row_ids, id_column=_id_column, train_idx=train_idx, val_idx=val_idx, test_idx=test_idx, calib_idx=calib_idx,
-            timestamps=timestamps, split_dir=split_dir_for(data_dir, models_dir, target_name, model_name) if data_dir else None,
+            row_ids=row_ids,
+            id_column=_id_column,
+            train_idx=train_idx,
+            val_idx=val_idx,
+            test_idx=test_idx,
+            calib_idx=calib_idx,
+            timestamps=timestamps,
+            split_dir=split_dir_for(data_dir, models_dir, target_name, model_name) if data_dir else None,
         )
 
     metadata.update(
@@ -441,7 +432,8 @@ def _phase_train_val_test_split(
         else:
             logger.info(
                 "Post-split cleanup released no measurable RAM (%.0fMB): the split frames reference the same "
-                "buffers as the source, so dropping the source name alone frees nothing.", max(_freed_mb, 0.0),
+                "buffers as the source, so dropping the source name alone frees nothing.",
+                max(_freed_mb, 0.0),
             )
         log_ram_usage()
 

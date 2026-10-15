@@ -10,6 +10,7 @@ Bound back into the parent's namespace via re-export at the parent's
 module bottom so historical
 ``from mlframe.training.composite_transforms import _TRANSFORMS_REGISTRY`` resolves.
 """
+
 from __future__ import annotations
 
 # Parent's ``Transform`` dataclass + TAG_* sentinel constants live in
@@ -17,7 +18,7 @@ from __future__ import annotations
 # AFTER defining Transform + the TAG constants. The static cycle is
 # whitelisted in ``tests/test_meta/test_no_import_cycles.py`` (same
 # pattern as ``_composite_transforms_linear`` / ``_nonlinear``).
-from . import (
+from ._transform_base import (
     TAG_EXTENDED,
     TAG_REGRESSION,
     Transform,
@@ -149,7 +150,9 @@ from .unary import (
 # Only the Box-Cox adapter is registered here; the other unary adapters (cbrt / log / yeo-johnson / quantile-normal / signed-power) are built once
 # in ``registry.py``, so a second copy here could only drift from the registered one.
 _bc_fit_a, _bc_forward_a, _bc_inverse_a, _bc_domain_a, _bc_domain_fitted_a = _make_unary_registry_adapter(
-    _bc_y_fit_raw, _bc_y_forward_raw, _bc_y_inverse_raw,
+    _bc_y_fit_raw,
+    _bc_y_forward_raw,
+    _bc_y_inverse_raw,
     lambda y: _bc_y_domain_raw(y),
 )
 

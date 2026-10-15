@@ -1,4 +1,5 @@
 """``XGBoostStrategy`` -- the XGBoost model pipeline strategy."""
+
 from __future__ import annotations
 
 import logging
@@ -10,7 +11,7 @@ except ImportError:
     pl = None  # type: ignore[assignment]
 
 # Parent package re-exports XGBoostStrategy AFTER TreeModelStrategy is bound, so this partial-package import resolves.
-from . import TreeModelStrategy
+from .tree_cb import TreeModelStrategy
 from ._cat_levels_shared import build_polars_enum_map as _build_polars_enum_map
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ class XGBoostStrategy(TreeModelStrategy):
             and getattr(ranking_config, "autodetect_label_format", True)
         ):
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
                 "XGB rank:map requires binary labels (y in {0,1}); detected "
                 "y_max=%s > 1 (graded relevance). Auto-falling back to "
@@ -126,6 +128,7 @@ class XGBoostStrategy(TreeModelStrategy):
         for multilabel -- wrapper path takes over).
         """
         from ..configs import TargetTypes
+
         if (
             target_type == TargetTypes.MULTILABEL_CLASSIFICATION
             and multilabel_config is not None
@@ -149,6 +152,7 @@ class XGBoostStrategy(TreeModelStrategy):
         multi-output tree path.
         """
         from ..configs import TargetTypes
+
         if (
             target_type == TargetTypes.MULTILABEL_CLASSIFICATION
             and multilabel_config is not None
@@ -157,8 +161,10 @@ class XGBoostStrategy(TreeModelStrategy):
             return estimator
         # Fall back to base (MultiOutputClassifier / chain / etc.)
         return super().wrap_multilabel(
-            estimator, target_type,
-            multilabel_config=multilabel_config, n_labels=n_labels,
+            estimator,
+            target_type,
+            multilabel_config=multilabel_config,
+            n_labels=n_labels,
         )
 
     def prepare_polars_dataframe(
@@ -224,9 +230,11 @@ class XGBoostStrategy(TreeModelStrategy):
                 _nonzero = {c: d for c, d in _null_deltas.items() if d > 0}
                 if _nonzero:
                     import logging as _lg
+
                     _lg.getLogger(__name__).info(
                         "[xgb cat-cast] %d col(s) had OOV nulls cast-failed: %s",
-                        len(_nonzero), _nonzero,
+                        len(_nonzero),
+                        _nonzero,
                     )
             # Still need to cover any pl.String / pl.Utf8 not present in
             # the map (e.g. brand-new columns surfacing only after the

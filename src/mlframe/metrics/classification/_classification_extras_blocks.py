@@ -23,6 +23,7 @@ Public API (re-exported from ``mlframe.metrics.core``):
     * ``matthews_corrcoef_multiclass``  - Gorodkin multiclass MCC
     * ``ranked_probability_score``      - RPS (ordinal CRPS-analog)
 """
+
 from __future__ import annotations
 
 from math import erfc, sqrt
@@ -34,11 +35,13 @@ import numpy as np
 from .._numba_params import _PARALLEL_REDUCTION_THRESHOLD, NUMBA_NJIT_PARAMS, _check_equal_length
 
 # ---------- helpers ----------
-from ._classification_extras import _confusion_counts_binary as _binary_confusion_block_kernel_seq, _confusion_counts_binary_par, _multiclass_confusion_kernel
+from ._confusion_kernels import _confusion_counts_binary_par, _multiclass_confusion_kernel
+from ._confusion_kernels import _confusion_counts_binary as _binary_confusion_block_kernel_seq
 
 
 def fast_binary_confusion_metrics_block(
-    y_true: np.ndarray, y_pred: np.ndarray,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
 ) -> dict:
     """Compute 11 confusion-matrix metrics in ONE pass over (y_true, y_pred).
 
@@ -77,7 +80,10 @@ def fast_binary_confusion_metrics_block(
 
     # MCC
     mcc_num = float(tp) * tn - float(fp) * fn
-    d1 = tp + fp; d2 = tp + fn; d3 = tn + fp; d4 = tn + fn
+    d1 = tp + fp
+    d2 = tp + fn
+    d3 = tn + fp
+    d4 = tn + fn
     if d1 == 0 or d2 == 0 or d3 == 0 or d4 == 0:
         mcc = 0.0
     else:
@@ -99,6 +105,7 @@ def fast_binary_confusion_metrics_block(
         b2 = b * b
         d = b2 * precision + tpr
         return 0.0 if d == 0 else (1.0 + b2) * precision * tpr / d
+
     f1 = _fb(1.0)
     f0_5 = _fb(0.5)
     f2 = _fb(2.0)
@@ -118,13 +125,17 @@ def fast_binary_confusion_metrics_block(
         "FPR": float(fpr),
         "FNR": float(fnr),
         "G_mean": float(g_mean),
-        "_TP": int(tp), "_FP": int(fp), "_TN": int(tn), "_FN": int(fn),
+        "_TP": int(tp),
+        "_FP": int(fp),
+        "_TN": int(tn),
+        "_FN": int(fn),
     }
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _binary_probability_block_kernel_seq(
-    y_true: np.ndarray, y_score: np.ndarray,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
 ) -> Tuple[float, float, float, float, int]:
     """Fused single-pass over (y_true, y_score). Returns:
         (sum_brier, sum_logloss, sh_num, sh_var, n_pos)
@@ -159,7 +170,9 @@ def _binary_probability_block_kernel_seq(
 
 @numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
 def _binary_probability_block_kernel_par(
-    y_true: np.ndarray, y_score: np.ndarray, n_threads: int,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    n_threads: int,
 ):
     """Parallel counterpart to ``_binary_probability_block_kernel_seq``: splits the array into ``n_threads`` chunks accumulated independently via ``prange``, then reduced by the caller -- same fused (Brier, log-loss, Spiegelhalter, base-rate) accumulators, used above ``_PARALLEL_REDUCTION_THRESHOLD``."""
     n = y_true.shape[0]
@@ -170,7 +183,10 @@ def _binary_probability_block_kernel_par(
     l_var = np.zeros(n_threads, dtype=np.float64)
     l_pos = np.zeros(n_threads, dtype=np.int64)
     for tid in numba.prange(n_threads):
-        s_brier = 0.0; s_log = 0.0; s_num = 0.0; s_var = 0.0
+        s_brier = 0.0
+        s_log = 0.0
+        s_num = 0.0
+        s_var = 0.0
         np_count = 0
         start = tid * chunk
         end = start + chunk
@@ -208,7 +224,8 @@ def _binary_probability_block_kernel_par(
 
 
 def fast_binary_probability_metrics_block(
-    y_true: np.ndarray, y_score: np.ndarray,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
 ) -> dict:
     """Compute 6 probabilistic-binary metrics in ONE pass over (y_true, y_score).
 
@@ -241,8 +258,12 @@ def fast_binary_probability_metrics_block(
     invalid_scores = n > 0 and not (np.isfinite(ys).all() and ys.min() >= 0.0 and ys.max() <= 1.0)
     if n == 0 or invalid_scores:
         return {
-            "Brier": np.nan, "log_loss": np.nan, "base_rate": np.nan,
-            "BSS": np.nan, "Spiegelhalter_Z": np.nan, "Spiegelhalter_p": np.nan,
+            "Brier": np.nan,
+            "log_loss": np.nan,
+            "base_rate": np.nan,
+            "BSS": np.nan,
+            "Spiegelhalter_Z": np.nan,
+            "Spiegelhalter_p": np.nan,
         }
     if n >= _PARALLEL_REDUCTION_THRESHOLD:
         sum_brier, sum_log, sh_num, sh_var, n_pos = _binary_probability_block_kernel_par(yt, ys, numba.get_num_threads())
@@ -273,7 +294,9 @@ def fast_binary_probability_metrics_block(
 
 
 def fast_multiclass_confusion_metrics_block(
-    y_true: np.ndarray, y_pred: np.ndarray, n_classes: int,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    n_classes: int,
 ) -> dict:
     """Compute multiclass confusion-derived metrics in ONE pass.
 
@@ -303,11 +326,18 @@ def fast_multiclass_confusion_metrics_block(
     n = int(C.sum())
     if n == 0 or K < 2:
         return {
-            "accuracy": np.nan, "balanced_accuracy": np.nan,
+            "accuracy": np.nan,
+            "balanced_accuracy": np.nan,
             "MCC_multiclass": np.nan,
-            "macro_precision": np.nan, "macro_recall": np.nan, "macro_f1": np.nan,
-            "micro_precision": np.nan, "micro_recall": np.nan, "micro_f1": np.nan,
-            "weighted_precision": np.nan, "weighted_recall": np.nan, "weighted_f1": np.nan,
+            "macro_precision": np.nan,
+            "macro_recall": np.nan,
+            "macro_f1": np.nan,
+            "micro_precision": np.nan,
+            "micro_recall": np.nan,
+            "micro_f1": np.nan,
+            "weighted_precision": np.nan,
+            "weighted_recall": np.nan,
+            "weighted_f1": np.nan,
             "per_class_precision": np.full(K, np.nan, dtype=np.float64),
             "per_class_recall": np.full(K, np.nan, dtype=np.float64),
             "per_class_f1": np.full(K, np.nan, dtype=np.float64),

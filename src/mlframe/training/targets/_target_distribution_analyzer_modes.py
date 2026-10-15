@@ -6,6 +6,7 @@ module bottom so historical
 ``from mlframe.training._target_distribution_analyzer import _detect_multi_modal``
 resolves transparently.
 """
+
 from __future__ import annotations
 
 import math
@@ -17,17 +18,20 @@ import numpy as np
 # ``_detect_multi_modal``. The parent defines these BEFORE its bottom-of-
 # module sibling import, so this static cycle resolves at runtime in the
 # canonical import order.
-from ._target_distribution_analyzer import (
+from ._target_distribution_types import (
     _MULTI_MODAL_KDE_BINS,
     _MULTI_MODAL_MIN_PEAK_SEP_STDS,
     _MULTI_MODAL_VALLEY_DEPTH_RATIO,
 )
 
 
-def _detect_multi_modal(y: np.ndarray, n_bins: int = _MULTI_MODAL_KDE_BINS,
-                        min_peak_sep_stds: float = _MULTI_MODAL_MIN_PEAK_SEP_STDS,
-                        valley_depth_ratio: float = _MULTI_MODAL_VALLEY_DEPTH_RATIO,
-                        sigma: "float | None" = None) -> tuple[bool, int, float]:
+def _detect_multi_modal(
+    y: np.ndarray,
+    n_bins: int = _MULTI_MODAL_KDE_BINS,
+    min_peak_sep_stds: float = _MULTI_MODAL_MIN_PEAK_SEP_STDS,
+    valley_depth_ratio: float = _MULTI_MODAL_VALLEY_DEPTH_RATIO,
+    sigma: "float | None" = None,
+) -> tuple[bool, int, float]:
     """Detect >= 2 well-separated peaks via smoothed histogram + antimode check.
 
     A unimodal but noisy histogram can grow many local maxima from binning

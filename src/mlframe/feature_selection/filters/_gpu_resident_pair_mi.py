@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # Parent-defined names these blocks consume. Imported at module top: the PARENT does
 # ``from ._gpu_resident_pair_mi import *`` at its BOTTOM (after all these names are defined), so re-entering
 # the partially-initialised parent here always finds them - no circular-import hazard.
-from ._gpu_resident_fe import (
+from ._gpu_resident_shared import (
     _BINOP_CODE,
     _COMBOS,
     _COMBO_IDX_CACHE,
@@ -562,10 +562,17 @@ def grand_fused_pair_mi(
             disc_host = _ensure_disc_host(_disc_host_cache, disc_dev)
             for _fb in ("cupy", "cuda"):
                 gpu_res = dispatch_batch_mi_with_noise_gate_gpu(
-                    disc_2d=disc_host, factors_nbins=fnb, classes_y=y_i64, classes_y_safe=csafe, freqs_y=fy,
-                    npermutations=int(npermutations), base_seed=np.uint64(random_seed),
-                    min_nonzero_confidence=float(min_nonzero_confidence), use_su=bool(use_su),
-                    dtype=np.int32, force_backend=_fb,
+                    disc_2d=disc_host,
+                    factors_nbins=fnb,
+                    classes_y=y_i64,
+                    classes_y_safe=csafe,
+                    freqs_y=fy,
+                    npermutations=int(npermutations),
+                    base_seed=np.uint64(random_seed),
+                    min_nonzero_confidence=float(min_nonzero_confidence),
+                    use_su=bool(use_su),
+                    dtype=np.int32,
+                    force_backend=_fb,
                 )
                 if gpu_res is not None:
                     out = gpu_res[0]

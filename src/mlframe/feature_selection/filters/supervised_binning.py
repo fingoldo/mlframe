@@ -309,7 +309,7 @@ _LOGN = np.array([np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtyp
 def _xlogx(k: int) -> float:
     """k * log(k) with a table lookup for small k."""
     if k < _XLOGX_SIZE:
-        return _XLOGX[k]
+        return float(_XLOGX[k])
     return k * math.log(k)
 
 

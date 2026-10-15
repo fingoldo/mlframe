@@ -8,6 +8,7 @@ The regression reporter lives in this package so each module stays below the 1k-
 The public symbol is re-exported from ``_reporting`` so existing imports continue to work. The orchestration body
 lazy-imports helpers from ``_reporting`` / ``.evaluation`` inside the function to avoid the circular load.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,7 +41,7 @@ from pyutilz.pythonlib import get_human_readable_set_size
 # ``_reporting`` is partially loaded and the symbols are already there.
 from mlframe.utils.env_flags import env_flag
 
-from .._reporting import (
+from .._reporting_common import (
     DEFAULT_FIGSIZE,
     DEFAULT_PLOT_SAMPLE_SIZE,
     DEFAULT_RANDOM_SEED,
@@ -167,6 +168,7 @@ def report_regression_model_perf(
         # back to pandas would crash at predict time with the identical
         # opaque TypeError (prod incident).
         from mlframe.training.trainer import _predict_with_fallback
+
         preds = np.asarray(_predict_with_fallback(model, df, method="predict"))
 
     if isinstance(targets, pd.Series):
@@ -203,20 +205,33 @@ def report_regression_model_perf(
     #     clip stay skipped (they assume 1-D y).
     if st.targets_arr.ndim == 2 and st.targets_arr.shape[1] >= 2:
         from ._mtr import render_mtr_report
+
         return render_mtr_report(
-            st.targets_arr, st.preds_arr, model_name,
-            metrics=metrics, print_report=print_report,
-            plot_outputs=plot_outputs, plot_file=plot_file,
-            figsize=figsize, plot_sample_size=plot_sample_size,
-            plot_dpi=plot_dpi, report_title=report_title, verbose=verbose,
+            st.targets_arr,
+            st.preds_arr,
+            model_name,
+            metrics=metrics,
+            print_report=print_report,
+            plot_outputs=plot_outputs,
+            plot_file=plot_file,
+            figsize=figsize,
+            plot_sample_size=plot_sample_size,
+            plot_dpi=plot_dpi,
+            report_title=report_title,
+            verbose=verbose,
         )
     # Generic prediction-envelope clip (carved to _sensors.py). Bounds preds to a sigma window around the train (or
     # eval-fallback) target range BEFORE metrics + chart; catches catastrophic extrapolation on group-aware splits.
     from ._sensors import apply_prediction_envelope_clip
+
     st.preds_arr = apply_prediction_envelope_clip(
-        st.preds_arr, st.targets_arr,
-        y_train_min=y_train_min, y_train_max=y_train_max, y_train_std=y_train_std,
-        model_name=model_name, report_title=report_title,
+        st.preds_arr,
+        st.targets_arr,
+        y_train_min=y_train_min,
+        y_train_max=y_train_max,
+        y_train_std=y_train_std,
+        model_name=model_name,
+        report_title=report_title,
     )
     # Single source of truth from here on: the clip is documented as landing "BEFORE metrics + chart", but
     # only preds_arr (feeding the numeric metrics) was reassigned -- the residual audit, the DSL chart
@@ -260,10 +275,15 @@ def report_regression_model_perf(
     # Prediction-collapse / extrapolation / mean-shift / out-of-envelope sensor (carved to _sensors.py). Logs a HARD
     # WARNING when predictions look pathological so operators see it in the run log instead of eyeballing scatters.
     from ._sensors import run_collapse_sensor
+
     run_collapse_sensor(
-        st.preds_arr, st.targets_arr, R2,
+        st.preds_arr,
+        st.targets_arr,
+        R2,
         model_name=model_name,
-        y_train_min=y_train_min, y_train_max=y_train_max, y_train_std=y_train_std,
+        y_train_min=y_train_min,
+        y_train_max=y_train_max,
+        y_train_std=y_train_std,
     )
 
     # 2026-05-28 audit: additional metrics that don't factor into the
@@ -280,7 +300,9 @@ def report_regression_model_perf(
     st._ext_MASE = np.nan
     st._ext_RMSPE = np.nan
     st._ext_LogCosh = np.nan
-    _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman = _report_regression_mo_step1_st_targets_arr(st, mase_naive_mae, model_name, _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman)
+    _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman = _report_regression_mo_step1_st_targets_arr(
+        st, mase_naive_mae, model_name, _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman
+    )
 
     st.current_metrics = dict(
         MAE=MAE,
@@ -317,6 +339,7 @@ def report_regression_model_perf(
     # ``behavior_config.report_residual_audit`` is a LOG-ONLY toggle. When False we MUST still compute the audit so the chart's hist + resid-vs-pred panels stay populated -- only the multi-line verdict text in the log is suppressed. Multi-output targets still skip the audit (no scalar residuals to fit a distribution to).
     st._residual_audit = None
     from ...evaluation import _get_residual_audit_enabled  # lazy: breaks cycle with .evaluation
+
     st._audit_log_enabled = bool(_get_residual_audit_enabled())
     st._residual_audit = _report_regression__targets_arr_ndim_targets(st.targets_arr, st.preds_arr, targets, preds, metrics, model_name, st._residual_audit)
 
@@ -406,15 +429,57 @@ def report_regression_model_perf(
         # operator-visible change on existing charts; new tokens (RMSLE,
         # SMAPE, Spearman, MBE, Pearson, MAPE_mean, MdAPE) opt-in.
         DEFAULT_REGRESSION_TITLE_TOKENS = (
-            "MAE", "RMSE", "MaxError", "R2",
-            "RMSLE", "Spearman", "MBE",
+            "MAE",
+            "RMSE",
+            "MaxError",
+            "R2",
+            "RMSLE",
+            "Spearman",
+            "MBE",
         )
         _reg_tokens = DEFAULT_REGRESSION_TITLE_TOKENS
         _reg_tokens = _report_regression__try(reporting_config, _reg_tokens)
 
-        _render_regression_token = _report_regression_mo_step1_def_render_regression(MAE, report_ndigits, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_Pearson, _ext_Spearman, _ext_Kendall, _ext_EV, _ext_NSE, _ext_RMSLE, _ext_MdAPE, _ext_Cindex, _ext_Huber)
+        _render_regression_token = _report_regression_mo_step1_def_render_regression(
+            MAE,
+            report_ndigits,
+            RMSE,
+            MaxError,
+            R2,
+            _ext_MBE,
+            _ext_MAPE_mean,
+            _ext_SMAPE,
+            _ext_wMAPE,
+            _ext_CV_RMSE,
+            _ext_Pearson,
+            _ext_Spearman,
+            _ext_Kendall,
+            _ext_EV,
+            _ext_NSE,
+            _ext_RMSLE,
+            _ext_MdAPE,
+            _ext_Cindex,
+            _ext_Huber,
+        )
 
-        _report_regression_mo_step2_frags_render_regression(_reg_tokens, _render_regression_token, _is_t_scale_composite_chart, header_str, st, print_report, plot_outputs, plot_file, reporting_config, targets, preds, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart)
+        _report_regression_mo_step2_frags_render_regression(
+            _reg_tokens,
+            _render_regression_token,
+            _is_t_scale_composite_chart,
+            header_str,
+            st,
+            print_report,
+            plot_outputs,
+            plot_file,
+            reporting_config,
+            targets,
+            preds,
+            plot_sample_size,
+            plot_dpi,
+            figsize,
+            plot_marker,
+            show_perf_chart,
+        )
 
     _report_regression__print_report(print_report, model_name, report_title, MAE, report_ndigits, RMSE, MaxError, R2, st._residual_audit, st._audit_log_enabled)
 
@@ -441,7 +506,27 @@ def select_quantile_point_estimate(targets_arr: np.ndarray, preds_arr: np.ndarra
     return preds_arr[:, col]
 
 
-def _report_regression_mo_step1_def_render_regression(MAE, report_ndigits, RMSE, MaxError, R2, _ext_MBE, _ext_MAPE_mean, _ext_SMAPE, _ext_wMAPE, _ext_CV_RMSE, _ext_Pearson, _ext_Spearman, _ext_Kendall, _ext_EV, _ext_NSE, _ext_RMSLE, _ext_MdAPE, _ext_Cindex, _ext_Huber):
+def _report_regression_mo_step1_def_render_regression(
+    MAE,
+    report_ndigits,
+    RMSE,
+    MaxError,
+    R2,
+    _ext_MBE,
+    _ext_MAPE_mean,
+    _ext_SMAPE,
+    _ext_wMAPE,
+    _ext_CV_RMSE,
+    _ext_Pearson,
+    _ext_Spearman,
+    _ext_Kendall,
+    _ext_EV,
+    _ext_NSE,
+    _ext_RMSLE,
+    _ext_MdAPE,
+    _ext_Cindex,
+    _ext_Huber,
+):
     """Step 1 of report_regression_model_perf: lines starting at ``def _render_regression_token(token: str) -> str:``."""
     from mlframe.training._format import format_metric as _fmt
 
@@ -484,10 +569,28 @@ def _report_regression_mo_step1_def_render_regression(MAE, report_ndigits, RMSE,
         if token == "Huber":  # nosec B105 - identifier/config-key name matched by heuristic, not an embedded credential
             return "" if not np.isfinite(_ext_Huber) else f"Huber={_fmt(_ext_Huber, report_ndigits)}"
         return ""
+
     return _render_regression_token
 
 
-def _report_regression_mo_step2_frags_render_regression(_reg_tokens, _render_regression_token, _is_t_scale_composite_chart, header_str, st, print_report, plot_outputs, plot_file, reporting_config, targets, preds, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart):
+def _report_regression_mo_step2_frags_render_regression(
+    _reg_tokens,
+    _render_regression_token,
+    _is_t_scale_composite_chart,
+    header_str,
+    st,
+    print_report,
+    plot_outputs,
+    plot_file,
+    reporting_config,
+    targets,
+    preds,
+    plot_sample_size,
+    plot_dpi,
+    figsize,
+    plot_marker,
+    show_perf_chart,
+):
     """Step 2 of report_regression_model_perf: lines starting at ``_frags = [_render_regression_token(t) for t in _reg_tokens]``."""
     _frags = [_render_regression_token(t) for t in _reg_tokens]
     metrics_str = " ".join(f for f in _frags if f)
@@ -507,7 +610,24 @@ def _report_regression_mo_step2_frags_render_regression(_reg_tokens, _render_reg
     # Skip the plot when targets are 2-D -- title metrics already
     # carry the per-output-aggregated MAE/RMSE/R2.
     _is_multioutput = (st.targets_arr.ndim > 1 and st.targets_arr.shape[1] > 1) or (st.preds_arr.ndim > 1 and st.preds_arr.shape[1] > 1)
-    _report_regression__carry_per_output_aggregated(_is_multioutput, print_report, st.targets_arr, st._residual_audit, plot_outputs, plot_file, reporting_config, targets, preds, header_str, metrics_str, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart)
+    _report_regression__carry_per_output_aggregated(
+        _is_multioutput,
+        print_report,
+        st.targets_arr,
+        st._residual_audit,
+        plot_outputs,
+        plot_file,
+        reporting_config,
+        targets,
+        preds,
+        header_str,
+        metrics_str,
+        plot_sample_size,
+        plot_dpi,
+        figsize,
+        plot_marker,
+        show_perf_chart,
+    )
 
 
 def _report_regression_mo_step1_st_targets_arr(st, mase_naive_mae, model_name, _ext_Cindex, _ext_Huber, _ext_Kendall, _ext_MdAPE, _ext_RMSLE, _ext_Spearman):
@@ -515,10 +635,15 @@ def _report_regression_mo_step1_st_targets_arr(st, mase_naive_mae, model_name, _
     if st.targets_arr.ndim == 1 and st.preds_arr.ndim == 1:
         try:
             from mlframe.metrics.core import (
-                fast_rmsle, fast_mdape, fast_spearman_corr,
-                fast_kendall_tau, fast_concordance_index, fast_huber_loss,
+                fast_rmsle,
+                fast_mdape,
+                fast_spearman_corr,
+                fast_kendall_tau,
+                fast_concordance_index,
+                fast_huber_loss,
             )
             from mlframe.metrics.regression import fast_rmspe, fast_logcosh_loss
+
             # RMSLE only on non-negative targets; otherwise NaN is the right
             # signal (the metric isn't defined and the kernel warns).
             if (st.targets_arr >= 0).all() and (st.preds_arr >= 0).all():
@@ -564,13 +689,15 @@ def _report_regression__targets_arr_ndim_targets(targets_arr, preds_arr, targets
     if not ((targets_arr.ndim > 1 and targets_arr.shape[1] > 1) or (preds_arr.ndim > 1 and preds_arr.shape[1] > 1)):
         try:
             from mlframe.training.targets import audit_residuals as _audit_residuals_fn
+
             _residual_audit = _audit_residuals_fn(targets, preds)
             if metrics is not None:
                 metrics["residual_audit"] = _residual_audit.to_dict()
         except Exception as _audit_err:
             logger.warning(
                 "residual_audit failed for '%s': %s. Continuing without diagnostics.",
-                model_name, _audit_err,
+                model_name,
+                _audit_err,
             )
     return _residual_audit
 
@@ -582,6 +709,7 @@ def _report_regression__warm_state_regression_report(show_perf_chart, plot_file)
             _is_interactive_session = bool(__IPYTHON__)  # type: ignore[name-defined]
         except NameError:
             import sys as _sys
+
             _is_interactive_session = hasattr(_sys, "ps1")
         if not _is_interactive_session:
             show_perf_chart = False  # disable for the guards below
@@ -604,7 +732,24 @@ def _report_regression__try(reporting_config, _reg_tokens):
     return _reg_tokens
 
 
-def _report_regression__carry_per_output_aggregated(_is_multioutput, print_report, targets_arr, _residual_audit, plot_outputs, plot_file, reporting_config, targets, preds, header_str, metrics_str, plot_sample_size, plot_dpi, figsize, plot_marker, show_perf_chart):
+def _report_regression__carry_per_output_aggregated(
+    _is_multioutput,
+    print_report,
+    targets_arr,
+    _residual_audit,
+    plot_outputs,
+    plot_file,
+    reporting_config,
+    targets,
+    preds,
+    header_str,
+    metrics_str,
+    plot_sample_size,
+    plot_dpi,
+    figsize,
+    plot_marker,
+    show_perf_chart,
+):
     """Block of report_regression_model_perf starting at ``if _is_multioutput:``."""
     if _is_multioutput:
         if print_report:
@@ -616,6 +761,7 @@ def _report_regression__carry_per_output_aggregated(_is_multioutput, print_repor
         from mlframe.training.targets import (
             plot_residual_diagnostics as _plot_residual_diagnostics,
         )
+
         _audit = _residual_audit  # reuse pre-computed audit
 
         # When ReportingConfig.plot_outputs is set
@@ -633,7 +779,9 @@ def _report_regression__carry_per_output_aggregated(_is_multioutput, print_repor
             # RESID_VS_PRED / ERR_BY_DECILE); None falls back to the composer default.
             _regression_panels = getattr(reporting_config, "regression_panels", None)
             _plot_residual_diagnostics(
-                targets, preds, audit=_audit,
+                targets,
+                preds,
+                audit=_audit,
                 plot_outputs=plot_outputs,
                 base_path=plot_file,
                 header_str=header_str,
@@ -654,10 +802,14 @@ def _report_regression__carry_per_output_aggregated(_is_multioutput, print_repor
             _targ_arr = np.asarray(targets, dtype=np.float64).ravel()
             if _preds_arr.size > plot_sample_size:
                 from mlframe.reporting.charts import subsample_preserving_extremes
+
                 _resid_for_extremes = _targ_arr - _preds_arr
                 idx = subsample_preserving_extremes(
-                    _preds_arr, _targ_arr, sample_size=plot_sample_size,
-                    extreme_values=_resid_for_extremes, rng=DEFAULT_RANDOM_SEED,
+                    _preds_arr,
+                    _targ_arr,
+                    sample_size=plot_sample_size,
+                    extreme_values=_resid_for_extremes,
+                    rng=DEFAULT_RANDOM_SEED,
                 )
             else:
                 idx = np.arange(_preds_arr.size)
@@ -698,10 +850,16 @@ def _report_regression__carry_per_output_aggregated(_is_multioutput, print_repor
                     _scatter_title = f"{metrics_str}\nspearman(|resid|, y_hat) = " f"{_audit.hetero_spearman:+.3f} ({_het_marker})"
 
             ax_scatter.scatter(
-                preds[idx], targets[idx], marker=plot_marker, alpha=0.3,
+                preds[idx],
+                targets[idx],
+                marker=plot_marker,
+                alpha=0.3,
             )
             ax_scatter.plot(
-                preds[idx], preds[idx], linestyle="--", color="green",
+                preds[idx],
+                preds[idx],
+                linestyle="--",
+                color="green",
                 label="Perfect fit",
             )
             ax_scatter.set_xlabel("Predictions")
@@ -715,8 +873,11 @@ def _report_regression__carry_per_output_aggregated(_is_multioutput, print_repor
                 # axis; passing ax_resid_vs_pred=None silences the legacy
                 # 3rd-panel render path.
                 _plot_residual_diagnostics(
-                    targets, preds, audit=_audit,
-                    ax_hist=ax_hist, ax_resid_vs_pred=None,
+                    targets,
+                    preds,
+                    audit=_audit,
+                    ax_hist=ax_hist,
+                    ax_resid_vs_pred=None,
                 )
             else:
                 ax_hist.set_visible(False)
@@ -726,7 +887,14 @@ def _report_regression__carry_per_output_aggregated(_is_multioutput, print_repor
                 # extension writes a file matplotlib can't infer a format for / opens as raw bytes downstream.
                 _save_path = plot_file
                 if os.path.splitext(plot_file)[1].lower() not in (
-                    ".png", ".pdf", ".svg", ".jpg", ".jpeg", ".tif", ".tiff", ".webp",
+                    ".png",
+                    ".pdf",
+                    ".svg",
+                    ".jpg",
+                    ".jpeg",
+                    ".tif",
+                    ".tiff",
+                    ".webp",
                 ):
                     # Resolved, not concatenated: a flat name lands beside the png/ directory the rest of
                     # the run writes into.
@@ -740,6 +908,7 @@ def _report_regression__carry_per_output_aggregated(_is_multioutput, print_repor
                 plt.show(block=False)
             # Leak fix: close unless interactive (Jupyter inline).
             from mlframe.metrics.shared import close_unless_interactive as _close_unless_interactive
+
             _close_unless_interactive(fig, was_shown=show_perf_chart)
 
 
@@ -753,6 +922,7 @@ def _report_regression__print_report(print_report, model_name, report_title, MAE
         # init_logging in jupyter notebooks lost the metric blocks
         # from on-disk logs.
         from mlframe.training._format import format_metric as _fmt
+
         # Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
         # 2026-05-27 (user bug report): same fix as the chart-skip gate
         # above -- only ``MTRESID`` token marks a T-scale chart. The
@@ -772,9 +942,11 @@ def _report_regression__print_report(print_report, model_name, report_title, MAE
         if _is_t_scale_composite:
             _report_lines = [
                 report_title + " " + model_name,
-                ("  (composite/residual scale -- per-model metrics suppressed; "
-                "original y-scale metrics emitted by the "
-                "[CompositeTargetEstimator] wrap-pass)"),
+                (
+                    "  (composite/residual scale -- per-model metrics suppressed; "
+                    "original y-scale metrics emitted by the "
+                    "[CompositeTargetEstimator] wrap-pass)"
+                ),
             ]
         else:
             # One-line metrics in the log block.
@@ -802,6 +974,7 @@ def _report_regression__print_report(print_report, model_name, report_title, MAE
             from mlframe.training.targets import (
                 format_residual_audit_report as _fmt_residual_audit,
             )
+
             _report_lines.append(_fmt_residual_audit(_residual_audit))
         # Single multi-line logger.info call so the file handler picks
         # up one record per report block (vs N records for the original
@@ -842,6 +1015,7 @@ def _report_regression_point_metrics(st, sample_weight):
         # ``mlframe.metrics._regression_extras`` for measured speedups.
         # Only reachable when sample_weight is None: the fused kernel has no weighted variant.
         from mlframe.metrics.core import fast_regression_metrics_block_extended
+
         _block = fast_regression_metrics_block_extended(st.targets_arr, st.preds_arr)
         MAE = _block["MAE"]
         RMSE = _block["RMSE"]

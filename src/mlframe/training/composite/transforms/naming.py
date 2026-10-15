@@ -5,16 +5,17 @@ Public import path is ``mlframe.training.composite.transforms`` (e.g.
 the pre-split flat ``mlframe.training.composite_transforms`` module no
 longer exists, so do not import from that path.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
 from .registry import _TRANSFORMS_REGISTRY
-from . import UnknownTransformError
+from ._transform_base import UnknownTransformError
 from ._call_gateway import call_transform, callable_accepts  # noqa: F401 - the signature-gated transform-call entry point lives next to get_transform
 
 if TYPE_CHECKING:
-    from . import Transform
+    from ._transform_base import Transform
 
 
 # Short-name aliases for composite-target naming. Used in
@@ -85,7 +86,9 @@ TRANSFORM_NAME_SHORT: dict[str, str] = {
 
 
 def compose_target_name(
-    target_col: str, transform_name: str, base: str | None = None,
+    target_col: str,
+    transform_name: str,
+    base: str | None = None,
 ) -> str:
     """Build the canonical composite-target name from its components.
 
@@ -297,8 +300,10 @@ def composite_target_names(metadata: Any) -> frozenset[str] | None:
         return None
     return frozenset(
         str(s.get("name") if isinstance(s, dict) else getattr(s, "name", ""))
-        for by_target in specs.values() if isinstance(by_target, dict)
-        for spec_list in by_target.values() for s in (spec_list or ())
+        for by_target in specs.values()
+        if isinstance(by_target, dict)
+        for spec_list in by_target.values()
+        for s in (spec_list or ())
     )
 
 

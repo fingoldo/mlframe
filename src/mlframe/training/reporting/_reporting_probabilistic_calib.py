@@ -11,6 +11,7 @@ The function lazy-imports helpers from ``_reporting`` (``_canonical_multilabel_y
 ``_maybe_display``) inside the body to avoid the circular load with
 that module's own top-level imports.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-from ._reporting_probabilistic import _slugify_class
+from ._reporting_common import _slugify_class
 
 
 def _record_chart(metrics, name: str, base_path: str, error: "Exception | None" = None) -> None:
@@ -99,12 +100,16 @@ def _render_fairness_calibration(
             disparity = compute_subgroup_ece_disparity(yt, pos_score, labels)
             disparities[group_name] = disparity
             spec = compose_fairness_calibration_figure(
-                yt, pos_score, labels, title=f"Calibration fairness by {group_name}",
+                yt,
+                pos_score,
+                labels,
+                title=f"Calibration fairness by {group_name}",
             )
             _slug = _slugify_class(str(group_name))
             base_path = f"{plot_file}_faircal_{_slug}"
             from mlframe.reporting.output import parse_plot_output_dsl
             from mlframe.reporting.renderers import render_and_save
+
             render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
             _record_chart(metrics, f"fairness_calibration_{_slug}", base_path)
         except Exception as e:
@@ -172,6 +177,7 @@ def _render_calibration_by_feature(
             base_path = f"{plot_file}_calibfeat_{_slug}"
             from mlframe.reporting.output import parse_plot_output_dsl
             from mlframe.reporting.renderers import render_and_save
+
             render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
             _record_chart(metrics, f"calibration_by_feature_{_slug}", base_path)
         except Exception as e:
@@ -217,18 +223,31 @@ def _render_calibration_heatmap_2d(
             return
         res = compute_calibration_heatmap_2d(yt, pos_score, fx, fy)
         if metrics is not None and res.get("worst_cell") is not None:
-            metrics.update(dict(calibration_heatmap_2d={
-                "worst_ece": res["worst_ece"], "worst_cell": res["worst_cell"],
-                "median_cell_ece": res["median_cell_ece"], "traffic_light": res["traffic_light"],
-                "feat_x": str(fx_name), "feat_y": str(fy_name),
-            }))
+            metrics.update(
+                dict(
+                    calibration_heatmap_2d={
+                        "worst_ece": res["worst_ece"],
+                        "worst_cell": res["worst_cell"],
+                        "median_cell_ece": res["median_cell_ece"],
+                        "traffic_light": res["traffic_light"],
+                        "feat_x": str(fx_name),
+                        "feat_y": str(fy_name),
+                    }
+                )
+            )
         spec = compose_calibration_heatmap_2d_figure(
-            yt, pos_score, fx, fy, feat_x_name=str(fx_name), feat_y_name=str(fy_name),
+            yt,
+            pos_score,
+            fx,
+            fy,
+            feat_x_name=str(fx_name),
+            feat_y_name=str(fy_name),
         )
         _dsl = plot_outputs if plot_outputs else "matplotlib[png]"
         base_path = f"{plot_file}_calib2d_{_slugify_class(str(fx_name))}_{_slugify_class(str(fy_name))}"
         from mlframe.reporting.output import parse_plot_output_dsl
         from mlframe.reporting.renderers import render_and_save
+
         render_and_save(spec, parse_plot_output_dsl(_dsl), base_path)
         _record_chart(metrics, "calibration_heatmap_2d", base_path)
     except Exception as e:

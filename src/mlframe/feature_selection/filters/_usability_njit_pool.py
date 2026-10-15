@@ -902,6 +902,7 @@ def _usability_backend_choice(n_rows: int, n_combos: int) -> str:
         logger.debug("kernel_tuning_cache choose() failed, using the size-based fallback: %s", e)
         return _usability_fallback_choice(int(n_rows), int(n_combos))
 
+
 def score_pair_combos(
     x1: np.ndarray,
     x2: np.ndarray,

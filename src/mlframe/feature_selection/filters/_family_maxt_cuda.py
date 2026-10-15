@@ -85,7 +85,8 @@ def family_null_max_device(cols: np.ndarray, n_x: np.ndarray, perms: np.ndarray,
     cap = 64 if int(n_y) * (int(np.max(n_x)) if np.size(n_x) else 0) <= 64 else _MAX_CELLS
     _KERNELS[cap][blocks, _THREADS](cols_d, nx_d, perms_d, np.int64(n_y), out_d)
     best = cp.maximum(out_d.max(axis=1), 0.0)
-    return cp.asnumpy(best)
+    host: np.ndarray = cp.asnumpy(best)
+    return host
 
 
 __all__ = ["device_supported", "family_null_max_device"]

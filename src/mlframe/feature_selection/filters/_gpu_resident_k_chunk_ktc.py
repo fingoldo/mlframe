@@ -16,6 +16,7 @@ is selection-equivalent regardless of the chunk boundary (the sweep ranks fracti
 GPU-only: on a CPU-only / no-cupy host the sweep never runs and ``.choose()`` returns the fallback, so
 ``_gpu_k_chunk`` keeps the conservative 0.25 default.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,10 +27,7 @@ logger = logging.getLogger(__name__)
 
 from typing import cast
 
-from ._gpu_resident_fe import (
-    _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT,
-    _GPU_K_CHUNK_VRAM_FRACTIONS,
-)
+from ._gpu_resident_shared import _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT, _GPU_K_CHUNK_VRAM_FRACTIONS
 
 _GPU_K_CHUNK_SWEEP_N_SAMPLES = [50_000, 100_000, 300_000, 1_000_000]
 _GPU_K_CHUNK_SALT = 1
@@ -57,7 +55,12 @@ def gpu_k_chunk_vram_fraction(n: int) -> float:
 
 
 def gpu_resident_pair_candidate_mi_vram_fraction(
-    a: np.ndarray, b: np.ndarray, y_codes: np.ndarray, *, nbins: int = 20, vram_fraction: float,
+    a: np.ndarray,
+    b: np.ndarray,
+    y_codes: np.ndarray,
+    *,
+    nbins: int = 20,
+    vram_fraction: float,
 ) -> tuple[list[str], np.ndarray]:
     """Variant of ``gpu_resident_pair_candidate_mi`` whose K-chunk width uses an EXPLICIT VRAM fraction -
     the per-fraction probe the sweep times to learn the fastest safe width. Output is selection-equivalent
@@ -67,7 +70,11 @@ def gpu_resident_pair_candidate_mi_vram_fraction(
     from . import hermite_fe as _hf  # noqa: F401 - full-init parent before the direct sibling import
     from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
     from ._gpu_resident_fe import (
-        _COMBOS, _candidate_names, _fused_generate_block, _gpu_k_chunk, _unary_stack_cm,
+        _COMBOS,
+        _candidate_names,
+        _fused_generate_block,
+        _gpu_k_chunk,
+        _unary_stack_cm,
     )
 
     a_gpu = cp.asarray(a, dtype=cp.float64)
@@ -78,7 +85,8 @@ def gpu_resident_pair_candidate_mi_vram_fraction(
     ub_cm = _unary_stack_cm(cp, b_gpu)
     y_gpu = cp.asarray(y_i64)
     _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
-    _ymin = int(_ymm[0]); _ncls = int(_ymm[1]) - _ymin + 1
+    _ymin = int(_ymm[0])
+    _ncls = int(_ymm[1]) - _ymin + 1
     k_chunk = _gpu_k_chunk(n, vram_fraction=vram_fraction)
     mi_parts: list[np.ndarray] = []
     for start in range(0, len(_COMBOS), k_chunk):
@@ -109,13 +117,18 @@ def _run_gpu_k_chunk_sweep() -> list:
     variants = {
         f"frac_{f}": (lambda a, b, y, _f=f: gpu_resident_pair_candidate_mi_vram_fraction(a, b, y, vram_fraction=_f)[1]) for f in _GPU_K_CHUNK_VRAM_FRACTIONS
     }
-    return cast(list, sweep_backend_grid(
-        variants,
-        {"n_samples": _GPU_K_CHUNK_SWEEP_N_SAMPLES},
-        _make_gpu_k_chunk_inputs,
-        reference=f"frac_{_GPU_K_CHUNK_VRAM_FRACTION_DEFAULT}",
-        repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6,
-    ))
+    return cast(
+        list,
+        sweep_backend_grid(
+            variants,
+            {"n_samples": _GPU_K_CHUNK_SWEEP_N_SAMPLES},
+            _make_gpu_k_chunk_inputs,
+            reference=f"frac_{_GPU_K_CHUNK_VRAM_FRACTION_DEFAULT}",
+            repeats=3,
+            equiv_rtol=1e-6,
+            equiv_atol=1e-6,
+        ),
+    )
 
 
 def _gpu_k_chunk_fallback_choice(n_samples: int) -> str:

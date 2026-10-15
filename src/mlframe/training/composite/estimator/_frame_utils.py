@@ -10,6 +10,7 @@ or materialising row data on the hot path (per the project's 100GB-frame rule):
 - ``_count_feature_columns`` -- width the inner GBDT trains on (for the
   monotone-constraint length check).
 """
+
 from __future__ import annotations
 
 from typing import Any, Sequence
@@ -17,7 +18,7 @@ from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
-from . import _is_polars_df
+from .._composite_utils import is_polars_df as _is_polars_df
 
 try:
     import polars as pl
@@ -92,7 +93,8 @@ def _drop_columns(X: Any, columns: Sequence[str]) -> Any:
                     "copies a %.1f GB pandas frame (Copy-on-Write is off). "
                     "Enable pandas CoW (pd.set_option('mode.copy_on_write', "
                     "True)) or pass a polars frame for the zero-copy path.",
-                    present[0], _sz / 1024 ** 3,
+                    present[0],
+                    _sz / 1024**3,
                 )
         return X.drop(columns=present)
     # ndarray has no columns -> nothing to drop.

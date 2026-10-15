@@ -4,13 +4,13 @@ The implementations stay in their (private) home modules; code outside ``mlframe
 helper can move inside the package without breaking its users, and the private-import gate stays meaningful.
 """
 
-from . import (
+from ._input_extract import (
     _extract_base as extract_base,
     _extract_base_matrix as extract_base_matrix,
     _extract_groups as extract_groups,
-    _to_1d_numpy as to_1d_numpy,
     _y_train_clip_bounds as y_train_clip_bounds,
 )
+from ...utils import coerce_to_1d_numpy as to_1d_numpy
 from ._predict import (
     _apply_t_clip as apply_t_clip,
 )

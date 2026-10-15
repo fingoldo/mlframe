@@ -11,6 +11,7 @@ The function lazy-imports helpers from ``_reporting`` (``_canonical_multilabel_y
 ``_maybe_display``) inside the body to avoid the circular load with
 that module's own top-level imports.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,7 +45,7 @@ from ..phases import phase
 # so by the time Python resolves these names ``_reporting`` is partially
 # loaded and the symbols are already there. No circular-load failure,
 # AND a single source of truth (no constant duplication across siblings).
-from ._reporting import (
+from ._reporting_common import (
     DEFAULT_CALIB_REPORT_NDIGITS,
     DEFAULT_FIGSIZE,
     DEFAULT_NBINS,
@@ -95,17 +96,7 @@ def _resolve_class_label(class_id: int, class_name: Any, target_label_encoder: A
     return str(class_name)
 
 
-def _slugify_class(name: str) -> str:
-    """Filesystem-safe class-name slug for per-class plot filenames."""
-    try:
-        from pyutilz.strings import slugify
-        slug = slugify(name)
-    except Exception as e:
-        logger.debug("slugify() failed for name=%r: %s", name, e)
-        slug = ""
-    if not slug:
-        slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-")
-    return slug or "class"
+from ._reporting_common import _slugify_class  # moved to the leaf module; re-exported here
 
 
 def report_probabilistic_model_perf(
@@ -254,7 +245,9 @@ def report_probabilistic_model_perf(
     # each 1-D column (bit-identical); a metric without the kwarg falls back to the scalar form.
     st.integral_error = 0.0
     st._per_class_ice = None
-    st._per_class_ice, st.integral_error = _report_probabilist_each_column_bit_identical(custom_ice_metric, targets, probs, st._per_class_ice, st.integral_error)
+    st._per_class_ice, st.integral_error = _report_probabilist_each_column_bit_identical(
+        custom_ice_metric, targets, probs, st._per_class_ice, st.integral_error
+    )
     st.robust_integral_error = None
     if custom_rice_metric and custom_rice_metric != custom_ice_metric:
         st.robust_integral_error = custom_rice_metric(y_true=targets, y_score=probs)
@@ -277,7 +270,9 @@ def report_probabilistic_model_perf(
     # function path). Empirical wins documented in ``bench_gpu_metrics.py``:
     # at N=1M K=20 PR AUC alone, GPU = 170 ms vs CPU loop = 2016 ms.
     st._precomputed_aucs_per_class = None
-    st._precomputed_aucs_per_class = _report_probabilist_pr_auc_alone_gpu(group_ids, classes, st.is_multilabel, st.targets_arr, probs, targets, st._precomputed_aucs_per_class)
+    st._precomputed_aucs_per_class = _report_probabilist_pr_auc_alone_gpu(
+        group_ids, classes, st.is_multilabel, st.targets_arr, probs, targets, st._precomputed_aucs_per_class
+    )
 
     # DSL render spec for the reliability diagram. Default ON when the caller
     # supplies plot_outputs (e.g. "png,html" from ReportingConfig.plot_outputs);
@@ -286,7 +281,47 @@ def report_probabilistic_model_perf(
     st._plot_outputs_dsl = plot_outputs if plot_outputs else None
 
     st.true_classes = []
-    _report_probabilistic_step1_produced_single_most(classes, target_label_encoder, st, targets, probs, report_title, model_name, custom_ice_metric, n_features, columns, custom_rice_metric, calib_report_ndigits, plot_file, use_weights, nbins, group_ids, figsize, show_perf_chart, verbose, show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, plot_dpi, reliability_smoothed, title_metrics_tokens, f1_opt_threshold, tune_f1_threshold, metrics, calibration_binning, reliability_show_ci, print_report, calibs, pr_aucs, report_ndigits, roc_aucs, brs, integral_errors, log_losses, robust_integral_errors)
+    _report_probabilistic_step1_produced_single_most(
+        classes,
+        target_label_encoder,
+        st,
+        targets,
+        probs,
+        report_title,
+        model_name,
+        custom_ice_metric,
+        n_features,
+        columns,
+        custom_rice_metric,
+        calib_report_ndigits,
+        plot_file,
+        use_weights,
+        nbins,
+        group_ids,
+        figsize,
+        show_perf_chart,
+        verbose,
+        show_prob_histogram,
+        prob_histogram_yscale,
+        show_inline_population_labels,
+        plot_dpi,
+        reliability_smoothed,
+        title_metrics_tokens,
+        f1_opt_threshold,
+        tune_f1_threshold,
+        metrics,
+        calibration_binning,
+        reliability_show_ci,
+        print_report,
+        calibs,
+        pr_aucs,
+        report_ndigits,
+        roc_aucs,
+        brs,
+        integral_errors,
+        log_losses,
+        robust_integral_errors,
+    )
 
     # 2026-05-28 audit batch: post-loop macro / weighted aggregation across
     # classes. The per-class loop above stamped each class's KS / MCC / F1 /
@@ -308,7 +343,26 @@ def report_probabilistic_model_perf(
     # omits only that row (logged) rather than poisoning the report.
     _report_probabilist_omits_only_row_logged(st.is_multilabel, probs, print_report, metrics, targets, preds, report_ndigits)
 
-    _report_probabilistic_step2_omits_only_row(print_report, st, targets, preds, classes, report_ndigits, report_title, model_name, roc_aucs, pr_aucs, calibs, brs, log_losses, integral_errors, custom_ice_metric, custom_rice_metric, robust_integral_errors, probs)
+    _report_probabilistic_step2_omits_only_row(
+        print_report,
+        st,
+        targets,
+        preds,
+        classes,
+        report_ndigits,
+        report_title,
+        model_name,
+        roc_aucs,
+        pr_aucs,
+        calibs,
+        brs,
+        log_losses,
+        integral_errors,
+        custom_ice_metric,
+        custom_rice_metric,
+        robust_integral_errors,
+        probs,
+    )
 
     # Binary positive-class indicator (0/1) for the fairness + calibration-chart paths.
     # Those consumers (fast_roc_auc, ECE binning) assume y_true is a 0/1 indicator;
@@ -320,29 +374,94 @@ def report_probabilistic_model_perf(
         st._pos_label = classes[1] if classes is not None and len(classes) > 1 else 1
         st._y_true_pos_bin = (np.asarray(targets) == st._pos_label).astype(np.int8)
 
-    _report_probabilist_subgroups(subgroups, custom_ice_metric, probs, st._pos_label, subset_index, targets, print_report, metrics, fairness_calibration_charts, plot_file, st._y_true_pos_bin, plot_outputs)
+    _report_probabilist_subgroups(
+        subgroups,
+        custom_ice_metric,
+        probs,
+        st._pos_label,
+        subset_index,
+        targets,
+        print_report,
+        metrics,
+        fairness_calibration_charts,
+        plot_file,
+        st._y_true_pos_bin,
+        plot_outputs,
+    )
 
     # Per-feature calibration: a pooled reliability curve can hide miscalibration that varies with a continuous
     # feature (calibrated for low values, overconfident for high). Render reliability+ECE conditioned on the
     # top-importance feature(s) for binary targets. Default-ON when charts are saved AND a feature frame is present.
     if calibration_by_feature_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
         _render_calibration_by_feature(
-            df=df, columns=columns, model=model, y_true=st._y_true_pos_bin, pos_score=probs[:, 1],
-            plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
+            df=df,
+            columns=columns,
+            model=model,
+            y_true=st._y_true_pos_bin,
+            pos_score=probs[:, 1],
+            plot_file=plot_file,
+            plot_outputs=plot_outputs,
+            metrics=metrics,
         )
 
     # 2D calibration heatmap: a miscalibration pocket may surface only at a joint corner of the TOP-2 features (high f0
     # AND high f1) that either 1D per-feature view averages away. Render the ECE grid for the top-2-importance pair.
     if calibration_heatmap_2d_charts and plot_file and probs is not None and probs.shape[1] == 2 and df is not None:
         _render_calibration_heatmap_2d(
-            df=df, columns=columns, model=model, y_true=st._y_true_pos_bin, pos_score=probs[:, 1],
-            plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
+            df=df,
+            columns=columns,
+            model=model,
+            y_true=st._y_true_pos_bin,
+            pos_score=probs[:, 1],
+            plot_file=plot_file,
+            plot_outputs=plot_outputs,
+            metrics=metrics,
         )
 
     return preds, probs
 
 
-def _report_probabilistic_step1_produced_single_most(classes, target_label_encoder, st, targets, probs, report_title, model_name, custom_ice_metric, n_features, columns, custom_rice_metric, calib_report_ndigits, plot_file, use_weights, nbins, group_ids, figsize, show_perf_chart, verbose, show_prob_histogram, prob_histogram_yscale, show_inline_population_labels, plot_dpi, reliability_smoothed, title_metrics_tokens, f1_opt_threshold, tune_f1_threshold, metrics, calibration_binning, reliability_show_ci, print_report, calibs, pr_aucs, report_ndigits, roc_aucs, brs, integral_errors, log_losses, robust_integral_errors):
+def _report_probabilistic_step1_produced_single_most(
+    classes,
+    target_label_encoder,
+    st,
+    targets,
+    probs,
+    report_title,
+    model_name,
+    custom_ice_metric,
+    n_features,
+    columns,
+    custom_rice_metric,
+    calib_report_ndigits,
+    plot_file,
+    use_weights,
+    nbins,
+    group_ids,
+    figsize,
+    show_perf_chart,
+    verbose,
+    show_prob_histogram,
+    prob_histogram_yscale,
+    show_inline_population_labels,
+    plot_dpi,
+    reliability_smoothed,
+    title_metrics_tokens,
+    f1_opt_threshold,
+    tune_f1_threshold,
+    metrics,
+    calibration_binning,
+    reliability_show_ci,
+    print_report,
+    calibs,
+    pr_aucs,
+    report_ndigits,
+    roc_aucs,
+    brs,
+    integral_errors,
+    log_losses,
+    robust_integral_errors,
+):
     """Step 1 of report_probabilistic_model_perf: lines starting at ``for class_id, class_name in enumerate(classes):``."""
     for class_id, class_name in enumerate(classes):
         str_class_name = _resolve_class_label(class_id, class_name, target_label_encoder)
@@ -446,10 +565,23 @@ def _report_probabilistic_step1_produced_single_most(classes, target_label_encod
 
         with phase("fast_calibration_report", class_id=str_class_name, n_rows=len(y_true)):
             (
-                brier_loss, calibration_mae, calibration_std, calibration_coverage,
-                ece, brier_reliability, brier_resolution, brier_uncertainty,
-                roc_auc, pr_auc, ice, ll, precision, recall, f1,
-                _metrics_string, _fig,
+                brier_loss,
+                calibration_mae,
+                calibration_std,
+                calibration_coverage,
+                ece,
+                brier_reliability,
+                brier_resolution,
+                brier_uncertainty,
+                roc_auc,
+                pr_auc,
+                ice,
+                ll,
+                precision,
+                recall,
+                f1,
+                _metrics_string,
+                _fig,
             ) = fast_calibration_report(**_fcr_kwargs)
 
         if print_report:
@@ -502,7 +634,26 @@ def _report_probabilistic_step1_produced_single_most(classes, target_label_encod
             metrics.update({class_id: class_metrics})
 
 
-def _report_probabilistic_step2_omits_only_row(print_report, st, targets, preds, classes, report_ndigits, report_title, model_name, roc_aucs, pr_aucs, calibs, brs, log_losses, integral_errors, custom_ice_metric, custom_rice_metric, robust_integral_errors, probs):
+def _report_probabilistic_step2_omits_only_row(
+    print_report,
+    st,
+    targets,
+    preds,
+    classes,
+    report_ndigits,
+    report_title,
+    model_name,
+    roc_aucs,
+    pr_aucs,
+    calibs,
+    brs,
+    log_losses,
+    integral_errors,
+    custom_ice_metric,
+    custom_rice_metric,
+    robust_integral_errors,
+    probs,
+):
     """Step 2 of report_probabilistic_model_perf: lines starting at ``if print_report and logger.isEnabledFor(logging.INFO):``."""
     if print_report and logger.isEnabledFor(logging.INFO):
         # Logger.isEnabledFor gate: when verbose=0 / file handler filters out
@@ -523,7 +674,9 @@ def _report_probabilistic_step2_omits_only_row(print_report, st, targets, preds,
         # njit version computes the same numbers in ~1ms warm and formats
         # to the identical text shape.
         _cls_report_text = ""
-        _cls_report_text = _report_probabilist_identical_text_shape(st.is_multilabel, targets, preds, classes, st.true_classes, report_ndigits, _cls_report_text)
+        _cls_report_text = _report_probabilist_identical_text_shape(
+            st.is_multilabel, targets, preds, classes, st.true_classes, report_ndigits, _cls_report_text
+        )
         _report_lines = [
             report_title + " " + model_name,
             _cls_report_text,

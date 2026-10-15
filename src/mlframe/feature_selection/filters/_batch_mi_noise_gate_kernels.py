@@ -344,7 +344,8 @@ def _gate_from_mi(
     column k's MI against the i-th shuffled y (or any value when ``original_mi[k] <= 0``). Runs the njit core on a contiguous matrix."""
     original_mi = np.ascontiguousarray(original_mi, dtype=np.float64)
     if npermutations <= 0:
-        return original_mi.copy()
+        unchanged: np.ndarray = original_mi.copy()
+        return unchanged
     max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
     if max_failed <= 1:
         max_failed = 1
@@ -353,7 +354,8 @@ def _gate_from_mi(
         if not isinstance(perm_mis, np.ndarray)
         else np.ascontiguousarray(perm_mis, dtype=np.float64)
     )
-    return _gate_from_mi_njit(original_mi, perm_mat, int(npermutations), max_failed)
+    gated: np.ndarray = _gate_from_mi_njit(original_mi, perm_mat, int(npermutations), max_failed)
+    return gated
 
 
 # Bit-identical host LCG used to fill a WHOLE (npermutations, n) shuffle matrix in

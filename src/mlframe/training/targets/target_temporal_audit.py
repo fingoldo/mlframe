@@ -38,17 +38,17 @@ Public surface:
   to be plotted / used; default 0.5 of the median bin size.
 - DEFAULT_ZSCORE_THRESHOLD — 3.0 (3 MADs from rolling median)
 """
+
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from typing import Any, Literal
 
-import numpy as np
 import pandas as pd
 
 try:
     import polars as pl
+
     _HAS_POLARS = True
 except ImportError:
     _HAS_POLARS = False
@@ -60,7 +60,6 @@ from ._target_temporal_audit_coerce import (
     _AUDIT_DATETIME_LOW_NS,  # noqa: F401
     _AUDIT_UNIT_NS_FACTOR,  # noqa: F401
     _import_ruptures,  # noqa: F401
-    coerce_timestamps_for_audit,
 )
 
 DEFAULT_MIN_BIN_FRACTION_FOR_FILTER: float = 0.5
@@ -68,34 +67,22 @@ DEFAULT_MIN_BIN_FRACTION_FOR_FILTER: float = 0.5
 n_obs >= this fraction × median bin size. Filters out the tiny tail
 bins that would dominate the curve with high-variance noise."""
 
-DEFAULT_ZSCORE_THRESHOLD: float = 3.0
-"""Default threshold for the z-score change-point detector. A bin is
-flagged if |rate - rolling_median| > threshold × rolling_MAD (modified
-z-score)."""
-
-DEFAULT_ZSCORE_WINDOW: int = 7
-"""Default centred rolling-window width for the z-score detector.
-Wider windows = smoother baseline, less sensitive to short anomalies.
-7 catches month-long dips on a monthly-binned series."""
-
-DEFAULT_PELT_MODEL: str = "l2"
-"""Default cost model for ruptures.Pelt: ``"l2"`` (mean-shift detection
-via squared error). Other choices: ``"l1"`` (median-shift, more
-robust to outliers), ``"rbf"`` (kernel-based, detects general
-distributional changes — slower, sensitive to penalty)."""
-
-DEFAULT_PELT_MIN_SEGMENT_SIZE: int = 2
-"""Minimum number of bins per segment in Pelt. ``2`` is the natural
-floor for change-point detection (a "segment" of one bin is just an
-outlier, not a regime). Raise to 3+ to filter out short transients."""
+from ._target_temporal_types import (  # noqa: F401 - the records and defaults live in the leaf module; re-exported here
+    DEFAULT_ZSCORE_THRESHOLD,
+    DEFAULT_ZSCORE_WINDOW,
+    DEFAULT_PELT_MODEL,
+    DEFAULT_PELT_MIN_SEGMENT_SIZE,
+    TimeBin,
+    TemporalAuditResult,
+)
+from ._target_temporal_audit_coerce import coerce_timestamps_for_audit  # noqa: F401 - re-exported: callers import it from this module
+from ._target_temporal_audit_aggregate import Granularity, _GRANULARITY_SECONDS  # noqa: F401 - re-exported: callers import it from this module
 
 ChangePointMethod = Literal["pelt", "zscore"]
 
 from ._target_temporal_audit_aggregate import (
     DEFAULT_TARGET_BINS_RANGE,  # noqa: F401
-    Granularity,
     _GRANULARITY_ORDER,  # noqa: F401
-    _GRANULARITY_SECONDS,
     _POLARS_BIN_TRUNCATE,  # noqa: F401
     _aggregate_by_time_pandas,
     _aggregate_by_time_polars,
@@ -106,190 +93,13 @@ from ._target_temporal_audit_aggregate import (
 )
 
 
-@dataclass
-class TimeBin:
-    """One row of the time-binned target series."""
-    bin_label: str           # e.g. "2024-01" (display)
-    bin_start: pd.Timestamp  # bin's left edge (sorting / interval math)
-    n_obs: int  # number of rows in this bin
-    target_rate: float  # binary: P(y=1); regression: mean(y)
-    kept: bool = True  # False if filtered out as too-sparse
-
-
-@dataclass
-class TemporalAuditResult:
-    """Structured outcome of a temporal target audit."""
-    target_name: str
-    target_type: str
-    timestamp_col: str
-    granularity: Granularity
-    bins: list[TimeBin]
-    change_point_indices: list[int]  # indices into kept-bin list
-    segments: list[dict[str, Any]]  # [{start: ..., end: ..., mean_rate: ..., n_obs: ..., n_bins: ...}, ...]
-    warnings: list[str]
-    actionable: dict[str, Any] = field(default_factory=dict)
-    plot_path: str | None = None  # filled in if plot_target_over_time saves a file
-
-    def to_dict(self) -> dict[str, Any]:
-        """JSON-safe round-trip-friendly dict (for metadata storage)."""
-        return {
-            "target_name": self.target_name,
-            "target_type": self.target_type,
-            "timestamp_col": self.timestamp_col,
-            "granularity": self.granularity,
-            "bins": [
-                {
-                    "bin_label": b.bin_label,
-                    "bin_start": b.bin_start.isoformat() if hasattr(b.bin_start, "isoformat") else str(b.bin_start),
-                    "n_obs": b.n_obs,
-                    "target_rate": b.target_rate,
-                    "kept": b.kept,
-                }
-                for b in self.bins
-            ],
-            "change_point_indices": self.change_point_indices,
-            "segments": self.segments,
-            "warnings": self.warnings,
-            "actionable": self.actionable,
-            "plot_path": self.plot_path,
-        }
-
-    def recommended_filter_mask(
-        self,
-        timestamps: Any,
-        *,
-        segment: str = "most_recent_stable",
-    ) -> np.ndarray:
-        """Return a boolean mask selecting rows whose timestamp falls
-        inside the chosen audit segment.
-
-        Used as the actionable bridge between "audit detected drift
-        across N segments" and "let me actually train on the right
-        subset". Common pattern:
-
-            >>> import numpy as np, pandas as pd
-            >>> rng = np.random.default_rng(0)
-            >>> n = 4000
-            >>> df = pd.DataFrame({
-            ...     "ts": pd.date_range("2020-01-01", periods=n, freq="6h"),
-            ...     "y": (rng.random(n) < np.where(np.arange(n) < n // 2, 0.1, 0.5)).astype(int),
-            ... })
-            >>> result = audit_target_over_time(df, "ts", "y")
-            >>> mask = result.recommended_filter_mask(df["ts"])
-            >>> df_clean = df[mask]
-            >>> len(mask) == len(df), str(df_clean["ts"].min().date())
-            (True, '2021-05-01')
-
-        Parameters
-        ----------
-        timestamps : array-like (numpy / pandas / polars)
-            The timestamp values for which to compute the mask. Length
-            of returned array equals length of this input.
-        segment : str, default "most_recent_stable"
-            Selection rule:
-            * ``"most_recent_stable"`` — last segment with n_bins ≥ 3
-              (the operator-friendly default — most-recent regime,
-              skipping single-bin spikes).
-            * ``"largest"`` — segment with the most observations.
-            * ``"all_stable"`` — all segments with n_bins ≥ 3 (omits
-              short transient regimes).
-            * ``"first"`` / ``"last"`` — first / last segment by index.
-
-        Returns
-        -------
-        ndarray of bool
-            Same length as ``timestamps``. True for rows whose
-            timestamp lies in [segment.start_bin, segment.end_bin)
-            (the bin's exclusive end is the next bin's start, so
-            inclusion is half-open as Pelt segments are).
-        """
-        if not self.segments or not self.bins:
-            ts = coerce_timestamps_for_audit(timestamps)
-            return np.zeros(len(ts), dtype=bool)
-
-        kept = [b for b in self.bins if b.kept]
-        if not kept:
-            ts = coerce_timestamps_for_audit(timestamps)
-            return np.zeros(len(ts), dtype=bool)
-
-        chosen_segs: list[dict[str, Any]]
-        if segment == "most_recent_stable":
-            chosen_segs = []
-            for s in reversed(self.segments):
-                if s["n_bins"] >= 3:
-                    chosen_segs = [s]
-                    break
-            if not chosen_segs:
-                chosen_segs = [self.segments[-1]]
-        elif segment == "largest":
-            chosen_segs = [max(self.segments, key=lambda s: s["n_obs"])]
-        elif segment == "all_stable":
-            chosen_segs = [s for s in self.segments if s["n_bins"] >= 3]
-            if not chosen_segs:
-                chosen_segs = list(self.segments)
-        elif segment == "first":
-            chosen_segs = [self.segments[0]]
-        elif segment == "last":
-            chosen_segs = [self.segments[-1]]
-        else:
-            raise ValueError(f"Unknown segment selector: {segment!r}. " "Choose from: most_recent_stable / largest / all_stable / first / last.")
-
-        # Compute (start_ts, end_ts) for each chosen segment. The
-        # segment's start_idx is into the kept-bin list; the bin's
-        # ``bin_start`` is the inclusive left edge. The end is the
-        # NEXT bin's left edge OR (if we're at the tail) the last
-        # kept bin's bin_start + the granularity span.
-        gran_seconds = _GRANULARITY_SECONDS.get(self.granularity, 30.44 * 86_400.0)
-        gran_delta = pd.Timedelta(seconds=gran_seconds)
-
-        # Wave 34 P1 fix (2026-05-20): pre-fix the ``ts`` Series and the
-        # ``start_ts/end_ts`` Timestamps could have mismatched tz state.
-        # If ``bin_start`` was built from a tz-aware polars Datetime
-        # (``Datetime(time_zone="UTC")``), the kept[..].bin_start values
-        # are tz-aware while ``coerce_timestamps_for_audit`` returns
-        # tz-naive datetime64[ns]. Direct ``ts >= start_ts`` then raises
-        # ``TypeError: Cannot compare tz-naive and tz-aware``.
-        # Coerce ``ts`` to a pandas Series and normalise BOTH sides to
-        # tz-naive (the documented audit invariant): the
-        # ``coerce_timestamps_for_audit`` helper above already enforces
-        # this for the LHS; the RHS needs symmetric handling.
-        ts = pd.Series(coerce_timestamps_for_audit(timestamps))
-
-        def _normalize_bin_ts(_t):
-            """Strip tz on a Timestamp / datetime if present so the
-            comparison against the tz-naive ``ts`` Series succeeds.
-            ``coerce_timestamps_for_audit`` has already converted any
-            tz-aware input to UTC then dropped tz; do the same here for
-            consistency."""
-            _tz = getattr(_t, "tz", None) or getattr(_t, "tzinfo", None)
-            if _tz is not None:
-                return _t.tz_convert("UTC").tz_localize(None) if hasattr(_t, "tz_convert") else _t.astimezone(None).replace(tzinfo=None)
-            return _t
-
-        mask = np.zeros(len(ts), dtype=bool)
-        for s in chosen_segs:
-            start_idx = int(s["start_idx"])
-            end_idx = int(s["end_idx"])  # exclusive into kept[]
-            if start_idx >= len(kept):
-                continue
-            start_ts = _normalize_bin_ts(kept[start_idx].bin_start)
-            if end_idx < len(kept):
-                end_ts = _normalize_bin_ts(kept[end_idx].bin_start)
-            else:
-                # Tail segment — use last bin's left edge + granularity
-                # span as the (open) right edge.
-                end_ts = _normalize_bin_ts(kept[-1].bin_start) + gran_delta
-            seg_mask = (ts >= start_ts) & (ts < end_ts)
-            mask |= seg_mask.to_numpy() if hasattr(seg_mask, "to_numpy") else np.asarray(seg_mask)
-        return mask
-
-
 from ._target_temporal_changepoint import (  # noqa: F401
     find_change_points_pelt,
     find_change_points_zscore,
     find_change_points,
     _segments_from_change_points,
 )
+
 
 def audit_target_over_time(
     df: Any,
@@ -367,14 +177,22 @@ def audit_target_over_time(
         ts_for_picker = df[timestamp_col].to_list()
         chosen = _pick_granularity(ts_for_picker) if granularity == "auto" else granularity
         agg = _aggregate_by_time_polars(
-            df, timestamp_col, target_col, chosen, target_type=target_type,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
+            df,
+            timestamp_col,
+            target_col,
+            chosen,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
+            target_type=target_type,
         )
     else:
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame(df)
         chosen = _pick_granularity(df[timestamp_col]) if granularity == "auto" else granularity
         agg = _aggregate_by_time_pandas(
-            df, timestamp_col, target_col, chosen, target_type=target_type,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
+            df,
+            timestamp_col,
+            target_col,
+            chosen,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
+            target_type=target_type,
         )
 
     return _audit_from_agg(
@@ -519,19 +337,29 @@ def audit_targets_over_time(
     #    fallback runs per-target (less efficient but correct).
     if _HAS_POLARS and isinstance(df, pl.DataFrame):
         agg = _aggregate_by_time_polars_multi(
-            df, timestamp_col, target_specs, chosen,
+            df,
+            timestamp_col,
+            target_specs,
+            chosen,
         )
     else:
         # Pandas fallback: still N passes, but at least one place to
         # change later if we add a multi-agg pandas path.
         agg = _aggregate_by_time_pandas(
-            df, timestamp_col, target_specs[0][0], chosen,
+            df,
+            timestamp_col,
+            target_specs[0][0],
+            chosen,
             target_type=target_specs[0][1],
         )
         agg = agg.rename(columns={"target_rate": target_specs[0][2]})
         for col, ttype, alias in target_specs[1:]:
             sub = _aggregate_by_time_pandas(
-                df, timestamp_col, col, chosen, target_type=ttype,
+                df,
+                timestamp_col,
+                col,
+                chosen,
+                target_type=ttype,
             )
             agg[alias] = sub["target_rate"].values
 
@@ -541,11 +369,13 @@ def audit_targets_over_time(
         col, ttype = (spec, "binary_classification") if isinstance(spec, str) else (spec[0], spec[1])
         alias = name_to_alias[name]
 
-        sub = pd.DataFrame({
-            "bin_start": agg["bin_start"].values,
-            "n_obs": agg[f"n_obs__{alias}"].values if f"n_obs__{alias}" in agg.columns else agg["n_obs"].values,
-            "target_rate": agg[alias].values,
-        })
+        sub = pd.DataFrame(
+            {
+                "bin_start": agg["bin_start"].values,
+                "n_obs": agg[f"n_obs__{alias}"].values if f"n_obs__{alias}" in agg.columns else agg["n_obs"].values,
+                "target_rate": agg[alias].values,
+            }
+        )
         results[name] = _audit_from_agg(
             agg=sub,
             target_name=name,
@@ -571,12 +401,15 @@ from ._target_temporal_audit_from_agg import _audit_from_agg
 # Wave 106b (2026-05-21): plot_target_over_time moved to sibling.
 from ._target_temporal_plot import plot_target_over_time  # noqa: F401
 
+
 def format_temporal_audit_report(result: TemporalAuditResult) -> str:
     """Compact text rendering for log output."""
     lines = [
-        (f"target_temporal_audit: {result.target_name} ({result.target_type}, "
-        f"{result.granularity}-binned, {len(result.bins)} bins, "
-        f"{len(result.segments)} segments)"),
+        (
+            f"target_temporal_audit: {result.target_name} ({result.target_type}, "
+            f"{result.granularity}-binned, {len(result.bins)} bins, "
+            f"{len(result.segments)} segments)"
+        ),
     ]
     lines.extend(
         f"  segment {s['start_label']}..{s['end_label']} " f"({s['n_bins']} bins, n_obs={s['n_obs']:_}): " f"mean_rate={s['mean_rate']:.3f}"

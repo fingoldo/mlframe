@@ -4,6 +4,7 @@ Re-imported at the parent module's bottom so historical
 ``from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor`` import
 sites keep working.
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +17,7 @@ import polars as pl
 from mlframe.feature_engineering.basic import CYCLICAL_ENCODING_VERSION, LEGACY_CYCLICAL_ENCODING_VERSION, create_date_features
 
 from ..configs import TargetTypes
-from . import FeaturesAndTargetsExtractor
+from ._extractors_base import FeaturesAndTargetsExtractor
 from ._extractors_dtype_helpers import (
     get_sample_weights_by_recency,
     intize_targets,
@@ -311,9 +312,10 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
             _missing = _allowed_set - _kept
             if _missing and self.verbose:
                 logger.warning(
-                    "allowed_targets filter: %d name(s) not found in built targets: %s. "
-                    "Built names: %s.",
-                    len(_missing), sorted(_missing), sorted(_kept),
+                    "allowed_targets filter: %d name(s) not found in built targets: %s. " "Built names: %s.",
+                    len(_missing),
+                    sorted(_missing),
+                    sorted(_kept),
                 )
             target_by_type = _filtered
 

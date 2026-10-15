@@ -210,7 +210,7 @@ def batch_mi_with_noise_gate_v3(
 
     disc_t = np.empty((K, n), dtype=disc_2d.dtype)
     _transpose_blocked(disc_2d, disc_t)
-    classes_dense_t = np.empty((K, n), dtype=classes_dtype)
+    classes_dense_t: np.ndarray = np.empty((K, n), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
     kx = np.zeros(K, dtype=np.int64)
     original_mi = np.zeros(K, dtype=np.float64)

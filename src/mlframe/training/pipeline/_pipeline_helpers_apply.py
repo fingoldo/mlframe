@@ -38,27 +38,24 @@ logger = logging.getLogger(__name__)
 # _PRE_PIPELINE_CACHE* / _approx_entry_bytes etc. come through _pipeline_helpers's own canonical
 # re-export of _pipeline_cache.py -- imported once there, not duplicated here.
 from ._pipeline_selector_log import log_selector_retention
-from ._pipeline_helpers import (  # noqa: F401
+from ._pipeline_cache import (
     _PRE_PIPELINE_CACHE,
     _PRE_PIPELINE_CACHE_LOCK,
     _PRE_PIPELINE_CACHE_MAX,
     _PRE_PIPELINE_CACHE_MAX_BYTES,
     _approx_entry_bytes,
-    _content_fingerprint_for_cache,
+    _pre_pipeline_cache_get,
+    _pre_pipeline_cache_key,
+)
+from ._pipeline_fit_state import (
     _extract_feature_selector,
-    _fresh_uncachable,
     _is_fitted,
     _is_stale_fit_state_value_error,
     _multilabel_target_to_1d_for_supervised_encoders,
     _passthrough_cols_fit_transform,
-    _pipeline_signature_for_cache,
-    _pre_pipeline_cache_clear,
-    _pre_pipeline_cache_get,
-    _pre_pipeline_cache_key,
-    _pre_pipeline_cache_set,
     _raise_pre_pipeline_rowcount_change,
-    _UncachableSentinel,
 )
+
 
 def _apply_pre_pipeline_transforms(
     model: Any,
@@ -128,18 +125,40 @@ def _apply_pre_pipeline_transforms(
         # followed by a populate is guaranteed to land in the slot the next
         # lookup will read from.
         _cache_key_entry = _pre_pipeline_cache_key(
-            train_df, val_df, pre_pipeline,
-            train_target=train_target, target_name=target_name,
+            train_df,
+            val_df,
+            pre_pipeline,
+            train_target=train_target,
+            target_name=target_name,
             sample_weight=sample_weight,
         )
         _cache_hit = _pre_pipeline_cache_get(
-            train_df, val_df, pre_pipeline,
-            train_target=train_target, target_name=target_name,
-            sample_weight=sample_weight, key=_cache_key_entry,
+            train_df,
+            val_df,
+            pre_pipeline,
+            train_target=train_target,
+            target_name=target_name,
+            sample_weight=sample_weight,
+            key=_cache_key_entry,
         )
         if _cache_hit is not None and not skip_pre_pipeline_transform and not skip_preprocessing and not _is_fitted(pre_pipeline):
             return _apply_pre_pipeline_restore_cached(_cache_hit, pre_pipeline, verbose, t0_pre)
-        train_df, val_df = _apply_pre_pipeline_phase_pre_pipeline_fit(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df, t0_pre, cache_max, _cache_key_entry)
+        train_df, val_df = _apply_pre_pipeline_phase_pre_pipeline_fit(
+            skip_pre_pipeline_transform,
+            verbose,
+            skip_preprocessing,
+            pre_pipeline,
+            train_df,
+            selector_passthrough_cols,
+            train_target,
+            groups,
+            sample_weight,
+            _input_cols,
+            val_df,
+            t0_pre,
+            cache_max,
+            _cache_key_entry,
+        )
 
         # Identity-equivalent = column set unchanged AND no value-transforming
         # steps (ce/imp/scaler/transform). Column-list-equality alone gave a
@@ -197,15 +216,56 @@ def _apply_pre_pipeline_transforms(
     return train_df, val_df
 
 
-def _apply_pre_pipeline_phase_pre_pipeline_fit(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df, t0_pre, cache_max, _cache_key_entry):
+def _apply_pre_pipeline_phase_pre_pipeline_fit(
+    skip_pre_pipeline_transform,
+    verbose,
+    skip_preprocessing,
+    pre_pipeline,
+    train_df,
+    selector_passthrough_cols,
+    train_target,
+    groups,
+    sample_weight,
+    _input_cols,
+    val_df,
+    t0_pre,
+    cache_max,
+    _cache_key_entry,
+):
     """Block of _apply_pre_pipeline_phase_pre_pipeline_fit starting at ``with phase("pre_pipeline_fit_transform"):``."""
     with phase("pre_pipeline_fit_transform"):
-        train_df, val_df = _apply_pre_pipeline_p_step1_skip_pre_pipeline(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df)
-        _apply_pre_pipeline_p_step2_maybe_clean_ram(verbose, train_df, t0_pre, skip_pre_pipeline_transform, skip_preprocessing, cache_max, val_df, pre_pipeline, _cache_key_entry)
+        train_df, val_df = _apply_pre_pipeline_p_step1_skip_pre_pipeline(
+            skip_pre_pipeline_transform,
+            verbose,
+            skip_preprocessing,
+            pre_pipeline,
+            train_df,
+            selector_passthrough_cols,
+            train_target,
+            groups,
+            sample_weight,
+            _input_cols,
+            val_df,
+        )
+        _apply_pre_pipeline_p_step2_maybe_clean_ram(
+            verbose, train_df, t0_pre, skip_pre_pipeline_transform, skip_preprocessing, cache_max, val_df, pre_pipeline, _cache_key_entry
+        )
     return train_df, val_df
 
 
-def _apply_pre_pipeline_p_step1_skip_pre_pipeline(skip_pre_pipeline_transform, verbose, skip_preprocessing, pre_pipeline, train_df, selector_passthrough_cols, train_target, groups, sample_weight, _input_cols, val_df):
+def _apply_pre_pipeline_p_step1_skip_pre_pipeline(
+    skip_pre_pipeline_transform,
+    verbose,
+    skip_preprocessing,
+    pre_pipeline,
+    train_df,
+    selector_passthrough_cols,
+    train_target,
+    groups,
+    sample_weight,
+    _input_cols,
+    val_df,
+):
     """Fit and/or transform the train (and val) frames through ``pre_pipeline`` according to what is already cached or fitted.
 
     Four cases: the cached frames are used as they are; only the feature selector runs (``skip_preprocessing``: a polars-ds pipeline already applied
@@ -404,7 +464,9 @@ def _fit_and_apply_pipeline(verbose, pre_pipeline, train_df, selector_passthroug
     return train_df, val_df
 
 
-def _apply_pre_pipeline_p_step2_maybe_clean_ram(verbose, train_df, t0_pre, skip_pre_pipeline_transform, skip_preprocessing, cache_max, val_df, pre_pipeline, _cache_key_entry):
+def _apply_pre_pipeline_p_step2_maybe_clean_ram(
+    verbose, train_df, t0_pre, skip_pre_pipeline_transform, skip_preprocessing, cache_max, val_df, pre_pipeline, _cache_key_entry
+):
     """Step 2 of _apply_pre_pipeline_phase_pre_pipeline_fit: lines starting at ``_maybe_clean_ram()``."""
     _maybe_clean_ram()
     if verbose:
@@ -515,6 +577,7 @@ def _apply_pre_pipeline_restore_cached(cache_hit, pre_pipeline, verbose, t0_pre)
             # ``copy.copy`` per-attribute is cheaper than ``copy.deepcopy`` (which
             # duplicates trained model weights -- ranges in GB for tree ensembles).
             import copy as _cp
+
             for _k, _v in fitted_cached.__dict__.items():
                 try:
                     pre_pipeline.__dict__[_k] = _cp.copy(_v)
@@ -533,7 +596,8 @@ def _apply_pre_pipeline_restore_cached(cache_hit, pre_pipeline, verbose, t0_pre)
             logger.warning(
                 "pre_pipeline cache state transfer FAILED (%s: %s); pre_pipeline left "
                 "without fitted state -- predict-time transform may raise NotFittedError",
-                type(_state_err).__name__, _state_err,
+                type(_state_err).__name__,
+                _state_err,
             )
     if verbose:
         logger.info("Reusing pre_pipeline fit-transform from cache " "(same train_df + structurally identical pipeline).")

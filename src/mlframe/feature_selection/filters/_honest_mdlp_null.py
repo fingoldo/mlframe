@@ -146,7 +146,11 @@ def _njit_null_matrices(spec: dict, factors_data: np.ndarray, factors_nbins, y_i
     plain = np.empty((n_perm, len(pool_idx)), dtype=np.float64)
     corr = np.empty_like(plain)
     for j, c in enumerate(pool_idx):
-        plain[:, j], corr[:, j] = computed[c] if c in computed else cache[c]
+        if c in computed:
+            plain[:, j], corr[:, j] = computed[c]
+        else:
+            assert cache is not None  # a column missing from ``computed`` is served from the cache
+            plain[:, j], corr[:, j] = cache[c]
     return plain, corr
 
 
@@ -160,7 +164,8 @@ def _njit_fdr_floor(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: 
 def honest_plain_null_maxima(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, pool, n_permutations: int, seed) -> np.ndarray:
     """Per-permutation maximum plain plug-in MI over ``pool`` under the honest null (numba chain), for the empty-support fallback."""
     plain, _ = _njit_null_matrices(spec, factors_data, factors_nbins, y_idx, pool, n_permutations, seed)
-    return np.maximum(plain.max(axis=1), 0.0)
+    capped: np.ndarray = np.maximum(plain.max(axis=1), 0.0)
+    return capped
 
 
 def honest_fdr_floor(honest_codes_fn, factors_data: np.ndarray, factors_nbins, y_idx: int, pool, n_permutations: int, quantile: float, seed) -> float:

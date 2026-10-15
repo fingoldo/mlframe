@@ -8,10 +8,6 @@
    "count": 1,
    "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
   },
-  "threshold::1e-12 compared against _denom_su/denom/su/su_denom::feature_selection/filters/_batch_mi_noise_gate_kernels.py feature_selection/filters/_dynamic_cluster_discovery/_dcd_metrics.py feature_selection/filters/_mrmr_artifacts.py feature_selection/filters/_usability_gpu.py feature_selection/filters/correlated_features.py feature_selection/filters/evaluation.py feature_selection/filters/info_theory/_batch_kernels.py feature_selection/filters/info_theory/_class_mi_kernels.py feature_selection/filters/info_theory/_entropy_kernels.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su_bitmap.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su_joint.py inspection/interaction.py training/composite/monitoring.py": {
-   "count": 1,
-   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
-  },
   "threshold::1e-12 compared against _stds/stds::feature_selection/wrappers/_helpers_importance_agg.py feature_selection/wrappers/_importance_methods.py feature_selection/wrappers/_knockoffs.py": {
    "count": 1,
    "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
@@ -35,6 +31,10 @@
   "threshold::200000 compared against size::feature_selection/filters/_extra_fe_families.py feature_selection/filters/_fe_accuracy_gate.py training/composite/discovery/_point_mass_gate.py training/composite/discovery/_skew_gate.py training/composite/transforms/nonlinear.py training/composite/transforms/simple.py": {
    "count": 1,
    "note": "Large-n crossover or subsample cap of unrelated routines (a quantile switch, a float cardinality probe, point-mass and skew subsamples, two composite transforms). Each marks where its own routine changes strategy or stops paying for the full column; they are kernel-tuning-cache candidates rather than one shared constant, and re-measuring one says nothing about the others."
+  },
+  "threshold::1e-12 compared against _denom_su/denom/su/su_denom::feature_selection/filters/_batch_mi_noise_gate_kernels.py feature_selection/filters/_dynamic_cluster_discovery/_dcd_metrics.py feature_selection/filters/_mrmr_artifacts.py feature_selection/filters/_usability_gpu.py feature_selection/filters/correlated_features.py feature_selection/filters/evaluation.py feature_selection/filters/info_theory/_batch_kernels.py feature_selection/filters/info_theory/_batch_kernels_v3.py feature_selection/filters/info_theory/_class_mi_kernels.py feature_selection/filters/info_theory/_entropy_kernels.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su_bitmap.py feature_selection/shap_proxied_fs/_shap_proxy_cluster_su_joint.py inspection/interaction.py training/composite/monitoring.py": {
+   "count": 1,
+   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
   }
  },
  "gate": "drifted-duplicate-literals",
