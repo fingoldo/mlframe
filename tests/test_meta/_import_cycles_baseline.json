@@ -12,10 +12,6 @@
    "count": 1,
    "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
   },
-  "import-cycle::mlframe.metrics.classification._classification_extras | mlframe.metrics.classification._classification_extras_blocks": {
-   "count": 1,
-   "note": "hermite_fe/_classification_extras split: @njit kernels reference the parent's njit helpers, and numba cannot compile a function-level import"
-  },
   "import-cycle::mlframe.training.composite.estimator | mlframe.training.composite.estimator._estimator | mlframe.training.composite.estimator._frame_utils | mlframe.training.composite.estimator._predict": {
    "count": 1,
    "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"

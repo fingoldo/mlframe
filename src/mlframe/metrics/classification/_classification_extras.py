@@ -23,6 +23,7 @@ Public API (re-exported from ``mlframe.metrics.core``):
     * ``matthews_corrcoef_multiclass``  - Gorodkin multiclass MCC
     * ``ranked_probability_score``      - RPS (ordinal CRPS-analog)
 """
+
 from __future__ import annotations
 
 from math import erfc, sqrt
@@ -36,53 +37,11 @@ from .._numba_params import _PARALLEL_REDUCTION_THRESHOLD, NUMBA_NJIT_PARAMS
 # ---------- helpers ----------
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS)
-def _confusion_counts_binary(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[int, int, int, int]:
-    """Return (TP, FP, TN, FN) for binary 0/1 labels.
-
-    Robust to any int/bool dtype: cast happens at call site. The kernel
-    treats anything != 0 as positive.
-    """
-    tp = 0; fp = 0; tn = 0; fn = 0
-    for i in range(y_true.shape[0]):
-        if y_true[i] != 0:
-            if y_pred[i] != 0:
-                tp += 1
-            else:
-                fn += 1
-        else:
-            if y_pred[i] != 0:
-                fp += 1
-            else:
-                tn += 1
-    return tp, fp, tn, fn
-
-
-@numba.njit(**NUMBA_NJIT_PARAMS, parallel=True)
-def _confusion_counts_binary_par(
-    y_true: np.ndarray, y_pred: np.ndarray, nthr: int,
-) -> Tuple[int, int, int, int]:
-    """Per-thread accumulators avoid the `+= scalar` reduction-detection
-    edge case that fails on tuples (numba only auto-reduces scalars in
-    prange). Final reduction outside the prange."""
-    tp_a = np.zeros(nthr, dtype=np.int64)
-    fp_a = np.zeros(nthr, dtype=np.int64)
-    tn_a = np.zeros(nthr, dtype=np.int64)
-    fn_a = np.zeros(nthr, dtype=np.int64)
-    n = y_true.shape[0]
-    for i in numba.prange(n):
-        t = numba.get_thread_id()
-        if y_true[i] != 0:
-            if y_pred[i] != 0:
-                tp_a[t] += 1
-            else:
-                fn_a[t] += 1
-        else:
-            if y_pred[i] != 0:
-                fp_a[t] += 1
-            else:
-                tn_a[t] += 1
-    return int(tp_a.sum()), int(fp_a.sum()), int(tn_a.sum()), int(fn_a.sum())
+from ._confusion_kernels import (  # the kernels live in the leaf module; re-exported here
+    _confusion_counts_binary,
+    _confusion_counts_binary_par,
+    _multiclass_confusion_kernel,
+)
 
 
 def _confusion_counts_binary_dispatch(y_true: np.ndarray, y_pred: np.ndarray) -> Tuple[int, int, int, int]:
@@ -430,7 +389,8 @@ def gini_from_auc(auc: float) -> float:
 
 
 def specificity_npv_fpr_fnr(
-    y_true: np.ndarray, y_pred: np.ndarray,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
 ) -> Tuple[float, float, float, float]:
     """Companion to (precision, recall) on the negative class.
 
@@ -449,7 +409,9 @@ def specificity_npv_fpr_fnr(
 
 
 def f_beta_score(
-    y_true: np.ndarray, y_pred: np.ndarray, beta: float = 1.0,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    beta: float = 1.0,
 ) -> float:
     """Generalised F-beta. beta=1 -> F1; beta=2 -> recall weighted 4x more than precision; beta=0.5 -> precision weighted 4x more.
 
@@ -514,7 +476,9 @@ def spiegelhalter_z(y_true: np.ndarray, y_score: np.ndarray) -> Tuple[float, flo
 
 
 def lift_at_k(
-    y_true: np.ndarray, y_score: np.ndarray, k_pct: float = 10.0,
+    y_true: np.ndarray,
+    y_score: np.ndarray,
+    k_pct: float = 10.0,
 ) -> float:
     """Lift at top-k%: fraction of positives captured in top-k% by score,
     divided by k%. A model that predicts the prevalence everywhere has
@@ -577,7 +541,9 @@ def _top_k_hits_kernel(topk_idx: np.ndarray, y_true: np.ndarray, K: int) -> int:
 
 
 def top_k_accuracy(
-    y_true: np.ndarray, probs_NK: np.ndarray, k: int = 1,
+    y_true: np.ndarray,
+    probs_NK: np.ndarray,
+    k: int = 1,
 ) -> float:
     """Fraction of rows where the true class is in the top-k predicted
     probabilities.
@@ -605,22 +571,10 @@ def top_k_accuracy(
     return hits / n if n > 0 else np.nan
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS)
-def _multiclass_confusion_kernel(
-    y_true: np.ndarray, y_pred: np.ndarray, K: int,
-) -> np.ndarray:
-    """Returns K x K confusion matrix C[true, pred]."""
-    C = np.zeros((K, K), dtype=np.int64)
-    for i in range(y_true.shape[0]):
-        t = y_true[i]
-        p = y_pred[i]
-        if 0 <= t < K and 0 <= p < K:
-            C[t, p] += 1
-    return C
-
-
 def matthews_corrcoef_multiclass(
-    y_true: np.ndarray, y_pred: np.ndarray, n_classes: Optional[int] = None,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    n_classes: Optional[int] = None,
 ) -> float:
     """Gorodkin multiclass MCC.
 
@@ -705,7 +659,8 @@ def _rps_kernel_par(y_true: np.ndarray, probs_NK: np.ndarray) -> float:
 
 
 def ranked_probability_score(
-    y_true: np.ndarray, probs_NK: np.ndarray,
+    y_true: np.ndarray,
+    probs_NK: np.ndarray,
 ) -> float:
     """Ranked Probability Score (RPS).
 
