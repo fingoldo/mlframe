@@ -1,4 +1,5 @@
 """Helpers carved out of ``_reporting_probabilistic`` to keep that module under its size budget."""
+
 from __future__ import annotations
 
 import logging
@@ -29,7 +30,7 @@ from ..phases import phase
 # so by the time Python resolves these names ``_reporting`` is partially
 # loaded and the symbols are already there. No circular-load failure,
 # AND a single source of truth (no constant duplication across siblings).
-from ._reporting import (
+from ._reporting_common import (
     _maybe_display,
     _style_with_caption,
 )
@@ -41,16 +42,15 @@ if TYPE_CHECKING:
 # identical to importing it) so the INFO-gate that guards the sklearn classification_report cost is controlled
 # from one place. classification_report itself is still accessed through the module below so callers can swap
 # the fallback at runtime.
-from . import _reporting as _reporting_mod
 from mlframe.utils.log_throttle import log_throttle
 
-logger = logging.getLogger(_reporting_mod.__name__)
+logger = logging.getLogger("mlframe.training.reporting._reporting")
 
 # Per-class keys that are not metrics: a p-value, a degrees-of-freedom count or a base rate has no meaningful mean.
 _NOT_AGGREGATABLE = re.compile(r"(^|_)(p|pval|pvalue|p_value|dof|df)$|^base_rate$|^n_|support", re.IGNORECASE)
 
 
-logger = logging.getLogger(_reporting_mod.__name__)
+logger = logging.getLogger("mlframe.training.reporting._reporting")
 
 
 _NOT_AGGREGATABLE = re.compile(r"(^|_)(p|pval|pvalue|p_value|dof|df)$|^base_rate$|^n_|support", re.IGNORECASE)
@@ -138,6 +138,7 @@ def _report_probabilist_preds_none(preds, targets, probs, multilabel_dispatch_co
             # MultiOutputClassifier returns list[(N,2)] for predict_proba -- canonicalize to (N, K).
             from mlframe.training.configs import TargetTypes
             from mlframe.training.helpers import _canonical_predict_proba_shape, _predict_from_probs
+
             probs = _canonical_predict_proba_shape(probs)
             # Honour MultilabelDispatchConfig.per_label_thresholds when
             # supplied: per-column decision threshold tuned for label
@@ -150,7 +151,9 @@ def _report_probabilist_preds_none(preds, targets, probs, multilabel_dispatch_co
                 else 0.5
             )
             preds = _predict_from_probs(
-                probs, TargetTypes.MULTILABEL_CLASSIFICATION, threshold=_per_label_thr,
+                probs,
+                TargetTypes.MULTILABEL_CLASSIFICATION,
+                threshold=_per_label_thr,
             )
         elif probs.shape[1] == 2:
             # For binary classification, use threshold=0.5 on class 1 probability
@@ -160,6 +163,7 @@ def _report_probabilist_preds_none(preds, targets, probs, multilabel_dispatch_co
         else:
             # Wave 21 P2: nan-safe argmax.
             from mlframe.utils.nan_safe import argmax_classes_safe
+
             preds = argmax_classes_safe(probs, context="_reporting.report_perf")
             if model is not None and hasattr(model, "classes_"):
                 preds = model.classes_[preds]
@@ -220,6 +224,7 @@ def _report_probabilist_pr_auc_alone_gpu(group_ids, classes, is_multilabel, targ
     if group_ids is None and len(classes) >= 2:
         try:
             from mlframe.metrics.core import compute_batch_aucs
+
             # Build (N, K) score matrix and (N, K)/(N,) label matrix once.
             if is_multilabel:
                 _y_true_NK = targets_arr  # already (N, K) binary
@@ -264,6 +269,7 @@ def _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_
             ks_statistic,
             lift_at_k,
         )
+
         # Re-derive the hard prediction from y_score for this
         # class. The threshold of 0.5 matches the historical
         # ``fast_calibration_report`` convention used to compute
@@ -276,8 +282,17 @@ def _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_
         # Avoid name collision: keep historical precision/recall/f1
         # but stamp the rest of the confusion-derived block.
         for _k in (
-            "accuracy", "balanced_accuracy", "MCC", "Cohen_kappa",
-            "F0_5", "F2", "specificity", "NPV", "FPR", "FNR", "G_mean",
+            "accuracy",
+            "balanced_accuracy",
+            "MCC",
+            "Cohen_kappa",
+            "F0_5",
+            "F2",
+            "specificity",
+            "NPV",
+            "FPR",
+            "FNR",
+            "G_mean",
         ):
             class_metrics[_k] = _cm_block[_k]
 
@@ -301,6 +316,7 @@ def _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_
         # AR is the credit-risk convention name for 2*AUC-1.
         try:
             from mlframe.metrics.core import accuracy_ratio, hosmer_lemeshow_test
+
             hl_chi2, hl_p, hl_dof = hosmer_lemeshow_test(_y_true_arr, _y_score_arr, n_groups=10)
             class_metrics["HL_chi2"] = hl_chi2
             class_metrics["HL_p"] = hl_p
@@ -365,6 +381,7 @@ def _report_probabilist_identical_text_shape(is_multilabel, targets, preds, clas
     """Block of report_probabilistic_model_perf starting at ``try:``."""
     try:
         from mlframe.metrics.core import format_classification_report
+
         _y_true = np.asarray(targets).astype(np.int64) if not is_multilabel else None
         _y_pred = np.asarray(preds).astype(np.int64) if not is_multilabel else None
         if _y_true is not None and _y_pred is not None and _y_true.ndim == 1 and _y_pred.ndim == 1 and len(_y_true) == len(_y_pred):
@@ -379,27 +396,39 @@ def _report_probabilist_identical_text_shape(is_multilabel, targets, preds, clas
                 if _pos_true.min(initial=0) >= 0 and _pos_pred.min(initial=0) >= 0:
                     _names = [str(tc) for tc in true_classes] if len(true_classes) == len(classes) else None
                     _cls_report_text = format_classification_report(
-                        _pos_true, _pos_pred, nclasses=len(classes), digits=report_ndigits,
-                        zero_division=0, target_names=_names,
+                        _pos_true,
+                        _pos_pred,
+                        nclasses=len(classes),
+                        digits=report_ndigits,
+                        zero_division=0,
+                        target_names=_names,
                     )
                 else:
                     _nclasses = max(int(_y_true.max()) + 1, int(_y_pred.max()) + 1, 2) if len(_y_true) else 2
                     _cls_report_text = format_classification_report(
-                        _y_true, _y_pred, nclasses=_nclasses, digits=report_ndigits, zero_division=0,
+                        _y_true,
+                        _y_pred,
+                        nclasses=_nclasses,
+                        digits=report_ndigits,
+                        zero_division=0,
                     )
             else:
                 _nclasses = max(int(_y_true.max()) + 1, int(_y_pred.max()) + 1, 2) if len(_y_true) else 2
                 _cls_report_text = format_classification_report(
-                    _y_true, _y_pred, nclasses=_nclasses, digits=report_ndigits, zero_division=0,
+                    _y_true,
+                    _y_pred,
+                    nclasses=_nclasses,
+                    digits=report_ndigits,
+                    zero_division=0,
                 )
         else:
-            _cls_report_text = _reporting_mod.classification_report(targets, preds, zero_division=0, digits=report_ndigits)
+            _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
     except (ValueError, TypeError, ImportError, AttributeError) as _cls_err:
         # Fall back to sklearn's classification_report when the njit-backed
         # path can't handle the input shape / dtype. Narrow catch leaves
         # programming bugs (KeyboardInterrupt, MemoryError) to propagate.
         logger.debug("fast classification_report fallback: %s", _cls_err)
-        _cls_report_text = _reporting_mod.classification_report(targets, preds, zero_division=0, digits=report_ndigits)
+        _cls_report_text = classification_report(targets, preds, zero_division=0, digits=report_ndigits)
     return _cls_report_text
 
 
@@ -407,12 +436,19 @@ def _report_probabilist_report_function_required(targets, probs, preds, report_n
     """Block of report_probabilistic_model_perf starting at ``try:``."""
     try:
         from mlframe.training.metrics_registry import iter_extra_metrics
+
         # Heuristic inference: multilabel if targets is 2-D binary.
         if hasattr(targets, "ndim") and targets.ndim == 2:
             from mlframe.training.configs import TargetTypes
-            extra = list(iter_extra_metrics(
-                TargetTypes.MULTILABEL_CLASSIFICATION, targets, probs, preds,
-            ))
+
+            extra = list(
+                iter_extra_metrics(
+                    TargetTypes.MULTILABEL_CLASSIFICATION,
+                    targets,
+                    probs,
+                    preds,
+                )
+            )
             if extra:
                 _ml_lines = ["MULTILABEL METRICS:"]
                 for name, val in extra:
@@ -430,7 +466,20 @@ def _report_probabilist_report_function_required(targets, probs, preds, report_n
         logger.debug("multilabel metrics registry skipped: %s", e)
 
 
-def _report_probabilist_subgroups(subgroups, custom_ice_metric, probs, _pos_label, subset_index, targets, print_report, metrics, fairness_calibration_charts, plot_file, _y_true_pos_bin, plot_outputs):
+def _report_probabilist_subgroups(
+    subgroups,
+    custom_ice_metric,
+    probs,
+    _pos_label,
+    subset_index,
+    targets,
+    print_report,
+    metrics,
+    fairness_calibration_charts,
+    plot_file,
+    _y_true_pos_bin,
+    plot_outputs,
+):
     """Block of report_probabilistic_model_perf starting at ``if subgroups:``."""
     from ._reporting_probabilistic_calib import _render_fairness_calibration  # lazy: that module imports this package's facade
 
@@ -469,8 +518,13 @@ def _report_probabilist_subgroups(subgroups, custom_ice_metric, probs, _pos_labe
         # plot DSL is active; a no-op for multiclass / when no plot dir is configured.
         if fairness_calibration_charts and plot_file and probs.shape[1] == 2:
             _render_fairness_calibration(
-                subgroups=subgroups, subset_index=subset_index, y_true=_y_true_pos_bin, pos_score=probs[:, 1],
-                plot_file=plot_file, plot_outputs=plot_outputs, metrics=metrics,
+                subgroups=subgroups,
+                subset_index=subset_index,
+                y_true=_y_true_pos_bin,
+                pos_score=probs[:, 1],
+                plot_file=plot_file,
+                plot_outputs=plot_outputs,
+                metrics=metrics,
             )
 
 
@@ -480,6 +534,7 @@ def _predict_probs_if_missing(probs, model, df):
         # Lazy import avoids circular: trainer.py already imports from
         # evaluation.py at module level.
         from mlframe.training.trainer import _predict_with_fallback
+
         try:
             # _predict_with_fallback handles the CatBoost Polars-fastpath
             # dispatcher miss ("No matching signature found") symmetrically
@@ -520,7 +575,9 @@ def _predict_probs_if_missing(probs, model, df):
                         "the proba-fallback one-hot encoding. The model's "
                         "predict() returned values outside the training "
                         "label set -- check for a buggy estimator.",
-                        _unseen, len(preds_fallback), list(model.classes_),
+                        _unseen,
+                        len(preds_fallback),
+                        list(model.classes_),
                     )
             else:
                 n_classes = len(np.unique(preds_fallback))

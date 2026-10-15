@@ -4,7 +4,7 @@ The implementations stay in their (private) home modules; code outside ``mlframe
 helper can move inside the package without breaking its users, and the private-import gate stays meaningful.
 """
 
-from ._reporting import (
+from ._reporting_common import (
     _canonical_multilabel_y as canonical_multilabel_y,
     _style_with_caption as style_with_caption,
 )

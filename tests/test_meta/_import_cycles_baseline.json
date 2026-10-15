@@ -11,10 +11,6 @@
   "import-cycle::mlframe.feature_selection.filters._gpu_resident_discretize | mlframe.feature_selection.filters._gpu_resident_fe | mlframe.feature_selection.filters._gpu_resident_k_chunk_ktc | mlframe.feature_selection.filters._gpu_resident_materialise | mlframe.feature_selection.filters._gpu_resident_pair_mi | mlframe.feature_selection.filters._gpu_resident_select": {
    "count": 1,
    "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
-  },
-  "import-cycle::mlframe.training.reporting._reporting | mlframe.training.reporting._reporting_diagnostics | mlframe.training.reporting._reporting_probabilistic | mlframe.training.reporting._reporting_probabilistic_calib | mlframe.training.reporting._reporting_probabilistic_helpers | mlframe.training.reporting._reporting_regression": {
-   "count": 1,
-   "note": ""
   }
  },
  "gate": "import-cycles",
