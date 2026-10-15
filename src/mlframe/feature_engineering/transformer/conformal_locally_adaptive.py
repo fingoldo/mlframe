@@ -15,13 +15,14 @@ import logging
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
+from mlframe._conformal_constants import DEFAULT_CONFORMAL_ALPHAS
 
 logger = logging.getLogger(__name__)
 
 
 def compute_conformal_locally_adaptive_features(
     X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
-    k_sigma: int=16, alphas: tuple=(0.1, 0.2), standardize: bool=True, column_prefix: str="cla", dtype: type=np.float32,
+    k_sigma: int=16, alphas: tuple=DEFAULT_CONFORMAL_ALPHAS, standardize: bool=True, column_prefix: str="cla", dtype: type=np.float32,
 ) -> pl.DataFrame:
     """Mondrian split-conformal interval-width features: fit a baseline on half the train fold, compute nonconformity scores locally normalized by a kNN-MAD sigma_hat on the other half, and emit the resulting interval half-widths at each alpha plus sigma_hat, the point prediction, and a width ratio."""
     try:

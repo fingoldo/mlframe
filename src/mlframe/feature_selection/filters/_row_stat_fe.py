@@ -24,6 +24,7 @@ from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
 from ._numba_utils import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
 from ._y_encoding import FEW_CLASSES_MAX
+from mlframe.feature_selection.filters._fe_output_clip import OUTPUT_CLIP_QUANTILES
 if TYPE_CHECKING:
     import polars as pl
 
@@ -39,7 +40,7 @@ DEFAULT_MIN_RELATIVE_GAIN = 0.05  # default of the practical-effect knob
 DEFAULT_SCAN_ROWS = 20_000  # rows the subset search runs on (a pair table and a growth round are n * k per candidate)
 N_MI_BINS = 10
 _MIN_ROWS = 800
-_OUTPUT_CLIP_Q = (0.001, 0.999)
+_OUTPUT_CLIP_Q = OUTPUT_CLIP_QUANTILES
 
 def build_row_stat_recipe(*, name: str, src: Sequence[str], stat: str, mu: np.ndarray, sd: np.ndarray, lo: float, hi: float) -> "EngineeredRecipe":
     """Frozen recipe of one row-statistic column: source columns, statistic, frozen standardisation and output range."""

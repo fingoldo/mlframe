@@ -36,6 +36,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_prox
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_core_stability import (
     auto_should_use_core_refine, core_refine, least_core_allocation,
 )
+from mlframe._shap_policy_constants import DEFAULT_TRUST_GUARD_FIDELITY_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def proxy_trust_guard(
     *, classification, metric=None, n_anchors=30, rng=None, min_card=1, max_card=None,
     fidelity_floor=0.5, n_jobs=-1, unit_to_members=None, cache=None, n_estimators_cap=None,
     unit_f_scores=None, anchor_uniform_tail_frac=0.2, cardinality_dist="uniform", zipf_alpha=1.0,
-    fidelity_weights=(0.6, 0.4), trustworthy_metric="proxy_fidelity_score",
+    fidelity_weights=DEFAULT_TRUST_GUARD_FIDELITY_WEIGHTS, trustworthy_metric="proxy_fidelity_score",
     spearman_floor=_FIDELITY_FLOOR_UNSET, inner_n_jobs_cap=False, disk_cache_dir=None,
 ):
     """Measure proxy-vs-honest rank fidelity on anchor subsets. Returns a report dict.

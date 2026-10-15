@@ -26,6 +26,7 @@ import pandas as pd
 from ._fe_gain_stats import held_out_codes, paired_gain_se, pointwise_mi, quantile_codes
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._numba_utils import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
+from mlframe.feature_selection.filters._fe_output_clip import OUTPUT_CLIP_QUANTILES
 if TYPE_CHECKING:
     import polars as pl
 
@@ -44,7 +45,7 @@ DEFAULT_MIN_RELATIVE_GAIN = 0.05  # default of the practical-effect knob: the ga
 DEFAULT_SCAN_ROWS = 100_000  # the scan decides on at most this many rows (stat study: decisions are stable from n=5k); accepted shifts are refitted on all rows
 N_MI_BINS = 10
 _WINSOR_Q = (0.01, 0.99)  # winsorisation of the unary outputs for the regression only
-_OUTPUT_CLIP_Q = (0.001, 0.999)  # replay clips the product to its fit-time quantiles so heavy tails cannot dominate a linear consumer
+_OUTPUT_CLIP_Q = OUTPUT_CLIP_QUANTILES  # replay clips the product to its fit-time quantiles so heavy tails cannot dominate a linear consumer
 _MIN_ROWS = 200
 MIX_DIRECTIONS = 32  # directions of the weighted-sum baseline: mixing angles over the full circle
 SYNERGY_MIN = 0.02  # a pair is scanned only if its joint 10 x 10 Miller-Madow MI exceeds the larger marginal MI by this many nats; the 25 planted pairs of the pre-filter study had >= 0.041
