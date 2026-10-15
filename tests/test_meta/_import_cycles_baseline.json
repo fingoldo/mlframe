@@ -28,10 +28,6 @@
    "count": 1,
    "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
   },
-  "import-cycle::mlframe.training.core._phase_helpers_fit_pipeline | mlframe.training.core._phase_helpers_fit_split": {
-   "count": 1,
-   "note": "fit-split: the body sibling reads the parent's FitPipelineResult at top level; the parent defines it before importing the sibling"
-  },
   "import-cycle::mlframe.training.pipeline._pipeline_helpers | mlframe.training.pipeline._pipeline_helpers_apply": {
    "count": 1,
    "note": "monolith split: the carved sibling imports helpers/constants from its parent at top level and the parent re-exports the sibling at its bottom, binding what the sibling needs first; drain by moving the shared names to a leaf module"

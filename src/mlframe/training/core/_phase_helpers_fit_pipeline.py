@@ -5,6 +5,7 @@ Re-imported at the parent's module bottom so historical
 ``from mlframe.training.core._phase_helpers_fit_split import _phase_fit_pipeline``
 resolves transparently.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -31,7 +32,8 @@ if TYPE_CHECKING:
     pass
 
 from ._misc_helpers import (
-    _df_shape_str, _elapsed_str,
+    _df_shape_str,
+    _elapsed_str,
 )
 from ..configs import PreprocessingExtensionsConfig
 from ..utils import (
@@ -39,15 +41,18 @@ from ..utils import (
 )
 from ..strategies import get_strategy, get_polars_cat_columns
 from ..pipeline import (
-    apply_preprocessing_extensions, fit_and_transform_pipeline,
+    apply_preprocessing_extensions,
+    fit_and_transform_pipeline,
 )
-from ._phase_helpers_fit_split import FitPipelineResult
+from ._phase_fit_result import FitPipelineResult
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.core._phase_helpers_fit_split")
 
 
-def extensions_with_split_seed(preprocessing_extensions: "PreprocessingExtensionsConfig | dict | None", split_seed: "int | None") -> "PreprocessingExtensionsConfig":
+def extensions_with_split_seed(
+    preprocessing_extensions: "PreprocessingExtensionsConfig | dict | None", split_seed: "int | None"
+) -> "PreprocessingExtensionsConfig":
     """``preprocessing_extensions`` as a config whose ``random_seed`` is the suite's split seed unless the caller pinned one.
 
     Accepts None / dict / config like ``_phase_fit_pipeline``; None becomes the default config, which is what that
@@ -71,6 +76,7 @@ def _detect_native_cat_models(strategies) -> tuple[bool, bool]:
     Native-cat strategies (no upstream encoder needed to consume raw cats): CatBoost / LightGBM(tree) / XGBoost / HGB.
     """
     from ..strategies import CatBoostStrategy, TreeModelStrategy, XGBoostStrategy, HGBStrategy
+
     native = (CatBoostStrategy, TreeModelStrategy, XGBoostStrategy, HGBStrategy)
     has_cb = any(isinstance(s, CatBoostStrategy) for s in strategies)
     all_native = bool(strategies) and all(isinstance(s, native) for s in strategies)
@@ -286,15 +292,40 @@ def _phase_fit_pipeline(
     _per_target_mode = len(_per_target_targets) > 1
     if _per_target_mode:
         train_df, val_df, test_df = apply_per_target_supervised_fe(
-            train_df, val_df, test_df, preprocessing_extensions, _per_target_targets, train_idx, group_ids, timestamps, val_idx, test_idx,
-            metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            _per_target_targets,
+            train_idx,
+            group_ids,
+            timestamps,
+            val_idx,
+            test_idx,
+            metadata,
+            verbose=verbose,
         )
         _extensions_as_configured = preprocessing_extensions
         preprocessing_extensions = preprocessing_extensions.model_copy(
             update={"categorical_group_concat_auto_enabled": False, "two_step_target_encode_columns": None}
         )
 
-    test_df, train_df, val_df = _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadata, train_idx, train_df, preprocessing_extensions, val_df, test_df, verbose, group_ids, timestamps, val_idx, test_idx, auxiliary_events_df)
+    test_df, train_df, val_df = _phase_fit_pipeline_composite_none(
+        _per_target_mode,
+        target_by_type,
+        metadata,
+        train_idx,
+        train_df,
+        preprocessing_extensions,
+        val_df,
+        test_df,
+        verbose,
+        group_ids,
+        timestamps,
+        val_idx,
+        test_idx,
+        auxiliary_events_df,
+    )
 
     if _per_target_mode:  # the shared blocks above are done; everything after (and the caller) sees the config as configured
         preprocessing_extensions = _extensions_as_configured
@@ -334,7 +365,12 @@ def _phase_fit_pipeline(
     _pysr_equations_out: dict = {}
     _row_wise_replay_out: dict = {}
     train_df, val_df, test_df, extensions_pipeline = apply_preprocessing_extensions(
-        train_df, val_df, test_df, preprocessing_extensions, verbose=verbose, y_train=_y_train_for_ext,
+        train_df,
+        val_df,
+        test_df,
+        preprocessing_extensions,
+        verbose=verbose,
+        y_train=_y_train_for_ext,
         out_pysr_equations=_pysr_equations_out,
         out_row_wise_replay=_row_wise_replay_out,
     )
@@ -358,13 +394,16 @@ def _phase_fit_pipeline(
     # configured, in which case extensions_pipeline stays None and this
     # back-merge would otherwise never run, silently dropping those columns
     # from the polars-native fastpath (e.g. MRMR fit on polars-sourced input).
-    test_df_polars_pre, train_df_polars_pre, val_df_polars_pre = _phase_fit_pipeline_polars_native_fastpath_mrmr(train_df, _pre_polars_columns_snapshot, was_polars_input, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, val_df, test_df, verbose)
+    test_df_polars_pre, train_df_polars_pre, val_df_polars_pre = _phase_fit_pipeline_polars_native_fastpath_mrmr(
+        train_df, _pre_polars_columns_snapshot, was_polars_input, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, val_df, test_df, verbose
+    )
 
     metadata["pipeline"] = pipeline
     metadata["extensions_pipeline"] = extensions_pipeline
     metadata["cat_features"] = cat_features
     try:
         from mlframe.training.provenance import record_provenance as _record_provenance
+
         _record_provenance(
             metadata,
             "preprocessing_pipeline",
@@ -406,7 +445,22 @@ def _phase_fit_pipeline(
     )
 
 
-def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadata, train_idx, train_df, preprocessing_extensions, val_df, test_df, verbose, group_ids, timestamps, val_idx, test_idx, auxiliary_events_df):
+def _phase_fit_pipeline_composite_none(
+    _per_target_mode,
+    target_by_type,
+    metadata,
+    train_idx,
+    train_df,
+    preprocessing_extensions,
+    val_df,
+    test_df,
+    verbose,
+    group_ids,
+    timestamps,
+    val_idx,
+    test_idx,
+    auxiliary_events_df,
+):
     """Block of _phase_fit_pipeline starting at ``_y_for_composite = None``."""
     _y_for_composite = None
     _y_for_composite = _phase_fit_pipeline_per_target_mode_target(_per_target_mode, target_by_type, metadata, _y_for_composite)
@@ -423,7 +477,13 @@ def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadat
         from mlframe.training.pipeline.shared import apply_categorical_composite_fe
 
         train_df, val_df, test_df = apply_categorical_composite_fe(
-            train_df, val_df, test_df, preprocessing_extensions, _y_for_composite, metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            _y_for_composite,
+            metadata,
+            verbose=verbose,
         )
 
     # Entity/time-keyed FE (state_duration / recency_aggregation) -- same pre-encoding point, needs
@@ -434,8 +494,17 @@ def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadat
         from mlframe.training.pipeline.shared import apply_entity_time_composite_fe
 
         train_df, val_df, test_df = apply_entity_time_composite_fe(
-            train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps,
-            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            group_ids,
+            timestamps,
+            train_idx,
+            val_idx,
+            test_idx,
+            metadata=metadata,
+            verbose=verbose,
         )
 
     # Cross-sectional-neighbor FE -- column-declaration-driven (snapshot key is a frame column, not
@@ -444,7 +513,12 @@ def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadat
         from mlframe.training.pipeline.shared import apply_cross_sectional_composite_fe
 
         train_df, val_df, test_df = apply_cross_sectional_composite_fe(
-            train_df, val_df, test_df, preprocessing_extensions, metadata=metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            metadata=metadata,
+            verbose=verbose,
         )
 
     # Two-step recency-weighted target encoding -- needs group_ids AND train-only y (real fit-time
@@ -453,8 +527,18 @@ def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadat
         from mlframe.training.pipeline.shared import apply_target_encoding_composite_fe
 
         train_df, val_df, test_df = apply_target_encoding_composite_fe(
-            train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps, _y_for_composite,
-            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            group_ids,
+            timestamps,
+            _y_for_composite,
+            train_idx,
+            val_idx,
+            test_idx,
+            metadata=metadata,
+            verbose=verbose,
         )
 
     # MA-crossover FE -- no rolling-MA step of its own in the suite; computed here from declared
@@ -463,8 +547,17 @@ def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadat
         from mlframe.training.pipeline.shared import apply_ma_crossover_composite_fe
 
         train_df, val_df, test_df = apply_ma_crossover_composite_fe(
-            train_df, val_df, test_df, preprocessing_extensions, group_ids, timestamps,
-            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            group_ids,
+            timestamps,
+            train_idx,
+            val_idx,
+            test_idx,
+            metadata=metadata,
+            verbose=verbose,
         )
 
     # SVD latent-interaction embeddings -- needs a SEPARATE auxiliary events table, not columns on
@@ -473,8 +566,17 @@ def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadat
         from mlframe.training.pipeline.shared import apply_latent_interaction_svd_composite_fe
 
         train_df, val_df, test_df = apply_latent_interaction_svd_composite_fe(
-            train_df, val_df, test_df, preprocessing_extensions, auxiliary_events_df, group_ids,
-            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            auxiliary_events_df,
+            group_ids,
+            train_idx,
+            val_idx,
+            test_idx,
+            metadata=metadata,
+            verbose=verbose,
         )
 
     # Nearest-past as-of join -- needs the SAME SEPARATE auxiliary events table, no fit-time state
@@ -483,7 +585,13 @@ def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadat
         from mlframe.training.pipeline.shared import apply_nearest_past_join_composite_fe
 
         train_df, val_df, test_df = apply_nearest_past_join_composite_fe(
-            train_df, val_df, test_df, preprocessing_extensions, auxiliary_events_df, metadata=metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            auxiliary_events_df,
+            metadata=metadata,
+            verbose=verbose,
         )
 
     # Event-proximity decay -- caller-supplied literal event dates (domain knowledge); dates come
@@ -493,8 +601,16 @@ def _phase_fit_pipeline_composite_none(_per_target_mode, target_by_type, metadat
         from mlframe.training.pipeline.shared import apply_event_proximity_decay_composite_fe
 
         train_df, val_df, test_df = apply_event_proximity_decay_composite_fe(
-            train_df, val_df, test_df, preprocessing_extensions, timestamps,
-            train_idx, val_idx, test_idx, metadata=metadata, verbose=verbose,
+            train_df,
+            val_df,
+            test_df,
+            preprocessing_extensions,
+            timestamps,
+            train_idx,
+            val_idx,
+            test_idx,
+            metadata=metadata,
+            verbose=verbose,
         )
     return test_df, train_df, val_df
 
@@ -557,6 +673,7 @@ def _phase_fit_pipeline_fte_owned_dt_sources(_fte_owned_dt_sources, train_df, va
             if isinstance(_frame, pl.DataFrame):
                 return _frame.drop(_present)
             return _frame.drop(columns=_present)
+
         train_df = _drop_source_cols(train_df, _fte_owned_dt_sources)
         val_df = _drop_source_cols(val_df, _fte_owned_dt_sources)
         test_df = _drop_source_cols(test_df, _fte_owned_dt_sources)
@@ -567,6 +684,7 @@ def _phase_fit_pipeline_dt_cols(_dt_cols, feature_types_config, verbose, train_d
     """Block of _phase_fit_pipeline starting at ``if _dt_cols:``."""
     if _dt_cols:
         from mlframe.feature_engineering.basic import create_date_features
+
         # Configurable set of dt accessors (year / ordinal_day / minute / ...). Backward-compat default {day, weekday, month, hour} kept by FeatureTypesConfig;
         # callers opt into richer decomposition by passing datetime_methods in their FeatureTypesConfig.
         _configured_methods = (
@@ -582,26 +700,33 @@ def _phase_fit_pipeline_dt_cols(_dt_cols, feature_types_config, verbose, train_d
         _dt_methods = {m: _DEFAULT_DATE_METHODS.get(m, np.int16) for m in sorted(_configured_methods)}
         if verbose:
             logger.info(
-                "Decomposing %d datetime column(s) into numeric features "
-                "(%s) before pre-pipeline clone: %s",
-                len(_dt_cols), "/".join(sorted(_dt_methods.keys())), _dt_cols,
+                "Decomposing %d datetime column(s) into numeric features " "(%s) before pre-pipeline clone: %s",
+                len(_dt_cols),
+                "/".join(sorted(_dt_methods.keys())),
+                _dt_cols,
             )
         train_df = create_date_features(
-            train_df, cols=_dt_cols, delete_original_cols=True,
+            train_df,
+            cols=_dt_cols,
+            delete_original_cols=True,
             methods=_dt_methods,
         )
         if val_df is not None:
             v_cols = [c for c in _dt_cols if c in val_df.columns]
             if v_cols:
                 val_df = create_date_features(
-                    val_df, cols=v_cols, delete_original_cols=True,
+                    val_df,
+                    cols=v_cols,
+                    delete_original_cols=True,
                     methods=_dt_methods,
                 )
         if test_df is not None:
             t_cols = [c for c in _dt_cols if c in test_df.columns]
             if t_cols:
                 test_df = create_date_features(
-                    test_df, cols=t_cols, delete_original_cols=True,
+                    test_df,
+                    cols=t_cols,
+                    delete_original_cols=True,
                     methods=_dt_methods,
                 )
         # Persist the resolved methods keyed by source column so predict can replay the same expansion deterministically. Stored as the accessor-name -> numpy-dtype-name map (json-friendly); the predict side resolves the name back to the numpy dtype.
@@ -624,6 +749,7 @@ def _phase_fit_pipeline_string_object_category_columns(_feature_types_first, was
         _cols_list = list(train_df.columns)
         if len(set(_cols_list)) != len(_cols_list):
             from collections import Counter as _Counter
+
             _dupes = [_c for _c, _n in _Counter(_cols_list).items() if _n > 1]
             raise ValueError(f"train_df has {len(_dupes)} duplicate column name(s) " f"({_dupes[:5]}); deduplicate before fit() to keep schema-hash honest.")
         try:
@@ -698,8 +824,11 @@ def _phase_fit_pipeline_per_target_mode_target(_per_target_mode, target_by_type,
 def _phase_fit_pipeline_block(_y_for_composite, train_idx, train_df):
     """Block of _phase_fit_pipeline starting at ``if (``."""
     if (
-        _y_for_composite is not None and train_idx is not None
-        and train_df is not None and hasattr(train_df, "shape") and len(_y_for_composite) != train_df.shape[0]
+        _y_for_composite is not None
+        and train_idx is not None
+        and train_df is not None
+        and hasattr(train_df, "shape")
+        and len(_y_for_composite) != train_df.shape[0]
     ):
         try:
             _idx_arr_composite = np.asarray(train_idx)
@@ -770,7 +899,8 @@ def _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target
                     if verbose:
                         logger.warning(
                             "PySR y_train length mismatch (target=%d, train rows=%d); skipping symbolic FE.",
-                            len(_y_train_for_ext), train_df.shape[0],
+                            len(_y_train_for_ext),
+                            train_df.shape[0],
                         )
                     _y_train_for_ext = None
         except Exception as _exc:
@@ -783,7 +913,9 @@ def _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target
                     pass
                 logger.warning(
                     "Could not extract y_train for PySR FE: %s: %s (target_by_type %s)",
-                    type(_exc).__name__, _exc, _diag,
+                    type(_exc).__name__,
+                    _exc,
+                    _diag,
                 )
             else:
                 logger.debug("Could not extract y_train for PySR FE: %s: %s", type(_exc).__name__, _exc)
@@ -791,7 +923,9 @@ def _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target
     return _y_train_for_ext
 
 
-def _phase_fit_pipeline_polars_native_fastpath_mrmr(train_df, _pre_polars_columns_snapshot, was_polars_input, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, val_df, test_df, verbose):
+def _phase_fit_pipeline_polars_native_fastpath_mrmr(
+    train_df, _pre_polars_columns_snapshot, was_polars_input, train_df_polars_pre, val_df_polars_pre, test_df_polars_pre, val_df, test_df, verbose
+):
     """Block of _phase_fit_pipeline starting at ``try:``."""
     try:
         if isinstance(train_df, pd.DataFrame) and _pre_polars_columns_snapshot is not None and was_polars_input:
@@ -821,9 +955,10 @@ def _phase_fit_pipeline_polars_native_fastpath_mrmr(train_df, _pre_polars_column
                                 logger,
                                 "polars_pre_extension_row_mismatch",
                                 logging.WARNING,
-                                "polars-pre %s frame row mismatch for extension columns "
-                                "(pd=%d, pl=%d); skipping back-merge for this split.",
-                                _label, _pd_df.shape[0], _pl_df.shape[0],
+                                "polars-pre %s frame row mismatch for extension columns " "(pd=%d, pl=%d); skipping back-merge for this split.",
+                                _label,
+                                _pd_df.shape[0],
+                                _pl_df.shape[0],
                             )
                         continue
                     # Only the new columns we want to merge.
@@ -847,7 +982,8 @@ def _phase_fit_pipeline_polars_native_fastpath_mrmr(train_df, _pre_polars_column
                                 "polars_pre_extension_backmerge_failed",
                                 logging.WARNING,
                                 "Failed to back-merge extension columns into polars-pre %s frame: %s",
-                                _label, _exc,
+                                _label,
+                                _exc,
                             )
                         else:
                             logger.debug("Failed to back-merge extension columns into polars-pre %s frame: %s", _label, _exc)
