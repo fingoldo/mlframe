@@ -3,11 +3,13 @@
 Split out from ``training/target_temporal_audit.py`` to keep that file below the 1k-line monolith
 threshold. Behaviour preserved bit-for-bit; the helper is re-exported from ``target_temporal_audit``.
 """
+
 from __future__ import annotations
 
 import logging
 from itertools import takewhile
 from typing import Any, TYPE_CHECKING
+
 if TYPE_CHECKING:
     from ._target_temporal_audit_aggregate import Granularity
     from .target_temporal_audit import ChangePointMethod
@@ -109,11 +111,15 @@ def _dropped_bins_warning(bins: list, kept_bins: list, threshold_n: float, min_b
         if _trailing
         else ""
     )
-    return len(dropped_bins), _trailing, (
-        f"{len(dropped_bins)} bin(s) dropped from the audit (n_obs < "
-        f"{int(threshold_n):_} = {min_bin_fraction}x median bin size): {', '.join(b.bin_label for b in dropped_bins)}; "
-        f"{_coverage}.{_recency_note} "
-        "If this number is large, consider a wider granularity."
+    return (
+        len(dropped_bins),
+        _trailing,
+        (
+            f"{len(dropped_bins)} bin(s) dropped from the audit (n_obs < "
+            f"{int(threshold_n):_} = {min_bin_fraction}x median bin size): {', '.join(b.bin_label for b in dropped_bins)}; "
+            f"{_coverage}.{_recency_note} "
+            "If this number is large, consider a wider granularity."
+        ),
     )
 
 
@@ -132,11 +138,11 @@ def _maturity_caveat_for_recommendation(maturity: Any) -> str:
 # The dataclasses + label helper live in the parent module; the change-point detectors live in a
 # sibling. Both parent/sibling finish their top-level loading BEFORE this module is pulled in via the
 # parent's bottom-of-file re-export, so the partial-load imports below resolve cleanly.
-from .target_temporal_audit import (
+from ._target_temporal_types import (
     TemporalAuditResult,
     TimeBin,
-    _format_bin_label,
 )
+from ._target_temporal_audit_aggregate import _format_bin_label
 from .target_maturity_audit import audit_binned_target_maturity
 from ._target_temporal_changepoint import (
     find_change_points_pelt,
@@ -169,9 +175,13 @@ def _audit_from_agg(
     """
     if agg.empty:
         return TemporalAuditResult(
-            target_name=target_name, target_type=target_type,
-            timestamp_col=timestamp_col, granularity=granularity,
-            bins=[], change_point_indices=[], segments=[],
+            target_name=target_name,
+            target_type=target_type,
+            timestamp_col=timestamp_col,
+            granularity=granularity,
+            bins=[],
+            change_point_indices=[],
+            segments=[],
             warnings=["empty aggregation - no data after time-binning"],
             actionable={},
         )
@@ -195,12 +205,18 @@ def _audit_from_agg(
     kept_bins = [b for b in bins if b.kept]
     if len(kept_bins) < 3:
         return TemporalAuditResult(
-            target_name=target_name, target_type=target_type,
-            timestamp_col=timestamp_col, granularity=granularity,
-            bins=bins, change_point_indices=[], segments=[],
+            target_name=target_name,
+            target_type=target_type,
+            timestamp_col=timestamp_col,
+            granularity=granularity,
+            bins=bins,
+            change_point_indices=[],
+            segments=[],
             warnings=[
-                (f"only {len(kept_bins)} non-sparse bins after the {min_bin_fraction}x median-n_obs filter "
-                f"- too few for a temporal audit. Consider a finer granularity or a longer time span."),
+                (
+                    f"only {len(kept_bins)} non-sparse bins after the {min_bin_fraction}x median-n_obs filter "
+                    f"- too few for a temporal audit. Consider a finer granularity or a longer time span."
+                ),
             ],
             actionable={},
         )
@@ -210,15 +226,19 @@ def _audit_from_agg(
     labels = [b.bin_label for b in kept_bins]
     if method == "pelt":
         boundaries = find_change_points_pelt(
-            rates, weights=weights,
-            model=pelt_model, penalty=pelt_penalty,
+            rates,
+            weights=weights,
+            model=pelt_model,
+            penalty=pelt_penalty,
             min_segment_size=pelt_min_segment_size,
         )
     else:
         boundaries = find_change_points_zscore(
-            rates, weights=weights,
+            rates,
+            weights=weights,
             window=z_window,
-            z_threshold=z_threshold, min_anomaly_run=min_anomaly_run,
+            z_threshold=z_threshold,
+            min_anomaly_run=min_anomaly_run,
         )
     segments = _segments_from_change_points(rates, weights, boundaries, labels)
 
@@ -270,8 +290,13 @@ def _audit_from_agg(
         )
 
     return TemporalAuditResult(
-        target_name=target_name, target_type=target_type,
-        timestamp_col=timestamp_col, granularity=granularity,
-        bins=bins, change_point_indices=boundaries, segments=segments,
-        warnings=warnings, actionable=actionable,
+        target_name=target_name,
+        target_type=target_type,
+        timestamp_col=timestamp_col,
+        granularity=granularity,
+        bins=bins,
+        change_point_indices=boundaries,
+        segments=segments,
+        warnings=warnings,
+        actionable=actionable,
     )

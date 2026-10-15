@@ -27,10 +27,6 @@
   "import-cycle::mlframe.training.reporting._reporting | mlframe.training.reporting._reporting_diagnostics | mlframe.training.reporting._reporting_probabilistic | mlframe.training.reporting._reporting_probabilistic_calib | mlframe.training.reporting._reporting_probabilistic_helpers | mlframe.training.reporting._reporting_regression": {
    "count": 1,
    "note": ""
-  },
-  "import-cycle::mlframe.training.targets._target_temporal_audit_from_agg | mlframe.training.targets._target_temporal_changepoint | mlframe.training.targets.target_temporal_audit": {
-   "count": 1,
-   "note": "monolith split: the carved sibling imports helpers/constants from its parent at top level and the parent re-exports the sibling at its bottom, binding what the sibling needs first; drain by moving the shared names to a leaf module"
   }
  },
  "gate": "import-cycles",

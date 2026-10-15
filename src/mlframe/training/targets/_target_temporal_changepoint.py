@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import math
 from typing import Any, TYPE_CHECKING
+
 if TYPE_CHECKING:
     from .target_temporal_audit import ChangePointMethod
 
@@ -59,6 +60,7 @@ import numpy as np
 
 try:
     import polars as pl  # noqa: F401
+
     _HAS_POLARS = True
 except ImportError:
     _HAS_POLARS = False
@@ -69,12 +71,12 @@ except ImportError:
 # the time Python resolves these names the parent is partially loaded
 # and the symbols are already bound -- single source of truth, no
 # duplication.
-from .target_temporal_audit import (
-    DEFAULT_ZSCORE_THRESHOLD,
-    DEFAULT_PELT_MODEL,
+from ._target_temporal_types import (
     DEFAULT_PELT_MIN_SEGMENT_SIZE,
-    _import_ruptures,
+    DEFAULT_PELT_MODEL,
+    DEFAULT_ZSCORE_THRESHOLD,
 )
+from ._target_temporal_audit_coerce import _import_ruptures
 
 
 def find_change_points_pelt(
