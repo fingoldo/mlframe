@@ -52,10 +52,15 @@ def _frame(kind: str, seed: int) -> pd.DataFrame:
     return pd.DataFrame(cols)
 
 
+# Production binning strategies the guarantee must hold under. Research-only strategies (knuth, blocks, ...) are excluded by design.
+BINNING_STRATEGIES = (None, "quantile", "uniform", "mdlp", "mdlp_validated")
+
+
+@pytest.mark.parametrize("nbins_strategy", BINNING_STRATEGIES)
 @pytest.mark.parametrize("kind", DISTRIBUTIONS)
 @pytest.mark.parametrize("target", ("binary", "continuous"))
-def test_mrmr_selects_nothing_on_pure_noise(kind, target):
-    """MRMR with default settings keeps no feature when the target is independent of every column."""
+def test_mrmr_selects_nothing_on_pure_noise(kind, target, nbins_strategy):
+    """MRMR keeps no feature when the target is independent of every column, under every production binning strategy."""
     seed = 11 + DISTRIBUTIONS.index(kind)
     X = _frame(kind, seed)
     rng = np.random.default_rng(seed + 1000)
@@ -63,5 +68,7 @@ def test_mrmr_selects_nothing_on_pure_noise(kind, target):
         y = (rng.random(N) > 0.5).astype(np.int64)
     else:
         y = rng.normal(size=N)
-    sel = MRMR(verbose=0, random_state=0, n_jobs=1).fit(X, y)
-    assert getattr(sel, "no_significant_features_", False) is True, f"no_significant_features_ not set on pure noise (inputs={kind}, target={target})"
+    sel = MRMR(verbose=0, random_state=0, n_jobs=1, nbins_strategy=nbins_strategy).fit(X, y)
+    assert (
+        getattr(sel, "no_significant_features_", False) is True
+    ), f"no_significant_features_ not set on pure noise (inputs={kind}, target={target}, nbins_strategy={nbins_strategy})"

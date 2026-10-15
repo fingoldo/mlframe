@@ -18,6 +18,7 @@ Leak-safe usage pattern::
 
 The helper does not call ``y`` on the val rows, so passing the same edges to both train and val is leak-safe.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,10 +36,13 @@ def _encode_mdlp_target(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth
     """Encode the MDLP target into integer class labels (factorize for non-numeric, quantile pseudo-classes above the cap); returns the labels and the possibly capped depth."""
     _y_arr = np.asarray(y).ravel()
     if _y_arr.dtype.kind in ("O", "U", "S") or _y_arr.dtype.name in (
-        "category", "string", "object",
+        "category",
+        "string",
+        "object",
     ):
         try:
             import pandas as _pd_iter50
+
             _y_arr, _ = _pd_iter50.factorize(_y_arr, sort=True)
         except Exception as e:
             logger.warning("pandas factorize failed, falling back to numpy-only label encode: %s", e)
@@ -265,8 +269,15 @@ def mdlp_bin_edges(
         # (21.3s tottime / 1212 calls) despite the BFS rewrite already shipping for the OTHER MDLP
         # entry point (``mdlp_bin_edges_validated``) -- an unwired-elsewhere primitive, now fixed.
         splits = _mdlp_recurse_validated_bfs(
-            x_dedup, y_dedup, int(min_split_size), int(max_depth),
-            float(alpha), int(n_permutations), int(validated_seed), bool(bonferroni), None,
+            x_dedup,
+            y_dedup,
+            int(min_split_size),
+            int(max_depth),
+            float(alpha),
+            int(n_permutations),
+            int(validated_seed),
+            bool(bonferroni),
+            None,
         )
     splits.sort()
     edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
@@ -287,13 +298,28 @@ def _entropy_from_labels(y: np.ndarray) -> float:
 # =============================================================================
 
 
+# k*log(k) for k < _XLOGX_SIZE, a numba-frozen table: the split scan needs two entropies per candidate, and a log per class per candidate was
+# the dominant cost of the validated/permutation path. Above the table the same term is computed directly.
+_XLOGX_SIZE = 32768
+_XLOGX = np.array([k * np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtype=np.float64)
+_LOGN = np.array([np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtype=np.float64)
+
+
+@njit(nogil=True, cache=True)
+def _xlogx(k: int) -> float:
+    """k * log(k) with a table lookup for small k."""
+    if k < _XLOGX_SIZE:
+        return _XLOGX[k]
+    return k * math.log(k)
+
+
 @njit(nogil=True, cache=True)
 def _mdlp_best_split_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_classes: int, min_split_size: int):
     """Find Fayyad-Irani best split on already-sorted (x, y).
 
-    Single forward pass over class-boundary candidates using running label
-    counts; entropy at each candidate computed in O(K_y) via cumulative
-    counts. Total cost O(N + |candidates| * K_y) vs Python's O(|candidates| * N * K_y).
+    Single forward pass over class-boundary candidates. Each side's entropy is kept as a running sum of k*log(k) over its class counts, so a
+    candidate costs table lookups instead of a log per class (the decisions match the direct formula on the audit grid; the gains agree to
+    ~1e-14, so only exact ties can differ in the last digit).
 
     Returns: (best_idx, best_gain, h_full, n_left, n_right). ``best_idx`` is
     the array index such that the split point is ``(x[idx] + x[idx+1]) / 2``;
@@ -308,17 +334,25 @@ def _mdlp_best_split_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_classes:
     h_full = _entropy_from_counts_njit(counts_total, n)
     if h_full <= 0.0:
         return -1, -1.0, h_full, 0, 0
-    # Forward scan: maintain running counts of left side.
     counts_left = np.zeros(n_classes, dtype=np.int64)
     counts_right = counts_total.copy()
+    s_left = 0.0
+    s_right = 0.0
+    for c in range(n_classes):
+        s_right += _xlogx(counts_right[c])
     best_gain = -1e300
     best_idx = -1
     best_nl = 0
     best_nr = 0
+    inv_n = 1.0 / n
     for i in range(n - 1):
         y_i = y_sorted[i]
-        counts_left[y_i] += 1
-        counts_right[y_i] -= 1
+        cl = counts_left[y_i]
+        cr = counts_right[y_i]
+        s_left += _xlogx(cl + 1) - _xlogx(cl)
+        s_right += _xlogx(cr - 1) - _xlogx(cr)
+        counts_left[y_i] = cl + 1
+        counts_right[y_i] = cr - 1
         n_l = i + 1
         n_r = n - n_l
         if n_l < min_split_size or n_r < min_split_size:
@@ -329,9 +363,10 @@ def _mdlp_best_split_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_classes:
         # Also skip if x values are equal (can't split between identical x).
         if x_sorted[i] == x_sorted[i + 1]:
             continue
-        h_l = _entropy_from_counts_njit(counts_left, n_l)
-        h_r = _entropy_from_counts_njit(counts_right, n_r)
-        h_split = (n_l * h_l + n_r * h_r) / n
+        if n_l < _XLOGX_SIZE and n_r < _XLOGX_SIZE:
+            h_split = (n_l * (_LOGN[n_l] - s_left / n_l) + n_r * (_LOGN[n_r] - s_right / n_r)) * inv_n
+        else:
+            h_split = (n_l * (math.log(n_l) - s_left / n_l) + n_r * (math.log(n_r) - s_right / n_r)) * inv_n
         gain = h_full - h_split
         if gain > best_gain:
             best_gain = gain
@@ -348,7 +383,8 @@ def _mdlp_best_split_inc_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_clas
     The weighted child entropy ``(n_l H_l + n_r H_r) / n`` equals ``(n_l log n_l - S_l + n_r log n_r - S_r) / n`` with ``S = sum_k c_k log c_k`` over the class counts of a side. Moving one row from the
     right side to the left changes one count on each side, so both sums are updated with two logarithms per row; the old kernel recomputed the entropy of both sides over all K_y classes at every
     class-boundary candidate (a pass over K_y counts with a logarithm each). The candidate set, the tie rule (strictly greater gain wins) and the floor are unchanged; the gains agree with the old
-    kernel to the rounding of a different summation order (about 1e-16), measured 6.1 ms -> 0.5 ms at n = 10 000, K_y = 16, where a permutation-null test calls it 15 times per tree node."""
+    kernel to the rounding of a different summation order (about 1e-16), measured 6.1 ms -> 0.5 ms at n = 10 000, K_y = 16, where a permutation-null test calls it 15 times per tree node.
+    """
     n = x_sorted.shape[0]
     if n < 2 * min_split_size:
         return -1, -1.0, 0.0, 0, 0
@@ -363,9 +399,7 @@ def _mdlp_best_split_inc_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_clas
     s_left = 0.0
     s_right = 0.0
     for k in range(n_classes):
-        c = counts_right[k]
-        if c > 1:
-            s_right += c * math.log(c)
+        s_right += _xlogx(counts_right[k])
     best_gain = -1e300
     best_idx = -1
     best_nl = 0
@@ -375,9 +409,10 @@ def _mdlp_best_split_inc_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_clas
         y_i = y_sorted[i]
         c_l = counts_left[y_i]
         c_r = counts_right[y_i]
-        # one row moves from the right side to the left: update S_l and S_r through the class of that row only
-        s_left += (c_l + 1) * math.log(c_l + 1) - (c_l * math.log(c_l) if c_l > 0 else 0.0)
-        s_right += (((c_r - 1) * math.log(c_r - 1)) if c_r > 1 else 0.0) - ((c_r * math.log(c_r)) if c_r > 1 else 0.0)
+        # one row moves from the right side to the left: update S_l and S_r through the class of that row only. The table values are
+        # bit-identical to k * math.log(k) (checked over the table), so the gains match the logarithm form exactly.
+        s_left += _xlogx(c_l + 1) - _xlogx(c_l)
+        s_right += _xlogx(c_r - 1) - _xlogx(c_r)
         counts_left[y_i] = c_l + 1
         counts_right[y_i] = c_r - 1
         n_l = i + 1
@@ -388,7 +423,7 @@ def _mdlp_best_split_inc_njit(x_sorted: np.ndarray, y_sorted: np.ndarray, n_clas
             continue
         if x_sorted[i] == x_sorted[i + 1]:
             continue
-        h_split = (n_l * math.log(n_l) - s_left + n_r * math.log(n_r) - s_right) / n_f
+        h_split = (_xlogx(n_l) - s_left + _xlogx(n_r) - s_right) / n_f
         gain = h_full - h_split
         if gain > best_gain:
             best_gain = gain

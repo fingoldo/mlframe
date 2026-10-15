@@ -78,7 +78,9 @@ def cardinality_prescreen(
             "(nbins_x > 2*sqrt(n)=%.0f at n=%d): %s. Bin or target-encode before "
             "fitting if they carry real signal. Disable via "
             "cardinality_bias_correction=False.",
-            len(_refused), _nbins_x_ceiling, _n_for_screen,
+            len(_refused),
+            _nbins_x_ceiling,
+            _n_for_screen,
             _names[:10] + (["..."] if len(_names) > 10 else []),
         )
     # Remove refused columns from the active factor index set so they're never enumerated as candidates at any interactions_order.
@@ -114,6 +116,7 @@ def compute_fdr_gain_floor(
     # fit, never shared across separate ``.fit()`` calls or concurrent fits). ``None`` (default)
     # disables caching entirely - legacy behaviour, always recompute.
     maxt_floor_cache: "dict | None" = None,
+    honest_null_codes_fn=None,
 ) -> float:
     """Westfall-Young maxT permutation-null gain floor over the finalised order-1 pool.
 
@@ -127,27 +130,30 @@ def compute_fdr_gain_floor(
     if not (screen_fdr_null_permutations and int(screen_fdr_null_permutations) > 0):
         return 0.0
     _fdr_pool = np.asarray(sorted(x) if isinstance(x, set) else list(x))
-    from ._permutation_null import (
-        pooled_permutation_null_gain_floor,
-        target_oversplit_floor_applies,
-    )
+    from ._permutation_null import pooled_permutation_null_gain_floor
 
     _y_idx_fdr = _single_int(y)
     _wide_pool = len(_fdr_pool) >= int(screen_fdr_min_features)
-    _narrow_oversplit = (
-        not _wide_pool
-        and len(_fdr_pool) >= 2
-        and target_oversplit_floor_applies(
-            factors_nbins,
-            _fdr_pool,
-            _y_idx_fdr,
-            int(factors_data.shape[0]),
-            oversplit_ratio=float(screen_fdr_target_oversplit_ratio),
-            min_rows_per_joint_cell=float(screen_fdr_min_rows_per_joint_cell),
-        )
-    )
+    # Family-wise over every narrow pool of two or more candidates: a narrow pool with a binary or low-cardinality target lets the best
+    # of its columns clear the per-column gain floors by chance (pure-noise suite, 2026-10-14).
+    _narrow_oversplit = not _wide_pool and len(_fdr_pool) >= 2
     if not (_wide_pool or _narrow_oversplit):
         return 0.0
+    if honest_null_codes_fn is not None:
+        # Supervised binning: the null re-bins on every permuted target (see _honest_mdlp_null.honest_fdr_floor); the cached/pooled
+        # permutation floor below would keep the in-sample cuts and cannot see their selection bias.
+        from ._honest_mdlp_null import honest_fdr_floor
+
+        return honest_fdr_floor(
+            honest_null_codes_fn,
+            factors_data,
+            factors_nbins,
+            _y_idx_fdr,
+            _fdr_pool,
+            int(screen_fdr_null_permutations),
+            float(screen_fdr_null_quantile),
+            random_seed,
+        )
 
     _cache_key = None
     if maxt_floor_cache is not None:
@@ -166,7 +172,9 @@ def compute_fdr_gain_floor(
                 logger.info(
                     "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d "
                     "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale [cache hit].",
-                    _cached, len(_fdr_pool), float(screen_fdr_null_quantile),
+                    _cached,
+                    len(_fdr_pool),
+                    float(screen_fdr_null_quantile),
                     int(screen_fdr_null_permutations),
                 )
             return _cached
@@ -185,9 +193,10 @@ def compute_fdr_gain_floor(
         maxt_floor_cache[_cache_key] = _fdr_gain_floor
     if _fdr_gain_floor > 0.0 and verbose >= 1:
         logger.info(
-            "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d "
-            "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale.",
-            _fdr_gain_floor, len(_fdr_pool), float(screen_fdr_null_quantile),
+            "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d " "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale.",
+            _fdr_gain_floor,
+            len(_fdr_pool),
+            float(screen_fdr_null_quantile),
             int(screen_fdr_null_permutations),
         )
     return _fdr_gain_floor

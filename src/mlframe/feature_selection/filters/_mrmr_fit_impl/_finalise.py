@@ -20,6 +20,7 @@ identical to the inlined branch. The lazy in-body ``from ..X import ...``
 imports stay inside the function to preserve the original import timing and the
 ``mrmr -> _mrmr_fit_impl -> mrmr`` cycle break.
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,7 +28,8 @@ import warnings
 import os
 import textwrap
 from timeit import default_timer as timer
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 import numpy as np
 
@@ -60,6 +62,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
         # suites can intercept programmatically.
         logger.warning(_fallback_msg)
         import warnings as _w_iter39
+
         _w_iter39.warn(_fallback_msg, UserWarning, stacklevel=2)
 
 
@@ -121,13 +124,17 @@ def _rank_raw_candidates(self, _name_to_cols_idx, _cached):
     return _raw_mi, _rescue_allowed_idx
 
 
-def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap):
+_FALLBACK_FAMILY_MIN = 64
+
+
+def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap, _family=None):
     """Run the permutation-significance gate and the redundancy dedup over the above-floor candidates; returns the accepted input-space indices."""
     # (1) Permutation-significance gate + (2) redundancy dedup, computed on the screen's own ``data`` / ``nbins`` so the binning matches ``cached_MIs``. Both reuse the
     # CPU permutation / MI njit kernels the screen already uses. Best-effort: if a kernel call fails (degenerate joint, missing cols-space index) the candidate falls
     # through to the magnitude-only path so the never-empty guarantee still holds.
-    from mlframe.feature_selection.filters.permutation import mi_direct as _mi_direct_fb
     from mlframe.feature_selection.filters.info_theory import mi as _mi_pair_fb
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fallback_maxt import FAMILY_ALPHA, fallback_maxt_floor
+    from mlframe.feature_selection.filters._family_maxt_gate import exact_pvalue_pass
     from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
 
     _signif_alpha = mrmr_null_signif_alpha()
@@ -177,41 +184,39 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
     # all-noise wide pool where every candidate fails significance, examining the whole list would run one 32-perm test PER column. Scan at most a modest multiple of the
     # rescue cap (the genuine multi-signal fixtures carry only a handful of distinct above-floor signals, well inside this window).
     _scan_limit = max(int(_rescue_cap) * 4, 16)
+    # Significance gate (#1), family-wise: one maxT floor over every scanned candidate. A candidate is kept only when its observed plug-in MI exceeds
+    # the (1 - alpha) quantile of the maximum MI over the whole scanned set under label permutations, so the chance that any noise column passes stays at
+    # alpha however many candidates are scanned. Per-candidate testing at alpha let that chance grow with the number of candidates.
+    # The family is every raw candidate ranked by MI (top ``_FALLBACK_FAMILY_MIN`` at least), NOT just the above-floor subset: the maximum over a
+    # one-column family is that column's own null, which lets any column clear the threshold by construction.
+    _family_src = _family if _family is not None else _above_floor
+    _scan_cols = [_c for (_, _, _c) in _family_src[: max(_scan_limit, _FALLBACK_FAMILY_MIN)] if _c is not None]
+    _maxt_obs: dict = {}
+    if _scan_cols:
+        _obs, _null_max = fallback_maxt_floor(
+            data, nbins, int(target_indices[0]), _scan_cols, FAMILY_ALPHA, honest_codes_fn=getattr(self, "_honest_null_codes_fn", None)
+        )
+        _maxt_obs = dict(zip(_scan_cols, exact_pvalue_pass(_obs, _null_max, FAMILY_ALPHA).tolist()))
     for _i, _mi, _cols_idx in _above_floor[:_scan_limit]:
         if len(_accepted) >= _rescue_cap:
             break
         if _cols_idx is None:
             continue
-        # Significance gate (#1): keep only candidates that sit ABOVE their permutation null. Pure-noise legs sit within it (p >= alpha) and are dropped.
-        try:
-            _sig = _mi_direct_fb(
-                data, x=np.array([_cols_idx], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
-                factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
-                return_null_mean=True, parallelism="none", dtype=_q_dtype, prefer_gpu=False,
-            )
-            _p_value = float(_sig[3])
-        except Exception as e:
-            # FAIL CLOSED. Substituting p = 0.0 is "maximally significant", so a broken probe made the
-            # gate one line below pass for every candidate it scanned -- and this gate exists precisely
-            # because coarse-binned plug-in MI is upward-biased, so the magnitude-only decision it fell
-            # back to re-injects the noise the gate was added to remove. "Significance unavailable" is
-            # not evidence of significance; drop on uncertainty, and say so audibly.
-            logger.warning(
-                "MRMR rescue: permutation-significance probe raised %s for column index %s (%s); "
-                "dropping the candidate rather than admitting it on magnitude alone.",
-                type(e).__name__, _cols_idx, e,
-            )
-            _p_value = 1.0
-        if _p_value >= _signif_alpha:
+        if not _maxt_obs.get(_cols_idx, False):
             continue
         # Redundancy dedup (#2): drop a candidate whose MI with an already-accepted column is a large fraction of its own relevance (an algebraic / near-duplicate twin).
         _is_redundant = False
         for _acc_cols in _accepted_cols:
             try:
-                _pair_mi = float(_mi_pair_fb(
-                    factors_data=data, x=np.array([_cols_idx], dtype=np.int64),
-                    y=np.array([_acc_cols], dtype=np.int64), factors_nbins=nbins, dtype=_q_dtype,
-                ))
+                _pair_mi = float(
+                    _mi_pair_fb(
+                        factors_data=data,
+                        x=np.array([_cols_idx], dtype=np.int64),
+                        y=np.array([_acc_cols], dtype=np.int64),
+                        factors_nbins=nbins,
+                        dtype=_q_dtype,
+                    )
+                )
             except Exception as e:
                 # FAIL CLOSED, same reasoning as the significance gate above: 0.0 is exactly the value
                 # that makes the redundancy test below fail, so a failed pair-MI silently admitted an
@@ -219,7 +224,10 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
                 # regression with no trace.
                 logger.warning(
                     "MRMR rescue: pair-MI probe raised %s for columns %s vs %s (%s); treating the pair as redundant.",
-                    type(e).__name__, _cols_idx, _acc_cols, e,
+                    type(e).__name__,
+                    _cols_idx,
+                    _acc_cols,
+                    e,
                 )
                 _pair_mi = float("inf")
             if _pair_mi >= _redundancy_frac * max(_mi, 1e-12):
@@ -322,7 +330,7 @@ def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbin
             _rescue_cap = max(int(_min_fb), 8)
             _above_floor = [(i, _mi, _c) for i, _mi, _c in _raw_mi if _mi > _floor]
 
-            _topk = _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap)
+            _topk = _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap, _family=_raw_mi)
             # No raw feature is significant and no engineered one survived: say so on the instance, then return what the policy chooses.
             if not _topk and n_engineered_out == 0:
                 from .._no_significant_policy import resolve_no_significant_policy
@@ -396,6 +404,7 @@ def _apply_uaed_elbow_trim(self):
     if getattr(self, "uaed_auto_size", False):
         try:
             from .._cmi_perm_stop import uaed_elbow
+
             gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
             # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
             # raw GREEDY log (one entry per confirmed greedy round) - often SHORTER than n_features_ when
@@ -544,6 +553,7 @@ def _finalise_fs_results(
     # raw-feature gate's own fallback. No-op - and therefore byte-identical - when group_aware_mi is off
     # / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
     from ._finalise_group_demotion import _demote_group_leaks_final
+
     _demote_group_leaks_final(self, cols, classes_y, data, nbins, X, verbose)
     from ._fe_roster_attrs import reconcile_fe_rosters
 

@@ -1,6 +1,7 @@
 """njit candidate-column materialise kernels (serial + parallel twins), the binary
 op-code registry, narrow-code-dtype selection, and the per-host serial-vs-parallel
 kernel_tuning_cache spec + dispatch predicate for the FE pair-search."""
+
 from __future__ import annotations
 
 import logging
@@ -27,8 +28,15 @@ from typing import cast
 # preset + the non-symmetric medium ops) are coded; a chunk containing any other op (hypot / maximal-preset
 # specials) falls back to the per-candidate numpy path for bit-safety.
 _NJIT_BINARY_OP_CODES: dict = {
-    "mul": 0, "add": 1, "sub": 2, "div": 3, "max": 4, "min": 5,
-    "abs_diff": 6, "signed": 7, "ratio_abs": 8,
+    "mul": 0,
+    "add": 1,
+    "sub": 2,
+    "div": 3,
+    "max": 4,
+    "min": 5,
+    "abs_diff": 6,
+    "signed": 7,
+    "ratio_abs": 8,
 }
 
 
@@ -192,6 +200,57 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
             out[r, k] = v
 
 
+@njit(parallel=True, cache=True, error_model="numpy")
+def _materialise_chunk_rowblock_njit_parallel(tv, a_cols, b_cols, op_codes, out):
+    """Row-block twin of :func:`_materialise_chunk_njit_parallel`: BYTE-IDENTICAL output, same per-element body, but the loop order is
+    row -> candidate so the reads ``tv[r, a_cols[k]]`` stay inside row ``r`` and the writes ``out[r, k]`` are unit-stride across the
+    candidates (the column-major order walks both with a stride of the row length). prange over row blocks: each block owns its rows."""
+    n = tv.shape[0]
+    K = op_codes.shape[0]
+    one = np.float32(1.0)
+    zero = np.float32(0.0)
+    n_blocks = (n + 255) // 256
+    for blk in prange(n_blocks):
+        r0 = blk * 256
+        r1 = min(n, r0 + 256)
+        for r in range(r0, r1):
+            for k in range(K):
+                a = tv[r, a_cols[k]]
+                b = tv[r, b_cols[k]]
+                op = op_codes[k]
+                if op == 0:  # mul
+                    v = a * b
+                elif op == 1:  # add
+                    v = a + b
+                elif op == 2:  # sub
+                    v = a - b
+                elif op == 3:  # div = _safe_div
+                    v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
+                elif op == 4:  # max, nan-propagating
+                    if a != a or b != b:
+                        v = a + b
+                    else:
+                        v = a if a > b else b
+                elif op == 5:  # min, nan-propagating
+                    if a != a or b != b:
+                        v = a + b
+                    else:
+                        v = a if a < b else b
+                elif op == 6:  # abs_diff
+                    v = abs(a - b)
+                elif op == 7:  # signed = sign(a)*|b|
+                    if a != a or b != b:
+                        v = a + b
+                    else:
+                        sgn = zero if a == zero else (one if a > zero else -one)
+                        v = sgn * abs(b)
+                else:  # op == 8: ratio_abs
+                    v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
+                if not (v == v and v != np.inf and v != -np.inf):
+                    v = zero
+                out[r, k] = v
+
+
 # OPT-A SERIAL-vs-PARALLEL CROSSOVER. On the serial-main-thread FE path
 # (``len(X) < 50000`` in ``_mrmr_fe_step`` -> ``check_prospective_fe_pairs`` runs with NO
 # joblib threads) the materialise + searchsorted kernels can use their ``parallel=True``
@@ -202,7 +261,7 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
 # ``kernel_tuning_cache`` (NO hardcoded threshold - ``feedback_use_kernel_tuning_cache_for_gpu``)
 # with a measurement-backed fallback. ``choose(n_cols=K)`` returns "parallel" or "serial".
 _FE_PARALLELISM_SWEEP_COLS = [16, 64, 256, 1024, 4096]
-_FE_PARALLELISM_SALT = 1
+_FE_PARALLELISM_SALT = 2
 
 
 def _make_fe_parallelism_inputs(dims: dict):
@@ -234,15 +293,21 @@ def _run_fe_parallelism_sweep() -> list:
 
     def _parallel(tv, a_cols, b_cols, ops, out):
         """Sweep variant: ``prange``-parallel materialise kernel being benchmarked against ``_serial``."""
-        _materialise_chunk_njit_parallel(tv, a_cols, b_cols, ops, out)
+        _materialise_chunk_rowblock_njit_parallel(tv, a_cols, b_cols, ops, out)
         return out
 
-    return cast(list, sweep_backend_grid(
-        {"serial": _serial, "parallel": _parallel},
-        {"n_cols": list(_FE_PARALLELISM_SWEEP_COLS)},
-        _make_fe_parallelism_inputs,
-        reference="serial", repeats=3, equiv_rtol=0.0, equiv_atol=0.0,
-    ))
+    return cast(
+        list,
+        sweep_backend_grid(
+            {"serial": _serial, "parallel": _parallel},
+            {"n_cols": list(_FE_PARALLELISM_SWEEP_COLS)},
+            _make_fe_parallelism_inputs,
+            reference="serial",
+            repeats=3,
+            equiv_rtol=0.0,
+            equiv_atol=0.0,
+        ),
+    )
 
 
 def _fe_parallelism_fallback_choice(n_cols: int) -> str:
@@ -259,7 +324,7 @@ _FE_PARALLELISM_SPEC = kernel_tuner(
     # invalidates the per-host cache). The searchsorted twins live in the discretization module
     # and share the SAME serial-vs-parallel decision; they are not imported here to avoid an
     # import cycle (this module is imported during discretization's own import graph).
-    variant_fns=(_materialise_chunk_njit, _materialise_chunk_njit_parallel),
+    variant_fns=(_materialise_chunk_njit, _materialise_chunk_njit_parallel, _materialise_chunk_rowblock_njit_parallel),
     tuner=_run_fe_parallelism_sweep,
     axes={"n_cols": list(_FE_PARALLELISM_SWEEP_COLS)},
     fallback=_fe_parallelism_fallback_choice,  # callable (n_cols) -> str
