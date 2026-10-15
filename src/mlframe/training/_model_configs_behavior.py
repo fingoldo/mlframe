@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from mlframe._coverage_defaults import DEFAULT_COVERAGE_PAIRS
+
 import logging
 from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
@@ -710,7 +712,7 @@ class QuantileRegressionConfig(InertFieldsWarningMixin, BaseConfig):
     lockstep.
     """
 
-    coverage_pairs: tuple = ((0.1, 0.9),)
+    coverage_pairs: tuple = DEFAULT_COVERAGE_PAIRS
     """List of (alpha_low, alpha_high) pairs for interval-coverage
     reporting. Each pair must be present in ``alphas`` and lo < hi.
     Default reports the (0.1, 0.9) -> nominal-80% interval.

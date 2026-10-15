@@ -29,6 +29,8 @@ are quantile-LEVELS).
 
 from __future__ import annotations
 
+from mlframe._coverage_defaults import DEFAULT_COVERAGE_PAIRS
+
 from typing import Any, Dict, Sequence
 
 import numpy as np
@@ -377,7 +379,7 @@ def pit_values(y_true: ArrayLike, preds_NK: ArrayLike, alphas: Sequence[float]) 
 
 def quantile_summary(
     y_true: ArrayLike, preds_NK: ArrayLike, alphas: Sequence[float],
-    coverage_pairs: Sequence[Sequence[float]] = ((0.1, 0.9),),
+    coverage_pairs: Sequence[Sequence[float]] = DEFAULT_COVERAGE_PAIRS,
 ) -> Dict[str, Any]:
     """Convenience: returns dict with pinball-per-alpha + per-pair
     {coverage, mean_width, winkler}.
