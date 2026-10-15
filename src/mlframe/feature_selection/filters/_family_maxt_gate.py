@@ -47,6 +47,37 @@ def mi_all_columns_njit(cols: np.ndarray, n_x: np.ndarray, y_codes: np.ndarray, 
     return out
 
 
+@njit(cache=True)
+def _mi_one_column_into(col: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int, joint: np.ndarray) -> float:
+    """Same plug-in MI as :func:`_mi_one_column_njit`, counting into a caller-owned buffer (no allocation per column and permutation).
+
+    ``joint`` is an int64 array of at least ``n_x * n_y`` cells; it is zeroed here. The integer counts, and the order of the summation, are
+    those of the allocating kernel, so the values are identical.
+    """
+    n = y_codes.shape[0]
+    cells = n_x * n_y
+    for c in range(cells):
+        joint[c] = 0
+    for i in range(n):
+        joint[col[i] * n_y + y_codes[i]] += 1
+    mi = 0.0
+    for a in range(n_x):
+        pxa = 0
+        for b in range(n_y):
+            pxa += joint[a * n_y + b]
+        if pxa == 0:
+            continue
+        for b in range(n_y):
+            nab = joint[a * n_y + b]
+            if nab == 0:
+                continue
+            pyb = 0
+            for aa in range(n_x):
+                pyb += joint[aa * n_y + b]
+            mi += (nab / n) * np.log((nab * n) / (pxa * pyb))
+    return mi
+
+
 @njit(cache=True, parallel=True)
 def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray, n_y: int) -> np.ndarray:
     """Maximum MI over every column of ``cols`` for each row of ``y_perms`` (a block of label permutations).
@@ -57,10 +88,15 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     b_count = y_perms.shape[0]
     k = cols.shape[0]
     out = np.zeros(b_count, dtype=np.float64)
+    cap = 1
+    for j in range(k):
+        if n_x[j] > cap:
+            cap = n_x[j]
     for b in prange(b_count):
         best = 0.0
+        joint = np.zeros(cap * n_y, dtype=np.int64)
         for j in range(k):
-            mi = _mi_one_column_njit(cols[j], n_x[j], y_perms[b], n_y)
+            mi = _mi_one_column_into(cols[j], n_x[j], y_perms[b], n_y, joint)
             if mi > best:
                 best = mi
         out[b] = best

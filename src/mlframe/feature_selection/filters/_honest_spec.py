@@ -9,6 +9,7 @@ target-free collapse fallbacks are precomputed per column.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 _LOW_CARD_CAP = 32  # compute_col_edges default (kwargs 'low_card_cap')
 _FALLBACK_NBINS = 5  # collapsed_fallback_nbins default
@@ -39,6 +40,12 @@ def build_honest_spec(X, cols, y_raw, max_depth: int, method: str = "mdlp") -> d
     q_rf_rows: list[np.ndarray] = []
     for j, c in enumerate(cols):
         if c not in X.columns:
+            q_fb_rows.append(np.empty(0, dtype=np.float64))
+            q_rf_rows.append(np.empty(0, dtype=np.float64))
+            continue
+        if not pd.api.types.is_numeric_dtype(X[c]):
+            # Categorical (non-numeric) columns are factorised without the target, so their codes are invariant under permutation of y:
+            # they stay fixed (observed codes), exactly like the low-cardinality numeric columns.
             q_fb_rows.append(np.empty(0, dtype=np.float64))
             q_rf_rows.append(np.empty(0, dtype=np.float64))
             continue
