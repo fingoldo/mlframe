@@ -43,6 +43,8 @@ import logging
 
 import numpy as np
 
+from mlframe._numerical_floors import VARIANCE_FLOOR
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -67,7 +69,7 @@ _BORDERLINE_BAND: float = 1e-9
 
 # Variance floor below which a column / target is "constant" -> 0.0 |corr|. Matches
 # the numpy reference (``var < 1e-24 -> 0.0``) exactly.
-_VAR_FLOOR: float = 1e-24
+_VAR_FLOOR = VARIANCE_FLOOR
 
 
 if _HAS_NUMBA:

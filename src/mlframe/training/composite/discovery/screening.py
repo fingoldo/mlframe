@@ -6,6 +6,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe._numerical_floors import VARIANCE_FLOOR
 import pandas as pd
 
 try:
@@ -135,7 +136,7 @@ def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
     b_dev = b_f - b_f.mean()
     var_a = float(np.dot(a_dev, a_dev))
     var_b = float(np.dot(b_dev, b_dev))
-    if var_a < 1e-24 or var_b < 1e-24:
+    if var_a < VARIANCE_FLOOR or var_b < VARIANCE_FLOOR:
         return 0.0
     return float(np.dot(a_dev, b_dev) / np.sqrt(var_a * var_b))
 
@@ -191,7 +192,7 @@ def _safe_abs_corr_all_numpy(
         X_f = X[y_finite]
     y_dev = y_f - y_f.mean()
     var_y = float(np.dot(y_dev, y_dev))
-    if var_y < 1e-24:
+    if var_y < VARIANCE_FLOOR:
         return np.zeros(X.shape[1])
     # Keep the centred X_dev (numerically stable -- the sumsq-minus-n*mean^2
     # computational formula risks catastrophic cancellation on large-offset
@@ -202,7 +203,7 @@ def _safe_abs_corr_all_numpy(
     X_dev = X_f - X_means
     var_X = np.einsum("ij,ij->j", X_dev, X_dev)
     out = np.zeros(X.shape[1])
-    safe = var_X >= 1e-24
+    safe = var_X >= VARIANCE_FLOOR
     if safe.any():
         cov = X_dev[:, safe].T @ y_dev
         denom = np.sqrt(var_y * var_X[safe])

@@ -9,6 +9,7 @@ import logging
 from typing import Any, List, Sequence, cast
 
 import numpy as np
+from mlframe._numerical_floors import VARIANCE_FLOOR
 
 from .._composite_utils import is_polars_df as _is_polars_df
 from ._corr_numba import abs_corr_all_no_copy
@@ -262,7 +263,7 @@ def _leak_corr_survivors(self, candidates, candidate_arrays, _y_leak, drops, cor
                 y_dev = yj - yj.mean()
                 var_x = float(np.dot(x_dev, x_dev))
                 var_y = float(np.dot(y_dev, y_dev))
-                if var_x < 1e-24 or var_y < 1e-24:
+                if var_x < VARIANCE_FLOOR or var_y < VARIANCE_FLOOR:
                     continue
                 abs_corrs[j] = min(1.0, abs(float(np.dot(x_dev, y_dev)) / np.sqrt(var_x * var_y)))
         for col, corr_val in zip(candidates, abs_corrs.tolist()):

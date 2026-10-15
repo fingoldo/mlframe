@@ -26,6 +26,7 @@ import logging
 from typing import Any, Callable
 
 import numpy as np
+from mlframe._numerical_floors import VARIANCE_FLOOR
 from numpy.typing import ArrayLike
 
 from ._rejection_ledger import RejectStage, ledger_append
@@ -160,7 +161,7 @@ def _near_collinear_keep_mask_numpy(
             b_dev = b - b.mean()
             va = float(np.dot(a_dev, a_dev))
             vb = float(np.dot(b_dev, b_dev))
-            if va < 1e-24 or vb < 1e-24:
+            if va < VARIANCE_FLOOR or vb < VARIANCE_FLOOR:
                 continue  # constant on the joint support -> no correlation.
             corr = abs(float(np.dot(a_dev, b_dev)) / np.sqrt(va * vb))
             if corr > thr:

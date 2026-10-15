@@ -40,6 +40,8 @@ from collections import OrderedDict
 from typing import Any, Callable
 
 import numpy as np
+
+from mlframe._numerical_floors import VARIANCE_FLOOR
 from mlframe._array_buffer import array_buffer
 
 logger = logging.getLogger(__name__)
@@ -101,7 +103,7 @@ _BORDERLINE_BAND: float = 1e-9
 
 # Variance floor below which a column is "constant on the joint support" -> no
 # correlation (kept). Matches the numpy reference exactly.
-_VAR_FLOOR: float = 1e-24
+_VAR_FLOOR = VARIANCE_FLOOR
 
 
 if _HAS_NUMBA:
