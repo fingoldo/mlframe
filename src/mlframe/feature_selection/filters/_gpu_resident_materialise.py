@@ -11,6 +11,7 @@ the function bodies to avoid import cycles (mirroring the prior in-file layout);
 lazy-imported from ``_gpu_resident_fe`` as before. The parent re-exports every name moved here so all existing
 import paths still resolve byte-for-byte. No kernel-source, residency, or selection behavior changed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # Parent-of-the-FE-block names consumed by the moved host fast paths (defined in _gpu_resident_fe before it
 # imports the select parent -> resolve during the partial-init import chain, same pattern as the parent).
-from ._gpu_resident_fe import (
+from ._gpu_resident_shared import (
     _gpu_k_chunk,
     _stash_deferred_host_fill,
     _stash_resident_codes,
@@ -107,6 +108,7 @@ def _get_fe_materialise_kernel():
     global _FE_MATERIALISE_KERNEL
     if _FE_MATERIALISE_KERNEL is None:
         import cupy as cp
+
         _FE_MATERIALISE_KERNEL = cp.RawKernel(_FE_MATERIALISE_SRC, "fe_materialise")
     return _FE_MATERIALISE_KERNEL
 
@@ -200,6 +202,7 @@ def _get_fe_materialise_cm_kernel():
     global _FE_MATERIALISE_CM_KERNEL
     if _FE_MATERIALISE_CM_KERNEL is None:
         import cupy as cp
+
         _FE_MATERIALISE_CM_KERNEL = cp.RawKernel(_FE_MATERIALISE_CM_SRC, "fe_materialise_cm")
     return _FE_MATERIALISE_CM_KERNEL
 
@@ -212,6 +215,7 @@ def _operand_table_cm(cp, tv_gpu):
     any kernel failure."""
     import weakref
     from ._gpu_resident_select import _transpose_to_cm  # parent transpose kernel (lazy: avoid cycle)
+
     c = _OPERAND_TABLE_CM_CACHE
     with _OPERAND_TABLE_CM_CACHE_LOCK:
         ref = c["ref"]
@@ -255,7 +259,8 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
             tv_cm = _operand_table_cm(cp, tv_gpu)  # (n_operands, n) C-order, once/step (cached)
             cm_out = cp.empty((K, n), dtype=cp.float32)
             _get_fe_materialise_cm_kernel()(
-                (blocks,), (threads,),
+                (blocks,),
+                (threads,),
                 (tv_cm, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), cm_out),
             )
             rm = _transpose_cm_to_rm(cm_out)  # (K, n) -> (n, K) row-major (coalesced)
@@ -264,11 +269,13 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
             return (rm, cm_out) if return_cm else rm
         except Exception:
             import logging
+
             logging.getLogger(__name__).debug("column-major fe_materialise failed; row-major fallback", exc_info=True)
 
     out = cp.empty((n, K), dtype=cp.float32)
     _get_fe_materialise_kernel()(
-        (blocks,), (threads,),
+        (blocks,),
+        (threads,),
         (tv_gpu, a_g, b_g, ops_g, np.int64(n), np.int64(n_operands), np.int32(K), out),
     )
     # No cm buffer on the row-major fallback path (cm_hint=None -> discretize transposes as before).
@@ -385,6 +392,7 @@ def _operand_cache_budget_bytes() -> int:
         if env:
             return int(float(env) * (1 << 20))
         import cupy as cp
+
         return int(cp.cuda.runtime.memGetInfo()[1] * _OPERAND_CACHE_VRAM_FRACTION)
     except Exception as e:  # no cupy / no device / bad env value: entry-count cap only
         logger.debug("operand cache byte budget unavailable (%s: %s)", type(e).__name__, e)
@@ -430,6 +438,7 @@ def register_prebuilt_operand_table(transformed_vars: np.ndarray, device_table: 
     MUST be a row-major (n, n_operands) C-contiguous float32 cupy array matching ``transformed_vars``'s
     shape (the layout ``_fe_materialise_block_gpu``'s kernel addresses); a mismatch is ignored at lookup."""
     import weakref
+
     c = _PREBUILT_OPERAND_TABLE
     key = id(transformed_vars)
     with _PREBUILT_OPERAND_TABLE_LOCK:
@@ -468,6 +477,7 @@ def _resident_operand_table(cp, transformed_vars):
     distinct object (weakref-identity cache) and reused across a step's chunks; falls back to a plain
     upload if the array is not weakref-able."""
     import weakref
+
     pre = _prebuilt_operand_table(transformed_vars)
     if pre is not None:
         return pre
@@ -505,10 +515,33 @@ def _resident_operand_table(cp, transformed_vars):
 # sinc (code 16) is intentionally EXCLUDED: its sin(pi x)/(pi x) form has a sub-ulp mismatch vs cupy's
 # xp.sinc, so it stays on the bit-exact per-column path. Every op below is verified maxdiff-0 vs _unary_apply.
 _BATCH_UNARY_OPS = {
-    "identity": 0, "neg": 1, "abs": 2, "sqr": 3, "reciproc": 4, "sqrt": 5, "sin": 6, "sign": 7, "rint": 8,
-    "qubed": 9, "invsquared": 10, "invqubed": 11, "cbrt": 12, "invcbrt": 13, "invsqrt": 14, "exp": 15,
-    "cos": 17, "tan": 18, "arcsin": 19, "arccos": 20, "arctan": 21, "sinh": 22, "cosh": 23,
-    "tanh": 24, "arcsinh": 25, "arccosh": 26, "arctanh": 27,
+    "identity": 0,
+    "neg": 1,
+    "abs": 2,
+    "sqr": 3,
+    "reciproc": 4,
+    "sqrt": 5,
+    "sin": 6,
+    "sign": 7,
+    "rint": 8,
+    "qubed": 9,
+    "invsquared": 10,
+    "invqubed": 11,
+    "cbrt": 12,
+    "invcbrt": 13,
+    "invsqrt": 14,
+    "exp": 15,
+    "cos": 17,
+    "tan": 18,
+    "arcsin": 19,
+    "arccos": 20,
+    "arctan": 21,
+    "sinh": 22,
+    "cosh": 23,
+    "tanh": 24,
+    "arcsinh": 25,
+    "arccosh": 26,
+    "arctanh": 27,
 }
 _BATCH_UNARY_SRC = r"""
 extern "C" __global__
@@ -565,6 +598,7 @@ def _get_batch_unary_kernel():
     global _BATCH_UNARY_KERNEL
     if _BATCH_UNARY_KERNEL is None:
         import cupy as cp
+
         _BATCH_UNARY_KERNEL = cp.RawKernel(_BATCH_UNARY_SRC, "batch_unary")
     return _BATCH_UNARY_KERNEL
 
@@ -626,7 +660,14 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
             _host = np.ascontiguousarray(np.column_stack(cols)) if len(cols) > 1 else np.ascontiguousarray(cols[0]).reshape(-1, 1)
             _dev_groups[_dk] = cp.asarray(_host)
         except Exception as e:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-            log_throttle(logger, "gpu_materialise.group_upload", logging.WARNING, "resident operand table: the column-stack/upload of group %r failed, its columns take the per-column path: %s", _dk, e)
+            log_throttle(
+                logger,
+                "gpu_materialise.group_upload",
+                logging.WARNING,
+                "resident operand table: the column-stack/upload of group %r failed, its columns take the per-column path: %s",
+                _dk,
+                e,
+            )
             _dev_groups[_dk] = None
     n_gpu = 0
     n_cpu = 0
@@ -653,7 +694,9 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
             if _dk != _f64_key or _dev_groups.get(_dk) is None:
                 continue
             s, o, oc = _bg.setdefault(_dk, ([], [], []))
-            s.append(_slot); o.append(_BATCH_UNARY_OPS[unary_name]); oc.append(col_idx)
+            s.append(_slot)
+            o.append(_BATCH_UNARY_OPS[unary_name])
+            oc.append(col_idx)
         if _bg:
             _ker = _get_batch_unary_kernel()
             for _dk, (s, o, oc) in _bg.items():
@@ -672,7 +715,13 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
                 _batched.update(oc)
             n_gpu += len(_batched)
     except Exception as e:
-        log_throttle(logger, "gpu_materialise.batched_build", logging.WARNING, "resident operand table: the batched GPU column build failed, every column takes the per-column path: %s", e)
+        log_throttle(
+            logger,
+            "gpu_materialise.batched_build",
+            logging.WARNING,
+            "resident operand table: the batched GPU column build failed, every column takes the per-column path: %s",
+            e,
+        )
         _batched = set()  # any batch failure -> every column rebuilt by the exact per-column path below
     for _spec_t in col_specs:
         col_idx, raw_vals, unary_name = _spec_t[0], _spec_t[1], _spec_t[2]
@@ -699,7 +748,13 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
                     g[:, col_idx] = col.astype(cp.float32)
                     gpu_built = True
             except Exception as e:
-                log_throttle(logger, "gpu_materialise.per_column_build", logging.WARNING, "resident operand table: a per-column GPU build failed, that column takes the host path: %s", e)
+                log_throttle(
+                    logger,
+                    "gpu_materialise.per_column_build",
+                    logging.WARNING,
+                    "resident operand table: a per-column GPU build failed, that column takes the host path: %s",
+                    e,
+                )
                 gpu_built = False
         if not gpu_built:
             # Non-plain (prewarp / gate_med / poly) or failed: copy just THIS column from the host (a single
@@ -728,8 +783,14 @@ def _validate_materialise_codes_dtype(dtype: Any, nbins: int) -> None:
 
 
 def gpu_materialise_discretize_codes_host(
-    transformed_vars: np.ndarray, a_cols: np.ndarray, b_cols: np.ndarray, op_codes: np.ndarray,
-    nbins: int, *, dtype: Any = np.int8, out_cand: np.ndarray | None = None,
+    transformed_vars: np.ndarray,
+    a_cols: np.ndarray,
+    b_cols: np.ndarray,
+    op_codes: np.ndarray,
+    nbins: int,
+    *,
+    dtype: Any = np.int8,
+    out_cand: np.ndarray | None = None,
 ) -> np.ndarray:
     """GPU fast path for the FE chunk's MATERIALISE + BINNING. Uploads the operand table
     ``transformed_vars`` (n, n_operands) float32 ONCE, then for each VRAM-bounded column block: generates
@@ -754,6 +815,7 @@ def gpu_materialise_discretize_codes_host(
     # consumed/cleared its OWN entry; this was meant only as a dead-man's-switch, not a normal-path event).
     # Rely on the bounded-FIFO eviction (_DEFERRED_HOST_FILL_MAX) to age out any truly-abandoned entry instead.
     from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
+
     tv = np.ascontiguousarray(transformed_vars, dtype=np.float32)
     a_cols = np.ascontiguousarray(a_cols, dtype=np.int64)
     b_cols = np.ascontiguousarray(b_cols, dtype=np.int64)
@@ -841,7 +903,13 @@ def gpu_materialise_discretize_codes_host(
                     _db_slot ^= 1
                     _done_async = True
                 except Exception:
-                    log_throttle(logger, "gpu_materialise.async_d2h", logging.WARNING, "candidate block copy: the async D2H pipeline failed, using synchronous copies", exc_info=True)
+                    log_throttle(
+                        logger,
+                        "gpu_materialise.async_d2h",
+                        logging.WARNING,
+                        "candidate block copy: the async D2H pipeline failed, using synchronous copies",
+                        exc_info=True,
+                    )
                     _copy_stream = None
                     _drain_pending()
             if not _done_async:
@@ -923,6 +991,7 @@ def gpu_discretize_codes_host(cand: np.ndarray, nbins: int, *, dtype: Any = np.i
     import cupy as cp
 
     from ._gpu_resident_discretize import _gpu_resident_discretize_codes  # carve sibling (lazy: avoid cycle)
+
     cand = np.ascontiguousarray(cand)  # keep native dtype (float32 FE buffer) - no f64 up-cast
     n, K = cand.shape
     out = np.empty((n, K), dtype=dtype)

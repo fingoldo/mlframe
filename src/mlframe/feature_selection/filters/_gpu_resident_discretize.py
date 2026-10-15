@@ -9,6 +9,7 @@ The radix-select edge primitives (``_radix_select_interior_edges`` / ``fe_gpu_ra
 the PARENT and are LAZY-imported inside the function bodies to avoid an import cycle. No kernel-source,
 dispatch-threshold, or selection behavior changed.
 """
+
 from __future__ import annotations
 
 import os
@@ -17,7 +18,7 @@ import numpy as np
 
 # Parent-of-the-FE-block name consumed at module scope (defined in _gpu_resident_fe before it imports the
 # select parent, so this top import resolves during the partial-init import chain - same pattern as the parent).
-from ._gpu_resident_fe import _quantile_levels_dev
+from ._gpu_resident_shared import _quantile_levels_dev
 
 # FUSED PER-COLUMN BINNING (2026-06-20, nvprof-driven). The per-column ``for j in range(K): out[:,j] =
 # cp.searchsorted(edges[:,j], col, 'right')`` loop fired K separate searchsorted launches PLUS K int64->
@@ -95,10 +96,11 @@ def _get_bin_codes_kernel(dtype, out_name: str = "int32"):
         # TYPENAME is part of the C symbol name (must be a valid identifier); fold the output dtype into it
         # so the int8/int16/int32 kernels get distinct symbols within one translation unit per instantiation.
         sym = "bin_codes_" + in_key + "_" + out_name
-        src = (_BIN_CODES_SRC
-               .replace("bin_codes_TYPENAME", sym)
-               .replace("OUTTYPE", out_ctype)     # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
-               .replace("TYPE", ctype))
+        src = (
+            _BIN_CODES_SRC.replace("bin_codes_TYPENAME", sym)
+            .replace("OUTTYPE", out_ctype)  # MUST precede the TYPE replace (TYPE is a substring of OUTTYPE)
+            .replace("TYPE", ctype)
+        )
         k = cp.RawKernel(src, sym)
         _BIN_CODES_KERNELS[cache_key] = k
     return k
@@ -129,12 +131,14 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None):
         threads = 256
         blocks = (total + threads - 1) // threads
         _get_bin_codes_kernel(cand_c.dtype, _od.name)(
-            (blocks,), (threads,),
+            (blocks,),
+            (threads,),
             (cand_c, edges_c, np.int64(n), np.int32(K), np.int32(ne), out),
         )
         return out
     except Exception:
         import logging
+
         logging.getLogger(__name__).warning("fused bin-codes kernel failed; per-column searchsorted fallback", exc_info=True)
         _od = cp.dtype(out_dtype) if out_dtype is not None else cp.dtype(cp.int32)
         out = cp.empty((n, K), dtype=_od)
@@ -164,6 +168,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
     # MLFRAME_FE_GPU_BINNING_DTYPE forces a specific working dtype (float64 = the exact CPU-parity fallback).
     # cross-sibling (parent) radix-select edge primitives: lazy-imported to avoid an import cycle.
     from ._gpu_resident_select import _radix_select_interior_edges, fe_gpu_radix_edges_enabled
+
     forced = os.environ.get("MLFRAME_FE_GPU_BINNING_DTYPE", "").strip().lower()
     if forced in ("float64", "f64", "double"):
         work = cp.float64
@@ -190,6 +195,7 @@ def _gpu_resident_discretize_codes(cand_gpu, nbins: int, out_dtype=None, cm_hint
             interior = _radix_select_interior_edges(_cand_c, int(nbins), cm_hint=_hint)
         except Exception:
             import logging
+
             logging.getLogger(__name__).warning("radix-select edges failed; cp.percentile fallback", exc_info=True)
             interior = None
         if interior is not None:

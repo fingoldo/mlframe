@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # Parent-defined names these blocks consume. Imported at module top: the PARENT does
 # ``from ._gpu_resident_pair_mi import *`` at its BOTTOM (after all these names are defined), so re-entering
 # the partially-initialised parent here always finds them - no circular-import hazard.
-from ._gpu_resident_fe import (
+from ._gpu_resident_shared import (
     _BINOP_CODE,
     _COMBOS,
     _COMBO_IDX_CACHE,

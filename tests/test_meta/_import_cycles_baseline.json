@@ -7,10 +7,6 @@
   "import-cycle::mlframe.feature_selection.filters._feature_engineering_pairs | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_chunks | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core_helpers | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core_steps | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score | mlframe.feature_selection.filters._feature_engineering_pairs._pairs_score_steps | mlframe.feature_selection.filters.feature_engineering": {
    "count": 1,
    "note": ""
-  },
-  "import-cycle::mlframe.feature_selection.filters._gpu_resident_discretize | mlframe.feature_selection.filters._gpu_resident_fe | mlframe.feature_selection.filters._gpu_resident_k_chunk_ktc | mlframe.feature_selection.filters._gpu_resident_materialise | mlframe.feature_selection.filters._gpu_resident_pair_mi | mlframe.feature_selection.filters._gpu_resident_select": {
-   "count": 1,
-   "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
   }
  },
  "gate": "import-cycles",
