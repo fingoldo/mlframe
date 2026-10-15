@@ -431,7 +431,7 @@ def compute_ece_brier_full_and_debiased(
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
-def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0) -> tuple[float, float, float]:
+def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int = 100, use_weights: bool = False, verbose: int = 0):
     """One-shot calibration MAE/STD/coverage: bin ``(y_true, y_pred)`` into ``nbins`` then reduce.
 
     Convenience wrapper that runs the equal-mass binning pass and feeds the per-bin frequencies to
