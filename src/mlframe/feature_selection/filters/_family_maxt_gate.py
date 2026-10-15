@@ -8,6 +8,8 @@ the number of permutations. Under the null the pass probability is at most alpha
 
 from __future__ import annotations
 
+from collections import OrderedDict
+
 import numpy as np
 from numba import njit, prange
 
@@ -103,6 +105,41 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
     return out
 
 
+_PERM_BLOCK_CACHE_BYTES = 256 * 1024 * 1024
+_perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
+_perm_block_cache_bytes = 0
+
+
+def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.ndarray:
+    """Row-permutation indices of the next ``m`` label permutations drawn from ``rng``.
+
+    The family gate rebuilds the same permutation stream for every candidate family (each call starts from the same seed), and drawing it
+    costs more than the MI kernel itself. The block is cached under the generator state it was drawn from, and the stored state after the
+    draw is restored on a hit, so the stream the caller sees is exactly the one a fresh draw would produce. The cache is bounded (LRU, bytes).
+    """
+    global _perm_block_cache_bytes
+    state_before = rng.bit_generator.state
+    key = (y.shape[0], int(m), hash(y.tobytes()), repr(state_before))
+    hit = _perm_block_cache.get(key)
+    if hit is not None:
+        _perm_block_cache.move_to_end(key)
+        idx, state_after = hit
+        rng.bit_generator.state = state_after
+        return idx
+    n = y.shape[0]
+    idx_dtype = np.uint16 if n <= np.iinfo(np.uint16).max else np.int32
+    idx = np.empty((m, n), dtype=idx_dtype)
+    for i in range(m):
+        idx[i] = rng.permutation(n)
+    state_after = rng.bit_generator.state
+    _perm_block_cache[key] = (idx, state_after)
+    _perm_block_cache_bytes += idx.nbytes
+    while _perm_block_cache_bytes > _PERM_BLOCK_CACHE_BYTES and len(_perm_block_cache) > 1:
+        _, (old, _) = _perm_block_cache.popitem(last=False)
+        _perm_block_cache_bytes -= old.nbytes
+    return idx
+
+
 def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, n_perm: int, rng: np.random.Generator, block: int = 256) -> np.ndarray:
     """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical)."""
     out = np.empty(int(n_perm), dtype=np.float64)
@@ -118,9 +155,7 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     use_device = device_supported(n_x, int(n_y)) and (bool(fe_gpu_strict_enabled()) or _work >= _FAMILY_DEVICE_MIN_WORK)
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
-        perms = np.empty((m, y.shape[0]), dtype=np.int64)
-        for i in range(m):
-            perms[i] = y[rng.permutation(y.shape[0])]
+        perms = y[_permutation_block(rng, y, m)]
         if use_device:
             out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
         else:

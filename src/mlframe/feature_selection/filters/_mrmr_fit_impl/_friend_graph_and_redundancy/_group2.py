@@ -426,7 +426,11 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                 _rp_floor = max(_rp_rel_floor, _rp_max_mi * _rp_rel_frac)
                 # feature_names_in_ is an ndarray; "or []" would test truthiness and raise on a multi-element array.
                 _fni_rp = getattr(self, "feature_names_in_", None)
-                for _rn in (_fni_rp if _fni_rp is not None else []):
+                _rp_names = list(_fni_rp) if _fni_rp is not None else []
+                # Judge candidates strongest-first, ties by name: each accepted copy joins the base before the next one is judged,
+                # so the outcome must not depend on where a column sits in the frame.
+                _rp_names.sort(key=lambda rn: (-float(cached_MIs.get((_cols_index_r.get(rn, -1),), 0.0)) if isinstance(cached_MIs, dict) else 0.0, str(rn)))
+                for _rn in _rp_names:
                     _ridx = _cols_index_r.get(_rn)
                     if _ridx is None or _ridx in _sv_set_r or _rn not in X.columns:
                         continue

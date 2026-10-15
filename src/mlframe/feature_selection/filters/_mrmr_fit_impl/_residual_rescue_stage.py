@@ -213,12 +213,16 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
                 return "linear"
             return "linear" if sources and _is_refinement(sources, raw_held) else "free"
 
+        # A raw operand the redundancy sweep already dropped as subsumed by a surviving compound is not re-admitted here:
+        # the rescue's linear gain for it is the same information the compound carries, not a new term.
+        redundancy_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
         pool = {
             str(c): np.asarray(X[c].to_numpy(), dtype=np.float64)
             for c in X.columns
             if str(c) not in design
             and str(c) not in sel_names
             and str(c) not in prune_names
+            and str(c) not in redundancy_dropped
             and np.issubdtype(X[c].dtype, np.number)
             and classify(_raw_sources(str(c), raw_cols)) != "skip"
         }
