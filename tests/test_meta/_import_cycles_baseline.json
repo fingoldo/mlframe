@@ -32,10 +32,6 @@
    "count": 1,
    "note": "fit-split: the body sibling reads the parent's FitPipelineResult at top level; the parent defines it before importing the sibling"
   },
-  "import-cycle::mlframe.training.extractors | mlframe.training.extractors._extractors_simple": {
-   "count": 1,
-   "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
-  },
   "import-cycle::mlframe.training.pipeline._pipeline_helpers | mlframe.training.pipeline._pipeline_helpers_apply": {
    "count": 1,
    "note": "monolith split: the carved sibling imports helpers/constants from its parent at top level and the parent re-exports the sibling at its bottom, binding what the sibling needs first; drain by moving the shared names to a leaf module"
@@ -43,10 +39,6 @@
   "import-cycle::mlframe.training.reporting._reporting | mlframe.training.reporting._reporting_diagnostics | mlframe.training.reporting._reporting_probabilistic | mlframe.training.reporting._reporting_probabilistic_calib | mlframe.training.reporting._reporting_probabilistic_helpers | mlframe.training.reporting._reporting_regression": {
    "count": 1,
    "note": ""
-  },
-  "import-cycle::mlframe.training.strategies | mlframe.training.strategies.xgboost": {
-   "count": 1,
-   "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
   },
   "import-cycle::mlframe.training.targets._target_distribution_analyzer | mlframe.training.targets._target_distribution_analyzer_features | mlframe.training.targets._target_distribution_analyzer_modes | mlframe.training.targets._target_distribution_analyzer_target_fn": {
    "count": 1,
