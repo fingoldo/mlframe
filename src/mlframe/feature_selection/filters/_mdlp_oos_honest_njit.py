@@ -110,7 +110,8 @@ def oos_mdlp_cuts_njit(
     xt_raw = x[train_idx]
     yt_raw = y[train_idx]
     order = np.argsort(xt_raw)
-    return oos_cuts_from_split_njit(xt_raw[order], yt_raw[order], x[hold_idx], y[hold_idx], n_classes_total, min_split, max_depth, tol, val_min)
+    cuts: np.ndarray = oos_cuts_from_split_njit(xt_raw[order], yt_raw[order], x[hold_idx], y[hold_idx], n_classes_total, min_split, max_depth, tol, val_min)
+    return cuts
 
 
 @njit(cache=True)
@@ -213,7 +214,7 @@ def oos_cuts_from_split_njit(
         st_he[top] = he
         st_d[top] = depth + 1
         top += 1
-    res = out[:n_out].copy()
+    res: np.ndarray = out[:n_out].copy()
     res.sort()
     return res
 

@@ -214,12 +214,16 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
             _validated = _strategy_lc in ("mdlp_validated", "fayyad_irani_validated")
             # The validated strategy's null needs at most 64 target classes (the production y-rebucketing above that is not mirrored).
             if not _validated or np.unique(_y_raw_for_null).size <= 64:
-                _honest_null_codes.spec = build_honest_spec(
-                    X=_x_for_cat,
-                    cols=list(cols),
-                    y_raw=_y_raw_for_null,
-                    max_depth=int((_nbins_strategy_kwargs or {}).get("max_depth", 8)),
-                    method="oos" if _validated else "mdlp",
+                setattr(  # noqa: B010 - the nested function carries its spec as an attribute
+                    _honest_null_codes,
+                    "spec",
+                    build_honest_spec(
+                        X=_x_for_cat,
+                        cols=list(cols),
+                        y_raw=_y_raw_for_null,
+                        max_depth=int((_nbins_strategy_kwargs or {}).get("max_depth", 8)),
+                        method="oos" if _validated else "mdlp",
+                    ),
                 )
         self._honest_null_codes_fn = _honest_null_codes
     else:

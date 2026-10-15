@@ -68,7 +68,7 @@ def _analytic_p_value(mi: float, n: int, n_classes: int) -> float:
     if df <= 0 or n <= 0 or mi <= 0.0:
         return 1.0
     p = _gammaincc_nb(0.5 * df, 0.5 * 2.0 * float(n) * mi)
-    return min(1.0, max(0.0, p))
+    return min(1.0, max(0.0, float(p)))
 
 
 @njit(cache=True)
@@ -238,7 +238,7 @@ def mdlp_inner_cuts(
     out = np.empty(max(1, xd.shape[0]), dtype=np.float64)
     n_out = np.zeros(1, dtype=np.int64)
     _mdlp_dfs(xd, yd, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out)
-    cuts = out[: n_out[0]].copy()
+    cuts: np.ndarray = out[: n_out[0]].copy()
     cuts.sort()
     return cuts
 

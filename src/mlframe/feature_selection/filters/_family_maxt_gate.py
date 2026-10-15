@@ -87,7 +87,8 @@ def exact_pvalue_pass(observed: np.ndarray, null_max: np.ndarray, alpha: float) 
     obs = np.asarray(observed, dtype=np.float64)
     # number of null maxima >= each observed value, via binary search on the sorted null
     exceed = null_sorted.shape[0] - np.searchsorted(null_sorted, obs, side="left")
-    return (1.0 + exceed) / (null_sorted.shape[0] + 1.0) <= float(alpha)
+    passes: np.ndarray = (1.0 + exceed) / (null_sorted.shape[0] + 1.0) <= float(alpha)
+    return passes
 
 
 def _quantile_codes(v: np.ndarray, n_bins: int) -> tuple[np.ndarray, int]:
