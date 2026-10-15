@@ -479,6 +479,26 @@ def local_mi_gate_binagg_resident(
             _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
             dtype=np.float64,
         )
+        # Family-wise calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the
+        # per-permutation maximum MI over these candidates (y permuted on the device; candidates are binned without the target).
+        from ._unified_fe_gate import _LOCAL_GATE_NULL_PERMUTATIONS
+
+        if mat_gpu.shape[0] >= 2 and _yi.size > 0:
+            _rng = np.random.default_rng(0)
+            _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
+            for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
+                _perm = cp.asarray(_rng.permutation(_yi.size))
+                _null_max[_b] = float(
+                    np.nanmax(
+                        np.asarray(
+                            _plugin_mi_classif_batch_cuda_resident(
+                                mat_gpu, y_gpu[_perm], int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True,
+                            ),
+                            dtype=np.float64,
+                        )
+                    )
+                )
+            floor = max(float(floor), float(np.quantile(_null_max, 0.95)))
     except Exception as _exc:
         logger.debug("local_mi_gate_binagg_resident: GPU path failed (%s); host fallback", _exc)
         return None

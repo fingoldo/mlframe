@@ -275,6 +275,9 @@ def raw_mi_noise_floor(
     return _res
 
 
+_LOCAL_GATE_NULL_PERMUTATIONS = 39
+
+
 def local_mi_gate(
     enc_df: pd.DataFrame,
     y: np.ndarray | pd.Series,
@@ -319,6 +322,17 @@ def local_mi_gate(
     # wrapper only RELOCATES the same one-shot upload without collapsing it, so this path stays on the exact
     # host ``_mi_classif_batch`` (byte-identical; the STRICT branch inside already uploads once + caches y).
     cand_mi = np.asarray(_mi_classif_batch(arr, y_bin, nbins=nbins), dtype=np.float64)
+    # Family-wise calibration: the raw-column floor says nothing about the null of the MAXIMUM over this candidate set (engineered and
+    # aggregated candidates have their own spread; a grouped-aggregate of an id-like column cleared the raw floor under STRICT). The
+    # floor is therefore raised to the 95th percentile of the per-permutation maximum MI over the same candidates. The candidates are
+    # binned without the target, so permuting y only breaks the candidate-target pairing, which is what the null needs.
+    if arr.shape[1] >= 2 and len(y_bin) > 0:
+        _rng = np.random.default_rng(0)
+        _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
+        for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
+            _yp = np.asarray(y_bin)[_rng.permutation(len(y_bin))]
+            _null_max[_b] = float(np.nanmax(np.asarray(_mi_classif_batch(arr, _yp, nbins=nbins), dtype=np.float64)))
+        floor = max(float(floor), float(np.quantile(_null_max, 0.95)))
     scored = [(col, float(cand_mi[j])) for j, col in enumerate(cand_cols) if np.isfinite(cand_mi[j]) and cand_mi[j] >= floor]
     # W6 (class-closure): record every candidate the shared abs-MAD noise floor
     # kills (raw_mi_noise_floor = med+k*MAD). Pure-record; the kept set is
