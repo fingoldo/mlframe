@@ -365,7 +365,7 @@ def score_ensemble(
     )
 
     ensembling_methods = filter_sign_sensitive_flavours(
-        ensembling_methods=ensembling_methods,
+        ensembling_methods=list(ensembling_methods),
         is_regression=is_regression,
         level_models_and_predictions=level_models_and_predictions,
         verbose=verbose,

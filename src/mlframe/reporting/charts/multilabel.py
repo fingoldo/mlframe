@@ -25,7 +25,7 @@ Token catalogue (all 7):
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Sequence, cast
 
 import numpy as np
 
@@ -340,7 +340,7 @@ def _jaccard_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     mean = float(jaccards.mean()) if jaccards.size else 0.0
     heights, centers, width = prebin_histogram(jaccards, 20, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else jaccards,
+        values=cast(np.ndarray, heights) if centers is not None else jaccards,
         bins=20,
         bin_centers=centers,
         bin_width=width,
@@ -361,7 +361,7 @@ def _hamming_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     n_bins = int(y_true.shape[1]) + 1
     heights, centers, width = prebin_histogram(hamming, n_bins, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else hamming,
+        values=cast(np.ndarray, heights) if centers is not None else hamming,
         bins=n_bins,
         bin_centers=centers,
         bin_width=width,

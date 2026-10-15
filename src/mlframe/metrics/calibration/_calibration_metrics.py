@@ -19,7 +19,6 @@ from __future__ import annotations
 
 from math import floor
 
-from typing import cast
 
 import numpy as np
 import numba
@@ -442,7 +441,7 @@ def fast_calibration_metrics(y_true: np.ndarray, y_pred: np.ndarray, nbins: int 
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
     if verbose:
         print(freqs_predicted, freqs_true)  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
-    return cast(tuple[float, float, float], calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights))
+    return calibration_metrics_from_freqs(freqs_predicted=freqs_predicted, freqs_true=freqs_true, hits=hits, nbins=nbins, use_weights=use_weights)
 
 
 # Finite worst-case ICE for an input the metric cannot score. Finite because CatBoost refuses a non-finite custom

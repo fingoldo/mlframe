@@ -370,7 +370,7 @@ def apply_quality_gate_kn(
     max_std_relative: float,
     sample_weight: Optional[np.ndarray],
     group_ids: Optional[np.ndarray],
-    ensembling_methods: list,
+    ensembling_methods: Sequence[str],
     res: dict,
     verbose: bool,
 ) -> Tuple[list, List[str], List[str], str, float, float, float, float, Any]:

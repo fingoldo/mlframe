@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
 import os
 import tempfile
@@ -114,7 +114,7 @@ def replay_cv_results(fname: str, trusted_root: Optional[str] = None) -> dict:
         for paramset_hash, cv_results in runs.items():
             logger.info("Pipeline: %s", paramset_hash)
             compare_cv_metrics(cv_results=cv_results, extended=False)
-    return cv_results
+    return cast(dict[str, Any], cv_results)
 
 
 def optimize_pipeline_by_gridsearch(
@@ -246,7 +246,7 @@ def compare_cv_metrics(
     # figures accumulate (matplotlib warns past 20) holding MBs each. Returns the figure for programmatic retrieval.
     was_shown = _show_plots_unless_agg()
     _close_unless_interactive(fig, was_shown=was_shown)
-    return fig
+    return cast("Figure", fig)
 
 
 def compute_ml_metrics(y_true: np.ndarray, y_preds: np.ndarray, scorers: Sequence[Callable[..., float]], storage: Optional[dict] = None) -> dict:
@@ -309,4 +309,4 @@ def visualize_prediction_vs_truth(
             axs[i].set_title(sample_title)
     was_shown = _show_plots_unless_agg()
     _close_unless_interactive(fig, was_shown=was_shown)
-    return fig
+    return cast("Figure", fig)

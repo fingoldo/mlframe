@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, cast
 
 
 import pandas as pd, numpy as np
@@ -101,6 +101,8 @@ def train_test_split_from_generator(gen: Any, X: Any = None, y: Any = None, grou
             )
 
         return train_indices, test_indices
+
+    return None
 
 
 def get_predicted_classes(predictions: np.ndarray, thresholds: Optional[np.ndarray] = None) -> tuple[np.ndarray, np.ndarray]:
@@ -363,7 +365,10 @@ def _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, 
         if type(val_size) is float:
             X_test_test, X_test_val, y_test_test, y_test_val = train_test_split(X_test, y_test, test_size=val_size, shuffle=shuffle, stratify=stratify)
         else:
-            train_indices, test_indices = train_test_split_from_generator(gen=val_size, X=X_test, groups=groups)
+            _split = train_test_split_from_generator(gen=val_size, X=X_test, groups=groups)
+            if _split is None:
+                raise ValueError("val_size generator produced no train/test split")
+            train_indices, test_indices = _split
 
             X_test_test = X_test.iloc[train_indices, :]
             X_test_val = X_test.iloc[test_indices, :]
@@ -719,7 +724,7 @@ def plot_beautified_lift(
     ax.set_xlabel("alpha (mixing weight toward truth)")
     ax.set_ylabel(metric)
     ax.set_title(f"Beautified-lift: {metric} vs alpha")
-    return fig
+    return cast(Figure, fig)
 
 
 def _decimate_curve_vertices(arrays: tuple, max_points: int = 2000) -> tuple:
@@ -806,7 +811,7 @@ def plot_pr_curve(
     except Exception as exc:  # best-effort: the classification-report log line is optional diagnostic output
         logger.warning("classification_report failed: %s", exc)
 
-    return fig
+    return cast(Figure, fig)
 
 
 def plot_roc_curve(
@@ -856,4 +861,4 @@ def plot_roc_curve(
     if save_as:
         fig.savefig(ensure_parent_dir(save_as), bbox_inches="tight")
 
-    return fig
+    return cast(Figure, fig)

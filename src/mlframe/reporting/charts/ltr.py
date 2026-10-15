@@ -306,7 +306,7 @@ def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -
     excluded_note = f"; {undefined:,} queries with no relevant doc excluded" if undefined else ""
     heights, centers, width = prebin_histogram(rrs, 20, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else rrs,
+        values=cast(np.ndarray, heights) if centers is not None else rrs,
         bins=20,
         bin_centers=centers,
         bin_width=width,

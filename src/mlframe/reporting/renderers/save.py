@@ -24,7 +24,7 @@ import logging
 import os
 import threading
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 
 from mlframe.reporting.output import PlotOutputSpec
 from mlframe.reporting.renderers.base import get_renderer
@@ -255,7 +255,7 @@ def get_inline_display_mode() -> bool | None:
     """
     _override = _thread_inline_override()
     if _override is not None:
-        return _override
+        return cast("bool | None", _override)
     _val = os.environ.get("MLFRAME_PLOT_INLINE_DISPLAY")
     if _val is None:
         return None

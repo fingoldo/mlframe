@@ -55,7 +55,7 @@ Probabilistic-forecast communication plot:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence, cast
 
 import numpy as np
 
@@ -262,7 +262,7 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> PanelSpec:
     max_w = float(np.nanmax(widths)) if widths.size and np.isfinite(widths).any() else 0.0
     heights, centers, width = prebin_histogram(widths, bins, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else widths,
+        values=cast(np.ndarray, heights) if centers is not None else widths,
         bins=bins,
         bin_centers=centers,
         bin_width=width,
@@ -401,7 +401,7 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
     ks = float(kolmogorov_smirnov_statistic(pit))
     heights, centers, width = prebin_histogram(pit, 20, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else pit,
+        values=cast(np.ndarray, heights) if centers is not None else pit,
         bins=20,
         bin_centers=centers,
         bin_width=width,
