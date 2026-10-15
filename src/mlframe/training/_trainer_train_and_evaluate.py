@@ -12,7 +12,7 @@ from timeit import default_timer as timer
 from functools import partial
 from os.path import exists
 from types import SimpleNamespace
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from ._reporting_configs import ConfidenceAnalysisConfig, NamingConfig, PredictionsContainer, ReportingConfig
     from ._training_runtime_configs import DataConfig, MetricsConfig, OutputConfig, TrainingControlConfig
@@ -125,6 +125,22 @@ from ._trainer_train_and_evaluate_parts import (  # noqa: F401  -- carved helper
 from types import SimpleNamespace as _SimpleNamespace
 
 
+def _copy_reporting_display_fields(st, reporting) -> None:
+    """Copy the display and panel fields of ``ReportingConfig`` onto the per-call state namespace ``st``."""
+    st.show_feature_names = reporting.show_feature_names
+    st.show_prob_histogram = reporting.show_prob_histogram
+    st.prob_histogram_yscale = reporting.prob_histogram_yscale
+    st.show_inline_population_labels = reporting.show_inline_population_labels
+    st.title_metrics_tokens = reporting.title_metrics_tokens
+    st.plot_outputs = reporting.plot_outputs
+    st.plot_dpi = reporting.plot_dpi
+    st.binary_panels = reporting.binary_panels
+    st.multiclass_panels = reporting.multiclass_panels
+    st.multilabel_panels = reporting.multilabel_panels
+    st.ltr_panels = reporting.ltr_panels
+    st.quantile_panels = reporting.quantile_panels
+
+
 def train_and_evaluate_model(
     model: object,
     data: DataConfig,
@@ -143,7 +159,7 @@ def train_and_evaluate_model(
     oof_has_time: Optional[bool] = None,
     oof_random_seed: int = 42,
     cur_target_name: str | None = None,
-):
+) -> tuple[SimpleNamespace, Any, Any, Any]:
     """Train and evaluate a machine learning model with comprehensive metrics and optional caching.
 
     ``oof_has_time`` selects the OOF splitter: when True the K-fold OOF pass forward-chains over the train rows' ``timestamps`` (temporal honesty,
@@ -302,18 +318,7 @@ def train_and_evaluate_model(
         max_zero_fi_to_plot=getattr(st.fi_config, "max_zero_fi_to_plot", 4),
     )
     display_sample_size = reporting.display_sample_size
-    st.show_feature_names = reporting.show_feature_names
-    st.show_prob_histogram = reporting.show_prob_histogram
-    st.prob_histogram_yscale = reporting.prob_histogram_yscale
-    st.show_inline_population_labels = reporting.show_inline_population_labels
-    st.title_metrics_tokens = reporting.title_metrics_tokens
-    st.plot_outputs = reporting.plot_outputs
-    st.plot_dpi = reporting.plot_dpi
-    st.binary_panels = reporting.binary_panels
-    st.multiclass_panels = reporting.multiclass_panels
-    st.multilabel_panels = reporting.multilabel_panels
-    st.ltr_panels = reporting.ltr_panels
-    st.quantile_panels = reporting.quantile_panels
+    _copy_reporting_display_fields(st, reporting)
     # ``quantile_alphas`` arrives via fit_params (per-fit context), not via ReportingConfig - it depends on which alphas the model was trained on, not on display preference. Resolved at the _compute_split_metrics call site.
     st.quantile_alphas = None
     if hasattr(model, "_mlframe_quantile_alphas"):

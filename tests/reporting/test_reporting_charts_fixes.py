@@ -41,7 +41,8 @@ def test_f1_build_reliability_overlay_spec_survives_nan_row():
     y_true = (rng.uniform(size=200) < raw_probs).astype(np.float64)
     raw_probs[5] = np.nan
     spec = build_reliability_overlay_spec(raw_probs, y_true)
-    assert spec is not None
+    # The NaN row is dropped from the raw curve, so its n-count is 199 of the 200 rows.
+    assert spec.panels[0][0].series_labels[1] == "raw OOF (n=199)"
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +190,8 @@ def test_f3_weak_segment_heatmap_filters_inf_features():
     y_true = rng.normal(size=80)
     y_pred = y_true + rng.normal(scale=0.1, size=80)
     result = weak_segment_heatmap(X, y_true, y_pred, feature_names=["a", "b", "c"])
-    assert result is not None
+    # The inf row (index 3) is dropped before the tree fit, so the binned cells account for the other 79 rows.
+    assert int(result.cell_count.sum()) == 79
 
 
 # ---------------------------------------------------------------------------

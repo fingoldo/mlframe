@@ -279,7 +279,7 @@ def hybrid_wavelet_fe_with_recipes(
             ).to_numpy()
             y_codes = np.where(np.isfinite(y_codes), y_codes, 0).astype(np.int64)
         except Exception as e:
-            logger.debug("y quantile-binning failed, falling back to all-zero codes: %s", e)
+            logger.warning("y quantile-binning failed, falling back to all-zero codes: %s", e)
             y_codes = np.zeros(y_arr.size, dtype=np.int64)
     else:
         y_codes = y_arr.astype(np.int64)

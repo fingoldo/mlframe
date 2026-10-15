@@ -4,7 +4,7 @@ Iter 94 mechanism. Agent B #3 ranked. 3rd/4th moments are mathematically orthogo
 """
 from __future__ import annotations
 import logging
-from typing import Sequence
+from typing import Any, Sequence
 import numpy as np
 import polars as pl
 from ._utils import require_seed, validate_numeric_input
@@ -14,9 +14,9 @@ _QUANTILES = (0.05, 0.15, 0.25, 0.5, 0.75, 0.85, 0.95)
 
 
 def compute_distributional_moments_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    quantiles: Sequence[float] = _QUANTILES, standardize=True, column_prefix="distmom", dtype=np.float32,
-):
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
+    quantiles: Sequence[float] = _QUANTILES, standardize: bool=True, column_prefix: str="distmom", dtype: type=np.float32,
+) -> pl.DataFrame:
     """Fit one small LightGBM per quantile (7 quantile regressors, or 7 reweighted classifiers for binary), then derive skew/kurtosis/tail-asymmetry/tail-mass/median features from the predicted quantile spread per query row."""
     try:
         import lightgbm as lgb
@@ -94,7 +94,7 @@ def compute_distributional_moments_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("distributional_moments: fold %d done", fold_idx + 1)

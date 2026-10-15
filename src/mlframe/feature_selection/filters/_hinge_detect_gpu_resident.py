@@ -26,9 +26,10 @@ import logging
 
 from mlframe.utils.log_throttle import log_throttle
 import os
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
+from mlframe._numerical_floors import VARIANCE_FLOOR
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ def _batched_fwl_sse(cp, R, ok, r_y, proj, sse_B: float, cuts, found):
     Rres = R - proj(R)  # FWL residuals vs B, one GEMM pair
     denom = cp.einsum("ij,ij->j", Rres, Rres)
     num = Rres.T @ r_y
-    sse = cp.where(denom < 1e-24, sse_B, sse_B - num * num / cp.maximum(denom, 1e-300))
+    sse = cp.where(denom < VARIANCE_FLOOR, sse_B, sse_B - num * num / cp.maximum(denom, 1e-300))
     sse = cp.where(ok, sse, cp.inf)
     sse_h = cp.asnumpy(sse).astype(np.float64)
     if found:
@@ -116,7 +117,7 @@ def _heldout_uplift_gpu(cp, xg, yg, tau: float, min_rows: int) -> float:
     x_tr, y_tr = xg[_tr_idx], yg[_tr_idx]
     x_va, y_va = xg[_va_idx], yg[_va_idx]
     yv_ss = float(cp.sum((y_va - y_va.mean()) ** 2))
-    if yv_ss < 1e-24:
+    if yv_ss < VARIANCE_FLOOR:
         return 0.0
 
     def _val_r2(with_relu: bool) -> float:
@@ -164,7 +165,8 @@ def _hinge_max_rows() -> int:
     """Row cap for the hinge breakpoint search (0 = full-n). See the subsample note in the function body."""
     try:
         return int(os.environ.get("MLFRAME_HINGE_MAX_ROWS", "250000"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_hinge_max_rows fell back to its default after %s", type(_exc).__name__)
         return 250000
 
 
@@ -174,7 +176,7 @@ def detect_hinge_breakpoints_gpu(
     *,
     max_breakpoints: int,
     min_heldout_r2_uplift: float,
-    precheck_qs,
+    precheck_qs: Sequence[float],
     precheck_min_sse_drop: float,
     cand_q_lo: float,
     cand_q_hi: float,
@@ -239,7 +241,7 @@ def detect_hinge_breakpoints_gpu(
         proj = _gram_projector(cp, B)
         r_y = yg - proj(yg)
         sse_lin = float(r_y @ r_y)
-        if not np.isfinite(sse_lin) or sse_lin <= 1e-24:
+        if not np.isfinite(sse_lin) or sse_lin <= VARIANCE_FLOOR:
             return []
         pre_cuts = np.unique(cp.asnumpy(cp.quantile(xg, cp.asarray(np.asarray(precheck_qs, dtype=np.float64)))))
         if pre_cuts.size == 0:

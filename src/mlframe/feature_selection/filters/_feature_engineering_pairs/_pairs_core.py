@@ -9,7 +9,7 @@ and are re-exported from the package ``__init__``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import os
 import threading
@@ -158,7 +158,9 @@ def _gpu_gate_env_signature() -> str:
     The per-gate tri-state kill-switches (MLFRAME_FE_GPU_DISCRETIZE / MLFRAME_FE_GPU_BINNING) are read LIVE by
     the uncached gates, so they belong in the key too: without them, flipping the discretize switch mid-process
     is silently defeated by a memo entry computed under the old value."""
-    return "|".join(os.environ.get(name, "") for name in ("MLFRAME_FE_GPU_STRICT", "MLFRAME_DISABLE_GPU", "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING"))
+    return "|".join(
+        os.environ.get(name, "") for name in ("MLFRAME_FE_GPU_STRICT", "MLFRAME_DISABLE_GPU", "MLFRAME_FE_GPU_DISCRETIZE", "MLFRAME_FE_GPU_BINNING")
+    )
 
 
 def _gpu_gate_cached(kind: str, n_rows: int, n_cands: int, compute) -> bool:
@@ -167,8 +169,7 @@ def _gpu_gate_cached(kind: str, n_rows: int, n_cands: int, compute) -> bool:
     with _GPU_GATE_CACHE_LOCK:
         if key in _GPU_GATE_CACHE:
             return _GPU_GATE_CACHE[key]
-    result = bool(compute(n_rows, n_cands))
-    with _GPU_GATE_CACHE_LOCK:
+        result = bool(compute(n_rows, n_cands))
         if key not in _GPU_GATE_CACHE and len(_GPU_GATE_CACHE) >= _GPU_GATE_CACHE_MAX:
             # evict-ok: memo; a miss recomputes the value
             _GPU_GATE_CACHE.pop(next(iter(_GPU_GATE_CACHE)))
@@ -275,30 +276,30 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
 
 
 def check_prospective_fe_pairs(
-    prospective_pairs,
-    X,
-    unary_transformations,
-    binary_transformations,
-    classes_y,
-    classes_y_safe,
-    freqs_y,
-    num_fs_steps,
-    cols,
-    original_cols,
-    fe_max_steps,
-    fe_npermutations,
-    fe_max_pair_features,
-    fe_print_best_mis_only,
-    fe_min_nonzero_confidence,
-    fe_min_engineered_mi_prevalence,
-    fe_good_to_best_feature_mi_threshold,
-    fe_max_external_validation_factors,
-    numeric_vars_to_consider,
-    quantization_nbins,
-    quantization_method,
-    quantization_dtype,
-    times_spent,
-    verbose,
+    prospective_pairs: dict,
+    X: Any,
+    unary_transformations: dict,
+    binary_transformations: dict,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    num_fs_steps: int,
+    cols: list[str],
+    original_cols: list[str],
+    fe_max_steps: int,
+    fe_npermutations: int,
+    fe_max_pair_features: int,
+    fe_print_best_mis_only: bool,
+    fe_min_nonzero_confidence: float,
+    fe_min_engineered_mi_prevalence: float,
+    fe_good_to_best_feature_mi_threshold: float,
+    fe_max_external_validation_factors: int,
+    numeric_vars_to_consider: list,
+    quantization_nbins: int,
+    quantization_method: str | None,
+    quantization_dtype: type | str,
+    times_spent: dict,
+    verbose: int,
     # CRITICAL #2 follow-up: subsample rows for the MI sweep so the
     # transformed_vars + shared_buffer allocations scale with subsample_n rather
     # than the (possibly multi-million-row) full X. Survivor columns are still
@@ -313,7 +314,7 @@ def check_prospective_fe_pairs(
     # shared row-index draw, the MI-sweep REUSES it verbatim instead of drawing its own subsample here -
     # so the pair-search, the polynom path and the sufficient-summary maxT floor all score the SAME rows
     # (one draw per fit, not N independent re-draws). ``None`` keeps the legacy per-call draw below.
-    shared_subsample_idx=None,
+    shared_subsample_idx: np.ndarray | None = None,
     # STRATIFIED SUBSAMPLE (R1, 2026-06-18). When True the MI-sweep row subsample below draws a
     # TARGET-STRATIFIED set of rows (per-class proportional for classification - guaranteeing the
     # rare class survives; y-quantile-bin proportional for regression - preserving the tails)
@@ -480,7 +481,7 @@ def check_prospective_fe_pairs(
     # no recompute. The caller (``_mrmr_fe_step``) drains it into ``self``'s fe rejection
     # ledger. ``None`` (default) = legacy behaviour, no records captured.
     rejection_ledger_out: list | None = None,
-):
+) -> dict:
     """Search ``prospective_pairs`` for engineered unary/binary transforms whose MI against ``classes_y`` clears the
     joint-prevalence and external-validation gates, and materialise the surviving engineered columns.
 
@@ -556,7 +557,21 @@ def check_prospective_fe_pairs(
     st._shared_idx = _check_prospective__scores_same_rows_fall(shared_subsample_idx, _full_n_rows, st._shared_idx)
     _use_subsample = (st._shared_idx is not None) or (isinstance(subsample_n, int) and 0 < subsample_n < _full_n_rows)
     _sample_idx = None  # set below when subsampling; threaded into _fit_prewarp_and_gate_med
-    X, _sample_idx, classes_y, classes_y_safe, freqs_y = _check_prospective__use_subsample(_use_subsample, st._shared_idx, subsample_seed, fe_subsample_stratify, classes_y, subsample_n, _full_n_rows, _sample_idx, st._X_full, classes_y_safe, freqs_y, verbose, X)
+    X, _sample_idx, classes_y, classes_y_safe, freqs_y = _check_prospective__use_subsample(
+        _use_subsample,
+        st._shared_idx,
+        subsample_seed,
+        fe_subsample_stratify,
+        classes_y,
+        subsample_n,
+        _full_n_rows,
+        _sample_idx,
+        st._X_full,
+        classes_y_safe,
+        freqs_y,
+        verbose,
+        X,
+    )
 
     # EXTERNAL-VALIDATION raw-column EXTRACTION MEMO (2026-06-07, LEVER 1).
     # The lazy external-validation tie-break (below) extracts the RAW values of
@@ -584,7 +599,18 @@ def check_prospective_fe_pairs(
             return _arr.to_numpy(dtype=np.float64, na_value=np.nan)
         return _arr
 
-    _extval_raw_col = _check_prospective_fe_step1_def_extval_raw(_extval_raw_col_cache, original_cols, X, _densify_nullable, allow_engineered_operands, cols, engineered_operand_values, _use_subsample, _full_n_rows, _sample_idx)
+    _extval_raw_col = _check_prospective_fe_step1_def_extval_raw(
+        _extval_raw_col_cache,
+        original_cols,
+        X,
+        _densify_nullable,
+        allow_engineered_operands,
+        cols,
+        engineered_operand_values,
+        _use_subsample,
+        _full_n_rows,
+        _sample_idx,
+    )
 
     # Per-operand learned pre-warp + median-gate fit (carved to _pairs_setup.py).
     st._prewarp_active, st._prewarp_spec_by_var, st._gate_med_active, st._gate_med_median_by_var = _fit_prewarp_and_gate_med(
@@ -671,7 +697,9 @@ def check_prospective_fe_pairs(
     # / concurrent_workers) instead of the raw 0.4*available that under-counted the siblings
     # and ignored the thread multiplication. Byte-identical selection (width only).
     st._n_workers = max(1, int(concurrent_workers))
-    st._fe_chunk_max_cols, st.final_transformed_vals_shared = _check_prospective__ignored_thread_multiplication_byte(st.max_n_combs, X, st._n_binary, st._n_workers, verbose, st._fe_chunk_max_cols, st.final_transformed_vals_shared)
+    st._fe_chunk_max_cols, st.final_transformed_vals_shared = _check_prospective__ignored_thread_multiplication_byte(
+        st.max_n_combs, X, st._n_binary, st._n_workers, verbose, st._fe_chunk_max_cols, st.final_transformed_vals_shared
+    )
     # bench-attempt-rejected (2026-06-17): BLOCK-STREAMING the candidate buffer when the full
     # per-pair buffer does not hoist (alloc a narrow N-col block buffer, flush materialise ->
     # discretize_2d_quantile_batch -> batched-MI per block; route the 7 downstream
@@ -729,7 +757,9 @@ def check_prospective_fe_pairs(
     # ``classes_y`` codes (still a usable monotone proxy) when no continuous target was threaded.
     _corr_y_cont = None
     _corr_y_cont_finite = None  # cached np.isfinite(_corr_y_cont); _corr_y_cont is never mutated after assignment
-    _corr_y_cont, _corr_y_cont_finite = _check_prospective__classes_codes_still_usable(usability_y_continuous, prewarp_y_continuous, classes_y, _use_subsample, _full_n_rows, _sample_idx, _corr_y_cont, _corr_y_cont_finite)
+    _corr_y_cont, _corr_y_cont_finite = _check_prospective__classes_codes_still_usable(
+        usability_y_continuous, prewarp_y_continuous, classes_y, _use_subsample, _full_n_rows, _sample_idx, _corr_y_cont, _corr_y_cont_finite
+    )
 
     _safe_abs_corr = _check_prospective_fe_step2_classes_codes_still(_corr_y_cont, _corr_y_cont_finite)
 
@@ -779,7 +809,19 @@ def check_prospective_fe_pairs(
     # miss the joint + prewarp gates), so on the scene scene-profile the ENTIRE mi_direct family
     # is only 0.1-0.3% of fit wall - batching it saves a sub-noise fraction that is dwarfed by
     # the GPU-clock variance between runs. Re-evaluate only if a workload makes this gate hot.
-    _operand_marginal_mi = _check_prospective_fe_step3_gpu_clock_variance(_operand_marginal_mi_cache, vars_transformations, transformed_vars, quantization_nbins, quantization_method, quantization_dtype, classes_y, classes_y_safe, freqs_y, fe_min_nonzero_confidence, fe_npermutations)
+    _operand_marginal_mi = _check_prospective_fe_step3_gpu_clock_variance(
+        _operand_marginal_mi_cache,
+        vars_transformations,
+        transformed_vars,
+        quantization_nbins,
+        quantization_method,
+        quantization_dtype,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        fe_min_nonzero_confidence,
+        fe_npermutations,
+    )
 
     # MM-DEBIAS (2026-06-09, + #4): per-operand DISCRETISED codes for the
     # occupied-joint-K of a raw pair. Memoised + bit-identical to the discretise the
@@ -788,7 +830,9 @@ def check_prospective_fe_pairs(
     # int code array, or None when the operand has no identity transform.
     _operand_disc_cache: dict = {}
 
-    _operand_discretized = _check_prospective_fe_step4_int_code_array(_operand_disc_cache, vars_transformations, transformed_vars, quantization_nbins, quantization_method, quantization_dtype)
+    _operand_discretized = _check_prospective_fe_step4_int_code_array(
+        _operand_disc_cache, vars_transformations, transformed_vars, quantization_nbins, quantization_method, quantization_dtype
+    )
 
     # CROSS-PAIR (CHUNK) BATCHING precompute. Only on the hoist+quantile
     # path (the per-pair 3-phase batch path). We partition the prospective pairs into
@@ -851,7 +895,9 @@ def check_prospective_fe_pairs(
             chunk_max_cols=st._fe_chunk_max_cols,
         )
         # Only worth chunking when at least one chunk groups MORE than one pair.
-        st._chunk_buffer, st._chunk_global_batch, st._pair_to_chunk = _check_prospective__only_worth_chunking_least(st._fe_chunks, st._chunk_buf_width, X, st._pair_to_chunk, verbose, prospective_pairs, st._chunk_buffer, st._chunk_global_batch)
+        st._chunk_buffer, st._chunk_global_batch, st._pair_to_chunk = _check_prospective__only_worth_chunking_least(
+            st._fe_chunks, st._chunk_buf_width, X, st._pair_to_chunk, verbose, prospective_pairs, st._chunk_buffer, st._chunk_global_batch
+        )
 
     # CHUNK PIPELINE (2026-07-02, max-GPU phase): overlap chunk k+1's GPU produce with chunk k's host
     # consume. A single-worker executor + a SECOND chunk buffer ride in ``chunk_state``; the lazy-load seam
@@ -861,7 +907,9 @@ def check_prospective_fe_pairs(
     # actually fitting host RAM (a MemoryError just disables the pipeline); opt-out
     # MLFRAME_FE_PIPELINE_CHUNKS=0. The operand table's device mirror is pre-warmed so both threads only
     # READ the weakref cache (no first-call race). Selection identical: same compute, same chunk/pair order.
-    _check_prospective__read_weakref_cache_no(st._chunk_global_batch, st._chunk_buffer, st._fe_chunks, X, st._chunk_buf_width, transformed_vars, st._chunk_state, verbose)
+    _check_prospective__read_weakref_cache_no(
+        st._chunk_global_batch, st._chunk_buffer, st._fe_chunks, X, st._chunk_buf_width, transformed_vars, st._chunk_state, verbose
+    )
 
     # The executor and the double chunk buffer are torn down in a `finally`. They used to be created here
     # and shut down ~200 lines later at the end of the sweep, with nothing covering the span: any exception
@@ -898,6 +946,9 @@ def check_prospective_fe_pairs(
         _fe_env_gate = resolve_fe_dispatch_env_gate()
 
         # For every pair from the pool, try all known functions of 2 variables (not storing results in persistent RAM). Record best pairs.
+        # Bonferroni across the pairs under test: each pair's family-wise test runs at alpha / (number of pairs), so the chance that any
+        # noise pair passes stays near the 1% family level for the whole pool rather than per pair.
+        _pair_family_alpha = 0.001 / max(1, len(prospective_pairs))
         for (
             raw_vars_pair,
             pair_mi,
@@ -908,6 +959,7 @@ def check_prospective_fe_pairs(
             _pair_res_entry, best_config, best_mi = _score_one_pair(
                 raw_vars_pair=raw_vars_pair,
                 pair_mi=pair_mi,
+                pair_family_alpha=_pair_family_alpha,
                 chunk_state=st._chunk_state,
                 rejection_records=st._rejection_records,
                 rejection_ledger_out=rejection_ledger_out,
@@ -988,7 +1040,9 @@ def check_prospective_fe_pairs(
                 _can_hoist_shared_buffer=_can_hoist_shared_buffer,
                 _fe_gpu_discretize_enabled=_fe_gpu_discretize_enabled,
             )
-            _check_prospective__pair_res_entry_none(_pair_res_entry, st.res, raw_vars_pair, best_config, cols, pair_mi, st._rejection_records, rejection_ledger_out)
+            _check_prospective__pair_res_entry_none(
+                _pair_res_entry, st.res, raw_vars_pair, best_config, cols, pair_mi, st._rejection_records, rejection_ledger_out
+            )
 
             # Live progress: surface the best engineered feature found so far in this sweep
             # (its MI with y) plus the pair just evaluated, on the "pair" bar. ``best_mi`` /
@@ -1031,4 +1085,4 @@ def check_prospective_fe_pairs(
         st._chunk_state.pop("pipeline_buffers", None)
         st._chunk_state.pop("pipeline_futures", None)
 
-    return st.res
+    return cast(dict, st.res)

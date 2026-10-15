@@ -1,7 +1,7 @@
 """Class-encoding histogram building blocks: collapse ordinal-encoded variables into a single 1-D class array and the 2-variable joint-frequency / joint-entropy fast paths."""
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Sequence
 
 import numpy as np
 from numba import njit
@@ -10,14 +10,14 @@ from numba import njit
 @njit(cache=True)
 def merge_vars(
     factors_data: np.ndarray,
-    vars_indices,
-    var_is_nominal,
-    factors_nbins,
-    dtype=np.int32,
+    vars_indices: Sequence[int],
+    var_is_nominal: Optional[Sequence[bool]],
+    factors_nbins: np.ndarray,
+    dtype: type = np.int32,
     current_nclasses: int = 1,
     final_classes: Optional[np.ndarray] = None,
     verbose: bool = False,
-) -> tuple:
+) -> tuple[np.ndarray, np.ndarray, int]:
     """Melt multiple ordinal-encoded variables into a single 1-D class array.
 
     ``factors_data`` is laid out as ``(n_samples, n_features)`` (sklearn convention). Empty bins are pruned and the class indices renumbered so the returned
@@ -61,7 +61,7 @@ def merge_vars(
         # bounded by ``n_samples`` regardless of class encoding, so
         # int64 is the safe choice with negligible memory overhead.
         freqs = np.zeros(expected_nclasses, dtype=np.int64)
-        values = factors_data[:, var_index].astype(dtype)
+        values: np.ndarray = factors_data[:, var_index].astype(dtype)
         if verbose:
             print(f"var={var_index}, classes from {values.min()} to {values.max()}")
         for sample_row, sample_class in enumerate(values):

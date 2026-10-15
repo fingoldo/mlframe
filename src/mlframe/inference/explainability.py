@@ -65,7 +65,7 @@ def compute_shap_on_cv(
     model_class: Any,
     model_params: dict,
     cv: Any,
-    groups=None,
+    groups: Any = None,
     catboost_native_feature_importance: bool = False,
     show_oos_metrics: bool = True,
     show_classification_report: bool = False,

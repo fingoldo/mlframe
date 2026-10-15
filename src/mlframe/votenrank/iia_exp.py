@@ -10,20 +10,21 @@ counting how often the ranking of the already-present models changes.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 from pyutilz.system import tqdmu as tqdm
 
 from . import Leaderboard
 
 
-def fine_sorted_ranking(ranking):
+def fine_sorted_ranking(ranking: pd.Series) -> list[str]:
     """Sort a ``{model: rank}`` mapping into a model-name list ordered by descending rank (ties broken by name)."""
     big_list = [(rank, model) for model, rank in ranking.items()]
     big_list.sort(reverse=True)
     return [model for rank, model in big_list]
 
 
-def compute_iia_for_fixed_models(method, table, models_order, weights):
+def compute_iia_for_fixed_models(method: str, table: pd.DataFrame, models_order: list[str], weights: dict[str, float]) -> int:
     """Count IIA violations for one fixed model-arrival order: how many times adding the next model changes the relative ranking of the models already present."""
     if len(models_order) < 3:
         raise ValueError(
@@ -49,7 +50,7 @@ def compute_iia_for_fixed_models(method, table, models_order, weights):
     return result
 
 
-def compute_iia(method, table, weights, num_repetitions):
+def compute_iia(method: str, table: pd.DataFrame, weights: dict[str, float], num_repetitions: int) -> tuple[float, float, list[int]]:
     """Monte-Carlo IIA violation rate for ``method`` over ``num_repetitions`` random model-arrival orders. Returns ``(mean, std, per_repetition_counts)``."""
     results = []
     for i in tqdm(range(num_repetitions), leave=False):
@@ -58,4 +59,4 @@ def compute_iia(method, table, weights, num_repetitions):
         rng = np.random.default_rng(i)
         rng.shuffle(models_order)
         results.append(compute_iia_for_fixed_models(method, table, models_order, weights))
-    return np.mean(results), np.std(results), results
+    return float(np.mean(results)), float(np.std(results)), results

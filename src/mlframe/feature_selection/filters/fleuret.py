@@ -32,14 +32,13 @@ from typing import Optional
 import numpy as np
 import numba
 from joblib import Parallel, delayed
-from numba import njit
 from numba.core import types
 
 from pyutilz.numbalib import python_dict_2_numba_dict
 
-from .permutation import distribute_permutations, _perm_pvalue, _DEFAULT_BASE_SEED
-from ._internals import LARGE_CONST
-from .evaluation import jmim_exponent_discount_only, evaluate_gain
+from ._numba_utils import _fleuret_shuffle_col_lcg, distribute_permutations, evaluate_gain, get_fleuret_criteria_confidence  # noqa: F401 -- re-exported; get_fleuret_criteria_confidence is used below
+from .permutation import _perm_pvalue
+from .evaluation import jmim_exponent_discount_only
 from .info_theory import use_su_normalization, use_mi_miller_madow, use_jmim_aggregator
 
 
@@ -64,7 +63,7 @@ def get_fleuret_criteria_confidence_parallel(
     parallel_kwargs: Optional[dict] = None,
     entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
-    dtype=np.int32,
+    dtype: type = np.int32,
     base_seed: int = 0,
 ) -> tuple:
     """Joblib-parallel Fleuret permutation-confirmation: splits ``npermutations`` across workers (with independent-yet-reproducible per-worker seeds), forwarding the SU/Miller-Madow/JMIM scoring toggles into each worker thread."""
@@ -175,13 +174,13 @@ def parallel_fleuret(
     cached_cond_MIs: Optional[dict] = None,
     entropy_cache: Optional[dict] = None,
     extra_x_shuffling: bool = True,
-    dtype=np.int32,
+    dtype: type = np.int32,
     base_seed: int = 0,
     use_su: bool = False,  # Threaded from get_fleuret_criteria_confidence_parallel.
     use_mm: bool = False,  # N-F2: threaded from get_fleuret_criteria_confidence_parallel (MM redundancy consistency).
     use_jmim: bool = False,  # S-F2: threaded from get_fleuret_criteria_confidence_parallel (JMIM confirmation statistic).
     jmim_discount_only: bool = False,  # threaded like use_jmim
-):
+) -> tuple:
     """Joblib worker: rebuild numba.typed.Dict from pickled Python dicts, run the njit core, return a Python dict for the parent's union."""
     data_copy = data.copy()
 
@@ -222,133 +221,3 @@ def parallel_fleuret(
     )
 
     return nfailed, i, dict(entropy_cache_dict)
-
-
-@njit(cache=True)
-def _fleuret_shuffle_col_lcg(col: np.ndarray, state: np.uint64) -> np.uint64:
-    """Inline Fisher-Yates over a 1-D column slice using the same LCG schedule as ``permutation.shuffle_arr_lcg``.
-
-    Returns the post-shuffle state so the caller threads it across per-column and per-permutation calls. Replaces ``np.random.shuffle(data_copy[:, idx])`` whose global numpy RNG state is process-wide
-    and races under joblib parallel workers / multi-suite invocations.
-    """
-    n = len(col)
-    for j in range(n - 1, 0, -1):
-        state = state * np.uint64(6364136223846793005) + np.uint64(1442695040888963407)
-        k = int(state >> np.uint64(33)) % (j + 1)
-        tmp = col[j]
-        col[j] = col[k]
-        col[k] = tmp
-    return state
-
-
-@njit(cache=True)
-def get_fleuret_criteria_confidence(
-    data_copy: np.ndarray,
-    factors_nbins: np.ndarray,
-    x: tuple,
-    y: tuple,
-    selected_vars: list,
-    npermutations: int,
-    bootstrapped_gain: float,
-    max_failed: int,
-    nexisting: int,
-    mrmr_relevance_algo: str = "fleuret",
-    mrmr_redundancy_algo: str = "fleuret",
-    max_veteranes_interactions_order: int = 1,
-    extra_knowledge_multipler: float = -1.0,
-    sink_threshold: float = -1.0,
-    cached_cond_MIs: Optional[dict] = None,
-    entropy_cache: Optional[dict] = None,
-    extra_x_shuffling: bool = True,
-    dtype=np.int32,
-    base_seed: np.uint64 = _DEFAULT_BASE_SEED,
-    use_su: bool = False,  # Threaded from Python-level parallel_fleuret.
-    use_mm: bool = False,  # N-F2: threaded from parallel_fleuret (MM redundancy consistency).
-    use_jmim: bool = False,  # S-F2: threaded from parallel_fleuret (JMIM confirmation statistic).
-    jmim_discount_only: bool = False,  # threaded like use_jmim
-) -> tuple:
-    """Sub to njit work with random shuffling as well.
-
-    Zero-permutation guard returns ``(0, 0)`` cleanly. The legacy code raised ``UnboundLocalError`` on ``i`` because the for-loop never assigned it.
-
-    ``base_seed`` threads through inline LCG Fisher-Yates so per-permutation column shuffles are reproducible from a single seed; pre-fix code used ``np.random.shuffle`` on the process-global numpy RNG which raced under joblib parallel workers and made two parallel suite calls produce non-deterministic confidence values.
-    """
-    if npermutations == 0:
-        return 0, 0
-
-    # Mutate-and-restore: ``data_copy`` may ALIAS the caller's real ``factors_data`` (screen no longer takes a whole-matrix copy), so save the
-    # original values of the ONLY columns we permute in place (y always, x when ``extra_x_shuffling``) and restore them before returning. Extra RAM
-    # is O((len(y)+len(x))*n), never O(p*n). Shuffles stay cumulative WITHIN this call (matching the prior per-iteration behaviour); the restore only
-    # affects cross-call state, which the parallel worker path already reset by copying, so the serial path now matches it.
-    n_rows = data_copy.shape[0]
-    _saved_y = np.empty((len(y), n_rows), dtype=data_copy.dtype)
-    for _sj in range(len(y)):
-        _saved_y[_sj, :] = data_copy[:, y[_sj]]
-    _saved_x = np.empty((len(x), n_rows), dtype=data_copy.dtype)
-    if extra_x_shuffling:
-        for _sj in range(len(x)):
-            _saved_x[_sj, :] = data_copy[:, x[_sj]]
-
-    nfailed = 0
-    _i = 0
-    _lcg_state = np.uint64(base_seed) * np.uint64(2654435761) + np.uint64(1)
-    # np.array(...), not the raw list: evaluate_gain is @njit and a plain Python list slipping
-    # through gets numba's "reflected list" typing, which breaks on any ndarray-only method the
-    # kernel calls (e.g. `.astype()`) -- see the identical conversion + rationale at evaluate_gain's
-    # other call site in evaluation.py. Hoisted out of the permutation loop below (``selected_vars``
-    # never changes across permutations) as well as out of the call's kwargs (rather than an inline
-    # ternary there) because this function is itself @njit -- numba's bytecode interpreter rejects
-    # a conditional expression inlined into a many-kwarg CALL_FUNCTION_EX call.
-    if len(selected_vars) > 0:
-        selected_vars_arr = np.array(selected_vars, dtype=np.int64)
-    else:
-        selected_vars_arr = np.empty(0, dtype=np.int64)
-    for _i in range(npermutations):
-
-        for idx in y:
-            _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
-
-        if extra_x_shuffling:
-            for idx in x:
-                _lcg_state = np.uint64(_fleuret_shuffle_col_lcg(data_copy[:, idx], _lcg_state))
-
-        _stopped_early, current_gain, _k, _sink_reasons = evaluate_gain(
-            current_gain=LARGE_CONST,
-            last_checked_k=-1,
-            X=x,
-            y=y,
-            best_gain=None,
-            factors_data=data_copy,
-            factors_nbins=factors_nbins,
-            selected_vars=selected_vars_arr,
-            nexisting=nexisting,
-            direct_gain=bootstrapped_gain,
-            mrmr_relevance_algo=mrmr_relevance_algo,
-            mrmr_redundancy_algo=mrmr_redundancy_algo,
-            max_veteranes_interactions_order=max_veteranes_interactions_order,
-            extra_knowledge_multipler=extra_knowledge_multipler,
-            sink_threshold=sink_threshold,
-            cached_cond_MIs=cached_cond_MIs,
-            entropy_cache=entropy_cache,
-            can_use_x_cache=not extra_x_shuffling,
-            can_use_y_cache=False,
-            confidence_mode=True,
-            use_su=use_su,
-            use_mm=use_mm,
-            use_jmim=use_jmim,
-            jmim_discount_only=jmim_discount_only,
-        )
-
-        if current_gain >= bootstrapped_gain:
-            nfailed += 1
-            if nfailed >= max_failed:
-                break
-
-    # Restore the permuted columns so an aliased ``factors_data`` is left byte-identical to entry (reached on both normal and early-break exit).
-    for _sj in range(len(y)):
-        data_copy[:, y[_sj]] = _saved_y[_sj, :]
-    if extra_x_shuffling:
-        for _sj in range(len(x)):
-            data_copy[:, x[_sj]] = _saved_x[_sj, :]
-
-    return nfailed, _i + 1

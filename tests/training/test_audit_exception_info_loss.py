@@ -211,7 +211,7 @@ def test_mps_print_replaced_with_logger_exception() -> None:
     _assert_traceback_preserved("Failed to read MPS parquet file %s")
 
 
-def test_trusted_path_rejection_chains_its_cause() -> None:
+def test_trusted_path_rejection_chains_its_cause(tmp_path, monkeypatch) -> None:
     """A cross-drive commonpath failure must not masquerade as a plain traversal rejection.
 
     Behavioural since 2026-09-03. This asserted that "is not inside trusted_root" appears in a
@@ -230,13 +230,9 @@ def test_trusted_path_rejection_chains_its_cause() -> None:
         """Stand in for the real commonpath, which raises this on a cross-drive comparison."""
         raise ValueError("Paths don't have the same drive")
 
-    real = os.path.commonpath
-    try:
-        os.path.commonpath = _cross_drive
-        with pytest.raises(ValueError) as excinfo:
-            validate_trusted_path("D:/elsewhere/model.pkl", "C:/trusted")
-    finally:
-        os.path.commonpath = real
+    monkeypatch.setattr(os.path, "commonpath", _cross_drive)
+    with pytest.raises(ValueError) as excinfo:
+        validate_trusted_path(str(tmp_path / "elsewhere" / "model.pkl"), str(tmp_path / "trusted"))
 
     assert "is not inside trusted_root" in str(excinfo.value)
     assert excinfo.value.__cause__ is not None, "the commonpath failure was swallowed; a cross-drive root reads as an escape attempt"

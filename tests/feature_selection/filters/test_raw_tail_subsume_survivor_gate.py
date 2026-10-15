@@ -45,7 +45,7 @@ def _fit_kept_raws(gate: float):
     raw_cols = list(df.columns)
     # MRMR.fit consumes the GLOBAL np.random stream; seed it so the redundancy-drop verdict is deterministic.
     np.random.seed(312 & 0x7FFFFFFF)
-    m = MRMR(max_runtime_mins=5, verbose=0, random_seed=312, fe_raw_tail_subsume_min_corr=gate, **_FE_KWARGS)
+    m = MRMR(max_runtime_mins=5, verbose=0, random_state=312, fe_raw_tail_subsume_min_corr=gate, **_FE_KWARGS)
     m.fit(df, y)
     names_out = list(m.get_feature_names_out())
     return {c for c in names_out if c in raw_cols}

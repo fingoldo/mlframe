@@ -143,7 +143,7 @@ def categorical_column(
     *,
     null_rate: float = 0.05,
     use_enum: bool = True,
-):
+) -> column:
     """Column with a fixed set of string categories.
 
     ``use_enum=True`` pins cardinality exactly via ``pl.Enum(categories)`` —
@@ -172,7 +172,7 @@ def inf_heavy_float_column(
     width: Literal[16, 32, 64] = 32,
     null_rate: float = 0.0,
     specials_rate: float = 0.02,
-):
+) -> column:
     """Float column with meaningful ``+inf``, ``-inf``, ``NaN`` at
     approximately ``specials_rate`` per cell.
 
@@ -195,13 +195,13 @@ def inf_heavy_float_column(
     )
 
 
-def constant_column(name: str, dtype: Union[pl.DataType, pl.datatypes.DataTypeClass], value):
+def constant_column(name: str, dtype: Union[pl.DataType, pl.datatypes.DataTypeClass], value: Any) -> column:
     """Every row has the same ``value``. Shakes out code paths that
     expect variance in a feature (e.g. scalers dividing by std)."""
     return column(name=name, dtype=dtype, strategy=st.just(value), allow_null=False)
 
 
-def id_column(name: str, *, width: int = 32):
+def id_column(name: str, *, width: int = 32) -> column:
     """Unique-per-row integer — simulates a ``uid`` or high-card numeric."""
     dtype = pl.Int32 if width == 32 else pl.Int64
     return column(name=name, dtype=dtype, unique=True, allow_null=False)
@@ -212,7 +212,7 @@ def high_card_text_column(
     *,
     n_unique_target: int = 1000,
     null_rate: float = 0.0,
-):
+) -> column:
     """Polars ``Utf8`` column with many unique short strings. Default
     1000 uniques — enough to trigger text-promotion without being
     prohibitively slow."""
@@ -231,7 +231,7 @@ def sparse_null_column(
     *,
     non_null_rate: float = 0.001,
     fill_strategy: Optional[st.SearchStrategy] = None,
-):
+) -> column:
     """Column that's ~99.9% null — models round-12's trigger where a
     text-ish column was promoted because n_unique > threshold but
     non_null count was tiny."""
@@ -271,7 +271,7 @@ def adversarial_frame(
     include_sparse_null_col: bool = True,
     include_high_card_cat: bool = False,
     extra_cols: Optional[Iterable] = None,
-):
+) -> st.SearchStrategy[pl.DataFrame]:
     """Frame strategy layering multiple pathological shapes at once.
 
     Use for fuzz-tests of pipeline code that promises to survive "any
@@ -317,7 +317,7 @@ def prod_like_frame(
     *,
     with_target: bool = True,
     with_timestamps: bool = True,
-):
+) -> st.SearchStrategy[pl.DataFrame]:
     """Schema-matched miniature of ``prod_jobsdetails`` — cats with
     prod-like cardinalities + a few numerics + optional target/timestamps.
 
@@ -370,7 +370,7 @@ def prod_like_frame(
 
 def prod_like_frame_small(
     n_rows: Union[int, Tuple[int, int]] = 200,
-):
+) -> st.SearchStrategy[pl.DataFrame]:
     """Minimal prod-like frame for suite-level end-to-end fuzzing.
 
     Used by ``TestTrainSuiteRobustness`` where each example fits CB/XGB

@@ -34,9 +34,10 @@ from __future__ import annotations
 import logging
 import warnings
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -276,8 +277,8 @@ def _gate_relations(X, y, names_ok, nbins, seed, n_perm):
 
 
 def discover_structure(
-    X,
-    y,
+    X: pd.DataFrame | np.ndarray,
+    y: Any,
     *,
     nbins: int = 12,
     max_int_cols: int = 30,
@@ -386,7 +387,7 @@ def discover_structure(
     )
 
 
-def structure_report_from_recipes(recipes, *, n_columns: int = 0) -> StructureReport:
+def structure_report_from_recipes(recipes: Sequence[Any], *, n_columns: int = 0) -> StructureReport:
     """Assemble a :class:`StructureReport` from the frozen ``EngineeredRecipe`` objects a fitted MRMR already emitted.
 
     Reads ONLY the metadata the four detectors froze at fit time (``kind`` / ``src_names`` / ``extra`` op / modulus / tau / mode) - no

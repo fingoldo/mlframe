@@ -45,10 +45,13 @@ from __future__ import annotations
 import threading
 import warnings
 from contextlib import contextmanager
-from typing import Any, Dict, Iterator, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterator, Mapping, Optional, cast
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from .mrmr import MRMR
 
 __all__ = [
     "set_unlabeled_pool",
@@ -144,12 +147,12 @@ def _build_pool_mapping(
 
 
 def fit_with_unlabeled(
-    mrmr: Any,
+    mrmr: MRMR,
     X_labeled: pd.DataFrame,
-    y_labeled: Any,
+    y_labeled: np.ndarray | pd.Series,
     X_unlabeled: Optional[pd.DataFrame] = None,
     **fit_params: Any,
-):
+) -> MRMR:
     """Fit an ``MRMR`` instance with optional unlabeled-pool augmentation
     for the orth-poly basis-preprocess fitting (Layer 80, 2026-06-01).
 
@@ -189,16 +192,16 @@ def fit_with_unlabeled(
                 UserWarning,
                 stacklevel=2,
             )
-        return mrmr.fit(X_labeled, y_labeled, **fit_params)
+        return cast("MRMR", mrmr.fit(X_labeled, y_labeled, **fit_params))
     if X_unlabeled is None or (hasattr(X_unlabeled, "shape") and X_unlabeled.shape[0] == 0):
         # Master switch ON but caller passed no unlabeled rows - run the
         # legacy fit. We do NOT install an empty pool because installing it
         # would still flip the moment-router auto-routing on/off branch.
-        return mrmr.fit(X_labeled, y_labeled, **fit_params)
+        return cast("MRMR", mrmr.fit(X_labeled, y_labeled, **fit_params))
     pool = _build_pool_mapping(X_labeled, X_unlabeled)
     if not pool:
         # Shared-column intersection was empty (every column was non-numeric
         # or all-NaN in the unlabeled frame). Nothing to augment.
-        return mrmr.fit(X_labeled, y_labeled, **fit_params)
+        return cast("MRMR", mrmr.fit(X_labeled, y_labeled, **fit_params))
     with unlabeled_pool_active(pool):
-        return mrmr.fit(X_labeled, y_labeled, **fit_params)
+        return cast("MRMR", mrmr.fit(X_labeled, y_labeled, **fit_params))

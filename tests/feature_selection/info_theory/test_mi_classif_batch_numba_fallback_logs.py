@@ -20,7 +20,13 @@ import numpy as np
 
 def test_dispatch_failure_falls_back_to_sklearn_and_warns(caplog):
     """A failing plugin_mi_classif_batch_dispatch call must log a warning naming the exception, then still
-    return correct MI values via the sklearn fallback."""
+    return correct MI values.
+
+    Contract reframed (commit 60fd605bb): a full-slice dispatch failure is retried in RAM-sized column blocks
+    (identical values, ~53x faster than sklearn), and only a single column that still fails reaches the sklearn
+    reference. The warning therefore says "retrying in column blocks", not "falling back to the sklearn reference
+    loop". The sklearn values remain the oracle for the final assertion.
+    """
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_backends as m
 
     rng = np.random.default_rng(0)
@@ -39,8 +45,8 @@ def test_dispatch_failure_falls_back_to_sklearn_and_warns(caplog):
         mis = m._mi_classif_batch_numba(X, y)
 
     assert any(
-        "falling back to the sklearn reference loop" in rec.message for rec in caplog.records
-    ), f"expected a warning naming the sklearn fallback; got: {[rec.message for rec in caplog.records]}"
+        "retrying in column blocks" in rec.message for rec in caplog.records
+    ), f"expected a warning naming the column-block retry; got: {[rec.message for rec in caplog.records]}"
     assert any("RuntimeError" in rec.message for rec in caplog.records), "warning must name the exception type that triggered the fallback"
 
     expected = m._mi_classif_batch_sklearn(np.ascontiguousarray(X), np.ascontiguousarray(y, dtype=np.int64))

@@ -403,7 +403,8 @@ def _prebin_cache_max_bytes() -> int:
     raw = os.environ.get("MLFRAME_PREBIN_CACHE_MAX_BYTES")
     try:
         return int(raw) if raw else _PREBIN_CACHE_MAX_BYTES_DEFAULT
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.warning("_prebin_cache_max_bytes fell back to its default after %s", type(_exc).__name__)
         return _PREBIN_CACHE_MAX_BYTES_DEFAULT
 
 

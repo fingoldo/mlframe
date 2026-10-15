@@ -42,27 +42,25 @@ def _suppress_noisy_logging_during_this_module():
 # ---------------------------------------------------------------------------
 
 
-def test_f1_strata_edges_no_epsilon_shift():
-    """F1 strata edges no epsilon shift."""
-    import inspect
+def test_f1_prob_exactly_one_row_included_in_top_stratum(monkeypatch):
+    """A baseline probability of exactly 1.0 must land in the top stratum, so its neighbour mean is 1.0.
 
+    With an epsilon-shifted top edge the row drops out, the empty stratum falls back to the whole pool, and the
+    mean over k=8 neighbours becomes 0.125 (one 1.0 among eight values).
+    """
     from mlframe.feature_engineering.transformer import y_quintile_baseline_knn as mod
-
-    src = inspect.getsource(mod)
-    assert "- 1e-9" not in src
-
-
-def test_f1_prob_exactly_one_row_included_in_top_stratum():
-    """F1 prob exactly one row included in top stratum."""
-    from mlframe.feature_engineering.transformer.y_quintile_baseline_knn import compute_y_quintile_baseline_knn_features
 
     rng = np.random.default_rng(0)
     n, d = 150, 4
     X = rng.normal(size=(n, d)).astype(np.float32)
     y = rng.integers(0, 2, n).astype(np.float32)
-    out = compute_y_quintile_baseline_knn_features(X, y, X_query=X[:10], splitter=None, seed=0, task="binary")
-    assert out.shape[0] == 10
+    pred = np.zeros(n, dtype=np.float32)
+    pred[0] = 1.0
+    monkeypatch.setattr(mod, "_fit_baseline_predict", lambda *a, **kw: pred)
+    out = mod.compute_y_quintile_baseline_knn_features(X, y, X_query=X[:1], splitter=None, seed=0, task="binary", standardize=False)
+    assert out.shape[0] == 1
     assert np.isfinite(out.to_numpy()).all()
+    assert out["yqbk_q4_mean"].to_numpy()[0] == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------

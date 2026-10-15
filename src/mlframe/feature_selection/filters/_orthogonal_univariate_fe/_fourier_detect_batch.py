@@ -47,9 +47,10 @@ def detect_fourier_freqs_batch(
             if fe_gpu_strict_resident_enabled():
                 from .._fourier_detect_cap import get_fourier_detect_max_n
                 from ._fourier_batch_gpu import detect_fourier_freqs_batch_gpu
-                from ._fourier_detect_gpu_resident import _fused_enabled
+                from .._fe_env_switch import fused_switch_enabled
+                from ._fourier_detect_gpu_resident import _FUSED_ENV
 
-                if _fused_enabled():
+                if fused_switch_enabled(_FUSED_ENV):
                     return detect_fourier_freqs_batch_gpu(
                         jobs, min_val_corr=min_val_corr, min_rows=min_rows, max_freqs=max_freqs, fourier_detect_max_n=get_fourier_detect_max_n(), single=single
                     )

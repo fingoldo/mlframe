@@ -562,7 +562,8 @@ def discover_cluster_members(
     else:
         try:
             anchor = int(next(iter(just_selected)))
-        except (TypeError, StopIteration):
+        except (TypeError, StopIteration) as _exc:
+            logger.debug("discover_cluster_members fell back to its default after %s", type(_exc).__name__)
             return set()
     # Refuse to anchor on a
     # column that was already swap-pruned. Pre-fix

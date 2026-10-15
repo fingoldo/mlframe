@@ -49,7 +49,7 @@ def _fit_capture(cap_env, n=60_000):
     os.environ["MLFRAME_FE_GATE_MAX_ROWS"] = str(cap_env)
     try:
         df, y = _f2_frame(n)
-        m = MRMR(verbose=0, random_seed=42, n_jobs=1, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, full_npermutations=10, baseline_npermutations=20)
+        m = MRMR(verbose=0, random_state=42, n_jobs=1, fe_max_steps=2, fe_min_pair_mi_prevalence=1.05, full_npermutations=10, baseline_npermutations=20)
         import warnings
 
         with warnings.catch_warnings():

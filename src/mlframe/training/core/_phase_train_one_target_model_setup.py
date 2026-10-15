@@ -134,6 +134,29 @@ def _save_temporal_audit_plot(audit, behavior_config, reporting_config, plot_fil
         _plot_target_over_time(audit, save_path=f"{plot_file}_target_temporal_audit.png")
 
 
+def _render_target_temporal_audit(_all_target_audits, target_type, cur_target_name, metadata, behavior_config, reporting_config, plot_file) -> None:
+    """Render the precomputed temporal audit of one target into ``metadata``; a failed chart is logged and training continues."""
+    # Audits are precomputed once for all targets via the batch API; this lookup is the per-target render.
+    _audit = _all_target_audits.get(target_type, {}).get(cur_target_name)
+    # A composite target is a residual / transform of a raw target whose own audit is already logged: its "mean rate"
+    # per week and the advice to "train on the most recent stable segment" describe the residual, not anything to act on.
+    from ..composite.transforms import composite_target_names, is_composite_target
+
+    if _audit is not None and is_composite_target(str(cur_target_name), composite_target_names(metadata)):
+        _audit = None
+    if _audit is not None:
+        try:
+            logger.info(_format_temporal_audit_report(_audit))
+            _save_temporal_audit_plot(_audit, behavior_config, reporting_config, plot_file)
+            metadata.setdefault("target_temporal_audit", {}).setdefault(str(target_type), {})[cur_target_name] = _audit.to_dict()
+        except Exception as _audit_err:  # best-effort: a diagnostic chart failure must never abort training
+            logger.warning(
+                "target_temporal_audit (per-target render) failed for " "target='%s': %s. Training continues.",
+                cur_target_name,
+                _audit_err,
+            )
+
+
 def _setup_per_target_mlframe_models(
     *,
     ctx,
@@ -348,25 +371,11 @@ def _setup_per_target_mlframe_models(
         group_ids=getattr(ctx, "group_ids", None),
     )
 
-    # Audits are precomputed once for all targets via the batch API; this lookup is the per-target render.
-    _audit = _all_target_audits.get(target_type, {}).get(cur_target_name)
-    # A composite target is a residual / transform of a raw target whose own audit is already logged: its "mean rate"
-    # per week and the advice to "train on the most recent stable segment" describe the residual, not anything to act on.
-    from ..composite.transforms import composite_target_names, is_composite_target
+    from ..composite.transforms import composite_target_names
 
-    if _audit is not None and is_composite_target(str(cur_target_name), composite_target_names(metadata)):
-        _audit = None
-    if _audit is not None:
-        try:
-            logger.info(_format_temporal_audit_report(_audit))
-            _save_temporal_audit_plot(_audit, behavior_config, reporting_config, plot_file)
-            metadata.setdefault("target_temporal_audit", {}).setdefault(str(target_type), {})[cur_target_name] = _audit.to_dict()
-        except Exception as _audit_err:  # best-effort: a diagnostic chart failure must never abort training
-            logger.warning(
-                "target_temporal_audit (per-target render) failed for " "target='%s': %s. Training continues.",
-                cur_target_name,
-                _audit_err,
-            )
+    _render_target_temporal_audit(
+        _all_target_audits, target_type, cur_target_name, metadata, behavior_config, reporting_config, plot_file,
+    )
 
     _render_per_target_diagnostics(
         target_type=target_type,

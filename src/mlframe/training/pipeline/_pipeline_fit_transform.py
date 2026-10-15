@@ -137,7 +137,8 @@ def fit_and_transform_pipeline(
             sample = _series.iloc[: min(_SAMPLE_SIZE, n_rows)]
             try:
                 n_unique_sample = sample.nunique(dropna=True)
-            except TypeError:
+            except TypeError as _exc:
+                logger.debug("_looks_text fell back to its default after %s", type(_exc).__name__)
                 return False
             return n_unique_sample > _CAT_CARDINALITY_LIMIT or n_unique_sample > _CAT_CARDINALITY_FRACTION * len(sample)
 

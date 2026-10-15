@@ -51,7 +51,7 @@ def test_f1_random_state_does_not_leak_into_random_seed():
 
 def test_f3_random_seed_does_not_leak_into_random_state():
     """The reverse cross-contamination: passing only ``random_seed`` must leave ``random_state`` at None."""
-    m = MRMR(random_seed=7)
+    m = MRMR(random_state=7)
     params = m.get_params()
     assert params["random_seed"] == 7
     assert params["random_state"] is None
@@ -73,7 +73,7 @@ def test_d5_default_seed_resample_is_reproducible():
     y = pd.Series((X["f0"] * 0.8 + X["f2"] * 0.6 + rng.normal(size=300) * 0.3 > 0).astype(int))
     sw = np.where(y.values == 1, 3.0, 1.0).astype(float)  # non-uniform -> resample path is exercised
 
-    m = MRMR()  # default random_seed=None
+    m = MRMR()  # default random_state=None
     Xr1, yr1 = m._maybe_resample_for_sample_weight(X, y, sw)
     Xr2, yr2 = m._maybe_resample_for_sample_weight(X, y, sw)
     assert np.array_equal(Xr1.values, Xr2.values)

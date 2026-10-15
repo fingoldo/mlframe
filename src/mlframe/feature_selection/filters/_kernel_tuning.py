@@ -169,7 +169,8 @@ def _register_gpu_opt_out() -> None:
         from pyutilz.performance.kernel_tuning.cache import register_gpu_opt_out
 
         from ._gpu_policy import gpu_globally_disabled
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_register_gpu_opt_out fell back to its default after %s", type(_exc).__name__)
         return
     register_gpu_opt_out(gpu_globally_disabled)
 

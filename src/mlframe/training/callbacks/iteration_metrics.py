@@ -85,7 +85,8 @@ def make_xgb_iteration_metrics_callback(
     """
     try:
         import xgboost as xgb
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("make_xgb_iteration_metrics_callback fell back to its default after %s", type(_exc).__name__)
         return None
 
     class _XGBIterationMetrics(xgb.callback.TrainingCallback):

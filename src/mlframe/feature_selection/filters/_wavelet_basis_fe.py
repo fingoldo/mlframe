@@ -329,13 +329,12 @@ def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
         if hit is not None:
             _Y_CODES_MEMO.move_to_end(key)
             return cast(np.ndarray, hit.copy())
-    if not _has_more_distinct_than(y, FEW_CLASSES_MAX):
-        uy = np.unique(y)
-        out = y.astype(np.int64) if np.issubdtype(y.dtype, np.integer) else np.searchsorted(uy, y)
-    else:
-        edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
-        out = np.asarray(np.digitize(y, edges_y))
-    with _Y_CODES_MEMO_LOCK:
+        if not _has_more_distinct_than(y, FEW_CLASSES_MAX):
+            uy = np.unique(y)
+            out = y.astype(np.int64) if np.issubdtype(y.dtype, np.integer) else np.searchsorted(uy, y)
+        else:
+            edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
+            out = np.asarray(np.digitize(y, edges_y))
         _Y_CODES_MEMO[key] = out.copy()
         if len(_Y_CODES_MEMO) > _Y_CODES_MEMO_MAX:
             _Y_CODES_MEMO.popitem(last=False)  # evict-ok: memo; a miss recomputes the value

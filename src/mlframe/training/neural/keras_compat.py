@@ -9,7 +9,7 @@ the PyTorch-Lightning-based `mlframe.training.neural.flat.generate_mlp`.
 from __future__ import annotations
 
 import importlib.util
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
@@ -29,7 +29,7 @@ def build_keras_mlp(
     dropout_rate: float = 0.3,
     loss: str = "mean_squared_logarithmic_error",
     input_dim: Optional[int] = None,
-):
+) -> Any:
     """Build a Sequential Dense+BatchNorm+Dropout stack (regressor)."""
     if not _HAS_TF:
         raise ImportError(_INSTALL_MSG)

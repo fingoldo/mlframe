@@ -20,6 +20,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional, OrderedDict, Sequence, Tuple, Union
 
+from numpy.typing import ArrayLike
+
 import numpy as np
 import pandas as pd
 
@@ -638,9 +640,9 @@ def _fixed_freq_bin_slices(ts_ns: np.ndarray, span_ns: int) -> Tuple[np.ndarray,
 
 
 def compute_ml_perf_by_time(
-    y_true,
-    y_pred,
-    timestamps,
+    y_true: ArrayLike,
+    y_pred: ArrayLike,
+    timestamps: Any,
     freq: str = "D",
     metric: str = "roc_auc",
     min_samples: int = 100,
@@ -723,12 +725,12 @@ def compute_ml_perf_by_time(
 
 def visualize_ml_metric_by_time(
     perf_df: pd.DataFrame,
-    ax=None,
+    ax: Any = None,
     good_metric_threshold: Optional[float] = None,
     higher_is_better: bool = True,
     good_color: str = "green",
     bad_color: str = "red",
-):
+) -> Any:
     """Line-plot a perf DataFrame produced by compute_ml_perf_by_time.
 
     Threshold-aware color banding: bars below/above good_metric_threshold get

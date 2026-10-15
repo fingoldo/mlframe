@@ -21,6 +21,7 @@ import time
 import warnings
 from collections import OrderedDict
 from collections.abc import Iterable, MutableMapping, Sequence
+from functools import partial
 from typing import Any, Callable, ClassVar, NoReturn, Optional, cast
 
 import numpy as np
@@ -35,6 +36,7 @@ from sklearn.model_selection import BaseCrossValidator
 # downstream callers continue to resolve historical names.
 # Pure-data constants carved out of this module (no class refs -> safe top-level import):
 # the constructor-param validation allow-lists and the legacy-pickle default-injection roster.
+from ._mrmr_y_multioutput import _mrmr_y_is_multioutput
 from ._mrmr_param_constants import (
     _VALID_QUANTIZATION_METHODS,
     _VALID_NAN_STRATEGIES,
@@ -154,20 +156,33 @@ _UNSET = object()
 # same instant. Linux/Windows are unaffected (numba's workqueue layer tolerates concurrent launch
 # there) so the lock is a no-op everywhere else.
 _MACOS_NUMBA_PARALLEL_FIT_LOCK = threading.Lock() if sys.platform == "darwin" else None
+_FIT_REENTRANCY_LOCK_CREATE_LOCK = threading.Lock()
 
 
-def _mrmr_y_is_multioutput(y) -> bool:
-    """True when y carries >=2 target columns (2D DataFrame / 2D ndarray); a Series / 1D array / single-column frame is single-target."""
-    if isinstance(y, pd.DataFrame):
-        return bool(y.shape[1] >= 2)
-    if str(type(y).__module__).startswith("polars") and type(y).__name__ == "DataFrame":
-        return bool(y.shape[1] >= 2)
-    try:
-        arr = np.asarray(y)
-    except Exception as exc:
-        # Guessing single-target here would route a possibly multi-target y down the single-target fit, which mishandles the extra columns.
-        raise TypeError(f"MRMR.fit: cannot read y of type {type(y).__name__} as an array to tell single- from multi-target ({type(exc).__name__}: {exc})") from exc
-    return arr.ndim >= 2 and arr.shape[-1] >= 2
+def _restore_toggles_snapshot_and_raise_impl(_toggles_snapshot, exc: BaseException) -> NoReturn:
+    """Restore the MI-correction thread-locals to their fit-entry snapshot then re-raise ``exc``.
+
+    The validation checks below can fire AFTER some of these thread-locals have already been
+    activated but BEFORE the protective try/finally further down starts - without this, a raised
+    ValueError here would leave the corrupted thread-local state active for every subsequent,
+    unrelated fit on this thread.
+    """
+    _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e, _gmi0e = _toggles_snapshot
+    _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
+    _safe_restore(lambda: set_jmim_aggregator(_jmim0e), "JMIM aggregator thread-local (activation-block exception)")
+    _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")
+    _safe_restore(lambda: set_mi_miller_madow(_mm0e), "Miller-Madow thread-local (activation-block exception)")
+    _safe_restore(lambda: set_mi_chao_shen(_cs0e), "Chao-Shen thread-local (activation-block exception)")
+    # Currently dormant (relaxmrmr_alpha/pid_synergy_bonus/cmi_perm_stop/cpt_test are only
+    # activated further below, strictly after both call sites of this helper) - restored anyway
+    # so a future reordering that moves those activations earlier, or a new raise point added
+    # between them and the protective try/finally, cannot silently reintroduce the same
+    # thread-local-leak bug class this helper exists to prevent.
+    _safe_restore(lambda: set_relaxmrmr_alpha(_relax0e), "RelaxMRMR alpha thread-local (activation-block exception)")
+    _safe_restore(lambda: set_pid_synergy_bonus(_pid0e), "PID synergy-bonus thread-local (activation-block exception)")
+    _safe_restore(lambda: set_cmi_perm_stop(_cmi0e[0], _cmi0e[1], _cmi0e[2]), "CMI-perm-stop thread-local (activation-block exception)")
+    _safe_restore(lambda: set_cpt_test(_cpt0e[0], _cpt0e[1]), "CPT-test thread-local (activation-block exception)")
+    raise exc
 
 
 def _safe_restore(action: Callable[[], Any], description: str) -> None:
@@ -288,7 +303,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     # do not leak; ``MRMR._FIT_CACHE.clear()`` between suites still drains the lot. Cache hit: replay all
     # fitted attributes onto ``self`` and return early; constructor params are NEVER overwritten (the key
     # already includes the params signature, so a hit guarantees matching state).
-    _FIT_CACHE: "ClassVar[OrderedDict[tuple, MRMR]]" = OrderedDict()  # noqa: RUF012 - intentional shared class-level LRU cache, not a per-instance mutable-default bug
+    # Shared class-level LRU cache by design: not a per-instance mutable default.
+    _FIT_CACHE: "ClassVar[OrderedDict[tuple, MRMR]]" = OrderedDict()  # noqa: RUF012
 
     # Private, non-BaseEstimator instance flag: when set True by a
     # caller BEFORE ``fit()`` (e.g. the stability-selection outer loop's throwaway bootstrap-replicate
@@ -346,6 +362,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     # vs full-n screen), headroom for the gate-detection MI band.
     _DEFAULT_SCREEN_SUBSAMPLE_N = UNIFIED_FE_SUBSAMPLE_N
 
+    # Long by design: most of this signature is per-parameter rationale comments; the parameters stay here for sklearn introspection.
     def __init__(
         self,
         # quantization
@@ -498,7 +515,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # confidence
         min_occupancy: int | None = None,
         min_nonzero_confidence: float = 0.99,
-        full_npermutations: int = 3,
+        full_npermutations: int = 99,
         baseline_npermutations: int = 2,
         # sample-size-aware Fleuret confirmation. With the
         # default ``use_simple_mode=False`` (full Fleuret conditional-MI
@@ -841,16 +858,15 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # it. Default OFF (escalation features stay selected but never seed composites); set
         # True to restore the unrestricted feed-forward.
         fe_escalation_feedforward_enable: bool = False,
-        # ``fe_npermutations`` default 0->3:
+        # ``fe_npermutations`` default 0->3->99:
         # pre-fix value 0 combined with ``fe_min_nonzero_confidence=1.0``
         # made the FE confidence gate STRUCTURALLY UNREACHABLE (confidence
         # = ``1 - failures/npermutations`` is undefined at npermutations=0).
-        # Features with weak individual MI were silently dropped BEFORE
-        # the polynom-FE block could evaluate them as a pair, even when
-        # the pair carried genuine interaction signal. Flipping to 3
-        # aligns FE permutation count with screening-side
-        # ``full_npermutations=3``; cost ~3% FE wall time.
-        fe_npermutations: int = 3,
+        # Value 3 left the gate with a minimum p of 0.25, so the 0.99 confidence
+        # floor gave no per-candidate control and pure noise produced engineered
+        # false positives. 99 gives a minimum p of 0.01, the same floor as
+        # ``full_npermutations``. Cost is paid per FE candidate; measured on the pure-noise suite (2026-10-14).
+        fe_npermutations: int = 99,
         fe_ntop_features: int = 0,
         # ENGINEERED-OPERAND FEED-FORWARD CAP. At FE step k>1 the
         # operand pool also carries the engineered columns selected by the prior
@@ -2745,7 +2761,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the signal and survives, wrong periods scramble it into noise and fall
         # below the floor. Default OFF -> byte-identical legacy path. ``cols``
         # empty => all numeric columns.
-        fe_modular_enable: bool = False,
+        fe_modular_enable: bool = True,
         fe_modular_periods: tuple = (7, 12, 24, 30, 365),
         fe_modular_top_k: int = 6,
         # PAIRWISE / N-WAY MODULAR FE (extends the single-column modular path above).
@@ -3315,10 +3331,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         object. Not a real constructor param / fitted attribute - stored
         under a private ``__dict__`` key and excluded from pickling via ``__getstate__`` below (a
         ``threading.Lock`` is not picklable); a fresh lock is lazily recreated after unpickle on first use."""
-        lock = self.__dict__.get("_fit_reentrancy_lock_")
-        if lock is None:
-            lock = threading.Lock()
-            self.__dict__["_fit_reentrancy_lock_"] = lock
+        with _FIT_REENTRANCY_LOCK_CREATE_LOCK:
+            lock = self.__dict__.get("_fit_reentrancy_lock_")
+            if lock is None:
+                lock = threading.Lock()
+                self.__dict__["_fit_reentrancy_lock_"] = lock
         return lock
 
     def __getstate__(self):
@@ -3345,6 +3362,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
 
         drop_oversized_replay_state(state)
         state["_mrmr_schema_version"] = _MRMR_SCHEMA_VERSION
+        state.pop("_honest_null_codes_fn", None)  # runtime closure over the fit's frame; never pickled
         return state
 
     def __setstate__(self, state):
@@ -3527,7 +3545,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         st._fe_budget_setting = getattr(self, "fe_budget_learning", False)
         st._fe_budget_learning_effective = bool(st._fe_budget_setting)
         st._fe_loaded_budgets = None
-        st._fe_budget_learning_effective, st._fe_loaded_budgets = self._fit_body_isinstance_fe_budget_setting(st._fe_budget_setting, X, st._fe_budget_learning_effective, st._fe_loaded_budgets)
+        st._fe_budget_learning_effective, st._fe_loaded_budgets = self._fit_body_isinstance_fe_budget_setting(
+            st._fe_budget_setting, X, st._fe_budget_learning_effective, st._fe_loaded_budgets
+        )
         if st._fe_budget_learning_effective:
             apply_learned_fe_budgets(self, X, st._fe_loaded_budgets, st._fe_budget_quota_snapshot)
         self._check_groups_contract(groups)
@@ -3543,7 +3563,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         try:
             warn_accuracy_suboptimal_params(self)
         except Exception as exc:
-            logger.debug("mrmr: accuracy-suboptimal param warning failed (diagnostic only): %r", exc, exc_info=True)  # a diagnostic warning must never break a fit
+            logger.debug(
+                "mrmr: accuracy-suboptimal param warning failed (diagnostic only): %r", exc, exc_info=True
+            )  # a diagnostic warning must never break a fit
 
         # Stability-selection outer-loop short-circuit.
         # When ``stability_selection_method`` is 'cluster' or
@@ -3643,7 +3665,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                 _measured_corr, _ycorr_ok = self._fit_body_ycorr_thr(_ycorr_thr, st._prior_y_sample, y, _measured_corr, _ycorr_ok)
                 if _ycorr_ok:
                     logger.info(
-                        "[MRMR] cross-target identity cache HIT for X fingerprint=%s (y-corr=%s, thr=%.3g) -- " "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
+                        "[MRMR] cross-target identity cache HIT for X fingerprint=%s (y-corr=%s, thr=%.3g) -- "
+                        "prior fit returned identity, skipping ~minute(s) of FE pipeline.",
                         st._x_fp,
                         ("%.3f" % _measured_corr) if _measured_corr is not None else "n/a",
                         _ycorr_thr,
@@ -3653,7 +3676,8 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                     self._identity_cache_ycorr_ = _measured_corr
                     return self
                 logger.info(
-                    "[MRMR] cross-target identity cache candidate REFUSED for X fingerprint=%s: " "|y-corr|=%.3f < threshold %.3g; running a full fit for this distinct target.",
+                    "[MRMR] cross-target identity cache candidate REFUSED for X fingerprint=%s: "
+                    "|y-corr|=%.3f < threshold %.3g; running a full fit for this distinct target.",
                     st._x_fp,
                     abs(_measured_corr) if _measured_corr is not None else float("nan"),
                     _ycorr_thr,
@@ -3744,30 +3768,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             get_group_mi(),
         )
 
-        def _restore_toggles_snapshot_and_raise(exc: BaseException) -> NoReturn:
-            """Restore the MI-correction thread-locals to their fit-entry snapshot then re-raise ``exc``.
-
-            The validation checks below can fire AFTER some of these thread-locals have already been
-            activated but BEFORE the protective try/finally further down starts - without this, a raised
-            ValueError here would leave the corrupted thread-local state active for every subsequent,
-            unrelated fit on this thread.
-            """
-            _su0e, _jmim0e, _bur0e, _mm0e, _relax0e, _pid0e, _cmi0e, _cpt0e, _cs0e, _gmi0e = _toggles_snapshot
-            _safe_restore(lambda: set_su_normalization(_su0e), "SU normalization thread-local (activation-block exception)")
-            _safe_restore(lambda: set_jmim_aggregator(_jmim0e), "JMIM aggregator thread-local (activation-block exception)")
-            _safe_restore(lambda: set_bur_lambda(_bur0e), "BUR lambda thread-local (activation-block exception)")
-            _safe_restore(lambda: set_mi_miller_madow(_mm0e), "Miller-Madow thread-local (activation-block exception)")
-            _safe_restore(lambda: set_mi_chao_shen(_cs0e), "Chao-Shen thread-local (activation-block exception)")
-            # Currently dormant (relaxmrmr_alpha/pid_synergy_bonus/cmi_perm_stop/cpt_test are only
-            # activated further below, strictly after both call sites of this helper) - restored anyway
-            # so a future reordering that moves those activations earlier, or a new raise point added
-            # between them and the protective try/finally, cannot silently reintroduce the same
-            # thread-local-leak bug class this helper exists to prevent.
-            _safe_restore(lambda: set_relaxmrmr_alpha(_relax0e), "RelaxMRMR alpha thread-local (activation-block exception)")
-            _safe_restore(lambda: set_pid_synergy_bonus(_pid0e), "PID synergy-bonus thread-local (activation-block exception)")
-            _safe_restore(lambda: set_cmi_perm_stop(_cmi0e[0], _cmi0e[1], _cmi0e[2]), "CMI-perm-stop thread-local (activation-block exception)")
-            _safe_restore(lambda: set_cpt_test(_cpt0e[0], _cpt0e[1]), "CPT-test thread-local (activation-block exception)")
-            raise exc
+        _restore_toggles_snapshot_and_raise = partial(_restore_toggles_snapshot_and_raise_impl, _toggles_snapshot)
 
         _mi_norm = getattr(self, "mi_normalization", "none")
         if _mi_norm not in ("none", "su"):
@@ -3954,7 +3955,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # Restore the MI thread-locals to the values they held at fit ENTRY (snapshot above), not to
             # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
             # _prev_* restore in _evaluation_driver.py's worker path.
-            self._fit_body_step2_prev_restore_evaluation(_toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_nbins_strategy, _orig_quantization_nbins, _fe_auto_restore)
+            self._fit_body_step2_prev_restore_evaluation(
+                _toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_nbins_strategy, _orig_quantization_nbins, _fe_auto_restore
+            )
 
     def _fit_body_clone_pickle_repeated_fit(self, _default_screen_saved):
         """Block of _fit_body starting at ``if _default_screen_saved:``."""
@@ -3972,7 +3975,13 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         if not getattr(self, "_in_partial_fit_", False):
             # An explicit fit() replaces the model, so a partial_fit stream restarts from its next batch; resuming the old buffer made partial_fit(A); fit(B);
             # partial_fit(C) silently refit on A + C.
-            for _pf_attr in ("_partial_fit_X_buffer_", "_partial_fit_y_buffer_", "_partial_fit_batch_sizes_", "_partial_fit_n_seen_", "_partial_fit_n_since_refit_"):
+            for _pf_attr in (
+                "_partial_fit_X_buffer_",
+                "_partial_fit_y_buffer_",
+                "_partial_fit_batch_sizes_",
+                "_partial_fit_n_seen_",
+                "_partial_fit_n_since_refit_",
+            ):
                 if getattr(self, _pf_attr, None) is not None:
                     setattr(self, _pf_attr, None)
 
@@ -4002,7 +4011,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             _n_nan = int(np.isnan(_y_check).sum())
             _n_inf = int(np.isinf(_y_check).sum())
             if _n_nan or _n_inf:
-                raise ValueError(f"MRMR.fit: y contains {_n_nan} NaN and {_n_inf} +/-inf values. " f"MI estimation silently degrades on NaN; drop or impute these rows " f"before fitting.")
+                raise ValueError(
+                    f"MRMR.fit: y contains {_n_nan} NaN and {_n_inf} +/-inf values. "
+                    f"MI estimation silently degrades on NaN; drop or impute these rows "
+                    f"before fitting."
+                )
 
     @staticmethod
     def _fit_body_ycorr_thr(_ycorr_thr, _prior_y_sample, y, _measured_corr, _ycorr_ok):
@@ -4154,7 +4167,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         """Block of _fit_body starting at ``if _identity_skip and _x_fp is not None:``."""
         if _identity_skip and _x_fp is not None:
             try:
-                _is_id = getattr(self, "support_", None) is not None and len(self.support_) == X.shape[1] and len(getattr(self, "_engineered_features_", []) or []) == 0
+                _is_id = (
+                    getattr(self, "support_", None) is not None
+                    and len(self.support_) == X.shape[1]
+                    and len(getattr(self, "_engineered_features_", []) or []) == 0
+                )
                 # Store (is_id, y_sample) so a later candidate hit can apply the y-correlation gate
                 # (A1-06): the "prior identity implies new identity" assumption only holds for a target
                 # correlated with the one that produced this entry. y_sample is a deterministic strided
@@ -4168,7 +4185,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                     # shortcuts instead of the coarse cross-target identity-shortcut above.
                     self._own_last_identity_fp_ = _x_fp
                     logger.info(
-                        "[MRMR] cross-target identity cache STORED for X fingerprint=%s " "(no features dropped, no engineered features); subsequent " "fits on this X will short-circuit.",
+                        "[MRMR] cross-target identity cache STORED for X fingerprint=%s "
+                        "(no features dropped, no engineered features); subsequent "
+                        "fits on this X will short-circuit.",
                         _x_fp,
                     )
             except Exception as exc:
@@ -4209,7 +4228,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                     with pd.option_context("mode.chained_assignment", None):
                         # `inplace=True` is required here, not a habit: this must mutate the caller's stored frame OBJECT
                         # by identity, and rebinding a local would silently not clean up the caller's actual frame.
-                        frame.drop(columns=present, inplace=True)  # noqa: PD002
+                        frame.drop(columns=present, inplace=True)  # noqa: PD002 - must mutate the caller's stored frame object by identity
 
                 _safe_restore(_drop_target_cleanup_columns, "target-cleanup column drop on caller frame")
 

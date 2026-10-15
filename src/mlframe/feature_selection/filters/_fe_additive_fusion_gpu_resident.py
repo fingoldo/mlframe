@@ -49,6 +49,8 @@ keeping the default (flag-off) path byte-identical and a GPU fault never breakin
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 import os
 from typing import Any
@@ -82,7 +84,7 @@ def _multiple_r_gpu(cp, X2_dev, yv_dev, y_std: float) -> float:
         try:
             beta = cp.linalg.solve(AtA, Aty)
         except Exception as e:
-            logger.debug("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
+            logger.warning("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
             beta = cp.linalg.lstsq(design, yv_dev, rcond=None)[0]
     except Exception as e:
         logger.debug("_multiple_r_gpu_resident: normal-equation solve and lstsq fallback both failed on a degenerate/singular design, returning 0.0: %s", e)
@@ -392,7 +394,7 @@ def _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_c
             if hasattr(X, "columns") and _rn in getattr(X, "columns", []):
                 _rv = np.asarray(X[_rn], dtype=np.float64).ravel()
         except Exception as e:
-            logger.debug("reading raw column %r failed: %s", _rn, e)
+            log_throttle(logger, "fe_additive_fusion_gpu_resident.hot_loop_warning", logging.WARNING, "reading raw column %r failed: %s", _rn, e)
             _rv = None
         if _rv is None or _rv.shape[0] != n_rows:
             continue

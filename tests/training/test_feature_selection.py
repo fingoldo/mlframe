@@ -18,8 +18,6 @@ from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from catboost import CatBoostClassifier, CatBoostRegressor
 from .shared import SimpleFeaturesAndTargetsExtractor
 
-from tests.conftest import perf_time_budget
-
 # Deterministic RNG (single seed per module).
 _W53_RNG = __import__("numpy").random.default_rng(0)
 
@@ -129,7 +127,7 @@ class TestMRMRFeatureSelection:
 
         assert selector.n_features_in_ == len(numeric_features)
 
-    def test_mrmr_skip_retraining_same_shape(self, sample_regression_data):
+    def test_mrmr_skip_retraining_same_shape(self, sample_regression_data, caplog):
         """Test MRMR skips retraining on same shape data."""
         df, feature_names, y = sample_regression_data
         X = df[feature_names]
@@ -149,10 +147,12 @@ class TestMRMRFeatureSelection:
         # First fit
         selector.fit(X, y)
 
-        # Second fit with same shape should be skipped
+        # Second fit on the same inputs is served from the process-wide fit cache: no new entry is stored and the selection is unchanged.
+        cache_size_before = len(MRMR._FIT_CACHE)
+        support_before = np.asarray(selector.support_).copy()
         selector.fit(X, y)
-
-        # Signature should be set
+        assert len(MRMR._FIT_CACHE) == cache_size_before, "a same-input refit must not store a new cache entry"
+        np.testing.assert_array_equal(np.asarray(selector.support_), support_before)
         assert selector.signature is not None
 
     @pytest.mark.parametrize("method", ["quantile", "uniform"])
@@ -684,8 +684,8 @@ class TestFeatureSelectionEdgeCases:
         selector.fit(X, y)
         assert selector.n_features_in_ == 1
 
-    def test_rfecv_stops_on_timeout(self):
-        """Test RFECV respects max_runtime_mins."""
+    def test_rfecv_stops_on_timeout(self, caplog):
+        """RFECV stops on max_runtime_mins and records the budget as the stop reason."""
         np.random.seed(42)
         n_features = 20
         X = pd.DataFrame(np.random.randn(500, n_features), columns=[f"f{i}" for i in range(n_features)])
@@ -697,18 +697,14 @@ class TestFeatureSelectionEdgeCases:
             estimator=estimator,
             cv=3,
             verbose=0,
-            max_runtime_mins=0.1,  # Very short timeout
+            max_runtime_mins=0.0001,  # 6 ms budget: exhausted before the first full elimination round completes
             max_refits=100,  # High refits that won't be reached
         )
 
-        import time
+        with caplog.at_level("INFO"):
+            selector.fit(X, y)
 
-        start = time.time()
-        selector.fit(X, y)
-        elapsed = time.time() - start
-
-        # Should finish within reasonable time (allowing some overhead)
-        assert elapsed < perf_time_budget(60)  # 1 minute max including overhead
+        assert "max_runtime_mins=0.0 reached" in caplog.text
 
 
 # ================================================================================================

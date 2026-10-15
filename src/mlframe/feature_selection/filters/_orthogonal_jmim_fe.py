@@ -94,7 +94,8 @@ import numpy as np
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
-from ._jmim_scorer import _joint_mi_3d_njit, jmim_score
+from ._jmim_scorer import jmim_score
+from ._numba_utils import _joint_mi_3d_njit
 from ._mi_greedy_cmi_fe import _quantile_bin
 from ._orthogonal_shared import coerce_y_classif, quantile_bin_batched as _quantile_bin_batched
 from ._orthogonal_univariate_fe import (
@@ -485,7 +486,7 @@ def hybrid_orth_mi_jmim_fe_with_recipes(
             # Was a bare except with zero logging,
             # silently reverting this column to the pre-B-17 refit-at-replay behaviour on any
             # exception (including a genuine programming bug), with no diagnostic trace.
-            logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
+            log_throttle(logger, "orthogonal_jmim_fe.hot_loop_warning", logging.WARNING, "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
             _pp = None
         recipes.append(build_orth_univariate_recipe(
             name=name, src_name=src,

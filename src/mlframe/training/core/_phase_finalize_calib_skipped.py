@@ -135,7 +135,8 @@ def _oof_n_splits(ctx: "TrainingContext") -> int:
     behavior = getattr(ctx, "behavior_config", None)
     try:
         return int(getattr(behavior, "oof_n_splits", 0) or 0) if behavior is not None else 0
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_oof_n_splits fell back to its default after %s", type(_exc).__name__)
         return 0
 
 

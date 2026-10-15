@@ -242,7 +242,8 @@ def _parse_engineered_name(name: str):
         tok = suffix[len(ROUNDING_PREFIX) + 1 :]
         try:
             prec = float(tok.replace("m", "-").replace("p", "."))
-        except ValueError:
+        except ValueError as _exc:
+            logger.debug("_parse_engineered_name fell back to its default after %s", type(_exc).__name__)
             return None
         return ("numeric_rounding", src, prec)
     if suffix.startswith(DIGIT_PREFIX + "_"):

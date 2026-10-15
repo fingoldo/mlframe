@@ -541,9 +541,9 @@ def create_windowed_features(
     future_windows: Optional[Dict[str, Sequence]] = None,
     window_index_name: str = "",
     overlapping: bool = False,
-    dtype=np.float32,
+    dtype: type = np.float32,
     verbose: bool = False,
-):
+) -> tuple[Any, Any]:
     """Walk the dataframe with past/future windows, compute features and targets, return ``(X, Y)``.
 
     ``end_index=None`` means "go to ``len(df)``". An explicit ``end_index=0`` produces an empty
@@ -786,7 +786,7 @@ def create_ts_features_parallel(
     logical: bool = False,
     n_chunks: Optional[int] = None,
     **kwargs,
-):
+) -> tuple[Any, Any]:
     """Split ``[start_index, end_index)`` into ``n_chunks`` chunks, run ``ts_func`` in parallel, join results."""
     if ts_func is None:
         raise ValueError("create_ts_features_parallel: ts_func is required")

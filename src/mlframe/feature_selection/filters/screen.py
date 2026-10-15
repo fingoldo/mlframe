@@ -13,12 +13,16 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from pyutilz.numbalib import (
     set_numba_random_seed,
 )
+
+if TYPE_CHECKING:
+    from .friend_graph import FriendGraph
 
 logger = logging.getLogger(__name__)
 
@@ -150,10 +154,10 @@ def postprocess_candidates(
     npermutations: int = 10_000,
     interactions_max_order: int = 1,
     ensure_target_influence: bool = True,
-    dtype=np.int32,
+    dtype: type = np.int32,
     verbose: bool = True,
     ndigits: int = 4,
-):  # unused-ok: verbose: shared screening stage signature; logging goes through logger levels
+) -> FriendGraph:  # unused-ok: verbose: shared screening stage signature; logging goes through logger levels
     """Post-analysis of prescreened candidates: build the feature "friend graph".
 
     Delegates to :func:`mlframe.feature_selection.filters.friend_graph.build_friend_graph`,

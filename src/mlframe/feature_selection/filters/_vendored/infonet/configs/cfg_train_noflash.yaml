@@ -23,4 +23,3 @@ hydra:
 
   launcher:
     n_jobs: 1
-    

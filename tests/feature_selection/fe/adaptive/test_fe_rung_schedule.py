@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import io
 import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
-import time
 
 import numpy as np
 import pandas as pd
@@ -39,6 +38,7 @@ import pytest
 # `cuda.is_available()` expectation regardless of what they set. This module's own tests exercise the
 # rung-schedule dispatch logic (which is backend-agnostic per its own docstring) and CI runners have
 # no GPU anyway, so cuda.is_available() already returns False there without forcing the env var.
+from mlframe.feature_selection.filters import _fe_rung_schedule
 from mlframe.feature_selection.filters._fe_rung_schedule import (
     apply_rung_schedule,
     _dispatch_keep_frac,
@@ -114,7 +114,7 @@ def test_relative_floor_protects_moderate_mi_winner():
     kept_pms = sorted((k[1] for k in kept), reverse=True)
     assert 0.153 in kept_pms, f"relative floor dropped the moderate-MI genuine winner: {kept_pms}"
     # and the (noise) 0.06 pairs (0.18*max) are cut.
-    assert all(pm > 0.06 for pm in kept_pms), kept_pms
+    assert kept_pms == [0.34, 0.153], kept_pms
 
 
 def test_lower_floor_is_more_aggressive():
@@ -295,9 +295,10 @@ def test_bizvalue_selection_identical_canonical():
 
 @pytest.mark.slow
 @pytest.mark.perf
-def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
-    """On a WIDE noisy pool (many gate-passing pairs), the rung schedule is FASTER
-    (wall-time) than the flat sweep while keeping the same engineered selection.
+def test_bizvalue_speedup_on_wide_pool_at_identical_selection(monkeypatch):
+    """On a WIDE noisy pool (many gate-passing pairs), the rung schedule cuts the pair pool the
+    expensive operator search runs on (the speedup mechanism) while keeping the same engineered selection.
+    The cut is asserted deterministically from the rung-0 info, not from wall-clock time.
 
     Marked slow: this is a wall-time speedup bench (two full wide-pool MRMR fits, ~4-5 min), the exact
     "heavy bench" category the slow marker gates out of fast iteration. A timing assertion needs the pool
@@ -307,13 +308,24 @@ def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
     df, y = _make_canonical(n=5000, p_noise=35, seed=42)
     base = dict(verbose=0, random_seed=42, n_jobs=1, **_RELAXED)
 
-    t0 = time.perf_counter()
     m_off = MRMR(fe_rung_schedule_enable=False, **base).fit(df.copy(), y.copy())
-    t_off = time.perf_counter() - t0
 
-    t0 = time.perf_counter()
+    rung_infos = []
+    real_apply = _fe_rung_schedule.apply_rung_schedule
+
+    def _spy_apply(prospective_pairs, **kwargs):
+        """Record the apply call and forward it to the real function."""
+        out, info = real_apply(prospective_pairs, **kwargs)
+        rung_infos.append(info)
+        return out, info
+
+    monkeypatch.setattr(_fe_rung_schedule, "apply_rung_schedule", _spy_apply)
     m_on = MRMR(fe_rung_schedule_enable=True, fe_rung_keep_frac=0.34, **base).fit(df.copy(), y.copy())
-    t_on = time.perf_counter() - t0
+
+    # the rung schedule must actually cut the pool the operator search runs on (the speedup mechanism).
+    assert rung_infos, "the rung schedule never ran on the wide-pool fit"
+    assert rung_infos[0]["applied"] is True, rung_infos[0]
+    assert 0 < rung_infos[0]["n_kept"] < rung_infos[0]["n_in"], rung_infos[0]
 
     # selection: the rung schedule must not drop a genuine engineered feature.
     off_names = set(m_off.get_feature_names_out())
@@ -321,9 +333,6 @@ def test_bizvalue_speedup_on_wide_pool_at_identical_selection():
     # the genuine (a,?) / (c,?) signal features survive (engineered over the signal vars)
     eng_off = [nm for nm in off_names if nm not in df.columns]
     assert eng_off, "wide-pool fixture produced no engineered features without the rung schedule"
-    # rung schedule must be at least as fast (it searches a fraction of the pool).
-    assert t_on <= t_off * 1.05, f"rung schedule was not faster: flat={t_off:.1f}s rung={t_on:.1f}s"
-
     # and it must not lose a genuine SIGNAL-pair engineered feature: any feature over
     # the signal operands a/b/c/d kept by flat must still be present (allowing the
     # rung to additionally PRUNE spurious (c,noise) survivors -- a denoising bonus).

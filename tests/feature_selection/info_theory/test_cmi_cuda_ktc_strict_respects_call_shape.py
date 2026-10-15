@@ -36,14 +36,10 @@ def _isolate(monkeypatch):
     _strict_mod.clear_auto_fit_n()
 
 
-def test_strict_declines_small_p_call_even_under_force(monkeypatch):
-    """The bug's exact reproduction: STRICT forced on, a late-round call with p=2 (well under the p>=64
-    floor) must NOT be silently approved for CUDA just because it reached the KTC crossover fallback."""
+def test_strict_engages_small_p_call_under_force(monkeypatch):
+    """Owner decision 2026-10-15: explicit STRICT forces CUDA on every call; the per-call p floor does not apply."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
-    # No kernel_tuning_cache entry -> would otherwise fall through past the STRICT check to the swept
-    # crossover / hardcoded bootstrap; here we only care whether STRICT itself wrongly short-circuits to True.
-    result = cmi_use_cuda(n=1_000_000, p=2)
-    assert result is not True, "STRICT must not force CUDA for a call that fails the p>=64 per-call floor"
+    assert cmi_use_cuda(n=1_000_000, p=2) is True
 
 
 def test_strict_approves_large_call_under_force(monkeypatch):
@@ -52,11 +48,10 @@ def test_strict_approves_large_call_under_force(monkeypatch):
     assert cmi_use_cuda(n=1_000_000, p=64) is True
 
 
-def test_strict_declines_small_np_product_even_with_adequate_p(monkeypatch):
-    """p alone clearing 64 is not sufficient -- n*p must also clear the work floor."""
+def test_strict_engages_small_np_product_under_force(monkeypatch):
+    """Owner decision 2026-10-15: explicit STRICT ignores the n*p work floor as well."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
-    result = cmi_use_cuda(n=100, p=64)  # n*p = 6400, far under 1_000_000
-    assert result is not True
+    assert cmi_use_cuda(n=100, p=64) is True
 
 
 def test_auto_mode_column_aware_gate_still_respects_call_shape(monkeypatch):
@@ -68,18 +63,13 @@ def test_auto_mode_column_aware_gate_still_respects_call_shape(monkeypatch):
     assert result is not True
 
 
-def test_strict_min_p_override_admits_perm_null_shapes(monkeypatch):
-    """Regression (wellbore-100k GPU-strict profile): a permutation-null workload's p is n_permutations
-    (12-24 by design, every permutation re-reading the SAME resident candidate), so the candidate-batch
-    p >= 64 crossover does not apply -- holding it to 64 forced all 2232 _conditional_perm_null calls
-    (~261s) onto the CPU. min_p overrides ONLY the p-floor leg; the n*p total-work leg still binds."""
+def test_strict_min_p_is_moot_under_force(monkeypatch):
+    """Owner decision 2026-10-15: under explicit STRICT the shape floors, including the min_p override used by
+    permutation-null callers, do not apply. Every shape engages."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
-    # A short permutation batch (p=6) at n=250k: n*p = 1.5M >= 1M but p is under the per-call column floor (8) -> declined WITHOUT min_p, admitted
-    # WITH min_p=2. (The default floor was 64 when this regression was written; candidate pools of 14-18 columns now clear it, see _STRICT_MIN_CALL_P_SHAPE.)
-    assert _strict_mod.fe_gpu_strict_enabled(n=250_000, p=6) is False
+    assert _strict_mod.fe_gpu_strict_enabled(n=250_000, p=6) is True
     assert _strict_mod.fe_gpu_strict_enabled(n=250_000, p=6, min_p=2) is True
-    # The total-work leg still binds under min_p: tiny n*p stays declined.
-    assert _strict_mod.fe_gpu_strict_enabled(n=1_000, p=12, min_p=2) is False
+    assert _strict_mod.fe_gpu_strict_enabled(n=1_000, p=12, min_p=2) is True
 
 
 if __name__ == "__main__":

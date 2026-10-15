@@ -18,7 +18,7 @@ def _inputs(seed, n=1600):
     return X, y, {
         "X": X,
         "train_idx": np.arange(1000),
-        "selector": MRMR(verbose=0, n_jobs=1, random_seed=seed, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1),
+        "selector": MRMR(verbose=0, n_jobs=1, random_state=seed, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1),
         "gate_regressor": HistGradientBoostingRegressor(max_iter=100, random_state=0),
     }
 
@@ -40,7 +40,7 @@ def test_noise_target_gets_no_companion():
     rng = np.random.default_rng(1)
     X = pd.DataFrame({"a": rng.standard_normal(1600), "b": rng.standard_normal(1600)})
     y = rng.standard_normal(1600)
-    inputs = {"X": X, "train_idx": np.arange(1000), "selector": MRMR(verbose=0, n_jobs=1, random_seed=1, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1), "gate_regressor": HistGradientBoostingRegressor(max_iter=50, random_state=0)}
+    inputs = {"X": X, "train_idx": np.arange(1000), "selector": MRMR(verbose=0, n_jobs=1, random_state=1, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1), "gate_regressor": HistGradientBoostingRegressor(max_iter=50, random_state=0)}
     meta = {}
     out = _add_mix_offset_targets({TargetTypes.REGRESSION: {"t": y}}, meta, inputs)
     assert list(out[TargetTypes.REGRESSION]) == ["t"]

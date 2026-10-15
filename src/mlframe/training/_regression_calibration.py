@@ -18,7 +18,7 @@ identity on honest holdout -- ``recalibration_rmse_gain`` is the gate (REJECTED 
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -149,7 +149,7 @@ def duan_log_smearing_factor(residuals_cal: np.ndarray) -> float:
 _SMEARING_MAX_GRID_CELLS = 50_000_000  # ~400MB at float64; bounds the (chunk_rows, n_cal) broadcast per chunk.
 
 
-def smearing_predict(pred_transformed: np.ndarray, residuals_cal: np.ndarray, inverse_fn, *, max_cal: int = 2000, seed: int = 0) -> np.ndarray:
+def smearing_predict(pred_transformed: np.ndarray, residuals_cal: np.ndarray, inverse_fn: Callable[[np.ndarray], np.ndarray], *, max_cal: int = 2000, seed: int = 0) -> np.ndarray:
     """General Duan smearing: ``yhat(x) = mean_i inverse_fn(pred(x) + resid_i)`` over calib residuals.
 
     Unbiased back-transform for an arbitrary monotone ``inverse_fn`` (e.g. ``np.expm1`` for log1p). The

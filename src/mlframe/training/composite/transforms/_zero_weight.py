@@ -12,6 +12,9 @@ import inspect
 from typing import Any, Callable
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ZeroWeightDroppingFit:
@@ -58,6 +61,7 @@ def with_zero_weight_drop(fn: Callable[..., Any], *, recurrent: bool) -> Callabl
         return fn
     try:
         params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("with_zero_weight_drop fell back to its default after %s", type(_exc).__name__)
         return fn
     return ZeroWeightDroppingFit(fn) if "sample_weight" in params else fn

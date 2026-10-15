@@ -17,9 +17,10 @@ falls back to identity. So it can never do worse than the raw proxy ordering on 
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Iterable, Optional, Sequence
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from mlframe._ranks_shared import ordinal_ranks_float as _ranks
 
@@ -37,7 +38,7 @@ def _mean_abs_offdiag_corr(sub_by_var: np.ndarray) -> float:
     return float(vals.mean()) if vals.size else 0.0
 
 
-def subset_redundancy(phi: np.ndarray, idx) -> float:
+def subset_redundancy(phi: np.ndarray, idx: Iterable[int]) -> float:
     """Mean pairwise |correlation| of the selected proxy columns' attributions - a cheap redundancy
     summary (0 for singletons). High redundancy is exactly where the proxy under-credits subsets.
 
@@ -50,7 +51,7 @@ def subset_redundancy(phi: np.ndarray, idx) -> float:
     return _mean_abs_offdiag_corr(phi[:, idx].T)
 
 
-def subset_redundancy_many(phi: np.ndarray, idx_list, *, phi_T: Optional[np.ndarray] = None) -> np.ndarray:
+def subset_redundancy_many(phi: np.ndarray, idx_list: Sequence[Iterable[int]], *, phi_T: Optional[np.ndarray] = None) -> np.ndarray:
     """Vectorised :func:`subset_redundancy` over many subsets sharing one ``phi``.
 
     ``phi`` is row-major (n_samples, n_units); a per-subset strided column gather ``phi[:, idx]`` is
@@ -99,7 +100,7 @@ class ProxyCorrector:
         return self.model.predict(F)
 
 
-def fit_proxy_corrector(proxy_losses, honest_losses, cards, redunds, *, min_anchors=12) -> ProxyCorrector:
+def fit_proxy_corrector(proxy_losses: ArrayLike, honest_losses: ArrayLike, cards: ArrayLike, redunds: ArrayLike, *, min_anchors: int = 12) -> ProxyCorrector:
     """Fit ``honest ~ Ridge(proxy, card, redund, proxy*redund)``. Falls back to identity (proxy-only,
     rank-preserving) when too few finite anchors to fit reliably."""
     proxy = np.asarray(proxy_losses, dtype=np.float64)
@@ -156,7 +157,7 @@ def _ranks_non_inverting(proxy: np.ndarray, pred: np.ndarray) -> bool:
     return rho >= 0.0
 
 
-def rerank_candidates(corrector: ProxyCorrector, candidates, phi):
+def rerank_candidates(corrector: ProxyCorrector, candidates: list[tuple[float, Sequence[int]]], phi: np.ndarray) -> list[tuple[float, Sequence[int]]]:
     """Re-rank ``[(proxy_loss, idx), ...]`` by the corrector's predicted honest loss (ascending).
 
     Returns the re-ordered candidate list (same elements; the stored proxy_loss is preserved so the

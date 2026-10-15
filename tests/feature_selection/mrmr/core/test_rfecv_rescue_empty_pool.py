@@ -39,7 +39,7 @@ def _fit(monkeypatch, X, y):
     _RFECVSpy.pools = []
     monkeypatch.setattr(mrmr_pkg, "RFECV", _RFECVSpy)
     MRMR._FIT_CACHE.clear()
-    m = MRMR(random_seed=0, n_jobs=1, verbose=0, fe_max_steps=1, full_npermutations=3, baseline_npermutations=2, run_additional_rfecv_minutes=1)
+    m = MRMR(random_state=0, n_jobs=1, verbose=0, fe_max_steps=1, full_npermutations=3, baseline_npermutations=2, run_additional_rfecv_minutes=1)
     return m.fit(X, y)
 
 

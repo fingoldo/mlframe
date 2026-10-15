@@ -155,7 +155,8 @@ from ._lgb_shim_helpers import (
     _reset_weight_to_uniform,
     normalize_eval_set,
     _build_dataset,
-    _LGB_DATASET_CACHE,  # noqa: F401 -- re-exported for external cache-lifecycle callers (bench scripts, tests)
+    _LGB_DATASET_CACHE,
+    _LGB_DATASET_CACHE_LOCK,
     _lgb_cache_get,
     _lgb_cache_put,
     _lgb_cache_clear,  # noqa: F401 -- re-exported for external cache-lifecycle callers (bench scripts, tests)
@@ -315,8 +316,12 @@ class _DatasetReuseMixin:
     # ------------------------------------------------------------------
 
     def clear_cache(self) -> None:
-        """Release cached Dataset(s) and their keys. Useful between
+        """Release cached Dataset(s) and their keys, including this instance's entries in the module-level cache. Useful between
         suite runs to free the C++ memory backing the binned storage."""
+        with _LGB_DATASET_CACHE_LOCK:
+            for _key in (self._cached_train_key, *self._cached_val_datasets):
+                if _key is not None:
+                    _LGB_DATASET_CACHE.pop(_key, None)
         self._init_cache()
 
     # ------------------------------------------------------------------

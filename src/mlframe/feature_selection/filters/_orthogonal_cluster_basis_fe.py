@@ -68,7 +68,7 @@ aggregator so the test-time orientation matches fit time exactly.
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Callable, Literal, Optional, Sequence, overload
 
 import numpy as np
 
@@ -220,6 +220,30 @@ def _zscore(arr: np.ndarray) -> np.ndarray:
         return np.zeros_like(arr)
     return (arr - mu) / sd
 
+@overload
+def compute_cluster_aggregate(
+    X: pd.DataFrame,
+    members: Sequence[str],
+    *,
+    aggregator: str = "mean_z",
+    stats: dict | None = None,
+    return_stats: Literal[False] = False,
+) -> np.ndarray:
+    """Return the aggregated column."""
+
+
+@overload
+def compute_cluster_aggregate(
+    X: pd.DataFrame,
+    members: Sequence[str],
+    *,
+    aggregator: str = "mean_z",
+    stats: dict | None = None,
+    return_stats: Literal[True],
+) -> tuple[np.ndarray, dict]:
+    """Return the aggregated column together with its fitted stats."""
+
+
 def compute_cluster_aggregate(
     X: pd.DataFrame,
     members: Sequence[str],
@@ -227,7 +251,7 @@ def compute_cluster_aggregate(
     aggregator: str = "mean_z",
     stats: dict | None = None,
     return_stats: bool = False,
-):
+) -> np.ndarray | tuple[np.ndarray, dict]:
     """Reduce a cluster of member columns to one column via ``aggregator``.
 
     Parameters
@@ -285,7 +309,7 @@ def compute_cluster_aggregate(
         std_safe = np.where(member_std > 0.0, member_std, 1.0)
         Z = ((M - member_mean) / std_safe) * signs
         w = stats.get("weights")
-        out = _apply_nl(Z, method) if w is None else (Z @ np.asarray(w, dtype=np.float64))
+        out: np.ndarray = _apply_nl(Z, method) if w is None else (Z @ np.asarray(w, dtype=np.float64))
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
         return (out, stats) if return_stats else out
     # FIT path. 2026-06-03 (audit gap-03): use the canonical SIGN-ALIGNED

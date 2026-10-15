@@ -65,6 +65,7 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 
 from ._target_encoding_fe import _column_to_str
@@ -124,7 +125,7 @@ def _join_codes(*code_arrays: np.ndarray) -> np.ndarray:
     return codes.astype(np.int64)
 
 def triple_interaction_information(
-    a, b, c, y, *, n_bins: int = 10,
+    a: ArrayLike, b: ArrayLike, c: ArrayLike, y: np.ndarray, *, n_bins: int = 10,
 ) -> float:
     """Three-way interaction information (co-information) ``II3(a, b, c; y)``.
 

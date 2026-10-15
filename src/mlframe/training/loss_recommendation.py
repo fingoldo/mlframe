@@ -30,6 +30,9 @@ import math
 from typing import Any, Dict
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 _EXCESS_KURT_HEAVY: float = 1.5
 """Threshold above which Gaussian assumptions break and a robust loss (Huber) wins. Pure L1/MAE is not
@@ -119,7 +122,8 @@ def _robust_residual_scale(y_target: Any) -> tuple[float, float]:
     """
     try:
         arr = np.asarray(y_target, dtype=np.float64).reshape(-1)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_robust_residual_scale fell back to its default after %s", type(_exc).__name__)
         return 0.0, 0.0
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:

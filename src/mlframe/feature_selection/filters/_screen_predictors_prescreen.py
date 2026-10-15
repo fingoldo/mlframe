@@ -9,21 +9,24 @@ the already-seeded ``random_seed`` into the permutation-null kernel.
 from __future__ import annotations
 
 import logging
+from typing import Sequence
 
 import numpy as np
+
+from ._screen_predictors_gate import _single_int
 
 logger = logging.getLogger(__name__)
 
 
 def cardinality_prescreen(
-    factors_data,
-    factors_nbins,
-    factors_names,
-    x,
-    y,
-    verbose,
-    raw_cardinality_cols=None,
-):  # unused-ok: verbose: positional stage signature; refusals are logged at warning/info regardless
+    factors_data: np.ndarray,
+    factors_nbins: Sequence[int] | np.ndarray,
+    factors_names: Sequence[str] | None,
+    x: set[int] | list[int],
+    y: Sequence[int] | int,
+    verbose: int,
+    raw_cardinality_cols: set[str] | None = None,
+) -> tuple[set[int] | list[int], set[int]]:  # unused-ok: verbose: positional stage signature; refusals are logged at warning/info regardless
     """Drop high-cardinality columns before candidate enumeration.
 
     The Miller-Madow bias on plug-in MI is ~(|X|-1)*(|Y|-1)/(2n) nats; columns with
@@ -47,7 +50,7 @@ def cardinality_prescreen(
     invoking; this helper assumes both hold.
     """
     _n_for_screen = int(factors_data.shape[0])
-    _y_idx_for_screen = int(y[0]) if hasattr(y, "__len__") else int(y)
+    _y_idx_for_screen = _single_int(y)
     # Refuse columns with nbins_x > 2*sqrt(n) (cat-FE convention). At n=2500 this is 100 - catches user_id (1200 levels) cleanly; at n=309 it is 35, passing 5-bin numerics.
     _nbins_x_ceiling = 2.0 * float(np.sqrt(_n_for_screen))
     _refused = []
@@ -75,7 +78,9 @@ def cardinality_prescreen(
             "(nbins_x > 2*sqrt(n)=%.0f at n=%d): %s. Bin or target-encode before "
             "fitting if they carry real signal. Disable via "
             "cardinality_bias_correction=False.",
-            len(_refused), _nbins_x_ceiling, _n_for_screen,
+            len(_refused),
+            _nbins_x_ceiling,
+            _n_for_screen,
             _names[:10] + (["..."] if len(_names) > 10 else []),
         )
     # Remove refused columns from the active factor index set so they're never enumerated as candidates at any interactions_order.
@@ -88,19 +93,19 @@ def cardinality_prescreen(
 
 
 def compute_fdr_gain_floor(
-    factors_data,
-    factors_nbins,
-    x,
-    y,
+    factors_data: np.ndarray,
+    factors_nbins: np.ndarray,
+    x: set[int] | list[int],
+    y: Sequence[int] | int,
     *,
-    screen_fdr_null_permutations,
-    screen_fdr_null_quantile,
-    screen_fdr_min_features,
-    screen_fdr_target_oversplit_ratio,
-    screen_fdr_min_rows_per_joint_cell,
-    cardinality_bias_correction,
-    random_seed,
-    verbose,
+    screen_fdr_null_permutations: int | None,
+    screen_fdr_null_quantile: float,
+    screen_fdr_min_features: int,
+    screen_fdr_target_oversplit_ratio: float,
+    screen_fdr_min_rows_per_joint_cell: float,
+    cardinality_bias_correction: bool,
+    random_seed: int | None,
+    verbose: int,
     # 2026-07-09 fix: optional cross-round cache, keyed on the candidate-pool identity + all inputs
     # that affect the result. ``pooled_permutation_null_gain_floor`` recomputes a full (n_permutations
     # x n_candidates x n_rows) histogram+MI pass on EVERY call; when the SAME raw-column pool recurs
@@ -111,7 +116,8 @@ def compute_fdr_gain_floor(
     # fit, never shared across separate ``.fit()`` calls or concurrent fits). ``None`` (default)
     # disables caching entirely - legacy behaviour, always recompute.
     maxt_floor_cache: "dict | None" = None,
-):
+    honest_null_codes_fn=None,
+) -> float:
     """Westfall-Young maxT permutation-null gain floor over the finalised order-1 pool.
 
     Fires on a WIDE pool (>= ``screen_fdr_min_features``, best-of-p selection bias) OR a NARROW pool
@@ -124,27 +130,30 @@ def compute_fdr_gain_floor(
     if not (screen_fdr_null_permutations and int(screen_fdr_null_permutations) > 0):
         return 0.0
     _fdr_pool = np.asarray(sorted(x) if isinstance(x, set) else list(x))
-    from ._permutation_null import (
-        pooled_permutation_null_gain_floor,
-        target_oversplit_floor_applies,
-    )
+    from ._permutation_null import pooled_permutation_null_gain_floor
 
-    _y_idx_fdr = int(y[0]) if hasattr(y, "__len__") else int(y)
+    _y_idx_fdr = _single_int(y)
     _wide_pool = len(_fdr_pool) >= int(screen_fdr_min_features)
-    _narrow_oversplit = (
-        not _wide_pool
-        and len(_fdr_pool) >= 2
-        and target_oversplit_floor_applies(
-            factors_nbins,
-            _fdr_pool,
-            _y_idx_fdr,
-            int(factors_data.shape[0]),
-            oversplit_ratio=float(screen_fdr_target_oversplit_ratio),
-            min_rows_per_joint_cell=float(screen_fdr_min_rows_per_joint_cell),
-        )
-    )
+    # Family-wise over every narrow pool of two or more candidates: a narrow pool with a binary or low-cardinality target lets the best
+    # of its columns clear the per-column gain floors by chance (pure-noise suite, 2026-10-14).
+    _narrow_oversplit = not _wide_pool and len(_fdr_pool) >= 2
     if not (_wide_pool or _narrow_oversplit):
         return 0.0
+    if honest_null_codes_fn is not None:
+        # Supervised binning: the null re-bins on every permuted target (see _honest_mdlp_null.honest_fdr_floor); the cached/pooled
+        # permutation floor below would keep the in-sample cuts and cannot see their selection bias.
+        from ._honest_mdlp_null import honest_fdr_floor
+
+        return honest_fdr_floor(
+            honest_null_codes_fn,
+            factors_data,
+            factors_nbins,
+            _y_idx_fdr,
+            _fdr_pool,
+            int(screen_fdr_null_permutations),
+            float(screen_fdr_null_quantile),
+            random_seed,
+        )
 
     _cache_key = None
     if maxt_floor_cache is not None:
@@ -157,13 +166,15 @@ def compute_fdr_gain_floor(
             None if random_seed is None else int(random_seed),
             int(factors_data.shape[0]),
         )
-        _cached = maxt_floor_cache.get(_cache_key)
+        _cached: float | None = maxt_floor_cache.get(_cache_key)
         if _cached is not None:
             if _cached > 0.0 and verbose >= 1:
                 logger.info(
                     "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d "
                     "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale [cache hit].",
-                    _cached, len(_fdr_pool), float(screen_fdr_null_quantile),
+                    _cached,
+                    len(_fdr_pool),
+                    float(screen_fdr_null_quantile),
                     int(screen_fdr_null_permutations),
                 )
             return _cached
@@ -182,9 +193,10 @@ def compute_fdr_gain_floor(
         maxt_floor_cache[_cache_key] = _fdr_gain_floor
     if _fdr_gain_floor > 0.0 and verbose >= 1:
         logger.info(
-            "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d "
-            "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale.",
-            _fdr_gain_floor, len(_fdr_pool), float(screen_fdr_null_quantile),
+            "screen_predictors: maxT permutation-null gain floor=%.5f over p=%d " "candidates (q=%.2f, K=%d) - rejects chance-max noise at scale.",
+            _fdr_gain_floor,
+            len(_fdr_pool),
+            float(screen_fdr_null_quantile),
             int(screen_fdr_null_permutations),
         )
     return _fdr_gain_floor

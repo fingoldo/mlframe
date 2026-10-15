@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ._training_context import TrainingContext
 
 from mlframe.utils.log_throttle import log_throttle
+from mlframe._conformal_constants import DEFAULT_CONFORMAL_ALPHAS
 
 logger = logging.getLogger(__name__)
 
@@ -381,7 +382,7 @@ def _conformal_on_calib_slice(ctx: "TrainingContext") -> None:
     _cfg = getattr(ctx, "conformal_config", None)
     if _cfg is not None and not bool(getattr(_cfg, "enabled", True)):
         return
-    alphas = tuple(getattr(_cfg, "alphas", (0.1, 0.2))) if _cfg is not None else (0.1, 0.2)
+    alphas = tuple(getattr(_cfg, "alphas", DEFAULT_CONFORMAL_ALPHAS)) if _cfg is not None else DEFAULT_CONFORMAL_ALPHAS
     score = str(getattr(_cfg, "score", "normalized")) if _cfg is not None else "normalized"
     cls_mode = str(getattr(_cfg, "classification_mode", "sets_lac")) if _cfg is not None else "sets_lac"
     structure = _conformal_finalize_structure(ctx)

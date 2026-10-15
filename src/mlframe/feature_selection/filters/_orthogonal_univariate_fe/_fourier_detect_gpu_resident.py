@@ -38,6 +38,8 @@ import threading
 from typing import Sequence
 
 import numpy as np
+from mlframe._numerical_floors import VARIANCE_FLOOR
+from .._fe_env_switch import fused_switch_enabled
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
@@ -96,11 +98,8 @@ def _seeded_subsample_idx(tr_size: int, cap: int, va_size: int, va_cap: int):
         return cached
 
 
-def _fused_enabled() -> bool:
-    """Whether the fused periodogram / deflation kernels are used; ``MLFRAME_FE_FOURIER_FUSED=0`` restores the cupy-op-per-step implementation."""
-    import os
-
-    return os.environ.get("MLFRAME_FE_FOURIER_FUSED", "1").strip().lower() not in ("0", "false", "off", "no")
+# Fused periodogram / deflation kernels; ``MLFRAME_FE_FOURIER_FUSED=0`` restores the cupy-op-per-step implementation.
+_FUSED_ENV = "MLFRAME_FE_FOURIER_FUSED"
 
 
 def _corr_sq_centered_gpu(cp, v, yc, y_ss: float) -> float:
@@ -113,7 +112,7 @@ def _corr_sq_centered_gpu(cp, v, yc, y_ss: float) -> float:
     # Stack the three independent reductions and read them back in ONE D2H (was three separate float() syncs).
     sv, vv, vy = (float(_x) for _x in cp.asnumpy(cp.stack([cp.sum(v), cp.dot(v, v), cp.dot(v, yc)])))
     v_ss = vv - sv * sv / n
-    if v_ss <= 1e-12 * vv or v_ss < 1e-24 or y_ss < 1e-24:
+    if v_ss <= 1e-12 * vv or v_ss < VARIANCE_FLOOR or y_ss < VARIANCE_FLOOR:
         return 0.0
     return float((vy * vy) / (v_ss * y_ss))
 
@@ -122,7 +121,7 @@ def _power_centered_gpu(cp, z, yc, y_ss: float, freq: float) -> float:
     """Periodogram power at ``freq`` against pre-centered resident ``yc`` - GPU
     twin of ``_power_centered`` / ``_power_centered_fused_par_njit``. sin/cos
     planes are resident; only the final scalar power comes back."""
-    if _fused_enabled():
+    if fused_switch_enabled(_FUSED_ENV):
         from ._fourier_fused_gpu import power_sincos
 
         return float(power_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(yc, dtype=cp.float64), y_ss, cp.asarray([float(freq)]))[0])
@@ -139,7 +138,7 @@ def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
     per-frequency scalar D2H). Selection-equivalent to calling ``_power_centered_gpu``
     per frequency: same raw-moment v_ss = v@v - sum(v)^2/n, same num = v@yc, same
     relative degeneracy guard, summed over the sin + cos planes."""
-    if _fused_enabled():
+    if fused_switch_enabled(_FUSED_ENV):
         from ._fourier_fused_gpu import power_sincos
 
         return power_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(yc, dtype=cp.float64), y_ss, freqs_dev)
@@ -154,10 +153,10 @@ def _power_grid_centered_gpu(cp, z, yc, y_ss: float, freqs_dev):
         vv = (plane * plane).sum(axis=1)  # (F,)
         vy = plane @ yc  # (F,)
         v_ss = vv - sv * sv / n  # moment-ok: sin/cos planes are bounded in [-1, 1], offset to spread is O(1)
-        ok = (v_ss > 1e-12 * vv) & (v_ss >= 1e-24)
+        ok = (v_ss > 1e-12 * vv) & (v_ss >= VARIANCE_FLOOR)
         denom = v_ss * y_ss
         val = cp.where(denom > 0.0, (vy * vy) / cp.where(denom > 0.0, denom, 1.0), 0.0)
-        return cp.where(ok & (y_ss >= 1e-24), val, 0.0)
+        return cp.where(ok & (y_ss >= VARIANCE_FLOOR), val, 0.0)
 
     return _corr_sq_rows(s) + _corr_sq_rows(c)
 
@@ -193,7 +192,7 @@ def _deflate_sincos_gpu(cp, z, y, freq: float):
     ``[1, sin, cos]`` - GPU twin of ``_deflate_sincos``. Normal-equations solve
     on the 3-col design (lstsq fallback on singular A^T A). Stays resident: the
     returned residual is a device array, no D2H of y."""
-    if _fused_enabled():
+    if fused_switch_enabled(_FUSED_ENV):
         from ._fourier_fused_gpu import deflate_sincos
 
         fused = deflate_sincos(cp, cp.ascontiguousarray(z, dtype=cp.float64), cp.ascontiguousarray(y, dtype=cp.float64), float(freq))
@@ -209,10 +208,11 @@ def _deflate_sincos_gpu(cp, z, y, freq: float):
         except np.linalg.LinAlgError:
             coef = cp.linalg.lstsq(A, y, rcond=None)[0]
         return y - A @ coef
-    except np.linalg.LinAlgError:
+    except np.linalg.LinAlgError as _exc:
         # Degenerate [1,sin,cos] design (singular even for lstsq) -> no deflation this freq (graceful).
         # Narrowed from bare Exception: a device fault now propagates to the dispatch-site CPU fallback and a
         # logic bug surfaces, instead of silently returning an UN-DEFLATED y (which would diverge from CPU).
+        logger.warning("_deflate_sincos_gpu fell back to its default after %s", type(_exc).__name__)
         return y
 
 
@@ -335,7 +335,7 @@ def detect_fourier_freqs_for_col_gpu(
 
     # Coarse-grid sin/cos plane on TRAIN, built ONCE (depends only on z). Resident (nf, n).
     grid_dev = cp.asarray(np.asarray(grid, dtype=np.float64))  # tiny H2D (grid is O(48))
-    fused = _fused_enabled()
+    fused = fused_switch_enabled(_FUSED_ENV)
     if fused:
         z_tr_64 = cp.ascontiguousarray(z_tr, dtype=cp.float64)  # the periodogram kernel reads float64
     else:
@@ -357,7 +357,7 @@ def detect_fourier_freqs_for_col_gpu(
         _s_tr, _s_va, y_ss = (float(_v) for _v in cp.asnumpy(cp.stack([cp.std(y_tr), cp.std(y_va), cp.dot(yc, yc)])))
         if _s_tr < 1e-9 or _s_va < 1e-9:
             break
-        if y_ss < 1e-24:
+        if y_ss < VARIANCE_FLOOR:
             break
         # Coarse peak-pick: batched matvec over the resident plane -> power per grid freq, scalar argmax.
         if fused:
@@ -367,8 +367,8 @@ def detect_fourier_freqs_for_col_gpu(
         else:
             num_s = sc_plane @ yc  # (nf,)
             num_c = cc_plane @ yc
-            p_s = cp.where(s_ss_vec >= 1e-24, (num_s * num_s) / (s_ss_vec * y_ss), 0.0)
-            p_c = cp.where(c_ss_vec >= 1e-24, (num_c * num_c) / (c_ss_vec * y_ss), 0.0)
+            p_s = cp.where(s_ss_vec >= VARIANCE_FLOOR, (num_s * num_s) / (s_ss_vec * y_ss), 0.0)
+            p_c = cp.where(c_ss_vec >= VARIANCE_FLOOR, (num_c * num_c) / (c_ss_vec * y_ss), 0.0)
             power_vec = p_s + p_c  # (nf,)
         best_gi = int(cp.argmax(power_vec))  # scalar D2H
         best_f = grid[best_gi]
@@ -384,7 +384,7 @@ def detect_fourier_freqs_for_col_gpu(
         # Held-out confirm: center y_va resident, scalar power back.
         yvc = y_va - y_va.mean()
         yv_ss = float(cp.dot(yvc, yvc))
-        if yv_ss < 1e-24:
+        if yv_ss < VARIANCE_FLOOR:
             break
         val_power = _power_centered_gpu(cp, z_va, yvc, yv_ss, refined_f)
         # Held-out admission razor (not grid-snapped): the cupy-vs-numpy reduction-order delta (~1e-12) is far

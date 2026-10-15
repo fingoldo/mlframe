@@ -164,6 +164,7 @@ class TestPolynomRedundancyPruning:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
+        assert names, "empty support makes the pure-noise bound vacuous; MRMR must select at least one feature here"
         signal_factors = {"r0", "r1", "r2"}
 
         def _is_pure_noise_product(nm: str) -> bool:

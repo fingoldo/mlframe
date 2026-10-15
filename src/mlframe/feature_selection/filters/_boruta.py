@@ -25,6 +25,42 @@ def _summ_boruta(res, b):
     return kept, len(names), f"{n_tent} tentative, {res['n_rounds_run']} round(s)"
 
 
+def _resolve_undecided_features_for_round(resolved, hit_counts, rounds_run, n_features, alpha, correction):
+    """Confirm or reject the still-undecided features for this round under the corrected per-round rule (mutates ``resolved`` in place)."""
+    from scipy.stats import binomtest
+
+    undecided = [j for j in range(n_features) if resolved[j] is None]
+    if undecided:
+        if correction == "bonferroni":
+            # Correct for both the repeated per-round testing AND the simultaneous per-feature testing -
+            # a naive uncorrected alpha=0.05 test run every round would inflate the false-confirm rate.
+            corrected_alpha = alpha / (rounds_run * len(undecided))
+            for j in undecided:
+                result = binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided")
+                if result.pvalue < corrected_alpha:
+                    resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
+        elif correction == "bh":
+            # The BH step-up alone only controls the FDR
+            # across the SIMULTANEOUS per-feature tests within a single round; run every round at the
+            # nominal alpha and the repeated-testing-across-rounds inflation the "bonferroni" branch
+            # above explicitly guards against (dividing by rounds_run) goes uncorrected here. Scale the
+            # target alpha down by rounds_run the same way, so both branches control the same overall
+            # error budget across the whole multi-round procedure.
+            pvals = np.array([binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided").pvalue for j in undecided])
+            order = np.argsort(pvals)
+            m = len(pvals)
+            round_alpha = alpha / rounds_run
+            crit = round_alpha * np.arange(1, m + 1) / m
+            below = pvals[order] <= crit
+            if below.any():
+                k_max = int(np.max(np.where(below)[0]))
+                for rank in range(k_max + 1):
+                    j = undecided[order[rank]]
+                    resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
+        else:
+            raise ValueError(f"Unknown correction {correction!r}, expected 'bonferroni' or 'bh'")
+
+
 @logs_selection("boruta_select", _summ_boruta)
 def boruta_select(
     X: Any,
@@ -143,36 +179,7 @@ def boruta_select(
         hit_counts += (real_importances > max_shadow_importance).astype(np.int64)
 
         if resolve_tentative:
-            undecided = [j for j in range(n_features) if resolved[j] is None]
-            if undecided:
-                if correction == "bonferroni":
-                    # Correct for both the repeated per-round testing AND the simultaneous per-feature testing -
-                    # a naive uncorrected alpha=0.05 test run every round would inflate the false-confirm rate.
-                    corrected_alpha = alpha / (rounds_run * len(undecided))
-                    for j in undecided:
-                        result = binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided")
-                        if result.pvalue < corrected_alpha:
-                            resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
-                elif correction == "bh":
-                    # The BH step-up alone only controls the FDR
-                    # across the SIMULTANEOUS per-feature tests within a single round; run every round at the
-                    # nominal alpha and the repeated-testing-across-rounds inflation the "bonferroni" branch
-                    # above explicitly guards against (dividing by rounds_run) goes uncorrected here. Scale the
-                    # target alpha down by rounds_run the same way, so both branches control the same overall
-                    # error budget across the whole multi-round procedure.
-                    pvals = np.array([binomtest(int(hit_counts[j]), rounds_run, p=0.5, alternative="two-sided").pvalue for j in undecided])
-                    order = np.argsort(pvals)
-                    m = len(pvals)
-                    round_alpha = alpha / rounds_run
-                    crit = round_alpha * np.arange(1, m + 1) / m
-                    below = pvals[order] <= crit
-                    if below.any():
-                        k_max = int(np.max(np.where(below)[0]))
-                        for rank in range(k_max + 1):
-                            j = undecided[order[rank]]
-                            resolved[j] = "confirmed" if hit_counts[j] / rounds_run > 0.5 else "rejected"
-                else:
-                    raise ValueError(f"Unknown correction {correction!r}, expected 'bonferroni' or 'bh'")
+            _resolve_undecided_features_for_round(resolved, hit_counts, rounds_run, n_features, alpha, correction)
 
             if convergence_rounds is not None:
                 confirmed_set = frozenset(j for j in range(n_features) if resolved[j] == "confirmed")

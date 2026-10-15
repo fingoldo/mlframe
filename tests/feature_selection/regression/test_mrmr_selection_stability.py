@@ -101,12 +101,26 @@ def test_regression_ks_stability_filter_rejects_invalid_split_frac():
 
 def test_regression_cluster_basis_no_noop_index_lookup():
     """Post-fix: the no-op dense_names.index(name) re-lookup is removed; mean_corr's names are used directly."""
-    import inspect
+    import numpy as np
+    import pandas as pd
 
     from mlframe.feature_selection.filters._orthogonal_cluster_basis_fe import detect_clusters_by_correlation
 
-    src = inspect.getsource(detect_clusters_by_correlation)
-    assert not any("members = sorted(dense_names[dense_names.index(name)]" in line for line in src.splitlines())
+    rng = np.random.default_rng(0)
+    n = 400
+    base = rng.standard_normal(n)
+    X = pd.DataFrame(
+        {
+            "a1": base + 0.05 * rng.standard_normal(n),
+            "a2": base + 0.05 * rng.standard_normal(n),
+            "a3": base + 0.1 * rng.standard_normal(n),
+            "z": rng.standard_normal(n),
+            "w": rng.standard_normal(n),
+        }
+    )
+    clusters = detect_clusters_by_correlation(X)
+    # The three correlated columns form one cluster whose members are the column names themselves, sorted; the independent columns are not clustered.
+    assert clusters == {"a1": ["a1", "a2", "a3"]}
 
 
 # ---------------------------------------------------------------------------
@@ -153,14 +167,19 @@ def test_regression_null_importance_filter_rejects_zero_shuffles():
 
 
 def test_regression_boruta_select_bh_correction_scales_with_rounds():
-    """Post-fix: the BH branch's per-round critical values shrink with rounds_run the same way the
-    bonferroni branch's corrected_alpha does (both / rounds_run), instead of staying fixed at `alpha`."""
-    import inspect
+    """Post-fix: the BH branch's per-round critical values shrink with rounds_run the same way the bonferroni branch's
+    corrected_alpha does (both / rounds_run), instead of staying fixed at alpha. A feature hit 9 times in 10 rounds has a
+    two-sided p of about 0.0215: under the scaled level alpha/rounds_run = 0.005 it must stay undecided, while a feature
+    hit 10 times in 10 rounds (p of about 0.00195) is still confirmed."""
+    from mlframe.feature_selection.filters._boruta import _resolve_undecided_features_for_round
 
-    from mlframe.feature_selection.filters._boruta import boruta_select
+    borderline = [None]
+    _resolve_undecided_features_for_round(borderline, np.array([9]), 10, 1, 0.05, "bh")
+    assert borderline == [None], f"a p of about 0.0215 must not clear the rounds-corrected level 0.005; got {borderline}"
 
-    src = inspect.getsource(boruta_select)
-    assert "round_alpha = alpha / rounds_run" in src
+    clear = [None]
+    _resolve_undecided_features_for_round(clear, np.array([10]), 10, 1, 0.05, "bh")
+    assert clear == ["confirmed"], f"a p of about 0.00195 must clear the rounds-corrected level 0.005; got {clear}"
 
 
 # ---------------------------------------------------------------------------
@@ -307,13 +326,21 @@ def test_regression_selection_stability_report_random_state_changes_bootstrap():
     """Sanity: two DIFFERENT random_state values must (with overwhelming probability on this fixture)
     produce a different bootstrap RNG draw -- proves the seed is actually being consumed, not ignored
     entirely (which would make the equality test above pass vacuously)."""
-    import inspect
+    import warnings
 
-    from mlframe.feature_selection.filters._mrmr_stability_report import selection_stability_report
+    from mlframe.feature_selection.filters.mrmr import MRMR
 
-    src = inspect.getsource(selection_stability_report)
-    assert "self._effective_random_seed()" in src
-    assert 'random_state if random_state is not None else int(getattr(self, "random_seed", 0))' not in src
+    rng = np.random.default_rng(0)
+    n = 300
+    X = pd.DataFrame(rng.standard_normal((n, 6)), columns=[f"x{i}" for i in range(6)])
+    y = (X["x0"] + 0.5 * X["x1"] > 0).astype(int)
+    m = MRMR(verbose=0, quantization_nbins=5, random_state=42)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        m.fit(X, y)
+    report_a = m.selection_stability_report(n_boot=10, as_text=False, random_state=1)
+    report_b = m.selection_stability_report(n_boot=10, as_text=False, random_state=2)
+    assert report_a["feature_selection_frequency"] != report_b["feature_selection_frequency"]
 
 
 # ---------------------------------------------------------------------------

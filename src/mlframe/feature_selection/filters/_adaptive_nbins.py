@@ -45,6 +45,7 @@ import numpy as np
 import numba
 from numba import njit
 
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters.discretization.shared import (
     knuth_bin_edges as _knuth_bin_edges, bayesian_blocks_bin_edges as _bayesian_blocks_bin_edges,
 )
@@ -755,7 +756,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
                     edges_list[j] = _hit
                     continue
             except Exception as exc:
-                logger.warning("per_feature_edges: cache get failed col=%d, computing this column without it (%s)", j, exc)
+                log_throttle(logger, "adaptive_nbins.cache_get_failed", logging.WARNING, "per_feature_edges: cache get failed col=%d, computing this column without it (%s)", j, exc)
                 _col_cache_key = None
         _miss_keys[j] = _col_cache_key
         _miss_cols.append(j)

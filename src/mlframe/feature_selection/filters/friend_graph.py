@@ -37,11 +37,14 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from .info_theory import entropy, merge_vars, mi, joint_entropy_2var
+
+if TYPE_CHECKING:
+    from mlframe.reporting.spec import FigureSpec
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +220,16 @@ def _apply_edge_floor(m, a, b, factors_nbins, n_samples, mi_eps=1e-6, edge_signi
     floor = max(mi_eps, edge_significance * (na - 1) * (nb - 1) / (2.0 * max(1, int(n_samples))))
     return m if m > floor else None
 
-def neighbor_unique_target(factors_data, i, neighbor_indices, target, rel_i, factors_nbins, dtype=np.int32, cached_MIs: Optional[dict] = None):
+def neighbor_unique_target(
+    factors_data: np.ndarray,
+    i: int,
+    neighbor_indices: Sequence[int],
+    target: np.ndarray,
+    rel_i: float,
+    factors_nbins: np.ndarray,
+    dtype: type = np.int32,
+    cached_MIs: Optional[dict] = None,
+) -> tuple[float, List[Tuple[int, float]]]:
     """Sum_j I(Y; X_j | X_i) over neighbors via the chain rule ``I((X_i,X_j);Y) - I(X_i;Y)``.
 
     Returns ``(total_unique, [(j, cmi_raw), ...])``. Large total => neighbors carry target info beyond X_i
@@ -329,8 +341,8 @@ def build_friend_graph(
     compute_layout: bool = True,
     compute_centrality: bool = True,
     centrality_percentile: float = 5.0,
-    dtype=np.int32,
-    seed=None,
+    dtype: type = np.int32,
+    seed: int | None = None,
     gpu_backend: Optional[str] = None,
 ) -> FriendGraph:
     """Build the friend graph for ``selected_vars`` over the discretized matrix.
@@ -594,7 +606,7 @@ def prune_by_friend_graph(graph: FriendGraph, selected_vars: Sequence[int], prot
 # Rendering (via the declarative reporting system)
 # ----------------------------------------------------------------------------
 
-def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature friend graph", edge_cmap: Optional[str] = None):
+def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature friend graph", edge_cmap: Optional[str] = None) -> FigureSpec:
     """Wrap a ``FriendGraph`` in a single-panel ``FigureSpec`` (``NetworkPanelSpec``)."""
     from mlframe.reporting.colors import FRIEND_GRAPH_EDGE_CMAP, friend_graph_node_color
     from mlframe.reporting.spec import FigureSpec, NetworkPanelSpec

@@ -97,6 +97,7 @@ def test_h_fh_05_reset_session_thread_safe() -> None:
     # Every captured session_id must be a non-empty 32-char hex; pre-fix
     # an interleaving could capture a half-rotated state and surface
     # None (the type stub) or a stale value.
+    assert len(results) == N * 50
     assert all(isinstance(s, str) and len(s) == 32 for s in results)
     # And the final session must be one of the ones we generated.
     assert fp_mod.current_session().session_id in set(results)

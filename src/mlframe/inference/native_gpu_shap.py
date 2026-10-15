@@ -37,6 +37,9 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def native_gpu_shap_available(model_stub: Any) -> bool:
@@ -45,7 +48,8 @@ def native_gpu_shap_available(model_stub: Any) -> bool:
         return False
     try:
         model_stub.get_booster()
-    except AttributeError:
+    except AttributeError as _exc:
+        logger.debug("native_gpu_shap_available fell back to its default after %s", type(_exc).__name__)
         return False
     device = str(getattr(model_stub, "device", None) or "").lower()
     return "cuda" in device or "gpu" in device

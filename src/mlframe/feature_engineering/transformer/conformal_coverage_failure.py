@@ -8,6 +8,8 @@ predicted α=0.2 conformal interval (binary). Emit fraction-covered + mean signe
 5 features.
 """
 from __future__ import annotations
+
+from typing import Any
 import logging
 import numpy as np
 import polars as pl
@@ -17,9 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def compute_conformal_coverage_failure_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    k_neighbors=20, alpha=0.2, standardize=True, column_prefix="ccf", dtype=np.float32,
-):
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
+    k_neighbors: int=20, alpha: float=0.2, standardize: bool=True, column_prefix: str="ccf", dtype: type=np.float32,
+) -> pl.DataFrame:
     """Split-conformal coverage-failure signal: for each query, how often (and in which direction) its K nearest
     calibration-half neighbours violated their own α-level conformal interval. Returns 5 columns:
     frac_covered, mean_signed_miscov, std_covered, n_uncovered, baseline_pred.
@@ -104,7 +106,7 @@ def compute_conformal_coverage_failure_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("conformal_coverage_failure: fold %d done", fold_idx + 1)

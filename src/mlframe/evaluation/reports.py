@@ -19,11 +19,12 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence, cast
 
 
 import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
 
 from sklearn.calibration import calibration_curve
 from mlframe._output_paths import ensure_parent_dir
@@ -84,7 +85,7 @@ def _install_report_warning_filters() -> None:
     install_filter_once(category=FutureWarning, module=r".*mlframe\.evaluation\.reports")
 
 
-def train_test_split_from_generator(gen: Any, X=None, y=None, groups=None):
+def train_test_split_from_generator(gen: Any, X: Any = None, y: Any = None, groups: Optional[np.ndarray] = None) -> tuple[np.ndarray, np.ndarray] | None:
     """Take the FIRST train/test split from a sklearn-style CV splitter's ``.split()`` generator (logs group overlap when ``groups`` is given)."""
     for train_indices, test_indices in gen.split(X=X, y=y, groups=groups):
         if groups is not None:
@@ -101,8 +102,10 @@ def train_test_split_from_generator(gen: Any, X=None, y=None, groups=None):
 
         return train_indices, test_indices
 
+    return None
 
-def get_predicted_classes(predictions: np.ndarray, thresholds: Optional[np.ndarray] = None):
+
+def get_predicted_classes(predictions: np.ndarray, thresholds: Optional[np.ndarray] = None) -> tuple[np.ndarray, np.ndarray]:
     """
     Turns scores predicted by regression into class labels, knowing thresholds used to encode labels.
 
@@ -123,7 +126,7 @@ def get_predicted_classes(predictions: np.ndarray, thresholds: Optional[np.ndarr
     return probs, preds
 
 
-def regression_stats(y_test, preds, fmt: str = "_.8f") -> str:
+def regression_stats(y_test: Any, preds: Any, fmt: str = "_.8f") -> str:
     """Format MAE/MSE/R2 as a single ``"metric: value, ..."`` string for compact logging."""
     mes = []
     for func in (fast_mean_absolute_error, fast_mean_squared_error, fast_r2_score):
@@ -133,10 +136,10 @@ def regression_stats(y_test, preds, fmt: str = "_.8f") -> str:
 
 
 def evaluate_estimators(
-    X_train,
-    X_test,
-    y_train=None,
-    y_test=None,
+    X_train: Any,
+    X_test: Any,
+    y_train: Any = None,
+    y_test: Any = None,
     estimators: Optional[list] = None,
     pre_pipeline: Optional[list] = None,
     val_size: float = 0.5,
@@ -159,18 +162,18 @@ def evaluate_estimators(
     show_calibration_plot: bool = True,
     use_sklearn_calibration: bool = False,
     calibration_nbins: int = 100,
-    dpi=100,
+    dpi: int = 100,
     results_log: Optional[dict] = None,
     target_wrapper: Optional[Callable] = None,
     caption: Optional[str] = None,
     figsize: tuple = (15, 5),
     competing_probs: Optional[list] = None,
-    stratify=None,
+    stratify: Any = None,
     plot: bool = True,
     init_model: object = None,
-    groups=None,
-    baseline_model=None,
-):
+    groups: Any = None,
+    baseline_model: Any = None,
+) -> tuple[Any, Optional[str], Optional[dict], Any]:
     """
     Fit a series of estimators to the same dataset, (and, possibly, same preprocessing pipeline)
     record & compare performances.
@@ -362,7 +365,10 @@ def _evaluate_estimator_block(val_size, est, X_test, y_test, shuffle, stratify, 
         if type(val_size) is float:
             X_test_test, X_test_val, y_test_test, y_test_val = train_test_split(X_test, y_test, test_size=val_size, shuffle=shuffle, stratify=stratify)
         else:
-            train_indices, test_indices = train_test_split_from_generator(gen=val_size, X=X_test, groups=groups)
+            _split = train_test_split_from_generator(gen=val_size, X=X_test, groups=groups)
+            if _split is None:
+                raise ValueError("val_size generator produced no train/test split")
+            train_indices, test_indices = _split
 
             X_test_test = X_test.iloc[train_indices, :]
             X_test_val = X_test.iloc[test_indices, :]
@@ -551,12 +557,12 @@ def evaluate_grouped(
     y_test: Any,
     by_column: str = "Вакансия_Должность",
     ntop: int = 100,
-    min_population=100,
+    min_population: int = 100,
     all_cats: Optional[dict] = None,
     count_col_name: str = "Откликов",
     precision_col_name: str = "Точность",
     recall_col_name: str = "Полнота",
-):
+) -> pd.DataFrame:
     """
     Показать точность обученной простой модели в разбивке по Должностям (job-recruiting-domain
     diagnostic; ``by_column`` defaults to a Russian column name for that original use case, but is
@@ -683,7 +689,7 @@ def plot_beautified_lift(
     alphas: Sequence[float] = (0.0, 0.01, 0.05, 0.1, 0.2),
     metric: str = "precision_at_top_decile",
     ax: Optional["plt.Axes"] = None,
-):
+) -> Figure:
     """Plot metric(preds_beautified, y) as a function of alpha mixing weight.
 
     Supported metrics: 'auroc', 'auprc', 'precision_at_top_decile', 'brier'.
@@ -718,7 +724,7 @@ def plot_beautified_lift(
     ax.set_xlabel("alpha (mixing weight toward truth)")
     ax.set_ylabel(metric)
     ax.set_title(f"Beautified-lift: {metric} vs alpha")
-    return fig
+    return cast(Figure, fig)
 
 
 def _decimate_curve_vertices(arrays: tuple, max_points: int = 2000) -> tuple:
@@ -738,7 +744,7 @@ def plot_pr_curve(
     save_as: Optional[str] = None,
     thresh: float = 0.5,
     ax: Optional["plt.Axes"] = None,
-):
+) -> Figure:
     """Dual PR + ROC on same axes with PR baseline and classification_report logged at thresh.
 
     Standalone axes-based shim (returns a Figure; no production suite caller). The canonical
@@ -805,7 +811,7 @@ def plot_pr_curve(
     except Exception as exc:  # best-effort: the classification-report log line is optional diagnostic output
         logger.warning("classification_report failed: %s", exc)
 
-    return fig
+    return cast(Figure, fig)
 
 
 def plot_roc_curve(
@@ -814,7 +820,7 @@ def plot_roc_curve(
     show_calibration: bool = False,
     save_as: Optional[str] = None,
     ax: Optional["plt.Axes"] = None,
-):
+) -> Figure:
     """Simple ROC + diagonal, calibration overlay optional. Returns Figure.
 
     Source: OldEnsembling.plot_roc (preferred over the Models.py duplicate
@@ -855,4 +861,4 @@ def plot_roc_curve(
     if save_as:
         fig.savefig(ensure_parent_dir(save_as), bbox_inches="tight")
 
-    return fig
+    return cast(Figure, fig)

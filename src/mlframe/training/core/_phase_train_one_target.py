@@ -72,7 +72,8 @@ def _is_regression_target_type(target_type: Any) -> bool:
     """
     try:
         from ..configs import TargetTypes
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_is_regression_target_type fell back to its default after %s", type(_exc).__name__)
         return False
     return bool(target_type == TargetTypes.REGRESSION)
 
@@ -556,17 +557,18 @@ def _canonical_dtype_pairs(train_df) -> tuple:
 
 def _store_dtype_pairs(train_df, _key: tuple, _result: tuple) -> None:
     """Insert one memo entry with its eviction weakref and trim to the cap; caller holds ``_DTYPE_PAIRS_MEMO_LOCK``."""
-    # lock-held-by-caller: the only call site is inside ``with _DTYPE_PAIRS_MEMO_LOCK``
-    _DTYPE_PAIRS_MEMO[_key] = _result
-    try:
-        _DTYPE_PAIRS_MEMO_WEAKREFS[_key] = _weakref.ref(train_df, _make_dtype_pairs_evictor(_key))
-    except TypeError:
-        # Some frame-like objects can't be weakref'd (rare). No eviction callback possible for this entry --
-        # the 32-slot LRU cap still bounds it, just without the proactive id-reuse guard.
-        pass
-    if len(_DTYPE_PAIRS_MEMO) > _DTYPE_PAIRS_MEMO_MAX:
-        _evicted_key, _ = _DTYPE_PAIRS_MEMO.popitem(last=False)
-        _DTYPE_PAIRS_MEMO_WEAKREFS.pop(_evicted_key, None)
+    # The only call site already holds the lock; the re-entrant acquire here makes this function safe on its own too.
+    with _DTYPE_PAIRS_MEMO_LOCK:
+        _DTYPE_PAIRS_MEMO[_key] = _result
+        try:
+            _DTYPE_PAIRS_MEMO_WEAKREFS[_key] = _weakref.ref(train_df, _make_dtype_pairs_evictor(_key))
+        except TypeError:
+            # Some frame-like objects can't be weakref'd (rare). No eviction callback possible for this entry --
+            # the 32-slot LRU cap still bounds it, just without the proactive id-reuse guard.
+            pass
+        if len(_DTYPE_PAIRS_MEMO) > _DTYPE_PAIRS_MEMO_MAX:
+            _evicted_key, _ = _DTYPE_PAIRS_MEMO.popitem(last=False)
+            _DTYPE_PAIRS_MEMO_WEAKREFS.pop(_evicted_key, None)
 
 
 def _canonical_dtype_pairs_compute(train_df) -> tuple:

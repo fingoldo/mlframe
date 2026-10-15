@@ -116,7 +116,7 @@ def _warm_up_numba_kernels() -> None:
     )
     y = pd.Series((df["a"] ** 2 / df["b"] + np.log(df["c"])) / (1.0 + np.sin(df["d"]) ** 2) + 0.3 * df["e"], name="y")
     try:
-        MRMR(verbose=0, random_seed=0, fe_max_steps=2, redundancy_policy="drop").fit(df, y)
+        MRMR(verbose=0, random_state=0, fe_max_steps=2, redundancy_policy="drop").fit(df, y)
     except Exception:
         pass
 

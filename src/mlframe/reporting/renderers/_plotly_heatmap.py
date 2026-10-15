@@ -28,6 +28,9 @@ from mlframe.reporting.spec import ConfusionMarginsPanelSpec, HeatmapPanelSpec
 from mlframe.reporting.colors import CONFUSION_COL_MARGIN, CONFUSION_ROW_MARGIN, TREND_LINE, resolve_heatmap_cmap
 from ._plotly_color import _mpl_to_plotly_cmap
 from ._shared_helpers import _HEATMAP_CELL_TEXT_MAX, PX_PER_INCH, _finite_range, _thin_tick_positions, rotated_tick_pitch_in, ticks_that_fit, truncate_bar_label
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Share of the subplot cell each marginal strip takes, and the gap between a strip and the grid it annotates.
 _MARGIN_STRIP_FRAC = 0.18
@@ -52,7 +55,8 @@ def _cell_domains(fig, row: int, col: int):
         axis_pair = grid[row - 1][col - 1][0]
         x_name, y_name = axis_pair.layout_keys[0], axis_pair.layout_keys[1]
         x_dom, y_dom = fig.layout[x_name].domain, fig.layout[y_name].domain
-    except (IndexError, KeyError, AttributeError, TypeError):
+    except (IndexError, KeyError, AttributeError, TypeError) as _exc:
+        logger.debug("_cell_domains fell back to its default after %s", type(_exc).__name__)
         return None
     if not x_dom or not y_dom:
         return None
@@ -192,7 +196,8 @@ def _colorbar_placement(fig, row: int, col: int, label) -> dict:
         y_name = axis_pair.layout_keys[1]
         x_dom = fig.layout[x_name].domain
         y_dom = fig.layout[y_name].domain
-    except (IndexError, KeyError, AttributeError, TypeError):
+    except (IndexError, KeyError, AttributeError, TypeError) as _exc:
+        logger.debug("_colorbar_placement fell back to its default after %s", type(_exc).__name__)
         return placement
     if not x_dom or not y_dom:
         return placement

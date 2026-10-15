@@ -91,14 +91,9 @@ def test_mrmr_single_feature_X_returns_that_feature():
     X = pd.DataFrame({"only": signal})
     y = (signal > 0).astype(int)
     mrmr = _fast_mrmr(min_features_fallback=1)
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            mrmr.fit(X, y)
-    except ValueError as exc:
-        # Some screening configs reject p=1 because the redundancy term needs
-        # pairs; tolerated only if the message says so explicitly.
-        pytest.skip(f"selector requires >=2 features: {exc}")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mrmr.fit(X, y)
 
     assert mrmr.n_features_in_ == 1
     # Exactly one RAW input feature is selected, and it is "only". ``support_``

@@ -275,9 +275,11 @@ class TestPickleRoundTrip:
         """
         _X, _y, sel = _default_fit()
         # Default flip means DCD is ON; ``dcd_`` is populated.
-        assert sel.dcd_ is not None
+        assert "n_anchors" in sel.dcd_, f"dcd_ summary lacks the anchor count; keys={sorted(sel.dcd_)}"
         sel2 = pickle.loads(pickle.dumps(sel))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert sel2.dcd_ is not None, "pickle round-trip dropped dcd_ summary"
+        assert set(sel2.dcd_) == set(sel.dcd_), "pickle round-trip changed the dcd_ key set"
+        assert sel2.dcd_["cluster_anchors"] == sel.dcd_["cluster_anchors"]
         # Top-level scalar fields must match (lists/dicts compare value-equal).
         for key in ("n_anchors", "n_pruned", "n_swaps"):
             assert sel.dcd_[key] == sel2.dcd_[key], f"dcd_['{key}'] changed across pickle: before={sel.dcd_[key]} after={sel2.dcd_[key]}"

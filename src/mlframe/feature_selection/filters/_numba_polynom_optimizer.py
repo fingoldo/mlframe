@@ -65,7 +65,7 @@ from mlframe.feature_selection.filters.hermite_fe.shared import (
     chebval_njit as _chebval_njit,
     lagval_njit as _lagval_njit,
 )
-from ._hermite_fe_mi import _plugin_mi_classif_njit, _plugin_mi_regression_njit
+from ._numba_utils import _plugin_mi_classif_njit, _plugin_mi_regression_njit
 from mlframe.feature_selection.filters.hermite_fe.shared import (
     plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit, plugin_mi_regression_batch_njit as _plugin_mi_regression_batch_njit,
 )

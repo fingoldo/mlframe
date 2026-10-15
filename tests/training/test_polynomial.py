@@ -67,6 +67,9 @@ def test_polynomial_decrements_degree_when_interaction_only_not_enough(caplog) -
     with caplog.at_level(logging.WARNING, logger="mlframe.training.pipeline"):
         out = apply_preprocessing_extensions(df, None, None, cfg, verbose=0)
     assert out is not None
+    assert any(
+        "decrementing degree -> 1" in rec.message for rec in caplog.records
+    ), f"expected the degree 2 -> 1 decrement WARN; got: {[r.message for r in caplog.records]}"
 
 
 def test_polynomial_skips_entirely_when_even_degree_1_too_big(caplog) -> None:

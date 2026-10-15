@@ -61,7 +61,7 @@ class Query_Gen_transformer(nn.Module):
         return attention
 
 
-def PositionalEmbedding(input):  # - vendored third-party code, matches upstream naming
+def PositionalEmbedding(input: torch.Tensor) -> torch.Tensor:  # - vendored third-party code, matches upstream naming
     """Add standard sinusoidal (Transformer-style) positional encodings to ``input``, treating the batch dimension as the sequence position."""
     input = input.squeeze()
     batch_size = input.shape[0]

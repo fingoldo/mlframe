@@ -336,7 +336,7 @@ def _ent_from_counts(c, inv_n: float):
         h_k = cp.asnumpy(out)
         return float(-h_k[0]), round(h_k[1])
     except Exception as e:
-        logger.debug("fused entropy-nnz kernel failed, falling back to the reduction kernel path: %s", e)
+        logger.warning("fused entropy-nnz kernel failed, falling back to the reduction kernel path: %s", e)
         if _ENT_RK is None:
             _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",
                                          "c > 0 ? (c * inv_n) * log(c * inv_n) : 0.0", "a + b", "h = -a", "0.0", "mrmr_ent_rk")
@@ -750,7 +750,7 @@ def greedy_cmi_fe_construct(
             from ._fe_resident_operands import resident_code_operand as _resident_code_operand
             st.y_bin_dev = _resident_code_operand(y_bin, "cmi_greedy_y_fixed")
         except Exception as e:
-            logger.debug("resident_code_operand for y_bin failed, falling back to the per-call upload path: %s", e)
+            logger.warning("resident_code_operand for y_bin failed, falling back to the per-call upload path: %s", e)
             st.y_bin_dev = None
     z_joint: Optional[np.ndarray] = None
     z_joint_dev = None  # resident twin of z_joint, maintained alongside it once cand_bins_dev is available

@@ -326,7 +326,7 @@ def test_default_on_and_pickle_roundtrip():
         }
     )
     y = pd.Series((x_sig + 0.3 * rng.standard_normal(n) > 0).astype(int))
-    fs = MRMR(verbose=0, random_seed=0, fe_max_steps=0)
+    fs = MRMR(verbose=0, random_state=0, fe_max_steps=0)
     fs.fit(X, y)
     # Default-ON: the attribute is populated (a DataFrame) after every fit, no opt-in.
     assert isinstance(fs.fe_rejection_ledger_, pd.DataFrame)

@@ -27,6 +27,9 @@ the load-bearing sensor -- weights-not-None must appear iff the flag is True.
 
 from __future__ import annotations
 
+import hashlib
+from collections import Counter
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -149,7 +152,8 @@ def _install_mrmr_fit_spy(monkeypatch):
                     selected = [c for c, k in zip(cols, sup) if k]
             except Exception:
                 selected = None
-        records.append({"sw_not_none": sample_weight is not None, "selected": selected})
+        y_arr = np.asarray(y, dtype=np.float64)
+        records.append({"sw_not_none": sample_weight is not None, "selected": selected, "target": hashlib.blake2b(y_arr.tobytes(), digest_size=8).hexdigest()})
         return result
 
     monkeypatch.setattr(MRMR, "fit", spy_fit, raising=True)
@@ -288,6 +292,7 @@ class TestWeightAwareFeatureSelectionSuite:
 
         # Mechanism contrast: weights reach the selector only under the flag. flag=False side is a hard pin (weights
         # must NOT leak); flag=True side is the correct behaviour the marker-stripping clone broke.
+        assert off_sw_flags, "the flag-off run must record at least one MRMR fit"
         assert all(not f for f in off_sw_flags)
         assert any(r["sw_not_none"] for r in records_on), "use_sample_weights_in_fs=True but sample_weight never reached MRMR.fit"
 
@@ -317,10 +322,10 @@ class TestWeightAwareFeatureSelectionSuite:
         # Weight-blind FS across both schemas: the cache collapses to one fit per target. A second fit would mean
         # the FS-cache key spuriously folds the weight schema even though weights are FS-blind here.
         assert all(not r["sw_not_none"] for r in records)
-        n_fits = len(records)
-        assert n_fits == 1, (
-            f"use_sample_weights_in_fs=False ran MRMR.fit {n_fits} times for one target across 2 weight schemas; "
-            "the FS-cache reuse invariant expects exactly 1 (the second schema must hit the cache)"
+        fits_per_target = Counter(r["target"] for r in records)
+        assert fits_per_target and all(n == 1 for n in fits_per_target.values()), (
+            f"use_sample_weights_in_fs=False ran MRMR.fit {sorted(fits_per_target.values())} times per target across 2 weight schemas; "
+            "the FS-cache reuse invariant expects exactly 1 per target (the second schema must hit the cache)"
         )
 
 

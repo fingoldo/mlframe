@@ -372,7 +372,7 @@ def test_screen_expected_gains_uses_lexsort() -> None:
     picked = {}
     for label, frame in frames.items():
         MRMR._FIT_CACHE.clear()
-        selector = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=1, verbose=0, random_seed=7)
+        selector = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=1, verbose=0, random_state=7)
         selector.fit(frame, y)
         picked[label] = sorted(frame.columns[np.asarray(selector.support_)])
         MRMR._FIT_CACHE.clear()

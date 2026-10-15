@@ -88,7 +88,7 @@ from mlframe.preprocessing.cleaning_helpers import map_elementwise_dedup
 from ._cleaning_kernels import _get_count_distinct_njit
 
 
-def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = None, use_quantile: float = 0.01):
+def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = None, use_quantile: float = 0.01) -> np.ndarray:
     """Returns indices of 1d data array that are non-outlying"""
 
     if use_quantile > 0.5:
@@ -129,7 +129,7 @@ def suggest_non_outlying_data_indices(values: np.ndarray, var: Optional[str] = N
             f"{np.nanmax(values[idx]):_.2f}",
         )
 
-    return idx
+    return np.asarray(idx)
 
 # Above this frame byte-size the defragmenting ``df.copy()`` would double peak RAM
 # (a 100+ GB prod frame OOMs the host); skip the copy and keep working on the original.
@@ -182,8 +182,8 @@ def analyse_and_clean_features(
     clean_nonnumeric_rarevals: bool = True,
     exclude_columns: tuple = (),
     exclude_mask: Optional[str] = None,
-    default_na_val=np.nan,
-    default_float_type=np.float32,
+    default_na_val: Any = np.nan,
+    default_float_type: type = np.float32,
     verbose: bool = True,
     cont_use_quantile: float = 0.1,
     cont_max_scarceness: int = 10,
@@ -303,7 +303,7 @@ def analyse_and_clean_features(
     )
 
 
-def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_data: bool = False):
+def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_data: bool = False) -> pd.DataFrame:
     """Apply learned features cleaning (learned replacements + dropping known-constant columns) and RETURN the result.
 
     By default (``update_data=False``) the caller's ``df`` is NOT modified -- the replacements/drops are composed into a
@@ -480,7 +480,7 @@ def is_variable_truly_continuous(
     var_is_datetime: Optional[bool] = None,
     var_is_numeric: Optional[bool] = None,
     verbose: bool = False,
-):
+) -> tuple[bool, float]:
     """Measures evidence that a variable with numeric type is continuous, given its span and number of unique values.
 
     mb float32 vars without fractional part, with big span and nunique<1000 must be categorical (nominal or ordinal-remapped)?

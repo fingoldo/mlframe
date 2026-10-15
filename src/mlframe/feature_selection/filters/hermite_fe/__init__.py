@@ -37,6 +37,7 @@ from typing import Any, Callable, cast
 
 import numpy as np
 
+from mlframe.feature_selection.filters._numba_utils import _quantile_bin_njit
 from mlframe.feature_selection.filters._safe_scale import _REL_TOL, guarded_scale
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -69,44 +70,6 @@ except ImportError:
 # * Quantile binning is rank-stable - same as KSG's underlying permutation invariance.
 # A separate "mi_estimator='ksg'" path keeps sklearn KSG as the reference; both paths reach equivalent best
 # coefficients on the 12-regime sweep.
-
-
-@njit(cache=True, fastmath=True)
-def _quantile_bin_njit(x: np.ndarray, n_bins: int) -> np.ndarray:
-    """Quantile-bin a 1-D continuous array into n_bins equi-frequency bins. Returns int32 bin indices in [0, n_bins).
-
-    bench-attempt-rejected: kth-order-statistic edges via numba np.partition + searchsorted (the CPU analogue
-    of the GPU radix-edge binner) measured 2.6x SLOWER than this argsort form (99401: 17.8ms vs 46.5ms) -
-    numba's np.partition re-copies the array per edge, and no multi-kth variant exists. argsort stays optimal
-    (third measured rejection at this site; see also the two in _plugin_mi_classif_batch_njit).
-
-    ``kind="mergesort"`` (2026-07-16, cProfile/cross-backend-parity investigation): numba's default argsort
-    (quicksort family) is NOT stable, so on tie-heavy columns (e.g. an integer combiner with many exact
-    duplicate values) its tie order is an unspecified implementation detail - and it does NOT match cupy's
-    ``cp.argsort`` (verified stable, matches ``np.argsort(..., kind="stable")`` bit-for-bit). Every GPU rank-
-    binning path in this codebase (``_gpu_resident_rank_bin.rank_bin_codes_batch_gpu_resident`` et al.) is
-    documented as "byte-identical to this CPU njit rank binner" - a contract that silently broke on tied
-    data (found via test_sf2_combiner_baseline_and_residue_mi_byte_identical: ~6%% MI divergence on a
-    -999..999 integer combiner, n=50000, traced to exactly this tie-order mismatch). Mergesort is numba's
-    stable-sort kind (verified bit-identical to ``np.argsort(kind="stable")``, which cupy's argsort already
-    matches), so this is the ROOT fix, not a narrower patch on one caller - every GPU-vs-CPU rank-binning
-    byte-identity claim in the codebase now actually holds instead of only holding on tie-free data.
-    Measured cost: 0.93x-1.22x vs the old (arbitrary-tie-order) quicksort default across n in
-    {5k,20k,99k,500k} on continuous AND tie-heavy synthetic columns - within noise to a modest ~20%% on this
-    one sort step, accepted for a correctness fix (this function was never a documented-arbitrary-tie-order
-    contract; nothing should have depended on quicksort's specific, unspecified tie behaviour)."""
-    n = x.shape[0]
-    sort_idx = np.argsort(x, kind="mergesort")
-    out = np.empty(n, dtype=np.int32)
-    pos = 0
-    base = n // n_bins
-    rem = n % n_bins
-    for b in range(n_bins):
-        size = base + (1 if b < rem else 0)
-        for _ in range(size):
-            out[sort_idx[pos]] = b
-            pos += 1
-    return out
 
 
 @njit(cache=True, fastmath=True, parallel=True)
@@ -308,7 +271,7 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
     try:
         from .._fe_gpu_vram import fe_gpu_has_vram_cushion as _cushion
     except ImportError as e:
-        logger.debug("fe_gpu_has_vram_cushion import failed: %s", e)
+        logger.warning("fe_gpu_has_vram_cushion import failed: %s", e)
         _cushion = None
     fits = []
     for d in range(ndev):
@@ -668,7 +631,7 @@ def _apply_minmax(x, params):
         try:
             choice = _MINMAX_PARALLELISM_SPEC.choose(n=int(xf.shape[0]))
         except Exception as e:
-            logger.debug("hermite_minmax_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+            logger.warning("hermite_minmax_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
             choice = _minmax_fallback_choice(int(xf.shape[0]))
         fn = _apply_minmax_njit if choice == "parallel" else _apply_minmax_njit_serial
         return fn(xf, float(params["lo"]), float(span), clip is not None, float(clip) if clip is not None else 0.0)
@@ -948,7 +911,7 @@ from .._hermite_fe_optimise import (
     optimise_pair_multimode,
 )
 from .._hermite_fe_mi import (
-    _bind_parent_kernels, _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch,
+    _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch,
     # plugin_mi_classif_dispatch: re-exported public API, consumed via `from mlframe...hermite_fe import
     # plugin_mi_classif_dispatch` by tests/feature_selection/gpu/test_plugin_mi_classif_dispatch.py and
     # tests/feature_selection/gpu/test_ktc_dispatch_no_sweep_on_default.py -- code_audit's dead-import scan
@@ -959,7 +922,3 @@ from .._hermite_fe_mi import (
     # code_audit's dead-import scan only covers src/, so it can't see that consumer and flags this as unused.
     plugin_mi_classif_fast,
 )
-
-# Parent is now fully initialised (``_quantile_bin_njit`` bound at line 77); bind it into the sibling so a
-# subsequent sibling-first import in another process still finds the njit global (see _hermite_fe_mi header).
-_bind_parent_kernels()

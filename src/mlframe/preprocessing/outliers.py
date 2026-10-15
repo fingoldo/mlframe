@@ -44,7 +44,7 @@ def reject_outliers(
     y: Any,
     model: Optional[Any] = None,
     verbose: bool = True,
-):
+) -> tuple[Any, Any]:
     """Function used to resample the dataset by dropping the outliers. Should be a part of imblearn Pipeline:
 
     from imblearn import FunctionSampler
@@ -93,7 +93,7 @@ except ImportError:
     from mlframe._numba_fallback import njit
 
 
-def compute_outlier_detector_score(detector, X) -> np.ndarray:
+def compute_outlier_detector_score(detector: Any, X: Any) -> np.ndarray:
     """Map sklearn anomaly-detector .predict output (+1/-1) to binary 0/1 score.
 
     NaN-safe: replaces NaNs in result with 0 (inlier-by-default).

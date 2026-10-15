@@ -37,9 +37,11 @@ import hashlib
 import logging
 import threading
 from collections import OrderedDict
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
+
+from mlframe._numerical_floors import VARIANCE_FLOOR
 from mlframe._array_buffer import array_buffer
 
 logger = logging.getLogger(__name__)
@@ -101,7 +103,7 @@ _BORDERLINE_BAND: float = 1e-9
 
 # Variance floor below which a column is "constant on the joint support" -> no
 # correlation (kept). Matches the numpy reference exactly.
-_VAR_FLOOR: float = 1e-24
+_VAR_FLOOR = VARIANCE_FLOOR
 
 
 if _HAS_NUMBA:
@@ -295,7 +297,7 @@ def near_collinear_keep_mask_fast(
     feature_matrix: np.ndarray,
     *,
     corr_threshold: float,
-    reference_fn,
+    reference_fn: Callable[..., Any],
 ) -> np.ndarray:
     """Size-aware dispatcher for the near-collinear keep-mask walk.
 
@@ -326,39 +328,36 @@ def near_collinear_keep_mask_fast(
     # Content-keyed cache hit -> a byte-identical matrix already produced this exact
     # mask; return a copy so the caller can mutate freely without corrupting the entry.
     _ck = _keep_mask_cache_key(fm, thr)
-    if _ck is not None:
-        # Same lock the write/evict path (popitem + __setitem__) uses below: an OrderedDict's
-        # move_to_end() mutates its internal linked list, so reading it unlocked while another
-        # thread's fit() call is mid-write/evict risks a KeyError or a corrupted LRU order.
-        with _KEEP_MASK_CACHE_LOCK:
+    with _KEEP_MASK_CACHE_LOCK:
+        # The lookup, compute and store share one lock block: a concurrent fit() must not interleave between them.
+        if _ck is not None:
             _hit = _KEEP_MASK_CACHE.get(_ck)
             if _hit is not None:
                 _KEEP_MASK_CACHE.move_to_end(_ck)
                 return np.asarray(_hit.copy())
-    finite = np.isfinite(fm)
-    # All-finite fast path (the common case after the leakage filter): precompute
-    # per-column mean+ssq once, then each kept pair costs ONE cross-term pass over
-    # n instead of the two-pass per-pair mean/variance recompute. Borderline pairs
-    # are still re-decided exactly below, so the mask is bit-identical either way.
-    if finite.all():
-        mean, var = _column_stats_allfinite(fm)
-        keep_i8, borderline_i8 = _keep_mask_kernel_allfinite(fm, mean, var, thr, _BORDERLINE_BAND)
-    else:
-        keep_i8, borderline_i8 = _keep_mask_kernel(fm, finite, thr, _BORDERLINE_BAND)
-    keep = keep_i8.astype(bool)
-    if borderline_i8.any():
-        # Replay the left-to-right walk, re-deciding only the borderline columns with
-        # the exact numpy primitives. The kept set is rebuilt in column order so a
-        # re-decided KEEP can correctly shadow a later borderline column too.
-        kept_idx: list[int] = []
-        for j in range(n_cols):
-            if borderline_i8[j]:
-                dropped = _recheck_column_exact(fm, finite, j, kept_idx, thr)
-                keep[j] = not dropped
-            if keep[j]:
-                kept_idx.append(j)
-    if _ck is not None:
-        with _KEEP_MASK_CACHE_LOCK:
+        finite = np.isfinite(fm)
+        # All-finite fast path (the common case after the leakage filter): precompute
+        # per-column mean+ssq once, then each kept pair costs ONE cross-term pass over
+        # n instead of the two-pass per-pair mean/variance recompute. Borderline pairs
+        # are still re-decided exactly below, so the mask is bit-identical either way.
+        if finite.all():
+            mean, var = _column_stats_allfinite(fm)
+            keep_i8, borderline_i8 = _keep_mask_kernel_allfinite(fm, mean, var, thr, _BORDERLINE_BAND)
+        else:
+            keep_i8, borderline_i8 = _keep_mask_kernel(fm, finite, thr, _BORDERLINE_BAND)
+        keep = keep_i8.astype(bool)
+        if borderline_i8.any():
+            # Replay the left-to-right walk, re-deciding only the borderline columns with
+            # the exact numpy primitives. The kept set is rebuilt in column order so a
+            # re-decided KEEP can correctly shadow a later borderline column too.
+            kept_idx: list[int] = []
+            for j in range(n_cols):
+                if borderline_i8[j]:
+                    dropped = _recheck_column_exact(fm, finite, j, kept_idx, thr)
+                    keep[j] = not dropped
+                if keep[j]:
+                    kept_idx.append(j)
+        if _ck is not None:
             if len(_KEEP_MASK_CACHE) >= _KEEP_MASK_CACHE_MAX_ENTRIES:
                 # evict-ok: memo; a miss recomputes the value
                 _KEEP_MASK_CACHE.popitem(last=False)

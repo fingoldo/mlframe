@@ -233,7 +233,8 @@ def _binary_column_replacement_value(real_val: Any, col_is_numeric: bool, col_is
     # to a distinguishing string sentinel (mirrors the str branch's "not X" naming).
     try:
         return -real_val
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_binary_column_replacement_value fell back to its default after %s", type(_exc).__name__)
         return f"not {real_val}"
 
 

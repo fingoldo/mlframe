@@ -21,6 +21,8 @@ Contents:
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import re
 
@@ -176,9 +178,9 @@ def extreme_ar_skip_decision(
     model_name: str,
     target_name: str,
     *,
-    skip_models,
+    skip_models: Any,
     skip_enabled: bool,
-    lag1_autocorr_per_group,
+    lag1_autocorr_per_group: Any,
     group_aware: bool,
     threshold: float = 0.99,
     composite_names: "frozenset[str] | None" = None,

@@ -191,7 +191,7 @@ def drop_redundant_raw_operands(
     engineered_continuous: Optional[dict] = None,
     replayable_eng_names: Optional[set] = None,
     recipes: Optional[dict] = None,
-    raw_X=None,
+    raw_X: Any = None,
     retain_frac: float = DEFAULT_RAW_RETAIN_FRAC,
     floor_margin_mult: float = 1.0,
     linear_usability_keep: bool = False,
@@ -283,7 +283,7 @@ def drop_redundant_raw_operands(
 
             st._gate_resident = bool(fe_gpu_strict_resident_enabled()) and bool(_cmi_gpu_enabled(n=st.n_rows, p=len(st.sel)))
         except Exception as e:
-            logger.debug("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
+            logger.warning("fe_gpu_strict_resident_enabled/_cmi_gpu_enabled check failed, defaulting to non-resident: %s", e)
             st._gate_resident = False
 
     from ._fe_raw_redundancy_anchors import build_raw_redundancy_anchors
@@ -368,7 +368,7 @@ def drop_redundant_raw_operands(
 
         st._gmi_payload = get_group_mi()
     except Exception as e:
-        logger.debug("get_group_mi() failed: %s", e)
+        logger.warning("get_group_mi() failed: %s", e)
         st._gmi_payload = None
     _drop_redundant_raw_o_step2_st_gmi_payload(st, y_binned, cols, data, verbose)
 

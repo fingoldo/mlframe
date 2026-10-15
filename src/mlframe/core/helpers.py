@@ -90,7 +90,7 @@ def derive_seed(master_seed: int, key: str) -> int:
     return int.from_bytes(h, "big") % (2**31 - 1)
 
 
-def MakeSureBlasAndLaPackAreInstalled():
+def MakeSureBlasAndLaPackAreInstalled() -> None:
     """Print numpy's detected BLAS/LAPACK backend info (interactive diagnostic to confirm numpy is linked against an optimized linear-algebra library rather than the slow reference implementation)."""
     from numpy.distutils.system_info import get_info
 
@@ -98,7 +98,7 @@ def MakeSureBlasAndLaPackAreInstalled():
     print(get_info("lapack_opt"))  # noqa: T201
 
 
-def ListAllSkLearnClassifiers():
+def ListAllSkLearnClassifiers() -> None:
     """Print module path + name of every registered sklearn estimator whose name contains "Class" (interactive discovery helper for classifier-family estimators)."""
     from sklearn.utils.testing import all_estimators
 
@@ -299,7 +299,7 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
     return df
 
 
-def show_sys_ram_usage():
+def show_sys_ram_usage() -> None:
     """Print total/available/used/free system RAM (GB) and used-percentage via ``psutil.virtual_memory`` (interactive diagnostic for spotting OOM risk before a large fit)."""
 
     mem = psutil.virtual_memory()

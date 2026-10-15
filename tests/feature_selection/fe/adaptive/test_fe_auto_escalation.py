@@ -59,7 +59,7 @@ def test_biz_val_escalation_recovers_inner_frequency_pair_and_replays():
 
     X, df, rng = _frame(5000, 6, 42)
     y = np.sin(3.7 * X[:, 0]) * X[:, 1] + 0.1 * rng.normal(size=len(X))
-    sel = MRMR(verbose=0, random_seed=42)
+    sel = MRMR(verbose=0, random_state=42)
     sel.fit(df, pd.Series(y, name="y"))
 
     # ``_engineered_recipes_`` is a LIST of EngineeredRecipe (selected ones only).
@@ -98,7 +98,7 @@ def test_escalation_silent_when_library_capture_is_exact():
 
     X, df, rng = _frame(5000, 6, 7)
     y = X[:, 0] * X[:, 1] + 0.1 * rng.normal(size=len(X))
-    sel = MRMR(verbose=0, random_seed=7)
+    sel = MRMR(verbose=0, random_state=7)
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any(("x0" in nm and "x1" in nm) for nm in recipes), f"the exact library capture should be admitted+selected: {list(recipes)}"
@@ -131,7 +131,7 @@ def test_biz_val_escalation_skips_complete_he3_capture():
 
     X, df, rng = _frame(5000, 6, 42)
     y = (X[:, 0] ** 3 - 3 * X[:, 0]) * X[:, 1] + 0.1 * rng.normal(size=len(X))
-    sel = MRMR(verbose=0, random_seed=42)
+    sel = MRMR(verbose=0, random_state=42)
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any("prewarp(x0)" in nm for nm in recipes), f"default prewarp should stay: {list(recipes)}"
@@ -190,7 +190,7 @@ def test_escalation_noise_control_zero_admissions():
         X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"x{i}" for i in range(p)])
         y_cont = rng.normal(size=n)  # independent of X
         classes_y = discretize_array(arr=y_cont, n_bins=10, method="quantile", dtype=np.int32)
-        sel = MRMR(verbose=0, random_seed=seed)
+        sel = MRMR(verbose=0, random_state=seed)
         sel.feature_names_in_ = list(X.columns)
         rk = np.argsort(np.argsort(y_cont, kind="stable"), kind="stable").astype(np.float64)
         sel._fe_escalation_y_rank_ = rk / (n - 1)
@@ -228,7 +228,7 @@ def test_escalation_high_mi_pair_not_starved_by_many_rescue_pairs():
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"x{i}" for i in range(p)])
     y_cont = rng.normal(size=n)
     classes_y = discretize_array(arr=y_cont, n_bins=10, method="quantile", dtype=np.int32)
-    sel = MRMR(verbose=0, random_seed=0)
+    sel = MRMR(verbose=0, random_state=0)
     sel.feature_names_in_ = list(X.columns)
     sel.fe_escalation_max_pairs = 8
 
@@ -334,7 +334,7 @@ def test_escalation_poly_proposer_recovers_smooth_product_term():
     y = 0.2 * a**2 / b + f / 5 + np.log(c * 2) * np.sin(d / 3)
     X = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "f": f})
     classes_y = discretize_array(arr=y, n_bins=10, method="quantile", dtype=np.int32)
-    sel = MRMR(verbose=0, random_seed=42)
+    sel = MRMR(verbose=0, random_state=42)
     sel.feature_names_in_ = list(X.columns)
     rk = np.argsort(np.argsort(y, kind="stable"), kind="stable").astype(np.float64)
     sel._fe_escalation_y_rank_ = rk / (n - 1)
@@ -376,7 +376,7 @@ def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
     e = rng.normal(size=n)
     y = 0.2 * a**2 / b + 0.1 * rng.normal(size=n)  # heavy-tailed via 1/b
     df = pd.DataFrame({"a": a, "b": b, "e": e})
-    sel = MRMR(verbose=1, random_seed=42)
+    sel = MRMR(verbose=1, random_state=42)
     with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters.mrmr"):
         sel.fit(df, pd.Series(y, name="y"))
     assert any(

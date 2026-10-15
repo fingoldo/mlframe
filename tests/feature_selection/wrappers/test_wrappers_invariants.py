@@ -37,8 +37,6 @@ from mlframe.feature_selection.wrappers import (
 
 from tests.feature_selection.conftest import fast_subset
 
-from tests.conftest import perf_time_budget
-
 
 # Common minimal RFECV factory: fast, deterministic, log-quiet.
 def _make_rfecv(**overrides):
@@ -432,21 +430,34 @@ class TestSelectFeaturesFdrEdgeCases:
         ref = self._select_features_fdr_reference_o_n2(W, q=q)
         assert got == ref, f"seed={seed} q={q}: vectorized selection diverged from the O(p^2) reference"
 
-    def test_select_features_fdr_p5000_is_fast(self):
-        """Perf regression: the documented pre-fix cost was 6.41s at p=5000 (an O(p^2) scan), directly
-        contradicting rfecv/_validate.py's own p>=5000 warning that recommends this exact function for
-        sub-second selection at this scale. Bound set comfortably below the pre-fix cost and above
-        realistic post-fix time."""
-        import time
+    def test_select_features_fdr_scans_w_a_constant_number_of_times(self):
+        """Complexity regression: the pre-fix O(p^2) implementation re-scanned W.values() once per candidate threshold.
+        The vectorized version reads W a fixed number of times regardless of p, and must return the same selection
+        as a plain dict over the same statistics."""
+
+        class _CountingDict(dict):
+            """Stand-in dict that counts how often each accessor is used."""
+            passes = 0
+
+            def values(self):
+                """Count the access and defer to the dict method."""
+                type(self).passes += 1
+                return super().values()
+
+            def items(self):
+                """Count the access and defer to the dict method."""
+                type(self).passes += 1
+                return super().items()
 
         rng = np.random.default_rng(7)
         n = 5000
         vals = rng.normal(scale=1.0, size=n)
         vals[: n // 10] = rng.choice([0.5, -0.5, 1.0, -1.0], size=n // 10)  # duplicate |W| values
-        W = {f"f{i}": float(v) for i, v in enumerate(vals)}
+        plain = {f"f{i}": float(v) for i, v in enumerate(vals)}
 
-        t0 = time.perf_counter()
-        select_features_fdr(W, q=0.1)
-        elapsed = time.perf_counter() - t0
+        counted = _CountingDict(plain)
+        _CountingDict.passes = 0
+        got = select_features_fdr(counted, q=0.1)
 
-        assert elapsed < perf_time_budget(1.5), f"select_features_fdr at p={n} took {elapsed:.3f}s -- expected sub-second (pre-fix O(p^2) measured ~6.4s)"
+        assert _CountingDict.passes <= 3
+        assert got == select_features_fdr(plain, q=0.1)

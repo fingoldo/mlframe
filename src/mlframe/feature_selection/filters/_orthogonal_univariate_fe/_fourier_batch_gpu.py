@@ -12,19 +12,17 @@ A column whose cubic detrend or deflation system is singular is handled by the s
 from __future__ import annotations
 
 import logging
-import threading
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 
+from .._gpu_raw_module import LazyRawModule
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["detect_fourier_freqs_batch_gpu"]
 
-_LOCK = threading.Lock()
-_MODULE: Optional[Any] = None
 _THREADS = 256
 _MIN_STD = 1e-9
 _MIN_Y_SS = 1e-24
@@ -151,13 +149,7 @@ __global__ void apply_deflate_b(const double* Z, const double* Y, const double* 
 """
 
 
-def _module(cp: Any) -> Any:
-    """Compile the kernels once."""
-    global _MODULE
-    with _LOCK:
-        if _MODULE is None:
-            _MODULE = cp.RawModule(code=_SRC, options=("-std=c++14",))
-        return _MODULE
+_KERNEL = LazyRawModule(_SRC, ("-std=c++14",))
 
 
 def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
@@ -165,7 +157,7 @@ def _power(cp: Any, Z: Any, YC: Any, freqs: Any, nfreq: Any, y_ss: Any) -> Any:
     C, n = int(Z.shape[0]), int(Z.shape[1])
     F = int(freqs.shape[1])
     out = cp.empty((C, F), dtype=cp.float64)
-    _module(cp).get_function("periodogram_power_b")((F, C), (_THREADS,), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
+    _KERNEL.get(cp).get_function("periodogram_power_b")((F, C), (_THREADS,), (Z, YC, freqs, nfreq, y_ss, out, cp.int64(n), cp.int32(F)))
     return out
 
 
@@ -173,7 +165,7 @@ def _deflate(cp: Any, Z: Any, Y: Any, fvec: Any, active: Any) -> "tuple[Any, np.
     """Deflate ``[1, sin, cos]`` at ``fvec[c]`` out of every ACTIVE column; returns the new block and the host mask of columns whose 3x3 system was singular (their rows hold NaN)."""
     C, n = int(Z.shape[0]), int(Z.shape[1])
     blocks = max(1, min(64, (n + _THREADS - 1) // _THREADS))
-    mod = _module(cp)
+    mod = _KERNEL.get(cp)
     part = cp.empty((C * blocks, 9), dtype=cp.float64)
     coef = cp.empty((C, 3), dtype=cp.float64)
     out = cp.empty((C, n), dtype=cp.float64)
@@ -225,7 +217,8 @@ def _run_group(
     try:
         VtT = Vt.transpose(0, 2, 1)
         coef = cp.linalg.solve(VtT @ Vt, VtT @ yt[:, :, None])
-    except np.linalg.LinAlgError:
+    except np.linalg.LinAlgError as _exc:
+        logger.warning("_run_group fell back to its default after %s", type(_exc).__name__)
         return [single(k) for k in range(C)]
     yt = yt - (Vt @ coef)[:, :, 0]
     yv = yv - (Vv @ coef)[:, :, 0]

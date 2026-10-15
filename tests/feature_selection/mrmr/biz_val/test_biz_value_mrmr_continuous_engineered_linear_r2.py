@@ -101,7 +101,7 @@ def test_engineered_unary_binary_transform_is_continuous():
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(verbose=0, random_seed=0).fit(X=df, y=y)
+        fs = MRMR(verbose=0, random_state=0).fit(X=df, y=y)
         out = fs.transform(df)
 
     names = list(out.columns)

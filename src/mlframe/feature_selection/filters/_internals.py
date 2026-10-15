@@ -2,7 +2,7 @@
 and (c) the empirical / algorithmic basis. Magic numbers without docstrings are not allowed here."""
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, Iterator, cast
 import logging
 from typing import Sequence
 
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 @_contextmanager
-def suppress_numba_warnings():
+def suppress_numba_warnings() -> Iterator[None]:
     """Scope-local numba + discretization-internal warning suppression.
 
     Use inside the numba-heavy entry points (kernel hot loops, hist binning)
@@ -264,7 +264,8 @@ def _njit_cache_key(func):
     # fresh (correct, just uncached) instead of letting a hash error drop it back to pure-Python.
     try:
         hash(key)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_njit_cache_key fell back to its default after %s", type(_exc).__name__)
         return None
     return key
 
@@ -292,7 +293,7 @@ def njit_functions_dict(
             except Exception as e:  # nosec B110 - best-effort path
                 logger.debug("njit-wrapping %r failed, leaving it un-cached: %s", key, e)
 
-def sanitize(obj):
+def sanitize(obj: Any) -> Any:
     """Recursively convert ``numba.typed.Dict`` and friends back to plain Python / NumPy so the result can be pickled by joblib / cloudpickle."""
     if isinstance(obj, numba.typed.Dict):
         return {k: sanitize(v) for k, v in obj.items()}

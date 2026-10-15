@@ -105,6 +105,8 @@ pin a specific scorer regardless of the fingerprint.
 """
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 from typing import Optional, Sequence
 
@@ -210,7 +212,7 @@ def fingerprint_signal(
                     # Was a bare `except Exception`, broader
                     # than this module's own declared _NUMERIC_ERRORS convention (and the module docstring's
                     # explicit invariant that a genuine programming error must propagate); unlogged.
-                    logger.debug("meta_scorer pearson corr failed for column %r: %r", c, exc)
+                    log_throttle(logger, "orthogonal_meta_scorer_fe.hot_loop_warning", logging.WARNING, "meta_scorer pearson corr failed for column %r: %r", c, exc)
                     r = float("nan")
                 if np.isfinite(r):
                     pears.append(abs(r))
@@ -282,13 +284,13 @@ def fingerprint_signal(
                 except _NUMERIC_ERRORS as exc:
                     # See the mean_abs_pearson site's matching
                     # fix above for the full rationale.
-                    logger.debug("meta_scorer spearman corr failed for column %r: %r", c, exc)
+                    log_throttle(logger, "orthogonal_meta_scorer_fe.hot_loop_warning", logging.WARNING, "meta_scorer spearman corr failed for column %r: %r", c, exc)
                     r_sp = float("nan")
                 try:
                     centered = (col_vals - float(col_vals.mean())).abs()
                     r_sym = float(centered.corr(y_sub, method="pearson"))
                 except _NUMERIC_ERRORS as exc:
-                    logger.warning("meta_scorer symmetric-pearson corr failed for column %r: %r", c, exc)
+                    log_throttle(logger, "orthogonal_meta_scorer_fe.hot_loop_warning", logging.WARNING, "meta_scorer symmetric-pearson corr failed for column %r: %r", c, exc)
                     r_sym = float("nan")
                 candidates = [abs(r) for r in (r_sp, r_sym) if np.isfinite(r)]
                 if candidates:
@@ -634,7 +636,7 @@ def hybrid_orth_mi_meta_fe_with_recipes(
     min_abs_mi_frac: float = 0.05,
     force_scorer: Optional[str] = None,
     random_state: int = 0,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame, list, str, dict]:
     """Same as :func:`hybrid_orth_mi_meta_fe` plus a list of
     ``orth_univariate`` recipes from the dispatched scorer - one per
     appended column - so that ``MRMR.transform`` can recompute each

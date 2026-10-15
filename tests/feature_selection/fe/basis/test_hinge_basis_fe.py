@@ -388,6 +388,9 @@ def test_batched_detector_matches_percolumn_detector():
     )
     batch_out = detect_hinge_breakpoints_gpu_batch(cols, y, **kw)
     assert batch_out is not None
+    assert len(batch_out) == len(cols)
+    # Genuine-kink columns (i % 4 == 0) must yield breakpoints, else equality below is vacuous on empty lists.
+    assert all(batch_out[j] for j in range(0, len(cols), 4))
     cp.cuda.Stream.null.synchronize()
     for j, x in enumerate(cols):
         ref = detect_hinge_breakpoints_gpu(x, y, **kw)
@@ -440,7 +443,7 @@ def test_default_path_retains_hinge_on_slope_change():
     b = rng.standard_normal(N)
     y = 2 * x + 5 * np.maximum(x - 0.7, 0.0) + 0.5 * b + 0.1 * rng.standard_normal(N)
     X = pd.DataFrame({"a": x, "b": b})
-    m = MRMR(max_runtime_mins=2, verbose=0, random_seed=0)  # DEFAULT path
+    m = MRMR(max_runtime_mins=2, verbose=0, random_state=0)  # DEFAULT path
     m.fit(X, y)
     produced = _hinge_recipes(m)
     survivors = _hinge_survivors(m)
@@ -473,7 +476,7 @@ def test_default_path_biz_value_win_through_transform():
     b = rng.standard_normal(N)
     y = 2 * x + 5 * np.maximum(x - 0.7, 0.0) + 0.5 * b + 0.1 * rng.standard_normal(N)
     X = pd.DataFrame({"a": x, "b": b})
-    m = MRMR(max_runtime_mins=2, verbose=0, random_seed=0)
+    m = MRMR(max_runtime_mins=2, verbose=0, random_state=0)
     m.fit(X, y)
     Xt = m.transform(X)
     Xt = Xt.to_numpy() if hasattr(Xt, "to_numpy") else np.asarray(Xt)
@@ -505,6 +508,6 @@ def test_default_path_self_limits_no_spurious_hinge(kind):
         x = rng.uniform(-1, 1, N)
         y = x**2 + 0.5 * b + 0.05 * rng.standard_normal(N)
     X = pd.DataFrame({"a": x, "b": b})
-    m = MRMR(max_runtime_mins=2, verbose=0, random_seed=0)
+    m = MRMR(max_runtime_mins=2, verbose=0, random_state=0)
     m.fit(X, y)
     assert not _hinge_survivors(m), f"{kind}: no hinge leg should survive into support_ on neutral data"

@@ -469,13 +469,25 @@ class TestQuantileReliabilityPerf:
             assert float(np.mean(np.abs(panel.y[k] - a))) < 0.05
 
     @pytest.mark.hang_guard
-    def test_corp_decomp_capped_fast_at_large_n(self):
-        # Regression sensor for the uncapped-CORP perf bug (243s -> sub-second at n=1e6 via cap).
-        """Corp decomp capped fast at large n."""
-        if _model_diagnostics_decompose() is None:
+    def test_corp_decomp_fits_on_capped_subsample_at_large_n(self, monkeypatch):
+        # Regression sensor for the uncapped-CORP perf bug: at n=1e6 every decomposition fit must see only _CORP_FIT_CAP rows.
+        """Corp decomp fits on a capped subsample at large n."""
+        md = _model_diagnostics_decompose()
+        if md is None:
             pytest.skip("model-diagnostics not importable")
-        import time
         from scipy.stats import norm
+
+        from mlframe.reporting.charts import quantile as qmod
+
+        decompose, pinball_loss = md
+        fit_sizes = []
+
+        def _spy_decompose(y_fit, p_fit, **kwargs):
+            """Record the fit size and delegate to the real decomposition."""
+            fit_sizes.append(len(y_fit))
+            return decompose(y_fit, p_fit, **kwargs)
+
+        monkeypatch.setattr(qmod, "_model_diagnostics_decompose", lambda: (_spy_decompose, pinball_loss))
 
         rng = np.random.default_rng(0)
         n = 1_000_000
@@ -483,9 +495,7 @@ class TestQuantileReliabilityPerf:
         y = x + rng.standard_normal(n) * 0.5
         alphas = (0.1, 0.5, 0.9)
         p = np.column_stack([x + 0.5 * norm.ppf(a) for a in alphas])
-        t0 = time.perf_counter()
         spec = compose_quantile_figure(y, p, alphas, panels_template="PINBALL_DECOMP")
-        elapsed = time.perf_counter() - t0
         assert isinstance(spec.panels[0][0].values, tuple)
-        # Uncapped this was ~243 s; the 100k cap brings it well under 5 s with wide margin.
-        assert elapsed < 5.0, f"CORP decomp too slow at n=1e6: {elapsed:.1f}s (cap regressed?)"
+        assert len(fit_sizes) == len(alphas)
+        assert all(size == qmod._CORP_FIT_CAP for size in fit_sizes), f"CORP fit ran on {fit_sizes}; expected the {qmod._CORP_FIT_CAP}-row cap"

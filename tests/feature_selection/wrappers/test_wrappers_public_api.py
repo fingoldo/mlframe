@@ -67,8 +67,7 @@ class TestPublicAPI:
         statement, not just via attribute access. Locks the binding in
         ``__init__.py``."""
         mod = __import__("mlframe.feature_selection.wrappers", fromlist=[name])
-        obj = getattr(mod, name)
-        assert obj is not None
+        assert hasattr(mod, name), f"from mlframe.feature_selection.wrappers import {name} would fail"
 
 
 class TestPublicAPITypes:
@@ -142,17 +141,17 @@ class TestRfecvSubmoduleReExports:
     """
 
     @pytest.mark.parametrize(
-        "name",
+        ("name", "source_module"),
         [
-            "set_numba_random_seed",
-            "DummyClassifier",
-            "DummyRegressor",
-            "GroupShuffleSplit",
-            "StratifiedShuffleSplit",
+            ("set_numba_random_seed", "pyutilz.numbalib"),
+            ("DummyClassifier", "sklearn.dummy"),
+            ("DummyRegressor", "sklearn.dummy"),
+            ("GroupShuffleSplit", "sklearn.model_selection"),
+            ("StratifiedShuffleSplit", "sklearn.model_selection"),
         ],
     )
-    def test_rfecv_reexport_present(self, name):
-        """Rfecv reexport present."""
+    def test_rfecv_reexport_present(self, name, source_module):
+        """Rfecv reexport resolves to the very object defined in its source module."""
         mod = __import__("mlframe.feature_selection.wrappers.rfecv", fromlist=[name])
-        obj = getattr(mod, name, None)
-        assert obj is not None, f"{name} must remain importable from mlframe.feature_selection.wrappers.rfecv (declared as # noqa: F401 re-export)"
+        obj = getattr(mod, name)
+        assert obj is getattr(__import__(source_module, fromlist=[name]), name), f"{name} must remain importable from mlframe.feature_selection.wrappers.rfecv"

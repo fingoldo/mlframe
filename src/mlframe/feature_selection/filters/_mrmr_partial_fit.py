@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import logging
 
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
@@ -165,13 +165,13 @@ def _apply_rolling_window(
 
 def partial_fit(
     self,
-    X_new,
-    y_new,
+    X_new: Any,
+    y_new: Any,
     *,
-    sample_weight=None,
-    classes=None,
-    **fit_params,
-):
+    sample_weight: np.ndarray | None = None,
+    classes: Sequence[Any] | None = None,
+    **fit_params: Any,
+) -> Any:
     """sklearn-compatible incremental fit.
 
     Parameters

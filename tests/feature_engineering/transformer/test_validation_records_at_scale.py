@@ -22,6 +22,10 @@ but not the cdist neighbours themselves.
 
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -48,6 +52,11 @@ from tests.feature_engineering.transformer.test_validation_records import (
 
 
 _SCALE_SEEDS = (0, 17, 42)
+
+
+def _year_cache_path() -> Path:
+    """Local npz cache for the year-prediction dataset; override the directory with MLFRAME_DATA_CACHE_DIR."""
+    return Path(os.environ.get("MLFRAME_DATA_CACHE_DIR", tempfile.gettempdir())) / "year_prediction_cache.npz"
 
 
 def _validate_scale(loader_fn, builder, target_model, target_metric, claimed_lift, label):
@@ -102,10 +111,8 @@ def _load_year_100k():
 
     Loads from local npz cache to avoid repeated OpenML ARFF-parser OOM.
     """
-    import os
-
-    cache_path = "D:/Temp/year_prediction_cache.npz"
-    if os.path.exists(cache_path):
+    cache_path = _year_cache_path()
+    if cache_path.exists():
         d = np.load(cache_path)
         X = d["X"]
         y = d["y"]
@@ -1213,10 +1220,8 @@ def test_iter121_kin8nm_cb_r2():
 
 def _load_year_50k():
     """Year-prediction subsampled to 50k. Loads from local npz cache."""
-    import os
-
-    cache_path = "D:/Temp/year_prediction_cache.npz"
-    if os.path.exists(cache_path):
+    cache_path = _year_cache_path()
+    if cache_path.exists():
         d = np.load(cache_path)
         X = d["X"]
         y = d["y"]

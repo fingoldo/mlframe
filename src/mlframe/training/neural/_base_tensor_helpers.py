@@ -4,6 +4,8 @@ Carved out of ``base.py`` to keep the parent below the 1k-line monolith threshol
 """
 from __future__ import annotations
 
+from typing import Any, cast
+
 import logging
 import warnings as _warnings
 
@@ -15,7 +17,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 
-def custom_collate_fn(batch):
+def custom_collate_fn(batch: Any) -> Any:
     """Identity collate: hands the raw batch list through unchanged.
 
     DataLoader's default collate stacks each sample's tensors into a
@@ -43,7 +45,7 @@ def _coerce_object_ndarray_numeric(data: np.ndarray) -> np.ndarray:
     return np.asarray(pd.DataFrame(data).apply(pd.to_numeric, errors="coerce").to_numpy(dtype=np.float64))
 
 
-def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
+def to_tensor_any(data: Any, dtype: Any = torch.float32, device: Any = None, safe: bool = True) -> torch.Tensor:
     """
     Converts pandas / polars / numpy / torch input to a torch.Tensor
     with minimal copies and correct dtype.
@@ -71,7 +73,7 @@ def to_tensor_any(data, dtype=torch.float32, device=None, safe=True):
             _warnings.filterwarnings("ignore", message=".*not writ(e)?able.*", category=UserWarning)
             data = torch.from_numpy(data)
 
-    return data.to(dtype=dtype, device=device)
+    return cast(torch.Tensor, data.to(dtype=dtype, device=device))
 
 
 def to_numpy_safe(tensor: torch.Tensor, cpu: bool = False) -> np.ndarray:

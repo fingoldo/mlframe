@@ -112,7 +112,8 @@ def monitor_interval_from_env(default: float = DEFAULT_MONITOR_INTERVAL_S) -> fl
         return default
     try:
         return max(0.0, float(raw))
-    except ValueError:
+    except ValueError as _exc:
+        logger.warning("monitor_interval_from_env fell back to its default after %s", type(_exc).__name__)
         return default
 
 
@@ -130,7 +131,8 @@ def read_time_left_tail(train_dir: str) -> Optional[Tuple[int, float, float]]:
             size = f.tell()
             f.seek(max(0, size - 4096))
             chunk = f.read().decode("utf-8", errors="replace")
-    except OSError:
+    except OSError as _exc:
+        logger.debug("read_time_left_tail fell back to its default after %s", type(_exc).__name__)
         return None
     lines = chunk.split("\n")
     # The final element is either "" (file ends with newline) or a partially written row: skip it.

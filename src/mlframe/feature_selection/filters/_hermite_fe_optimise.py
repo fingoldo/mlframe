@@ -129,7 +129,7 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
     try:
         from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _fill_bf_batch_njit  # noqa: N811
     except ImportError as e:
-        logger.debug("_numba_polynom_optimizer import failed: %s", e)
+        logger.warning("_numba_polynom_optimizer import failed: %s", e)
         _bf_name_to_id = {}
         _fill_bf_batch_njit = None
     _bf_ids1 = [_bf_name_to_id.get(nm, -1) for nm in bf_names] if _bf_name_to_id else [-1]
@@ -192,6 +192,53 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
             best_raw = raw
             best_idx = k
     return best_score, best_raw, best_idx
+
+def _candidate_h_arrays(
+    coefs_a: np.ndarray,
+    coefs_b: np.ndarray,
+    *,
+    z_a: np.ndarray,
+    z_b: np.ndarray,
+    eval_func: Callable[..., Any],
+    eval_func_b: Optional[Callable[..., Any]],
+    B_a: Optional[np.ndarray],
+    B_b: Optional[np.ndarray],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-candidate a-side and b-side polynomial evaluations; returns ``(h_a_arr, h_b_arr, cand_valid)``.
+
+    Skip candidates that produce non-finite h_a/h_b - they get -inf score downstream.
+    """
+    P = int(coefs_a.shape[0])
+    # bench-attempt-rejected (2026-07-15): one GEMM (B_a @ coefs_a.T).T instead of P per-candidate GEMVs
+    # measured 2.7x faster ISOLATED (n=20000, P=20, cs=7: 4.7ms loop vs 1.7ms batched; ~1e-15 abs FP-reorder
+    # divergence, within tolerance) but NET FLAT end-to-end (1.49s -> 1.52s over a full cma_batch search,
+    # within run-to-run noise) - the coefs.T ascontiguousarray + single large-P GEMM's BLAS thread dispatch
+    # overhead cancels the win at this P/n scale in-process alongside numba's own thread pool. Kept as the
+    # simpler per-candidate loop; the batched form would need re-measuring at a much larger P (e.g. a wider
+    # cupy-side generation batch) before it nets positive.
+    n_rows = z_a.shape[0]
+    h_a_arr = np.empty((P, n_rows), dtype=np.float64)
+    h_b_arr = np.empty((P, n_rows), dtype=np.float64)
+    cand_valid = np.zeros(P, dtype=bool)
+    for p in range(P):
+        ca = coefs_a[p]
+        cb = coefs_b[p]
+        if B_a is not None and B_b is not None:
+            # B_a / B_b are pre-truncated to (ca_size, cb_size) by the caller (once per degree) - see the
+            # matching note in _eval_coef_pair; no per-candidate re-slice.
+            _ca = np.ascontiguousarray(ca, dtype=np.float64)
+            _cb = np.ascontiguousarray(cb, dtype=np.float64)
+            h_a = B_a @ _ca
+            h_b = B_b @ _cb
+        else:
+            h_a = eval_func(z_a, ca)
+            h_b = (eval_func_b if eval_func_b is not None else eval_func)(z_b, cb)
+        if np.all(np.isfinite(h_a)) and np.all(np.isfinite(h_b)):
+            h_a_arr[p] = h_a
+            h_b_arr[p] = h_b
+            cand_valid[p] = True
+    return h_a_arr, h_b_arr, cand_valid
+
 
 def _eval_coef_pair_batch(
     coefs_a: np.ndarray,
@@ -268,37 +315,11 @@ def _eval_coef_pair_batch(
             coefs_a[p] = ca_n
             coefs_b[p] = cb_n
 
-    # Phase 1: compute h_a / h_b per candidate (one numba call each;
-    # Python loop). Skip candidates that produce non-finite h_a/h_b -
-    # they get -inf score downstream.
-    # bench-attempt-rejected (2026-07-15): one GEMM (B_a @ coefs_a.T).T instead of P per-candidate GEMVs
-    # measured 2.7x faster ISOLATED (n=20000, P=20, cs=7: 4.7ms loop vs 1.7ms batched; ~1e-15 abs FP-reorder
-    # divergence, within tolerance) but NET FLAT end-to-end (1.49s -> 1.52s over a full cma_batch search,
-    # within run-to-run noise) - the coefs.T ascontiguousarray + single large-P GEMM's BLAS thread dispatch
-    # overhead cancels the win at this P/n scale in-process alongside numba's own thread pool. Kept as the
-    # simpler per-candidate loop; the batched form would need re-measuring at a much larger P (e.g. a wider
-    # cupy-side generation batch) before it nets positive.
+    # Phase 1: per-candidate h_a / h_b (see _candidate_h_arrays).
+    h_a_arr, h_b_arr, cand_valid = _candidate_h_arrays(
+        coefs_a, coefs_b, z_a=z_a, z_b=z_b, eval_func=eval_func, eval_func_b=eval_func_b, B_a=B_a, B_b=B_b,
+    )
     n_rows = z_a.shape[0]
-    h_a_arr = np.empty((P, n_rows), dtype=np.float64)
-    h_b_arr = np.empty((P, n_rows), dtype=np.float64)
-    cand_valid = np.zeros(P, dtype=bool)
-    for p in range(P):
-        ca = coefs_a[p]
-        cb = coefs_b[p]
-        if B_a is not None and B_b is not None:
-            # B_a / B_b are pre-truncated to (ca_size, cb_size) by the caller (once per degree) - see the
-            # matching note in _eval_coef_pair; no per-candidate re-slice.
-            _ca = np.ascontiguousarray(ca, dtype=np.float64)
-            _cb = np.ascontiguousarray(cb, dtype=np.float64)
-            h_a = B_a @ _ca
-            h_b = B_b @ _cb
-        else:
-            h_a = eval_func(z_a, ca)
-            h_b = (eval_func_b if eval_func_b is not None else eval_func)(z_b, cb)
-        if np.all(np.isfinite(h_a)) and np.all(np.isfinite(h_b)):
-            h_a_arr[p] = h_a
-            h_b_arr[p] = h_b
-            cand_valid[p] = True
 
     # Phase 2: accumulate (candidate, bf) columns into one stacked
     # X_batch. Track (cand_idx, bf_idx) per column for the per-candidate
@@ -311,7 +332,7 @@ def _eval_coef_pair_batch(
     try:
         from ._numba_polynom_optimizer import _BF_NAME_TO_ID as _bf_name_to_id, _bf_dispatch_njit, _fill_bf_batch_njit  # noqa: N811
     except ImportError as e:
-        logger.debug("_numba_polynom_optimizer import failed: %s", e)
+        logger.warning("_numba_polynom_optimizer import failed: %s", e)
         _bf_name_to_id, _bf_dispatch_njit, _fill_bf_batch_njit = {}, None, None
     col_meta: list = []  # tuples (p, k)
     KBF = len(bf_callables)

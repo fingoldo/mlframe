@@ -96,7 +96,7 @@ def fit_stacked(
     *,
     n_oof_folds: int = 3, max_pass1_specs_to_stack: int = 3, time_aware: bool = False, cv_splitter: Any = None,
     time_ordering: Any = None, val_df: Any = None, val_y: np.ndarray | None = None,
-):
+) -> Any:
     """2-pass stacked composite discovery.
 
     Pass 1 runs the standard :meth:`fit`. For each of the top
@@ -252,7 +252,7 @@ def fit_stacked_on_residual(
     n_oof_folds: int = 3, residual_aggregation: str = "mean", max_pass1_specs_to_aggregate: int = 3,
     time_aware: bool = False, cv_splitter: Any = None,
     time_ordering: Any = None, val_df: Any = None, val_y: np.ndarray | None = None,
-):
+) -> Any:
     """Residual-target stacked discovery (ALTERNATIVE to ``fit_stacked``).
 
     Where ``fit_stacked`` adds the OOF predictions of pass-1 specs as new FEATURES (treating them as bases for pass-2 transforms), this variant operates on a residual TARGET: pass-1 specs collectively predict ``pass1_pred``, then ``y_residual = y - pass1_pred`` becomes the new target for pass-2 discovery. Mathematically the more direct approach for residual-of-residual structure when feature stacking blocks at the discovery gate.

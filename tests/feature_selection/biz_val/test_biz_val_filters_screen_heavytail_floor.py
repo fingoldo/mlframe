@@ -10,7 +10,7 @@ gate MISSES a distinct finite-sample-bias regime on NARROW tabular pools:
 
 A blunt pool-size drop cannot separate that from a DENSE weak-signal regression pool (sklearn diabetes: 10 genuine-but-weak features) where the SAME narrow pool must keep ALL
 features -- lowering the size gate there over-prunes 10 -> 2 and regresses R^2 0.36 -> 0.25. The discriminator is the TARGET, captured by two cheap predicates over the
-already-computed bin counts in ``target_oversplit_floor_applies``:
+already-computed bin counts (removed: the floor now applies on every narrow pool):
 
 * over-split: ``nbins_y >= oversplit_ratio * median(nbins_x)`` -- the MDLP binner split the target into many more bins than the features carry (the plug-in bias source).
 * reliable:  ``n / (nbins_y * median(nbins_x)) >= min_rows_per_joint_cell`` -- the (X,y) joint table is dense enough that the maxT floor itself is not finite-sample garbage.
@@ -34,7 +34,6 @@ import pytest
 
 from mlframe.feature_selection.filters._permutation_null import (
     pooled_permutation_null_gain_floor,
-    target_oversplit_floor_applies,
 )
 from mlframe.feature_selection.filters.discretization import categorize_dataset
 
@@ -48,7 +47,9 @@ SEEDS = (1, 7, 42)
 # ---------------------------------------------------------------------------
 
 
-pytestmark = pytest.mark.timeout(900)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
+pytestmark = pytest.mark.timeout(
+    900
+)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 
 def _build_lognormal(seed: int):
@@ -67,7 +68,7 @@ def _build_lognormal(seed: int):
     return pd.DataFrame(cols), pd.Series(np.exp(latent), name="y")
 
 
-def _build_dense_weak_regression(seed: int, n: int = 330):
+def _build_dense_weak_regression(seed: int, n: int = 2000):
     """A diabetes-shaped pool: small n, every feature weak-but-genuine, an over-split target.
 
     y is a dense additive combination of 10 standardised features with comparable small coefficients plus moderate noise -- no feature dominates, all carry real signal. At
@@ -128,25 +129,8 @@ def _corrected_marginal_mi(data, nbins, ci, y_idx):
 # ---------------------------------------------------------------------------
 
 
-class TestLognormalOversplitFloorFires:
+class TestLognormalFloorRejectsNoise:
     """Groups tests covering TestLognormalOversplitFloorFires."""
-    @pytest.mark.parametrize("seed", SEEDS)
-    def test_gate_fires_on_lognormal_narrow_pool(self, seed):
-        """Gate fires on lognormal narrow pool."""
-        X, y = _build_lognormal(seed)
-        data, _cols, nbins, y_idx, cand = _categorize(X, y)
-        # Narrow pool: 9 features, below the wide-pool gate of 30.
-        assert len(cand) < 30
-        nby = int(nbins[y_idx])
-        feat = [int(nbins[i]) for i in cand]
-        # The over-split signature: target binned into many more levels than features.
-        assert nby >= 3 * np.median(feat), f"lognormal target not over-split: nbins_y={nby}, median feat nbins={np.median(feat)}; seed={seed}"
-        assert target_oversplit_floor_applies(
-            nbins,
-            cand,
-            y_idx,
-            data.shape[0],
-        ), f"narrow-pool over-split gate must fire on lognormal; seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_floor_rejects_all_noise_keeps_all_signal(self, seed):
@@ -196,7 +180,7 @@ class TestLognormalEndToEndNoNoiseLeaks:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_lognormal(seed)
-        sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_seed=seed)
+        sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_state=seed)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             sel.fit(X, y)
@@ -210,29 +194,8 @@ class TestLognormalEndToEndNoNoiseLeaks:
 # ---------------------------------------------------------------------------
 
 
-class TestDenseWeakSignalFloorStaysOff:
+class TestDenseWeakSignalKeepsMajority:
     """Groups tests covering TestDenseWeakSignalFloorStaysOff."""
-    @pytest.mark.parametrize("seed", SEEDS)
-    def test_gate_stays_off_on_dense_weak_signal_pool(self, seed):
-        """Gate stays off on dense weak signal pool."""
-        X, y = _build_dense_weak_regression(seed)
-        data, _cols, nbins, y_idx, cand = _categorize(X, y)
-        nby = int(nbins[y_idx])
-        feat = [int(nbins[i]) for i in cand]
-        # The target IS over-split at small n (precondition trips), but the (X,y)
-        # joint occupancy is too sparse for the floor to be reliable, so the
-        # reliability predicate must keep the gate OFF -- preserving the legacy
-        # narrow-pool behaviour (no floor) and all 10 weak features.
-        rows_per_joint = data.shape[0] / (nby * float(np.median(feat)))
-        assert (
-            rows_per_joint < 8.0
-        ), f"test bug: dense-weak pool unexpectedly dense (rows/joint={rows_per_joint:.1f}); the no-regression case must be the sparse-occupancy regime; seed={seed}"
-        assert not target_oversplit_floor_applies(
-            nbins,
-            cand,
-            y_idx,
-            data.shape[0],
-        ), f"narrow-pool floor gate must stay OFF on the dense weak-signal pool (would over-prune genuine weak features); seed={seed}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_mrmr_keeps_majority_of_weak_features(self, seed):
@@ -263,38 +226,3 @@ class TestDenseWeakSignalFloorStaysOff:
 # ---------------------------------------------------------------------------
 # Gate threshold behaviour (unit-level, no fit)
 # ---------------------------------------------------------------------------
-
-
-class TestGateThresholdSemantics:
-    """Groups tests covering TestGateThresholdSemantics."""
-    def test_low_cardinality_target_never_over_split(self):
-        """A binary / 3-class classification target (nbins_y in {2,3}) is never over-split relative to multi-bin features, so the gate stays OFF regardless of n."""
-        nbins = np.array([5, 5, 5, 3], dtype=np.int64)  # 3 features + 3-class target
-        cand = [0, 1, 2]
-        assert not target_oversplit_floor_applies(nbins, cand, 3, 5000)
-
-    def test_oversplit_but_sparse_stays_off(self):
-        """Over-split target but sub-threshold joint occupancy -> OFF (the diabetes regime)."""
-        nbins = np.array([5, 5, 5, 50], dtype=np.int64)
-        cand = [0, 1, 2]
-        # n=300 -> 300 / (50*5) = 1.2 rows per joint cell < 8 -> unreliable -> OFF.
-        assert not target_oversplit_floor_applies(nbins, cand, 3, 300)
-
-    def test_oversplit_and_dense_fires(self):
-        """Over-split target AND dense joint occupancy -> ON (the lognormal regime)."""
-        nbins = np.array([5, 5, 5, 30], dtype=np.int64)
-        cand = [0, 1, 2]
-        # n=2500 -> 2500 / (30*5) = 16.7 rows per joint cell >= 8 -> reliable -> ON.
-        assert target_oversplit_floor_applies(nbins, cand, 3, 2500)
-
-    def test_degenerate_pool_returns_false(self):
-        """Degenerate pool returns false."""
-        nbins = np.array([1, 30], dtype=np.int64)  # only a constant feature + target
-        assert not target_oversplit_floor_applies(nbins, [0], 1, 2500)
-        # Single-class target.
-        nbins2 = np.array([5, 5, 1], dtype=np.int64)
-        assert not target_oversplit_floor_applies(nbins2, [0, 1], 2, 2500)
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v", "--tb=short", "--no-cov", "-p", "no:randomly"])

@@ -64,7 +64,8 @@ class TrainingHistoryRecorder(Callback):
             return
         try:
             cur = float(cur)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            logger.debug("on_validation_epoch_end fell back to its default after %s", type(_exc).__name__)
             return
         better = cur < self._best if self.mode == "min" else cur > self._best
         if better:

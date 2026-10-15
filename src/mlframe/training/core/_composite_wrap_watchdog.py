@@ -134,7 +134,8 @@ def _is_additive_in_t(transform_name: str) -> bool:
     """
     try:
         t = get_transform(transform_name)
-    except (KeyError, ValueError):
+    except (KeyError, ValueError) as _exc:
+        logger.debug("_is_additive_in_t fell back to its default after %s", type(_exc).__name__)
         return False
     return bool(getattr(t, "additive_in_t", False)) and not getattr(t, "oof_train_forward", False)
 

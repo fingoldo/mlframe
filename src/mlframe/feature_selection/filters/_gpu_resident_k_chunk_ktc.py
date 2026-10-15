@@ -50,7 +50,8 @@ def gpu_k_chunk_vram_fraction(n: int) -> float:
     if isinstance(choice, str) and choice.startswith("frac_"):
         try:
             return float(choice[len("frac_") :])
-        except ValueError:
+        except ValueError as _exc:
+            logger.warning("gpu_k_chunk_vram_fraction fell back to its default after %s", type(_exc).__name__)
             return _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
     return _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
 

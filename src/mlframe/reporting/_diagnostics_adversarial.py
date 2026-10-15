@@ -37,14 +37,13 @@ def _render_adversarial_panel(*, train_frame: Any, test_frame: Any, val_frame: A
         _adv_key = _adversarial_cache_key(train_frame, test_frame, val_frame, _adv_names, seed)
         with _ADVERSARIAL_LOCK:
             spec = _ADVERSARIAL_CACHE.get(_adv_key) if _adv_key is not None else None
-        if spec is None:
-            spec = _adversarial_validation_fn(
-                train_frame, test_frame if test_frame is not None else val_frame,
-                val_frame=val_frame if test_frame is not None else None,
-                feature_names=_adv_names, seed=seed,
-            )
-            if _adv_key is not None:
-                with _ADVERSARIAL_LOCK:
+            if spec is None:
+                spec = _adversarial_validation_fn(
+                    train_frame, test_frame if test_frame is not None else val_frame,
+                    val_frame=val_frame if test_frame is not None else None,
+                    feature_names=_adv_names, seed=seed,
+                )
+                if _adv_key is not None:
                     while len(_ADVERSARIAL_CACHE) >= 8:
                         # evict-ok: memo; a miss recomputes the value
                         _ADVERSARIAL_CACHE.pop(next(iter(_ADVERSARIAL_CACHE)))

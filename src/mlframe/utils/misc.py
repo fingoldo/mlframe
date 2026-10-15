@@ -9,7 +9,7 @@ import random
 import numpy as np
 from pyutilz.numbalib import set_numba_random_seed
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -70,7 +70,7 @@ def seed_numba_in_this_thread(seed: int = 42) -> None:
     _seed(np.int64(seed))
 
 
-def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False):
+def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed: bool = False) -> None:
     """Seed everything ml-related.
 
     Wave 49 (2026-05-20): this function INTENTIONALLY mutates the process-global
@@ -197,7 +197,7 @@ def _restore_caller_frame_columns(X, original_cols):
         logger.debug("in-place column drop via ._df failed: %s", e)
 
 
-def hygienic_fit(fit_method):
+def hygienic_fit(fit_method: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator wrapping a selector ``fit`` so it leaves the caller's environment
     untouched: (1) global numpy/random RNG restored (see :func:`rng_hygienic_fit`),
     (2) the caller's input pandas DataFrame restored to its entry column schema
@@ -257,7 +257,7 @@ def preserve_global_rng() -> Iterator[None]:
         random.setstate(py_state)
 
 
-def get_pipeline_last_element(clf) -> object:
+def get_pipeline_last_element(clf: Any) -> object:
     """Return the last step's estimator from a fitted sklearn ``Pipeline``."""
     steps = list(clf.named_steps.values())
     if not steps:

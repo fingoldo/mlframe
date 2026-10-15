@@ -396,7 +396,9 @@ class TestTheDocumentedContractsMatchTheCode:
             return float(_np.mean((_np.asarray(a) - _np.asarray(b)) ** 2))
 
         out = constrained_weight_blend(preds, y, loss_fn=_mse, n_restarts=3, random_state=0)
-        assert out is not None, "a well-posed blend returned None"
+        weights = out["weights"]
+        assert weights.min() >= 0.0, f"blend weights must be non-negative: {weights}"
+        assert weights.sum() == _pytest.approx(1.0), f"blend weights must lie on the simplex: {weights}"
 
     def test_a_zero_subsample_fraction_is_honoured(self):
         """`0.0 or 0.75` silently drew 75% of the rows."""

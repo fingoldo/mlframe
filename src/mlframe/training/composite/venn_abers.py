@@ -47,7 +47,10 @@ from __future__ import annotations
 import logging
 
 import numba
+from typing import Any
+
 import numpy as np
+from numpy.typing import ArrayLike
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +204,7 @@ def _binary_pos_scores(self, X) -> np.ndarray:
     return np.clip(pos, 0.0, 1.0)
 
 
-def calibrate_venn_abers(self, X_cal, y_cal):
+def calibrate_venn_abers(self, X_cal: ArrayLike, y_cal: ArrayLike) -> Any:
     """Fit the Inductive Venn-Abers calibrator from a held-out calibration set.
 
     ``X_cal`` / ``y_cal`` MUST be rows the inner estimator did NOT train on (the suite
@@ -240,7 +243,7 @@ def calibrate_venn_abers(self, X_cal, y_cal):
     return self
 
 
-def _lookup_interval(self, scores: np.ndarray):
+def _lookup_interval(self, scores: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Map raw positive-class scores to ``(p_low, p_high)`` via the stored envelopes.
 
     Right-continuous step lookup: each score is snapped to its nearest calibration
@@ -267,7 +270,7 @@ def _lookup_interval(self, scores: np.ndarray):
     return va["p0"][idx], va["p1"][idx]
 
 
-def predict_proba_interval(self, X):
+def predict_proba_interval(self, X: ArrayLike) -> tuple[np.ndarray, np.ndarray]:
     """Return the Venn-Abers probability INTERVAL ``(p_low, p_high)`` for the positive class.
 
     Requires a prior :func:`calibrate_venn_abers` (clear error otherwise -- the
@@ -279,7 +282,7 @@ def predict_proba_interval(self, X):
     return _lookup_interval(self, scores)
 
 
-def predict_proba_venn_abers(self, X) -> np.ndarray:
+def predict_proba_venn_abers(self, X: ArrayLike) -> np.ndarray:
     """Venn-Abers calibrated ``predict_proba`` -- an ``(n, 2)`` matrix [P(neg), P(pos)].
 
     Collapses the multiprobability interval ``[p0, p1]`` to the regularised point

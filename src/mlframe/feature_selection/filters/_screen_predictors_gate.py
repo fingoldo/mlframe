@@ -6,12 +6,17 @@ explicit arguments and returns a fresh state (or ``None``); ``compute_selection_
 only its explicit arguments and returns the accept/reject decision plus the MM-corrected gain
 used for the relative-floor comparison on the NEXT candidate. Neither mutates caller locals.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from typing import TYPE_CHECKING
+from collections.abc import Sequence
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from ._dynamic_cluster_discovery import DCDState
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +33,9 @@ def build_dcd_state(
     factors_nbins: Sequence[int],
     factors_names: Sequence[str] | None,
     y: Sequence[int] | None,
-    existing_dcd_state,
+    existing_dcd_state: DCDState | None,
     verbose: int,
-):
+) -> DCDState | None:
     """Construct the Wave 9 Dynamic Cluster Discovery state from ``dcd_config``, or return
     ``None`` when DCD is not requested / config is missing / init fails (fallback to legacy
     path - DCD is an opt-in accelerator, never a hard requirement for screening to proceed)."""
@@ -38,6 +43,7 @@ def build_dcd_state(
         return None
     try:
         from ._dynamic_cluster_discovery import make_dcd_state
+
         # Layer 47: tau_cluster passes through as-is so
         # the literal ``'auto'`` sentinel reaches make_dcd_state's
         # calibration branch. Numeric values are float()-coerced.
@@ -62,12 +68,18 @@ def build_dcd_state(
             min_cluster_size=int(dcd_config.get("min_cluster_size", 2)),
             max_cluster_size=int(dcd_config.get("max_cluster_size", 12)),
             # Layer 47: forward auto-tau calibration knobs.
-            tau_calibration_n_pairs=int(dcd_config.get(
-                "tau_calibration_n_pairs", 100,
-            )),
-            tau_calibration_seed=int(dcd_config.get(
-                "tau_calibration_seed", 0,
-            )),
+            tau_calibration_n_pairs=int(
+                dcd_config.get(
+                    "tau_calibration_n_pairs",
+                    100,
+                )
+            ),
+            tau_calibration_seed=int(
+                dcd_config.get(
+                    "tau_calibration_seed",
+                    0,
+                )
+            ),
             existing_state=existing_dcd_state,
         )
     except Exception as _dcd_init_exc:
@@ -88,8 +100,8 @@ def compute_selection_gate(
     *,
     min_relevance_gain: float,
     interactions_order: int,
-    best_candidate,
-    best_gain,
+    best_candidate: tuple[int, ...] | None,
+    best_gain: float,
     cardinality_bias_correction: bool,
     factors_data: np.ndarray,
     y: Sequence[int] | None,
@@ -188,9 +200,14 @@ def compute_selection_gate(
         if _cand_marg_raw is not None:
             _cand_marg_corr = float(_cand_marg_raw)
             if cardinality_bias_correction:
-                _nb_x_fdr = int(factors_nbins[int(best_candidate[0])])
+                # Miller-Madow with the EFFECTIVE occupied bin counts, the same correction the maxT null floor subtracts from every shuffle
+                # (``pooled_permutation_null_gain_floor``). A nominal-bin correction here compared a differently corrected statistic
+                # against the floor, which let a pure-noise column with a heavy-tailed occupancy clear it.
+                _x_codes_fdr = np.asarray(factors_data[:, int(best_candidate[0])])
                 _y_idx_fdr2 = _single_int(y)
-                _nb_y_fdr = int(factors_nbins[_y_idx_fdr2])
-                _cand_marg_corr -= (_nb_x_fdr - 1) * (_nb_y_fdr - 1) / (2.0 * int(factors_data.shape[0]))
+                _y_codes_fdr = np.asarray(factors_data[:, _y_idx_fdr2])
+                _k_eff_x = int(np.unique(_x_codes_fdr).shape[0])
+                _k_eff_y = int(np.unique(_y_codes_fdr).shape[0])
+                _cand_marg_corr -= (_k_eff_x - 1) * (_k_eff_y - 1) / (2.0 * int(factors_data.shape[0]))
             _fdr_pass = _cand_marg_corr >= _fdr_floor_eff
     return (_best_gain_for_gate >= _abs_floor and _best_gain_for_gate >= _rel_floor and _fdr_pass), _best_gain_for_gate

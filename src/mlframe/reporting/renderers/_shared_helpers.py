@@ -375,9 +375,6 @@ def _char_advances(fontsize: float) -> dict:
     against matplotlib's own ``get_text_width_height_descent`` to within 0.11% on realistic titles, which is far
     inside the margin already reserved at each side of the figure.
     """
-    cached: "dict | None" = _CHAR_ADVANCE_CACHE.get(fontsize)
-    if cached is not None:
-        return cached
     from matplotlib import font_manager, ft2font
 
     with _CHAR_ADVANCE_LOCK:
@@ -576,7 +573,8 @@ def epoch_ns_ticks(x_values: Any, n_ticks: int = 6) -> tuple[np.ndarray, list[st
         return None, None
     try:
         arr = np.asarray(x_values, dtype=np.float64).ravel()
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("epoch_ns_ticks fell back to its default after %s", type(_exc).__name__)
         return None, None  # datetime objects / strings: the backend's own date axis handles these
     arr = arr[np.isfinite(arr)]
     if arr.size == 0:

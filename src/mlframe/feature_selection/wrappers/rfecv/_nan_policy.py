@@ -84,7 +84,7 @@ def _any_core_tolerates_nan(self) -> bool:
     return all(_estimator_tolerates_nan(e) for e in estimators)
 
 
-def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]):
+def apply_nan_in_X_policy(self, X: Union[pd.DataFrame, np.ndarray]) -> Union[pd.DataFrame, np.ndarray]:
     """Resolve ``nan_in_X_policy`` against the (sanitised) working frame ``X``; return the possibly-modified X.
 
     Only acts when X actually contains NaN - a NaN-free frame returns unchanged (byte-identical selection).

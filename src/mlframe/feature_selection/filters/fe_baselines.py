@@ -216,8 +216,8 @@ def triplet_pair_features(x_a: np.ndarray, x_b: np.ndarray, x_c: np.ndarray) -> 
 
 
 def score_triplet_baselines(
-    x_a, x_b, x_c, y, *, discrete_target: bool = True, mi_estimator: str = "plugin", plugin_n_bins: int = 20, n_neighbors: int = 3,
-    random_state: int = 42,
+    x_a: np.ndarray, x_b: np.ndarray, x_c: np.ndarray, y: np.ndarray, *, discrete_target: bool = True, mi_estimator: str = "plugin",
+    plugin_n_bins: int = 20, n_neighbors: int = 3, random_state: int = 42,
 ) -> dict:
     """Rank 3-way trivial features by MI."""
     feats = triplet_pair_features(x_a, x_b, x_c)

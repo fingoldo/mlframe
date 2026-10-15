@@ -29,7 +29,7 @@ def _wide_interaction(n=2000, p_noise=80, seed=0):
 def test_rescue_fires_on_wide_underselection_and_recovers_operands():
     """Rescue fires on wide underselection and recovers operands."""
     X, y = _wide_interaction()
-    m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
+    m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_state=0).fit(X, y)
     m1 = MRMRTreeRescued(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     assert len(m1.support_) > len(m0.support_), "rescue should add features when MRMR under-selects on a wide frame"
     out = set(m1.get_feature_names_out())
@@ -40,7 +40,7 @@ def test_rescue_fires_on_wide_underselection_and_recovers_operands():
 def test_rescue_noop_on_narrow_frame():
     """Rescue noop on narrow frame."""
     X, y = _wide_interaction(p_noise=25)  # 28 cols <= tree_rescue_min_p (60) -> gate cannot fire
-    m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
+    m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_state=0).fit(X, y)
     m1 = MRMRTreeRescued(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     assert list(m1.support_) == list(m0.support_), "narrow frame must be a byte-identical no-op vs MRMR"
 
@@ -49,7 +49,7 @@ def test_rescue_noop_on_narrow_frame():
 def test_rescue_off_equals_mrmr():
     """Rescue off equals mrmr."""
     X, y = _wide_interaction()
-    m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
+    m0 = MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_state=0).fit(X, y)
     m1 = MRMRTreeRescued(tree_rescue=False, verbose=0, fe_max_steps=0, n_jobs=4, random_seed=0).fit(X, y)
     assert list(m1.support_) == list(m0.support_), "tree_rescue=False must behave exactly like MRMR"
 
@@ -109,7 +109,7 @@ def test_bizvalue_rescue_lifts_downstream_auc_on_interaction_data():
         m = lgb.LGBMClassifier(n_estimators=fast_n_estimators(200, fast=80), verbose=-1).fit(Ztr, ytr)
         return roc_auc_score(yte, m.predict_proba(Zte)[:, 1])
 
-    a_off = auc(MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=1))
+    a_off = auc(MRMR(verbose=0, fe_max_steps=0, n_jobs=4, random_state=1))
     a_on = auc(MRMRTreeRescued(verbose=0, fe_max_steps=0, n_jobs=4, random_seed=1))
     # MRMR collapses on the zero-marginal operands; the rescue recovers them -> a clear downstream lift.
     assert a_on >= a_off + 0.05, f"tree-rescue should lift downstream AUC on interaction data: {a_off:.3f} -> {a_on:.3f}"

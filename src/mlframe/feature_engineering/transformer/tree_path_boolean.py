@@ -9,6 +9,8 @@ Per query emit n_paths boolean columns + n_paths_matched + pred_prob_baseline.
 Default K=8 paths → 10 features total.
 """
 from __future__ import annotations
+
+from typing import Any
 import logging
 import numpy as np
 import polars as pl
@@ -71,9 +73,9 @@ def _evaluate_paths(paths: list, X: np.ndarray) -> np.ndarray:
 
 
 def compute_tree_path_boolean_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    n_paths=8, baseline_max_depth=4, standardize=True, column_prefix="tpath", dtype=np.float32,
-):
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
+    n_paths: int=8, baseline_max_depth: int=4, standardize: bool=True, column_prefix: str="tpath", dtype: type=np.float32,
+) -> pl.DataFrame:
     """Train a shallow LightGBM baseline, extract its top-K highest-impact root->leaf decision paths, and emit them as boolean-conjunction features (plus match count and the baseline's own prediction) for the query rows.
 
     With ``X_query`` given, fits once on all of ``X_train`` and scores ``X_query`` (Mode B, inference). Without it, requires a ``splitter`` and produces out-of-fold features over ``X_train`` itself (Mode A, training-time FE), refitting per fold so no fold leaks its own rows into its baseline.
@@ -134,7 +136,7 @@ def compute_tree_path_boolean_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx], int(seed) + fold_idx * 100).astype(dtype, copy=False)
         logger.info("tree_path_boolean: fold %d done", fold_idx + 1)

@@ -5,7 +5,7 @@ N-F3 worry: when the Fleuret confirmation loop breaks early because ``nfailed`` 
 letting a true-null feature look significant.
 
 This bench measures, under a TRUE NULL (X independent of y) across many seeds, whether the full-budget denominator can flip a selection decision. The structural fact it
-demonstrates: ``get_fleuret_criteria_confidence`` breaks early ONLY at ``nfailed >= max_failed`` (fleuret.py:299), and ``parallel_fleuret`` then ZEROES the candidate's gain
+demonstrates: ``get_fleuret_criteria_confidence`` breaks early ONLY at ``nfailed >= max_failed``, and ``parallel_fleuret`` then ZEROES the candidate's gain
 (fleuret.py:123). So whenever ``nchecked < npermutations`` (the only case where full_budget changes the p), the candidate is ALREADY rejected and its confidence is discarded;
 whenever the candidate is kept (no early break), ``nchecked == npermutations`` so full_budget == nchecked and the p is IDENTICAL either way. The full-budget extrapolation is
 therefore SELECTION-INERT: it cannot make a null feature clear the gate. This bench proves the invariant empirically and reports the empirical FPR (denominator-invariant by

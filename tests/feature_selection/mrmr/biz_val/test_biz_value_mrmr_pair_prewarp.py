@@ -109,7 +109,7 @@ def _unb(prewarp: bool):
     """UNB pair path with the orthogonal-poly + hybrid paths DISABLED, so the
     only thing under test is the elementary unary/binary search with or without
     the per-operand pre-warp."""
-    return MRMR(verbose=0, n_jobs=1, random_seed=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=prewarp, **_LEAN)
+    return MRMR(verbose=0, n_jobs=1, random_state=0, fe_smart_polynom_iters=0, fe_hybrid_orth_enable=False, fe_pair_prewarp_enable=prewarp, **_LEAN)
 
 
 def _fit(make, df, y):

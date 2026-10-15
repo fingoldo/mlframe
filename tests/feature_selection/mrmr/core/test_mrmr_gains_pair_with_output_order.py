@@ -86,7 +86,7 @@ def test_p_ge_n_fit_gains_follow_names_and_provenance_matches_the_log():
     X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"c{i}" for i in range(p)])
     y = ((X["c0"] + 0.8 * X["c1"] - 0.6 * X["c2"] + 0.3 * rng.normal(size=n)) > 0).astype(np.int64)
     MRMR._FIT_CACHE.clear()
-    m = MRMR(random_seed=0, n_jobs=1, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
+    m = MRMR(random_state=0, n_jobs=1, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
     log = m._predictors_log_
     assert log, "fixture precondition: the greedy screen must log picks"
     by_index = {int(e["indices"][0]): float(e["gain"]) for e in log if len(e["indices"]) == 1}

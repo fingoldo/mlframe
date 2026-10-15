@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence, Optional
+from typing import Any, Sequence, Optional, cast
 import numpy as np
 from sklearn.cluster import DBSCAN
 
@@ -18,7 +18,7 @@ def list_cluster_members(labels:Sequence,true_lables:Sequence)->None:
         print([true_lables[i] for i in np.where(labels_arr == group)[0]])  # noqa: T201 -- interactive display utility, this IS the function's job
 
 def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusterizer:Optional[Any]=None,dim_reducer:Optional[Any]=None,
-               show_plot:Optional[bool]=True,show_metrics:Optional[bool]=True,list_members:Optional[bool]=True,title:Optional[str]=None):
+               show_plot:Optional[bool]=True,show_metrics:Optional[bool]=True,list_members:Optional[bool]=True,title:Optional[str]=None) -> np.ndarray:
     """Fit a (DBSCAN by default) clusterizer on ``X`` (optionally after ``dim_reducer`` + standardization), log clustering-quality metrics, render a scatter plot of the clusters, and return the cluster labels. Generates a synthetic 3-blob dataset when ``X`` is not given (demo/exploratory use)."""
 
     from sklearn import metrics
@@ -99,7 +99,7 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
         if true_labels is not None:
             if list_members: list_cluster_members(labels,true_labels)
 
-    return labels
+    return cast(np.ndarray, labels)
 
 
 __all__ = ["list_cluster_members", "clusterize"]

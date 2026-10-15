@@ -143,7 +143,8 @@ def _make_xgb_monotonic_callback(patience: Optional[int] = 20, monitor_dataset: 
         return None
     try:
         import xgboost as xgb
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_make_xgb_monotonic_callback fell back to its default after %s", type(_exc).__name__)
         return None
 
     class _XGBMonotonicDeclineStop(xgb.callback.TrainingCallback):
@@ -218,11 +219,13 @@ def catboost_callbacks_supported() -> bool:
     try:
         import catboost
         import inspect
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("catboost_callbacks_supported fell back to its default after %s", type(_exc).__name__)
         return False
     try:
         return "callbacks" in inspect.signature(catboost.CatBoostClassifier.fit).parameters
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("catboost_callbacks_supported fell back to its default after %s", type(_exc).__name__)
         return False
 
 

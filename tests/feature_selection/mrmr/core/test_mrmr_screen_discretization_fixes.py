@@ -26,7 +26,7 @@ def _toy_dataset(n_rows: int = 200, n_cols: int = 6, seed: int = 0):
 
 # ----------------------------------------------------------------------
 # Fix 1: target_prefix must not depend on global np.random state.
-# Two MRMR(random_seed=42) instances should agree on the injected target
+# Two MRMR(random_state=42) instances should agree on the injected target
 # column names; before the fix, the column name depended on the process
 # global RNG state, which is non-deterministic across test orderings.
 # ----------------------------------------------------------------------
@@ -45,28 +45,28 @@ def _capture_target_prefix(mrmr: MRMR, X: pd.DataFrame, y) -> str:
 
 
 def test_fix1_target_prefix_reproducible_across_instances():
-    """Two MRMR(random_seed=42) instances must produce identical target prefix."""
+    """Two MRMR(random_state=42) instances must produce identical target prefix."""
     X, y = _toy_dataset()
 
-    m1 = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2)
-    m2 = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2)
+    m1 = MRMR(random_state=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2)
+    m2 = MRMR(random_state=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2)
 
     p1 = _capture_target_prefix(m1, X, y)
     p2 = _capture_target_prefix(m2, X, y)
     assert p1 == p2, f"target prefix non-deterministic: {p1!r} vs {p2!r}"
 
     # Independent: a third instance with a different seed should differ.
-    m3 = MRMR(random_seed=43, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2)
+    m3 = MRMR(random_state=43, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2)
     p3 = _capture_target_prefix(m3, X, y)
     assert p3 != p1, "different seeds must produce different prefixes"
 
 
 def test_fix1_target_prefix_no_global_rng_consumption():
-    """Constructing/using MRMR(random_seed=42) must not advance global np.random state."""
+    """Constructing/using MRMR(random_state=42) must not advance global np.random state."""
     np.random.seed(12345)
     before = np.random.get_state()
 
-    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2)
+    m = MRMR(random_state=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2)
     _ = _capture_target_prefix(m, *_toy_dataset())
 
     after = np.random.get_state()
@@ -121,7 +121,7 @@ def test_fix3_screen_does_not_mutate_global_numpy_rng():
     np.random.seed(99)
     before = np.random.get_state()
 
-    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
+    m = MRMR(random_state=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, skip_retraining_on_same_content=False, fe_max_steps=0)
     m.fit(X.copy(), y)
 
     after = np.random.get_state()
@@ -219,7 +219,7 @@ def test_fix7_random_state_aliases_random_seed():
     assert m.random_seed is None
     assert m.random_state == 7
     # The effective seed surfaces 7 and agrees with the random_seed-direct API.
-    m2 = MRMR(random_seed=7)
+    m2 = MRMR(random_state=7)
     assert m._effective_random_seed() == 7
     assert m._effective_random_seed() == m2._effective_random_seed()
 

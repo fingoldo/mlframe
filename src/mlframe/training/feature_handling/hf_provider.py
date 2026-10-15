@@ -132,7 +132,8 @@ def _resolve_device(device_param: str) -> str:
         if hasattr(torch, "xpu") and torch.xpu.is_available():
             return "xpu"
         return "cpu"
-    except ImportError:  # pragma: no cover
+    except ImportError as _exc:  # pragma: no cover
+        logger.warning("_resolve_device fell back to its default after %s", type(_exc).__name__)
         return "cpu"
 
 
@@ -335,7 +336,8 @@ class HuggingFaceProvider:
             if torch.cuda.is_available():
                 return 256
             return 32
-        except ImportError:  # pragma: no cover
+        except ImportError as _exc:  # pragma: no cover
+            logger.debug("_resolve_batch_size fell back to its default after %s", type(_exc).__name__)
             return 32
 
     def _batched_inference(

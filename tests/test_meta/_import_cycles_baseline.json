@@ -12,10 +12,6 @@
       "count": 1,
       "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"
     },
-    "import-cycle::mlframe.feature_selection.filters._hermite_fe_mi | mlframe.feature_selection.filters.hermite_fe | mlframe.feature_selection.filters.hermite_fe.shared": {
-      "count": 1,
-      "note": ""
-    },
     "import-cycle::mlframe.feature_selection.filters.discretization | mlframe.feature_selection.filters.discretization._discretization_cuda": {
       "count": 1,
       "note": "top-level import cycle through a package facade or between FE modules; the gate simulates each member as the first import and none fails (0 import-order findings), so it is a structure debt, not a load failure"

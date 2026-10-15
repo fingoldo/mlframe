@@ -41,7 +41,7 @@ def _fast(**kw):
 @pytest.mark.fast
 def test_get_set_params_round_trip_over_ctor():
     """Every non-resolved ctor param survives a get_params -> set_params round-trip verbatim."""
-    m = MRMR(quantization_nbins=7, n_workers=3, random_seed=123, bur_lambda=0.25, mi_normalization="su", nan_strategy="ffill_bfill")
+    m = MRMR(quantization_nbins=7, n_workers=3, random_state=123, bur_lambda=0.25, mi_normalization="su", nan_strategy="ffill_bfill")
     params = m.get_params()
     assert params["quantization_nbins"] == 7
     assert params["n_workers"] == 3

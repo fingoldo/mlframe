@@ -1,6 +1,6 @@
 """Vendored InfoNet model: a transformer-based amortized mutual-information estimator (encoder/decoder + attention query generator) that maps a batch of paired samples directly to an MI lower-bound estimate."""
 
-from typing import Optional
+from typing import Optional, cast
 
 import torch
 import torch.nn as nn
@@ -44,6 +44,6 @@ class infonet(nn.Module):
         outputs = outputs.squeeze(1)
         # torch.save(outputs.cpu().numpy(), "lookuptable_smoothed.pth")
         # print("saved!!!!!!!!!!!!!!!1")
-        mi_lb = mutual_information(inputs, outputs)
+        mi_lb = mutual_information(cast(torch.Tensor, inputs), outputs)
 
         return mi_lb

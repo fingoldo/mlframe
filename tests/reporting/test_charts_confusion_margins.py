@@ -159,7 +159,8 @@ class TestRender:
         y, p, c = _imbalanced(1000, 4, [0.6, 0.2, 0.13, 0.07], majority_bias=0.8)
         spec = compose_multiclass_figure(y, p, c, panels_template="CONFUSION_MARGINS")
         fig = get_renderer("matplotlib").render(spec)
-        assert fig is not None
+        titles = [ax.get_title() for ax in fig.axes]
+        assert "Confusion + class-support margins (row-normalised)" in titles, titles
 
     def test_plotly_render(self):
         """Plotly render."""

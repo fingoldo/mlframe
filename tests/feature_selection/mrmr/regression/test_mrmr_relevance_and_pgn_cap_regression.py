@@ -58,7 +58,7 @@ def test_below_null_squared_decoy_not_re_added_by_linear_usability():
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(verbose=0, random_seed=42, **_RAW_ONLY).fit(df, y)
+        fs = MRMR(verbose=0, random_state=42, **_RAW_ONLY).fit(df, y)
     sel = list(fs.get_feature_names_out())
     assert "x_real" in sel, f"genuine signal dropped: {sel}"
     assert "decoy" not in sel, f"below-null squared decoy resurrected by linear-usability re-add (relevance gate missing): {sel}"
@@ -78,7 +78,7 @@ def test_p_ge_n_total_support_capped_at_fp_ceiling():
     Xdf = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(verbose=0, random_seed=0).fit(Xdf, y)
+        fs = MRMR(verbose=0, random_state=0).fit(Xdf, y)
     n_sel = len(list(fs.get_feature_names_out()))
     ceiling = max(20, p // 3)
     assert n_sel <= ceiling, f"p>=n FP-control breached: {n_sel} > ceiling {ceiling}"

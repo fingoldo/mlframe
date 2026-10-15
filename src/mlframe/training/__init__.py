@@ -297,9 +297,6 @@ _cache_lock = __import__("threading").Lock()
 def __getattr__(name):
     """Lazy import handler for module attributes."""
     if name in _LAZY_IMPORTS:
-        hit = _cache.get(name)
-        if hit is not None:
-            return hit
         with _cache_lock:  # concurrent fits resolve the same lazy name; one import, one stored object
             if name not in _cache:
                 module_name, attr_name = _LAZY_IMPORTS[name]

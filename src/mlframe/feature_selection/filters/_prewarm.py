@@ -16,6 +16,9 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Idempotency guards, mirroring ``_numba_warmup.warmup_typed_dict``'s ``_warmup_done`` pattern:
 # each prewarm does real (if per-kernel-swallowed) compile/load work, so a second call in the
@@ -66,7 +69,8 @@ def _prewarm_fs_numba_cache_impl(verbose: bool = False) -> None:
             merge_vars, entropy, entropy_miller_madow, mi, conditional_mi,
         )
         from ._numba_utils import arr2str, count_cand_nbins, unpack_and_sort
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_prewarm_fs_numba_cache_impl fell back to its default after %s", type(_exc).__name__)
         return
     except Exception as e:
         # numba unavailable / module misconfigured - not fatal.
@@ -523,7 +527,8 @@ def prewarm_fs_cupy_kernels(verbose: bool = False) -> None:
             init_kernels, mi_direct_gpu, mi_direct_gpu_batched,
             mi_direct_gpu_batched_pairs,
         )
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("prewarm_fs_cupy_kernels fell back to its default after %s", type(_exc).__name__)
         return
 
     # Per Critic 2 D2: emit progress logs at INFO level regardless of

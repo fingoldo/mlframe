@@ -18,7 +18,7 @@ from mlframe.training.composite.transforms.shared import call_transform
 logger = logging.getLogger(__name__)
 
 
-def apply_honest_oof_floor(self, kept_specs, agg_scores, honest_oof, honest_oof_baseline):
+def apply_honest_oof_floor(self, kept_specs: list[Any], agg_scores: Any, honest_oof: Any, honest_oof_baseline: Any) -> tuple[list[Any], Any]:
     """Enforce the honest-OOF floor as a REJECTION, not just a rank key: drop specs whose MEASURED honest reconstruction
     cannot beat ``min(raw-y, AR-lag)`` within tolerance. Without this honest-OOF only reorders (the raw-baseline gate is
     off by default) so a spec worse than the lag_predict failsafe we deploy anyway is still carried into the ensemble
@@ -169,7 +169,8 @@ def _additive_in_t(spec) -> bool:
     """True when the spec's transform is additive in T (its T is in y units)."""
     try:
         return bool(getattr(get_transform(spec.transform_name), "additive_in_t", False))
-    except UnknownTransformError:  # an unregistered transform is simply not WAIC-comparable; anything else is a real bug
+    except UnknownTransformError as _exc:  # an unregistered transform is simply not WAIC-comparable; anything else is a real bug
+        logger.debug("_additive_in_t fell back to its default after %s", type(_exc).__name__)
         return False
 
 

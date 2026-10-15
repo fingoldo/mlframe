@@ -5,6 +5,8 @@ Iter 97 mechanism. Agent A #2 ranked.
 Per feature: recursive MDL entropy-split binning of x_j by target. Per query emit aggregate features.
 """
 from __future__ import annotations
+
+from typing import Any
 import logging
 import numpy as np
 import polars as pl
@@ -150,9 +152,9 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
 
 
 def compute_mdl_binning_pairwise_features(
-    X_train, y_train, X_query=None, splitter=None, *, seed, task="regression",
-    max_bins_per_feat=8, top_k_pairs=10, standardize=True, column_prefix="mdlbin", dtype=np.float32,
-):
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
+    max_bins_per_feat: int=8, top_k_pairs: int=10, standardize: bool=True, column_prefix: str="mdlbin", dtype: type=np.float32,
+) -> pl.DataFrame:
     """Fit MDL bin edges per feature on train, then emit per-query aggregate bin/co-occurrence features.
 
     Mode A (no ``X_query``): out-of-fold via ``splitter`` - each fold's edges are fit on the train part and applied to
@@ -248,7 +250,7 @@ def compute_mdl_binning_pairwise_features(
     if splitter is None:
         raise ValueError("Mode A requires splitter.")
     n_train = X_train_f.shape[0]
-    out = np.zeros((n_train, n_features_out), dtype=dtype)
+    out: np.ndarray = np.zeros((n_train, n_features_out), dtype=dtype)
     for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X_train_f)):
         out[val_idx] = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx]).astype(dtype, copy=False)
         logger.info("mdl_binning_pairwise: fold %d done", fold_idx + 1)

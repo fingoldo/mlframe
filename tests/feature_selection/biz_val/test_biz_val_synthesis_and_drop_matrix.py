@@ -111,7 +111,7 @@ def _split(df, y, frac: float = 0.7):
 def _sel_auc(kw, df, y):
     """Fit MRMR with ``kw``, return held-out LogReg AUC on the selection + names."""
     dtr, ytr, dte, yte = _split(df, y)
-    fs = MRMR(verbose=0, random_seed=42, **kw)
+    fs = MRMR(verbose=0, random_state=42, **kw)
     fs.fit(dtr, ytr)
     Xtr = np.nan_to_num(np.asarray(fs.transform(dtr), float))
     Xte = np.nan_to_num(np.asarray(fs.transform(dte), float))
@@ -316,7 +316,7 @@ def test_mrmr_dropping_matrix(family, decoy, kind, gap):
     """DROPPING (redundancy-aware MRMR): the decoy is dropped / the redundant
     twin pair collapses to one survivor.  ``x_real`` must always survive."""
     df, y = _drop_dataset(decoy)
-    fs = MRMR(verbose=0, random_seed=42, **_RAW_ONLY)
+    fs = MRMR(verbose=0, random_state=42, **_RAW_ONLY)
     fs.fit(df, y)
     sel = list(fs.get_feature_names_out())
     print(f"DROP  {family:18s} sel={sel}")

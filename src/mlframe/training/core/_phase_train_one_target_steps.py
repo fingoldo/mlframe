@@ -88,6 +88,15 @@ def _clone_base_pipeline_for_strategy(base_pipeline):
         return base_pipeline
 
 
+def _model_entry_name(model_entry) -> str:
+    """Return the string label of a ``mlframe_models`` entry: the tag, the ``(name, estimator)`` tuple's name, or the estimator's class name."""
+    if isinstance(model_entry, tuple) and len(model_entry) == 2 and isinstance(model_entry[0], str):
+        return model_entry[0]
+    if isinstance(model_entry, str):
+        return model_entry
+    return type(model_entry).__name__
+
+
 def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st, cur_target_name, _model_idx_in_run, _total_models_in_run, ctx, pre_pipeline_name, strategy_by_model, tier_dfs_cache, tier_enum_map_cache, orig_pre_pipeline, prepared_frames_cache, weight_schemas, ens_models, cur_target_values, _pp_name_stripped, prev_tier, pre_pipeline):
     """Step 1 of _train_one_target_step1_progress_long_suites: lines starting at ``for _model_entry in tqdmu_lazy_start(sorted_models, desc="mlframe mode``."""
     from mlframe.training.core._phase_train_one_target import (
@@ -106,12 +115,7 @@ def _train_one_target_ste_step1_model_entry_tqdmu(sorted_models, target_type, st
         # ``(name, estimator)`` tuple) -- it is the key into ``models_params`` / ``strategy_by_model``.
         # ``mlframe_model_name`` is the human/string label used everywhere a string is required
         # (model_category, file names, logging, ``== "mlp"`` gates); for string tags the two coincide.
-        if isinstance(_model_entry, tuple) and len(_model_entry) == 2 and isinstance(_model_entry[0], str):
-            mlframe_model_name = _model_entry[0]
-        elif isinstance(_model_entry, str):
-            mlframe_model_name = _model_entry
-        else:
-            mlframe_model_name = type(_model_entry).__name__
+        mlframe_model_name = _model_entry_name(_model_entry)
         if _should_skip_catboost_metamodel(mlframe_model_name, target_type, st.behavior_config) or _entry_not_for_target(_model_entry, cur_target_name):
             continue
         # Extreme-AR + group-aware MLP trigger predicate (shared by 3 protections: skip /

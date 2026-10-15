@@ -266,7 +266,7 @@ def test_multilabel_cb_stack_failure_warns(caplog):
         _ensure_cb_multilabel_loss(model, ragged)
     assert any("failed to stack label rows" in r.getMessage() for r in caplog.records)
     # MultiLogloss must NOT have been configured (label_arr stayed None).
-    assert all("MultiLogloss" not in str(c) for c in set_calls)
+    assert set_calls == [], f"no parameters may be configured on a failed stack; got {set_calls}"
 
 
 def test_multilabel_cb_stack_success_sets_multilogloss(caplog):

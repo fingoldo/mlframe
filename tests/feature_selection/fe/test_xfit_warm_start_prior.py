@@ -46,11 +46,10 @@ def test_default_off_byte_identical():
     """None / [] cross-fit prior == legacy: coef_a, coef_b, mi, bin_func all equal."""
     a, b, y = _pair_target()
     base = optimise_hermite_pair(x_a=a, x_b=b, y=y, **_COMMON)
-    assert base is not None
     none_seed = optimise_hermite_pair(x_a=a, x_b=b, y=y, cross_fit_prior_seeds=None, **_COMMON)
     empty_seed = optimise_hermite_pair(x_a=a, x_b=b, y=y, cross_fit_prior_seeds=[], **_COMMON)
+    assert base.mi > 0.0
     for other in (none_seed, empty_seed):
-        assert other is not None
         assert np.array_equal(base.coef_a, other.coef_a)
         assert np.array_equal(base.coef_b, other.coef_b)
         assert base.mi == other.mi

@@ -25,6 +25,9 @@ from __future__ import annotations
 from typing import Any, Iterator
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "PurgedTimeSeriesSplit",
@@ -115,7 +118,8 @@ class PurgedTimeSeriesSplit:
             raise ValueError("Provide X or n_samples to split().")
         try:
             return int(X.shape[0])
-        except AttributeError:
+        except AttributeError as _exc:
+            logger.debug("_resolve_n_samples fell back to its default after %s", type(_exc).__name__)
             return len(X)
 
     def split(

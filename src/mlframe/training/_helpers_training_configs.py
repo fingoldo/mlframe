@@ -441,15 +441,6 @@ def get_training_configs(
     # The heavy MLP/pytorch config path is needed for the torch-backed MLP + recurrent estimators, but NOT for ngb (its own
     # NGB_GENERAL_PARAMS path, no torch) even though ngb shares NeuralNetStrategy. So gate on the recurrent strategy (covers the
     # lstm/gru/rnn/transformer aliases the old literal "recurrent" check missed) OR an explicit mlp alias / torch-MLP instance.
-    def _needs_mlp_config(m) -> bool:
-        """True if ``m`` needs the torch-backed MLP config block: a recurrent-strategy model, the ``"mlp"`` alias
-        string, or an instance whose class name mentions PytorchLightning/MLP."""
-        from .strategies import get_strategy, RecurrentModelStrategy
-        if isinstance(get_strategy(m), RecurrentModelStrategy):
-            return True
-        if isinstance(m, str):
-            return m.lower() == "mlp"
-        return "PytorchLightning" in type(m).__name__ or "MLP" in type(m).__name__
 
     _mlp_in_scope = enabled_models is None or any(_needs_mlp_config(m) for m in enabled_models)
 
@@ -787,3 +778,14 @@ def disable_native_es_for_slice_stable(configs: Any) -> None:
     if hgb is not None:
         hgb["early_stopping"] = False
         hgb.pop("n_iter_no_change", None)
+
+
+def _needs_mlp_config(m) -> bool:
+    """True if ``m`` needs the torch-backed MLP config block: a recurrent-strategy model, the ``"mlp"`` alias
+    string, or an instance whose class name mentions PytorchLightning/MLP."""
+    from .strategies import get_strategy, RecurrentModelStrategy
+    if isinstance(get_strategy(m), RecurrentModelStrategy):
+        return True
+    if isinstance(m, str):
+        return m.lower() == "mlp"
+    return "PytorchLightning" in type(m).__name__ or "MLP" in type(m).__name__

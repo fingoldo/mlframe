@@ -143,7 +143,7 @@ def cupy_available() -> bool:
 
         _CUPY_OK = cp.cuda.runtime.getDeviceCount() > 0
     except Exception as _exc:
-        logger.debug("cmi_cuda: cupy unavailable (%s); CPU fallback", _exc)
+        logger.warning("cmi_cuda: cupy unavailable (%s); CPU fallback", _exc)
         _CUPY_OK = False
     return _CUPY_OK
 
@@ -596,7 +596,7 @@ def conditional_mi_batched_cuda(
         )
         return np.asarray(cp.asnumpy(cmi_g))
     except Exception as _exc:
-        logger.debug("cmi_from_joint kernel failed (%s); four-call entropy fallback", _exc)
+        logger.warning("cmi_from_joint kernel failed (%s); four-call entropy fallback", _exc)
         counts = joint.reshape(p, nbins_y, nbins_x, nbins_z)
         h_z = _entropy_from_counts_axis(counts, (1, 2), n)
         h_xz = _entropy_from_counts_axis(counts, (1,), n)
@@ -887,10 +887,10 @@ def _should_use_cuda(n: int, p: int, joint_size: int, nbins_x: int = 0, nbins_y:
 def conditional_mi_batched_dispatch(
     factors_data: np.ndarray,
     cand_indices: np.ndarray,
-    y_index,
-    z_index,
+    y_index: int,
+    z_index: int,
     factors_nbins: np.ndarray,
-    dtype=np.int32,
+    dtype: type = np.int32,
     force: Optional[str] = None,
 ) -> np.ndarray:
     """Public entry: ``I(X_j; Y | Z)`` for every candidate column in ``cand_indices`` -> (p,) float64.

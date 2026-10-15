@@ -427,6 +427,17 @@ def test_regression_pack_blocks_to_devices_single_device_still_works():
 
 def test_regression_resident_operand_cache_has_lock():
     """Regression guard for resident operand cache has lock."""
+    import threading
+
     from mlframe.feature_selection.filters._fe_resident_operands import _FE_RESIDENT_OPERANDS_LOCK
 
-    assert _FE_RESIDENT_OPERANDS_LOCK is not None
+    # Behaviour: while the lock is held, another thread cannot take it (the get/insert/evict sequence is serialised).
+    assert _FE_RESIDENT_OPERANDS_LOCK.acquire(timeout=1)
+    try:
+        contender_got_it = []
+        t = threading.Thread(target=lambda: contender_got_it.append(_FE_RESIDENT_OPERANDS_LOCK.acquire(blocking=False)))
+        t.start()
+        t.join(timeout=5)
+        assert contender_got_it == [False]
+    finally:
+        _FE_RESIDENT_OPERANDS_LOCK.release()

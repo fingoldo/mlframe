@@ -146,7 +146,8 @@ def _set_inner_objective(model: Any, family: str, tweedie_power: float) -> None:
     """
     try:
         import lightgbm as lgb
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_set_inner_objective fell back to its default after %s", type(_exc).__name__)
         return
     if not isinstance(model, lgb.LGBMRegressor):
         return

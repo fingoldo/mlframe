@@ -76,7 +76,7 @@ def spectral_seriation(M: np.ndarray, *, method: str = "fiedler") -> np.ndarray:
     return np.argsort(fiedler)
 
 
-def seriate(M: np.ndarray, *, method: str = "fiedler", perm: np.ndarray | None = None):
+def seriate(M: np.ndarray, *, method: str = "fiedler", perm: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Reorder ``M`` by spectral seriation. Returns ``(M_reordered, perm)``.
 
     Pass a precomputed ``perm`` to apply the same ordering to another matrix (e.g. reorder both a correlation

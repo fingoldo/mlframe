@@ -274,7 +274,8 @@ def _maybe_run_feature_handling_apply(
         return None
     try:
         from mlframe.training.feature_handling import feature_handling_apply  # local: avoid suite-import cost when FHC is off
-    except ImportError:  # pragma: no cover
+    except ImportError as _exc:  # pragma: no cover
+        logger.debug("_maybe_run_feature_handling_apply fell back to its default after %s", type(_exc).__name__)
         return None
 
     sorted_models = getattr(ctx, "sorted_mlframe_models", None) or getattr(ctx, "mlframe_models", None) or []

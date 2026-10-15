@@ -132,7 +132,8 @@ class HeteroscedasticCompositeEstimator(RegressorMixin, BaseEstimator):
             from ngboost import NGBRegressor
 
             return NGBRegressor(verbose=False)
-        except ImportError:
+        except ImportError as _exc:
+            logger.debug("_make_ngboost_mean fell back to its default after %s", type(_exc).__name__)
             return None
 
     def fit(

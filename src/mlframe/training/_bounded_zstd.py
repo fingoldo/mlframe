@@ -6,6 +6,9 @@ import os
 from typing import Any
 
 from mlframe._optional_imports import import_optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 MAX_DECOMPRESSED_ENV = "MLFRAME_MAX_DECOMPRESSED_BYTES"
 _DEFAULT_MAX_DECOMPRESSED_BYTES = 64 * 1024**3
@@ -18,7 +21,8 @@ def max_decompressed_bytes() -> int:
         return _DEFAULT_MAX_DECOMPRESSED_BYTES
     try:
         value = int(raw)
-    except ValueError:
+    except ValueError as _exc:
+        logger.warning("max_decompressed_bytes fell back to its default after %s", type(_exc).__name__)
         return _DEFAULT_MAX_DECOMPRESSED_BYTES
     return value if value > 0 else 0
 

@@ -54,8 +54,8 @@ def test_mrmr_usability_lists_linear_floor_and_byte_identical_support():
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs_on = MRMR(verbose=0, random_seed=0, usability_aware_lists=True, **light).fit(X=Xtr, y=pd.Series(ytr, name="y"))
-        fs_off = MRMR(verbose=0, random_seed=0).fit(X=Xtr, y=pd.Series(ytr, name="y"))
+        fs_on = MRMR(verbose=0, random_state=0, usability_aware_lists=True, **light).fit(X=Xtr, y=pd.Series(ytr, name="y"))
+        fs_off = MRMR(verbose=0, random_state=0).fit(X=Xtr, y=pd.Series(ytr, name="y"))
 
     # (1) the pass OFF (default) leaves the linear/universal lists unset and aliases the tree list.
     assert fs_off.support_linear_ is None and fs_off.support_universal_ is None

@@ -41,7 +41,7 @@ def gradient_top_n(
     y: np.ndarray,
     *,
     classification: bool,
-    metric=None,
+    metric: str | None = None,
     n_iter: int = 400,
     lr: float = 0.1,
     l1: float = 0.01,

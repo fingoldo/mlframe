@@ -23,6 +23,7 @@ callables lazily imported in the parent are passed in as parameters so the
 math / RNG sequence / chunk iteration order are unchanged. Selection is
 byte-for-byte identical to the pre-carve in-loop body.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -36,7 +37,7 @@ from ._pairs_materialise import (
     _materialise_extval_njit,
     _narrow_code_dtype,
 )
-from ._pairs_emit import _emit_pair_features
+from ._pairs_emit import _emit_pair_features, apply_pair_family_gate_from_state
 
 # DEGENERATE-PAIR |corr| threshold. A prospective pair is DEGENERATE when its winning
 # composite is numerically ~= a SINGLE one of its own (warped) operands - the other operand's transform
@@ -87,6 +88,7 @@ def _score_one_pair(
     *,
     raw_vars_pair,
     pair_mi,
+    pair_family_alpha=0.01,
     chunk_state,
     rejection_records,
     rejection_ledger_out,
@@ -213,7 +215,35 @@ def _score_one_pair(
     # pair arrives, all of this chunk's pairs (incl. their survivor packing, which
     # reads the buffer) have already been processed -> safe to overwrite.
     st._chunk_entry = None
-    _score_one_pair_step1_reads_buffer_have(_chunk_global_batch, _chunk_buffer, _pair_to_chunk, raw_vars_pair, chunk_state, _fe_chunks, _pair_valid_combs, vars_transformations, transformed_vars, binary_transformations, quantization_nbins, quantization_dtype, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, batch_mi_with_noise_gate, use_su_normalization, _PREWARP_UNARY, discretize_2d_quantile_batch, serial_main_thread, _fe_defer_float, _op_code_arr_all, _gpu_mat_on, _fe_env_gate, st)
+    _score_one_pair_step1_reads_buffer_have(
+        _chunk_global_batch,
+        _chunk_buffer,
+        _pair_to_chunk,
+        raw_vars_pair,
+        chunk_state,
+        _fe_chunks,
+        _pair_valid_combs,
+        vars_transformations,
+        transformed_vars,
+        binary_transformations,
+        quantization_nbins,
+        quantization_dtype,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        fe_npermutations,
+        fe_min_nonzero_confidence,
+        batch_mi_with_noise_gate,
+        use_su_normalization,
+        _PREWARP_UNARY,
+        discretize_2d_quantile_batch,
+        serial_main_thread,
+        _fe_defer_float,
+        _op_code_arr_all,
+        _gpu_mat_on,
+        _fe_env_gate,
+        st,
+    )
     # When the chunk DEFERRED its float D2H the buffer is unfilled - point the reads at None so they
     # take the GPU re-materialise branch in ``_resolve_col`` (bit-identical to the buffer value).
     _this_chunk_deferred = (st._chunk_entry is not None) and chunk_state["float_deferred"]
@@ -253,7 +283,36 @@ def _score_one_pair(
 
     st._fe_defer_float = _fe_defer_float
     st._pair_defer_state = None
-    _score_one_pair_step3_resolve_col_treat(st, final_transformed_vals, _op_code_arr, binary_transformations, vars_transformations, _PREWARP_UNARY, quantization_nbins, quantization_dtype, transformed_vars, _fe_gpu_discretize_enabled, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, discretize_2d_quantile_batch, serial_main_thread, batch_mi_with_noise_gate, _fe_env_gate, _need_recompute_map, _config_by_i, fe_print_best_mis_only, verbose, pair_mi, discretize_array, quantization_method, mi_direct)
+    _score_one_pair_step3_resolve_col_treat(
+        st,
+        final_transformed_vals,
+        _op_code_arr,
+        binary_transformations,
+        vars_transformations,
+        _PREWARP_UNARY,
+        quantization_nbins,
+        quantization_dtype,
+        transformed_vars,
+        _fe_gpu_discretize_enabled,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        fe_npermutations,
+        fe_min_nonzero_confidence,
+        use_su_normalization,
+        discretize_2d_quantile_batch,
+        serial_main_thread,
+        batch_mi_with_noise_gate,
+        _fe_env_gate,
+        _need_recompute_map,
+        _config_by_i,
+        fe_print_best_mis_only,
+        verbose,
+        pair_mi,
+        discretize_array,
+        quantization_method,
+        mi_direct,
+    )
     if st._pair_defer_state is not None:
         # The GPU fused materialise left the float candidate matrix on the device: nothing is copied to the host, and the survivor / usability / emit reads below
         # take the same deferred path a deferred chunk does, re-materialising only the columns they touch.
@@ -264,8 +323,54 @@ def _score_one_pair(
     # Merge this pair's per-bin_func timings into the shared accumulator in
     # ONE locked pass (the increment was previously locked per inner
     # iteration - a serialization point under the parallel pair dispatch).
-    _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose, raw_vars_pair, _corr_y_cont, _PREWARP_UNARY, fe_good_to_best_feature_mi_threshold, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr, pair_mi, fe_mm_debias_prevalence, classes_y, freqs_y, quantization_nbins, discretize_array, quantization_method, quantization_dtype, _operand_discretized, fe_min_engineered_mi_prevalence, num_fs_steps, _operand_marginal_mi, _prewarp_active, prewarp_uplift_threshold)
-    _score_one_pair_step5_any_error_leaves(fe_pair_usability_admission_enable, _corr_y_cont, pair_mi, st, final_transformed_vals, _this_chunk_deferred, _extval_raw_col, raw_vars_pair, fe_pair_usability_admission_min_corr, fe_pair_usability_admission_pairness_margin, _resolve_col, _safe_abs_corr, _raw_operand_abs_corr, _mi_band, verbose)
+    _score_one_pair_step4_iteration_serialization_point(
+        st,
+        times_spent,
+        verbose,
+        raw_vars_pair,
+        _corr_y_cont,
+        _PREWARP_UNARY,
+        fe_good_to_best_feature_mi_threshold,
+        final_transformed_vals,
+        _this_chunk_deferred,
+        _resolve_col,
+        _config_by_i,
+        transformed_vars,
+        vars_transformations,
+        binary_transformations,
+        _safe_abs_corr,
+        pair_mi,
+        fe_mm_debias_prevalence,
+        classes_y,
+        freqs_y,
+        quantization_nbins,
+        discretize_array,
+        quantization_method,
+        quantization_dtype,
+        _operand_discretized,
+        fe_min_engineered_mi_prevalence,
+        num_fs_steps,
+        _operand_marginal_mi,
+        _prewarp_active,
+        prewarp_uplift_threshold,
+    )
+    _score_one_pair_step5_any_error_leaves(
+        fe_pair_usability_admission_enable,
+        _corr_y_cont,
+        pair_mi,
+        st,
+        final_transformed_vals,
+        _this_chunk_deferred,
+        _extval_raw_col,
+        raw_vars_pair,
+        fe_pair_usability_admission_min_corr,
+        fe_pair_usability_admission_pairness_margin,
+        _resolve_col,
+        _safe_abs_corr,
+        _raw_operand_abs_corr,
+        _mi_band,
+        verbose,
+    )
 
     # NOISE-WRAP CORR-COLLAPSE VETO. Whatever path admitted the winner, VETO it when the
     # winning composite WRAPS a strong, clean operand with a (near-)noise operand: its |corr| with the
@@ -276,7 +381,22 @@ def _score_one_pair(
     # |corr|~0.99, so it would DISPLACE the clean univariate basis from the support and kill recovery.
     # Genuine synergy (a*b, log(c)*sin(d)) keeps the engineered column tracking y (no collapse), so the
     # wide 2x fraction margin never condemns it. Pure-noise pairs never reach here (upstream screens).
-    _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _safe_abs_corr, vars_transformations, _transformed_operand_abs_corr, _raw_operand_abs_corr, raw_vars_pair, _NOISE_WRAP_MIN_OPERAND_CORR, _NOISE_WRAP_CORR_COLLAPSE_FRAC, verbose, transformed_vars)
+    _score_one_pair_step6_wide_fraction_margin(
+        st,
+        _corr_y_cont,
+        final_transformed_vals,
+        _this_chunk_deferred,
+        _resolve_col,
+        _safe_abs_corr,
+        vars_transformations,
+        _transformed_operand_abs_corr,
+        _raw_operand_abs_corr,
+        raw_vars_pair,
+        _NOISE_WRAP_MIN_OPERAND_CORR,
+        _NOISE_WRAP_CORR_COLLAPSE_FRAC,
+        verbose,
+        transformed_vars,
+    )
 
     # REJECTION LEDGER (additive): record a pair the per-pair acceptance gate is about
     # to DROP - the joint-prevalence floor declined AND both the prewarp and the
@@ -285,7 +405,25 @@ def _score_one_pair(
     # session hand-diagnoses) is the primary gate; if the ratio DID clear that bar (so the
     # prewarp/uplift path declined for another reason) tag the marginal-uplift floor.
     # All values were already computed above (no recompute).
-    _score_one_pair_all_values_were_already(st._passes_joint_gate, st._prewarp_accept, st._marginal_uplift_accept, st._usability_accept, fe_min_engineered_mi_prevalence, num_fs_steps, st.best_config, raw_vars_pair, cols, st._gate_ratio, rejection_records, rejection_ledger_out, ratio_ok=getattr(st, "_ratio_ok", True))
+    _score_one_pair_all_values_were_already(
+        st._passes_joint_gate,
+        st._prewarp_accept,
+        st._marginal_uplift_accept,
+        st._usability_accept,
+        fe_min_engineered_mi_prevalence,
+        num_fs_steps,
+        st.best_config,
+        raw_vars_pair,
+        cols,
+        st._gate_ratio,
+        rejection_records,
+        rejection_ledger_out,
+    )
+
+    # FAMILY-WISE GATE over every configuration scored for this pair: the winner is the maximum over all of them, so it must clear the family
+    # maximum, not only its own null. A winner that fails the family gate rejects the pair (no engineered feature is emitted for it).
+    if apply_pair_family_gate_from_state(st, classes_y, quantization_nbins, pair_family_alpha):
+        st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = st._usability_accept = False
 
     if st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept:  # Best transformation is good enough
         st._pair_res_entry = _emit_pair_features(

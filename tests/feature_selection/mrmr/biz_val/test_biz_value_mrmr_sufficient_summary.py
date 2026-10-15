@@ -227,12 +227,12 @@ def test_cprofile_sufficient_summary_cost_is_negligible():
 
     # Warm up JIT on a different seed, then clear the fit cache so the profiled run is a
     # genuine full fit (not an instant content-fingerprint replay).
-    MRMR(verbose=0, fe_max_steps=2, random_seed=1, skip_retraining_on_same_content=False).fit(*_f1_fixture(seed=1))
+    MRMR(verbose=0, fe_max_steps=2, random_state=1, skip_retraining_on_same_content=False).fit(*_f1_fixture(seed=1))
     MRMR._FIT_CACHE.clear()
 
     pr = cProfile.Profile()
     pr.enable()
-    MRMR(verbose=0, fe_max_steps=2, random_seed=SEED, skip_retraining_on_same_content=False).fit(df, y)
+    MRMR(verbose=0, fe_max_steps=2, random_state=SEED, skip_retraining_on_same_content=False).fit(df, y)
     pr.disable()
 
     st = pstats.Stats(pr)

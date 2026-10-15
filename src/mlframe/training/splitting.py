@@ -299,7 +299,8 @@ def _make_train_test_sp_wholeday_splitting_timestamps_none(wholeday_splitting, t
             """Normalises a single date-like value to an int64-nanosecond key, falling back to the raw value if it isn't Timestamp-convertible."""
             try:
                 return int(pd.Timestamp(_d).value)
-            except (ValueError, TypeError, OverflowError):
+            except (ValueError, TypeError, OverflowError) as _exc:
+                logger.debug("_as_ns_int fell back to its default after %s", type(_exc).__name__)
                 return _d
 
         def _ns_keys(_arr):
@@ -314,7 +315,8 @@ def _make_train_test_sp_wholeday_splitting_timestamps_none(wholeday_splitting, t
             # pd.Timestamp, and the fallback then reproduces the old value-as-is keys.
             try:
                 return pd.DatetimeIndex(np.asarray(_arr)).asi8.tolist()
-            except (ValueError, TypeError, OverflowError):
+            except (ValueError, TypeError, OverflowError) as _exc:
+                logger.debug("_ns_keys fell back to its default after %s", type(_exc).__name__)
                 return [_as_ns_int(_d) for _d in _arr]
 
         date_to_code = {k: i for i, k in enumerate(_ns_keys(uniq_index))}

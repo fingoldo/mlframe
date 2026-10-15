@@ -107,7 +107,8 @@ def _safe_float(value: Any) -> float:
     """Coerce to float; NaN on failure so a malformed record never raises at DataFrame build."""
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_safe_float fell back to its default after %s", type(_exc).__name__)
         return float("nan")
 
 
@@ -246,7 +247,8 @@ def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
                 return v
             try:
                 i = int(v)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as _exc:
+                logger.debug("_name fell back to its default after %s", type(_exc).__name__)
                 return str(v)
             return names[i] if 0 <= i < len(names) else f"<engineered#{i}>"
 

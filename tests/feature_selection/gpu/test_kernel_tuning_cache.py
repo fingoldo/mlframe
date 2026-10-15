@@ -238,12 +238,17 @@ def test_ensure_kernels_inited_populates_new_shared_kernels():
     from mlframe.feature_selection.filters import gpu as g
 
     g._ensure_kernels_inited()
-    # Pre-existing kernels.
-    assert g.compute_joint_hist_cuda is not None
-    assert g.compute_joint_hist_batched_cuda is not None
-    # New kernels from WAVE 2.
-    assert g.compute_joint_hist_batched_shared_cuda is not None
-    assert g.compute_joint_hist_multi_pair_shared_cuda is not None
+    # Every kernel is built with cp.RawKernel in gpu.py (lines 155-356), so the populated attribute must be one.
+    assert isinstance(g.compute_joint_hist_cuda, cp.RawKernel)
+    assert isinstance(g.compute_mi_from_classes_cuda, cp.RawKernel)
+    assert isinstance(g.compute_joint_hist_batched_cuda, cp.RawKernel)
+    assert isinstance(g.compute_joint_hist_batched_shared_cuda, cp.RawKernel)
+    assert isinstance(g.compute_joint_hist_multi_pair_shared_cuda, cp.RawKernel)
+    shared = {
+        g.compute_joint_hist_batched_shared_cuda,
+        g.compute_joint_hist_multi_pair_shared_cuda,
+    }
+    assert len(shared) == 2, "shared-memory kernels must be distinct RawKernel objects, not aliases of the unshared variants"
 
 
 # --------------------------------------------------------------------------

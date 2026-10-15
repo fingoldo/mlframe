@@ -70,7 +70,8 @@ def test_create_date_features_weekday_range(df_lib):
     result = create_date_features(df, ["date"])
 
     weekdays = result["date_weekday"].to_list() if df_lib == "polars" else result["date_weekday"].values.tolist()
-    assert all(0 <= w <= 6 for w in weekdays)
+    # Seven consecutive days cover every weekday exactly once, so the sorted values must be 0..6.
+    assert sorted(weekdays) == list(range(7))
 
 
 def test_create_date_features_multiple_cols():

@@ -225,7 +225,7 @@ def _fit(data, y, kwargs, to_polars):
         X = pl.DataFrame(data)
     else:
         X = pd.DataFrame(data)
-    sel = MRMR(verbose=0, random_seed=0, **kwargs)
+    sel = MRMR(verbose=0, random_state=0, **kwargs)
     sel.fit(X, pd.Series(y))
     return sel
 
@@ -259,7 +259,7 @@ def test_bucket_a_family_adds_no_whole_frame_to_pandas_on_polars(monkeypatch):
         """Full count."""
         heights.clear()
         MRMR._FIT_CACHE.clear()
-        sel = MRMR(verbose=0, random_seed=0, fe_check_pairs_subsample_n=500, fe_univariate_basis_enable=True, **kwargs)
+        sel = MRMR(verbose=0, random_state=0, fe_check_pairs_subsample_n=500, fe_univariate_basis_enable=True, **kwargs)
         sel.fit(pl.DataFrame(data), y)
         return sum(h == n for h in heights), sel
 

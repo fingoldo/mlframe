@@ -23,7 +23,7 @@ def _frame(labels, seed=0, n=300):
 
 def _fit(X, y):
     """A light, deterministic classic fit."""
-    return MRMR(verbose=0, random_seed=0, fe_max_steps=0, fe_hinge_enable=False, dcd_enable=False, build_friend_graph=False).fit(X, y)
+    return MRMR(verbose=0, random_state=0, fe_max_steps=0, fe_hinge_enable=False, dcd_enable=False, build_friend_graph=False).fit(X, y)
 
 
 def test_integer_column_labels_fit_and_transform():

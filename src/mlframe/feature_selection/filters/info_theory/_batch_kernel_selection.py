@@ -12,6 +12,7 @@ from typing import Callable, cast
 import numpy as np
 
 from ._batch_kernels import batch_mi_with_noise_gate, batch_mi_with_noise_gate_v2
+from ._batch_kernels_v3 import batch_mi_with_noise_gate_v3
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -24,13 +25,13 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # size via kernel_tuning_cache" rule the ORIGINAL kernel is retained and the choice is routed per-host
 # through the KTC (axes n_rows x n_cols); the v2 fused path is the measurement-backed fallback for an
 # un-tuned host (the safe faster default here). ``MLFRAME_BATCH_MI_KERNEL=v1|v2`` force-overrides.
-_BATCH_MI_KERNEL_CODE_VERSION = "batch_mi_noise_gate_kernel-v2-fused-2026-06-22"
+_BATCH_MI_KERNEL_CODE_VERSION = "batch_mi_noise_gate_kernel-v3-colmajor-2026-10-15"
 
 
 def _batch_mi_kernel_fallback_choice(n_rows: int, n_cols: int) -> str:
-    """Pre-sweep default kernel for the batched FE-candidate MI: the fused v2 (measured uniformly faster
-    + bit-identical). The KTC sweep can later refine per-host if a pathological size ever regresses."""
-    return "v2"
+    """Pre-sweep default kernel for the batched FE-candidate MI: the column-major v3 (bit-identical to v2, measured ~3x faster on
+    the captured 2000 x 7668 call). The KTC sweep can later refine per-host if a pathological size ever regresses."""
+    return "v3"
 
 
 def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
@@ -44,9 +45,12 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
         return cast(Callable, batch_mi_with_noise_gate)
     if _env == "v2":
         return cast(Callable, batch_mi_with_noise_gate_v2)
-    choice = "v2"
+    if _env == "v3":
+        return cast(Callable, batch_mi_with_noise_gate_v3)
+    choice = "v3"
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
         res = KernelTuningCache.load_or_create().get_or_tune(
             "batch_mi_fe_kernel",
             dims={"n_rows": int(n_rows), "n_cols": int(n_cols)},
@@ -59,13 +63,13 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
         if isinstance(res, str):
             choice = res
         elif res:
-            choice = str(res.get("kernel_choice", "v2"))
+            choice = str(res.get("kernel_choice", "v3"))
     except Exception as exc:
         # a genuine kernel-selection bug silently degrades
         # every fit to the hardcoded v2 default with no diagnostic trail.
-        logger.debug("mrmr: batch-MI kernel selection failed; defaulting to v2: %r", exc, exc_info=True)
-        choice = "v2"
-    return cast(Callable, batch_mi_with_noise_gate if choice == "v1" else batch_mi_with_noise_gate_v2)
+        logger.warning("mrmr: batch-MI kernel selection failed; defaulting to v2: %r", exc, exc_info=True)
+        choice = "v3"
+    return cast(Callable, {"v1": batch_mi_with_noise_gate, "v2": batch_mi_with_noise_gate_v2}.get(choice, batch_mi_with_noise_gate_v3))
 
 
 def _run_batch_mi_kernel_sweep():
@@ -83,9 +87,13 @@ def _run_batch_mi_kernel_sweep():
 
     def _make_inputs(dims):
         """Build a synthetic (discretized candidates, y-classes, y-frequencies) fixture at the requested (n_rows, n_cols) grid point, using a shared a**2/b-derived base signal so v1/v2 see realistic non-degenerate MI."""
-        n = int(dims["n_rows"]); K = int(dims["n_cols"]); nbins = 10
+        n = int(dims["n_rows"])
+        K = int(dims["n_cols"])
+        nbins = 10
         rng = np.random.default_rng(0)
-        a = rng.uniform(0.1, 1.1, n); b = rng.uniform(0.1, 1.1, n); base = a ** 2 / b
+        a = rng.uniform(0.1, 1.1, n)
+        b = rng.uniform(0.1, 1.1, n)
+        base = a**2 / b
         cand = np.empty((n, K), dtype=np.float32)
         for k in range(K):
             cand[:, k] = (base * (1.0 + 0.01 * rng.standard_normal(n)) + 0.001 * k).astype(np.float32)
@@ -99,19 +107,35 @@ def _run_batch_mi_kernel_sweep():
 
     def _call(kernel):
         """Bind a fixed permutation-MI call signature to ``kernel`` (v1 or v2) so ``sweep_backend_grid`` can invoke both with identical positional data args."""
+
         def _f(disc, fn, yc, fy):
             """Invoke the bound kernel on one sweep-generated fixture with a fixed permutation/seed/threshold configuration."""
             return kernel(
-                disc_2d=disc, factors_nbins=fn, classes_y=yc, classes_y_safe=yc, freqs_y=fy,
-                npermutations=25, base_seed=np.uint64(0), min_nonzero_confidence=0.0, use_su=False,
-                dtype=np.int32, classes_dtype=np.int8,
+                disc_2d=disc,
+                factors_nbins=fn,
+                classes_y=yc,
+                classes_y_safe=yc,
+                freqs_y=fy,
+                npermutations=25,
+                base_seed=np.uint64(0),
+                min_nonzero_confidence=0.0,
+                use_su=False,
+                dtype=np.int32,
+                classes_dtype=np.int8,
             )
+
         return _f
 
-    return cast(list, sweep_backend_grid(
-        {"v1": _call(batch_mi_with_noise_gate), "v2": _call(batch_mi_with_noise_gate_v2)},
-        {"n_rows": [30_000, 100_000], "n_cols": [600, 3888]},
-        _make_inputs,
-        reference="v1", repeats=3, equiv_rtol=1e-12, equiv_atol=1e-15,
-        decision_key="kernel_choice",
-    ))
+    return cast(
+        list,
+        sweep_backend_grid(
+            {"v1": _call(batch_mi_with_noise_gate), "v2": _call(batch_mi_with_noise_gate_v2), "v3": _call(batch_mi_with_noise_gate_v3)},
+            {"n_rows": [30_000, 100_000], "n_cols": [600, 3888]},
+            _make_inputs,
+            reference="v1",
+            repeats=3,
+            equiv_rtol=1e-12,
+            equiv_atol=1e-15,
+            decision_key="kernel_choice",
+        ),
+    )

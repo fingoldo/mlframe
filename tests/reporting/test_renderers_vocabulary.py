@@ -22,8 +22,6 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec,
 )
 
-from tests.conftest import perf_time_budget
-
 BACKENDS = ["matplotlib", "plotly"]
 
 
@@ -190,23 +188,32 @@ class TestTrendLine:
         assert robust_fit_endpoints(np.ones(5), np.arange(5.0), "theil-sen") is None  # all x identical
         assert robust_fit_endpoints(np.array([1.0]), np.array([1.0]), "huber") is None  # < 2 points
 
-    def test_robust_fit_large_n_is_bounded(self):
+    def test_robust_fit_large_n_is_bounded(self, monkeypatch):
         # Default-ON hexbin overlay can feed millions of points; the fit-cap keeps it fast and still slope-correct.
-        """Robust fit large n is bounded."""
-        import time
+        """Robust fit large n is bounded: the Theil-Sen fit sees at most _TREND_FIT_CAP rows and recovers the slope."""
+        from sklearn.linear_model import TheilSenRegressor
 
+        from mlframe.reporting.renderers import _trend
+
+        fit_rows = []
+        real_fit = TheilSenRegressor.fit
+
+        def _spy_fit(self, X, y, *args, **kwargs):
+            """Record the number of rows the robust fit receives and delegate to the real fit."""
+            fit_rows.append(len(X))
+            return real_fit(self, X, y, *args, **kwargs)
+
+        monkeypatch.setattr(TheilSenRegressor, "fit", _spy_fit)
         rng = np.random.default_rng(7)
         n = 2_000_000
         x = rng.standard_normal(n) * 5.0
         y = 2.0 * x + rng.standard_normal(n)
-        t0 = time.perf_counter()
         ends = robust_fit_endpoints(x, y, "theil-sen")
-        elapsed = time.perf_counter() - t0
         assert ends is not None
         (x0, y0), (x1, y1) = ends
         slope = (y1 - y0) / (x1 - x0)
         assert abs(slope - 2.0) < 0.2, f"capped fit slope {slope} should still recover ~2.0"
-        assert elapsed < perf_time_budget(5.0), f"capped robust fit took {elapsed:.2f}s; should stay well under 5s at 2M points"
+        assert fit_rows == [_trend._TREND_FIT_CAP], f"robust fit saw {fit_rows} rows; expected the {_trend._TREND_FIT_CAP}-row cap"
 
 
 # ----------------------------------------------------------------------------
@@ -494,7 +501,7 @@ class TestDatetimeVline:
         """Plotly numeric vline unchanged."""
         panel = LinePanelSpec(x=np.arange(20), y=np.arange(20.0), vlines=((5.0, "red", "split"),))
         fig = _render(panel, "plotly")
-        assert fig is not None  # numeric add_vline path still works
+        assert any(s.type == "line" and s.x0 == 5.0 and s.x1 == 5.0 for s in fig.layout.shapes), "numeric vline at x=5.0 missing"
 
     def test_python_datetime_vline(self):
         """Python datetime vline."""

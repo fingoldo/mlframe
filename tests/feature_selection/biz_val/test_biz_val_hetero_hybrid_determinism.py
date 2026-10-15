@@ -90,8 +90,8 @@ def test_hetero_vote_same_seed_identical_accepted_and_vote_fraction():
     vf1, vf2 = i1["vote_fraction"], i2["vote_fraction"]
     assert vf1.keys() == vf2.keys()
     # bit-equality (not approx): the same seed must replay the exact float vote fractions.
-    assert all(vf1[c] == vf2[c] for c in vf1), "same-seed vote_fraction is not bit-identical"
-    assert vf1 == vf2
+    assert vf1, "vote_fraction is empty -- the vote panel produced no per-column fractions"
+    assert vf1 == vf2, "same-seed vote_fraction is not bit-identical"
 
 
 @pytest.mark.timeout(900)

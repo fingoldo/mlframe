@@ -126,7 +126,7 @@ def test_mrmr_fit_handles_polars_input_without_inplace_mutation():
     before = X.clone()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(random_seed=0, verbose=0).fit(X=X, y=y)
+        fs = MRMR(random_state=0, verbose=0).fit(X=X, y=y)
     assert X.columns == before.columns and X.equals(before), "MRMR.fit mutated the caller's polars frame"
     assert "a" in list(getattr(fs, "support_names_", None) or np.asarray(before.columns)[fs.support_])
 

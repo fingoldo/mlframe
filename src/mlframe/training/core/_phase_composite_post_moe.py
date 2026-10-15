@@ -150,7 +150,8 @@ def _select_rows(values: Any, idx: Any, dtype: Any = None) -> Optional[np.ndarra
         return None
     try:
         return cast(np.ndarray, np.asarray(values, dtype=dtype).reshape(-1)[idx])
-    except (TypeError, IndexError):
+    except (TypeError, IndexError) as _exc:
+        logger.warning("_select_rows fell back to its default after %s", type(_exc).__name__)
         return None
 
 
@@ -159,11 +160,11 @@ def run_composite_moe_and_value_report(
     models: dict,
     metadata: dict,
     target_by_type: dict,
-    composite_target_discovery_config,
-    filtered_train_df,
-    filtered_val_df,
-    filtered_train_idx,
-    filtered_val_idx,
+    composite_target_discovery_config: Any,
+    filtered_train_df: Any,
+    filtered_val_df: Any,
+    filtered_train_idx: Any,
+    filtered_val_idx: Any,
     ctx: Any = None, test_df: Any = None, test_idx: Any = None,
     split_args_by_target: dict | None = None,
 ) -> None:

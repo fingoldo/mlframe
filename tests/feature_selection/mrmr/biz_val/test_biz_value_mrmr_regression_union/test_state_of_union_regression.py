@@ -509,6 +509,9 @@ class TestOrthPolyFamilyImport:
         ],
     )
     def test_module_imports(self, modname):
-        """Each orth-poly family submodule imports cleanly and is not None."""
-        mod = importlib.import_module(f"mlframe.feature_selection.filters.{modname}")
-        assert mod is not None, f"{modname} import returned None"
+        """Each orth-poly family submodule imports cleanly and exposes at least one public callable."""
+        full_name = f"mlframe.feature_selection.filters.{modname}"
+        mod = importlib.import_module(full_name)
+        assert mod.__name__ == full_name
+        public_callables = [n for n, v in vars(mod).items() if not n.startswith("_") and callable(v)]
+        assert public_callables, f"{modname} exposes no public callables; the family module is empty"

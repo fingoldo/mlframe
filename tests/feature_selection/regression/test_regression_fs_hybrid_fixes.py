@@ -57,7 +57,7 @@ def test_rfecv_accepts_ndarray_x_with_pandas_y():
     assert r.n_features_ >= 1
     names = list(r.get_feature_names_out())
     # ndarray columns get legacy-compatible stringified positional names ("0".."N-1").
-    assert all(str(n).isdigit() for n in names)
+    assert names and set(names) <= {str(i) for i in range(12)}, names
     # transform works on both ndarray and the equivalent DataFrame.
     Zt_arr = r.transform(Xtr.to_numpy())
     assert Zt_arr.shape[0] == Xtr.shape[0] and Zt_arr.shape[1] == r.n_features_

@@ -110,6 +110,7 @@ def test_pdp_2d_tooltip_carries_row_counts_and_percentages():
 
     assert panel.cell_hovertext is not None
     flat = [str(s) for row in panel.cell_hovertext for s in row]
+    assert flat, "the hovertext grid is empty; the tooltip checks below would be vacuous"
     assert all("rows" in s and "%" in s for s in flat), flat[:3]
     # Counts must sum to the finite row count, i.e. every row is attributed to exactly one cell.
     counts = [int(s.split(" rows")[0].replace(",", "")) for s in flat]

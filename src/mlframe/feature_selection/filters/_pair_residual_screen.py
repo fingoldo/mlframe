@@ -22,6 +22,7 @@ import pandas as pd
 from numba import njit, prange
 
 from ._fe_gain_stats import quantile_codes
+from ._numba_utils import _backfit
 from ._y_encoding import FEW_CLASSES_MAX
 
 __all__ = ["pair_interaction_screen", "main_effect_bins", "N_BINS", "FAMILY_ALPHA"]
@@ -36,39 +37,6 @@ MAIN_BINS_RANGE = (15, 60)
 MAX_COLS = 40
 DEFAULT_SCAN_ROWS = 50_000
 _MIN_ROWS = 800
-
-
-@njit(cache=True, nogil=True)
-def _backfit(Q, y, even, n_bins, sweeps):
-    """Gauss-Seidel backfit of ``p`` free-form main effects on the even rows; returns the ``(p, n_bins)`` effect tables and the intercept."""
-    p, n = Q.shape
-    f = np.zeros((p, n_bins))
-    n_even = 0
-    mu = 0.0
-    for i in range(n):
-        if even[i]:
-            mu += y[i]
-            n_even += 1
-    mu /= max(n_even, 1)
-    pred = np.zeros(n)
-    for _ in range(sweeps):
-        for j in range(p):
-            s = np.zeros(n_bins)
-            c = np.zeros(n_bins)
-            for i in range(n):
-                if even[i]:
-                    b = Q[j, i]
-                    s[b] += y[i] - mu - (pred[i] - f[j, b])
-                    c[b] += 1.0
-            for b in range(n_bins):
-                new = s[b] / c[b] if c[b] > 0.0 else 0.0
-                f[j, b] = new
-            for i in range(n):
-                pred[i] = 0.0
-            for jj in range(p):
-                for i in range(n):
-                    pred[i] += f[jj, Q[jj, i]]
-    return f, mu
 
 
 @njit(parallel=True, cache=True)

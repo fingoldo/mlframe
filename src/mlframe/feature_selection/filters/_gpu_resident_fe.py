@@ -57,6 +57,8 @@ exact cp.percentile sort is at the bandwidth floor; beating it needs a rank-EXAC
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import os
 import threading
@@ -172,7 +174,8 @@ def _gpu_min_free_vram_mb() -> int:
     Env-tunable ``MLFRAME_FE_GPU_MIN_FREE_VRAM_MB`` (default 1024). 0 disables the check (legacy: present-only gate)."""
     try:
         return int(os.environ.get("MLFRAME_FE_GPU_MIN_FREE_VRAM_MB", "1024"))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_gpu_min_free_vram_mb fell back to its default after %s", type(_exc).__name__)
         return 1024
 
 def _gpu_has_free_vram() -> bool:
@@ -385,7 +388,7 @@ def ensure_host_codes_filled(host_codes: np.ndarray) -> None:
         # D2H the resident device codes into the caller's host buffer (the exact bytes the eager path produced).
         _fill_deferred(h)
 
-def take_resident_codes(host_codes):
+def take_resident_codes(host_codes: Any) -> Any:
     """Return the resident device codes stashed for ``host_codes`` iff they match it (same id, shape,
     dtype); else None. The resident-CUDA gate consumes the returned device codes IN PLACE (no host read).
     The handoff is NOT cleared here (so a later host-reading branch in the SAME dispatch - e.g. the
@@ -603,7 +606,7 @@ def _gpu_apply_prewarp(cp, x, spec):
             (xfc, np.int32(code), np.float64(lo), np.float64(span), np.float64(mean), np.float64(std_safe),
              np.float64(clip_lo), np.float64(clip_hi), np.int32(1 if has_clip else 0), np.int64(nrow), z))
     except Exception as e:
-        logger.debug("fused prewarp-transform kernel failed, falling back to the exact cupy chain: %s", e)
+        logger.warning("fused prewarp-transform kernel failed, falling back to the exact cupy chain: %s", e)
         if basis in ("legendre", "chebyshev"):
             z = 2 * (xf - pp["lo"]) / _guarded_span(pp) - 1
             if clip is not None:
@@ -1027,7 +1030,7 @@ def _gpu_k_chunk(n: int, *, free_bytes: int | None = None,
             _mp = cp.get_default_memory_pool()
             _pool_free = int(_mp.total_bytes()) - int(_mp.used_bytes())
         except Exception as e:
-            logger.debug("querying the cupy memory pool free bytes failed: %s", e)
+            logger.warning("querying the cupy memory pool free bytes failed: %s", e)
             _pool_free = 0
         # Cap the pool-free contribution at a fraction of TOTAL VRAM so one batch's working set stays bounded
         # (the full pool_free would size a multi-GB (n, k_chunk) allocation that churns the pool on this 4 GB

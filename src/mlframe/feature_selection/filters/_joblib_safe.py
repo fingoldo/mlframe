@@ -339,37 +339,30 @@ def fit_constant_memmap(arr: "Any") -> "Any":
         if isinstance(arr, _np.memmap):
             return arr
         key = _fit_constant_key(arr)
+        # The lookup and the publish share one lock block, so a concurrent miss on the same content waits for this dump and
+        # then takes the stored entry instead of dumping the array a second time.
         with _FIT_MEMMAP_LOCK:
             cached = _FIT_MEMMAP_CACHE.get(key)
             if cached is not None:
                 _FIT_MEMMAP_CACHE.move_to_end(key)
                 return cached[0]
 
-        # The dump is slow and touches no shared state, so it runs OUTSIDE the lock. The race that opens -
-        # two threads dumping the same content - is settled on re-entry below, where the loser unlinks its
-        # own file instead of dropping it from the dict and orphaning it.
-        import os
-        import tempfile
+            import os
+            import tempfile
 
-        fd, path = tempfile.mkstemp(prefix="mlframe_fitconst_", suffix=".mmap")
-        os.close(fd)
-        try:
-            a = _np.ascontiguousarray(arr)
-            mm = _np.memmap(path, dtype=a.dtype, mode="w+", shape=a.shape)
-            mm[...] = a
-            mm.flush()
-            del mm
-            ro = _np.memmap(path, dtype=a.dtype, mode="r", shape=a.shape)
-        except BaseException:
-            _release_fit_constant_entry(None, path)
-            raise
+            fd, path = tempfile.mkstemp(prefix="mlframe_fitconst_", suffix=".mmap")
+            os.close(fd)
+            try:
+                a = _np.ascontiguousarray(arr)
+                mm = _np.memmap(path, dtype=a.dtype, mode="w+", shape=a.shape)
+                mm[...] = a
+                mm.flush()
+                del mm
+                ro = _np.memmap(path, dtype=a.dtype, mode="r", shape=a.shape)
+            except BaseException:
+                _release_fit_constant_entry(None, path)
+                raise
 
-        with _FIT_MEMMAP_LOCK:
-            winner = _FIT_MEMMAP_CACHE.get(key)
-            if winner is not None:
-                _FIT_MEMMAP_CACHE.move_to_end(key)
-                _release_fit_constant_entry(ro, path)
-                return winner[0]
             _FIT_MEMMAP_CACHE[key] = (ro, path)
             while len(_FIT_MEMMAP_CACHE) > _FIT_MEMMAP_CACHE_MAX_ENTRIES:
                 _evict_one_locked()

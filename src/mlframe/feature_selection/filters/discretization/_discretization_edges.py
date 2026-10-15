@@ -13,6 +13,7 @@ import math
 from typing import Optional
 
 import numpy as np
+from numpy.typing import ArrayLike
 from numba import njit
 
 from mlframe.core.arrays import arrayMinMax
@@ -311,7 +312,7 @@ def _bayesian_blocks_bin_edges(
         edges_internal = np.unique(edges_internal)
     return edges_internal
 
-def histogram(a, bins="auto", **kwargs):
+def histogram(a: ArrayLike, bins: int | str = "auto", **kwargs) -> tuple[np.ndarray, np.ndarray]:
     """In-tree histogram supporting np.histogram's bin schemes + 'blocks' / 'knuth'.
 
     Astropy was removed from the install graph; 'blocks' and 'knuth'

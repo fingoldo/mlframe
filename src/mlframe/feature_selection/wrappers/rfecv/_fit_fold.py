@@ -87,7 +87,8 @@ def _fit_accepts_sample_weight(fit_func) -> bool:
     prior try/except (TypeError, ValueError) -> skip behaviour exactly)."""
     try:
         sig = inspect.signature(fit_func)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_fit_accepts_sample_weight fell back to its default after %s", type(_exc).__name__)
         return False
     params = sig.parameters
     return "sample_weight" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
@@ -144,7 +145,8 @@ def _score_with_optional_weight(scoring, fitted, X_test, y_test, test_sample_wei
         return scoring(fitted, X_test, y_test)
     try:
         return scoring(fitted, X_test, y_test, sample_weight=test_sample_weight)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_score_with_optional_weight fell back to its default after %s", type(_exc).__name__)
         return scoring(fitted, X_test, y_test)
 
 

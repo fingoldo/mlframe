@@ -149,12 +149,12 @@ def test_no_shape_args_preserves_legacy_fit_level_only_gate(monkeypatch):
     assert S.fe_gpu_strict_enabled() is True
 
 
-def test_explicit_force_still_respects_call_work_floor(monkeypatch):
-    """Explicit force still respects call work floor."""
+def test_explicit_force_ignores_call_work_floor(monkeypatch):
+    """Explicit force engages STRICT on every call, the per-call shape floor does not apply (owner request 2026-10-15)."""
     _with_cuda(monkeypatch, True)
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
-    S.set_auto_fit_n(100)  # irrelevant under explicit force, but the call-shape floor still applies
-    assert S.fe_gpu_strict_enabled(n=1000, p=2) is False
+    S.set_auto_fit_n(100)
+    assert S.fe_gpu_strict_enabled(n=1000, p=2) is True
     assert S.fe_gpu_strict_enabled(n=1_000_000, p=64) is True
 
 

@@ -52,7 +52,7 @@ class TestClusterMembersAccessor:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
         cm = m.cluster_members_
         assert cm is not None, "cluster_members_ must be a dict (not None) when DCD ran and detected at least one cluster."
         assert isinstance(cm, dict), f"cluster_members_ should be a dict; got {type(cm).__name__}"
@@ -101,7 +101,7 @@ class TestClusterMembersAccessor:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=False, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=False, verbose=0, random_state=0).fit(X, y)
         assert hasattr(m, "cluster_members_"), "Even DCD-disabled fits must set cluster_members_ to None (attribute-completeness, mirrors dcd_ contract)."
         assert m.cluster_members_ is None, f"cluster_members_ must be None when DCD is disabled; got {m.cluster_members_!r}"
 
@@ -115,7 +115,7 @@ class TestClusterMembersAccessor:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
         int_anchors = m.dcd_["cluster_anchors"]
         name_anchors = m.dcd_["cluster_anchors_names"]
         # cluster_members_ is the same content as cluster_anchors_names.
@@ -141,7 +141,7 @@ class TestClusterMembersAccessor:
 
         X, y = _strong_cluster_frame()
         tau = 0.5
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_state=0).fit(X, y)
         diag = m.dcd_.get("cluster_diagnostics", {})
         eff_tau = float(m.dcd_.get("tau_cluster", tau))
         assert diag, f"cluster_diagnostics must be populated on this fixture; got empty/missing diag={diag!r}"
@@ -170,7 +170,7 @@ class TestClusterMembersAccessor:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.55, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.55, verbose=0, random_state=0).fit(X, y)
         eff = m.dcd_.get("tau_cluster")
         # User-supplied non-default value bypasses the cache lookup, so
         # the surfaced tau matches the ctor argument exactly.
@@ -226,7 +226,7 @@ class TestNoRegressionLayer12Stability:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _layer12_drift_frame(seed=0)
-        m = MRMR(dcd_enable=True, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, verbose=0, random_state=0).fit(X, y)
         sup = list(m.get_feature_names_out())
 
         def _carries_stable(name: str) -> bool:
@@ -264,7 +264,7 @@ class TestNoRegressionLayer12Stability:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
         # Round-trip.
         m_re = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert (
@@ -390,7 +390,7 @@ class TestClusterDiagnosticsMonotonicity:
         X, y = _strong_cluster_frame(n=2000, n_members=5, seed=0)
         mins = {}
         for tau in (0.4, 0.6, 0.75):
-            m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_seed=0).fit(X, y)
+            m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_state=0).fit(X, y)
             diag = m.dcd_.get("cluster_diagnostics", {})
             cluster_mins = [info["min_pair_su"] for info in diag.values() if info["min_pair_su"] is not None]
             if cluster_mins:

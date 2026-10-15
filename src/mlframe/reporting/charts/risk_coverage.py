@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from typing import cast
 from dataclasses import dataclass
-from typing import Literal, Optional, Tuple
+from typing import Any, Literal, Optional, Tuple
 
 import numpy as np
 
@@ -107,8 +107,8 @@ def _prepare_classification(y_true, y_score, *, task: Task) -> Tuple[np.ndarray,
 
 
 def compute_risk_coverage(
-    y_true,
-    y_score,
+    y_true: Any,
+    y_score: Any,
     *,
     task: Task = "binary",
     confidence: Optional[np.ndarray] = None,
@@ -161,8 +161,8 @@ def compute_risk_coverage(
 
 
 def build_risk_coverage_spec(
-    y_true,
-    y_score,
+    y_true: Any,
+    y_score: Any,
     *,
     task: Task = "binary",
     confidence: Optional[np.ndarray] = None,

@@ -52,7 +52,7 @@ trained_models: dict = {}
 _TRAINED_MODELS_LOCK = threading.RLock()
 
 
-def check_condition(condition, params: dict) -> bool:
+def check_condition(condition: Any, params: dict) -> bool:
     """Evaluate a single rule condition against a candidate ``params`` dict.
 
     If ``condition`` is a (Hashable)dict, it maps field names to expected values (or lists of expected values);
@@ -75,12 +75,19 @@ def check_condition(condition, params: dict) -> bool:
         return bool(condition)
 
 
-def value_by_key(dct: dict, key, expected_value) -> bool:
+def value_by_key(dct: dict, key: Any, expected_value: Any) -> bool:
     """Return True if ``dct[key]`` equals ``expected_value`` (False if ``key`` is missing)."""
     return bool(dct.get(key) == expected_value)
 
 
-def check_rules(params, drop_if_rules=None, drop_if_not_rules=None, skip_if_values_or=None, allow_if_values_or=None, allow_if_values_and=None):
+def check_rules(
+    params: dict,
+    drop_if_rules: Any = None,
+    drop_if_not_rules: Any = None,
+    skip_if_values_or: Any = None,
+    allow_if_values_or: Any = None,
+    allow_if_values_and: Any = None,
+) -> bool:
     """Apply the constraint-filtering rule DSL to a single candidate ``params`` dict, mutating it and/or vetoing it.
 
     Encodes the real inter-parameter compatibility constraints of an estimator (e.g. CatBoost) that
@@ -202,16 +209,16 @@ def double_check_dist_params(cand: dict, rng: Optional[np.random.Generator] = No
 
 
 def generate_valid_candidates(
-    params,
-    drop_if_rules=None,
-    drop_if_not_rules=None,
-    skip_if_values_or=None,
-    allow_if_values_or=None,
-    allow_if_values_and=None,
+    params: dict,
+    drop_if_rules: Any = None,
+    drop_if_not_rules: Any = None,
+    skip_if_values_or: Any = None,
+    allow_if_values_or: Any = None,
+    allow_if_values_and: Any = None,
     n: int = 1,
     max_iters: int = 1000,
     random_state: Union[int, np.random.Generator, None] = None,
-):
+) -> list:
     """Rejection-sample ``n`` valid hyperparameter candidates from ``params`` via sklearn's ``ParameterSampler``.
 
     Repeatedly draws batches from ``ParameterSampler``, resolves any nested distributions via
@@ -253,7 +260,7 @@ def generate_valid_candidates(
     return approved
 
 
-def preprocess_df(df, cat_features):
+def preprocess_df(df: pd.DataFrame, cat_features: list) -> None:
     """Fill NaN with an empty string in each of ``cat_features`` columns of ``df`` (in place); CatBoost requires categorical columns to have no missing values."""
 
     for var in cat_features:
@@ -296,7 +303,7 @@ def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.Data
     return df, cat_features
 
 
-def normalize_probs(probs: np.ndarray):
+def normalize_probs(probs: np.ndarray) -> None:
     """Normalize ``probs`` in place to sum to 1; falls back to a uniform distribution when the sum is non-positive or non-finite."""
     total = probs.sum()
     if total <= 0 or not np.isfinite(total):
@@ -397,7 +404,7 @@ def favorize_unexplored(candidates: list, probs: np.ndarray, trials: pd.DataFram
             logger.info("Favorized %s previously unexplored candidates", f"{len(favorized_items):_}")
 
 
-def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10, random_state: Union[int, np.random.Generator, None] = None):
+def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv: int, scoring: str, min_score: float, max_new_trials: int = 10, random_state: Union[int, np.random.Generator, None] = None) -> tuple[Any, list, Any]:
     """Fit (or reuse a cached) CatBoost surrogate model predicting trial objectives from trial params.
 
     Caches by ``(experiment_name, cat_features, feature_cols)`` in the module-level ``trained_models`` dict.
@@ -414,60 +421,59 @@ def get_model(experiment_name: str, trials: pd.DataFrame, cat_features: list, cv
     # fitted model -- the cached model_columns would not match the new trials, producing wrong predictions.
     feature_cols = tuple(c for c in trials.columns if c != "target")
     cache_key = (experiment_name, tuple(cat_features), feature_cols)
-    should_retrain = True
     with _TRAINED_MODELS_LOCK:
+        should_retrain = True
         cached_entry = trained_models.get(cache_key)
-    if cached_entry is not None:
-        fitted_model, num_trials, prev_scoring, expected_score, model_columns = cached_entry
-        if prev_scoring == scoring:
+        if cached_entry is not None:
+            fitted_model, num_trials, prev_scoring, expected_score, model_columns = cached_entry
+            if prev_scoring == scoring:
 
-            if expected_score >= min_score:
-                if len(trials) - num_trials > max_new_trials:
-                    logger.info("Model for experiment %s found, but it needs updating with new data", experiment_name)
+                if expected_score >= min_score:
+                    if len(trials) - num_trials > max_new_trials:
+                        logger.info("Model for experiment %s found, but it needs updating with new data", experiment_name)
+                    else:
+                        logger.info("Passing model for experiment %s found ;-)", experiment_name)
+                        should_retrain = False
                 else:
-                    logger.info("Passing model for experiment %s found ;-)", experiment_name)
-                    should_retrain = False
-            else:
-                if len(trials) == num_trials:
-                    logger.info("Model for experiment %s found, but score was bad, and since then no new trials data arrived (", experiment_name)
-                    should_retrain = False
-                else:
-                    logger.info("Model for experiment %s found, score was bad, but since then new trials data has arrived!", experiment_name)
+                    if len(trials) == num_trials:
+                        logger.info("Model for experiment %s found, but score was bad, and since then no new trials data arrived (", experiment_name)
+                        should_retrain = False
+                    else:
+                        logger.info("Model for experiment %s found, score was bad, but since then new trials data has arrived!", experiment_name)
 
-    # Do NOT mutate the caller's DataFrame: ``pop`` would drop the "target" column in place, corrupting
-    # the frame for any later reuse. Read the target as a view and build X from the remaining columns.
-    y = trials["target"].values
-    if should_retrain:
-        CatBoostRegressor = import_optional("catboost", "boosting", "the CatBoost surrogate model").CatBoostRegressor
-        model = CatBoostRegressor(iterations=100, task_type="CPU", cat_features=cat_features, verbose=False)
+        # Do NOT mutate the caller's DataFrame: ``pop`` would drop the "target" column in place, corrupting
+        # the frame for any later reuse. Read the target as a view and build X from the remaining columns.
+        y = trials["target"].values
+        if should_retrain:
+            CatBoostRegressor = import_optional("catboost", "boosting", "the CatBoost surrogate model").CatBoostRegressor
+            model = CatBoostRegressor(iterations=100, task_type="CPU", cat_features=cat_features, verbose=False)
 
-        X = trials.drop(columns=["target"])
-        model_columns = X.columns
+            X = trials.drop(columns=["target"])
+            model_columns = X.columns
 
-        fitted_model, expected_score = justify_estimator(
-            model, X, y, refit=True, test_size=0.1, cv=cv, scoring=scoring,
-            min_score=min_score, random_state=random_state, early_stopping_rounds=50,
-        )
+            fitted_model, expected_score = justify_estimator(
+                model, X, y, refit=True, test_size=0.1, cv=cv, scoring=scoring,
+                min_score=min_score, random_state=random_state, early_stopping_rounds=50,
+            )
 
-        with _TRAINED_MODELS_LOCK:
             trained_models[cache_key] = [fitted_model, len(trials), scoring, expected_score, model_columns]
 
     return fitted_model, model_columns, y
 
 
 def justify_estimator(
-    est,
-    X,
-    y,
-    cv=3,
+    est: Any,
+    X: Any,
+    y: Any,
+    cv: int = 3,
     refit: bool = True,
-    scoring="r2",
+    scoring: str = "r2",
     min_score: float = 0.6,
-    test_size=0.1,
-    plot=False,
+    test_size: float = 0.1,
+    plot: bool = False,
     random_state: Union[int, np.random.Generator, None] = None,
     early_stopping_rounds: Optional[int] = 50,
-):
+) -> tuple[Any, float]:
     """Cross-validate ``est`` on ``(X, y)`` as a gate on whether there is enough signal to use ML-guided sampling; refit on full data if the gate passes.
 
     Runs ``cross_validate`` with ``cv`` folds (an int ``cv`` is turned into a seeded shuffled ``KFold`` so the

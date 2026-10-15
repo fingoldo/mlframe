@@ -80,7 +80,7 @@ def test_default_recovers_single_var_nonlinearity(name):
     make_true, floor = _UNIVARIATE_CASES[name]
     df, y, true = _make(make_true)
     MRMR.clear_fit_cache()
-    fs = MRMR(verbose=0, random_seed=0).fit(df, y)
+    fs = MRMR(verbose=0, random_state=0).fit(df, y)
     corr, bn = _best_corr(fs, df, true)
     assert corr >= floor, (
         f"DEFAULT MRMR failed to recover univariate {name}: best engineered "
@@ -119,7 +119,7 @@ def test_univariate_recovery_is_a_clean_single_source_feature():
     # noise to capture, the clean single-source univariate feature wins, which is exactly the univariate-basis quality this test asserts.
     df, y, true = _make(lambda a: a**2, noise=0.0)
     MRMR.clear_fit_cache()
-    fs = MRMR(verbose=0, random_seed=0).fit(df, y)
+    fs = MRMR(verbose=0, random_state=0).fit(df, y)
     corr, bn = _best_corr(fs, df, true)
     assert corr >= 0.85 and bn is not None, f"default did not recover a**2 (corr={corr:.3f}, best={bn!r})"
     assert _n_raw_sources(bn) == 1, (

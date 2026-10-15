@@ -137,7 +137,7 @@ def _polars_column_to_arrays(s, dtype):
 
                 categories = categorical_labels(s)
             except Exception as e:
-                logger.debug("could not resolve categories for polars Categorical column: %s", e)
+                logger.warning("could not resolve categories for polars Categorical column: %s", e)
                 categories = []
         codes = np.where(null_mask, -1, codes)
         return None, codes, categories, null_mask
@@ -166,7 +166,7 @@ def _pandas_column_to_arrays(s, dtype):
             return None, codes.astype(np.int64, copy=False), list(cats), null_mask
     return s.to_numpy(dtype=dtype, copy=False), None, None, null_mask
 
-def to_feature_matrix(X, *, dtype: Any = np.float32) -> FeatureMatrix:
+def to_feature_matrix(X: Any, *, dtype: Any = np.float32) -> FeatureMatrix:
     """Convert ``X`` (pandas / polars / pyarrow / ndarray) to a :class:`FeatureMatrix` with ONE copy
     of the numeric plane (pre-allocated + filled column-by-column). Categorical columns go to a
     separate int code plane; numeric data is cast to ``dtype`` (default float32)."""

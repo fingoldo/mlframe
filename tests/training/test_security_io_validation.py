@@ -97,12 +97,14 @@ def test_validate_symlink_escape_resolved(tmp_path):
 
 
 @pytest.mark.skipif(not sys.platform.startswith("win"), reason="cross-drive only meaningful on Windows")
-def test_validate_cross_drive_rejected():
+def test_validate_cross_drive_rejected(tmp_path):
     # Windows: commonpath raises ValueError across different drives. Code catches
     # and re-raises as "not inside trusted_root".
     """Validate cross drive rejected."""
+    trusted_drive = os.path.splitdrive(str(tmp_path))[0].upper()
+    other_drive = "Y:" if trusted_drive.startswith("Z") else "Z:"
     with pytest.raises(ValueError, match="not inside trusted_root"):
-        _validate_trusted_path(r"Z:\foo\bar.joblib", r"C:\trusted")
+        _validate_trusted_path(other_drive + r"\foo\bar.joblib", str(tmp_path / "trusted"))
 
 
 # ----- _finalize_and_save_metadata -----

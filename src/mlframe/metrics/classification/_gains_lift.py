@@ -20,6 +20,8 @@ These differ from mlframe's per-group LTR lift (`metrics.ranking`) -- here it is
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
 __all__ = ["cumulative_gains_curve", "lift_curve", "gains_table", "exploss"]
@@ -39,7 +41,7 @@ def _sorted_cumulative(y_true: np.ndarray, y_score: np.ndarray):
     return n, cum_pos, total_pos
 
 
-def cumulative_gains_curve(y_true: np.ndarray, y_score: np.ndarray):
+def cumulative_gains_curve(y_true: np.ndarray, y_score: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Cumulative gains (CAP) curve. Returns ``(fraction_targeted, gain)`` arrays, both starting at 0.
 
     ``fraction_targeted[i]`` = share of the population in the top-i by score; ``gain[i]`` = share of all
@@ -54,7 +56,7 @@ def cumulative_gains_curve(y_true: np.ndarray, y_score: np.ndarray):
     return np.concatenate(([0.0], frac)), np.concatenate(([0.0], gain))
 
 
-def lift_curve(y_true: np.ndarray, y_score: np.ndarray):
+def lift_curve(y_true: np.ndarray, y_score: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Lift curve. Returns ``(fraction_targeted, lift)`` where ``lift = gain / fraction_targeted``.
 
     ``lift[i]`` is how many times more positives the top-i captures than random targeting of the same size.
@@ -68,7 +70,7 @@ def lift_curve(y_true: np.ndarray, y_score: np.ndarray):
     return frac, gain / frac
 
 
-def gains_table(y_true: np.ndarray, y_score: np.ndarray, *, n_bins: int = 10):
+def gains_table(y_true: np.ndarray, y_score: np.ndarray, *, n_bins: int = 10) -> dict[str, Any]:
     """Decile (n_bins) gains table. Returns a dict of per-bin arrays (length ``n_bins``).
 
     Keys: ``bin`` (1..n_bins), ``cum_fraction`` (cumulative population share), ``captured`` (positives in

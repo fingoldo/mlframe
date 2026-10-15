@@ -829,9 +829,14 @@ class TestLGBShimPickleAndCacheLifecycle:
         X, y = small_classification_data
         m = LGBMClassifierWithDatasetReuse(n_estimators=3, **_QUIET_LGB)
         m.fit(X, y)
+        before = m._cached_train_dataset
+        assert before is not None
         m.clear_cache()
+        assert m._cached_train_dataset is None, "clear_cache must drop the cached dataset"
         m.fit(X, y)
-        assert m._cached_train_dataset is not None, "cache should rebuild on the fit after clear_cache"
+        rebuilt = m._cached_train_dataset
+        assert rebuilt is not None, "cache should rebuild on the fit after clear_cache"
+        assert rebuilt is not before, "the rebuilt cache must be a fresh dataset, not the dropped one"
 
     def test_regressor_shim_also_pickles(self, small_regression_data, tmp_path):
         """Regressor variant has the same pickle contract as the

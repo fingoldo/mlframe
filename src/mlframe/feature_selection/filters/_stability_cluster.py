@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 from ._fe_usability_signal import _crit_np_dtype as _stability_corr_dtype
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,8 @@ def cluster_stability_selection(
         (PERF203)."""
         try:
             return np.asarray(col_values, dtype=dtype)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            logger.debug("_try_cast_col fell back to its default after %s", type(_exc).__name__)
             return None
 
     if not _is_df and np.issubdtype(np.asarray(X).dtype, np.number):
@@ -237,7 +239,7 @@ def cluster_stability_selection(
         except Exception as exc:
             # Log at debug so a systematically-broken
             # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
-            logger.warning("cluster_stability_selection: bootstrap %d's selector_fn raised, bootstrap skipped (result degraded): %r", _b, exc)
+            log_throttle(logger, "stability_cluster.bootstrap_selector_failed", logging.WARNING, "cluster_stability_selection: bootstrap %d's selector_fn raised, bootstrap skipped (result degraded): %r", _b, exc)
             n_failed += 1
             continue
         n_success += 1
@@ -339,7 +341,7 @@ def complementary_pairs_stability(
         except Exception as exc:
             # Log at debug so a systematically-broken
             # selector_fn is diagnosable from logs (with debug logging enabled) instead of needing a debugger.
-            logger.warning("complementary_pairs_stability: pair %d's selector_fn raised, pair skipped (result degraded): %r", _b, exc)
+            log_throttle(logger, "stability_cluster.pair_selector_failed", logging.WARNING, "complementary_pairs_stability: pair %d's selector_fn raised, pair skipped (result degraded): %r", _b, exc)
             n_failed += 1
             continue
         n_success += 1

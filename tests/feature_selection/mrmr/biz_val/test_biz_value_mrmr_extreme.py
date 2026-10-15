@@ -529,8 +529,8 @@ class TestFitTransformIdentity:
         y = pd.Series((sig > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            out_a = MRMR(verbose=0, random_seed=7).fit_transform(X, y)
-            sel = MRMR(verbose=0, random_seed=7).fit(X, y)
+            out_a = MRMR(verbose=0, random_state=7).fit_transform(X, y)
+            sel = MRMR(verbose=0, random_state=7).fit(X, y)
             out_b = sel.transform(X)
         # Both DataFrames; columns and values identical.
         assert isinstance(out_a, pd.DataFrame)

@@ -83,17 +83,9 @@ def test_count_cand_nbins_single():
     assert count_cand_nbins(cand, nbins) == 7
 
 
-def test_unpack_and_sort_smoke():
-    """unpack_and_sort takes packed tuples and returns sorted output. Smoke."""
-    # Read signature: likely (indices: np.ndarray, nbins: np.ndarray) -> (something, sorted)
-    arr = np.array([3, 1, 4, 1, 5, 9, 2, 6], dtype=np.int64)
-    try:
-        out = unpack_and_sort(arr)
-    except TypeError:
-        # Signature differs; try with extra arg
-        try:
-            out = unpack_and_sort(arr, np.array([5] * len(arr), dtype=np.int64))
-        except TypeError:
-            pytest.skip("unpack_and_sort signature differs from expected")
-            return
-    assert out is not None
+def test_unpack_and_sort_concatenates_and_sorts():
+    """unpack_and_sort(x, z) returns the sorted concatenation of both inputs (canonical cache-key form of X u Z)."""
+    x = np.array([3, 1, 4, 1], dtype=np.int64)
+    z = np.array([5, 9, 2, 6], dtype=np.int64)
+    out = unpack_and_sort(x, z)
+    np.testing.assert_array_equal(out, np.array([1, 1, 2, 3, 4, 5, 6, 9], dtype=np.int64))

@@ -1,5 +1,11 @@
 # mlframe — project conventions
 
+## Line endings on Windows (CRITICAL)
+Every Windows checkout must run `git config --global core.autocrlf input`. Never set it to `true` or `false` locally in a repo: a local override beats the global setting and brings the CRLF problem back.
+Text files are stored with LF. `.gitattributes` (`* text=auto eol=lf`) is the source of truth and must be present in every repo; a new repo gets it on its first commit.
+**Why:** Git for Windows defaults to `autocrlf=true`, which let 111 mlframe files be committed as CRLF; every pre-commit run on Linux CI then rewrote them, failing the hooks job on master.
+**How to apply:** before the first commit in a new clone, check `git config --get core.autocrlf` returns `input` and `.gitattributes` exists. After adding it to an existing repo with CRLF blobs, run `git add --renormalize .`.
+
 ## No project-wide lint/format rewrite without approval (CRITICAL)
 Never run a repo-wide `black .` / `ruff format .` / `ruff check --fix` beyond files already being edited — even when asked to "fix everything"; that's consent for the specific fixes, not a mechanical rewrite. Report scope ("N/M files need reformatting") and ask: run now / make the gate advisory / defer. Narrow fixes to files already being edited for a diagnosed reason are fine without asking.
 **Why:** a prior unscoped run once rewrote a huge fraction of a repo unasked while the user was away; reverted.

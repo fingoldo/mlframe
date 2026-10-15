@@ -171,7 +171,8 @@ def _unique_inverse(keys: np.ndarray):
     try:
         uniq, inverse = np.unique(keys, return_inverse=True)
         return uniq, np.asarray(inverse).reshape(-1)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_unique_inverse fell back to its default after %s", type(_exc).__name__)
         return None, None
 
 def _broadcast_lookup(

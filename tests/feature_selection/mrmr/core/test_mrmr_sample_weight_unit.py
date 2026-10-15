@@ -33,8 +33,8 @@ def test_mrmr_fit_sample_weight_none_matches_omitted():
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     df, y = _toy_dataset()
-    sel_a = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y)
-    sel_b = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y, sample_weight=None)
+    sel_a = MRMR(verbose=0, random_state=42, max_runtime_mins=0.5).fit(df, y)
+    sel_b = MRMR(verbose=0, random_state=42, max_runtime_mins=0.5).fit(df, y, sample_weight=None)
     assert list(sel_a.support_) == list(sel_b.support_), f"support_ differs: omitted={list(sel_a.support_)} vs None={list(sel_b.support_)}"
 
 
@@ -45,8 +45,8 @@ def test_mrmr_fit_uniform_sample_weight_matches_unweighted():
     df, y = _toy_dataset()
     n = len(df)
     sw_uniform = np.full(n, 2.5)
-    sel_a = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y)
-    sel_b = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y, sample_weight=sw_uniform)
+    sel_a = MRMR(verbose=0, random_state=42, max_runtime_mins=0.5).fit(df, y)
+    sel_b = MRMR(verbose=0, random_state=42, max_runtime_mins=0.5).fit(df, y, sample_weight=sw_uniform)
     assert list(sel_a.support_) == list(sel_b.support_), f"uniform-weight support_ {list(sel_b.support_)} != unweighted {list(sel_a.support_)}"
 
 
@@ -56,7 +56,7 @@ def test_mrmr_fit_sample_weight_validates_shape_and_values():
 
     df, y = _toy_dataset()
     n = len(df)
-    sel = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5)
+    sel = MRMR(verbose=0, random_state=42, max_runtime_mins=0.5)
     with pytest.raises(ValueError, match="sample_weight length"):
         sel.fit(df, y, sample_weight=np.ones(n - 1))
     with pytest.raises(ValueError, match="finite and non-negative"):
@@ -79,7 +79,7 @@ def test_mrmr_fit_nonuniform_sample_weight_runs_without_error():
     n = len(df)
     rng = np.random.default_rng(0)
     sw = rng.uniform(0.1, 2.0, size=n)
-    sel = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(df, y, sample_weight=sw)
+    sel = MRMR(verbose=0, random_state=42, max_runtime_mins=0.5).fit(df, y, sample_weight=sw)
     # Just assert it produced at least one selected feature and stored the weights internally.
     assert len(sel.support_) >= 1
     assert getattr(sel, "_fit_sample_weight_", None) is not None
@@ -99,5 +99,5 @@ def test_mrmr_fit_nonuniform_sample_weight_runs_without_error_on_polars_input():
     pl_df = pl.from_pandas(df)
     rng = np.random.default_rng(0)
     sw = rng.uniform(0.1, 2.0, size=n)
-    sel = MRMR(verbose=0, random_seed=42, max_runtime_mins=0.5).fit(pl_df, y, sample_weight=sw)
+    sel = MRMR(verbose=0, random_state=42, max_runtime_mins=0.5).fit(pl_df, y, sample_weight=sw)
     assert len(sel.support_) >= 1

@@ -20,7 +20,7 @@ signature of its ``__call__`` and is accepted.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 
@@ -111,7 +111,7 @@ class IntegralCalibrationError:
         err = compute_probabilistic_multiclass_error(y_true=y_true, y_score=y_score, verbose=verbose, sample_weight=sample_weight, **self._kwargs())
         if verbose:
             logger.debug("integral_calibration_error=%s (n=%d)", err, len(y_true))
-        return float(err)
+        return float(cast(float, err))
 
     # ``__getstate__``/``__setstate__`` are spelled out because ``__slots__`` classes have no ``__dict__`` for
     # pickle's default protocol-2 path to copy.

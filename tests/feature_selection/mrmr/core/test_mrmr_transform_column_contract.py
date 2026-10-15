@@ -19,7 +19,7 @@ def _fitted(seed=0, n=500):
     X = pd.DataFrame({f"x{i}": rng.normal(size=n) for i in range(5)})
     y = ((X["x0"] + 0.8 * X["x1"]) > 0).astype(np.int64).to_numpy()
     MRMR._FIT_CACHE.clear()
-    m = MRMR(random_seed=1, n_jobs=1, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
+    m = MRMR(random_state=1, n_jobs=1, verbose=0, fe_max_steps=0, full_npermutations=3, baseline_npermutations=2).fit(X, y)
     return m, X
 
 

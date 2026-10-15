@@ -80,7 +80,8 @@ def _fmt(value: Any, default: float = 0.0) -> str:
         value = default
     try:
         return f"{float(value):.4g}"
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_fmt fell back to its default after %s", type(_exc).__name__)
         return str(value)
 
 
@@ -650,26 +651,27 @@ def register_chain_provenance(chain_name: str, residual_name: str, unary_name: s
         _register_chain_formula_locked(chain_name, residual_name, unary_name)
 
 
-_CHAIN_REGISTRATION_LOCK = threading.Lock()
+_CHAIN_REGISTRATION_LOCK = threading.RLock()
 
 
 def _register_chain_formula_locked(chain_name: str, residual_name: str, unary_name: str) -> None:
     """Body of the chain-formula registration; the caller holds ``_CHAIN_REGISTRATION_LOCK``."""
     # lock-held-by-caller: the only call site is inside ``with _CHAIN_REGISTRATION_LOCK``
-    if chain_name in _TRANSFORM_FORMULA_BUILDERS:
-        return
-    res_desc = _TRANSFORM_DESCRIPTIONS.get(residual_name, residual_name)
-    un_desc = _TRANSFORM_DESCRIPTIONS.get(unary_name, unary_name)
-    _TRANSFORM_DESCRIPTIONS[chain_name] = f"two-stage chain -- {un_desc}, applied to the residual that {res_desc}"
+    with _CHAIN_REGISTRATION_LOCK:
+        if chain_name in _TRANSFORM_FORMULA_BUILDERS:
+            return
+        res_desc = _TRANSFORM_DESCRIPTIONS.get(residual_name, residual_name)
+        un_desc = _TRANSFORM_DESCRIPTIONS.get(unary_name, unary_name)
+        _TRANSFORM_DESCRIPTIONS[chain_name] = f"two-stage chain -- {un_desc}, applied to the residual that {res_desc}"
 
-    def _builder(t: str, b: str, p: dict, _r: str = residual_name, _u: str = unary_name) -> tuple[str, str]:
-        """Per-call formula-string builder for one dynamically registered two-stage chain transform (residual stage then tail-unary stage)."""
-        return (
-            f"T = {_u}( {_r}({t}, {b}) )  (residual then tail-compression)",
-            f"y_hat = {_r}^-1( {_u}^-1(T_hat) )",
-        )
+        def _builder(t: str, b: str, p: dict, _r: str = residual_name, _u: str = unary_name) -> tuple[str, str]:
+            """Per-call formula-string builder for one dynamically registered two-stage chain transform (residual stage then tail-unary stage)."""
+            return (
+                f"T = {_u}( {_r}({t}, {b}) )  (residual then tail-compression)",
+                f"y_hat = {_r}^-1( {_u}^-1(T_hat) )",
+            )
 
-    _TRANSFORM_FORMULA_BUILDERS[chain_name] = _builder
+        _TRANSFORM_FORMULA_BUILDERS[chain_name] = _builder
 
 
 def _registered_transform_names() -> frozenset[str]:

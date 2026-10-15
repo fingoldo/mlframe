@@ -138,11 +138,15 @@ _DETECT_HEAVY_TAIL_NJIT_MAX_N = env_int("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", 
 # alive for the scope body), else it recomputes. threading.local -> no cross-worker contamination.
 import threading as _threading
 import contextlib as _contextlib
+import logging
+from typing import Iterator
+
+logger = logging.getLogger(__name__)
 _HEAVY_TAIL_MEMO = _threading.local()
 
 
 @_contextlib.contextmanager
-def heavy_tail_memo_scope():
+def heavy_tail_memo_scope() -> Iterator[None]:
     """Enable the fit-scoped ``_detect_heavy_tail`` memo for one orth-FE column sweep, then clear it. Nesting-safe:
     an inner scope reuses the outer cache and the outer owner clears it."""
     if getattr(_HEAVY_TAIL_MEMO, "cache", None) is not None:
@@ -274,7 +278,8 @@ def _ols_lstsq(B: np.ndarray, y: np.ndarray) -> np.ndarray | None:
     stays byte-identical to legacy."""
     try:
         coef, *_ = np.linalg.lstsq(B, y, rcond=None)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("_ols_lstsq fell back to its default after %s", type(_exc).__name__)
         return None
     if not np.all(np.isfinite(coef)):
         return None

@@ -69,7 +69,8 @@ def resolve_pandas_view_cache_budget_bytes() -> float:
     if _legacy_mb is not None and not ctype and not size_raw:
         try:
             return max(0.0, float(_legacy_mb)) * (1024**2)
-        except ValueError:
+        except ValueError as _exc:
+            logger.warning("resolve_pandas_view_cache_budget_bytes fell back to its default after %s", type(_exc).__name__)
             return _DEFAULT_ABS_BYTES
     if not ctype:
         ctype = "FREE_RAM_SHARE"

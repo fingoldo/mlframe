@@ -230,7 +230,7 @@ def _fit_profile(formula, profile, n):
     y = spec["target"](data)
     assert np.all(np.isfinite(y)), f"{formula}/{profile}: target not finite (domain bug)"
     df = pd.DataFrame({k: data[k] for k in spec["domains"]})
-    fs = MRMR(verbose=0, random_seed=SEED)
+    fs = MRMR(verbose=0, random_state=SEED)
     fs.fit(df, pd.Series(y, name="y"))
     selected = list(fs.get_feature_names_out())
     df_cols = set(df.columns)

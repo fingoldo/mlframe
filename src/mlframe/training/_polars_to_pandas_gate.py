@@ -27,5 +27,6 @@ def polars_to_pandas_gated(X: Any, site: str) -> pd.DataFrame:
         )
     try:
         return X.to_pandas(split_blocks=True)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("polars_to_pandas_gated fell back to its default after %s", type(_exc).__name__)
         return X.to_pandas()

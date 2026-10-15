@@ -476,23 +476,23 @@ def _make_cached_operand(self: Any, X: Any, cols: Any, *, max_entries: int) -> C
 def score_prospective_pairs(
     self,
     *,
-    cached_MIs,
-    numeric_vars_to_consider,
-    checked_pairs,
-    _pair_mm_bias,
-    _pair_maxt_floor,
-    _synergy_added_idx,
-    fe_min_pair_mi_prevalence,
-    _synergy_prev_resolved,
-    _prevalence_debias_auto,
-    data,
-    classes_y,
-    X,
-    cols,
-    num_fs_steps,
-    verbose,
-    sort_dict_by_value,
-):
+    cached_MIs: dict,
+    numeric_vars_to_consider: set,
+    checked_pairs: set,
+    _pair_mm_bias: Any,
+    _pair_maxt_floor: Any,
+    _synergy_added_idx: Any,
+    fe_min_pair_mi_prevalence: float,
+    _synergy_prev_resolved: Any,
+    _prevalence_debias_auto: bool,
+    data: np.ndarray,
+    classes_y: np.ndarray,
+    X: Any,
+    cols: list[str],
+    num_fs_steps: int,
+    verbose: int,
+    sort_dict_by_value: Callable[[dict], Any],
+) -> tuple:
     """Rank the gate-surviving candidate pairs; return (prospective_pairs, _prevalence_failed_synergy)."""
     vars_usage_counter: defaultdict = defaultdict(int)
     prospective_pairs = {}
@@ -861,6 +861,6 @@ def _pair_perm_null_admission(self, _passes_prevalence, _passes_maxt, raw_vars_p
                         raw_vars_pair, _cand_i, _anchor_i, _cmi_obs, _floor, _cmi_obs - _null_mean,
                     )
         except Exception as e:
-            logger.debug("permutation-based admission check failed, not admitting via permutation: %s", e)
+            logger.warning("permutation-based admission check failed, not admitting via permutation: %s", e)
             _admit_via_perm = False
     return _admit_via_perm

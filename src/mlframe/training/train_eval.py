@@ -168,7 +168,7 @@ logger = logging.getLogger(__name__)
 
 
 def optimize_model_for_storage(
-    model,
+    model: Any,
     target_type: TargetTypes,
     metadata_columns: Optional[List[str]] = None,
 ) -> None:

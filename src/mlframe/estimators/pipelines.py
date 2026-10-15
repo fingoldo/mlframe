@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence, cast
 
 import os
 import tempfile
@@ -66,6 +66,9 @@ from mlframe.metrics.shared import close_unless_interactive as _close_unless_int
 from mlframe.metrics.calibration.shared import show_plots_unless_agg as _show_plots_unless_agg
 
 import pandas as pd, numpy as np
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 from pyutilz.pythonlib import ensure_dict_elem
 from pyutilz.pythonlib import sort_dict_by_value
 from pyutilz.strings import slugify
@@ -76,7 +79,7 @@ def get_fqn(params_pipe: dict, sep: str = ":", hide_keys: tuple = ("models", "wr
     return sep.join([str(key) + "=" + str(value) for key, value in sorted(params_pipe.items()) if key not in hide_keys])
 
 
-def agg_pipeline_metric(cv_results, metric: str = "root_mean_squared_error", func=np.nanmean) -> float:
+def agg_pipeline_metric(cv_results: dict, metric: str = "root_mean_squared_error", func: Callable[..., Any] = np.nanmean) -> float:
     """Average some pipeline & dataset's over all estimators, to compare pipelines.
     Allows to quickly find out what faetureset or pipeline is superior.
     """
@@ -89,7 +92,7 @@ def agg_pipeline_metric(cv_results, metric: str = "root_mean_squared_error", fun
     return float(func(np.array(res)))
 
 
-def replay_cv_results(fname: str, trusted_root: Optional[str] = None):
+def replay_cv_results(fname: str, trusted_root: Optional[str] = None) -> dict:
     """Visualize CV results from stored dump file.
 
     ``fname`` must resolve inside ``trusted_root`` (path-traversal guard ahead of
@@ -111,10 +114,19 @@ def replay_cv_results(fname: str, trusted_root: Optional[str] = None):
         for paramset_hash, cv_results in runs.items():
             logger.info("Pipeline: %s", paramset_hash)
             compare_cv_metrics(cv_results=cv_results, extended=False)
-    return cv_results
+    return cast(dict[str, Any], cv_results)
 
 
-def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: Any, cv_results: Optional[dict] = None, possible_pipeline_blocks: Optional[dict] = None, constants: Optional[dict] = None, output_dir: Optional[str] = None):
+def optimize_pipeline_by_gridsearch(
+    X: Any,
+    Y: Any,
+    title: str,
+    cv_func: Any,
+    cv_results: Optional[dict] = None,
+    possible_pipeline_blocks: Optional[dict] = None,
+    constants: Optional[dict] = None,
+    output_dir: Optional[str] = None,
+) -> dict:
     """For a given dataset, checks all possible combinations of the pipeline blocks,
     starting from the least comp. expensive: no FS, no HPT, no OD.
     Saves results on each cycle, summarizes by desired params like estimator type (even over different CVs) etc.
@@ -190,7 +202,14 @@ def optimize_pipeline_by_gridsearch(X, Y, title: str, cv_func: Any, cv_results: 
     return cv_results
 
 
-def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error", extended: bool = False, cmap=None, figsize=(20, 8), agg_fcn=np.median):
+def compare_cv_metrics(
+    cv_results: dict,
+    metric: str = "root_mean_squared_error",
+    extended: bool = False,
+    cmap: Any = None,
+    figsize: tuple[int, int] = (20, 8),
+    agg_fcn: Callable[..., Any] = np.median,
+) -> Figure:
     """Plot per-fold values of ``metric`` for every estimator in a cross-validation results dict.
 
     Reads ``cv_results["results"]["cv_results"][estimator][metrics|extended_metrics][metric]``, aggregates
@@ -227,10 +246,10 @@ def compare_cv_metrics(cv_results: dict, metric: str = "root_mean_squared_error"
     # figures accumulate (matplotlib warns past 20) holding MBs each. Returns the figure for programmatic retrieval.
     was_shown = _show_plots_unless_agg()
     _close_unless_interactive(fig, was_shown=was_shown)
-    return fig
+    return cast("Figure", fig)
 
 
-def compute_ml_metrics(y_true, y_preds, scorers: Sequence, storage: Optional[dict] = None) -> dict:
+def compute_ml_metrics(y_true: np.ndarray, y_preds: np.ndarray, scorers: Sequence[Callable[..., float]], storage: Optional[dict] = None) -> dict:
     """Score predictions against every callable in ``scorers``, keyed by the scorer's ``__name__``.
 
     Returns a ``{scorer_name: score}`` dict. When ``storage`` is given, each score is also appended to
@@ -249,12 +268,12 @@ def compute_ml_metrics(y_true, y_preds, scorers: Sequence, storage: Optional[dic
 
 
 def visualize_prediction_vs_truth(
-    y_true,
-    y_preds,
-    samples=(1, 50, 75),
-    title="",
+    y_true: pd.DataFrame | pd.Series | np.ndarray,
+    y_preds: pd.DataFrame | pd.Series | np.ndarray,
+    samples: Sequence[int] = (1, 50, 75),
+    title: str = "",
     metrics: Optional[dict] = None,
-):
+) -> Figure:
     """Plot predicted vs. true target series for a few selected samples side by side.
 
     Draws one subplot per index in ``samples`` overlaying ``y_true`` and ``y_preds`` for that sample, with
@@ -290,4 +309,4 @@ def visualize_prediction_vs_truth(
             axs[i].set_title(sample_title)
     was_shown = _show_plots_unless_agg()
     _close_unless_interactive(fig, was_shown=was_shown)
-    return fig
+    return cast("Figure", fig)

@@ -16,7 +16,7 @@ from mlframe.utils.budgets import active_budget
 import copy
 import logging
 from timeit import default_timer as timer
-from typing import Union
+from typing import Any, Union
 
 import numpy as np
 import pandas as pd
@@ -183,7 +183,8 @@ def _densify_sparse_input(X):
     """Densify a scipy.sparse ``X`` at the boundary (the FS pipeline is dense-frame-centric); refuse one whose dense form would exceed ~2 GB rather than silently doubling host memory."""
     try:
         from scipy.sparse import issparse
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_densify_sparse_input fell back to its default after %s", type(_exc).__name__)
         return X
     if not issparse(X):
         return X
@@ -196,7 +197,7 @@ def _densify_sparse_input(X):
     return np.asarray(X.toarray())
 
 
-def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params):
+def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Series, np.ndarray], groups: Union[pd.Series, np.ndarray] = None, sample_weight: Union[np.ndarray, pd.Series, None] = None, **fit_params) -> Any:
     """Fit RFECV: densifies a sparse ``X`` (refusing inputs whose dense form would exceed ~2 GB), applies the optional prescreen, precomputes per-fold train-only prescreen universes, then drives the recursive elimination loop to select the final feature subset."""
     # The max_runtime_mins clock covers the whole fit, including the input hashing / leakage / cardinality checks, which take minutes on wide 500k+ row frames.
     _fit_t0 = timer()

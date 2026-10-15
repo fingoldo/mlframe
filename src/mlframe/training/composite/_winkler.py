@@ -29,6 +29,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from numpy.typing import ArrayLike
 
 from mlframe.metrics.quantile import (
     coverage as _base_coverage,
@@ -149,7 +150,7 @@ def _check_alpha(alpha: float) -> float:
     return float(alpha)
 
 
-def winkler_interval_score(y_true, q_lo, q_hi, alpha: float, sample_weight: Any = None) -> float:
+def winkler_interval_score(y_true: ArrayLike, q_lo: ArrayLike, q_hi: ArrayLike, alpha: float, sample_weight: Any = None) -> float:
     """Mean Winkler interval score for a central ``(1 - alpha)`` interval. Lower is better.
 
     ``alpha`` is the nominal miscoverage (0.1 for a 90% interval). Unweighted calls delegate to the optimized
@@ -173,7 +174,7 @@ def winkler_interval_score(y_true, q_lo, q_hi, alpha: float, sample_weight: Any 
     return float(np.dot(per, w) / wsum) if wsum > 0 else 0.0
 
 
-def winkler_score_per_row(y_true, q_lo, q_hi, alpha: float) -> np.ndarray:
+def winkler_score_per_row(y_true: ArrayLike, q_lo: ArrayLike, q_hi: ArrayLike, alpha: float) -> np.ndarray:
     """Per-row Winkler score (width + one-sided miss penalty). Returns an ``(n,)`` array."""
     alpha = _check_alpha(alpha)
     y, lo, hi = _prep(y_true, q_lo, q_hi)
@@ -186,7 +187,7 @@ def winkler_score_per_row(y_true, q_lo, q_hi, alpha: float) -> np.ndarray:
     return np.asarray(width + (2.0 / alpha) * pen)
 
 
-def mean_coverage(y_true, q_lo, q_hi, sample_weight: Any = None) -> float:
+def mean_coverage(y_true: ArrayLike, q_lo: ArrayLike, q_hi: ArrayLike, sample_weight: Any = None) -> float:
     """Empirical coverage: (weighted) fraction of ``y`` inside ``[q_lo, q_hi]``, in ``[0, 1]``.
 
     HOLDOUT CONTRACT: coverage is only honest on rows the interval method did NOT calibrate on -- computed
@@ -208,8 +209,8 @@ def mean_coverage(y_true, q_lo, q_hi, sample_weight: Any = None) -> float:
 
 
 def winkler_score_per_group(
-    y_true, q_lo, q_hi, alpha: float, group_ids: Any, sample_weight: Any = None,
-) -> dict:
+    y_true: ArrayLike, q_lo: ArrayLike, q_hi: ArrayLike, alpha: float, group_ids: Any, sample_weight: Any = None,
+) -> dict[Any, dict[str, Any]]:
     """Per-group Winkler + coverage + width + count. Returns ``{label: {winkler, coverage, mean_width, n}}``.
 
     Null / NaN group labels are dropped (they cannot be attributed to a group).
@@ -265,8 +266,8 @@ def _grouped_winkler_bincount(codes, y, lo, hi, w, alpha, n_groups):
 
 
 def interval_quality_summary(
-    y_true, q_lo, q_hi, alpha: float, sample_weight: Any = None,
-) -> dict:
+    y_true: ArrayLike, q_lo: ArrayLike, q_hi: ArrayLike, alpha: float, sample_weight: Any = None,
+) -> dict[str, Any]:
     """Combined honest interval-quality block: ``winkler`` (lower better), ``coverage`` vs ``target_coverage``,
     ``mean_width``, and the below/above miss rates. All computed on the SAME rows.
     """

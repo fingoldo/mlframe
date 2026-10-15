@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict
+from mlframe._shap_policy_constants import DEFAULT_TRUST_GUARD_FIDELITY_WEIGHTS
 
 
 class ShapProxiedFSParams(BaseModel):
@@ -116,7 +117,7 @@ class ShapProxiedFSParams(BaseModel):
     trust_guard_uniform_tail_frac: float = 0.2
     trust_guard_cardinality_dist: str = "zipf"
     trust_guard_zipf_alpha: float = 0.25
-    trust_guard_fidelity_weights: tuple[float, float] = (0.6, 0.4)
+    trust_guard_fidelity_weights: tuple[float, float] = DEFAULT_TRUST_GUARD_FIDELITY_WEIGHTS
     trust_guard_metric: str = "proxy_fidelity_score"
     n_jobs: int = -1
     inner_n_jobs_cap: bool = False

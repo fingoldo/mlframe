@@ -70,7 +70,8 @@ def resident_raw_baseline_mi(
         return None
     try:
         import cupy as cp
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("resident_raw_baseline_mi fell back to its default after %s", type(_exc).__name__)
         return None
     try:
         host = np.ascontiguousarray(np.asarray(mat, dtype=np.float64))

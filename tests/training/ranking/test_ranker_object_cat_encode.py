@@ -159,4 +159,6 @@ def test_lgb_ranker_smoke_with_object_cats() -> None:
         iterations=5,
         verbose=0,
     )
-    assert out is not None, "ranker suite must complete without crashing on object cats"
+    models_dict, _metadata = out
+    assert models_dict, "ranker suite must train at least one model on object cats"
+    assert "lgb" in str(list(models_dict.keys())).lower(), f"lgb ranker missing from {list(models_dict)}"

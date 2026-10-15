@@ -63,7 +63,7 @@ def test_stability_sweep_shares_one_holdout(monkeypatch):
 
     assert len(carves) == 3, "one carve call per replicate (via the shared-holdout fast path)"
     holdouts = [h for _s, h in carves]
-    assert all(h is not None for h in holdouts), "the shared honest holdout must be non-empty"
+    assert all(h is not None and len(h) > 0 for h in holdouts), "the shared honest holdout must be non-empty"
     ref = holdouts[0]
     for h in holdouts[1:]:
         assert np.array_equal(ref, h), "every replicate must reuse the SAME holdout indices"

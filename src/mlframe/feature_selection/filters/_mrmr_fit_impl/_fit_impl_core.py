@@ -11,6 +11,7 @@ selection. Many helpers (logger, signature hashing, target coercion)
 live in the parent and are imported lazily inside this body to avoid the
 ``mrmr -> _mrmr_fit_impl -> mrmr`` import cycle.
 """
+
 from __future__ import annotations
 
 import logging
@@ -102,6 +103,7 @@ def _align_mrmr_gains(self) -> None:
     except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
         logger.debug("mrmr: mrmr_gains_ finalisation failed: %r", e, exc_info=True)
 
+
 """MRMR._fit_impl main fit body.
 
 The irreducible single function _fit_impl (bound onto the MRMR class
@@ -115,6 +117,30 @@ in the sibling _helpers.py.
 
 from ._helpers import _mrmr_cache_bytes_total
 
+
+def _resolve_screen_shared_idx(self, data, target_indices):
+    """Resolve the fit's one shared FE row draw for the screen (None at small n, meaning full-n screening)."""
+    # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
+    # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
+    # SAME rows). None at small n -> full-n screen, unchanged.
+    try:
+        from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
+
+        _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), len(data))
+    except Exception as _sub_exc:
+        # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
+        log_throttle(
+            logger,
+            "mrmr_fit_shared_fe_subsample_failed",
+            logging.WARNING,
+            "mrmr: shared FE subsample resolution failed; screening at FULL n: %r",
+            _sub_exc,
+            exc_info=True,
+        )
+        _screen_shared_idx = None
+    return _screen_shared_idx
+
+
 def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | np.ndarray, groups: pd.Series | np.ndarray = None, **fit_params):
     """We run N selections on data subsets, and pick only features that appear in all selections"""
     # Lazy import: ``.mrmr`` re-imports this module at its module bottom for
@@ -123,6 +149,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # flags. Python's module cache makes repeat imports cheap.
     from ..mrmr import MRMR, numeric_column_names, screen_predictors, sort_dict_by_value
     from mlframe.feature_selection.filters.mrmr.shared import hashable_params_signature as _hashable_params_signature
+
     # Publish the canonical fit-cache lock on the class so any other holder of ``_FIT_CACHE`` shares it. Idempotent:
     # only set on first fit, never re-bound (re-binding would split the lock identity under concurrent fits).
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._state import ROUTED_RECIPE_FAMILIES, FEParams, FERecipes
@@ -150,13 +177,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # neither will ever read it, rather than paying it on every fit regardless. Mirrors each consumer's own gate
     # exactly, so this can never diverge into a false skip.
     _cat_fe_cfg_probe = getattr(self, "cat_fe_config", None)
-    _will_use_include_numeric_nan_guard = bool(_cat_fe_cfg_probe is not None and getattr(_cat_fe_cfg_probe, "enable", True) and getattr(_cat_fe_cfg_probe, "include_numeric", False))
+    _will_use_include_numeric_nan_guard = bool(
+        _cat_fe_cfg_probe is not None and getattr(_cat_fe_cfg_probe, "enable", True) and getattr(_cat_fe_cfg_probe, "include_numeric", False)
+    )
     _will_use_missingness_fe = (
         bool(getattr(self, "fe_missingness_indicator_enable", False))
         or bool(getattr(self, "fe_missingness_count_enable", False))
         or bool(getattr(self, "fe_missingness_pattern_enable", False))
     )
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._prelude import _record_fit_entry_nan_mask
+
     _record_fit_entry_nan_mask(X, _will_use_include_numeric_nan_guard, _will_use_missingness_fe, _include_numeric_input_nan_cols, _fit_entry_nan_mask)
     X = self._validate_inputs(X, y)
 
@@ -164,6 +194,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (holdout +0.116 / F1 +0.242) but LOSES at reg n=20k and on classification, so it is gated to the detected (regression AND n>=threshold)
     # regime, and only when the user left both quantization params at defaults. getattr defaults keep this replay-safe on pre-flip pickles.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._prelude import _apply_large_n_regression_nbins_gate
+
     _apply_large_n_regression_nbins_gate(self, X, y)
 
     # ----------------------------------------------------------------------------------------------------------------------------
@@ -173,6 +204,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # Shape-only signature was too loose: un-cloned MRMR fit on target A, then re-fit on target B with
     # identical (n_rows, n_cols) shape, replayed A's support_ verbatim. Fold the y content hash in.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._fit_cache import _fit_signature
+
     _x_hash_for_sig, _y_hash_for_sig, signature = _fit_signature(self, y, X)
     from ._fit_impl_stages._fit_cache import _fit_cache_key, _replay_from_fit_cache, _same_inputs_skip
 
@@ -205,6 +237,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # so an aborted pass still leaves a usable partial selection. Cleared in MRMR.fit's finally (the outer
     # call-site boundary, in _mrmr_class.py) - NOT here, since this function has no single exit point.
     from .._fe_deadline import set_fe_deadline as _set_fe_deadline
+
     _set_fe_deadline((start_time + self.max_runtime_mins * 60.0) if self.max_runtime_mins is not None else None)
 
     def _fe_budget_ok() -> bool:
@@ -269,6 +302,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # column-drift contract for any user whose DataFrame happened to
     # use that naming (very common after ``pd.DataFrame(arr)`` + rename).
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _prepare_input_frame
+
     X = _prepare_input_frame(self, X, verbose)
 
     from ._fe_stage_cascade_run import _run_fe_stage_cascades
@@ -324,7 +358,16 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     recipes.grouped_quantile = {}
 
     X, _raw_input_cols_pre_fe = _run_fe_stage_cascades(
-        self, X, y, verbose, fe.max_steps, _y_np, _fe_family_on, _fe_budget_ok, _fit_entry_nan_mask, recipes,
+        self,
+        X,
+        y,
+        verbose,
+        fe.max_steps,
+        _y_np,
+        _fe_family_on,
+        _fe_budget_ok,
+        _fit_entry_nan_mask,
+        recipes,
     )
     # Layer 92: temporal leak-safe grouped aggregations. Carved
     # verbatim into the sibling ``_fe_stage_temporal_agg`` (Tier E partial
@@ -332,10 +375,12 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``_temporal_agg_pre_recipes`` explicitly, mutates self + the recipes dict
     # in place, and RETURNS the (possibly replaced) working ``X`` frame.
     from ._fe_stage_temporal_agg import _fe_stage_temporal_agg
+
     X = _fe_stage_temporal_agg(self, X, _y_np, verbose, recipes.temporal_agg, _fe_family_on=_fe_family_on)
 
     # ACCURACY GATE (2026-06-04, default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source - or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) - is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._engineered_gates import _gate_engineered_accuracy
+
     X = _gate_engineered_accuracy(self, X, recipes, _y_np, verbose, groups=groups)
 
     # Layer 27: cross-stage engineered-column dedup. Hybrid and
@@ -359,6 +404,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # short-circuits the inner O(K^2) pairwise rank-correlation loop
     # for the trivial perfect-name-match case.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._engineered_dedup import _dedup_engineered_across_stages
+
     X = _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose)
 
     # Layer 91: Tier-2 UNIFIED SECOND-PASS CMI GATE. The Layer 27
@@ -374,6 +420,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # identical legacy path). y is read only here at fit; transform replays the
     # surviving recipes without y.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._engineered_gates import _second_pass_cmi_gate
+
     X = _second_pass_cmi_gate(self, X, _y_np, recipes, verbose)
 
     # Layer 23: feature_names_in_ MUST exclude hybrid-appended columns so
@@ -401,6 +448,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # name that was effectively shadowed so the recipe ledger stays
     # consistent with the column actually surviving in X.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _finalise_feature_names_in
+
     X, _fni = _finalise_feature_names_in(self, X, _all_cols, _engineered_names_set, verbose)
     # ndarray (not list) to match sklearn's own feature_names_in_ contract (BaseEstimator._check_feature_names) and
     # every other MRMR fit-path assignment (_mrmr_class_fit_helpers.py); a plain list here was the one straggler
@@ -419,6 +467,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # pickle slim). Non-numeric / multi-output y -> None (escalation falls back to
     # ``classes_y`` codes).
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _stash_fe_targets
+
     _stash_fe_targets(self, _y_np, X)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -426,6 +475,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
 
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _inject_targets
+
     X, _is_polars_input, target_names = _inject_targets(self, y, X)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -458,6 +508,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # category (its own bin per column), which an MI estimator handles
     # correctly with no special-casing on the receiving side.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._binning import _discretize_inputs
+
     _nbins_strategy, _x_for_cat, cols, data, nbins = _discretize_inputs(self, _is_polars_input, X, target_names)
 
     # Which columns the cardinality pre-screen may judge by bin count. Under a SUPERVISED nbins strategy (the
@@ -506,6 +557,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``quantization_nbins`` equal-frequency quantile path. No-op when
     # ``nbins_strategy`` is None (legacy fits already bin the target this way).
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._binning import _rebin_continuous_targets
+
     _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_for_cat, nbins, data, verbose)
 
     # COMPACT CODES STORAGE. ``data`` holds per-column BIN INDICES (0..nbins-1 + a NaN bin / -1 sentinel), never JOINT
@@ -516,6 +568,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # appends downstream re-narrow to this dtype (``_append_codes``). Range-checked directly (one min/max pass) rather
     # than trusting nbins semantics. Opt out: MLFRAME_MRMR_COMPACT_CODES=0.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._binning import _compact_code_storage
+
     data = _compact_code_storage(data)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -523,11 +576,13 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
 
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._inputs import _categorical_var_names
+
     categorical_vars_names = _categorical_var_names(_is_polars_input, X)
     categorical_vars = [_name_to_idx[col] for col in categorical_vars_names]
 
     if fe.max_steps > 0:
         from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._transformations import _build_fe_transformations
+
         binary_transformations, checked_pairs, engineered_features, unary_transformations = _build_fe_transformations(self, fe, verbose)
     # engineered_recipes (name -> EngineeredRecipe) is initialised unconditionally; the splitter at the bottom
     # of fit() looks it up regardless of fe_max_steps. Stays empty when FE is disabled.
@@ -553,6 +608,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ``None`` means "use default CatFEConfig()" which has enable=True. Pass CatFEConfig(enable=False) for legacy.
     if cat_fe_cfg is None:
         from ..cat_fe_state import CatFEConfig as _CatFEConfig
+
         cat_fe_cfg = _CatFEConfig()
     # include_numeric: collect raw numeric feature values (keyed by data-column index) so the cat-FE step can
     # quantile-bin them into the candidate pool. Extracted from the ORIGINAL ``X`` (NaN visible) - NOT the
@@ -560,13 +616,31 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # quantile-edge replay) and fit/transform stay consistent (both read the user's raw frame).
     _num_raw_values = None
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._cat_fe import _collect_numeric_raw_values
+
     _num_raw_values = _collect_numeric_raw_values(self, cat_fe_cfg, categorical_vars, target_indices, cols, _include_numeric_input_nan_cols, X, _num_raw_values)
     _cat_fe_pool_size = len(categorical_vars) + (len(_num_raw_values) if _num_raw_values else 0)
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._cat_fe import _run_categorical_fe
-    categorical_vars, cols, data, nbins = _run_categorical_fe(self, cat_fe_cfg, _cat_fe_pool_size, data, target_indices, nbins, dtype, cols, categorical_vars, _num_raw_values, verbose, _is_polars_input, _x_for_cat, engineered_recipes)
+
+    categorical_vars, cols, data, nbins = _run_categorical_fe(
+        self,
+        cat_fe_cfg,
+        _cat_fe_pool_size,
+        data,
+        target_indices,
+        nbins,
+        dtype,
+        cols,
+        categorical_vars,
+        _num_raw_values,
+        verbose,
+        _is_polars_input,
+        _x_for_cat,
+        engineered_recipes,
+    )
 
     # Resolve effective ``min_relevance_gain`` against the target entropy. ``'relative_to_entropy'`` mode uses ``min_relevance_gain_frac * H(y)`` so the stop floor scales with how much information the target actually carries; ``'absolute'`` mode retains the legacy verbatim value. The target is already discretized into bins (``data[:, target_indices[0]]`` with bin count ``nbins[target_indices[0]]``); ``np.bincount`` + Shannon entropy in nats matches the screen_predictors estimator family.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._prelude import _resolve_min_relevance_gain
+
     _effective_min_relevance_gain = _resolve_min_relevance_gain(self, target_indices, data, nbins, verbose)
     self._effective_min_relevance_gain_ = _effective_min_relevance_gain
 
@@ -604,19 +678,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     from ._fit_impl_stages._screen_args import _cat_fe_lineage, _dcd_config, _effective_max_confirmation_cand_nbins, _screen_factors_names_to_use
 
     from ._fit_impl_stages._screen_round import _adaptive_relax_retry, _fe_step_params, _runtime_budget_exhausted, _sufficient_summary_reached
+
     times_spent: defaultdict = defaultdict(float)
     while True:
         n_recommended_features = 0
-        # Resolve the fit's ONE shared row draw BEFORE the screen so the order-1 relevance sweep + FDR
-        # floor score on it (screen is the first consumer -> caches the draw -> the FE step reuses the
-        # SAME rows). None at small n -> full-n screen, unchanged.
-        try:
-            from .._fe_sufficient_summary import _get_shared_fe_subsample_idx
-            _screen_shared_idx = _get_shared_fe_subsample_idx(self, np.asarray(data[:, int(target_indices[0])]), len(data))
-        except Exception as _sub_exc:
-            # Full-n fallback is safe but ~33x slower at n~1M -> log so it is never a silent mystery.
-            log_throttle(logger, "mrmr_fit_shared_fe_subsample_failed", logging.WARNING, "mrmr: shared FE subsample resolution failed; screening at FULL n: %r", _sub_exc, exc_info=True)
-            _screen_shared_idx = None
+        _screen_shared_idx = _resolve_screen_shared_idx(self, data, target_indices)
         (
             selected_vars,
             predictors,
@@ -637,6 +703,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             raw_cardinality_cols=(None if not _nbins_strategy else {c for c in cols if c not in _numeric_names}),
             factors_data=data,
             y=target_indices,  # type: ignore[arg-type]
+            honest_null_codes_fn=getattr(self, "_honest_null_codes_fn", None),
             subsample_idx=_screen_shared_idx,
             factors_nbins=nbins,
             factors_names=cols,
@@ -723,6 +790,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the
         # public ``dcd_`` attribute (None when DCD was disabled).
         from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._screen_round import _attach_dcd_results
+
         cols, data, nbins = _attach_dcd_results(self, _dcd_state, X, data, cols, nbins)
 
         # MEMORY: prune fit-time ``_engineered_continuous_`` scratch for engineered columns that did not
@@ -731,6 +799,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # before any engineered column exists). No-op when the store is empty/absent.
         if getattr(self, "_engineered_continuous_", None):
             from ._helpers import _prune_engineered_continuous_store
+
             _prune_engineered_continuous_store(self, cols, selected_vars)
 
         if fe.max_steps == 0 or num_fs_steps >= fe.max_steps:
@@ -762,18 +831,22 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         # the screening loop). Returns updated state + n_recommended_features; zero breaks the outer loop.
         self._fe_steps_executed_ += 1
         _step_kw = dict(
-            target_names=target_names, target_indices=target_indices,
+            target_names=target_names,
+            target_indices=target_indices,
             categorical_vars=categorical_vars,
-            classes_y=classes_y, classes_y_safe=classes_y_safe,
+            classes_y=classes_y,
+            classes_y_safe=classes_y_safe,
             freqs_y=freqs_y,
-            cached_MIs=cached_MIs, cached_confident_MIs=cached_confident_MIs,
+            cached_MIs=cached_MIs,
+            cached_confident_MIs=cached_confident_MIs,
             unary_transformations=unary_transformations,
             binary_transformations=binary_transformations,
             engineered_features=engineered_features,
             engineered_recipes=engineered_recipes,
             times_spent=times_spent,
             num_fs_steps=num_fs_steps,
-            n_jobs=n_jobs, prefetch_factor=prefetch_factor,
+            n_jobs=n_jobs,
+            prefetch_factor=prefetch_factor,
             parallel_kwargs=parallel_kwargs,
             _is_polars_input=_is_polars_input,
             verbose=verbose,
@@ -827,6 +900,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # into a LOCAL (never an attr -> stays out of the pickled estimator) so the del
     # below still keeps the fitted object lean.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._screen_round import _take_engineered_continuous_store
+
     _eng_continuous_snapshot = _take_engineered_continuous_store(self)
 
     # Surfaced at verbose>=1 (2026-07-09; was gated behind verbose>2, an unrealistically high bar that
@@ -845,6 +919,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # (imputer/scaler recorded them in feature_names_in_ and raised on transform). Fix: drop in place (pandas)
     # or rebind (polars - immutable, caller's X was never mutated).
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _drop_temporary_targets
+
     X, selected_vars = _drop_temporary_targets(_is_polars_input, X, target_names, _dcd_state, selected_vars)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -854,12 +929,33 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # list flows through that same remap into ``support_``. Never allowed to break fit - guarded.
     # ---------------------------------------------------------------------------------------------------------------
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _friend_graph_analysis
-    cols, data, nbins, selected_vars = _friend_graph_analysis(self, X, classes_y, cols, data, nbins, target_indices, y, verbose, cached_MIs, engineered_recipes, _eng_continuous_snapshot, selected_vars, _effective_min_relevance_gain, recipes, _persisted_dcd_state, _y_np, _fe_family_on)
+
+    cols, data, nbins, selected_vars = _friend_graph_analysis(
+        self,
+        X,
+        classes_y,
+        cols,
+        data,
+        nbins,
+        target_indices,
+        y,
+        verbose,
+        cached_MIs,
+        engineered_recipes,
+        _eng_continuous_snapshot,
+        selected_vars,
+        _effective_min_relevance_gain,
+        recipes,
+        _persisted_dcd_state,
+        _y_np,
+        _fe_family_on,
+    )
     # ---------------------------------------------------------------------------------------------------------------
     # selected_vars: cols-indices -> names -> original-frame indices (categorize_dataset may rearrange cat columns).
     # ---------------------------------------------------------------------------------------------------------------
 
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _map_selected_to_original_indices
+
     _fni_idx, selected_vars = _map_selected_to_original_indices(self, cols, selected_vars, verbose, engineered_recipes)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -867,6 +963,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
 
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _run_additional_rfecv
+
     _run_additional_rfecv(self, X, selected_vars, verbose, y, categorical_vars_names, _fni_idx)
 
     # ---------------------------------------------------------------------------------------------------------------
@@ -874,7 +971,24 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # ---------------------------------------------------------------------------------------------------------------
 
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _assign_support
-    _assign_support(self, X, classes_y, cols, data, nbins, target_indices, y, verbose, fe, cached_MIs, engineered_recipes, predictors, _eng_continuous_snapshot, selected_vars)
+
+    _assign_support(
+        self,
+        X,
+        classes_y,
+        cols,
+        data,
+        nbins,
+        target_indices,
+        y,
+        verbose,
+        fe,
+        cached_MIs,
+        engineered_recipes,
+        predictors,
+        _eng_continuous_snapshot,
+        selected_vars,
+    )
 
     # ---------------------------------------------------------------------------------------------------------------
     # Report FS results

@@ -35,7 +35,7 @@ class TestPicklingPostFit:
     def test_post_fit_pickle_round_trip_preserves_support_and_transform(self):
         """A fully-fitted estimator must unpickle to an identical support_ and transform() output."""
         X, y = _dataset()
-        m = MRMR(**_kw(random_seed=42))
+        m = MRMR(**_kw(random_state=42))
         m.fit(X, y)
         restored = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert list(getattr(restored, "support_", [])) == list(getattr(m, "support_", []))
@@ -51,7 +51,7 @@ class TestPicklingMidFit:
         catch the exception, then assert pickling the partially-fitted instance either succeeds
         cleanly or raises a clear error -- never a cryptic AttributeError from __getstate__."""
         X, y = _dataset(seed=1)
-        m = MRMR(**_kw(random_seed=7))
+        m = MRMR(**_kw(random_state=7))
 
         def _boom(self, *args, **kwargs):
             """Simulates a fit-body step failing partway through, after construction."""

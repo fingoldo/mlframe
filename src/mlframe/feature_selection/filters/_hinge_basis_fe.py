@@ -57,6 +57,7 @@ import os
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
+from mlframe._numerical_floors import VARIANCE_FLOOR
 import pandas as pd
 from numba import njit, prange
 
@@ -166,7 +167,7 @@ def _hinge_slope_change_plausible(
     if n != y.size or n < _HINGE_MIN_ROWS:
         return False
     Q, r_y, sse_lin = _linear_qr_fit(x, y)
-    if not np.isfinite(sse_lin) or sse_lin <= 1e-24:
+    if not np.isfinite(sse_lin) or sse_lin <= VARIANCE_FLOOR:
         # Plain linear already fits perfectly (or degenerate y) -> a hinge cannot
         # add a second slope; skip.
         return False
@@ -199,7 +200,7 @@ def _hinge_slope_change_plausible(
         relu = np.maximum(x - c, 0.0)
         r_relu = relu - Q @ (Q.T @ relu)
         denom = float(r_relu @ r_relu)
-        if denom < 1e-24:
+        if denom < VARIANCE_FLOOR:
             sse_h = sse_lin
         else:
             num = float(r_relu @ r_y)
@@ -253,7 +254,7 @@ def _heldout_hinge_r2_uplift(
     x_tr, y_tr = x[tr], y[tr]
     x_va, y_va = x[va], y[va]
     yv_ss = float(np.sum((y_va - y_va.mean()) ** 2))
-    if yv_ss < 1e-24:
+    if yv_ss < VARIANCE_FLOOR:
         return 0.0
 
     def _val_r2(design_fn) -> float:
@@ -342,7 +343,7 @@ def _hinge_cut_scan_njit(Q: np.ndarray, r_y: np.ndarray, sse_B: float, x: np.nda
             r_relu_i = relu_i - proj_i
             rr_dot_rr += r_relu_i * r_relu_i
             rr_dot_ry += r_relu_i * r_y[i]
-        if rr_dot_rr < 1e-24:
+        if rr_dot_rr < VARIANCE_FLOOR:
             sse_out[ci] = sse_B
         else:
             sse_out[ci] = sse_B - (rr_dot_ry * rr_dot_ry) / rr_dot_rr
@@ -740,7 +741,7 @@ def _heldout_incremental_r2_prep(x: np.ndarray, y: np.ndarray) -> Optional[dict]
         return None
     yv = y[va]
     yv_ss = float(np.sum((yv - yv.mean()) ** 2))
-    if yv_ss < 1e-24:
+    if yv_ss < VARIANCE_FLOOR:
         return None
     x_tr, x_va = x[tr], x[va]
 

@@ -36,4 +36,6 @@ def test_smart_polynom_pair_fe_survives_object_dtype_frame():
     )
     # Pre-fix this raised TypeError: ufunc 'isfinite' not supported (object slice). Must complete cleanly now.
     fs.fit(df, pd.Series(y, name="y"))
-    assert fs.support_ is not None
+    names = list(fs.get_feature_names_out())
+    assert names, "fit selected nothing on a frame with a genuine numeric polynomial interaction"
+    assert {"a", "b"} & set(names) or any("a" in n and "b" in n for n in names), names

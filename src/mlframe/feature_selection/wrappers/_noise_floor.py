@@ -26,14 +26,15 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
-def noise_floor_plateau(n_grid: Sequence[int], real_curve: np.ndarray, perm_curves: np.ndarray, pct: float = 95.0):
+def noise_floor_plateau(n_grid: Sequence[int], real_curve: np.ndarray, perm_curves: np.ndarray, pct: float = 95.0) -> tuple[int, int, np.ndarray, np.ndarray]:
     """Smallest N past which the real curve's REMAINING climb is within the permuted-y noise envelope.
 
     For each grid index i, ask whether ANY larger j adds real gain (real[j]-real[i]) exceeding the ``pct`` percentile
@@ -113,8 +114,8 @@ def _isnan_mask(arr: np.ndarray) -> np.ndarray:
     return np.zeros(a.shape, dtype=bool)
 
 
-def cv_curve(estimator_factory: Callable, X, y, ranking: Sequence, n_grid: Sequence[int], cv,
-             permute: bool = False, n_perm: int = 1, base_seed: int = 100, scoring: str = "roc_auc"):
+def cv_curve(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, n_grid: Sequence[int], cv: Any,
+             permute: bool = False, n_perm: int = 1, base_seed: int = 100, scoring: str = "roc_auc") -> Any:
     """Per-N CV score (``scoring``) on the top-N features by ``ranking``. If permute, average over n_perm shuffles of y.
 
     estimator_factory() must return a FRESH unfitted estimator (a fresh model per N keeps the curve honest). Returns
@@ -143,9 +144,9 @@ def cv_curve(estimator_factory: Callable, X, y, ranking: Sequence, n_grid: Seque
     return (arr.mean(axis=0), arr) if permute else arr[0]
 
 
-def select_features_noise_floor(estimator_factory: Callable, X, y, ranking: Sequence,
-                                n_grid: Optional[Sequence[int]] = None, cv=3, n_perm: int = 50,
-                                pct: float = 95.0, random_state: int = 0):
+def select_features_noise_floor(estimator_factory: Callable, X: pd.DataFrame | np.ndarray, y: Any, ranking: Sequence,
+                                n_grid: Optional[Sequence[int]] = None, cv: Any = 3, n_perm: int = 50,
+                                pct: float = 95.0, random_state: int = 0) -> dict[str, Any]:
     """Post-hoc permuted-y noise-floor cut of an over-selected feature RANKING. Returns the top-N* features.
 
     Parameters

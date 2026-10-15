@@ -15,10 +15,16 @@ from mlframe.feature_selection.filters._gpu_resident_select import _radix_select
 
 
 def _table(monkeypatch, cm, n, npairs, ncombos):
-    """The resident table computed with the chosen layout."""
+    """The resident table computed with the chosen layout, at float64 so both layouts share one precision.
+
+    The row-major block has no float32 generator (score_pair_combos_table_resident forces it to float64), while the
+    column-major block defaults to float32. Comparing the two at their defaults therefore compared float64 to float32,
+    and a value landing on a bin edge in float32 flips one bin (a 1-in-600 cell off by ~1e-3). The layout parity
+    claim is bit-exact at matched precision, which is what this compares.
+    """
     monkeypatch.setenv("MLFRAME_FE_POOL_CM", "1" if cm else "0")
     args = ktc._make_pooltable_inputs({"n_rows": n, "npairs": npairs, "n_combos": ncombos})
-    return pool.score_pair_combos_table_resident(*args)
+    return pool.score_pair_combos_table_resident(*args, value_dtype=np.float64)
 
 
 @pytest.mark.parametrize("n,npairs,ncombos", [(5_000, 2, 96), (20_000, 3, 289), (3_001, 1, 578)])

@@ -396,18 +396,7 @@ def _predict_mlframe_mo_quantile_bundles_skipped_fix(metadata, model_files, mode
                 # cache reuse, LGBM polars auto-convert, NaN safety net, CB polars dispatch-miss fallback) apply
                 # uniformly at inference. Direct model.predict_proba bypassed the CB pool cache -- 50-70s/predict on
                 # 7M rows.
-                try:
-                    probs = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict_proba", verbose=bool(verbose)))
-                except (TypeError, ValueError, AttributeError) as _polars_exc:
-                    if isinstance(_primary_for_model, pl.DataFrame):
-                        log_throttle(
-                            logger, "predict_suite_predict_proba_polars_failed", logging.WARNING,
-                            "predict_proba on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160],
-                        )
-                        _primary_for_model = _ensure_pandas_view(_primary_for_model, _pandas_view_cache)
-                        probs = np.asarray(_predict_with_fallback(model, _primary_for_model, method="predict_proba", verbose=bool(verbose)))
-                    else:
-                        raise
+                probs = _predict_proba_polars_retry(model, _primary_for_model, verbose, _pandas_view_cache)
                 results["probabilities"][model_name] = probs
                 all_probs.append(probs)
                 per_target_probs.setdefault((_tt, _tn), []).append(probs)
@@ -758,3 +747,20 @@ def _sanitize_after_pipeline(df):
     from .._feature_name_sanitize import sanitize_frame_columns
 
     return sanitize_frame_columns(df)
+
+
+def _predict_proba_polars_retry(model, primary, verbose, _pandas_view_cache):
+    """``predict_proba`` on ``primary``, retried once on the pandas view when a polars frame trips the estimator."""
+    from mlframe.training.core.predict import _ensure_pandas_view
+
+    try:
+        return np.asarray(_predict_with_fallback(model, primary, method="predict_proba", verbose=bool(verbose)))
+    except (TypeError, ValueError, AttributeError) as _polars_exc:
+        if isinstance(primary, pl.DataFrame):
+            log_throttle(
+                logger, "predict_suite_predict_proba_polars_failed", logging.WARNING,
+                "predict_proba on polars frame failed with %s: %s; retrying via pandas view.", type(_polars_exc).__name__, str(_polars_exc).splitlines()[0][:160],
+            )
+            primary = _ensure_pandas_view(primary, _pandas_view_cache)
+            return np.asarray(_predict_with_fallback(model, primary, method="predict_proba", verbose=bool(verbose)))
+        raise

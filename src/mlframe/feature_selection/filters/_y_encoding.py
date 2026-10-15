@@ -86,11 +86,9 @@ def encode_y_for_classif_mi(y: np.ndarray) -> np.ndarray:
         hit = _encode_memo.get(key)
         if hit is not None:
             _encode_memo.move_to_end(key)
-    if hit is not None:
-        return hit.astype(np.int64)
-    codes = _encode_y_uncached(contig)
-    stored = codes.astype(np.min_scalar_type(int(codes.max())) if codes.size else np.int8)
-    with _encode_memo_lock:
+            return hit.astype(np.int64)
+        codes = _encode_y_uncached(contig)
+        stored = codes.astype(np.min_scalar_type(int(codes.max())) if codes.size else np.int8)
         _encode_memo[key] = stored
         while len(_encode_memo) > _ENCODE_MEMO_MAX_ENTRIES:
             # evict-ok: memo; a miss recomputes the value

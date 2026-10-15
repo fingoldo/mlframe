@@ -126,5 +126,7 @@ class TestHeatmapRowOrderMatchesMatplotlib:
         xs = rng.uniform(3000.0, 6600.0, 4000)
         panel, _ = _density_panel(trend_line="theil-sen", trend_xy=(xs, xs + rng.normal(0.0, 300.0, 4000)))
         spec = FigureSpec(panels=((panel,),), figsize=(6.0, 5.0))
-        assert MatplotlibRenderer().render(spec) is not None
-        assert PlotlyRenderer().render(spec) is not None
+        mpl_fig = MatplotlibRenderer().render(spec)
+        assert len(mpl_fig.axes) >= 1
+        plotly_fig = PlotlyRenderer().render(spec)
+        assert len(plotly_fig.data) >= 1

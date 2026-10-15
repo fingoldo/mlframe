@@ -2,8 +2,8 @@
 
 These are LIVENESS + GUARD-ENGAGEMENT tests, not accuracy tests. The rest of the FS suite caps at p=300, so the
 wide-data guards (the corr_clusters memory blocker fix in HybridSelector, RFECV's wide_data_fi_fallback, MRMR's core
-filter) had no coverage above p=300. Each test asserts that the path COMPLETES within a wall budget at p in {1000, 2000}
-and that the relevant guard actually ENGAGED.
+filter) had no coverage above p=300. Each test asserts that the path COMPLETES at p in {1000, 2000} (liveness is bounded by the pytest-timeout hang guard,
+not by a wall-clock assertion) and that the relevant guard actually ENGAGED.
 
 n is kept modest (1500-2500) so each test stays well under the pytest --timeout. Datasets are pure-noise-heavy with a
 small informative core: that is exactly the wide-noisy regime the guards are designed for and keeps every fit cheap.
@@ -12,7 +12,6 @@ small informative core: that is exactly the wide-noisy regime the guards are des
 from __future__ import annotations
 
 import os
-import time
 
 # Cap BLAS / joblib oversubscription: these wide-p paths run several n_jobs=-1 inner pools (LGBM, RandomForest,
 # permutation_importance) which on a shared / contended box oversubscribe physical cores and stall in joblib retrieve.
@@ -38,11 +37,6 @@ def _make_wide(n: int, p: int, n_informative: int = 8, seed: int = 0):
     return pd.DataFrame(X, columns=cols), pd.Series(y, name="target")
 
 
-# Per-test wall budget. Generous (path liveness, not a microbenchmark) but bounded well under the harness --timeout
-# (run these with pytest --timeout=600). p=2000 RF/perm fits on a shared/contended box legitimately run minutes.
-WALL_BUDGET_S = 500.0
-
-
 @skip_scale_test_under_numba_disabled_jit
 @pytest.mark.hang_guard
 @pytest.mark.parametrize("p", [1000, 2000])
@@ -53,11 +47,8 @@ def test_mrmr_core_filter_completes_wide(p):
     n = 2000 if p == 1000 else 1500
     X, y = _make_wide(n, p, seed=1)
     # n_jobs=1: avoid loky multiprocessing stalls on a contended box; the core filter path / guard is unaffected.
-    m = MRMR(verbose=0, fe_max_steps=0, n_jobs=1, random_seed=0)
-    t0 = time.time()
+    m = MRMR(verbose=0, fe_max_steps=0, n_jobs=1, random_state=0)
     m.fit(X, y)
-    dt = time.time() - t0
-    assert dt < WALL_BUDGET_S, f"MRMR p={p} took {dt:.1f}s > {WALL_BUDGET_S}s"
     sel = [c for c in m.get_feature_names_out() if c in X.columns]
     assert len(sel) >= 1, "MRMR returned an empty selection on the wide frame"
 
@@ -88,10 +79,7 @@ def test_rfecv_wide_data_fi_fallback_engages(p):
         cv=2,
         max_runtime_mins=0.5,  # real budget; bounds the elimination loop now that each iteration is cheap
     )
-    t0 = time.time()
     r.fit(X, y)
-    dt = time.time() - t0
-    assert dt < WALL_BUDGET_S, f"RFECV p={p} took {dt:.1f}s > {WALL_BUDGET_S}s"
     applied = getattr(r, "_wide_data_fi_applied_", None)
     assert applied is not None, "RFECV wide-data guard did not record _wide_data_fi_applied_"
     assert applied.get("reason") == "fallback_to_native", f"unexpected guard reason: {applied}"
@@ -154,13 +142,10 @@ def test_hybrid_selector_completes_and_narrows_wide(p):
 
     sel._shared_perm_fi = _cheap_fi
     try:
-        t0 = time.time()
         sel.fit(X, y)
-        dt = time.time() - t0
     finally:
         hs.corr_clusters = orig
 
-    assert dt < WALL_BUDGET_S, f"HybridSelector p={p} took {dt:.1f}s > {WALL_BUDGET_S}s"
     assert seen.get("ncols", p + 1) <= cap
     # the relevance prescreen should have narrowed clustering well below the full noisy frame
     cluster_cols = getattr(sel, "_cluster_cols_", None)

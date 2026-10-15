@@ -176,7 +176,8 @@ def _is_polars_frame(X: Any) -> bool:
     """Detect ``pl.DataFrame`` without importing polars unless it's already loaded."""
     try:
         import polars as pl
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_is_polars_frame fell back to its default after %s", type(_exc).__name__)
         return False
     return isinstance(X, pl.DataFrame)
 

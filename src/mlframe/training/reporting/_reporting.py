@@ -130,7 +130,8 @@ def _style_with_caption(df, caption: str):
     """
     try:
         return df.style.set_caption(caption)
-    except (AttributeError, ImportError):
+    except (AttributeError, ImportError) as _exc:
+        logger.debug("_style_with_caption fell back to its default after %s", type(_exc).__name__)
         return df
 
 
@@ -264,7 +265,7 @@ def _canonicalize_split_names(split_names: list) -> dict:
     return out
 
 
-def model_name_for_title(target_type) -> str:
+def model_name_for_title(target_type: Any) -> str:
     """Short report-title tag from the target_type (combined-HTML page heading)."""
     return str(target_type) if target_type else "Model"
 
@@ -352,6 +353,17 @@ def _stamp_binary_decile_table(metrics: dict, targets: Any, probs: Any) -> None:
         metrics["binary_decile_table"] = binary_decile_table(np.asarray(targets).ravel(), score)
     except Exception:  # best-effort: metrics["binary_decile_table"] simply stays absent
         logger.exception("binary_decile_table computation failed; continuing.")
+
+
+def _train_envelope_bounds(y_train_envelope_stats) -> tuple:
+    """Return ``(y_min, y_max, y_std)`` of the train envelope stats, or ``(None, None, None)`` when they are absent."""
+    if y_train_envelope_stats is None:
+        return None, None, None
+    return (
+        getattr(y_train_envelope_stats, "y_min", None),
+        getattr(y_train_envelope_stats, "y_max", None),
+        getattr(y_train_envelope_stats, "y_std", None),
+    )
 
 
 def report_model_perf(
@@ -565,11 +577,7 @@ def report_model_perf(
             # bound (k=10 sigma). Composite-target wrap pass attaches
             # its own y-scale stats; degenerate train targets pass
             # None and the reporter falls back to eval-derived bounds.
-            _ytmin = _ytmax = _ytstd = None
-            if y_train_envelope_stats is not None:
-                _ytmin = getattr(y_train_envelope_stats, "y_min", None)
-                _ytmax = getattr(y_train_envelope_stats, "y_max", None)
-                _ytstd = getattr(y_train_envelope_stats, "y_std", None)
+            _ytmin, _ytmax, _ytstd = _train_envelope_bounds(y_train_envelope_stats)
             _scatter_sample = getattr(reporting_config, "regression_scatter_sample_size", DEFAULT_PLOT_SAMPLE_SIZE)
             preds, probs = report_regression_model_perf(
                 **common_params, plot_outputs=plot_outputs, plot_dpi=plot_dpi,

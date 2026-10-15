@@ -1,18 +1,19 @@
 """Ranking-comparison helpers (Kendall tau, top-k agreement rate) and an experiment-impact-tracker table loader."""
 from __future__ import annotations
 
+from typing import Iterable
 import scipy.stats as stats
 import os
 import pandas as pd
 from pyutilz.system import tqdmu as tqdm
 
 
-def ranking2top(ranking):
+def ranking2top(ranking: pd.Series) -> list:
     """Return the model name(s) tied for the top rank in a ``{model: rank}``-like Series."""
-    return ranking[ranking == ranking.max()].index.tolist()
+    return list(ranking[ranking == ranking.max()].index.tolist())
 
 
-def kendall_tau(df):
+def kendall_tau(df: pd.DataFrame) -> dict[str, float]:
     """Kendall tau rank correlation between the arithmetic-mean ("AM") ranking and every other ranking method in ``df``.
 
     scipy>=1.18's array-api promotion rejects raw string labels (``ValueError: could not convert string to
@@ -30,7 +31,7 @@ def kendall_tau(df):
     }
 
 
-def agreement_rate(df, k, top_k=True):
+def agreement_rate(df: pd.DataFrame, k: int, top_k: bool = True) -> dict[str, float]:
     """Fraction of each method's top/bottom-``k`` models that also appear in the "AM" ranking's top/bottom-``k`` (clamped to the smallest available subset)."""
     # Clamp k to actual subset size so `iloc[-k:]` doesn't silently return the WHOLE subset
     # (and divide by k anyway, inflating the agreement rate vs AM). On a 3-row leaderboard with
@@ -47,12 +48,12 @@ def agreement_rate(df, k, top_k=True):
     return {method: round(len(set(method_top_k).intersection(set(res_d["AM"]))) / _denom, 2) for method, method_top_k in res_d.items() if method != "AM"}
 
 
-def tracker_filename(model, task, dirpath):
+def tracker_filename(model: str, task: str, dirpath: str) -> str:
     """Build the experiment-impact-tracker output directory path for a given (model, task)."""
     return f"{dirpath}/{model}_{task}_0/"
 
 
-def _parse_tracker_dirname(dirname, known_models):
+def _parse_tracker_dirname(dirname: str, known_models: Iterable[str]) -> tuple[str, str] | None:
     """Split a ``tracker_filename``-produced directory name (``"{model}_{task}_{run_index}"``) back into
     ``(model, task)``, or ``None`` if it can't be parsed.
 
@@ -73,7 +74,7 @@ def _parse_tracker_dirname(dirname, known_models):
     return None
 
 
-def get_tracker_table(data, dirpath):
+def get_tracker_table(data: pd.DataFrame, dirpath: str) -> pd.DataFrame:
     """Load per-model/per-task compute-cost metrics (runtime, carbon, power, GPU-hours) from experiment-impact-tracker logs under ``dirpath`` into a DataFrame aligned to ``data``'s index."""
 
     from experiment_impact_tracker.data_interface import DataInterface

@@ -48,6 +48,7 @@ def test_biz_val_beam_width_wide_finds_better_subset_than_narrow():
 def test_biz_val_beam_width_wins_or_ties_across_seeds():
     """Biz val beam width wins or ties across seeds."""
     results = [(_best_loss(2, s), _best_loss(12, s)) for s in range(6)]
+    assert len(results) == 6
     wins = sum(w < nv - 1e-4 for nv, w in results)
     assert all(w <= nv + 1e-9 for nv, w in results), f"wide beam never worse; {results}"
     assert wins >= 5, f"wide beam should strictly win on majority of seeds; {results}"

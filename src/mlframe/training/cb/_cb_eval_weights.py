@@ -45,7 +45,8 @@ def apply_cb_eval_sample_weights(fit_params: dict[str, Any], model_type_name: st
         return
     try:
         from catboost import Pool
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("apply_cb_eval_sample_weights fell back to its default after %s", type(_exc).__name__)
         return
     single = not isinstance(es, list)
     entries = [es] if single else list(es)

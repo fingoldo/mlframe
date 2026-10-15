@@ -1,4 +1,5 @@
 """Helpers carved out of ``_pairs_score`` to keep that module under its size budget."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -9,7 +10,7 @@ from functools import partial
 
 import numpy as np
 
-from ._pairs_operand_floor import _beats_the_larger_operand, operand_uplift_null_bar
+from ._pairs_operand_floor import _beats_the_larger_operand
 from ._pairs_abs_corr_gpu import abs_corr_or_none, candidate_abs_corr
 from ._pairs_chunks import _compute_one_fe_chunk
 from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
@@ -56,7 +57,35 @@ from ._pairs_score_helpers import (  # noqa: F401  -- carved helpers
 )
 
 
-def _score_one_pair_step1_reads_buffer_have(_chunk_global_batch, _chunk_buffer, _pair_to_chunk, raw_vars_pair, chunk_state, _fe_chunks, _pair_valid_combs, vars_transformations, transformed_vars, binary_transformations, quantization_nbins, quantization_dtype, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, batch_mi_with_noise_gate, use_su_normalization, _PREWARP_UNARY, discretize_2d_quantile_batch, serial_main_thread, _fe_defer_float, _op_code_arr_all, _gpu_mat_on, _fe_env_gate, st):
+def _score_one_pair_step1_reads_buffer_have(
+    _chunk_global_batch,
+    _chunk_buffer,
+    _pair_to_chunk,
+    raw_vars_pair,
+    chunk_state,
+    _fe_chunks,
+    _pair_valid_combs,
+    vars_transformations,
+    transformed_vars,
+    binary_transformations,
+    quantization_nbins,
+    quantization_dtype,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    fe_npermutations,
+    fe_min_nonzero_confidence,
+    batch_mi_with_noise_gate,
+    use_su_normalization,
+    _PREWARP_UNARY,
+    discretize_2d_quantile_batch,
+    serial_main_thread,
+    _fe_defer_float,
+    _op_code_arr_all,
+    _gpu_mat_on,
+    _fe_env_gate,
+    st,
+):
     """Step 1 of _score_one_pair: lines starting at ``if _chunk_global_batch and (_chunk_buffer is not None):``."""
     if _chunk_global_batch and (_chunk_buffer is not None):
         _my_chunk = _pair_to_chunk.get(raw_vars_pair)
@@ -123,6 +152,7 @@ def _score_one_pair_step1_reads_buffer_have(_chunk_global_batch, _chunk_buffer, 
 
 def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, transformed_vars):
     """Step 2 of _score_one_pair: lines starting at ``def _resolve_col(_buf_col):``."""
+
     def _resolve_col(_buf_col):
         """Continuous candidate column ``_buf_col`` for the intermediate (subsample) scoring reads.
         Reads the filled chunk buffer when present; on the DEFERRED-float GPU path the buffer is
@@ -138,12 +168,16 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
             return _cached
         import cupy as cp
         from mlframe.feature_selection.filters._gpu_resident_fe import _fe_materialise_block_gpu, _resident_operand_table
+
         if chunk_state["tv_gpu"] is None:
             # per-step weakref-cached operand table (shared with gpu_materialise) -> one H2D/step
             chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)
         _a, _b, _ops = chunk_state["defer_meta"]
         _cand = _fe_materialise_block_gpu(
-            chunk_state["tv_gpu"], _a[_buf_col:_buf_col + 1], _b[_buf_col:_buf_col + 1], _ops[_buf_col:_buf_col + 1],
+            chunk_state["tv_gpu"],
+            _a[_buf_col : _buf_col + 1],
+            _b[_buf_col : _buf_col + 1],
+            _ops[_buf_col : _buf_col + 1],
         )
         _col = np.ascontiguousarray(cp.asnumpy(_cand)[:, 0])
         np.nan_to_num(_col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
@@ -163,7 +197,9 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
             if chunk_state["tv_gpu"] is None:
                 chunk_state["tv_gpu"] = _resident_operand_table(cp, transformed_vars)
             _a, _b, _ops = chunk_state["defer_meta"]
-            return _fe_materialise_block_gpu(chunk_state["tv_gpu"], _a[_buf_col:_buf_col + 1], _b[_buf_col:_buf_col + 1], _ops[_buf_col:_buf_col + 1])[:, 0]
+            return _fe_materialise_block_gpu(chunk_state["tv_gpu"], _a[_buf_col : _buf_col + 1], _b[_buf_col : _buf_col + 1], _ops[_buf_col : _buf_col + 1])[
+                :, 0
+            ]
         except Exception as e:
             logger.debug("device candidate column failed, falling back to the host column: %s", e)
             return None
@@ -183,7 +219,36 @@ def _score_one_pair_step2_def_resolve_col(final_transformed_vals, chunk_state, t
     return _resolve_col
 
 
-def _score_one_pair_step3_resolve_col_treat(st, final_transformed_vals, _op_code_arr, binary_transformations, vars_transformations, _PREWARP_UNARY, quantization_nbins, quantization_dtype, transformed_vars, _fe_gpu_discretize_enabled, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, discretize_2d_quantile_batch, serial_main_thread, batch_mi_with_noise_gate, _fe_env_gate, _need_recompute_map, _config_by_i, fe_print_best_mis_only, verbose, pair_mi, discretize_array, quantization_method, mi_direct):
+def _score_one_pair_step3_resolve_col_treat(
+    st,
+    final_transformed_vals,
+    _op_code_arr,
+    binary_transformations,
+    vars_transformations,
+    _PREWARP_UNARY,
+    quantization_nbins,
+    quantization_dtype,
+    transformed_vars,
+    _fe_gpu_discretize_enabled,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    fe_npermutations,
+    fe_min_nonzero_confidence,
+    use_su_normalization,
+    discretize_2d_quantile_batch,
+    serial_main_thread,
+    batch_mi_with_noise_gate,
+    _fe_env_gate,
+    _need_recompute_map,
+    _config_by_i,
+    fe_print_best_mis_only,
+    verbose,
+    pair_mi,
+    discretize_array,
+    quantization_method,
+    mi_direct,
+):
     """Step 3 of _score_one_pair: lines starting at ``if st._use_batch_disc:``."""
     if st._use_batch_disc:
         # CROSS-PAIR fast path: this pair was batched together with the rest of its
@@ -194,7 +259,28 @@ def _score_one_pair_step3_resolve_col_treat(st, final_transformed_vals, _op_code
         # chunk's ONE discretize_2d + ONE batch_mi score each column independently,
         # and the candidate order per pair is the SAME (combs x bin_funcs) order the
         # per-pair Phase 1 produced.
-        _batch_candidates, _fe_mi_arr = _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, _op_code_arr, binary_transformations, vars_transformations, _PREWARP_UNARY, quantization_nbins, quantization_dtype, transformed_vars, _fe_gpu_discretize_enabled, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, discretize_2d_quantile_batch, serial_main_thread, batch_mi_with_noise_gate, _fe_env_gate)
+        _batch_candidates, _fe_mi_arr = _score_one_pair_step3_step1_pair_phase_produced(
+            st,
+            final_transformed_vals,
+            _op_code_arr,
+            binary_transformations,
+            vars_transformations,
+            _PREWARP_UNARY,
+            quantization_nbins,
+            quantization_dtype,
+            transformed_vars,
+            _fe_gpu_discretize_enabled,
+            classes_y,
+            classes_y_safe,
+            freqs_y,
+            fe_npermutations,
+            fe_min_nonzero_confidence,
+            use_su_normalization,
+            discretize_2d_quantile_batch,
+            serial_main_thread,
+            batch_mi_with_noise_gate,
+            _fe_env_gate,
+        )
 
         # Replay best/prewarp/config tracking in the SAME order candidates were
         # produced -> identical tie-break behaviour. ``_fe_mi_arr`` is indexed by the
@@ -208,6 +294,9 @@ def _score_one_pair_step3_resolve_col_treat(st, final_transformed_vals, _op_code
 
                 config = (transformations_pair, bin_func_name, _ci)
                 st.var_pairs_perf[config] = fe_mi
+                _chunk_codes = getattr(st, "_chunk_codes", None)
+                if _chunk_codes is not None:
+                    st.__dict__.setdefault("var_pairs_codes", {})[config] = np.asarray(_chunk_codes[:, _ci : _ci + 1]).reshape(-1, 1)
                 if _need_recompute_map:
                     assert _config_by_i is not None
                     _config_by_i[_ci] = (transformations_pair[0], transformations_pair[1], bin_func_name)
@@ -225,13 +314,57 @@ def _score_one_pair_step3_resolve_col_treat(st, final_transformed_vals, _op_code
                         st.best_nonprewarp_config = config
                 _score_one_pair_fe_mi_best_mi(fe_mi, st.best_mi, fe_print_best_mis_only, verbose, bin_func_name, transformations_pair, pair_mi)
     else:
-        _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations, transformed_vars, _PREWARP_UNARY, binary_transformations, final_transformed_vals, discretize_array, quantization_nbins, quantization_method, quantization_dtype, mi_direct, classes_y, classes_y_safe, freqs_y, fe_min_nonzero_confidence, fe_npermutations, _need_recompute_map, _config_by_i, fe_print_best_mis_only, verbose, pair_mi)
+        _score_one_pair_step3_step2_transformations_pair_st(
+            st,
+            vars_transformations,
+            transformed_vars,
+            _PREWARP_UNARY,
+            binary_transformations,
+            final_transformed_vals,
+            discretize_array,
+            quantization_nbins,
+            quantization_method,
+            quantization_dtype,
+            mi_direct,
+            classes_y,
+            classes_y_safe,
+            freqs_y,
+            fe_min_nonzero_confidence,
+            fe_npermutations,
+            _need_recompute_map,
+            _config_by_i,
+            fe_print_best_mis_only,
+            verbose,
+            pair_mi,
+        )
 
 
-def _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, _op_code_arr, binary_transformations, vars_transformations, _PREWARP_UNARY, quantization_nbins, quantization_dtype, transformed_vars, _fe_gpu_discretize_enabled, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, discretize_2d_quantile_batch, serial_main_thread, batch_mi_with_noise_gate, _fe_env_gate):
+def _score_one_pair_step3_step1_pair_phase_produced(
+    st,
+    final_transformed_vals,
+    _op_code_arr,
+    binary_transformations,
+    vars_transformations,
+    _PREWARP_UNARY,
+    quantization_nbins,
+    quantization_dtype,
+    transformed_vars,
+    _fe_gpu_discretize_enabled,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    fe_npermutations,
+    fe_min_nonzero_confidence,
+    use_su_normalization,
+    discretize_2d_quantile_batch,
+    serial_main_thread,
+    batch_mi_with_noise_gate,
+    _fe_env_gate,
+):
     """Step 1 of _score_one_pair_step3_resolve_col_treat: lines starting at ``if st._chunk_entry is not None:``."""
     if st._chunk_entry is not None:
-        _batch_candidates, _fe_mi_by_col, _pair_local_times = st._chunk_entry
+        _batch_candidates, _fe_mi_by_col, _pair_local_times, _chunk_codes = st._chunk_entry
+        st._chunk_codes = _chunk_codes  # read by the replay below (the family gate needs each configuration's bins)
         for _bf_name, _dt in _pair_local_times.items():
             st._local_times[_bf_name] = st._local_times.get(_bf_name, 0.0) + _dt
         # ``_fe_mi_arr`` is indexed by the chunk-buffer column (buf_col), so the
@@ -300,10 +433,30 @@ def _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, 
                 _b_cols: list = []
                 _ops: list = []
                 _gpu_cands: list[Any] = []
-                st.i = _score_one_pair_transformations_pair_combs(st.combs, vars_transformations, _PREWARP_UNARY, _name_list, _a_cols, _b_cols, _ops, _op_code_arr, _gpu_cands, st.i)
+                st.i = _score_one_pair_transformations_pair_combs(
+                    st.combs, vars_transformations, _PREWARP_UNARY, _name_list, _a_cols, _b_cols, _ops, _op_code_arr, _gpu_cands, st.i
+                )
                 _K = st.i
                 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
-                _batch_candidates, _disc_2d, _gpu_fused_done, _defer_meta = _score_one_pair_fe_gpu_binning_enabled(_K, _fe_gpu_binning_enabled, final_transformed_vals, quantization_nbins, quantization_dtype, transformed_vars, _a_cols, _b_cols, _ops, _gpu_cands, _name_list, st._local_times, _batch_candidates, _disc_2d, _gpu_fused_done, st._fe_defer_float)
+
+                _batch_candidates, _disc_2d, _gpu_fused_done, _defer_meta = _score_one_pair_fe_gpu_binning_enabled(
+                    _K,
+                    _fe_gpu_binning_enabled,
+                    final_transformed_vals,
+                    quantization_nbins,
+                    quantization_dtype,
+                    transformed_vars,
+                    _a_cols,
+                    _b_cols,
+                    _ops,
+                    _gpu_cands,
+                    _name_list,
+                    st._local_times,
+                    _batch_candidates,
+                    _disc_2d,
+                    _gpu_fused_done,
+                    st._fe_defer_float,
+                )
                 if _defer_meta is not None:
                     # same keys the chunk path keeps in ``chunk_state``: the operand table is uploaded once and resolved columns are cached
                     st._pair_defer_state = {"defer_meta": _defer_meta, "tv_gpu": None, "resolved_cols": {}}
@@ -314,7 +467,18 @@ def _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, 
             _batch_candidates = []
             st.i = 0
 
-        st.i = _score_one_pair_gpu_fused_done(_gpu_fused_done, st.combs, vars_transformations, transformed_vars, _PREWARP_UNARY, binary_transformations, final_transformed_vals, st._local_times, _batch_candidates, st.i)
+        st.i = _score_one_pair_gpu_fused_done(
+            _gpu_fused_done,
+            st.combs,
+            vars_transformations,
+            transformed_vars,
+            _PREWARP_UNARY,
+            binary_transformations,
+            final_transformed_vals,
+            st._local_times,
+            _batch_candidates,
+            st.i,
+        )
 
         # Phase 2: ONE batch discretisation over the materialised columns [:, :n].
         # Bit-identical to per-column ``discretize_array(method='quantile')`` - the
@@ -332,8 +496,26 @@ def _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, 
             # maxdiff 0; same analytic chi2 gate), so the FE selection is identical. Returns None for
             # the non-analytic branch (SU / sparse / small-n) -> falls through to the CPU dispatch.
             # a deferred pair has no host float matrix to hand the GPU pair-MI path; its resident codes go to the noise gate below
-            _fe_mi_arr = None if st._pair_defer_state is not None else _score_one_pair_non_analytic_branch_su(_fe_gpu_discretize_enabled, final_transformed_vals, st.i, quantization_nbins, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, _fe_mi_arr)
-            _disc_2d = _score_one_pair_fe_mi_arr_none(_fe_mi_arr, _disc_2d, final_transformed_vals, st.i, quantization_nbins, _code_dtype, discretize_2d_quantile_batch, serial_main_thread)
+            _fe_mi_arr = (
+                None
+                if st._pair_defer_state is not None
+                else _score_one_pair_non_analytic_branch_su(
+                    _fe_gpu_discretize_enabled,
+                    final_transformed_vals,
+                    st.i,
+                    quantization_nbins,
+                    classes_y,
+                    classes_y_safe,
+                    freqs_y,
+                    fe_npermutations,
+                    fe_min_nonzero_confidence,
+                    use_su_normalization,
+                    _fe_mi_arr,
+                )
+            )
+            _disc_2d = _score_one_pair_fe_mi_arr_none(
+                _fe_mi_arr, _disc_2d, final_transformed_vals, st.i, quantization_nbins, _code_dtype, discretize_2d_quantile_batch, serial_main_thread
+            )
 
             # Phase 3: BATCHED MI + permutation noise-gate across ALL K candidate
             # columns in ONE kernel call. Bit-identical to the per-candidate
@@ -363,7 +545,29 @@ def _score_one_pair_step3_step1_pair_phase_produced(st, final_transformed_vals, 
     return _batch_candidates, _fe_mi_arr
 
 
-def _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations, transformed_vars, _PREWARP_UNARY, binary_transformations, final_transformed_vals, discretize_array, quantization_nbins, quantization_method, quantization_dtype, mi_direct, classes_y, classes_y_safe, freqs_y, fe_min_nonzero_confidence, fe_npermutations, _need_recompute_map, _config_by_i, fe_print_best_mis_only, verbose, pair_mi):
+def _score_one_pair_step3_step2_transformations_pair_st(
+    st,
+    vars_transformations,
+    transformed_vars,
+    _PREWARP_UNARY,
+    binary_transformations,
+    final_transformed_vals,
+    discretize_array,
+    quantization_nbins,
+    quantization_method,
+    quantization_dtype,
+    mi_direct,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    fe_min_nonzero_confidence,
+    fe_npermutations,
+    _need_recompute_map,
+    _config_by_i,
+    fe_print_best_mis_only,
+    verbose,
+    pair_mi,
+):
     """Step 2 of _score_one_pair_step3_resolve_col_treat: lines starting at ``for transformations_pair in st.combs:``."""
     for transformations_pair in st.combs:
         if (transformations_pair[0] not in vars_transformations) or (transformations_pair[1] not in vars_transformations):
@@ -442,6 +646,9 @@ def _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations
 
                     config = (transformations_pair, bin_func_name, st.i)
                     st.var_pairs_perf[config] = fe_mi
+                    # Keep the codes this configuration was scored on: the pair-level family gate (_pairs_emit.apply_pair_family_gate_from_state)
+                    # needs every configuration of the pair to test the winner against the maximum over all of them.
+                    st.__dict__.setdefault("var_pairs_codes", {})[config] = np.asarray(discretized_transformed_values).reshape(-1, 1)
                     if _need_recompute_map:
                         # Map i -> (a_key, b_key, bin_func_name) for downstream
                         # rebuild; bin_func is looked up via the original dict.
@@ -465,7 +672,9 @@ def _score_one_pair_step3_step2_transformations_pair_st(st, vars_transformations
                     if fe_mi > st.best_mi * 0.85:
                         if not fe_print_best_mis_only or (fe_mi == st.best_mi):
                             if verbose > 2:
-                                logger.debug("MI of transformed pair %s(%s)=%.4f, MI of the plain pair %.4f", bin_func_name, transformations_pair, fe_mi, pair_mi)
+                                logger.debug(
+                                    "MI of transformed pair %s(%s)=%.4f, MI of the plain pair %.4f", bin_func_name, transformations_pair, fe_mi, pair_mi
+                                )
                     st.i += 1
 
 
@@ -502,7 +711,17 @@ def _pair_batch_codes(binary_transformations, param_a, param_b, quantization_nbi
     return {nm: codes[:, j] for j, nm in enumerate(names)}
 
 
-def _config_corr(_cfg, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr):
+def _config_corr(
+    _cfg,
+    final_transformed_vals,
+    _this_chunk_deferred,
+    _resolve_col,
+    _config_by_i,
+    transformed_vars,
+    vars_transformations,
+    binary_transformations,
+    _safe_abs_corr,
+):
     """|corr(continuous y)| of a config's materialised continuous column; -1.0 when
     it cannot be rebuilt (so an unrecoverable form never wins the comparison)."""
     try:
@@ -530,14 +749,48 @@ def _config_corr(_cfg, final_transformed_vals, _this_chunk_deferred, _resolve_co
     except Exception as e:
         # Unmeasured, not unrecoverable: -1.0 here used to switch the clean-form demotion OFF when the CLEAN side failed.
         log_throttle(
-            logger, "pairs_score_config_corr_failed", logging.WARNING,
+            logger,
+            "pairs_score_config_corr_failed",
+            logging.WARNING,
             "_config_corr: could not measure |corr| for config %r (%s: %s); the prewarp demotion treats it as unmeasured",
-            _cfg, type(e).__name__, e,
+            _cfg,
+            type(e).__name__,
+            e,
         )
         return None
 
 
-def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose, raw_vars_pair, _corr_y_cont, _PREWARP_UNARY, fe_good_to_best_feature_mi_threshold, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr, pair_mi, fe_mm_debias_prevalence, classes_y, freqs_y, quantization_nbins, discretize_array, quantization_method, quantization_dtype, _operand_discretized, fe_min_engineered_mi_prevalence, num_fs_steps, _operand_marginal_mi, _prewarp_active, prewarp_uplift_threshold):
+def _score_one_pair_step4_iteration_serialization_point(
+    st,
+    times_spent,
+    verbose,
+    raw_vars_pair,
+    _corr_y_cont,
+    _PREWARP_UNARY,
+    fe_good_to_best_feature_mi_threshold,
+    final_transformed_vals,
+    _this_chunk_deferred,
+    _resolve_col,
+    _config_by_i,
+    transformed_vars,
+    vars_transformations,
+    binary_transformations,
+    _safe_abs_corr,
+    pair_mi,
+    fe_mm_debias_prevalence,
+    classes_y,
+    freqs_y,
+    quantization_nbins,
+    discretize_array,
+    quantization_method,
+    quantization_dtype,
+    _operand_discretized,
+    fe_min_engineered_mi_prevalence,
+    num_fs_steps,
+    _operand_marginal_mi,
+    _prewarp_active,
+    prewarp_uplift_threshold,
+):
     """Step 4 of _score_one_pair: lines starting at ``_score_one_pair_iteration_serialization_point_under(st._local_times, t``."""
     _score_one_pair_iteration_serialization_point_under(st._local_times, times_spent)
 
@@ -578,7 +831,16 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
         # below decide it on its own merits; demotion is for the MI-tie monotone case only.
         if _bc_uses_pw and st.best_nonprewarp_mi >= st.best_mi * fe_good_to_best_feature_mi_threshold:
 
-            _corr_args = (final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr)
+            _corr_args = (
+                final_transformed_vals,
+                _this_chunk_deferred,
+                _resolve_col,
+                _config_by_i,
+                transformed_vars,
+                vars_transformations,
+                binary_transformations,
+                _safe_abs_corr,
+            )
             _pw_corr = _config_corr(st.best_config, *_corr_args)
             _clean_corr = _config_corr(st.best_nonprewarp_config, *_corr_args)
             # Demote to the clean form unless the prewarp form is MEANINGFULLY more linearly
@@ -586,7 +848,18 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
             # distorted re-expression; a genuinely non-monotone inner clears this comfortably
             # (its warp reconstruction is the ONLY linearly-aligned form), while a
             # monotone-equivalent warp scores <= the clean form and is demoted.
-            st.best_config, st.best_mi = _score_one_pair_monotone_equivalent_warp_scores(_pw_corr, _clean_corr, st.best_nonprewarp_config, st.best_nonprewarp_mi, st.var_pairs_perf, _PREWARP_UNARY, verbose, st.messages, st.best_config, st.best_mi)
+            st.best_config, st.best_mi = _score_one_pair_monotone_equivalent_warp_scores(
+                _pw_corr,
+                _clean_corr,
+                st.best_nonprewarp_config,
+                st.best_nonprewarp_mi,
+                st.var_pairs_perf,
+                _PREWARP_UNARY,
+                verbose,
+                st.messages,
+                st.best_config,
+                st.best_mi,
+            )
 
     # experiment-rejected (2026-06-03): a held-out-CV firewall here (score
     # per-combo MI on a TRAIN stride slice for honest selection, then keep the
@@ -652,12 +925,26 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
     # 4th MI-threshold lever and fails by construction like #1/#8/#19; do NOT re-attempt an
     # MI-threshold/ratio fix here. Numbers + verdict in D:/Temp/null_prev_results.md.
     st._gate_ratio = (st.best_mi / pair_mi) if pair_mi > 0.0 else 0.0
-    st._gate_ratio = _score_one_pair_mi_threshold_ratio_fix(fe_mm_debias_prevalence, pair_mi, st.best_config, classes_y, freqs_y, quantization_nbins, discretize_array, _resolve_col, quantization_method, quantization_dtype, _operand_discretized, raw_vars_pair, st.best_mi, st._gate_ratio)
-    st._ratio_ok = st._gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
-    _operand_floor = max(_operand_marginal_mi(raw_vars_pair[0]), _operand_marginal_mi(raw_vars_pair[1]))
-    _uplift_bar = operand_uplift_null_bar(_operand_discretized(raw_vars_pair[0]), _operand_discretized(raw_vars_pair[1]), classes_y, _operand_floor) if st._ratio_ok else 1.0
-    st._operand_ok = st._ratio_ok and _beats_the_larger_operand(st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi, uplift_bar=_uplift_bar)
-    st._passes_joint_gate = st._ratio_ok and st._operand_ok
+    st._gate_ratio = _score_one_pair_mi_threshold_ratio_fix(
+        fe_mm_debias_prevalence,
+        pair_mi,
+        st.best_config,
+        classes_y,
+        freqs_y,
+        quantization_nbins,
+        discretize_array,
+        _resolve_col,
+        quantization_method,
+        quantization_dtype,
+        _operand_discretized,
+        raw_vars_pair,
+        st.best_mi,
+        st._gate_ratio,
+    )
+    st._passes_joint_gate = st._gate_ratio > fe_min_engineered_mi_prevalence * (1.0 if num_fs_steps < 1 else 1.025)
+    st._passes_joint_gate = st._passes_joint_gate and _beats_the_larger_operand(
+        st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi
+    )
 
     # Alternative pre-warp acceptance: the joint-prevalence gate
     # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner
@@ -669,7 +956,21 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
     # (where the elementary library already saturates and the prewarp adds no
     # uplift). When it fires, the prewarp config becomes the winner.
     st._prewarp_accept = False
-    st._prewarp_accept, st.best_config, st.best_mi = _score_one_pair_uplift_fires_prewarp_config(_prewarp_active, st._passes_joint_gate, st.best_prewarp_config, st.best_nonprewarp_mi, st.best_prewarp_mi, prewarp_uplift_threshold, verbose, st.messages, pair_mi, fe_min_engineered_mi_prevalence, st._prewarp_accept, st.best_config, st.best_mi)
+    st._prewarp_accept, st.best_config, st.best_mi = _score_one_pair_uplift_fires_prewarp_config(
+        _prewarp_active,
+        st._passes_joint_gate,
+        st.best_prewarp_config,
+        st.best_nonprewarp_mi,
+        st.best_prewarp_mi,
+        prewarp_uplift_threshold,
+        verbose,
+        st.messages,
+        pair_mi,
+        fe_min_engineered_mi_prevalence,
+        st._prewarp_accept,
+        st.best_config,
+        st.best_mi,
+    )
 
     # MARGINAL-UPLIFT alternative acceptance: admit a pair the joint-prevalence
     # gate rejects when its best ELEMENTARY-LIBRARY (non-prewarp) engineered column
@@ -685,7 +986,21 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
     # (``_prewarp_accept``), and promoting a prewarp form here would require the per-operand
     # warp spec to round-trip into the recipe - which is only guaranteed on the prewarp path.
     st._marginal_uplift_accept = False
-    st._marginal_uplift_accept, st.best_config, st.best_mi = _score_one_pair_warp_spec_round_trip(st._passes_joint_gate, st._prewarp_accept, st.best_nonprewarp_config, st.best_nonprewarp_mi, pair_mi, _operand_marginal_mi, raw_vars_pair, verbose, st.messages, fe_min_engineered_mi_prevalence, st._marginal_uplift_accept, st.best_config, st.best_mi)
+    st._marginal_uplift_accept, st.best_config, st.best_mi = _score_one_pair_warp_spec_round_trip(
+        st._passes_joint_gate,
+        st._prewarp_accept,
+        st.best_nonprewarp_config,
+        st.best_nonprewarp_mi,
+        pair_mi,
+        _operand_marginal_mi,
+        raw_vars_pair,
+        verbose,
+        st.messages,
+        fe_min_engineered_mi_prevalence,
+        st._marginal_uplift_accept,
+        st.best_config,
+        st.best_mi,
+    )
 
     # TAIL-CONCENTRATION USABILITY ADMISSION + WINNER PROMOTION. Under heavy operand outliers a
     # genuine ratio (a**2/b) is TAIL-CONCENTRATED: in the clean bulk its rank association with y collapses
@@ -709,7 +1024,23 @@ def _score_one_pair_step4_iteration_serialization_point(st, times_spent, verbose
     st._usability_primary = False
 
 
-def _score_one_pair_step5_any_error_leaves(fe_pair_usability_admission_enable, _corr_y_cont, pair_mi, st, final_transformed_vals, _this_chunk_deferred, _extval_raw_col, raw_vars_pair, fe_pair_usability_admission_min_corr, fe_pair_usability_admission_pairness_margin, _resolve_col, _safe_abs_corr, _raw_operand_abs_corr, _mi_band, verbose):
+def _score_one_pair_step5_any_error_leaves(
+    fe_pair_usability_admission_enable,
+    _corr_y_cont,
+    pair_mi,
+    st,
+    final_transformed_vals,
+    _this_chunk_deferred,
+    _extval_raw_col,
+    raw_vars_pair,
+    fe_pair_usability_admission_min_corr,
+    fe_pair_usability_admission_pairness_margin,
+    _resolve_col,
+    _safe_abs_corr,
+    _raw_operand_abs_corr,
+    _mi_band,
+    verbose,
+):
     """Step 5 of _score_one_pair: lines starting at ``if (``."""
     if (
         bool(fe_pair_usability_admission_enable)
@@ -727,11 +1058,14 @@ def _score_one_pair_step5_any_error_leaves(fe_pair_usability_admission_enable, _
             # margin. FALSE for noise pairs (best-form |corr| ~0.02-0.2) and lone-dominant-operand pairs, so
             # the per-form materialise in PART B is skipped for the common case.
             if (
-                _tc_x0 is not None and _tc_x1 is not None
+                _tc_x0 is not None
+                and _tc_x1 is not None
                 and np.asarray(_tc_x0).shape[0] == _corr_y_cont.shape[0]
                 and np.asarray(_tc_x1).shape[0] == _corr_y_cont.shape[0]
                 and pair_is_tail_concentrated_rankaware(
-                    _corr_y_cont, _tc_x0, _tc_x1,
+                    _corr_y_cont,
+                    _tc_x0,
+                    _tc_x1,
                     min_corr=fe_pair_usability_admission_min_corr,
                     pairness_margin=fe_pair_usability_admission_pairness_margin,
                 )
@@ -750,12 +1084,14 @@ def _score_one_pair_step5_any_error_leaves(fe_pair_usability_admission_enable, _
                 # are the SAME raw operands the noise-wrap veto below scores, and either can recur
                 # across every admitted pair sharing that var - see ``_raw_operand_abs_corr``.
                 _best_single_corr = max(
-                    _raw_operand_abs_corr(raw_vars_pair[0]), _raw_operand_abs_corr(raw_vars_pair[1]),
+                    _raw_operand_abs_corr(raw_vars_pair[0]),
+                    _raw_operand_abs_corr(raw_vars_pair[1]),
                 )
                 # ``_mi_band`` is the caller-hoisted, call-invariant tie band (see the per-call hoist
                 # comment in ``check_prospective_fe_pairs``) - not recomputed per pair.
                 _override_cfg = tail_concentration_form_override(
-                    st.var_pairs_perf, _use_map,
+                    st.var_pairs_perf,
+                    _use_map,
                     min_corr=fe_pair_usability_admission_min_corr,
                     pairness_margin=fe_pair_usability_admission_pairness_margin,
                     mi_band=_mi_band,
@@ -788,13 +1124,34 @@ def _zerofill_corr_dev(win_dev, _unused_win_host, operand_host) -> float:
     return abs_corr_zerofill_gpu(win_dev, operand_host)
 
 
-def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _safe_abs_corr, vars_transformations, _transformed_operand_abs_corr, _raw_operand_abs_corr, raw_vars_pair, _NOISE_WRAP_MIN_OPERAND_CORR, _NOISE_WRAP_CORR_COLLAPSE_FRAC, verbose, transformed_vars):
+def _score_one_pair_step6_wide_fraction_margin(
+    st,
+    _corr_y_cont,
+    final_transformed_vals,
+    _this_chunk_deferred,
+    _resolve_col,
+    _safe_abs_corr,
+    vars_transformations,
+    _transformed_operand_abs_corr,
+    _raw_operand_abs_corr,
+    raw_vars_pair,
+    _NOISE_WRAP_MIN_OPERAND_CORR,
+    _NOISE_WRAP_CORR_COLLAPSE_FRAC,
+    verbose,
+    transformed_vars,
+):
     """Step 6 of _score_one_pair: lines starting at ``if (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift``."""
-    if (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept) and _corr_y_cont is not None and st.best_config is not None:
+    if (
+        (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept)
+        and _corr_y_cont is not None
+        and st.best_config is not None
+    ):
         try:
             # DEFERRED-float GPU path: score the winner against the target and its operands ON the device (``_win_dev``); the host column is only read
             # when the device path is unavailable.
-            _win_dev = getattr(_resolve_col, "device", lambda *_: None)(st.best_config[2]) if (final_transformed_vals is None and _this_chunk_deferred) else None
+            _win_dev = (
+                getattr(_resolve_col, "device", lambda *_: None)(st.best_config[2]) if (final_transformed_vals is None and _this_chunk_deferred) else None
+            )
             _win_vals = None
             _win_corr_dev = None
             if _win_dev is not None:
@@ -816,7 +1173,9 @@ def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transform
             # computed once per distinct operand for the whole call rather than once per pair.
             _op_corr = 0.0
             _tp = st.best_config[0]
-            _op_corr = _score_one_pair_computed_once_per_distinct(_tp, vars_transformations, _op_corr, _transformed_operand_abs_corr, _raw_operand_abs_corr, raw_vars_pair)
+            _op_corr = _score_one_pair_computed_once_per_distinct(
+                _tp, vars_transformations, _op_corr, _transformed_operand_abs_corr, _raw_operand_abs_corr, raw_vars_pair
+            )
             if _win_has_corr and _op_corr >= _NOISE_WRAP_MIN_OPERAND_CORR and _win_corr < _op_corr * _NOISE_WRAP_CORR_COLLAPSE_FRAC:
                 st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = False
                 st._usability_accept = st._usability_primary = False
@@ -839,8 +1198,11 @@ def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transform
             # to EACH operand's chosen-unary continuous values: if it is ~= ONE operand (|corr| >= 0.999) the
             # pair adds nothing a single warped operand does not - veto so the clean single-source form wins.
             # A genuine 2-var pair (a/b, a*b) sits FAR below 0.999 with EITHER operand and is untouched.
-            if (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept) and (_win_vals is not None or _win_dev is not None):
+            if (st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept) and (
+                _win_vals is not None or _win_dev is not None
+            ):
                 from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _abs_corr_zerofill_njit
+
                 _tp2 = st.best_config[0]
                 _max_single_op_corr = 0.0
                 if _win_dev is not None:
@@ -848,7 +1210,9 @@ def _score_one_pair_step6_wide_fraction_margin(st, _corr_y_cont, final_transform
                     _max_single_op_corr = _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _corr_fn, None, _max_single_op_corr)
                 else:
                     _win_vals_f64 = np.asarray(_win_vals, dtype=np.float64)
-                    _max_single_op_corr = _score_one_pair_side(_tp2, vars_transformations, transformed_vars, _abs_corr_zerofill_njit, _win_vals_f64, _max_single_op_corr)
+                    _max_single_op_corr = _score_one_pair_side(
+                        _tp2, vars_transformations, transformed_vars, _abs_corr_zerofill_njit, _win_vals_f64, _max_single_op_corr
+                    )
                 if _max_single_op_corr >= _DEGENERATE_PAIR_SINGLE_OPERAND_CORR:
                     st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = False
                     st._usability_accept = st._usability_primary = False

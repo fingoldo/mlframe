@@ -34,7 +34,8 @@ def _cast_numeric_to_float32(X):
     if hasattr(X, "astype"):
         try:
             return X.astype(_np.float32)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
+            logger.debug("_cast_numeric_to_float32 fell back to its default after %s", type(_exc).__name__)
             return _np.asarray(X, dtype=_np.float32)
     return _np.asarray(X, dtype=_np.float32)
 

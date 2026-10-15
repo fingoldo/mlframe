@@ -56,9 +56,10 @@ def _model_fit_accepts_sample_weight(model: Any) -> bool:
         return False
     try:
         params = inspect.signature(fit_fn).parameters
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
         # Un-introspectable (builtin / C-extension): be permissive so we never
         # silently drop weighting; a real "no such param" TypeError then surfaces.
+        logger.debug("_model_fit_accepts_sample_weight fell back to its default after %s", type(_exc).__name__)
         return True
     if "sample_weight" in params:
         return True
@@ -76,7 +77,8 @@ def subset_to_fit_columns(X: Any, pp: Any) -> Any:
     _fit_list = [str(c) for c in _fit_cols]
     try:
         _cols = [str(c) for c in X.columns]
-    except AttributeError:
+    except AttributeError as _exc:
+        logger.debug("subset_to_fit_columns fell back to its default after %s", type(_exc).__name__)
         return X
     if _cols == _fit_list:
         return X
@@ -235,13 +237,15 @@ class PrePipelinePredictShim(BaseEstimator):
         try:
             check_is_fitted(model)
             return True
-        except NotFittedError:
+        except NotFittedError as _exc:
+            logger.debug("__sklearn_is_fitted__ fell back to its default after %s", type(_exc).__name__)
             return False
-        except (TypeError, ValueError):
+        except (TypeError, ValueError) as _exc:
             # Inner does not follow the sklearn fitted-attribute convention
             # (no trailing-underscore attrs, not a BaseEstimator). Fall back to
             # the explicit flag: if shim.fit never ran and the inner exposes no
             # detectable fitted state, treat the shim as unfitted.
+            logger.debug("__sklearn_is_fitted__ fell back to its default after %s", type(_exc).__name__)
             return False
 
     def __sklearn_clone__(self) -> "PrePipelinePredictShim":

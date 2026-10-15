@@ -22,7 +22,6 @@ that call is byte-for-byte the plain-MI path unless ``MLFRAME_FE_IMBALANCE_MI=on
 
 from __future__ import annotations
 
-import time
 
 import numpy as np
 
@@ -281,21 +280,10 @@ def test_noise_control_rare_by_chance_not_promoted(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_default_off_adds_negligible_cost(monkeypatch):
-    """The detection short-circuit (compute_class_weights) on the default OFF path is
-    a single env read -> the OFF path must be no slower than calling the plain numba
-    batch directly (generous 1.5x budget to absorb timing noise)."""
+def test_default_off_matches_plain_numba_batch(monkeypatch):
+    """With the flag unset the imbalance hook is a pass-through: the result equals the plain numba batch exactly."""
     monkeypatch.delenv("MLFRAME_FE_IMBALANCE_MI", raising=False)
     X, y = _imbalanced_frame(seed=9, n=20000, p=12)
-    # warm numba
-    _mi_classif_batch(X, y, nbins=10)
-    _mi_classif_batch_numba(X, y, nbins=10)
-    t0 = time.perf_counter()
-    for _ in range(5):
-        _mi_classif_batch(X, y, nbins=10)
-    t_hooked = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    for _ in range(5):
-        _mi_classif_batch_numba(X, y, nbins=10)
-    t_plain = time.perf_counter() - t0
-    assert t_hooked < 1.5 * t_plain + 0.05
+    hooked = _mi_classif_batch(X, y, nbins=10)
+    plain = _mi_classif_batch_numba(X, y, nbins=10)
+    np.testing.assert_array_equal(np.asarray(hooked), np.asarray(plain))

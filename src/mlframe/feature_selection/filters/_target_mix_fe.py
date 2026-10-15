@@ -23,6 +23,8 @@ from typing import Any, Mapping
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["choose_bases", "second_pass_recipes"]
@@ -87,7 +89,7 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
             child = _child(estimator)
             child.fit(X_train, pd.Series(y[train] - beta * u[train], name="y"))
         except Exception:
-            logger.warning("MRMR target-mix second pass on the base %r failed; skipped.", name, exc_info=True)
+            log_throttle(logger, "target_mix_fe.second_pass_failed", logging.WARNING, "MRMR target-mix second pass on the base %r failed; skipped.", name, exc_info=True)
             continue
         own = []
         for feature, recipe in zip(child._engineered_features_ or [], child._engineered_recipes_ or []):

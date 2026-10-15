@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 import warnings
 
 import numpy as np
@@ -114,6 +113,7 @@ def test_y_scale_rmse_bit_identical_across_repeated_specs():
     # Re-run the very first spec again (warm cache) -> must equal the cold result.
     r_warm = _run_spec(y, base, X1, seed=42)
     assert r_warm == r_cold, "warm-cache RMSE diverged from cold-cache RMSE"
+    assert len(rmses) == 5
     assert all(np.isfinite(r) for r in rmses)
 
 
@@ -203,47 +203,51 @@ def test_silence_reentrant_restores_after_inner_exits():
 # --------------------------------------------------------------------------- #
 # Perf sentinels (wall, generous floors to avoid CI flakiness)
 # --------------------------------------------------------------------------- #
-def test_perf_silence_linear_cheaper_than_lgb_bump():
-    """Entering/exiting the silencer for a non-lgb family must be cheaper than
-    the lgb path (which fires logging.Manager._clear_cache twice). Generous
-    floor: the linear path takes < 70% of the lgb path over many iters."""
-    iters = 4000
+def test_silence_linear_never_touches_lgb_logger_level(monkeypatch):
+    """A non-lgb family must not call setLevel on the lightgbm logger at all.
 
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        with _silence_tiny_model_output("lightgbm"):
-            pass
-    t_lgb = time.perf_counter() - t0
+    The lgb path fires logging.Manager._clear_cache twice per enter/exit, so a zero setLevel count on the linear path
+    is the deterministic form of that cost saving.
+    """
+    lgb_logger = logging.getLogger("lightgbm")
+    lgb_logger.setLevel(logging.DEBUG)
+    calls = {"n": 0}
+    real_setlevel = type(lgb_logger).setLevel
 
-    t0 = time.perf_counter()
-    for _ in range(iters):
+    def _counting_setlevel(self, level):
+        """Count setLevel calls on the lightgbm logger and delegate."""
+        if self is lgb_logger:
+            calls["n"] += 1
+        return real_setlevel(self, level)
+
+    monkeypatch.setattr(type(lgb_logger), "setLevel", _counting_setlevel)
+    for _ in range(100):
         with _silence_tiny_model_output("linear"):
             pass
-    t_linear = time.perf_counter() - t0
+    assert calls["n"] == 0, f"linear-family silencer touched the lightgbm logger {calls['n']} times"
+    with _silence_tiny_model_output("lightgbm"):
+        pass
+    assert calls["n"] == 2, "control: the lgb family must still bump and restore the logger"
 
-    assert t_linear < 0.7 * t_lgb, f"linear-silence not cheaper: linear={t_linear * 1e3:.2f}ms lgb={t_lgb * 1e3:.2f}ms"
 
-
-def test_perf_cached_splits_faster_than_fresh():
-    """Warm split-cache lookup must be far cheaper than rebuilding the KFold
-    split each call (the per-sweep win). Floor: cache < 30% of fresh build."""
+def test_cached_splits_warm_lookup_never_rebuilds_kfold(monkeypatch):
+    """A warm split-cache lookup must not re-run KFold.split (the per-sweep win): the fresh build happens once per key."""
     n_rows, cv_folds, seed = 5000, 4, 3
-    x = np.random.default_rng(1).normal(size=(n_rows, 8))
-    iters = 2000
-
     S._KFOLD_SPLIT_CACHE.clear()
-    _cached_kfold_splits(n_rows, cv_folds, seed)  # warm
-    t0 = time.perf_counter()
-    for _ in range(iters):
+    _cached_kfold_splits(n_rows, cv_folds, seed)  # cold build
+
+    split_calls = {"n": 0}
+    real_split = KFold.split
+
+    def _counting_split(self, X=None, y=None, groups=None):
+        """Count KFold.split invocations and delegate."""
+        split_calls["n"] += 1
+        return real_split(self, X, y, groups)
+
+    monkeypatch.setattr(KFold, "split", _counting_split)
+    for _ in range(200):
         _cached_kfold_splits(n_rows, cv_folds, seed)
-    t_cache = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        list(KFold(n_splits=cv_folds, shuffle=True, random_state=seed).split(x))
-    t_fresh = time.perf_counter() - t0
-
-    assert t_cache < 0.3 * t_fresh, f"cache not faster: cache={t_cache * 1e3:.2f}ms fresh={t_fresh * 1e3:.2f}ms"
+    assert split_calls["n"] == 0, f"warm cache lookups rebuilt the KFold split {split_calls['n']} times"
 
 
 def test_silence_uses_precompiled_message_regexes_with_identical_semantics():

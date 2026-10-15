@@ -14,10 +14,15 @@ from __future__ import annotations
 
 import logging
 
+from typing import TYPE_CHECKING, cast
+
 import numpy as np
 import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
+
+if TYPE_CHECKING:
+    import polars as pl
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -404,7 +409,7 @@ def _identity_fastpath_is_safe(self, X) -> bool:
         return False
 
 
-def transform(self, X, y=None):
+def transform(self, X: pd.DataFrame | pl.DataFrame | np.ndarray, y: pd.Series | np.ndarray | None = None) -> pd.DataFrame | pl.DataFrame | np.ndarray:
     """Apply the fitted MRMR selection + engineered-recipe replay to ``X``.
 
     Returns the column-subset / engineered-frame matching the layout MRMR
@@ -529,7 +534,7 @@ def transform(self, X, y=None):
             )
         _warn_unseen_transform_columns(self, X.columns)
         _warn_transform_dtype_drift(self, X, _drift_check_columns(selected_cols, recipes))
-        base_out = X.select(selected_cols)
+        base_out = cast("pl.DataFrame", X).select(selected_cols)
     else:
         # Plain ndarray: ``support`` indexes columns positionally (the shape check above guards the width), so it
         # must be an integer (or boolean) array. An EMPTY full-mode selection (all signal folded into engineered
@@ -553,7 +558,7 @@ def transform(self, X, y=None):
         _cfg = _get_output_config("transform", estimator=self)
         _want_pandas = (_cfg.get("dense") or "default") == "pandas"
     except Exception as e:
-        logger.debug("sklearn set_output config lookup failed, defaulting to non-pandas: %s", e)
+        logger.warning("sklearn set_output config lookup failed, defaulting to non-pandas: %s", e)
         _want_pandas = False
     if _want_pandas:
         try:

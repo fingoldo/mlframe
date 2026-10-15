@@ -221,7 +221,7 @@ def _make_weak_f2(seed, n, profile):
 def _fit_classify(seed, n, profile):
     """Fit classify."""
     df, y = _make_weak_f2(seed, n, profile)
-    fs = MRMR(verbose=0, random_seed=seed)
+    fs = MRMR(verbose=0, random_state=seed)
     fs.fit(df, y)
     selected = list(fs.get_feature_names_out())
     cls = classify_selection(selected)

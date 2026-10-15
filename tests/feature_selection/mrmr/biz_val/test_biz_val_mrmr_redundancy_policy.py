@@ -39,7 +39,7 @@ def _covers_ratio(eng_names) -> bool:
 def test_biz_val_mrmr_redundancy_policy_emit_both_keeps_raw_operands():
     """``emit_both`` (default): the engineered ratio is selected AND raw ``a``, ``b`` survive."""
     df, y = _ratio_fixture()
-    fs = MRMR(verbose=0, random_seed=SEED, redundancy_policy="emit_both")
+    fs = MRMR(verbose=0, random_state=SEED, redundancy_policy="emit_both")
     fs.fit(df, y)
     out = list(fs.get_feature_names_out())
     eng = [nm for nm in out if nm not in {"a", "b", "e"}]
@@ -50,7 +50,7 @@ def test_biz_val_mrmr_redundancy_policy_emit_both_keeps_raw_operands():
 def test_biz_val_mrmr_redundancy_policy_drop_prunes_raw_operands():
     """``drop``: the engineered ratio is selected and the subsumed raw operands are pruned."""
     df, y = _ratio_fixture()
-    fs = MRMR(verbose=0, random_seed=SEED, redundancy_policy="drop")
+    fs = MRMR(verbose=0, random_state=SEED, redundancy_policy="drop")
     fs.fit(df, y)
     out = list(fs.get_feature_names_out())
     eng = [nm for nm in out if nm not in {"a", "b", "e"}]

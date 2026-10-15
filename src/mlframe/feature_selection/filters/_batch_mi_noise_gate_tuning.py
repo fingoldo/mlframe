@@ -168,7 +168,7 @@ def _batch_mi_noise_gate_code_version():
         return None
 
 
-def ensure_batch_mi_noise_gate_tuning(force: bool = False):
+def ensure_batch_mi_noise_gate_tuning(force: bool = False) -> list | None:
     """Force-run the ``batch_mi_noise_gate`` CPU-vs-GPU sweep and persist it per-host.
 
     This is the CLI / ``refresh-all`` entry point that was MISSING - without it the noise-gate sweep

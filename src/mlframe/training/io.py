@@ -335,31 +335,31 @@ def _collect_lib_versions() -> Dict[str, str]:
     import sys
     from importlib import metadata as _md
 
-    _cached = _LIB_VERSIONS_CACHE.get(id(_LIB_VERSION_DISTS))
-    if _cached is not None:
-        return dict(_cached)
-
-    out: Dict[str, str] = {}
-    for _name, _dist in _LIB_VERSION_DISTS:
-        _ver: Optional[str] = None
-        try:
-            _ver = _md.version(_dist)
-        except _md.PackageNotFoundError:
-            _ver = None
-        except Exception as e:
-            logger.debug("package-version resolution failed: %s", e)
-            _ver = None
-        if _ver is None:
-            # Fallback for libs whose import-name != dist-name lookup failed
-            # but that ARE already imported (e.g. arch-suffixed cupy dists).
-            _mod = sys.modules.get(_name)
-            if _mod is not None:
-                _mv = getattr(_mod, "__version__", None)
-                if _mv is not None:
-                    _ver = str(_mv)
-        if _ver is not None:
-            out[_name] = str(_ver)
     with _LIB_VERSIONS_CACHE_LOCK:
+        _cached = _LIB_VERSIONS_CACHE.get(id(_LIB_VERSION_DISTS))
+        if _cached is not None:
+            return dict(_cached)
+
+        out: Dict[str, str] = {}
+        for _name, _dist in _LIB_VERSION_DISTS:
+            _ver: Optional[str] = None
+            try:
+                _ver = _md.version(_dist)
+            except _md.PackageNotFoundError:
+                _ver = None
+            except Exception as e:
+                logger.debug("package-version resolution failed: %s", e)
+                _ver = None
+            if _ver is None:
+                # Fallback for libs whose import-name != dist-name lookup failed
+                # but that ARE already imported (e.g. arch-suffixed cupy dists).
+                _mod = sys.modules.get(_name)
+                if _mod is not None:
+                    _mv = getattr(_mod, "__version__", None)
+                    if _mv is not None:
+                        _ver = str(_mv)
+            if _ver is not None:
+                out[_name] = str(_ver)
         _LIB_VERSIONS_CACHE[id(_LIB_VERSION_DISTS)] = out
     return dict(out)
 
@@ -393,7 +393,8 @@ def _bundle_sha256(bundle_path: str, chunk: int = 1 << 20) -> Optional[str]:
             for block in iter(lambda: f.read(chunk), b""):
                 h.update(block)
         return h.hexdigest()
-    except OSError:
+    except OSError as _exc:
+        logger.debug("_bundle_sha256 fell back to its default after %s", type(_exc).__name__)
         return None
 
 
@@ -461,7 +462,8 @@ def load_save_meta_sidecar(bundle_path: str) -> Optional[Dict[str, Any]]:
             )
             return None
         return data
-    except FileNotFoundError:
+    except FileNotFoundError as _exc:
+        logger.debug("load_save_meta_sidecar fell back to its default after %s", type(_exc).__name__)
         return None
     except (OSError, orjson.JSONDecodeError) as _e:
         logger.warning(
@@ -551,82 +553,81 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
     # overwrite invalidates automatically. Skip cache for >2 GB on-disk bundles (CatBoost on a
     # rich suite can exceed this); the in-memory form is larger still and caching it would
     # break the host's RAM budget.
-    _cache_key: Optional[tuple] = None
-    try:
-        _abs = os.path.abspath(file)
-        _st = os.stat(_abs)
-        _size_mb_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX_MB", "2048")
+    with _LOAD_MODEL_CACHE_LOCK:
+        _cache_key: Optional[tuple] = None
         try:
-            _max_mb = float(_size_mb_env)
-        except ValueError:
-            _max_mb = 2048.0
-        if _st.st_size <= _max_mb * (1024**2):
-            _cache_key = (_abs, _st.st_mtime_ns, bool(safe))
-            with _LOAD_MODEL_CACHE_LOCK:
+            _abs = os.path.abspath(file)
+            _st = os.stat(_abs)
+            _size_mb_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX_MB", "2048")
+            try:
+                _max_mb = float(_size_mb_env)
+            except ValueError:
+                _max_mb = 2048.0
+            if _st.st_size <= _max_mb * (1024**2):
+                _cache_key = (_abs, _st.st_mtime_ns, bool(safe))
                 _hit = _LOAD_MODEL_CACHE.get(_cache_key)
                 if _hit is not None:
                     _LOAD_MODEL_CACHE.move_to_end(_cache_key)
-            if _hit is not None:
-                # NOTE: this is the SHARED cached object (not a copy). Callers MUST NOT mutate it in place --
-                # e.g. clean_mlframe_model() strips fields in place and would poison every later cache hit for
-                # this (path, mtime). Copy first, or call _load_model_cache_clear(), if you need to mutate.
-                return _hit
-    except OSError:
-        # Path doesn't exist or stat refused; fall through to the real loader which will surface the real error.
-        pass
-    # validate the .meta.json sidecar BEFORE unpickling so the
-    # operator sees library-version drift (catboost / lightgbm minor upgrades
-    # silently change booster internals) instead of chasing a cryptic
-    # AttributeError deep in predict(). Returns None on legacy bundles
-    # (pre-2026-05-20) with no sidecar; that's a back-compat path with a
-    # one-line INFO message in the helper.
-    try:
-        validate_load_meta_sidecar(file, strict=strict_version)
-    except ValueError:
-        # strict_version=True propagates the failure to the caller verbatim.
-        raise
-    except Exception as _meta_e:
-        # Other (unexpected) failures in the sidecar reader are non-fatal:
-        # the bundle itself may still be loadable. Logger.warning was already
-        # called inside the helper for the known cases.
-        logger.debug(
-            "load_mlframe_model: sidecar validation raised unexpectedly " "(%s); proceeding with bundle load.",
-            _meta_e,
-        )
-    try:
-        with open(file, "rb") as f:
-            zstd = import_optional("zstandard", "db", "reading compressed model bundles")
-            decompressor = zstd.ZstdDecompressor()
-            with decompressor.stream_reader(f) as _zraw:
-                zf = BoundedReader(_zraw, max_decompressed_bytes())
-                if safe:
-                    model = _SafeUnpickler(zf).load()
-                else:
-                    warnings.warn(
-                        "Loading without allowlist -- trust source",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    model = dill.load(zf)  # deserialize-ok: safe=False is the caller's explicit opt-in, warned above  # nosec B301
-        if _cache_key is not None:
-            _max_count_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX", "32")
-            try:
-                _max_count = max(1, int(_max_count_env))
-            except ValueError:
-                _max_count = 32
-            with _LOAD_MODEL_CACHE_LOCK:
+                if _hit is not None:
+                    # NOTE: this is the SHARED cached object (not a copy). Callers MUST NOT mutate it in place --
+                    # e.g. clean_mlframe_model() strips fields in place and would poison every later cache hit for
+                    # this (path, mtime). Copy first, or call _load_model_cache_clear(), if you need to mutate.
+                    return _hit
+        except OSError:
+            # Path doesn't exist or stat refused; fall through to the real loader which will surface the real error.
+            pass
+        # validate the .meta.json sidecar BEFORE unpickling so the
+        # operator sees library-version drift (catboost / lightgbm minor upgrades
+        # silently change booster internals) instead of chasing a cryptic
+        # AttributeError deep in predict(). Returns None on legacy bundles
+        # (pre-2026-05-20) with no sidecar; that's a back-compat path with a
+        # one-line INFO message in the helper.
+        try:
+            validate_load_meta_sidecar(file, strict=strict_version)
+        except ValueError:
+            # strict_version=True propagates the failure to the caller verbatim.
+            raise
+        except Exception as _meta_e:
+            # Other (unexpected) failures in the sidecar reader are non-fatal:
+            # the bundle itself may still be loadable. Logger.warning was already
+            # called inside the helper for the known cases.
+            logger.debug(
+                "load_mlframe_model: sidecar validation raised unexpectedly " "(%s); proceeding with bundle load.",
+                _meta_e,
+            )
+        try:
+            with open(file, "rb") as f:
+                zstd = import_optional("zstandard", "db", "reading compressed model bundles")
+                decompressor = zstd.ZstdDecompressor()
+                with decompressor.stream_reader(f) as _zraw:
+                    zf = BoundedReader(_zraw, max_decompressed_bytes())
+                    if safe:
+                        model = _SafeUnpickler(zf).load()
+                    else:
+                        warnings.warn(
+                            "Loading without allowlist -- trust source",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        model = dill.load(zf)  # deserialize-ok: safe=False is the caller's explicit opt-in, warned above  # nosec B301
+            if _cache_key is not None:
+                _max_count_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX", "32")
+                try:
+                    _max_count = max(1, int(_max_count_env))
+                except ValueError:
+                    _max_count = 32
                 _LOAD_MODEL_CACHE[_cache_key] = model
                 while len(_LOAD_MODEL_CACHE) > _max_count:
                     # evict-ok: a miss reloads the model from disk
                     _LOAD_MODEL_CACHE.popitem(last=False)
-        return model  # type: ignore[no-any-return]  # dill/pickle-loaded model is Any at the type level; declared Optional[object] is the honest external contract
-    except Exception as e:  # best-effort: escalated via the returned None sentinel below
-        # logger.exception captures the traceback automatically so the
-        # operator can see the unpickler / zstd error stack rather than
-        # only the str(e) summary. Previous .error() obscured the
-        # underlying cause for any non-trivial load failure.
-        logger.exception("Could not load model from file %s: %s", file, e)
-        return None
+            return model  # type: ignore[no-any-return]  # dill/pickle-loaded model is Any at the type level; declared Optional[object] is the honest external contract
+        except Exception as e:  # best-effort: escalated via the returned None sentinel below
+            # logger.exception captures the traceback automatically so the
+            # operator can see the unpickler / zstd error stack rather than
+            # only the str(e) summary. Previous .error() obscured the
+            # underlying cause for any non-trivial load failure.
+            logger.exception("Could not load model from file %s: %s", file, e)
+            return None
 
 
 def clean_mlframe_model(model: SimpleNamespace) -> SimpleNamespace:

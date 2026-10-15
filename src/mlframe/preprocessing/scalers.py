@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 # *****************************************************************************************************************************************************
 # All sklearn scalers
 # *****************************************************************************************************************************************************
@@ -33,7 +35,7 @@ _SCALER_FACTORIES = [
 ]
 
 
-def make_all_scalers():
+def make_all_scalers() -> list[tuple[str, Any]]:
     """Return a fresh list of ``(name, scaler_instance)`` tuples.
 
     Each call builds brand-new unfitted scalers so callers never share state.

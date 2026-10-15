@@ -395,7 +395,7 @@ def test_bug3_two_pure_noise_operands_not_rescued():
 def _assert_byte_exact_slice_replay(df: pd.DataFrame, y: np.ndarray, seed: int, slices: list[tuple[int, int]]) -> None:
     """Fit IN-PROCESS once (single fit -> no RNG contamination concern) then assert
     every engineered survivor replays byte-exactly on each adversarial row slice."""
-    fs = MRMR(verbose=0, random_seed=seed)
+    fs = MRMR(verbose=0, random_state=seed)
     fs.fit(df, pd.Series(y, name="y"))
     out_full = fs.transform(df)
     eng = [c for c in out_full.columns if ("(" in c) or ("__" in c)]

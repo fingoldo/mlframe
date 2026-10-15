@@ -140,7 +140,10 @@ class TestMultiplicityIsCorrectable:
 
     def test_triage_accepts_a_family_size(self):
         """`grep -rn n_comparisons src/` used to show it read only inside `noise_band.py`."""
-        assert triage_cv_delta(self.FOLDS_A, self.FOLDS_B, change_source="feature_engineering", n_comparisons=4) is not None
+        plain = triage_cv_delta(self.FOLDS_A, self.FOLDS_B, change_source="feature_engineering")
+        family = triage_cv_delta(self.FOLDS_A, self.FOLDS_B, change_source="feature_engineering", n_comparisons=4)
+        assert family["band"] > plain["band"], (family["band"], plain["band"])
+        assert family["band"] > 0.0
 
     def test_a_family_correction_widens_the_band(self):
         """Correcting for four comparisons must make the bar harder to clear, not merely be accepted."""

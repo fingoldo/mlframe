@@ -310,6 +310,11 @@ def _copy_confidence_fit_params(fit_params, fit_params_copy):
         # The main model's callbacks (visualisers, early-stopping hooks bound to ITS eval set) do not belong to this
         # regressor, and CatBoost refuses user callbacks outright on GPU ("User defined callbacks are not supported").
         fit_params_copy.pop("callbacks", None)
+        # The main CatBoost fit's eval-weight carrier is consumed by the main model's own fit wrapper; the confidence regressor is a
+        # plain CatBoostRegressor and rejects the key as an unexpected keyword argument.
+        from .cb._cb_eval_weights import CB_EVAL_WEIGHTS_KEY  # lazy: cb package imports this module's dependencies
+
+        fit_params_copy.pop(CB_EVAL_WEIGHTS_KEY, None)
     return fit_params_copy
 
 

@@ -105,7 +105,9 @@ class TestSparseAwarePath:
             model_kind="lgb",
             candidate_text_columns=["review"],
         )
-        assert res.train.sparse_block is not None
+        assert res.train.sparse_block.shape == (synthetic_train_df.height, len(res.feature_names))
+        assert 0 < len(res.feature_names) <= 20
+        assert all(n.startswith("review__tfidf__") for n in res.feature_names)
 
 
 # =====================================================================

@@ -25,7 +25,7 @@ Token catalogue (all 7):
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Sequence
+from typing import Callable, Dict, List, Sequence, cast
 
 import numpy as np
 
@@ -40,6 +40,9 @@ from mlframe.reporting.spec import (
     AnnotationPanelSpec, BarPanelSpec, FigureSpec, HeatmapPanelSpec,
     HistogramPanelSpec, LinePanelSpec, PanelSpec,
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Above this K the per-label ROC / reliability overlays put K curves in one panel: slow (K sklearn fits) and unreadable.
 # Past it the composer draws only the OVERLAY_TOP_N worst-by-AUC labels + a macro-average.
@@ -337,7 +340,7 @@ def _jaccard_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     mean = float(jaccards.mean()) if jaccards.size else 0.0
     heights, centers, width = prebin_histogram(jaccards, 20, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else jaccards,
+        values=cast(np.ndarray, heights) if centers is not None else jaccards,
         bins=20,
         bin_centers=centers,
         bin_width=width,
@@ -358,7 +361,7 @@ def _hamming_dist_panel(y_true, y_proba, labels) -> HistogramPanelSpec:
     n_bins = int(y_true.shape[1]) + 1
     heights, centers, width = prebin_histogram(hamming, n_bins, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else hamming,
+        values=cast(np.ndarray, heights) if centers is not None else hamming,
         bins=n_bins,
         bin_centers=centers,
         bin_width=width,
@@ -414,7 +417,8 @@ def _f1_sweep_uniform_grid(yt: np.ndarray, P: np.ndarray, T: int):
     """
     try:
         from ._threshold_sweep_kernel import f1_sweep_kernel
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_f1_sweep_uniform_grid fell back to its default after %s", type(_exc).__name__)
         return None
     return f1_sweep_kernel(
         np.ascontiguousarray(yt, dtype=np.uint8),

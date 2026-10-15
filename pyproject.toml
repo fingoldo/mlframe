@@ -194,6 +194,14 @@ pyutilz = { git = "https://github.com/fingoldo/pyutilz.git", branch = "master" }
 # torch to 2.0.1 -- the last release with cp39 wheels -- for 3.10 through 3.14 as well, and `uv sync` then
 # failed outright on 3.13 because 2.0.1 has no cp313 wheel. Split per version, each fork picks the newest
 # release that version actually supports.
+# Patched releases of these four packages exist only for Python >=3.10. The lock's Python 3.9 fork keeps the
+# last 3.9-compatible versions (flagged by Dependabot, dismissed as 3.9-only); without these markers the universal
+# resolution collapses each package to its 3.9-compatible version on every Python, which is vulnerable.
+constraint-dependencies = [
+    "mako>=1.4.2; python_version >= '3.10'",
+    "fsspec>=2026.6.0; python_version >= '3.10'",
+    "torch>=2.10.0; python_version >= '3.10'",
+]
 environments = [
     "python_full_version >= '3.9.2' and python_full_version < '3.10'",
     "python_full_version >= '3.10' and python_full_version < '3.11'",

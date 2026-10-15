@@ -16,10 +16,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 
+from typing import Any
+
 import numpy as np
+import pandas as pd
 
 
-def proposal_generator(X, y, *, classification=True, optimizer="genetic", top_n=30, **shap_kwargs):
+def proposal_generator(
+    X: pd.DataFrame | np.ndarray, y: np.ndarray | pd.Series, *, classification: bool = True, optimizer: str = "genetic", top_n: int = 30, **shap_kwargs
+) -> list[tuple[float, tuple[Any, ...]]]:
     """Return up to ``top_n`` ``(proxy_loss, feature_names)`` candidate subsets from the cheap proxy
     (honest re-validation / trust guard / ablation all disabled for speed). Use as seeds for an
     honest wrapper search."""
@@ -34,7 +39,10 @@ def proposal_generator(X, y, *, classification=True, optimizer="genetic", top_n=
     return [(c["proxy_loss"], tuple(c["features"])) for c in cands]
 
 
-def per_fold_stability_select(X, y, *, classification=True, n_folds=5, vote_threshold=0.5, weight_by_fidelity=True, random_state=0, **shap_kwargs):
+def per_fold_stability_select(
+    X: pd.DataFrame | np.ndarray, y: np.ndarray | pd.Series, *, classification: bool = True, n_folds: int = 5, vote_threshold: float = 0.5,
+    weight_by_fidelity: bool = True, random_state: int = 0, **shap_kwargs
+) -> dict[str, Any]:
     """Run ShapProxiedFS on each of ``n_folds`` train splits; return a stability report.
 
     Returns dict with:

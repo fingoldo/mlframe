@@ -113,7 +113,8 @@ def fmt_ts(value: Any) -> str:
     numeric epoch-seconds) values that the ``%Y-%m-%d`` format spec would otherwise crash on."""
     try:
         return format(value, "%Y-%m-%d")
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.debug("fmt_ts fell back to its default after %s", type(_exc).__name__)
         return str(value)
 
 

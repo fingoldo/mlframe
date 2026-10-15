@@ -8,7 +8,7 @@ sampling leaf siblings; ``resolve_metric`` comes from the proxy objective module
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -81,13 +81,14 @@ def _random_baseline_is_meaningful(k: int, f: int) -> bool:
 
 
 def revalidate_top_n(
-    candidates, model_template, X_search, y_search, X_holdout, y_holdout,
-    *, classification, metric=None, n_models=1, lambda_stab=0.5, parsimony_tol=0.02, rng=None, n_jobs=-1,
-    unit_to_members=None, cache=None, revalidation_n_estimators=None,
-    ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.5,
-    candidate_score=None, inner_n_jobs_cap=False, adaptive_n_models=False,
-    disk_cache_dir=None, parsimony_se=1.0,
-):
+    candidates: Sequence[tuple[float, Sequence[int]]], model_template: Any, X_search: Any, y_search: Any, X_holdout: Any, y_holdout: Any,
+    *, classification: bool, metric: str | None = None, n_models: int = 1, lambda_stab: float = 0.5, parsimony_tol: float = 0.02,
+    rng: np.random.Generator | None = None, n_jobs: Any = -1,
+    unit_to_members: Any = None, cache: Any = None, revalidation_n_estimators: int | None = None,
+    ucb_enabled: bool = False, ucb_min_eval_size: int | None = None, ucb_slack: float | None = None, ucb_stdev_multiplier: float = 1.5,
+    candidate_score: Sequence[float] | np.ndarray | None = None, inner_n_jobs_cap: bool = False, adaptive_n_models: bool = False,
+    disk_cache_dir: str | None = None, parsimony_se: float = 1.0,
+) -> tuple[Any, list[Any], dict[str, Any]]:
     """Honestly retrain each candidate subset on X_search, evaluate on the disjoint X_holdout.
 
     Returns ``(best_idx_tuple, ranked, baseline)`` where ``ranked`` is a list of dicts with proxy +
@@ -407,11 +408,11 @@ def revalidate_top_n(
 
 
 def active_learning_revalidate(
-    candidates, model_template, X_search, y_search, X_holdout, y_holdout,
-    *, classification, metric=None, corrector_data, phi, budget, batch=4, n_models=1,
-    parsimony_tol=0.02, rng=None, n_jobs=-1, unit_to_members=None, cache=None,
-    revalidation_n_estimators=None, inner_n_jobs_cap=False, disk_cache_dir=None,
-):
+    candidates: Sequence[tuple[float, Sequence[int]]], model_template: Any, X_search: Any, y_search: Any, X_holdout: Any, y_holdout: Any,
+    *, classification: bool, metric: str | None = None, corrector_data: dict[str, Any], phi: np.ndarray, budget: int, batch: int = 4, n_models: int = 1,
+    parsimony_tol: float = 0.02, rng: np.random.Generator | None = None, n_jobs: Any = -1, unit_to_members: Any = None, cache: Any = None,
+    revalidation_n_estimators: int | None = None, inner_n_jobs_cap: bool = False, disk_cache_dir: str | None = None,
+) -> tuple[tuple, list[dict[str, Any]], int]:
     """Disagreement-driven honest re-validation (lever #4).
 
     Instead of honestly retraining the proxy's static top-N, iterate: fit the bias corrector on the
@@ -500,12 +501,12 @@ def active_learning_revalidate(
 
 
 def within_cluster_refine(
-    member_cols, model_template, X_search, y_search, X_holdout, y_holdout,
-    *, classification, metric=None, parsimony_tol=0.02, n_jobs=-1, max_drop_rounds=None, cache=None,
-    member_groups=None, min_multi_clusters=3, refine_n_estimators=100,
-    ucb_enabled=False, ucb_min_eval_size=None, ucb_slack=None, ucb_stdev_multiplier=1.0,
-    inner_n_jobs_cap=False, disk_cache_dir=None, protected_cols=None,
-):
+    member_cols: Sequence[int], model_template: Any, X_search: Any, y_search: Any, X_holdout: Any, y_holdout: Any,
+    *, classification: bool, metric: str | None = None, parsimony_tol: float = 0.02, n_jobs: Any = -1, max_drop_rounds: int | None = None, cache: Any = None,
+    member_groups: Any = None, min_multi_clusters: int = 3, refine_n_estimators: int | None = 100,
+    ucb_enabled: bool = False, ucb_min_eval_size: int | None = None, ucb_slack: float | None = None, ucb_stdev_multiplier: float = 1.0,
+    inner_n_jobs_cap: bool = False, disk_cache_dir: str | None = None, protected_cols: Any = None,
+) -> list[int]:
     """Compact the selected clusters' member columns down to a quality-preserving subset (honest).
 
     The proxy ranks UNITS (denoised cluster representatives); honest deployment trains on REAL member
@@ -602,13 +603,13 @@ def within_cluster_refine(
     # the eager base fit because its threshold gates the Stage 1 probes - the perm-importance pass
     # runs AFTER Stage 1 may have shrunk ``current``, so its rank_base would be on the wrong set.
     current = _within_cluster_ref_runs_after_stage_may(member_groups, current, min_multi_clusters, model_template, X_search, y_search, X_holdout, y_holdout, classification, metric, cache, cap, tid, disk_cache, parsimony_tol, protected, n_jobs, inner_n_jobs_cap, ucb_min_eval_size, ucb_enabled, max_drop_rounds, ucb_slack, ucb_stdev_multiplier)
-    return current
+    return list(current)
 
 
 def importance_topk_ablation(
-    phi, proxy_best_idx, model_template, X_search, y_search, X_holdout, y_holdout,
-    *, classification, metric=None, unit_to_members=None, cache=None, disk_cache_dir=None,
-):
+    phi: np.ndarray, proxy_best_idx: Sequence[int], model_template: Any, X_search: Any, y_search: Any, X_holdout: Any, y_holdout: Any,
+    *, classification: bool, metric: str | None = None, unit_to_members: Any = None, cache: Any = None, disk_cache_dir: str | None = None,
+) -> dict[str, Any]:
     """Compare the proxy-chosen subset against a SHAP-importance-top-k subset of the same size.
 
     Returns a dict with both honest losses and whether the proxy strictly wins (the method's

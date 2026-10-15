@@ -18,24 +18,32 @@ def _frame(n: int = 800, seed: int = 0) -> pd.DataFrame:
     return pd.DataFrame({"TVT_prev": base, "x1": x1, "x2": x2, "target": y})
 
 
-def test_mix_offset_companion_is_trained_and_recorded(tmp_path):
-    """The suite trains ``target__mixoff`` and writes its beta and source into metadata when the held-out gate accepts."""
+@pytest.fixture(scope="module")
+def _mix_offset_run(tmp_path_factory):
+    """Train the suite once with ``mix_offset_enabled``; the three tests below assert on the same run."""
     from mlframe.training.configs import CompositeTargetDiscoveryConfig
     from mlframe.training.core import train_mlframe_models_suite
     from tests.training.composite.test_composite_integration import _LEAN_OUTPUT_CONFIG_KWARGS, _LEAN_REPORTING_CONFIG_KWARGS, _build_minimal_fte
 
-    cfg = CompositeTargetDiscoveryConfig(enabled=False, mix_offset_enabled=True)
+    data_dir = str(tmp_path_factory.mktemp("mix_offset_run") / "data")
+    df = _frame()
     models, metadata = train_mlframe_models_suite(
-        df=_frame(),
+        df=df,
         target_name="target",
         model_name="mix_offset_e2e",
         features_and_targets_extractor=_build_minimal_fte(),
         mlframe_models=["linear"],
-        output_config={"data_dir": str(tmp_path / "data"), "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
+        output_config={"data_dir": data_dir, "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
         reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
         verbose=0,
-        composite_target_discovery_config=cfg,
+        composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False, mix_offset_enabled=True),
     )
+    return {"models": models, "metadata": metadata, "data_dir": data_dir, "df": df}
+
+
+def test_mix_offset_companion_is_trained_and_recorded(_mix_offset_run):
+    """The suite trains ``target__mixoff`` and writes its beta and source into metadata when the held-out gate accepts."""
+    models, metadata = _mix_offset_run["models"], _mix_offset_run["metadata"]
     records = metadata.get("mix_offset_targets", {})
     assert records, "the gate should accept the strong linear base; no mix_offset_targets recorded"
     rec = next(iter(next(iter(records.values())).values()))
@@ -44,30 +52,15 @@ def test_mix_offset_companion_is_trained_and_recorded(tmp_path):
     assert "target__mixoff" in str(models)
 
 
-def test_companion_predictions_come_back_on_the_y_scale(tmp_path):
+def test_companion_predictions_come_back_on_the_y_scale(_mix_offset_run):
     """Predicting through the suite returns the ``__mixoff`` model on the y scale: its RMSE against y is near the noise, not near the scale of y minus the base."""
-    from mlframe.training.configs import CompositeTargetDiscoveryConfig
-    from mlframe.training.core import train_mlframe_models_suite
-    from mlframe.training.core.predict import predict_mlframe_models_suite
-    from tests.training.composite.test_composite_integration import _LEAN_OUTPUT_CONFIG_KWARGS, _LEAN_REPORTING_CONFIG_KWARGS, _build_minimal_fte
-
-    data_dir = str(tmp_path / "data")
-    df = _frame()
-    train_mlframe_models_suite(
-        df=df,
-        target_name="target",
-        model_name="mix_offset_predict",
-        features_and_targets_extractor=_build_minimal_fte(),
-        mlframe_models=["linear"],
-        output_config={"data_dir": data_dir, "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-        reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-        verbose=0,
-        composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False, mix_offset_enabled=True),
-    )
     import glob
     import os
 
-    meta = glob.glob(os.path.join(data_dir, "**", "metadata.pkl.zst"), recursive=True)
+    from mlframe.training.core.predict import predict_mlframe_models_suite
+
+    df = _mix_offset_run["df"]
+    meta = glob.glob(os.path.join(_mix_offset_run["data_dir"], "**", "metadata.pkl.zst"), recursive=True)
     assert meta, "the suite saved no metadata"
     models_path = os.path.dirname(meta[0])
     X = df.drop(columns=["target"])
@@ -80,29 +73,14 @@ def test_companion_predictions_come_back_on_the_y_scale(tmp_path):
     assert rmse < 1.0, f"companion RMSE against y is {rmse:.3f}; the offset was not added back (y scale is about {y.mean():.1f})"
 
 
-def test_reloaded_metadata_keeps_the_recipe_and_beta(tmp_path):
+def test_reloaded_metadata_keeps_the_recipe_and_beta(_mix_offset_run):
     """The metadata read back from disk carries the replayable recipe and the beta of the companion, so a reloaded suite can add the offset back."""
     import glob
     import os
 
-    from mlframe.training.configs import CompositeTargetDiscoveryConfig
-    from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.core._predict_main_suite import _load_suite_metadata
-    from tests.training.composite.test_composite_integration import _LEAN_OUTPUT_CONFIG_KWARGS, _LEAN_REPORTING_CONFIG_KWARGS, _build_minimal_fte
 
-    data_dir = str(tmp_path / "data")
-    train_mlframe_models_suite(
-        df=_frame(),
-        target_name="target",
-        model_name="mix_offset_reload",
-        features_and_targets_extractor=_build_minimal_fte(),
-        mlframe_models=["linear"],
-        output_config={"data_dir": data_dir, "models_dir": "models", **_LEAN_OUTPUT_CONFIG_KWARGS},
-        reporting_config=_LEAN_REPORTING_CONFIG_KWARGS,
-        verbose=0,
-        composite_target_discovery_config=CompositeTargetDiscoveryConfig(enabled=False, mix_offset_enabled=True),
-    )
-    meta_file = glob.glob(os.path.join(data_dir, "**", "metadata.pkl.zst"), recursive=True)
+    meta_file = glob.glob(os.path.join(_mix_offset_run["data_dir"], "**", "metadata.pkl.zst"), recursive=True)
     assert meta_file
     models_path = os.path.dirname(meta_file[0])
     meta = _load_suite_metadata(models_path, None, 0)

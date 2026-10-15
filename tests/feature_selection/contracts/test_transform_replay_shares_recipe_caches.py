@@ -27,7 +27,7 @@ def _hub_frame(n: int = 3000, seed: int = 0):
 def _fit(X, y):
     """A small FE fit that emits engineered recipes."""
     MRMR._FIT_CACHE.clear()
-    m = MRMR(random_seed=0, n_jobs=1, verbose=0, fe_max_steps=1, full_npermutations=3, baseline_npermutations=2)
+    m = MRMR(random_state=0, n_jobs=1, verbose=0, fe_max_steps=1, full_npermutations=3, baseline_npermutations=2)
     return m.fit(X, y)
 
 

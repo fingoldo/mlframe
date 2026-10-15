@@ -52,6 +52,9 @@ from collections import OrderedDict
 
 import numpy as np
 from numba import njit
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Y-BINNING CACHE: ``per_feature_edges``/``mah_mi`` dispatchers call ``mah_bin_edges``/``mah_mi`` ONCE PER
 # COLUMN (up to 500 columns for one fit) with the SAME ``y`` object every time - yet each call re-derives y's
@@ -108,7 +111,8 @@ def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
         result = _compute_y_binning(y, K)
         try:
             ref = weakref.ref(y)
-        except TypeError:
+        except TypeError as _exc:
+            logger.debug("_get_y_binning fell back to its default after %s", type(_exc).__name__)
             return result  # y doesn't support weakref (unlikely for ndarray) - skip caching, still correct
         _Y_BINNING_CACHE[key] = (ref, result)
         if len(_Y_BINNING_CACHE) > _Y_BINNING_CACHE_MAX_ENTRIES:

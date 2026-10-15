@@ -55,7 +55,7 @@ Probabilistic-forecast communication plot:
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence, cast
 
 import numpy as np
 
@@ -262,7 +262,7 @@ def _width_dist_panel(y_true, preds_NK, alphas) -> PanelSpec:
     max_w = float(np.nanmax(widths)) if widths.size and np.isfinite(widths).any() else 0.0
     heights, centers, width = prebin_histogram(widths, bins, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else widths,
+        values=cast(np.ndarray, heights) if centers is not None else widths,
         bins=bins,
         bin_centers=centers,
         bin_width=width,
@@ -401,7 +401,7 @@ def _pit_hist_panel(y_true, preds_NK, alphas) -> PanelSpec:
     ks = float(kolmogorov_smirnov_statistic(pit))
     heights, centers, width = prebin_histogram(pit, 20, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else pit,
+        values=cast(np.ndarray, heights) if centers is not None else pit,
         bins=20,
         bin_centers=centers,
         bin_width=width,
@@ -578,8 +578,9 @@ def _pinball_decomp_panel(y_true, preds_NK, alphas) -> PanelSpec:
             miscal[k] = float(df["miscalibration"][0])
             discr[k] = float(df["discrimination"][0])
             uncert[k] = float(df["uncertainty"][0])
-    except (ValueError, IndexError):
+    except (ValueError, IndexError) as _exc:
         # Degenerate predictions push isotonic recalibration outside the scoring range; plain pinball still informs.
+        logger.warning("_pinball_decomp_panel fell back to its default after %s", type(_exc).__name__)
         return _plain_pinball_bar()
     return BarPanelSpec(
         categories=cats,
@@ -785,8 +786,8 @@ DEFAULT_QUANTILE_PANELS: str = (
 
 
 def compose_quantile_figure(
-    y_true,
-    preds_NK,
+    y_true: Any,
+    preds_NK: np.ndarray,
     alphas: Sequence[float],
     *,
     panels_template: str = DEFAULT_QUANTILE_PANELS,

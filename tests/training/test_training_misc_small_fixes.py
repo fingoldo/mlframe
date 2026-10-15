@@ -350,16 +350,13 @@ def test_f7_recency_weight_subday_span_math_matches_corrected_comment():
 
 
 def test_f8_hgb_strategy_uses_shared_polars_categorical_helpers():
-    """hgb.py no longer defines its own copy of _polars_categorical_dtypes/_is_polars_categorical/_get_polars_cat_columns."""
-    import inspect
-
+    """hgb.py re-exports the shared polars-categorical helpers instead of defining its own copies."""
+    from mlframe.training import strategies as strategies_pkg
     from mlframe.training.strategies import hgb as hgb_mod
 
-    src = inspect.getsource(hgb_mod)
-    assert "def _polars_categorical_dtypes" not in src
-    assert "def _is_polars_categorical" not in src
-    assert "def _get_polars_cat_columns" not in src
-    assert "from . import get_polars_cat_columns" in src
+    for name in ("_polars_categorical_dtypes", "_is_polars_categorical", "_get_polars_cat_columns"):
+        assert not hasattr(hgb_mod, name), f"hgb.py still carries its own copy of {name}"
+    assert callable(strategies_pkg.get_polars_cat_columns)
 
 
 def test_f8_hgb_polars_categorical_detection_still_works():

@@ -8,6 +8,8 @@ carry no import cycle.
 
 from __future__ import annotations
 
+from mlframe.utils.log_throttle import log_throttle
+
 import logging
 from typing import Any, Callable, Union
 
@@ -127,7 +129,7 @@ def _drop_column(model: object, data: Any, target: Any, train_data: Any, **_: An
             _m.fit(_X_drop, target)
             _scores[_j] = _baseline - float(_m.score(_X_drop, target))
         except Exception as e:
-            logger.debug("drop-column importance fit/score failed for column %d, recording NaN: %s", _j, e)
+            log_throttle(logger, "importance_methods.hot_loop_warning", logging.WARNING, "drop-column importance fit/score failed for column %d, recording NaN: %s", _j, e)
             _scores[_j] = np.nan  # a 0.0 would outrank every column whose removal IMPROVED the score
     return _scores
 

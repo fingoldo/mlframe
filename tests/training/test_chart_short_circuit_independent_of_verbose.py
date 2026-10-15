@@ -42,9 +42,9 @@ def _setup(output_config, verbose):
     )
 
 
-def test_short_circuit_clears_plot_file_when_verbose_zero():
+def test_short_circuit_clears_plot_file_when_verbose_zero(tmp_path):
     """verbose=0 + save_charts=False must still clear plot_file (pre-fix: did not)."""
-    oc = OutputConfig(data_dir="", plot_file="C:/tmp/stale_plot", save_charts=False)
+    oc = OutputConfig(data_dir="", plot_file=str(tmp_path / "stale_plot"), save_charts=False)
     ctx = _setup(oc, verbose=0)
     assert ctx.output_config.plot_file == "", (
         "plot_file should be cleared by the short-circuit on a non-interactive "
@@ -54,15 +54,15 @@ def test_short_circuit_clears_plot_file_when_verbose_zero():
     )
 
 
-def test_short_circuit_also_clears_when_verbose_nonzero():
+def test_short_circuit_also_clears_when_verbose_nonzero(tmp_path):
     """The fix must not regress the original verbose>0 behavior."""
-    oc = OutputConfig(data_dir="", plot_file="C:/tmp/stale_plot", save_charts=False)
+    oc = OutputConfig(data_dir="", plot_file=str(tmp_path / "stale_plot"), save_charts=False)
     ctx = _setup(oc, verbose=1)
     assert ctx.output_config.plot_file == ""
 
 
-def test_short_circuit_inactive_keeps_plot_file_when_saving():
+def test_short_circuit_inactive_keeps_plot_file_when_saving(tmp_path):
     """save_charts=True (with a data_dir) must NOT clear plot_file at any verbosity."""
-    oc = OutputConfig(data_dir="C:/tmp/charts", plot_file="C:/tmp/keep_plot", save_charts=True)
+    oc = OutputConfig(data_dir=str(tmp_path / "charts"), plot_file=str(tmp_path / "keep_plot"), save_charts=True)
     ctx = _setup(oc, verbose=0)
-    assert ctx.output_config.plot_file == "C:/tmp/keep_plot"
+    assert ctx.output_config.plot_file == str(tmp_path / "keep_plot")

@@ -73,7 +73,7 @@ class TestB5MarginalConfirmSeedVariesByCandidate:
         monkeypatch.setattr(cp, "mi_direct", _spy_mi_direct)
 
         X, y = _multi_signal_fixture()
-        MRMR(**_mrmr_kw(random_seed=42)).fit(X, y)
+        MRMR(**_mrmr_kw(random_state=42)).fit(X, y)
 
         assert seen_seeds, "mi_direct was never called -- fixture did not exercise the confirm path"
         assert all(s is not None for s in seen_seeds), f"base_seed was not threaded through on every call: {seen_seeds}"
@@ -97,7 +97,7 @@ class TestB5MarginalConfirmSeedVariesByCandidate:
 
             monkeypatch.setattr(cp, "mi_direct", _spy)
             X, y = _multi_signal_fixture()
-            MRMR(**_mrmr_kw(random_seed=seed)).fit(X, y)
+            MRMR(**_mrmr_kw(random_state=seed)).fit(X, y)
             monkeypatch.undo()
             return seen
 
@@ -115,8 +115,8 @@ class TestB5B6ReproducibilityUnderSameSeed:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _multi_signal_fixture()
-        r1 = MRMR(**_mrmr_kw(random_seed=7)).fit(X, y).get_feature_names_out()
-        r2 = MRMR(**_mrmr_kw(random_seed=7)).fit(X, y).get_feature_names_out()
+        r1 = MRMR(**_mrmr_kw(random_state=7)).fit(X, y).get_feature_names_out()
+        r2 = MRMR(**_mrmr_kw(random_state=7)).fit(X, y).get_feature_names_out()
         assert list(r1) == list(r2), f"same random_seed produced different selections: {list(r1)} vs {list(r2)}"
 
 

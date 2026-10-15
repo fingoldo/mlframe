@@ -336,7 +336,8 @@ def _gpu_upload_fits(required_bytes: int, *, n_samples: int = 0, n_cols: int = 0
 
         free_b, total_b = cp.cuda.runtime.memGetInfo()
         cap = min(cap, int(free_b * 0.5))
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_gpu_upload_fits fell back to its default after %s", type(_exc).__name__)
         return True  # no cupy: no GPU dispatch can happen, so there is nothing to guard
     except Exception as e:
         # A guard that cannot read free VRAM cannot say the upload fits; on a near-full card that is exactly the launch fault it prevents.

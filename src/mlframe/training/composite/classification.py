@@ -92,6 +92,34 @@ def _fit_inner_with_init_score(model: Any, X: Any, y: np.ndarray, init_score: np
         raise NotImplementedError(f"CompositeClassificationEstimator: inner {cls!r} does not accept a " "base margin (init_score / base_margin / baseline).")
 
 
+def _default_margin_pipeline(X: Any):
+    """Default base-margin model: median-impute the numeric columns and encode the rest, so string/categorical features do not reach the imputer.
+
+    A frame with only numeric columns (or a plain array) keeps the plain median-impute + logistic pipeline unchanged.
+    """
+    from sklearn.compose import ColumnTransformer, make_column_selector
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import OneHotEncoder
+
+    has_non_numeric = hasattr(X, "select_dtypes") and len(X.select_dtypes(exclude=[np.number]).columns) > 0
+    if not has_non_numeric:
+        return make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True), LogisticRegression(max_iter=1000))
+    pre = ColumnTransformer(
+        [
+            ("num", SimpleImputer(strategy="median", keep_empty_features=True), make_column_selector(dtype_include=np.number)),
+            (
+                "cat",
+                make_pipeline(SimpleImputer(strategy="most_frequent", keep_empty_features=True), OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
+                make_column_selector(dtype_exclude=np.number),
+            ),
+        ],
+        remainder="drop",
+    )
+    return make_pipeline(pre, LogisticRegression(max_iter=1000))
+
+
 class CompositeClassificationEstimator(ClassifierMixin, BaseEstimator):
     """Binary classifier that learns the residual log-odds over a base margin.
 
@@ -180,11 +208,7 @@ class CompositeClassificationEstimator(ClassifierMixin, BaseEstimator):
             X_inner = self._drop_margin_column(X)
             self.base_margin_estimator_ = None
         else:
-            from sklearn.impute import SimpleImputer
-            from sklearn.linear_model import LogisticRegression
-            from sklearn.pipeline import make_pipeline
-
-            _default_base = make_pipeline(SimpleImputer(strategy="median", keep_empty_features=True), LogisticRegression(max_iter=1000))
+            _default_base = _default_margin_pipeline(X)
             self.base_margin_estimator_ = clone(self.base_margin_estimator if self.base_margin_estimator is not None else _default_base)
             if sample_weight is not None:
                 _base = self.base_margin_estimator_

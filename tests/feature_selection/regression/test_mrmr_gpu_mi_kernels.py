@@ -177,16 +177,59 @@ def test_regression_fe_gpu_strict_auto_fit_shape_is_thread_local():
 # ---------------------------------------------------------------------------
 
 
-def test_regression_fe_additive_fusion_gpu_ols_margin_uses_full_n_rows():
-    """Pre-fix: the margin used n_sc (scoring-subsample count). Post-fix: it uses n_rows (the true fit
-    row count), matching the CPU sibling's calibration."""
-    import inspect
+def _cuda_device_count(cp):
+    """Visible CUDA device count, or 0 when the CUDA runtime cannot be queried."""
+    try:
+        return int(cp.cuda.runtime.getDeviceCount())
+    except Exception:
+        return 0
+
+
+def test_regression_fe_additive_fusion_gpu_ols_margin_uses_full_n_rows(monkeypatch):
+    """Pre-fix: the OLS separability margin was divided by sqrt of the SCORING subsample size, so above the subsample cap
+    the GPU twin's threshold sat at 2/sqrt(n_sc) rather than the CPU sibling's 2/sqrt(n_rows). Post-fix: the margin uses
+    the true fit row count. The fixture (n=4000, cap=1000) places the fused R-gain between 2/sqrt(4000) and 2/sqrt(1000),
+    so the fusion is admitted only under the full-n margin."""
+    cp = pytest.importorskip("cupy")
+    if _cuda_device_count(cp) < 1:
+        pytest.skip("no usable CUDA device")
+
+    import pandas as pd
 
     from mlframe.feature_selection.filters import _fe_additive_fusion_gpu_resident as fus
+    from mlframe.feature_selection.filters.engineered_recipes import build_orth_univariate_recipe
+    from mlframe.feature_selection.filters.mrmr import MRMR
 
-    src = inspect.getsource(fus)
-    assert not any(line.strip().startswith("_r_margin") and "n_sc" in line for line in src.splitlines())
-    assert any(line.strip().startswith("_r_margin") and "n_rows" in line for line in src.splitlines())
+    n, cap = 4000, 1000
+    rng = np.random.default_rng(0)
+    c = rng.standard_normal(n)
+    d = rng.standard_normal(n)
+    h_c = c**2 - 1.0
+    h_d = d**2 - 1.0
+    y_cont = h_c + 0.2 * h_d + 0.5 * rng.standard_normal(n)
+    y_dense = pd.qcut(y_cont, q=8, labels=False, duplicates="drop").astype(np.int64)
+    name_c, name_d = "c__He2", "d__He2"
+    recipes = {
+        name_c: build_orth_univariate_recipe(name=name_c, src_name="c", basis="hermite", degree=2),
+        name_d: build_orth_univariate_recipe(name=name_d, src_name="d", basis="hermite", degree=2),
+    }
+    fs = MRMR(verbose=0)
+    fs.fe_additive_fusion_floor_margin = 1e9  # the binned-MI gate can never pass, so only the OLS margin decides
+    monkeypatch.setenv("MLFRAME_FE_FUSION_MAX_ROWS", str(cap))
+
+    admitted, _subsumed, _subsumed_raws = fus.propose_additive_fusions_gpu(
+        fs,
+        engineered_recipes=recipes,
+        engineered_continuous={name_c: h_c, name_d: h_d},
+        newly_engineered_names=[name_c, name_d],
+        raw_name_set={"c", "d"},
+        cols=["c", "d"],
+        classes_y=y_dense,
+        X=pd.DataFrame({"c": c, "d": d}),
+        nbins=10,
+        seed=0,
+    )
+    assert [a["name"] for a in admitted] == ["add(c__He2,d__He2)"], "the full-n OLS margin must admit this fusion under the cap"
 
 
 # ---------------------------------------------------------------------------

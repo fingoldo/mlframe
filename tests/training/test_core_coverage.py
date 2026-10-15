@@ -838,7 +838,7 @@ class TestRecurrentModels:
             def selective_clone(estimator, **kw):
                 """Selective clone."""
                 if estimator is mock_model:
-                    return mock_model
+                    return estimator
                 return original_clone(estimator, **kw)
 
             # After the monolith->submodule split, recurrent ``clone()`` lives in ``_phase_recurrent``.

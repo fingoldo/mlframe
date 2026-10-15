@@ -52,7 +52,7 @@ _TREE_TOKENS = (
 )
 
 
-def detect_estimator_family(estimator) -> str:
+def detect_estimator_family(estimator: object) -> str:
     """Return 'tree' / 'linear' / 'kernel' for an estimator.
 
     Unwraps Pipeline / TransformedTargetRegressor / wrappers, then matches the
@@ -86,9 +86,9 @@ def detect_estimator_family(estimator) -> str:
 
 
 def get_signed_linear_coef(
-    model,
+    model: object,
     current_features: list,
-    train_data=None,
+    train_data: pd.DataFrame | np.ndarray | None = None,
     multiclass_coef_aggregation: str = "max",
     coef_scale_source: str = "train",
 ) -> Union[dict, None]:

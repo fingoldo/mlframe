@@ -179,7 +179,7 @@ def test_setstate_injects_legacy_defaults():
     # Pretend old pickle: strip every newer attribute
     for k in ("max_confirmation_cand_nbins", "fe_fallback_to_all", "_engineered_features_", "_engineered_recipes_", "ran_out_of_time_"):
         state.pop(k, None)
-    fresh = _fast_mrmr.__wrapped__() if hasattr(_fast_mrmr, "__wrapped__") else MRMR(random_seed=42, verbose=0)
+    fresh = _fast_mrmr.__wrapped__() if hasattr(_fast_mrmr, "__wrapped__") else MRMR(random_state=42, verbose=0)
     fresh.__setstate__(state)
     # All legacy-default attrs are now present:
     assert hasattr(fresh, "_engineered_features_")
@@ -340,9 +340,10 @@ def test_target_to_numpy_values_various_inputs():
     series = pd.Series([1, 2, 3])
     np.testing.assert_array_equal(_target_to_numpy_values(series), np.array([1, 2, 3]))
     df = pd.DataFrame({"y": [1, 2, 3]})
-    # DataFrame.values is 2D; handler may flatten or keep 2D shape
+    # A single-column DataFrame keeps its 2-D shape (n, 1) and carries the same values.
     out = _target_to_numpy_values(df)
-    assert out is not None
+    assert out.shape == (3, 1)
+    np.testing.assert_array_equal(out.ravel(), np.array([1, 2, 3]))
 
 
 def test_content_array_signature_deterministic():

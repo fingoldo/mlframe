@@ -35,6 +35,32 @@ import subprocess
 import sys
 
 
+# Rough resident cost of one meta-test xdist worker (interpreter + collected test modules). Measured-ish, not profiled;
+# it only caps the worker count on a machine with little free RAM, so a low-memory box does not swap.
+_GB_PER_WORKER = 1.0
+_FALLBACK_WORKERS = "8"
+
+
+def _default_workers() -> str:
+    """Worker count when ``MLFRAME_META_TESTS_WORKERS`` is unset: the free-core budget from py-ci-shared, capped by free RAM.
+
+    Falls back to the fixed default when py-ci-shared is not installed, so a checkout without it still runs.
+    """
+    try:
+        from py_ci_shared.worker_budget import available_workers
+    except ImportError:
+        return _FALLBACK_WORKERS
+    budget = available_workers()
+    try:
+        import psutil  # type: ignore[import-not-found]
+
+        free_gb = psutil.virtual_memory().available / 2**30
+        budget = min(budget, max(1, int(free_gb // _GB_PER_WORKER)))
+    except ImportError:
+        pass
+    return str(budget)
+
+
 def main() -> int:
     """Run the meta-tests suite CPU-only, with an explicit env dict so ``CUDA_VISIBLE_DEVICES=""`` survives."""
     # Build an explicit env dict rather than mutating os.environ + relying on implicit
@@ -46,7 +72,7 @@ def main() -> int:
     env.setdefault("NUMBA_DISABLE_JIT", "1")
     env.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")
     env.setdefault("CUDA_VISIBLE_DEVICES", "")
-    workers = os.environ.get("MLFRAME_META_TESTS_WORKERS", "8").strip()
+    workers = os.environ.get("MLFRAME_META_TESTS_WORKERS", "").strip() or _default_workers()
     xdist_args = [] if workers == "0" else ["-n", workers, "--dist=loadscope"]
     cmd = [
         sys.executable,

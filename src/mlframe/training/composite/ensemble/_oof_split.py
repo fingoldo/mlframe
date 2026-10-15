@@ -74,7 +74,8 @@ def _carve_inner_eval_split(
         return x_fit, y_fit, x_ev, y_ev
     try:
         n = len(y)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_carve_inner_eval_split fell back to its default after %s", type(_exc).__name__)
         return _ret(X, y, None, None, None)
     if n < 1000:
         return _ret(X, y, None, None, None)

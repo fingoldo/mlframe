@@ -1652,7 +1652,7 @@ XGB PR_AUC: `+bgmms+mixup+smote` +7.84% — under iter-33 +8.38% record (mixup_s
 
 ### Iter 45 disposition — major win, extends iter 41
 
-`compute_bgmm_multiscale_features` is the new mammography LGB PR_AUC champion at **+18.81%** — a +3.6pp jump over previous record. Multi-resolution BGM exposes positive-class density structure at multiple coarseness levels; the boosting picks the most-relevant scale per region. 
+`compute_bgmm_multiscale_features` is the new mammography LGB PR_AUC champion at **+18.81%** — a +3.6pp jump over previous record. Multi-resolution BGM exposes positive-class density structure at multiple coarseness levels; the boosting picks the most-relevant scale per region.
 
 CB PR_AUC also crosses +6.77% (was +6.50%), confirming the BGM family's specific strength on rare-positive density modeling.
 
@@ -3341,7 +3341,7 @@ Tested iter69 mechanism (baseline_disagreement + cdist) on Adult 49k binary (>50
 
 ### iter112: iter69 with StratifiedKFold (y-bound wrapper for existing FE primitives) — DOESN'T RESCUE MAMMOGRAPHY
 - mammography CB AUC: median -0.70% (range -2.43%/+0.46%, IQR 0.0145), slightly less negative but high variance.
-- mammography LGB AUC: median **-1.84%** (all 3 negative, WORSE than iter111). 
+- mammography LGB AUC: median **-1.84%** (all 3 negative, WORSE than iter111).
 - Adult CB AUC: median +0.62% (essentially same as iter108 +0.63%) — fix doesn't break balanced binary.
 
 ### Mechanism boundary map (post-iter112)

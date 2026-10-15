@@ -57,9 +57,14 @@ def test_params_dependent_transform_has_fitted_domain_hook(name):
     """log_y / centered_ratio expose a non-None ``domain_check_fitted`` so the
     fitted-params domain can be enforced (pre-fix: attribute absent / None)."""
     t = TRANSFORMS_REGISTRY[name]
-    assert (
-        getattr(t, "domain_check_fitted", None) is not None
-    ), f"{name!r} validity depends on a fitted param and MUST declare domain_check_fitted so callers can enforce its true domain"
+    hook = getattr(t, "domain_check_fitted", None)
+    assert callable(hook), f"{name!r} validity depends on a fitted param and MUST declare domain_check_fitted so callers can enforce its true domain"
+    y = np.array([1.0, 2.0, 5.0, 10.0])
+    base = np.array([1.0, 2.0, 5.0, 10.0])
+    params = t.fit(y, base)
+    in_domain = np.asarray(hook(y, base, params), dtype=bool)
+    assert in_domain.shape == (len(y),)
+    assert in_domain.all(), f"{name!r} hook rejected rows that are inside the fitted domain"
 
 
 @pytest.mark.parametrize("name", PARAMS_FREE_SAMPLE)

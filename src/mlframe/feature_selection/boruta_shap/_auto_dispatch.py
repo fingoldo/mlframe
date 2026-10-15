@@ -34,10 +34,14 @@ per the dispatcher-contract convention instead.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from mlframe.utils.env_flags import env_float, env_int
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +115,7 @@ def _probe_signals(X, y, classification: bool, random_state: int) -> dict:
     }
 
 
-def resolve_auto_importance_measure(X, y, classification: bool, random_state: int) -> tuple[str, dict]:
+def resolve_auto_importance_measure(X: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray, classification: bool, random_state: int) -> tuple[str, dict]:
     """Return (resolved_measure, diagnostics). resolved_measure in {'gini', 'permutation'}.
 
     permutation when ANY noise/overfit signal trips its threshold; gini otherwise (clean/large-n,

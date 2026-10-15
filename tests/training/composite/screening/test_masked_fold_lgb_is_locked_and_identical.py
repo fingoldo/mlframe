@@ -74,7 +74,6 @@ def probe(monkeypatch):
     _STATE["live"] = 0
     _STATE["peak"] = 0
     sf._CACHE.clear()
-    return _STATE
 
 
 def _drive_masked_folds(n_threads: int) -> int:

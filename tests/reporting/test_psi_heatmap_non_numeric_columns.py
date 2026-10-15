@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from mlframe.reporting.charts.drift import compute_psi_matrix, psi_heatmap
+from mlframe.reporting.spec import FigureSpec, HeatmapPanelSpec
 
 N = 400
 
@@ -47,8 +48,12 @@ class TestItSurvivesANonNumericColumn:
         assert matrix.shape[0] == 2
 
     def test_the_heatmap_renders(self, mixed_frame, timestamps):
-        """The production symptom was the whole figure being dropped."""
-        assert psi_heatmap(mixed_frame, timestamps, n_time_buckets=4) is not None
+        """The production symptom was the whole figure being dropped: the spec carries one row per numeric column."""
+        spec = psi_heatmap(mixed_frame, timestamps, n_time_buckets=4)
+        assert isinstance(spec, FigureSpec)
+        heatmap = spec.panels[0][0]
+        assert isinstance(heatmap, HeatmapPanelSpec)
+        assert heatmap.row_labels == ("stable_num", "drifting_num")
 
     def test_row_labels_stay_aligned_with_their_rows(self, mixed_frame, timestamps):
         """A skipped column must not shift every later name onto the wrong row -- worse than crashing."""

@@ -72,7 +72,7 @@ class TestPairInteractionFeaturesSurviveScreening:
             names=["x_a", "x_b", "noise1", "noise2"],
         )
 
-        sel = MRMR(verbose=0, random_seed=42)
+        sel = MRMR(verbose=0, random_state=42)
         sel.fit(df, ys)
 
         names = [sel.feature_names_in_[i] for i in sel.support_]
@@ -256,7 +256,7 @@ class TestScreeningKeepsBorderlineSignificantFeature:
         # Both real features survive only if their linearly-usable raw form is kept even when FE folds
         # them into a nonlinear engineered feature -- the emit_both redundancy policy (signal operands
         # of selected engineered features are re-attached; noise operands are gated out).
-        sel = MRMR(verbose=0, random_seed=42, redundancy_policy="emit_both")
+        sel = MRMR(verbose=0, random_state=42, redundancy_policy="emit_both")
         sel.fit(df, ys)
 
         names = set(int(i) for i in sel.support_)

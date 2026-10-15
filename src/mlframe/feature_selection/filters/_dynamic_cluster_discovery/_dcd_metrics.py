@@ -392,7 +392,8 @@ def should_be_pruned(state: DCDState, candidate: int | tuple[int, ...]) -> bool:
     # Iterable / tuple / array of indices.
     try:
         components = list(candidate)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("should_be_pruned fell back to its default after %s", type(_exc).__name__)
         return False
     if not components:
         return False

@@ -13,15 +13,12 @@ import pathlib
 import subprocess
 import sys
 import pytest
-import time
 
 import numpy as np
 
 import mlframe
 from mlframe.feature_selection.filters._adaptive_nbins import edges_qs, qs_nbins
 from mlframe.feature_selection.filters._mah import _compute_y_binning, clear_mah_y_binning_cache, mah_bin_edges, mah_mi
-
-from tests.conftest import perf_time_budget
 
 # ---------------------------------------------------------------------------
 # qs_nbins / edges_qs
@@ -195,11 +192,11 @@ def test_mah_bin_edges_high_cardinality_integer_target_completes_quickly():
     y = (rng.normal(size=n) * 1000).astype(np.int64)
     assert np.unique(y).size > 500  # precondition: genuinely high cardinality, would have hung pre-fix
 
-    t0 = time.time()
+    # The hang's root cause was K_y tracking the full target cardinality; the fix caps it at K, so the
+    # merge loop's work is bounded by K regardless of how many distinct integer values y has.
+    _, K_y = _compute_y_binning(y, 16)
+    assert 2 <= K_y <= 16
     edges = mah_bin_edges(x, y, initial_k=16)
-    elapsed = time.time() - t0
-
-    assert elapsed < perf_time_budget(10.0), f"mah_bin_edges took {elapsed:.2f}s on high-cardinality int y -- possible regression of the fixed hang"
     assert np.isfinite(edges).all()
 
 

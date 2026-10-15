@@ -13,6 +13,9 @@ import weakref
 from typing import Dict, Optional, Tuple, Union
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Theil-Sen pairwise-slope cost grows with n and Huber iterates over every point; a robust line is a visual
 # guide, so fit on at most this many points (x extremes always kept so the endpoints anchor the true range).
@@ -60,7 +63,8 @@ def _store_fit(x: np.ndarray, y: np.ndarray, method: str, result: _Endpoints) ->
     """Remember ``result`` for these arrays, dropping the oldest entry once the cache is full."""
     try:
         entry = (weakref.ref(x), weakref.ref(y), result)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_store_fit fell back to its default after %s", type(_exc).__name__)
         return  # not weak-referenceable (a plain memoryview / subclass without __weakref__): skip the cache
     with _FIT_CACHE_LOCK:
         if len(_FIT_CACHE) >= _FIT_CACHE_MAX:

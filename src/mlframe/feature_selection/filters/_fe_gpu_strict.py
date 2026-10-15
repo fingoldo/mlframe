@@ -53,6 +53,7 @@ on the same fixture (down from 212), selection-equivalent (bit-identical fold pa
 eager-``cand_bins`` code paths are kept intact as the non-resident fallback (GPU off, or a resident call faults
 mid-fit) - see ``_host_bins`` / the ``cand_bins_dev`` truthiness checks throughout ``greedy_cmi_fe_construct``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -151,7 +152,8 @@ def _auto_min_n() -> int:
     unparsable value. See ``_auto_gate_passes`` for the column-aware alternate path below this floor."""
     try:
         return int(os.environ.get("MLFRAME_FE_GPU_STRICT_AUTO_MIN_N", _DEFAULT_AUTO_MIN_N))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.warning("_auto_min_n fell back to its default after %s", type(_exc).__name__)
         return _DEFAULT_AUTO_MIN_N
 
 
@@ -189,12 +191,19 @@ def _cuda_usable() -> bool:
     if _CUDA_USABLE_CACHE is None:
         try:
             from ._gpu_policy import cuda_available_for_run
+
             _CUDA_USABLE_CACHE = bool(cuda_available_for_run())
         except Exception as e:
-            log_throttle(logger, "fe_gpu_strict.cuda_available_for_run", logging.WARNING,
-                             "cuda_available_for_run() check failed, falling back to numba.cuda.is_available(): %s", e)
+            log_throttle(
+                logger,
+                "fe_gpu_strict.cuda_available_for_run",
+                logging.WARNING,
+                "cuda_available_for_run() check failed, falling back to numba.cuda.is_available(): %s",
+                e,
+            )
             try:
                 from numba import cuda as _c
+
                 _CUDA_USABLE_CACHE = bool(getattr(_c, "is_available", lambda: False)())
             except ImportError as e2:
                 log_throttle(logger, "fe_gpu_strict.numba_cuda_import", logging.WARNING, "numba.cuda unavailable (%s); assuming CUDA unusable", e2)
@@ -208,8 +217,14 @@ def _cuda_usable() -> bool:
                 # code path uploads to the device and another routes the same arrays into a CPU njit kernel.
                 # Logged here as well as inside the retry: this handler must not read as silent, and a reader
                 # tracing a device fault should see it at the point it was caught, not only one frame down.
-                log_throttle(logger, "fe_gpu_strict.numba_cuda_probe", logging.WARNING,
-                             "numba.cuda probe raised %s: %s; delegating to the bounded retry", type(e2).__name__, e2)
+                log_throttle(
+                    logger,
+                    "fe_gpu_strict.numba_cuda_probe",
+                    logging.WARNING,
+                    "numba.cuda probe raised %s: %s; delegating to the bounded retry",
+                    type(e2).__name__,
+                    e2,
+                )
                 _CUDA_USABLE_CACHE = _retry_cuda_available(e2)
     return _CUDA_USABLE_CACHE
 
@@ -224,7 +239,8 @@ def _retry_cuda_available(first_error: Exception) -> bool:
     """
     logger.warning(
         "numba.cuda.is_available() raised %s: %s -- treating as a transient device condition and retrying.",
-        type(first_error).__name__, first_error,
+        type(first_error).__name__,
+        first_error,
     )
     try:
         from numba import cuda as _c
@@ -235,7 +251,7 @@ def _retry_cuda_available(first_error: Exception) -> bool:
     for _ in range(_CUDA_PROBE_RETRIES):
         try:
             return bool(_probe())
-        except Exception as exc:  # noqa: PERF203 - a bounded retry around a device probe, not a hot loop
+        except Exception as exc:  # noqa: PERF203 - the retry loop must catch each failed probe attempt
             logger.warning("numba.cuda.is_available() retry raised %s: %s", type(exc).__name__, exc)
     logger.warning("numba.cuda.is_available() failed every attempt; treating CUDA as unusable for this process so routing stays consistent.")
     return False
@@ -244,8 +260,8 @@ def _retry_cuda_available(first_error: Exception) -> bool:
 def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: int | None = None) -> bool:
     """Whether STRICT GPU mode is active. Three-state ``MLFRAME_FE_GPU_STRICT``:
 
-    * ``1``/``true``/``on``/``yes`` - force STRICT (subject to a usable CUDA device AND, when the caller passes
-      ``n``/``p``, the per-call work floor below - explicit force still should not blow past a trivially tiny call).
+    * ``1``/``true``/``on``/``yes`` - force STRICT on every call, subject only to a usable CUDA device. The per-call
+      shape floors below (``n*p`` and ``p``) do NOT apply under an explicit force: the caller asked for the GPU path.
     * ``0``/``false``/``off``/``no`` - force OFF (exact CPU path; byte-identical legacy).
     * unset / ``auto`` - AUTO size-gated default: STRICT engages when the current fit clears ``_auto_gate_passes``
       (row count at/above ``MLFRAME_FE_GPU_STRICT_AUTO_MIN_N``, default 100k - OR, since 2026-07-11, row count
@@ -259,6 +275,7 @@ def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: 
 
     The env is read LIVE every call (mid-process toggles observed immediately); only the immutable CUDA-device probe
     is cached. No-op without CUDA. Small-n and no-GPU behavior is byte-identical to the pre-AUTO default."""
+
     def _passes_call_work_floor() -> bool:
         """Whether this call's (n, p) shape clears the total-work and per-column floors gating STRICT GPU use."""
         if n is None or p is None:
@@ -276,7 +293,7 @@ def fe_gpu_strict_enabled(*, n: int | None = None, p: int | None = None, min_p: 
     if raw in ("0", "false", "off", "no"):
         return False
     if raw in ("1", "true", "on", "yes"):
-        return bool(_cuda_usable()) and _passes_call_work_floor()
+        return bool(_cuda_usable())
     if raw in ("", "auto"):
         if _auto_gate_passes(getattr(_auto_fit_state, "n", None), getattr(_auto_fit_state, "p", None)):
             return bool(_cuda_usable()) and _passes_call_work_floor()

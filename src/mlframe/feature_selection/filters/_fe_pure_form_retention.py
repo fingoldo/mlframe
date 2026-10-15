@@ -116,7 +116,7 @@ def retain_usable_pure_forms(
     min_resid_corr: float = 0.08,
     verbose: int = 0,
     _prep: "dict[str, Any] | None" = None,
-):  # unused-ok: verbose: stage signature shared with the other retention passes; diagnostics go through logger levels
+) -> list:  # unused-ok: verbose: stage signature shared with the other retention passes; diagnostics go through logger levels
     """Return ``[(recipe, name), ...]`` of PURE single-pair engineered forms to ADD to
     ``mrmr._engineered_recipes_`` so a linearly-usable pair interaction the MI greedy left trapped
     inside a cross-mix (or only as separate raw operands) is recovered.
@@ -473,7 +473,7 @@ def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_co
                     from mlframe.feature_selection.filters._usability_gpu import gpu_additive_basis_residual
                     resid = gpu_additive_basis_residual(fv, xa, xb)
                 except Exception as e:
-                    logger.debug("gpu_additive_basis_residual failed, falling back to the host residual: %s", e)
+                    logger.warning("gpu_additive_basis_residual failed, falling back to the host residual: %s", e)
                     resid = None
             if resid is None:
                 _pair_key = frozenset((nm_a, nm_b))
@@ -623,7 +623,7 @@ def _retain_usable_pure_exact_per_candidate_cpu(is_clf, pool, base_names, _scrub
                     if _verdicts is not None and len(_verdicts) == len(_pair_cands):
                         _resid_verdicts = {id(c): bool(v) for c, v in zip(_pair_cands, _verdicts)}
             except Exception as e:
-                logger.debug("resident-batch verdict computation failed, falling back to the per-candidate CPU path: %s", e)
+                logger.warning("resident-batch verdict computation failed, falling back to the per-candidate CPU path: %s", e)
                 _resid_verdicts = None  # any failure -> exact per-candidate CPU path below
     return _resid_verdicts
 
@@ -699,7 +699,7 @@ def retain_usable_raw_columns(
     max_rows: int = 3000,
     verbose: int = 0,
     _prep: "dict[str, Any] | None" = None,
-):  # unused-ok: verbose: stage signature shared with the other retention passes; diagnostics go through logger levels
+) -> list:  # unused-ok: verbose: stage signature shared with the other retention passes; diagnostics go through logger levels
     """Return ``[raw_name, ...]`` of RAW columns the MI greedy dropped from ``support_`` even though a
     CROSS-VALIDATED LINEAR wrapper confirms they carry genuine linear-usable signal toward y.
 

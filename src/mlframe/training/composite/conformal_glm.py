@@ -36,7 +36,10 @@ from __future__ import annotations
 
 import math
 
+from typing import Any, Sequence
+
 import numpy as np
+from numpy.typing import ArrayLike
 
 
 def _variance_function(mu: np.ndarray, family: str, tweedie_power: float) -> np.ndarray:
@@ -87,7 +90,7 @@ def standardized_conformal_quantile(
     return float(np.sort(scores)[rank - 1])
 
 
-def calibrate_conformal_glm(self, X_cal, y_cal, alpha=0.1):
+def calibrate_conformal_glm(self, X_cal: ArrayLike, y_cal: ArrayLike, alpha: float | Sequence[float] = 0.1) -> Any:
     """Fit the variance-scaled split-conformal radius from a HELD-OUT calibration set.
 
     ``X_cal`` / ``y_cal`` MUST be rows the inner estimator did NOT train on (the suite
@@ -110,18 +113,18 @@ def calibrate_conformal_glm(self, X_cal, y_cal, alpha=0.1):
         raise ValueError("calibrate_conformal_glm: predict produced " f"{mu.shape[0]} rows but y_cal has {y_true.shape[0]}")
     residuals = y_true - mu
     std = np.sqrt(_variance_function(mu, self.family, self.tweedie_power))
-    alphas = [alpha] if np.isscalar(alpha) else list(alpha)
+    alphas = [alpha] if isinstance(alpha, (int, float, np.number)) else list(alpha)
     if not hasattr(self, "_glm_conformal_q_") or self._glm_conformal_q_ is None:
         self._glm_conformal_q_ = {}
     for a in alphas:
-        self._glm_conformal_q_[round(float(a), 6)] = standardized_conformal_quantile(  # type: ignore[arg-type]  # a is a scalar drawn from alphas (float | Sequence[float])
-            residuals, std, float(a),  # type: ignore[arg-type]  # a is a scalar drawn from alphas (float | Sequence[float])
+        self._glm_conformal_q_[round(float(a), 6)] = standardized_conformal_quantile(  # a is a scalar drawn from alphas (float | Sequence[float])
+            residuals, std, float(a),  # a is a scalar drawn from alphas (float | Sequence[float])
         )
     self._glm_conformal_n_cal_ = int(np.isfinite(residuals / std).sum())
     return self
 
 
-def predict_interval_glm(self, X, alpha=0.1):
+def predict_interval_glm(self, X: ArrayLike, alpha: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
     """Return variance-scaled ``(lower, upper)`` original-scale intervals of marginal
     coverage ``>= 1 - alpha``, with band width that GROWS with the predicted mean.
 

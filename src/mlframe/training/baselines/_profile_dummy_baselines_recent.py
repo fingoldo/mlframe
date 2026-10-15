@@ -108,7 +108,7 @@ def _bench(label, fn, n_iter=5):
     return median_ms, last
 
 
-def bench_paired_bootstrap():
+def bench_paired_bootstrap() -> None:
     """D2 paired-bootstrap on (strongest, runner-up) — n-gated to <2000.
 
     Representative n: 100-1500 (real-world val/test shapes hit
@@ -141,7 +141,7 @@ def bench_paired_bootstrap():
         )
 
 
-def bench_bootstrap_ci():
+def bench_bootstrap_ci() -> None:
     """D16 bootstrap CI for strongest baseline — same n-gate."""
     print("\n=== _bootstrap_ci_for_strongest (D16, gated n<2000) ===")
     rng = np.random.default_rng(0)
@@ -160,7 +160,7 @@ def bench_bootstrap_ci():
         )
 
 
-def bench_quantile_per_alpha():
+def bench_quantile_per_alpha() -> None:
     """Per-α empirical quantile dispatch + pinball-loss metrics."""
     print("\n=== _compute_quantile_baselines + pinball metrics ===")
     rng = np.random.default_rng(0)
@@ -186,7 +186,7 @@ def bench_quantile_per_alpha():
         )
 
 
-def bench_multi_output_regression():
+def bench_multi_output_regression() -> None:
     """D4 multi-output dispatcher (recursive K calls)."""
     print("\n=== _compute_multi_output_regression (D4) ===")
     rng = np.random.default_rng(0)
@@ -210,7 +210,7 @@ def bench_multi_output_regression():
         )
 
 
-def bench_augment_helper():
+def bench_augment_helper() -> None:
     """High-card re-attach helper on real-shape inputs."""
     print("\n=== _augment_with_dropped_high_card_cols ===")
     from mlframe.training.core import _augment_with_dropped_high_card_cols
@@ -247,7 +247,7 @@ def bench_augment_helper():
         )
 
 
-def main():
+def main() -> None:
     """CLI entrypoint: run the requested benchmark component (or all of them) and print wall-time results, excluding cProfile attribution overhead."""
     p = argparse.ArgumentParser()
     p.add_argument(

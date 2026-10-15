@@ -60,7 +60,8 @@ def test_mrmr_fit_with_string_y_does_not_crash():
             fe_max_steps=0,
             verbose=0,
         ).fit(X, y)
-    assert sel.support_ is not None
+    # y is a deterministic function of f0 (column 0), so f0 must be selected.
+    assert 0 in set(sel.support_.tolist())
 
 
 def test_mrmr_fit_with_categorical_y_does_not_crash():
@@ -81,7 +82,7 @@ def test_mrmr_fit_with_categorical_y_does_not_crash():
             fe_max_steps=0,
             verbose=0,
         ).fit(X, y_cat)
-    assert sel.support_ is not None
+    assert 0 in set(sel.support_.tolist())
 
 
 def test_mdlp_bin_edges_string_y_directly():

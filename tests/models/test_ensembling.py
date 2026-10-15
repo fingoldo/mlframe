@@ -204,11 +204,11 @@ def test_build_predictive_kwargs_with_none(is_regression):
     if is_regression:
         expected_keys = {"train_preds", "test_preds", "val_preds"}
         assert expected_keys.issubset(set(result.keys())), f"regression result missing expected keys: have {set(result.keys())}, want {expected_keys}"
-        assert all(result[k] is None for k in expected_keys), result
+        assert {k: result[k] for k in expected_keys} == dict.fromkeys(expected_keys), result
     else:
         expected_keys = {"train_probs", "test_probs", "val_probs"}
         assert expected_keys.issubset(set(result.keys())), f"classification result missing expected keys: have {set(result.keys())}, want {expected_keys}"
-        assert all(result[k] is None for k in expected_keys), result
+        assert {k: result[k] for k in expected_keys} == dict.fromkeys(expected_keys), result
 
 
 def test_build_predictive_kwargs_classification():
@@ -327,7 +327,7 @@ def test_ensemble_with_two_predictions():
     """Ensembling exactly 2 predictions should skip outlier detection."""
     preds = [np.random.rand(10, 3).astype(np.float32) for _ in range(2)]
     result, _, _ = ensemble_probabilistic_predictions(*preds, ensemble_method="arithm", verbose=False)
-    assert result is not None
+    np.testing.assert_allclose(result, (preds[0] + preds[1]) / 2, rtol=1e-6)
 
 
 def test_ensemble_all_same_predictions():

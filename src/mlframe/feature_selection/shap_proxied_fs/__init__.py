@@ -40,6 +40,7 @@ from mlframe.feature_selection.shap_proxied_fs._shap_proxied_fit import ShapProx
 from mlframe.feature_selection.shap_proxied_fs._state_compat import ShapProxiedStateCompatMixin
 from mlframe.feature_selection.shap_proxied_fs._shap_proxied_methods import ShapProxiedMethodsMixin
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_precomputed import restrict_artifacts
+from mlframe._shap_policy_constants import DEFAULT_TRUST_GUARD_FIDELITY_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +257,7 @@ class ShapProxiedFS(ShapProxiedStateCompatMixin, ShapProxiedFitMixin, ShapProxie
         trust_guard_uniform_tail_frac: float = 0.2,
         trust_guard_cardinality_dist: str = "zipf",
         trust_guard_zipf_alpha: float = 0.25,
-        trust_guard_fidelity_weights: tuple[float, float] = (0.6, 0.4),
+        trust_guard_fidelity_weights: tuple[float, float] = DEFAULT_TRUST_GUARD_FIDELITY_WEIGHTS,
         trust_guard_metric: str = "proxy_fidelity_score",
         n_jobs: int = -1,
         inner_n_jobs_cap: bool = False,

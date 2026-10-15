@@ -41,13 +41,15 @@ One recipe kind ``modular`` with ``extra = {period: float, op: str}`` where
 ``op in {"mod", "sin", "cos"}``. Replay is pure arithmetic on the single source
 column - no y reference, leakage-free by construction, train/test exact.
 
-NOT wired into ``MRMR.fit`` by default - opt-in via ``fe_modular_enable=True``.
+Wired into ``MRMR.fit`` by default; disable with ``fe_modular_enable=False``.
 """
+
 from __future__ import annotations
 
 import logging
 import math
-from typing import Optional, Sequence
+from typing import Optional
+from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
@@ -56,6 +58,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 from ._numeric_decompose_fe import _numeric_cols, score_decompose_by_bootstrap_mi as score_modular_by_bootstrap_mi
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -63,6 +66,7 @@ try:
     from numba import njit
 except ImportError:  # pragma: no cover - numba is a hard dep in practice
     from mlframe._numba_fallback import njit
+
 
 # op codes for the fused kernel: 0=mod, 1=sin, 2=cos
 @njit(cache=True)
@@ -90,6 +94,7 @@ def _modular_njit(arr: np.ndarray, p: float, op_code: int) -> np.ndarray:
             val = math.cos(k * r)
         out[i] = val if np.isfinite(val) else 0.0
     return out
+
 
 @njit(cache=True)
 def _modular_all_ops_njit(arr: np.ndarray, p: float):
@@ -120,6 +125,7 @@ def _modular_all_ops_njit(arr: np.ndarray, p: float):
         out_cos[i] = c if np.isfinite(c) else 0.0
     return out_mod, out_sin, out_cos
 
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -139,8 +145,9 @@ DEFAULT_PERIODS = (7, 12, 24, 30, 365)
 
 # op token -> name fragment. ``mod`` -> ``mod``, ``sin`` -> ``modsin``,
 # ``cos`` -> ``modcos`` (per the design spec).
-_OP_FRAGMENT = {"mod": "mod", "sin": "modsin", "cos": "modcos"}
-_VALID_OPS = ("mod", "sin", "cos")
+_OP_FRAGMENT = {"mod": "mod", "sin": "modsin", "cos": "modcos", "parity": "par"}
+_VALID_OPS = ("mod", "sin", "cos", "parity")
+
 
 def _fmt_period(period: float) -> str:
     """Stable, name-safe token for a period (``24`` -> ``"24"``, ``0.5`` ->
@@ -149,6 +156,7 @@ def _fmt_period(period: float) -> str:
     if p == int(p):
         return str(int(p))
     return repr(p).replace("-", "m").replace(".", "p")
+
 
 def engineered_name_modular(col: str, period: float, op: str) -> str:
     """Canonical engineered column name for a modular feature.
@@ -161,6 +169,7 @@ def engineered_name_modular(col: str, period: float, op: str) -> str:
     if op not in _OP_FRAGMENT:
         raise ValueError(f"modular op must be one of {_VALID_OPS}; got {op!r}")
     return f"{col}__{_OP_FRAGMENT[op]}_{_fmt_period(period)}"
+
 
 def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     """Replay one modular transform on a numeric column.
@@ -180,8 +189,12 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     if op not in _VALID_OPS:
         raise ValueError(f"modular op must be one of {_VALID_OPS}; got {op!r}")
     arr = np.ascontiguousarray(x, dtype=np.float64)
+    if op == "parity":
+        # Square wave: floor(x / period) mod 2. NaN / inf scrub to 0 like the other ops.
+        return np.asarray(np.nan_to_num(np.floor(arr / p) % 2.0, nan=0.0, posinf=0.0, neginf=0.0), dtype=np.float64)
     op_code = 0 if op == "mod" else (1 if op == "sin" else 2)
     return np.asarray(_modular_njit(arr, p, op_code))
+
 
 def generate_modular_features(
     X: pd.DataFrame,
@@ -208,6 +221,7 @@ def generate_modular_features(
             out[engineered_name_modular(c, p, "cos")] = cos_v
     return pd.DataFrame(out, index=X.index)
 
+
 def _parse_modular_name(name: str):
     """``"{src}__modsin_24"`` -> ('sin', src, 24.0). Returns None on a name that
     does not match the modular convention. The op fragment must be matched
@@ -216,16 +230,18 @@ def _parse_modular_name(name: str):
         return None
     src, suffix = name.split("__", 1)
     # Longest fragment first: modsin / modcos before mod.
-    for op, frag in (("sin", "modsin"), ("cos", "modcos"), ("mod", "mod")):
+    for op, frag in (("sin", "modsin"), ("cos", "modcos"), ("mod", "mod"), ("parity", "par")):
         prefix = frag + "_"
         if suffix.startswith(prefix):
             tok = suffix[len(prefix) :]
             try:
                 period = float(tok.replace("m", "-").replace("p", "."))
-            except ValueError:
+            except ValueError as _exc:
+                logger.debug("_parse_modular_name fell back to its default after %s", type(_exc).__name__)
                 return None
             return (op, src, period)
     return None
+
 
 def hybrid_modular_fe(
     X: pd.DataFrame,
@@ -261,18 +277,30 @@ def hybrid_modular_fe(
     eng = generate_modular_features(X, num_cols=cols, periods=periods)
 
     empty_cols = [
-        "engineered_col", "source_col",
-        "baseline_mi_mean", "baseline_mi_std", "baseline_mi_lcb",
-        "engineered_mi_mean", "engineered_mi_std", "engineered_mi_lcb",
-        "uplift_mean", "uplift_std", "uplift_lcb",
+        "engineered_col",
+        "source_col",
+        "baseline_mi_mean",
+        "baseline_mi_std",
+        "baseline_mi_lcb",
+        "engineered_mi_mean",
+        "engineered_mi_std",
+        "engineered_mi_lcb",
+        "uplift_mean",
+        "uplift_std",
+        "uplift_lcb",
     ]
     if eng.empty:
         return X, pd.DataFrame(columns=empty_cols)
 
     raw_X = X[_numeric_cols(X, cols)]
     scores = score_modular_by_bootstrap_mi(
-        raw_X, eng, y,
-        n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins,
+        raw_X,
+        eng,
+        y,
+        n_boot=n_boot,
+        sample_fraction=sample_fraction,
+        seed=seed,
+        nbins=nbins,
     )
     if scores.empty:
         return X, scores
@@ -289,10 +317,19 @@ def hybrid_modular_fe(
     else:
         noise_floor = 2.0 * float(base_lcb.max()) if base_lcb.size else 0.0
     qualified = scores[(scores["uplift_mean"] >= float(min_uplift_lcb)) & (scores["engineered_mi_lcb"] >= noise_floor)]
+    # Family-wise permutation gate over EVERY scored candidate (not just the ones that cleared the LCB floor): the maximum over the whole family sets the
+    # threshold, so the chance that any noise (column, period, op) survives stays at alpha however many were scored.
+    from ._family_maxt_gate import family_maxt_pass
+
+    _names = scores["engineered_col"].tolist()
+    _fam_ok = family_maxt_pass(eng[_names], y, n_bins=nbins, seed=seed)
+    _ok_names = {n for n, ok in zip(_names, _fam_ok) if ok}
+    qualified = qualified[qualified["engineered_col"].isin(_ok_names)]
     winners = qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
+
 
 def hybrid_modular_fe_with_recipes(
     X: pd.DataFrame,
@@ -315,10 +352,16 @@ def hybrid_modular_fe_with_recipes(
     Returns ``(X_augmented, appended, recipes, scores)``.
     """
     X_aug, scores = hybrid_modular_fe(
-        X, y,
-        cols=cols, periods=periods, top_k=top_k,
-        n_boot=n_boot, sample_fraction=sample_fraction,
-        seed=seed, nbins=nbins, min_uplift_lcb=min_uplift_lcb,
+        X,
+        y,
+        cols=cols,
+        periods=periods,
+        top_k=top_k,
+        n_boot=n_boot,
+        sample_fraction=sample_fraction,
+        seed=seed,
+        nbins=nbins,
+        min_uplift_lcb=min_uplift_lcb,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
     recipes = []
@@ -334,10 +377,16 @@ def hybrid_modular_fe_with_recipes(
             )
             continue
         op, src, period = parsed
-        recipes.append(build_modular_recipe(
-            name=name, src_name=src, period=float(period), op=op,
-        ))
+        recipes.append(
+            build_modular_recipe(
+                name=name,
+                src_name=src,
+                period=float(period),
+                op=op,
+            )
+        )
     return X_aug, appended, recipes, scores
+
 
 def build_modular_recipe(*, name: str, src_name: str, period: float, op: str) -> EngineeredRecipe:
     """Frozen recipe for one modular transform of ``X[src_name]``. Replay is

@@ -27,6 +27,9 @@ import cProfile
 import io
 import pstats
 import sys
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _synth_regression(n, seed=0):
@@ -53,7 +56,7 @@ def _profile(label, fn, top=12):
     print("\n".join(s.getvalue().splitlines()[: top + 6]))
 
 
-def main(argv):
+def main(argv: list[str]) -> None:
     """CLI entrypoint: build the synthetic dataset (size from ``argv[1]``, default 20k) and profile the four composite-pipeline stages -- discovery, plain regression fit+predict, conformal calibration, and base-margin classification."""
     import numpy as np
     from sklearn.linear_model import LinearRegression
@@ -87,7 +90,8 @@ def main(argv):
         """Profile base-margin classification (LightGBM init-score fit + softmax); no-ops if lightgbm isn't installed."""
         try:
             import lightgbm as lgb
-        except ImportError:
+        except ImportError as _exc:
+            logger.debug("classify fell back to its default after %s", type(_exc).__name__)
             return
         yc = (y > np.median(y)).astype(int)
         est = CompositeClassificationEstimator(base_estimator=lgb.LGBMClassifier(n_estimators=80, verbose=-1)).fit(X, yc)

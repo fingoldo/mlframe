@@ -194,12 +194,12 @@ def test_mrmr_gpu_cpu_selection_identical(name, builder, n):
     df, y = builder(seed, n)
 
     _free_gpu()
-    cpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=False, full_npermutations=64, baseline_npermutations=64)
+    cpu = MRMR(verbose=0, random_state=seed, fe_max_steps=1, use_gpu=False, full_npermutations=64, baseline_npermutations=64)
     cpu.fit(df, y)
     sel_cpu = set(cpu.get_feature_names_out())
 
     _free_gpu()
-    gpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=True, full_npermutations=64, baseline_npermutations=64)
+    gpu = MRMR(verbose=0, random_state=seed, fe_max_steps=1, use_gpu=True, full_npermutations=64, baseline_npermutations=64)
     gpu.fit(df, y)
     sel_gpu = set(gpu.get_feature_names_out())
     _free_gpu()
@@ -299,12 +299,12 @@ def test_mrmr_gpu_cpu_selection_identical_adversarial(name, builder, n, seed):
     df, y = builder(seed, n)
 
     _free_gpu()
-    cpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=False, full_npermutations=128, baseline_npermutations=128)
+    cpu = MRMR(verbose=0, random_state=seed, fe_max_steps=1, use_gpu=False, full_npermutations=128, baseline_npermutations=128)
     cpu.fit(df, y)
     sel_cpu = set(cpu.get_feature_names_out())
 
     _free_gpu()
-    gpu = MRMR(verbose=0, random_seed=seed, fe_max_steps=1, use_gpu=True, full_npermutations=128, baseline_npermutations=128)
+    gpu = MRMR(verbose=0, random_state=seed, fe_max_steps=1, use_gpu=True, full_npermutations=128, baseline_npermutations=128)
     gpu.fit(df, y)
     sel_gpu = set(gpu.get_feature_names_out())
     _free_gpu()

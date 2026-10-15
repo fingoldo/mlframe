@@ -50,6 +50,7 @@ import logging
 from typing import Sequence
 
 import numpy as np
+from mlframe._numerical_floors import VARIANCE_FLOOR
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,7 @@ def _residual_variance_ratio(y: np.ndarray, x: np.ndarray) -> float:
     yc = y - y.mean()
     var_x = float(np.dot(xc, xc))
     var_y = float(np.dot(yc, yc))
-    if var_x < 1e-24 or var_y < 1e-24:
+    if var_x < VARIANCE_FLOOR or var_y < VARIANCE_FLOOR:
         return 1.0
     a = float(np.dot(xc, yc)) / var_x
     resid = yc - a * xc  # intercept cancels in the centred residual
@@ -157,10 +158,10 @@ def structural_affinity_scores(
     # per-column dot/lstsq loop (the dominant hotspot on wide screening
     # matrices).
     affine_score = np.zeros(n_cols, dtype=np.float64)
-    if var_y >= 1e-24:
+    if var_y >= VARIANCE_FLOOR:
         Xc = x_matrix - x_matrix.mean(axis=0)
         var_x = np.einsum("ij,ij->j", Xc, Xc)
-        live = var_x >= 1e-24
+        live = var_x >= VARIANCE_FLOOR
         if live.any():
             cov = Xc[:, live].T @ yc
             corr = np.abs(cov) / np.sqrt(var_x[live] * var_y)

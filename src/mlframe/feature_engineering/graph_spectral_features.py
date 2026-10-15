@@ -70,9 +70,9 @@ def graph_spectral_feature_names(k: int = 5) -> list[str]:
 
 def graph_spectral_features(
     n_nodes: int,
-    edges,
+    edges: np.ndarray,
     *,
-    weights=None,
+    weights: np.ndarray | None = None,
     k: int = 5,
     max_nodes: int = 2000,
     zero_tol: float = 1e-8,

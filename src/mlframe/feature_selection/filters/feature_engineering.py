@@ -10,7 +10,8 @@ Public functions:
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+import threading
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
 
 import numpy as np
 import pandas as pd
@@ -154,24 +155,27 @@ from ._internals import njit_functions_dict, smart_log
 from .discretization import discretize_array, discretize_2d_quantile_batch  # noqa: F401 - re-exported (see _feature_engineering_pairs/_pairs_core.py)
 from .permutation import mi_direct
 
+if TYPE_CHECKING:
+    import cupy
+
 logger = logging.getLogger(__name__)
 
 
 def compute_pairs_mis(
-    all_pairs: Sequence,
-    data,
-    target_indices,
-    nbins,
-    classes_y,
-    classes_y_safe,
-    freqs_y,
-    fe_min_nonzero_confidence,
-    fe_npermutations,
+    all_pairs: Iterable[Sequence[int]],
+    data: np.ndarray,
+    target_indices: Any,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    classes_y_safe: np.ndarray,
+    freqs_y: np.ndarray,
+    fe_min_nonzero_confidence: float,
+    fe_npermutations: int,
     cached_confident_MIs: dict,
     cached_MIs: dict,
     fe_min_pair_mi: float,
     fe_min_pair_mi_prevalence: float,
-):
+) -> dict:
     """Compute (or reuse from cache) confidence-permutation-tested MI for every candidate pair, dropping pairs below the prevalence/relevance floor."""
     # Live progress: on the single-thread path ``all_pairs`` is the "getting pairs MIs"
     # tqdm bar itself, so we surface the running top single feature by its (already-
@@ -368,10 +372,10 @@ def apply_gpu_unary_batched(
 
 
 def apply_gpu_binary_batched(
-    a_gpu,
-    b_gpu,
+    a_gpu: cupy.ndarray,
+    b_gpu: cupy.ndarray,
     transformation_name: str,
-):
+) -> cupy.ndarray:
     """Apply a binary transformation element-wise to two CuPy arrays already on the GPU. Names must be in ``gpu_compatible_binary_names()``."""
     import cupy as cp
 
@@ -457,17 +461,19 @@ def _safe_pow(x, exponent):
 
 
 _REGISTRY_CACHE: "dict[tuple[str, str], dict]" = {}
+_REGISTRY_CACHE_LOCK = threading.Lock()
 
 
-def create_unary_transformations(preset: str = "minimal"):
+def create_unary_transformations(preset: str = "minimal") -> dict[str, Callable[..., Any]]:
     """The ``{name: callable}`` unary-transform registry of the given preset (``minimal``/``medium``/``maximal``, monotone supersets).
 
     The registry is built once per preset and process, and every call returns a fresh dict over the SAME callables. Building it wraps new lambdas in ``njit`` each time, so a fresh registry
     meant fresh numba dispatchers whose first call on each argument type loads (or compiles) the kernel again: about 13 of those loads, 0.24 s, in every fit that used the usability pool."""
     key = ("unary", _resolve_preset(preset))
-    built = _REGISTRY_CACHE.get(key)
-    if built is None:
-        built = _REGISTRY_CACHE.setdefault(key, _build_unary_transformations(key[1]))
+    with _REGISTRY_CACHE_LOCK:
+        built = _REGISTRY_CACHE.get(key)
+        if built is None:
+            built = _REGISTRY_CACHE.setdefault(key, _build_unary_transformations(key[1]))
     return dict(built)
 
 
@@ -618,13 +624,14 @@ def _safe_div(x, y):
     return np.asarray(x, dtype=np.float64) / safe_y
 
 
-def create_binary_transformations(preset: str = "minimal"):
+def create_binary_transformations(preset: str = "minimal") -> dict[str, Callable[..., Any]]:
     """The ``{name: callable}`` binary-transform registry of the given preset (``minimal``/``medium``/``maximal``, monotone supersets); built once per preset and process, a fresh dict per call
     (see :func:`create_unary_transformations`)."""
     key = ("binary", _resolve_preset(preset))
-    built = _REGISTRY_CACHE.get(key)
-    if built is None:
-        built = _REGISTRY_CACHE.setdefault(key, _build_binary_transformations(key[1]))
+    with _REGISTRY_CACHE_LOCK:
+        built = _REGISTRY_CACHE.get(key)
+        if built is None:
+            built = _REGISTRY_CACHE.setdefault(key, _build_binary_transformations(key[1]))
     return dict(built)
 
 

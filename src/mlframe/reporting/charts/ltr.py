@@ -28,7 +28,7 @@ build, so the group sort and kernels run once per figure, not per panel.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 
@@ -306,7 +306,7 @@ def _mrr_dist_panel(y_true, y_score, group_ids, shared: Optional[dict] = None) -
     excluded_note = f"; {undefined:,} queries with no relevant doc excluded" if undefined else ""
     heights, centers, width = prebin_histogram(rrs, 20, True)
     return HistogramPanelSpec(
-        values=heights if centers is not None else rrs,
+        values=cast(np.ndarray, heights) if centers is not None else rrs,
         bins=20,
         bin_centers=centers,
         bin_width=width,
@@ -514,9 +514,9 @@ _TOKEN_CAPTIONS: Dict[str, str] = {
 
 
 def compose_ltr_figure(
-    y_true,
-    y_score,
-    group_ids,
+    y_true: Any,
+    y_score: np.ndarray,
+    group_ids: Any,
     *,
     panels_template: str = "NDCG_K NDCG_DIST NDCG_BY_QSIZE LIFT MRR_DIST SCORE_BY_REL",
     suptitle: str = "",

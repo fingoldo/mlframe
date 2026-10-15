@@ -241,10 +241,7 @@ def test_kernel_variants_match_per_class_loop_reference(backend, nclasses):
     classes = np.unique(yf)
 
     ref = _discrete_score_numpy_loop(V, V2, yf, classes)
-    try:
-        got = _kernels.compute_discrete_score(V, V2, yf, classes, backend=backend)
-    except MemoryError as e:  # GPU OOM under concurrent load: the variant exists, just unbenchable now
-        pytest.skip(f"{backend} out of memory at runtime: {e}")
+    got = _kernels.compute_discrete_score(V, V2, yf, classes, backend=backend)
 
     assert np.allclose(got, ref, rtol=1e-8, atol=1e-10), f"{backend} score drift max={np.abs(got - ref).max():.2e}"
     # ranking (the only thing top-k consumes) must be bit-identical to the reference

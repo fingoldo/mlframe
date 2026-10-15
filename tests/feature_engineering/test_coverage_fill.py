@@ -1195,9 +1195,14 @@ class TestMpsPlotAndIo:
             raw_prices=raw,
             profits=profits,
             use_plotly=False,
+            price_label="price",
+            raw_price_label="raw",
             figsize=(6, 4),
         )
-        assert fig is not None
+        ax = fig.axes[0]
+        plotted = {line.get_label(): line for line in ax.get_lines()}
+        np.testing.assert_allclose(plotted["price"].get_ydata(), prices)
+        np.testing.assert_allclose(plotted["raw"].get_ydata(), raw)
 
     def test_plot_positions_plotly_with_hover_and_raw(self):
         """Plot positions plotly with hover and raw."""
@@ -1279,7 +1284,8 @@ class TestMpsPlotAndIo:
         )
         # sma_size=0 + ewm_alpha=0 -> basic_expr unchanged (no smoothing branch).
         res = compute_mps_targets(fo_df=df, sma_size=0, ewm_alpha=0)
-        assert res is not None
+        assert isinstance(res, pl.DataFrame)
+        assert res.height == df.height - 1, f"expected one row fewer than the input, got {res.height}"
 
 
 # ============================================================================
@@ -1881,7 +1887,8 @@ class TestTimeseriesGapClosing:
         )
         # features_creation_fcn not actually used directly; this just exercises the
         # past_windows_features != None branch in the assembly logic.
-        assert X is not None
+        assert X.shape[0] == len(range(10, 35, 5))
+        assert np.isfinite(np.asarray(X, dtype=float)).all()
 
     def test_general_acf_min_samples_filter(self):
         """When min_samples is high relative to len(Y)-(i+1), the lag is skipped. Verifies the
@@ -1928,7 +1935,7 @@ class TestFinancialGapClosing:
             unnests=["mama"],
             prefix="",
         )
-        assert expr is not None
+        assert isinstance(expr, pl.Expr)
 
     def test_add_ohlcv_ratios_rlags_with_market_action_prefixes(self):
         """add_ohlcv_ratios_rlags with multiple market_action_prefixes (e.g. ["", "buy_"])
@@ -2195,7 +2202,7 @@ class TestBruteforceFinalGaps:
             pysr_params_override=mini,
             verbose=0,
         )
-        assert model.equations_ is not None
+        assert len(model.equations_) > 0
 
     def test_run_pysr_with_drop_columns(self):
         """drop_columns kwarg exercises the drop_set branch."""
@@ -2228,7 +2235,7 @@ class TestBruteforceFinalGaps:
             pysr_params_override=mini,
             verbose=0,
         )
-        assert model.equations_ is not None
+        assert len(model.equations_) > 0
         # drop_me should not appear in the fitted model's feature names.
         assert "drop_me" not in str(model.equations_)
 
@@ -2339,7 +2346,7 @@ class TestBruteforceAdvancedCoverage:
             pysr_params_override=mini,
             verbose=0,
         )
-        assert model.equations_ is not None
+        assert len(model.equations_) > 0
 
     def test_run_pysr_drop_categoricals_branch(self):
         """encode_categoricals=False -> drop categorical columns rather than encode them."""
@@ -2376,7 +2383,7 @@ class TestBruteforceAdvancedCoverage:
             pysr_params_override=mini,
             verbose=0,
         )
-        assert model.equations_ is not None
+        assert len(model.equations_) > 0
 
     def test_run_pysr_high_cardinality_string_dropped(self):
         """String column with unique_vals > string_categorical_threshold gets dropped."""
@@ -2411,7 +2418,7 @@ class TestBruteforceAdvancedCoverage:
             pysr_params_override=mini,
             verbose=0,
         )
-        assert model.equations_ is not None
+        assert len(model.equations_) > 0
 
 
 # ============================================================================

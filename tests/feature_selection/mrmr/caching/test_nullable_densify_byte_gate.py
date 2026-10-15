@@ -42,7 +42,7 @@ def _fit_support(X, y):
     """Fit support."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m = MRMR(verbose=0, random_seed=0).fit(X, y)
+        m = MRMR(verbose=0, random_state=0).fit(X, y)
     return tuple(np.asarray(m.support_).tolist()), tuple(m.get_feature_names_out())
 
 

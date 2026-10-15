@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 import numpy as np
+from typing import Any
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 # --- end imports ---
 
@@ -15,7 +16,7 @@ def _build_fe_transformations(self, fe, verbose):
         create_unary_transformations,
     )
 
-    unary_transformations = create_unary_transformations(preset=fe.unary_preset)
+    unary_transformations: dict[str, Any] = create_unary_transformations(preset=fe.unary_preset)
     binary_transformations = create_binary_transformations(preset=fe.binary_preset)
     # REPLAY-SAFETY: exclude ops that are NOT row-wise pure functions from FE
     # pair candidates. Their value at a row depends on OTHER rows (``np.gradient``: grad1/grad2) or

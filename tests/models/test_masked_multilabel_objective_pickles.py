@@ -45,7 +45,10 @@ class TestItPickles:
 
     def test_the_objective_pickles(self):
         """A local function cannot; a module-level instance can."""
-        assert pickle.loads(pickle.dumps(masked_multilabel_logloss_objective())) is not None  # nosec B301 - round-tripping our own object is the assertion
+        obj = masked_multilabel_logloss_objective()
+        back = pickle.loads(pickle.dumps(obj))  # nosec B301 - round-tripping our own object is the assertion
+        assert type(back) is type(obj)
+        assert (back.sentinel, back.use_sample_weight) == (obj.sentinel, obj.use_sample_weight)
 
     def test_it_survives_joblib(self):
         """joblib is what the bundle writer actually uses."""

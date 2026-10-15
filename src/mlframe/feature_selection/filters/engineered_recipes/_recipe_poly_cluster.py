@@ -8,12 +8,15 @@ bodies to avoid an import cycle with those heavier siblings.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _coerce_to_int_with_nan_handling, _extract_column
+
+if TYPE_CHECKING:
+    from ..hermite_fe import HermiteResult
 
 
 def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
@@ -86,7 +89,7 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
 
 
 def build_hermite_pair_recipe(
-    *, name: str, src_names: tuple[str, str], hermite_result,
+    *, name: str, src_names: tuple[str, str], hermite_result: HermiteResult,
 ) -> EngineeredRecipe:
     """T1#3 2026-05-18: builder that turns a ``HermiteResult`` (output of ``optimise_hermite_pair`` / Optuna driver) into a frozen ``EngineeredRecipe`` survivable across pickle / sklearn.clone.
 

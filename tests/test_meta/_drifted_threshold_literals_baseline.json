@@ -24,18 +24,6 @@
    "count": 1,
    "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
   },
-  "threshold::1e-24 compared against c_ss/c_ss_vec/s_ss/s_ss_vec/ss/var_a/var_b/var_y/y_ss/yv_ss::feature_selection/filters/_hinge_basis_fe.py feature_selection/filters/_hinge_detect_gpu_resident.py feature_selection/filters/_mrmr_fit_impl/_friend_graph_and_redundancy/_raw_protect_r2.py feature_selection/filters/_orthogonal_univariate_fe/_fourier_detect_gpu_resident.py feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_helpers.py training/composite/discovery/_filter.py training/composite/discovery/_structural_hints.py training/composite/discovery/screening.py": {
-   "count": 1,
-   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
-  },
-  "threshold::1e-24 compared against denom::feature_selection/filters/_hinge_basis_fe.py feature_selection/filters/_hinge_detect_gpu_resident.py feature_selection/filters/_hinge_detect_gpu_resident_batch.py": {
-   "count": 1,
-   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
-  },
-  "threshold::1e-24 compared against sse_lin::feature_selection/filters/_hinge_basis_fe.py feature_selection/filters/_hinge_detect_gpu_resident.py feature_selection/filters/_hinge_detect_gpu_resident_batch.py": {
-   "count": 1,
-   "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
-  },
   "threshold::1e-300 compared against denom::calibration/_independence_check.py feature_selection/filters/_fe_additive_fusion_gpu_resident.py feature_selection/filters/_gpu_resident_basis.py": {
    "count": 1,
    "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."

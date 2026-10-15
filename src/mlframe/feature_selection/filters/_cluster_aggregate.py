@@ -462,13 +462,15 @@ def compact_stack_mi(target_block: np.ndarray, binned: np.ndarray, n_t: int, com
 
 
 def run_cluster_aggregate_step(
-    *, data, cols, nbins, X, target_indices, feature_names_in_, categorical_idx,
-    cached_MIs, engineered_recipes, quantization_nbins, quantization_method, quantization_dtype,
-    methods=("mean_z",), mi_prevalence=1.0, min_member_relevance=0.0, min_cluster_size=3,
-    max_cluster_size=12, corr_threshold=0.6, homogeneity_tau=0.6,
-    max_candidates=200, mode="augment", is_polars_input=False, verbose=0,
-    mi_eps=1e-6, edge_significance=3.0, dtype=np.int32,
-):
+    *, data: np.ndarray, cols: list[str], nbins: np.ndarray, X: Any, target_indices: Sequence[int] | np.ndarray,
+    feature_names_in_: Sequence[str], categorical_idx: Any,
+    cached_MIs: dict, engineered_recipes: dict, quantization_nbins: int, quantization_method: str | None,
+    quantization_dtype: type | str,
+    methods: Sequence[str] = ("mean_z",), mi_prevalence: float = 1.0, min_member_relevance: float = 0.0,
+    min_cluster_size: int = 3, max_cluster_size: int = 12, corr_threshold: float = 0.6, homogeneity_tau: float = 0.6,
+    max_candidates: int = 200, mode: str = "augment", is_polars_input: bool = False, verbose: int = 0,
+    mi_eps: float = 1e-6, edge_significance: float = 3.0, dtype: type = np.int32,
+) -> tuple:
     """Discover correlated reflection clusters, build a denoised aggregate per cluster (best gated
     method), append it to (data, cols, nbins, X) and register the recipe. Returns
     ``(data, cols, nbins, X, n_added, removed_member_names)``. ``removed_member_names`` is non-empty

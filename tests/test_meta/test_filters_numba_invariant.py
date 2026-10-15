@@ -20,34 +20,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from py_ci_shared.pytest_known_gap import known_gap
-
 FILTERS_DIR = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection" / "filters"
 ALLOWED_HOST = "_numba_utils"
 NJIT_NAMES_HINT = re.compile(r"^@njit", re.MULTILINE)
-# Sibling-module @njit imports that predate this check actually running (it used to look in a directory that does not exist);
-# a violation outside this set fails, and the set draining to empty closes the gap.
-_KNOWN_VIOLATIONS = frozenset(
-    {
-        "_confirm_predictor.py imports @njit symbol(s) ['get_fleuret_criteria_confidence'] from sibling fleuret.py (should live in _numba_utils.py)",
-        (
-            "_fe_cpu_batch.py imports @njit symbol(s) ['_plugin_mi_classif_edge_njit', 'plugin_mi_classif_batch_edge_njit'] from sibling _fe_edge_mi.py"
-            " (should live in _numba_utils.py)"
-        ),
-        (
-            "_mdlp_validated_split.py imports @njit symbol(s) ['_entropy_from_counts_njit', '_mdlp_best_split_njit'] from sibling supervised_binning.py"
-            " (should live in _numba_utils.py)"
-        ),
-        (
-            "_numba_polynom_optimizer.py imports @njit symbol(s) ['_plugin_mi_classif_njit', '_plugin_mi_regression_njit'] from sibling _hermite_fe_mi.py"
-            " (should live in _numba_utils.py)"
-        ),
-        "_orthogonal_jmim_fe.py imports @njit symbol(s) ['_joint_mi_3d_njit'] from sibling _jmim_scorer.py (should live in _numba_utils.py)",
-        "_synergy_detector.py imports @njit symbol(s) ['_pair_mm_mi_njit'] from sibling _fe_synergy_screen.py (should live in _numba_utils.py)",
-        "fleuret.py imports @njit symbol(s) ['distribute_permutations'] from sibling permutation.py (should live in _numba_utils.py)",
-        "fleuret.py imports @njit symbol(s) ['evaluate_gain'] from sibling evaluation.py (should live in _numba_utils.py)",
-    }
-)
 RELATIVE_IMPORT_RE = re.compile(
     r"^from\s+\.(\w+)\s+import\s+([^\n#]+)",
     re.MULTILINE,
@@ -108,6 +83,4 @@ def test_no_cross_module_njit_imports():
     sources = {p.stem: p.read_text(encoding="utf-8") for p in FILTERS_DIR.glob("*.py") if p.stem != "__init__"}
     assert sources, "no filters submodules found"
     violations = _violations(sources)
-    new = sorted(set(violations) - _KNOWN_VIOLATIONS)
-    assert not new, "New cross-module @njit imports detected:\n  " + "\n  ".join(new)
-    known_gap(f"{len(violations)} sibling-module @njit imports remain; move the helpers to _numba_utils.py", gap_closed=not violations)
+    assert not violations, "Cross-module @njit imports detected:\n  " + "\n  ".join(violations)

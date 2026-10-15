@@ -7,6 +7,7 @@ keep resolving exactly as before.
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 _KNOCKOFFS_STRICT_LAM_MIN = False
 
 
-def make_gaussian_knockoffs(X, random_state=None, sdp_solve: bool = False) -> np.ndarray:
+def make_gaussian_knockoffs(X: pd.DataFrame | np.ndarray, random_state: int | None = None, sdp_solve: bool = False) -> np.ndarray:
     """Generate model-X Gaussian knockoffs (Candes et al. 2018, "Panning for Gold").
 
     This is the model-X construction (X assumed ~ N(mu, Sigma)), NOT the fixed-design Barber-Candes 2015 procedure:
@@ -206,7 +207,10 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
     return [n for n, _ in selected]
 
 
-def knockoff_importance(model_factory, X, y, current_features=None, random_state=None, importance_getter: str = "auto", w_statistic: str = "auto") -> dict:
+def knockoff_importance(
+    model_factory: Callable[[], Any], X: Any, y: Any, current_features: list[Any] | None = None, random_state: int | None = None,
+    importance_getter: str = "auto", w_statistic: str = "auto"
+) -> dict[Any, float]:
     """Compute knockoff-based importance: W_j = imp(X_j) - imp(X_tilde_j).
 
     Builds Gaussian knockoffs X_tilde, fits a fresh model on [X, X_tilde]

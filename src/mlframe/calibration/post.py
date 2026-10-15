@@ -78,7 +78,8 @@ def _try_import_class(module_path: str, class_name: str) -> Optional[type]:
     try:
         module = __import__(module_path, fromlist=[class_name])
         return getattr(module, class_name)  # type: ignore[no-any-return]
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_try_import_class fell back to its default after %s", type(_exc).__name__)
         return None
 
 
@@ -713,7 +714,8 @@ def _values_overlap_fraction(a: np.ndarray, b: np.ndarray, max_rows: int = 2_000
     try:
         longer_set = {tuple(np.atleast_1d(row).tolist()) for row in longer}
         hits = sum(1 for row in shorter if tuple(np.atleast_1d(row).tolist()) in longer_set)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_values_overlap_fraction fell back to its default after %s", type(_exc).__name__)
         return 0.0
     return float(hits / shorter.shape[0])
 

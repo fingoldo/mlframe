@@ -107,7 +107,7 @@ def _assert_numba_nogil_active() -> bool:
 _REENTRANCY = threading.local()
 
 
-def prewarm_numba_cache(include_feature_selection: bool = True, include_heavy_libs=None):
+def prewarm_numba_cache(include_feature_selection: bool = True, include_heavy_libs: bool | None = None) -> None:
     """Pre-warm Numba JIT cache to avoid compilation overhead during profiling.
 
     Calls all @njit functions with small dummy data to trigger JIT compilation before timing-sensitive operations. Warms up both float32 and float64 paths.

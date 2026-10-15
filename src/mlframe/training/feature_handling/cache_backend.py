@@ -303,7 +303,8 @@ class LocalDiskBackend:
         entries: List[tuple] = []
         try:
             names = os.listdir(self.root)
-        except OSError:
+        except OSError as _exc:
+            logger.debug("_evict_to_caps fell back to its default after %s", type(_exc).__name__)
             return 0
         for name in names:
             if name.startswith(".") or not name.endswith(".bin"):
@@ -352,7 +353,8 @@ class LocalDiskBackend:
                 key = name[:-4]  # strip ".bin"
                 if not prefix or key.startswith(prefix):
                     out.append(key)
-        except FileNotFoundError:
+        except FileNotFoundError as _exc:
+            logger.debug("list_keys fell back to its default after %s", type(_exc).__name__)
             return []
         return out
 

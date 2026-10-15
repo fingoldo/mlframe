@@ -24,7 +24,7 @@ from __future__ import annotations
 import logging
 
 from collections.abc import Sequence
-from typing import Optional, Any
+from typing import Callable, Optional, Any
 
 import numpy as np
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
@@ -490,7 +490,7 @@ def _top_agg_by_variance(X, acands, max_agg_cols):
 
     Vectorised over columns in blocks of ``_AGG_VAR_BLOCK_COLS`` (one ``np.var(axis=0)`` per block) instead of a per-column Python loop. Each column's
     variance is independent of every other; the block form measured 1.94x at p=300 cols / n=1500 with max diff 3.3e-15, machine-epsilon summation
-    noise that only feeds a descending sort. A whole-frame float64 copy of the candidates would be p x n x 8 bytes (5.96 GiB at 10M x 80), so blocks."""
+    noise that only feeds a descending sort. A whole-frame copy of the candidates would be p x n x 8 bytes (5.96 GiB at 10M x 80), so blocks."""
     _var_blocks = [np.var(X[acands[i : i + _AGG_VAR_BLOCK_COLS]].to_numpy(), axis=0) for i in range(0, len(acands), _AGG_VAR_BLOCK_COLS)]
     _a_var_vals = np.concatenate(_var_blocks) if _var_blocks else np.zeros(0)
     a_var = dict(zip(acands, _a_var_vals.tolist()))
@@ -504,7 +504,7 @@ def binned_numeric_agg_with_recipes(
     n_folds: int = 5, random_state: int = 0, max_pairs: int = 64,
     max_group_cols: int = 16, max_agg_cols: int = 16,
     mi_gate: bool = True, redundancy_gate: bool = True,
-    min_cmi_gain: float = 0.005, reject_sink=None,
+    min_cmi_gain: float = 0.005, reject_sink: Callable[..., None] | None = None,
 ) -> tuple:
     """End-to-end: relevance-select numeric group/aggregate columns, OOF-fit per-cell stats, append ``binagg_*``
     columns and build replay recipes. Returns ``(X_aug, appended, recipes)`` mirroring ``kfold_target_encode_with_recipes``.
@@ -571,7 +571,7 @@ def binned_numeric_agg_with_recipes(
             from ._gpu_strict_fe import fe_gpu_device_born_binagg_enabled
             _device_binagg = bool(fe_gpu_device_born_binagg_enabled())
         except Exception as e:
-            logger.debug("fe_gpu_device_born_binagg_enabled() check failed, defaulting to False: %s", e)
+            logger.warning("fe_gpu_device_born_binagg_enabled() check failed, defaulting to False: %s", e)
             _device_binagg = False
 
     feat_df = None

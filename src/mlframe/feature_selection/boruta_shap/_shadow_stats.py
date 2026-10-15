@@ -9,7 +9,7 @@ Carved out of the ``boruta_shap`` package facade (LOC-budget submodule split, se
 from __future__ import annotations
 
 
-from typing import Any
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 
@@ -20,7 +20,7 @@ from scipy.stats import ks_2samp
 from sklearn.ensemble import IsolationForest
 
 
-def calculate_hits(self):
+def calculate_hits(self) -> np.ndarray:
     """
     If a features importance is greater than the maximum importance value of all the random shadow
     features then we assign it a hit.
@@ -117,7 +117,7 @@ def _column_tie_fraction(values: np.ndarray) -> float:
 SHADOW_TIE_GATE_FRACTION = 0.20
 
 
-def create_shadow_features(self):
+def create_shadow_features(self) -> None:
     """
     Creates the random shadow features by shuffling the existing columns.
 
@@ -322,19 +322,19 @@ def feature_importance(self: Any, normalize: bool) -> Any:
 
     return X_feature_import, Shadow_feature_import
 
-def isolation_forest(X):
+def isolation_forest(X: pd.DataFrame | np.ndarray) -> np.ndarray:
     """
     fits isolation forest to the dataset and gives an anomaly score to every sample
     """
     clf = IsolationForest().fit(X)
     preds = clf.score_samples(X)
-    return preds
+    return np.asarray(preds)
 
-def get_5_percent(num):
+def get_5_percent(num: float) -> int:
     """5% of ``num``, rounded to the nearest integer - the base step size for ``get_5_percent_splits``' sampling grid."""
     return round(5 / 100 * num)
 
-def get_5_percent_splits(self, length):
+def get_5_percent_splits(self, length: int) -> np.ndarray:
     """
     splits dataframe into 5% intervals
     """
@@ -345,7 +345,7 @@ def get_5_percent_splits(self, length):
     step = max(1, int(five_percent))
     return np.arange(step, length, step)
 
-def find_sample(self):
+def find_sample(self) -> pd.DataFrame:
     """
     Finds a sample by comparing the distributions of the anomaly scores between the sample and the original
     distribution using the KS-test. Starts of a 5% however will increase to 10% and then 15% etc. if a significant sample can not be found
@@ -378,7 +378,7 @@ def find_sample(self):
     return self.X_boruta_.iloc[sample_indices]
 
 
-def binomial_H0_test(array, n, p, alternative):
+def binomial_H0_test(array: Iterable[Any], n: int, p: float, alternative: str) -> list[Any]:
     """
     Perform a test that the probability of success is p.
     This is an exact, two-sided test of the null hypothesis
@@ -388,18 +388,19 @@ def binomial_H0_test(array, n, p, alternative):
     from . import _binom_test_cached
     return [_binom_test_cached(int(x), n, p, alternative) for x in array]
 
-def symetric_difference_between_two_arrays(array_one, array_two):
+def symetric_difference_between_two_arrays(array_one: Iterable[Any], array_two: Iterable[Any]) -> np.ndarray:
     """Elements present in exactly one of ``array_one`` / ``array_two`` (set symmetric difference), as an ndarray."""
     set_one = set(array_one)
     set_two = set(array_two)
     return np.array(list(set_one.symmetric_difference(set_two)))
 
-def find_index_of_true_in_array(array):
+def find_index_of_true_in_array(array: Sequence[bool] | np.ndarray) -> list[int]:
     """Indices where ``array`` is truthy."""
     length = len(array)
     return list(filter(lambda x: array[x], range(length)))
 
-def bonferoni_corrections(pvals, alpha=0.05, n_tests=None):
+
+def bonferoni_corrections(pvals: Sequence[float] | np.ndarray, alpha: float = 0.05, n_tests: int | None = None) -> tuple[np.ndarray, np.ndarray]:
     """
     used to counteract the problem of multiple comparisons.
     """
@@ -415,7 +416,7 @@ def bonferoni_corrections(pvals, alpha=0.05, n_tests=None):
     pvals_corrected = pvals * float(n_tests)
     return reject, pvals_corrected
 
-def test_features(self, iteration):
+def test_features(self, iteration: int) -> None:
     """
     For each feature with an undetermined importance perform a two-sided test of equality
     with the maximum shadow value to determine if it is statistically better

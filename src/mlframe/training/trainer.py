@@ -234,7 +234,8 @@ def _compute_oof_preds(
         return None, None
     try:
         n_rows = len(train_df)
-    except TypeError:
+    except TypeError as _exc:
+        logger.warning("_compute_oof_preds fell back to its default after %s", type(_exc).__name__)
         return None, None
     if n_rows < max(2 * n_splits, 10):
         # Too few rows for meaningful K-fold; level-1 stacking on tiny data isn't a realistic use case anyway.
@@ -242,7 +243,8 @@ def _compute_oof_preds(
     try:
         from sklearn.model_selection import GroupKFold, cross_val_predict
         from sklearn.base import clone
-    except ImportError:
+    except ImportError as _exc:
+        logger.warning("_compute_oof_preds fell back to its default after %s", type(_exc).__name__)
         return None, None
 
     # Use clone() so the original (already-fit) model is not retrained in place.
@@ -250,6 +252,7 @@ def _compute_oof_preds(
         estimator = clone(model)
     except (TypeError, RuntimeError) as exc:
         # Some custom wrappers (Catboost shim, TTR, ClassifierChain) don't survive sklearn.clone; skip OOF gracefully.
+        logger.warning("_compute_oof_preds fell back to its default after %s", type(exc).__name__)
         return _skip(f"estimator not clonable ({exc})")
 
     cap_early_stopping_clone(estimator, model, diag)
@@ -313,6 +316,7 @@ def _compute_oof_preds(
             params=_cvp_params,
         )
     except (ValueError, TypeError, RuntimeError, NotImplementedError) as exc:
+        logger.warning("_compute_oof_preds fell back to its default after %s", type(exc).__name__)
         return _skip(f"{type(exc).__name__}: {exc}")
 
     if method == "predict_proba":
@@ -334,7 +338,8 @@ def _compute_oof_preds_timeseries(
 
     try:
         n_rows = len(train_df)
-    except TypeError:
+    except TypeError as _exc:
+        logger.warning("_compute_oof_preds_timeseries fell back to its default after %s", type(_exc).__name__)
         return None, None
     y_arr = np.asarray(train_target)
     sw_arr = np.asarray(sample_weight) if sample_weight is not None else None
@@ -371,6 +376,20 @@ def _compute_oof_preds_timeseries(
     if method == "predict_proba":
         return None, oof_proba
     return oof_pred, None
+
+
+def _reporting_config_with_routed_kwargs(_rep_kwargs, _unused_reporting_kwargs) -> ReportingConfig:
+    """Forward leftover kwargs that name a ReportingConfig field into ``_rep_kwargs``; unknown keys are dropped at DEBUG."""
+    _rep_fields = ReportingConfig.model_fields
+    _rep_unrecognized = []
+    for _k, _v in _unused_reporting_kwargs.items():
+        if _k in _rep_fields and _k not in _rep_kwargs:
+            _rep_kwargs[_k] = _v
+        else:
+            _rep_unrecognized.append(_k)
+    if _rep_unrecognized:
+        logger.debug("_build_configs_from_params dropped unknown kwargs: %s", sorted(_rep_unrecognized))
+    return ReportingConfig(**_rep_kwargs)
 
 
 def _build_configs_from_params(
@@ -584,16 +603,7 @@ def _build_configs_from_params(
     # ReportingConfig field is forwarded so new fields auto-propagate
     # without a per-field gate above. Truly unknown keys are dropped at
     # DEBUG (the splat must survive future additions), never raised.
-    _rep_fields = ReportingConfig.model_fields
-    _rep_unrecognized = []
-    for _k, _v in _unused_reporting_kwargs.items():
-        if _k in _rep_fields and _k not in _rep_kwargs:
-            _rep_kwargs[_k] = _v
-        else:
-            _rep_unrecognized.append(_k)
-    if _rep_unrecognized:
-        logger.debug("_build_configs_from_params dropped unknown kwargs: %s", sorted(_rep_unrecognized))
-    reporting_config = ReportingConfig(**_rep_kwargs)
+    reporting_config = _reporting_config_with_routed_kwargs(_rep_kwargs, _unused_reporting_kwargs)
 
     output_config = OutputConfig(
         plot_file=plot_file or "",

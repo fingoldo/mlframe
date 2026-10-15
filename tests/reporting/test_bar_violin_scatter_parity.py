@@ -88,6 +88,7 @@ def test_acf_and_pacf_are_the_same_colour():
     """Two panels of one measurement family; a colour difference the reader looks for a meaning in."""
     spec = compose_target_acf_figure(np.random.default_rng(0).normal(size=500))
     bars = [p for row in spec.panels for p in row if isinstance(p, BarPanelSpec)]
+    assert len(bars) == 2, f"expected the ACF and PACF bar panels, got {len(bars)}"
     assert len({p.colors for p in bars}) == 1, f"the ACF/PACF panels are drawn in {[p.colors for p in bars]}"
     assert all(p.colors == (BAR_PRIMARY,) for p in bars), "the panels do not use the shared single-series bar colour"
 

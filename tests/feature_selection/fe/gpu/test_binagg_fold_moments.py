@@ -27,6 +27,7 @@ def test_all_folds_tables_equal_the_per_fold_moments():
     codes, v_safe, finite_f, folds = _inputs()
     tabs = fold_cell_moments(cp, codes, v_safe, finite_f, folds, 5, 12)
     assert tabs is not None
+    assert len(tabs) == 5, "expected the (cnt, mean, cm2, cm3, cm4) tables"
     for f in range(5):
         w = cp.where(folds != f, finite_f, 0.0)
         ref = res._per_cell_moments_stable_masked_gpu(cp, codes, v_safe, w, 12)

@@ -24,7 +24,7 @@ combos that never use MRMR this saved cold-start time per process.
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 
@@ -52,7 +52,7 @@ def _summ_pre_screen(res, b):
 
 @logs_selection("pre_screen", _summ_pre_screen, what="dropped")
 def compute_unsupervised_drops(
-    train_df,
+    train_df: Any,
     variance_threshold: float = 0.0,
     null_fraction_threshold: float = 0.99,
     protected_columns: Iterable[str] = (),
@@ -99,7 +99,7 @@ def compute_unsupervised_drops(
             try:
                 null_count = int(col.null_count())
             except Exception as e:
-                logger.debug("null_count() failed for column %r, treating as 0: %s", col_name, e)
+                log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "null_count() failed for column %r, treating as 0: %s", col_name, e)
                 null_count = 0
             if null_count > null_cutoff:
                 drops.add(col_name)
@@ -112,14 +112,14 @@ def compute_unsupervised_drops(
                 dt = col.dtype
                 is_numeric = dt.is_numeric() if hasattr(dt, "is_numeric") else False
             except Exception as e:
-                logger.debug("dtype numeric check failed for column %r, treating as non-numeric: %s", col_name, e)
+                log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "dtype numeric check failed for column %r, treating as non-numeric: %s", col_name, e)
                 is_numeric = False
             if not is_numeric:
                 continue
             try:
                 var_val = col.var()
             except Exception as e:
-                logger.debug("var() failed for column %r: %s", col_name, e)
+                log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "var() failed for column %r: %s", col_name, e)
                 var_val = None
             if var_val is None:
                 # All-null after the null check would have been caught above; treat as constant.
@@ -255,7 +255,7 @@ def _scan_columns_for_unsupervised_drops(col_labels, protected, train_df, n_rows
             drops.add(col_name)
 
 
-def apply_drops(df, drop_cols: list[str]):
+def apply_drops(df: Any, drop_cols: list[str]) -> Any:
     """Return df with ``drop_cols`` removed. Polars / pandas agnostic, idempotent on missing columns."""
     if df is None or not drop_cols:
         return df

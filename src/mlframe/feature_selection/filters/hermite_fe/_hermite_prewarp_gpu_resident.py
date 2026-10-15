@@ -216,7 +216,8 @@ def warm_start_als_seed_gpu(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray, *, 
 
     try:
         return _als_sweep_gpu(cp, Ba, Bb, yc, iters)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("warm_start_als_seed_gpu fell back to its default after %s", type(_exc).__name__)
         return None, None
 
 
@@ -259,7 +260,7 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
         from .._fe_gpu_batch._devices import crit_float_dtype
         _zdt = crit_float_dtype()
     except Exception as e:
-        logger.debug("crit_float_dtype() lookup failed, using float64: %s", e)
+        logger.warning("crit_float_dtype() lookup failed, using float64: %s", e)
         _zdt = cp.float64
     za = cp.asarray(np.ascontiguousarray(np.asarray(z_a, dtype=_zdt)).reshape(-1))
     zb = cp.asarray(np.ascontiguousarray(np.asarray(z_b, dtype=_zdt)).reshape(-1))
@@ -271,5 +272,6 @@ def warm_start_als_seed_gpu_from_z(z_a: np.ndarray, z_b: np.ndarray, y: np.ndarr
         Ba = _build_basis_matrix_gpu(cp, str(basis), za, deg)
         Bb = _build_basis_matrix_gpu(cp, str(basis), zb, deg)
         return _als_sweep_gpu(cp, Ba, Bb, yc, iters)
-    except (np.linalg.LinAlgError, ValueError):
+    except (np.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("warm_start_als_seed_gpu_from_z fell back to its default after %s", type(_exc).__name__)
         return None, None

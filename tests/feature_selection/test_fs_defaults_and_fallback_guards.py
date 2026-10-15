@@ -62,7 +62,7 @@ def test_mrmr_same_shape_skip_distinguishes_y_content():
 
     # First fit signature.
     MRMR._FIT_CACHE.clear()
-    mrmr = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_seed=0)
+    mrmr = MRMR(quantization_nbins=5, full_npermutations=1, baseline_npermutations=1, verbose=0, skip_retraining_on_same_content=True, random_state=0)
     mrmr.fit(X_df, y1)
     sig1 = mrmr.signature
 

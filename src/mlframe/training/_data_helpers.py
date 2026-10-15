@@ -527,7 +527,8 @@ def _hgb_supports_external_val(model_obj: Any) -> bool:
         return False
     try:
         return "X_val" in inspect.signature(fit).parameters
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_hgb_supports_external_val fell back to its default after %s", type(_exc).__name__)
         return False
 
 
@@ -696,7 +697,8 @@ def _fit_accepts(model_obj: Any, kwarg: str, model_type_name: str) -> bool:
         return "ranker" in model_type_name.lower()
     try:
         return kwarg in inspect.signature(model_obj.fit).parameters
-    except (AttributeError, TypeError, ValueError):
+    except (AttributeError, TypeError, ValueError) as _exc:
+        logger.debug("_fit_accepts fell back to its default after %s", type(_exc).__name__)
         return False
 
 

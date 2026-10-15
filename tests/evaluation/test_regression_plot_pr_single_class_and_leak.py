@@ -11,6 +11,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from mlframe.evaluation.reports import plot_pr_curve
 
@@ -29,5 +30,11 @@ def test_plot_pr_curve_two_classes_returns_figure():
     y = np.array([0] * 10 + [1] * 10)
     preds = rng.rand(20)
     fig = plot_pr_curve(y, preds)
-    assert fig is not None
-    plt.close(fig)
+    try:
+        ax = fig.axes[0]
+        assert ax.get_title() == f"PRC/ROC, BrierLoss={brier_score_loss(y, preds):.3f}"
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert any(lbl.startswith("PR AUC=") for lbl in labels)
+        assert f"ROC AUC={roc_auc_score(y, preds):.3f}" in labels
+    finally:
+        plt.close(fig)

@@ -10,6 +10,8 @@ covered by F9's test. PR1/PR2/PR4 are feature-parity/docs/CI proposals with no r
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -277,16 +279,26 @@ def test_f10_single_model_with_coord_descent_raises_clear_error():
 
 
 def test_f12_sns_set_not_called_at_import_time():
-    """F12 sns set not called at import time."""
-    import inspect
+    """Importing stability_exp in a fresh interpreter must leave seaborn's global grid style untouched.
+
+    ``sns.set(style="whitegrid")`` turns ``axes.grid`` on; a module-level call would make it True at import.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
 
     from mlframe.votenrank import stability_exp
 
-    src = inspect.getsource(stability_exp)
-    module_level_lines = [line for line in src.splitlines() if line.strip().startswith("sns.set(") and not line.startswith((" ", "\t"))]
-    assert not module_level_lines, "F12 REGRESSION: sns.set(...) must not run at module import scope"
-    # It must still be called from inside the plotting entry points.
-    assert '    sns.set(style="whitegrid")' in src
+    src_root = str(Path(stability_exp.__file__).resolve().parents[2])
+    code = (
+        "import matplotlib; import seaborn; "
+        "before = matplotlib.rcParams['axes.grid']; "
+        "import mlframe.votenrank.stability_exp; "
+        "print(before, matplotlib.rcParams['axes.grid'])"
+    )
+    env = {**os.environ, "PYTHONPATH": src_root + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True)
+    assert proc.stdout.split() == ["False", "False"], f"F12 REGRESSION: importing stability_exp changed seaborn globals: {proc.stdout!r}"
 
 
 # ---------------------------------------------------------------------------

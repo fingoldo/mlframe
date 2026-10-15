@@ -38,7 +38,8 @@ def prescreen_frame(ext_X: Any, ext_y: Any, val_df: Any, y_full: Any, val_idx: A
         return None, None
     try:
         val_y = np.asarray(y_full)[val_idx]
-    except (TypeError, IndexError):
+    except (TypeError, IndexError) as _exc:
+        logger.warning("prescreen_frame fell back to its default after %s", type(_exc).__name__)
         return None, None
     if val_y is None or len(val_y) == 0:
         return None, None

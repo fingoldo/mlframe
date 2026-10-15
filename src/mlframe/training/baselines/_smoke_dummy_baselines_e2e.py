@@ -27,7 +27,7 @@ from mlframe.training.configs import (
 from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
 
-def main():
+def main() -> int:
     """End-to-end smoke test: synthesize a per-group target and confirm dummy-baseline features (incl. high-cardinality group columns dropped from tree frames) still flow through correctly."""
     rng = np.random.default_rng(0)
     n = 5000

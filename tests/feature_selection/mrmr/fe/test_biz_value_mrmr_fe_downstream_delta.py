@@ -129,7 +129,7 @@ def _linear_model(classification: bool):
 
 def _select_transform(kwargs, df_tr, y_tr, df_te):
     """Select transform."""
-    fs = MRMR(verbose=0, random_seed=42, **kwargs)
+    fs = MRMR(verbose=0, random_state=42, **kwargs)
     fs.fit(df_tr, y_tr)
     Xtr = np.nan_to_num(np.asarray(fs.transform(df_tr), float), nan=0.0, posinf=0.0, neginf=0.0)
     Xte = np.nan_to_num(np.asarray(fs.transform(df_te), float), nan=0.0, posinf=0.0, neginf=0.0)

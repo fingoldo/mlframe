@@ -78,7 +78,7 @@ def _nonuniform_weights(sample_weight) -> Optional[np.ndarray]:
 
 def _weighted_multiclass_error(probs, y_true, labels, multilabel, w, *, method, nbins, use_weighted_calibration, mae_weight, std_weight,
                                brier_loss_weight, roc_auc_weight, pr_auc_weight, min_roc_auc, roc_auc_penalty, coverage_weight,
-                               weight_by_class_npositives, return_per_class):
+                               weight_by_class_npositives, return_per_class) -> float | tuple[float, dict]:
     """ICE under per-row weights: every component weighted (see ``_ice_kernel_weighted``), bins chosen per class like the
     unweighted metric (equal-mass bins for a rare positive class, equal-width otherwise)."""
     from .calibration import resolve_binning_strategy
@@ -148,7 +148,7 @@ def _stack_class_columns(probs, y_true, labels, multilabel: bool, _class_ids):
     return _y_pred_NK, _y_true_NK
 
 
-def _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives: bool, return_per_class: bool):
+def _reduce_per_class(ice_per_class, _class_ids, _y_true_NK, weight_by_class_npositives: bool, return_per_class: bool) -> float | tuple[float, dict]:
     """Combine per-class ICE into the metric (optionally positive-count weighted) and return it the way the caller asked."""
     total_error = 0.0
     weights_sum = 0
@@ -195,7 +195,7 @@ def compute_probabilistic_multiclass_error(
     return_per_class: bool = False,
     sample_weight: Optional[np.ndarray] = None,
     **kwargs,  # scorer can pass kwargs like {'needs_proba': True, 'needs_threshold': False}
-):
+) -> float | tuple[float, dict]:
     """Given a sequence of per-class probabilities (predicted by some model), and ground truth targets,
     computes weighted sum of per-class errors.
     Supports several error estimation methods: "multicrit", "brier_score", "precision".
@@ -461,7 +461,8 @@ def _accepts_sample_weight(metric: Callable) -> bool:
     target = metric if inspect.isfunction(metric) or inspect.ismethod(metric) else (cast(Any, metric).__call__ if callable(metric) else metric)
     try:
         params = inspect.signature(target).parameters
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_accepts_sample_weight fell back to its default after %s", type(_exc).__name__)
         return False
     if "sample_weight" in params:
         return True
@@ -696,7 +697,8 @@ def _install_catboost_sklearn_clone_patch() -> None:
     """Monkeypatch ``__sklearn_clone__`` onto ``CatBoostClassifier``/``CatBoostRegressor`` so ``sklearn.base.clone()`` reuses the caller's ``eval_metric``/``custom_metric`` instead of tripping on CatBoost's internal deep-copy / per-call list re-normalization (see the module comment above for both failure modes)."""
     try:
         from catboost import CatBoostClassifier, CatBoostRegressor
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_install_catboost_sklearn_clone_patch fell back to its default after %s", type(_exc).__name__)
         return
 
     def _cb_sklearn_clone(self):

@@ -196,7 +196,8 @@ def _score(scorer: Any, est: Any, X: Any, y: np.ndarray) -> float:
     """Score via an sklearn-style ``scorer(estimator, X, y)``; fall back to ``estimator.score``."""
     try:
         return float(scorer(est, X, y))
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_score fell back to its default after %s", type(_exc).__name__)
         return float(est.score(X, y))
 
 

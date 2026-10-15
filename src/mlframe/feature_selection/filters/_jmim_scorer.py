@@ -27,46 +27,9 @@ Implementation notes (per README.md methodology):
 """
 from __future__ import annotations
 
-import math
-
 import numpy as np
-from numba import njit
 
-
-@njit(nogil=True, cache=True)
-def _joint_mi_3d_njit(x: np.ndarray, z: np.ndarray, y: np.ndarray, K_x: int, K_z: int, K_y: int) -> float:
-    """I((X, Z); Y) via plug-in on the 3-D joint count cube.
-
-    Treats (x_i, z_i) as a flat composite category, then collapses to a
-    2-D (composite, y) joint and computes plug-in MI.
-    """
-    n = x.shape[0]
-    if n <= 0:
-        return 0.0
-    K_xz = K_x * K_z
-    joint = np.zeros((K_xz, K_y), dtype=np.float64)
-    for i in range(n):
-        composite = int(x[i]) * K_z + int(z[i])
-        joint[composite, int(y[i])] += 1.0
-    n_f = float(n)
-    Px = np.zeros(K_xz, dtype=np.float64)
-    Py = np.zeros(K_y, dtype=np.float64)
-    for i in range(K_xz):
-        for j in range(K_y):
-            v = joint[i, j]
-            Px[i] += v
-            Py[j] += v
-    mi = 0.0
-    for i in range(K_xz):
-        if Px[i] <= 0.0:
-            continue
-        for j in range(K_y):
-            v = joint[i, j]
-            if v <= 0.0 or Py[j] <= 0.0:
-                continue
-            p = v / n_f
-            mi += p * math.log(p * n_f / (Px[i] * Py[j] / n_f))
-    return max(0.0, mi)
+from ._numba_utils import _joint_mi_3d_njit
 
 
 def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray, nbins_x: int, nbins_selected: list[int], nbins_y: int) -> float:

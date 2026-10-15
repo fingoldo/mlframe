@@ -25,9 +25,10 @@ the same way the xgboost branch already does; leaving multiclass out of scope fo
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def reset_catboost_available_cache() -> None:
     _CATBOOST_AVAILABLE_CACHE = None
 
 
-def is_catboost_estimator(est) -> bool:
+def is_catboost_estimator(est: object) -> bool:
     """True for a CatBoostClassifier / CatBoostRegressor / CatBoost instance (fitted or unfitted).
 
     Class-name probe (not isinstance) so we don't pay the catboost import cost when the user is on
@@ -75,7 +76,7 @@ def make_catboost_estimator(
     n_jobs: int = -1,
     cat_features: Optional[Sequence] = None,
     **kwargs,
-):
+) -> Any:
     """Fast catboost booster whose native ``get_feature_importance(type='ShapValues')`` path is exact
     and well-behaved. Mirrors the xgboost / lightgbm default-estimator factories.
 
@@ -117,7 +118,7 @@ def _build_pool(X, cat_features: Optional[Sequence] = None):
     return Pool(data=X, cat_features=list(cat_features) if cat_features is not None else None)
 
 
-def catboost_shap(model, X, *, cat_features: Optional[Sequence] = None):
+def catboost_shap(model: Any, X: pd.DataFrame | np.ndarray, *, cat_features: Optional[Sequence] = None) -> tuple[np.ndarray, float]:
     """Extract a single-output ``(phi, base)`` pair from a fitted catboost model via its native SHAP.
 
     Returns ``(phi, base)`` where ``phi`` is shape ``(n_samples, n_features)`` and ``base`` is a

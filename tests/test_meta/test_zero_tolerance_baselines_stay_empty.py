@@ -44,6 +44,7 @@ ZERO_TOLERANCE_BASELINES: tuple[str, ...] = (
     "_tick_isinstance_baseline.json",
     "_unprotected_treeexplainer_baseline.json",
     "_vacuous_loop_baseline.json",
+    "_tested_but_uncalled_baseline.json",
 )
 
 

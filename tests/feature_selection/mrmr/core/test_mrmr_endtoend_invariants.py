@@ -167,7 +167,7 @@ df_before = df.copy(deep=True)
 # invariants below are deterministic rather than flaky.
 np.random.seed(case["seed"] & 0x7FFFFFFF)
 
-m = MRMR(max_runtime_mins=5, verbose=0, random_seed=case["seed"], **fe_kwargs)
+m = MRMR(max_runtime_mins=5, verbose=0, random_state=case["seed"], **fe_kwargs)
 m.fit(df, y)
 
 names_out = list(m.get_feature_names_out())

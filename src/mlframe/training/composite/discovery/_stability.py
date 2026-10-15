@@ -186,7 +186,8 @@ def _align_group_labels(group_ids: Any, train_idx: np.ndarray) -> np.ndarray | N
         return g
     try:
         return np.asarray(g[train_idx])
-    except (IndexError, TypeError):
+    except (IndexError, TypeError) as _exc:
+        logger.debug("_align_group_labels fell back to its default after %s", type(_exc).__name__)
         return None
 
 

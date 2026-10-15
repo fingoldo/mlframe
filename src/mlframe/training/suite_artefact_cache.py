@@ -208,7 +208,8 @@ class SuiteArtefactCache:
         """Byte size of ``path``, or 0 if it does not exist / is unreadable -- never raises."""
         try:
             return os.path.getsize(path)
-        except OSError:
+        except OSError as _exc:
+            logger.debug("_file_size fell back to its default after %s", type(_exc).__name__)
             return 0
 
     def _init_lru_from_disk(self) -> None:
@@ -254,7 +255,8 @@ class SuiteArtefactCache:
                         total += de.stat().st_size
                     except OSError:
                         pass
-        except FileNotFoundError:
+        except FileNotFoundError as _exc:
+            logger.debug("_total_bytes_locked fell back to its default after %s", type(_exc).__name__)
             return 0
         return total
 
@@ -311,7 +313,8 @@ class SuiteArtefactCache:
         path = self._path(key)
         try:
             value = _safe_pickle_load(path)
-        except (FileNotFoundError, OSError, EOFError, PickleVerificationError):
+        except (FileNotFoundError, OSError, EOFError, PickleVerificationError) as _exc:
+            logger.debug("get fell back to its default after %s", type(_exc).__name__)
             return default
         except Exception as exc:
             logger.debug("SuiteArtefactCache.get %s failed: %s", key, exc)

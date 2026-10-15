@@ -7,6 +7,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 import numba
 import numpy as np
+from mlframe._numerical_floors import VARIANCE_FLOOR
 from numba import prange
 
 from ._fourier_core_cycles import freq_is_tail_aliased
@@ -68,7 +69,7 @@ def _corr_sq_centered(v: np.ndarray, y_centered: np.ndarray, y_ss: float) -> flo
     # 1e-24 floor yet makes ``(vy^2)/(v_ss*y_ss)`` explode past 1.0, letting a degenerate column win the
     # periodogram. A genuinely varying v has ``v_ss`` an O(1) fraction of ``vv``; cancellation gives
     # ``v_ss << vv``. Reject when the centered SS is a negligible fraction of the raw SS.
-    if v_ss <= 1e-12 * vv or v_ss < 1e-24 or y_ss < 1e-24:
+    if v_ss <= 1e-12 * vv or v_ss < VARIANCE_FLOOR or y_ss < VARIANCE_FLOOR:
         return 0.0
     return float((vy * vy) / (v_ss * y_ss))
 
@@ -89,7 +90,7 @@ def _periodogram_power(z01: np.ndarray, y: np.ndarray, freq: float) -> float:
     """
     yc = y - y.mean()
     y_ss = float(yc @ yc)
-    if y_ss < 1e-24:
+    if y_ss < VARIANCE_FLOOR:
         return 0.0
     ang = 2.0 * np.pi * float(freq) * z01
     return _corr_sq_centered(np.sin(ang), yc, y_ss) + _corr_sq_centered(np.cos(ang), yc, y_ss)
@@ -149,10 +150,10 @@ def _power_centered_fused_par_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, f
     # SS (catastrophic-cancellation residual for a near-constant sin/cos projection) - an absolute 1e-24
     # floor lets a ~1e-23 residual through and explodes the ratio, letting a degenerate frequency win.
     v_ss = ss_s - sums * sums / n
-    if v_ss > 1e-12 * ss_s and v_ss >= 1e-24 and y_ss >= 1e-24:
+    if v_ss > 1e-12 * ss_s and v_ss >= VARIANCE_FLOOR and y_ss >= VARIANCE_FLOOR:
         out += (sy * sy) / (v_ss * y_ss)
     v_cc = ss_c - sumc * sumc / n
-    if v_cc > 1e-12 * ss_c and v_cc >= 1e-24 and y_ss >= 1e-24:
+    if v_cc > 1e-12 * ss_c and v_cc >= VARIANCE_FLOOR and y_ss >= VARIANCE_FLOOR:
         out += (cy * cy) / (v_cc * y_ss)
     return out
 
@@ -233,10 +234,10 @@ def _power_centered_batch_njit(z: np.ndarray, yc: np.ndarray, y_ss: float, freqs
             cy += partials[fi, b, 5]
         p = 0.0
         v_ss = ss_s - sums * sums / n
-        if v_ss > 1e-12 * ss_s and v_ss >= 1e-24 and y_ss >= 1e-24:
+        if v_ss > 1e-12 * ss_s and v_ss >= VARIANCE_FLOOR and y_ss >= VARIANCE_FLOOR:
             p += (sy * sy) / (v_ss * y_ss)
         v_cc = ss_c - sumc * sumc / n
-        if v_cc > 1e-12 * ss_c and v_cc >= 1e-24 and y_ss >= 1e-24:
+        if v_cc > 1e-12 * ss_c and v_cc >= VARIANCE_FLOOR and y_ss >= VARIANCE_FLOOR:
             p += (cy * cy) / (v_cc * y_ss)
         out[fi] = p
     return out
@@ -356,7 +357,7 @@ def _greedy_fourier_frequency_search(max_freqs, y_tr, y_va, grid, _coarse_basis,
             break
         yc = y_tr - y_tr.mean()
         y_ss = float(yc @ yc)
-        if y_ss < 1e-24:
+        if y_ss < VARIANCE_FLOOR:
             break
         best_f = None
         best_power = -1.0
@@ -365,9 +366,9 @@ def _greedy_fourier_frequency_search(max_freqs, y_tr, y_va, grid, _coarse_basis,
             num_s = float(sc @ yc)
             num_c = float(cc @ yc)
             p = 0.0
-            if s_ss >= 1e-24:
+            if s_ss >= VARIANCE_FLOOR:
                 p += (num_s * num_s) / (s_ss * y_ss)
-            if c_ss >= 1e-24:
+            if c_ss >= VARIANCE_FLOOR:
                 p += (num_c * num_c) / (c_ss * y_ss)
             if p > best_power:
                 best_power = p

@@ -387,8 +387,8 @@ class TestStability:
         y = pd.Series((sig > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            sel1 = MRMR(verbose=0, random_seed=42).fit(X, y)
-            sel2 = MRMR(verbose=0, random_seed=42).fit(X, y)
+            sel1 = MRMR(verbose=0, random_state=42).fit(X, y)
+            sel2 = MRMR(verbose=0, random_state=42).fit(X, y)
         np.testing.assert_array_equal(sel1.support_, sel2.support_)
 
 

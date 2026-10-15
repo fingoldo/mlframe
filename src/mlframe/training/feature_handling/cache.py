@@ -346,7 +346,8 @@ class FeatureCache:
         allow_pickle = bool(getattr(self._cfg, "allow_pickle", False))
         try:
             return _deserialize(path, allow_pickle=allow_pickle)
-        except FileNotFoundError:
+        except FileNotFoundError as _exc:
+            logger.debug("_read_from_disk fell back to its default after %s", type(_exc).__name__)
             return None
         except CachePickleRefusedError:
             # Surface the refusal up to the caller -- silent miss would

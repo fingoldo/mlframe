@@ -12,13 +12,13 @@ from scipy.stats import rankdata
 global device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def load_config(config_path):
+def load_config(config_path: str) -> dict:
     """Load the model/training YAML config used to reconstruct the InfoNet architecture at load time."""
     with open(config_path, "r", encoding="utf-8") as file:
-        config = yaml.safe_load(file)
+        config: dict = yaml.safe_load(file)
     return config
 
-def create_model(config):
+def create_model(config: dict) -> torch.nn.Module:
     """Build an uninitialized InfoNet model (Perceiver-style encoder + transformer query-gen + decoder) from a config dict and move it to the module-level ``device``."""
     encoder = Encoder(
         input_dim=config["model"]["input_dim"],
@@ -37,11 +37,11 @@ def create_model(config):
 
     query_gen = Query_Gen_transformer(input_dim=config["model"]["input_dim"], dim=config["model"]["decoder_query_dim"])
 
-    model = infonet(encoder=encoder, decoder=decoder, query_gen=query_gen, decoder_query_dim=config["model"]["decoder_query_dim"]).to(device)
+    model: torch.nn.Module = infonet(encoder=encoder, decoder=decoder, query_gen=query_gen, decoder_query_dim=config["model"]["decoder_query_dim"]).to(device)
 
     return model
 
-def load_model(config_path, checkpoint_path):
+def load_model(config_path: str, checkpoint_path: str) -> torch.nn.Module:
     """Load a trained InfoNet from a config + checkpoint file and set it to eval mode; uses ``weights_only=True`` (never falls back to a full unpickle) so a tampered checkpoint can't execute arbitrary code during unpickling."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     config = load_config(config_path)
@@ -53,7 +53,7 @@ def load_model(config_path, checkpoint_path):
     model.eval()
     return model
 
-def estimate_mi(model, x, y):
+def estimate_mi(model: torch.nn.Module, x: np.ndarray, y: np.ndarray) -> torch.Tensor:
     """Estimate mutual information between two 1-D sequences by rank-normalizing both to [0,1] and feeding the resulting single sequence-pair batch through the model."""
     ## x and y are 1 dimensional sequences
     model.eval()
@@ -61,10 +61,10 @@ def estimate_mi(model, x, y):
     y = rankdata(y)/len(y)
     batch = torch.stack((torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)), dim=1).unsqueeze(0).to(device) ## batch has shape [1, sequence length, 2]
     with torch.no_grad():
-        mi_lb = model(batch)
+        mi_lb: torch.Tensor = model(batch)
     return mi_lb
 
-def infer(model, batch):
+def infer(model: torch.nn.Module, batch: np.ndarray | torch.Tensor) -> np.ndarray:
     """Run the model on a batch of rank-normalized sequence-pairs and return the batch-mean MI lower bound as a numpy scalar."""
     ### batch has shape [batchsize, seq_len, 2]
     model.eval()
@@ -76,7 +76,14 @@ def infer(model, batch):
 
     return MI.cpu().numpy()
 
-def compute_smi_mean(sample_x, sample_y, model, proj_num, seq_len, batchsize):
+def compute_smi_mean(
+    sample_x: np.ndarray,
+    sample_y: np.ndarray,
+    model: torch.nn.Module,
+    proj_num: int,
+    seq_len: int,
+    batchsize: int,
+) -> np.floating:
     """Estimate high-dimensional dependence via sliced mutual information: project ``sample_x``/``sample_y`` onto random 1-D directions, rank-normalize each projection, run InfoNet on batches of projections, and average the per-projection MI over ``proj_num`` random directions."""
     ## we use sliced mutual information to estimate high dimensional correlation
     ## proj_num means the number of random projections you want to use, the larger the more accuracy but higher time cost
@@ -100,9 +107,10 @@ def compute_smi_mean(sample_x, sample_y, model, proj_num, seq_len, batchsize):
         mean_infer1 = np.mean(infer1)
         results.append(mean_infer1)
 
-    return np.mean(np.array(results))
+    mean_mi: np.floating = np.mean(np.array(results))
+    return mean_mi
 
-def example_d_1():
+def example_d_1() -> None:
     """Demo: sweep bivariate-Gaussian correlations and compare InfoNet's MI estimate against the closed-form Gaussian MI ``-log(1-rho**2)/2``."""
     seq_len = 4781
     results = []
@@ -118,7 +126,7 @@ def example_d_1():
         results.append(result)
         print("estimate mutual information is: ", result, "real MI is ", real_MI  )
 
-def example_highd():
+def example_highd() -> None:
     """Demo: two independent 10-D Gaussian samples should yield a sliced-MI estimate near zero."""
     d = 10
     mu = np.zeros(d)

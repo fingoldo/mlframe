@@ -65,3 +65,24 @@ def test_streamed_mi_matches_cpu_batch_mi(dtype):
     assert gpu.shape == ref.shape == (p,)
     assert np.allclose(gpu, ref, atol=1e-6)
     assert np.array_equal(np.argsort(-gpu, kind="stable")[:5], np.argsort(-ref, kind="stable")[:5])
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_streamed_fill_matches_copy_path(dtype):
+    """The production fill path and the copy-into-staging reference score the same blocks to identical MI values."""
+    pytest.importorskip("cupy")
+    if S._devices() == []:
+        pytest.skip("no CUDA device")
+    rng = np.random.default_rng(1)
+    n, p = 50_000, 16
+    X = rng.standard_normal((n, p)).astype(dtype)
+    y = (X[:, 0] + X[:, 1] * X[:, 2] + rng.standard_normal(n) > 0).astype(np.int64)
+    blocks = [X[:, a : a + 8] for a in range(0, p, 8)]
+    copy_path = S.mi_classif_streamed(iter(blocks), y, nbins=10, n_rows=n, dtype=dtype)
+
+    def fill(k, out):
+        """Write column block k into the staging view the fill path hands over."""
+        out[...] = blocks[k]
+
+    fill_path = S.mi_classif_streamed_fill(fill, len(blocks), [b.shape[1] for b in blocks], y, nbins=10, n_rows=n, dtype=dtype)
+    assert np.array_equal(copy_path, fill_path)

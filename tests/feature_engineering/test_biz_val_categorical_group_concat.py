@@ -122,6 +122,7 @@ def test_discover_categorical_groups_max_group_size_caps_group_growth():
     """Discover categorical groups max group size caps group growth."""
     df, y = _make_joint_rarity_dataset_with_noise(n=2000, seed=2)
     groups = discover_categorical_groups(df, ["cat_a", "cat_b", "cat_noise"], y, max_group_size=1, random_state=0)
+    assert len(groups) == 3, f"expected 3 singleton groups, one per input column, got groups={groups}"
     assert all(len(g) == 1 for g in groups), f"expected max_group_size=1 to force every group to stay a singleton, got groups={groups}"
 
 

@@ -229,7 +229,8 @@ def get_decision_threshold(metadata: dict | None, target_key: str | None = None,
         return float(default)
     try:
         thr = float(val)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("get_decision_threshold fell back to its default after %s", type(_exc).__name__)
         return float(default)
     if not np.isfinite(thr) or not (0.0 < thr < 1.0):
         return float(default)

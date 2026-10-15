@@ -60,6 +60,7 @@ from ._phase_composite_discovery_gates import (  # noqa: F401  (re-exported)
     select_composites_to_train,
 )
 from mlframe.training.composite.transforms.shared import call_transform
+from ._phase_composite_mix_offset import _add_mix_offset_targets
 
 
 def composite_t_full(transform: Any, spec: Any, y_arr: np.ndarray, base_full: np.ndarray, filtered_train_idx: Any) -> "tuple[np.ndarray, np.ndarray]":
@@ -87,19 +88,19 @@ def composite_t_full(transform: Any, spec: Any, y_arr: np.ndarray, base_full: np
 
 def run_composite_target_discovery(
     *,
-    composite_target_discovery_config,
+    composite_target_discovery_config: Any,
     target_by_type: dict,
     mlframe_models: list[str] | None,
     metadata: dict,
-    filtered_train_df,
-    filtered_train_idx,
-    train_df_pd,
-    val_df_pd,
-    test_df_pd,
-    train_idx,
-    val_idx,
-    test_idx,
-    baseline_diagnostics_config,
+    filtered_train_df: Any,
+    filtered_train_idx: Any,
+    train_df_pd: Any,
+    val_df_pd: Any,
+    test_df_pd: Any,
+    train_idx: Any,
+    val_idx: Any,
+    test_idx: Any,
+    baseline_diagnostics_config: Any,
     cat_features: list[str] | None,
     verbose: bool,
     discovery_cache_dir: Any = None,
@@ -988,33 +989,3 @@ def _run_composite_targ_specs_trained(n_specs_trained, _gpu_families):
                 "estimators if reproducibility matters.",
                 ", ".join(_gpu_families), n_specs_trained, n_specs_trained,
             )
-
-
-def _add_mix_offset_targets(target_by_type: dict, metadata: dict, inputs: dict) -> dict:
-    """Add ``<name>__mixoff`` for each regression target whose mix base the gate accepts; record the base and slope in metadata.
-
-    The companion is an ordinary target in ``target_by_type``: it is trained like any other, and its predictions are returned
-    to the y scale by the add-back wrapper (wiring pending). A name collision leaves the existing target untouched."""
-    from ...feature_selection.filters import build_mix_offset_target
-
-    out = dict(target_by_type)
-    reg = dict(out.get(TargetTypes.REGRESSION, {}))
-    for tname, values in list(reg.items()):
-        if np.asarray(values).ndim != 1:
-            continue
-        companion = f"{tname}__mixoff"
-        if companion in reg:
-            continue
-        built = build_mix_offset_target(
-            inputs["X"], values, inputs["train_idx"],
-            selector=inputs["selector"], gate_regressor=inputs["gate_regressor"],
-        )
-        if built is None:
-            continue
-        reg[companion] = built["values"]
-        metadata.setdefault("mix_offset_targets", {}).setdefault(str(TargetTypes.REGRESSION), {})[companion] = {
-            "source": tname, "beta": built["beta"], "base": repr(built["base"]), "recipe": built["base"],
-        }
-        logger.info("[MixOffset] added companion target '%s' (beta %+.4f).", companion, built["beta"])
-    out[TargetTypes.REGRESSION] = reg
-    return out

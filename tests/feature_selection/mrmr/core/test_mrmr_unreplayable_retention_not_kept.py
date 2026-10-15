@@ -49,7 +49,7 @@ def test_a_retention_candidate_that_cannot_replay_is_not_kept(monkeypatch):
     df, y = _case()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(random_seed=0).fit(X=df, y=y)
+        fs = MRMR(random_state=0).fit(X=df, y=y)
     assert replay_attempts, "setup: the subsumption guard never replayed the candidate (no engineered incumbent to condition on)"
     names = [getattr(r, "name", None) for r in (getattr(fs, "_engineered_recipes_", None) or [])]
     assert _UnreplayableRecipe.name not in names

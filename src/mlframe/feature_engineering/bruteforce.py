@@ -13,7 +13,7 @@ import os
 import textwrap
 import threading
 import warnings
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -266,7 +266,7 @@ def run_pysr_feature_engineering(
     leakage_free_n_splits: int = 5,
     random_state: Optional[int] = None,
     verbose: int = 1,
-):
+) -> Any:
     """Run symbolic regression on a sampled frame using PySR.
 
     Parameters

@@ -105,7 +105,8 @@ def _canonical_dtype(d: Any) -> str:
     try:
         nd = np.dtype(d)
         return "O" if nd.kind in "OUS" else f"{nd.kind}{nd.itemsize}"
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_canonical_dtype fell back to its default after %s", type(_exc).__name__)
         return name
 
 

@@ -240,7 +240,8 @@ def _triplet_device_col_specs(eng_columns, raw_cols):
         try:
             suffix = name.split("__", 1)[1]
             parts = suffix.split("_")
-        except (ValueError, IndexError):
+        except (ValueError, IndexError) as _exc:
+            logger.debug("_triplet_device_col_specs fell back to its default after %s", type(_exc).__name__)
             return None
         if len(parts) != 3:
             return None

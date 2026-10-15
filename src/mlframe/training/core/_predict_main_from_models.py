@@ -448,19 +448,7 @@ def _predict_from_model_all_native_path_only(df_pre_pipeline, _all_polars_native
                         per_target_calib_flags.setdefault((target_type, target_name), []).append(_is_cal)
 
                         # Binary threshold from val/OOF-tuned metadata (never test); 0.5 fallback.
-                        _bin_thr = member_decision_threshold(metadata, target_type, target_name, getattr(model_obj, "model_name", None) or model_name)
-                        if probs.ndim == 2:
-                            if probs.shape[1] == 2:
-                                preds = (probs[:, 1] >= _bin_thr).astype(int)
-                            else:
-                                # nan-safe argmax (second predict
-                                # entry point; symmetric to L964 fix).
-                                from mlframe.utils.nan_safe import argmax_classes_safe
-                                preds = argmax_classes_safe(
-                                    probs, context=f"predict_from_models.{model_name}",
-                                )
-                        else:
-                            preds = (probs >= _bin_thr).astype(int)
+                        preds = _probs_to_hard_preds(probs, metadata, target_type, target_name, model_obj, model_name)
                         results["predictions"][model_name] = preds
                         all_preds.append(preds)
                         per_target_preds.setdefault((target_type, target_name), []).append(preds)
@@ -829,3 +817,21 @@ def _predict_from_model_keys_no_clue_what(_models_attempted, results, _predict_e
             f"model(s) failed at predict; producing no predictions or "
             f"probabilities. Per-model errors: {_summary}"
         )
+
+
+def _probs_to_hard_preds(probs, metadata, target_type, target_name, model_obj, model_name):
+    """Hard predictions from one member's probabilities: the metadata binary threshold, or a nan-safe argmax for multiclass."""
+    _bin_thr = member_decision_threshold(metadata, target_type, target_name, getattr(model_obj, "model_name", None) or model_name)
+    if probs.ndim == 2:
+        if probs.shape[1] == 2:
+            preds = (probs[:, 1] >= _bin_thr).astype(int)
+        else:
+            # nan-safe argmax (second predict
+            # entry point; symmetric to L964 fix).
+            from mlframe.utils.nan_safe import argmax_classes_safe
+            preds = argmax_classes_safe(
+                probs, context=f"predict_from_models.{model_name}",
+            )
+    else:
+        preds = (probs >= _bin_thr).astype(int)
+    return preds

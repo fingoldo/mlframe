@@ -98,47 +98,47 @@ def _compute_outlier_gate(
         tuple(_member_fingerprint(p) for p in preds),
         float(max_mae), float(max_std), float(max_mae_relative), float(max_std_relative),
     )
-    cached = _gate_cache.get(key)
-    if cached is not None:
-        return cast(tuple, cached)
-
-    # Cross-member median used as outlier-filter anchor: median along the MEMBER axis (axis=0 of (M, N, K)). ``sample_weight``
-    # is a per-ROW vector so it is meaningless on this member-axis reduction (the member axis is uniformly weighted by
-    # construction) -- intentionally unweighted here. ``np.median`` (dedicated C reduction) over ``np.quantile(q=0.5)`` --
-    # bit-identical for the unweighted member-axis median, ~1.4x faster on the ensemble anchor shape.
-    median_preds = np.median(preds_arr, axis=0)
-    # Vectorised per-member MAE/STD over (K, N, ...); dispatched to a numba kernel for big inputs via _per_member_mae_std.
-    per_member_mae, per_member_std = _per_member_mae_std(preds_arr, median_preds)
-
-    # Relative thresholds resolved against the MEDIAN across members (robust to a single outlier; mean would let one bad
-    # member drag the threshold up and shield itself).
-    median_mae = float(np.median(per_member_mae))
-    median_std = float(np.median(per_member_std))
-    rel_mae_threshold = max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
-    rel_std_threshold = max_std_relative * median_std if max_std_relative > 0 else 0.0
-
-    skipped: set = set()
-    for i in range(len(preds)):
-        tot_mae = float(per_member_mae[i])
-        tot_std = float(per_member_std[i])
-        abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
-        rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
-        if abs_violation or rel_violation:
-            skipped.add(i)
-
-    result = (
-        frozenset(skipped),
-        median_mae, median_std, rel_mae_threshold, rel_std_threshold,
-        per_member_mae, per_member_std,
-    )
-    # No freeze and no retained arrays. The key used to be ``id()``-based, which is only valid while the objects
-    # are alive and unmutated, so the cache defended itself by marking the CALLER's prediction arrays read-only
-    # and holding a reference to each -- a public entry point that silently made its inputs immutable for the
-    # rest of the process (the caller's next in-place clip or calibration raised, with a traceback pointing
-    # nowhere near this function), and pinned up to _GATE_CACHE_MAXSIZE complete member sets in memory. A
-    # content fingerprint needs neither: an in-place mutation simply produces a different key and a fresh
-    # computation, which is the correct answer rather than a loud one.
     with _gate_cache_lock:
+        cached = _gate_cache.get(key)
+        if cached is not None:
+            return cast(tuple, cached)
+
+        # Cross-member median used as outlier-filter anchor: median along the MEMBER axis (axis=0 of (M, N, K)). ``sample_weight``
+        # is a per-ROW vector so it is meaningless on this member-axis reduction (the member axis is uniformly weighted by
+        # construction) -- intentionally unweighted here. ``np.median`` (dedicated C reduction) over ``np.quantile(q=0.5)`` --
+        # bit-identical for the unweighted member-axis median, ~1.4x faster on the ensemble anchor shape.
+        median_preds = np.median(preds_arr, axis=0)
+        # Vectorised per-member MAE/STD over (K, N, ...); dispatched to a numba kernel for big inputs via _per_member_mae_std.
+        per_member_mae, per_member_std = _per_member_mae_std(preds_arr, median_preds)
+
+        # Relative thresholds resolved against the MEDIAN across members (robust to a single outlier; mean would let one bad
+        # member drag the threshold up and shield itself).
+        median_mae = float(np.median(per_member_mae))
+        median_std = float(np.median(per_member_std))
+        rel_mae_threshold = max_mae_relative * median_mae if max_mae_relative > 0 else 0.0
+        rel_std_threshold = max_std_relative * median_std if max_std_relative > 0 else 0.0
+
+        skipped: set = set()
+        for i in range(len(preds)):
+            tot_mae = float(per_member_mae[i])
+            tot_std = float(per_member_std[i])
+            abs_violation = (max_mae > 0 and tot_mae > max_mae) or (max_std > 0 and tot_std > max_std)
+            rel_violation = (rel_mae_threshold > 0 and tot_mae > rel_mae_threshold) or (rel_std_threshold > 0 and tot_std > rel_std_threshold)
+            if abs_violation or rel_violation:
+                skipped.add(i)
+
+        result = (
+            frozenset(skipped),
+            median_mae, median_std, rel_mae_threshold, rel_std_threshold,
+            per_member_mae, per_member_std,
+        )
+        # No freeze and no retained arrays. The key used to be ``id()``-based, which is only valid while the objects
+        # are alive and unmutated, so the cache defended itself by marking the CALLER's prediction arrays read-only
+        # and holding a reference to each -- a public entry point that silently made its inputs immutable for the
+        # rest of the process (the caller's next in-place clip or calibration raised, with a traceback pointing
+        # nowhere near this function), and pinned up to _GATE_CACHE_MAXSIZE complete member sets in memory. A
+        # content fingerprint needs neither: an in-place mutation simply produces a different key and a fresh
+        # computation, which is the correct answer rather than a loud one.
         if key not in _gate_cache:
             _gate_cache_order.append(key)
         _gate_cache[key] = result
@@ -149,7 +149,7 @@ def _compute_outlier_gate(
 
 def ensemble_probabilistic_predictions(
     *preds,
-    ensemble_method="harm",
+    ensemble_method: str = "harm",
     ensure_prob_limits: bool = True,
     max_mae: float = 0.0,
     max_std: float = 0.0,

@@ -61,10 +61,14 @@ def test_f1_slug_to_original_target_type_reaches_ctx():
         "regression": "regression",
     }
 
-    import inspect
-    src = inspect.getsource(_finalize_and_save_metadata)
-    assert "if ctx.slug_to_original_target_type:" in src
-    assert 'metadata["slug_to_original_target_type"] = dict(ctx.slug_to_original_target_type)' in src
+    _finalize_and_save_metadata(ctx, verbose=0)
+    assert ctx.metadata["slug_to_original_target_type"] == {
+        "multiclass_classification": "multiclass_classification",
+        "regression": "regression",
+    }
+    # The persisted map is a decoupled copy: mutating it must not leak back into the live ctx map.
+    ctx.metadata["slug_to_original_target_type"]["leaked"] = "x"
+    assert "leaked" not in ctx.slug_to_original_target_type
 
 
 def test_f1_the_target_loop_records_every_target_type_slug_on_ctx():

@@ -346,8 +346,8 @@ def test_pr2_keep_augmented_data_default_preserves_stash():
     y = (X["f0"].to_numpy() + rng.normal(scale=0.3, size=n) > 0).astype(int)
     sel = HybridSelector(use_fe=False, use_tree_member=False, tree_prod_gate="off", random_state=0, classification=True)
     sel.fit(X, y)
-    assert sel._Xaug_ is not None
-    assert sel._y_ is not None
+    assert sel._Xaug_.shape == (n, 6)
+    np.testing.assert_array_equal(np.asarray(sel._y_), y)
 
 
 def test_pr2_keep_augmented_data_false_frees_stash():

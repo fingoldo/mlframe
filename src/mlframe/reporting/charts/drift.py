@@ -166,7 +166,8 @@ def _as_float_column(col: Any) -> Optional[np.ndarray]:
     """
     try:
         return np.asarray(col, dtype=np.float64)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("_as_float_column fell back to its default after %s", type(_exc).__name__)
         return None
 
 
@@ -824,7 +825,8 @@ def _is_datetime_index(idx: Any) -> bool:
     """True when a pandas index carries datetime64 values (so we can take .astype('datetime64[ns]')."""
     try:
         return np.issubdtype(np.asarray(idx.values).dtype, np.datetime64)
-    except (TypeError, AttributeError):
+    except (TypeError, AttributeError) as _exc:
+        logger.debug("_is_datetime_index fell back to its default after %s", type(_exc).__name__)
         return False
 
 
@@ -860,7 +862,8 @@ def _coerce_x(v: Any, pd: Any) -> float:
         return float(v)
     try:
         return float(pd.Timestamp(v).value)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as _exc:
+        logger.debug("_coerce_x fell back to its default after %s", type(_exc).__name__)
         return float(v)
 
 

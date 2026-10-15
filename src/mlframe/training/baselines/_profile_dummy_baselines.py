@@ -172,7 +172,7 @@ def _profile_call(args_dict: dict, label: str, top_n: int = 30) -> tuple[float, 
     return elapsed, s.getvalue()
 
 
-def main():
+def main() -> None:
     """CLI entry point: parse ``--n-train``/``--n-val``/``--n-test``/``--target``/``--top``, profile each requested target-type fixture via ``_profile_call``, and print the per-target + total wall-time summary."""
     p = argparse.ArgumentParser()
     p.add_argument("--n-train", type=int, default=500_000)

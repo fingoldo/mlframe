@@ -27,6 +27,9 @@ from typing import cast
 from typing import Optional, Union
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Default cap chosen so gaussian_kde converges (Scott's rule plateau)
 # and per-violin KDE cost stays <50 ms on a single core. Raise via
@@ -73,7 +76,8 @@ def _finite_argmin_argmax(arr: np.ndarray) -> list:
             return [i_min, i_max]
         try:
             return [int(np.nanargmin(arr)), int(np.nanargmax(arr))]
-        except ValueError:  # all-NaN
+        except ValueError as _exc:  # all-NaN
+            logger.warning("_finite_argmin_argmax fell back to its default after %s", type(_exc).__name__)
             return []
     return [int(np.argmin(arr)), int(np.argmax(arr))]
 
@@ -139,7 +143,7 @@ def subsample_preserving_extremes(
     return np.union1d(forced_idx, random_idx.astype(np.int64))
 
 
-def prebin_histogram(values: np.ndarray, bins: int, density: bool):
+def prebin_histogram(values: np.ndarray, bins: int, density: bool) -> tuple[np.ndarray | None, np.ndarray | None, float | None]:
     """Bin raw values once with numpy so renderers can draw bars instead of shipping/re-binning raw n.
 
     Returns ``(heights, centers, width)`` or ``(None, None, None)`` when the input can't be binned

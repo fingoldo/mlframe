@@ -9,6 +9,7 @@ Covers:
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 
 import numpy as np
@@ -208,17 +209,8 @@ class TestBorutaShapPowerSHAPRouting:
     """Groups tests covering TestBorutaShapPowerSHAPRouting."""
     def test_boruta_shap_without_lib_raises_import(self):
         """Boruta shap without lib raises import."""
-        try:
-            import BorutaShap  # noqa: F401
-
-            try:
-                from arfs.feature_selection import GrootCV  # noqa: F401
-
-                pytest.skip("BorutaShap or arfs is installed; opt-out of the missing-import test")
-            except ImportError:
-                pytest.skip("BorutaShap is installed; opt-out of the missing-import test")
-        except ImportError:
-            pass
+        if importlib.util.find_spec("BorutaShap") is not None:
+            pytest.skip("BorutaShap is installed; opt-out of the missing-import test")
         X, y = make_classification(n_samples=80, n_features=4, n_informative=2, random_state=0)
         with pytest.raises(ImportError, match="BorutaShap"):
             get_feature_importances(

@@ -285,7 +285,7 @@ def test_seeded_fit_does_not_perturb_global_numpy_rng():
 
     np.random.seed(123456)
     before = np.random.get_state()
-    m = MRMR(random_seed=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, fe_max_steps=0, skip_retraining_on_same_content=False)
+    m = MRMR(random_state=42, verbose=0, n_jobs=1, full_npermutations=2, baseline_npermutations=2, fe_max_steps=0, skip_retraining_on_same_content=False)
     m.fit(X.copy(), y)
     after = np.random.get_state()
     assert before[0] == after[0]

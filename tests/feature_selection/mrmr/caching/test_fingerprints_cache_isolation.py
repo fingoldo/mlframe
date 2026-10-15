@@ -49,7 +49,7 @@ def _cold_fit(X, y):
     """Cold fit."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return MRMR(verbose=0, random_seed=42, fe_max_pair_features=0).fit(X, y)
+        return MRMR(verbose=0, random_state=42, fe_max_pair_features=0).fit(X, y)
 
 
 @pytest.fixture()
@@ -123,8 +123,8 @@ def test_d1_cat_fe_state_dataclass_not_shared_when_present(_isolated_cache):
     X, y = _make_cat_xy()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        src = MRMR(verbose=0, random_seed=42, fe_max_pair_features=0, cat_fe_config=CatFEConfig(enable=True)).fit(X, y)
-        replayed = MRMR(verbose=0, random_seed=42, fe_max_pair_features=0, cat_fe_config=CatFEConfig(enable=True)).fit(X, y)
+        src = MRMR(verbose=0, random_state=42, fe_max_pair_features=0, cat_fe_config=CatFEConfig(enable=True)).fit(X, y)
+        replayed = MRMR(verbose=0, random_state=42, fe_max_pair_features=0, cat_fe_config=CatFEConfig(enable=True)).fit(X, y)
     assert len(MRMR._FIT_CACHE) >= 1, "source fit did not populate _FIT_CACHE"
     assert isinstance(src._cat_fe_state_, CatFEState)
     assert isinstance(replayed._cat_fe_state_, CatFEState)

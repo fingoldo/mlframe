@@ -11,6 +11,7 @@ floor was unset, so the warning fired and nothing happened.
 from __future__ import annotations
 
 import inspect
+import typing
 
 import pytest
 
@@ -27,7 +28,7 @@ class TestTheDefaultFloor:
 
     def test_auto_drop_is_active_by_default(self):
         """``None`` meant observe-and-warn, which is what let the degenerate ensemble through."""
-        assert _default_of("auto_drop_diversity_above") is not None
+        assert _default_of("auto_drop_diversity_above") == pytest.approx(0.99)
 
     def test_floor_is_high_enough_to_spare_genuine_diversity(self):
         """A 0.95-0.98 pair is still a useful ensemble; only a near-duplicate should be dropped."""
@@ -52,4 +53,5 @@ class TestTheOptOut:
 
     def test_none_is_still_accepted(self):
         """Passing None restores the pre-fix behaviour rather than raising."""
-        assert inspect.signature(score_ensemble).parameters["auto_drop_diversity_above"].annotation is not None
+        hint = typing.get_type_hints(score_ensemble)["auto_drop_diversity_above"]
+        assert type(None) in typing.get_args(hint), f"annotation {hint!r} does not admit None"

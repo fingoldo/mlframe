@@ -10,6 +10,9 @@ block. Returns ``(numeric_vars_to_consider, _synergy_added_idx)``.
 from __future__ import annotations
 
 import logging
+from typing import Any, Sequence
+
+import numpy as np
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -24,15 +27,15 @@ from ._helpers import _non_numeric_column_indices
 def build_fe_operand_pool(
     self,
     *,
-    selected_vars,
-    categorical_vars,
-    cols, X, data, nbins,
-    target_indices,
-    classes_y, freqs_y,
-    cached_MIs,
-    num_fs_steps,
-    verbose,
-):
+    selected_vars: Any,
+    categorical_vars: Any,
+    cols: list[str], X: Any, data: np.ndarray, nbins: np.ndarray,
+    target_indices: Sequence[int] | np.ndarray,
+    classes_y: np.ndarray, freqs_y: np.ndarray,
+    cached_MIs: dict,
+    num_fs_steps: int,
+    verbose: int,
+) -> tuple:
     """Construct the FE operand pool ``numeric_vars_to_consider`` and the synergy-added index set."""
 
     # bench-attempt-rejected (FS surrogate-GBM split-co-occurrence 3-way seeder + #7 order-3 maxT floor):

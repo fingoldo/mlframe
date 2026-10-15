@@ -15,8 +15,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from tests.conftest import perf_time_budget
-
 _PHASE_HELPERS_PATH = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "training" / "core" / "_phase_helpers.py"
 
 
@@ -27,7 +25,7 @@ def _read_phase_helpers() -> str:
 
 def _deep_true_call_lines(src: str) -> list[int]:
     """AST-walk for ``.memory_usage(...)`` calls with ``deep=True`` kwarg. Docstring / comment
-    occurrences (string literals) are ignored — those describe the banned pattern in prose."""
+    occurrences (string literals) are ignored вЂ” those describe the banned pattern in prose."""
     tree = ast.parse(src)
     hits: list[int] = []
     for node in ast.walk(tree):
@@ -115,15 +113,10 @@ def test_S49_size_compute_skips_when_polars_cache_present(monkeypatch):
 
 
 def test_S49_shallow_memory_usage_is_fast_and_returns_finite_bytes():
-    """Sanity check on the shallow ``memory_usage(deep=False)`` fallback: completes in well
-    under a second on a 10k-row x 5-col mixed object/float fixture, returns a positive int.
+    """Sanity check on the shallow ``memory_usage(deep=False)`` fallback on a 10k-row x 5-col mixed object/float fixture.
 
-    Small fixture keeps this safe under concurrent test load (parallel-agent paging pressure).
-    The relative speed claim (shallow << deep) is documented; this test just verifies the API
-    behaviour we rely on still works.
+    The shallow figure is exact (slot bytes only) and strictly below the deep figure, which also counts the Python objects behind object cells.
     """
-    import time
-
     rng = np.random.default_rng(0)
     n = 10_000
     data = {}
@@ -134,9 +127,8 @@ def test_S49_shallow_memory_usage_is_fast_and_returns_finite_bytes():
         data[f"n_{i}"] = rng.standard_normal(n).astype(np.float32)
     df = pd.DataFrame(data)
 
-    t0 = time.perf_counter()
-    sz = float(df.memory_usage(deep=False, index=False).sum())
-    elapsed = time.perf_counter() - t0
-    assert sz > 0
-    # Generous ceiling so concurrent-agent paging pressure doesn't trip the test.
-    assert elapsed < perf_time_budget(1.0), f"memory_usage(deep=False) took {elapsed:.3f}s; expected <1s on shallow scan"
+    shallow = int(df.memory_usage(deep=False, index=False).sum())
+    deep = int(df.memory_usage(deep=True, index=False).sum())
+    # Shallow sizing counts only the per-cell slots: 8-byte object pointers for the 3 object columns and 4-byte float32 for the 2 numeric ones.
+    assert shallow == 3 * n * 8 + 2 * n * 4
+    assert 0 < shallow < deep, f"shallow sizing ({shallow}) must be strictly below deep sizing ({deep}) for object columns"

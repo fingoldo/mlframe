@@ -20,13 +20,16 @@ identical to the inlined branch. The lazy in-body ``from ..X import ...``
 imports stay inside the function to preserve the original import timing and the
 ``mrmr -> _mrmr_fit_impl -> mrmr`` cycle break.
 """
+
 from __future__ import annotations
 
 import logging
+import warnings
 import os
 import textwrap
 from timeit import default_timer as timer
-from typing import Any, Iterable
+from typing import Any
+from collections.abc import Iterable
 
 import numpy as np
 
@@ -59,6 +62,7 @@ def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, 
         # suites can intercept programmatically.
         logger.warning(_fallback_msg)
         import warnings as _w_iter39
+
         _w_iter39.warn(_fallback_msg, UserWarning, stacklevel=2)
 
 
@@ -120,13 +124,17 @@ def _rank_raw_candidates(self, _name_to_cols_idx, _cached):
     return _raw_mi, _rescue_allowed_idx
 
 
-def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap):
+_FALLBACK_FAMILY_MIN = 64
+
+
+def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap, _family=None):
     """Run the permutation-significance gate and the redundancy dedup over the above-floor candidates; returns the accepted input-space indices."""
     # (1) Permutation-significance gate + (2) redundancy dedup, computed on the screen's own ``data`` / ``nbins`` so the binning matches ``cached_MIs``. Both reuse the
     # CPU permutation / MI njit kernels the screen already uses. Best-effort: if a kernel call fails (degenerate joint, missing cols-space index) the candidate falls
     # through to the magnitude-only path so the never-empty guarantee still holds.
-    from mlframe.feature_selection.filters.permutation import mi_direct as _mi_direct_fb
     from mlframe.feature_selection.filters.info_theory import mi as _mi_pair_fb
+    from mlframe.feature_selection.filters._mrmr_fit_impl._fallback_maxt import FAMILY_ALPHA, fallback_maxt_floor
+    from mlframe.feature_selection.filters._family_maxt_gate import exact_pvalue_pass
     from mlframe.feature_selection.filters.evaluation import mrmr_null_signif_alpha
 
     _signif_alpha = mrmr_null_signif_alpha()
@@ -176,41 +184,39 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
     # all-noise wide pool where every candidate fails significance, examining the whole list would run one 32-perm test PER column. Scan at most a modest multiple of the
     # rescue cap (the genuine multi-signal fixtures carry only a handful of distinct above-floor signals, well inside this window).
     _scan_limit = max(int(_rescue_cap) * 4, 16)
+    # Significance gate (#1), family-wise: one maxT floor over every scanned candidate. A candidate is kept only when its observed plug-in MI exceeds
+    # the (1 - alpha) quantile of the maximum MI over the whole scanned set under label permutations, so the chance that any noise column passes stays at
+    # alpha however many candidates are scanned. Per-candidate testing at alpha let that chance grow with the number of candidates.
+    # The family is every raw candidate ranked by MI (top ``_FALLBACK_FAMILY_MIN`` at least), NOT just the above-floor subset: the maximum over a
+    # one-column family is that column's own null, which lets any column clear the threshold by construction.
+    _family_src = _family if _family is not None else _above_floor
+    _scan_cols = [_c for (_, _, _c) in _family_src[: max(_scan_limit, _FALLBACK_FAMILY_MIN)] if _c is not None]
+    _maxt_obs: dict = {}
+    if _scan_cols:
+        _obs, _null_max = fallback_maxt_floor(
+            data, nbins, int(target_indices[0]), _scan_cols, FAMILY_ALPHA, honest_codes_fn=getattr(self, "_honest_null_codes_fn", None)
+        )
+        _maxt_obs = dict(zip(_scan_cols, exact_pvalue_pass(_obs, _null_max, FAMILY_ALPHA).tolist()))
     for _i, _mi, _cols_idx in _above_floor[:_scan_limit]:
         if len(_accepted) >= _rescue_cap:
             break
         if _cols_idx is None:
             continue
-        # Significance gate (#1): keep only candidates that sit ABOVE their permutation null. Pure-noise legs sit within it (p >= alpha) and are dropped.
-        try:
-            _sig = _mi_direct_fb(
-                data, x=np.array([_cols_idx], dtype=np.int64), y=target_indices,  # type: ignore[arg-type]  # mi_direct (permutation.py, sibling-owned) accepts this call shape at runtime; its x/y annotation (tuple) is stricter than actual usage
-                factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
-                return_null_mean=True, parallelism="none", dtype=_q_dtype, prefer_gpu=False,
-            )
-            _p_value = float(_sig[3])
-        except Exception as e:
-            # FAIL CLOSED. Substituting p = 0.0 is "maximally significant", so a broken probe made the
-            # gate one line below pass for every candidate it scanned -- and this gate exists precisely
-            # because coarse-binned plug-in MI is upward-biased, so the magnitude-only decision it fell
-            # back to re-injects the noise the gate was added to remove. "Significance unavailable" is
-            # not evidence of significance; drop on uncertainty, and say so audibly.
-            logger.warning(
-                "MRMR rescue: permutation-significance probe raised %s for column index %s (%s); "
-                "dropping the candidate rather than admitting it on magnitude alone.",
-                type(e).__name__, _cols_idx, e,
-            )
-            _p_value = 1.0
-        if _p_value >= _signif_alpha:
+        if not _maxt_obs.get(_cols_idx, False):
             continue
         # Redundancy dedup (#2): drop a candidate whose MI with an already-accepted column is a large fraction of its own relevance (an algebraic / near-duplicate twin).
         _is_redundant = False
         for _acc_cols in _accepted_cols:
             try:
-                _pair_mi = float(_mi_pair_fb(
-                    factors_data=data, x=np.array([_cols_idx], dtype=np.int64),
-                    y=np.array([_acc_cols], dtype=np.int64), factors_nbins=nbins, dtype=_q_dtype,
-                ))
+                _pair_mi = float(
+                    _mi_pair_fb(
+                        factors_data=data,
+                        x=np.array([_cols_idx], dtype=np.int64),
+                        y=np.array([_acc_cols], dtype=np.int64),
+                        factors_nbins=nbins,
+                        dtype=_q_dtype,
+                    )
+                )
             except Exception as e:
                 # FAIL CLOSED, same reasoning as the significance gate above: 0.0 is exactly the value
                 # that makes the redundancy test below fail, so a failed pair-MI silently admitted an
@@ -218,7 +224,10 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
                 # regression with no trace.
                 logger.warning(
                     "MRMR rescue: pair-MI probe raised %s for columns %s vs %s (%s); treating the pair as redundant.",
-                    type(e).__name__, _cols_idx, _acc_cols, e,
+                    type(e).__name__,
+                    _cols_idx,
+                    _acc_cols,
+                    e,
                 )
                 _pair_mi = float("inf")
             if _pair_mi >= _redundancy_frac * max(_mi, 1e-12):
@@ -321,7 +330,21 @@ def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbin
             _rescue_cap = max(int(_min_fb), 8)
             _above_floor = [(i, _mi, _c) for i, _mi, _c in _raw_mi if _mi > _floor]
 
-            _topk = _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap)
+            _topk = _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_floor, _rescue_cap, _family=_raw_mi)
+            # No raw feature is significant and no engineered one survived: say so on the instance, then return what the policy chooses.
+            if not _topk and n_engineered_out == 0:
+                from .._no_significant_policy import resolve_no_significant_policy
+
+                self.no_significant_features_ = True
+                _policy = resolve_no_significant_policy(self)
+                _msg = (
+                    "MRMR: no feature is significant against its permutation null; "
+                    f"returning per the no_significant policy {_policy!r} (no_significant_features_ is set on the estimator)."
+                )
+                warnings.warn(_msg, UserWarning, stacklevel=2)
+                logger.warning(_msg)
+                if _policy == "all_orig_features":
+                    _topk = list(range(self.n_features_in_))
             # ``min_features_fallback`` count floor: if the significance/redundancy gates left fewer than the requested K, top up from the remaining above-absolute-floor
             # candidates (magnitude order) so legacy callers asking for >=K always get at least K. The never-empty guarantee then keeps one column even on a fully-null pool.
             # SURVIVING ENGINEERED FEATURES COUNT TOWARD THE FLOOR: the floor is "support is never empty / has >= K features", and ``get_feature_names_out`` returns
@@ -376,6 +399,47 @@ def _rescue_empty_topk(self, _topk, n_engineered_out, _raw_mi, _rescue_allowed_i
     return _topk
 
 
+def _apply_uaed_elbow_trim(self):
+    """UAED post-fit elbow trim: trims raw support and engineered recipes in lockstep to the elbow of the combined gain trace (best-effort, never breaks fit)."""
+    if getattr(self, "uaed_auto_size", False):
+        try:
+            from .._cmi_perm_stop import uaed_elbow
+
+            gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
+            # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
+            # raw GREEDY log (one entry per confirmed greedy round) - often SHORTER than n_features_ when
+            # FE/retention appended features the greedy never scored. The public ``mrmr_gains_`` the caller
+            # sees is the n_features_-aligned (zero-padded) trace, so the elbow must be computed on that SAME
+            # trace; otherwise a frame whose greedy log has <3 rounds but >=3 final features silently skips
+            # the elbow (uaed_elbow_ never set, support never trimmed). Zero-extend to n_features_ to match.
+            _nf_uaed = int(getattr(self, "n_features_", gains.size) or gains.size)
+            if 0 < gains.size < _nf_uaed:
+                gains = np.concatenate([gains, np.zeros(_nf_uaed - gains.size, dtype=np.float64)])
+            if gains.size >= 3:
+                elbow = int(uaed_elbow(gains))
+                if 0 < elbow < gains.size and hasattr(self, "support_"):
+                    # ``gains`` is the COMBINED trace (raw greedy gains + zero-padded engineered tail), matching the
+                    # transform-time feature order [support_ ..., engineered recipes ...]. The elbow index therefore
+                    # lives in COMBINED space, but ``support_`` holds RAW indices only. Slicing raw support by a
+                    # combined elbow (and setting n_features_ = support_.size) dropped the engineered count while the
+                    # recipes still fired in transform - transform emitted MORE columns than n_features_/mrmr_gains_
+                    # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
+                    # the retained feature count is exactly elbow+1 in both the state and the transform output.
+                    _sup = np.asarray(self.support_)
+                    _uaed_recipes = list(getattr(self, "_engineered_recipes_", []) or [])
+                    _uaed_keep = elbow + 1  # combined features to retain
+                    _uaed_raw_keep = min(_uaed_keep, _sup.size)
+                    _uaed_eng_keep = max(0, _uaed_keep - _sup.size)  # <= len(_uaed_recipes): gains was zero-extended to n_features_
+                    self.support_ = _sup[:_uaed_raw_keep]
+                    if _uaed_recipes and _uaed_eng_keep < len(_uaed_recipes):
+                        self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
+                    self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
+                    self.uaed_elbow_ = int(elbow)
+        except Exception as e:  # nosec B110 - non-trivial body
+            # UAED is best-effort post-fit; don't break fit() on internal hiccup.
+            logger.debug("UAED post-fit adjustment failed (%s: %s) -- keeping the pre-UAED support", type(e).__name__, e)
+
+
 def _finalise_fs_results(
     self,
     *,
@@ -426,7 +490,7 @@ def _finalise_fs_results(
     try:
         signature = (*signature[:-1], _hashable_params_signature(self.get_params(deep=True)))
     except Exception as exc:
-        logger.debug("mrmr: final signature hash failed; using a unique sentinel (forces a cache miss / no replay for this fit): %r", exc, exc_info=True)
+        logger.warning("mrmr: final signature hash failed; using a unique sentinel (forces a cache miss / no replay for this fit): %r", exc, exc_info=True)
         signature = (*signature[:-1], object())  # unique token => next identical fit refits (conservative)
     self.signature = signature
     # ran_out_of_time was set only by the outer FE-loop deadline. screen_predictors honours
@@ -442,42 +506,7 @@ def _finalise_fs_results(
     # the per-feature MI gain curve. Relevance trace is taken from the
     # ``mrmr_gains_`` attribute (Wave-7 audit landed this trace in the
     # standard fit output); if missing, this step no-ops.
-    if getattr(self, "uaed_auto_size", False):
-        try:
-            from .._cmi_perm_stop import uaed_elbow
-            gains = np.asarray(getattr(self, "mrmr_gains_", []), dtype=np.float64)
-            # UAED runs BEFORE the mrmr_gains_ length-alignment below, so at this point ``gains`` is the
-            # raw GREEDY log (one entry per confirmed greedy round) - often SHORTER than n_features_ when
-            # FE/retention appended features the greedy never scored. The public ``mrmr_gains_`` the caller
-            # sees is the n_features_-aligned (zero-padded) trace, so the elbow must be computed on that SAME
-            # trace; otherwise a frame whose greedy log has <3 rounds but >=3 final features silently skips
-            # the elbow (uaed_elbow_ never set, support never trimmed). Zero-extend to n_features_ to match.
-            _nf_uaed = int(getattr(self, "n_features_", gains.size) or gains.size)
-            if 0 < gains.size < _nf_uaed:
-                gains = np.concatenate([gains, np.zeros(_nf_uaed - gains.size, dtype=np.float64)])
-            if gains.size >= 3:
-                elbow = int(uaed_elbow(gains))
-                if 0 < elbow < gains.size and hasattr(self, "support_"):
-                    # ``gains`` is the COMBINED trace (raw greedy gains + zero-padded engineered tail), matching the
-                    # transform-time feature order [support_ ..., engineered recipes ...]. The elbow index therefore
-                    # lives in COMBINED space, but ``support_`` holds RAW indices only. Slicing raw support by a
-                    # combined elbow (and setting n_features_ = support_.size) dropped the engineered count while the
-                    # recipes still fired in transform - transform emitted MORE columns than n_features_/mrmr_gains_
-                    # claimed (a hard support/output desync). Trim raw support AND engineered recipes in LOCKSTEP so
-                    # the retained feature count is exactly elbow+1 in both the state and the transform output.
-                    _sup = np.asarray(self.support_)
-                    _uaed_recipes = list(getattr(self, "_engineered_recipes_", []) or [])
-                    _uaed_keep = elbow + 1  # combined features to retain
-                    _uaed_raw_keep = min(_uaed_keep, _sup.size)
-                    _uaed_eng_keep = max(0, _uaed_keep - _sup.size)  # <= len(_uaed_recipes): gains was zero-extended to n_features_
-                    self.support_ = _sup[:_uaed_raw_keep]
-                    if _uaed_recipes and _uaed_eng_keep < len(_uaed_recipes):
-                        self._engineered_recipes_ = _uaed_recipes[:_uaed_eng_keep]
-                    self.n_features_ = int(self.support_.size) + min(_uaed_eng_keep, len(_uaed_recipes))
-                    self.uaed_elbow_ = int(elbow)
-        except Exception as e:  # nosec B110 - non-trivial body
-            # UAED is best-effort post-fit; don't break fit() on internal hiccup.
-            logger.debug("UAED post-fit adjustment failed (%s: %s) -- keeping the pre-UAED support", type(e).__name__, e)
+    _apply_uaed_elbow_trim(self)
     # Transient FE-escalation fitting target: full-n array, fit-time only.
     self._fe_escalation_y_rank_ = None
     # Transient prewarp ALS reconstruction target: full-n continuous y, fit-time only.
@@ -523,94 +552,9 @@ def _finalise_fs_results(
     # signal survives). A nan group-MI (misaligned segments) is inconclusive and left alone, mirroring the
     # raw-feature gate's own fallback. No-op - and therefore byte-identical - when group_aware_mi is off
     # / no groups were supplied this fit (``get_group_mi()`` returns ``None``).
-    try:
-        from mlframe.feature_selection.filters.info_theory.shared import get_group_mi as _get_group_mi_final
-        _gmi_final_payload = _get_group_mi_final()
-    except Exception as e:
-        logger.debug("get_group_mi_final() failed: %s", e)
-        _gmi_final_payload = None
-    _eng_recipes_final = getattr(self, "_engineered_recipes_", None) or []
-    if _gmi_final_payload is not None and _eng_recipes_final:
-        try:
-            from mlframe.feature_selection.filters.info_theory.shared import group_leak_verdict as _group_leak_verdict_final
-            from mlframe.feature_selection.filters.info_theory.shared import group_relevance_mi as _group_relevance_mi_final
+    from ._finalise_group_demotion import _demote_group_leaks_final
 
-            _cols_idx_f = {nm: i for i, nm in enumerate(cols)}
-            _gsi_f, _goff_f, _gmr_f, _gsw_f = _gmi_final_payload
-            _classes_y_arr_f = np.asarray(classes_y)
-            _g_n_bins_y_f = int(_classes_y_arr_f.max()) + 1
-            _group_dropped_final: set = set()
-            for _recipe in _eng_recipes_final:
-                _rname = str(getattr(_recipe, "name", ""))
-                _cidx = _cols_idx_f.get(_rname)
-                if _cidx is not None:
-                    # Fast path: the engineered column is still materialised in ``data``/``cols``.
-                    _grp_obs_f = _group_relevance_mi_final(
-                        data, (int(_cidx),), _classes_y_arr_f, np.asarray(nbins), _g_n_bins_y_f,
-                        _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
-                    )
-                    _is_leak_f = _grp_obs_f == 0.0 or (
-                        _grp_obs_f == _grp_obs_f
-                        and _group_leak_verdict_final(
-                            np.asarray(data[:, int(_cidx)]), _classes_y_arr_f, _gsi_f, _goff_f,
-                            int(np.asarray(data[:, int(_cidx)]).max()) + 1, _g_n_bins_y_f, min_rows=_gmr_f, size_weighted=_gsw_f,
-                        )[1]
-                    )
-                else:
-                    # Retention-only recipe (usability-aware retention re-attaches it from its OWN
-                    # recompute, bypassing ``cols``/``data`` entirely - see the comment above). Replay
-                    # the SAME recompute + discretise the retention pass itself uses, then group-block
-                    # directly (a single already-discretised column needs no ``merge_vars`` combination).
-                    try:
-                        from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe as _apply_recipe_final
-                        from ..discretization import discretize_array as _discretize_array_final
-
-                        _cv_f = np.asarray(_apply_recipe_final(_recipe, X), dtype=np.float64).ravel()
-                        _cv_f = np.nan_to_num(_cv_f, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-                        if _cv_f.shape[0] != _classes_y_arr_f.shape[0]:
-                            continue  # can't align - leave this recipe alone
-                        _codes_f = _discretize_array_final(_cv_f, n_bins=int(self.quantization_nbins), method=self.quantization_method, dtype=self.quantization_dtype)
-                        _codes_mat_f = np.ascontiguousarray(np.asarray(_codes_f, dtype=self.quantization_dtype).reshape(-1, 1))
-                        _nbins_mat_f = np.asarray([int(_codes_mat_f.max()) + 1])
-                        _grp_obs_f = _group_relevance_mi_final(
-                            _codes_mat_f, (0,), _classes_y_arr_f, _nbins_mat_f, _g_n_bins_y_f,
-                            _gsi_f, _goff_f, min_rows=_gmr_f, size_weighted=_gsw_f, dtype=self.quantization_dtype,
-                        )
-                        _is_leak_f = _grp_obs_f == 0.0 or (
-                            _grp_obs_f == _grp_obs_f
-                            and _group_leak_verdict_final(
-                                _codes_f, _classes_y_arr_f, _gsi_f, _goff_f,
-                                int(_nbins_mat_f[0]), _g_n_bins_y_f, min_rows=_gmr_f, size_weighted=_gsw_f,
-                            )[1]
-                        )
-                    except Exception as e:
-                        logger.debug("_fit: within-group MI replay/discretise failed for recipe %r, leaving it alone: %s", _rname, e)
-                        continue  # can't replay/discretise - leave this recipe alone (conservative)
-                # No within-group signal beyond the within-group permutation null (see group_leak_verdict).
-                if _is_leak_f:
-                    _group_dropped_final.add(_rname)
-            if _group_dropped_final:
-                self._engineered_recipes_ = [_r for _r in _eng_recipes_final if str(getattr(_r, "name", "")) not in _group_dropped_final]
-                _eng_features_final = getattr(self, "_engineered_features_", None) or []
-                self._engineered_features_ = [_fn for _fn in _eng_features_final if str(_fn) not in _group_dropped_final]
-                self.n_features_ = (
-                    len(self.support_) + len(self._engineered_recipes_)
-                    if hasattr(self, "support_")
-                    else int(getattr(self, "n_features_", 0)) - len(_group_dropped_final)
-                )
-                if verbose:
-                    logger.info(
-                        "MRMR: demoted %d engineered feature(s) with zero within-group relevance MI "
-                        "under group_aware_mi (between-group-only leak signature reaching the final selection): %s",
-                        len(_group_dropped_final), sorted(_group_dropped_final),
-                    )
-        except Exception as _group_final_exc:
-            logger.debug(
-                "MRMR group-aware FE demotion (final choke point) failed (%s: %s); keeping the naive-MI selection.",
-                type(_group_final_exc).__name__, _group_final_exc,
-            )
-
-    # The demotion also removed names from ``_engineered_features_``; re-reconcile the public rosters so none still lists a demoted column.
+    _demote_group_leaks_final(self, cols, classes_y, data, nbins, X, verbose)
     from ._fe_roster_attrs import reconcile_fe_rosters
 
     reconcile_fe_rosters(self)

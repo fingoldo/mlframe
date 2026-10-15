@@ -287,11 +287,7 @@ class TestCapabilityDetector:
         # there). Some installed polars_ds builds ship without
         # ``.pipeline`` (lightweight subset); the dispatcher correctly
         # reports caps=0 in that case. Skip when either is missing.
-        try:
-            importlib.import_module("polars_ds")
-            importlib.import_module("polars_ds.pipeline")
-        except ImportError:  # pragma: no cover
-            pytest.skip("polars-ds (or polars_ds.pipeline) not installed")
+        pytest.importorskip("polars_ds.pipeline")
         assert d.has("blueprint.impute")
         assert d.has("blueprint.scale")
 

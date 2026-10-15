@@ -152,7 +152,8 @@ def log_bucket(v: float) -> float:
     """
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("log_bucket fell back to its default after %s", type(_exc).__name__)
         return 0.0
     if not math.isfinite(f):
         return 0.0
@@ -169,7 +170,8 @@ def linear_bucket(v: float, resolution: float = 0.1) -> float:
     """
     try:
         f = float(v)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _exc:
+        logger.debug("linear_bucket fell back to its default after %s", type(_exc).__name__)
         return 0.0
     if not math.isfinite(f):
         return 0.0

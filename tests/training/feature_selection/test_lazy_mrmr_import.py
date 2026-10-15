@@ -119,6 +119,7 @@ def test_build_pre_pipelines_with_use_mrmr_false_does_not_import_filters():
     )
     assert _FILTERS_MODULE not in sys.modules, f"{_FILTERS_MODULE} loaded even though use_mrmr_fs=False -- the deferral did not gate correctly"
     # And the pipelines list should not contain MRMR
+    assert pre_pipeline_names, "the opt-out path must still build at least one pre-pipeline"
     assert all("MRMR" not in name for name in pre_pipeline_names)
 
 

@@ -472,7 +472,7 @@ def _resolve_yscale(yscale: str, hits: np.ndarray) -> str:
     return "log" if (max_h / min_h) > 100.0 else "linear"
 
 
-def wilson_ci(p_hat: np.ndarray, n: np.ndarray, z: float = _WILSON_Z_95):
+def wilson_ci(p_hat: np.ndarray, n: np.ndarray, z: float = _WILSON_Z_95) -> tuple[np.ndarray, np.ndarray]:
     """Wilson score interval for a binomial proportion.
 
     Returns ``(lower, upper)`` arrays clipped to ``[0, 1]``. The Wilson interval

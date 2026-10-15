@@ -81,7 +81,7 @@ def test_fused_bundle_matches_bootstrap_metrics(n, n_bootstrap):
     y_true, p_pos = _make_binary_fixture(n)
     ref = _reference_bootstrap_metrics(y_true, p_pos, n_bootstrap, random_state=0)
     fused = bootstrap_auc_brier_ll_ece_batch(y_true, p_pos, n_bootstrap=n_bootstrap, alpha=0.05, stratify=y_true, random_state=0)
-    assert fused is not None
+    assert len(fused["roc_auc"]["samples"]) == n_bootstrap
     for name in ("roc_auc", "brier", "log_loss", "ece"):
         r, f = ref[name], fused[name]
         assert abs(r["point"] - f["point"]) < _TOL, f"{name} point mismatch"
@@ -108,7 +108,7 @@ def test_fused_bundle_matches_bootstrap_metrics_on_tied_scores(n, n_bootstrap):
     y_true = (rng.random(n) < 0.3).astype(np.float64)
     ref = _reference_bootstrap_metrics(y_true, p_pos, n_bootstrap, random_state=0)
     fused = bootstrap_auc_brier_ll_ece_batch(y_true, p_pos, n_bootstrap=n_bootstrap, alpha=0.05, stratify=y_true, random_state=0)
-    assert fused is not None
+    assert len(fused["roc_auc"]["samples"]) == n_bootstrap
     for name in ("roc_auc", "brier", "log_loss", "ece"):
         r, f = ref[name], fused[name]
         assert abs(r["point"] - f["point"]) < _TOL, f"{name} point mismatch"
@@ -133,7 +133,7 @@ def test_fused_bundle_handles_all_tied_scores():
     y_true = (rng.random(n) < 0.3).astype(np.float64)
     ref = _reference_bootstrap_metrics(y_true, p_pos, 50, random_state=0)
     fused = bootstrap_auc_brier_ll_ece_batch(y_true, p_pos, n_bootstrap=50, alpha=0.05, stratify=y_true, random_state=0)
-    assert fused is not None
+    assert len(fused["brier"]["samples"]) == 50
     for name in ("brier", "log_loss", "ece"):
         assert abs(ref[name]["point"] - fused[name]["point"]) < _TOL, f"{name} point mismatch"
 

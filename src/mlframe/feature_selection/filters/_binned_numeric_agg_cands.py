@@ -55,7 +55,8 @@ class DeviceOofCandidates:
         """The device source, or ``None`` when cupy is unavailable or a recipe lacks the fields the device builder needs (the caller then keeps the host route)."""
         try:
             import cupy  # noqa: F401
-        except ImportError:
+        except ImportError as _exc:
+            logger.debug("create fell back to its default after %s", type(_exc).__name__)
             return None
         for nm in names:
             r = raw.get(nm)

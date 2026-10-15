@@ -41,6 +41,8 @@ def test_triplet_fe_skips_string_columns_no_convert_error(caplog):
     )
     # Any emitted triplet column (3 legs joined by '*') must reference only numeric sources, never the string 'scat'.
     triplets = [c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 2]
+    assert triplets, "the numeric 3-way interaction must survive as a triplet FE column"
+    assert triplets, "the numeric 3-way interaction produced no triplet FE column"
     assert all("scat" not in c for c in triplets), f"string column leaked into a triplet FE column: {triplets}"
 
 
@@ -67,4 +69,6 @@ def test_quadruplet_fe_skips_string_columns_no_convert_error(caplog):
 
     assert "could not convert string to float" not in caplog.text, "the quadruplet stage fed a string column into the polynomial basis: " + caplog.text
     quads = [c for c in (getattr(sel, "hybrid_orth_features_", None) or []) if c.split("__", 1)[0].count("*") == 3]
+    assert quads, "the numeric 4-way interaction must survive as a quadruplet FE column"
+    assert quads, "the numeric 4-way interaction produced no quadruplet FE column"
     assert all("scat" not in c for c in quads), f"string column leaked into a quadruplet FE column: {quads}"

@@ -38,7 +38,12 @@ untouched) so we can re-bench per HW.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import (
@@ -295,7 +300,7 @@ def _per_tree_split_features(ensemble):
     return ptr, idx
 
 
-def interaction_tensor_numba(ensemble, X: np.ndarray):
+def interaction_tensor_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     """Run the numba path-dependent TreeSHAP interaction kernel.
 
     Returns ``(Phi, phi, base)`` where ``Phi`` is (n, P, P) float64 interaction values in margin /

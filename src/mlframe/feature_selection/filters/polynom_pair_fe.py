@@ -275,7 +275,8 @@ def _run_polynom_pair_fe_step2_existing_np_memmap(_uncoercible, shared_subsample
         try:
             vals_a_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[0]], dtype=np.float64)
             vals_b_full = np.ascontiguousarray(X_arr[:, raw_vars_pair[1]], dtype=np.float64)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as _exc:
+            logger.debug("_eval_one_pair_impl fell back to its default after %s", type(_exc).__name__)
             return None
         if np.std(vals_a_full) < 1e-12 or np.std(vals_b_full) < 1e-12:
             return None

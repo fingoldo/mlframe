@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 
+from typing import Any
+
 import numpy as np
 
 try:
@@ -76,7 +78,7 @@ else:
         return out
 
 
-def rf_proximity_matrix(estimator, X=None, *, max_n: int = _DEFAULT_MAX_N) -> np.ndarray:
+def rf_proximity_matrix(estimator: Any, X: Any = None, *, max_n: int = _DEFAULT_MAX_N) -> np.ndarray:
     """Breiman random-forest proximity: the ``n x n`` fraction of trees in which each pair of rows shares a leaf.
 
     Parameters

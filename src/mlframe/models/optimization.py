@@ -83,8 +83,8 @@ def optimize_finite_onedimensional_search_space(
     plotting_ndim: int = 1,  # number of dimensions to use for visualisation
     figsize: tuple = (8, 4),
     font_size: int = 10,
-    x_label="nfeatures",
-    y_label="score",
+    x_label: str = "nfeatures",
+    y_label: str = "score",
     expected_fitness_color: str = "green",
     legend_location: str = "best",
     # small settings

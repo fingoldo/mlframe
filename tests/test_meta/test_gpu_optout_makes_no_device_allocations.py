@@ -17,7 +17,7 @@ cupy's allocator entirely).
 
 from __future__ import annotations
 
-import traceback
+import sys
 
 import numpy as np
 import pytest
@@ -41,8 +41,17 @@ def device_alloc_counter(monkeypatch):
     _PROBE_FRAMES = frozenset({"_disable_broken_cupy", "_ensure_gpu_runtime_configured", "numba_cuda_can_compile"})
 
     def _is_probe() -> bool:
-        """True when the current stack is one of the documented capability probes."""
-        return any(fr.name in _PROBE_FRAMES for fr in traceback.extract_stack())
+        """True when the current stack is one of the documented capability probes.
+
+        Walks the frame chain directly: ``traceback.extract_stack()`` reads the source text of every frame, and this runs
+        on every device allocation of a full fit, which turned the test into a multi-hour hang.
+        """
+        frame = sys._getframe()
+        while frame is not None:
+            if frame.f_code.co_name in _PROBE_FRAMES:
+                return True
+            frame = frame.f_back
+        return False
 
     try:
         import cupy as cp
@@ -112,7 +121,7 @@ def test_gpu_optout_allocates_nothing_on_device(monkeypatch, device_alloc_counte
     # a pure-noise target can short-circuit early and never reach a dispatcher.
     y = ((X[:, 0] * X[:, 1] + np.sin(3.0 * X[:, 2]) + 0.3 * rng.normal(size=n)) > 0).astype(np.int64)
 
-    sel = MRMR(verbose=0, random_seed=0, fe_max_steps=2)
+    sel = MRMR(verbose=0, random_state=0, fe_max_steps=2)
     sel.fit(X, y)
 
     assert getattr(sel, "support_", None) is not None, "fit did not complete - allocation count is meaningless"

@@ -141,6 +141,10 @@ class TestDCDPoolPrune:
         sel = MRMR(dcd_enable=True, dcd_tau_cluster=0.9, verbose=0).fit(X, y)
         # n_pruned can be 0 — tau=0.9 is strict, noise pairs unlikely above it.
         assert sel.dcd_ is not None
+        assert isinstance(sel.dcd_["n_pruned"], int)
+        assert 0 <= sel.dcd_["n_pruned"] <= 5
+        assert sel.dcd_["n_anchors"] == len(sel.dcd_["cluster_anchors"])
+        assert sel.dcd_["cluster_anchors"] == {} or set(sel.dcd_["cluster_anchors"]) <= set(range(5))
 
 
 class TestDCDValidation:

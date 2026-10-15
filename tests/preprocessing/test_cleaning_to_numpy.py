@@ -16,8 +16,9 @@ def test_is_variable_truly_continuous_pandas_to_numpy_preserves_verdict():
 
     rng = np.random.default_rng(3)
     df = pd.DataFrame({"x": rng.normal(size=200)})
-    res = is_variable_truly_continuous(df=df, variable_name="x")
-    assert res is not None
+    is_continuous, n_outliers = is_variable_truly_continuous(df=df, variable_name="x")
+    assert bool(is_continuous) is True
+    assert n_outliers >= 0.0
 
 
 def test_is_variable_truly_continuous_tz_aware_datetimearray_no_crash():
@@ -27,5 +28,6 @@ def test_is_variable_truly_continuous_tz_aware_datetimearray_no_crash():
 
     vals = pd.Series(pd.date_range("2020-01-01", periods=200, freq="h", tz="UTC")).array
     assert getattr(vals.dtype, "tz", None) is not None
-    res = is_variable_truly_continuous(values=vals)
-    assert res is not None
+    is_continuous, n_outliers = is_variable_truly_continuous(values=vals)
+    assert isinstance(is_continuous, (bool, np.bool_))
+    assert n_outliers >= 0.0

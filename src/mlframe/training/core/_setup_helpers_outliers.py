@@ -53,7 +53,8 @@ def _columns_with_nan(df_: Any) -> list[str]:
         if hasattr(df_, "isna"):
             na = df_.isna().any()
             return [str(name) for name, has in na.items() if bool(has)]
-    except (ValueError, TypeError, AttributeError):
+    except (ValueError, TypeError, AttributeError) as _exc:
+        logger.debug("_columns_with_nan fell back to its default after %s", type(_exc).__name__)
         return []
     return []
 

@@ -20,7 +20,7 @@ def test_accepted_base_gives_the_offset_target_on_every_row():
     """When a base is accepted, the values equal ``y - beta * u`` on all rows, with the slope close to the true 3."""
     X, y = _frame(0)
     train_idx = np.arange(1500)
-    out = build_mix_offset_target(X, y, train_idx, selector=MRMR(verbose=0, n_jobs=1, random_seed=0, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1), gate_regressor=HistGradientBoostingRegressor(max_iter=100, random_state=0))
+    out = build_mix_offset_target(X, y, train_idx, selector=MRMR(verbose=0, n_jobs=1, random_state=0, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1), gate_regressor=HistGradientBoostingRegressor(max_iter=100, random_state=0))
     assert out is not None
     assert abs(out["beta"] - 3.0) < 0.3
     assert out["values"].shape == y.shape
@@ -34,7 +34,7 @@ def test_pure_noise_gives_no_target():
     rng = np.random.default_rng(1)
     X = pd.DataFrame({"a": rng.standard_normal(1500), "b": rng.standard_normal(1500)})
     y = rng.standard_normal(1500)
-    out = build_mix_offset_target(X, y, np.arange(1000), selector=MRMR(verbose=0, n_jobs=1, random_seed=1, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1), gate_regressor=HistGradientBoostingRegressor(max_iter=50, random_state=0))
+    out = build_mix_offset_target(X, y, np.arange(1000), selector=MRMR(verbose=0, n_jobs=1, random_state=1, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1), gate_regressor=HistGradientBoostingRegressor(max_iter=50, random_state=0))
     assert out is None
 
 

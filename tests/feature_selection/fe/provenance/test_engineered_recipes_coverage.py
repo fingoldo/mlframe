@@ -14,28 +14,13 @@ from mlframe.feature_selection.filters.engineered_recipes import (
 )
 
 
-# Per-helper presence flags so a single missing name doesn't skip the entire file.
-def _try_import(name):
-    """Try import."""
-    try:
-        mod = __import__("mlframe.feature_selection.filters.engineered_recipes", fromlist=[name])
-        return getattr(mod, name, None)
-    except ImportError:
-        return None
-
-
-build_unary_binary_recipe = _try_import("build_unary_binary_recipe")
-_apply_factorize = _try_import("_apply_factorize")
-_apply_factorize_kway = _try_import("_apply_factorize_kway")
-_apply_target_encoding = _try_import("_apply_target_encoding")
-_apply_unary_binary = _try_import("_apply_unary_binary")
-_coerce_to_int_with_nan_handling = _try_import("_coerce_to_int_with_nan_handling")
-_extract_column = _try_import("_extract_column")
-_extra_equal = _try_import("_extra_equal")
-_handle_missing = _try_import("_handle_missing")
-_maybe_collect_lazy = _try_import("_maybe_collect_lazy")
-
-_HAVE_PRIVATES = build_unary_binary_recipe is not None  # legacy flag for old tests
+from mlframe.feature_selection.filters.engineered_recipes import (
+    _apply_target_encoding,
+    _coerce_to_int_with_nan_handling,
+    _extra_equal,
+    _extract_column,
+    build_unary_binary_recipe,
+)
 
 
 def _basic_df():
@@ -82,7 +67,6 @@ def _build_recipe_via_actual_api(binary: str, unary_a: str, unary_b: str, *, una
     drift then triggered downstream apply_recipe skip-masks. Now we use the production builder
     directly with its actual keyword names (src_a_name / src_b_name etc) and accept a preset
     override so callers can test transforms that only live in maximal."""
-    assert build_unary_binary_recipe is not None, "build_unary_binary_recipe missing from engineered_recipes module; refactor regression."
     return build_unary_binary_recipe(
         name=f"{binary}({unary_a}(a),{unary_b}(b))",
         src_a_name="a",
@@ -193,27 +177,14 @@ def test_apply_factorize_clip_out_of_range():
 
 def test_coerce_to_int_with_nan_handling():
     """Coerce to int with nan handling."""
-    assert _coerce_to_int_with_nan_handling is not None, (
-        "_coerce_to_int_with_nan_handling is not importable from the provenance module. This used to be a pytest.skip, which meant a "
-        "rename or removal silently DELETED this coverage instead of failing -- a first-party private helper "
-        "in the same repository is not an optional dependency, so its absence is a regression, not a reason to "
-        "stand down. If it moved, update the import."
-    )
     # Real signature: (vals, n_bins, recipe_name, col_name, unknown_strategy)
     arr = np.array([1.0, 2.0, np.nan, 3.0])
     out = _coerce_to_int_with_nan_handling(arr, 4, "test_recipe", "test_col", "clip")
-    assert out is not None
     assert out.dtype.kind == "i"
 
 
 def test_coerce_to_int_unknown_strategy_raise():
     """Coerce to int unknown strategy raise."""
-    assert _coerce_to_int_with_nan_handling is not None, (
-        "_coerce_to_int_with_nan_handling is not importable from the provenance module. This used to be a pytest.skip, which meant a "
-        "rename or removal silently DELETED this coverage instead of failing -- a first-party private helper "
-        "in the same repository is not an optional dependency, so its absence is a regression, not a reason to "
-        "stand down. If it moved, update the import."
-    )
     arr = np.array([1.0, np.nan], dtype=np.float64)
     with pytest.raises(ValueError, match="NaN"):
         _coerce_to_int_with_nan_handling(arr, 4, "r", "c", "raise")
@@ -221,12 +192,6 @@ def test_coerce_to_int_unknown_strategy_raise():
 
 def test_coerce_to_int_integer_passthrough():
     """Coerce to int integer passthrough."""
-    assert _coerce_to_int_with_nan_handling is not None, (
-        "_coerce_to_int_with_nan_handling is not importable from the provenance module. This used to be a pytest.skip, which meant a "
-        "rename or removal silently DELETED this coverage instead of failing -- a first-party private helper "
-        "in the same repository is not an optional dependency, so its absence is a regression, not a reason to "
-        "stand down. If it moved, update the import."
-    )
     arr = np.array([0, 1, 2], dtype=np.int32)
     out = _coerce_to_int_with_nan_handling(arr, 4, "r", "c", "clip")
     assert out.dtype == np.int64
@@ -234,12 +199,6 @@ def test_coerce_to_int_integer_passthrough():
 
 def test_extract_column_pandas():
     """Extract column pandas."""
-    assert _extract_column is not None, (
-        "_extract_column is not importable from the provenance module. This used to be a pytest.skip, which meant a "
-        "rename or removal silently DELETED this coverage instead of failing -- a first-party private helper "
-        "in the same repository is not an optional dependency, so its absence is a regression, not a reason to "
-        "stand down. If it moved, update the import."
-    )
     df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
     out = _extract_column(df, "a")
     np.testing.assert_array_equal(np.asarray(out), [1, 2, 3])
@@ -248,12 +207,6 @@ def test_extract_column_pandas():
 def test_extract_column_polars():
     """Extract column polars."""
     pl = pytest.importorskip("polars")
-    assert _extract_column is not None, (
-        "_extract_column is not importable from the provenance module. This used to be a pytest.skip, which meant a "
-        "rename or removal silently DELETED this coverage instead of failing -- a first-party private helper "
-        "in the same repository is not an optional dependency, so its absence is a regression, not a reason to "
-        "stand down. If it moved, update the import."
-    )
     pldf = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
     out = _extract_column(pldf, "a")
     np.testing.assert_array_equal(np.asarray(out), [1, 2, 3])
@@ -261,12 +214,6 @@ def test_extract_column_polars():
 
 def test_extra_equal_helper():
     """Extra equal helper."""
-    assert _extra_equal is not None, (
-        "_extra_equal is not importable from the provenance module. This used to be a pytest.skip, which meant a "
-        "rename or removal silently DELETED this coverage instead of failing -- a first-party private helper "
-        "in the same repository is not an optional dependency, so its absence is a regression, not a reason to "
-        "stand down. If it moved, update the import."
-    )
     assert _extra_equal({"a": 1}, {"a": 1}) is True
     assert _extra_equal({"a": 1}, {"a": 2}) is False
     assert _extra_equal({}, {}) is True
@@ -274,12 +221,6 @@ def test_extra_equal_helper():
 
 def test_apply_target_encoding_missing_extra_raises():
     """When recipe.extra is missing cell_means / factorize_lookup, _apply_target_encoding raises a clear KeyError."""
-    assert _apply_target_encoding is not None, (
-        "_apply_target_encoding is not importable from the provenance module. This used to be a pytest.skip, which meant a "
-        "rename or removal silently DELETED this coverage instead of failing -- a first-party private helper "
-        "in the same repository is not an optional dependency, so its absence is a regression, not a reason to "
-        "stand down. If it moved, update the import."
-    )
     r = EngineeredRecipe(
         name="te_pair",
         kind="target_encoding",
@@ -293,12 +234,6 @@ def test_apply_target_encoding_missing_extra_raises():
 
 def test_apply_target_encoding_k_gt_2_raises():
     """Target encoding for k > 2 is not implemented; raises NotImplementedError."""
-    assert _apply_target_encoding is not None, (
-        "_apply_target_encoding is not importable from the provenance module. This used to be a pytest.skip, which meant a "
-        "rename or removal silently DELETED this coverage instead of failing -- a first-party private helper "
-        "in the same repository is not an optional dependency, so its absence is a regression, not a reason to "
-        "stand down. If it moved, update the import."
-    )
     r = EngineeredRecipe(
         name="te_triplet",
         kind="target_encoding",

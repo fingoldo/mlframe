@@ -37,6 +37,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterator, Optional, Any
 
+import numpy as np
+
 from .configs import TargetTypes
 
 
@@ -90,7 +92,7 @@ def unregister_metric(target_type: TargetTypes, name: str) -> None:
         _REGISTRY[target_type].pop(name, None)
 
 
-def iter_extra_metrics(target_type: TargetTypes, y_true, probs_NK, preds_NK) -> Iterator[tuple[str, Any]]:
+def iter_extra_metrics(target_type: TargetTypes, y_true: np.ndarray, probs_NK: Optional[np.ndarray], preds_NK: np.ndarray) -> Iterator[tuple[str, Any]]:
     """Yield (name, value) for every registered metric on this target type.
 
     Narrow exception catch: only the documented failure modes for sklearn
@@ -632,13 +634,13 @@ def _register_builtin_multi_target_regression():
         """Mean of per-target-column MAE (equal weight per target)."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         per_col = _mae_fn(yt, pr, multioutput="raw_values")
-        return float(per_col.mean())
+        return float(np.asarray(per_col).mean())
 
     def _mae_max(y_true, probs_NK, preds_NK):
         """Worst-case per-target-column MAE; surfaces the single weakest target rather than averaging it away."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         per_col = _mae_fn(yt, pr, multioutput="raw_values")
-        return float(per_col.max())
+        return float(np.asarray(per_col).max())
 
     def _r2_macro(y_true, probs_NK, preds_NK):
         """Mean of per-target-column R^2 (sklearn ``multioutput='uniform_average'``): equal weight per target regardless of its variance."""
@@ -649,7 +651,7 @@ def _register_builtin_multi_target_regression():
         """Worst-case per-target-column R^2; exposes the laggard target that a macro average would mask."""
         yt, pr = _coerce_nk(y_true, preds_NK)
         per_col = _r2_fn(yt, pr, multioutput="raw_values")
-        return float(per_col.min())
+        return float(np.asarray(per_col).min())
 
     register_metric(
         TargetTypes.MULTI_TARGET_REGRESSION, "rmse_macro", _rmse_macro,

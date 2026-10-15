@@ -227,8 +227,8 @@ class TestMMDebiasDefaultOff:
         df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d})
         ys = pd.Series(y, name="y")
 
-        m_default = MRMR(verbose=0, random_seed=1).fit(df, ys)
-        m_explicit_off = MRMR(verbose=0, random_seed=1, fe_mm_debias_prevalence=False).fit(df, ys)
+        m_default = MRMR(verbose=0, random_state=1).fit(df, ys)
+        m_explicit_off = MRMR(verbose=0, random_state=1, fe_mm_debias_prevalence=False).fit(df, ys)
         assert list(m_default.get_feature_names_out()) == list(
             m_explicit_off.get_feature_names_out()
         ), "explicit-default and explicit-False selections differ -- default is not OFF/byte-stable"

@@ -17,7 +17,7 @@ What lives here:
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, NamedTuple, Optional, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -173,15 +173,15 @@ def _compute_pr_recall_f1_metrics_par(y_true, y_pred):
     return precision, recall, f1
 
 
-def compute_pr_recall_f1_metrics(y_true, y_pred):
+def compute_pr_recall_f1_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> tuple[Any, Any, Any]:
     """Precision/Recall/F1 from binary predictions, auto seq/par.
 
     Sequential below N=100k (avoids thread spawn overhead); parallel
     above (~6× speedup at N=10M).
     """
     if len(y_true) >= _PARALLEL_REDUCTION_THRESHOLD:
-        return _compute_pr_recall_f1_metrics_par(y_true, y_pred)
-    return _compute_pr_recall_f1_metrics_seq(y_true, y_pred)
+        return cast(tuple[Any, Any, Any], _compute_pr_recall_f1_metrics_par(y_true, y_pred))
+    return cast(tuple[Any, Any, Any], _compute_pr_recall_f1_metrics_seq(y_true, y_pred))
 
 
 class CalibrationReport(NamedTuple):

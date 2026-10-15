@@ -430,15 +430,15 @@ class TestNoYLeak:
 
 
 class TestDefaultDisabledByteIdentical:
-    """fe_modular_enable / fe_group_distance_enable default to False and add columns only when explicitly enabled."""
+    """fe_group_distance_enable defaults to False and adds columns only when enabled; fe_modular_enable defaults to True."""
 
     def test_mrmr_default_off_adds_nothing(self):
-        """With both modular and group-distance FE disabled (default), no engineered columns are added."""
+        """With modular and group-distance FE both disabled explicitly, no engineered columns are added."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _build_hour_of_day(42, n=2000)
-        m = MRMR(max_runtime_mins=0.5)
-        assert bool(getattr(m, "fe_modular_enable", False)) is False, "fe_modular_enable must default to False."
+        m = MRMR(max_runtime_mins=0.5, fe_modular_enable=False)
+        assert bool(getattr(m, "fe_modular_enable", True)) is False, "fe_modular_enable=False must disable the modular family."
         assert bool(getattr(m, "fe_group_distance_enable", False)) is False, "fe_group_distance_enable must default to False."
         m.fit(X, pd.Series(y, name="y"))
         md = list(getattr(m, "modular_features_", []) or [])

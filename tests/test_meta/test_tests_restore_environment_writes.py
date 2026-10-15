@@ -24,8 +24,15 @@ from py_ci_shared.env_write_restore import assert_env_write_restore
 _TESTS_DIR = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_env_write_restore_baseline.json"
 
+# Deliberate process-wide writes, each with the reason it is intended. Keyed by `path::function` as the gate reports it.
+_EXEMPT = {
+    "_pysr_gate.py::pysr_works": "exposes the located Julia runtime (JULIA_EXE, PATH) once per process, idempotently, by design",
+    "conftest.py::pytest_configure": "--fast turns fast mode on for the whole session; pytest_configure runs once before any test",
+    "training/run_fuzz_10k.py::main": "CLI entry point: the setting is scoped to the script's own process, never to a pytest process",
+}
+
 
 def test_no_new_unrestored_environment_write_in_tests(request):
     """No test function gains an unrestored ``os.environ`` write beyond the baseline, and no baseline entry is stale."""
     # ~3400 test modules today; a scan that parsed fewer than 1000 has stopped reaching the tree.
-    assert_env_write_restore(_TESTS_DIR, baseline_path=_BASELINE_PATH, min_files=1000, request=request)
+    assert_env_write_restore(_TESTS_DIR, baseline_path=_BASELINE_PATH, min_files=1000, request=request, exempt=_EXEMPT)

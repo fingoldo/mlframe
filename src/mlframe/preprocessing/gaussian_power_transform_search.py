@@ -63,7 +63,8 @@ def _apply_transform(x: np.ndarray, transform_name: str, fitted_params: Optional
 
             try:
                 transformed, lmbda = boxcox(x)
-            except ValueError:
+            except ValueError as _exc:
+                logger.warning("_apply_transform fell back to its default after %s", type(_exc).__name__)
                 return None, None
             return np.asarray(transformed, dtype=np.float64), float(lmbda)
         from scipy.special import boxcox as boxcox_apply
@@ -76,13 +77,15 @@ def _apply_transform(x: np.ndarray, transform_name: str, fitted_params: Optional
             transformer = PowerTransformer(method="yeo-johnson")
             try:
                 transformed = transformer.fit_transform(x.reshape(-1, 1)).ravel()
-            except ValueError:
+            except ValueError as _exc:
+                logger.warning("_apply_transform fell back to its default after %s", type(_exc).__name__)
                 return None, None
             return np.asarray(transformed, dtype=np.float64), transformer
         assert isinstance(fitted_params, PowerTransformer)
         try:
             transformed = fitted_params.transform(x.reshape(-1, 1)).ravel()
-        except ValueError:
+        except ValueError as _exc:
+            logger.warning("_apply_transform fell back to its default after %s", type(_exc).__name__)
             return None, None
         return np.asarray(transformed, dtype=np.float64), fitted_params
     raise ValueError(f"_apply_transform: unknown transform_name {transform_name!r}")

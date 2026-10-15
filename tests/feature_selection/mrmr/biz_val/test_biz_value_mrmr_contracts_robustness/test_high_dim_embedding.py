@@ -331,8 +331,10 @@ class TestTfIdfSparseHandled:
     @pytest.mark.parametrize("seed", SEEDS)
     def test_sparse_does_not_crash(self, seed):
         """Default-config TF-IDF-like sparse fit runs to completion and produces a fitted selector."""
-        _X, _y, sel, _elapsed = _sparse_default_fit(seed)
+        X, _y, sel, _elapsed = _sparse_default_fit(seed)
         assert getattr(sel, "support_", None) is not None, "the sparse fit returned an unfitted selector"
+        names = _support_names(sel, list(X.columns))
+        assert set(names) <= set(X.columns), f"support_ names outside the input columns; seed={seed}; names={names}"
 
     @pytest.mark.parametrize("seed", SEEDS)
     def test_sparse_recovers_at_least_one_token(self, seed):

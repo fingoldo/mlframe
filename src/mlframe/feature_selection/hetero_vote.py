@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import logging
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -100,11 +102,11 @@ def _summ_hetero_vote(res, b):
 
 @logs_selection("heterogeneous_relevance_vote", _summ_hetero_vote)
 def heterogeneous_relevance_vote(
-    X, y, *, models=None, classification: bool = True, n_shadow_trials: int = 3,
+    X: pd.DataFrame | np.ndarray, y: pd.Series | np.ndarray, *, models: dict[str, Any] | None = None, classification: bool = True, n_shadow_trials: int = 3,
     percentile: float = 100.0, per_model_hit_frac: float = 0.5, vote_threshold: float = 0.5,
     weight_by_cv_skill: bool = False, cv_skill_folds: int = 3, cv_skill_floor: float = 0.05,
     random_state: int = 0,
-):
+) -> tuple[list, dict]:
     """All-relevant selection by cross-model shadow voting.
 
     For each model in the panel and each of ``n_shadow_trials`` permuted-shadow draws, fit on [X | shadows]

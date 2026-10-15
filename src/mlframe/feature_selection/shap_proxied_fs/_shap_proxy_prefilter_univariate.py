@@ -26,6 +26,7 @@ import logging
 from typing import Any, Optional, cast
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +123,8 @@ def _coerce_2d_float(X) -> np.ndarray:
 
 
 def f_classif_chunked(
-    X,
-    y,
+    X: pd.DataFrame | np.ndarray,
+    y: Any,
     *,
     batch_size: Optional[int] = None,
     use_gemm: bool = True,
@@ -283,8 +284,8 @@ def f_classif_chunked(
 
 
 def f_regression_chunked(
-    X,
-    y,
+    X: pd.DataFrame | np.ndarray,
+    y: Any,
     *,
     batch_size: Optional[int] = None,
 ) -> np.ndarray:

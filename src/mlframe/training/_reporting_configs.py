@@ -29,6 +29,7 @@ from ._training_runtime_configs import FeatureImportanceConfig
 from .diagnostics import LearningCurveConfig
 from ._inert_fields import InertFieldsWarningMixin
 from .calibration_params.configs import ConfidenceShrinkageConfig
+from mlframe._conformal_constants import DEFAULT_CONFORMAL_ALPHAS
 
 # Title-metrics token grammar - mirrors metrics.TITLE_METRIC_TOKENS but kept
 # duplicated here to avoid importing from metrics.py at config-class
@@ -558,7 +559,7 @@ class ConformalConfig(BaseConfig):
     """
 
     enabled: bool = True
-    alphas: Tuple[float, ...] = (0.1, 0.2)
+    alphas: Tuple[float, ...] = DEFAULT_CONFORMAL_ALPHAS
 
     @model_validator(mode="after")
     def _validate_alphas(self) -> "ConformalConfig":

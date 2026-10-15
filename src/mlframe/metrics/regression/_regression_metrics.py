@@ -333,12 +333,12 @@ def _check_same_ndim(yt: np.ndarray, yp: np.ndarray) -> None:
 
 
 def fast_mean_absolute_error(
-    y_true,
-    y_pred,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
     *,
-    sample_weight=None,
+    sample_weight: np.ndarray | None = None,
     multioutput: Union[str, np.ndarray] = "uniform_average",
-):
+) -> float | np.ndarray:
     """Drop-in for ``sklearn.metrics.mean_absolute_error``.
 
     Faster than sklearn (17× at N=1M) while supporting the full sklearn
@@ -360,8 +360,8 @@ def fast_mean_absolute_error(
     if yt.ndim == 1:
         n = yt.shape[0]
         if w is None:
-            return _fast_mae_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mae_seq(yt, yp)
-        return _fast_mae_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mae_weighted_seq(yt, yp, w)
+            return float(_fast_mae_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mae_seq(yt, yp))
+        return float(_fast_mae_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mae_weighted_seq(yt, yp, w))
 
     yt2 = _to_2d(yt)
     yp2 = _to_2d(yp)
@@ -380,12 +380,12 @@ def fast_mean_absolute_error(
 
 
 def fast_mean_squared_error(
-    y_true,
-    y_pred,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
     *,
-    sample_weight=None,
+    sample_weight: np.ndarray | None = None,
     multioutput: Union[str, np.ndarray] = "uniform_average",
-):
+) -> float | np.ndarray:
     """Drop-in for ``sklearn.metrics.mean_squared_error``. 15× faster at
     N=1M with full sample_weight + multioutput support."""
     _check_equal_length(y_true, y_pred)
@@ -402,8 +402,8 @@ def fast_mean_squared_error(
     if yt.ndim == 1:
         n = yt.shape[0]
         if w is None:
-            return _fast_mse_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mse_seq(yt, yp)
-        return _fast_mse_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mse_weighted_seq(yt, yp, w)
+            return float(_fast_mse_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mse_seq(yt, yp))
+        return float(_fast_mse_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_mse_weighted_seq(yt, yp, w))
 
     yt2 = _to_2d(yt)
     yp2 = _to_2d(yp)
@@ -422,12 +422,12 @@ def fast_mean_squared_error(
 
 
 def fast_root_mean_squared_error(
-    y_true,
-    y_pred,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
     *,
-    sample_weight=None,
+    sample_weight: np.ndarray | None = None,
     multioutput: Union[str, np.ndarray] = "uniform_average",
-):
+) -> float | np.ndarray:
     """Drop-in for ``sklearn.metrics.root_mean_squared_error``.
 
     Computes per-output RMSE = sqrt(MSE) BEFORE aggregating
@@ -438,7 +438,7 @@ def fast_root_mean_squared_error(
         per_out_mse = fast_mean_squared_error(
             y_true, y_pred, sample_weight=sample_weight, multioutput="raw_values",
         )
-        return np.sqrt(np.atleast_1d(per_out_mse))
+        return np.asarray(np.sqrt(np.atleast_1d(per_out_mse)))
     # For aggregated forms, sklearn computes per-output RMSE then averages.
     per_out_mse = np.atleast_1d(
         fast_mean_squared_error(
@@ -450,11 +450,11 @@ def fast_root_mean_squared_error(
 
 
 def fast_max_error(
-    y_true,
-    y_pred,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
     *,
     multioutput: Union[str, np.ndarray] = "raw_values",
-):
+) -> float | np.ndarray:
     """Drop-in for ``sklearn.metrics.max_error``. ~6× faster at N=1M.
 
     sklearn's ``max_error`` raises on multioutput input; we extend with
@@ -469,7 +469,7 @@ def fast_max_error(
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if yt.ndim == 1:
         n = yt.shape[0]
-        return _fast_max_error_par(yt, yp) if n >= _MAX_ERROR_PAR_THRESHOLD else _fast_max_error_seq(yt, yp)
+        return float(_fast_max_error_par(yt, yp) if n >= _MAX_ERROR_PAR_THRESHOLD else _fast_max_error_seq(yt, yp))
     yt2 = _to_2d(yt)
     yp2 = _to_2d(yp)
     M = yt2.shape[1]
@@ -484,12 +484,12 @@ def fast_max_error(
 
 
 def fast_r2_score(
-    y_true,
-    y_pred,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
     *,
-    sample_weight=None,
+    sample_weight: np.ndarray | None = None,
     multioutput: Union[str, np.ndarray] = "uniform_average",
-):
+) -> float | np.ndarray:
     """Drop-in for ``sklearn.metrics.r2_score``. 23× faster at N=1M with
     full sample_weight + multioutput support, including
     ``'variance_weighted'`` aggregation."""
@@ -507,8 +507,8 @@ def fast_r2_score(
     if yt.ndim == 1:
         n = yt.shape[0]
         if w is None:
-            return _fast_r2_score_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_r2_score_seq(yt, yp)
-        return _fast_r2_score_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_r2_score_weighted_seq(yt, yp, w)
+            return float(_fast_r2_score_par(yt, yp) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_r2_score_seq(yt, yp))
+        return float(_fast_r2_score_weighted_par(yt, yp, w) if n >= _PARALLEL_REDUCTION_THRESHOLD else _fast_r2_score_weighted_seq(yt, yp, w))
 
     yt2 = _to_2d(yt)
     yp2 = _to_2d(yp)
@@ -785,8 +785,8 @@ def _fused_regression_pass2_par(y_true: np.ndarray, y_mean: float) -> float:
 
 
 def fast_regression_metrics_block(
-    y_true,
-    y_pred,
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
 ) -> Dict[str, float]:
     """Compute MAE / RMSE / MaxError / R^2 from a single fused pass.
 

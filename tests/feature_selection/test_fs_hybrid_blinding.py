@@ -86,6 +86,7 @@ class TestApplying:
     def test_non_arm_fields_survive(self) -> None:
         """Only the arm name is hidden; the data the analysis needs must pass through unchanged."""
         blinded = apply_blinding(_records(["mrmr", "all-features"]), blind_labels(["mrmr", "all-features"]))
+        assert len(blinded) == 2
         assert all(record["scenario"] == "bed" and record["status"] == "ok" for record in blinded)
 
 
@@ -120,5 +121,5 @@ class TestRoundTrip:
         assert two_letter, "this fixture must produce at least one two-letter label"
         text = " ".join(sorted(mapping.values()))
         revealed = unblind_text(text, mapping)
-        assert all(name in revealed for name in many)
+        assert sorted(revealed.split()) == sorted(many)
         assert "arm_" not in revealed

@@ -139,7 +139,7 @@ def test_canonical_transform_replays_engineered_columns_leak_safe():
     # random_seed pinned (MRMR's own internal RNG defaults to None/unseeded, unlike every sibling test in
     # this file): without it, which (c,d) engineered variant wins the greedy screen is itself
     # non-deterministic across runs, independent of the transform-replay contract under test.
-    fs = MRMR(verbose=0, random_seed=42)
+    fs = MRMR(verbose=0, random_state=42)
     fs.fit(df, y)
 
     out_names = list(fs.get_feature_names_out())
@@ -648,7 +648,7 @@ def test_subsumed_ratio_operands_drop_at_small_n(n):
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = 0.30 * (a**2) / b + 0.01 * e
     df = pd.DataFrame({"a": a, "b": b, "e": e})
-    fs = MRMR(verbose=0, random_seed=42, redundancy_policy="drop")
+    fs = MRMR(verbose=0, random_state=42, redundancy_policy="drop")
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
     # Load-bearing redundancy-drop contract: the SUBSUMED ratio operands a, b MUST
@@ -671,7 +671,7 @@ def test_subsumed_operand_drop_opt_out_restores_legacy(n):
     a, b, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = 0.30 * (a**2) / b + 0.01 * e
     df = pd.DataFrame({"a": a, "b": b, "e": e})
-    fs = MRMR(verbose=0, random_seed=42, redundancy_policy="drop", fe_drop_redundant_raw_operands=False)
+    fs = MRMR(verbose=0, random_state=42, redundancy_policy="drop", fe_drop_redundant_raw_operands=False)
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
     # With the sweep OFF, at least one subsumed raw operand survives (the legacy
@@ -690,7 +690,7 @@ def test_pure_noise_raw_not_re_added_by_retention(n):
     f = rng.uniform(0, 1, n)  # unobserved
     y = np.log(a + 1.0) * c + 0.40 * f
     df = pd.DataFrame({"a": a, "c": c, "a_sqr": a**2, "c_exp": np.exp(c), "e": e})
-    fs = MRMR(verbose=0, random_seed=42)
+    fs = MRMR(verbose=0, random_state=42)
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
     assert "e" not in out, f"pure-noise raw e re-admitted at n={n}: {out}"
@@ -711,7 +711,7 @@ def test_genuine_independent_raw_kept_alongside_engineered():
     a, c, e = (rng.uniform(0, 1, n) for _ in range(3))
     y = a**2 + 0.30 * c
     df = pd.DataFrame({"a": a, "a_exp": np.exp(a), "a_log": np.log(a + 1.0), "c": c, "e": e})
-    fs = MRMR(verbose=0, random_seed=42)
+    fs = MRMR(verbose=0, random_state=42)
     fs.fit(df, pd.Series(y, name="y"))
     out = list(fs.get_feature_names_out())
     if "c" not in out:
@@ -1017,7 +1017,7 @@ def test_canonical_fit_never_returns_empty_selection_at_moderate_n():
     config (n=8000, random_seed=42) emptied the support because the raw operands
     were dropped against a non-replayable nested-engineered subsumer."""
     df, y = _make_fixture(n=8000)
-    fs = MRMR(verbose=0, random_seed=42)
+    fs = MRMR(verbose=0, random_state=42)
     fs.fit(df, y)
     out = list(fs.get_feature_names_out())
     assert len(out) > 0, (

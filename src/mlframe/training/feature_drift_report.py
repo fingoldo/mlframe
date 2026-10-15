@@ -887,14 +887,14 @@ def compute_feature_distribution_drift(
     _cache_key = _drift_invariant_cache_key(
         train_df, val_df, test_df, feature_names, warn_threshold_z,
     )
-    _invariant: Optional[dict[str, Any]] = _DRIFT_INVARIANT_CACHE.get(_cache_key) if _cache_key is not None else None
-    if _invariant is None:
-        _invariant = _compute_drift_invariant(
-            train_df, val_df, test_df,
-            warn_threshold_z=warn_threshold_z, feature_names=feature_names,
-        )
-        if _cache_key is not None:
-            with _DRIFT_INVARIANT_CACHE_LOCK:
+    with _DRIFT_INVARIANT_CACHE_LOCK:
+        _invariant: Optional[dict[str, Any]] = _DRIFT_INVARIANT_CACHE.get(_cache_key) if _cache_key is not None else None
+        if _invariant is None:
+            _invariant = _compute_drift_invariant(
+                train_df, val_df, test_df,
+                warn_threshold_z=warn_threshold_z, feature_names=feature_names,
+            )
+            if _cache_key is not None:
                 if len(_DRIFT_INVARIANT_CACHE) >= _DRIFT_INVARIANT_CACHE_MAX:
                     # evict-ok: memo; a miss recomputes the value
                     _DRIFT_INVARIANT_CACHE.pop(next(iter(_DRIFT_INVARIANT_CACHE)))

@@ -105,7 +105,8 @@ def _fit_surrogate_and_oof(
     ``(None, nan)`` if LightGBM is unavailable or the fit degenerates."""
     try:
         import lightgbm as lgb
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_fit_surrogate_and_oof fell back to its default after %s", type(_exc).__name__)
         return None, float("nan")
 
     n = disc_X.shape[0]

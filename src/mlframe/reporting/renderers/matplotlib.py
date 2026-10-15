@@ -559,7 +559,7 @@ class MatplotlibRenderer:
         overlay_x_lo = overlay_x_hi = None
         bin_centers = p.bin_centers
         heights = None
-        width = None
+        width: Any = None
         if bin_centers is None and len(np.asarray(p.values)) > _HIST_PREBIN_THRESHOLD:
             # Above the hazard ceiling, bin once with numpy instead of letting ax.hist re-scan the full n array.
             from mlframe.reporting.charts import prebin_histogram

@@ -48,8 +48,9 @@ def _maybe_bridge_polars_to_pandas(X):
         from .utils import get_pandas_view_of_polars_df
 
         return get_pandas_view_of_polars_df(X)
-    except ImportError:
+    except ImportError as _exc:
         # Fallback: pyarrow extension arrays preserve Categorical dtype but are slower than the split-blocks bridge.
+        logger.debug("_maybe_bridge_polars_to_pandas fell back to its default after %s", type(_exc).__name__)
         return X.to_pandas(use_pyarrow_extension_array=True)
 
 

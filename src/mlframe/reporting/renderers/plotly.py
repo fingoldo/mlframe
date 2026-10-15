@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, ClassVar, List, Optional
+from typing import Any, ClassVar, List, Optional, cast
 
 from mlframe._output_paths import ensure_parent_dir
 import numpy as np
@@ -564,7 +564,7 @@ class PlotlyRenderer:
                 else:
                     width_any = float(p.bin_width if p.bin_width is not None else ((bin_centers[1] - bin_centers[0]) if len(bin_centers) > 1 else 1.0))
             else:
-                width_any = float(width0)
+                width_any = float(cast(float, width0))
             width = width_any
             colors_kw: dict[str, Any] = dict(color=p.color)
             if p.bar_colors is not None:

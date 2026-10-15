@@ -74,7 +74,7 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
     Pre-fix: ``transform`` returned an all-zero (constant) column -> the
     selected synergy feature was destroyed at serving time."""
     df_tr, y_tr = _xor_cat_frame(7, 4000, as_categorical)
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=1)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=1)
     sel.fit(df_tr, y_tr)
 
     recipes = [r for r in getattr(sel, "_engineered_recipes_", []) if r.kind in ("factorize", "target_encoding")]
@@ -279,7 +279,7 @@ def test_combined_cat_nan_wide_clf_no_serve_skew(n_classes):
     ``0..K-1`` from the per-column map while fit assigned ``1..K`` -> the
     (cat_a, cat_b) lookup mis-keyed at serving -> train/serve skew."""
     df_tr, y_tr = _combined_frame(7, 6000, n_classes, p_numeric=120)
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=1)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=1)
     sel.fit(df_tr, y_tr)
 
     recipes = [
@@ -331,7 +331,7 @@ def test_combined_nan_does_not_break_numeric_relevance():
     selectable (NaN routed to its own bin, not silently propagated into MI as a
     garbage value that destroys relevance)."""
     df_tr, y_tr = _combined_frame(11, 5000, 2, p_numeric=60)
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=1)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=1)
     sel.fit(df_tr, y_tr)
     fni = list(sel.feature_names_in_)
     sel_names = {fni[i] for i in sel.support_ if i < len(fni)}
@@ -414,7 +414,7 @@ def test_classification_recovers_signal_and_uses_classif_path(n_classes):
     else:
         y = pd.qcut(lin, n_classes, labels=False).astype(np.int64)
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
-    sel = MRMR(verbose=0, random_seed=42)
+    sel = MRMR(verbose=0, random_state=42)
     sel.fit(df, pd.Series(y, name="y"))
     fni = list(sel.feature_names_in_)
     sel_names = {fni[i] for i in sel.support_ if i < len(fni)}
@@ -436,7 +436,7 @@ def test_wide_p299_recovers_planted_signal_bounded():
     X = rng.normal(size=(n, p))
     y = (2.0 * X[:, 0] + 2.0 * X[:, 5] + 2.0 * X[:, 100] + 0.2 * rng.normal(size=n) > 0).astype(np.int64)
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=0)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=0)
     sel.fit(df, pd.Series(y, name="y"))
     fni = list(sel.feature_names_in_)
     sel_names = {fni[i] for i in sel.support_ if i < len(fni)}
@@ -460,7 +460,7 @@ def test_nan_in_features_recovered_and_preserved_in_transform():
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
     nan_mask = rng.random(n) < 0.25
     df.loc[nan_mask, "x0"] = np.nan  # NaN in the signal column
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=0)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=0)
     sel.fit(df, pd.Series(y, name="y"))
     fni = list(sel.feature_names_in_)
     sel_names = {fni[i] for i in sel.support_ if i < len(fni)}
@@ -480,6 +480,6 @@ def test_nan_in_target_raises():
     yf = (X[:, 0] + 0.4 * rng.normal(size=n)).astype(np.float64)
     yf[rng.random(n) < 0.05] = np.nan
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
-    sel = MRMR(verbose=0, random_seed=42, fe_max_steps=0)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=0)
     with pytest.raises(ValueError, match="NaN"):
         sel.fit(df, pd.Series(yf, name="y"))

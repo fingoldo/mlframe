@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
-from typing import Optional, Tuple
+from typing import Optional, Sequence, Tuple
 import html
 import re
 from enum import Enum
@@ -44,7 +44,7 @@ def _strip_userinfo(text: object) -> str:
 # MLFLOW
 ########################################################################################################################################################################################################################################
 
-def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanced_accuracy","brier_score_loss","roc_auc"),source:str="")->dict:
+def flatten_classification_report(cr: dict, separate_metrics: Sequence[str] = ("accuracy", "balanced_accuracy", "brier_score_loss", "roc_auc"), source: str = "") -> dict:
     """Flatten a sklearn ``classification_report(output_dict=True)`` into a single flat dict of MLflow-metric-name -> value.
 
     Scalar metrics named in ``separate_metrics`` (e.g. ``accuracy``) are popped out under ``source + metric``; every
@@ -62,7 +62,7 @@ def flatten_classification_report(cr: dict, separate_metrics=("accuracy","balanc
             res[source + prefix + "_" + metric] = value
     return res
 
-def log_classification_report_to_mlflow(cr: dict, step: int,separate_metrics=("accuracy",),source:str=""):
+def log_classification_report_to_mlflow(cr: dict, step: int, separate_metrics: Sequence[str] = ("accuracy",), source: str = "") -> None:
     """Logging all metrics from a dict-like classification_report as flat MLFlow entries."""
 
     for name, value in flatten_classification_report(cr, separate_metrics=separate_metrics, source=source).items():

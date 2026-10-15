@@ -48,7 +48,8 @@ from .evaluation import (
     should_skip_candidate,
     _prefill_cond_MIs_gpu,
 )
-from .fleuret import get_fleuret_criteria_confidence, get_fleuret_criteria_confidence_parallel
+from ._numba_utils import get_fleuret_criteria_confidence
+from .fleuret import get_fleuret_criteria_confidence_parallel
 from .gpu import mi_direct_gpu
 from .permutation import mi_direct, _addone_pvalue_enabled
 
@@ -79,7 +80,7 @@ from ._confirm_predictor_engineered import (
 from ._confirm_predictor_context import ScreenContext
 
 
-def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expected_gains: np.ndarray):
+def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, expected_gains: np.ndarray) -> tuple:
     """Evaluate every feasible candidate's gain given ``ctx.selected_vars``.
 
     Mutates ``expected_gains`` (dense, keyed by global candidate index), ``ctx.partial_gains``,
@@ -379,7 +380,7 @@ def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate, expec
     return best_gain, best_candidate, run_out_of_time
 
 
-def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float):
+def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tuple:
     """Permutation-confirm a single candidate ``X`` given ``ctx.selected_vars``.
 
     Direct-MI bootstrap (cached in ``cached_confident_MIs[X]``) plus the optional Fleuret
@@ -661,7 +662,7 @@ def confirm_one_predictor(
     total_checked: int,
     total_disproved: int,
     patience_triggered: bool,
-):
+) -> tuple:
     """Run one full single-predictor confirmation cycle (the original ``while True`` loop).
 
     Re-scores all feasible candidates, then permutation-confirms them in expected-gain order

@@ -84,7 +84,7 @@ def test_mrmr_cluster_stability_runs_on_categorical_without_fallback():
     _prev_level = _logger.level
     _logger.setLevel(logging.DEBUG)
     try:
-        fs = MRMR(verbose=0, random_seed=0, stability_selection_method="cluster", stability_n_bootstrap=4).fit(df, pd.Series(y, name="y"))
+        fs = MRMR(verbose=0, random_state=0, stability_selection_method="cluster", stability_n_bootstrap=4).fit(df, pd.Series(y, name="y"))
     finally:
         _logger.setLevel(_prev_level)
         _logger.handlers = [h for h in _logger.handlers if not isinstance(h, _Capture)]

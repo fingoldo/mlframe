@@ -146,7 +146,7 @@ def plot_target_distribution(
     y_name: str | None = None,
     transform_name: str | None = None,
     base_column: str | None = None,
-):
+) -> Any:
     """Side-by-side distributions of ``y`` and ``T = transform(y, base)`` with a plain-language verdict.
 
     The question the chart answers: did the transform make the target easier to model -- a less skewed, lighter-tailed,
@@ -244,7 +244,7 @@ def plot_qq(
     *,
     title: str = "Q-Q plot of T vs standard normal",
     figsize: tuple[float, float] = (6, 6),
-):
+) -> Any:
     """Q-Q plot of ``T`` quantiles against the standard normal.
 
     A perfectly normal ``T`` lands on the y=x line. Heavy-tail T
@@ -298,7 +298,7 @@ def plot_linear_fit(
     beta: float | None = None,
     title: str = "Linear residual fit",
     figsize: tuple[float, float] = (8, 5),
-):
+) -> Any:
     """Scatter of ``y`` against ``base`` with the fitted
     ``alpha * base + beta`` line overlaid. R^2 annotated in the
     upper-left corner.
@@ -362,7 +362,7 @@ def plot_mi_gain_with_jitter(
     figsize: tuple[float, float] = (10, 5),
     random_state: int = 42,
     jitter_scale: float = 0.05,
-):
+) -> Any:
     """Bar chart of per-spec ``mi_gain`` with Gaussian-jitter error bars.
 
     The error bars are NOT a bootstrap CI on the MI estimate. A true bootstrap would
@@ -452,7 +452,7 @@ def plot_mi_gain_with_ci(
     title: str = "MI gain per composite spec (jitter error bars)",
     figsize: tuple[float, float] = (10, 5),
     random_state: int = 42,
-):
+) -> Any:
     """Deprecated alias. The error bars are Gaussian jitter, not a bootstrap CI;
     use :func:`plot_mi_gain_with_jitter` directly. Kept for back-compat with
     pre-rename callers.
@@ -480,7 +480,7 @@ def plot_per_fold_tiny_rmse(
     raw_baseline: float | None = None,
     title: str = "Per-fold tiny CV-RMSE per composite spec",
     figsize: tuple[float, float] = (10, 5),
-):
+) -> Any:
     """Boxplot of per-fold tiny CV-RMSE (y-scale, after inverse) per
     composite spec. Shows the cross-fold variance directly so a spec
     whose mean RMSE is best-by-a-hair but has wide fold spread can be
@@ -521,7 +521,7 @@ def plot_per_family_disagreement(
     *,
     title: str = "Per-family rerank rank-correlation",
     figsize: tuple[float, float] = (6, 5),
-):
+) -> Any:
     """Heatmap of Spearman rank-correlation between tiny-model
     families' rerank rankings.
 
@@ -594,7 +594,7 @@ def plot_alpha_stability(
     title: str = "linear_residual alpha stability over windows",
     figsize: tuple[float, float] = (10, 4),
     expected_alpha: float | None = None,
-):
+) -> Any:
     """Line plot of fitted ``alpha`` (linear_residual coefficient)
     across rolling windows of the train data.
 
@@ -655,7 +655,7 @@ def plot_predictions_vs_actual(
     figsize: tuple[float, float] = (12, 4),
     sample_n: int = 5000,
     random_state: int = 42,
-):
+) -> Any:
     """Side-by-side scatter ``y_pred`` vs ``y_true`` per composite.
 
     ``y_pred_per_spec`` is ``{spec_name: y_hat_array}`` where each
@@ -732,7 +732,7 @@ def plot_reliability_diagram(
     figsize: tuple[float, float] = (6, 6),
     sample_n: int = 200_000,
     random_state: int = 42,
-):
+) -> Any:
     """Reliability diagram for :class:`CompositeClassificationEstimator` calibration.
 
     Plots per-bin observed accuracy against mean predicted confidence (the
@@ -834,7 +834,7 @@ def plot_interval_coverage(
     figsize: tuple[float, float] = (8, 5),
     sample_n: int = 5000,
     random_state: int = 42,
-):
+) -> Any:
     """Empirical coverage + mean width for conformal / CQR / Mondrian bands.
 
     Sorts the rendered sample by ``y_true`` and draws each interval as a
@@ -898,7 +898,7 @@ def plot_interval_width_vs_x(
     figsize: tuple[float, float] = (8, 5),
     sample_n: int = 5000,
     random_state: int = 42,
-):
+) -> Any:
     """Scatter of band width ``upper - lower`` against a 1D feature ``x``.
 
     Visualises whether the interval width ADAPTS to the input: a CQR / Mondrian

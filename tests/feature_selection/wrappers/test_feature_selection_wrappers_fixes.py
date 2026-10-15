@@ -117,15 +117,34 @@ def test_w2_aggregate_linear_run_weights_change_the_ranking():
     assert weighted["a"] != unweighted["a"], "W2 REGRESSION: run_weights must change aggregate_linear's score, not be silently ignored"
 
 
-def test_w2_dispatched_forwards_run_weights_to_tree_and_linear():
+def test_w2_dispatched_forwards_run_weights_to_tree_and_linear(monkeypatch):
     """W2 dispatched forwards run weights to tree and linear."""
-    import inspect
-
     from mlframe.feature_selection.wrappers import _helpers_importance_agg as mod
+    from mlframe.feature_selection.wrappers._enums import VotesAggregation
 
-    src = inspect.getsource(mod.aggregate_importances_dispatched)
-    assert "aggregate_tree(feature_importances, k_cv=k_cv, run_weights=run_weights)" in src
-    assert "aggregate_linear(signed_importances, run_weights=run_weights)" in src
+    seen = {}
+    real_tree, real_linear = mod.aggregate_tree, mod.aggregate_linear
+
+    def tree_spy(feature_importances, **kwargs):
+        """Record the weights this estimator receives and forward the call."""
+        seen["tree"] = kwargs.get("run_weights")
+        return real_tree(feature_importances, **kwargs)
+
+    def linear_spy(signed_importances, **kwargs):
+        """Record the weights this estimator receives and forward the call."""
+        seen["linear"] = kwargs.get("run_weights")
+        return real_linear(signed_importances, **kwargs)
+
+    monkeypatch.setattr(mod, "aggregate_tree", tree_spy)
+    monkeypatch.setattr(mod, "aggregate_linear", linear_spy)
+    run_weights = {"run1": 0.05, "run2": 0.5, "run3": 1.0}
+    fi = {"run1": {"a": 5.0, "b": 1.0}, "run2": {"a": 4.0, "b": 1.2}, "run3": {"a": 3.0, "b": 1.1}}
+    signed = {"run1": {"a": 5.0, "b": 1.0}, "run2": {"a": -0.1, "b": 1.1}, "run3": {"a": -0.1, "b": 1.0}}
+
+    mod.aggregate_importances_dispatched(fi, "tree", VotesAggregation.Borda, k_cv=1.0, run_weights=run_weights)
+    mod.aggregate_importances_dispatched(fi, "linear", VotesAggregation.Borda, signed_importances=signed, run_weights=run_weights)
+
+    assert seen == {"tree": run_weights, "linear": run_weights}
 
 
 # ---------------------------------------------------------------------------
@@ -133,24 +152,58 @@ def test_w2_dispatched_forwards_run_weights_to_tree_and_linear():
 # ---------------------------------------------------------------------------
 
 
-def test_w3_fit_fold_passes_random_state_to_get_feature_importances():
-    """W3 fit fold passes random state to get feature importances."""
-    import inspect
+def _spy_on_get_feature_importances(monkeypatch, module):
+    """Wrap ``module.get_feature_importances`` so every call's ``random_state`` is recorded while the real function still runs."""
+    from mlframe.feature_selection.wrappers._helpers import get_feature_importances as real_gfi
 
+    seeds = []
+
+    def spy(*args, **kwargs):
+        """Record the call and forward it to the real function."""
+        seeds.append(kwargs.get("random_state"))
+        return real_gfi(*args, **kwargs)
+
+    monkeypatch.setattr(module, "get_feature_importances", spy)
+    return seeds
+
+
+def test_w3_fit_fold_passes_random_state_to_get_feature_importances(monkeypatch):
+    """W3 fit fold passes a distinct integer seed per fold to get feature importances, not one shared default."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.datasets import make_classification
+
+    from mlframe.feature_selection.wrappers import RFECV
     from mlframe.feature_selection.wrappers.rfecv import _fit_fold as mod
 
-    src = inspect.getsource(mod)
-    assert "random_state=int(fold_seed)" in src
+    seeds = _spy_on_get_feature_importances(monkeypatch, mod)
+    X, y = make_classification(n_samples=200, n_features=8, n_informative=3, n_redundant=0, shuffle=False, class_sep=2.0, random_state=0)
+    RFECV(estimator=LogisticRegression(max_iter=200, random_state=0), cv=3, max_refits=2, verbose=0, random_state=0, leakage_corr_threshold=None).fit(
+        pd.DataFrame(X, columns=[f"f{i}" for i in range(8)]), y
+    )
+
+    assert len(seeds) >= 2, "per-fold permutation importance was never computed; the seed contract is untested"
+    assert all(isinstance(s, int) for s in seeds)
+    assert len(set(seeds)) == len(seeds), f"folds reused an RNG seed: {seeds}"
 
 
-def test_w3_stability_select_passes_random_state_to_get_feature_importances():
-    """W3 stability select passes random state to get feature importances."""
-    import inspect
+def test_w3_stability_select_passes_random_state_to_get_feature_importances(monkeypatch):
+    """W3 stability select derives a distinct integer seed per bootstrap, not get_feature_importances' fixed default."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.datasets import make_classification
 
+    from mlframe.feature_selection.wrappers import RFECV
     from mlframe.feature_selection.wrappers.rfecv import _stability_select as mod
 
-    src = inspect.getsource(mod)
-    assert "random_state=int(rng.integers(" in src
+    seeds = _spy_on_get_feature_importances(monkeypatch, mod)
+    X, y = make_classification(n_samples=200, n_features=8, n_informative=3, n_redundant=0, shuffle=False, class_sep=2.0, random_state=0)
+    RFECV(
+        estimator=LogisticRegression(max_iter=200, random_state=0), stability_selection=True, stability_n_bootstrap=4,
+        stability_threshold=0.5, cv=3, max_refits=2, verbose=0, random_state=0, leakage_corr_threshold=None,
+    ).fit(pd.DataFrame(X, columns=[f"f{i}" for i in range(8)]), y)
+
+    assert len(seeds) >= 2, "stability selection never computed bootstrap importances; the seed contract is untested"
+    assert all(isinstance(s, int) for s in seeds)
+    assert len(set(seeds)) == len(seeds), f"bootstraps reused an RNG seed: {seeds}"
 
 
 # ---------------------------------------------------------------------------
@@ -222,18 +275,38 @@ def test_w5_get_best_dummy_score_accepts_and_uses_sample_weight():
     )
     assert np.isfinite(score_unweighted)
     assert np.isfinite(score_weighted)
-    # Not asserting they differ (could coincide), just that the weighted call path executes cleanly
-    # and doesn't silently ignore the weights (verified via source below).
+    # Not asserting they differ (could coincide), just that the weighted call path executes cleanly.
+    # Weight forwarding into the dummy baseline is pinned by test_w5_fit_fold_forwards_fold_weights_to_dummy_score.
 
 
-def test_w5_fit_fold_forwards_fold_weights_to_dummy_score():
-    """W5 fit fold forwards fold weights to dummy score."""
-    import inspect
+def test_w5_fit_fold_forwards_fold_weights_to_dummy_score(monkeypatch):
+    """W5 fit fold forwards the fold's train/test sample weights to the dummy baseline, matching the weighted real-N scores."""
+    from sklearn.datasets import make_classification
+    from sklearn.linear_model import LogisticRegression
 
+    from mlframe.feature_selection.wrappers import RFECV
     from mlframe.feature_selection.wrappers.rfecv import _fit_fold as mod
 
-    src = inspect.getsource(mod)
-    assert "train_sample_weight=_fold_train_sw, test_sample_weight=_fold_test_sw" in src
+    seen = []
+    real_dummy = mod.get_best_dummy_score
+
+    def spy(*args, **kwargs):
+        """Record the call and forward it to the real function."""
+        seen.append((kwargs.get("train_sample_weight"), kwargs.get("test_sample_weight")))
+        return real_dummy(*args, **kwargs)
+
+    monkeypatch.setattr(mod, "get_best_dummy_score", spy)
+    X, y = make_classification(n_samples=200, n_features=6, n_informative=3, n_redundant=0, shuffle=False, class_sep=2.0, random_state=0)
+    sw = np.random.default_rng(1).uniform(0.5, 2.0, size=200)
+    RFECV(estimator=LogisticRegression(max_iter=200, random_state=0), cv=3, max_refits=2, verbose=0, random_state=0, leakage_corr_threshold=None).fit(
+        pd.DataFrame(X, columns=[f"f{i}" for i in range(6)]), y, sample_weight=sw
+    )
+
+    assert seen, "the dummy baseline was never scored; the weight forwarding is untested"
+    for train_w, test_w in seen:
+        assert train_w is not None and test_w is not None, "dummy baseline dropped the fold sample weights"
+        assert len(train_w) < 200 and len(test_w) < 200
+        assert np.isin(train_w, sw).all() and np.isin(test_w, sw).all()
 
 
 # ---------------------------------------------------------------------------
@@ -241,15 +314,40 @@ def test_w5_fit_fold_forwards_fold_weights_to_dummy_score():
 # ---------------------------------------------------------------------------
 
 
-def test_w6_sffs_swap_pass_forwards_sample_weight():
-    """W6 sffs swap pass forwards sample weight."""
-    import inspect
+def test_w6_sffs_swap_pass_forwards_sample_weight(monkeypatch):
+    """W6 sffs swap pass threads the caller's sample_weight into every swap-evaluation cross_val_score call."""
+    from types import SimpleNamespace
+
+    import sklearn.model_selection as skms
+    from sklearn.linear_model import LogisticRegression
 
     from mlframe.feature_selection.wrappers.rfecv import _sffs as mod
 
-    src = inspect.getsource(mod._sffs_swap_pass)
-    assert '"sample_weight": _sw' in src
-    assert "**_cv_score_kwargs" in src
+    real_cvs = skms.cross_val_score
+    seen = []
+
+    def spy(estimator, X, y, **kwargs):
+        """Record the call and forward it to the real function."""
+        seen.append(kwargs)
+        return real_cvs(estimator, X, y, **kwargs)
+
+    monkeypatch.setattr(skms, "cross_val_score", spy)
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(120, 4))
+    y = (X[:, 0] + 0.1 * rng.normal(size=120) > 0).astype(int)
+    sw = rng.uniform(0.5, 2.0, size=120)
+    feats = ["f0", "f1", "f2", "f3"]
+    fi = {"r0": {"f0": 1.0, "f1": 0.1, "f2": 0.2, "f3": 0.0}}
+    self_ = SimpleNamespace(swap_top_k=1, _fit_sample_weight_=sw)
+
+    mod._sffs_swap_pass(
+        self_, X, y, LogisticRegression(max_iter=200), 3, "accuracy", 2, 0.5,
+        {2: ["f1", "f2"]}, fi, feats, {2: 0.5}, {2: 0.0}, 0, 6,
+    )
+
+    assert seen, "the swap pass never evaluated a swap; the weight forwarding is untested"
+    for kwargs in seen:
+        np.testing.assert_array_equal(kwargs["params"]["sample_weight"], sw)
 
 
 # ---------------------------------------------------------------------------
@@ -257,14 +355,21 @@ def test_w6_sffs_swap_pass_forwards_sample_weight():
 # ---------------------------------------------------------------------------
 
 
-def test_w7_reference_kernels_documented_not_silently_dead():
-    """W7 reference kernels documented not silently dead."""
-    import inspect
+def test_w7_reference_kernels_return_textbook_values():
+    """W7 reference kernels stay live: on a tie-free input they return the textbook Mann-Whitney U / Kruskal-Wallis H."""
+    from mlframe.feature_selection.wrappers._univariate_ht import _kruskal_wallis_h, _mann_whitney_u_z
 
-    from mlframe.feature_selection.wrappers import _univariate_ht as mod
+    x = np.array([1.0, 2.0, 3.0, 4.0])
+    # Group 1 holds ranks 3 and 4: U1 = 7 - 3 = 4, mu = 2, var = (2*2/12) * 5 = 5/3.
+    u_stat, mu_u, sigma_u = _mann_whitney_u_z(x, np.array([0, 0, 1, 1], dtype=np.int64))
+    assert u_stat == pytest.approx(4.0)
+    assert mu_u == pytest.approx(2.0)
+    assert sigma_u == pytest.approx(np.sqrt(5.0 / 3.0))
 
-    src = inspect.getsource(mod)
-    assert "bit-identity reference" in src
+    # Rank sums 3 and 7 over groups of 2: H = 12/(4*5) * (3^2/2 + 7^2/2) - 3*5 = 2.4, df = 1.
+    h_stat, df = _kruskal_wallis_h(x, np.array([0, 0, 1, 1], dtype=np.int64), 2)
+    assert h_stat == pytest.approx(2.4)
+    assert df == 1
 
 
 def test_w7_v2_kernels_still_match_the_reference_implementation():
@@ -291,15 +396,19 @@ def test_w7_v2_kernels_still_match_the_reference_implementation():
 # ---------------------------------------------------------------------------
 
 
-def test_w8_enum_comments_no_longer_claim_scipy_backends():
-    """W8 enum comments no longer claim scipy backends."""
-    import inspect
+def test_w8_scipy_named_strategies_delegate_to_dichotomic_search():
+    """W8 the ScipyLocal/ScipyGlobal strategies run dichotomic search (no scipy optimizer), so they must pick the same N as it."""
+    from mlframe.feature_selection.wrappers._enums import OptimumSearch
+    from mlframe.feature_selection.wrappers._helpers import _suggest_dichotomic, _suggest_scipy_global, _suggest_scipy_local
 
-    from mlframe.feature_selection.wrappers import _enums as mod
-
-    src = inspect.getsource(mod.OptimumSearch)
-    assert "# Brent" not in src
-    assert "# direct, diff evol, shgo" not in src
+    remaining = list(range(1, 21))
+    evaluated = {5: 0.5, 10: 0.7, 15: 0.6}
+    expected = _suggest_dichotomic(remaining, evaluated, 20, epsilon=0.0, rng=None, step="midpoint")
+    assert expected is not None
+    assert _suggest_scipy_local(remaining, evaluated, 20, epsilon=0.0, rng=None, step="midpoint") == expected
+    assert _suggest_scipy_global(remaining, evaluated, 20, epsilon=0.0, rng=None, step="midpoint") == expected
+    assert OptimumSearch.ScipyLocal.value == "ScipyLocal"
+    assert OptimumSearch.ScipyGlobal.value == "ScipyGlobal"
 
 
 # ---------------------------------------------------------------------------
@@ -329,16 +438,35 @@ def test_w9_high_cardinality_warning_fires_at_default_verbose(caplog):
     assert any("cardinality > 0.5*n" in r.getMessage() for r in caplog.records), "W9 REGRESSION: high-cardinality warning must fire at default verbose=0"
 
 
-def test_w9_no_more_verbose_gates_on_the_four_checks():
-    """W9 no more verbose gates on the four checks."""
-    import inspect
+@pytest.mark.parametrize(
+    ("case", "expected_fragment"),
+    [
+        ("wide", "p=5000 features with no max_nfeatures cap"),
+        ("runtime", "max_runtime_mins=0.0010 is < 1 second"),
+        ("cv_ge_n", "cv=60 >= n_samples=50"),
+    ],
+)
+def test_w9_misconfiguration_warnings_fire_at_default_verbose(caplog, case, expected_fragment):
+    """W9 the wide-data, sub-second-runtime and cv>=n misconfiguration warnings fire under the default verbose=0."""
+    from sklearn.linear_model import LogisticRegression
 
-    from mlframe.feature_selection.wrappers.rfecv import _validate as mod
+    from mlframe.feature_selection.wrappers.rfecv import RFECV
+    from mlframe.feature_selection.wrappers.rfecv._validate import _sanitize_X_inputs
 
-    src = inspect.getsource(mod._sanitize_X_inputs)
-    # None of the 4 W9 checks should still gate on verbose (the leakage-scan warning further down
-    # legitimately has no verbose gate either -- confirming the pattern, not counting occurrences).
-    assert 'X.shape[1] >= 5000 and self.max_nfeatures is None and getattr(self, "verbose", 0)' not in src
-    assert '0 < self.max_runtime_mins < (1.0 / 60.0) and getattr(self, "verbose", 0)' not in src
-    assert 'self.cv >= X.shape[0] and getattr(self, "verbose", 0)' not in src
-    assert 'X.shape[0] >= 50 and getattr(self, "verbose", 0)' not in src
+    rng = np.random.default_rng(0)
+    if case == "wide":
+        X = pd.DataFrame(rng.normal(size=(20, 5000)), columns=[f"f{i}" for i in range(5000)])
+        y = rng.integers(0, 2, 20)
+        sel = RFECV(estimator=LogisticRegression(), cv=3, max_nfeatures=None, verbose=0, random_state=0)
+    elif case == "runtime":
+        X = pd.DataFrame(rng.normal(size=(60, 4)), columns=list("abcd"))
+        y = rng.integers(0, 2, 60)
+        sel = RFECV(estimator=LogisticRegression(), cv=3, max_runtime_mins=0.001, verbose=0, random_state=0)
+    else:
+        X = pd.DataFrame(rng.normal(size=(50, 4)), columns=list("abcd"))
+        y = rng.integers(0, 2, 50)
+        sel = RFECV(estimator=LogisticRegression(), cv=60, verbose=0, random_state=0)
+
+    with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.wrappers.rfecv"):
+        _sanitize_X_inputs(sel, X, y)
+    assert any(expected_fragment in r.getMessage() for r in caplog.records), f"W9 REGRESSION: {case} warning must fire at verbose=0"

@@ -70,7 +70,8 @@ def _pl_DataFrame():
     try:
         import polars as pl
         return pl.DataFrame
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_pl_DataFrame fell back to its default after %s", type(_exc).__name__)
         return type(None)
 
 

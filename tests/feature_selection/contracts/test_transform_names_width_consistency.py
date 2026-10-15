@@ -25,7 +25,7 @@ def _fit_small_mrmr(seed=0, n=1500):
     df = pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e})
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        fs = MRMR(verbose=0, random_seed=seed).fit(X=df, y=pd.Series(y, name="y"))
+        fs = MRMR(verbose=0, random_state=seed).fit(X=df, y=pd.Series(y, name="y"))
     return fs, df
 
 

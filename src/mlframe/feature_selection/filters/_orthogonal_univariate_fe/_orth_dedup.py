@@ -8,7 +8,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
-from typing import Optional, Sequence
+from typing import Iterator, Optional, Sequence
 
 import numpy as np
 
@@ -48,7 +48,7 @@ _DEDUP_MEMO = threading.local()
 
 
 @contextlib.contextmanager
-def dedup_collinear_memo_scope():
+def dedup_collinear_memo_scope() -> Iterator[None]:
     """Enable the fit-scoped ``_dedup_collinear_source_cols`` memo for one MRMR.fit() call, then clear it.
     Nesting-safe: an inner scope reuses the outer cache and the outer owner clears it."""
     if getattr(_DEDUP_MEMO, "cache", None) is not None:

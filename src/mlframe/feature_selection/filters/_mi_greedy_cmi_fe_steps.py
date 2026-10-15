@@ -1,7 +1,6 @@
 """Helpers carved out of ``_mi_greedy_cmi_fe`` to keep that module under its size budget."""
 from __future__ import annotations
 
-from typing import cast, Any
 import functools
 import logging
 import math
@@ -28,24 +27,12 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
 
 from mlframe.utils.log_throttle import log_throttle
 
+from ._xxh3_hash import resolve_xxh3_64
+
 logger = logging.getLogger(__name__)
 
 
-def _resolve_xxh3_64() -> Optional[Callable]:
-    """Return ``xxhash.xxh3_64_intdigest``, or ``None`` when the content-hash cache key must fall back to ``tobytes()`` + ``hash()``."""
-    try:
-        import xxhash as _xxhash
-
-        return cast(Callable[..., Any], _xxhash.xxh3_64_intdigest)
-    except ImportError as e:
-        logger.debug("xxhash unavailable, _cached_card falls back to tobytes()+hash() for its cache key: %s", e)
-        return None
-    except Exception as e:
-        logger.warning("xxhash is installed but unusable (%s: %s); _cached_card falls back to tobytes()+hash()", type(e).__name__, e)
-        return None
-
-
-_xxh3_64: Optional[Callable] = _resolve_xxh3_64()
+_xxh3_64: Optional[Callable] = resolve_xxh3_64(logger, "_cached_card falls back to tobytes()+hash() for its cache key")
 
 # GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
 # 1050 Ti, nbins=10): a single host column round-tripped to the device for equi-frequency binning (H2D +
@@ -653,7 +640,7 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
                     st.cand_fp[_name] = int(_cp.sum((_c + 1) * _weights, dtype=_cp.int64).item())
                 st._resident_fp_ok = True
     except Exception:
-        logger.debug("resident candidate binning failed; host fingerprint fallback", exc_info=True)
+        logger.warning("resident candidate binning failed; host fingerprint fallback", exc_info=True)
         cand_bins_dev = {}
         st.cand_fp = {}
         st._resident_fp_ok = False
@@ -832,7 +819,7 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
                 best_cmi = float(_bv); best_name = _scan[_bi]
                 _batched_done = True
         except Exception as e:
-            logger.debug("batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
+            log_throttle(logger, "mi_greedy_cmi_fe_steps.hot_loop_warning", logging.WARNING, "batched CMI argmax computation failed, falling back to the per-candidate path: %s", e)
             _batched_done = False
         if _batched_done:
             pass

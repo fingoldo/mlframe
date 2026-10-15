@@ -319,7 +319,7 @@ class TestMRMRIntegration:
         n = 600
         X = pd.DataFrame(rng.normal(size=(n, 8)), columns=[f"x{i}" for i in range(8)])
         y = 2.0 * X["x0"].to_numpy() + 0.3 * rng.normal(size=n)  # single-driver smooth continuous target (no regime / no multi-driver sum)
-        m = MRMR(verbose=0, random_seed=42)
+        m = MRMR(verbose=0, random_state=42)
         assert bool(m.fe_conditional_gate_enable) is True
         m.fit(X, pd.Series(y, name="y"))
         assert (
@@ -397,7 +397,8 @@ class TestRelevancePruning:
         for n_noise in (10, 60):
             X, y = self._gate_with_noise(7, n_noise=n_noise, n=2000)
             counts.append(len(cheap_conditional_gate_scan(X, y, list(X.columns), k_gate=k_gate, k_operand=k_operand)))
-        assert all(cnt <= cap for cnt in counts), f"candidate count {counts} exceeded the O(k^2*k_gate) cap {cap}."
+        assert len(counts) == 2 and min(counts) > 0, f"scan produced no candidates: {counts}"
+        assert max(counts) <= cap, f"candidate count {counts} exceeded the O(k^2*k_gate) cap {cap}."
         assert counts[1] <= counts[0] * 1.3, f"candidate count grew with p ({counts}) -- the prune is not flat-in-p."
 
 

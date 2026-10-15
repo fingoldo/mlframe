@@ -198,7 +198,8 @@ def test_compute_pdp_centered_anchors_first_grid_point():
     X = rng.normal(size=(2000, 3))
     res = pdp_ice.compute_pdp(_LinearModel([1.5, 0.0, 0.0]), X, 0, grid=12, sample=800, ice=True, centered=True)
     cice = res["ice_centered"]
-    assert cice is not None
+    assert cice.shape[1] == 12, f"one column per grid point expected; got shape {cice.shape}"
+    assert np.all(np.isfinite(cice))
     # Every centered ICE curve starts at exactly 0 at the first grid point.
     np.testing.assert_allclose(cice[:, 0], 0.0, atol=1e-9)
 

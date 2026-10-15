@@ -9,6 +9,8 @@ reports as ``{"error": ...}`` instead of masking a real KeyError from a bug in t
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 from typing import Callable, Dict, List, Optional
 
@@ -57,7 +59,7 @@ def _default_model_and_metric(y: Optional[np.ndarray]):
     return (lambda: Ridge()), r2_score
 
 
-def adapt_cv_informativeness(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+def adapt_cv_informativeness(train_df: Any, val_df: Any, test_df: Any, target_col: str, cat_features: Any, group_ids: Any, y: Any, **kwargs) -> dict:
     """Registry adapter for cv_informativeness_check: builds a KFold split over numeric train_df and scores it."""
     try:
         from mlframe.evaluation.cv_informativeness import cv_informativeness_check
@@ -81,7 +83,7 @@ def adapt_cv_informativeness(train_df, val_df, test_df, target_col, cat_features
         return {"error": str(e)}
 
 
-def adapt_compare_cv_schemes(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+def adapt_compare_cv_schemes(train_df: Any, val_df: Any, test_df: Any, target_col: str, cat_features: Any, group_ids: Any, y: Any, **kwargs) -> dict:
     """Registry adapter for compare_cv_schemes: compares KFold vs ShuffleSplit against an out-of-time holdout."""
     try:
         from mlframe.evaluation.compare_cv_schemes import compare_cv_schemes
@@ -117,7 +119,7 @@ def adapt_compare_cv_schemes(train_df, val_df, test_df, target_col, cat_features
         return {"error": str(e)}
 
 
-def adapt_group_leakage(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+def adapt_group_leakage(train_df: Any, val_df: Any, test_df: Any, target_col: str, cat_features: Any, group_ids: Any, y: Any, **kwargs) -> dict:
     """Registry adapter for assert_no_group_leakage over the train/val fold."""
     try:
         from mlframe.evaluation.group_leakage_guard import assert_no_group_leakage
@@ -133,6 +135,7 @@ def adapt_group_leakage(train_df, val_df, test_df, target_col, cat_features, gro
         try:
             assert_no_group_leakage(cv_splits=cv_splits, groups=fold_groups, **kwargs)
         except ValueError as leak_err:
+            logger.warning("adapt_group_leakage fell back to its default after %s", type(leak_err).__name__)
             return {"leakage_detected": True, "detail": str(leak_err)}
         return {"leakage_detected": False}
     except Exception as e:
@@ -140,7 +143,7 @@ def adapt_group_leakage(train_df, val_df, test_df, target_col, cat_features, gro
         return {"error": str(e)}
 
 
-def adapt_constant_group_leak(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+def adapt_constant_group_leak(train_df: Any, val_df: Any, test_df: Any, target_col: str, cat_features: Any, group_ids: Any, y: Any, **kwargs) -> dict:
     """Registry adapter for constant_group_target_scan over the categorical feature columns."""
     try:
         from mlframe.evaluation.constant_group_leak_scan import constant_group_target_scan
@@ -166,7 +169,7 @@ def adapt_constant_group_leak(train_df, val_df, test_df, target_col, cat_feature
 ADVERSARIAL_FOLD_MAX_UNION_ROWS = 400_000
 
 
-def adapt_adversarial_fold_selection(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+def adapt_adversarial_fold_selection(train_df: Any, val_df: Any, test_df: Any, target_col: str, cat_features: Any, group_ids: Any, y: Any, **kwargs) -> dict:
     """Registry adapter for build_test_like_validation_fold over shared numeric train/test columns."""
     try:
         from mlframe.evaluation.adversarial_fold_selection import build_test_like_validation_fold
@@ -188,7 +191,7 @@ def adapt_adversarial_fold_selection(train_df, val_df, test_df, target_col, cat_
         return {"error": str(e)}
 
 
-def adapt_subpopulation_drift(train_df, val_df, test_df, target_col, cat_features, group_ids, y, **kwargs) -> dict:
+def adapt_subpopulation_drift(train_df: Any, val_df: Any, test_df: Any, target_col: str, cat_features: Any, group_ids: Any, y: Any, **kwargs) -> dict:
     """Registry adapter for subpopulation_ratio_drift_check over a resolved subgroup column."""
     try:
         from mlframe.evaluation.subpopulation_drift import subpopulation_ratio_drift_check

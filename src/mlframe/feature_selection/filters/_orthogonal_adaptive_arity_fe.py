@@ -126,7 +126,7 @@ def _coerce_y_classif(y) -> np.ndarray:
 
 def generate_adaptive_arity_cross_basis(
     X: pd.DataFrame,
-    y,
+    y: np.ndarray | pd.Series,
     source_cols: Sequence[str],
     *,
     max_arity: int = 3,
@@ -390,7 +390,8 @@ def _adaptive_device_col_specs(eng_columns, raw_cols):
         try:
             suffix = name.split("__", 1)[1]
             parts = suffix.split("_")
-        except (ValueError, IndexError):
+        except (ValueError, IndexError) as _exc:
+            logger.debug("_adaptive_device_col_specs fell back to its default after %s", type(_exc).__name__)
             return None
         if len(parts) != len(legs):
             return None
@@ -430,7 +431,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
 def score_adaptive_arity_cross_basis(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
-    y,
+    y: np.ndarray | pd.Series,
     *,
     nbins: int = 10,
     basis: str = "auto",
@@ -698,7 +699,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             _col_full = np.asarray(X[leg_name].to_numpy(), dtype=np.float64)
             _, _pp = _evaluate_basis_column(_col_full, str(basis), int(deg), return_params=True)
         except Exception as exc:
-            logger.debug("adaptive-arity: failed to freeze preprocess_params for leg %r (refit-at-replay fallback): %r", leg_name, exc)
+            logger.warning("adaptive-arity: failed to freeze preprocess_params for leg %r (refit-at-replay fallback): %r", leg_name, exc)
             _pp = None
         _pp_cache[_key] = _pp
         return _pp
@@ -728,7 +729,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
                 _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
             except Exception as exc:
                 # Was a bare except with zero logging.
-                logger.debug("failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
+                log_throttle(logger, "orthogonal_adaptive_arity_fe.hot_loop_warning", logging.WARNING, "failed to freeze fit-time basis preprocess_params (falling back to refit-at-replay): %r", exc)
                 _pp = None
             recipes.append(build_orth_univariate_recipe(
                 name=name, src_name=legs[0],

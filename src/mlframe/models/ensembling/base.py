@@ -759,7 +759,7 @@ def _combine_stacked_by_flavour(flav, stacked, weights_arr, rrf_k):
     return combined
 
 
-def build_predictive_kwargs(train_data, test_data, val_data, is_regression: bool):
+def build_predictive_kwargs(train_data: Any, test_data: Any, val_data: Any, is_regression: bool) -> dict:
     """
     Build predictive_kwargs dict for classification or regression tasks.
 

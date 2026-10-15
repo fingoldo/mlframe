@@ -25,11 +25,8 @@ def hf_provider():
     from mlframe.training.feature_handling.hf_provider import build_provider
     from mlframe.training.feature_handling.providers import EmbeddingProvider
 
-    try:
-        prov = build_provider(EmbeddingProvider(kind="huggingface", model=DEFAULT_TEXT_MODEL))
-        prov.acquire()
-    except Exception as e:  # pragma: no cover -- offline / model-fetch failure
-        pytest.skip(f"HuggingFace model unavailable ({type(e).__name__}: {e})")
+    prov = build_provider(EmbeddingProvider(kind="huggingface", model=DEFAULT_TEXT_MODEL))
+    prov.acquire()
     return prov
 
 

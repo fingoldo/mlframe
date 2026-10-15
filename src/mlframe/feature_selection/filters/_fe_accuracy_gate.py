@@ -154,50 +154,49 @@ def measure_feature_uplift(
     _bkey = _baseline_cv_key(X_base, y_enc, classification=classification, n_splits=n_splits, seed=seed, groups=groups)
     with _FE_GATE_MEMO_LOCK:
         _bcache = _BASELINE_CV_MEMO.get(_bkey) if _bkey is not None else None
-    _base_scores: list[float] = []
-    try:
-        _fold_i = 0
-        for tr, va in split_iter:
-            if classification and np.unique(y_enc[tr]).size < 2:
-                continue
+        _base_scores: list[float] = []
+        try:
+            _fold_i = 0
+            for tr, va in split_iter:
+                if classification and np.unique(y_enc[tr]).size < 2:
+                    continue
 
-            def _score(Xfull, tr=tr, va=va):
-                """Fit a standardized logistic/linear probe on this fold's train rows of ``Xfull`` and return its held-out score (ROC-AUC for binary, otherwise the classifier/regressor's native scorer), closing over the current fold's ``tr``/``va`` indices via default args."""
-                sc = StandardScaler()
-                Xt = sc.fit_transform(Xfull[tr])
-                Xv = sc.transform(Xfull[va])
-                if classification:
-                    m = LogisticRegression(max_iter=200, C=1.0)
+                def _score(Xfull, tr=tr, va=va):
+                    """Fit a standardized logistic/linear probe on this fold's train rows of ``Xfull`` and return its held-out score (ROC-AUC for binary, otherwise the classifier/regressor's native scorer), closing over the current fold's ``tr``/``va`` indices via default args."""
+                    sc = StandardScaler()
+                    Xt = sc.fit_transform(Xfull[tr])
+                    Xv = sc.transform(Xfull[va])
+                    if classification:
+                        m = LogisticRegression(max_iter=200, C=1.0)
+                        m.fit(Xt, y_enc[tr])
+                        if binary:
+                            return fast_roc_auc(y_enc[va], m.predict_proba(Xv)[:, 1])
+                        # Multiclass accuracy (fraction correct); accuracy_ratio is CAP-AR (2*AUC-1),
+                        # a different quantity, so compute the exact hit-rate directly.
+                        return float(np.mean(y_enc[va] == m.predict(Xv)))
+                    m = Ridge(alpha=1.0)
                     m.fit(Xt, y_enc[tr])
-                    if binary:
-                        return fast_roc_auc(y_enc[va], m.predict_proba(Xv)[:, 1])
-                    # Multiclass accuracy (fraction correct); accuracy_ratio is CAP-AR (2*AUC-1),
-                    # a different quantity, so compute the exact hit-rate directly.
-                    return float(np.mean(y_enc[va] == m.predict(Xv)))
-                m = Ridge(alpha=1.0)
-                m.fit(Xt, y_enc[tr])
-                return fast_r2_score(y_enc[va], m.predict(Xv))
+                    return fast_r2_score(y_enc[va], m.predict(Xv))
 
-            aug_score = _score(X_aug)
-            if _bcache is not None and _fold_i < len(_bcache):
-                base_score = _bcache[_fold_i]
-            else:
-                base_score = _score(X_base)
-                _base_scores.append(base_score)
-            _fold_i += 1
-            deltas.append(aug_score - base_score)
-    except Exception as exc:  # pragma: no cover - the probe must never break a fit
-        logger.debug("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
-        return None
-    if not deltas:
-        return None
-    if _bkey is not None and _bcache is None and _base_scores:
-        with _FE_GATE_MEMO_LOCK:
+                aug_score = _score(X_aug)
+                if _bcache is not None and _fold_i < len(_bcache):
+                    base_score = _bcache[_fold_i]
+                else:
+                    base_score = _score(X_base)
+                    _base_scores.append(base_score)
+                _fold_i += 1
+                deltas.append(aug_score - base_score)
+        except Exception as exc:  # pragma: no cover - the probe must never break a fit
+            logger.debug("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
+            return None
+        if not deltas:
+            return None
+        if _bkey is not None and _bcache is None and _base_scores:
             if len(_BASELINE_CV_MEMO) > _BASELINE_CV_MEMO_MAXSIZE:
                 # evict-ok: memo; a miss recomputes the value
                 _BASELINE_CV_MEMO.pop(next(iter(_BASELINE_CV_MEMO)))
             _BASELINE_CV_MEMO[_bkey] = _base_scores
-    return float(np.mean(deltas))
+        return float(np.mean(deltas))
 
 
 _INFER_CLS_MEMO: dict = {}
@@ -215,22 +214,22 @@ def infer_classification(y: np.ndarray) -> bool:
     _key = None
     try:
         _key = (y.shape, str(y.dtype), hash(y.tobytes()))
-        with _FE_GATE_MEMO_LOCK:
-            _hit = _INFER_CLS_MEMO.get(_key)
-        if _hit is not None:
-            return bool(_hit)
     except Exception as e:
-        logger.debug("classification-inference memo lookup failed: %s", e)
+        logger.warning("classification-inference memo key computation failed: %s", e)
         _key = None
-    finite = y[np.isfinite(y)] if y.dtype.kind == "f" else y
-    if finite.size == 0:
-        return True
     from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than  # a prefix already proves "many distinct": no full-n sort for a continuous target
 
-    _limit = max(FEW_CLASSES_MAX, int(0.05 * finite.size)) if y.dtype.kind in ("i", "u") else max(FEW_CLASSES_MAX, int(0.02 * finite.size))
-    _res = not _has_more_distinct_than(finite, _limit)
-    if _key is not None:
-        with _FE_GATE_MEMO_LOCK:
+    with _FE_GATE_MEMO_LOCK:
+        if _key is not None:
+            _hit = _INFER_CLS_MEMO.get(_key)
+            if _hit is not None:
+                return bool(_hit)
+        finite = y[np.isfinite(y)] if y.dtype.kind == "f" else y
+        if finite.size == 0:
+            return True
+        _limit = max(FEW_CLASSES_MAX, int(0.05 * finite.size)) if y.dtype.kind in ("i", "u") else max(FEW_CLASSES_MAX, int(0.02 * finite.size))
+        _res = not _has_more_distinct_than(finite, _limit)
+        if _key is not None:
             if len(_INFER_CLS_MEMO) > 8:
                 # evict-ok: memo; a miss recomputes the value
                 _INFER_CLS_MEMO.pop(next(iter(_INFER_CLS_MEMO)))

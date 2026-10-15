@@ -362,6 +362,7 @@ class TestCategorizeDataset:
         # categorize_dataset returns (n_samples, n_features) layout (sklearn standard).
         assert cat.shape == (500, 5)
         assert len(cols) == 5
+        assert len(nbins) == 5
         assert all(b == 8 for b in nbins)
 
 

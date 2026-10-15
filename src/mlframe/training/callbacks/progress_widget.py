@@ -91,7 +91,8 @@ def in_notebook() -> bool:
     """
     try:
         from IPython import get_ipython
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("in_notebook fell back to its default after %s", type(_exc).__name__)
         return False
     shell = get_ipython()
     return shell is not None and type(shell).__name__ == "ZMQInteractiveShell"

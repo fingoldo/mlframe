@@ -19,7 +19,8 @@ def polars_lacks_get_categories() -> bool:
     """True when the installed polars no longer has ``Series.cat.get_categories`` (polars 2)."""
     try:
         import polars as pl
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("polars_lacks_get_categories fell back to its default after %s", type(_exc).__name__)
         return False
     return not hasattr(pl.Series(["a"], dtype=pl.Categorical).cat, "get_categories")
 
@@ -31,7 +32,8 @@ def install_catboost_polars2_shim() -> bool:
     try:
         import catboost
         import polars as pl
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("install_catboost_polars2_shim fell back to its default after %s", type(_exc).__name__)
         return False
     pool_cls = getattr(catboost, "Pool", None)
     if pool_cls is None:

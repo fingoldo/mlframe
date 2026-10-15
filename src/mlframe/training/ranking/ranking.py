@@ -186,14 +186,14 @@ def _strategy_flavor(strategy) -> str:
 
 
 def fit_ranker(
-    strategy,
+    strategy: Any,
     X_train: Any,
     y_train: np.ndarray,
     group_ids_train: np.ndarray,
     X_val: Any | None = None,
     y_val: np.ndarray | None = None,
     group_ids_val: np.ndarray | None = None,
-    ranking_config=None,
+    ranking_config: Any = None,
     cat_features: list[str | int] | None = None,
     model_kwargs: dict | None = None,
     early_stopping_rounds: int | None = 50,

@@ -360,7 +360,7 @@ class TestPipelineIntegration:
             warnings.simplefilter("ignore")
             pipe = Pipeline(
                 [
-                    ("mrmr", MRMR(verbose=0, random_seed=7)),
+                    ("mrmr", MRMR(verbose=0, random_state=7)),
                     ("clf", LogisticRegression(max_iter=100)),
                 ]
             )

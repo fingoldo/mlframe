@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Normal Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import os
 import pandas as pd, numpy as np
@@ -141,7 +141,7 @@ def read_trained_models(
     allowed_extensions: Optional[Iterable[str]] = None,
     allow_inferred_features: bool = False,
     allow_unvalidatable_models: bool = False,
-):
+) -> tuple[dict, pd.DataFrame]:
     """Read trained models from a folder, along with required features names.
     Ensure that the models conform passed dataset.
 
@@ -260,7 +260,7 @@ def read_trained_models(
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
-def get_models_raw_predictions(trained_models: dict, X, Y=None, *, allow_unvalidatable_models: bool = False):
+def get_models_raw_predictions(trained_models: dict, X: pd.DataFrame, Y: Any = None, *, allow_unvalidatable_models: bool = False) -> Any:
     """X should already contain only right features in right order.
 
     ``Y`` is DEPRECATED and unused: nothing here is scored or aligned against ground truth, so a caller passing a

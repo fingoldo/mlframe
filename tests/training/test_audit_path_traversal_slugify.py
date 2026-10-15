@@ -206,14 +206,14 @@ def test_hex_key_re_is_fully_anchored() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_slugify_neutralises_path_separators() -> None:
+def test_slugify_neutralises_path_separators(tmp_path) -> None:
     """slugify must strip / and .. so traversal attempts collapse to safe basenames."""
     from pyutilz.strings import slugify
 
     traversal_attempts = [
         "../../etc/passwd",
-        "/etc/passwd",
-        "C:/Windows/System32",
+        str(tmp_path / "etc" / "passwd"),
+        str(tmp_path / "Windows" / "System32"),
         "../../../evil",
         "evil/../../../etc",
     ]

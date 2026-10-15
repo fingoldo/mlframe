@@ -39,6 +39,7 @@ def _assert_canonical_on_disk(raw: str, doc: dict) -> None:
     trailing newline. Verify the on-disk text round-trips to ``doc``, ends in a
     newline, and has every (nested) object's keys in sorted order."""
     assert orjson.loads(raw) == doc
+    assert doc, "an empty document would pass the key-order check vacuously"
     assert raw.endswith("\n")
 
     def _keys_sorted(obj) -> bool:

@@ -67,7 +67,8 @@ def _repair_leaked_lightning_dunder_patch() -> None:
     """
     try:
         from torch.utils.data import BatchSampler, DataLoader
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_repair_leaked_lightning_dunder_patch fell back to its default after %s", type(_exc).__name__)
         return
 
     def _all_subclasses(cls: type) -> set:

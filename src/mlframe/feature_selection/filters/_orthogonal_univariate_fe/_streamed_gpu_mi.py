@@ -28,7 +28,12 @@ VRAM_RESERVE = 256 << 20  # kept free on every device
 WORK_FACTOR = 3  # block bytes x this = VRAM the MI intermediates need
 BLOCK_BYTES_MAX = 512 << 20  # no block larger than this, whatever the VRAM
 
-__all__ = ["plan_streamed_mi", "mi_classif_streamed"]
+HOST_BLOCK_FRAC = 0.10  # share of free host RAM the CPU batch MI may take for one whole matrix (same budget _mi_chunk_cols_for blocks to)
+# Sized for the wider of the two working widths (8 bytes per value), so the budget also covers the float32 default that the CPU
+# batch MI uses through _crit_np_dtype(); the budget only over-estimates when the narrower width is in effect.
+CPU_WORK_ITEMSIZE = 8
+
+__all__ = ["plan_streamed_mi", "mi_classif_streamed", "choose_mi_path"]
 
 
 def _devices(max_devices: Optional[int] = None) -> list[tuple[int, int]]:
@@ -86,11 +91,39 @@ def plan_streamed_mi(n_rows: int, devices: list[tuple[int, int]], host_free: int
     }
 
 
+def choose_mi_path(n_rows: int, n_cols: int, dtype: Any, devices: list[tuple[int, int]], host_free: int) -> str:
+    """Which MI path a ``(n_rows, n_cols)`` batch takes, decided from free memory alone.
+
+    * ``"resident"``: the whole matrix is scored in one batch. On a GPU when the planner's block width (the widest block every
+      device can hold, see :func:`plan_streamed_mi`) covers all ``n_cols``; on the CPU when the whole batch's 8-byte-per-value working set
+      (``n_rows * n_cols * 8 * WORK_FACTOR``) fits ``HOST_BLOCK_FRAC`` of free host RAM.
+    * ``"streamed"``: GPU present, but the matrix must go through VRAM in blocks (:func:`mi_classif_streamed`).
+    * ``"cpu_blocks"``: no usable GPU (or it cannot hold one column) and the whole batch does not fit host RAM; the CPU scores
+      column blocks sized to free RAM.
+
+    No row or column constant is involved: every threshold is a planner fraction applied to the free bytes passed in."""
+    if int(n_cols) <= 0:
+        return "resident"
+    if devices:
+        plan = plan_streamed_mi(n_rows, devices, host_free, dtype)
+        if plan["width"] >= int(n_cols):
+            return "resident"
+        if plan["width"] > 0:
+            return "streamed"
+    whole = int(n_rows) * int(n_cols) * CPU_WORK_ITEMSIZE * WORK_FACTOR
+    if whole <= int(host_free * HOST_BLOCK_FRAC):
+        return "resident"
+    return "cpu_blocks"
+
+
 def mi_classif_streamed(blocks: Iterable[np.ndarray], y: np.ndarray, *, nbins: int, n_rows: int, dtype: Any, max_devices: Optional[int] = None) -> np.ndarray:
     """Plug-in MI of every column of every block against ``y``, concatenated in block order.
 
     ``blocks`` yields ``(n_rows, w)`` arrays of ``dtype`` (each block may have its own width up to the planned one). Returns the
-    MI per column. Raises when no CUDA device is usable: the caller decides the fallback."""
+    MI per column. Raises when no CUDA device is usable: the caller decides the fallback.
+
+    This is the production streamed path (``_mi_classif_batch_numba`` routes here when :func:`choose_mi_path` says ``"streamed"``).
+    :func:`mi_classif_streamed_fill` is its zero-copy twin; the parity test pins the two to identical output."""
     import cupy as cp
     from .._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
 

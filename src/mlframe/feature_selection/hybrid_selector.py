@@ -24,7 +24,7 @@ import os
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings
 from collections import defaultdict
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -43,7 +43,8 @@ def _as_pandas_view(X):
     Non-polars inputs pass through untouched."""
     try:
         import polars as pl
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_as_pandas_view fell back to its default after %s", type(_exc).__name__)
         return X
     if not isinstance(X, pl.DataFrame):
         return X
@@ -73,7 +74,7 @@ _TREE_OPS = {
 CORR_BLOCK_THRESHOLD = 1500
 
 
-def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = CORR_BLOCK_THRESHOLD):
+def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = CORR_BLOCK_THRESHOLD) -> tuple[list, dict[Any, list]]:
     """Greedy |Pearson| >= thr clustering. Returns (reps, members) where reps is the representative list (first
     column of each cluster) and members maps rep -> [member columns incl. the rep]. Computed once and shared.
 
@@ -355,7 +356,7 @@ class HybridSelector:
             try:
                 artifacts = m.export_artifacts()
             except Exception as e:
-                logger.debug("export_artifacts() failed for member %r: %s", m, e)
+                logger.warning("export_artifacts() failed for member %r: %s", m, e)
                 artifacts = None
             # Capture the engineered columns (MRMR outputs not in X) so they can be SHARED to the other members via
             # the augmented frame; map their non-ASCII recipe names to LightGBM-safe eng_N names (stable order).
@@ -368,7 +369,7 @@ class HybridSelector:
                             self._eng_names.append(c); self._eng_rename[c] = f"eng_{k}"; k += 1
                     self._mrmr_member = m
                 except Exception as e:
-                    logger.debug("capturing engineered-column names for member %r failed: %s", m, e)
+                    logger.warning("capturing engineered-column names for member %r failed: %s", m, e)
                     self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
             return selected, artifacts
         except Exception as e:
@@ -509,7 +510,7 @@ class HybridSelector:
                 if relevant and all(c in names for c in relevant):
                     precomputed = restrict_artifacts(artifacts, [names.index(c) for c in relevant])
             except Exception as e:
-                logger.debug("restrict_artifacts() failed: %s", e)
+                logger.warning("restrict_artifacts() failed: %s", e)
                 precomputed = None
         p = len(relevant)
         s = ShapProxiedFS(classification=True, n_splits=3, top_n=20, min_features=min(8, p),
@@ -598,7 +599,7 @@ class HybridSelector:
             try:
                 _ttype = type_of_target(y_arr.ravel())
             except Exception as e:
-                logger.debug("type_of_target() failed: %s", e)
+                logger.warning("type_of_target() failed: %s", e)
                 _ttype = "unknown"
             if _ttype not in ("binary", "multiclass", "unknown"):
                 raise ValueError(

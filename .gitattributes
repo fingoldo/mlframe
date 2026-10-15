@@ -1,3 +1,23 @@
+# Repo-wide line-ending policy. Text files are stored with LF and checked out with LF on every platform, so a Windows checkout
+# (core.autocrlf=true, or an editor that saves CRLF) cannot commit CRLF into the repository. Before this line, 111 tracked files
+# were committed as CRLF and every pre-commit run on Linux CI rewrote them (hook: mixed-line-ending --fix=lf).
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF in the working tree: cmd.exe needs it, and the mixed-line-ending hook already excludes them.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Images and other binaries are never touched by the text filter.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.npy binary
+*.npz binary
+*.pkl binary
+
 # Force LF regardless of checkout platform for files where CRLF breaks execution
 # (a CRLF shebang line makes a script fail to run on Linux CI/dev boxes; shellcheck
 # SC1017 catches this class of bug -- see scripts/run_numba_coverage.sh, 2026-07-06).

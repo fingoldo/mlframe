@@ -183,7 +183,8 @@ def honest_oof_reconstruction_rmse(
         """Fit-and-invert one spec's transform on the screen/holdout split, returning ``(spec.name, rmse)``; ``rmse=None`` signals a degenerate measurement (unknown transform, no valid rows) that should NOT auto-kill the spec, distinct from ``+inf`` which signals a genuine reconstruction collapse."""
         try:
             transform = get_transform(spec.transform_name)
-        except UnknownTransformError:
+        except UnknownTransformError as _exc:
+            logger.warning("_score_one fell back to its default after %s", type(_exc).__name__)
             return spec.name, None
         params = dict(getattr(spec, "fitted_params", {}) or {})
         base_cols = spec_base_columns(spec)

@@ -15,6 +15,9 @@ import os
 import re
 import threading
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
 
 # top-level package name -> its source directory; kernels in tracked packages get the dependency-aware stamp.
 _PACKAGES: Dict[str, str] = {"mlframe": os.path.dirname(os.path.abspath(__file__))}
@@ -51,7 +54,8 @@ def _stamp(path: str) -> Optional[Tuple[float, int]]:
     """(mtime, size) of ``path`` or None when it cannot be stat'ed."""
     try:
         st = os.stat(path)
-    except OSError:
+    except OSError as _exc:
+        logger.debug("_stamp fell back to its default after %s", type(_exc).__name__)
         return None
     return (st.st_mtime, st.st_size)
 
@@ -104,32 +108,34 @@ def _facts(path: str) -> Optional[_FileFacts]:
     stamp = _stamp(path)
     if stamp is None:
         return None
-    cached = _FACTS.get(path)
-    if cached is not None and cached[0] == stamp:
-        return cached[1]
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read()
-    except OSError:
-        return None
-    module_name = _module_name_for(path)
-    is_pkg = os.path.basename(path) == "__init__.py"
-    jit_names = set()
-    for deco in _JIT_DECORATOR_RE.finditer(text):
-        fn = _DEF_RE.search(text, deco.end())
-        if fn is not None:
-            jit_names.add(fn.group(1))
-    imports: List[_Import] = []
-    for m in _FROM_IMPORT_RE.finditer(text):
-        target = _import_target(m.group(1), module_name, is_pkg)
-        if target.split(".")[0] not in _PACKAGES:
-            continue
-        for item in _COMMENT_RE.sub("", m.group(2)).strip("() \t\r\n").split(","):
-            pieces = item.split()
-            if pieces and pieces[0] != "*":
-                imports.append(_Import(pieces[-1], pieces[0], target))
-    facts = _FileFacts(frozenset(jit_names), tuple(imports))
-    _FACTS[path] = (stamp, facts)
+    with _LOCK:
+        cached = _FACTS.get(path)
+        if cached is not None and cached[0] == stamp:
+            return cached[1]
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError as _exc:
+            logger.debug("_facts fell back to its default after %s", type(_exc).__name__)
+            return None
+        module_name = _module_name_for(path)
+        is_pkg = os.path.basename(path) == "__init__.py"
+        jit_names = set()
+        for deco in _JIT_DECORATOR_RE.finditer(text):
+            fn = _DEF_RE.search(text, deco.end())
+            if fn is not None:
+                jit_names.add(fn.group(1))
+        imports: List[_Import] = []
+        for m in _FROM_IMPORT_RE.finditer(text):
+            target = _import_target(m.group(1), module_name, is_pkg)
+            if target.split(".")[0] not in _PACKAGES:
+                continue
+            for item in _COMMENT_RE.sub("", m.group(2)).strip("() \t\r\n").split(","):
+                pieces = item.split()
+                if pieces and pieces[0] != "*":
+                    imports.append(_Import(pieces[-1], pieces[0], target))
+        facts = _FileFacts(frozenset(jit_names), tuple(imports))
+        _FACTS[path] = (stamp, facts)
     return facts
 
 
@@ -238,7 +244,8 @@ def install() -> bool:
             return True
         try:
             from numba.core import caching
-        except ImportError:
+        except ImportError as _exc:
+            logger.debug("install fell back to its default after %s", type(_exc).__name__)
             return False
         locators = getattr(caching.CacheImpl, "_locator_classes", None)
         if locators is None:

@@ -81,7 +81,6 @@ def test_huber_irls_matches_ols_on_clean_data():
     y = B @ true_c + rng.normal(0, 0.1, n)
     c_ols = _ols_lstsq(B, y)
     c_rob = _huber_irls_lstsq(B, y)
-    assert c_rob is not None
     np.testing.assert_allclose(c_rob, c_ols, atol=1e-3)
 
 

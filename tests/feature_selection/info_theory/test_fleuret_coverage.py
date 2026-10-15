@@ -215,39 +215,27 @@ def test_get_fleuret_criteria_confidence_parallel_serial_path():
 
 
 def test_get_fleuret_criteria_confidence_parallel_with_explicit_pool():
-    """Passing an explicit workers_pool bypasses the Parallel(...) construction. Tolerates Windows paging-file
-    pressure (OSError 1455) when concurrent test sessions exhaust virtual memory; the code-path is what we care about."""
+    """Passing an explicit workers_pool bypasses the Parallel(...) construction and returns the (gain, confidence, cache) triple."""
     data, nbins = _make_xor_data(seed=9)
-    try:
-        pool = Parallel(n_jobs=2)
-        out = get_fleuret_criteria_confidence_parallel(
-            data_copy=data,
-            factors_nbins=nbins,
-            x=(0,),
-            y=(2,),
-            selected_vars=[1],
-            bootstrapped_gain=0.0,
-            npermutations=20,
-            max_failed=10,
-            nexisting=1,
-            cached_cond_MIs={},
-            entropy_cache={},
-            n_workers=2,
-            workers_pool=pool,
-            dtype=np.int32,
-        )
-    except OSError as exc:
-        if "paging file" in str(exc).lower() or getattr(exc, "winerror", None) == 1455:
-            pytest.skip(f"Windows paging-file overflow under concurrent load: {exc}")
-        raise
-    except Exception as exc:
-        # loky BrokenProcessPool / TerminatedWorkerError / pickle-transport
-        # errors during heavy concurrent test load. The Parallel/loky spawn
-        # path has already been exercised - the only thing this test cares about.
-        if any(c.__name__ in ("BrokenProcessPool", "TerminatedWorkerError") for c in type(exc).__mro__):
-            pytest.skip(f"loky worker transport failure under concurrent load: {type(exc).__name__}: {exc}")
-        raise
+    pool = Parallel(n_jobs=2)
+    out = get_fleuret_criteria_confidence_parallel(
+        data_copy=data,
+        factors_nbins=nbins,
+        x=(0,),
+        y=(2,),
+        selected_vars=[1],
+        bootstrapped_gain=0.0,
+        npermutations=20,
+        max_failed=10,
+        nexisting=1,
+        cached_cond_MIs={},
+        entropy_cache={},
+        n_workers=2,
+        workers_pool=pool,
+        dtype=np.int32,
+    )
     assert len(out) == 3
+    assert 0.0 <= float(out[1]) <= 1.0
 
 
 def test_get_fleuret_criteria_confidence_parallel_explicit_kwargs():

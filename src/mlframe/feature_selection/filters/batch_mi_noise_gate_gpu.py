@@ -30,13 +30,17 @@ The only GPU work is the O(n*K) counting; the entropy + comparison stay on the
 bit-exact CPU path. ``_mi_from_counts_cpu`` is a tiny njit reduction that
 reproduces ``_relevance_from_dense`` exactly given the integer counts.
 """
+
 from __future__ import annotations
 
 import os
 import logging
 import threading
 from collections import OrderedDict
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import cupy
 
 import numpy as np
 from mlframe.utils.log_throttle import log_throttle
@@ -78,6 +82,7 @@ _CUDA_MI_KERNEL: "object | None" = None
 
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 
 def batch_mi_with_noise_gate_cupy_v1(
     disc_2d: np.ndarray,
@@ -258,7 +263,13 @@ def batch_mi_with_noise_gate_cupy(
     try:
         free_b, _tot_b = cp.cuda.runtime.memGetInfo()
     except Exception as e:
-        log_throttle(logger, "noise_gate.memgetinfo", logging.WARNING, "noise gate: cp.cuda.runtime.memGetInfo() failed (%s), tiling against a conservative 512MiB default", e)
+        log_throttle(
+            logger,
+            "noise_gate.memgetinfo",
+            logging.WARNING,
+            "noise gate: cp.cuda.runtime.memGetInfo() failed (%s), tiling against a conservative 512MiB default",
+            e,
+        )
         free_b = 512 * 1024 * 1024  # conservative default
     budget = int(free_b * 0.35)
     # Per y-row device cost of a tile: the flat index array (n*K int64) + the
@@ -271,7 +282,11 @@ def batch_mi_with_noise_gate_cupy(
     if rows_per_tile < P1:
         logger.info(
             "batch_mi_noise_gate cupy: tiling %d y-vectors into tiles of %d (free=%dMB, n=%d, total_size=%d)",
-            P1, rows_per_tile, free_b // (1024 * 1024), n, total_size,
+            P1,
+            rows_per_tile,
+            free_b // (1024 * 1024),
+            n,
+            total_size,
         )
 
     # Output integer counts for every y-vector, kept compact (P1, total_size) and
@@ -386,6 +401,7 @@ def _resident_y_all_device(classes_y, classes_y_safe, base_seed, nperm, n, P):
     """Device (P, n) int32 [orig y; nperm shuffles], cached by (id+weakref(classes_y), base_seed, nperm, n, P).
     Built + uploaded once per (target, key); reused across a fit's noise-gate dispatches for the same target."""
     import weakref
+
     c = _DY_DEVICE_CACHE
     key = (id(classes_y), int(base_seed), int(nperm), int(n), int(P))
     with _DY_DEVICE_CACHE_LOCK:
@@ -430,6 +446,7 @@ def _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, 
     """CUPY-native fallback for ``_resident_y_all_device_for_cupy`` on a cupy-only host (no numba.cuda):
     same (id+weakref(classes_y), base_seed, nperm, n, P) keying and LRU eviction, built via ``cp.asarray``."""
     import weakref
+
     cp = cupy()
     c = _DY_DEVICE_CACHE_CUPY
     key = (id(classes_y), int(base_seed), int(nperm), int(n), int(P))
@@ -478,6 +495,50 @@ def _resident_y_all_device_for_cupy(classes_y, classes_y_safe, base_seed, nperm,
     return _resident_y_all_device_cupy(classes_y, classes_y_safe, base_seed, nperm, n, P)
 
 
+def _batch_mi_noise_gate_su_delegate(
+    disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block
+) -> np.ndarray:
+    """SU-entropy noise gate: delegates to the CPU-entropy cuda twin, handing it the cached device shuffle matrix."""
+    # SU (Symmetric Uncertainty) has no on-device entropy form, so this delegates to the CPU-entropy
+    # ``batch_mi_with_noise_gate_cuda`` twin - but that twin's per-permutation loop used to rebuild
+    # (CPU Fisher-Yates) AND re-upload (H2D) the shuffled-y codes from scratch on every one of the
+    # ~30 noise-gate dispatches of a fit, even though the target/seed/nperm are fit-constant and the
+    # SAME (P, n) shuffle matrix is exactly what ``_resident_y_all_device`` already builds+caches for
+    # the non-SU resident path. Build/fetch that cached device matrix here and hand it through
+    # (``d_y_all_resident``) so the SU delegate slices its rows directly instead of re-shuffling +
+    # re-uploading - BIT-IDENTICAL (same LCG stream; a device-array row slice returns the exact bytes
+    # ``_fisher_yates_shuffle`` + ``to_device`` produced, confirmed no host round-trip).
+    _n_su = int(disc_2d.shape[0])
+    _nperm_su = int(npermutations) if npermutations and npermutations > 0 else 0
+    _d_y_all_su = None
+    if cuda_available() and _n_su > 0:
+        try:
+            _d_y_all_su = _resident_y_all_device(classes_y, classes_y_safe, base_seed, _nperm_su, _n_su, _nperm_su + 1)
+        except Exception as e:
+            log_throttle(
+                logger,
+                "noise_gate.resident_y",
+                logging.WARNING,
+                "noise gate: _resident_y_all_device failed (%s), using the per-call shuffle and upload path",
+                e,
+            )
+            _d_y_all_su = None
+    return batch_mi_with_noise_gate_cuda(
+        disc_2d,
+        factors_nbins,
+        classes_y,
+        classes_y_safe,
+        freqs_y,
+        npermutations,
+        base_seed,
+        min_nonzero_confidence,
+        use_su,
+        dtype,
+        128 if threads_per_block is None else threads_per_block,
+        d_y_all_resident=_d_y_all_su,
+    )
+
+
 def batch_mi_with_noise_gate_cuda_resident(
     disc_2d: np.ndarray,
     factors_nbins: np.ndarray,
@@ -490,7 +551,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     use_su: bool,
     dtype: type = np.int32,
     threads_per_block: "int | None" = None,
-    d_disc_resident=None,
+    d_disc_resident: cupy.ndarray | None = None,
 ) -> np.ndarray:
     """FULL-GPU-RESIDENT noise gate: batched histogram (all perms, one launch) -> GPU MI kernel -> only
     the (P, K) MI matrix D2H -> host gate decision. The entire permutation noise gate runs on the device
@@ -506,29 +567,8 @@ def batch_mi_with_noise_gate_cuda_resident(
     D2H'd) -> counts, MI and the gate decision are BIT-IDENTICAL to the host-codes path. ``None`` (the
     default, and any narrow-dtype mismatch) keeps the H2D-from-host path unchanged."""
     if use_su:
-        # SU (Symmetric Uncertainty) has no on-device entropy form, so this delegates to the CPU-entropy
-        # ``batch_mi_with_noise_gate_cuda`` twin - but that twin's per-permutation loop used to rebuild
-        # (CPU Fisher-Yates) AND re-upload (H2D) the shuffled-y codes from scratch on every one of the
-        # ~30 noise-gate dispatches of a fit, even though the target/seed/nperm are fit-constant and the
-        # SAME (P, n) shuffle matrix is exactly what ``_resident_y_all_device`` already builds+caches for
-        # the non-SU resident path. Build/fetch that cached device matrix here and hand it through
-        # (``d_y_all_resident``) so the SU delegate slices its rows directly instead of re-shuffling +
-        # re-uploading - BIT-IDENTICAL (same LCG stream; a device-array row slice returns the exact bytes
-        # ``_fisher_yates_shuffle`` + ``to_device`` produced, confirmed no host round-trip).
-        _n_su = int(disc_2d.shape[0])
-        _nperm_su = int(npermutations) if npermutations and npermutations > 0 else 0
-        _d_y_all_su = None
-        if cuda_available() and _n_su > 0:
-            try:
-                _d_y_all_su = _resident_y_all_device(classes_y, classes_y_safe, base_seed, _nperm_su, _n_su, _nperm_su + 1)
-            except Exception as e:
-                log_throttle(logger, "noise_gate.resident_y", logging.WARNING, "noise gate: _resident_y_all_device failed (%s), using the per-call shuffle and upload path", e)
-                _d_y_all_su = None
-        return batch_mi_with_noise_gate_cuda(
-            disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations,
-            base_seed, min_nonzero_confidence, use_su, dtype,
-            128 if threads_per_block is None else threads_per_block,
-            d_y_all_resident=_d_y_all_su,
+        return _batch_mi_noise_gate_su_delegate(
+            disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block
         )
     global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_HIST_KERNEL_BATCHED_SHARED_CM, _CUDA_MI_KERNEL
     if not cuda_available():
@@ -565,6 +605,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     if threads_per_block is None:
         try:
             from ._gpu_resident_histgate_ktc import histgate_threads
+
             threads_per_block = int(histgate_threads(n))
         # best-effort: the block size never changes the integer counts, so 128 gives the same MI and gate decision
         except Exception as e:
@@ -640,13 +681,16 @@ def batch_mi_with_noise_gate_cuda_resident(
         try:
             import cupy as _cp_cm
             from ._gpu_resident_select import transpose_codes_to_cm as _transpose_codes_to_cm
+
             # COALESCED tiled int-codes transpose: cp.ascontiguousarray(disc.T) was an
             # uncoalesced strided copy - nsys charged it cupy_copy__int8_int8 46 calls / 1776ms / 29.5% of
             # GPU-kernel time @F2 100k. The tiled kernel reads (n,K) + writes (K,n) coalesced, BIT-IDENTICAL
             # (same values, same (K,n) C-order layout -> counts unchanged); falls back to ascontiguousarray.
             _d_disc_cm = _transpose_codes_to_cm(_cp_cm.asarray(d_disc))  # (K, n) C-order, coalesced disc load
         except Exception:
-            log_throttle(logger, "noise_gate.cm_transpose", logging.WARNING, "noise gate: the column-major transpose failed, using the row-major layout", exc_info=True)
+            log_throttle(
+                logger, "noise_gate.cm_transpose", logging.WARNING, "noise gate: the column-major transpose failed, using the row-major layout", exc_info=True
+            )
             _d_disc_cm = None
     # The shared kernel OVERWRITES every counts slot (flushes its full [off:off+nb_k*K_y] slice), so the
     # host zeroing is redundant there; the global-atomic kernel needs the zeroed buffer.
@@ -654,6 +698,7 @@ def batch_mi_with_noise_gate_cuda_resident(
         d_counts[:] = 0
 
     from mlframe.utils.warning_filters import silenced_once as _silenced_once
+
     try:
         from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
     except ImportError:
@@ -661,25 +706,47 @@ def batch_mi_with_noise_gate_cuda_resident(
     with _silenced_once(_NbPerfWarn, r"numba\.cuda"):
         if _use_shared and _d_disc_cm is not None:
             _CUDA_HIST_KERNEL_BATCHED_SHARED_CM[(K, P), threads_per_block, 0, _sh_bytes](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
-                _d_disc_cm, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
+                _d_disc_cm,
+                d_off,
+                d_nb,
+                d_y,
+                d_counts,
+                n,
+                K_y,
+                total_size,
             )
         elif _use_shared:
             _CUDA_HIST_KERNEL_BATCHED_SHARED[(K, P), threads_per_block, 0, _sh_bytes](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
-                d_disc, d_off, d_nb, d_y, d_counts, n, K_y, total_size,
+                d_disc,
+                d_off,
+                d_nb,
+                d_y,
+                d_counts,
+                n,
+                K_y,
+                total_size,
             )
         else:
             _CUDA_HIST_KERNEL_BATCHED[(K, P), threads_per_block](d_disc, d_off, d_y, d_counts, n, K_y, total_size)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
         _tot = K * P
         _blocks = (_tot + threads_per_block - 1) // threads_per_block
         _CUDA_MI_KERNEL[_blocks, threads_per_block](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
-            d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out,
+            d_counts,
+            d_off,
+            d_nb,
+            d_freq,
+            n,
+            K_y,
+            d_ref,
+            total_size,
+            P,
+            d_out,
         )
     out_mi = d_out.copy_to_host()  # (P, K) - the only sizeable D2H
     original_mi = out_mi[0]
     if nperm <= 0:
         return _gate_from_mi(original_mi, [], 0, min_nonzero_confidence)
-    perm_mis = [out_mi[i] for i in range(1, P)]
-    return _gate_from_mi(original_mi, perm_mis, nperm, min_nonzero_confidence)
+    return _gate_from_mi(original_mi, out_mi[1:], nperm, min_nonzero_confidence)
 
 
 def _screen_host_codes(disc_2d, factors_nbins, classes_y, freqs_y, who):
@@ -776,6 +843,7 @@ def batch_mi_with_noise_gate_cuda(
     # cupy backend is preferred at the realistic large-batch sizes where GPU wins,
     # so silence the cosmetic NumbaPerformanceWarning here.
     from mlframe.utils.warning_filters import silenced_once as _silenced_once
+
     try:
         from numba.core.errors import NumbaPerformanceWarning as _NbPerfWarn
     except ImportError:
@@ -851,7 +919,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
     use_su: bool,
     dtype: type = np.int32,
     force_backend: str | None = None,
-):
+) -> tuple[np.ndarray, str] | None:
     """Run the chosen GPU backend, returning ``(fe_mi, backend_name)`` or ``None``
     when GPU is unavailable / not chosen (so the caller falls back to the CPU
     kernel). Mirrors ``dispatch_batch_pair_mi``'s force_backend + availability
@@ -874,6 +942,7 @@ def dispatch_batch_mi_with_noise_gate_gpu(
     # y-row's worth as the cushion's bytes_needed. Pure ADD - tightens, never loosens; permissive without cupy.
     try:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+
         if not fe_gpu_has_vram_cushion(n * max(K, 1) * 8):
             return None
     except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
@@ -882,34 +951,78 @@ def dispatch_batch_mi_with_noise_gate_gpu(
     if force_backend is not None:
         fb = force_backend.lower()
         if fb == "cupy" and cupy_available():
-            return batch_mi_with_noise_gate_cupy(
-                disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
-                npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
-            ), "cupy"
+            return (
+                batch_mi_with_noise_gate_cupy(
+                    disc_2d,
+                    factors_nbins,
+                    classes_y,
+                    classes_y_safe,
+                    freqs_y,
+                    npermutations,
+                    base_seed,
+                    min_nonzero_confidence,
+                    use_su,
+                    dtype,
+                ),
+                "cupy",
+            )
         if fb == "cuda" and cuda_available():
-            return batch_mi_with_noise_gate_cuda(
-                disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
-                npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
-            ), "cuda"
+            return (
+                batch_mi_with_noise_gate_cuda(
+                    disc_2d,
+                    factors_nbins,
+                    classes_y,
+                    classes_y_safe,
+                    freqs_y,
+                    npermutations,
+                    base_seed,
+                    min_nonzero_confidence,
+                    use_su,
+                    dtype,
+                ),
+                "cuda",
+            )
         return None  # forced CPU (or unavailable forced backend) -> caller uses CPU
 
     choice = _batch_mi_noise_gate_backend_choice(n, K)
 
     if choice == "cupy" and cupy_available():
         try:
-            return batch_mi_with_noise_gate_cupy(
-                disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
-                npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
-            ), "cupy"
+            return (
+                batch_mi_with_noise_gate_cupy(
+                    disc_2d,
+                    factors_nbins,
+                    classes_y,
+                    classes_y_safe,
+                    freqs_y,
+                    npermutations,
+                    base_seed,
+                    min_nonzero_confidence,
+                    use_su,
+                    dtype,
+                ),
+                "cupy",
+            )
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             pass
     if choice == "cuda" and cuda_available():
         try:
-            return batch_mi_with_noise_gate_cuda(
-                disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y,
-                npermutations, base_seed, min_nonzero_confidence, use_su, dtype,
-            ), "cuda"
+            return (
+                batch_mi_with_noise_gate_cuda(
+                    disc_2d,
+                    factors_nbins,
+                    classes_y,
+                    classes_y_safe,
+                    freqs_y,
+                    npermutations,
+                    base_seed,
+                    min_nonzero_confidence,
+                    use_su,
+                    dtype,
+                ),
+                "cuda",
+            )
         except Exception as e:
             # numba's CudaAPIError/CudaDriverError derive
             # directly from Exception, not RuntimeError - broaden to match the already-fixed

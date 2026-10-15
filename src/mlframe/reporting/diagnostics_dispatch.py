@@ -142,7 +142,8 @@ def _row_count(frame: Any) -> int:
         return int(shape[0])
     try:
         return len(frame)
-    except TypeError:
+    except TypeError as _exc:
+        logger.debug("_row_count fell back to its default after %s", type(_exc).__name__)
         return 0
 
 
@@ -546,14 +547,13 @@ def _psi_heatmap_cached(test_frame: Any, ts: np.ndarray, names: Any) -> Any:
     from mlframe.reporting.charts.drift import psi_heatmap
 
     key = _psi_cache_key(test_frame, ts, names)
-    if key is not None:
-        with _PSI_CACHE_LOCK:
+    with _PSI_CACHE_LOCK:
+        if key is not None:
             spec = _PSI_CACHE.get(key)
-        if spec is not None:
-            return spec
-    spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)  # computed outside the lock
-    if key is not None:
-        with _PSI_CACHE_LOCK:
+            if spec is not None:
+                return spec
+        spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)
+        if key is not None:
             while len(_PSI_CACHE) >= 8:
                 # evict-ok: memo; a miss recomputes the value
                 _PSI_CACHE.pop(next(iter(_PSI_CACHE)))

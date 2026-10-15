@@ -93,7 +93,7 @@ def _run_categorical_fe(
                 if _cat_block.shape[1] > 0:
                     _block_has_nan = bool(_cat_block.isna().to_numpy().any())
             except Exception as exc:
-                logger.debug("mrmr: NaN-block detection failed; treating as unknown: %r", exc, exc_info=True)
+                logger.warning("mrmr: NaN-block detection failed; treating as unknown: %r", exc, exc_info=True)
                 _block_has_nan = None
             _src_map_cache: dict = {}
             for _ri, r in enumerate(cat_fe_state.recipes):

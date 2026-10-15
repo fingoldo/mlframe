@@ -18,7 +18,7 @@ import logging
 
 import numpy as np
 
-from ._fe_edge_mi import _plugin_mi_classif_edge_njit, plugin_mi_classif_batch_edge_njit
+from ._numba_utils import _plugin_mi_classif_edge_njit, plugin_mi_classif_batch_edge_njit
 
 logger = logging.getLogger(__name__)
 

@@ -17,6 +17,7 @@ from mlframe.utils.log_throttle import log_throttle
 import os
 from itertools import combinations
 from time import perf_counter
+from typing import Any
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -107,17 +108,17 @@ def _use_serial_pair_sweep(n_jobs: int, n_pairs: int, below_perm_floor: bool, pa
 def compute_pair_mis_and_floor(
     self,
     *,
-    data, cols, nbins, X,
-    classes_y, classes_y_safe, freqs_y,
-    target_indices,
-    cached_MIs, cached_confident_MIs,
-    numeric_vars_to_consider,
-    _prevalence_debias_auto,
-    n_jobs, prefetch_factor, parallel_kwargs,
-    fe_min_nonzero_confidence, fe_npermutations,
-    fe_min_pair_mi, fe_min_pair_mi_prevalence,
-    verbose,
-):
+    data: np.ndarray, cols: list[str], nbins: np.ndarray, X: Any,
+    classes_y: np.ndarray, classes_y_safe: np.ndarray, freqs_y: np.ndarray,
+    target_indices: np.ndarray,
+    cached_MIs: dict, cached_confident_MIs: dict,
+    numeric_vars_to_consider: set,
+    _prevalence_debias_auto: bool,
+    n_jobs: int, prefetch_factor: int, parallel_kwargs: dict,
+    fe_min_nonzero_confidence: float, fe_npermutations: int,
+    fe_min_pair_mi: float, fe_min_pair_mi_prevalence: float,
+    verbose: int,
+) -> tuple:
     """Compute pair MIs + the order-2 maxT floor for the FE candidate pool. ``cached_MIs`` mutated in place."""
     # Lazy import: ``.mrmr`` re-imports this package at its bottom for method binding -> a top-level
     # ``from ..mrmr import ...`` here would create a hard import cycle (see _step_core).
@@ -239,7 +240,7 @@ def compute_pair_mis_and_floor(
         try:
             from mlframe.feature_selection.filters.batch_pair_mi_gpu import _CUDA_AVAIL
         except ImportError as e:
-            logger.debug("batch_pair_mi_gpu._CUDA_AVAIL import failed: %s", e)
+            logger.warning("batch_pair_mi_gpu._CUDA_AVAIL import failed: %s", e)
             _CUDA_AVAIL = False
         _exhaustive_backend = "cuda" if _CUDA_AVAIL else "njit_parallel"
     _batch_precompute_t0 = perf_counter()

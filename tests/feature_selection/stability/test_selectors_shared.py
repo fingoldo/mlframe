@@ -49,17 +49,29 @@ def _make_rfecv():
     )
 
 
+def _make_rfecv_regressor():
+    """RFECV with a regressor: the default LogisticRegression is classifier-only and cannot stratify a continuous y."""
+    from sklearn.linear_model import Ridge
+
+    from mlframe.feature_selection.wrappers import RFECV
+
+    return RFECV(
+        estimator=Ridge(alpha=1.0),
+        cv=3,
+        max_refits=2,
+        verbose=0,
+        random_state=0,
+        leakage_corr_threshold=None,
+    )
+
+
 def _make_mrmr():
     """Make mrmr."""
-    try:
-        from mlframe.feature_selection.filters.mrmr import MRMR
-
-        # random_seed is the MRMR-specific RNG knob (vs RFECV's random_state).
-        # Set it for determinism tests; MRMR uses permutation-based MI which
-        # is non-deterministic without a fixed seed.
-        return MRMR(verbose=False, random_seed=0)
-    except ImportError:
-        pytest.skip("MRMR not importable")
+    mrmr_mod = pytest.importorskip("mlframe.feature_selection.filters.mrmr")
+    # random_seed is the MRMR-specific RNG knob (vs RFECV's random_state).
+    # Set it for determinism tests; MRMR uses permutation-based MI which
+    # is non-deterministic without a fixed seed.
+    return mrmr_mod.MRMR(verbose=False, random_state=0)
 
 
 _SELECTOR_FACTORIES = [
@@ -199,13 +211,7 @@ class TestSharedInputTypes:
         X_df, y = small_clf_problem
         X = X_df.values
         selector = selector_factory()
-        try:
-            selector.fit(X, y)
-        except (TypeError, ValueError, AttributeError) as exc:
-            # Some selectors may legitimately require pd.DataFrame for
-            # certain feature-name workflows. Skip with a clear message
-            # rather than failing.
-            pytest.skip(f"selector does not accept np.ndarray input: {exc}")
+        selector.fit(X, y)
         out = selector.transform(X)
         assert out.shape[0] == X.shape[0]
 
@@ -238,12 +244,9 @@ class TestSharedDeterminism:
         s1 = selector_factory().fit(X, y)
         s2 = selector_factory().fit(X, y)
         # Compare via get_feature_names_out for portability across support_ formats
-        try:
-            n1 = sorted(s1.get_feature_names_out())
-            n2 = sorted(s2.get_feature_names_out())
-            assert n1 == n2, f"Re-fit on identical input should produce identical support_; got {n1} vs {n2}"
-        except (AttributeError, NotImplementedError):
-            pytest.skip("get_feature_names_out unavailable for comparison")
+        n1 = sorted(s1.get_feature_names_out())
+        n2 = sorted(s2.get_feature_names_out())
+        assert n1 == n2, f"Re-fit on identical input should produce identical support_; got {n1} vs {n2}"
 
 
 # ----------------------------------------------------------------------------
@@ -355,12 +358,7 @@ class TestSharedTrivialInputs:
         X = pd.DataFrame({"a": rng.standard_normal(200)})
         y = (X["a"] > 0).astype(int).values
         selector = selector_factory()
-        try:
-            selector.fit(X, y)
-        except ValueError:
-            # Some selectors require >= 2 features (e.g. mRMR redundancy
-            # term needs pairs). Tolerated.
-            pytest.skip("selector requires >=2 features")
+        selector.fit(X, y)
         # Exactly ONE raw feature exists, so n_features_in_ must be 1 and the
         # raw column must be selected. n_features_ itself can exceed 1 because
         # MRMR's default hinge FE legitimately engineers relu legs off the kink
@@ -379,10 +377,7 @@ class TestSharedTrivialInputs:
         X = pd.DataFrame(rng.standard_normal((200, 5)), columns=list("abcde"))
         y = rng.integers(0, 2, 200)
         selector = selector_factory()
-        try:
-            selector.fit(X, y)
-        except ValueError:
-            pytest.skip("selector rejects all-noise input")
+        selector.fit(X, y)
         assert hasattr(selector, "n_features_")
 
     def test_constant_feature_dropped_or_handled(self, selector_factory):
@@ -401,11 +396,8 @@ class TestSharedTrivialInputs:
         selector = selector_factory()
         selector.fit(X, y)
         # Whatever the strategy, the constant column must NOT be in support_.
-        try:
-            names = list(selector.get_feature_names_out())
-            assert "const" not in names
-        except (AttributeError, NotImplementedError):
-            pytest.skip("get_feature_names_out unavailable")
+        names = list(selector.get_feature_names_out())
+        assert "const" not in names
 
 
 # ----------------------------------------------------------------------------
@@ -521,10 +513,7 @@ class TestSharedMulticlass:
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(15)])
         selector = selector_factory()
-        try:
-            selector.fit(Xdf, y)
-        except (ValueError, TypeError) as exc:
-            pytest.skip(f"selector binary-only: {exc}")
+        selector.fit(Xdf, y)
         assert selector.n_features_ >= 1
 
 
@@ -533,10 +522,10 @@ class TestSharedMulticlass:
 # ----------------------------------------------------------------------------
 class TestSharedRegression:
     """Groups tests covering TestSharedRegression."""
-    def test_continuous_y(self, selector_factory):
-        """Continuous y - selector should either work or skip cleanly.
-        Note: RFECV with default LR estimator is classifier-only; passing
-        a regressor estimator is the operator's responsibility."""
+
+    @pytest.mark.parametrize("make_selector", [pytest.param(_make_rfecv_regressor, id="RFECV"), pytest.param(_make_mrmr, id="MRMR")])
+    def test_continuous_y(self, make_selector):
+        """Continuous y must fit through the regression path of each selector (RFECV with a regressor, MRMR natively)."""
         from sklearn.datasets import make_regression
 
         X, y = make_regression(
@@ -547,11 +536,8 @@ class TestSharedRegression:
             shuffle=False,
         )
         Xdf = pd.DataFrame(X, columns=[f"f{i}" for i in range(10)])
-        selector = selector_factory()
-        try:
-            selector.fit(Xdf, y)
-        except (ValueError, TypeError) as exc:
-            pytest.skip(f"selector classification-only: {exc}")
+        selector = make_selector()
+        selector.fit(Xdf, y)
         assert selector.n_features_ >= 0
 
 
@@ -587,11 +573,9 @@ class TestSharedFeatureNamesOut:
         """Returns ndarray of str."""
         X, y = small_clf_problem
         selector = selector_factory().fit(X, y)
-        try:
-            names = selector.get_feature_names_out()
-        except (AttributeError, NotImplementedError):
-            pytest.skip("selector lacks get_feature_names_out")
+        names = selector.get_feature_names_out()
         assert isinstance(names, np.ndarray)
+        assert len(names) >= 1
         for n in names:
             # Could be str, np.str_, or object dtype - just ensure non-empty
             assert len(str(n)) > 0

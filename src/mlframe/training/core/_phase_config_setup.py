@@ -51,7 +51,8 @@ def _detect_interactive_mode() -> bool:
     """
     try:
         return bool(__IPYTHON__)  # type: ignore[name-defined]
-    except NameError:
+    except NameError as _exc:
+        logger.debug("_detect_interactive_mode fell back to its default after %s", type(_exc).__name__)
         return hasattr(sys, "ps1")
 
 

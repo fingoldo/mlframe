@@ -71,7 +71,7 @@ class _ProviderEntry:
 
 _REGISTRY: weakref.WeakValueDictionary[str, _ProviderEntry] = weakref.WeakValueDictionary()
 _LRU_HARD: OrderedDict[str, _ProviderEntry] = OrderedDict()
-_REGISTRY_LOCK = threading.Lock()
+_REGISTRY_LOCK = threading.RLock()
 _PREWARM_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="mlframe-prewarm")
 _PREWARM_FUTURES: "dict[str, Future]" = {}  # signature -> Future
 
@@ -150,7 +150,8 @@ def _resolve_keep_n(cache_cfg) -> int:
         free, _ = torch.cuda.mem_get_info()
         free_gb = free / 1e9
         return min(2, max(1, int(free_gb)))
-    except ImportError:
+    except ImportError as _exc:
+        logger.debug("_resolve_keep_n fell back to its default after %s", type(_exc).__name__)
         return 2
 
 
@@ -165,12 +166,6 @@ def _register_or_get(
     :class:`FrozenFeaturizerProvider`. Called only when no entry
     exists yet.
     """
-    # Fast path: entry exists.
-    entry = _REGISTRY.get(signature)
-    if entry is not None:
-        return entry
-
-    # Slow path: take the lock and re-check.
     with _REGISTRY_LOCK:
         entry = _REGISTRY.get(signature)
         if entry is not None:
@@ -185,22 +180,23 @@ def _bump_lru(signature: str, entry: _ProviderEntry, keep_n: int) -> None:
     """Promote ``signature`` in the strong-keep tier; evict the
     oldest if tier exceeds ``keep_n``. Caller holds REGISTRY_LOCK.
     """
-    if signature in _LRU_HARD:
-        _LRU_HARD.move_to_end(signature)
-    else:
-        _LRU_HARD[signature] = entry
-    while len(_LRU_HARD) > keep_n:
-        _, evicted = _LRU_HARD.popitem(last=False)
-        # Evict from strong-tier doesn't unload immediately -- the
-        # weakref still holds it if anything else refs it. If refcount
-        # is zero, unload now.
-        with evicted.lock:
-            if evicted.refcount == 0 and evicted.is_loaded:
-                try:
-                    evicted.provider.release()
-                    evicted.is_loaded = False
-                except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
-                    log_throttle(logger, "registry_evict_provider_release_failed", logging.WARNING, "evicting provider release() raised: %s", e)
+    with _REGISTRY_LOCK:
+        if signature in _LRU_HARD:
+            _LRU_HARD.move_to_end(signature)
+        else:
+            _LRU_HARD[signature] = entry
+        while len(_LRU_HARD) > keep_n:
+            _, evicted = _LRU_HARD.popitem(last=False)
+            # Evict from strong-tier doesn't unload immediately -- the
+            # weakref still holds it if anything else refs it. If refcount
+            # is zero, unload now.
+            with evicted.lock:
+                if evicted.refcount == 0 and evicted.is_loaded:
+                    try:
+                        evicted.provider.release()
+                        evicted.is_loaded = False
+                    except Exception as e:  # pragma: no cover -- best-effort cleanup, provider state is marked unloaded regardless
+                        log_throttle(logger, "registry_evict_provider_release_failed", logging.WARNING, "evicting provider release() raised: %s", e)
 
 
 # =====================================================================
@@ -211,7 +207,7 @@ def _bump_lru(signature: str, entry: _ProviderEntry, keep_n: int) -> None:
 @contextlib.contextmanager
 def acquire_provider(
     provider: FrozenFeaturizerProvider,
-    cache_cfg,
+    cache_cfg: Any,
 ) -> Iterator[FrozenFeaturizerProvider]:
     """Context-manager around provider load + refcount.
 

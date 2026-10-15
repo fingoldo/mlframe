@@ -16,12 +16,9 @@ from tests.feature_selection.conftest import make_fast_mrmr
 
 
 def _california():
-    """Return a train/test split of the first 1500 California housing rows, skipping when the dataset is unavailable."""
+    """Return a train/test split of the first 1500 California housing rows."""
     datasets = pytest.importorskip("sklearn.datasets")
-    try:
-        c = datasets.fetch_california_housing(as_frame=True)
-    except OSError as e:  # offline CI without the cached dataset
-        pytest.skip(f"california_housing unavailable: {e}")
+    c = datasets.fetch_california_housing(as_frame=True)
     X = c.data.iloc[:1500].reset_index(drop=True)
     y = c.target.iloc[:1500].reset_index(drop=True)
     from sklearn.model_selection import train_test_split

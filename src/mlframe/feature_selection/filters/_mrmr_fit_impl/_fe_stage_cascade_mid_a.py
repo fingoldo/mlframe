@@ -21,11 +21,57 @@ if TYPE_CHECKING:
 import logging
 import warnings
 
+import numpy as np
 import pandas as pd
 from .._y_encoding import encode_y_for_classif_mi
 from ._fe_stage_merge import _fe_merge_new_columns
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+def _stage_layer87_grouped_agg(self, X_acc, X, _y_np, _grouped_agg_pre_recipes, verbose):
+    """Layer 87 grouped multi-stat aggregates for a pandas frame; returns ``X_acc`` with the surviving columns merged in."""
+    try:
+        from .._grouped_agg_fe import hybrid_grouped_agg_fe
+
+        # CMI gate needs a class-typed target; bin continuous y the
+        # same way the Layer 60 CMI-greedy stage does.
+        _y_for_ga = _y_np
+        _y_for_ga = encode_y_for_classif_mi(_y_for_ga)
+        _ga_groups = tuple(getattr(self, "fe_grouped_agg_group_cols", ()) or ())
+        _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
+        _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
+        _ga_nums = [c for c in _ga_nums if c in X.columns] or None  # type: ignore[assignment]
+        _ga_stats_raw = getattr(self, "fe_grouped_agg_stats", None)
+        _ga_stats = tuple(_ga_stats_raw) if _ga_stats_raw is not None else ("mean", "std", "min", "max", "nunique", "skew", "median")
+        _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
+        _X_before_ga_cols = list(X.columns)
+        X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
+            X, _y_for_ga,
+            group_cols=_ga_groups, num_cols=_ga_nums,
+            stats=_ga_stats, top_k=_ga_top_k,
+        )
+        _ga_appended = [c for c in _ga_appended if c not in _X_before_ga_cols]
+        if _ga_appended:
+            X_acc = _fe_merge_new_columns(X_acc, X_ga, X)
+            self.grouped_agg_features_ = list(_ga_appended)
+            self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ga_appended)
+            for _r in _ga_recipes:
+                if _r.name in _ga_appended:
+                    _grouped_agg_pre_recipes[_r.name] = _r
+            if verbose:
+                logger.info(
+                    "MRMR.fit grouped_agg: appended %d engineered " "column(s): %s",
+                    len(_ga_appended),
+                    _ga_appended[:8],
+                )
+    except Exception as _ga_exc:
+        logger.warning(
+            "MRMR.fit grouped_agg FE raised %s: %s; continuing " "without grouped-aggregate columns.",
+            type(_ga_exc).__name__,
+            _ga_exc,
+        )
+    return X_acc
+
 
 def _fe_stage_cascade_mid_a(
     self,
@@ -69,46 +115,7 @@ def _fe_stage_cascade_mid_a(
                 UserWarning, stacklevel=3,
             )
         else:
-            try:
-                from .._grouped_agg_fe import hybrid_grouped_agg_fe
-
-                # CMI gate needs a class-typed target; bin continuous y the
-                # same way the Layer 60 CMI-greedy stage does.
-                _y_for_ga = _y_np
-                _y_for_ga = encode_y_for_classif_mi(_y_for_ga)
-                _ga_groups = tuple(getattr(self, "fe_grouped_agg_group_cols", ()) or ())
-                _ga_groups = [c for c in _ga_groups if c in X.columns] or None  # type: ignore[assignment]
-                _ga_nums = tuple(getattr(self, "fe_grouped_agg_num_cols", ()) or ())
-                _ga_nums = [c for c in _ga_nums if c in X.columns] or None  # type: ignore[assignment]
-                _ga_stats_raw = getattr(self, "fe_grouped_agg_stats", None)
-                _ga_stats = tuple(_ga_stats_raw) if _ga_stats_raw is not None else ("mean", "std", "min", "max", "nunique", "skew", "median")
-                _ga_top_k = int(getattr(self, "fe_grouped_agg_top_k", 10))
-                _X_before_ga_cols = list(X.columns)
-                X_ga, _ga_appended, _ga_recipes, _ga_scores = hybrid_grouped_agg_fe(
-                    X, _y_for_ga,
-                    group_cols=_ga_groups, num_cols=_ga_nums,
-                    stats=_ga_stats, top_k=_ga_top_k,
-                )
-                _ga_appended = [c for c in _ga_appended if c not in _X_before_ga_cols]
-                if _ga_appended:
-                    X_acc = _fe_merge_new_columns(X_acc, X_ga, X)
-                    self.grouped_agg_features_ = list(_ga_appended)
-                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_ga_appended)
-                    for _r in _ga_recipes:
-                        if _r.name in _ga_appended:
-                            _grouped_agg_pre_recipes[_r.name] = _r
-                    if verbose:
-                        logger.info(
-                            "MRMR.fit grouped_agg: appended %d engineered " "column(s): %s",
-                            len(_ga_appended),
-                            _ga_appended[:8],
-                        )
-            except Exception as _ga_exc:
-                logger.warning(
-                    "MRMR.fit grouped_agg FE raised %s: %s; continuing " "without grouped-aggregate columns.",
-                    type(_ga_exc).__name__,
-                    _ga_exc,
-                )
+            X_acc = _stage_layer87_grouped_agg(self, X_acc, X, _y_np, _grouped_agg_pre_recipes, verbose)
 
     # Layer 93: COMPOSITE (multi-column) group-key aggregates.
     # Multi-col extension of Layer 87: each composite key is factorized into
@@ -582,7 +589,7 @@ def _stage_numeric_decompose(self, _fe_family_on, X, _y_np, _numeric_decompose_p
 
 def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose):
     """Run the modular (auto-period) feature family when it is enabled."""
-    if _fe_family_on("fe_modular_enable", False):
+    if _fe_family_on("fe_modular_enable", True):
         if not isinstance(X, pd.DataFrame):
             warnings.warn(
                 "MRMR: Layer 95 modular FE enabled but X is not a pandas "
@@ -626,6 +633,24 @@ def _stage_modular(self, _fe_family_on, X, _y_np, _modular_pre_recipes, verbose)
                     type(_md_exc).__name__,
                     _md_exc,
                 )
+        # Floor-parity family rides on the same flag: a square wave of one column with a scanned period. The period scan
+        # scores candidates by discrete MI, so it runs only on a classification-like target (few distinct values).
+        if isinstance(X, pd.DataFrame) and len(np.unique(_y_np)) <= 10:
+            try:
+                from mlframe.feature_selection.filters._parity_fe import hybrid_parity_fe_with_recipes
+
+                _raw_par_cols = [c for c in X.columns if "__" not in str(c) and pd.api.types.is_numeric_dtype(X[c])]
+                X_par, _par_appended, _par_recipes, _ = hybrid_parity_fe_with_recipes(X, _y_np, cols=_raw_par_cols)
+                if _par_appended:
+                    X = X_par
+                    self.parity_features_ = list(_par_appended)
+                    self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_par_appended)
+                    for _r in _par_recipes:
+                        _modular_pre_recipes[_r.name] = _r
+                    if verbose:
+                        logger.info("MRMR.fit parity: appended %d engineered column(s): %s", len(_par_appended), _par_appended[:8])
+            except Exception as _par_exc:
+                logger.warning("MRMR.fit parity FE raised %s: %s; continuing without parity columns.", type(_par_exc).__name__, _par_exc)
     return X
 
 def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned, _pairwise_modular_pre_recipes, verbose):
