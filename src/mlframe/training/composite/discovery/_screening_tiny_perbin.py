@@ -13,6 +13,7 @@ What lives here:
   - ``_per_bin_rmse`` (per-bin RMSE helper for piecewise scoring)
   - ``_tiny_cv_rmse_y_scale`` (single-seed CV on y-scale)
 """
+
 from __future__ import annotations
 
 import logging
@@ -36,7 +37,7 @@ from mlframe.training.composite.estimator.shared import y_train_clip_bounds as _
 
 logger = logging.getLogger(__name__)
 
-from ._screening_tiny import (
+from ._screening_tiny_shared import (
     _build_tiny_model,
     _cached_kfold_splits,
     _silence_tiny_model_output,
@@ -104,7 +105,10 @@ def _per_bin_from_fold_preds(
     per_bin_arrays = []
     for y_true, y_hat, val_idx in fold_preds:
         pb = _per_bin_rmse(
-            y_true, y_hat, bin_var_clean[val_idx], n_bins=n_bins,
+            y_true,
+            y_hat,
+            bin_var_clean[val_idx],
+            n_bins=n_bins,
         )
         per_bin_arrays.append(pb)
     if not per_bin_arrays:
@@ -129,15 +133,25 @@ def _fold_fit_inputs(transform, fitted_params, y_clean, base_clean, t_clean, gro
     t_fit = t_clean[fit_rows]
     _refit = refit_transform_on_fold(
         transform,
-        y_clean[fit_rows], base_clean[fit_rows],
+        y_clean[fit_rows],
+        base_clean[fit_rows],
         groups_fold=(groups_clean[fit_rows] if groups_clean is not None else None),
     )
     if _refit is not None:
         _p_fold, _valid_fold = _refit
         _rows_fold = fit_rows[_valid_fold]
         if _rows_fold.shape[0] >= 2:
-            _t_try = np.asarray(call_transform(transform, "forward", y_clean[_rows_fold], base_clean[_rows_fold], _p_fold,
-                                               groups=groups_clean[_rows_fold] if groups_clean is not None else None), dtype=np.float64)
+            _t_try = np.asarray(
+                call_transform(
+                    transform,
+                    "forward",
+                    y_clean[_rows_fold],
+                    base_clean[_rows_fold],
+                    _p_fold,
+                    groups=groups_clean[_rows_fold] if groups_clean is not None else None,
+                ),
+                dtype=np.float64,
+            )
             if np.all(np.isfinite(_t_try)):
                 fold_params, fit_rows, t_fit = _p_fold, _rows_fold, _t_try
     return fold_params, fit_rows, t_fit
@@ -159,7 +173,9 @@ def _tiny_fold_model(family, *, n_estimators, num_leaves, learning_rate, random_
     return model
 
 
-def _fit_fold_model(x_clean, train_fold, fit_rows, t_fit, *, family, n_estimators, num_leaves, learning_rate, random_state, deterministic, inner_n_jobs, n_jobs):
+def _fit_fold_model(
+    x_clean, train_fold, fit_rows, t_fit, *, family, n_estimators, num_leaves, learning_rate, random_state, deterministic, inner_n_jobs, n_jobs
+):
     """Fit one fold's tiny model, reusing the fold's binned dataset when every row of the fold trains.
 
     A LightGBM fold that trains on all its rows shares its binned dataset with the other specs on this matrix:
@@ -168,26 +184,40 @@ def _fit_fold_model(x_clean, train_fold, fit_rows, t_fit, *, family, n_estimator
     """
     if family.lower() in ("lgb", "lightgbm") and isinstance(x_clean, np.ndarray) and fit_rows.shape[0] == train_fold.shape[0]:
         params = lgb_params(
-            num_leaves=num_leaves, learning_rate=learning_rate, random_state=random_state,
-            deterministic=deterministic, num_threads=1 if n_jobs > 1 else inner_n_jobs,
+            num_leaves=num_leaves,
+            learning_rate=learning_rate,
+            random_state=random_state,
+            deterministic=deterministic,
+            num_threads=1 if n_jobs > 1 else inner_n_jobs,
         )
         return fit_on_shared_fold(x_clean, train_fold, t_fit, params=params, n_estimators=n_estimators)
     if family.lower() in ("lgb", "lightgbm") and isinstance(x_clean, np.ndarray):
         # Masked fold: no cached bins to reuse, but the construction must still be serialised. Going through the
         # native API keeps it under the same lock, where the sklearn wrapper would construct unprotected inside fit.
         return fit_on_rows(
-            x_clean, fit_rows, t_fit,
+            x_clean,
+            fit_rows,
+            t_fit,
             params=lgb_params(
-                num_leaves=num_leaves, learning_rate=learning_rate, random_state=random_state,
-                deterministic=deterministic, num_threads=1 if n_jobs > 1 else inner_n_jobs,
+                num_leaves=num_leaves,
+                learning_rate=learning_rate,
+                random_state=random_state,
+                deterministic=deterministic,
+                num_threads=1 if n_jobs > 1 else inner_n_jobs,
             ),
             n_estimators=n_estimators,
         )
     if family.lower() in ("linear", "ridge") and isinstance(x_clean, np.ndarray) and fit_rows.shape[0] == train_fold.shape[0]:
         return fit_ridge_on_shared_fold(x_clean, train_fold, t_fit)
     model = _tiny_fold_model(
-        family, n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
-        random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs,
+        family,
+        n_estimators=n_estimators,
+        num_leaves=num_leaves,
+        learning_rate=learning_rate,
+        random_state=random_state,
+        deterministic=deterministic,
+        inner_n_jobs=inner_n_jobs,
+        n_jobs=n_jobs,
     )
     model.fit(x_clean[fit_rows], t_fit)
     return model
@@ -293,8 +323,14 @@ def _tiny_cv_rmse_y_scale(
         # T computed only on the trainable rows; off-domain rows never enter forward(). A non-finite T on a domain-valid row still nukes the spec (legacy semantics), so keep the whole-spec finite guard.
         t_pop = np.full(y_pop.shape[0], np.nan, dtype=np.float64)
         _transform_groups = _g_in[pop_mask] if _g_in is not None else None
-        t_pop[valid_pop] = call_transform(transform, "forward", y_pop[valid_pop], base_pop[valid_pop], fitted_params,
-                                          groups=_transform_groups[valid_pop] if _transform_groups is not None else None)
+        t_pop[valid_pop] = call_transform(
+            transform,
+            "forward",
+            y_pop[valid_pop],
+            base_pop[valid_pop],
+            fitted_params,
+            groups=_transform_groups[valid_pop] if _transform_groups is not None else None,
+        )
         if not np.all(np.isfinite(t_pop[valid_pop])):
             return (float("nan"), np.full(n_bins, float("nan"))) if return_per_bin else float("nan")
         y_clean = y_pop
@@ -323,7 +359,8 @@ def _tiny_cv_rmse_y_scale(
     splits = _resolve_perbin_cv_splitter(cv_splitter, groups_clean, x_clean, time_aware, cv_folds, random_state)
 
     def _one_fold(
-        train_fold: np.ndarray, val_fold: np.ndarray,
+        train_fold: np.ndarray,
+        val_fold: np.ndarray,
     ) -> tuple[float, np.ndarray | None]:
         """Return (fold_rmse, per_bin_rmse_or_None)."""
         try:
@@ -336,12 +373,28 @@ def _tiny_cv_rmse_y_scale(
             else:
                 _fit_rows = train_fold
             _fold_params, _fit_rows, _t_fit = _fold_fit_inputs(
-                transform, fitted_params, y_clean, base_clean, t_clean, _transform_groups, _fit_rows,
+                transform,
+                fitted_params,
+                y_clean,
+                base_clean,
+                t_clean,
+                _transform_groups,
+                _fit_rows,
             )
             with _silence_tiny_model_output(family):
                 model = _fit_fold_model(
-                    x_clean, train_fold, _fit_rows, _t_fit, family=family, n_estimators=n_estimators, num_leaves=num_leaves,
-                    learning_rate=learning_rate, random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs,
+                    x_clean,
+                    train_fold,
+                    _fit_rows,
+                    _t_fit,
+                    family=family,
+                    n_estimators=n_estimators,
+                    num_leaves=num_leaves,
+                    learning_rate=learning_rate,
+                    random_state=random_state,
+                    deterministic=deterministic,
+                    inner_n_jobs=inner_n_jobs,
+                    n_jobs=n_jobs,
                 )
                 t_hat = np.asarray(model.predict(x_clean[val_fold])).reshape(-1)
             # Domain-invalid val rows have a meaningless base for the inverse; supply a safe placeholder and overwrite with the median fallback below (mirrors estimator/_predict.py base_safe + y_train_median).
@@ -353,9 +406,14 @@ def _tiny_cv_rmse_y_scale(
                 _base_for_inverse = base_clean[val_fold]
             # Smearing for curved unary inverses (see ``estimator._smearing``), as the trained composite predicts.
             y_hat = smeared_prediction(
-                getattr(transform, "name", ""), model, x_clean[_fit_rows], _t_fit, t_hat,
-                lambda t: call_transform(transform, "inverse", t, _base_for_inverse, _fold_params,
-                                         groups=_transform_groups[val_fold] if _transform_groups is not None else None),
+                getattr(transform, "name", ""),
+                model,
+                x_clean[_fit_rows],
+                _t_fit,
+                t_hat,
+                lambda t: call_transform(
+                    transform, "inverse", t, _base_for_inverse, _fold_params, groups=_transform_groups[val_fold] if _transform_groups is not None else None
+                ),
             )
             # Wrapper-aware clipping. The
             # production CompositeTargetEstimator.predict applies
@@ -367,7 +425,9 @@ def _tiny_cv_rmse_y_scale(
             # _y_train_clip_bounds is imported at module level above (race-safe across joblib threading folds). The y-clip envelope is fit on the domain-valid train rows (the rows the production estimator's clip bounds were learned from).
             y_clip_low, y_clip_high = _y_train_clip_bounds(y_clean[_fit_rows])
             y_hat = np.clip(
-                y_hat.astype(np.float64), y_clip_low, y_clip_high,
+                y_hat.astype(np.float64),
+                y_clip_low,
+                y_clip_high,
             )
             # Domain-violation fallback: rows where the transform's domain_check fails on val use y_train_median (matches wrapper.predict). The wrapper computes domain_check on (y, base) but at inference y is unknown, so it uses y=None handling; here on val we know y_clean[val_fold] and emulate the wrapper by falling back rows where y_hat is non-finite OR where the row is domain-invalid. The fallback median uses the domain-valid train y (estimator/_predict.py stores y_train_median over fit rows).
             _y_train_fallback: float | None = None
@@ -391,8 +451,10 @@ def _tiny_cv_rmse_y_scale(
             per_bin = None
             if return_per_bin:
                 per_bin = _per_bin_rmse(
-                    y_clean[val_fold], y_hat,
-                    base_clean[val_fold], n_bins=n_bins,
+                    y_clean[val_fold],
+                    y_hat,
+                    base_clean[val_fold],
+                    n_bins=n_bins,
                 )
             return rmse, per_bin
         except Exception as _e:
@@ -402,10 +464,12 @@ def _tiny_cv_rmse_y_scale(
             # operators see why the effective fold count dropped. The NaN
             # return semantics are preserved (caller knows to use nanmean).
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
                 "composite_screening: tiny-model CV fold failed (%s); fold "
                 "reported as NaN. Screening RMSE will use nanmean over surviving "
-                "folds -- effective fold count is reduced.", _e,
+                "folds -- effective fold count is reduced.",
+                _e,
             )
             return float("nan"), None
 
@@ -416,6 +480,7 @@ def _tiny_cv_rmse_y_scale(
         if n_jobs > 1 and len(splits) > 1:
             try:
                 from joblib import Parallel, delayed
+
                 fold_results = Parallel(
                     n_jobs=min(n_jobs, len(splits)),
                     backend="threading",
@@ -441,7 +506,9 @@ def _tiny_cv_rmse_y_scale(
             "_tiny_cv_rmse_transformed_y: %d/%d folds returned NaN (silent failures). "
             "Screening RMSE will use nanmean over the remaining %d fold(s); "
             "effective fold count is reduced.",
-            _nan_fold_count, len(fold_results), len(fold_results) - _nan_fold_count,
+            _nan_fold_count,
+            len(fold_results),
+            len(fold_results) - _nan_fold_count,
         )
     fold_rmses = [r for r, _ in fold_results if math.isfinite(r)]
     if not fold_rmses:
@@ -449,6 +516,7 @@ def _tiny_cv_rmse_y_scale(
             return float("nan"), np.full(n_bins, float("nan"))
         return float("nan")
     from ..._cv_aggregation import aggregate_fold_scores
+
     mean_rmse = aggregate_fold_scores(
         fold_rmses,
         mode=cv_selector_mode,  # type: ignore[arg-type]
@@ -509,7 +577,9 @@ def _resolve_perbin_cv_groups(groups, y_train, _group_mask, cv_folds, cv_splitte
                     "back to %s. Group separation is NOT enforced for this "
                     "spec -- reduce cv_folds or supply more groups to keep the "
                     "grouped fold contract.",
-                    _n_groups, cv_folds, _fallback_desc,
+                    _n_groups,
+                    cv_folds,
+                    _fallback_desc,
                 )
                 groups_clean = None  # fall back to KFold if not enough groups
     return groups_clean

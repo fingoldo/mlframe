@@ -13,15 +13,11 @@ What lives here:
   - ``_per_bin_rmse`` (per-bin RMSE helper for piecewise scoring)
   - ``_tiny_cv_rmse_y_scale`` (single-seed CV on y-scale)
 """
+
 from __future__ import annotations
 
-import contextlib
 import logging
 import math
-import re
-import threading
-from collections import OrderedDict
-import warnings
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -47,246 +43,16 @@ logger = logging.getLogger(__name__)
 # repeat; cache them once per sweep (also skips KFold.split's per-call x re-validation).
 # LRU over keys: each entry holds ``cv_folds x n_rows`` int64 indices (40 MB at 1M rows x 5 folds), so the bound is a
 # handful of keys, not hundreds: a sweep reuses one key set, and 256 keys at 1M rows could hold 10 GB.
-_KFOLD_SPLIT_CACHE: "OrderedDict[tuple[int, int, int], list[tuple[np.ndarray, np.ndarray]]]" = OrderedDict()
-_KFOLD_SPLIT_CACHE_MAX = 8
-_KFOLD_SPLIT_CACHE_LOCK = threading.Lock()  # parallel screening workers share the cache; clear-then-insert must not interleave
-
-
-def _cached_kfold_splits(n_rows: int, cv_folds: int, random_state: int):
-    """Return the shuffled-KFold ``(train_idx, val_idx)`` list for this
-    ``(n_rows, cv_folds, random_state)``, building+caching it on first use.
-
-    Bit-identical to ``list(KFold(n_splits=cv_folds, shuffle=True,
-    random_state=random_state).split(x))`` for any ``x`` with ``n_rows`` rows --
-    the split is a pure function of those three ints. Cached arrays are only
-    READ downstream (fancy-indexed into copies), so reuse is safe without a copy."""
-    key = (int(n_rows), int(cv_folds), int(random_state))
-    with _KFOLD_SPLIT_CACHE_LOCK:
-        cached = _KFOLD_SPLIT_CACHE.get(key)
-        if cached is not None:
-            _KFOLD_SPLIT_CACHE.move_to_end(key)
-            return cached
-        kf = make_discovery_splitter(cv_folds, random_state=random_state)[0]  # the one place a shuffled discovery KFold is built
-        splits = list(kf.split(np.empty(n_rows, dtype=np.uint8)))
-        _KFOLD_SPLIT_CACHE[key] = splits
-        while len(_KFOLD_SPLIT_CACHE) > _KFOLD_SPLIT_CACHE_MAX:
-            # evict-ok: the splits are a pure function of the key; a miss rebuilds the identical list
-            _KFOLD_SPLIT_CACHE.popitem(last=False)
-    return splits
-
+from ._screening_tiny_shared import (  # moved to the leaf module; re-exported for the screen and the per-bin split
+    _build_tiny_model,
+    _silence_tiny_model_output,
+    cap_inner_n_jobs,
+)
 
 # Thread-local reentrancy state for the lightgbm-logger level bump in _silence_tiny_model_output.
 # Only the outermost silence context on a given thread touches the logger level, so an outer per-CV-call wrap collapses N per-fold setLevel/_clear_cache pairs into a single one.
-_silence_tiny_state = threading.local()
 
 # Per-fold warning silencing installs the same four filters on every CV fold (23k+ times across a discovery sweep). ``warnings.filterwarnings`` re-compiles each ``message`` regex (with ``re.I``) on every call -- ~6.3us/call from the two regex compiles alone. Precompile the two message regexes once at module scope and prepend the four filter tuples directly to the fresh ``catch_warnings``-copied filters list, mirroring ``filterwarnings``' exact tuple shape ``(action, compiled_message_or_None, category, compiled_module_or_None, lineno)`` with ``re.I`` on the message. Behaviourally identical (same action/category/message-match), ~3.8x cheaper (6.3us -> 1.6us per fold).
-_FEATURE_NAMES_RE = re.compile(".*feature names.*", re.I)
-_SKIPPING_FEATURES_RE = re.compile(".*Skipping features without any observed values.*", re.I)
-
-
-def _family_uses_lgb(family: str | None) -> bool:
-    """True when ``family`` actually drives LightGBM. Only then is the
-    lightgbm-logger level bump (logging.Manager._clear_cache, which walks the
-    whole logger tree twice) worth paying. ``None`` keeps the legacy
-    always-bump behaviour for callers that don't pass a family."""
-    if family is None:
-        return True
-    return family.lower() in ("lgb", "lightgbm")
-
-
-@contextlib.contextmanager
-def _silence_tiny_model_output(family: str | None = None):
-    """Context manager: silence the per-fold tiny-model fit/predict
-    noise without changing the numeric path (no DataFrame->ndarray
-    conversion; we keep the user's frame as-is for performance).
-
-    ``family`` gates the lightgbm-logger level bump: for linear/ridge/cb/xgb
-    families no LightGBM is involved, so the ``setLevel`` (which triggers
-    ``logging.Manager._clear_cache`` over the whole logger tree, twice per
-    fold) is skipped. ``None`` (default) keeps the legacy always-bump path for
-    external callers that don't know the family.
-
-    Suppressed:
-    - sklearn ``UserWarning`` for "X has feature names, but X was
-      fitted without feature names" / vice versa (we mix ndarray-fit
-      with DataFrame-predict on the cross-target ensemble path).
-    - sklearn ``ConvergenceWarning`` from Ridge / linear models on
-      degenerate folds.
-    - ``RuntimeWarning`` from numpy on near-singular regressors.
-    - LightGBM "No further splits with positive gain" info messages
-      that escape ``verbose=-1`` via the C library (silenced through
-      ``logging.getLogger('lightgbm')`` level bump).
-
-    Not touched: errors, structured logging from mlframe itself,
-    catboost / xgboost (already silenced via their own kwargs).
-    """
-    import logging as _logging
-    _bump_lgb = _family_uses_lgb(family)
-    _lgb_logger = _logging.getLogger("lightgbm") if _bump_lgb else None
-    # setLevel ALWAYS calls Manager._clear_cache() over the whole logger tree (even when the level is unchanged); on a large process logger tree that is ~100-150us per call, and it fires twice per CV fold (bump + restore).
-    # Across a screening run the lightgbm logger sits at NOTSET and we always bump-to-ERROR / restore-to-NOTSET, so consecutive folds keep re-clearing the cache for no net level change. Use a reentrancy depth so only the OUTERMOST silence bump touches the level: nested / sequential-within-an-outer-silence entries skip both setLevel calls.
-    # Numerically identical: throughout the yield the effective lightgbm level is ERROR (INFO/DEBUG suppressed) exactly as before, and the level is restored to its original value when the outermost context exits.
-    _do_bump = False
-    if _lgb_logger is not None:
-        _depth = getattr(_silence_tiny_state, "lgb_depth", 0)
-        if _depth == 0:
-            _silence_tiny_state.lgb_prev_level = _lgb_logger.level
-            _lgb_logger.setLevel(_logging.ERROR)
-            _do_bump = True
-        _silence_tiny_state.lgb_depth = _depth + 1
-    try:
-        from sklearn.exceptions import ConvergenceWarning
-    except ImportError:  # pragma: no cover - sklearn always installed in our deps
-        ConvergenceWarning = UserWarning
-    with warnings.catch_warnings():
-        # Prepend the four ignore filters directly using precompiled message regexes (see ``_FEATURE_NAMES_RE`` note above). ``catch_warnings.__enter__`` has just copied the global filters into a fresh ``warnings.filters`` list, so a plain prepend (newest-first) reproduces the exact order four ``filterwarnings("ignore", ...)`` calls would leave -- last-inserted (RuntimeWarning) first. The second message filter squelches sklearn SimpleImputer's "Skipping features without any observed values" no-op warning (fires per CV fold * candidate spec in tiny-rerank); the actual remediation (drop fully-NaN columns) lives in the auto-base per-column NaN gate.
-        warnings.filters[:0] = [  # type: ignore[index]  # warnings.filters is a private CPython list, not the Sequence the stub declares
-            ("ignore", None, RuntimeWarning, None, 0),
-            ("ignore", None, ConvergenceWarning, None, 0),
-            ("ignore", _SKIPPING_FEATURES_RE, UserWarning, None, 0),
-            ("ignore", _FEATURE_NAMES_RE, UserWarning, None, 0),
-        ]
-        warnings._filters_mutated()  # type: ignore[attr-defined]  # private CPython API (no typeshed stub); invalidates the warnings filter cache after the manual prepend above
-        try:
-            yield
-        finally:
-            if _lgb_logger is not None:
-                _silence_tiny_state.lgb_depth -= 1
-                if _do_bump:
-                    _lgb_logger.setLevel(_silence_tiny_state.lgb_prev_level)
-
-
-def cap_inner_n_jobs(model: Any, outer_n_jobs: int) -> None:
-    """Cap a fold model's own threading at 1 when the folds already run in parallel; a model with nothing to cap is left alone.
-
-    Only parameters the estimator actually exposes are set -- ``n_jobs`` itself, or ``<step>__n_jobs`` inside a pipeline.
-    The linear family is ``Pipeline(SimpleImputer, Ridge)``, which has no ``n_jobs`` anywhere: ``set_params(n_jobs=1)``
-    on it raised, and the handler logged an oversubscription warning for a model that cannot oversubscribe -- 189 of the
-    240 warnings in one production run. A model that does expose the knob and still rejects it is a real risk (every
-    fold's inner model then oversubscribes against the outer dispatch, 4-8x discovery wall time), so that case warns.
-    """
-    if outer_n_jobs <= 1 or not hasattr(model, "get_params"):
-        return
-    try:
-        keys = [k for k in model.get_params(deep=True) if k == "n_jobs" or k.endswith("__n_jobs")]
-    except Exception as exc:  # best-effort: an estimator that cannot list its params cannot be capped either; nothing to warn about
-        logger.debug("cannot list params of %s to cap n_jobs: %s", type(model).__name__, exc)
-        return
-    if not keys:
-        return
-    try:
-        model.set_params(**{k: 1 for k in keys})
-    except Exception as err:
-        logger.warning(
-            "composite_screening: failed to cap %s=1 on inner %s under outer n_jobs=%d (parallel oversubscription risk; "
-            "discovery wallclock may regress 4-8x): %s: %s",
-            ",".join(keys), type(model).__name__, outer_n_jobs, type(err).__name__, err,
-        )
-
-
-def _build_tiny_model(
-    family: str, *, n_estimators: int, num_leaves: int, learning_rate: float, random_state: int, deterministic: bool = False, inner_n_jobs: int = -1
-) -> Any:
-    """Lazy-build a tiny regressor for the requested family. Lazy
-    imports keep the discovery module light when those libraries
-    aren't installed.
-
-    No-actionable-speedup (bench: _benchmarks/bench_build_tiny_model_per_fold.py): a fresh per-fold construction is
-    ~3.7us (ridge) / ~6-7us (lgb/xgb) / ~28us (cb) warm -- the lazy import is cached after first touch, so a 5-fold
-    build sweep is sub-millisecond, orders below the fold FIT (ms-to-s). Pooling/reusing instances across folds saves
-    nothing and risks cross-fold/spec state leakage; a fresh unfitted estimator per fold is the correct contract.
-
-    When ``deterministic=True``, inject the well-known per-family
-    determinism flags so run-to-run results are bit-exact at a
-    5-10% per-fit cost. See ``deterministic_screening_models`` config
-    field for the rationale.
-
-    LightGBM determinism set:
-    - ``deterministic=True``: forces deterministic histograms +
-      bin-construction + tree-learner.
-    - ``force_row_wise=True``: row-wise histogram aggregation is
-      deterministic; the column-wise default is faster but uses
-      atomic adds whose order varies.
-    - ``force_col_wise=False``: explicitly OFF; otherwise it overrides
-      ``force_row_wise``.
-
-    XGBoost determinism set:
-    - ``tree_method="hist"``: explicit hist; the auto-pick may flip
-      to ``"approx"`` with non-deterministic atomic ops.
-    - ``predictor="auto"``: keep -- predict path is already deterministic.
-    - XGB doesn't expose a single ``deterministic`` switch the way
-      LGB does; ``hist`` is the deterministic path.
-
-    CatBoost determinism set:
-    - ``boosting_type="Plain"``: the ``Ordered`` default is faster
-      but uses random ordering which differs run-to-run; ``Plain``
-      is deterministic.
-
-    Linear (Ridge) is already deterministic by construction.
-    """
-    family_lower = family.lower()
-    if family_lower in ("lgb", "lightgbm"):
-        import lightgbm as lgb
-        kwargs: dict[str, Any] = dict(
-            n_estimators=n_estimators,
-            num_leaves=num_leaves,
-            learning_rate=learning_rate,
-            random_state=random_state,
-            n_jobs=inner_n_jobs, verbose=-1, force_col_wise=True,
-        )
-        if deterministic:
-            # ``force_col_wise`` + ``force_row_wise`` are mutually
-            # exclusive in LightGBM; flip the pair when going
-            # deterministic.
-            kwargs["force_col_wise"] = False
-            kwargs["force_row_wise"] = True
-            kwargs["deterministic"] = True
-        return lgb.LGBMRegressor(**kwargs)
-    if family_lower in ("xgb", "xgboost"):
-        import xgboost as xgb
-        xgb_kwargs: dict[str, Any] = dict(
-            n_estimators=n_estimators,
-            max_depth=4,
-            learning_rate=learning_rate,
-            random_state=random_state,
-            n_jobs=inner_n_jobs, verbosity=0,
-        )
-        if deterministic:
-            xgb_kwargs["tree_method"] = "hist"
-        return xgb.XGBRegressor(**xgb_kwargs)
-    if family_lower in ("cb", "catboost"):
-        import catboost as cb
-        cb_kwargs: dict[str, Any] = dict(
-            iterations=n_estimators,
-            depth=4,
-            learning_rate=learning_rate,
-            random_state=random_state,
-            verbose=False,
-            allow_writing_files=False,  # parallel fold/spec fits race on catboost_info/ (Windows file-lock -> silent NaN folds) and litter CWD
-        )
-        if deterministic:
-            cb_kwargs["boosting_type"] = "Plain"
-        return cb.CatBoostRegressor(**cb_kwargs)
-    if family_lower in ("linear", "ridge"):
-        from sklearn.impute import SimpleImputer
-        from sklearn.linear_model import Ridge
-        from sklearn.pipeline import Pipeline
-        # Wrap Ridge in a SimpleImputer pipeline because Ridge raises on
-        # NaN inputs (observed in prod: tens of thousands of warnings
-        # spammed per discovery run when ``tiny_screening_families``
-        # included "linear" alongside "lightgbm" -- LGBM handles NaN
-        # natively, Ridge doesn't). Mean-imputing the screening matrix
-        # for the proxy is sound: this isn't the production model, just
-        # a screening proxy for "would a downstream linear model find
-        # this composite useful". Ridge is deterministic by construction;
-        # the random_state kwarg accepted for call-signature uniformity.
-        return Pipeline(
-            [
-                ("imp", SimpleImputer(strategy="mean")),
-                ("ridge", Ridge(alpha=1.0, random_state=random_state)),
-            ]
-        )
-    raise ValueError(f"_build_tiny_model: unknown family '{family}'. " "Supported: lightgbm, xgboost, catboost, linear / ridge.")
 
 
 def _tiny_cv_rmse_raw_y(
@@ -365,7 +131,8 @@ def _tiny_cv_rmse_raw_y(
         bin_var_clean = None
 
     def _one_fold(
-        train_fold: np.ndarray, val_fold: np.ndarray,
+        train_fold: np.ndarray,
+        val_fold: np.ndarray,
     ) -> tuple[float, np.ndarray | None, tuple[np.ndarray, np.ndarray, np.ndarray] | None]:
         """Fit one tiny CV fold's model and return (val RMSE, val predictions or None on failure, fold arrays for downstream reuse or None)."""
         try:
@@ -374,13 +141,29 @@ def _tiny_cv_rmse_raw_y(
                     # The fold's binned dataset is shared with every y-scale spec fitted on this matrix and fold (same booster
                     # as the sklearn wrapper's fit): the raw-y baseline re-binned the same rows on every call. No wrapper is
                     # built on this path -- one used to be built per fold and thrown away unfitted.
-                    model = _fit_fold_model(x_clean, train_fold, train_fold, y_clean[train_fold], family=family, n_estimators=n_estimators,
-                                            num_leaves=num_leaves, learning_rate=learning_rate, random_state=random_state,
-                                            deterministic=deterministic, inner_n_jobs=inner_n_jobs, n_jobs=n_jobs)
+                    model = _fit_fold_model(
+                        x_clean,
+                        train_fold,
+                        train_fold,
+                        y_clean[train_fold],
+                        family=family,
+                        n_estimators=n_estimators,
+                        num_leaves=num_leaves,
+                        learning_rate=learning_rate,
+                        random_state=random_state,
+                        deterministic=deterministic,
+                        inner_n_jobs=inner_n_jobs,
+                        n_jobs=n_jobs,
+                    )
                 else:
                     model = _build_tiny_model(
-                        family, n_estimators=n_estimators, num_leaves=num_leaves, learning_rate=learning_rate,
-                        random_state=random_state, deterministic=deterministic, inner_n_jobs=inner_n_jobs,
+                        family,
+                        n_estimators=n_estimators,
+                        num_leaves=num_leaves,
+                        learning_rate=learning_rate,
+                        random_state=random_state,
+                        deterministic=deterministic,
+                        inner_n_jobs=inner_n_jobs,
                     )
                     cap_inner_n_jobs(model, n_jobs)
                     model.fit(x_clean[train_fold], y_clean[train_fold])
@@ -394,8 +177,10 @@ def _tiny_cv_rmse_raw_y(
             per_bin = None
             if return_per_bin and bin_var_clean is not None:
                 per_bin = _per_bin_rmse(
-                    y_clean[val_fold], y_hat,
-                    bin_var_clean[val_fold], n_bins=n_bins,
+                    y_clean[val_fold],
+                    y_hat,
+                    bin_var_clean[val_fold],
+                    n_bins=n_bins,
                 )
             # Capture the per-fold val truth/prediction/index so the caller can
             # re-derive a per-bin breakdown for a DIFFERENT bin_var without
@@ -411,10 +196,12 @@ def _tiny_cv_rmse_raw_y(
             # operators see why the effective fold count dropped. The NaN
             # return semantics are preserved (caller knows to use nanmean).
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
                 "composite_screening: tiny-model CV fold failed (%s); fold "
                 "reported as NaN. Screening RMSE will use nanmean over surviving "
-                "folds -- effective fold count is reduced.", _e,
+                "folds -- effective fold count is reduced.",
+                _e,
             )
             return float("nan"), None, None
 
@@ -424,6 +211,7 @@ def _tiny_cv_rmse_raw_y(
         if n_jobs > 1 and len(splits) > 1:
             try:
                 from joblib import Parallel, delayed
+
                 fold_results = Parallel(
                     n_jobs=min(n_jobs, len(splits)),
                     backend="threading",
@@ -445,7 +233,9 @@ def _tiny_cv_rmse_raw_y(
             "Screening RMSE will use nanmean over the remaining %d fold(s); "
             "effective fold count is reduced. Inspect the per-fold WARN logs "
             "above for the underlying exception.",
-            _nan_fold_count, len(fold_results), len(fold_results) - _nan_fold_count,
+            _nan_fold_count,
+            len(fold_results),
+            len(fold_results) - _nan_fold_count,
         )
     # Per-fold val truth/prediction records (only populated when the caller
     # asked for them); the per-bin baseline for any bin_var is derivable from
@@ -462,6 +252,7 @@ def _tiny_cv_rmse_raw_y(
             return float("nan"), _nan_pb
         return float("nan")
     from ..._cv_aggregation import aggregate_fold_scores
+
     mean_rmse = aggregate_fold_scores(
         fold_rmses,
         mode=cv_selector_mode,  # type: ignore[arg-type]
