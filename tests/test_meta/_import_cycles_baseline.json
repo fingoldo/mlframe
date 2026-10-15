@@ -28,10 +28,6 @@
    "count": 1,
    "note": ""
   },
-  "import-cycle::mlframe.training.targets._target_distribution_analyzer | mlframe.training.targets._target_distribution_analyzer_features | mlframe.training.targets._target_distribution_analyzer_modes | mlframe.training.targets._target_distribution_analyzer_target_fn": {
-   "count": 1,
-   "note": "target-distribution analyzer split: siblings read parent dataclasses at top level; the parent defines them before importing the siblings"
-  },
   "import-cycle::mlframe.training.targets._target_temporal_audit_from_agg | mlframe.training.targets._target_temporal_changepoint | mlframe.training.targets.target_temporal_audit": {
    "count": 1,
    "note": "monolith split: the carved sibling imports helpers/constants from its parent at top level and the parent re-exports the sibling at its bottom, binding what the sibling needs first; drain by moving the shared names to a leaf module"

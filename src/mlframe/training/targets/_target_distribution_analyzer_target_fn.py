@@ -11,6 +11,7 @@ module bottom so historical
 ``from mlframe.training._target_distribution_analyzer import analyze_target_distribution``
 resolves transparently.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,7 +21,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import pandas as pd
 
-from ._target_distribution_analyzer import (
+from ._target_distribution_types import (
     TargetDistributionReport,
     _CLASS_IMBALANCE_MAX_MIN_RATIO,
     _CLUSTERED_TARGET_VARIANCE_RATIO,
@@ -31,6 +32,7 @@ from ._target_distribution_analyzer import (
     _SKEW_ABS_THRESHOLD,
     _STRONG_AR_PEARSON_LAG1,
 )
+
 # One kurtosis ladder across the suite: this analyzer, ``loss_recommendation`` (which sets the objective) and
 # ``regression_residual_audit`` (which advises one in the report) all read the same ceiling.
 from ..loss_recommendation import _EXCESS_KURT_HUBER_FAILS, huber_delta_for
@@ -51,6 +53,7 @@ logger = logging.getLogger(__name__)
 
 # Below this share of labelled rows the lag autocorrelation of the compacted target is not measured (see its use).
 MIN_LABELLED_SHARE_FOR_AUTOCORR = 0.9
+
 
 def _labelled_share_too_low_for_autocorr(n_labelled: int, n_total: int) -> "float | None":
     """The labelled share when it is below the autocorrelation floor (a lag then spans an unknown gap), else None."""
@@ -85,8 +88,17 @@ def _apply_heavy_tail_huber_overrides(kurt: float, knob_overrides: dict, stamp_p
 
 
 def _detect_strong_ar(
-    y_for_stats: np.ndarray, y: np.ndarray, n: int, finite: np.ndarray, has_time_axis: bool, group_ids: Optional[np.ndarray], *,
-    diagnostics: dict, pathologies: list, knob_overrides: dict, stamp_prov: Any,
+    y_for_stats: np.ndarray,
+    y: np.ndarray,
+    n: int,
+    finite: np.ndarray,
+    has_time_axis: bool,
+    group_ids: Optional[np.ndarray],
+    *,
+    diagnostics: dict,
+    pathologies: list,
+    knob_overrides: dict,
+    stamp_prov: Any,
 ) -> None:
     """Global lag-autocorr when time-ordered, else per-group lag-autocorr; forces MLP layernorm off if strong.
 
@@ -220,16 +232,20 @@ def analyze_target_distribution(
     def _stamp_prov(slot: str, knob: str, value: Any, reason: str) -> None:
         """Record why the analyzer overrode ``knob`` in ``slot`` to ``value``, so downstream reporting/debugging can distinguish analyzer-driven overrides from user-set config."""
         knob_overrides_provenance.setdefault(slot, {})[knob] = {
-            "value": value, "source": "analyzer", "reason": reason,
+            "value": value,
+            "source": "analyzer",
+            "reason": reason,
         }
 
     if ttype == "regression":
         if n < 30:
             # Too small for any reliable detection; return early with the empty report.
             return TargetDistributionReport(
-                target_type="regression", n_samples=n,
+                target_type="regression",
+                n_samples=n,
                 pathologies=["insufficient_samples_n<30"],
-                knob_overrides=knob_overrides, diagnostics=diagnostics,
+                knob_overrides=knob_overrides,
+                diagnostics=diagnostics,
                 knob_overrides_provenance=knob_overrides_provenance,
             )
 
@@ -265,8 +281,10 @@ def analyze_target_distribution(
         if _near_constant:
             pathologies.append(f"near_constant_target({_detail})")
             return TargetDistributionReport(
-                target_type="regression", n_samples=n,
-                pathologies=pathologies, knob_overrides=knob_overrides,
+                target_type="regression",
+                n_samples=n,
+                pathologies=pathologies,
+                knob_overrides=knob_overrides,
                 diagnostics=diagnostics,
                 knob_overrides_provenance=knob_overrides_provenance,
             )
@@ -304,8 +322,16 @@ def analyze_target_distribution(
 
         # Strong AR (global lag-autocorr, or per-group where row order encodes time only within each group).
         _detect_strong_ar(
-            y_for_stats, y, n, finite, has_time_axis, group_ids, diagnostics=diagnostics, pathologies=pathologies,
-            knob_overrides=knob_overrides, stamp_prov=_stamp_prov,
+            y_for_stats,
+            y,
+            n,
+            finite,
+            has_time_axis,
+            group_ids,
+            diagnostics=diagnostics,
+            pathologies=pathologies,
+            knob_overrides=knob_overrides,
+            stamp_prov=_stamp_prov,
         )
 
         # Clustered target (within-group << between-group variance)
@@ -332,9 +358,11 @@ def analyze_target_distribution(
     else:  # classification
         if n < 30:
             return TargetDistributionReport(
-                target_type="classification", n_samples=n,
+                target_type="classification",
+                n_samples=n,
                 pathologies=["insufficient_samples_n<30"],
-                knob_overrides=knob_overrides, diagnostics=diagnostics,
+                knob_overrides=knob_overrides,
+                diagnostics=diagnostics,
                 knob_overrides_provenance=knob_overrides_provenance,
             )
         # Class frequency table. Use y_for_stats (missing-dropped), not the raw y, so a
@@ -345,8 +373,10 @@ def analyze_target_distribution(
         if n_classes < 2:
             pathologies.append("single_class_target")
             return TargetDistributionReport(
-                target_type="classification", n_samples=n,
-                pathologies=pathologies, knob_overrides=knob_overrides,
+                target_type="classification",
+                n_samples=n,
+                pathologies=pathologies,
+                knob_overrides=knob_overrides,
                 diagnostics=diagnostics,
                 knob_overrides_provenance=knob_overrides_provenance,
             )
@@ -381,8 +411,10 @@ def analyze_target_distribution(
             pathologies.append(f"rare_classes(n={len(rare_classes)}, min_n_threshold={_RARE_CLASS_MIN_N})")
 
     return TargetDistributionReport(
-        target_type=ttype, n_samples=n,
-        pathologies=pathologies, knob_overrides=knob_overrides,
+        target_type=ttype,
+        n_samples=n,
+        pathologies=pathologies,
+        knob_overrides=knob_overrides,
         diagnostics=diagnostics,
         knob_overrides_provenance=knob_overrides_provenance,
     )

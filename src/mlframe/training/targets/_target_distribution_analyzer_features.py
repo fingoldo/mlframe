@@ -9,6 +9,7 @@ module bottom so historical
 ``from mlframe.training._target_distribution_analyzer import analyze_feature_distribution``
 resolves transparently.
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,7 +20,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import pandas as pd
 
-from ._target_distribution_analyzer import (
+from ._target_distribution_types import (
     _HIGH_CARDINALITY_MAX,
     _LEAKAGE_CORR_THRESHOLD,
     _LEAKAGE_MAX_CLASSES_FOR_AUC,
@@ -136,6 +137,7 @@ def _normalise_X(
             # helper drops it to ~6s. Lazy import to avoid utils <-> *
             # cycle.
             from ..utils import get_pandas_view_of_polars_df as _pl2pd
+
             if _typename == "LazyFrame":
                 # Materialise to DataFrame then convert. LazyFrame has neither
                 # to_pandas nor columns directly, so caller must accept the
@@ -218,10 +220,18 @@ def _normalise_X(
         try:
             if "polars" in type(X).__module__:
                 import polars as _pl
+
                 _numeric_pl_dtypes = (
-                    _pl.Float32, _pl.Float64,
-                    _pl.Int8, _pl.Int16, _pl.Int32, _pl.Int64,
-                    _pl.UInt8, _pl.UInt16, _pl.UInt32, _pl.UInt64,
+                    _pl.Float32,
+                    _pl.Float64,
+                    _pl.Int8,
+                    _pl.Int16,
+                    _pl.Int32,
+                    _pl.Int64,
+                    _pl.UInt8,
+                    _pl.UInt16,
+                    _pl.UInt32,
+                    _pl.UInt64,
                     _pl.Boolean,
                 )
                 _schema = getattr(X, "schema", None) or {}
@@ -244,7 +254,8 @@ def _normalise_X(
                 "_normalise_X: classified ALL %d columns as categorical from %s input "
                 "despite source having numeric dtypes. This was the P0 #3 misclassification "
                 "symptom on polars frames; verify the dispatch handled your input shape correctly.",
-                _n_cols_total, type(X).__name__,
+                _n_cols_total,
+                type(X).__name__,
             )
     return df, numeric_cols, categorical_cols
 
@@ -292,8 +303,10 @@ def analyze_feature_distribution(
     n_samples = int(df.shape[0])
     n_features = int(df.shape[1]) + len(polars_cat_cols)
     diagnostics: dict[str, Any] = {
-        "n_samples": n_samples, "n_features": n_features,
-        "n_numeric": len(numeric_cols), "n_categorical": len(categorical_cols),
+        "n_samples": n_samples,
+        "n_features": n_features,
+        "n_numeric": len(numeric_cols),
+        "n_categorical": len(categorical_cols),
     }
     pathologies: list[str] = []
     feature_warnings: dict[str, list[str]] = {}
@@ -304,7 +317,8 @@ def analyze_feature_distribution(
     if n_samples < 30:
         # Too small for any reliable detection; return early.
         return FeatureDistributionReport(
-            n_samples=n_samples, n_features=n_features,
+            n_samples=n_samples,
+            n_features=n_features,
             pathologies=["insufficient_samples_n<30"],
             diagnostics=diagnostics,
         )
@@ -372,7 +386,8 @@ def analyze_feature_distribution(
     _target_leakage_scan(y, candidate_numeric, n_samples, target_type, df, leakage_corr_threshold, leakage_candidates, _add_warning, diagnostics, pathologies)
 
     return FeatureDistributionReport(
-        n_samples=n_samples, n_features=n_features,
+        n_samples=n_samples,
+        n_features=n_features,
         pathologies=pathologies,
         feature_warnings=feature_warnings,
         drop_candidates=drop_candidates,
@@ -530,9 +545,10 @@ def _redundant_numeric_pairs(candidate_numeric, redundancy_max_numeric_features,
             _top10 = pairs[:10]
             _top10_str = ", ".join(f"{a}~={b}(|r|={c:.3f})" for a, b, c in _top10)
             logger.info(
-                "[feature_distribution_analyzer] top-%d redundant pairs "
-                "(|corr|>=%.2f): %s",
-                len(_top10), redundant_corr_threshold, _top10_str,
+                "[feature_distribution_analyzer] top-%d redundant pairs " "(|corr|>=%.2f): %s",
+                len(_top10),
+                redundant_corr_threshold,
+                _top10_str,
             )
             for a, b, _corr in pairs:
                 _add_warning(a, f"redundant_with({b}, corr={_corr:.3f})")
