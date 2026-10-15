@@ -340,3 +340,17 @@ def _train_envelope_bounds(y_train_envelope_stats) -> tuple:
         getattr(y_train_envelope_stats, "y_max", None),
         getattr(y_train_envelope_stats, "y_std", None),
     )
+
+
+def _slugify_class(name: str) -> str:
+    """Filesystem-safe class-name slug for per-class plot filenames."""
+    try:
+        from pyutilz.strings import slugify
+
+        slug = slugify(name)
+    except Exception as e:
+        logger.debug("slugify() failed for name=%r: %s", name, e)
+        slug = ""
+    if not slug:
+        slug = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-")
+    return slug or "class"

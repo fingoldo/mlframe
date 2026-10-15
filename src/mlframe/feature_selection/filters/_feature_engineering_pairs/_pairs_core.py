@@ -125,13 +125,9 @@ from ._pairs_materialise import _njit_binary_op_codes
 from ._pairs_score import _score_one_pair
 from ._pairs_setup import _build_operand_table, _fit_prewarp_and_gate_med
 
-# Subsample default for the FE pair-search entry point: the single ``feature_engineering.UNIFIED_FE_SUBSAMPLE_N``
-# source of truth (30k) - see the full rationale there. The try/except guards a circular import at module load
-# (this package is imported by feature_engineering's transitive deps); the value is a plain int read at def time.
-try:
-    from ..feature_engineering import UNIFIED_FE_SUBSAMPLE_N
-except ImportError:
-    UNIFIED_FE_SUBSAMPLE_N = 30_000  # bootstrap fallback if feature_engineering not yet importable
+# Subsample default for the FE pair-search entry point: the single ``_feature_engineering_mem_budget.UNIFIED_FE_SUBSAMPLE_N``
+# source of truth (30k), imported from the leaf that defines it so this package does not load the facade at import time.
+from .._feature_engineering_mem_budget import UNIFIED_FE_SUBSAMPLE_N
 
 # _fe_gpu_discretize_enabled/_fe_gpu_binning_enabled are
 # called up to 3x per pair, once per chunk, and once per ext-val tied-leader-set (unlike their sibling
