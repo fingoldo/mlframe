@@ -14,13 +14,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from mlframe._numerical_floors import VARIANCE_FLOOR
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
 
-_SRC = r"""
+_SRC_TEMPLATE = r"""
 extern "C" {
 __device__ __forceinline__ double power_term(double sv, double vv, double vy, double n, double y_ss) {
     const double v_ss = vv - sv * sv / n;
-    const bool ok = (v_ss > 1e-12 * vv) && (v_ss >= 1e-24) && (y_ss >= 1e-24);
+    const bool ok = (v_ss > 1e-12 * vv) && (v_ss >= @VARIANCE_FLOOR@) && (y_ss >= @VARIANCE_FLOOR@);
     const double denom = v_ss * y_ss;
     return (ok && denom > 0.0) ? (vy * vy) / denom : 0.0;
 }
@@ -118,6 +119,8 @@ __global__ void apply_deflate(const double* z, const double* y, const double* co
 """
 
 
+# The variance floor is filled in from the shared constant so the kernel and the host agree.
+_SRC = _SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR))
 _MODULES = RawModuleCache(_SRC)
 
 
