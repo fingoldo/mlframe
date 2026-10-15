@@ -180,8 +180,8 @@ def audit_target_over_time(
             df,
             timestamp_col,
             target_col,
-            chosen,
-            target_type=target_type,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
+            chosen,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
+            target_type=target_type,
         )
     else:
         if not isinstance(df, pd.DataFrame):
@@ -191,8 +191,8 @@ def audit_target_over_time(
             df,
             timestamp_col,
             target_col,
-            chosen,
-            target_type=target_type,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
+            chosen,  # type: ignore[arg-type]  # granularity is a validated free-form str; the callee narrows to a Literal set at runtime
+            target_type=target_type,
         )
 
     return _audit_from_agg(

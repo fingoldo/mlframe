@@ -13,7 +13,7 @@ import pandas as pd
 try:
     from IPython.display import display as _ipython_display
 except ImportError:  # pragma: no cover
-    _ipython_display = None
+    _ipython_display = None  # type: ignore[assignment]
 
 logger = logging.getLogger("mlframe.training.reporting._reporting")
 
