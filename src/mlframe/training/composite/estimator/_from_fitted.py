@@ -3,6 +3,7 @@
 The classmethod on the estimator keeps its full signature and docstring and delegates here, like the predict /
 update families (``_predict`` / ``_update``), keeping ``_estimator.py`` under the module size limit.
 """
+
 from __future__ import annotations
 
 import logging
@@ -12,15 +13,16 @@ import numpy as np
 
 from ._estimator_helpers import _y_quantile_grid
 
-from . import _y_train_clip_bounds
+from ._input_extract import _y_train_clip_bounds
 from ._routing import resolve_transform as get_transform
 
 # Same logger name as before the carve, so anything filtering these records by logger name keeps seeing them.
 logger = logging.getLogger("mlframe.training.composite.estimator._estimator")
 
 
-def _reconstruct_t_train(transform: Any, name: str, y_train: np.ndarray, finite: np.ndarray, params: Any,
-                         base_train: Any, groups_train: Any) -> np.ndarray | None:
+def _reconstruct_t_train(
+    transform: Any, name: str, y_train: np.ndarray, finite: np.ndarray, params: Any, base_train: Any, groups_train: Any
+) -> np.ndarray | None:
     """The exact train T when the inputs to recompute it are here, so the clip envelope matches ``fit()``; else None.
 
     A unary transform needs y alone (a zeros base placeholder is ignored by the adapter). A base-dependent one needs the
@@ -41,8 +43,11 @@ def _reconstruct_t_train(transform: Any, name: str, y_train: np.ndarray, finite:
     try:
         return np.asarray(call_transform(transform, "forward", y_fin, base, dict(params), groups=groups), dtype=np.float64).reshape(-1)
     except Exception as err:
-        logger.warning("[CompositeTargetEstimator.from_fitted_inner] T reconstruction failed for transform '%s' (%r); falling back to "
-                       "the y_std envelope proxy.", name, err)
+        logger.warning(
+            "[CompositeTargetEstimator.from_fitted_inner] T reconstruction failed for transform '%s' (%r); falling back to " "the y_std envelope proxy.",
+            name,
+            err,
+        )
         return None
 
 
@@ -137,7 +142,8 @@ def from_fitted_inner(
         **dict(transform_fitted_params),
         "y_clip_low": y_clip_low,
         "y_clip_high": y_clip_high,
-        "y_train_median": y_train_median, "y_train_quantile_grid": _y_quantile_grid(y_train),
+        "y_train_median": y_train_median,
+        "y_train_quantile_grid": _y_quantile_grid(y_train),
         "t_clip_low": t_clip_low,
         "t_clip_high": t_clip_high,
     }
@@ -169,7 +175,9 @@ def from_fitted_inner(
                 "CompositeEstimator: failed to propagate inner.feature_names_in_ "
                 "onto wrapper (%s); predict-time may raise feature-name mismatch "
                 "on CB/LGB/XGB inner model. Inner type: %s, inner names count: %d.",
-                _names_err, type(fitted_inner).__name__, len(list(_inner_names)),
+                _names_err,
+                type(fitted_inner).__name__,
+                len(list(_inner_names)),
             )
     # Stamp the wrapper-level feature count so ``n_features_in_`` is
     # consistent with ``feature_names_in_``. ``from_fitted_inner`` does not

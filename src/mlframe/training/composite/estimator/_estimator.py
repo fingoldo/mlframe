@@ -6,6 +6,7 @@ sibling imports them back from the partial-module state at load time.
 The parent's bottom re-export triggers the sibling's load AFTER those
 helpers are defined, so the partial-module lookup succeeds.
 """
+
 from __future__ import annotations
 
 import logging
@@ -26,6 +27,7 @@ from ._estimator_helpers import (  # noqa: F401
 
 try:
     import polars as pl
+
     _HAS_POLARS = True
 except ImportError:
     pl = None  # type: ignore[assignment]
@@ -34,14 +36,9 @@ except ImportError:
 # Parent helpers needed by CompositeTargetEstimator's methods. The parent's
 # bottom-of-file re-export triggers our load AFTER these helpers have been
 # bound at the parent's top, so the partial-module lookup succeeds.
-from . import (  # noqa: F401 - _is_polars_df: unused in this module, re-exported for the module-split identity contract
-    _y_train_clip_bounds,
-    _extract_base,
-    _extract_groups,
-    _extract_base_matrix,
-    _is_polars_df,
-    _to_1d_numpy,
-)
+from ._input_extract import _y_train_clip_bounds, _extract_base, _extract_groups, _extract_base_matrix
+from ...utils import coerce_to_1d_numpy as _to_1d_numpy
+
 # The fitted-from-spec / fit / predict / predict_invert paths all use these, so
 # they must be imported alongside the parent helpers above.
 from ..transforms import get_transform, DomainViolationError
@@ -218,11 +215,13 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
     def predict(self, X: Any, inner_X: Any = None) -> "np.ndarray":
         """y-scale point prediction (inner predict on T-scale, then invert). See ``_predict.predict``."""
         from . import _predict as _pred
+
         return _pred.predict(self, X, inner_X=inner_X)
 
     def predict_quantile(self, X: Any, alpha: "float | Sequence[float] | np.ndarray" = 0.5, inner_X: Any = None) -> "np.ndarray":
         """y-scale quantile prediction by inverting the inner's T-scale quantile. See ``_predict.predict_quantile``."""
         from . import _predict as _pred
+
         return _pred.predict_quantile(self, X, alpha, inner_X=inner_X)
 
     def predict_from_t(self, X: Any, t_hat: "np.ndarray") -> "np.ndarray":
@@ -255,6 +254,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
     def predict_with_pre_clip(self, X: Any, inner_X: Any = None) -> "tuple[np.ndarray, np.ndarray]":
         """``(predict(X), predict_pre_clip(X))`` from one inner predict. See ``_predict.predict_with_pre_clip``."""
         from . import _predict as _pred
+
         return _pred.predict_with_pre_clip(self, X, inner_X=inner_X)
 
     def predict_pre_clip(self, X: Any, inner_X: Any = None) -> "np.ndarray":
@@ -264,6 +264,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         ``help()``; the heavy body stays carved out in ``_predict``.
         """
         from . import _predict as _pred
+
         return _pred.predict_pre_clip(self, X, inner_X=inner_X)
 
     # Streaming-buffer update / inspect (heavy bodies in ``_update``); in-body
@@ -272,11 +273,13 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
     def update(self, y_recent: Any, base_recent: Any) -> "dict[str, Any]":
         """Streaming-update: append (y, base) to the rolling buffer + drift check. See ``_update.update``."""
         from . import _update as _upd
+
         return _upd.update(self, y_recent, base_recent)
 
     def get_buffer_state(self) -> "dict[str, Any]":
         """Diagnostic snapshot of the rolling-buffer state. See ``_update.get_buffer_state``."""
         from . import _update as _upd
+
         return _upd.get_buffer_state(self)
 
     # Inner-model accessors / sklearn-convention properties, defined in-body so
@@ -287,36 +290,42 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
     def get_booster(self) -> Any:
         """XGBoost shim: ``estimator_.get_booster()`` (NotFittedError pre-fit). See ``_utils.get_booster``."""
         from . import _utils as _utils
+
         return _utils.get_booster(self)
 
     @property
     def feature_importances_(self) -> "np.ndarray":
         """Inner ``feature_importances_`` (NotFittedError pre-fit; AttributeError when the fitted inner lacks it). See ``_utils.feature_importances_``."""
         from . import _utils as _utils
+
         return _utils.feature_importances_(self)
 
     @property
     def coef_(self) -> "np.ndarray":
         """Inner ``coef_`` (NotFittedError pre-fit; AttributeError when the fitted inner lacks it). See ``_utils.coef_``."""
         from . import _utils as _utils
+
         return _utils.coef_(self)
 
     @property
     def intercept_(self) -> "float":
         """Inner ``intercept_`` (NotFittedError pre-fit; AttributeError when the fitted inner lacks it). See ``_utils.intercept_``."""
         from . import _utils as _utils
+
         return _utils.intercept_(self)
 
     @property
     def booster_(self) -> Any:
         """LightGBM shim: inner ``booster_`` (NotFittedError pre-fit; AttributeError when the fitted inner lacks it). See ``_utils.booster_``."""
         from . import _utils as _utils
+
         return _utils.booster_(self)
 
     @property
     def n_features_in_(self) -> "int | None":
         """Feature count the WRAPPER saw at fit (consistent with ``feature_names_in_``). See ``_utils.n_features_in_``."""
         from . import _utils as _utils
+
         return _utils.n_features_in_(self)
 
     # Alternate constructor: post-hoc wrapping.
@@ -388,12 +397,25 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         """
         from . import _from_fitted
 
-        return cast("CompositeTargetEstimator", _from_fitted.from_fitted_inner(
-            cls, fitted_inner, transform_name, base_column, transform_fitted_params, y_train,
-            fallback_predict=fallback_predict, base_columns=base_columns, inner_pre_pipeline=inner_pre_pipeline,
-            base_train=base_train, group_column=group_column, recurrence_continuation=recurrence_continuation,
-            target_name=target_name, groups_train=groups_train,
-        ))
+        return cast(
+            "CompositeTargetEstimator",
+            _from_fitted.from_fitted_inner(
+                cls,
+                fitted_inner,
+                transform_name,
+                base_column,
+                transform_fitted_params,
+                y_train,
+                fallback_predict=fallback_predict,
+                base_columns=base_columns,
+                inner_pre_pipeline=inner_pre_pipeline,
+                base_train=base_train,
+                group_column=group_column,
+                recurrence_continuation=recurrence_continuation,
+                target_name=target_name,
+                groups_train=groups_train,
+            ),
+        )
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         """Restore pickled state, re-registering an auto-discovered ``chain_*`` transform the loading process has never seen."""
@@ -459,7 +481,9 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         return ()
 
     def _extract_base_for_transform(
-        self, X: Any, base_columns: tuple[str, ...],
+        self,
+        X: Any,
+        base_columns: tuple[str, ...],
     ) -> np.ndarray:
         """Pull base values; return 1-D when K=1 (so legacy transforms
         with 1-D fit/forward/inverse keep working), 2-D when K>=2."""
@@ -564,13 +588,16 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # always sees domain-filter-COMPACTED y_train/base_train (unlike forward(), which the recurrent branch below routes through the FULL
         # sequence), so a fit that needs each row's TRUE absolute position (seasonal_residual's phase = row_index % period) gets it explicitly.
 
-        transform_params = call_transform(transform, "fit", y_train, base_train, groups=groups_train, sample_weight=sample_weight_train,
-                                          row_index=np.flatnonzero(valid))
+        transform_params = call_transform(
+            transform, "fit", y_train, base_train, groups=groups_train, sample_weight=sample_weight_train, row_index=np.flatnonzero(valid)
+        )
 
         # Compute T on the valid rows. Grouped transforms need the
         # groups kwarg for forward as well.
         transform_forward_kwargs: dict[str, Any] = {"groups": groups_train} if groups_train is not None else {}
-        t_train = self._recurrent_forward_with_invalid_rows(transform, valid, y_arr, base_arr, groups_full, transform_params, y_train, base_train, transform_forward_kwargs)
+        t_train = self._recurrent_forward_with_invalid_rows(
+            transform, valid, y_arr, base_arr, groups_full, transform_params, y_train, base_train, transform_forward_kwargs
+        )
 
         # Sanity: T must be finite or the inner estimator will choke.
         if not np.all(np.isfinite(t_train)):
@@ -607,9 +634,16 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             # to valid rows, so re-applying ``valid`` here would IndexError.
             base_valid = base_train.astype(np.float64)
             abs_base = np.abs(base_valid)
-            floor_q = float(np.quantile(
-                abs_base[abs_base > 0], 0.05,
-            )) if (abs_base > 0).any() else 1.0
+            floor_q = (
+                float(
+                    np.quantile(
+                        abs_base[abs_base > 0],
+                        0.05,
+                    )
+                )
+                if (abs_base > 0).any()
+                else 1.0
+            )
             abs_base_clipped = np.maximum(abs_base, floor_q)
             w = 1.0 / abs_base_clipped
             # Normalise to mean 1 so loss scale matches unweighted.
@@ -651,6 +685,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         y_train_median = float(np.nanmedian(y_train))
         if not np.isfinite(y_train_median):
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
                 "composite_estimator: y_train has no finite values; "
                 "y_train_median fallback set to 0.0. Predict-time "
@@ -701,6 +736,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         # additive inverse extrapolating on unseen-group tails. No-op for non-base / non-additive
         # transforms; an absent range leaves predict on today's raw inverse.
         from . import _soft_shrink as _soft_shrink
+
         _soft_shrink.capture_base_fit_range(self, transform, base_train)
         # Recurrence-continuation seeding: a fitted (persisted) decision read by
         # the recurrent inverse, so a fresh CompositeTargetEstimator stays
@@ -749,7 +785,8 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             _provisional_params = call_transform(transform, "fit", y_arr[valid], base_arr[valid])
             if isinstance(_provisional_params, dict):
                 _valid_fitted = np.asarray(
-                    _dcf(y_arr, base_arr, _provisional_params), dtype=bool,
+                    _dcf(y_arr, base_arr, _provisional_params),
+                    dtype=bool,
                 )
                 if _valid_fitted.shape == valid.shape:
                     valid = valid & _valid_fitted
@@ -785,7 +822,8 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
             if transform.requires_base:
                 if base_arr.ndim == 1:
                     base_seq: Any = _carry_forward_fill(
-                        base_arr, np.isfinite(base_arr),
+                        base_arr,
+                        np.isfinite(base_arr),
                     )
                 else:
                     base_seq = np.column_stack([_carry_forward_fill(base_arr[:, j], np.isfinite(base_arr[:, j])) for j in range(base_arr.shape[1])])
@@ -826,9 +864,11 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
                     "Set drop_invalid_rows=True to drop them automatically."
                 )
             logger.info(
-                "[CompositeTargetEstimator] dropping %d/%d (%.2f%%) rows "
-                "violating domain of transform '%s'.",
-                n_invalid, len(y_arr), 100.0 * n_invalid / len(y_arr), self.transform_name,
+                "[CompositeTargetEstimator] dropping %d/%d (%.2f%%) rows " "violating domain of transform '%s'.",
+                n_invalid,
+                len(y_arr),
+                100.0 * n_invalid / len(y_arr),
+                self.transform_name,
             )
 
 
@@ -845,14 +885,17 @@ CompositeTargetEstimator._require_inner_attr = _utils._require_inner_attr
 CompositeTargetEstimator._predict_unclipped = _pred._predict_unclipped
 # Frame-flavour helpers carved to ``_frame_utils.py`` (1k-LOC limit): all three are flavour-preserving (polars / pandas / ndarray) and bind as staticmethods. ``_subset_rows`` / ``_drop_columns`` are used in ``fit``; ``_count_feature_columns`` backs the monotone-constraint length check.
 from . import _frame_utils as _frame_utils
+
 CompositeTargetEstimator._subset_rows = staticmethod(_frame_utils._subset_rows)
 CompositeTargetEstimator._drop_columns = staticmethod(_frame_utils._drop_columns)
 CompositeTargetEstimator._count_feature_columns = staticmethod(_frame_utils._count_feature_columns)
 # Monotonic-constraint passthrough carved to ``_monotone.py``. ``_apply_monotone_constraints`` takes ``self`` first so it binds as a normal method; reached only from ``fit`` when ``monotone_constraints`` is set.
 from . import _monotone as _monotone
+
 CompositeTargetEstimator._apply_monotone_constraints = _monotone._apply_monotone_constraints
 # Rich Jupyter HTML repr carved to a sibling (transform / base col(s) / headline fitted params / n_train_valid / conformal+CQR state).
 from . import _repr as _repr
+
 CompositeTargetEstimator._repr_html_ = _repr._repr_html_
 
 # Split-conformal prediction intervals. Bound from ``composite/conformal.py``
@@ -869,6 +912,7 @@ from ..conformal import (
     calibrate_conformal_weighted as _calibrate_conformal_weighted,
     predict_interval_weighted as _predict_interval_weighted,
 )
+
 CompositeTargetEstimator.calibrate_conformal = _calibrate_conformal
 CompositeTargetEstimator.predict_interval = _predict_interval
 # CQR (Conformalized Quantile Regression): adaptive-width intervals over the
@@ -893,6 +937,7 @@ from ..conformal_online import (
     predict_interval_online as _predict_interval_online,
     get_aci_state as _get_aci_state,
 )
+
 CompositeTargetEstimator.init_aci = _init_aci
 CompositeTargetEstimator.update_conformal = _update_conformal
 CompositeTargetEstimator.predict_interval_online = _predict_interval_online

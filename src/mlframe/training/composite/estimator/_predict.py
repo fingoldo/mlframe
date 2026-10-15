@@ -4,6 +4,7 @@ Functions here become bound methods on ``CompositeTargetEstimator`` at the paren
 
 The base-side domain mask, the T-scale clip, the domain-aware inverse-with-fallback, and the runtime-stats / callback recording are factored into module-level helpers (``_compute_base_domain_ok`` / ``_apply_t_clip`` / ``_inverse_with_fallback`` / ``_record_runtime_stats``) so the point-predict and quantile-predict paths share one implementation and gate NaN / out-of-domain bases identically.
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,7 +14,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from sklearn.exceptions import NotFittedError
 
-from . import _extract_groups
+from ._input_extract import _extract_groups
 from . import _soft_shrink as _soft_shrink
 from ._estimator_helpers import _carry_forward_fill
 from ._routing import inner_input as _inner_input
@@ -72,8 +73,12 @@ def _apply_t_clip(self, t_hat: np.ndarray, params: dict[str, Any]):
                 "base='%s': %d row(s) below %.4g, %d row(s) above %.4g. "
                 "Inner predict produced T-scale outliers (likely Huber-slope "
                 "miscalibration or extreme-tail blow-up).",
-                self.transform_name, self.base_column,
-                t_low_hits, t_clip_low, t_high_hits, t_clip_high,
+                self.transform_name,
+                self.base_column,
+                t_low_hits,
+                t_clip_low,
+                t_high_hits,
+                t_clip_high,
             )
     return t_hat, t_low_hits, t_high_hits
 
@@ -94,8 +99,13 @@ def _finite_median_fallback(params: dict[str, Any]) -> float:
 
 
 def _inverse_with_fallback(
-    self, transform, t_hat: np.ndarray, base_arr: np.ndarray,
-    domain_ok: np.ndarray, params: dict[str, Any], inverse_kwargs: dict[str, Any],
+    self,
+    transform,
+    t_hat: np.ndarray,
+    base_arr: np.ndarray,
+    domain_ok: np.ndarray,
+    params: dict[str, Any],
+    inverse_kwargs: dict[str, Any],
 ) -> np.ndarray:
     """Invert ``t_hat`` on domain-valid rows; route the rest to the fallback.
 
@@ -111,7 +121,9 @@ def _inverse_with_fallback(
         # returns the conditional MEAN of y, not the inverse of the mean of T. Absent quantiles -> the plain inverse.
         from ._smearing import smeared_inverse
 
-        y_hat = smeared_inverse(lambda t: call_transform(transform, "inverse", t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")).reshape(-1)
+        y_hat = smeared_inverse(
+            lambda t: call_transform(transform, "inverse", t, base_arr, params, **inverse_kwargs), t_hat, params.get("smearing_quantiles")
+        ).reshape(-1)
     else:
         y_hat = np.full_like(t_hat, fill_value=np.nan, dtype=np.float64)
         # Inverse on valid rows only; placeholder base for invalid rows is
@@ -153,10 +165,11 @@ def _inverse_with_fallback(
             y_hat[nonfinite] = _finite_median_fallback(params)
         # 'nan' fallback: leave as-is (caller opted into NaN sentinels).
         logger.warning(
-            "[CompositeTargetEstimator] transform='%s' base='%s': %d row(s) "
-            "inverted to non-finite y; routed to fallback_predict='%s'.",
-            self.transform_name, self.base_column,
-            int(nonfinite.sum()), self.fallback_predict,
+            "[CompositeTargetEstimator] transform='%s' base='%s': %d row(s) " "inverted to non-finite y; routed to fallback_predict='%s'.",
+            self.transform_name,
+            self.base_column,
+            int(nonfinite.sum()),
+            self.fallback_predict,
         )
     return y_hat
 
@@ -165,8 +178,13 @@ def _inverse_with_fallback(
 # legacy fitted instances (built before a key existed) can be back-filled to 0
 # on first use rather than KeyError-ing on the ``+=`` update.
 _RUNTIME_STAT_KEYS = (
-    "predict_calls", "predict_rows_total", "domain_violation_rows",
-    "y_clip_low_hits", "y_clip_high_hits", "t_clip_low_hits", "t_clip_high_hits",
+    "predict_calls",
+    "predict_rows_total",
+    "domain_violation_rows",
+    "y_clip_low_hits",
+    "y_clip_high_hits",
+    "t_clip_low_hits",
+    "t_clip_high_hits",
 )
 
 
@@ -176,8 +194,13 @@ nothing lock-shaped lives on the (picklable) estimator; the critical section is 
 
 
 def _record_runtime_stats(
-    self, n: int, n_violation: int, low_hits: int, high_hits: int,
-    t_low_hits: int, t_high_hits: int,
+    self,
+    n: int,
+    n_violation: int,
+    low_hits: int,
+    high_hits: int,
+    t_low_hits: int,
+    t_high_hits: int,
 ) -> None:
     """Accumulate per-batch counters into ``runtime_stats_`` and fire the callback.
 
@@ -204,23 +227,25 @@ def _record_runtime_stats(
     cb = getattr(self, "runtime_stats_callback", None)
     if cb is not None:
         try:
-            cb({
-                "transform_name": self.transform_name,
-                "base_column": self.base_column,
-                "batch_n": n,
-                "batch_domain_violation_rows": n_violation,
-                "batch_y_clip_low_hits": low_hits,
-                "batch_y_clip_high_hits": high_hits,
-                "batch_t_clip_low_hits": t_low_hits,
-                "batch_t_clip_high_hits": t_high_hits,
-                "cumulative_predict_calls": snapshot["predict_calls"],
-                "cumulative_predict_rows_total": snapshot["predict_rows_total"],
-                "cumulative_domain_violation_rows": snapshot["domain_violation_rows"],
-                "cumulative_y_clip_low_hits": snapshot["y_clip_low_hits"],
-                "cumulative_y_clip_high_hits": snapshot["y_clip_high_hits"],
-                "cumulative_t_clip_low_hits": snapshot["t_clip_low_hits"],
-                "cumulative_t_clip_high_hits": snapshot["t_clip_high_hits"],
-            })
+            cb(
+                {
+                    "transform_name": self.transform_name,
+                    "base_column": self.base_column,
+                    "batch_n": n,
+                    "batch_domain_violation_rows": n_violation,
+                    "batch_y_clip_low_hits": low_hits,
+                    "batch_y_clip_high_hits": high_hits,
+                    "batch_t_clip_low_hits": t_low_hits,
+                    "batch_t_clip_high_hits": t_high_hits,
+                    "cumulative_predict_calls": snapshot["predict_calls"],
+                    "cumulative_predict_rows_total": snapshot["predict_rows_total"],
+                    "cumulative_domain_violation_rows": snapshot["domain_violation_rows"],
+                    "cumulative_y_clip_low_hits": snapshot["y_clip_low_hits"],
+                    "cumulative_y_clip_high_hits": snapshot["y_clip_high_hits"],
+                    "cumulative_t_clip_low_hits": snapshot["t_clip_low_hits"],
+                    "cumulative_t_clip_high_hits": snapshot["t_clip_high_hits"],
+                }
+            )
         except Exception as cb_err:
             logger.debug(
                 "[CompositeTargetEstimator] runtime_stats_callback failed: %s",
@@ -296,7 +321,8 @@ def _predict_unclipped(self, X: Any, inner_X: Any = None, t_hat_override: Option
         # happens here: a 100 GB polars frame must never be silently materialised.
         X_for_inner = frame_for_inner(self.estimator_, inner_X if inner_X is not None else _inner_input(self, X, transform))
         t_hat = np.asarray(
-            self.estimator_.predict(X_for_inner), dtype=np.float64,
+            self.estimator_.predict(X_for_inner),
+            dtype=np.float64,
         ).reshape(-1)
 
     # T-scale clip BEFORE inverse (shared with predict_quantile). The hit
@@ -320,7 +346,13 @@ def _predict_unclipped(self, X: Any, inner_X: Any = None, t_hat_override: Option
     # the non-finite guard. Shared with predict_quantile so both paths gate
     # NaN/out-of-domain bases identically.
     y_hat = _inverse_with_fallback(
-        self, transform, t_hat, base_eff, domain_ok, params, inverse_kwargs,
+        self,
+        transform,
+        t_hat,
+        base_eff,
+        domain_ok,
+        params,
+        inverse_kwargs,
     )
     # Smart fallback for DEEPLY out-of-distribution rows: the causal lag when present, else the wrapper
     # fallback. Runs on the RAW (un-shrunk) base so a lag-as-base failsafe uses the true observed value.
@@ -331,8 +363,11 @@ def _predict_unclipped(self, X: Any, inner_X: Any = None, t_hat_override: Option
     n_violation = int((~domain_ok).sum())
     n_rows = int(t_hat.size)
     meta = {
-        "params": params, "n_violation": n_violation, "n_rows": n_rows,
-        "t_low_hits": t_low_hits, "t_high_hits": t_high_hits,
+        "params": params,
+        "n_violation": n_violation,
+        "n_rows": n_rows,
+        "t_low_hits": t_low_hits,
+        "t_high_hits": t_high_hits,
     }
     return y_hat, n_rows, meta
 
@@ -401,7 +436,10 @@ def predict(self, X: Any, inner_X: Any = None) -> np.ndarray:
 
 
 def predict_quantile(
-    self, X: Any, alpha: float | Sequence[float] | np.ndarray = 0.5, inner_X: Any = None,
+    self,
+    X: Any,
+    alpha: float | Sequence[float] | np.ndarray = 0.5,
+    inner_X: Any = None,
 ) -> np.ndarray:
     """y-scale quantile prediction by inverting the inner's
     T-scale quantile.
@@ -505,12 +543,14 @@ def predict_quantile(
     alpha_is_scalar = np.isscalar(alpha)
     try:
         t_raw = np.asarray(
-            inner.predict_quantile(X_for_inner, alpha), dtype=np.float64,
+            inner.predict_quantile(X_for_inner, alpha),
+            dtype=np.float64,
         )
     except TypeError:
         # Some libs name the kwarg differently (e.g. quantile=, q=).
         t_raw = np.asarray(
-            inner.predict_quantile(X_for_inner, alpha=alpha), dtype=np.float64,
+            inner.predict_quantile(X_for_inner, alpha=alpha),
+            dtype=np.float64,
         )
 
     # Base-side domain mask (parity with predict). A NaN / out-of-domain base
@@ -553,7 +593,13 @@ def predict_quantile(
         _t_low_total += _tl
         _t_high_total += _th
         y_col = _inverse_with_fallback(
-            self, transform, t_clipped, base_eff, domain_ok, params, inverse_kwargs,
+            self,
+            transform,
+            t_clipped,
+            base_eff,
+            domain_ok,
+            params,
+            inverse_kwargs,
         )
         # Smart fallback for deeply out-of-distribution rows, same as predict() -- runs on the
         # RAW (un-shrunk) base so a lag-as-base failsafe uses the true observed value.
@@ -569,7 +615,13 @@ def predict_quantile(
         y_q = _quantile_fallback(self, params, _invert_one(t_raw), alpha, domain_ok, deep_ood)
         _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
         _record_runtime_stats(
-            self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
+            self,
+            n_rows,
+            n_violation,
+            _y_low_total,
+            _y_high_total,
+            _t_low_total,
+            _t_high_total,
         )
         return y_q
 
@@ -579,7 +631,13 @@ def predict_quantile(
         y_q = _invert_one(t_raw).reshape(-1, 1)
         _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
         _record_runtime_stats(
-            self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
+            self,
+            n_rows,
+            n_violation,
+            _y_low_total,
+            _y_high_total,
+            _t_low_total,
+            _t_high_total,
         )
         return y_q
     if t_raw.ndim != 2:
@@ -588,7 +646,13 @@ def predict_quantile(
     cols = [_invert_one(t_raw[:, k]) for k in range(t_raw.shape[1])]
     _soft_shrink.record_info(self, shrunk_mask, deep_ood, n_rows)
     _record_runtime_stats(
-        self, n_rows, n_violation, _y_low_total, _y_high_total, _t_low_total, _t_high_total,
+        self,
+        n_rows,
+        n_violation,
+        _y_low_total,
+        _y_high_total,
+        _t_low_total,
+        _t_high_total,
     )
     return _finish_quantiles(self, params, np.column_stack(cols), np.asarray(alpha, dtype=np.float64).reshape(-1), domain_ok, deep_ood)
 
