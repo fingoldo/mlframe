@@ -13,6 +13,7 @@ reads is an explicit parameter, the ``_resolve_col`` re-materialise closure is
 passed in, and the single ``_pair_res_entry = (...)`` result is returned.
 Selection is byte-for-byte identical to the pre-carve in-function block.
 """
+
 from __future__ import annotations
 
 import logging
@@ -84,6 +85,49 @@ def _finalize_survivor_column(col_full: np.ndarray) -> np.ndarray:
     float64 ``transformed_vals`` buffer via plain elementwise ``__setitem__``, which upcasts correctly
     regardless of the source dtype, so no consumer needs this intermediate forced to any particular dtype."""
     return col_full if type(col_full).__module__.split(".", 1)[0] == "cupy" else np.asarray(col_full)
+
+
+from .._null_mi_threshold import pair_search_floor
+
+PAIR_FAMILY_PERMUTATIONS = 9999  # resolution for alpha down to 1e-4 at the per-pair level
+
+
+def _apply_pair_family_gate(pair_batches, valid_pairs_perf, classes_y, n_bins, alpha=0.01):
+    """Family-wise gate over EVERY configuration scored for one admitted pair (the winner is the maximum over all of them).
+
+    Cascade: the null-MI table floor for the whole family (K = all configurations) rejects the pair cheaply when even its best configuration sits
+    below it. Otherwise the exact family-wise permutation test runs, and each configuration whose batch does not clear the family maximum is
+    zeroed. Batches are gated together, never one at a time, so a small batch cannot pass against a threshold built from itself alone.
+    """
+    if not pair_batches:
+        return
+    from .._family_maxt_gate import family_pass_batches
+    from .._null_mi_threshold import pair_search_floor
+
+    k_total = int(sum(codes.shape[1] for _, codes in pair_batches))
+    n_rows = int(pair_batches[0][1].shape[0])
+    best = max(float(valid_pairs_perf.get(cfg, 0.0)) for cfg, _ in pair_batches)
+    table_floor = pair_search_floor(n_rows, classes_y, int(n_bins), k_total)
+    if table_floor is not None and best <= table_floor:
+        for cfg, _ in pair_batches:
+            valid_pairs_perf[cfg] = 0.0
+        return
+    passed = family_pass_batches([codes for _, codes in pair_batches], np.asarray(classes_y).ravel(), alpha=alpha, n_perm=PAIR_FAMILY_PERMUTATIONS)
+    for (cfg, _), ok in zip(pair_batches, passed):
+        if not ok:
+            valid_pairs_perf[cfg] = 0.0
+
+
+def apply_pair_family_gate_from_state(st, classes_y, n_bins, alpha=0.01) -> bool:
+    """Family-wise gate over every configuration of the current pair, read from the pair state. Returns True when the gate rejected the winner
+    (the caller must then emit nothing for this pair)."""
+    codes = st.__dict__.get("var_pairs_codes") or {}
+    if not codes or not st.var_pairs_perf:
+        return False
+    old_best = st.best_config
+    batches = [(cfg, codes[cfg]) for cfg in st.var_pairs_perf if cfg in codes]
+    _apply_pair_family_gate(batches, st.var_pairs_perf, classes_y, int(n_bins), alpha)
+    return bool(old_best is not None and old_best in st.var_pairs_perf and st.var_pairs_perf[old_best] == 0.0 and float(st.best_mi) > 0.0)
 
 
 def _emit_pair_features(
@@ -161,7 +205,31 @@ def _emit_pair_features(
     """Emit the survivor feature(s) for an ADMITTED pair. Returns the
     ``res[raw_vars_pair]`` tuple ``(this_pair_features, transformed_vals,
     new_cols, new_nbins, messages)``. Appends to ``messages`` (caller-owned)."""
-    _cached_name, _name_cache, leading_features, st = _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols, _marginal_uplift_accept, _passes_joint_gate, _prewarp_accept, var_pairs_perf, best_mi, fe_good_to_best_feature_mi_threshold, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr)
+    # Family-wise gate over the pair's K configurations: the winner is the maximum over K candidates, so its MI must clear the
+    # 1 - alpha quantile of the maximum null over K noise candidates for this (n, bins, target entropy) fingerprint. Without it a pure-noise pair
+    # wins its family by chance at roughly the per-candidate rate, times K.
+    _pair_floor = pair_search_floor(int(_full_n_rows), classes_y, int(quantization_nbins), len(var_pairs_perf))
+    if _pair_floor is not None and float(best_mi) <= _pair_floor:
+        return this_pair_features, None, None, None, messages
+    _cached_name, _name_cache, leading_features, st = _emit_pair_features_step1_st_simplenamespace_long(
+        get_new_feature_name,
+        cols,
+        _marginal_uplift_accept,
+        _passes_joint_gate,
+        _prewarp_accept,
+        var_pairs_perf,
+        best_mi,
+        fe_good_to_best_feature_mi_threshold,
+        _corr_y_cont,
+        final_transformed_vals,
+        _this_chunk_deferred,
+        _resolve_col,
+        _config_by_i,
+        transformed_vars,
+        vars_transformations,
+        binary_transformations,
+        _safe_abs_corr,
+    )
 
     # ABSOLUTE binned-MI tie band. Two FORMS of
     # the same raw pair that are monotone re-expressions of one algebraic target have MI equal up to the
@@ -176,8 +244,48 @@ def _emit_pair_features(
     if len(leading_features) > 1:
         if len(numeric_vars_to_consider) > 2:
 
-            _ev_configs, _ev_op_codes, _ext_factors_sorted, valid_pairs_perf = _emit_pair_features_step1_comment_check_prospective(verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr)
-            _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method, _narrow_code_dtype, quantization_nbins, quantization_dtype, _ev_op_codes, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels, serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct, valid_pairs_perf)
+            _ev_configs, _ev_op_codes, _ext_factors_sorted, valid_pairs_perf = _emit_pair_features_step1_comment_check_prospective(
+                verbose, leading_features, var_pairs_perf, numeric_vars_to_consider, raw_vars_pair, _op_code_arr
+            )
+            _emit_pair_features_step2_read_here_once(
+                _ev_configs,
+                final_transformed_vals,
+                _this_chunk_deferred,
+                _resolve_col,
+                _config_by_i,
+                st,
+                transformed_vars,
+                vars_transformations,
+                binary_transformations,
+                _ext_factors_sorted,
+                fe_max_external_validation_factors,
+                _rng_extval,
+                _extval_raw_col,
+                X,
+                _can_hoist_shared_buffer,
+                _n_workers,
+                quantization_method,
+                _narrow_code_dtype,
+                quantization_nbins,
+                quantization_dtype,
+                _ev_op_codes,
+                _materialise_extval_njit,
+                discretize_2d_quantile_batch,
+                _fe_use_parallel_kernels,
+                serial_main_thread,
+                _dispatch_batch_mi_with_noise_gate,
+                classes_y,
+                classes_y_safe,
+                freqs_y,
+                fe_npermutations,
+                fe_min_nonzero_confidence,
+                use_su_normalization,
+                batch_mi_with_noise_gate,
+                _fe_env_gate,
+                discretize_array,
+                mi_direct,
+                valid_pairs_perf,
+            )
 
             # ONE-BEST-PER-PAIR: the leading-features
             # equivalence class holds many near-identical representations
@@ -192,12 +300,41 @@ def _emit_pair_features(
             # bug: selected by external-validation MI alone, discarding
             # the true max-target-MI form - e.g. picking add(log(c),1/d)
             # MI=0.25 over the true mul(log(c),sin(d)) MI=0.32.)
-            _emit_pair_features_step3_mi_over_true(leading_features, var_pairs_perf, cols, valid_pairs_perf, st, _mi_band, _usability_primary, _name_cache, _cached_name, verbose, messages, best_mi, pair_mi, this_pair_features)
+            _emit_pair_features_step3_mi_over_true(
+                leading_features,
+                var_pairs_perf,
+                cols,
+                valid_pairs_perf,
+                st,
+                _mi_band,
+                _usability_primary,
+                _name_cache,
+                _cached_name,
+                verbose,
+                messages,
+                best_mi,
+                pair_mi,
+                this_pair_features,
+            )
         else:
             # Can't narrow by external validation (only 2 vars total) -
             # still emit ONE best representative (highest engineered MI,
             # deterministic name tie-break) rather than the whole class.
-            _emit_pair_features_step4_deterministic_name_tie(leading_features, var_pairs_perf, cols, st, _mi_band, _usability_primary, _name_cache, verbose, messages, _cached_name, best_mi, pair_mi, this_pair_features)
+            _emit_pair_features_step4_deterministic_name_tie(
+                leading_features,
+                var_pairs_perf,
+                cols,
+                st,
+                _mi_band,
+                _usability_primary,
+                _name_cache,
+                verbose,
+                messages,
+                _cached_name,
+                best_mi,
+                pair_mi,
+                this_pair_features,
+            )
     else:
         new_feature_name = _cached_name(best_config)
         if verbose:
@@ -218,11 +355,50 @@ def _emit_pair_features(
     # ``fe_multi_emit_mi_floor`` x best_mi) so both survive; the downstream MRMR
     # redundancy gate prunes residual overlap. Purely additive: never emits FEWER
     # than the single-best path, byte-identical when max_per_pair == 1.
-    _emit_pair_features_step2_than_single_best(fe_multi_emit_max_per_pair, final_transformed_vals, _this_chunk_deferred, this_pair_features, best_mi, fe_multi_emit_mi_floor, fe_multi_emit_diversity_corr, _cached_name, _resolve_col, var_pairs_perf, st, verbose, messages)
+    _emit_pair_features_step2_than_single_best(
+        fe_multi_emit_max_per_pair,
+        final_transformed_vals,
+        _this_chunk_deferred,
+        this_pair_features,
+        best_mi,
+        fe_multi_emit_mi_floor,
+        fe_multi_emit_diversity_corr,
+        _cached_name,
+        _resolve_col,
+        var_pairs_perf,
+        st,
+        verbose,
+        messages,
+    )
 
     st.transformed_vals, st.new_cols, st.new_nbins = None, None, None
 
-    this_pair_features = _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe_max_steps, _use_subsample, _rebuild_full_survivor_col, _X_full, original_cols, unary_transformations, binary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, cols, engineered_operand_values, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, verbose, messages, _full_n_rows, quantization_nbins)
+    this_pair_features = _emit_pair_features_step3_pair_features(
+        this_pair_features,
+        _cached_name,
+        fe_max_steps,
+        _use_subsample,
+        _rebuild_full_survivor_col,
+        _X_full,
+        original_cols,
+        unary_transformations,
+        binary_transformations,
+        _prewarp_spec_by_var,
+        _gate_med_median_by_var,
+        cols,
+        engineered_operand_values,
+        final_transformed_vals,
+        _this_chunk_deferred,
+        _resolve_col,
+        _config_by_i,
+        st,
+        transformed_vars,
+        vars_transformations,
+        verbose,
+        messages,
+        _full_n_rows,
+        quantization_nbins,
+    )
 
     st._pair_res_entry = (this_pair_features, st.transformed_vals, st.new_cols, st.new_nbins, messages)
     return st._pair_res_entry
@@ -277,7 +453,9 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
         for _ei, _pb_vals in enumerate(_ev_param_bs):
             _ev_pb_mat[:, _ei] = _pb_vals
         _materialise_extval_njit(
-            np.ascontiguousarray(param_a), _ev_pb_mat, _ev_op_codes,
+            np.ascontiguousarray(param_a),
+            _ev_pb_mat,
+            _ev_op_codes,
             _ev_buf[:, :_ev_K],
         )
         _ev_col = _ev_K
@@ -293,10 +471,49 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
     return _ev_buf, _ev_col
 
 
-def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, binary_transformations, _ext_factors_sorted, fe_max_external_validation_factors, _rng_extval, _extval_raw_col, X, _can_hoist_shared_buffer, _n_workers, quantization_method, _narrow_code_dtype, quantization_nbins, quantization_dtype, _ev_op_codes, _materialise_extval_njit, discretize_2d_quantile_batch, _fe_use_parallel_kernels, serial_main_thread, _dispatch_batch_mi_with_noise_gate, classes_y, classes_y_safe, freqs_y, fe_npermutations, fe_min_nonzero_confidence, use_su_normalization, batch_mi_with_noise_gate, _fe_env_gate, discretize_array, mi_direct, valid_pairs_perf):
+def _emit_pair_features_step2_read_here_once(
+    _ev_configs,
+    final_transformed_vals,
+    _this_chunk_deferred,
+    _resolve_col,
+    _config_by_i,
+    st,
+    transformed_vars,
+    vars_transformations,
+    binary_transformations,
+    _ext_factors_sorted,
+    fe_max_external_validation_factors,
+    _rng_extval,
+    _extval_raw_col,
+    X,
+    _can_hoist_shared_buffer,
+    _n_workers,
+    quantization_method,
+    _narrow_code_dtype,
+    quantization_nbins,
+    quantization_dtype,
+    _ev_op_codes,
+    _materialise_extval_njit,
+    discretize_2d_quantile_batch,
+    _fe_use_parallel_kernels,
+    serial_main_thread,
+    _dispatch_batch_mi_with_noise_gate,
+    classes_y,
+    classes_y_safe,
+    freqs_y,
+    fe_npermutations,
+    fe_min_nonzero_confidence,
+    use_su_normalization,
+    batch_mi_with_noise_gate,
+    _fe_env_gate,
+    discretize_array,
+    mi_direct,
+    valid_pairs_perf,
+):
     """Step 2 of _emit_pair_features: lines starting at ``for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_``."""
     from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_enabled
 
+    _pair_batches: list = []  # (config, host codes n x K) of every batch of this pair: one family for the family-wise gate below
     for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
         _pa_dev = None
         if final_transformed_vals is not None:
@@ -320,6 +537,7 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
 
         best_valid_mi = -1.0
         config = (transformations_pair, bin_func_name, i)
+        _else_cols: list = []  # per-candidate codes of this config on the non-batch path; gated with the pair's family
 
         # ``sorted`` first: a bare ``set`` difference iterates in hash order, which is
         # PYTHONHASHSEED-randomised for str keys, so the candidate order (and hence the
@@ -397,14 +615,24 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
             if _ev_op_codes is not None:
                 try:
                     from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_on
+
                     _ev_use_dev = bool(_ev_resident_on())
                 except Exception as e:
-                    log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
+                    log_throttle(
+                        logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e
+                    )
                     _ev_use_dev = False
                 if _ev_use_dev:
                     from mlframe.feature_selection.filters._gpu_resident_extval import gpu_materialise_extval_codes_host
+
                     _ev_disc = gpu_materialise_extval_codes_host(
-                        param_a, _ev_param_bs, _ev_op_codes, int(quantization_nbins), dtype=_ev_code_dtype, defer_host_fill=True, param_a_dev=_pa_dev,
+                        param_a,
+                        _ev_param_bs,
+                        _ev_op_codes,
+                        int(quantization_nbins),
+                        dtype=_ev_code_dtype,
+                        defer_host_fill=True,
+                        param_a_dev=_pa_dev,
                     )
             if _ev_disc is None:
                 # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
@@ -416,22 +644,29 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                 # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
                 try:
                     from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
+
                     if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
                         from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
+
                         # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
                         # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
                         # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
                         # the resident gate is the consumer. Bit-identical (host buffer == device.get()).
                         _ev_disc = gpu_discretize_codes_host(
-                            _ev_buf[:, :_ev_col], int(quantization_nbins), dtype=_ev_code_dtype,
+                            _ev_buf[:, :_ev_col],
+                            int(quantization_nbins),
+                            dtype=_ev_code_dtype,
                             defer_host_fill=True,
                         )
                 except Exception as e:
-                    log_throttle(logger, "pairs_emit_resident_discretize", logging.WARNING, "resident discretization failed, falling back to the host path: %s", e)
+                    log_throttle(
+                        logger, "pairs_emit_resident_discretize", logging.WARNING, "resident discretization failed, falling back to the host path: %s", e
+                    )
                     _ev_disc = None
                 if _ev_disc is None:
                     _ev_disc = discretize_2d_quantile_batch(
-                        _ev_buf[:, :_ev_col], n_bins=quantization_nbins,
+                        _ev_buf[:, :_ev_col],
+                        n_bins=quantization_nbins,
                         dtype=_ev_code_dtype,
                         # OPT-A extension: the marginal-uplift gate's
                         # discretise ran the SERIAL searchsorted kernel on the main
@@ -455,6 +690,9 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                 batch_mi_kernel=batch_mi_with_noise_gate,
                 env_gate=_fe_env_gate,
             )
+            if _ev_mi is not None and len(_ev_mi) and _ev_disc is not None:
+                _host_codes = _ev_disc[:, : int(_ev_col)]
+                _pair_batches.append((config, _host_codes.get() if hasattr(_host_codes, "get") else np.asarray(_host_codes)))
             if _ev_mi is not None and len(_ev_mi):
                 best_valid_mi = float(np.max(_ev_mi))
         else:
@@ -469,6 +707,7 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                     discretized_transformed_values = discretize_array(
                         arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
                     )
+                    _else_cols.append(np.asarray(discretized_transformed_values).reshape(-1, 1))
                     fe_mi, _fe_conf = mi_direct(
                         discretized_transformed_values.reshape(-1, 1),
                         x=np.array([0], dtype=np.int64),
@@ -484,15 +723,39 @@ def _emit_pair_features_step2_read_here_once(_ev_configs, final_transformed_vals
                     if fe_mi > best_valid_mi:
                         best_valid_mi = fe_mi
 
+        if _else_cols:
+            _pair_batches.append((config, np.hstack(_else_cols)))
         valid_pairs_perf[config] = best_valid_mi
 
+    _apply_pair_family_gate(_pair_batches, valid_pairs_perf, classes_y, int(quantization_nbins))
 
-def _emit_pair_features_step3_mi_over_true(leading_features, var_pairs_perf, cols, valid_pairs_perf, st, _mi_band, _usability_primary, _name_cache, _cached_name, verbose, messages, best_mi, pair_mi, this_pair_features):
+
+def _emit_pair_features_step3_mi_over_true(
+    leading_features,
+    var_pairs_perf,
+    cols,
+    valid_pairs_perf,
+    st,
+    _mi_band,
+    _usability_primary,
+    _name_cache,
+    _cached_name,
+    verbose,
+    messages,
+    best_mi,
+    pair_mi,
+    this_pair_features,
+):
     """Step 3 of _emit_pair_features: lines starting at ``_primary_perf = {c: var_pairs_perf[c] for c in leading_features if c i``."""
     _primary_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
     _winner = _select_single_best(
-        _primary_perf, cols, secondary=valid_pairs_perf, usability=st._leader_usability, mi_band=_mi_band,
-        usability_primary=_usability_primary, name_cache=_name_cache,
+        _primary_perf,
+        cols,
+        secondary=valid_pairs_perf,
+        usability=st._leader_usability,
+        mi_band=_mi_band,
+        usability_primary=_usability_primary,
+        name_cache=_name_cache,
     )
     if _winner is not None:
         new_feature_name = _cached_name(_winner)
@@ -503,12 +766,18 @@ def _emit_pair_features_step3_mi_over_true(leading_features, var_pairs_perf, col
         this_pair_features.add((_winner, 0))
 
 
-def _emit_pair_features_step4_deterministic_name_tie(leading_features, var_pairs_perf, cols, st, _mi_band, _usability_primary, _name_cache, verbose, messages, _cached_name, best_mi, pair_mi, this_pair_features):
+def _emit_pair_features_step4_deterministic_name_tie(
+    leading_features, var_pairs_perf, cols, st, _mi_band, _usability_primary, _name_cache, verbose, messages, _cached_name, best_mi, pair_mi, this_pair_features
+):
     """Step 4 of _emit_pair_features: lines starting at ``_lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in v``."""
     _lead_perf = {c: var_pairs_perf[c] for c in leading_features if c in var_pairs_perf}
     _winner = _select_single_best(
-        _lead_perf, cols, usability=st._leader_usability, mi_band=_mi_band,
-        usability_primary=_usability_primary, name_cache=_name_cache,
+        _lead_perf,
+        cols,
+        usability=st._leader_usability,
+        mi_band=_mi_band,
+        usability_primary=_usability_primary,
+        name_cache=_name_cache,
     )
     if _winner is not None:
         if verbose:
@@ -518,7 +787,25 @@ def _emit_pair_features_step4_deterministic_name_tie(leading_features, var_pairs
         this_pair_features.add((_winner, 0))
 
 
-def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols, _marginal_uplift_accept, _passes_joint_gate, _prewarp_accept, var_pairs_perf, best_mi, fe_good_to_best_feature_mi_threshold, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr):
+def _emit_pair_features_step1_st_simplenamespace_long(
+    get_new_feature_name,
+    cols,
+    _marginal_uplift_accept,
+    _passes_joint_gate,
+    _prewarp_accept,
+    var_pairs_perf,
+    best_mi,
+    fe_good_to_best_feature_mi_threshold,
+    _corr_y_cont,
+    final_transformed_vals,
+    _this_chunk_deferred,
+    _resolve_col,
+    _config_by_i,
+    transformed_vars,
+    vars_transformations,
+    binary_transformations,
+    _safe_abs_corr,
+):
     """Step 1 of _emit_pair_features: lines starting at ``st = _SimpleNamespace() # long-lived locals of this function (see the ``."""
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     st._pair_res_entry = None
@@ -602,7 +889,21 @@ def _emit_pair_features_step1_st_simplenamespace_long(get_new_feature_name, cols
     return _cached_name, _name_cache, leading_features, st
 
 
-def _emit_pair_features_step2_than_single_best(fe_multi_emit_max_per_pair, final_transformed_vals, _this_chunk_deferred, this_pair_features, best_mi, fe_multi_emit_mi_floor, fe_multi_emit_diversity_corr, _cached_name, _resolve_col, var_pairs_perf, st, verbose, messages):
+def _emit_pair_features_step2_than_single_best(
+    fe_multi_emit_max_per_pair,
+    final_transformed_vals,
+    _this_chunk_deferred,
+    this_pair_features,
+    best_mi,
+    fe_multi_emit_mi_floor,
+    fe_multi_emit_diversity_corr,
+    _cached_name,
+    _resolve_col,
+    var_pairs_perf,
+    st,
+    verbose,
+    messages,
+):
     """Step 2 of _emit_pair_features: lines starting at ``if int(fe_multi_emit_max_per_pair) > 1 and (final_transformed_vals is ``."""
     if int(fe_multi_emit_max_per_pair) > 1 and (final_transformed_vals is not None or _this_chunk_deferred) and this_pair_features and best_mi > 0:
         _emit_floor = float(best_mi) * float(fe_multi_emit_mi_floor)
@@ -614,7 +915,7 @@ def _emit_pair_features_step2_than_single_best(fe_multi_emit_max_per_pair, final
         for _c in sorted(_already, key=_cached_name):
             try:
                 _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
-            except Exception as e:  # nosec B110 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            except Exception as e:  # noqa: PERF203 - best-effort per column, a failure skips only that column  # nosec B110 - best-effort path
                 logger.debug("resolving already-emitted column %r failed, skipping: %s", _c, e)
         for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
             if len(this_pair_features) >= int(fe_multi_emit_max_per_pair):
@@ -634,6 +935,7 @@ def _emit_pair_features_step2_than_single_best(fe_multi_emit_max_per_pair, final
             # DIVERSITY: skip a near-duplicate of any already-emitted column.
             _dup = False
             from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _abs_corr_zerofill_njit
+
             for _ec in _emitted_cols:
                 if float(np.std(_ec)) <= 1e-9:
                     continue
@@ -652,7 +954,32 @@ def _emit_pair_features_step2_than_single_best(fe_multi_emit_max_per_pair, final
                 messages.append(f"{_cached_name(_cfg)} also emitted " f"(diverse multi-candidate, MI={_cfg_mi:.4f} vs best {best_mi:.4f})")
 
 
-def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe_max_steps, _use_subsample, _rebuild_full_survivor_col, _X_full, original_cols, unary_transformations, binary_transformations, _prewarp_spec_by_var, _gate_med_median_by_var, cols, engineered_operand_values, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, st, transformed_vars, vars_transformations, verbose, messages, _full_n_rows, quantization_nbins):
+def _emit_pair_features_step3_pair_features(
+    this_pair_features,
+    _cached_name,
+    fe_max_steps,
+    _use_subsample,
+    _rebuild_full_survivor_col,
+    _X_full,
+    original_cols,
+    unary_transformations,
+    binary_transformations,
+    _prewarp_spec_by_var,
+    _gate_med_median_by_var,
+    cols,
+    engineered_operand_values,
+    final_transformed_vals,
+    _this_chunk_deferred,
+    _resolve_col,
+    _config_by_i,
+    st,
+    transformed_vars,
+    vars_transformations,
+    verbose,
+    messages,
+    _full_n_rows,
+    quantization_nbins,
+):
     """Step 3 of _emit_pair_features: lines starting at ``if this_pair_features:``."""
     if this_pair_features:
 
@@ -720,8 +1047,11 @@ def _emit_pair_features_step3_pair_features(this_pair_features, _cached_name, fe
                     # jaccard=1.0 vs full-n at n_eff>=50k), so we just need to
                     # rematerialise the values at full resolution.
                     _col_full = _rebuild_full_survivor_col(
-                        config, _X_full, original_cols,
-                        unary_transformations, binary_transformations,
+                        config,
+                        _X_full,
+                        original_cols,
+                        unary_transformations,
+                        binary_transformations,
                         prewarp_spec_by_var=_prewarp_spec_by_var,
                         gate_med_median_by_var=_gate_med_median_by_var,
                         cols=cols,

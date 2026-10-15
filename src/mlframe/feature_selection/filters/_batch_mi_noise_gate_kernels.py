@@ -7,6 +7,7 @@ CPU njit reducers shared by both GPU backends. The parent module re-exports ever
 name below, so the public API and all import paths are unchanged. No kernel
 source / numerics / dispatch behavior changed by the move.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -128,6 +129,7 @@ def _cupy_bincount_known_size(d_flat, size):
     cp = cupy()
     if _cupy_bincount_kernel is not None:
         import numpy as _np
+
         b = cp.zeros((size,), dtype=_np.intp)
         _cupy_bincount_kernel(d_flat, b)
         return b
@@ -311,35 +313,18 @@ def _cuda_mi_from_counts_kernel_factory():
     return _kernel
 
 
-def _gate_from_mi(
-    original_mi: np.ndarray,
-    perm_mis: list,  # list of (K,) float64 arrays, one per permutation
-    npermutations: int,
-    min_nonzero_confidence: float,
-) -> np.ndarray:
-    """Apply the EXACT noise-gate rejection rule of the CPU kernel given the
-    original MIs and the per-permutation MIs. ``perm_mis[i][k]`` is column k's MI
-    against the i-th shuffled y (or any value when ``original_mi[k] <= 0``)."""
+@njit(nogil=True, cache=True)
+def _gate_from_mi_njit(original_mi: np.ndarray, perm_mat: np.ndarray, npermutations: int, max_failed: int) -> np.ndarray:
+    """njit core of :func:`_gate_from_mi`: one pass over the (npermutations, K) MI matrix, the same ``pm >= om`` count on columns with
+    ``om > 0`` and the same accept rule (zero a column whose fail count reaches ``max_failed``)."""
     K = original_mi.shape[0]
-    fe_mi = np.zeros(K, dtype=np.float64)
-    if npermutations <= 0:
-        for k in range(K):
-            fe_mi[k] = original_mi[k]
-        return fe_mi
-
-    max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
-    if max_failed <= 1:
-        max_failed = 1
-
     nfailed = np.zeros(K, dtype=np.int64)
     for i in range(npermutations):
-        pm = perm_mis[i]
         for k in range(K):
-            if original_mi[k] <= 0.0:
-                continue
-            if pm[k] >= original_mi[k]:
+            om = original_mi[k]
+            if om > 0.0 and perm_mat[i, k] >= om:
                 nfailed[k] += 1
-
+    fe_mi = np.empty(K, dtype=np.float64)
     for k in range(K):
         om = original_mi[k]
         if om > 0.0 and nfailed[k] >= max_failed:
@@ -347,6 +332,28 @@ def _gate_from_mi(
         else:
             fe_mi[k] = om
     return fe_mi
+
+
+def _gate_from_mi(
+    original_mi: np.ndarray,
+    perm_mis,  # (npermutations, K) array or a list of (K,) float64 arrays, one per permutation
+    npermutations: int,
+    min_nonzero_confidence: float,
+) -> np.ndarray:
+    """Apply the EXACT noise-gate rejection rule of the CPU kernel given the original MIs and the per-permutation MIs. ``perm_mis[i][k]`` is
+    column k's MI against the i-th shuffled y (or any value when ``original_mi[k] <= 0``). Runs the njit core on a contiguous matrix."""
+    original_mi = np.ascontiguousarray(original_mi, dtype=np.float64)
+    if npermutations <= 0:
+        return original_mi.copy()
+    max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
+    if max_failed <= 1:
+        max_failed = 1
+    perm_mat = (
+        np.ascontiguousarray(np.asarray(perm_mis, dtype=np.float64))
+        if not isinstance(perm_mis, np.ndarray)
+        else np.ascontiguousarray(perm_mis, dtype=np.float64)
+    )
+    return _gate_from_mi_njit(original_mi, perm_mat, int(npermutations), max_failed)
 
 
 # Bit-identical host LCG used to fill a WHOLE (npermutations, n) shuffle matrix in

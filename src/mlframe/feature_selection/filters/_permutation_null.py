@@ -32,6 +32,7 @@ marginal) are never order-1-selected - they enter via the FE synergy bootstrap
 as an engineered JOINT whose own marginal MI is large - so a marginal floor at
 order 1 cannot prune genuine synergy.
 """
+
 from __future__ import annotations
 
 import logging
@@ -190,75 +191,6 @@ def _generate_target_shuffles(y_codes: np.ndarray, nperm: int, dtype, rng, *, ra
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
-def target_oversplit_floor_applies(
-    factors_nbins: np.ndarray,
-    candidate_indices: np.ndarray,
-    y_index: int,
-    n: int,
-    *,
-    oversplit_ratio: float = 1.0,
-    min_rows_per_joint_cell: float = 7.0,
-) -> bool:
-    """Return ``True`` when the maxT noise floor should fire on a NARROW pool because the target is plug-in-bias-inflated AND the floor is itself statistically reliable.
-
-    The wide-pool gate (``len(pool) >= screen_fdr_min_features``) catches embedding / TF-IDF matrices where best-of-p selection bias dominates. It MISSES a different
-    finite-sample-bias regime that surfaces on narrow tabular pools: a heavy-tailed (log-normal) regression target whose continuous quantile binning yields a HIGH-CARDINALITY
-    target (~10 equal-frequency bins) while the noise features bin to the same ~10 levels. The plug-in MI bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` then lifts pure-noise columns
-    past the abs/rel gain floors AFTER the genuine signals are picked, so a noise column leaks in even though the pool is only ~9 columns wide.
-
-    HISTORY: the original gate keyed ``over-split`` on ``nbins_y >= 3 * median(nbins_x)`` because the then-default adaptive ``nbins_strategy="mdlp"`` OVER-SPLIT
-    the heavy-tailed target into ~30 bins (vs feat ~5). The 2026-06-10 TARGET REBIN GUARD (``_mrmr_fit_impl/_fit_impl_core.py``) re-bins the target back to the legacy
-    equal-frequency ``quantization_nbins`` (~10) encoding - correct, because supervised MDLP on the injected target is self-referential and degrades MI sensitivity - but
-    that removed the ~30-bin over-split signature, so the ``ratio>=3`` gate stopped firing in production and the lognormal noise re-leaked. The plug-in-bias mechanism that
-    admits noise is unchanged (the maxT floor still cleanly separates signal >> floor > noise at nbins_y=10); only the *gate predicate* was keyed on a binning artifact the
-    rebin guard now removes. The discriminator is the TARGET, expressed via two cheap, already-computed bin counts:
-
-    * **high-cardinality target** - ``nbins_y >= oversplit_ratio * median(nbins_x)`` with ``oversplit_ratio=1.0``: the target carries at least as many levels as the features.
-      A continuous (regression) target quantile-binned to ``quantization_nbins`` (~10, matching feature cardinality) trips this; a low-cardinality CLASSIFICATION target
-      (nbins_y in {2,3} << feat ~5-10) does NOT - there the plug-in bias ``(nbins_x-1)*(nbins_y-1)/(2n)`` is small and the few target classes carry no over-fit headroom.
-
-    * **reliable** - ``n / (nbins_y * median(nbins_x)) >= min_rows_per_joint_cell``. The maxT floor is the q-quantile of the per-shuffle MAX corrected plug-in MI; when the
-      (X, y) contingency table averages well under a handful of rows per cell the plug-in MI is itself dominated by finite-sample variance, so the floor explodes and would
-      prune genuine weak signal. THIS predicate is the real safety rail separating the lognormal WIN from the diabetes NO-REGRESSION: diabetes (n=330, MDLP nbins_y=64,
-      feat median~4-5 -> ~1.0-1.5 rows per joint cell) FAILS it, so the floor stays OFF and its 10 weak features survive; lognormal (n=2500, MDLP nbins_y=64, feat median=5
-      -> 7.8 rows per joint cell) passes, so the floor is trustworthy and fires, rejecting the 6 noise columns (max noise corrected-MI ~0.005 < floor ~0.006-0.007 while the
-      3 signals score 0.025-0.53).
-
-    Both predicates must hold. The defaults (``oversplit_ratio=1.0``, ``min_rows_per_joint_cell=7.0``) sit with comfortable margin between the fire / no-fire cases measured
-    at the production MDLP binning (lognormal 7.8 rows/cell vs diabetes ~1.0-1.5 rows/cell - recalibrated 2026-07-20 after MDLP started splitting the lognormal target into
-    64 bins instead of the ~10-30 assumed at the gate's original 2026-06 calibration, which had pushed lognormal's rows/cell to exactly 7.8125, just under the old 8.0 bar).
-    Returns ``False`` on a degenerate pool (n too small, single-class target, no scorable feature) so the caller can treat it as "floor off".
-    """
-    if n < 8:
-        return False
-    y_idx = int(y_index)
-    nbins_y = int(factors_nbins[y_idx])
-    if nbins_y < 2:
-        return False
-    feat_nbins = []
-    for c in candidate_indices:
-        ci = int(c)
-        if ci == y_idx:
-            continue
-        nb = int(factors_nbins[ci])
-        if nb >= 2:
-            feat_nbins.append(nb)
-    if not feat_nbins:
-        return False
-    median_feat_nbins = float(np.median(feat_nbins))
-    if median_feat_nbins < 1.0:
-        return False
-    # High-cardinality target: nbins_y at least matches the feature cardinality (a continuous
-    # regression target), distinguishing it from a low-card classification target whose few
-    # classes carry negligible plug-in-bias headroom. (Pre-rebin-guard this keyed on a 3x MDLP
-    # over-split; the 2026-06-10 target-rebin guard removed that signature - see docstring.)
-    high_cardinality_target = nbins_y >= float(oversplit_ratio) * median_feat_nbins
-    if not high_cardinality_target:
-        return False
-    rows_per_joint_cell = n / (nbins_y * median_feat_nbins)
-    return rows_per_joint_cell >= float(min_rows_per_joint_cell)
-
-
 def pooled_permutation_null_gain_floor(
     factors_data: np.ndarray,
     factors_nbins: np.ndarray,
@@ -364,6 +296,7 @@ def pooled_permutation_null_gain_floor(
     # y codes are < nbins_y -> int32 holds them; the (nperm x n) pool halves vs int64. shuffle still
     # runs on an int32 buffer (numpy RNG draw order preserved -> floor stays bit-identical).
     import os as _os
+
     _fdr_dt = np.int64 if _os.environ.get("MLFRAME_FDR_NULL_INT32", "") == "0" else np.int32
     # Shuffle-gen is the DOMINANT large-n cost of this floor (~88% of wall at n>=600k); the K shuffles are
     # independent, so at large n a KTC crossover routes generation to a thread-parallel njit Fisher-Yates
@@ -386,8 +319,10 @@ def pooled_permutation_null_gain_floor(
     if _resident_ok:
         try:
             from ._permutation_null_shufflegen_ktc import shufflegen_use_gpu
+
             if shufflegen_use_gpu(n, nperm):
                 from ._permutation_null_resident import gen_target_shuffles_cupy
+
                 y_perms_dev = gen_target_shuffles_cupy(y_codes, nperm, _fdr_dt, random_seed)
         except Exception:
             # This fault path had zero logging and no circuit breaker, unlike
@@ -400,6 +335,7 @@ def pooled_permutation_null_gain_floor(
             )
             try:
                 from ._permutation_null_resident import trip_order1_maxt_gpu_circuit_breaker
+
                 trip_order1_maxt_gpu_circuit_breaker()
             except Exception as _trip_exc:
                 logger.debug("mrmr: tripping the order-1 maxT GPU circuit breaker itself failed: %r", _trip_exc, exc_info=True)
@@ -423,11 +359,18 @@ def pooled_permutation_null_gain_floor(
     if _resident_ok:
         try:
             from ._permutation_null_resident import pooled_gain_floor_perms_cupy
+
             # y_perms_dev (device-born, no H2D) when the GPU shuffle-gen fired; else the host matrix
             # (cp.asarray uploads it once). Either way the resident floor D2Hs only the (nperm,) maxes.
             maxes = pooled_gain_floor_perms_cupy(
-                scaled_flat, offsets, _jc, _hx, _mm, float(h_y),
-                (y_perms_dev if y_perms_dev is not None else y_perms), float(inv_n),
+                scaled_flat,
+                offsets,
+                _jc,
+                _hx,
+                _mm,
+                float(h_y),
+                (y_perms_dev if y_perms_dev is not None else y_perms),
+                float(inv_n),
             )
         except Exception:
             # Same zero-logging/no-circuit-breaker gap as the shuffle-gen site above.
@@ -438,6 +381,7 @@ def pooled_permutation_null_gain_floor(
             )
             try:
                 from ._permutation_null_resident import trip_order1_maxt_gpu_circuit_breaker
+
                 trip_order1_maxt_gpu_circuit_breaker()
             except Exception as _trip_exc:
                 logger.debug("mrmr: tripping the order-1 maxT GPU circuit breaker itself failed: %r", _trip_exc, exc_info=True)
@@ -447,7 +391,14 @@ def pooled_permutation_null_gain_floor(
         if y_perms is None:
             y_perms = _generate_target_shuffles(y_codes, nperm, _fdr_dt, rng, random_seed=random_seed)
         maxes = _pooled_gain_floor_perms_njit(
-            scaled_flat, offsets, _jc, _hx, _mm, float(h_y), y_perms, float(inv_n),
+            scaled_flat,
+            offsets,
+            _jc,
+            _hx,
+            _mm,
+            float(h_y),
+            y_perms,
+            float(inv_n),
         )
 
     return float(np.quantile(maxes, float(quantile)))
@@ -464,8 +415,10 @@ def _pairwise_occupied_joint_k_njit(factors_data, pair_a, pair_b, nbins):
     n_pairs = pair_a.shape[0]
     out = np.empty(n_pairs, dtype=np.int64)
     for p in range(n_pairs):
-        a = pair_a[p]; b = pair_b[p]
-        nb_a = nbins[a]; nb_b = nbins[b]
+        a = pair_a[p]
+        b = pair_b[p]
+        nb_a = nbins[a]
+        nb_b = nbins[b]
         seen = np.zeros(nb_a * nb_b, dtype=np.uint8)
         cnt = 0
         for i in range(n):
@@ -478,7 +431,10 @@ def _pairwise_occupied_joint_k_njit(factors_data, pair_a, pair_b, nbins):
 
 
 def _pairwise_occupied_joint_k(
-    factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray,
+    factors_data: np.ndarray,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    nbins: np.ndarray,
 ) -> np.ndarray:
     """Per-pair OCCUPIED joint-bin count of ``(x_a, x_b)`` - the cardinality the
     plug-in joint MI:func:`batch_pair_mi_prange` actually sees.

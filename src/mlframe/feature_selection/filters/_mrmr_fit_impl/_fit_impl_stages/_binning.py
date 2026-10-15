@@ -7,6 +7,7 @@ import numpy as np
 import os
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from typing import Optional
+
 # --- end imports ---
 
 
@@ -156,4 +157,71 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
         cache_dir=getattr(self, "cache_dir", None),
     )
     logger.debug("categorized.")
+    # Supervised binning fits its cut points on the target, so the significance null must re-bin on every permuted target with the SAME
+    # production categorisation; a null that permutes y over fixed codes cannot see the in-sample bias of those cuts. The closure is
+    # stripped from pickles (see MRMR.__getstate__).
+    _supervised = _y_for_strategy is not None and str(_nbins_strategy).lower() in (
+        "mdlp",
+        "fayyad_irani",
+        "mdlp_validated",
+        "fayyad_irani_validated",
+        "optimal_joint",
+        "cv",
+        "mah",
+        "mah_sci",
+        "sci",
+        "marx",
+    )
+    if _supervised:
+        _y_raw_for_null = np.asarray(_y_for_strategy)
+
+        def _honest_null_codes(row_perm):
+            """Codes of every column re-binned on the RAW target permuted by ``row_perm`` (same columns, same order as ``data``)."""
+            y_perm = _y_raw_for_null[np.asarray(row_perm, dtype=np.int64)]
+            d_perm, _c_perm, nb_perm = categorize_dataset(
+                df=_x_for_cat,
+                method=self.quantization_method,
+                n_bins=self.quantization_nbins,
+                dtype=self.quantization_dtype,
+                max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
+                missing_strategy=_strategy_for_categorize,
+                nbins_strategy=_nbins_strategy,
+                nbins_strategy_kwargs=_nbins_strategy_kwargs,
+                y_for_strategy=np.asarray(y_perm),
+                cache_dir=None,
+            )
+            # Align to the original column order by name: a permuted-target categorisation may drop a column, and the
+            # null must read the same column index the observed codes use. A dropped column carries no MI (0 bins).
+            _pos = {str(c): j for j, c in enumerate(_c_perm)}
+            _n_rows = d_perm.shape[0]
+            _codes_aligned = np.zeros((_n_rows, len(cols)), dtype=np.int64)
+            _nb_aligned = np.ones(len(cols), dtype=np.int64)
+            for j, c in enumerate(cols):
+                k = _pos.get(str(c))
+                if k is not None:
+                    _codes_aligned[:, j] = d_perm[:, k]
+                    _nb_aligned[j] = int(nb_perm[k])
+            return _codes_aligned, _nb_aligned
+
+        # Numba spec for the honest null (see _mdlp_honest_njit): only the plain 'mdlp' (fayyad_irani) strategy with no extra kwargs is
+        # covered by the njit chain, whose identity with categorize_dataset was verified on continuous columns; other strategies keep
+        # the categorise-per-permutation path.
+        _kw_keys = set((_nbins_strategy_kwargs or {}).keys())
+        _strategy_lc = str(_nbins_strategy).lower()
+        if _strategy_lc in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated") and _kw_keys <= {"max_depth", "max_adaptive_nbins"}:
+            from mlframe.feature_selection.filters._honest_spec import build_honest_spec
+
+            _validated = _strategy_lc in ("mdlp_validated", "fayyad_irani_validated")
+            # The validated strategy's null needs at most 64 target classes (the production y-rebucketing above that is not mirrored).
+            if not _validated or np.unique(_y_raw_for_null).size <= 64:
+                _honest_null_codes.spec = build_honest_spec(
+                    X=_x_for_cat,
+                    cols=list(cols),
+                    y_raw=_y_raw_for_null,
+                    max_depth=int((_nbins_strategy_kwargs or {}).get("max_depth", 8)),
+                    method="oos" if _validated else "mdlp",
+                )
+        self._honest_null_codes_fn = _honest_null_codes
+    else:
+        self._honest_null_codes_fn = None
     return _nbins_strategy, _x_for_cat, cols, data, nbins

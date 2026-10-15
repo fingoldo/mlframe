@@ -5,13 +5,15 @@ Re-imported at the parent's module bottom so historical
 ``from mlframe.feature_selection.filters.screen import screen_predictors``
 resolves transparently.
 """
+
 from __future__ import annotations
 
 import logging
 from itertools import combinations
 from os.path import exists
 from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Iterable, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Optional
+from collections.abc import Iterable, Sequence
 
 import numba
 import numpy as np
@@ -277,12 +279,13 @@ def screen_predictors(
     # regression target, not a low-card classification one) AND the (X,y) joint table is dense enough that the floor is itself reliable - so a dense weak-signal regression pool
     # like sklearn diabetes (MDLP nbins_y=64 but ~1.0-1.5 rows per joint cell at n=330) keeps the floor OFF and preserves its 10 weak features, while lognormal (7.8 rows per
     # joint cell at n=2500) fires. The original ratio=3 keyed on the MDLP ~30-bin over-split that the 2026-06-10 target-rebin guard now removes. See
-    # ``target_oversplit_floor_applies`` in ``_permutation_null.py``. ``screen_fdr_null_permutations=0`` disables. Default 200 (raised from 25): the floor is the 95th
+    # the narrow-pool rule in ``_screen_predictors_prescreen.compute_fdr_gain_floor``. ``screen_fdr_null_permutations=0`` disables. Default 200 (raised from 25): the floor is the 95th
     # percentile of a per-shuffle MAX, an extreme upper-tail order statistic whose K=25 estimate is high-variance (~1.25 draws above the quantile); 200 draws stabilise the
     # floor several-fold run-to-run (bench ``_benchmarks/bench_maxt_floor_stability.py``) - a lower-variance noise floor is the correct behavior, the rescore cost stays
     # sub-second at production widths.
-    screen_fdr_null_permutations: int = 200,
-    screen_fdr_null_quantile: float = 0.95,
+    screen_fdr_null_permutations: int = 999,
+    screen_fdr_null_quantile: float = 0.975,
+    honest_null_codes_fn: "Callable | None" = None,
     screen_fdr_min_features: int = 30,
     screen_fdr_target_oversplit_ratio: float = 1.0,
     # 8.0 -> 7.0. MDLP now bins the lognormal biz_val target into 64 bins (not the
@@ -378,6 +381,7 @@ def screen_predictors(
         prefer_engineered_rel_eps: relative gain tolerance within which an engineered candidate is preferred over a raw one; 0.0 restores pure-index tie-breaking.
         screen_fdr_null_permutations: number of y shuffles for the maxT permutation-null gain floor; 0 disables it.
         screen_fdr_null_quantile: quantile of the per-shuffle maximum used as the floor.
+        honest_null_codes_fn: callable re-binning every column on a row-permuted raw target (supervised binning); None keeps the plain permutation null.
         screen_fdr_min_features: pool width at which the maxT floor is applied.
         screen_fdr_target_oversplit_ratio: target-cardinality ratio that triggers the floor on narrow pools.
         screen_fdr_min_rows_per_joint_cell: minimum rows per (X, y) joint cell for the narrow-pool floor to be considered reliable.
@@ -394,7 +398,18 @@ def screen_predictors(
     # ---------------------------------------------------------------------------------------------------------------
     # Input checks
     # ---------------------------------------------------------------------------------------------------------------
-    factors_names, max_confirmation_cand_nbins, parallel_kwargs, st, targets_data = _screen_predictors_step1_block(parallel_kwargs, max_confirmation_cand_nbins, mrmr_relevance_algo, mrmr_redundancy_algo, y, factors_data, targets_data, targets_nbins, factors_nbins, factors_names)
+    factors_names, max_confirmation_cand_nbins, parallel_kwargs, st, targets_data = _screen_predictors_step1_block(
+        parallel_kwargs,
+        max_confirmation_cand_nbins,
+        mrmr_relevance_algo,
+        mrmr_redundancy_algo,
+        y,
+        factors_data,
+        targets_data,
+        targets_nbins,
+        factors_nbins,
+        factors_names,
+    )
     _screen_predictors_step2_initialize_factor_indices(factors_to_use, st, factors_names_to_use, factors_names, factors_data, targets_data, verbose, y)
     assert y is not None  # _screen_predictors_step1_block rejects y=None before this point
     if random_seed is not None:
@@ -428,6 +443,7 @@ def screen_predictors(
         if use_gpu:
             try:
                 import cupy as cp
+
                 cp.random.seed(random_seed)
             except Exception as e:  # nosec B110 - non-trivial body
                 logger.debug("cupy RNG seeding failed: %s", e)
@@ -491,7 +507,13 @@ def screen_predictors(
         # Cardinality-bias pre-screen: drop columns whose Miller-Madow plug-in-MI bias is too large to score honestly (nbins_x > 2*sqrt(n)). See ``cardinality_prescreen``.
         if cardinality_bias_correction and factors_data.shape[1] > 0:
             st.x, _cardinality_refused_cols = cardinality_prescreen(
-                factors_data, factors_nbins, factors_names, st.x, y, verbose, raw_cardinality_cols=raw_cardinality_cols,
+                factors_data,
+                factors_nbins,
+                factors_names,
+                st.x,
+                y,
+                verbose,
+                raw_cardinality_cols=raw_cardinality_cols,
             )
         else:
             _cardinality_refused_cols = set()
@@ -508,6 +530,7 @@ def screen_predictors(
             y,
             screen_fdr_null_permutations=screen_fdr_null_permutations,
             screen_fdr_null_quantile=screen_fdr_null_quantile,
+            honest_null_codes_fn=honest_null_codes_fn,
             screen_fdr_min_features=screen_fdr_min_features,
             screen_fdr_target_oversplit_ratio=screen_fdr_target_oversplit_ratio,
             screen_fdr_min_rows_per_joint_cell=screen_fdr_min_rows_per_joint_cell,
@@ -614,12 +637,41 @@ def screen_predictors(
         if verbose >= 2:
             logger.info(
                 "Starting work with full_npermutations=%d, min_nonzero_confidence=%.*f, max_failed=%d",
-                full_npermutations, ndigits, min_nonzero_confidence, max_failed,
+                full_npermutations,
+                ndigits,
+                min_nonzero_confidence,
+                max_failed,
             )
 
         num_possible_candidates = 0  # needed to refrain from multiprocessing when all direct MIs are in cache already
 
-        factors_nbins, patience_triggered = _screen_predictors_step2_interactions_order_subsets(subsets, verbose, st, num_possible_candidates, ctx, stop_file, patience_triggered, min_relevance_gain, cardinality_bias_correction, factors_data, y, factors_nbins, min_relevance_gain_relative_to_first, selected_vars, predictors, _fdr_gain_floor, cached_MIs, selected_interactions_vars, dcd_state, factors_names, data_copy, entropy_cache, full_npermutations, engineered_recipes, ndigits)
+        factors_nbins, patience_triggered = _screen_predictors_step2_interactions_order_subsets(
+            subsets,
+            verbose,
+            st,
+            num_possible_candidates,
+            ctx,
+            stop_file,
+            patience_triggered,
+            min_relevance_gain,
+            cardinality_bias_correction,
+            factors_data,
+            y,
+            factors_nbins,
+            min_relevance_gain_relative_to_first,
+            selected_vars,
+            predictors,
+            _fdr_gain_floor,
+            cached_MIs,
+            selected_interactions_vars,
+            dcd_state,
+            factors_names,
+            data_copy,
+            entropy_cache,
+            full_npermutations,
+            engineered_recipes,
+            ndigits,
+        )
 
         if verbose >= 2:
             logger.info("Finished.")
@@ -637,12 +689,15 @@ def screen_predictors(
                 "patience (at least one level exhausted). Returned %d selected "
                 "feature(s). If you expected more, increase max_consec_unconfirmed "
                 "or reduce the relevance-gain threshold.%s",
-                max_consec_unconfirmed, len(selected_vars), _sc_summary,
+                max_consec_unconfirmed,
+                len(selected_vars),
+                _sc_summary,
             )
         else:
             logger.info(
                 "screen_predictors finished naturally (no patience trip). " "Returned %d selected feature(s).%s",
-                len(selected_vars), _sc_summary,
+                len(selected_vars),
+                _sc_summary,
             )
 
         any_influencing = set()
@@ -669,7 +724,20 @@ def screen_predictors(
         # ``ctx`` holds for ``mi_direct_gpu``): the caller threads this into the FE step's
         # njit MI noise-gate, which cannot accept a cupy array. ``classes_y_safe_host`` is
         # defined unconditionally above; on the CPU path it IS ``classes_y_safe``.
-        return selected_vars, predictors, any_influencing, entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs, classes_y, classes_y_safe_host, freqs_y, dcd_state, workers_pool
+        return (
+            selected_vars,
+            predictors,
+            any_influencing,
+            entropy_cache,
+            cached_MIs,
+            cached_confident_MIs,
+            cached_cond_MIs,
+            classes_y,
+            classes_y_safe_host,
+            freqs_y,
+            dcd_state,
+            workers_pool,
+        )
     finally:
         # numpy global state is no longer mutated by this function (a local
         # Generator is used instead), so there is nothing to restore for numpy.
@@ -678,7 +746,33 @@ def screen_predictors(
         _screen_predictors_step3_acknowledged_leak_closes(st)
 
 
-def _screen_predictors_step2_interactions_order_subsets(subsets, verbose, st, num_possible_candidates, ctx, stop_file, patience_triggered, min_relevance_gain, cardinality_bias_correction, factors_data, y, factors_nbins, min_relevance_gain_relative_to_first, selected_vars, predictors, _fdr_gain_floor, cached_MIs, selected_interactions_vars, dcd_state, factors_names, data_copy, entropy_cache, full_npermutations, engineered_recipes, ndigits):
+def _screen_predictors_step2_interactions_order_subsets(
+    subsets,
+    verbose,
+    st,
+    num_possible_candidates,
+    ctx,
+    stop_file,
+    patience_triggered,
+    min_relevance_gain,
+    cardinality_bias_correction,
+    factors_data,
+    y,
+    factors_nbins,
+    min_relevance_gain_relative_to_first,
+    selected_vars,
+    predictors,
+    _fdr_gain_floor,
+    cached_MIs,
+    selected_interactions_vars,
+    dcd_state,
+    factors_names,
+    data_copy,
+    entropy_cache,
+    full_npermutations,
+    engineered_recipes,
+    ndigits,
+):
     """Step 2 of screen_predictors: lines starting at ``for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Intera``."""
     for interactions_order in (subsets_pbar := tqdmu(subsets, desc="Interactions order", leave=False, disable=not verbose)):
 
@@ -787,6 +881,7 @@ def _screen_predictors_step2_interactions_order_subsets(subsets, verbose, st, nu
                             # / ``ctx`` / the caches are mutated in place. Behaviour is
                             # byte-for-byte identical to the prior inline block.
                             from mlframe.feature_selection.filters._screen_dcd_swap import screen_dcd_discover_and_swap
+
                             factors_data, factors_nbins, factors_names, data_copy = screen_dcd_discover_and_swap(
                                 dcd_state=dcd_state,
                                 var=var,
@@ -866,12 +961,24 @@ def _screen_predictors_step3_acknowledged_leak_closes(st):
         # defensively here so the restore call really fires.
         try:
             import cupy as cp
+
             cp.random.seed(int(st._cp_restore_seed))
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("Could not restore cupy random seed (%s: %s)", type(e).__name__, e)
 
 
-def _screen_predictors_step1_block(parallel_kwargs, max_confirmation_cand_nbins, mrmr_relevance_algo, mrmr_redundancy_algo, y, factors_data, targets_data, targets_nbins, factors_nbins, factors_names):
+def _screen_predictors_step1_block(
+    parallel_kwargs,
+    max_confirmation_cand_nbins,
+    mrmr_relevance_algo,
+    mrmr_redundancy_algo,
+    y,
+    factors_data,
+    targets_data,
+    targets_nbins,
+    factors_nbins,
+    factors_names,
+):
     """Step 1 of screen_predictors: lines starting at ``st = _SimpleNamespace() # long-lived locals of this function (see the ``."""
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     warmup_typed_dict()  # idempotent, once per process; see the note next to the import

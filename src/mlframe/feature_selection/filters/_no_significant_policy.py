@@ -3,37 +3,24 @@
 An empty selection breaks ``transform`` and the final model's fit, so a selector never returns an empty support silently. When
 no feature is significant it sets ``no_significant_features_`` on the instance, warns, and returns the policy's choice:
 
-* ``"best_feature"`` - the single best feature by MI (a cheap, short final model; the default).
+* ``"best_features"`` - the features that passed the significance gates (returned as selected); when none passed, the single best feature by MI, so the support is never empty (the default).
 * ``"all_orig_features"`` - every original feature, so the final model gets a chance to find something on its own.
 
-The policy is a global setting; an instance can override it with ``no_significant_policy``.
+The policy is set per instance with ``no_significant_policy`` (default ``best_features``).
 """
 
 from __future__ import annotations
 
-NO_SIGNIFICANT_POLICIES = ("best_feature", "all_orig_features")
+NO_SIGNIFICANT_POLICIES = ("best_features", "all_orig_features")
 
-_policy = "best_feature"
-
-
-def get_no_significant_policy() -> str:
-    """The global policy used when an instance does not override it."""
-    return _policy
-
-
-def set_no_significant_policy(policy: str) -> None:
-    """Set the global policy; raises ``ValueError`` on an unknown name."""
-    global _policy
-    if policy not in NO_SIGNIFICANT_POLICIES:
-        raise ValueError(f"no_significant policy must be one of {NO_SIGNIFICANT_POLICIES}; got {policy!r}")
-    _policy = policy
+_DEFAULT_POLICY = "best_features"
 
 
 def resolve_no_significant_policy(instance) -> str:
-    """The policy for one selector instance: its own ``no_significant_policy`` when set, else the global one."""
+    """The policy for one selector instance: its own ``no_significant_policy`` when set, else the default."""
     own: str | None = getattr(instance, "no_significant_policy", None)
     if own is None:
-        return _policy
+        return _DEFAULT_POLICY
     if own not in NO_SIGNIFICANT_POLICIES:
         raise ValueError(f"no_significant_policy must be one of {NO_SIGNIFICANT_POLICIES}; got {own!r}")
     return str(own)

@@ -1,5 +1,6 @@
 """Cross-pair (chunk) batching for the FE pair-search: chunk planning + the
 one-batched-pass materialise -> discretize_2d -> batch_mi over a whole chunk."""
+
 from __future__ import annotations
 
 import logging
@@ -12,7 +13,7 @@ from ._pairs_dispatch import _dispatch_batch_mi_with_noise_gate
 from ._pairs_materialise import (
     _fe_use_parallel_kernels,
     _materialise_chunk_njit,
-    _materialise_chunk_njit_parallel,
+    _materialise_chunk_rowblock_njit_parallel,
     _narrow_code_dtype,
 )
 from ..feature_engineering import _FE_BUFFER_RAM_BUDGET_RATIO  # noqa: F401 - re-exported via package __init__
@@ -227,6 +228,7 @@ def _compute_one_fe_chunk(
         if col > 0 and gpu_mat_enabled:
             try:
                 from ._pairs_core import _fe_gpu_discretize_enabled
+
                 # RESIDENCY-OVERRIDE bench-attempt-rejected (2026-06-21): forcing the fused GPU path on
                 # sub-crossover njit chunks (``... or fe_gpu_resident_codes_enabled()``) to keep their codes
                 # on-device was a NO-OP at the canonical 100k fit - A/B (seed 777): override on vs off =
@@ -238,6 +240,7 @@ def _compute_one_fe_chunk(
                 # phase-1 resident operand table (the 953-call / 60 MB floor), not widening this gate.
                 if _fe_gpu_discretize_enabled(transformed_vars.shape[0], col):
                     from .._gpu_resident_fe import gpu_materialise_discretize_codes_host
+
                     _code_dtype_gpu = _narrow_code_dtype(quantization_nbins, quantization_dtype)
                     _gpu_disc_2d = gpu_materialise_discretize_codes_host(
                         transformed_vars,
@@ -283,7 +286,7 @@ def _compute_one_fe_chunk(
                 # Reached from the chunk pipeline's producer thread while the main thread scores; two
                 # threads in one prange region aborts on macOS. See mlframe._numba_parallel_guard.
                 with parallel_kernel_entry():
-                    _materialise_chunk_njit_parallel(*_mat_args)
+                    _materialise_chunk_rowblock_njit_parallel(*_mat_args)
             else:
                 _materialise_chunk_njit(*_mat_args)
         # Fold the single batched materialise time evenly across the bin_func names (diagnostic only - the
@@ -358,15 +361,18 @@ def _compute_one_fe_chunk(
             # ``fe_gpu_pairs_mi`` sweep's "cpu" verdict at the n<=100k band. The binning has its own gate
             # so the cheap, bit-identical op is no longer held hostage to the full MI path's crossover.
             from ._pairs_core import _fe_gpu_binning_enabled
+
             if _fe_gpu_binning_enabled(chunk_buffer.shape[0], col):
                 from .._gpu_resident_fe import gpu_discretize_codes_host
+
                 disc_2d = gpu_discretize_codes_host(chunk_buffer[:, :col], int(quantization_nbins), dtype=_code_dtype)
         except Exception:
             log_throttle(logger, "pairs_chunk_gpu_binning", logging.WARNING, "FE chunk GPU binning failed; CPU discretise", exc_info=True)
             disc_2d = None
     if disc_2d is None:
         disc_2d = discretize_2d_quantile_batch(
-            chunk_buffer[:, :col], n_bins=quantization_nbins,
+            chunk_buffer[:, :col],
+            n_bins=quantization_nbins,
             dtype=_code_dtype,
             parallel=_fe_use_parallel_kernels(col, serial_main_thread),  # OPT-A
             # ``chunk_buffer[:, :col]`` is NaN-free here on BOTH branches: the njit materialise kernel
@@ -389,7 +395,8 @@ def _compute_one_fe_chunk(
     fe_mi_full = np.asarray(fe_mi_arr, dtype=np.float64)
     for raw_vars_pair in chunk_pairs:
         candidates, local_times = chunk_records[raw_vars_pair]
-        out[raw_vars_pair] = (candidates, fe_mi_full, local_times)
+        # The chunk's discretised codes travel with the MI so the pair-level family gate can read each configuration's bins (no copy: shared reference).
+        out[raw_vars_pair] = (candidates, fe_mi_full, local_times, disc_2d)
     # Residency deferral signal: True iff the GPU FUSED codes path produced disc_2d AND we skipped the
     # float D2H (out_cand=None). The caller then GPU-re-materialises the few buffer columns it reads via
     # the chunk-wide (a_col,b_col,op_code) arrays. False whenever the float buffer WAS filled (CPU
