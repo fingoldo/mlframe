@@ -101,7 +101,6 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear_caches: bool) -
     from mlframe.training import train_mlframe_models_suite, TargetTypes
     from mlframe.training.configs import BaselineDiagnosticsConfig, DummyBaselinesConfig
     import mlframe.training.core._phase_train_one_target as pt
-    import mlframe.training.core.main as _main
 
     fte = _MultiTargetExtractor(
         [f"y{t}" for t in range(n_targets)],
@@ -128,8 +127,6 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear_caches: bool) -
         return _orig_train_one(ctx, target_type, targets, cur_target_name, cur_target_values)
 
     pt._train_one_target = _wrapped
-    _orig_pt_alias = _main.pr._train_one_target
-    _main.pr._train_one_target = _wrapped
 
     gc.collect()
     try:
@@ -155,7 +152,6 @@ def _time_suite(df: pd.DataFrame, n_targets: int, *, force_clear_caches: bool) -
             elapsed = time.perf_counter() - t0
     finally:
         pt._train_one_target = _orig_train_one
-        _main.pr._train_one_target = _orig_pt_alias
 
     return elapsed
 
