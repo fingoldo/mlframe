@@ -206,7 +206,7 @@ def _sorted_dedup(x: np.ndarray, y: np.ndarray):
         keep[i] = (xs[i] != xs[i - 1]) or (ys[i] != ys[i - 1])
         if keep[i]:
             cnt += 1
-    xd = np.empty(cnt, dtype=np.float64)
+    xd = np.empty(cnt, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     yd = np.empty(cnt, dtype=np.int64)
     j = 0
     for i in range(n):
@@ -235,12 +235,83 @@ def mdlp_inner_cuts(
     xs = x[sorter]
     ys = y[sorter]
     xd, yd = _sorted_dedup(xs, ys)
+    # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     out = np.empty(max(1, xd.shape[0]), dtype=np.float64)
     n_out = np.zeros(1, dtype=np.int64)
     _mdlp_dfs(xd, yd, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out)
     cuts: np.ndarray = out[: n_out[0]].copy()
     cuts.sort()
     return cuts
+
+
+@njit(cache=True)
+def _presorted_dedup(xs: np.ndarray, ys: np.ndarray, n_classes_total: int):
+    """``_sorted_dedup`` for a column already sorted by x, ``ys`` the labels in that sorted order. Within each run of equal x the distinct
+    labels are emitted ascending, which is the (x, y) order and duplicate removal of the two stable passes, without sorting: only the
+    labels change between permutations, the order of x does not. Runs are found by comparing neighbours, so nothing per column is stored."""
+    n = xs.shape[0]
+    xd = np.empty(n, dtype=xs.dtype)
+    yd = np.empty(n, dtype=np.int64)
+    seen = np.zeros(n_classes_total, dtype=np.bool_)
+    m = 0
+    a = 0
+    while a < n:
+        e = a + 1
+        while e < n and xs[e] == xs[a]:
+            e += 1
+        if e - a == 1:
+            xd[m] = xs[a]
+            yd[m] = ys[a]
+            m += 1
+        else:
+            for i in range(a, e):
+                seen[ys[i]] = True
+            for c in range(n_classes_total):
+                if seen[c]:
+                    xd[m] = xs[a]
+                    yd[m] = c
+                    m += 1
+                    seen[c] = False
+        a = e
+    return xd[:m], yd[:m]
+
+
+@njit(cache=True)
+def _mdlp_cuts_presorted(
+    xs: np.ndarray,
+    ys: np.ndarray,
+    n_classes_total: int,
+    min_split_size: int,
+    max_depth: int,
+    alpha: float,
+    n_permutations: int,
+    seed: int,
+    analytic_min_n: int,
+    analytic_min_cell: float,
+) -> np.ndarray:
+    """``mdlp_inner_cuts`` on a column presorted by x (see ``_presorted_dedup``); same cuts."""
+    xd, yd = _presorted_dedup(xs, ys, n_classes_total)
+    # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
+    out = np.empty(max(1, xd.shape[0]), dtype=np.float64)
+    n_out = np.zeros(1, dtype=np.int64)
+    _mdlp_dfs(xd, yd, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out)
+    cuts: np.ndarray = out[: n_out[0]].copy()
+    cuts.sort()
+    return cuts
+
+
+@njit(parallel=True, cache=True)
+def _presort_columns(raw_cont: np.ndarray):
+    """Sort order of every column of the (compact, continuous-only) ``raw_cont``, int32, one row per column: 4 bytes per cell, the sorted
+    values are gathered per call instead of stored."""
+    n = raw_cont.shape[0]
+    k = raw_cont.shape[1]
+    order = np.zeros((k, n), dtype=np.int32)
+    for j in prange(k):
+        o = np.argsort(raw_cont[:, j], kind="mergesort")
+        for i in range(n):
+            order[j, i] = o[i]
+    return order
 
 
 @njit(cache=True)
@@ -323,7 +394,7 @@ def _supervised_edges(v: np.ndarray, cuts: np.ndarray, q_fallback: np.ndarray, q
         return cuts
     merged = np.concatenate((cuts, q_refine))
     merged.sort()
-    out = np.empty(merged.shape[0], dtype=np.float64)
+    out = np.empty(merged.shape[0], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
     m = 0
     for i in range(merged.shape[0]):
         if m == 0 or merged[i] != out[m - 1]:
@@ -353,6 +424,8 @@ def honest_null_columns(
     q_fallback_len: np.ndarray,
     q_refine: np.ndarray,
     q_refine_len: np.ndarray,
+    eval_rows: np.ndarray,
+    col_slot: np.ndarray,
 ):
     """Per-permutation, per-column null MI over the pool (prange over permutations).
 
@@ -360,15 +433,18 @@ def honest_null_columns(
     and ``corrected[b, j]`` the Miller-Madow corrected value over the occupied bins. A column's values depend only on the column and the
     permutation, so callers can cache them per column and take maxima over any pool (``max(0, max_j value)``).
 
-    ``raw_cont[:, j]`` holds the continuous values of pool column ``j`` (used only where ``is_cont[j]``); ``fixed_codes[:, j]`` are the
-    observed codes used for the other columns. ``y_raw`` are the raw target labels (integers, compact 0..C-1) that the cut search reads;
+    Pool column ``j`` is continuous where ``is_cont[j]``: its values are ``raw_cont[:, col_slot[j]]``; otherwise its observed codes are
+    ``fixed_codes[:, col_slot[j]]``. Both matrices hold only their own columns (a wide pool does not get two full-width copies). ``y_raw`` are the raw target labels (integers, compact 0..C-1) that the cut search reads;
     ``y_codes`` are the screen's target codes that the MI reads. ``perms[b]`` is a row permutation.
     """
     n_perm_rows = perms.shape[0]
-    n = raw_cont.shape[0]
-    k = raw_cont.shape[1]
-    plain = np.zeros((n_perm_rows, k), dtype=np.float64)
-    corrected = np.zeros((n_perm_rows, k), dtype=np.float64)
+    n = perms.shape[1]
+    k = is_cont.shape[0]
+    plain = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    # x never changes between permutations: sort every continuous column once, so each (permutation, column) cut search only gathers the
+    # permuted labels in that order instead of re-sorting the column three times (argsort + the two stable passes of the dedup).
+    order = _presort_columns(raw_cont)
     for b in prange(n_perm_rows):
         rp = perms[b]
         yc_p = np.empty(n, dtype=np.int64)
@@ -376,30 +452,58 @@ def honest_null_columns(
         for i in range(n):
             yc_p[i] = y_codes[rp[i]]
             yr_p[i] = y_raw[rp[i]]
+        # The MI is evaluated on ``eval_rows`` (the screen's row subsample, or every row): the cut search above still reads the whole
+        # permuted target, exactly as the observed codes were fitted on the whole target and then scored on the subsample.
+        m = eval_rows.shape[0]
+        ys = np.empty(m, dtype=np.int64)
+        for t in range(m):
+            ys[t] = yc_p[eval_rows[t]]
         ny = 0
-        for i in range(n):
-            if yc_p[i] + 1 > ny:
-                ny = yc_p[i] + 1
+        for t in range(m):
+            if ys[t] + 1 > ny:
+                ny = ys[t] + 1
         ky_eff = 0.0
         seen_y = np.zeros(ny, dtype=np.bool_)
-        for i in range(n):
-            seen_y[yc_p[i]] = True
+        for t in range(m):
+            seen_y[ys[t]] = True
         for c in range(ny):
             if seen_y[c]:
                 ky_eff += 1.0
         for j in range(k):
             if is_cont[j]:
-                cuts = mdlp_inner_cuts(
-                    raw_cont[:, j], yr_p, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell
+                sj = col_slot[j]
+                ysrt = np.empty(n, dtype=np.int64)
+                xsrt = np.empty(n, dtype=raw_cont.dtype)
+                for i in range(n):
+                    ysrt[i] = yr_p[order[sj, i]]
+                    xsrt[i] = raw_cont[order[sj, i], sj]
+                cuts = _mdlp_cuts_presorted(
+                    xsrt,
+                    ysrt,
+                    n_classes_total,
+                    min_split_size,
+                    max_depth,
+                    alpha,
+                    n_permutations,
+                    seed,
+                    analytic_min_n,
+                    analytic_min_cell,
                 )
-                final = _supervised_edges(raw_cont[:, j], cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
-                xc = _codes_from_cuts(raw_cont[:, j], final)
+                final = _supervised_edges(raw_cont[:, sj], cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
+                xc = _codes_from_cuts(raw_cont[:, sj], final)
                 n_x = final.shape[0] + 1
+                xs = np.empty(m, dtype=np.int64)
+                for t in range(m):
+                    xs[t] = xc[eval_rows[t]]
             else:
-                xc = fixed_codes[:, j]
+                # Fixed codes are stored narrow; filled here so the two branches never share one array variable of different widths.
+                fs = col_slot[j]
                 n_x = fixed_nbins[j]
-            mi = _mi_codes(xc, n_x, yc_p, ny)
-            kx_eff = float(_n_unique_codes(xc))
+                xs = np.empty(m, dtype=np.int64)
+                for t in range(m):
+                    xs[t] = fixed_codes[eval_rows[t], fs]
+            mi = _mi_codes(xs, n_x, ys, ny)
+            kx_eff = float(_n_unique_codes(xs))
             plain[b, j] = mi
-            corrected[b, j] = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * n)
+            corrected[b, j] = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * m)
     return plain, corrected

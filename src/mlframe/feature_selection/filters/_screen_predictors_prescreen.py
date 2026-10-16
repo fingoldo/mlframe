@@ -117,6 +117,8 @@ def compute_fdr_gain_floor(
     # disables caching entirely - legacy behaviour, always recompute.
     maxt_floor_cache: "dict | None" = None,
     honest_null_codes_fn=None,
+    honest_full_factors=None,
+    honest_eval_rows=None,
 ) -> float:
     """Westfall-Young maxT permutation-null gain floor over the finalised order-1 pool.
 
@@ -144,15 +146,20 @@ def compute_fdr_gain_floor(
         # permutation floor below would keep the in-sample cuts and cannot see their selection bias.
         from ._honest_mdlp_null import honest_fdr_floor
 
+        # The honest null refits the binning on the whole permuted target; when the screen scores a row subsample the MI is evaluated on
+        # those rows, matching how the observed codes were fitted (whole target) and scored (subsample).
+        _hf = honest_full_factors if honest_full_factors is not None else factors_data
+        _he = honest_eval_rows if honest_full_factors is not None else None
         return honest_fdr_floor(
             honest_null_codes_fn,
-            factors_data,
+            _hf,
             factors_nbins,
             _y_idx_fdr,
             _fdr_pool,
             int(screen_fdr_null_permutations),
             float(screen_fdr_null_quantile),
             random_seed,
+            _he,
         )
 
     _cache_key = None
