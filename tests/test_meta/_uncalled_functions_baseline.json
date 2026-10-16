@@ -496,10 +496,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/metrics/_core_auc_brier.py::_resample_desc_order_counting": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/metrics/_core_auc_brier.py::bootstrap_auc_distribution_parallel": {
    "count": 1,
    "note": ""
@@ -629,10 +625,6 @@
    "note": ""
   },
   "src/mlframe/reporting/charts/error_analysis.py::clear_feature_matrix_cache": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/reporting/charts/ltr.py::_per_query_groups": {
    "count": 1,
    "note": ""
   },

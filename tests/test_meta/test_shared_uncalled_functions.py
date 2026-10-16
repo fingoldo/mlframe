@@ -705,6 +705,7 @@ _RETAINED_KERNELS = {
     "_quantile_edges_2d_radix_njit",  # reference twin of the tiled radix quantile kernel (keep-all-kernels rule); parity pinned in tests/feature_selection/discretization/test_multiselect_quantile_edges.py
     "_lnc_correction",  # deprecated first-pass LNC kept behind a flag for A/B parity; no switch currently reaches it
     "_get_mi_mm_from_values_kernel",  # superseded by the length-aware _nek kernel; kept as the original, nothing switches to it
+    "_resample_desc_order_counting",  # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -771,6 +772,7 @@ _SUPERSEDED = {
     "_flags_to_combo_key",  # flag-set form of the oracle key _combo_key; parity pinned in tests/feature_selection/filters/test_flags_combo_key_parity.py
     "_is_minimise_metric",  # now delegates to the metrics registry, the live direction source; parity pinned in tests/training/core/test_metric_direction_parity.py
     "_default_metric_is_auc",  # the unset-metric check; parity pinned in tests/training/core/test_metric_direction_parity.py
+    "_per_query_groups",  # index-array form of the live group slices in metrics.ranking._iter_group_slices; parity pinned in tests/reporting/test_per_query_groups_parity.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
