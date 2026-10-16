@@ -789,7 +789,8 @@ _TEST_UTILITIES = {
     "_ranknet_pair_cache_clear",  # test-only reset of the RankNet pair cache
     "set_default_cache",  # test hook that replaces the process-wide cache singleton
     "_discovery_cache_bytes_total",  # directory-walk ground truth the caching tests compare the incremental _total_bytes accumulator against
-    "_registered_transform_names",  # live-registry reader used by tests/training/composite/test_provenance_formula_coverage.py to check every transform has a formula and description
+    # live-registry reader used by tests/training/composite/test_provenance_formula_coverage.py to check every transform has a formula and description
+    "_registered_transform_names",
 }
 
 _OFFLINE_GENERATORS = {
@@ -905,7 +906,23 @@ _RETAINED_KERNELS = {
     # device twin of per_cell_stats_bincount; the resident path calls the centered-moment helper directly, parity in test_binned_numeric_agg_resident.py
     "_per_cell_stats_gpu",
     "_gpu_evaluate_basis_column",  # per-column device port of the basis evaluation; the batched matrix builder is the production path
-    "_should_apply_mm_for_pair",  # folklore-threshold predecessor of _should_apply_mm_for_pair_analytical, kept as the A/B baseline; the analytic rule replaced it
+    # folklore-threshold predecessor of _should_apply_mm_for_pair_analytical, kept as the A/B baseline; the analytic rule replaced it
+    "_should_apply_mm_for_pair",
+    # unfused reference of the fused row_attention_stage4 aggregates; matches numpy weighted moments in
+    # tests/feature_engineering/transformer/test_aggregation_and_smote_reference_kernels.py
+    "batch_weighted_mean",
+    # unfused reference of the fused row_attention_stage4 aggregates; matches numpy weighted moments in
+    # tests/feature_engineering/transformer/test_aggregation_and_smote_reference_kernels.py
+    "batch_weighted_std",
+    # unfused reference of the fused row_attention_stage4 aggregates; matches numpy weighted moments in
+    # tests/feature_engineering/transformer/test_aggregation_and_smote_reference_kernels.py
+    "batch_weighted_vector_mean",
+    # unfused reference of the fused row_attention_stage4 aggregates; matches numpy weighted moments in
+    # tests/feature_engineering/transformer/test_aggregation_and_smote_reference_kernels.py
+    "weighted_std_1d",
+    # bench-only vectorised twin of smote_synthesize_rowloop, bit-identical (test_aggregation_and_smote_reference_kernels.py); transformers call the
+    # *_minority_* variants
+    "smote_synthesize_vectorized",
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -1027,7 +1044,9 @@ _SUPERSEDED = {
     # merge-only form of _greedy_merge_with_history (which the MAH estimator calls); parity pinned in
     # tests/feature_selection/filters/test_mah_greedy_merge_parity.py
     "_greedy_merge_bins",
-    "_compute_pair_ii_mm",  # unhoisted per-pair reference of _maybe_rerank_with_mm; equality pinned in tests/feature_selection/fe/categorical/test_cat_mm_rerank_vs_per_pair_reference.py
+    # unhoisted per-pair reference of _maybe_rerank_with_mm; equality pinned in
+    # tests/feature_selection/fe/categorical/test_cat_mm_rerank_vs_per_pair_reference.py
+    "_compute_pair_ii_mm",
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -1052,19 +1071,12 @@ _FRAMEWORK_HOOKS: set[str] = {
 
 #: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
 _PLANNED: set[str] = {
-    "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
-    "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
-    "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
     "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
     "apply_gpu_binary_batched",  # batched GPU binary apply, planned for the resident FE path
     "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
     "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
     "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
     "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
-    "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
-    "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
-    "_column_tie_fraction",  # library helper with no in-repo caller; owner decides to export or drop
-    "pair_is_tail_concentrated",  # library helper with no in-repo caller; owner decides to export or drop
     "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1104,6 +1116,10 @@ _OPTIN = {
     "_initialize_mutable_defaults",  # None-to-empty defaults helper re-exported by trainer for legacy imports
     # thread-safe warning guard for the numeric module; its welch call is currently commented out, pinned in tests/utils/test_warning_filters_thread_safe.py
     "_suppress_numeric_warnings",
+    # linear half of pair_is_tail_concentrated_rankaware (the call-site predicate), pinned in
+    # tests/feature_selection/filters/test_pair_tail_concentration_predicates.py
+    "pair_is_tail_concentrated",
+    "_column_tie_fraction",  # gate predicate for tie-sensitive shadow kernels; the shipped permutation shadow is tie-agnostic so nothing gates on it yet
 }
 
 
