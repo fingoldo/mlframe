@@ -63,7 +63,6 @@ _KNOWN_INDIRECT_CONSUMERS: dict[str, str] = {
 _USER_DEFERRED_DEAD: dict[str, str] = {
     "FairnessConfig.protected_attributes": "duplicate of behavior_config.fairness_features (core.py:1545)",
     "FairnessConfig.fairness_metrics": "name collides with metrics.compute_fairness_metrics function",
-    "MultilabelDispatchConfig.cv": "ClassifierChain.cv knob — chain dispatch hardcodes cv=5; wire when chain ensemble path is exercised",
     # 2026-05-15 — new entries surfaced after the src/ migration; same pattern
     # as the shadowed-by-kwarg cluster above, kept as deferred-dead until the
     # responsible subsystem author rewires.
