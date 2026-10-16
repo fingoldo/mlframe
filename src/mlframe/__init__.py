@@ -33,6 +33,8 @@ pattern works on a built wheel by importing ``mlframe.training``, ``mlframe.metr
 
 from __future__ import annotations
 
+import threading
+
 
 def _autoconfigure_macos_omp_threads() -> None:
     """Set ``OMP_NUM_THREADS=1`` / ``KMP_DUPLICATE_LIB_OK=TRUE`` on macOS, as early as possible.
@@ -466,18 +468,20 @@ _LAZY_TOPLEVEL = {
 }
 
 _lazy_toplevel_cache: dict = {}
+_lazy_toplevel_lock = threading.Lock()  # concurrent first accesses resolve one import, not two racing writes
 
 
 def __getattr__(name: str):
     """Lazily resolve headline training symbols on first access."""
     if name in _LAZY_TOPLEVEL:
-        if name not in _lazy_toplevel_cache:
-            import importlib
+        with _lazy_toplevel_lock:
+            if name not in _lazy_toplevel_cache:
+                import importlib
 
-            module_name, attr_name = _LAZY_TOPLEVEL[name]
-            module = importlib.import_module(module_name)
-            _lazy_toplevel_cache[name] = getattr(module, attr_name)
-        return _lazy_toplevel_cache[name]
+                module_name, attr_name = _LAZY_TOPLEVEL[name]
+                module = importlib.import_module(module_name)
+                _lazy_toplevel_cache[name] = getattr(module, attr_name)
+            return _lazy_toplevel_cache[name]
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # No kernel module is imported above, and numba picks its cache locator when a ``cache=True`` kernel is decorated, so this is early enough.

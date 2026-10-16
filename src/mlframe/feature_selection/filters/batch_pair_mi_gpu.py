@@ -216,7 +216,7 @@ _BPMI_SWEEP_N_PAIRS_GRID = [16, 64, 256]  # full n_pairs axis (was a single fixe
 _BPMI_SWEEP_N_SAMPLES = [50_000, 100_000, 200_000, 500_000, 1_000_000, 2_000_000]
 _BPMI_SWEEP_N_CLASSES_Y = 4
 _BPMI_SWEEP_N_BINS = 8  # joint card = 8*8 = 64 <= MAX_JOINT_BINS_CUDA fallback (128)
-_BPMI_SALT = 3  # serial-njit variant + full 2-D (n_samples x n_pairs) grid + grid floor lowered below the GPU crossover
+_BPMI_SALT = 4  # equivalence tolerance tightened from 1e-3/1e-3 to the measured <=2e-13 relative FP-reorder divergence
 
 # Serial CPU variant: recompile the SAME prange body WITHOUT ``parallel`` -> numba
 # treats prange as range. The tuner now picks njit_serial (small n: no thread-spawn
@@ -253,8 +253,8 @@ def _run_batch_pair_mi_sweep() -> list:
     njit_parallel / cuda / cupy, fastest EQUIVALENT per cell. Both n_samples and
     n_pairs are swept (not a fixed-n_pairs 1-D crossover). Inputs are host-resident
     (the FS pipeline feeds the host dataframe) so there is no residency axis. GPU
-    variants only when available; cupy/cuda fp reductions agree with njit to a
-    loosened rtol (last-bit log() reassociation)."""
+    variants only when available; cupy/cuda fp reductions agree with njit to <=2e-13 relative
+    (<=4e-17 absolute, last-bit log() reassociation), so the tolerance is 1e-9 / 1e-13."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {
@@ -270,7 +270,7 @@ def _run_batch_pair_mi_sweep() -> list:
         {"n_samples": _BPMI_SWEEP_N_SAMPLES, "n_pairs": _BPMI_SWEEP_N_PAIRS_GRID},
         _make_batch_pair_mi_inputs,
         reference="njit_serial",
-        repeats=5, equiv_rtol=1e-3, equiv_atol=1e-3,
+        repeats=5, equiv_rtol=1e-9, equiv_atol=1e-13,
     ))
 
 

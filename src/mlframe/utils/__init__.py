@@ -43,6 +43,7 @@ _EXPORTS: dict[str, str] = {
     "get_full_classifier_name": "mlframe.utils.misc",
     "is_cuda_available": "mlframe.utils.misc",
     "check_cpu_flag": "mlframe.utils.misc",
+    "numpy_rng_scope": "mlframe.utils.rng_scope",
     # The param-oracle public surface lives here so cross-package consumers
     # (``feature_selection.filters._meta_fe_recommender``, the recommender CLI) import it from ``mlframe.utils``
     # instead of reaching into ``mlframe.utils._param_oracle``, which the underscore-import meta-linter flags.

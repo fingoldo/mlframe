@@ -12,6 +12,8 @@ module bottom so historical
 
 from __future__ import annotations
 
+import threading
+
 # Parent's ``Transform`` dataclass + TAG_* sentinel constants live in
 # ``composite_transforms.py``, which imports this sibling at its bottom
 # AFTER defining Transform + the TAG constants. The static cycle is
@@ -607,3 +609,13 @@ from ._registry_extended import _TRANSFORMS_REGISTRY_EXTENDED
 from ._registry_extended import _bc_domain_a, _bc_domain_fitted_a, _bc_fit_a, _bc_forward_a, _bc_inverse_a  # noqa: F401
 
 _TRANSFORMS_REGISTRY.update(_TRANSFORMS_REGISTRY_EXTENDED)
+
+# Auto-chain discovery registers composed ``chain_*`` transforms at run time, from the main thread of a discovery run but possibly in several concurrent
+# fits; the check-then-insert goes through this lock so two fits composing the same chain keep ONE Transform object.
+_TRANSFORMS_REGISTRY_LOCK = threading.Lock()
+
+
+def register_transform_if_absent(name: str, transform: "Transform") -> "Transform":
+    """Add ``transform`` under ``name`` unless the name is taken; return the registered Transform (the existing one when the name was taken)."""
+    with _TRANSFORMS_REGISTRY_LOCK:
+        return _TRANSFORMS_REGISTRY.setdefault(name, transform)

@@ -16,11 +16,12 @@ import psutil
 from pyutilz.strings import slugify
 
 from ._setup_helpers_pipeline_cache import (
-    _PIPELINE_JSON_ROUNDTRIP_CACHE,
     _PolarsDsPipelineJsonProxy,
     _load_pipeline_disk_cache_into_memory,
     _persist_pipeline_disk_cache,
     pipeline_json_cache_key,
+    pipeline_roundtrip_lookup,
+    pipeline_roundtrip_store,
 )
 
 if TYPE_CHECKING:
@@ -161,7 +162,7 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
                     # workers / CI all skip the 8.5s validation after the first
                     # process verified this JSON. No-op after the first call.
                     _load_pipeline_disk_cache_into_memory()
-                    _rt_ok = _PIPELINE_JSON_ROUNDTRIP_CACHE.get(_js_hash)
+                    _rt_ok = pipeline_roundtrip_lookup(_js_hash)
                     if _rt_ok is None:
                         # Cache miss: pay the 5-8s validation, then memoise
                         # the result so subsequent fits in this process skip
@@ -175,7 +176,7 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
                         except Exception as e:
                             logger.debug("pipeline JSON round-trip check failed: %s", e)
                             _rt_ok = False
-                        _PIPELINE_JSON_ROUNDTRIP_CACHE[_js_hash] = _rt_ok
+                        pipeline_roundtrip_store(_js_hash, _rt_ok)
                         _persist_pipeline_disk_cache()
                     if _rt_ok:
                         metadata["pipeline"] = _PolarsDsPipelineJsonProxy(_pipeline_orig)

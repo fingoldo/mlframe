@@ -8,6 +8,7 @@ the number of permutations. Under the null the pass probability is at most alpha
 
 from __future__ import annotations
 
+import threading
 from collections import OrderedDict
 
 import numpy as np
@@ -65,7 +66,10 @@ def _run_family_null_sweep():
     """Per-host CPU-vs-device sweep of the family null over (n_rows, n_cols); returns [] when the helper is unavailable."""
     try:
         from pyutilz.dev.benchmarking import sweep_backend_grid
-    except Exception:
+    except Exception as exc:
+        import logging
+
+        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug("family null sweep unavailable (%s: %s); no regions recorded", type(exc).__name__, exc)
         return []
 
     def _cpu(c, nx, p, ny):
@@ -168,6 +172,7 @@ def family_null_max_njit(cols: np.ndarray, n_x: np.ndarray, y_perms: np.ndarray,
 _PERM_BLOCK_CACHE_BYTES = 256 * 1024 * 1024
 _perm_block_cache: "OrderedDict[tuple, tuple]" = OrderedDict()
 _perm_block_cache_bytes = 0
+_perm_block_cache_lock = threading.Lock()  # move_to_end, insert and the byte-budget eviction are one read-modify-write on shared state
 
 
 def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.ndarray:
@@ -180,9 +185,11 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     global _perm_block_cache_bytes
     state_before = rng.bit_generator.state
     key = (y.shape[0], int(m), hash(y.tobytes()), repr(state_before))
-    hit = _perm_block_cache.get(key)
+    with _perm_block_cache_lock:
+        hit = _perm_block_cache.get(key)
+        if hit is not None:
+            _perm_block_cache.move_to_end(key)
     if hit is not None:
-        _perm_block_cache.move_to_end(key)
         idx, state_after = hit
         rng.bit_generator.state = state_after
         cached: np.ndarray = idx
@@ -193,11 +200,15 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
     for i in range(m):
         idx[i] = rng.permutation(n)
     state_after = rng.bit_generator.state
-    _perm_block_cache[key] = (idx, state_after)
-    _perm_block_cache_bytes += idx.nbytes
-    while _perm_block_cache_bytes > _PERM_BLOCK_CACHE_BYTES and len(_perm_block_cache) > 1:
-        _, (old, _) = _perm_block_cache.popitem(last=False)
-        _perm_block_cache_bytes -= old.nbytes
+    with _perm_block_cache_lock:
+        previous = _perm_block_cache.pop(key, None)  # two threads that drew the same block: keep one entry and keep the byte count honest
+        if previous is not None:
+            _perm_block_cache_bytes -= previous[0].nbytes
+        _perm_block_cache[key] = (idx, state_after)
+        _perm_block_cache_bytes += idx.nbytes
+        while _perm_block_cache_bytes > _PERM_BLOCK_CACHE_BYTES and len(_perm_block_cache) > 1:
+            _, (old, _) = _perm_block_cache.popitem(last=False)
+            _perm_block_cache_bytes -= old.nbytes
     return idx
 
 

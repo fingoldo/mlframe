@@ -1,7 +1,1 @@
-[
-  "calibration/test_calibration_plot_layout.py::os.environ.setdefault('MPLBACKEND', 'Agg')",
-  "feature_selection/mrmr/biz_val/test_biz_value_mrmr_sufficient_summary.py::os.environ.setdefault('TQDM_DISABLE', '1')",
-  "feature_selection/stability/test_hybrid_selector_deep.py::os.environ.setdefault('TQDM_DISABLE', '1')",
-  "feature_selection/test_wide_data_scalability.py::os.environ.setdefault(_v, '4')",
-  "reporting/test_confusion_matrix_plot.py::os.environ.setdefault('MPLBACKEND', 'Agg')"
-]
+[]

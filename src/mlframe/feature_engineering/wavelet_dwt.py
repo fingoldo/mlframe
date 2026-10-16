@@ -30,6 +30,7 @@ Public API:
 """
 from __future__ import annotations
 
+import threading
 from typing import List, Tuple, Union
 
 import numpy as np
@@ -53,6 +54,7 @@ except ImportError:
 # ---------------------------------------------------------------------
 
 _FILTER_CACHE: dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = {}
+_FILTER_CACHE_LOCK = threading.Lock()
 
 
 def get_wavelet_filters(name: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -61,8 +63,10 @@ def get_wavelet_filters(name: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, 
     Supported names: any pywt wavelet name (``"haar"``, ``"db4"``,
     ``"db6"``, ``"coif3"``, ``"sym4"`` etc).
     """
-    if name in _FILTER_CACHE:
-        return _FILTER_CACHE[name]
+    with _FILTER_CACHE_LOCK:
+        cached = _FILTER_CACHE.get(name)
+    if cached is not None:
+        return cached
     import pywt
     w = pywt.Wavelet(name)
     dec_lo = np.asarray(w.dec_lo, dtype=np.float64)
@@ -73,8 +77,9 @@ def get_wavelet_filters(name: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, 
     # decomposition in the process.
     for arr in (dec_lo, dec_hi, rec_lo, rec_hi):
         arr.flags.writeable = False
-    _FILTER_CACHE[name] = (dec_lo, dec_hi, rec_lo, rec_hi)
-    return _FILTER_CACHE[name]
+    with _FILTER_CACHE_LOCK:
+        # setdefault: two threads that built the same wavelet concurrently keep ONE shared read-only tuple
+        return _FILTER_CACHE.setdefault(name, (dec_lo, dec_hi, rec_lo, rec_hi))
 
 
 # ---------------------------------------------------------------------

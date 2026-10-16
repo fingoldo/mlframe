@@ -17,6 +17,7 @@ from .nonlinear import (
 )
 from .registry import (
     _TRANSFORMS_REGISTRY as TRANSFORMS_REGISTRY,
+    register_transform_if_absent,
 )
 from .simple import (
     _diff_inverse as diff_inverse,
@@ -30,4 +31,5 @@ __all__ = [
     "linear_residual_fit_batched",
     "linear_residual_multi_fit",
     "make_chain_transform",
+    "register_transform_if_absent",
 ]

@@ -148,4 +148,3 @@ if __name__ == "__main__":
     print("Model loaded successfully")
 
     example_d_1()
-    # example_highd()

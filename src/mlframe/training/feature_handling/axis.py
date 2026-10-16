@@ -14,6 +14,7 @@ full per-method TypedDict params.
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import (
@@ -83,6 +84,7 @@ class HandlerSpec(ABC):
 
 
 _AXIS_REGISTRY: Dict[Axis, Type[HandlerSpec]] = {}
+_AXIS_REGISTRY_LOCK = threading.Lock()  # register is check-then-set: the lock keeps the idempotence/conflict test and the write one step
 
 
 def register_handler_spec(spec_cls: Type[HandlerSpec]) -> Type[HandlerSpec]:
@@ -96,15 +98,19 @@ def register_handler_spec(spec_cls: Type[HandlerSpec]) -> Type[HandlerSpec]:
     if not issubclass(spec_cls, HandlerSpec):
         raise TypeError(f"register_handler_spec expects a HandlerSpec subclass, got {spec_cls!r}")
     axis = spec_cls.axis()
-    existing = _AXIS_REGISTRY.get(axis)
-    if existing is not None and existing is not spec_cls:
-        raise ValueError(f"axis {axis!r} already registered to {existing.__name__}; " f"cannot reassign to {spec_cls.__name__}")
-    _AXIS_REGISTRY[axis] = spec_cls
+    with _AXIS_REGISTRY_LOCK:
+        existing = _AXIS_REGISTRY.get(axis)
+        if existing is not None and existing is not spec_cls:
+            raise ValueError(f"axis {axis!r} already registered to {existing.__name__}; " f"cannot reassign to {spec_cls.__name__}")
+        _AXIS_REGISTRY[axis] = spec_cls
     return spec_cls
 
 
 def get_handler_spec_for_axis(axis: Axis) -> Type[HandlerSpec]:
     """Look up the concrete spec class for an axis. Raises if unregistered."""
-    if axis not in _AXIS_REGISTRY:
-        raise KeyError(f"no HandlerSpec registered for axis {axis!r}; " f"registered axes: {sorted(a.value for a in _AXIS_REGISTRY)}")
-    return _AXIS_REGISTRY[axis]
+    with _AXIS_REGISTRY_LOCK:
+        spec_cls = _AXIS_REGISTRY.get(axis)
+        registered = sorted(a.value for a in _AXIS_REGISTRY) if spec_cls is None else None
+    if spec_cls is None:
+        raise KeyError(f"no HandlerSpec registered for axis {axis!r}; " f"registered axes: {registered}")
+    return spec_cls

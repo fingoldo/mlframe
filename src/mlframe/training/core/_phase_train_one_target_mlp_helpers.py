@@ -25,6 +25,7 @@ from typing import Any
 
 import logging
 import re
+import threading
 
 try:
     import polars as pl
@@ -36,14 +37,16 @@ logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
 _PER_GROUP_PATTERN_CACHE: dict[str, "re.Pattern[str]"] = {}
+_PER_GROUP_PATTERN_LOCK = threading.Lock()
 
 
 def _get_per_group_pattern(pattern: str) -> "re.Pattern[str]":
     """Case-insensitive compiled regex for ``pattern``, memoized per pattern string so repeated calls avoid recompiling."""
-    cached = _PER_GROUP_PATTERN_CACHE.get(pattern)
-    if cached is None:
-        cached = re.compile(pattern, re.IGNORECASE)
-        _PER_GROUP_PATTERN_CACHE[pattern] = cached
+    with _PER_GROUP_PATTERN_LOCK:
+        cached = _PER_GROUP_PATTERN_CACHE.get(pattern)
+        if cached is None:
+            cached = re.compile(pattern, re.IGNORECASE)
+            _PER_GROUP_PATTERN_CACHE[pattern] = cached
     return cached
 
 

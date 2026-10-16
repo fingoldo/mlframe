@@ -375,7 +375,7 @@ def _get_spec():
             salt=1,
             cli_label="fe_interaction_prerank_discrete",
         )
-    except ImportError as exc:
+    except ImportError as exc:  # best-effort: a host without pyutilz has no tuning registry; the source-default heuristic is the intended backend there
         # Genuinely absent registry: permanent, expected on a host without pyutilz, latch and stay quiet.
         logger.debug("kernel_tuning registry unavailable (%s); using the source-default backend heuristic", exc)
         _SPEC = False

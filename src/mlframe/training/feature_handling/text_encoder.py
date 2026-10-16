@@ -229,9 +229,8 @@ class TextColumnEncoder:
         Degrades an all-empty/all-missing TF-IDF corpus (sklearn's "empty vocabulary" ValueError) to a faithful 0-width
         matrix instead of raising, so tiny inner-CV folds with a blank text column don't abort the whole fit.
         """
-        # TODO 2026-05-21: when polars-ds ships native TF-IDF / hashing,
-        # branch here via self._dispatcher.has() and feed the polars-native
-        # path. For now sklearn is the only impl.
+        # Extension point: if polars-ds gains native TF-IDF / hashing, branch here via self._dispatcher.has() and feed the polars-native
+        # path. Today sklearn is the only implementation.
         from sklearn.feature_extraction.text import (
             HashingVectorizer,
             TfidfVectorizer,

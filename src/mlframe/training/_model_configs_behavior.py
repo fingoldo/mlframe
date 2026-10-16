@@ -520,11 +520,6 @@ class MultilabelDispatchConfig(InertFieldsWarningMixin, BaseConfig):
                 fail loud if mis-configured.
     """
 
-    # Accepted for back-compat, read by nothing: a non-default value warns instead of silently doing nothing.
-    INERT_FIELDS: ClassVar[dict[str, str]] = {
-        "cv": "the ClassifierChain dispatch hardcodes cv=5; the knob is wired when the chain-ensemble path is exercised",
-    }
-
     strategy: Literal["auto", "wrapper", "chain", "native"] = "auto"
     # n_chains>=1: 0 builds an empty _ChainEnsemble that averages nothing.
     n_chains: int = Field(default=3, ge=1)

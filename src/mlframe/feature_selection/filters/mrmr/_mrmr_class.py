@@ -4134,7 +4134,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             if _n_rows_for_screen is not None:
                 _default_screen_saved = self._apply_default_screen_subsample(_n_rows_for_screen)
         except Exception as exc:
-            logger.debug("mrmr: default screen-subsample application failed; screening at full n: %r", exc, exc_info=True)
+            logger.warning("mrmr: default screen-subsample application failed (%s: %s); screening at full n instead (slower than the subsampled screen)", type(exc).__name__, exc, exc_info=True)
             _default_screen_saved = {}
         return _default_screen_saved
 

@@ -1,13 +1,4 @@
 {
-  "src/mlframe/feature_selection/filters/_binned_numeric_agg_resident.py::local_mi_gate_binagg_resident::finite_guarded_reject": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/filters/_extra_fe_families_dispersion_resident.py::local_mi_gate_dispersion_resident::finite_guarded_reject": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/filters/_fe_interaction_prerank_kernels.py::_get_spec::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/filters/_fe_raw_redundancy_anchors.py::_build_raw_redundancy_step2_def_raw_codes.<locals>._raw_codes::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/filters/_unified_fe_gate.py::local_mi_gate::finite_guarded_reject": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/filters/friend_graph.py::_dispatch_gpu_friend_stats::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/filters/mrmr/_mrmr_class.py::MRMR._fit_body_their_package_default_shrunk::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/filters/mrmr/_mrmr_class_fit_helpers.py::_MRMRFitHelpersMixin._fit_multioutput::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
-  "src/mlframe/feature_selection/wrappers/_helpers_importance.py::get_feature_importances::quiet_substitution": "pre-existing, recorded when the check was wired; not yet triaged",
   "src/mlframe/training/composite/discovery/_fit_multibase.py::apply_multi_base_forward_stepwise::admit_on_error": "keeps the single-base spec, which already passed every gate, when only the optional multi-base extension fails (logged at WARNING)",
   "src/mlframe/training/composite/discovery/_tiny_rerank_waic.py::apply_honest_oof_floor::finite_guarded_reject": "a NaN honest-OOF measurement is degenerate and keeps its CV rank by design; an inf (collapse) score is rejected afterwards by _reject_unscored_specs"
 }

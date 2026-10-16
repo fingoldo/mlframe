@@ -77,7 +77,7 @@ from ._eval_helpers import (  # noqa: F401
     _compute_split_metrics, _decategorise_float_cat_columns,
     _filter_categorical_features, run_confidence_analysis,
 )
-from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns
+from ._feature_name_sanitize import sanitize_frame_columns as _sanitize_frame_columns, sanitize_name_list as _sanitize_name_list
 from ._training_loop import (  # noqa: F401
     _SigmoidAdapter, _PostHocCalibratedModel,
     _PostHocMultiCalibratedModel, _PerClassIsotonicCalibrator,
@@ -435,8 +435,13 @@ def train_and_evaluate_model(
     # reject those at fit time. Rename the model-facing labels via a pure
     # deterministic map -- train/val here and test below map identically, so fit
     # and predict stay consistent. No-op when every name is already clean.
+    _pre_sanitize_columns = list(train_df.columns) if train_df is not None else []
     train_df = _sanitize_frame_columns(train_df)
     st.val_df = _sanitize_frame_columns(st.val_df)
+    # ``cat_features`` names the frame's columns, so it must follow the rename: otherwise a hostile-named categorical is later
+    # dropped by ``_filter_categorical_features`` as "not a column" and the booster sees it as numeric.
+    if st.fit_params and st.fit_params.get("cat_features"):
+        st.fit_params["cat_features"] = _sanitize_name_list(st.fit_params["cat_features"], full_columns=_pre_sanitize_columns or None)
 
     # Check if feature selection removed all features
     if train_df is not None and train_df.shape[1] == 0:

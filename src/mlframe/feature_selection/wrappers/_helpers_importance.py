@@ -420,7 +420,7 @@ def get_feature_importances(
     try:
         res_arr = np.asarray(res, dtype=float)
         n_nan = int(np.isnan(res_arr).sum()) if res_arr.size else 0
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # best-effort: NaN detection is a diagnostic; non-numeric importances have no NaN to report
         # Non-numeric importances (object / mixed): NaN detection isn't meaningful, skip it.
         n_nan = 0
         logger.debug("get_feature_importances: skipping NaN-detection on non-numeric importances from %s.", type(model).__name__)

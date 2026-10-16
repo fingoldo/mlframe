@@ -41,6 +41,7 @@ CPU njit rank path - byte-for-byte the legacy behavior.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional
 
 import numpy as np
@@ -68,16 +69,19 @@ def _bin_boundaries(n: int, n_bins: int) -> np.ndarray:
 # safe; the cached array is byte-identical to the inline ``cp.asarray(_bin_boundaries(...))`` (deterministic
 # in its args).
 _BIN_BOUNDARIES_CACHE: dict = {}
+_BIN_BOUNDARIES_LOCK = threading.Lock()
 
 
 def _bin_boundaries_dev(cp, n: int, n_bins: int):
     """Cached device (n_bins,) cumulative bin-size boundary vector for ``(n, n_bins)``; builds + uploads via
     :func:`_bin_boundaries` on a miss, returns the shared device array on a hit."""
     key = (int(n), int(n_bins))
-    hit = _BIN_BOUNDARIES_CACHE.get(key)
+    with _BIN_BOUNDARIES_LOCK:
+        hit = _BIN_BOUNDARIES_CACHE.get(key)
     if hit is None:
         hit = cp.asarray(_bin_boundaries(int(n), int(n_bins)))
-        _BIN_BOUNDARIES_CACHE[key] = hit
+        with _BIN_BOUNDARIES_LOCK:
+            hit = _BIN_BOUNDARIES_CACHE.setdefault(key, hit)
     return hit
 
 

@@ -58,7 +58,7 @@ Selection rule
   ``min_uplift * baseline_MI`` where ``baseline_MI`` is the raw column MI;
 * global top-K: across surviving columns keep the top-K by uplift.
 
-NOT wired into MRMR.fit by default - explicit opt-in via
+Off in MRMR.fit unless explicitly enabled via
 ``fe_hybrid_orth_conditional_routing_enable=True``.
 """
 from __future__ import annotations
@@ -94,6 +94,7 @@ __all__ = [
     "generate_conditional_basis_routing_features",
     "hybrid_orth_mi_conditional_routing_fe",
     "hybrid_orth_mi_conditional_routing_fe_with_recipes",
+    "parse_routing_col_name",
 ]
 
 # Stable enumeration of supported pre-transforms. Mirrors

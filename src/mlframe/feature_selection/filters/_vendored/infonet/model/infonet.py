@@ -37,13 +37,9 @@ class infonet(nn.Module):
         query = self.query_gen(inputs)
 
         outputs = self.decoder(x_q=query, latents=latents, query_mask=query_mask)
-        # print(outputs.shape)
-        # torch.save(outputs.cpu().numpy(), "lookuptable.pth")
         outputs = outputs.unsqueeze(1)
         outputs = self.mild(outputs)
         outputs = outputs.squeeze(1)
-        # torch.save(outputs.cpu().numpy(), "lookuptable_smoothed.pth")
-        # print("saved!!!!!!!!!!!!!!!1")
         mi_lb = mutual_information(cast(torch.Tensor, inputs), outputs)
 
         return mi_lb

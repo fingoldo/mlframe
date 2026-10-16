@@ -146,6 +146,7 @@ def main(argv=None):
             ok, dt, names = fn()
             err = None
         except Exception as exc:
+            warnings.warn(f"case {name} raised {type(exc).__name__}: {exc}; recorded in the result row", stacklevel=1)
             ok, dt, names, err = False, float("nan"), [], f"{type(exc).__name__}: {exc}"
         if pr:
             pr.disable()

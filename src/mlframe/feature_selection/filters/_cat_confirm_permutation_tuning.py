@@ -57,7 +57,7 @@ _PERM_SWEEP_K_PAIR = 10
 _PERM_SWEEP_K_X = 5
 _PERM_SWEEP_K_Y = 3
 _PERM_SWEEP_SERIAL_MAX_WORK = 30_000_000  # n_samples * n_perms above which the serial kernel is not timed
-_PERM_SALT = 3  # reference is now cpu_parallel; serial is skipped on cells where it cannot win
+_PERM_SALT = 4  # ii_obs now below any attainable II so every backend counts every perm; exact equivalence check
 
 
 def _make_perm_kernel_inputs(dims: dict):
@@ -75,7 +75,10 @@ def _make_perm_kernel_inputs(dims: dict):
     freqs_x2 = np.bincount(classes_x2, minlength=_PERM_SWEEP_K_X).astype(np.float64) / max(1, n)
     classes_y = rng.integers(0, _PERM_SWEEP_K_Y, size=n).astype(np.int64)
     freqs_y = np.bincount(classes_y, minlength=_PERM_SWEEP_K_Y).astype(np.float64) / max(1, n)
-    ii_obs = 0.0  # count all perms -> identical work on all backends, equiv-comparable
+    # Below any attainable II (a signed quantity), so EVERY permutation counts on EVERY backend: n_failed == n_perms exactly, whatever the RNG stream.
+    # With the old 0.0 the cupy stream and the numba stream counted different permutations (e.g. 5 vs 7 of 10), so the equivalence check dropped cupy
+    # on almost every cell and the tuned crossover could never pick it.
+    ii_obs = -1e9
     return (classes_pair, freqs_pair, classes_x1, freqs_x1, classes_x2, freqs_x2, classes_y, freqs_y, ii_obs, n_perms)
 
 
@@ -83,8 +86,8 @@ def _run_perm_kernel_sweep() -> list:
     """Full (n_samples x n_perms) grid sweep -> backend_choice regions: cpu_serial /
     cpu_parallel / cupy, fastest EQUIVALENT per cell. Both axes are swept (n_perms is
     a kernel arg carried in the inputs). Inputs are host-resident, so no residency
-    axis. cupy included only when available. With ii_obs=0 every perm counts on all
-    backends, so the integer ``n_failed`` outputs match exactly."""
+    axis. cupy included only when available. With ii_obs far below any II every perm counts on all
+    backends, so the integer ``n_failed`` outputs equal ``n_perms`` exactly on each."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     _seed = 7
@@ -115,7 +118,7 @@ def _run_perm_kernel_sweep() -> list:
         {"n_samples": _PERM_SWEEP_N_SAMPLES, "n_perms": _PERM_SWEEP_N_PERMS_GRID},
         _make_perm_kernel_inputs,
         reference="cpu_parallel",
-        repeats=3, equiv_rtol=1e-3, equiv_atol=1e-3,
+        repeats=3, equiv_rtol=0.0, equiv_atol=1e-9,
     ))
 
 

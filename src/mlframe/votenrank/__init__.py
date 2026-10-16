@@ -33,6 +33,16 @@ _LAZY_EXPORTS: dict[str, str] = {
     "shapley_model_values": "shapley_blend",
     "shapley_blend": "shapley_blend",
     "SimilarityBlendEnsemble": "similarity_blend",
+    "mean_election": "leaderboard._rules",
+    "plurality_election": "leaderboard._rules",
+    "borda_election": "leaderboard._rules",
+    "dowdall_election": "leaderboard._rules",
+    "copeland_election": "leaderboard._rules",
+    "condorcet_election": "leaderboard._rules",
+    "baldwin_election": "leaderboard._rules",
+    "minimax_election": "leaderboard._rules",
+    "optimality_gap_election": "leaderboard._rules",
+    "threshold_election": "leaderboard._rules",
 }
 
 __all__ = sorted(_LAZY_EXPORTS)

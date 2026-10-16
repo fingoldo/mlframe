@@ -242,8 +242,14 @@ from .tfidf_svd_entity_embedding import tfidf_svd_entity_embedding, FittedTfidfS
 from .gmm_bic_membership_features import gmm_bic_membership_features
 from .latent_parameter_recovery import latent_parameter_recovery_features
 from .panel_sequence_tensor import build_panel_sequence_tensor
+from .curated_fe import curated_fe_pipelines, recommended_curated_fe_names
+from .wavelet_dwt import wavedec_dispatch, wavelet_denoise
 
 __all__ = [
+    "curated_fe_pipelines",
+    "recommended_curated_fe_names",
+    "wavedec_dispatch",
+    "wavelet_denoise",
     "per_group_recency_weighted_mean",
     "per_group_recency_weighted_agg",
     "nested_ma_decompose",

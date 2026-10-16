@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import threading
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -180,13 +181,16 @@ _BF16_MIN_CC_MAJOR: int = 8
 # pure repeated work that memoisation eliminates. Mirrors the
 # ``_CB_GPU_USABLE_CACHE`` pattern in _cb_pool.py.
 _PROBE_PRECISION_CACHE: "dict[int, str]" = {}
+_PROBE_PRECISION_LOCK = threading.Lock()
 
 
 def _probe_cuda_precision_cached(device_id: int) -> str:
     """Cached CUDA precision probe. Returns "bf16-mixed" on Ampere+,
     "32-true" otherwise. Probe outcome is process-stable."""
-    if device_id in _PROBE_PRECISION_CACHE:
-        return _PROBE_PRECISION_CACHE[device_id]
+    with _PROBE_PRECISION_LOCK:
+        cached = _PROBE_PRECISION_CACHE.get(device_id)
+    if cached is not None:
+        return cached
     try:
         import torch
         if not bool(torch.cuda.is_available()):
@@ -201,7 +205,8 @@ def _probe_cuda_precision_cached(device_id: int) -> str:
     except Exception as e:
         logger.debug("precision probe failed, defaulting to 32-true: %s", e)
         result = "32-true"
-    _PROBE_PRECISION_CACHE[device_id] = result
+    with _PROBE_PRECISION_LOCK:
+        _PROBE_PRECISION_CACHE[device_id] = result
     return result
 
 
@@ -332,9 +337,8 @@ _TRAIN_DTYPE_BYTES: int = 4
 # resolved batch_size (65536 -> 1024 across 8 MLP trainings on identical data shape).
 # Cache the FIRST probe per mode so all subsequent auto-batch resolutions in one process share a
 # stable memory budget. Set ``MLFRAME_FORCE_REPROBE=1`` to bypass.
-# No lock: every access below is a single dict get/set, atomic under the GIL. A concurrent-thread race
-# on a cold cache_key can only cause a benign duplicate probe (both threads compute, last write wins) --
-# never a torn/partial read, since there is no read-modify-write step spanning the check and the write.
+# Reads and writes hold the lock; the probe itself runs outside it, so a cold-key race is a duplicate probe, never a blocked fit.
+_PROBE_MEM_LOCK = threading.Lock()
 _PROBE_MEM_CACHE: dict[str, int] = {}
 
 
@@ -367,21 +371,27 @@ def _probe_available_memory_bytes(
     # Cached-probe path: one stable budget per process/mode so consecutive MLP
     # trainings in the same suite don't get wildly different batch sizes
     # from a fluctuating ``available`` reading.
-    if cache_key in _PROBE_MEM_CACHE and not os.environ.get("MLFRAME_FORCE_REPROBE"):
-        return _PROBE_MEM_CACHE[cache_key]
+    if not os.environ.get("MLFRAME_FORCE_REPROBE"):
+        with _PROBE_MEM_LOCK:
+            cached_bytes = _PROBE_MEM_CACHE.get(cache_key)
+        if cached_bytes is not None:
+            return cached_bytes
     if cuda_ok:
         try:
             import torch
             free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
-            _PROBE_MEM_CACHE[cache_key] = int(free_bytes)
-            return _PROBE_MEM_CACHE[cache_key]
+            with _PROBE_MEM_LOCK:
+                _PROBE_MEM_CACHE[cache_key] = int(free_bytes)
+            return int(free_bytes)
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("torch.cuda.mem_get_info probe failed (%s: %s) -- falling back to psutil/None", type(e).__name__, e)
     # CPU mode (or CUDA probe failed): use psutil if available, else None.
     try:
         import psutil
-        _PROBE_MEM_CACHE[cache_key] = int(psutil.virtual_memory().available)
-        return _PROBE_MEM_CACHE[cache_key]
+        available = int(psutil.virtual_memory().available)
+        with _PROBE_MEM_LOCK:
+            _PROBE_MEM_CACHE[cache_key] = available
+        return available
     except Exception as e:
         logger.debug("psutil memory probe failed (%s: %s) -- caller falls back to a constant batch size", type(e).__name__, e)
         return None

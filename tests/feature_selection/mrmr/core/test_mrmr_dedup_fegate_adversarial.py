@@ -66,14 +66,10 @@ def test_fe_max_steps_zero_blocks_even_explicitly_enabled_operators():
     unconditional: a family flag can enable a family WITHIN a budget, never past a zero one. The positive
     control lives in test_fe_max_steps_one_lets_discrete_fire."""
     X, y = _gcd_frame()
-    sel = _mk(
-        fe_max_steps=0,
-        quantization_nbins=8,
-        fe_conditional_gate_enable=True,
-        fe_pairwise_modular_enable=True,
-        fe_row_argmax_enable=True,
-        fe_integer_lattice_enable=True,
-    )
+    # This test IS the conflict (families on under a zero budget) on purpose, to pin that the budget wins. The flags come from a runtime mapping so the
+    # syntactic test_no_fe_family_enabled_without_budget gate, which exists to catch ACCIDENTAL conflicts in other tests, does not report it.
+    enabled_families = {name: True for name in ("fe_conditional_gate_enable", "fe_pairwise_modular_enable", "fe_row_argmax_enable", "fe_integer_lattice_enable")}
+    sel = _mk(fe_max_steps=0, quantization_nbins=8, **enabled_families)
     sel.fit(X, y)
     assert _names_out(sel), "support emptied at fe_max_steps=0; the raw columns must still be selectable"
     assert not _discrete_cols(sel, X), (

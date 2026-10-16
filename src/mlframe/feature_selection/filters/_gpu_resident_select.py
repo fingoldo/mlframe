@@ -23,10 +23,11 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 from ._gpu_resident_select_kernels import (
-    _RADIX_INTERP_CACHE,
+    _RADIX_INTERP_CACHE,  # noqa: F401 -- tests clear this cache through the carve-out module's namespace
     _RADIX_SELECT_MAXR,
     _RADIX_STATIC_SHARED_BYTES,
     _get_radix_interp_kernel,
+    radix_interp_get_or_build,
     _get_radix_select_f32_dispatch,
     _get_radix_select_interp_f64_kernel,
     _get_radix_select_interp_f64_v3_kernel,
@@ -81,7 +82,8 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
     # the caller's cp.percentile fallback is taken without recomputing. Selection-IDENTICAL: same ranks -> same
     # order statistics -> bit-identical edges.
     _ik = (int(n), int(nbins), bool(with_extremes))
-    if _ik not in _RADIX_INTERP_CACHE:
+    def _build_interp_entry():
+        """Order-statistic geometry + device gather vectors for (n, nbins), or None when the radix path does not apply."""
         # cupy 'linear' positions for the nbins-1 interior quantiles (q in (0,1)), float64 throughout.
         qfr = np.linspace(0.0, 100.0, int(nbins) + 1)[1:-1] / 100.0  # (nbins-1,) fractions
         idx = qfr * (n - 1)
@@ -105,7 +107,7 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
             logger.warning("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
             sh_limit = 48 * 1024
         if R > _RADIX_SELECT_MAXR or shmem > sh_limit - _RADIX_STATIC_SHARED_BYTES:
-            _RADIX_INTERP_CACHE[_ik] = None  # radix path inapplicable for this (n, nbins)
+            return None  # radix path inapplicable for this (n, nbins)
         else:
             # cupy 'linear' interp gather indices + weight (bi/ai/w) - needed BEFORE the kernel for the fused f64
             # path, which interpolates in-kernel.
@@ -114,8 +116,9 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
             bi = cp.asarray(np.asarray([pos[int(b)] for b in bel], dtype=np.int64))
             ai = cp.asarray(np.asarray([pos[int(a)] for a in abv], dtype=np.int64))
             w = cp.asarray(np.ascontiguousarray(idx - bel))  # float64 weight_above = idx - floor(idx)
-            _RADIX_INTERP_CACHE[_ik] = (bi, ai, w, ranks_g, int(R), int(shmem))
-    _ic = _RADIX_INTERP_CACHE[_ik]
+            return (bi, ai, w, ranks_g, int(R), int(shmem))
+
+    _ic = radix_interp_get_or_build(_ik, _build_interp_entry)
     if _ic is None:
         return None  # cached: radix inapplicable -> cp.percentile
     bi, ai, w, ranks_g, R, shmem = _ic

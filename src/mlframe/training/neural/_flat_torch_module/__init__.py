@@ -451,9 +451,10 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         # state/param_groups so Lightning's scheduler-bind code works
         # transparently.
         if self.hparams.use_lookahead:
-            from .._lookahead_optimizer import Lookahead
-            optimizer = Lookahead(
+            from .._lookahead_optimizer import wrap_with_lookahead
+            optimizer = wrap_with_lookahead(
                 optimizer,
+                True,
                 k=self.hparams.lookahead_k,
                 alpha=self.hparams.lookahead_alpha,
             )

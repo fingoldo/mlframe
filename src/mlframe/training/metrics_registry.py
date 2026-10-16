@@ -34,6 +34,7 @@ Returns any value with a ``__format__`` method (typically float).
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import Callable, Iterator, Optional, Any
 
@@ -57,10 +58,9 @@ class MetricSpec:
     description: str = ""
 
 
-# Written by register_metric/unregister_metric with no lock -- fine today (only written at import time
-# by the four _register_builtin_* calls below, plus any user code calling register_metric, both
-# single-threaded call patterns). If runtime registration from parallel workers is ever added, this dict
-# needs a lock around every read-modify-write (register/unregister), not just the writes in isolation.
+# register_metric/unregister_metric are read-modify-write on a nested dict, and readers iterate it, so every access holds this
+# lock; readers copy what they need under it and run the (arbitrary user) metric callables outside it.
+_REGISTRY_LOCK = threading.Lock()
 _REGISTRY: dict[TargetTypes, dict[str, MetricSpec]] = {}
 
 
@@ -81,15 +81,16 @@ def register_metric(
 
     Idempotent: re-registering the same name overwrites.
     """
-    _REGISTRY.setdefault(target_type, {})[name] = MetricSpec(
-        fn=fn, higher_is_better=bool(higher_is_better), description=description,
-    )
+    spec = MetricSpec(fn=fn, higher_is_better=bool(higher_is_better), description=description)
+    with _REGISTRY_LOCK:
+        _REGISTRY.setdefault(target_type, {})[name] = spec
 
 
 def unregister_metric(target_type: TargetTypes, name: str) -> None:
     """Remove a registered metric. No-op if not registered."""
-    if target_type in _REGISTRY:
-        _REGISTRY[target_type].pop(name, None)
+    with _REGISTRY_LOCK:
+        if target_type in _REGISTRY:
+            _REGISTRY[target_type].pop(name, None)
 
 
 def iter_extra_metrics(target_type: TargetTypes, y_true: np.ndarray, probs_NK: Optional[np.ndarray], preds_NK: np.ndarray) -> Iterator[tuple[str, Any]]:
@@ -108,7 +109,9 @@ def iter_extra_metrics(target_type: TargetTypes, y_true: np.ndarray, probs_NK: O
 
     logger = logging.getLogger(__name__)
 
-    for name, spec in _REGISTRY.get(target_type, {}).items():
+    with _REGISTRY_LOCK:
+        registered = list(_REGISTRY.get(target_type, {}).items())
+    for name, spec in registered:
         try:
             value = spec.fn(y_true, probs_NK, preds_NK)
             yield name, value
@@ -136,19 +139,22 @@ def iter_extra_metrics(target_type: TargetTypes, y_true: np.ndarray, probs_NK: O
 
 def list_registered(target_type: TargetTypes) -> list:
     """Introspection: list registered metric names for a target type."""
-    return list(_REGISTRY.get(target_type, {}).keys())
+    with _REGISTRY_LOCK:
+        return list(_REGISTRY.get(target_type, {}).keys())
 
 
 def list_registered_specs(target_type: TargetTypes) -> dict[str, MetricSpec]:
     """Introspection: full {name: MetricSpec} map (direction + description)."""
-    return dict(_REGISTRY.get(target_type, {}))
+    with _REGISTRY_LOCK:
+        return dict(_REGISTRY.get(target_type, {}))
 
 
 def get_metric_direction(
     target_type: TargetTypes, name: str,
 ) -> Optional[bool]:
     """Return ``higher_is_better`` for a registered metric, or None if absent."""
-    spec = _REGISTRY.get(target_type, {}).get(name)
+    with _REGISTRY_LOCK:
+        spec = _REGISTRY.get(target_type, {}).get(name)
     return None if spec is None else spec.higher_is_better
 
 
@@ -336,7 +342,9 @@ def metric_name_higher_is_better(name: str) -> Optional[bool]:
     # registered for one target type usually has the same direction for
     # all (a single metric callable doesn't change meaning across target
     # types). Return None if no match anywhere.
-    for _tt_specs in _REGISTRY.values():
+    with _REGISTRY_LOCK:
+        _all_specs = [dict(v) for v in _REGISTRY.values()]
+    for _tt_specs in _all_specs:
         spec = _tt_specs.get(name)
         if spec is not None:
             return spec.higher_is_better

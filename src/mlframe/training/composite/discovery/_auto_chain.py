@@ -227,7 +227,7 @@ def reregister_auto_chain_transforms(transform_names: Iterable[str] | None) -> l
     Transform via :func:`build_chain_transform`, and registers it + its provenance. Non-chain / already-registered /
     unparseable names are skipped. Returns the names actually re-registered.
     """
-    from mlframe.training.composite.transforms.shared import TRANSFORMS_REGISTRY as _TRANSFORMS_REGISTRY
+    from mlframe.training.composite.transforms.shared import TRANSFORMS_REGISTRY as _TRANSFORMS_REGISTRY, register_transform_if_absent
     from ..provenance import register_chain_provenance
     done: list[str] = []
     for nm in {n for n in (transform_names or []) if isinstance(n, str)}:
@@ -240,7 +240,7 @@ def reregister_auto_chain_transforms(transform_names: Iterable[str] | None) -> l
                 res = body[: -len(suffix)]
                 if res in _RESIDUAL_STAGE_NAMES:
                     try:
-                        _TRANSFORMS_REGISTRY.setdefault(nm, build_chain_transform(res, un))
+                        register_transform_if_absent(nm, build_chain_transform(res, un))
                         register_chain_provenance(nm, res, un)
                         done.append(nm)
                     except Exception as e:  # -- a malformed cached name must not abort replay

@@ -123,6 +123,23 @@ def apply_loky_cpu_count_override() -> None:
 # fast-import / optional-dep isolation; no longer guarding a training_old cycle).
 
 _LAZY_IMPORTS = {
+    "list_registered": (".metrics_registry", "list_registered"),
+    "get_metric_direction": (".metrics_registry", "get_metric_direction"),
+    "record_phase": (".phases", "record_phase"),
+    "phase_ram_snapshot": (".phases", "phase_ram_snapshot"),
+    "compare_targets_performance": (".targets_performance", "compare_targets_performance"),
+    "make_pool": ("._model_factories", "make_pool"),
+    "make_dmatrix": ("._model_factories", "make_dmatrix"),
+    "make_lgb_dataset": ("._model_factories", "make_lgb_dataset"),
+    "recover_composite_y_scale_metrics": (".core._phase_composite_post", "recover_composite_y_scale_metrics"),
+    "screen_base_pool": (".composite.discovery._leakage", "screen_base_pool"),
+    "attach_grouped_causal_bases": (".composite.discovery._grouped_causal_bases", "attach_grouped_causal_bases"),
+    "benjamini_hochberg_reject": (".composite.discovery._eval_stats", "benjamini_hochberg_reject"),
+    "list_registered_specs": (".metrics_registry", "list_registered_specs"),
+    "unregister_metric": (".metrics_registry", "unregister_metric"),
+    "calibration_adjusted_score": (".composite.discovery._calibration_gate", "calibration_adjusted_score"),
+    "recalibration_rmse_gain": ("._regression_calibration", "recalibration_rmse_gain"),
+    "rank_transforms_by_waic": (".composite.discovery._eval_waic", "rank_transforms_by_waic"),
     # Core functions
     "train_mlframe_models_suite": (".core", "train_mlframe_models_suite"),
     "train_automl_models_suite": (".automl", "train_automl_models_suite"),
@@ -461,6 +478,23 @@ __all__ += [
     "cv_stability_check",
     "easy_ensemble_fit_predict",
     "DirectHorizonBucketForecaster",
+    "benjamini_hochberg_reject",
+    "list_registered_specs",
+    "unregister_metric",
+    "calibration_adjusted_score",
+    "recalibration_rmse_gain",
+    "rank_transforms_by_waic",
+    "recover_composite_y_scale_metrics",
+    "screen_base_pool",
+    "attach_grouped_causal_bases",
+    "make_pool",
+    "make_dmatrix",
+    "make_lgb_dataset",
+    "compare_targets_performance",
+    "list_registered",
+    "get_metric_direction",
+    "record_phase",
+    "phase_ram_snapshot",
 ]
 
 

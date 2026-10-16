@@ -62,6 +62,16 @@ _PUBLIC_API = {
     "set_dtw_dispatch_threshold",  # documented tuning knob for the DTW GPU/CPU crossover; a user sets it
     "get_metric_direction",  # public accessor for a metric's registered direction
     "list_registered",  # public introspection of the metric registry
+    # public function of mlframe.feature_selection.filters.hermite_fe (no __all__ there by design), covered by test_plugin_mi_classif_dispatch.py
+    "plugin_mi_classif_batch_fast",
+    # public deep-import helper of mlframe.feature_selection.importance (the module pulls matplotlib, so it is not re-exported), covered by
+    # test_importance.py
+    "compute_permutation_importances",
+    # public deep-import helper of mlframe.feature_selection.optbinning (optional optbinning dependency), covered by test_optbinning.py
+    "get_binningprocess_featureselectors",
+    # public DTW backend chooser; mlframe.signal re-exports only stdlib signal (name-shadow guard), so the surface is mlframe.signal.dtw, covered by
+    # tests/signal_tests/test_dtw.py
+    "dtw_dispatch",
 }
 
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
@@ -662,6 +672,95 @@ _REEXPORTED_PUBLIC_API = {
     "winsorized_mean",
     "wrap_with_logging",
     "xgb_dmatrix_reuse_capable",
+    "compute_mutual_info_regression",  # exported through the defining module __all__ (owner decision: export)
+    "parse_routing_col_name",  # exported through the defining module __all__ (owner decision: export)
+    "npnbArrayMinMax",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "topk_by_partition",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "arrayCountingArgSort",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "arrayCountingArgSortAndUniqueValues",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "arrayCountingSort",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "get_dist_percentage_span_for_sd",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "box_cox_plus_c",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "identity",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "inv_box_cox_plus_c",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "inv_log_plus_c",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "log_plus_c",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "qubed",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "evaluate_estimators",  # re-exported by mlframe.evaluation (its package namespace already exposes it)
+    "plot_pr_curve",  # re-exported by mlframe.evaluation (its package namespace already exposes it)
+    "categorize_1d_array",  # re-exported by mlframe.feature_selection.filters (its package namespace already exposes it)
+    "compute_shap_on_cv",  # re-exported by mlframe.inference (its package namespace already exposes it)
+    "get_models_raw_predictions",  # re-exported by mlframe.inference (its package namespace already exposes it)
+    "read_trained_models",  # re-exported by mlframe.inference (its package namespace already exposes it)
+    "fast_aucs_per_group",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "make_brier_precision_scorer",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "numba_warmup",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "js_divergence",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "kl_divergence",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "ks_distribution_distance",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "population_stability_index",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "wasserstein_1d",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "compute_batch_rmse",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "set_gpu_thresholds",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "fast_multilabel_classification_metrics_block",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "dcg_at_k",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "expected_reciprocal_rank",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "hit_at_k",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "precision_at_k",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "ProbaScoreProxy",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "optimize_finite_onedimensional_search_space",  # re-exported by mlframe.models (its package namespace already exposes it)
+    "mc_dropout_predict",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "predictive_entropy",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "duan_log_smearing_factor",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "smearing_predict",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "tta_predict",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "tta_predict_spread",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "mean_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "plurality_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "borda_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "dowdall_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "copeland_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "condorcet_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "baldwin_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "minimax_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "optimality_gap_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "threshold_election",  # exported by mlframe.votenrank through its lazy export map (leaderboard._rules)
+    "spearmanr_batched",  # exported by mlframe.metrics (direct-use public surface)
+    "spearmanr_batched_dispatch",  # exported by mlframe.metrics (direct-use public surface)
+    "set_spearmanr_dispatch_threshold",  # exported by mlframe.metrics (direct-use public surface)
+    "bootstrap_auc_distribution_parallel",  # exported by mlframe.metrics (direct-use public surface)
+    "composite_value_report",  # exported by mlframe.training.composite (__all__)
+    "mondrian_ood_summary",  # exported by mlframe.training.composite (__all__)
+    "concordance_index",  # exported by mlframe.training.composite (__all__)
+    "check_and_rediscover",  # exported by mlframe.training.composite (__all__)
+    "detect_cat_columns",  # exported by mlframe.training.composite (__all__)
+    "ksg_mi_pair",  # exported by mlframe.feature_selection.filters (__all__)
+    "ksg_mi_with_significance",  # exported by mlframe.feature_selection.filters (__all__)
+    "nsb_mi",  # exported by mlframe.feature_selection.filters (__all__)
+    "optimal_bin_edges",  # exported by mlframe.feature_selection.filters (__all__)
+    "apply_bin_edges",  # exported by mlframe.feature_selection.filters (__all__)
+    "compose_pair_fe",  # exported by mlframe.feature_selection.filters (__all__)
+    "validate_pair_fe_cv",  # exported by mlframe.feature_selection.filters (__all__)
+    "numpy_rng_scope",  # exported by its package (__all__ / lazy export map)
+    "curated_fe_pipelines",  # exported by its package (__all__ / lazy export map)
+    "recommended_curated_fe_names",  # exported by its package (__all__ / lazy export map)
+    "wavedec_dispatch",  # exported by its package (__all__ / lazy export map)
+    "wavelet_denoise",  # exported by its package (__all__ / lazy export map)
+    "benjamini_hochberg_reject",  # exported lazily through mlframe.training
+    "list_registered_specs",  # exported lazily through mlframe.training
+    "unregister_metric",  # exported lazily through mlframe.training
+    "calibration_adjusted_score",  # exported lazily through mlframe.training
+    "recalibration_rmse_gain",  # exported lazily through mlframe.training
+    "rank_transforms_by_waic",  # exported lazily through mlframe.training
+    "score_trivial_baselines",  # exported through mlframe.feature_selection.filters
+    "select_usability_aware_features",  # exported through mlframe.feature_selection.filters
+    "recover_composite_y_scale_metrics",  # exported lazily through mlframe.training
+    "screen_base_pool",  # exported lazily through mlframe.training
+    "attach_grouped_causal_bases",  # exported lazily through mlframe.training
+    "make_pool",  # exported lazily through mlframe.training
+    "make_dmatrix",  # exported lazily through mlframe.training
+    "make_lgb_dataset",  # exported lazily through mlframe.training
+    "compare_targets_performance",  # exported lazily through mlframe.training
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -685,6 +784,16 @@ _TEST_UTILITIES = {
     "_lib_versions_cache_clear",  # test-isolation reset of the library-version cache
     "cache_bytes",  # recorded-size readout for tests and diagnostics of the CatBoost pool budget
     "is_triton_available",  # Triton availability probe for callers and tests
+    "reset_gpu_probe",  # test hook that re-probes GPU availability after monkeypatching
+    "reset_cmi_forder_cache",  # test/free-memory reset of cached F-order copies
+    "reset_gpu_metrics_probe",  # test hook that re-probes GPU availability for metrics
+    "_lgb_cache_clear",  # test-isolation reset of the LightGBM dataset cache
+    "_is_windows",  # single chokepoint for OS detection, monkeypatched by tests
+    "_ranknet_pair_cache_clear",  # test-only reset of the RankNet pair cache
+    "set_default_cache",  # test hook that replaces the process-wide cache singleton
+    "_discovery_cache_bytes_total",  # directory-walk ground truth the caching tests compare the incremental _total_bytes accumulator against
+    # live-registry reader used by tests/training/composite/test_provenance_formula_coverage.py to check every transform has a formula and description
+    "_registered_transform_names",
 }
 
 _OFFLINE_GENERATORS = {
@@ -725,6 +834,14 @@ _OFFLINE_GENERATORS = {
     "agreement_rate",  # votenrank study metric, run by hand
     "best_unary_transform",  # baseline comparator for the FE benchmarks, run by hand
     "score_triplet_baselines",  # baseline comparator for the triplet FE benchmarks, run by hand
+    "replay_cv_results",  # visualisation of a stored CV dump, run by hand
+    "example_highd",  # demo that a sliced-MI estimate is near zero on independent samples, run by hand
+    "compare_ensembles",  # ensemble comparison plot for hand-run analysis
+    "preprocess_glue",  # cleaning of a scraped GLUE leaderboard, run by hand
+    "preprocess_sglue",  # cleaning of a scraped SuperGLUE leaderboard, run by hand
+    "preprocess_value",  # cleaning of a scraped VALUE leaderboard, run by hand
+    "compute_iia",  # votenrank Monte-Carlo IIA study, run by hand
+    "kendall_tau",  # votenrank study correlation against the AM ranking, run by hand
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -739,13 +856,22 @@ _RETAINED_KERNELS = {
     "_numba_cuda_diagonal_step",
     "_col_stats_float_numba_kernel",
     "_count_le_2d_njit",
-    "_count_le_2d_njit_parallel",  # bit-identity reference twins of the row-major count kernels (keep-all-kernels rule); parity pinned in tests/feature_selection/discretization/test_multiselect_quantile_edges.py
-    "device_permuted_y_batch",  # measured-rejected device permutation generator (slower than the host kernel at 99 x 2000); kept as the bit-identical parity reference, see its module docstring
-    "_quantile_edges_2d_radix_njit",  # reference twin of the tiled radix quantile kernel (keep-all-kernels rule); parity pinned in tests/feature_selection/discretization/test_multiselect_quantile_edges.py
+    # bit-identity reference twins of the row-major count kernels (keep-all-kernels rule); parity pinned in
+    # tests/feature_selection/discretization/test_multiselect_quantile_edges.py
+    "_count_le_2d_njit_parallel",
+    # measured-rejected device permutation generator (slower than the host kernel at 99 x 2000); kept as the bit-identical parity reference, see its module
+    # docstring
+    "device_permuted_y_batch",
+    # reference twin of the tiled radix quantile kernel (keep-all-kernels rule); parity pinned in
+    # tests/feature_selection/discretization/test_multiselect_quantile_edges.py
+    "_quantile_edges_2d_radix_njit",
     "_lnc_correction",  # deprecated first-pass LNC kept behind a flag for A/B parity; no switch currently reaches it
     "_get_mi_mm_from_values_kernel",  # superseded by the length-aware _nek kernel; kept as the original, nothing switches to it
-    "_resample_desc_order_counting",  # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
-    "score_triplet_cross_basis_by_mi_uplift",  # alternative triplet scorer (MI uplift over the best source); the live path uses score_triplet_cross_basis_by_cmi and no switch reaches this one; exercised by tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
+    # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
+    "_resample_desc_order_counting",
+    # alternative triplet scorer (MI uplift over the best source); the live path uses score_triplet_cross_basis_by_cmi and no switch reaches this one;
+    # exercised by tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
+    "score_triplet_cross_basis_by_mi_uplift",
     "_plugin_mi_from_counts",  # plug-in MI helper of the retained uplift scorer above; no live caller
     "_discrete_score_numpy_loop",  # original per-class reference for the discrete path, kept as the fallback; no switch reaches it
     "_ks_statistic_numpy",  # reference KS kept callable as the fallback; no switch reaches it
@@ -756,6 +882,52 @@ _RETAINED_KERNELS = {
     "naive_mean_var_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
     "naive_moments_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
     "_fused_regression_welford_par",  # parallel fused Welford regression kernel kept as an alternative; no switch reaches it
+    "compute_nunique_mode_quantiles_numba",  # marked not recommended in its own docstring; the numpy variant is the live path
+    "kahan_dot_seq",  # compensated-sum alternative kept for the numerical-stability bench
+    "kahan_sum_seq",  # compensated-sum alternative kept for the numerical-stability bench
+    "kahan_two_pass_var_seq",  # compensated two-pass variance kept for the numerical-stability bench
+    "welford_mean_var_seq",  # single-pass Welford kept for the numerical-stability bench
+    "welford_moments_seq",  # single-pass Welford moments kept for the numerical-stability bench
+    "smote_synthesize_rowloop",  # row-loop SMOTE kept as the pre-vectorisation reference
+    "_rff_analytic_mixed_partial_energy_loop",  # per-pair reference kernel kept for the exact RFF energy check
+    "_combine_factorize_serial_njit",  # fully-serial reference of the combine-factorize kernel, kept as the baseline
+    "_pack_for_bitmap_numpy",  # numpy reference packer kept for the bit-identity bench and test
+    "_fused_regression_welford_seq",  # sequential fused Welford regression kernel kept as the alternative to the parallel one
+    "dtw_cupy_full",  # pre-CPX-P0-2 full-matrix DTW kept as an alternative backend; no switch reaches it
+    # fused 1-D quantile discretiser measured 0.58-0.74x of numpy nanpercentile+searchsorted on the dev card; kept for re-bench on other hardware
+    "_quantile_codes_1d_njit",
+    # two-reduction entropy+occupancy over a count vector; the histogram pass now fuses the occupied-cell count in one launch, kept as the unfused form
+    "_ent_from_counts",
+    "_nnz_from_counts",  # occupied-cell count reduction over a count vector; replaced by the fused histogram atomicAdd count, kept as the unfused form
+    # joblib-worker form of the null-accumulating kernel; mi_direct runs parallel_mi_prange_with_null since the joblib pool was retired, exercised in
+    # tests/feature_selection/biz_val/test_biz_val_filters_permutation.py
+    "parallel_mi_with_null",
+    # Besag-Clifford form of the null-accumulating kernel; mi_direct runs parallel_mi_prange_with_null, exercised in
+    # tests/feature_selection/biz_val/test_biz_val_filters_permutation.py
+    "parallel_mi_besag_clifford_with_null",
+    "_per_cell_raw_moments_njit",  # raw-power moment accumulator; the centered _per_cell_moments_stable replaced it for numerical stability
+    # device twin of per_cell_stats_bincount; the resident path calls the centered-moment helper directly, parity in test_binned_numeric_agg_resident.py
+    "_per_cell_stats_gpu",
+    "_gpu_evaluate_basis_column",  # per-column device port of the basis evaluation; the batched matrix builder is the production path
+    # folklore-threshold predecessor of _should_apply_mm_for_pair_analytical, kept as the A/B baseline; the analytic rule replaced it
+    "_should_apply_mm_for_pair",
+    # unfused reference of the fused row_attention_stage4 aggregates; matches numpy weighted moments in
+    # tests/feature_engineering/transformer/test_aggregation_and_smote_reference_kernels.py
+    "batch_weighted_mean",
+    # unfused reference of the fused row_attention_stage4 aggregates; matches numpy weighted moments in
+    # tests/feature_engineering/transformer/test_aggregation_and_smote_reference_kernels.py
+    "batch_weighted_std",
+    # unfused reference of the fused row_attention_stage4 aggregates; matches numpy weighted moments in
+    # tests/feature_engineering/transformer/test_aggregation_and_smote_reference_kernels.py
+    "batch_weighted_vector_mean",
+    # unfused reference of the fused row_attention_stage4 aggregates; matches numpy weighted moments in
+    # tests/feature_engineering/transformer/test_aggregation_and_smote_reference_kernels.py
+    "weighted_std_1d",
+    # bench-only vectorised twin of smote_synthesize_rowloop, bit-identical (test_aggregation_and_smote_reference_kernels.py); transformers call the
+    # *_minority_* variants
+    "smote_synthesize_vectorized",
+    # gate for skipping the joint cat prep on linear-only runs; measured a net regression (25.05s to 32.48s), kept for future targeted opts
+    "_models_need_pandas_cat_prep",
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -810,25 +982,79 @@ _NAME_DISPATCHED = {
 _SUPERSEDED = {
     "subset_redundancy",  # scalar form of subset_redundancy_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_calibrate.py
     "subset_uncertainty",  # scalar form of subset_uncertainty_many; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_objective.py
-    "_pack_bins_for_kernel",  # per-column Python loop replaced by _compute_marginals_packed; parity pinned in tests/feature_selection/shap_proxied/test_shap_proxy_cluster_su_fused_setup.py
-    "hyvarinen_score",  # deprecated alias of mutual_information_score; parity + DeprecationWarning pinned in tests/calibration/test_mutual_information_rename.py
-    "_oof_column_gather",  # stacks the per-fold tables first; _oof_column_from_table does the same gather on the table already stacked and is what the builder calls
+    # per-column Python loop replaced by _compute_marginals_packed; parity pinned in
+    # tests/feature_selection/shap_proxied/test_shap_proxy_cluster_su_fused_setup.py
+    "_pack_bins_for_kernel",
+    # deprecated alias of mutual_information_score; parity + DeprecationWarning pinned in tests/calibration/test_mutual_information_rename.py
+    "hyvarinen_score",
+    # stacks the per-fold tables first; _oof_column_from_table does the same gather on the table already stacked and is what the builder calls
+    "_oof_column_gather",
     "_oof_column_foldloop",  # parity oracle for _oof_column_gather (tests/feature_selection/fe/gpu/test_binagg_oof_gather_parity.py)
-    "_pair_combo_mi_cupy_loop",  # per-combo cupy twin of _pair_combo_mi_cupy; parity pinned in tests/feature_selection/gpu/test_usability_pool_cupy_batched_twin.py
+    # per-combo cupy twin of _pair_combo_mi_cupy; parity pinned in tests/feature_selection/gpu/test_usability_pool_cupy_batched_twin.py
+    "_pair_combo_mi_cupy_loop",
     "_propose_fourier",  # predecessor of _propose_fourier_both_warps; parity pinned in tests/feature_selection/fe/adaptive/test_propose_fourier_parity.py
-    "mdlp_inner_cuts",  # reference form of the honest-null cut search; the null kernels use the presorted twin, equality pinned in tests/feature_selection/discretization/test_mdlp_presorted_cuts_parity.py
-    "score_triplet_cross_basis_by_mi_uplift",  # predecessor of score_triplet_cross_basis_by_cmi (the production scorer); kept public, pinned in tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
-    "mi_classif_streamed_fill",  # zero-copy twin of mi_classif_streamed (the production path); kept as its reference, parity pinned in tests/feature_selection/filters/test_streamed_gpu_mi.py::test_streamed_fill_matches_copy_path
-    "_yj_forward_scalar",  # scalar reference for _yj_forward (numpy and numba paths); parity pinned in tests/training/composite/transforms/test_yj_forward_scalar_parity.py
+    # reference form of the honest-null cut search; the null kernels use the presorted twin, equality pinned in
+    # tests/feature_selection/discretization/test_mdlp_presorted_cuts_parity.py
+    "mdlp_inner_cuts",
+    # predecessor of score_triplet_cross_basis_by_cmi (the production scorer); kept public, pinned in
+    # tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
+    "score_triplet_cross_basis_by_mi_uplift",
+    # zero-copy twin of mi_classif_streamed (the production path); kept as its reference, parity pinned in
+    # tests/feature_selection/filters/test_streamed_gpu_mi.py::test_streamed_fill_matches_copy_path
+    "mi_classif_streamed_fill",
+    # scalar reference for _yj_forward (numpy and numba paths); parity pinned in tests/training/composite/transforms/test_yj_forward_scalar_parity.py
+    "_yj_forward_scalar",
     "_entropy_binary",  # binary form of _entropy_from_counts; parity pinned in tests/feature_engineering/transformer/test_entropy_binary_parity.py
     "_flags_to_combo_key",  # flag-set form of the oracle key _combo_key; parity pinned in tests/feature_selection/filters/test_flags_combo_key_parity.py
-    "_is_minimise_metric",  # now delegates to the metrics registry, the live direction source; parity pinned in tests/training/core/test_metric_direction_parity.py
+    # now delegates to the metrics registry, the live direction source; parity pinned in tests/training/core/test_metric_direction_parity.py
+    "_is_minimise_metric",
     "_default_metric_is_auc",  # the unset-metric check; parity pinned in tests/training/core/test_metric_direction_parity.py
-    "_per_query_groups",  # index-array form of the live group slices in metrics.ranking._iter_group_slices; parity pinned in tests/reporting/test_per_query_groups_parity.py
-    "_pointwise_log_ratio",  # the log term the I_ccs kernel computes inline; the helper re-sum matches it, pinned in tests/feature_selection/filters/test_pointwise_log_ratio_parity.py
-    "_get_fused_mi_term",  # the cp.fuse per-cell term; the resident MI now runs the fused MI-from-codes RawKernel (0cb9186a0). Formula pinned to numpy in tests/feature_selection/gpu/test_gpu_fused_mi_term.py
+    # index-array form of the live group slices in metrics.ranking._iter_group_slices; parity pinned in tests/reporting/test_per_query_groups_parity.py
+    "_per_query_groups",
+    # the log term the I_ccs kernel computes inline; the helper re-sum matches it, pinned in
+    # tests/feature_selection/filters/test_pointwise_log_ratio_parity.py
+    "_pointwise_log_ratio",
+    # the cp.fuse per-cell term; the resident MI now runs the fused MI-from-codes RawKernel (0cb9186a0). Formula pinned to numpy in
+    # tests/feature_selection/gpu/test_gpu_fused_mi_term.py
+    "_get_fused_mi_term",
     "grok_mutual_information_old",  # naive per-cell form of grok_mutual_information; parity pinned in tests/feature_selection/test_grok_mi_old_parity.py
     "_yj_inverse_scalar",  # scalar reference for _yj_inverse; parity pinned in tests/training/composite/transforms/test_yj_inverse_scalar_parity.py
+    # standalone form of the fused z**4 moment the analyzer computes inline; parity pinned in tests/training/targets/test_moment_helpers_parity.py
+    "_excess_kurtosis",
+    "_skewness",  # standalone form of the fused z**3 moment the analyzer computes inline; parity pinned in tests/training/targets/test_moment_helpers_parity.py
+    # per-column reference for the vectorised monotone fraction in structural_affinity_scores; parity pinned in
+    # tests/training/composite/test_monotone_and_rolling_quantile_parity.py
+    "_monotone_fraction",
+    # scan-and-sort reference for _sorted_quantile_radius on the live sorted buffer; parity pinned in
+    # tests/training/composite/test_monotone_and_rolling_quantile_parity.py
+    "_rolling_quantile_radius",
+    # two-sort form of _mann_whitney_u_z_v2 (the production kernel); bit-identity pinned in
+    # tests/feature_selection/wrappers/test_wrappers_statistical_fixes.py::TestSingleSortKernelsBitIdentical
+    "_mann_whitney_u_z",
+    # two-sort form of _kruskal_wallis_h_v2 (the production kernel); bit-identity pinned in
+    # tests/feature_selection/wrappers/test_wrappers_statistical_fixes.py::TestSingleSortKernelsBitIdentical
+    "_kruskal_wallis_h",
+    # full-lstsq reference of the Frisch-Waugh rank-1 SSE used by the hinge precheck and scan; parity pinned in
+    # tests/feature_selection/filters/test_segmented_sse_fwl_parity.py
+    "_segmented_sse",
+    "grand_fused_pair_mi",  # unfused form of grand_fused_pair_mi_fused; equality pinned in tests/feature_selection/gpu/test_gpu_resident_fe.py
+    # per-stat form of _global_stats_all; equality pinned in
+    # tests/feature_selection/fe/test_binned_numeric_agg_fe.py::test_global_stats_all_matches_global_stat
+    "_global_stat",
+    # scalar reference of the batched OLS solver; equality pinned in tests/training/composite/transforms/test_linear_residual_batched_ols.py
+    "_linear_residual_fit_closed",
+    # intermediate fused per-group kernel; production runs _group_aware_relevance_fused_njit, bit-parity with per-column _mi_from_edges in
+    # test_ranker_fs_group_relevance_identity.py
+    "_group_features_mi_njit",
+    # merge-only form of _greedy_merge_with_history (which the MAH estimator calls); parity pinned in
+    # tests/feature_selection/filters/test_mah_greedy_merge_parity.py
+    "_greedy_merge_bins",
+    # unhoisted per-pair reference of _maybe_rerank_with_mm; equality pinned in
+    # tests/feature_selection/fe/categorical/test_cat_mm_rerank_vs_per_pair_reference.py
+    "_compute_pair_ii_mm",
+    # per-column OLS form of the closed-form 1 - corr^2 the vectorised structural screen uses; equality pinned in
+    # tests/training/composite/discovery/test_residual_variance_ratio_closed_form.py
+    "_residual_variance_ratio",
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -841,40 +1067,24 @@ _OPT_IN_SLOW: set[str] = {
 #: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.
 _PLUGIN_HOOKS = {
     "forget_pool_bytes",  # downstream evictor calls it after evicting outside evict_for_budget
+    "ensure_batch_mi_noise_gate_tuning",  # refresh-* sweep of the kernel-tuning CLI under _benchmarks (outside the scanned tree)
+    "ensure_fe_gpu_binning_tuning",  # refresh-* sweep of the kernel-tuning CLI under _benchmarks (outside the scanned tree)
+    "ensure_fe_gpu_pairs_mi_tuning",  # refresh-* sweep of the kernel-tuning CLI under _benchmarks (outside the scanned tree)
+}
+
+#: FRAMEWORK_HOOK: invoked by name by a framework (a joblib pool warm-up, a callback); the caller is outside the repo or the framework.
+_FRAMEWORK_HOOKS: set[str] = {
+    "_pool_warmup_noop",  # joblib pool warm-up callable, handed to the worker pool by reference
 }
 
 #: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
 _PLANNED: set[str] = {
-    "npnbArrayMinMax",  # fast finite-input min/max utility not yet called; the planned array-stats path uses it
-    "topk_by_partition",  # top-k helper not yet called; the planned ranking path uses it
-    "_suppress_numeric_warnings",  # worker-thread warning filter for the numeric module, planned for its callers
-    "compute_mutual_info_regression",  # KNN regression MI planned for the regression feature-selection path
-    "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
-    "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
-    "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
-    "fill_grid_1d",  # GPU launch-geometry helper for flat kernels, planned to replace hand-written grid sizes
-    "clear_pinned_d2h",  # releases the thread-local pinned D2H staging buffer; location at fit completion undecided
-    "validate_artifact_dict",  # sanity check for received artifact dicts, planned guard on the artifact load path
-    "parse_routing_col_name",  # inverse of _routing_col_name, planned for recipe replay
-    "parallel_mi_with_null",  # null-mean-accumulating MI twin, planned for the null-calibrated screen
-    "parallel_mi_besag_clifford_with_null",  # null-mean-accumulating Besag-Clifford twin, planned for the null-calibrated screen
-    "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
-    "apply_gpu_binary_batched",  # batched GPU binary apply, planned for the resident FE path
-    "sanitize_name_list",  # remaps cat_features names through the sanitiser, planned for the training input path
-    "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
-    "_transform_via",  # applies a fitted pre-pipeline or passes X through, planned for the ensemble predict path
-    "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
-    "disable_native_es_for_slice_stable",  # strips native early stopping under slice-stable ES, planned for per-slice boosters
-    "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
-    "wrap_with_lookahead",  # conditional Lookahead wrapper, planned for the neural optimiser setup
-    "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
-    "bootstrap_auc_distribution_parallel",  # parallel full bootstrap AUC distribution, planned for the AUC uncertainty report
-    "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
-    "compute_permutation_importances",  # user-facing permutation importance helper not yet exported, planned as public API
-    "_require_plotly",  # plotly import guard for the interactive paths, planned to be called by them
-    "_split_arrays",  # groups a value array by split label for error analysis, planned for the split charts
-    "_wrap_text",  # label wrapping for plotly charts, planned for the chart labels
-    "_get_cached_plot_idx",  # cached random subsample index for scatter plots, planned for the residual plots
+    # Structure-aware conformal slice carver. TrainingSplitConfig.conformal_size is refused today because no split path reads it; wiring this
+    # means carving a third slice through splitting.py, the suite and finalize, which is feature work awaiting the owner.
+    "carve_calib_conformal",
+    # Stale parallel copy of the live loop in _phase_train_one_target_steps.py (state in the st object there, 45 keyword parameters here). Its module
+    # docstring flags it dead; delete-or-rewire is the owner's call, and tests that drive it exercise dead code.
+    "_run_one_weight_iteration",
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
@@ -884,6 +1094,50 @@ _OPTIN = {
     "precompute_all",  # pre-split warm-up entry point; calls the two stubs below
     "precompute_composite_target_specs",  # stub: raises NotImplementedError until the split-time implementation lands
     "precompute_dummy_baselines",  # stub: raises NotImplementedError until the split-time implementation lands
+    # plotly import gate for the viz extra; metrics plotting moved to the reporting renderers, kept as the documented guard for direct metrics.core users
+    "_require_plotly",
+    "_split_arrays",  # thin wrapper over group_values_by_label (which the charts call directly), kept as the error-analysis module's local entry point
+    "_wrap_text",  # thin plotly-flavoured wrapper over wrap_title_lines (the renderers call the measuring twin), kept for fixed-width <br> folding
+    "_get_cached_plot_idx",  # LRU-cached scatter subsample index; charts now use subsample_preserving_extremes, kept for fixed-seed uniform subsampling
+    "clear_pinned_d2h",  # releases page-locked host memory on request; the buffer is reused across fits for PCIe speed, so no automatic clear
+    "disable_native_es_for_slice_stable",  # configs-level twin of the per-model early_stopping_rounds strip done in _train_and_evaluate_val_df_none
+    "fill_grid_1d",  # grid sizing for grid-stride kernels; the existing launches are one-element-per-thread, where ceil(n/block) is already exact
+    "fe_gpu_resident_enabled",  # env switch for the GPU-resident FE prototype, measured a wall wash so it stays off unless MLFRAME_FE_GPU_RESIDENT is set
+    # measured per-host engage rule for the resident pair-combo table; the table is wired only under the strict flag because the non-strict path is not
+    # byte-identical
+    "pool_table_use_resident",
+    "_transform_via",  # single-frame pre_pipeline projection retained for external callers; OOF loops use _transform_pair_via
+    "fe_columns",  # frame-agnostic column lister; callers inside the package already know their framework and read .columns directly
+    "suppress_numba_warnings",  # scope-local numba warning context manager offered to numba-heavy entry points instead of a global filter
+    "unpack_ctx_configs_to_locals",  # lifts the suite's 25-attribute ctx unpack into a dict; the suite body keeps its explicit locals
+    # GPU-scored pair recipes as replayable EngineeredRecipe objects; production FE emits recipes on its CPU path, pinned in test_gpu_resident_fe.py
+    "gpu_resident_pair_recipes",
+    # device rank-binning of a resident column, bit-identical on tie-free data; used by callers that already hold the column on the card
+    "rank_bin_codes_gpu_resident",
+    "clear_resident_codes_handoff",  # explicit release of the resident-codes handoff; the dispatch no longer clears it unconditionally
+    "mi_direct_gpu_batched_streamed",  # streamed twin of mi_direct_gpu_batched for factor matrices that do not fit resident; chosen per fit on large inputs
+    "_initialize_mutable_defaults",  # None-to-empty defaults helper re-exported by trainer for legacy imports
+    # thread-safe warning guard for the numeric module; its welch call is currently commented out, pinned in tests/utils/test_warning_filters_thread_safe.py
+    "_suppress_numeric_warnings",
+    # linear half of pair_is_tail_concentrated_rankaware (the call-site predicate), pinned in
+    # tests/feature_selection/filters/test_pair_tail_concentration_predicates.py
+    "pair_is_tail_concentrated",
+    "_column_tie_fraction",  # gate predicate for tie-sensitive shadow kernels; the shipped permutation shadow is tie-agnostic so nothing gates on it yet
+    # batched GPU applier for GPU-compatible names; production builds candidates with the fused resident kernels, agreement with the CPU registry pinned in
+    # tests/feature_selection/gpu/test_apply_gpu_batched_vs_cpu_registry.py
+    "apply_gpu_unary_batched",
+    # batched GPU applier for GPU-compatible names; production builds candidates with the fused resident kernels, agreement with the CPU registry pinned in
+    # tests/feature_selection/gpu/test_apply_gpu_batched_vs_cpu_registry.py
+    "apply_gpu_binary_batched",
+    # multi-pair prange entry of the numba polynom optimiser; the dispatcher calls run_numba_kernel_search per pair, tests in
+    # test_numba_polynom_optimizer.py
+    "optimize_all_pairs_numba_kernel",
+    "mdlp_bin_edges_validated",  # significance-gated MDLP research prototype, opt-in by direct call; tested in test_mdlp_nan_handling.py
+    # corrector-only reorder of (proxy_loss, subset) candidates; fit step 5 applies the same corrector inline together with the uncertainty penalty and
+    # keeps the scores for UCB
+    "rerank_candidates",
+    # recurrent twin of the MLP override translator; documented as unused until ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT is populated by a sequence-DGP sweep
+    "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",
 }
 
 
@@ -914,6 +1168,7 @@ def test_no_new_function_without_a_caller(request):
         | _SUPERSEDED
         | _PLUGIN_HOOKS
         | _PLANNED
+        | _FRAMEWORK_HOOKS
         | _OPT_IN_SLOW
         | _OPTIN,
     )
