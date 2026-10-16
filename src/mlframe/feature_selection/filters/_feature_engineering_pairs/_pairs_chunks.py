@@ -380,6 +380,12 @@ def _compute_one_fe_chunk(
             # discretiser's per-call ``np.isnan().any()`` scan is guaranteed-False wasted work; skip it.
             assume_finite=True,
         )
+    # The pair family gate reads this chunk's codes on the host after the dispatch (they travel with the MI below). A deferred GPU codes buffer
+    # is unfilled until a host reader asks for it, and the dispatch drops its deferred-fill record when it ends, so fill it now: an unfilled
+    # buffer reads as all-zero codes, and the exact family test then rejected every winner whose best MI cleared the table floor.
+    from .._gpu_resident_fe import ensure_host_codes_filled
+
+    ensure_host_codes_filled(disc_2d)
     fe_mi_arr = _dispatch_batch_mi_with_noise_gate(
         disc_2d=disc_2d,
         quantization_nbins=quantization_nbins,

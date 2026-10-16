@@ -40,6 +40,7 @@ GATE: engages ONLY under ``fe_gpu_device_born_binagg_enabled`` (DEFAULT ON under
 cupy / non-strict it returns ``None`` and the caller takes the EXACT host ``local_mi_gate`` (byte-identical
 default path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 """
+
 from __future__ import annotations
 
 import logging
@@ -83,7 +84,7 @@ def _per_cell_moments_stable_gpu(cp, codes_g, v_g, n_cells: int):
     (host) for the confirmed failure mode this device twin shared (same arithmetic FORM, by design, for
     bit-parity -- which meant the same bug)."""
     nc = int(n_cells)
-    cnt = resident_bincount(cp, codes_g, nc).astype(cp.float64, copy=False)
+    cnt = resident_bincount(cp, codes_g, nc).astype(cp.float64, copy=False)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
     s1 = resident_bincount(cp, codes_g, nc, weights=v_g)
     mean = s1 / cp.maximum(cnt, 1.0)
     mean_row = mean[codes_g]
@@ -235,7 +236,11 @@ def _oof_gather_kernel(cp):
     global _OOF_GATHER_KERNEL
     if _OOF_GATHER_KERNEL is None:
         _OOF_GATHER_KERNEL = cp.ElementwiseKernel(
-            "int64 idx, raw float64 table, float64 fallback", "float64 out", "double v = table[idx]; out = isfinite(v) ? v : fallback;", "binagg_oof_gather"
+            # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
+            "int64 idx, raw float64 table, float64 fallback",
+            "float64 out",
+            "double v = table[idx]; out = isfinite(v) ? v : fallback;",
+            "binagg_oof_gather",
         )
     return _OOF_GATHER_KERNEL
 
@@ -254,7 +259,8 @@ def _oof_column_gather(cp, per_fold_stats: list, row_index, fallback: float):
     """The OOF column in ONE pass: row ``i`` takes the stat of its own fold's train-fold cell table at its cell code, or ``fallback`` where that cell was empty.
 
     Equal to the per-fold loop (:func:`_oof_column_foldloop`: gather at every row's code, select this fold's test rows, empty cell -> fallback) value for value, because every row
-    belongs to exactly one fold, but it replaces ``n_folds`` rounds of gather + isfinite + two wheres over all rows by a single gather from the stacked ``(n_folds, n_cells)`` table."""
+    belongs to exactly one fold, but it replaces ``n_folds`` rounds of gather + isfinite + two wheres over all rows by a single gather from the stacked ``(n_folds, n_cells)`` table.
+    """
     table = cp.ascontiguousarray(cp.stack(per_fold_stats, axis=0))
     return _oof_gather_kernel(cp)(row_index, table.reshape(-1), float(fallback))
 
@@ -283,6 +289,7 @@ def _pair_fold_stat_tables(cp, codes_g, v_safe, finite_f, fold_g, n_folds: int, 
 
 def _oof_column_foldloop(cp, per_fold_stats: list, fold_g, codes_g, n: int, fallback: float):
     """Reference per-fold assembly of one OOF column (kept as the parity oracle for :func:`_oof_column_gather`)."""
+    # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
     oof = cp.full(n, fallback, dtype=cp.float64)
     for f, per_s in enumerate(per_fold_stats):
         row_vals = per_s[codes_g]
@@ -292,14 +299,20 @@ def _oof_column_foldloop(cp, per_fold_stats: list, fold_g, codes_g, n: int, fall
 
 
 def build_binagg_oof_matrix_gpu(
-    cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], fold_ids: np.ndarray, n_folds: int, column_major: bool = False, out_dtype: Any = None,
+    cp: Any,
+    X: pd.DataFrame,
+    col_specs: Sequence[dict],
+    fold_ids: np.ndarray,
+    n_folds: int,
+    column_major: bool = False,
+    out_dtype: Any = None,
 ) -> Any:
     """Build the OOF binned-aggregate candidate matrix ON the device, one column per ``col_specs`` entry, in
     the GIVEN order. Reproduces ``fit_binned_numeric_agg``'s OOF loop on device from resident operand columns.
 
     ``col_specs`` is a list of per-output dicts ``{name, group_col, agg_col, stat, edges, global}`` (exactly the
     recipe fields) - the columns the host ``feat_df`` carries, in the SAME order. ``fold_ids`` is the
-    host-generated OOF fold-id vector (uploaded once). Returns an (n, K) cupy float64 matrix whose columns are
+    host-generated OOF fold-id vector (uploaded once). Returns an (n, K) cupy matrix at ``out_dtype`` (the relaxed candidate dtype by default) whose columns are
     the device OOF reconstructions, structurally bit-identical to the host (same codes, same per-fold gather,
     same global fallback); the per-cell moment VALUES differ only at ULP.
 
@@ -337,9 +350,12 @@ def build_binagg_oof_matrix_gpu(
 
         cc = code_cache.get(gcol)
         if cc is None:
+            # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
             gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
-            edges = np.asarray(spec["edges"], dtype=np.float64)
+            edges = np.asarray(spec["edges"], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
+            # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
             gvals_g = resident_operand(np.ascontiguousarray(gvals), ("binagg_g", gcol), dtype=cp.float64)
+            # Intentional float64: bin-edge / cut vector, compared against values at full precision
             edges_g = resident_operand(np.ascontiguousarray(edges), ("binagg_edges", gcol), dtype=cp.float64)
             codes_g = cp.searchsorted(edges_g, gvals_g, side="right").astype(cp.int64)
             # n_cells from the edge count, not int(codes_g.max()) (a D2H sync): searchsorted(side="right")
@@ -352,13 +368,15 @@ def build_binagg_oof_matrix_gpu(
 
         pc = pair_cache.get((gcol, acol))
         if pc is None:
+            # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
             av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
+            # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
             av_g = resident_operand(np.ascontiguousarray(av), ("binagg_a", acol), dtype=cp.float64)
             finite_g = cp.isfinite(av_g)
             # v_safe: non-finite entries zeroed once so the masked scatter-add never forms inf*0=nan on the
             # rows excluded by the 0/1 weight (the weight already carries finite_g, so their contribution is 0).
             v_safe = cp.where(finite_g, av_g, 0.0)
-            finite_f = finite_g.astype(cp.float64)
+            finite_f = finite_g.astype(cp.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
             _fold_stat_cache_new: dict = {}
             pc = (av_g, finite_g, v_safe, finite_f, _fold_stat_cache_new)
             pair_cache[(gcol, acol)] = pc
@@ -386,7 +404,9 @@ def build_binagg_oof_matrix_gpu(
         oof = _oof_column_from_table(cp, tables[stat], _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells), glob)
         out_cols.append(oof)
 
-    dt = cp.float64 if out_dtype is None else out_dtype
+    from ._hermite_fe_mi import relaxed_candidate_dtype as _relaxed_dt
+
+    dt = _relaxed_dt(cp) if out_dtype is None else out_dtype
     if not out_cols:
         return cp.empty((0, n) if column_major else (n, 0), dtype=dt)
     if column_major:
@@ -450,10 +470,16 @@ def local_mi_gate_binagg_resident(
         r = recipes.get(c) if isinstance(recipes, dict) else None
         if not r or "group_col" not in r or "agg_col" not in r or "edges" not in r or "global" not in r:
             return None
-        col_specs.append({
-            "name": c, "group_col": r["group_col"], "agg_col": r["agg_col"],
-            "stat": r.get("stat"), "edges": r["edges"], "global": r["global"],
-        })
+        col_specs.append(
+            {
+                "name": c,
+                "group_col": r["group_col"],
+                "agg_col": r["agg_col"],
+                "stat": r.get("stat"),
+                "edges": r["edges"],
+                "global": r["global"],
+            }
+        )
 
     from ._unified_fe_gate import raw_mi_noise_floor, _coerce_y_classes
 
@@ -468,7 +494,9 @@ def local_mi_gate_binagg_resident(
         fold_ids = binagg_fold_ids(n, n_folds, random_state)
         from ._hermite_fe_mi import relaxed_candidate_dtype
 
-        mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs, fold_ids, n_folds, column_major=True, out_dtype=relaxed_candidate_dtype(cp))  # (K, n): no transpose, no float64 block
+        mat_gpu = build_binagg_oof_matrix_gpu(
+            cp, raw_X, col_specs, fold_ids, n_folds, column_major=True, out_dtype=relaxed_candidate_dtype(cp)
+        )  # (K, n): no transpose, no full-width block
         if mat_gpu.shape[0] == 0:
             return []
         _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
@@ -477,7 +505,7 @@ def local_mi_gate_binagg_resident(
         _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
         cand_mi = np.asarray(
             _plugin_mi_classif_batch_cuda_resident(mat_gpu, y_gpu, int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True),
-            dtype=np.float64,
+            dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         )
         # Family-wise calibration, identical to ``_unified_fe_gate.local_mi_gate``: the floor is raised to the 95th percentile of the
         # per-permutation maximum MI over these candidates (y permuted on the device; candidates are binned without the target).
@@ -485,6 +513,7 @@ def local_mi_gate_binagg_resident(
 
         if mat_gpu.shape[0] >= 2 and _yi.size > 0:
             _rng = np.random.default_rng(0)
+            # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
             _null_max = np.empty(_LOCAL_GATE_NULL_PERMUTATIONS, dtype=np.float64)
             for _b in range(_LOCAL_GATE_NULL_PERMUTATIONS):
                 _perm = cp.asarray(_rng.permutation(_yi.size))
@@ -492,9 +521,16 @@ def local_mi_gate_binagg_resident(
                     np.nanmax(
                         np.asarray(
                             _plugin_mi_classif_batch_cuda_resident(
-                                mat_gpu, y_gpu[_perm], int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True,
+                                mat_gpu,
+                                y_gpu[_perm],
+                                int(nbins),
+                                y_min=_ymin,
+                                n_classes=_ncls,
+                                relax_binning=True,
+                                keep_dtype=True,
+                                x_is_cm=True,
                             ),
-                            dtype=np.float64,
+                            dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
                         )
                     )
                 )

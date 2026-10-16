@@ -40,7 +40,7 @@ def oos_dedupe_njit(x: np.ndarray, y: np.ndarray):
             n_keep += 1
     if n_keep == n:
         return x, y
-    xo = np.empty(n_keep, dtype=np.float64)
+    xo = np.empty(n_keep, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     yo = np.empty(n_keep, dtype=y.dtype)
     m = 0
     for i in range(n):
@@ -93,7 +93,7 @@ def oos_mdlp_cuts_njit(
     its holdout rows (gain > 0, > the Miller-Madow null mean, and >= ``tol`` times the train gain)."""
     n = x.shape[0]
     if n == 0:
-        return np.empty(0, dtype=np.float64)
+        return np.empty(0, dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
     perm = np.arange(n)
     for i in range(n - 1, 0, -1):
         j = np.random.randint(0, i + 1)
@@ -131,7 +131,7 @@ def oos_cuts_from_split_njit(
     st_hs = np.empty(max_nodes, dtype=np.int64)
     st_he = np.empty(max_nodes, dtype=np.int64)
     st_d = np.empty(max_nodes, dtype=np.int64)
-    out = np.empty(n, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     n_out = 0
     rank = np.full(n_classes_total, -1, dtype=np.int64)
     yh_c = np.empty(nh, dtype=np.int64)
@@ -239,14 +239,16 @@ def honest_validated_null_columns(
     q_fallback_len: np.ndarray,
     q_refine: np.ndarray,
     q_refine_len: np.ndarray,
+    eval_rows: np.ndarray,
+    col_slot: np.ndarray,
 ):
     """Per-permutation, per-column null MI for the held-out-validated strategy (prange over permutations). Returns ``(plain, corrected)``
     of shape ``(perms.shape[0], k)``, the same contract as :func:`_mdlp_honest_njit.honest_null_columns`."""
     n_perm_rows = perms.shape[0]
-    n = raw_cont.shape[0]
-    k = raw_cont.shape[1]
-    plain = np.zeros((n_perm_rows, k), dtype=np.float64)
-    corrected = np.zeros((n_perm_rows, k), dtype=np.float64)
+    n = perms.shape[1]
+    k = is_cont.shape[0]
+    plain = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    corrected = np.zeros((n_perm_rows, k), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for b in prange(n_perm_rows):
         rp = perms[b]
         yc_p = np.empty(n, dtype=np.int64)
@@ -254,14 +256,20 @@ def honest_validated_null_columns(
         for i in range(n):
             yc_p[i] = y_codes[rp[i]]
             yr_p[i] = y_raw[rp[i]]
+        # The MI is evaluated on ``eval_rows`` (the screen's row subsample, or every row): the cut search above still reads the whole
+        # permuted target, exactly as the observed codes were fitted on the whole target and then scored on the subsample.
+        m = eval_rows.shape[0]
+        ys = np.empty(m, dtype=np.int64)
+        for t in range(m):
+            ys[t] = yc_p[eval_rows[t]]
         ny = 0
-        for i in range(n):
-            if yc_p[i] + 1 > ny:
-                ny = yc_p[i] + 1
+        for t in range(m):
+            if ys[t] + 1 > ny:
+                ny = ys[t] + 1
         ky_eff = 0.0
         seen_y = np.zeros(ny, dtype=np.bool_)
-        for i in range(n):
-            seen_y[yc_p[i]] = True
+        for t in range(m):
+            seen_y[ys[t]] = True
         for c in range(ny):
             if seen_y[c]:
                 ky_eff += 1.0
@@ -269,17 +277,23 @@ def honest_validated_null_columns(
             if is_cont[j]:
                 # Per-(permutation, column) seed: the holdout split is drawn by numba's generator inside the cut search.
                 np.random.seed(seed + b * 1000003 + j)
-                xj = raw_cont[:, j]
+                xj = raw_cont[:, col_slot[j]]
                 xd, yd = oos_dedupe_njit(xj, yr_p)
                 cuts = oos_mdlp_cuts_njit(xd, yd, n_classes_total, min_split, max_depth, tol, val_min, holdout_frac)
                 final = _supervised_edges(xj, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
                 xc = _codes_from_cuts(xj, final)
                 n_x = final.shape[0] + 1
+                xs = np.empty(m, dtype=np.int64)
+                for t in range(m):
+                    xs[t] = xc[eval_rows[t]]
             else:
-                xc = fixed_codes[:, j]
+                fs = col_slot[j]
                 n_x = fixed_nbins[j]
-            mi = _mi_codes(xc, n_x, yc_p, ny)
-            kx_eff = float(_n_unique_codes(xc))
+                xs = np.empty(m, dtype=np.int64)
+                for t in range(m):
+                    xs[t] = fixed_codes[eval_rows[t], fs]
+            mi = _mi_codes(xs, n_x, ys, ny)
+            kx_eff = float(_n_unique_codes(xs))
             plain[b, j] = mi
-            corrected[b, j] = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * n)
+            corrected[b, j] = mi - (kx_eff - 1.0) * (ky_eff - 1.0) / (2.0 * m)
     return plain, corrected

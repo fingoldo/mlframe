@@ -195,7 +195,7 @@ def batch_mi_with_noise_gate_v3(
     identical to ``batch_mi_with_noise_gate_v2`` for the same arguments."""
     n = disc_2d.shape[0]
     K = disc_2d.shape[1]
-    fe_mi = np.zeros(K, dtype=np.float64)
+    fe_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     if K == 0 or n == 0:
         return fe_mi
 
@@ -211,9 +211,9 @@ def batch_mi_with_noise_gate_v3(
     disc_t = np.empty((K, n), dtype=disc_2d.dtype)
     _transpose_blocked(disc_2d, disc_t)
     classes_dense_t: np.ndarray = np.empty((K, n), dtype=classes_dtype)
-    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)
+    freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
     kx = np.zeros(K, dtype=np.int64)
-    original_mi = np.zeros(K, dtype=np.float64)
+    original_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for k in prange(K):
         _observed_column(disc_t, k, int(factors_nbins[k]), classes_y, freqs_y, n, use_su, classes_dense_t, freqs_dense, kx, original_mi)
 

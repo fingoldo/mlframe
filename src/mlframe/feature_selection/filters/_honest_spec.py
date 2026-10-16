@@ -19,6 +19,7 @@ def _pad_rows(rows: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     """Stack ragged 1-D rows into a zero-padded 2-D matrix; returns the matrix and each row's length."""
     lengths = np.array([r.size for r in rows], dtype=np.int64)
     width = max(1, int(lengths.max()) if lengths.size else 1)
+    # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     out = np.zeros((len(rows), width), dtype=np.float64)
     for j, r in enumerate(rows):
         out[j, : r.size] = r
@@ -34,21 +35,26 @@ def build_honest_spec(X, cols, y_raw, max_depth: int, method: str = "mdlp") -> d
 
     n = len(y_raw)
     m = len(cols)
-    raw = np.zeros((n, m), dtype=np.float64)
+    raw = np.zeros((n, m), dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     is_cont = np.zeros(m, dtype=np.bool_)
     q_fb_rows: list[np.ndarray] = []
     q_rf_rows: list[np.ndarray] = []
     for j, c in enumerate(cols):
         if c not in X.columns:
+            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_fb_rows.append(np.empty(0, dtype=np.float64))
+            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_rf_rows.append(np.empty(0, dtype=np.float64))
             continue
         if not pd.api.types.is_numeric_dtype(X[c]):
             # Categorical (non-numeric) columns are factorised without the target, so their codes are invariant under permutation of y:
             # they stay fixed (observed codes), exactly like the low-cardinality numeric columns.
+            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_fb_rows.append(np.empty(0, dtype=np.float64))
+            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_rf_rows.append(np.empty(0, dtype=np.float64))
             continue
+        # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         v = np.asarray(X[c].to_numpy(), dtype=np.float64)
         if not np.isfinite(v).all():
             return None
@@ -56,10 +62,14 @@ def build_honest_spec(X, cols, y_raw, max_depth: int, method: str = "mdlp") -> d
         uniq = np.unique(v)
         if uniq.size > _LOW_CARD_CAP:
             is_cont[j] = True
+            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_fb_rows.append(np.asarray(_edges_from_quantiles(v, _FALLBACK_NBINS), dtype=np.float64))
+            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_rf_rows.append(np.asarray(_fallback_edges(v, "quantile", _FALLBACK_NBINS), dtype=np.float64))
         else:
+            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_fb_rows.append(np.empty(0, dtype=np.float64))
+            # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
             q_rf_rows.append(np.empty(0, dtype=np.float64))
     if method == "oos":
         # Held-out-validated MDLP: the cut search reads the raw (compact) class labels directly.

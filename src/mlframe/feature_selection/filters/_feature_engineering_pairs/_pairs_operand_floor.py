@@ -21,7 +21,7 @@ def operand_uplift_null_bar(codes_a, codes_b, codes_y, floor: float, n_perm: int
     codes_b = np.asarray(codes_b, dtype=np.int64)
     n_b = int(codes_b.max()) + 1 if codes_b.size else 1
     rng = np.random.default_rng(seed)
-    null = np.empty(n_perm, dtype=np.float64)
+    null = np.empty(n_perm, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for i in range(n_perm):
         joint = codes_a * n_b + codes_b[rng.permutation(codes_b.shape[0])]
         null[i] = mutual_info_score(joint, codes_y) / floor

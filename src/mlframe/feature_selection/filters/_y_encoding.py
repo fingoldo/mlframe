@@ -10,6 +10,7 @@ collapses the target to a couple of buckets (MI destroyed), OR densifying a genu
 (float/complex) target with more than a handful of distinct values is quantile-binned FIRST (never
 int-truncated), then densified. Mirrors the temporal-agg family's continuous-y guard.
 """
+
 from __future__ import annotations
 
 from typing import cast
@@ -65,6 +66,26 @@ def _clear_encode_cache() -> None:
     """Drop every memoised target encoding."""
     with _encode_memo_lock:
         _encode_memo.clear()
+
+
+def joint_target_codes(y) -> np.ndarray:
+    """One dense int64 class code per row for a multi-column target ``y`` of shape (n, k).
+
+    The merged-target path (``multioutput_strategy`` None / ``'joint'``) treats the output columns as one joint target, but the FE stages
+    take a single 1-D target and ``ravel`` it, which turned an (n, k) target into n * k labels against n rows. Every column is encoded
+    with :func:`encode_y_for_classif_mi` (a continuous column is quantile-binned first, never densified into n singleton classes) and the
+    per-column codes are combined into one class per distinct combination. A 1-D (or single-column) ``y`` is encoded as before.
+    """
+    arr = np.asarray(y)
+    if arr.ndim < 2 or arr.shape[1] <= 1:
+        return encode_y_for_classif_mi(arr)
+    joint = np.zeros(arr.shape[0], dtype=np.int64)
+    for j in range(arr.shape[1]):
+        col = encode_y_for_classif_mi(arr[:, j])
+        # Re-densify after every column so the running product of class counts cannot overflow int64.
+        _, joint = np.unique(joint * (int(col.max()) + 1) + col, return_inverse=True)
+        joint = joint.astype(np.int64, copy=False)
+    return joint
 
 
 def encode_y_for_classif_mi(y: np.ndarray) -> np.ndarray:
@@ -132,10 +153,13 @@ def _encode_y_uncached(y: np.ndarray) -> np.ndarray:
             # module docstring above names as signal-destroying for classification MI. It is kept so the fit still runs,
             # but it must not be silent. Throttled: this helper runs per pair x per modulus x per permutation in the scans.
             log_throttle(
-                logger, "encode_y_qcut_failed", logging.WARNING,
+                logger,
+                "encode_y_qcut_failed",
+                logging.WARNING,
                 "encode_y_for_classif_mi: pd.qcut binning of a continuous target failed (%s: %s); falling back to plain "
                 "densify, which leaves ~one class per distinct value and degrades classification MI.",
-                type(e).__name__, e,
+                type(e).__name__,
+                e,
             )
     _, inv = np.unique(arr, return_inverse=True)
     return cast("np.ndarray", inv.astype(np.int64, copy=False))

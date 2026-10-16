@@ -54,6 +54,8 @@ from collections.abc import Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
 from mlframe.utils.log_throttle import log_throttle
 
 from ._numeric_decompose_fe import _numeric_cols, score_decompose_by_bootstrap_mi as score_modular_by_bootstrap_mi
@@ -179,7 +181,7 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     * ``op='sin'`` -> ``sin(2*pi*(x mod period)/period)``.
     * ``op='cos'`` -> ``cos(2*pi*(x mod period)/period)``.
 
-    Output float64. NaN / inf rows scrub to 0 (matching the rest of the FE
+    Output at the fit's float dtype (``_crit_np_dtype``), the width the fit generated the column at. NaN / inf rows scrub to 0 (matching the rest of the FE
     pipeline's ``nan_to_num`` policy) so downstream MI binning / model fit never
     sees NaN.
     """
@@ -188,21 +190,49 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
         raise ValueError(f"modular period must be > 0; got {p!r}")
     if op not in _VALID_OPS:
         raise ValueError(f"modular op must be one of {_VALID_OPS}; got {op!r}")
+    # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
     arr = np.ascontiguousarray(x, dtype=np.float64)
+    out_dtype = _crit_np_dtype()
     if op == "parity":
         # Square wave: floor(x / period) mod 2. NaN / inf scrub to 0 like the other ops.
-        return np.asarray(np.nan_to_num(np.floor(arr / p) % 2.0, nan=0.0, posinf=0.0, neginf=0.0), dtype=np.float64)
+        return np.nan_to_num(np.floor(arr / p) % 2.0, nan=0.0, posinf=0.0, neginf=0.0).astype(out_dtype, copy=False)
     op_code = 0 if op == "mod" else (1 if op == "sin" else 2)
-    return np.asarray(_modular_njit(arr, p, op_code))
+    return np.asarray(_modular_njit(arr, p, op_code)).astype(out_dtype, copy=False)
+
+
+@njit(cache=True)
+def _modular_all_ops_into(arr: np.ndarray, p: float, out_mod: np.ndarray, out_sin: np.ndarray, out_cos: np.ndarray) -> None:
+    """:func:`_modular_all_ops_njit` written into caller-allocated outputs of any float dtype (computed at full precision, stored at the
+    output's width), so a float32 candidate pool is filled without a full-width intermediate per column."""
+    n = arr.size
+    k = 2.0 * math.pi / p
+    for i in range(n):
+        v = float(arr[i])
+        if not np.isfinite(v):
+            out_mod[i] = 0.0
+            out_sin[i] = 0.0
+            out_cos[i] = 0.0
+            continue
+        r = v - p * math.floor(v / p)
+        ph = k * r
+        s_ = math.sin(ph)
+        c_ = math.cos(ph)
+        out_mod[i] = r if np.isfinite(r) else 0.0
+        out_sin[i] = s_ if np.isfinite(s_) else 0.0
+        out_cos[i] = c_ if np.isfinite(c_) else 0.0
 
 
 def generate_modular_features(
     X: pd.DataFrame,
     num_cols: Optional[Sequence[str]] = None,
     periods: Sequence[float] = DEFAULT_PERIODS,
+    dtype=None,
 ) -> pd.DataFrame:
     """For each ``(num_col, period)`` emit the residue ``mod`` plus its ``sin``
     / ``cos`` phase encoding.
+
+    ``dtype`` is the storage width of the engineered columns; ``None`` takes the fit's float dtype (``_crit_np_dtype``), which recipe
+    replay (:func:`apply_modular`) also returns, so fit and transform columns agree. The residue itself is computed at full precision.
 
     Returns a DataFrame (same row index as ``X``) of the engineered columns
     only; column names follow :func:`engineered_name_modular`. Pure function of
@@ -211,11 +241,15 @@ def generate_modular_features(
     cols = _numeric_cols(X, num_cols)
     periods = tuple(float(p) for p in periods if float(p) > 0.0)
     out: dict[str, np.ndarray] = {}
+    n = len(X)
+    out_dtype = np.dtype(_crit_np_dtype() if dtype is None else dtype)
     for c in cols:
+        # Intentional float64: input of the residue v - p*floor(v/p); a float32 timestamp (~1.6e9) has resolution 128, so mod 7 would be noise.
         arr = np.ascontiguousarray(X[c].to_numpy(), dtype=np.float64)
         for p in periods:
-            # Fused single pass: residue computed once, all three ops emitted (vs three apply_modular passes).
-            mod_v, sin_v, cos_v = _modular_all_ops_njit(arr, p)
+            # Fused single pass: residue computed once, all three ops emitted (vs three apply_modular passes), written at the output width.
+            mod_v, sin_v, cos_v = np.empty(n, dtype=out_dtype), np.empty(n, dtype=out_dtype), np.empty(n, dtype=out_dtype)
+            _modular_all_ops_into(arr, p, mod_v, sin_v, cos_v)
             out[engineered_name_modular(c, p, "mod")] = mod_v
             out[engineered_name_modular(c, p, "sin")] = sin_v
             out[engineered_name_modular(c, p, "cos")] = cos_v
@@ -274,6 +308,19 @@ def hybrid_modular_fe(
     engineered_mi_lcb stability, which sidesteps the degenerate uplift-ratio
     variance when the raw source MI sits near zero).
     """
+    src_cols = _numeric_cols(X, cols)
+    n_periods = len([p for p in periods if float(p) > 0.0])
+    # Per source column: 3 * n_periods candidates at the fit's float width, plus the scorer's copy and bootstrap gather of them.
+    _w = np.dtype(_crit_np_dtype()).itemsize
+    per_src_bytes = len(X) * max(1, n_periods) * 3 * 3 * _w
+    chunk = len(src_cols)
+    if chunk > 1:
+        from ._feature_engineering_mem_budget import _can_hoist_shared_buffer
+
+        while chunk > 1 and not _can_hoist_shared_buffer(chunk * per_src_bytes, n_workers=1)[0]:
+            chunk = max(1, chunk // 2)
+    if 0 < chunk < len(src_cols):
+        return _hybrid_modular_fe_streamed(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
     eng = generate_modular_features(X, num_cols=cols, periods=periods)
 
     empty_cols = [
@@ -329,6 +376,61 @@ def hybrid_modular_fe(
     keep = list(winners["engineered_col"])
     X_aug = pd.concat([X, eng[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores
+
+
+def _modular_noise_floor(scores: pd.DataFrame) -> float:
+    """MAD noise floor anchored on the raw baseline MI distribution (see :func:`hybrid_modular_fe`)."""
+    base_lcb = np.unique(scores["baseline_mi_lcb"].to_numpy())
+    if base_lcb.size >= 4:
+        med = float(np.median(base_lcb))
+        mad = float(np.median(np.abs(base_lcb - med)))
+        return med + 3.5 * 1.4826 * mad
+    return 2.0 * float(base_lcb.max()) if base_lcb.size else 0.0
+
+
+def _hybrid_modular_fe_streamed(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb):
+    """:func:`hybrid_modular_fe` with the candidates generated and scored ``chunk`` source columns at a time.
+
+    The whole candidate matrix (3 ops x periods per source column) does not fit the RAM budget: at 50000 rows x 253 columns it is
+    1.5 GB before the scorer's copies. Each candidate's bootstrap score depends only on its own column and its source (the bootstrap rows
+    are drawn from the same seeded stream for every chunk), so scoring chunk by chunk gives the same scores. Only the int16 family-gate
+    codes of each chunk are kept; the family-wise gate then runs once over every candidate and the winners are regenerated.
+    """
+    from ._family_maxt_gate import _family_codes, family_maxt_pass_codes
+
+    parts, codes, nxs, names = [], [], [], []
+    for c0 in range(0, len(src_cols), chunk):
+        cs = list(src_cols[c0 : c0 + chunk])
+        eng = generate_modular_features(X, num_cols=cs, periods=periods)
+        if eng.empty:
+            continue
+        sc = score_modular_by_bootstrap_mi(X[cs], eng, y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)
+        if sc.empty:
+            continue
+        nm = sc["engineered_col"].tolist()
+        cc, nx = _family_codes(eng[nm], nbins)
+        parts.append(sc)
+        codes.append(cc)
+        nxs.append(nx)
+        names.extend(nm)
+        del eng
+    if not parts:
+        return X, pd.DataFrame()
+    scores = pd.concat(parts, ignore_index=True).sort_values("uplift_lcb", ascending=False, kind="mergesort").reset_index(drop=True)
+    noise_floor = _modular_noise_floor(scores)
+    qualified = scores[(scores["uplift_mean"] >= float(min_uplift_lcb)) & (scores["engineered_mi_lcb"] >= noise_floor)]
+    cols_all = codes[0] if len(codes) == 1 else np.concatenate(codes, axis=0)
+    del codes
+    fam_ok = family_maxt_pass_codes(cols_all, np.concatenate(nxs), y, seed=seed)
+    ok_names = {n for n, ok in zip(names, fam_ok) if ok}
+    qualified = qualified[qualified["engineered_col"].isin(ok_names)]
+    winners = qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))
+    keep = list(winners["engineered_col"])
+    if not keep:
+        return X.copy(deep=False), scores
+    keep_src = sorted({str(winners.loc[winners["engineered_col"] == k, "source_col"].iloc[0]) for k in keep})
+    eng_keep = generate_modular_features(X, num_cols=[c for c in src_cols if str(c) in keep_src], periods=periods)[keep]
+    return pd.concat([X, eng_keep], axis=1), scores
 
 
 def hybrid_modular_fe_with_recipes(

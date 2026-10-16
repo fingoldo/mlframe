@@ -29,6 +29,7 @@ Usage::
     if res.uplift > 1.05:
         engineered = res.transform(x_a, x_b)
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,11 +50,13 @@ from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 try:
     from numba import njit, prange
+
     _NUMBA_AVAILABLE = True
 except ImportError:
     _NUMBA_AVAILABLE = False
     # No-op decorators so the file imports without numba.
     from mlframe._numba_fallback import njit
+
     def prange(n):
         """No-numba fallback: plain ``range``."""
         return range(n)
@@ -151,7 +154,8 @@ def plugin_mi_classif_batch_fast(X_cols: np.ndarray, y: np.ndarray, n_bins: int 
     out = np.empty(k, dtype=np.float64)
     for j in range(k):
         x_binned = _quantile_bin_numpy(
-            np.ascontiguousarray(X_cols[:, j]), n_bins,
+            np.ascontiguousarray(X_cols[:, j]),
+            n_bins,
         )
         out[j] = _plugin_mi_from_binned_njit(x_binned, y_i64, n_bins)
     return out
@@ -201,10 +205,20 @@ def _plugin_mi_regression_batch_njit(X_cols: np.ndarray, y: np.ndarray, n_bins: 
 
 # Basis-eval kernels carved to a sibling module; re-exported so the registries below and external importers resolve unchanged.
 from ._hermite_basis_eval import (
-    _hermeval_njit, _legval_njit, _chebval_njit, _lagval_njit,
-    _hermeval_njit_parallel, _legval_njit_parallel, _chebval_njit_parallel, _lagval_njit_parallel,
-    _build_basis_hermite, _build_basis_legendre, _build_basis_chebyshev, _build_basis_laguerre,
-    _BASIS_BUILDERS, build_basis_matrix,
+    _hermeval_njit,
+    _legval_njit,
+    _chebval_njit,
+    _lagval_njit,
+    _hermeval_njit_parallel,
+    _legval_njit_parallel,
+    _chebval_njit_parallel,
+    _lagval_njit_parallel,
+    _build_basis_hermite,
+    _build_basis_legendre,
+    _build_basis_chebyshev,
+    _build_basis_laguerre,
+    _BASIS_BUILDERS,
+    build_basis_matrix,
 )
 
 # Optional CUDA RawKernel backend. One thread per output element with the recurrence kept in registers.
@@ -215,6 +229,7 @@ _CUDA_KERNELS: dict = {}
 
 try:
     import cupy as _cp
+
     _CUDA_AVAILABLE = True
 except ImportError:
     pass
@@ -226,10 +241,12 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
     import contextlib
 
     import cupy as cp
+
     # _ensure_cuda_kernels writes into the _hermite_fe_mi module's dict;
     # read from the same source to avoid a stale local-module dict that
     # would surface as KeyError(basis) after the lazy compile succeeded.
     from .. import _hermite_fe_mi as _hfmi
+
     _ctx = cp.cuda.Device(device) if device is not None else contextlib.nullcontext()
     with _ctx:
         _ensure_cuda_kernels()
@@ -237,6 +254,7 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
         # resident-cache it so repeated trials on one column upload ONCE. c (the coefficients) genuinely
         # vary per trial - that is the thing being optimized - so it stays a raw per-call upload.
         from .._fe_resident_operands import resident_operand
+
         x_gpu = resident_operand(x, "hermite_polyeval_x", dtype=np.float64)
         c_gpu = cp.asarray(c, dtype=cp.float64)
         n = x.shape[0]
@@ -244,7 +262,8 @@ def _polyeval_cuda(basis: str, x: np.ndarray, c: np.ndarray, device: int | None 
         block = 256
         grid = (n + block - 1) // block
         _hfmi._CUDA_KERNELS[basis](
-            (grid,), (block,),
+            (grid,),
+            (block,),
             (x_gpu, c_gpu, c_gpu.shape[0], n, out_gpu),
         )
         return np.asarray(cp.asnumpy(out_gpu))
@@ -281,7 +300,9 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
                 _cush_ok = _cushion(needed) if _cushion is not None else True
             if free >= needed and _cush_ok:
                 fits.append((free, d))
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+        except (  # noqa: PERF203 -- per-iteration fault isolation is intentional
+            Exception
+        ) as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             continue
     fits.sort(reverse=True)  # most-free first
@@ -297,12 +318,16 @@ def _polyeval_cuda_pick_devices(n: int) -> list:
 # MLFRAME_POLYEVAL_BACKEND env var.
 
 _NJIT_FUNCS = {
-    "hermite": _hermeval_njit, "legendre": _legval_njit,
-    "chebyshev": _chebval_njit, "laguerre": _lagval_njit,
+    "hermite": _hermeval_njit,
+    "legendre": _legval_njit,
+    "chebyshev": _chebval_njit,
+    "laguerre": _lagval_njit,
 }
 _NJIT_PAR_FUNCS = {
-    "hermite": _hermeval_njit_parallel, "legendre": _legval_njit_parallel,
-    "chebyshev": _chebval_njit_parallel, "laguerre": _lagval_njit_parallel,
+    "hermite": _hermeval_njit_parallel,
+    "legendre": _legval_njit_parallel,
+    "chebyshev": _chebval_njit_parallel,
+    "laguerre": _lagval_njit_parallel,
 }
 
 
@@ -315,6 +340,7 @@ def _polyeval_njit_par(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
     """
     with parallel_kernel_entry():
         return np.asarray(_NJIT_PAR_FUNCS[basis](x, c))
+
 
 import os as _os
 from ._hermite_oracle import (
@@ -384,7 +410,9 @@ def polyeval_dispatch(basis: str, x: np.ndarray, c: np.ndarray) -> np.ndarray:
         for _dev in _polyeval_cuda_pick_devices(n) or [None]:
             try:
                 return _polyeval_cuda(basis, x, c, device=_dev)
-            except Exception as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+            except (  # noqa: PERF203 -- per-iteration fault isolation is intentional
+                Exception
+            ) as _cuda_exc:  # OOM / driver error on this device -> try the next, then CPU
                 logger.debug("polyeval CUDA backend failed on device %s: %s", _dev, _cuda_exc)
                 _warn_polyeval_cuda_fallback_once(_cuda_exc)
         # every device failed - fall through to the CPU njit / njit_par path.
@@ -596,12 +624,18 @@ def _run_minmax_sweep() -> list:
         "serial": lambda *a: _apply_minmax_njit_serial(*a),
         "parallel": lambda *a: _apply_minmax_njit(*a),
     }
-    return cast(list, sweep_backend_grid(
-        variants,
-        {"n": _MINMAX_SWEEP_N},
-        _make_minmax_inputs,
-        reference="serial", repeats=5, equiv_atol=0.0, equiv_rtol=0.0,
-    ))
+    return cast(
+        list,
+        sweep_backend_grid(
+            variants,
+            {"n": _MINMAX_SWEEP_N},
+            _make_minmax_inputs,
+            reference="serial",
+            repeats=5,
+            equiv_atol=0.0,
+            equiv_rtol=0.0,
+        ),
+    )
 
 
 def _minmax_fallback_choice(n: int) -> str:
@@ -652,9 +686,11 @@ def _apply_shift(x, params):
 
 def _make_dispatch(name):
     """Bind the basis name into a closure matching the (x, c) -> ndarray signature of eval / eval_njit."""
+
     def _d(x, c):
         """Evaluate the ``name``-basis polynomial with coefficients ``c`` at ``x`` via the size-aware backend dispatcher."""
         return polyeval_dispatch(name, x, c)
+
     _d.__name__ = f"_polyeval_{name}_dispatched"
     return _d
 
@@ -664,22 +700,28 @@ def _make_dispatch(name):
 # optionally eval_njit_factory for data-dependent bases (RBF, Sigmoid). Merged from bases.EXTRA_BASES at
 # import time. Module-private: external callers use optimise_hermite_pair / polyeval_dispatch.
 _POLY_BASES = {
-    "hermite": dict(eval=hermeval, eval_njit=_hermeval_njit,
-                     eval_dispatch=None,  # populated below after dispatcher exists
-                     fit=_preprocess_zscore, apply=_apply_zscore,
-                     dist_note="standard Normal (z-score)"),
-    "legendre": dict(eval=legval, eval_njit=_legval_njit,
-                      eval_dispatch=None,
-                      fit=_preprocess_minmax_neg1_1, apply=_apply_minmax,
-                      dist_note="uniform on [-1, 1]"),
-    "chebyshev": dict(eval=chebval, eval_njit=_chebval_njit,
-                       eval_dispatch=None,
-                       fit=_preprocess_minmax_neg1_1, apply=_apply_minmax,
-                       dist_note="uniform on [-1, 1] with 1/sqrt(1-x^2) weight"),
-    "laguerre": dict(eval=lagval, eval_njit=_lagval_njit,
-                      eval_dispatch=None,
-                      fit=_preprocess_shift_nonneg, apply=_apply_shift,
-                      dist_note="positive on [0, +inf)"),
+    "hermite": dict(
+        eval=hermeval,
+        eval_njit=_hermeval_njit,
+        eval_dispatch=None,  # populated below after dispatcher exists
+        fit=_preprocess_zscore,
+        apply=_apply_zscore,
+        dist_note="standard Normal (z-score)",
+    ),
+    "legendre": dict(
+        eval=legval, eval_njit=_legval_njit, eval_dispatch=None, fit=_preprocess_minmax_neg1_1, apply=_apply_minmax, dist_note="uniform on [-1, 1]"
+    ),
+    "chebyshev": dict(
+        eval=chebval,
+        eval_njit=_chebval_njit,
+        eval_dispatch=None,
+        fit=_preprocess_minmax_neg1_1,
+        apply=_apply_minmax,
+        dist_note="uniform on [-1, 1] with 1/sqrt(1-x^2) weight",
+    ),
+    "laguerre": dict(
+        eval=lagval, eval_njit=_lagval_njit, eval_dispatch=None, fit=_preprocess_shift_nonneg, apply=_apply_shift, dist_note="positive on [0, +inf)"
+    ),
 }
 for _bn in _POLY_BASES:
     _POLY_BASES[_bn]["eval_dispatch"] = _make_dispatch(_bn)
@@ -694,6 +736,7 @@ for _bn in _POLY_BASES:
 # eval_njit_factory(params) (data-dependent like RBF centres).
 try:
     from ..bases import EXTRA_BASES as _EXTRA_BASES
+
     for _bn, _entry in _EXTRA_BASES.items():
         _POLY_BASES[_bn] = dict(_entry)  # copy
         # Non-polynomial bases skip the size-aware CUDA dispatch (rarely n>50k); route through eval_njit.
@@ -717,6 +760,7 @@ class HermiteResult:
     """Result of an optimisation pass for a single feature pair. Despite the legacy name, carries the result for any supported polynomial basis (``basis`` field).
     Default basis is ``"chebyshev"``; pass ``"hermite"`` for synthetic-Gaussian inputs or ``"laguerre"`` for skewed-positive distributions.
     """
+
     coef_a: np.ndarray
     coef_b: np.ndarray
     bin_func_name: str
@@ -867,6 +911,10 @@ def basis_route_by_moments(x: np.ndarray) -> str:
     x = np.ascontiguousarray(x)
     _mean, std, skew, kurt_excess, xmin, xmax = _moment_fingerprint_njit(x)
     rng = xmax - xmin
+    if not (std > 0.0) or not np.isfinite(std):
+        # Constant (or non-finite) column: no shape to route on. It raised ZeroDivisionError here, which dropped the whole triplet family
+        # of the fit for one degenerate column.
+        return "chebyshev"
     spread_ratio = rng / std
     one_sided = (xmin >= 0) or (xmax <= 0)
     # Heavy-tailed positive / one-sided -> Laguerre.
@@ -903,7 +951,13 @@ from ._hermite_prewarp import (
     warm_start_als_seed,
 )
 from .._hermite_fe_optimise import (
-    _baseline_mi_pair, _eval_coef_pair, _run_cma_search, _select_diverse_topm, detect_pair_symmetry, optimise_hermite_pair, precompute_hermite_pair_basis,
+    _baseline_mi_pair,
+    _eval_coef_pair,
+    _run_cma_search,
+    _select_diverse_topm,
+    detect_pair_symmetry,
+    optimise_hermite_pair,
+    precompute_hermite_pair_basis,
     # optimise_pair_multimode: re-exported public API, consumed via `from mlframe...hermite_fe import
     # optimise_pair_multimode` by tests/feature_selection/biz_val/test_biz_val_filters_hermite_fe.py and
     # tests/feature_selection/fe/basis/test_hermite_fe_coverage.py -- code_audit's dead-import scan only
@@ -911,7 +965,13 @@ from .._hermite_fe_optimise import (
     optimise_pair_multimode,
 )
 from .._hermite_fe_mi import (
-    _ensure_cuda_kernels, _plugin_mi_classif_batch_cuda, _plugin_mi_classif_batch_cuda_resident, _plugin_mi_classif_njit, _plugin_mi_from_binned_njit, _plugin_mi_regression_njit, plugin_mi_classif_batch_dispatch,
+    _ensure_cuda_kernels,
+    _plugin_mi_classif_batch_cuda,
+    _plugin_mi_classif_batch_cuda_resident,
+    _plugin_mi_classif_njit,
+    _plugin_mi_from_binned_njit,
+    _plugin_mi_regression_njit,
+    plugin_mi_classif_batch_dispatch,
     # plugin_mi_classif_dispatch: re-exported public API, consumed via `from mlframe...hermite_fe import
     # plugin_mi_classif_dispatch` by tests/feature_selection/gpu/test_plugin_mi_classif_dispatch.py and
     # tests/feature_selection/gpu/test_ktc_dispatch_no_sweep_on_default.py -- code_audit's dead-import scan

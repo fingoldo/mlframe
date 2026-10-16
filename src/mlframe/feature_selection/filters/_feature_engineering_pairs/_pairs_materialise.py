@@ -109,6 +109,7 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
                 # exact-zero denominator (the prior x/(y+sign(y)*eps+eps) perturbed every positive denom by 2*eps,
                 # diverging from the canonical _safe_div). float64-promoted then cast to float32 to match _safe_div's
                 # float64 division exactly (an all-float32 div would differ in the last bit).
+                # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
                 v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
             elif op == 4:  # max = np.maximum (nan-propagating)
                 if a != a or b != b:
@@ -128,8 +129,10 @@ def _materialise_chunk_njit(tv, a_cols, b_cols, op_codes, out):
                 else:
                     sgn = zero if a == zero else (one if a > zero else -one)
                     v = sgn * abs(b)
+            # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
             else:  # op == 8: ratio_abs = a/(|b|+1). numpy/numba promote the float64 ``1.0`` literal ->
                 # compute in float64 then cast, matching the numpy expression's last bit.
+                # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
                 v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
             if not (v == v and v != np.inf and v != -np.inf):
                 v = zero
@@ -152,7 +155,7 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
 
     BIT-IDENTICAL: each candidate ``k`` reads its own operand columns ``tv[:, a_cols[k]]`` /
     ``tv[:, b_cols[k]]`` and writes ONLY ``out[:, k]`` - zero cross-column dependence -> result
-    independent of thread count. The per-element arithmetic (the float32 ops, the float64-promoted
+    independent of thread count. The per-element arithmetic (the float32 ops, the double-promoted
     div/ratio_abs literals, the nan_to_num) is the IDENTICAL body as the serial kernel.
     """
     n = tv.shape[0]
@@ -174,6 +177,7 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
                 v = a - b
             elif op == 3:  # div = _safe_div (2026-06-13 form): EXACT x/y for y != 0, eps floor only on exact-zero
                 # (matches the serial twin + canonical _safe_div; float64-promoted then cast to float32).
+                # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
                 v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
             elif op == 4:  # max = np.maximum (nan-propagating)
                 if a != a or b != b:
@@ -193,7 +197,9 @@ def _materialise_chunk_njit_parallel(tv, a_cols, b_cols, op_codes, out):
                 else:
                     sgn = zero if a == zero else (one if a > zero else -one)
                     v = sgn * abs(b)
+            # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
             else:  # op == 8: ratio_abs = a/(|b|+1); float64-promoted like the serial twin
+                # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
                 v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
             if not (v == v and v != np.inf and v != -np.inf):
                 v = zero
@@ -225,6 +231,7 @@ def _materialise_chunk_rowblock_njit_parallel(tv, a_cols, b_cols, op_codes, out)
                 elif op == 2:  # sub
                     v = a - b
                 elif op == 3:  # div = _safe_div
+                    # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
                     v = np.float32(np.float64(a) / (np.float64(b) if b != zero else 1e-9))
                 elif op == 4:  # max, nan-propagating
                     if a != a or b != b:
@@ -245,6 +252,7 @@ def _materialise_chunk_rowblock_njit_parallel(tv, a_cols, b_cols, op_codes, out)
                         sgn = zero if a == zero else (one if a > zero else -one)
                         v = sgn * abs(b)
                 else:  # op == 8: ratio_abs
+                    # Intentional float64: same float64 promotion of the division as the numpy op (bit-identical to the reference path)
                     v = np.float32(np.float64(a) / (np.float64(abs(b)) + 1.0))
                 if not (v == v and v != np.inf and v != -np.inf):
                     v = zero
@@ -357,13 +365,13 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
     validation MI sweep - ALL (external_factor x binary_op) candidate columns in ONE
     nogil kernel.
 
-    Unlike ``_materialise_chunk_njit`` this produces the RAW float64 bin_func output with
+    Unlike ``_materialise_chunk_njit`` this produces the RAW double-precision bin_func output with
     NO nan_to_num: the external-validation path discretises the raw values (the per-
     candidate ``discretize_array`` it replaces never scrubbed NaN/inf either -
     ``nanpercentile`` ignores NaN and ``searchsorted`` routes NaN/inf to the rightmost
-    bin), so scrubbing here would change the codes. float64 throughout so the arithmetic
+    bin), so scrubbing here would change the codes. double precision throughout so the arithmetic
     is bit-identical to the numpy bin_funcs (which upcast the float32 ``param_a`` to
-    float64 against the float64 ``param_b``): mul/add/sub/max/min are the exact numpy ops
+    double against the double ``param_b``): mul/add/sub/max/min are the exact numpy ops
     and ``div`` mirrors the current ``_safe_div`` - exact ``x/y`` for every nonzero denominator, with the ``1e-9``
     floor substituting only for an exact-zero ``y`` (the 2026-06-13 heavy-tail form, no per-denominator perturbation).
 
@@ -383,6 +391,7 @@ def _materialise_extval_njit(param_a, param_b_mat, op_codes, out):
             op = op_codes[o]
             col = e * n_ops + o
             for r in range(n):
+                # Intentional float64: operands at numpy's float64 op width, so device candidates and codes match the host bin_func path
                 a = np.float64(param_a[r])
                 b = param_b_mat[r, e]
                 if op == 0:  # mul

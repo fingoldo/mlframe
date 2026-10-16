@@ -235,9 +235,10 @@ def mdlp_bin_edges(
     y = _y_arr.astype(np.int64)
     if x.size == 0:
         # All-NaN / all-non-finite input: no splits computable.
-        return np.array([-np.inf, np.inf], dtype=np.float64)
+        return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
 
     sorter = np.argsort(x)
+    # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     x_sorted = np.ascontiguousarray(x[sorter].astype(np.float64))
     y_sorted = np.ascontiguousarray(y[sorter])
 
@@ -280,6 +281,7 @@ def mdlp_bin_edges(
             None,
         )
     splits.sort()
+    # Intentional float64: bin-edge / cut vector, compared against values at full precision
     edges = np.concatenate([[-np.inf], np.asarray(splits, dtype=np.float64), [np.inf]])
     return edges
 
@@ -301,8 +303,8 @@ def _entropy_from_labels(y: np.ndarray) -> float:
 # k*log(k) for k < _XLOGX_SIZE, a numba-frozen table: the split scan needs two entropies per candidate, and a log per class per candidate was
 # the dominant cost of the validated/permutation path. Above the table the same term is computed directly.
 _XLOGX_SIZE = 32768
-_XLOGX = np.array([k * np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtype=np.float64)
-_LOGN = np.array([np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtype=np.float64)
+_XLOGX = np.array([k * np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtype=np.float64)  # Intentional float64: log lookup table of the MI kernels
+_LOGN = np.array([np.log(k) if k > 0 else 0.0 for k in range(_XLOGX_SIZE)], dtype=np.float64)  # Intentional float64: log lookup table of the MI kernels
 
 
 @njit(nogil=True, cache=True)
@@ -622,6 +624,7 @@ def optimal_bin_edges(
     )
     ob.fit(x, y)
     inner = ob.splits
+    # Intentional float64: bin-edge / cut vector, compared against values at full precision
     edges = np.concatenate([[-np.inf], np.asarray(inner, dtype=np.float64), [np.inf]])
     return edges
 
@@ -674,7 +677,7 @@ def apply_bin_edges(
                 f"silent overflow would produce wrong class codes. "
                 f"Pass a wider dtype or omit dtype= to auto-pick."
             )
-    arr = np.asarray(x, dtype=np.float64)
+    arr = np.asarray(x, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     _nan_mask = np.isnan(arr) if arr.dtype.kind == "f" else None
     codes: np.ndarray = np.searchsorted(edges[1:-1], arr, side="right").astype(dtype)
     if _nan_mask is not None and _nan_mask.any():

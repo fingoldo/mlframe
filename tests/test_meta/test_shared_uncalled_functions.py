@@ -769,6 +769,8 @@ _SUPERSEDED = {
     "_oof_column_foldloop",  # parity oracle for _oof_column_gather (tests/feature_selection/fe/gpu/test_binagg_oof_gather_parity.py)
     "_pair_combo_mi_cupy_loop",  # per-combo cupy twin of _pair_combo_mi_cupy; parity pinned in tests/feature_selection/gpu/test_usability_pool_cupy_batched_twin.py
     "_propose_fourier",  # predecessor of _propose_fourier_both_warps; parity pinned in tests/feature_selection/fe/adaptive/test_propose_fourier_parity.py
+    "mdlp_inner_cuts",  # reference form of the honest-null cut search; the null kernels use the presorted twin, equality pinned in tests/feature_selection/discretization/test_mdlp_presorted_cuts_parity.py
+    "score_triplet_cross_basis_by_mi_uplift",  # predecessor of score_triplet_cross_basis_by_cmi (the production scorer); kept public, pinned in tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
     "mi_classif_streamed_fill",  # zero-copy twin of mi_classif_streamed (the production path); kept as its reference, parity pinned in tests/feature_selection/filters/test_streamed_gpu_mi.py::test_streamed_fill_matches_copy_path
     "_yj_forward_scalar",  # scalar reference for _yj_forward (numpy and numba paths); parity pinned in tests/training/composite/transforms/test_yj_forward_scalar_parity.py
     "_entropy_binary",  # binary form of _entropy_from_counts; parity pinned in tests/feature_engineering/transformer/test_entropy_binary_parity.py

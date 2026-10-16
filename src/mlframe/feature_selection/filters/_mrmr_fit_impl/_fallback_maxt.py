@@ -28,6 +28,7 @@ def fallback_maxt_floor(data, nbins, target_col: int, cols_idx, alpha: float, n_
     n_y = int(nbins[target_col])
     cand = [np.ascontiguousarray(data[:, c], dtype=np.int64) for c in cols_idx]
     n_x = [int(nbins[c]) for c in cols_idx]
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     observed = np.array([_mi_codes_njit(cand[j], n_x[j], y, n_y) for j in range(len(cand))], dtype=np.float64)
     spec = getattr(honest_codes_fn, "spec", None) if honest_codes_fn is not None else None
     if spec is not None:
@@ -38,7 +39,7 @@ def fallback_maxt_floor(data, nbins, target_col: int, cols_idx, alpha: float, n_
         null_max = honest_plain_null_maxima(spec, data, nbins, target_col, list(cols_idx), int(n_perm), seed)
         return observed, null_max
     rng = np.random.default_rng(seed)
-    null_max = np.empty(int(n_perm), dtype=np.float64)
+    null_max = np.empty(int(n_perm), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     if honest_codes_fn is not None:
         # Supervised binning: re-bin every column on each permuted RAW target (the production categorisation), so the null keeps the
         # selection bias of the cut points that the observed codes carry.

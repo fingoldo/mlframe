@@ -57,7 +57,7 @@ def _radix_sort_f32(col: np.ndarray, keys: np.ndarray, tmp: np.ndarray, cnt: np.
 
 @njit(parallel=True, nogil=True, cache=True)
 def _quantile_edges_2d_radix_njit(arr2d: np.ndarray, quantiles: np.ndarray, edges_out: np.ndarray) -> None:
-    """Per-column quantile edges of a NaN-free float32 ``arr2d`` (n_rows x n_cols), written into ``edges_out`` (n_q x n_cols, float64).
+    """Per-column quantile edges of a NaN-free float32 ``arr2d`` (n_rows x n_cols), written into ``edges_out`` (n_q x n_cols, double).
 
     Same interpolation as :func:`_kernels._quantile_edges_2d_njit` (the ``lo``/``lo + 1`` order statistics with the ``n - 1`` clamp and the
     same lerp), with the order statistics read from a full radix sort of each column. prange over columns: each iteration owns its scratch.

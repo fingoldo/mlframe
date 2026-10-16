@@ -11,6 +11,8 @@ import logging
 
 import numpy as np
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
 from ._residual_rescue_stage import _raw_sources
 
 logger = logging.getLogger(__name__)
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 def _column_values(X, name):
     """Continuous values of the raw column ``name`` (pandas or polars)."""
     col = X[name]
-    return np.asarray(col.to_numpy() if hasattr(col, "to_numpy") else col, dtype=np.float64).ravel()
+    return np.asarray(col.to_numpy() if hasattr(col, "to_numpy") else col, dtype=_crit_np_dtype()).ravel()
 
 
 def run_final_subsumption_prune(self, X, selected_vars, classes_y, verbose):
@@ -35,7 +37,7 @@ def run_final_subsumption_prune(self, X, selected_vars, classes_y, verbose):
         for recipe in recipes:
             name = str(getattr(recipe, "name", ""))
             if name in store:
-                eng_values[name] = np.asarray(store[name], dtype=np.float64).ravel()
+                eng_values[name] = np.asarray(store[name], dtype=_crit_np_dtype()).ravel()
         raw_selected = [raw_names[int(v)] for v in selected_vars if 0 <= int(v) < len(raw_names)]
         candidates = {}
         for name in raw_selected:
@@ -45,7 +47,9 @@ def run_final_subsumption_prune(self, X, selected_vars, classes_y, verbose):
         if not anchors:
             return False, selected_vars
         y_continuous = getattr(self, "_fe_prewarp_y_continuous_", None)
-        dropped = final_subsumption_prune(candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=int(getattr(self, "random_seed", 0) or 0))
+        dropped = final_subsumption_prune(
+            candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=int(getattr(self, "random_seed", 0) or 0)
+        )
         if not dropped:
             return False, selected_vars
         dropped_set = set(dropped)

@@ -74,12 +74,16 @@ def family_null_max_device(cols: np.ndarray, n_x: np.ndarray, perms: np.ndarray,
     """Per-permutation maximum MI over the columns, computed on the GPU (see module docstring)."""
     import cupy as cp
 
+    from mlframe.utils.cupy_pinned import install_pinned_policy
+
+    install_pinned_policy()
     B = int(perms.shape[0])
     K = int(cols.shape[0])
-    cols_d = cp.asarray(np.ascontiguousarray(np.asarray(cols, dtype=np.int64).T))
+    # Codes are uploaded in their own (int16) width: a (K, n) int64 copy of a wide family was 4x the bytes for the same values.
+    cols_d = cp.asarray(np.ascontiguousarray(np.asarray(cols).T))
     nx_d = cp.asarray(np.ascontiguousarray(n_x, dtype=np.int64))
     perms_d = cp.asarray(np.ascontiguousarray(perms, dtype=np.int64))
-    out_d = cp.zeros((B, K), dtype=cp.float64)
+    out_d = cp.zeros((B, K), dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     total = B * K
     blocks = (total + _THREADS - 1) // _THREADS
     cap = 64 if int(n_y) * (int(np.max(n_x)) if np.size(n_x) else 0) <= 64 else _MAX_CELLS

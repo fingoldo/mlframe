@@ -145,6 +145,7 @@ def _cupy_bincount_known_size(d_flat, size):
 def _mi_from_counts_cpu(
     joint_counts: np.ndarray,  # (nbins_x, K_y) int64 - integer joint histogram
     nbins_x: int,
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     freqs_y: np.ndarray,  # (K_y,) float64
     n: int,
     use_su: bool,
@@ -206,9 +207,11 @@ def _mi_columns_from_counts_cpu(
     col_offsets: np.ndarray,  # (K,) int64 - start offset of column k
     nbins_arr: np.ndarray,  # (K,) int64
     K_y: int,
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     freqs_y: np.ndarray,  # (K_y,) float64
     n: int,
     use_su: bool,
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     ref_mi: np.ndarray,  # (K,) float64 - compute column k only when ref_mi[k] > 0
 ) -> np.ndarray:
     """Reduce MI for ALL K columns in ONE njit call instead of K separate Python->njit
@@ -219,7 +222,7 @@ def _mi_columns_from_counts_cpu(
     pass). Kills the ~1.9s the per-column ``_mi_from_counts_cpu`` dispatch cost across
     K*(npermutations+1) calls (224k calls at the canonical FE size)."""
     K = nbins_arr.shape[0]
-    out = np.zeros(K, dtype=np.float64)
+    out = np.zeros(K, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for k in range(K):
         if ref_mi[k] <= 0.0:
             continue
@@ -273,12 +276,15 @@ def _cuda_mi_from_counts_kernel_factory():
         counts_flat,  # (P*total_size,) int64 - per-(p) per-column joint histograms
         col_offsets,  # (K,) int64
         nbins_col,  # (K,) int32
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         freqs_y,  # (K_y,) float64
         n,
         K_y,
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         ref_mi,  # (K,) float64 - original_mi; perm columns with ref_mi<=0 are skipped (-> 0)
         total_size,
         P,
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         out_mi,  # (P, K) float64 output
     ):
         """numba.cuda kernel: one thread per (permutation, column) pair, converts a precomputed joint histogram into an MI value in ``out_mi``."""
@@ -324,7 +330,7 @@ def _gate_from_mi_njit(original_mi: np.ndarray, perm_mat: np.ndarray, npermutati
             om = original_mi[k]
             if om > 0.0 and perm_mat[i, k] >= om:
                 nfailed[k] += 1
-    fe_mi = np.empty(K, dtype=np.float64)
+    fe_mi = np.empty(K, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for k in range(K):
         om = original_mi[k]
         if om > 0.0 and nfailed[k] >= max_failed:
@@ -336,12 +342,14 @@ def _gate_from_mi_njit(original_mi: np.ndarray, perm_mat: np.ndarray, npermutati
 
 def _gate_from_mi(
     original_mi: np.ndarray,
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     perm_mis,  # (npermutations, K) array or a list of (K,) float64 arrays, one per permutation
     npermutations: int,
     min_nonzero_confidence: float,
 ) -> np.ndarray:
     """Apply the EXACT noise-gate rejection rule of the CPU kernel given the original MIs and the per-permutation MIs. ``perm_mis[i][k]`` is
     column k's MI against the i-th shuffled y (or any value when ``original_mi[k] <= 0``). Runs the njit core on a contiguous matrix."""
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     original_mi = np.ascontiguousarray(original_mi, dtype=np.float64)
     if npermutations <= 0:
         unchanged: np.ndarray = original_mi.copy()
@@ -350,9 +358,10 @@ def _gate_from_mi(
     if max_failed <= 1:
         max_failed = 1
     perm_mat = (
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         np.ascontiguousarray(np.asarray(perm_mis, dtype=np.float64))
         if not isinstance(perm_mis, np.ndarray)
-        else np.ascontiguousarray(perm_mis, dtype=np.float64)
+        else np.ascontiguousarray(perm_mis, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     )
     gated: np.ndarray = _gate_from_mi_njit(original_mi, perm_mat, int(npermutations), max_failed)
     return gated

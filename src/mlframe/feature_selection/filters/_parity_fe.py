@@ -39,7 +39,7 @@ def _parity_mi_grid_njit(v: np.ndarray, y_codes: np.ndarray, n_classes: int, per
     unchanged because the grid is geometric and the MI is flat across that edge.
     """
     n = v.shape[0]
-    out = np.zeros(periods.shape[0], dtype=np.float64)
+    out = np.zeros(periods.shape[0], dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     cls_tot = np.zeros(n_classes, dtype=np.int64)
     for i in range(n):
         cls_tot[y_codes[i]] += 1
@@ -106,7 +106,7 @@ def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
 
     Returns ``(nan, 0.0)`` when the column has no usable span, so the caller can skip it.
     """
-    v = np.asarray(v, dtype=np.float64).ravel()
+    v = np.asarray(v, dtype=np.float64).ravel()  # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
     y = np.asarray(y).ravel()
     finite = np.isfinite(v)
     if not finite.all():
@@ -115,6 +115,7 @@ def scan_parity_period(v: np.ndarray, y: np.ndarray) -> tuple[float, float]:
     if grid.size == 0:
         return float("nan"), 0.0
     _, y_codes = np.unique(y, return_inverse=True)
+    # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
     mis = _parity_mi_grid_njit(np.ascontiguousarray(v, dtype=np.float64), y_codes.astype(np.int64).ravel(), int(y_codes.max()) + 1, grid)
     g = int(np.argmax(mis))
     return float(grid[g]), max(float(mis[g]), 0.0)
@@ -138,6 +139,7 @@ def hybrid_parity_fe_with_recipes(
         cols = [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c]) and not pd.api.types.is_bool_dtype(X[c])]
     rows = []
     for c in cols:
+        # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
         v = np.asarray(X[c].to_numpy(), dtype=np.float64)
         ok = np.isfinite(v)
         if ok.sum() < 20:
@@ -156,6 +158,7 @@ def hybrid_parity_fe_with_recipes(
         name = engineered_name_modular(str(r["col"]), float(r["period"]), "parity")
         if name in X_aug.columns:
             continue
+        # Intentional float64: input of floor(v / period) mod 2; float32 cannot resolve the period on large values
         X_aug[name] = apply_modular(np.asarray(X[r["col"]].to_numpy(), dtype=np.float64), float(r["period"]), "parity")
         appended.append(name)
         recipes.append(build_modular_recipe(name=name, src_name=str(r["col"]), period=float(r["period"]), op="parity"))
