@@ -77,7 +77,7 @@ def _operands(names):
 
 
 @pytest.mark.timeout(900)
-def test_estimator_recovers_the_outlier_masked_ratio_only_with_the_stage():
+def test_estimator_recovers_the_outlier_masked_ratio_with_the_stage():
     """two_pairs_strong under 3% outliers: ``a**2/b`` holds 83% of the variance in a few rows, its rank MI is 0.07 against 1.85 for the (c, d) term, so the greedy drops both operands."""
     from tests.feature_selection import _synthetic_distributions as sd
 
@@ -86,9 +86,10 @@ def test_estimator_recovers_the_outlier_masked_ratio_only_with_the_stage():
     y = data["a"] ** 2 / data["b"] + 3.0 * np.log(data["c"]) * np.sin(data["d"]) + 0.3 * data["e"]
     X = pd.DataFrame({k: data[k] for k in domains})
     on = MRMR(verbose=0, random_state=42).fit(X, pd.Series(y, name="y"))
-    off = MRMR(verbose=0, random_state=42, fe_residual_rescue_enable=False).fit(X, pd.Series(y, name="y"))
     assert "a" in _operands(on.get_feature_names_out())
-    assert "a" not in _operands(off.get_feature_names_out())
+    # The stage used to be the only way back to ``a``: the pair family gate rejected every pair winner (it read unfilled GPU codes), so the pair stage could
+    # not produce ``div(sqr(a),abs(b))``. With the gate reading real codes the pair stage recovers it on its own, so "a is absent without the stage" is no longer
+    # a property of the framework and is not asserted.
 
 
 def test_constructor_default_and_legacy_state():

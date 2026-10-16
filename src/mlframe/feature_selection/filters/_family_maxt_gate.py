@@ -377,16 +377,15 @@ def _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha) -> "np.ndarray 
     # Bonferroni upper bound: columns are grouped by their degrees of freedom (a handful of distinct values), constant columns never exceed M > 0.
     p_bonf = np.zeros(n_batches, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for d in np.unique(df[df > 0]):
-        p_bonf += float(np.count_nonzero(df == d)) * np.asarray(
-            _chi2_sf(g, float(d)), dtype=np.float64
-        )  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        tail = np.asarray(_chi2_sf(g, float(d)), dtype=np.float64)
+        p_bonf += float(np.count_nonzero(df == d)) * tail
     p_single = np.ones(n_batches, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     pos = nonempty & (best > 0.0) & (best_df > 0)
     for d in np.unique(best_df[pos]):
         sel = pos & (best_df == d)
-        p_single[sel] = np.asarray(
-            _chi2_sf(g[sel], float(d)), dtype=np.float64
-        )  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        p_single[sel] = np.asarray(_chi2_sf(g[sel], float(d)), dtype=np.float64)
     status = np.zeros(n_batches, dtype=np.int8)
     status[pos & (p_bonf <= alpha * _ANALYTIC_PASS_MARGIN)] = 1
     status[~pos | (p_single > alpha * _ANALYTIC_FAIL_FACTOR)] = -1
@@ -424,10 +423,9 @@ def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed) -> l
     """Pass flag per batch of one family: analytic triage first, the exact permutation test for what it leaves undecided."""
     starts = np.asarray(starts)
     n_batches = len(starts) - 1
+    maxima = [float(observed[starts[j] : starts[j + 1]].max()) if starts[j + 1] > starts[j] else 0.0 for j in range(n_batches)]
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    observed_max = np.array(
-        [float(observed[starts[j] : starts[j + 1]].max()) if starts[j + 1] > starts[j] else 0.0 for j in range(n_batches)], dtype=np.float64
-    )
+    observed_max = np.array(maxima, dtype=np.float64)
     flags = np.zeros(n_batches, dtype=np.bool_)
     status = _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha)
     if status is None:

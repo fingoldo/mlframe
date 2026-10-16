@@ -66,7 +66,7 @@ def knn_graph_edges(
             raise ValueError("knn_graph_edges: timestamp length must equal n rows.")
         past = t[cols] < t[rows]
         rows, cols, dd = rows[past], cols[past], dd[past]
-    edges = np.stack([rows, cols], axis=1).astype(np.int64)
+    edges: np.ndarray = np.stack([rows, cols], axis=1).astype(np.int64)
     if return_weights:
         return edges, 1.0 / (1.0 + dd)
     return edges

@@ -356,7 +356,7 @@ def greedy_forward(phi: np.ndarray, base: np.ndarray, y: np.ndarray, *, classifi
             lo, _, m = ev.loss_from_parent(current, cur_margin, j)
             if lo < cand_loss:
                 cand_loss, cand_best, cand_margin = lo, j, m
-        if cand_best is None or cand_loss >= best_loss:
+        if cand_best is None or cand_margin is None or cand_loss >= best_loss:
             break
         # Re-derive the sorted key (cheap; len <= max_card) and reuse the chosen child's margin.
         current = tuple(sorted((*current, cand_best)))
