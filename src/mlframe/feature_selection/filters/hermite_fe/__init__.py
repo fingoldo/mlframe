@@ -867,6 +867,10 @@ def basis_route_by_moments(x: np.ndarray) -> str:
     x = np.ascontiguousarray(x)
     _mean, std, skew, kurt_excess, xmin, xmax = _moment_fingerprint_njit(x)
     rng = xmax - xmin
+    if not (std > 0.0) or not np.isfinite(std):
+        # Constant (or non-finite) column: no shape to route on. It raised ZeroDivisionError here, which dropped the whole triplet family
+        # of the fit for one degenerate column.
+        return "chebyshev"
     spread_ratio = rng / std
     one_sided = (xmin >= 0) or (xmax <= 0)
     # Heavy-tailed positive / one-sided -> Laguerre.

@@ -67,6 +67,26 @@ def _clear_encode_cache() -> None:
         _encode_memo.clear()
 
 
+def joint_target_codes(y) -> np.ndarray:
+    """One dense int64 class code per row for a multi-column target ``y`` of shape (n, k).
+
+    The merged-target path (``multioutput_strategy`` None / ``'joint'``) treats the output columns as one joint target, but the FE stages
+    take a single 1-D target and ``ravel`` it, which turned an (n, k) target into n * k labels against n rows. Every column is encoded
+    with :func:`encode_y_for_classif_mi` (a continuous column is quantile-binned first, never densified into n singleton classes) and the
+    per-column codes are combined into one class per distinct combination. A 1-D (or single-column) ``y`` is encoded as before.
+    """
+    arr = np.asarray(y)
+    if arr.ndim < 2 or arr.shape[1] <= 1:
+        return encode_y_for_classif_mi(arr)
+    joint = np.zeros(arr.shape[0], dtype=np.int64)
+    for j in range(arr.shape[1]):
+        col = encode_y_for_classif_mi(arr[:, j])
+        # Re-densify after every column so the running product of class counts cannot overflow int64.
+        _, joint = np.unique(joint * (int(col.max()) + 1) + col, return_inverse=True)
+        joint = joint.astype(np.int64, copy=False)
+    return joint
+
+
 def encode_y_for_classif_mi(y: np.ndarray) -> np.ndarray:
     """Dense int64 class codes for a classification-MI target.
 

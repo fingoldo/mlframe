@@ -370,7 +370,12 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
     if isinstance(X, pd.DataFrame) and len(selected_vars):
         _rp_y = None
         try:
-            _rp_yv = np.asarray(_y_np, dtype=np.float64).reshape(-1)
+            _rp_raw = np.asarray(_y_np).reshape(-1)
+            if _rp_raw.dtype.kind in "biuf":
+                _rp_yv = _rp_raw.astype(np.float64)  # Intentional float64: held-out R^2 target of the probe (a statistic, not row data)
+            else:
+                # String / object class labels: their class codes, the target an integer-coded class y already gives this probe.
+                _rp_yv = np.unique(_rp_raw.astype(str), return_inverse=True)[1].astype(np.float64)  # Intentional float64: probe R^2 target
             if _rp_yv.shape[0] == int(data.shape[0]) and np.all(np.isfinite(_rp_yv)):
                 _rp_y = _rp_yv
         except Exception as exc:
