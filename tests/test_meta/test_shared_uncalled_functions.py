@@ -788,6 +788,7 @@ _TEST_UTILITIES = {
     "_is_windows",  # single chokepoint for OS detection, monkeypatched by tests
     "_ranknet_pair_cache_clear",  # test-only reset of the RankNet pair cache
     "set_default_cache",  # test hook that replaces the process-wide cache singleton
+    "_discovery_cache_bytes_total",  # directory-walk ground truth the caching tests compare the incremental _total_bytes accumulator against
 }
 
 _OFFLINE_GENERATORS = {
@@ -1016,6 +1017,14 @@ _SUPERSEDED = {
     # per-stat form of _global_stats_all; equality pinned in
     # tests/feature_selection/fe/test_binned_numeric_agg_fe.py::test_global_stats_all_matches_global_stat
     "_global_stat",
+    # scalar reference of the batched OLS solver; equality pinned in tests/training/composite/transforms/test_linear_residual_batched_ols.py
+    "_linear_residual_fit_closed",
+    # intermediate fused per-group kernel; production runs _group_aware_relevance_fused_njit, bit-parity with per-column _mi_from_edges in
+    # test_ranker_fs_group_relevance_identity.py
+    "_group_features_mi_njit",
+    # merge-only form of _greedy_merge_with_history (which the MAH estimator calls); parity pinned in
+    # tests/feature_selection/filters/test_mah_greedy_merge_parity.py
+    "_greedy_merge_bins",
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -1040,7 +1049,6 @@ _FRAMEWORK_HOOKS: set[str] = {
 
 #: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
 _PLANNED: set[str] = {
-    "_suppress_numeric_warnings",  # worker-thread warning filter for the numeric module, planned for its callers
     "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
     "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
     "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
@@ -1049,7 +1057,6 @@ _PLANNED: set[str] = {
     "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
     "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
     "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
-    "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
     "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
     "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
     "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1057,14 +1064,10 @@ _PLANNED: set[str] = {
     "_compute_pair_ii_mm",  # library helper with no in-repo caller; owner decides to export or drop
     "_should_apply_mm_for_pair",  # library helper with no in-repo caller; owner decides to export or drop
     "pair_is_tail_concentrated",  # library helper with no in-repo caller; owner decides to export or drop
-    "_greedy_merge_bins",  # library helper with no in-repo caller; owner decides to export or drop
     "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
-    "_initialize_mutable_defaults",  # library helper with no in-repo caller; owner decides to export or drop
-    "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
     "_registered_transform_names",  # library helper with no in-repo caller; owner decides to export or drop
-    "_linear_residual_fit_closed",  # library helper with no in-repo caller; owner decides to export or drop
     "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
 }
@@ -1098,6 +1101,9 @@ _OPTIN = {
     "rank_bin_codes_gpu_resident",
     "clear_resident_codes_handoff",  # explicit release of the resident-codes handoff; the dispatch no longer clears it unconditionally
     "mi_direct_gpu_batched_streamed",  # streamed twin of mi_direct_gpu_batched for factor matrices that do not fit resident; chosen per fit on large inputs
+    "_initialize_mutable_defaults",  # None-to-empty defaults helper re-exported by trainer for legacy imports
+    # thread-safe warning guard for the numeric module; its welch call is currently commented out, pinned in tests/utils/test_warning_filters_thread_safe.py
+    "_suppress_numeric_warnings",
 }
 
 
