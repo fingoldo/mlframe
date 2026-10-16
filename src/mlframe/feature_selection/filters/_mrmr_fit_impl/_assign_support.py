@@ -529,14 +529,22 @@ def _eligible_engineered_gate(self, _eligible_idxs, target_indices, nbins, _ne_m
 
         _alpha_op = mrmr_null_signif_alpha() / max(1, len(_eligible_idxs))
         _seed_ne = int(getattr(self, "random_seed", 0) or 0)
-        _informative = {
-            _oi for _oi in _eligible_idxs
-            if bool(call_or_default(
-                lambda _oi=_oi: operand_adds_information(data, int(target_indices[0]), int(_oi), _operand_owners.get(_oi, []), _alpha_op, _seed_ne, str(cols[_oi])),
-                True, key="mrmr_never_empty_conditional_probe_failed",
+
+        def _adds_information(_oi: int) -> bool:
+            """Whether candidate column ``_oi`` adds information beyond the engineered feature(s) containing it; a candidate with no known owner is kept."""
+            if not _operand_owners.get(_oi):
+                return True
+
+            def _probe() -> bool:
+                """Conditional-significance verdict of the candidate over its owners."""
+                return operand_adds_information(data, int(target_indices[0]), int(_oi), _operand_owners[_oi], _alpha_op, _seed_ne, str(cols[_oi]))
+
+            return bool(call_or_default(
+                _probe, True, key="mrmr_never_empty_conditional_probe_failed",
                 message="mrmr: conditional-information probe failed for a never-empty raw stand-in candidate; it is kept unverified",
-            )) or not _operand_owners.get(_oi)
-        }
+            ))
+
+        _informative = {_oi for _oi in _eligible_idxs if _adds_information(_oi)}
         if not _informative:
             _names_ne = {cols[_oi] for _oi in _eligible_idxs}
             self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) | _names_ne

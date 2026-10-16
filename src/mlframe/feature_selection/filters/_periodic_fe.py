@@ -195,7 +195,8 @@ def apply_modular(x: np.ndarray, period: float, op: str) -> np.ndarray:
     out_dtype = _crit_np_dtype()
     if op == "parity":
         # Square wave: floor(x / period) mod 2. NaN / inf scrub to 0 like the other ops.
-        return np.nan_to_num(np.floor(arr / p) % 2.0, nan=0.0, posinf=0.0, neginf=0.0).astype(out_dtype, copy=False)
+        square: np.ndarray = np.nan_to_num(np.floor(arr / p) % 2.0, nan=0.0, posinf=0.0, neginf=0.0).astype(out_dtype, copy=False)
+        return square
     op_code = 0 if op == "mod" else (1 if op == "sin" else 2)
     return np.asarray(_modular_njit(arr, p, op_code)).astype(out_dtype, copy=False)
 
