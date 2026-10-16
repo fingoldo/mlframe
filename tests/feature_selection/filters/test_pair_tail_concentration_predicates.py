@@ -46,5 +46,6 @@ def test_product_is_linear_half_positive_and_noise_is_negative():
 def test_rank_aware_true_implies_linear_half_true(kind, seed):
     """The rank-aware predicate adds a rank-collapse leg on top of the linear half, never replaces it."""
     y, x0, x1 = _pair(seed, kind)
-    if pair_is_tail_concentrated_rankaware(y, x0, x1, **_KW):
-        assert pair_is_tail_concentrated(y, x0, x1, **_KW)
+    rank_aware = pair_is_tail_concentrated_rankaware(y, x0, x1, **_KW)
+    linear_half = pair_is_tail_concentrated(y, x0, x1, **_KW)
+    assert linear_half or not rank_aware

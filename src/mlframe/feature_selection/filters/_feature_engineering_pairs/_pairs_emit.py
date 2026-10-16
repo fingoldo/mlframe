@@ -130,7 +130,7 @@ def _apply_pair_family_floor(valid_pairs_perf, classes_y, n_bins, n_rows, k_tota
     best = max(float(v) for v in valid_pairs_perf.values())
     table_floor = pair_search_floor(int(n_rows), classes_y, int(n_bins), int(k_total))
     if table_floor is not None and best <= table_floor:
-        for cfg in valid_pairs_perf:
+        for cfg in list(valid_pairs_perf):  # a snapshot of the keys, so rewriting values can never be mistaken for resizing the dict
             valid_pairs_perf[cfg] = 0.0
 
 

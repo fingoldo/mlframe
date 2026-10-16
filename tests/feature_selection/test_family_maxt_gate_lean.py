@@ -39,8 +39,7 @@ def test_early_stop_pass_equals_full_null():
             full = exact_pvalue_pass(observed, null_max, 0.01)
             lean = family_maxt_pass(X, y, n_bins=10, alpha=0.01, n_perm=n_perm, seed=seed)
             np.testing.assert_array_equal(full, lean)
-            if n_perm == 999:
-                assert lean[0] and not lean[2:].any()
+            assert n_perm < 999 or (lean[0] and not lean[2:].any())
 
 
 def _reference_family_pass(batches, y_codes, alpha, n_perm, seed=0):
