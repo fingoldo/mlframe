@@ -308,6 +308,23 @@ def family_maxt_pass_codes(cols: np.ndarray, nx: np.ndarray, y, alpha: float = 0
     return alive
 
 
+def _stack_codes_transposed(mats, widths) -> np.ndarray:
+    """The (K_total, n) code matrix of the batches in the narrowest integer width that holds their codes, built in one pass.
+
+    The family of one pair spans every configuration scored for it (hundreds of batches of ~1500 columns at 30000 rows); upcasting each batch to
+    int64 and then stacking and transposing it held that family three times at eight bytes a code, which exhausted host memory on a wide frame.
+    """
+    top = max((int(m.max()) for m in mats if m.size), default=0)
+    dt = np.int8 if top <= 127 else (np.int16 if top <= 32767 else np.int64)
+    n = int(mats[0].shape[0])
+    cols = np.empty((int(sum(widths)), n), dtype=dt)
+    at = 0
+    for m, w in zip(mats, widths):
+        cols[at : at + w] = m.T
+        at += w
+    return cols
+
+
 def family_pass_batches(batches, y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> list:
     """Family-wise pass flags for several batches of candidate codes that form ONE family (e.g. every configuration of one pair).
 
@@ -320,10 +337,10 @@ def family_pass_batches(batches, y_codes: np.ndarray, alpha: float = 0.01, n_per
     """
     y = np.ascontiguousarray(np.asarray(y_codes, dtype=np.int64).ravel())
     n_y = int(y.max()) + 1
-    mats = [np.asarray(c, dtype=np.int64) for c in batches]
+    mats = [np.asarray(c) for c in batches]
     widths = [m.shape[1] for m in mats]
-    cols = np.ascontiguousarray(np.hstack(mats).T)
-    n_x = (cols.max(axis=1) + 1).astype(np.int64)
+    cols = _stack_codes_transposed(mats, widths)
+    n_x = cols.max(axis=1).astype(np.int64) + 1
     observed = mi_all_columns_njit(cols, n_x, y, n_y)
     bounds = np.cumsum([0, *widths])
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties

@@ -120,6 +120,21 @@ def _apply_pair_family_gate(pair_batches, valid_pairs_perf, classes_y, n_bins, a
             valid_pairs_perf[cfg] = 0.0
 
 
+def _apply_pair_family_floor(valid_pairs_perf, classes_y, n_bins, n_rows, k_total):
+    """Family gate of a pair whose validation candidates are too many to hold: the null-MI table floor for the whole family (``k_total``
+    candidates) rejects every configuration when even the best validation MI sits below it. Above the floor nothing is zeroed, because the exact
+    family-wise permutation test needs all the codes at once (see ``_pairs_emit_extval._FAMILY_EXACT_MAX_CELLS``)."""
+    if not valid_pairs_perf or k_total <= 0:
+        return
+    from .._null_mi_threshold import pair_search_floor
+
+    best = max(float(v) for v in valid_pairs_perf.values())
+    table_floor = pair_search_floor(int(n_rows), classes_y, int(n_bins), int(k_total))
+    if table_floor is not None and best <= table_floor:
+        for cfg in valid_pairs_perf:
+            valid_pairs_perf[cfg] = 0.0
+
+
 def apply_pair_family_gate_from_state(st, classes_y, n_bins, alpha=0.01) -> bool:
     """Family-wise gate over every configuration of the current pair, read from the pair state. Returns True when the gate rejected the winner
     (the caller must then emit nothing for this pair)."""

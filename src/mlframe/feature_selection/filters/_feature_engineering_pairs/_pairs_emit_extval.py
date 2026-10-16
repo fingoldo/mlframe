@@ -11,9 +11,17 @@ import logging
 
 import numpy as np
 
+from mlframe.utils.env_flags import env_int
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
+
+# The external-validation MI only breaks ties between leaders of exactly equal primary MI, but the exact family test over every validation
+# candidate of a pair needs all of their codes at once and a permutation pass over all of them: 118 tied configurations x 252 external factors
+# x 6 operations at 30000 rows is 5.4e9 code cells, more than a host holds even as int8. A family above this many million cells is decided by
+# the null-MI table floor alone (see ``_pairs_emit._apply_pair_family_floor``); the exact test stays for every family that fits.
+# TODO(KTC): a measured crossover per machine; 400 million cells keeps the first 256-permutation block near 1e11 histogram updates.
+_FAMILY_EXACT_MAX_CELLS = env_int("MLFRAME_PAIR_FAMILY_EXACT_MAX_MCELLS", 400, minimum=0) * 1_000_000
 
 
 def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_K, n_rows, _materialise_extval_njit):
@@ -96,6 +104,14 @@ def _emit_pair_features_step2_read_here_once(
     from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_enabled
 
     _pair_batches: list = []  # (config, host codes n x K) of every batch of this pair: one family for the family-wise gate below
+    # Size of the family before building it: configurations x external factors x operations x rows. A family past the cell budget is never
+    # held; each configuration only reports its best validation MI and the pair is gated by the table floor afterwards.
+    _n_ext_est = len(_ext_factors_sorted)
+    if fe_max_external_validation_factors:
+        _n_ext_est = min(_n_ext_est, int(fe_max_external_validation_factors))
+    _family_cells = len(_ev_configs) * _n_ext_est * len(binary_transformations) * len(X)
+    _family_exact = _family_cells <= _FAMILY_EXACT_MAX_CELLS
+    _k_seen = 0  # candidates scored over every configuration of this pair (the family size K of the table floor)
     for transformations_pair, bin_func_name, i in (_ev_configs if len(_ev_configs) > 1 else []):
         _pa_dev = None
         if final_transformed_vals is not None:
@@ -287,13 +303,15 @@ def _emit_pair_features_step2_read_here_once(
                 if _ev_mi is None or not len(_ev_mi) or _ev_disc is None:
                     _ev_all_scored = False
                 if _ev_mi is not None and len(_ev_mi) and _ev_disc is not None:
+                    _k_seen += int(_ev_col)
+                if _family_exact and _ev_mi is not None and len(_ev_mi) and _ev_disc is not None:
                     _host_codes = _ev_disc[:, : int(_ev_col)]
                     _ev_chunk_codes.append(_host_codes.get() if hasattr(_host_codes, "get") else np.asarray(_host_codes))
                 if _ev_mi is not None and len(_ev_mi):
                     best_valid_mi = max(best_valid_mi, float(np.max(_ev_mi)))
             _ev_param_bs = _ev_all_param_bs
             # The family gate needs every candidate of the pair; a chunk without scores leaves the pair out of it, as the one-batch path did.
-            if _ev_chunk_codes and _ev_all_scored:
+            if _family_exact and _ev_chunk_codes and _ev_all_scored:
                 _pair_batches.append((config, _ev_chunk_codes[0] if len(_ev_chunk_codes) == 1 else np.hstack(_ev_chunk_codes)))
         else:
             if param_a is None:
@@ -307,7 +325,9 @@ def _emit_pair_features_step2_read_here_once(
                     discretized_transformed_values = discretize_array(
                         arr=valid_vals, n_bins=quantization_nbins, method=quantization_method, dtype=quantization_dtype
                     )
-                    _else_cols.append(np.asarray(discretized_transformed_values).reshape(-1, 1))
+                    _k_seen += 1
+                    if _family_exact:
+                        _else_cols.append(np.asarray(discretized_transformed_values).reshape(-1, 1))
                     fe_mi, _fe_conf = mi_direct(
                         discretized_transformed_values.reshape(-1, 1),
                         x=np.array([0], dtype=np.int64),
@@ -327,6 +347,9 @@ def _emit_pair_features_step2_read_here_once(
             _pair_batches.append((config, np.hstack(_else_cols)))
         valid_pairs_perf[config] = best_valid_mi
 
-    from ._pairs_emit import _apply_pair_family_gate
+    from ._pairs_emit import _apply_pair_family_floor, _apply_pair_family_gate
 
-    _apply_pair_family_gate(_pair_batches, valid_pairs_perf, classes_y, int(quantization_nbins))
+    if _family_exact:
+        _apply_pair_family_gate(_pair_batches, valid_pairs_perf, classes_y, int(quantization_nbins))
+    else:
+        _apply_pair_family_floor(valid_pairs_perf, classes_y, int(quantization_nbins), len(X), _k_seen)

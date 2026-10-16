@@ -38,3 +38,40 @@ def test_early_stop_pass_equals_full_null():
             np.testing.assert_array_equal(full, lean)
             if n_perm == 999:
                 assert lean[0] and not lean[2:].any()
+
+
+def _reference_family_pass(batches, y_codes, alpha, n_perm, seed=0):
+    """The family decision computed on int64 stacked codes (how the gate was built before the narrow-width stack)."""
+    from mlframe.feature_selection.filters._family_maxt_gate import exact_pvalue_pass as _unused  # noqa: F401
+
+    y = np.ascontiguousarray(np.asarray(y_codes, dtype=np.int64).ravel())
+    n_y = int(y.max()) + 1
+    mats = [np.asarray(c, dtype=np.int64) for c in batches]
+    widths = [m.shape[1] for m in mats]
+    cols = np.ascontiguousarray(np.hstack(mats).T)
+    n_x = (cols.max(axis=1) + 1).astype(np.int64)
+    observed = mi_all_columns_njit(cols, n_x, y, n_y)
+    bounds = np.cumsum([0, *widths])
+    obs_max = np.array([float(observed[bounds[j] : bounds[j + 1]].max()) for j in range(len(widths))])
+    null_max = family_null_max(cols, n_x, y, n_y, n_perm, np.random.default_rng(seed))
+    r = (null_max[:, None] >= obs_max[None, :]).sum(axis=0)
+    return [bool((1.0 + k) / (n_perm + 1.0) <= alpha) for k in r]
+
+
+def test_family_pass_batches_narrow_stack_equals_int64_reference():
+    from mlframe.feature_selection.filters._family_maxt_gate import _stack_codes_transposed, family_pass_batches
+
+    rng = np.random.default_rng(3)
+    n = 2000
+    y = rng.integers(0, 2, n)
+    noise = [rng.integers(0, 6, (n, w)).astype(np.int8) for w in (5, 8)]
+    sig = rng.integers(0, 6, (n, 3)).astype(np.int8)
+    sig[:, 0] = np.clip(y * 3 + rng.integers(0, 3, n), 0, 5)
+    batches = [noise[0], sig, noise[1]]
+    got = family_pass_batches(batches, y, alpha=0.01, n_perm=999)
+    assert got == _reference_family_pass(batches, y, 0.01, 999)
+    assert got == [False, True, False]
+    stacked = _stack_codes_transposed([np.asarray(b) for b in batches], [b.shape[1] for b in batches])
+    assert stacked.dtype == np.int8 and stacked.shape == (16, n)
+    wide = [np.asarray(b, dtype=np.int64) * 300 for b in batches]
+    assert _stack_codes_transposed(wide, [b.shape[1] for b in wide]).dtype == np.int16

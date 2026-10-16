@@ -227,6 +227,7 @@ Every environment variable read anywhere in `src/mlframe/`, generated from the s
 | `MLFRAME_NUMBA_WARMUP_SKIP_PARALLEL` | — | [src/mlframe/metrics/_core_numba_warmup.py](../src/mlframe/metrics/_core_numba_warmup.py#L291) |
 | `MLFRAME_NW_PARALLEL_MIN_QUERIES` | `2000` | [src/mlframe/feature_engineering/nadaraya_watson.py](../src/mlframe/feature_engineering/nadaraya_watson.py#L42) |
 | `MLFRAME_OOF_BATCH_BINNING_MAX_TRAIN_ROWS` | `16000` | [src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py](../src/mlframe/feature_selection/filters/_orthogonal_three_gate_mi_fe.py#L227) |
+| `MLFRAME_PAIR_FAMILY_EXACT_MAX_MCELLS` | `400` | [src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py](../src/mlframe/feature_selection/filters/_feature_engineering_pairs/_pairs_emit_extval.py#L24) |
 | `MLFRAME_PAIR_NULL_MAX_ROWS` | `'250000'` | [src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py](../src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_pairs_rank.py#L351) |
 | `MLFRAME_PANDAS_VIEW_CACHE_MAX_MB` | — | [src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py](../src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py#L62) |
 | `MLFRAME_PANDAS_VIEW_CACHE_SIZE` | `''` | [src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py](../src/mlframe/training/core/_phase_train_one_target_polars_fastpath.py#L64) |
