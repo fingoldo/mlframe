@@ -8,19 +8,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/core/arrays.py::arrayCountingArgSortAndUniqueValuesThreaded": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/core/arrays.py::arrayCountingArgSortThreaded": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/core/arrays.py::arrayCountingSort": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/core/arrays.py::arrayMinMaxParallel": {
    "count": 1,
    "note": ""
   },
@@ -65,10 +53,6 @@
    "note": ""
   },
   "src/mlframe/evaluation/reports.py::evaluate_estimators": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/evaluation/reports.py::evaluate_grouped": {
    "count": 1,
    "note": ""
   },
@@ -144,10 +128,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_engineering/transformer/_projection.py::_project_single_head_njit": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_engineering/transformer/_smote_kernels_shared.py::smote_synthesize_rowloop": {
    "count": 1,
    "note": ""
@@ -165,10 +145,6 @@
    "note": ""
   },
   "src/mlframe/feature_engineering/wavelet_dwt.py::wavelet_denoise": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/boruta_shap/__init__.py::load_data": {
    "count": 1,
    "note": ""
   },
@@ -200,15 +176,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_fe_family_timing.py::get_fe_family_max_concurrency": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_fe_frame_ops.py::fe_columns": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/_fe_interaction_prerank.py::_discrete_score_numpy_loop": {
    "count": 1,
    "note": ""
   },
@@ -400,10 +368,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/mi.py::grok_mutual_information_old": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/optbinning.py::get_binningprocess_featureselectors": {
    "count": 1,
    "note": ""
@@ -504,10 +468,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/metrics/classification/_classification_extras.py::_ks_statistic_numpy": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/metrics/core.py::_require_plotly": {
    "count": 1,
    "note": ""
@@ -557,10 +517,6 @@
    "note": ""
   },
   "src/mlframe/signal/dtw.py::dtw_dispatch": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/signal/dtw.py::set_dtw_dispatch_threshold": {
    "count": 1,
    "note": ""
   },
@@ -621,10 +577,6 @@
    "note": ""
   },
   "src/mlframe/training/_tta.py::tta_predict_spread": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/cb/_cb_pool_budget.py::cache_bytes": {
    "count": 1,
    "note": ""
   },
@@ -696,10 +648,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/composite/transforms/unary.py::_yj_inverse_scalar": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/core/_main_train_suite_phases.py::unpack_ctx_configs_to_locals": {
    "count": 1,
    "note": ""
@@ -721,14 +669,6 @@
    "note": ""
   },
   "src/mlframe/training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_recurrent_config_kwargs": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/metrics_registry.py::get_metric_direction": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/metrics_registry.py::list_registered": {
    "count": 1,
    "note": ""
   },

@@ -59,6 +59,9 @@ _PUBLIC_API = {
     "set_wavedec_dispatch_threshold",  # documented tuning knob for the wavelet single/batched dispatch; a user sets it
     "reset_openmp_smoke",  # compatibility alias for the old hnswlib API; a no-op kept so old imports keep working
     "operand_uplift_null_bar",  # exported through the module's __all__ (feature_engineering_pairs operand floor); public surface
+    "set_dtw_dispatch_threshold",  # documented tuning knob for the DTW GPU/CPU crossover; a user sets it
+    "get_metric_direction",  # public accessor for a metric's registered direction
+    "list_registered",  # public introspection of the metric registry
 }
 
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
@@ -680,6 +683,7 @@ _TEST_UTILITIES = {
     "_reset_for_tests",  # test-isolation reset of the kernel-tuning state
     "_xgb_cache_clear",  # test-isolation reset of the xgboost shim cache
     "_lib_versions_cache_clear",  # test-isolation reset of the library-version cache
+    "cache_bytes",  # recorded-size readout for tests and diagnostics of the CatBoost pool budget
 }
 
 _OFFLINE_GENERATORS = {
@@ -712,6 +716,9 @@ _OFFLINE_GENERATORS = {
     "naive_masking_score",  # fairness baseline score for the votenrank study, run by hand
     "count_and_plot",  # stability experiment plotting helper, run by hand
     "create_exp_pic",  # stability experiment plotting helper, run by hand
+    "evaluate_grouped",  # hand-run demo that reports per-group accuracy for a sample model
+    "load_data",  # example-dataset loader for trying the package out by hand
+    "get_fe_family_max_concurrency",  # diagnostic reader of the peak FE family concurrency, read by hand
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -734,6 +741,12 @@ _RETAINED_KERNELS = {
     "_resample_desc_order_counting",  # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
     "score_triplet_cross_basis_by_mi_uplift",  # alternative triplet scorer (MI uplift over the best source); the live path uses score_triplet_cross_basis_by_cmi and no switch reaches this one; exercised by tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
     "_plugin_mi_from_counts",  # plug-in MI helper of the retained uplift scorer above; no live caller
+    "_discrete_score_numpy_loop",  # original per-class reference for the discrete path, kept as the fallback; no switch reaches it
+    "_ks_statistic_numpy",  # reference KS kept callable as the fallback; no switch reaches it
+    "_project_single_head_njit",  # parallel single-head projection kept for the no-BLAS fallback and parity; no switch reaches it
+    "arrayCountingArgSortThreaded",  # parallel counterpart of the counting argsort; the production path uses the serial form and no switch reaches this one
+    "arrayCountingArgSortAndUniqueValuesThreaded",  # parallel counterpart of the counting argsort with unique values; no switch reaches it
+    "arrayMinMaxParallel",  # parallel counterpart of the min/max scan; no switch reaches it
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -805,6 +818,8 @@ _SUPERSEDED = {
     "_per_query_groups",  # index-array form of the live group slices in metrics.ranking._iter_group_slices; parity pinned in tests/reporting/test_per_query_groups_parity.py
     "_pointwise_log_ratio",  # the log term the I_ccs kernel computes inline; the helper re-sum matches it, pinned in tests/feature_selection/filters/test_pointwise_log_ratio_parity.py
     "_get_fused_mi_term",  # the cp.fuse per-cell term; the resident MI now runs the fused MI-from-codes RawKernel (0cb9186a0). Formula pinned to numpy in tests/feature_selection/gpu/test_gpu_fused_mi_term.py
+    "grok_mutual_information_old",  # naive per-cell form of grok_mutual_information; parity pinned in tests/feature_selection/test_grok_mi_old_parity.py
+    "_yj_inverse_scalar",  # scalar reference for _yj_inverse; parity pinned in tests/training/composite/transforms/test_yj_inverse_scalar_parity.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
