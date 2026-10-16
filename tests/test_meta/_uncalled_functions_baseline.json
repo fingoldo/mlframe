@@ -296,10 +296,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_hermite_fe_mi.py::_get_fused_mi_term": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_hinge_basis_fe.py::_segmented_sse": {
    "count": 1,
    "note": ""
