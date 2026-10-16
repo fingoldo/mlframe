@@ -123,6 +123,7 @@ def apply_loky_cpu_count_override() -> None:
 # fast-import / optional-dep isolation; no longer guarding a training_old cycle).
 
 _LAZY_IMPORTS = {
+    "compare_targets_performance": (".targets_performance", "compare_targets_performance"),
     "make_pool": ("._model_factories", "make_pool"),
     "make_dmatrix": ("._model_factories", "make_dmatrix"),
     "make_lgb_dataset": ("._model_factories", "make_lgb_dataset"),
@@ -485,6 +486,7 @@ __all__ += [
     "make_pool",
     "make_dmatrix",
     "make_lgb_dataset",
+    "compare_targets_performance",
 ]
 
 

@@ -62,6 +62,9 @@ _PUBLIC_API = {
     "set_dtw_dispatch_threshold",  # documented tuning knob for the DTW GPU/CPU crossover; a user sets it
     "get_metric_direction",  # public accessor for a metric's registered direction
     "list_registered",  # public introspection of the metric registry
+    "plugin_mi_classif_batch_fast",  # public function of mlframe.feature_selection.filters.hermite_fe (no __all__ there by design), covered by test_plugin_mi_classif_dispatch.py
+    "compute_permutation_importances",  # public deep-import helper of mlframe.feature_selection.importance (the module pulls matplotlib, so it is not re-exported), covered by test_importance.py
+    "get_binningprocess_featureselectors",  # public deep-import helper of mlframe.feature_selection.optbinning (optional optbinning dependency), covered by test_optbinning.py
 }
 
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
@@ -750,6 +753,7 @@ _REEXPORTED_PUBLIC_API = {
     "make_pool",  # exported lazily through mlframe.training
     "make_dmatrix",  # exported lazily through mlframe.training
     "make_lgb_dataset",  # exported lazily through mlframe.training
+    "compare_targets_performance",  # exported lazily through mlframe.training
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -988,7 +992,6 @@ _PLANNED: set[str] = {
     "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
     "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
     "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
-    "compute_permutation_importances",  # user-facing permutation importance helper not yet exported, planned as public API
     "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
     "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
     "_column_tie_fraction",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1010,8 +1013,6 @@ _PLANNED: set[str] = {
     "_greedy_merge_bins",  # library helper with no in-repo caller; owner decides to export or drop
     "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
-    "plugin_mi_classif_batch_fast",  # library helper with no in-repo caller; owner decides to export or drop
-    "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
     "_initialize_mutable_defaults",  # library helper with no in-repo caller; owner decides to export or drop
     "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1019,7 +1020,6 @@ _PLANNED: set[str] = {
     "_linear_residual_fit_closed",  # library helper with no in-repo caller; owner decides to export or drop
     "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
-    "compare_targets_performance",  # library helper with no in-repo caller; owner decides to export or drop
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
