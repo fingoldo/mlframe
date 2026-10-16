@@ -101,6 +101,13 @@ def _assign_support_tail(
     if _final_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
+    # PARSIMONY COMPACTION: several engineered features replaced by one candidate that carries at least the same bias-corrected joint information.
+    from ._selection_compaction import run_selection_compaction
+
+    _compact_changed, selected_vars = run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engineered_recipes or {}, verbose)
+    if _compact_changed:
+        self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
+
 
 def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names, selected_vars, cols, _allowed_raw_idx):
     """Block of _assign_support_tai_fe_max_steps starting at ``if fe_max_steps > 0:``."""

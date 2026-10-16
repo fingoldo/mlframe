@@ -250,7 +250,12 @@ def exact_pvalue_pass(observed: np.ndarray, null_max: np.ndarray, alpha: float) 
 
 
 def _quantile_codes(v: np.ndarray, n_bins: int) -> tuple[np.ndarray, int]:
-    """Integer quantile-bin codes of a finite column and the number of codes it uses."""
+    """Integer quantile-bin codes of a finite column and the number of codes it uses (exact codes for a column with at most ``n_bins`` distinct values)."""
+    levels = np.unique(v)
+    if levels.size <= n_bins:
+        # The quantile edges of a two-valued column are [lo, hi] and the upper bin is clipped away: both values got code 0, MI 0, and a binary
+        # candidate could never pass the family test.
+        return np.searchsorted(levels, v).astype(np.int64), int(levels.size)
     edges = np.unique(np.quantile(v, np.linspace(0.0, 1.0, n_bins + 1)))
     codes = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, max(len(edges) - 2, 0)).astype(np.int64)
     return codes, int(codes.max()) + 1
