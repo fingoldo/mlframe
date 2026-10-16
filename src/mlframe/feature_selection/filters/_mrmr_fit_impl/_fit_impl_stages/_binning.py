@@ -11,6 +11,21 @@ from typing import Optional
 # --- end imports ---
 
 
+def _validated_target_classes(y: np.ndarray, max_y_classes: int = 64) -> "np.ndarray | None":
+    """The target as ``mdlp_bin_edges_oos_validated`` sees it: unchanged with at most ``max_y_classes`` distinct values, otherwise the index of its
+    quantile class. ``None`` when the target has non-finite values (the production path drops those rows; the null is then left to the
+    categorise-per-permutation path)."""
+    y = np.asarray(y)
+    if y.dtype.kind in "OUS":
+        return y if np.unique(y).size <= max_y_classes else None
+    if y.dtype.kind == "f" and not np.isfinite(y).all():
+        return None
+    if np.unique(y).size <= max_y_classes:
+        return y
+    edges = np.unique(np.quantile(y, np.linspace(0.0, 1.0, int(max_y_classes) + 1)[1:-1]))
+    return np.searchsorted(edges, y, side="right")
+
+
 def _compact_code_storage(data):
     """Narrow the discretised code matrix to the smallest integer dtype its range fits (MLFRAME_MRMR_COMPACT_CODES=0 opts out)."""
     if data.size and os.environ.get("MLFRAME_MRMR_COMPACT_CODES", "1").strip().lower() not in ("0", "false", "off", "no"):
@@ -212,15 +227,18 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
             from mlframe.feature_selection.filters._honest_spec import build_honest_spec
 
             _validated = _strategy_lc in ("mdlp_validated", "fayyad_irani_validated")
-            # The validated strategy's null needs at most 64 target classes (the production y-rebucketing above that is not mirrored).
-            if not _validated or np.unique(_y_raw_for_null).size <= 64:
+            # The validated strategy bins against at most 64 target classes: a target with more distinct values is first cut into 64 quantile classes
+            # (mdlp_bin_edges_oos_validated). The class of a row does not depend on the row order, so the permuted target's classes are the permuted
+            # classes of the observed target and the null can run on those.
+            _y_spec = _validated_target_classes(_y_raw_for_null) if _validated else _y_raw_for_null
+            if _y_spec is not None:
                 setattr(  # noqa: B010 - the nested function carries its spec as an attribute
                     _honest_null_codes,
                     "spec",
                     build_honest_spec(
                         X=_x_for_cat,
                         cols=list(cols),
-                        y_raw=_y_raw_for_null,
+                        y_raw=_y_spec,
                         max_depth=int((_nbins_strategy_kwargs or {}).get("max_depth", 8)),
                         method="oos" if _validated else "mdlp",
                     ),
