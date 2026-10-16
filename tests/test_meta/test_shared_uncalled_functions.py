@@ -685,6 +685,13 @@ _TEST_UTILITIES = {
     "_lib_versions_cache_clear",  # test-isolation reset of the library-version cache
     "cache_bytes",  # recorded-size readout for tests and diagnostics of the CatBoost pool budget
     "is_triton_available",  # Triton availability probe for callers and tests
+    "reset_gpu_probe",  # test hook that re-probes GPU availability after monkeypatching
+    "reset_cmi_forder_cache",  # test/free-memory reset of cached F-order copies
+    "reset_gpu_metrics_probe",  # test hook that re-probes GPU availability for metrics
+    "_lgb_cache_clear",  # test-isolation reset of the LightGBM dataset cache
+    "_is_windows",  # single chokepoint for OS detection, monkeypatched by tests
+    "_ranknet_pair_cache_clear",  # test-only reset of the RankNet pair cache
+    "set_default_cache",  # test hook that replaces the process-wide cache singleton
 }
 
 _OFFLINE_GENERATORS = {
@@ -725,6 +732,14 @@ _OFFLINE_GENERATORS = {
     "agreement_rate",  # votenrank study metric, run by hand
     "best_unary_transform",  # baseline comparator for the FE benchmarks, run by hand
     "score_triplet_baselines",  # baseline comparator for the triplet FE benchmarks, run by hand
+    "replay_cv_results",  # visualisation of a stored CV dump, run by hand
+    "example_highd",  # demo that a sliced-MI estimate is near zero on independent samples, run by hand
+    "compare_ensembles",  # ensemble comparison plot for hand-run analysis
+    "preprocess_glue",  # cleaning of a scraped GLUE leaderboard, run by hand
+    "preprocess_sglue",  # cleaning of a scraped SuperGLUE leaderboard, run by hand
+    "preprocess_value",  # cleaning of a scraped VALUE leaderboard, run by hand
+    "compute_iia",  # votenrank Monte-Carlo IIA study, run by hand
+    "kendall_tau",  # votenrank study correlation against the AM ranking, run by hand
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -756,6 +771,18 @@ _RETAINED_KERNELS = {
     "naive_mean_var_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
     "naive_moments_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
     "_fused_regression_welford_par",  # parallel fused Welford regression kernel kept as an alternative; no switch reaches it
+    "compute_nunique_mode_quantiles_numba",  # marked not recommended in its own docstring; the numpy variant is the live path
+    "kahan_dot_seq",  # compensated-sum alternative kept for the numerical-stability bench
+    "kahan_sum_seq",  # compensated-sum alternative kept for the numerical-stability bench
+    "kahan_two_pass_var_seq",  # compensated two-pass variance kept for the numerical-stability bench
+    "welford_mean_var_seq",  # single-pass Welford kept for the numerical-stability bench
+    "welford_moments_seq",  # single-pass Welford moments kept for the numerical-stability bench
+    "smote_synthesize_rowloop",  # row-loop SMOTE kept as the pre-vectorisation reference
+    "_rff_analytic_mixed_partial_energy_loop",  # per-pair reference kernel kept for the exact RFF energy check
+    "_combine_factorize_serial_njit",  # fully-serial reference of the combine-factorize kernel, kept as the baseline
+    "_pack_for_bitmap_numpy",  # numpy reference packer kept for the bit-identity bench and test
+    "_fused_regression_welford_seq",  # sequential fused Welford regression kernel kept as the alternative to the parallel one
+    "dtw_cupy_full",  # pre-CPX-P0-2 full-matrix DTW kept as an alternative backend; no switch reaches it
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -843,6 +870,11 @@ _PLUGIN_HOOKS = {
     "forget_pool_bytes",  # downstream evictor calls it after evicting outside evict_for_budget
 }
 
+#: FRAMEWORK_HOOK: invoked by name by a framework (a joblib pool warm-up, a callback); the caller is outside the repo or the framework.
+_FRAMEWORK_HOOKS: set[str] = {
+    "_pool_warmup_noop",  # joblib pool warm-up callable, handed to the worker pool by reference
+}
+
 #: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
 _PLANNED: set[str] = {
     "npnbArrayMinMax",  # fast finite-input min/max utility not yet called; the planned array-stats path uses it
@@ -875,6 +907,135 @@ _PLANNED: set[str] = {
     "_split_arrays",  # groups a value array by split label for error analysis, planned for the split charts
     "_wrap_text",  # label wrapping for plotly charts, planned for the chart labels
     "_get_cached_plot_idx",  # cached random subsample index for scatter plots, planned for the residual plots
+    "arrayCountingArgSort",  # library helper with no in-repo caller; owner decides to export or drop
+    "arrayCountingArgSortAndUniqueValues",  # library helper with no in-repo caller; owner decides to export or drop
+    "arrayCountingSort",  # library helper with no in-repo caller; owner decides to export or drop
+    "get_dist_percentage_span_for_sd",  # library helper with no in-repo caller; owner decides to export or drop
+    "box_cox_plus_c",  # library helper with no in-repo caller; owner decides to export or drop
+    "identity",  # library helper with no in-repo caller; owner decides to export or drop
+    "inv_box_cox_plus_c",  # library helper with no in-repo caller; owner decides to export or drop
+    "inv_log_plus_c",  # library helper with no in-repo caller; owner decides to export or drop
+    "log_plus_c",  # library helper with no in-repo caller; owner decides to export or drop
+    "qubed",  # library helper with no in-repo caller; owner decides to export or drop
+    "evaluate_estimators",  # library helper with no in-repo caller; owner decides to export or drop
+    "plot_pr_curve",  # library helper with no in-repo caller; owner decides to export or drop
+    "curated_fe_pipelines",  # library helper with no in-repo caller; owner decides to export or drop
+    "recommended_curated_fe_names",  # library helper with no in-repo caller; owner decides to export or drop
+    "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
+    "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
+    "wavedec_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
+    "wavelet_denoise",  # library helper with no in-repo caller; owner decides to export or drop
+    "_column_tie_fraction",  # library helper with no in-repo caller; owner decides to export or drop
+    "ensure_batch_mi_noise_gate_tuning",  # library helper with no in-repo caller; owner decides to export or drop
+    "_global_stat",  # library helper with no in-repo caller; owner decides to export or drop
+    "_per_cell_raw_moments_njit",  # library helper with no in-repo caller; owner decides to export or drop
+    "_per_cell_stats_gpu",  # library helper with no in-repo caller; owner decides to export or drop
+    "_compute_pair_ii_mm",  # library helper with no in-repo caller; owner decides to export or drop
+    "_should_apply_mm_for_pair",  # library helper with no in-repo caller; owner decides to export or drop
+    "fe_columns",  # library helper with no in-repo caller; owner decides to export or drop
+    "pair_is_tail_concentrated",  # library helper with no in-repo caller; owner decides to export or drop
+    "mi_direct_gpu_batched_streamed",  # library helper with no in-repo caller; owner decides to export or drop
+    "_gpu_evaluate_basis_column",  # library helper with no in-repo caller; owner decides to export or drop
+    "clear_resident_codes_handoff",  # library helper with no in-repo caller; owner decides to export or drop
+    "fe_gpu_resident_enabled",  # library helper with no in-repo caller; owner decides to export or drop
+    "ensure_fe_gpu_binning_tuning",  # library helper with no in-repo caller; owner decides to export or drop
+    "ensure_fe_gpu_pairs_mi_tuning",  # library helper with no in-repo caller; owner decides to export or drop
+    "gpu_resident_pair_recipes",  # library helper with no in-repo caller; owner decides to export or drop
+    "grand_fused_pair_mi",  # library helper with no in-repo caller; owner decides to export or drop
+    "rank_bin_codes_gpu_resident",  # library helper with no in-repo caller; owner decides to export or drop
+    "_segmented_sse",  # library helper with no in-repo caller; owner decides to export or drop
+    "suppress_numba_warnings",  # library helper with no in-repo caller; owner decides to export or drop
+    "_greedy_merge_bins",  # library helper with no in-repo caller; owner decides to export or drop
+    "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
+    "_ent_from_counts",  # library helper with no in-repo caller; owner decides to export or drop
+    "_nnz_from_counts",  # library helper with no in-repo caller; owner decides to export or drop
+    "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
+    "select_usability_aware_features",  # library helper with no in-repo caller; owner decides to export or drop
+    "pool_table_use_resident",  # library helper with no in-repo caller; owner decides to export or drop
+    "compose_pair_fe",  # library helper with no in-repo caller; owner decides to export or drop
+    "validate_pair_fe_cv",  # library helper with no in-repo caller; owner decides to export or drop
+    "categorize_1d_array",  # library helper with no in-repo caller; owner decides to export or drop
+    "_quantile_codes_1d_njit",  # library helper with no in-repo caller; owner decides to export or drop
+    "ksg_mi_pair",  # library helper with no in-repo caller; owner decides to export or drop
+    "ksg_mi_with_significance",  # library helper with no in-repo caller; owner decides to export or drop
+    "nsb_mi",  # library helper with no in-repo caller; owner decides to export or drop
+    "score_trivial_baselines",  # library helper with no in-repo caller; owner decides to export or drop
+    "plugin_mi_classif_batch_fast",  # library helper with no in-repo caller; owner decides to export or drop
+    "apply_bin_edges",  # library helper with no in-repo caller; owner decides to export or drop
+    "optimal_bin_edges",  # library helper with no in-repo caller; owner decides to export or drop
+    "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
+    "_kruskal_wallis_h",  # library helper with no in-repo caller; owner decides to export or drop
+    "_mann_whitney_u_z",  # library helper with no in-repo caller; owner decides to export or drop
+    "compute_shap_on_cv",  # library helper with no in-repo caller; owner decides to export or drop
+    "get_models_raw_predictions",  # library helper with no in-repo caller; owner decides to export or drop
+    "read_trained_models",  # library helper with no in-repo caller; owner decides to export or drop
+    "fast_aucs_per_group",  # library helper with no in-repo caller; owner decides to export or drop
+    "make_brier_precision_scorer",  # library helper with no in-repo caller; owner decides to export or drop
+    "numba_warmup",  # library helper with no in-repo caller; owner decides to export or drop
+    "js_divergence",  # library helper with no in-repo caller; owner decides to export or drop
+    "kl_divergence",  # library helper with no in-repo caller; owner decides to export or drop
+    "ks_distribution_distance",  # library helper with no in-repo caller; owner decides to export or drop
+    "population_stability_index",  # library helper with no in-repo caller; owner decides to export or drop
+    "wasserstein_1d",  # library helper with no in-repo caller; owner decides to export or drop
+    "compute_batch_rmse",  # library helper with no in-repo caller; owner decides to export or drop
+    "set_gpu_thresholds",  # library helper with no in-repo caller; owner decides to export or drop
+    "fast_multilabel_classification_metrics_block",  # library helper with no in-repo caller; owner decides to export or drop
+    "dcg_at_k",  # library helper with no in-repo caller; owner decides to export or drop
+    "expected_reciprocal_rank",  # library helper with no in-repo caller; owner decides to export or drop
+    "hit_at_k",  # library helper with no in-repo caller; owner decides to export or drop
+    "precision_at_k",  # library helper with no in-repo caller; owner decides to export or drop
+    "set_spearmanr_dispatch_threshold",  # library helper with no in-repo caller; owner decides to export or drop
+    "spearmanr_batched",  # library helper with no in-repo caller; owner decides to export or drop
+    "spearmanr_batched_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
+    "ProbaScoreProxy",  # library helper with no in-repo caller; owner decides to export or drop
+    "optimize_finite_onedimensional_search_space",  # library helper with no in-repo caller; owner decides to export or drop
+    "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
+    "_initialize_mutable_defaults",  # library helper with no in-repo caller; owner decides to export or drop
+    "mc_dropout_predict",  # library helper with no in-repo caller; owner decides to export or drop
+    "predictive_entropy",  # library helper with no in-repo caller; owner decides to export or drop
+    "make_dmatrix",  # library helper with no in-repo caller; owner decides to export or drop
+    "make_lgb_dataset",  # library helper with no in-repo caller; owner decides to export or drop
+    "make_pool",  # library helper with no in-repo caller; owner decides to export or drop
+    "duan_log_smearing_factor",  # library helper with no in-repo caller; owner decides to export or drop
+    "recalibration_rmse_gain",  # library helper with no in-repo caller; owner decides to export or drop
+    "smearing_predict",  # library helper with no in-repo caller; owner decides to export or drop
+    "tta_predict",  # library helper with no in-repo caller; owner decides to export or drop
+    "tta_predict_spread",  # library helper with no in-repo caller; owner decides to export or drop
+    "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
+    "mondrian_ood_summary",  # library helper with no in-repo caller; owner decides to export or drop
+    "_rolling_quantile_radius",  # library helper with no in-repo caller; owner decides to export or drop
+    "calibration_adjusted_score",  # library helper with no in-repo caller; owner decides to export or drop
+    "benjamini_hochberg_reject",  # library helper with no in-repo caller; owner decides to export or drop
+    "rank_transforms_by_waic",  # library helper with no in-repo caller; owner decides to export or drop
+    "attach_grouped_causal_bases",  # library helper with no in-repo caller; owner decides to export or drop
+    "screen_base_pool",  # library helper with no in-repo caller; owner decides to export or drop
+    "_monotone_fraction",  # library helper with no in-repo caller; owner decides to export or drop
+    "detect_cat_columns",  # library helper with no in-repo caller; owner decides to export or drop
+    "check_and_rediscover",  # library helper with no in-repo caller; owner decides to export or drop
+    "_registered_transform_names",  # library helper with no in-repo caller; owner decides to export or drop
+    "composite_value_report",  # library helper with no in-repo caller; owner decides to export or drop
+    "concordance_index",  # library helper with no in-repo caller; owner decides to export or drop
+    "_linear_residual_fit_closed",  # library helper with no in-repo caller; owner decides to export or drop
+    "unpack_ctx_configs_to_locals",  # library helper with no in-repo caller; owner decides to export or drop
+    "recover_composite_y_scale_metrics",  # library helper with no in-repo caller; owner decides to export or drop
+    "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
+    "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
+    "list_registered_specs",  # library helper with no in-repo caller; owner decides to export or drop
+    "unregister_metric",  # library helper with no in-repo caller; owner decides to export or drop
+    "_excess_kurtosis",  # library helper with no in-repo caller; owner decides to export or drop
+    "_skewness",  # library helper with no in-repo caller; owner decides to export or drop
+    "compare_targets_performance",  # library helper with no in-repo caller; owner decides to export or drop
+    "numpy_rng_scope",  # library helper with no in-repo caller; owner decides to export or drop
+    "baldwin_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "borda_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "condorcet_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "copeland_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "dowdall_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "mean_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "minimax_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "optimality_gap_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "plurality_election",  # library helper with no in-repo caller; owner decides to export or drop
+    "threshold_election",  # library helper with no in-repo caller; owner decides to export or drop
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
@@ -914,6 +1075,7 @@ def test_no_new_function_without_a_caller(request):
         | _SUPERSEDED
         | _PLUGIN_HOOKS
         | _PLANNED
+        | _FRAMEWORK_HOOKS
         | _OPT_IN_SLOW
         | _OPTIN,
     )
