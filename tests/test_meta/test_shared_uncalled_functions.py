@@ -964,8 +964,6 @@ _PLANNED: set[str] = {
     "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
     "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
     "fill_grid_1d",  # GPU launch-geometry helper for flat kernels, planned to replace hand-written grid sizes
-    "clear_pinned_d2h",  # releases the thread-local pinned D2H staging buffer; location at fit completion undecided
-    "validate_artifact_dict",  # sanity check for received artifact dicts, planned guard on the artifact load path
     "parallel_mi_with_null",  # null-mean-accumulating MI twin, planned for the null-calibrated screen
     "parallel_mi_besag_clifford_with_null",  # null-mean-accumulating Besag-Clifford twin, planned for the null-calibrated screen
     "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
@@ -1045,6 +1043,7 @@ _OPTIN = {
     "_split_arrays",  # thin wrapper over group_values_by_label (which the charts call directly), kept as the error-analysis module's local entry point
     "_wrap_text",  # thin plotly-flavoured wrapper over wrap_title_lines (the renderers call the measuring twin), kept for fixed-width <br> folding
     "_get_cached_plot_idx",  # LRU-cached scatter subsample index; charts now use subsample_preserving_extremes, kept for fixed-seed uniform subsampling
+    "clear_pinned_d2h",  # releases page-locked host memory on request; the buffer is reused across fits for PCIe speed, so no automatic clear
 }
 
 

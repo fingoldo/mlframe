@@ -505,7 +505,10 @@ class HybridSelector:
         # relevant column is covered (the pure-selection case) - otherwise let the shap member recompute cleanly.
         if artifacts is not None:
             try:
+                from mlframe.feature_selection.filters._mrmr_artifacts import validate_artifact_dict
                 from mlframe.feature_selection.shap_proxied_fs import restrict_artifacts
+                if not validate_artifact_dict(artifacts, n_samples=len(X)):
+                    raise ValueError("shared MRMR artifacts failed structural validation")
                 names = list(artifacts.get("feature_names", []))
                 if relevant and all(c in names for c in relevant):
                     precomputed = restrict_artifacts(artifacts, [names.index(c) for c in relevant])
