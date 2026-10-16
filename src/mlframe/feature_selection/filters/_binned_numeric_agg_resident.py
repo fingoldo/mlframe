@@ -545,7 +545,7 @@ def local_mi_gate_binagg_resident(
     if reject_sink is not None:
         for j, col in enumerate(cand_cols):
             _mi = cand_mi[j]
-            if np.isfinite(_mi) and _mi < floor:
+            if not np.isfinite(_mi) or _mi < floor:
                 try:
                     reject_sink(
                         gate="marginal_uplift_floor",
@@ -554,7 +554,11 @@ def local_mi_gate_binagg_resident(
                         operator="unified_local_mi_gate",
                         observed=float(_mi),
                         threshold=float(floor),
-                        reason="unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor",
+                        reason=(
+                            "unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor"
+                            if np.isfinite(_mi)
+                            else "unified local-MI gate: MI could not be computed (non-finite), candidate dropped"
+                        ),
                     )
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                     logger.debug("suppressed: %s", e)

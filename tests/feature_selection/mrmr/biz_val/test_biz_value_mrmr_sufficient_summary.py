@@ -20,7 +20,6 @@ Acceptance bar (single-process, small-n):
 
 from __future__ import annotations
 
-import os
 import time
 
 import numpy as np
@@ -28,9 +27,6 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
-
-# tqdm bars off so the fits are quiet + fast under the single-process budget.
-os.environ.setdefault("TQDM_DISABLE", "1")
 
 N = 4000
 SEED = 42

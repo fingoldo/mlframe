@@ -235,8 +235,11 @@ def _build_raw_redundancy_step2_def_raw_codes(_raw_codes_cache, data, raw_X, _en
                     else:
                         _out = np.ascontiguousarray(_quantile_bin(_clean, nbins=_eng_card)).astype(np.int64)
             except Exception as exc:
-                # Hot per-candidate path: debug-only. Falls back to the coarser fit codes.
-                logger.debug("raw-operand up-resolve failed, keeping fit-resolution codes: %s", exc)
+                # Hot per-candidate path: one warning per distinct cause, not one per candidate. Falls back to the coarser fit codes.
+                from mlframe.utils.log_throttle import log_throttle
+
+                log_throttle(logger, "raw_redundancy_upresolve_failed", logging.WARNING,
+                             "raw-operand up-resolve failed (%s: %s); keeping fit-resolution codes for the redundancy anchor", type(exc).__name__, exc)
                 _out = _fit
                 _dev = None
         if _dev is None:

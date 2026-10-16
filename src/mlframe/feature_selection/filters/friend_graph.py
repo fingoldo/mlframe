@@ -550,7 +550,7 @@ def _dispatch_gpu_friend_stats(edges_skipped, gpu_backend, sel, factors_data, fa
                 sel, factors_data, factors_nbins, target,
                 dtype=dtype, force_backend=gpu_backend,
             )
-        except (ImportError, ModuleNotFoundError) as _exc:
+        except (ImportError, ModuleNotFoundError) as _exc:  # best-effort: no GPU stack on this host; the CPU edge pass computes the identical statistics
             # The expected "no GPU here" outcome: cupy / the GPU twin module is absent. Quietly fall back to the bit-identical CPU edge pass.
             logger.debug("friend_graph GPU dispatch unavailable (%s); using CPU edge pass", _exc)
             gpu_stats = None

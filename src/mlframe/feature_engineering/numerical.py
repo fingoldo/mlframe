@@ -412,11 +412,8 @@ def compute_entropy_features(arr: np.ndarray, sampling_frequency: int = 100, spe
     every entropy is returned as 0.0, since sample / permutation entropies on a handful of points are not estimates of
     anything. Non-finite OUTPUTS are collapsed to 0 via ``np.nan_to_num``.
     """
-    # hjorth_mobility, hjorth_complexity = hjorth_params(arr)
-    # hjorth_mobility,
-    # hjorth_complexity,
-    # spectral_entropy(arr, sf=sampling_frequency, method=spectral_method),)
-    # num_zerocross(arr),
+    # Hjorth mobility / complexity, spectral entropy (see ``rolling_spectral_entropy`` in ``feature_engineering.spectral``) and the zero-crossing
+    # count are deliberately not part of this tuple; ``sampling_frequency`` and ``spectral_method`` are kept for call-site compatibility.
 
     _entropy_funcs = _get_entropy_funcs()
     # np.isfinite, not ~np.isnan: an inf is not a sample either. Counting it as one let [1.0, inf] * 6 through the gate,

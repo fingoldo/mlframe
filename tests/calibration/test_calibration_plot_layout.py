@@ -12,12 +12,9 @@ Tests use the matplotlib Agg fastpath (plot_file set + show_plots=False) so
 nothing pops on screen and tests are thread-safe.
 """
 
-import os
 import pytest
 
-# Force headless rendering for CI/local runs.
-os.environ.setdefault("MPLBACKEND", "Agg")
-
+# Headless rendering comes from tests/conftest.py (MPLBACKEND=Agg), set before matplotlib is first imported.
 pytest.importorskip("matplotlib")
 
 import numpy as np

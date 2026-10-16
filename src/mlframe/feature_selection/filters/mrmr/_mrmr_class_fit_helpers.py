@@ -611,7 +611,7 @@ class _MRMRFitHelpersMixin:
             from .._mrmr_degenerate import audit_degenerate_columns
             self.degenerate_columns_ = audit_degenerate_columns(X)
             self.degenerate_audit_failed_ = False
-        except Exception as exc:
+        except Exception as exc:  # best-effort: diagnostic only, and the failure is recorded on the estimator as degenerate_audit_failed_
             logger.debug("mrmr multioutput: degenerate-column audit failed (diagnostic only): %r", exc, exc_info=True)
             # An empty dict alone cannot be told apart from "audited, found nothing".
             self.degenerate_columns_ = {}

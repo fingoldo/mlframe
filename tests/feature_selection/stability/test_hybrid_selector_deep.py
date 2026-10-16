@@ -23,9 +23,7 @@ test stays well under the per-test budget; MLFRAME_FAST=1 skips them and the pur
 
 from __future__ import annotations
 
-import os
 
-os.environ.setdefault("TQDM_DISABLE", "1")
 import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 
 import numpy as np

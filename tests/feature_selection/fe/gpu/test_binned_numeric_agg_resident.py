@@ -81,7 +81,8 @@ def test_device_oof_matrix_matches_host_columns():
     assert feat_df.shape[1] > 0
     col_specs = _col_specs_from_recipes(feat_df, recipes)
     fold_ids = binagg_fold_ids(len(X), n_folds, rs)
-    mat = build_binagg_oof_matrix_gpu(cp, X, col_specs, fold_ids, n_folds)
+    # float64 output: the builder's default is the relaxed candidate dtype (float32), whose own rounding would swamp the ULP band checked below.
+    mat = build_binagg_oof_matrix_gpu(cp, X, col_specs, fold_ids, n_folds, out_dtype=cp.float64)
     dev = cp.asnumpy(mat)
     host = feat_df.to_numpy(dtype=np.float64)
     assert dev.shape == host.shape

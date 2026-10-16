@@ -34,6 +34,16 @@ _BASELINE_PATH = Path(__file__).resolve().parent / "_orth_fe_recipes_no_freeze_b
 _FAMILY_DIR_GLOBS = ("_orthogonal_*.py", "_orthogonal_univariate_fe/*.py", "hermite_fe/*.py")
 _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "_benchmarks", "_vendored")
 
+# Modules confirmed to satisfy the freeze-and-replay contract without the literal name ``preprocess_params``.
+_FREEZE_CONTRACT_MET_ELSEWHERE = {
+    "feature_selection/filters/_orthogonal_meta_scorer_fe.py": (
+        "dispatches to the per-scorer *_with_recipes functions and returns their recipes unchanged; those modules freeze preprocess_params"
+    ),
+    "feature_selection/filters/_orthogonal_univariate_fe/_orth_extra_basis_fe_generate.py": (
+        "freezes the fit-time basis parameters as explicit recipe fields (lo/span/mean/std/knots/freq) that replay applies verbatim"
+    ),
+}
+
 
 def _refresh_requested() -> bool:
     """True if ``--refresh-orth-fe-recipes-no-freeze-baseline`` was passed on the pytest command line."""
@@ -78,6 +88,8 @@ def _build_offending_set() -> set[str]:
         if text is not None and "preprocess_params" in text:
             continue
         rel = py.relative_to(MLFRAME_DIR).as_posix()
+        if rel in _FREEZE_CONTRACT_MET_ELSEWHERE:
+            continue
         out.add(rel)
     return out
 

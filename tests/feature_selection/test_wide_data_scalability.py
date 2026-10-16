@@ -11,18 +11,24 @@ small informative core: that is exactly the wide-noisy regime the guards are des
 
 from __future__ import annotations
 
-import os
-
-# Cap BLAS / joblib oversubscription: these wide-p paths run several n_jobs=-1 inner pools (LGBM, RandomForest,
-# permutation_importance) which on a shared / contended box oversubscribe physical cores and stall in joblib retrieve.
-# A modest cap keeps the liveness budget meetable without changing what the guards do. Set before numpy import.
-for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
-    os.environ.setdefault(_v, "4")
-
 import numpy as np
 import pandas as pd
 import pytest
+from threadpoolctl import threadpool_info, threadpool_limits
 from tests.conftest import skip_scale_test_under_numba_disabled_jit
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _cap_blas_threads():
+    """Cap BLAS oversubscription for this module only, and restore it afterwards.
+
+    These wide-p paths run several n_jobs=-1 inner pools (LGBM, RandomForest, permutation_importance) which on a shared / contended box oversubscribe
+    physical cores and stall in joblib retrieve. A modest cap keeps the liveness budget meetable without changing what the guards do. The cap never
+    raises a lower limit the environment already set.
+    """
+    current = [int(lib["num_threads"]) for lib in threadpool_info() if lib.get("num_threads")]
+    with threadpool_limits(limits=min([4, *current])):
+        yield
 
 
 def _make_wide(n: int, p: int, n_informative: int = 8, seed: int = 0):
