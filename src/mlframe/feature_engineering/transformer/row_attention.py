@@ -29,6 +29,7 @@ from ._projection import (
 )
 from ._row_attention_ann import build_hnsw_index, query_topk
 from ._utils import free_gpu_memory_pool, is_gpu_available, require_seed, validate_numeric_input
+from ._kernels_cupy import clear_pinned_buffers
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ def compute_row_attention(
 
     if release_memory_after:
         free_gpu_memory_pool()
+        clear_pinned_buffers()
 
     return pl.DataFrame({n: matrix[:, i] for i, n in enumerate(names)})
 

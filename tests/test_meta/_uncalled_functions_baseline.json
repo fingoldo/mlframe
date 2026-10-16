@@ -124,10 +124,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_engineering/transformer/_kernels_cupy.py::clear_pinned_buffers": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_engineering/transformer/_smote_kernels_shared.py::smote_synthesize_rowloop": {
    "count": 1,
    "note": ""
