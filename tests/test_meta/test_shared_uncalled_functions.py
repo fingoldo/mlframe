@@ -789,6 +789,7 @@ _TEST_UTILITIES = {
     "_ranknet_pair_cache_clear",  # test-only reset of the RankNet pair cache
     "set_default_cache",  # test hook that replaces the process-wide cache singleton
     "_discovery_cache_bytes_total",  # directory-walk ground truth the caching tests compare the incremental _total_bytes accumulator against
+    "_registered_transform_names",  # live-registry reader used by tests/training/composite/test_provenance_formula_coverage.py to check every transform has a formula and description
 }
 
 _OFFLINE_GENERATORS = {
@@ -904,6 +905,7 @@ _RETAINED_KERNELS = {
     # device twin of per_cell_stats_bincount; the resident path calls the centered-moment helper directly, parity in test_binned_numeric_agg_resident.py
     "_per_cell_stats_gpu",
     "_gpu_evaluate_basis_column",  # per-column device port of the basis evaluation; the batched matrix builder is the production path
+    "_should_apply_mm_for_pair",  # folklore-threshold predecessor of _should_apply_mm_for_pair_analytical, kept as the A/B baseline; the analytic rule replaced it
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -1025,6 +1027,7 @@ _SUPERSEDED = {
     # merge-only form of _greedy_merge_with_history (which the MAH estimator calls); parity pinned in
     # tests/feature_selection/filters/test_mah_greedy_merge_parity.py
     "_greedy_merge_bins",
+    "_compute_pair_ii_mm",  # unhoisted per-pair reference of _maybe_rerank_with_mm; equality pinned in tests/feature_selection/fe/categorical/test_cat_mm_rerank_vs_per_pair_reference.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -1061,13 +1064,10 @@ _PLANNED: set[str] = {
     "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
     "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
     "_column_tie_fraction",  # library helper with no in-repo caller; owner decides to export or drop
-    "_compute_pair_ii_mm",  # library helper with no in-repo caller; owner decides to export or drop
-    "_should_apply_mm_for_pair",  # library helper with no in-repo caller; owner decides to export or drop
     "pair_is_tail_concentrated",  # library helper with no in-repo caller; owner decides to export or drop
     "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
-    "_registered_transform_names",  # library helper with no in-repo caller; owner decides to export or drop
     "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
 }
