@@ -59,6 +59,7 @@ from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
 from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis
+from ._cmi_strata_njit import permutation_sources, stratified_cmi, stratified_cmi_null
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -321,27 +322,12 @@ def _quantile_codes(values, nbins: int) -> np.ndarray:
 
 def _stratified_cmi(x_codes: np.ndarray, y_codes: np.ndarray, s_codes: np.ndarray) -> float:
     """Plug-in I(x; y | s) summed over the strata of s, skipping strata below 30 rows."""
-    from sklearn.metrics import mutual_info_score
-
-    n = y_codes.shape[0]
-    total = 0.0
-    for sv in np.unique(s_codes):
-        mask = s_codes == sv
-        m = int(mask.sum())
-        if m < 30:
-            continue
-        total += (m / n) * mutual_info_score(x_codes[mask], y_codes[mask])
-    return total
+    return float(stratified_cmi(*_dense_codes(x_codes, y_codes, s_codes), 30))
 
 
-def _stratum_permutation(x_codes: np.ndarray, s_codes: np.ndarray, rng: np.random.Generator) -> np.ndarray:
-    """Permute x inside each stratum of s: keeps the x-s association, breaks only the x-y relation given s."""
-    out = x_codes.copy()
-    for sv in np.unique(s_codes):
-        idx = np.flatnonzero(s_codes == sv)
-        out[idx] = x_codes[rng.permutation(idx)]
-    shuffled: np.ndarray = out
-    return shuffled
+def _dense_codes(x_codes, y_codes, s_codes):
+    """The three code vectors as contiguous int64 arrays with non-negative labels (labels are renumbered, which MI does not see)."""
+    return tuple(np.ascontiguousarray(np.unique(np.asarray(c), return_inverse=True)[1], dtype=np.int64).ravel() for c in (x_codes, y_codes, s_codes))
 
 
 def score_triplet_cross_basis_by_cmi(
@@ -375,7 +361,8 @@ def score_triplet_cross_basis_by_cmi(
         cmi = _stratified_cmi(eng_codes, y_codes, strata)
         # Random stream keyed by the candidate name, so the null does not depend on how many candidates precede it.
         rng = np.random.default_rng([int(seed), zlib.crc32(str(eng_name).encode())])
-        null = np.array([_stratified_cmi(_stratum_permutation(eng_codes, strata, rng), y_codes, strata) for _ in range(n_perm)])
+        x_d, y_d, s_d = _dense_codes(eng_codes, y_codes, strata)
+        null = stratified_cmi_null(x_d, y_d, s_d, permutation_sources(strata, n_perm, rng), 30)
         null_q = float(np.quantile(null, quantile))
         rows.append(
             {
