@@ -14,6 +14,7 @@ from mlframe.feature_selection.filters import _orthogonal_triplet_fe as T
 
 
 def test_quantile_codes_keep_rare_binary_level():
+    """Quantile codes keep a rare binary level as its own code."""
     values = np.concatenate([np.zeros(950), np.ones(50)])
     codes = T._quantile_codes(values, nbins=4)
     assert len(np.unique(codes)) == 2, "a rare level must not share a code with the common one"
@@ -21,6 +22,7 @@ def test_quantile_codes_keep_rare_binary_level():
 
 
 def _mi_reference(code, y):
+    """Reference mutual information for the triplet order test."""
     k = int(code.max()) + 1
     joint = np.bincount(code * 2 + y, minlength=2 * k).reshape(k, 2).astype(np.float64)
     p = joint / joint.sum()
@@ -31,6 +33,7 @@ def _mi_reference(code, y):
 
 
 def test_enumeration_matches_python_reference_order():
+    """The triplet enumeration order matches the Python reference."""
     rng = np.random.default_rng(3)
     n = 1500
     x = rng.integers(0, 2, size=(n, 3))
@@ -53,6 +56,7 @@ def test_enumeration_matches_python_reference_order():
 
 
 def test_gate_verdict_does_not_depend_on_candidate_position():
+    """The gate verdict does not depend on a candidate's position."""
     rng = np.random.default_rng(7)
     n = 3000
     a = rng.integers(0, 2, n).astype(float)

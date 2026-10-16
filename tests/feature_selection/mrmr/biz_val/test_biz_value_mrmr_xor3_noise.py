@@ -45,10 +45,11 @@ def _operands_named(names) -> set[str]:
 
 
 def _make_frame(y_kind: str, seed: int = SEED, perm_seed: int | None = None):
+    """Frame with a three-way XOR among noise columns."""
     rng = np.random.default_rng(seed)
     if y_kind == "binary":
         info = rng.integers(0, 2, size=(N_SAMPLES, 3)).astype(float)
-        y = (info[:, 0].astype(np.int64) ^ info[:, 1].astype(np.int64) ^ info[:, 2].astype(np.int64))
+        y = info[:, 0].astype(np.int64) ^ info[:, 1].astype(np.int64) ^ info[:, 2].astype(np.int64)
     else:
         info = rng.uniform(-1, 1, size=(N_SAMPLES, 3))
         y = info[:, 0] * info[:, 1] * info[:, 2]
@@ -62,6 +63,7 @@ def _make_frame(y_kind: str, seed: int = SEED, perm_seed: int | None = None):
 
 
 def _fit_names(y_kind, seed, perm_seed=None):
+    """Fit MRMR and return the selected column names."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _make_frame(y_kind, seed, perm_seed)
@@ -75,6 +77,7 @@ def _fit_names(y_kind, seed, perm_seed=None):
 @pytest.mark.parametrize("seed", SEEDS)
 @pytest.mark.parametrize("y_kind", ["binary", "continuous"])
 def test_mrmr_recovers_3way_xor_among_noise(y_kind, seed):
+    """MRMR recovers the three-way XOR among noise columns."""
     names = _fit_names(y_kind, seed)
     operands = _operands_named(names)
     assert operands == set(OPERANDS), f"{y_kind} seed={seed} 3-way XOR: recovered operands {sorted(operands)} of {OPERANDS}; support={names}"
@@ -84,6 +87,7 @@ def test_mrmr_recovers_3way_xor_among_noise(y_kind, seed):
 @pytest.mark.parametrize("perm_seed", [1, 2])
 @pytest.mark.parametrize("y_kind", ["binary", "continuous"])
 def test_mrmr_recovers_3way_xor_under_column_permutation(y_kind, perm_seed):
+    """The XOR recovery holds when the columns are permuted."""
     names = _fit_names(y_kind, SEED, perm_seed)
     operands = _operands_named(names)
     assert operands == set(OPERANDS), f"{y_kind} perm={perm_seed} 3-way XOR: recovered operands {sorted(operands)} of {OPERANDS}; support={names}"

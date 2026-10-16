@@ -39,6 +39,7 @@ Each appended triplet column is backed by an ``orth_triplet_cross``
 ``EngineeredRecipe`` so ``MRMR.transform`` replays it deterministically
 from the source columns alone (no y reference).
 """
+
 from __future__ import annotations
 
 import logging
@@ -60,7 +61,8 @@ from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _P
 from ._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
-    _mi_classif_batch, mi_classif_batch_chunked,
+    _mi_classif_batch,
+    mi_classif_batch_chunked,
     _BASIS_CODE,
     hybrid_orth_mi_fe,
     cached_raw_mi_baseline,
@@ -75,9 +77,15 @@ __all__ = [
     "hybrid_orth_mi_triplet_fe_with_recipes",
 ]
 
+
 def _triplet_eng_col_name(
-    col_i: str, col_j: str, col_k: str,
-    basis: str, deg_a: int, deg_b: int, deg_c: int,
+    col_i: str,
+    col_j: str,
+    col_k: str,
+    basis: str,
+    deg_a: int,
+    deg_b: int,
+    deg_c: int,
 ) -> str:
     """Stable naming: ``"{col_i}*{col_j}*{col_k}__He{a}_He{b}_He{c}"``.
 
@@ -88,6 +96,7 @@ def _triplet_eng_col_name(
     """
     code = _BASIS_CODE.get(basis, basis)
     return f"{col_i}*{col_j}*{col_k}__{code}{deg_a}_{code}{deg_b}_{code}{deg_c}"
+
 
 def generate_triplet_cross_basis_features(
     X: pd.DataFrame,
@@ -141,14 +150,19 @@ def generate_triplet_cross_basis_features(
             continue
         if col_i not in X.columns or col_j not in X.columns or col_k not in X.columns:
             log_throttle(
-                logger, "triplet_missing_column", logging.WARNING,
+                logger,
+                "triplet_missing_column",
+                logging.WARNING,
                 "generate_triplet_cross_basis_features: missing column in (%r,%r,%r); skipping",
-                col_i, col_j, col_k,
+                col_i,
+                col_j,
+                col_k,
             )
             continue
         if not (pd.api.types.is_numeric_dtype(X[col_i]) and pd.api.types.is_numeric_dtype(X[col_j]) and pd.api.types.is_numeric_dtype(X[col_k])):
             continue
         from ._fe_usability_signal import _crit_np_dtype
+
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
         # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
         # recurrence at the SAME precision - see build_leg_product_matrix_gpu's docstring.
@@ -170,10 +184,16 @@ def generate_triplet_cross_basis_features(
         basis_k = basis_route_by_moments(x_k) if basis == "auto" else basis
         if basis_i not in _POLY_BASES or basis_j not in _POLY_BASES or basis_k not in _POLY_BASES:
             log_throttle(
-                logger, "triplet_unknown_basis", logging.WARNING,
-                "generate_triplet_cross_basis_features: unknown basis %r/%r/%r "
-                "for triplet (%r,%r,%r); skipping",
-                basis_i, basis_j, basis_k, col_i, col_j, col_k,
+                logger,
+                "triplet_unknown_basis",
+                logging.WARNING,
+                "generate_triplet_cross_basis_features: unknown basis %r/%r/%r " "for triplet (%r,%r,%r); skipping",
+                basis_i,
+                basis_j,
+                basis_k,
+                col_i,
+                col_j,
+                col_k,
             )
             continue
         # A 3-way basis product is strictly more overflow-prone than the pair-cross 2-way product;
@@ -201,33 +221,59 @@ def generate_triplet_cross_basis_features(
                             # Use leg-1 basis code for the name; per-leg basis
                             # round-trips via the recipe (Layer 22 same trick).
                             name = _triplet_eng_col_name(
-                                col_i, col_j, col_k, basis_i,
-                                deg_a, deg_b, deg_c,
+                                col_i,
+                                col_j,
+                                col_k,
+                                basis_i,
+                                deg_a,
+                                deg_b,
+                                deg_c,
                             )
                             out_cols[name] = np.nan_to_num(h_a * h_b * h_c, nan=0.0, posinf=0.0, neginf=0.0)
                         except Exception as exc:
                             log_throttle(
-                                logger, "triplet_basis_eval_raised", logging.WARNING,
-                                "generate_triplet_cross_basis_features: basis=%r/%r/%r "
-                                "deg=%d/%d/%d on triplet (%r,%r,%r) raised %r; skipping",
-                                basis_i, basis_j, basis_k,
-                                deg_a, deg_b, deg_c,
-                                col_i, col_j, col_k, exc,
+                                logger,
+                                "triplet_basis_eval_raised",
+                                logging.WARNING,
+                                "generate_triplet_cross_basis_features: basis=%r/%r/%r " "deg=%d/%d/%d on triplet (%r,%r,%r) raised %r; skipping",
+                                basis_i,
+                                basis_j,
+                                basis_k,
+                                deg_a,
+                                deg_b,
+                                deg_c,
+                                col_i,
+                                col_j,
+                                col_k,
+                                exc,
                             )
                             continue
     return pd.DataFrame(out_cols, index=X.index)
 
+
 _TRIPLET_CMI_COLS = [
-    "engineered_col", "source_col_i", "source_col_j", "source_col_k", "best_leg",
-    "conditional_mi", "null_conditional_mi", "cmi_gain",
+    "engineered_col",
+    "source_col_i",
+    "source_col_j",
+    "source_col_k",
+    "best_leg",
+    "conditional_mi",
+    "null_conditional_mi",
+    "cmi_gain",
 ]
 _TRIPLET_SCORE_EMPTY_COLS = [
     "engineered_col",
-    "source_col_i", "source_col_j", "source_col_k",
-    "baseline_mi_i", "baseline_mi_j", "baseline_mi_k",
+    "source_col_i",
+    "source_col_j",
+    "source_col_k",
+    "baseline_mi_i",
+    "baseline_mi_j",
+    "baseline_mi_k",
     "baseline_mi",
-    "engineered_mi", "uplift",
+    "engineered_mi",
+    "uplift",
 ]
+
 
 def _triplet_device_col_specs(eng_columns, raw_cols):
     """Build per-column device leg specs aligned 1:1 with ``eng_columns`` for the triplet family (3 legs),
@@ -255,6 +301,7 @@ def _triplet_device_col_specs(eng_columns, raw_cols):
             return None
         specs.append({"legs": [(legs[i], degs[i]) for i in range(3)]})
     return specs
+
 
 def _quantile_codes(values, nbins: int) -> np.ndarray:
     """Quantile-bin a numeric column into integer codes (ties resolved by the bin edges, NaN mapped to its own code)."""
@@ -293,7 +340,8 @@ def _stratum_permutation(x_codes: np.ndarray, s_codes: np.ndarray, rng: np.rando
     for sv in np.unique(s_codes):
         idx = np.flatnonzero(s_codes == sv)
         out[idx] = x_codes[rng.permutation(idx)]
-    return out
+    shuffled: np.ndarray = out
+    return shuffled
 
 
 def score_triplet_cross_basis_by_cmi(
@@ -329,16 +377,18 @@ def score_triplet_cross_basis_by_cmi(
         rng = np.random.default_rng([int(seed), zlib.crc32(str(eng_name).encode())])
         null = np.array([_stratified_cmi(_stratum_permutation(eng_codes, strata, rng), y_codes, strata) for _ in range(n_perm)])
         null_q = float(np.quantile(null, quantile))
-        rows.append({
-            "engineered_col": eng_name,
-            "source_col_i": legs[0],
-            "source_col_j": legs[1],
-            "source_col_k": legs[2],
-            "best_leg": best_leg,
-            "conditional_mi": cmi,
-            "null_conditional_mi": null_q,
-            "cmi_gain": cmi - null_q,
-        })
+        rows.append(
+            {
+                "engineered_col": eng_name,
+                "source_col_i": legs[0],
+                "source_col_j": legs[1],
+                "source_col_k": legs[2],
+                "best_leg": best_leg,
+                "conditional_mi": cmi,
+                "null_conditional_mi": null_q,
+                "cmi_gain": cmi - null_q,
+            }
+        )
     df = pd.DataFrame(rows, columns=_TRIPLET_CMI_COLS)
     if not df.empty:
         df = df.sort_values(["cmi_gain", "engineered_col"], ascending=[False, True]).reset_index(drop=True)
@@ -367,6 +417,7 @@ def score_triplet_cross_basis_by_mi_uplift(
     the host default path.
     """
     from ._fe_usability_signal import _crit_np_dtype
+
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     y_arr = coerce_y_classif(y)
     raw_cols = list(raw_X.columns)
@@ -379,13 +430,16 @@ def score_triplet_cross_basis_by_mi_uplift(
     _specs = _triplet_device_col_specs(engineered_X.columns, raw_cols)
     if _specs is not None:
         from ._orthogonal_univariate_fe._orth_pair_cross_fe import _crossbasis_device_born_on
+
         if _crossbasis_device_born_on():
             from ._orthogonal_univariate_fe._gpu_resident_cross_basis import raw_and_product_mi_resident
+
             _res = raw_and_product_mi_resident(raw_X, engineered_X, y_arr, _specs, nbins=nbins, basis=basis)
             if _res is not None:
                 raw_mi_map, eng_mi = _res
     if eng_mi is None:
         from ._fe_usability_signal import _crit_np_dtype
+
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_dt), y_arr, nbins=nbins)
         raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
@@ -407,22 +461,25 @@ def score_triplet_cross_basis_by_mi_uplift(
         baseline = max(baseline_i, baseline_j, baseline_k)
         emi = float(eng_mi[j])
         uplift = relative_uplift(emi, baseline)
-        rows.append({
-            "engineered_col": eng_name,
-            "source_col_i": col_i,
-            "source_col_j": col_j,
-            "source_col_k": col_k,
-            "baseline_mi_i": baseline_i,
-            "baseline_mi_j": baseline_j,
-            "baseline_mi_k": baseline_k,
-            "baseline_mi": baseline,
-            "engineered_mi": emi,
-            "uplift": uplift,
-        })
+        rows.append(
+            {
+                "engineered_col": eng_name,
+                "source_col_i": col_i,
+                "source_col_j": col_j,
+                "source_col_k": col_k,
+                "baseline_mi_i": baseline_i,
+                "baseline_mi_j": baseline_j,
+                "baseline_mi_k": baseline_k,
+                "baseline_mi": baseline,
+                "engineered_mi": emi,
+                "uplift": uplift,
+            }
+        )
     df = pd.DataFrame(rows)
     if not df.empty:
         df = df.sort_values("uplift", ascending=False).reset_index(drop=True)
     return df
+
 
 TRIPLET_ENUM_MAX = 200_000  # enumerate every triple of eligible columns when C(p, 3) is at most this many
 TRIPLET_ENUM_TOP_M = 10  # triples carried to the gate from the exhaustive enumeration
@@ -482,7 +539,9 @@ def _triple_mi_kernel(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> 
     return out_i, out_j, out_k, out_mi
 
 
-def _enumerate_triplet_candidates(X: pd.DataFrame, columns: Sequence[str], y_codes: np.ndarray, *, top_m: int = TRIPLET_ENUM_TOP_M, nbins: int = 4) -> list[tuple]:
+def _enumerate_triplet_candidates(
+    X: pd.DataFrame, columns: Sequence[str], y_codes: np.ndarray, *, top_m: int = TRIPLET_ENUM_TOP_M, nbins: int = 4
+) -> list[tuple]:
     """Rank every triple of ``columns`` by the plug-in MI of its joint quantile codes with y.
 
     Columns are visited in sorted-name order and ties are broken by that order, so the result does not depend on the order
@@ -563,12 +622,18 @@ def hybrid_orth_mi_triplet_fe(
     """
     # Stage 1: univariate hybrid (Layer 21).
     from ._fe_usability_signal import _crit_np_dtype
+
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); hoisted so _dt is bound on every branch
     X_aug_uni, uni_scores = hybrid_orth_mi_fe(
-        X, y,
-        cols=cols, degrees=degrees, basis=basis,
-        top_k=top_k, min_uplift=min_uplift,
-        min_abs_mi_frac=min_abs_mi_frac, nbins=nbins,
+        X,
+        y,
+        cols=cols,
+        degrees=degrees,
+        basis=basis,
+        top_k=top_k,
+        min_uplift=min_uplift,
+        min_abs_mi_frac=min_abs_mi_frac,
+        nbins=nbins,
     )
 
     # Build the triplet seed pool. Critical bug class on 3-way XOR:
@@ -597,6 +662,7 @@ def hybrid_orth_mi_triplet_fe(
         if _missing:
             y_arr = coerce_y_classif(y)
             from ._fe_usability_signal import _crit_np_dtype
+
             _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
             # Fit-scoped memo: no-op passthrough outside an active orth_scoring_memo_scope(); inside a
             # scope, shares this residual MI batch with sibling opt-in layers.
@@ -648,7 +714,10 @@ def hybrid_orth_mi_triplet_fe(
             for k in range(j + 1, len(seed_sources))
         ]
     triplet_eng = generate_triplet_cross_basis_features(
-        X, triplets, max_degree=triplet_max_degree, basis=basis,
+        X,
+        triplets,
+        max_degree=triplet_max_degree,
+        basis=basis,
     )
     if triplet_eng.empty:
         return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
@@ -666,8 +735,10 @@ def hybrid_orth_mi_triplet_fe(
 
 from ._fe_family_timing import fe_timed
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
+
 
 @fe_timed("triplet")
 def hybrid_orth_mi_triplet_fe_with_recipes(
@@ -700,13 +771,19 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
         build_orth_univariate_recipe,
         build_orth_triplet_cross_recipe,
     )
+
     X_aug, uni_scores, triplet_scores = hybrid_orth_mi_triplet_fe(
-        X, y, cols=cols, degrees=degrees, basis=basis,
+        X,
+        y,
+        cols=cols,
+        degrees=degrees,
+        basis=basis,
         triplet_max_degree=triplet_max_degree,
         top_k=top_k,
         top_triplet_count=top_triplet_count,
         top_triplet_seed_k=top_triplet_seed_k,
-        min_uplift=min_uplift, min_abs_mi_frac=min_abs_mi_frac,
+        min_uplift=min_uplift,
+        min_abs_mi_frac=min_abs_mi_frac,
         triplet_min_uplift=triplet_min_uplift,
         triplet_min_abs_mi_frac=triplet_min_abs_mi_frac,
         nbins=nbins,
@@ -725,14 +802,18 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                 parts = suffix.split("_")
             except (ValueError, IndexError):
                 log_throttle(
-                    logger, "triplet_recipe_cannot_parse_suffix", logging.WARNING,
+                    logger,
+                    "triplet_recipe_cannot_parse_suffix",
+                    logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "suffix in %r; skipping recipe.",
                     name,
                 )
                 continue
             if len(parts) != 3:
                 log_throttle(
-                    logger, "triplet_recipe_bad_parts_count", logging.WARNING,
+                    logger,
+                    "triplet_recipe_bad_parts_count",
+                    logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: expected 3 deg " "parts in %r; skipping recipe.",
                     name,
                 )
@@ -742,7 +823,9 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             basis_c, deg_c = parse_code_deg_with_basis(parts[2])
             if basis_a is None or basis_b is None or basis_c is None or deg_a is None or deg_b is None or deg_c is None:
                 log_throttle(
-                    logger, "triplet_recipe_cannot_parse_code_deg", logging.WARNING,
+                    logger,
+                    "triplet_recipe_cannot_parse_code_deg",
+                    logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse " "code/deg from %r; skipping recipe.",
                     name,
                 )
@@ -774,13 +857,23 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
                 logger.debug("suppressed: %s", e)
                 pass
-            recipes.append(build_orth_triplet_cross_recipe(
-                name=name,
-                src_a_name=col_i, src_b_name=col_j, src_c_name=col_k,
-                basis_i=basis_a, basis_j=basis_b, basis_k=basis_c,
-                deg_a=deg_a, deg_b=deg_b, deg_c=deg_c,
-                preprocess_params_i=_pp_a, preprocess_params_j=_pp_b, preprocess_params_k=_pp_c,
-            ))
+            recipes.append(
+                build_orth_triplet_cross_recipe(
+                    name=name,
+                    src_a_name=col_i,
+                    src_b_name=col_j,
+                    src_c_name=col_k,
+                    basis_i=basis_a,
+                    basis_j=basis_b,
+                    basis_k=basis_c,
+                    deg_a=deg_a,
+                    deg_b=deg_b,
+                    deg_c=deg_c,
+                    preprocess_params_i=_pp_a,
+                    preprocess_params_j=_pp_b,
+                    preprocess_params_k=_pp_c,
+                )
+            )
         elif len(legs) == 1:
             # univariate: "{col}__{code}{degree}"
             src = legs[0]
@@ -788,7 +881,9 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
             chosen_basis, chosen_degree = parse_code_deg_with_basis(suffix)
             if chosen_basis is None or chosen_degree is None:
                 log_throttle(
-                    logger, "triplet_recipe_cannot_parse_basis_degree", logging.WARNING,
+                    logger,
+                    "triplet_recipe_cannot_parse_basis_degree",
+                    logging.WARNING,
                     "hybrid_orth_mi_triplet_fe_with_recipes: cannot parse basis/" "degree from %r; skipping recipe.",
                     name,
                 )
@@ -802,16 +897,23 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
                 _, _pp_u = _evaluate_basis_column(_x_u, chosen_basis, chosen_degree, return_params=True)
             except Exception as e:  # nosec B110 - optional dependency import guard
                 logger.debug("Could not freeze fit-time basis-preprocess params for %r (%s: %s); recipe replays without them", src, type(e).__name__, e)
-            recipes.append(build_orth_univariate_recipe(
-                name=name, src_name=src,
-                basis=chosen_basis, degree=chosen_degree,
-                preprocess_params=_pp_u,
-            ))
+            recipes.append(
+                build_orth_univariate_recipe(
+                    name=name,
+                    src_name=src,
+                    basis=chosen_basis,
+                    degree=chosen_degree,
+                    preprocess_params=_pp_u,
+                )
+            )
         else:
             log_throttle(
-                logger, "triplet_recipe_unexpected_leg_count", logging.WARNING,
-                "hybrid_orth_mi_triplet_fe_with_recipes: unexpected leg count "
-                "in %r (legs=%r); skipping recipe.", name, legs,
+                logger,
+                "triplet_recipe_unexpected_leg_count",
+                logging.WARNING,
+                "hybrid_orth_mi_triplet_fe_with_recipes: unexpected leg count " "in %r (legs=%r); skipping recipe.",
+                name,
+                legs,
             )
             continue
     return X_aug, uni_scores, triplet_scores, recipes

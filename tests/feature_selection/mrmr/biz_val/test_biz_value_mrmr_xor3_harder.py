@@ -39,10 +39,12 @@ def _operands_named(names) -> set[str]:
 
 
 def _noise(rng, n_cols=N_NOISE):
+    """Independent noise columns for the harder XOR cases."""
     return rng.standard_normal(size=(N_SAMPLES, n_cols))
 
 
 def _frame(info, noise, extra=None):
+    """Build the frame for one harder XOR case from its target and noise columns."""
     cols = {f"x{i + 1}": info[:, i] for i in range(3)}
     for j in range(noise.shape[1]):
         cols[f"noise_{j}"] = noise[:, j]
@@ -52,6 +54,7 @@ def _frame(info, noise, extra=None):
 
 
 def _case_noise_leak(seed):
+    """XOR case where noise columns must not leak into the selection."""
     rng = np.random.default_rng(seed)
     info = rng.uniform(-1, 1, size=(N_SAMPLES, 3))
     noise = _noise(rng)
@@ -60,16 +63,18 @@ def _case_noise_leak(seed):
 
 
 def _case_mixed_types(seed):
+    """XOR case mixing numeric and categorical inputs."""
     rng = np.random.default_rng(seed)
     x1 = rng.integers(0, 2, size=N_SAMPLES).astype(float)
     x2 = rng.uniform(-1, 1, size=N_SAMPLES)
     x3 = rng.uniform(-1, 1, size=N_SAMPLES)
     info = np.column_stack([x1, x2, x3])
-    y = (x1.astype(np.int64) ^ (x2 > 0).astype(np.int64) ^ (x3 > 0).astype(np.int64))
+    y = x1.astype(np.int64) ^ (x2 > 0).astype(np.int64) ^ (x3 > 0).astype(np.int64)
     return _frame(info, _noise(rng)), pd.Series(y)
 
 
 def _case_exp_transform(seed):
+    """XOR case where the informative signal is passed through an exponential."""
     rng = np.random.default_rng(seed)
     info = rng.uniform(-1, 1, size=(N_SAMPLES, 3))
     y = info[:, 0] * info[:, 1] * np.exp(info[:, 2])
@@ -77,6 +82,7 @@ def _case_exp_transform(seed):
 
 
 def _case_correlated_decoys(seed):
+    """XOR case with correlated decoy columns next to the true pair."""
     rng = np.random.default_rng(seed)
     info = rng.uniform(-1, 1, size=(N_SAMPLES, 3))
     y = info[:, 0] * info[:, 1] * info[:, 2]
@@ -100,6 +106,7 @@ CASES = {
 @pytest.mark.parametrize("seed", SEEDS)
 @pytest.mark.parametrize("case", list(CASES))
 def test_mrmr_recovers_harder_3way_xor(case, seed):
+    """MRMR recovers the three XOR inputs on the harder cases."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = CASES[case](seed)

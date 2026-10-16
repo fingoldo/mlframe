@@ -16,6 +16,7 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 
+from mlframe._numerical_floors import VARIANCE_FLOOR
 from .._gpu_raw_module import LazyRawModule
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
@@ -25,18 +26,18 @@ __all__ = ["detect_fourier_freqs_batch_gpu"]
 
 _THREADS = 256
 _MIN_STD = 1e-9
-_MIN_Y_SS = 1e-24
+_MIN_Y_SS = VARIANCE_FLOOR
 _DUPLICATE_WINDOW = 0.25
 _MIN_VAL_CORR_FLOOR = 0.30
 _REFINE_COARSE = (0.25, 0.05)  # (half width, step) of the first local scan around the coarse peak
 _REFINE_FINE = (0.05, 0.0125)  # (half width, step) of the second scan around the first refinement
 _MIN_REFINE_FREQ = 0.05
 
-_SRC = r"""
+_SRC_TEMPLATE = r"""
 extern "C" {
 __device__ __forceinline__ double power_term(double sv, double vv, double vy, double n, double y_ss) {
     const double v_ss = vv - sv * sv / n;
-    const bool ok = (v_ss > 1e-12 * vv) && (v_ss >= 1e-24) && (y_ss >= 1e-24);
+    const bool ok = (v_ss > 1e-12 * vv) && (v_ss >= @VARIANCE_FLOOR@) && (y_ss >= @VARIANCE_FLOOR@);
     const double denom = v_ss * y_ss;
     return (ok && denom > 0.0) ? (vy * vy) / denom : 0.0;
 }
@@ -149,6 +150,7 @@ __global__ void apply_deflate_b(const double* Z, const double* Y, const double* 
 """
 
 
+_SRC = _SRC_TEMPLATE.replace("@VARIANCE_FLOOR@", repr(VARIANCE_FLOOR))
 _KERNEL = LazyRawModule(_SRC, ("-std=c++14",))
 
 
@@ -198,7 +200,15 @@ def _argmax_freq(cp: Any, power: Any, freqs_host: np.ndarray) -> np.ndarray:
 
 
 def _run_group(
-    cp: Any, Z_tr: np.ndarray, Z_va: np.ndarray, Y_tr: np.ndarray, Y_va: np.ndarray, grids: "list[list[float]]", spans: "list[Any]", min_val_corr: float, max_freqs: int,
+    cp: Any,
+    Z_tr: np.ndarray,
+    Z_va: np.ndarray,
+    Y_tr: np.ndarray,
+    Y_va: np.ndarray,
+    grids: "list[list[float]]",
+    spans: "list[Any]",
+    min_val_corr: float,
+    max_freqs: int,
     single: Callable[[int], list],
 ) -> "list[list[float]]":
     """The detector loop for one group of columns with the same train / validation sizes. ``single(k)`` runs the single-column path for column ``k`` (singular systems)."""
@@ -286,7 +296,12 @@ def _run_group(
 
 
 def detect_fourier_freqs_batch_gpu(
-    jobs: "Sequence[tuple[np.ndarray, np.ndarray, Sequence[float]]]", *, min_val_corr: float, min_rows: int, max_freqs: int, fourier_detect_max_n: int,
+    jobs: "Sequence[tuple[np.ndarray, np.ndarray, Sequence[float]]]",
+    *,
+    min_val_corr: float,
+    min_rows: int,
+    max_freqs: int,
+    fourier_detect_max_n: int,
     single: Callable[[np.ndarray, np.ndarray, Sequence[float]], list],
 ) -> "list[list[float]]":
     """Detected z-space frequencies for each ``(z01, y, f_grid)`` job, the same lists as the single-column detector.

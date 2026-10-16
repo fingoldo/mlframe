@@ -12,6 +12,7 @@ N = 4000
 
 
 def _data(seed=0):
+    """Synthetic frame with a compound target and its components."""
     rng = np.random.default_rng(seed)
     a, b, c, d, w = (rng.uniform(0.2, 1.2, N) for _ in range(5))
     u = a**2 / b + np.log(c) * np.sin(d)
@@ -21,6 +22,7 @@ def _data(seed=0):
 
 
 def test_column_that_reencodes_the_compound_is_dropped():
+    """A column that re-encodes the compound term is pruned."""
     data, y_binned, y = _data()
     rng = np.random.default_rng(1)
     candidates = {
@@ -32,6 +34,7 @@ def test_column_that_reencodes_the_compound_is_dropped():
 
 
 def test_column_with_private_term_is_kept():
+    """A column carrying a private term that the compound lacks is kept."""
     data, y_binned, y = _data()
     rng = np.random.default_rng(2)
     candidates = {
@@ -43,12 +46,14 @@ def test_column_with_private_term_is_kept():
 
 
 def test_no_anchor_drops_nothing():
+    """With no anchor set, the prune drops no column."""
     data, y_binned, y = _data()
     candidates = {"u": data["u"], "w": data["w"]}
     assert final_subsumption_prune(candidates, anchors=[], y_binned=y_binned, y_continuous=y, seed=0) == []
 
 
 def test_anchor_is_never_dropped():
+    """An anchor column is never pruned, whatever the other columns say."""
     data, y_binned, y = _data()
     candidates = {"compound": data["u"], "other": data["w"]}
     dropped = final_subsumption_prune(candidates, anchors=["compound"], y_binned=y_binned, y_continuous=y, seed=0)
@@ -56,6 +61,7 @@ def test_anchor_is_never_dropped():
 
 
 def test_verdict_does_not_depend_on_candidate_order():
+    """The prune verdict is invariant to the order of candidate columns."""
     data, y_binned, y = _data()
     rng = np.random.default_rng(3)
     candidates = {

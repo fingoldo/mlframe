@@ -10,6 +10,7 @@ from mlframe.feature_selection.filters import _family_maxt_gate as gate
 
 
 def _reference_null(cols, n_x, y, n_y, n_perm, seed, block=256):
+    """Reference permutation-null draws, computed without the block cache."""
     rng = np.random.default_rng(seed)
     out = np.empty(int(n_perm), dtype=np.float64)
     for start in range(0, int(n_perm), block):
@@ -22,6 +23,7 @@ def _reference_null(cols, n_x, y, n_y, n_perm, seed, block=256):
 
 
 def test_cached_permutation_blocks_match_fresh_draws_across_families():
+    """Cached permutation blocks give the same draws as fresh ones for every family."""
     rng = np.random.default_rng(3)
     n, k = 600, 12
     cols = np.ascontiguousarray(rng.integers(0, 4, size=(k, n)).astype(np.int64))
