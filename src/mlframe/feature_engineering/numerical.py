@@ -18,6 +18,7 @@ __all__ = [
     "numaggs_over_matrix_rows",
     "compute_numaggs_parallel",
     "cont_entropy",
+    "compute_mutual_info_regression",
 ]
 
 import logging

@@ -662,6 +662,8 @@ _REEXPORTED_PUBLIC_API = {
     "winsorized_mean",
     "wrap_with_logging",
     "xgb_dmatrix_reuse_capable",
+    "compute_mutual_info_regression",  # exported through the defining module __all__ (owner decision: export)
+    "parse_routing_col_name",  # exported through the defining module __all__ (owner decision: export)
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -880,14 +882,12 @@ _PLANNED: set[str] = {
     "npnbArrayMinMax",  # fast finite-input min/max utility not yet called; the planned array-stats path uses it
     "topk_by_partition",  # top-k helper not yet called; the planned ranking path uses it
     "_suppress_numeric_warnings",  # worker-thread warning filter for the numeric module, planned for its callers
-    "compute_mutual_info_regression",  # KNN regression MI planned for the regression feature-selection path
     "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
     "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
     "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
     "fill_grid_1d",  # GPU launch-geometry helper for flat kernels, planned to replace hand-written grid sizes
     "clear_pinned_d2h",  # releases the thread-local pinned D2H staging buffer; location at fit completion undecided
     "validate_artifact_dict",  # sanity check for received artifact dicts, planned guard on the artifact load path
-    "parse_routing_col_name",  # inverse of _routing_col_name, planned for recipe replay
     "parallel_mi_with_null",  # null-mean-accumulating MI twin, planned for the null-calibrated screen
     "parallel_mi_besag_clifford_with_null",  # null-mean-accumulating Besag-Clifford twin, planned for the null-calibrated screen
     "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path

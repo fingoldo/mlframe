@@ -94,6 +94,7 @@ __all__ = [
     "generate_conditional_basis_routing_features",
     "hybrid_orth_mi_conditional_routing_fe",
     "hybrid_orth_mi_conditional_routing_fe_with_recipes",
+    "parse_routing_col_name",
 ]
 
 # Stable enumeration of supported pre-transforms. Mirrors
