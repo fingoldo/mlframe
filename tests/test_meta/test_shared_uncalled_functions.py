@@ -664,6 +664,47 @@ _REEXPORTED_PUBLIC_API = {
     "xgb_dmatrix_reuse_capable",
     "compute_mutual_info_regression",  # exported through the defining module __all__ (owner decision: export)
     "parse_routing_col_name",  # exported through the defining module __all__ (owner decision: export)
+    "npnbArrayMinMax",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "topk_by_partition",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "arrayCountingArgSort",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "arrayCountingArgSortAndUniqueValues",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "arrayCountingSort",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "get_dist_percentage_span_for_sd",  # re-exported by mlframe.core (its package namespace already exposes it)
+    "box_cox_plus_c",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "identity",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "inv_box_cox_plus_c",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "inv_log_plus_c",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "log_plus_c",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "qubed",  # re-exported by mlframe.estimators (its package namespace already exposes it)
+    "evaluate_estimators",  # re-exported by mlframe.evaluation (its package namespace already exposes it)
+    "plot_pr_curve",  # re-exported by mlframe.evaluation (its package namespace already exposes it)
+    "categorize_1d_array",  # re-exported by mlframe.feature_selection.filters (its package namespace already exposes it)
+    "compute_shap_on_cv",  # re-exported by mlframe.inference (its package namespace already exposes it)
+    "get_models_raw_predictions",  # re-exported by mlframe.inference (its package namespace already exposes it)
+    "read_trained_models",  # re-exported by mlframe.inference (its package namespace already exposes it)
+    "fast_aucs_per_group",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "make_brier_precision_scorer",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "numba_warmup",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "js_divergence",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "kl_divergence",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "ks_distribution_distance",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "population_stability_index",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "wasserstein_1d",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "compute_batch_rmse",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "set_gpu_thresholds",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "fast_multilabel_classification_metrics_block",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "dcg_at_k",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "expected_reciprocal_rank",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "hit_at_k",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "precision_at_k",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "ProbaScoreProxy",  # re-exported by mlframe.metrics (its package namespace already exposes it)
+    "optimize_finite_onedimensional_search_space",  # re-exported by mlframe.models (its package namespace already exposes it)
+    "mc_dropout_predict",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "predictive_entropy",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "duan_log_smearing_factor",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "smearing_predict",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "tta_predict",  # re-exported by mlframe.training (its package namespace already exposes it)
+    "tta_predict_spread",  # re-exported by mlframe.training (its package namespace already exposes it)
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -879,8 +920,6 @@ _FRAMEWORK_HOOKS: set[str] = {
 
 #: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
 _PLANNED: set[str] = {
-    "npnbArrayMinMax",  # fast finite-input min/max utility not yet called; the planned array-stats path uses it
-    "topk_by_partition",  # top-k helper not yet called; the planned ranking path uses it
     "_suppress_numeric_warnings",  # worker-thread warning filter for the numeric module, planned for its callers
     "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
     "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
@@ -907,18 +946,6 @@ _PLANNED: set[str] = {
     "_split_arrays",  # groups a value array by split label for error analysis, planned for the split charts
     "_wrap_text",  # label wrapping for plotly charts, planned for the chart labels
     "_get_cached_plot_idx",  # cached random subsample index for scatter plots, planned for the residual plots
-    "arrayCountingArgSort",  # library helper with no in-repo caller; owner decides to export or drop
-    "arrayCountingArgSortAndUniqueValues",  # library helper with no in-repo caller; owner decides to export or drop
-    "arrayCountingSort",  # library helper with no in-repo caller; owner decides to export or drop
-    "get_dist_percentage_span_for_sd",  # library helper with no in-repo caller; owner decides to export or drop
-    "box_cox_plus_c",  # library helper with no in-repo caller; owner decides to export or drop
-    "identity",  # library helper with no in-repo caller; owner decides to export or drop
-    "inv_box_cox_plus_c",  # library helper with no in-repo caller; owner decides to export or drop
-    "inv_log_plus_c",  # library helper with no in-repo caller; owner decides to export or drop
-    "log_plus_c",  # library helper with no in-repo caller; owner decides to export or drop
-    "qubed",  # library helper with no in-repo caller; owner decides to export or drop
-    "evaluate_estimators",  # library helper with no in-repo caller; owner decides to export or drop
-    "plot_pr_curve",  # library helper with no in-repo caller; owner decides to export or drop
     "curated_fe_pipelines",  # library helper with no in-repo caller; owner decides to export or drop
     "recommended_curated_fe_names",  # library helper with no in-repo caller; owner decides to export or drop
     "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
@@ -954,7 +981,6 @@ _PLANNED: set[str] = {
     "pool_table_use_resident",  # library helper with no in-repo caller; owner decides to export or drop
     "compose_pair_fe",  # library helper with no in-repo caller; owner decides to export or drop
     "validate_pair_fe_cv",  # library helper with no in-repo caller; owner decides to export or drop
-    "categorize_1d_array",  # library helper with no in-repo caller; owner decides to export or drop
     "_quantile_codes_1d_njit",  # library helper with no in-repo caller; owner decides to export or drop
     "ksg_mi_pair",  # library helper with no in-repo caller; owner decides to export or drop
     "ksg_mi_with_significance",  # library helper with no in-repo caller; owner decides to export or drop
@@ -966,41 +992,15 @@ _PLANNED: set[str] = {
     "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
     "_kruskal_wallis_h",  # library helper with no in-repo caller; owner decides to export or drop
     "_mann_whitney_u_z",  # library helper with no in-repo caller; owner decides to export or drop
-    "compute_shap_on_cv",  # library helper with no in-repo caller; owner decides to export or drop
-    "get_models_raw_predictions",  # library helper with no in-repo caller; owner decides to export or drop
-    "read_trained_models",  # library helper with no in-repo caller; owner decides to export or drop
-    "fast_aucs_per_group",  # library helper with no in-repo caller; owner decides to export or drop
-    "make_brier_precision_scorer",  # library helper with no in-repo caller; owner decides to export or drop
-    "numba_warmup",  # library helper with no in-repo caller; owner decides to export or drop
-    "js_divergence",  # library helper with no in-repo caller; owner decides to export or drop
-    "kl_divergence",  # library helper with no in-repo caller; owner decides to export or drop
-    "ks_distribution_distance",  # library helper with no in-repo caller; owner decides to export or drop
-    "population_stability_index",  # library helper with no in-repo caller; owner decides to export or drop
-    "wasserstein_1d",  # library helper with no in-repo caller; owner decides to export or drop
-    "compute_batch_rmse",  # library helper with no in-repo caller; owner decides to export or drop
-    "set_gpu_thresholds",  # library helper with no in-repo caller; owner decides to export or drop
-    "fast_multilabel_classification_metrics_block",  # library helper with no in-repo caller; owner decides to export or drop
-    "dcg_at_k",  # library helper with no in-repo caller; owner decides to export or drop
-    "expected_reciprocal_rank",  # library helper with no in-repo caller; owner decides to export or drop
-    "hit_at_k",  # library helper with no in-repo caller; owner decides to export or drop
-    "precision_at_k",  # library helper with no in-repo caller; owner decides to export or drop
     "set_spearmanr_dispatch_threshold",  # library helper with no in-repo caller; owner decides to export or drop
     "spearmanr_batched",  # library helper with no in-repo caller; owner decides to export or drop
     "spearmanr_batched_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
-    "ProbaScoreProxy",  # library helper with no in-repo caller; owner decides to export or drop
-    "optimize_finite_onedimensional_search_space",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
     "_initialize_mutable_defaults",  # library helper with no in-repo caller; owner decides to export or drop
-    "mc_dropout_predict",  # library helper with no in-repo caller; owner decides to export or drop
-    "predictive_entropy",  # library helper with no in-repo caller; owner decides to export or drop
     "make_dmatrix",  # library helper with no in-repo caller; owner decides to export or drop
     "make_lgb_dataset",  # library helper with no in-repo caller; owner decides to export or drop
     "make_pool",  # library helper with no in-repo caller; owner decides to export or drop
-    "duan_log_smearing_factor",  # library helper with no in-repo caller; owner decides to export or drop
     "recalibration_rmse_gain",  # library helper with no in-repo caller; owner decides to export or drop
-    "smearing_predict",  # library helper with no in-repo caller; owner decides to export or drop
-    "tta_predict",  # library helper with no in-repo caller; owner decides to export or drop
-    "tta_predict_spread",  # library helper with no in-repo caller; owner decides to export or drop
     "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
     "mondrian_ood_summary",  # library helper with no in-repo caller; owner decides to export or drop
     "_rolling_quantile_radius",  # library helper with no in-repo caller; owner decides to export or drop
