@@ -8,6 +8,7 @@ import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_emit 
 
 
 def _frame(n=3000, seed=0):
+    """Frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(8)})
     y = ((X["f0"] * X["f1"] + X["f2"] / (1 + X["f3"].abs()) + 0.3 * rng.standard_normal(n)) > 0).astype(np.int64)
@@ -20,6 +21,7 @@ def _run(monkeypatch, budget_bytes):
     real = emit._emit_pair_features_step2_read_here_once
 
     def _wrapped(*args, **kwargs):
+        """Wrapped."""
         names = real.__code__.co_varnames[: real.__code__.co_argcount]
         bound = dict(zip(names, args))
         bound.update(kwargs)
@@ -41,6 +43,7 @@ def _run(monkeypatch, budget_bytes):
 
 @pytest.mark.parametrize("budget_cols", [1, 3])
 def test_chunked_extval_matches_one_batch_and_loop(monkeypatch, budget_cols):
+    """Chunked extval matches one batch and loop."""
     full, names_full = _run(monkeypatch, None)
     assert full, "the frame must reach FE external validation"
     n_bin = 8  # upper bound on binary ops per factor: forces several chunks without excluding a chunk of one factor

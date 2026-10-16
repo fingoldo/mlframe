@@ -9,6 +9,7 @@ from mlframe.feature_selection.filters._y_encoding import joint_target_codes
 
 
 def test_joint_codes_one_class_per_distinct_combination():
+    """Joint codes one class per distinct combination."""
     y = np.array([[0, 1], [0, 1], [1, 0], [1, 1], [0, 0], [1, 0]])
     c = joint_target_codes(y)
     assert c.shape == (6,) and c.dtype == np.int64
@@ -16,17 +17,20 @@ def test_joint_codes_one_class_per_distinct_combination():
 
 
 def test_joint_codes_continuous_column_is_binned_not_singletons():
+    """Joint codes continuous column is binned not singletons."""
     rng = np.random.default_rng(0)
     y = np.column_stack([rng.integers(0, 2, 2000), rng.standard_normal(2000)])
     assert len(np.unique(joint_target_codes(y))) < 200
 
 
 def test_single_column_unchanged():
+    """Single column unchanged."""
     y = np.array([3, 1, 3, 2, 1])
     np.testing.assert_array_equal(joint_target_codes(y), joint_target_codes(y.reshape(-1, 1)))
 
 
 def test_joint_multioutput_fit_keeps_triplet_fe_alive(caplog):
+    """Joint multioutput fit keeps triplet fe alive."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)

@@ -26,11 +26,10 @@ from pyutilz.pythonlib import sort_dict_by_value
 from ._pairs_gates import _PREWARP_UNARY, _select_single_best
 from types import SimpleNamespace as _SimpleNamespace
 
-
 logger = logging.getLogger(__name__)
 
 # External validation (step 2) lives in the sibling module; re-exported here so the step chain and patch targets keep this name.
-from ._pairs_emit_extval import _emit_pair_features_step2_read_here_once, _extval_host_buffer  # noqa: E402,F401
+from ._pairs_emit_extval import _emit_pair_features_step2_read_here_once, _extval_host_buffer  # noqa: F401
 
 
 def _survivor_device_column(resolve_col, buf_col):
@@ -636,7 +635,7 @@ def _emit_pair_features_step2_than_single_best(
         for _c in sorted(_already, key=_cached_name):
             try:
                 _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
-            except Exception as e:  # noqa: PERF203 - best-effort per column, a failure skips only that column  # nosec B110 - best-effort path
+            except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional
                 logger.debug("resolving already-emitted column %r failed, skipping: %s", _c, e)
         for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
             if len(this_pair_features) >= int(fe_multi_emit_max_per_pair):

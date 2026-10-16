@@ -54,6 +54,11 @@ _PUBLIC_API = {
     "get_or_create_mlflow_run",
     "embed_website_to_mlflow",  # user-facing helpers of mlframe.integrations.mlflow, each pinned by tests/integrations/test_mlflow.py
     "reset_throttle_counts",  # documented in mlframe.utils.log_throttle.__all__; the test-isolation reset for every throttle key, used by 30+ tests
+    "clip_to_quantiles_hard",  # documented preset for choosing a target transform (1%/99% quantile clip)
+    "clip_to_quantiles_winsor_quantile",  # documented preset for choosing a target transform (soft winsorise)
+    "set_wavedec_dispatch_threshold",  # documented tuning knob for the wavelet single/batched dispatch; a user sets it
+    "reset_openmp_smoke",  # compatibility alias for the old hnswlib API; a no-op kept so old imports keep working
+    "operand_uplift_null_bar",  # exported through the module's __all__ (feature_engineering_pairs operand floor); public surface
 }
 
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
@@ -664,6 +669,7 @@ _TEST_UTILITIES = {
     "reset_catboost_available_cache",
     "reset_cluster_su_gpu_probe",
     "reset_gpu_model_available_cache",
+    "is_numba_active",  # fast-path probe that tests assert on; not a production call site
 }
 
 _OFFLINE_GENERATORS = {
@@ -674,6 +680,13 @@ _OFFLINE_GENERATORS = {
     "generate_similar_probs_random_walk",
     "assess_prediction_band_stability",
     "optimize_persistence_floor_per_class",  # benchmark-only calibration helpers
+    "ListAllSkLearnClassifiers",  # interactive discovery print, run by hand
+    "MakeSureBlasAndLaPackAreInstalled",  # interactive BLAS/LAPACK diagnostic, run by hand
+    "show_sys_ram_usage",  # interactive RAM diagnostic, run by hand
+    "_probability_only",  # difficulty-sweep exploration helper for the synthetic generator, run by hand
+    "get_tracker_table",  # loads experiment-impact-tracker cost data for offline analysis
+    "agg_pipeline_metric",  # hand-run analysis of CV results across pipelines
+    "compute_ml_metrics",  # hand-run scoring helper for CV folds, outside the shipped pipeline
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -691,6 +704,11 @@ _RETAINED_KERNELS = {
     "_count_le_2d_njit_parallel",  # bit-identity reference twins of the row-major count kernels (keep-all-kernels rule); parity pinned in tests/feature_selection/discretization/test_multiselect_quantile_edges.py
     "device_permuted_y_batch",  # measured-rejected device permutation generator (slower than the host kernel at 99 x 2000); kept as the bit-identical parity reference, see its module docstring
     "_quantile_edges_2d_radix_njit",  # reference twin of the tiled radix quantile kernel (keep-all-kernels rule); parity pinned in tests/feature_selection/discretization/test_multiselect_quantile_edges.py
+    "_lnc_correction",  # deprecated first-pass LNC kept behind a flag for A/B parity; no switch currently reaches it
+    "_get_mi_mm_from_values_kernel",  # superseded by the length-aware _nek kernel; kept as the original, nothing switches to it
+    "_resample_desc_order_counting",  # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
+    "score_triplet_cross_basis_by_mi_uplift",  # alternative triplet scorer (MI uplift over the best source); the live path uses score_triplet_cross_basis_by_cmi and no switch reaches this one; exercised by tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
+    "_plugin_mi_from_counts",  # plug-in MI helper of the retained uplift scorer above; no live caller
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -754,6 +772,14 @@ _SUPERSEDED = {
     "mdlp_inner_cuts",  # reference form of the honest-null cut search; the null kernels use the presorted twin, equality pinned in tests/feature_selection/discretization/test_mdlp_presorted_cuts_parity.py
     "score_triplet_cross_basis_by_mi_uplift",  # predecessor of score_triplet_cross_basis_by_cmi (the production scorer); kept public, pinned in tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
     "mi_classif_streamed_fill",  # zero-copy twin of mi_classif_streamed (the production path); kept as its reference, parity pinned in tests/feature_selection/filters/test_streamed_gpu_mi.py::test_streamed_fill_matches_copy_path
+    "_yj_forward_scalar",  # scalar reference for _yj_forward (numpy and numba paths); parity pinned in tests/training/composite/transforms/test_yj_forward_scalar_parity.py
+    "_entropy_binary",  # binary form of _entropy_from_counts; parity pinned in tests/feature_engineering/transformer/test_entropy_binary_parity.py
+    "_flags_to_combo_key",  # flag-set form of the oracle key _combo_key; parity pinned in tests/feature_selection/filters/test_flags_combo_key_parity.py
+    "_is_minimise_metric",  # now delegates to the metrics registry, the live direction source; parity pinned in tests/training/core/test_metric_direction_parity.py
+    "_default_metric_is_auc",  # the unset-metric check; parity pinned in tests/training/core/test_metric_direction_parity.py
+    "_per_query_groups",  # index-array form of the live group slices in metrics.ranking._iter_group_slices; parity pinned in tests/reporting/test_per_query_groups_parity.py
+    "_pointwise_log_ratio",  # the log term the I_ccs kernel computes inline; the helper re-sum matches it, pinned in tests/feature_selection/filters/test_pointwise_log_ratio_parity.py
+    "_get_fused_mi_term",  # the cp.fuse per-cell term; the resident MI now runs the fused MI-from-codes RawKernel (0cb9186a0). Formula pinned to numpy in tests/feature_selection/gpu/test_gpu_fused_mi_term.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -761,6 +787,11 @@ _SUPERSEDED = {
 _OPT_IN_SLOW: set[str] = {
     "per_fold_stability_select",  # ShapProxiedFS once per outer fold (n_folds fits); opt-in via the function call, ~3-7x the default fit cost
     "proposal_generator",  # cheap-proxy candidate seeds for an external honest search; opt-in via the function call
+}
+
+#: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.
+_PLUGIN_HOOKS = {
+    "forget_pool_bytes",  # downstream evictor calls it after evicting outside evict_for_budget
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
@@ -798,6 +829,7 @@ def test_no_new_function_without_a_caller(request):
         | _SCANNER_LAG
         | _NAME_DISPATCHED
         | _SUPERSEDED
+        | _PLUGIN_HOOKS
         | _OPT_IN_SLOW
         | _OPTIN,
     )

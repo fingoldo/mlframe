@@ -8,6 +8,7 @@ from mlframe.feature_selection.filters._mdlp_honest_njit import _mdlp_cuts_preso
 
 @pytest.mark.parametrize("n_classes", [2, 3])
 def test_presorted_cuts_equal_reference_on_ties_and_discrete_columns(n_classes):
+    """Presorted cuts equal reference on ties and discrete columns."""
     rng = np.random.default_rng(0)
     n = 3000
     raw = np.ascontiguousarray(

@@ -23,7 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from ._utils import is_gpu_available
+from ._utils import gpu_available_bytes, is_gpu_available
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +306,15 @@ def row_attention_stage4_cupy(
 
     n_queries, head_dim = q_proj.shape
     k = topk_ids.shape[1]
+    # Pre-flight: warn (never raise) when one head's working set exceeds the free VRAM, so a run that will fail is visible up front.
+    need_bytes = vram_required_gb(k_proj.shape[0], n_queries, head_dim, 1, k) * (1 << 30)
+    free_bytes = gpu_available_bytes()
+    if need_bytes > free_bytes:
+        logger.warning(
+            "row_attention_stage4_cupy: estimated %.2f GiB per head exceeds ~%.2f GiB of free VRAM; lower head_dim or the query batch if the launch fails.",
+            need_bytes / (1 << 30),
+            free_bytes / (1 << 30),
+        )
 
     q_dev = cp.asarray(q_proj, dtype=cp.float32)
     k_dev = k_proj_device if k_proj_device is not None else cp.asarray(k_proj, dtype=cp.float32)

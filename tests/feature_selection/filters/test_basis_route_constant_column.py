@@ -6,5 +6,6 @@ from mlframe.feature_selection.filters.hermite_fe import basis_route_by_moments
 
 
 def test_constant_column_routes_to_default():
+    """Constant column routes to default."""
     assert basis_route_by_moments(np.full(500, 3.0)) == "chebyshev"
     assert basis_route_by_moments(np.zeros(500)) == "chebyshev"

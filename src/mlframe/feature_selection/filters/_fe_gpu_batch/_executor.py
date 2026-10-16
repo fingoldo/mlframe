@@ -18,6 +18,7 @@ all-finite production candidate matrix, on which it matches the CPU dense path b
 additionally finite-MASKS partial-NaN columns; that edge case is not reproduced here because the FE
 candidate matrices fed to the batcher are nan-filled upstream.)
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -76,6 +77,7 @@ def gpu_fe_batch_mi(
         # upload hashes) instead of a device .min()/.max().item(), which is a blocking D2H sync - computing
         # them host-side removes that sync entirely, on both a cache hit AND a miss.
         from .._fe_resident_operands import resident_operand
+
         y_host = np.ascontiguousarray(y_codes, dtype=np.int64)
         y_min = int(y_host.min())
         n_classes = int(y_host.max()) - y_min + 1

@@ -7,6 +7,7 @@ import pandas as pd
 
 
 def test_string_target_does_not_disable_raw_protection(caplog):
+    """String target does not disable raw protection."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(0)

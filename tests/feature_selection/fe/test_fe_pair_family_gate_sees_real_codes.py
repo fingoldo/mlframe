@@ -8,6 +8,7 @@ import mlframe.feature_selection.filters._family_maxt_gate as fg
 
 
 def _cuda_ok():
+    """Cuda ok."""
     try:
         import cupy as cp
 
@@ -17,6 +18,7 @@ def _cuda_ok():
 
 
 def _frame(n=3000, seed=0):
+    """Frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(8)})
     y = ((X["f0"] * X["f1"] + X["f2"] / (1 + X["f3"].abs()) + 0.3 * rng.standard_normal(n)) > 0).astype(np.int64)
@@ -26,12 +28,14 @@ def _frame(n=3000, seed=0):
 @pytest.mark.skipif(not _cuda_ok(), reason="the deferred host-codes buffer exists only on the GPU path")
 @pytest.mark.parametrize("strict", ["1", ""])
 def test_family_test_never_runs_on_all_zero_codes(monkeypatch, strict):
+    """Family test never runs on all zero codes."""
     if strict:
         monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", strict)
     seen = []
     real = fg.family_pass_batches
 
     def spy(batches, y_codes, alpha=0.01, n_perm=fg.FAMILY_MAXT_PERMUTATIONS, seed=0):
+        """Spy."""
         seen.append([bool(np.asarray(b).any()) for b in batches])
         return real(batches, y_codes, alpha, n_perm, seed)
 

@@ -8,6 +8,7 @@ from mlframe.feature_selection.filters._orthogonal_triplet_fe import _dense_code
 
 
 def _reference_cmi(x, y, s):
+    """Reference cmi."""
     from sklearn.metrics import mutual_info_score
 
     n = y.shape[0]
@@ -22,6 +23,7 @@ def _reference_cmi(x, y, s):
 
 
 def _reference_permutation(x, s, rng):
+    """Reference permutation."""
     out = x.copy()
     for sv in np.unique(s):
         idx = np.flatnonzero(s == sv)
@@ -30,6 +32,7 @@ def _reference_permutation(x, s, rng):
 
 
 def _data(seed, n=3000, nbins=10):
+    """Data."""
     rng = np.random.default_rng(seed)
     s = rng.integers(0, 6, n)
     y = rng.integers(0, 4, n)
@@ -39,6 +42,7 @@ def _data(seed, n=3000, nbins=10):
 
 @pytest.mark.parametrize("seed", range(5))
 def test_observed_cmi_matches_sklearn(seed):
+    """Observed cmi matches sklearn."""
     x, y, s = _data(seed)
     assert _stratified_cmi(x, y, s) == pytest.approx(_reference_cmi(x, y, s), abs=1e-12)
     assert _stratified_cmi(x, y, np.zeros_like(s)) == pytest.approx(_reference_cmi(x, y, np.zeros_like(s)), abs=1e-12)
@@ -46,6 +50,7 @@ def test_observed_cmi_matches_sklearn(seed):
 
 @pytest.mark.parametrize("seed", range(3))
 def test_null_matches_the_per_stratum_permutation(seed):
+    """Null matches the per stratum permutation."""
     x, y, s = _data(seed)
     n_perm = 40
     rng = np.random.default_rng([seed, 7])
@@ -56,6 +61,7 @@ def test_null_matches_the_per_stratum_permutation(seed):
 
 
 def test_small_strata_are_skipped():
+    """Small strata are skipped."""
     x = np.array([0, 1] * 10, dtype=np.int64)
     y = np.array([0, 1] * 10, dtype=np.int64)
     s = np.zeros(20, dtype=np.int64)

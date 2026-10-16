@@ -8,6 +8,7 @@ import mlframe.feature_selection.filters._feature_engineering_pairs._pairs_emit_
 
 
 def _frame(n=3000, seed=0):
+    """Frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(8)})
     y = ((X["f0"] * X["f1"] + X["f2"] / (1 + X["f3"].abs()) + 0.3 * rng.standard_normal(n)) > 0).astype(np.int64)
@@ -15,14 +16,17 @@ def _frame(n=3000, seed=0):
 
 
 def _fit_calls(monkeypatch, max_cells):
+    """Fit calls."""
     calls = {"exact": [], "floor": []}
     real_exact, real_floor = emit._apply_pair_family_gate, emit._apply_pair_family_floor
 
     def exact(pair_batches, valid_pairs_perf, classes_y, n_bins, alpha=0.01):
+        """Exact."""
         calls["exact"].append(sum(int(np.asarray(c).shape[1]) for _, c in pair_batches))
         return real_exact(pair_batches, valid_pairs_perf, classes_y, n_bins, alpha)
 
     def floor(valid_pairs_perf, classes_y, n_bins, n_rows, k_total):
+        """Floor."""
         calls["floor"].append(int(k_total))
         return real_floor(valid_pairs_perf, classes_y, n_bins, n_rows, k_total)
 
@@ -37,11 +41,13 @@ def _fit_calls(monkeypatch, max_cells):
 
 
 def test_small_family_takes_the_exact_gate(monkeypatch):
+    """Small family takes the exact gate."""
     calls = _fit_calls(monkeypatch, 10**12)
     assert calls["exact"] and not calls["floor"]
 
 
 def test_family_over_the_budget_is_decided_by_the_floor_and_never_built(monkeypatch):
+    """Family over the budget is decided by the floor and never built."""
     calls = _fit_calls(monkeypatch, 0)
     assert calls["floor"] and not calls["exact"]
     assert any(k > 0 for k in calls["floor"]), "at least one pair must have had validation candidates gated by the floor"

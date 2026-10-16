@@ -26,7 +26,7 @@ def _honest_perm_best(honest_codes_fn, factors_data, factors_nbins, y_codes, col
     if eval_rows is not None:
         codes_p = np.asarray(codes_p)[eval_rows]
         factors_data = factors_data[eval_rows]
-        n = int(len(eval_rows))
+        n = len(eval_rows)
     yc_p = np.ascontiguousarray(y_codes[row_perm])
     if eval_rows is not None:
         yc_p = np.ascontiguousarray(yc_p[eval_rows])

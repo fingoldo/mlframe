@@ -9,7 +9,7 @@ the already-seeded ``random_seed`` into the permutation-null kernel.
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 

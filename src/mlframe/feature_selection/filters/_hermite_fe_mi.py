@@ -5,6 +5,7 @@ Re-imported at the parent's module bottom so historical
 ``from mlframe.feature_selection.filters.hermite_fe import plugin_mi_classif_dispatch``
 resolves transparently.
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,18 +20,22 @@ from typing import Any
 
 try:
     from numba import njit, prange
+
     _NUMBA_AVAILABLE = True
 except ImportError:
     _NUMBA_AVAILABLE = False
     from mlframe._numba_fallback import njit
+
     def prange(n):
         """No-numba fallback: plain ``range``."""
         return range(n)
+
 
 # The plug-in MI kernels moved to _numba_utils (cross-module @njit invariant); re-imported here for the in-file dispatchers.
 from ._numba_utils import _plugin_mi_classif_njit, _plugin_mi_regression_njit  # noqa: F401 -- used by plugin_mi_classif_dispatch and re-exported
 
 logger = logging.getLogger("mlframe.feature_selection.filters.hermite_fe")
+
 
 @njit(cache=True, fastmath=True)
 def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray, n_bins: int) -> float:
@@ -86,6 +91,7 @@ def _plugin_mi_from_binned_njit(x_binned: np.ndarray, y: np.ndarray, n_bins: int
         mi = 0.0
     return mi
 
+
 def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Faster single-column plug-in MI: numpy argsort + njit histogram math.
 
@@ -108,10 +114,16 @@ def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> fl
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     from mlframe.feature_selection.filters.hermite_fe.shared import quantile_bin_numpy as _quantile_bin_numpy
+
     x_binned = _quantile_bin_numpy(x, n_bins)
-    return float(_plugin_mi_from_binned_njit(
-        x_binned, np.asarray(y, dtype=np.int64), n_bins,
-    ))
+    return float(
+        _plugin_mi_from_binned_njit(
+            x_binned,
+            np.asarray(y, dtype=np.int64),
+            n_bins,
+        )
+    )
+
 
 # --- Fused per-cell MI-contribution kernel (2026-06-23, GPU-saturation Task #2) -----------------------
 # The plug-in MI reduction below built the per-cell nat contribution as a chain of ~8 SEPARATE cupy
@@ -128,6 +140,7 @@ def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> fl
 # ~1e-18 FP round-off (test_gpu_fused_mi_term pins max abs diff 3.5e-18, ~10 orders below any MI-ranking /
 # FE-selection threshold). Default ON; ``MLFRAME_FE_GPU_FUSE_MI=0`` restores the exact unfused chain.
 _FUSED_MI_TERM = None  # module-level cp.fuse singleton (lazy-built; never on an instance -> pickle-safe)
+
 
 def _get_fused_mi_term():
     """Lazy-build the cp.fuse'd per-cell MI-contribution kernel. Inputs are broadcastable f64 arrays:
@@ -150,10 +163,6 @@ def _get_fused_mi_term():
         _FUSED_MI_TERM = _term
     return _FUSED_MI_TERM
 
-def _fe_gpu_fuse_mi_enabled() -> bool:
-    """Whether the fused per-cell MI-contribution kernel is used. ON unless ``MLFRAME_FE_GPU_FUSE_MI`` is
-    explicitly falsy (the unfused chain stays the exact, bit-identical fallback one env flip away)."""
-    return os.environ.get("MLFRAME_FE_GPU_FUSE_MI", "1").strip().lower() in ("1", "true", "on", "yes")
 
 def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Cupy batch plug-in MI. Quantile-bins each column on GPU via
@@ -166,6 +175,7 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     import cupy as cp
+
     X_gpu = cp.asarray(X_cols, dtype=cp.float64)
     # y is the fit-constant target: resident-cache it (same role string as the already-fixed
     # ``_orth_mi_backends.py`` / ``_binned_numeric_agg_fe.py`` sites) so it uploads ONCE per fit instead of
@@ -173,14 +183,17 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     # ``(id(y_gpu), y_min)`` shift memo in ``_plugin_mi_classif_batch_cuda_resident`` actually hit (it can
     # never hit while y_gpu is rebuilt fresh every call, since id(y_gpu) changes every time).
     from ._fe_resident_operands import resident_operand
+
     y_gpu = resident_operand(y, "y_mi_classif", dtype=np.int64)
     return np.asarray(_plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins))
+
 
 # (id(y_gpu), y_min) -> (weakref to y_gpu, shifted (y - y_min) device vector); a hit must be the SAME live y_gpu, an id alone can be reused. y is a fit-constant, so the shift recurs identically
 # across the per-chunk MI calls; memoize to launch it ONCE per fit (module-level -> never on a pickled instance).
 _SHIFTED_Y_CACHE: dict = {}
 # Held across the check-clear-insert below: threaded FE workers share this dict.
 _SHIFTED_Y_CACHE_LOCK = threading.Lock()
+
 
 def _shifted_y_cached(y_gpu, y_min: int):
     """``y_gpu - y_min``, memoized per (live y_gpu, y_min): a hit must be the SAME array object, since an ``id`` is reused once its array is freed."""
@@ -195,9 +208,11 @@ def _shifted_y_cached(y_gpu, y_min: int):
         _SHIFTED_Y_CACHE[key] = (weakref.ref(y_gpu), shifted)
         return shifted
 
+
 def relaxed_candidate_dtype(cp: ModuleType) -> Any:
     """The dtype a selection-gate producer should emit its candidate block in: float32 when the relaxed criterion dtype is on (the plug-in MI would otherwise cast the finished
-    float64 block to float32 itself, a full extra pass and a double-width buffer), else float64. Casting each element at the store gives the same float32 values as casting the finished block."""
+    float64 block to float32 itself, a full extra pass and a double-width buffer), else float64. Casting each element at the store gives the same float32 values as casting the finished block.
+    """
     try:
         from ._fe_gpu_batch._devices import crit_float_dtype
 
@@ -206,8 +221,10 @@ def relaxed_candidate_dtype(cp: ModuleType) -> Any:
         logger.debug("crit_float_dtype() lookup failed, producers keep float64: %s", e)
         return cp.float64
 
-def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None,
-                                           keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False):
+
+def _plugin_mi_classif_batch_cuda_resident(
+    X_gpu, y_gpu, n_bins: int = 20, *, y_min=None, n_classes=None, keep_dtype: bool = False, relax_binning: bool = False, x_is_cm: bool = False
+):
     """MATRIX-NATIVE plug-in MI on ALREADY-RESIDENT cupy arrays - the H2D-FREE core of
     :func:`_plugin_mi_classif_batch_cuda`. ``X_gpu`` is an (n, k) cupy float64 candidate
     matrix, ``y_gpu`` an (n,) cupy integer label vector, BOTH already on the device. This
@@ -228,6 +245,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     ``x_is_cm``: ``X_gpu`` is the ``(k, n)`` C-order column-major block (column ``j`` of the candidate matrix is row ``j``), which is what the edge select and the MI kernel read,
     so a producer that builds it that way saves the transpose; the result is the same values in the same column order."""
     import cupy as cp
+
     if x_is_cm:
         k, n = X_gpu.shape
     else:
@@ -246,6 +264,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     if relax_binning and X_gpu.dtype == cp.float64:
         try:
             from ._fe_gpu_batch._devices import crit_float_dtype
+
             if crit_float_dtype() == cp.float32:
                 X_gpu = X_gpu.astype(cp.float32)
         except Exception as e:  # nosec B110 - optional dependency import guard
@@ -290,6 +309,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     if k >= 1:
         try:
             from ._gpu_resident_select import _radix_select_interior_edges, _transpose_to_cm, fe_gpu_radix_edges_enabled
+
             if fe_gpu_radix_edges_enabled():
                 # ONE transpose for both consumers: the radix select and the MI kernel each need the (k, n) column-major copy of this matrix
                 if x_is_cm:
@@ -320,6 +340,7 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     # selection-equivalent (resident-FE recovery is rank/Spearman-checked). Falls back to the codes path when
     # the (n_bins*n_classes) shared tile won't fit.
     from ._fe_batched_mi import binned_mi_from_values_gpu, binned_mi_from_codes_gpu
+
     # codes_trusted: y_gpu was shifted to dense 0-based above (y_min subtracted) -> the y-range guard cannot
     # fire; skip its blocking min/max sync on the resident MI hot path (FIX1).
     _mi_v = binned_mi_from_values_gpu(None if x_is_cm else X_gpu, interior, y_gpu, int(n_bins), int(n_classes), codes_trusted=True, x_cm=x_cm)
@@ -328,11 +349,13 @@ def _plugin_mi_classif_batch_cuda_resident(X_gpu, y_gpu, n_bins: int = 20, *, y_
     if x_is_cm:
         X_gpu = cp.ascontiguousarray(X_gpu.T)  # (n, k) for the code-path fallback below
     from ._gpu_resident_fe import _searchsorted_codes
+
     X_binned = _searchsorted_codes(X_gpu, interior).astype(cp.int64, copy=False)
     # codes_trusted: X_binned is searchsorted-produced (dense 0..n_bins-1) and y_gpu was shifted to dense
     # 0-based above, so the in-range guard cannot fire - skip its blocking min/max sync (FIX1), matching the
     # binned_mi_from_values_gpu call above that already trusts these same codes.
     return binned_mi_from_codes_gpu(X_binned, y_gpu, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
+
 
 def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> float:
     """Single-column plug-in MI for continuous x and discrete y.
@@ -349,6 +372,7 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     # import ...`` would create a hard cycle the meta-test flags.
     from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE, plugin_mi_classif_cuda as _plugin_mi_classif_cuda
     from ._gpu_policy import gpu_globally_disabled
+
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     if forced == "njit":
         return float(_plugin_mi_classif_njit(x, y, n_bins))
@@ -365,6 +389,7 @@ def plugin_mi_classif_dispatch(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -
     # =cuda forces GPU.
     return float(_plugin_mi_classif_njit(x, y, n_bins))
 
+
 def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: int = 20) -> np.ndarray:
     """Batch plug-in MI per column of ``X_cols`` against discrete ``y``.
 
@@ -376,8 +401,12 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     # Lazy import of parent-resident helpers: ``.hermite_fe`` re-imports
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
-    from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE, plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit
+    from mlframe.feature_selection.filters.hermite_fe.shared import (
+        CUDA_AVAILABLE as _CUDA_AVAILABLE,
+        plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit,
+    )
     from ._gpu_policy import gpu_globally_disabled
+
     forced = os.environ.get("MLFRAME_MI_BACKEND", "")
     if forced == "njit":
         return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
@@ -413,8 +442,10 @@ def plugin_mi_classif_batch_dispatch(X_cols: np.ndarray, y: np.ndarray, n_bins: 
     # win here; see _benchmarks/bench_plugin_mi_batch_dispatch_overhead.py for the numbers.
     return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
 
+
 _CUDA_KERNELS: dict = {}
 _CUDA_KERNELS_LOCK = threading.Lock()
+
 
 def _ensure_cuda_kernels():
     """Lazy-compile CUDA RawKernels on first use."""
@@ -422,13 +453,15 @@ def _ensure_cuda_kernels():
     # this sibling at its bottom, so a top-level ``from .hermite_fe
     # import ...`` would create a hard cycle the meta-test flags.
     from mlframe.feature_selection.filters.hermite_fe.shared import CUDA_AVAILABLE as _CUDA_AVAILABLE
+
     global _CUDA_KERNELS
     if _CUDA_KERNELS or not _CUDA_AVAILABLE:
         return
     import cupy as cp
 
     _kernels: dict = {}
-    _kernels["hermite"] = cp.RawKernel(r"""
+    _kernels["hermite"] = cp.RawKernel(
+        r"""
 extern "C" __global__
 void hermeval_kernel(const double* __restrict__ x,
                      const double* __restrict__ c,
@@ -449,8 +482,11 @@ void hermeval_kernel(const double* __restrict__ x,
     }
     out[i] = s;
 }
-""", "hermeval_kernel")
-    _kernels["legendre"] = cp.RawKernel(r"""
+""",
+        "hermeval_kernel",
+    )
+    _kernels["legendre"] = cp.RawKernel(
+        r"""
 extern "C" __global__
 void legval_kernel(const double* __restrict__ x,
                     const double* __restrict__ c,
@@ -472,8 +508,11 @@ void legval_kernel(const double* __restrict__ x,
     }
     out[i] = s;
 }
-""", "legval_kernel")
-    _kernels["chebyshev"] = cp.RawKernel(r"""
+""",
+        "legval_kernel",
+    )
+    _kernels["chebyshev"] = cp.RawKernel(
+        r"""
 extern "C" __global__
 void chebval_kernel(const double* __restrict__ x,
                      const double* __restrict__ c,
@@ -494,8 +533,11 @@ void chebval_kernel(const double* __restrict__ x,
     }
     out[i] = s;
 }
-""", "chebval_kernel")
-    _kernels["laguerre"] = cp.RawKernel(r"""
+""",
+        "chebval_kernel",
+    )
+    _kernels["laguerre"] = cp.RawKernel(
+        r"""
 extern "C" __global__
 void lagval_kernel(const double* __restrict__ x,
                     const double* __restrict__ c,
@@ -517,7 +559,9 @@ void lagval_kernel(const double* __restrict__ x,
     }
     out[i] = s;
 }
-""", "lagval_kernel")
+""",
+        "lagval_kernel",
+    )
     # Publish all kernels in one step: a thread that saw a half-filled dict would pass the emptiness check above and
     # then miss a kernel that was still compiling.
     with _CUDA_KERNELS_LOCK:

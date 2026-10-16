@@ -20,6 +20,7 @@ This module ships:
 
 These helpers are pure numpy; integration into the registry + ``CompositeTargetEstimator`` wrapper (adding a ``requires_base: bool = True`` field to the Transform dataclass and skipping base-column extraction when ``False``) is the follow-up step. Tests pin the round-trip math at the helper level so the wrapper integration cannot regress silently.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import numba as _numba
+
     _HAS_NUMBA = True
 except ImportError:  # pragma: no cover - numba is a hard dep but allow graceful skip
     _numba = None
@@ -51,6 +53,7 @@ _YJ_INV_BASE_FLOOR: float = 1e-12
 
 
 if _HAS_NUMBA:
+
     @_numba.njit(cache=True, fastmath=True, parallel=True)
     def _yj_forward_numba_kernel(y, lam):
         """Parallel numba kernel computing the Yeo-Johnson forward transform elementwise (branching on sign(y) and the lambda~0 / lambda~2 special cases), used by ``_yj_forward`` for n >= ``_YJ_NUMBA_MIN_N``."""
@@ -113,6 +116,7 @@ if _HAS_NUMBA:
 # ----------------------------------------------------------------------
 # cbrt_y -- signed cube-root, all real y, no fitted params.
 # ----------------------------------------------------------------------
+
 
 def cbrt_y_fit(y: np.ndarray) -> Dict[str, Any]:
     """Fit the signed cube-root transform: no learned parameters (returns an empty dict)."""
@@ -276,7 +280,7 @@ def log_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.ndar
 
 
 def _yj_forward_scalar(y: float, lam: float) -> float:
-    """Scalar (non-vectorised) reference implementation of the Yeo-Johnson forward transform, used by ``yeo_johnson_y_fit``'s Brent search where the objective is evaluated at a single ``lam``."""
+    """Scalar (non-vectorised) reference implementation of the Yeo-Johnson forward transform, kept as the reference that ``_yj_forward`` is checked against (parity pinned in tests/training/composite/transforms/test_yj_forward_scalar_parity.py); the objective is evaluated at a single ``lam``."""
     if y >= 0.0:
         if abs(lam) < 1e-12:
             return float(np.log1p(y))
@@ -402,13 +406,19 @@ def yeo_johnson_y_fit(y: np.ndarray) -> Dict[str, Any]:
 
     try:
         from scipy.optimize import minimize_scalar
+
         result = minimize_scalar(neg_loglik, bounds=(-2.0, 4.0), method="bounded", options={"xatol": 1e-4})
         lam = float(result.x) if result.success else 1.0
     except Exception as e:
         from mlframe.utils.log_throttle import log_throttle
+
         log_throttle(
-            logger, "yeo_johnson_lambda_mle_failed", logging.WARNING,
-            "Yeo-Johnson lambda MLE optimization failed (%s: %s); defaulting to lambda=1.0 (near-identity transform).", type(e).__name__, e,
+            logger,
+            "yeo_johnson_lambda_mle_failed",
+            logging.WARNING,
+            "Yeo-Johnson lambda MLE optimization failed (%s: %s); defaulting to lambda=1.0 (near-identity transform).",
+            type(e).__name__,
+            e,
         )
         lam = 1.0
     lam = float(np.clip(lam, -2.0, 4.0))
@@ -461,6 +471,7 @@ def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
     pos = pos / y_scale
     try:
         from scipy.stats import boxcox
+
         _, lam = boxcox(pos)
         lam = float(lam)
         if not np.isfinite(lam):
@@ -475,6 +486,7 @@ def box_cox_y_fit(y: np.ndarray) -> Dict[str, Any]:
 def box_cox_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Box-Cox forward: ``(y**lam - 1) / lam`` (``log(y)`` at lam=0) using the fitted ``params["lambda"]``. Defined for y > 0 only (domain-gated upstream)."""
     from scipy.special import boxcox as _bc
+
     arr = np.asarray(y, dtype=np.float64) / float(params.get("y_scale", 1.0))  # params fitted before the scale existed use 1.0
     # A stray non-positive row (predict-time domain fallback handles it) yields NaN; silence the expected warning.
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -501,6 +513,7 @@ def box_cox_y_domain(y: np.ndarray, params: Dict[str, Any] | None = None) -> np.
 # ----------------------------------------------------------------------
 # quantile_normal_y -- empirical-CDF mapping y -> standard Normal.
 # ----------------------------------------------------------------------
+
 
 def quantile_normal_y_fit(y: np.ndarray, n_quantiles: int = 1000) -> Dict[str, Any]:
     """Fit empirical CDF as a knot table. At predict-time the wrapper interpolates the y -> uniform map then applies the standard-Normal quantile function.
@@ -536,6 +549,7 @@ def _qn_clip_eps(knots_q: np.ndarray) -> float:
 def quantile_normal_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Map ``y`` to a standard Normal via the fitted empirical CDF knots then the Normal quantile function."""
     from scipy.special import ndtri
+
     knots_y = np.asarray(params["knots_y"], dtype=np.float64)
     knots_q = np.asarray(params["knots_q"], dtype=np.float64)
     arr = np.asarray(y, dtype=np.float64)
@@ -552,6 +566,7 @@ def quantile_normal_y_forward(y: np.ndarray, params: Dict[str, Any]) -> np.ndarr
 def quantile_normal_y_inverse(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
     """Inverse of the quantile-normal map: Normal CDF then interpolate back through the fitted CDF knots to y."""
     from scipy.special import ndtr
+
     knots_y = np.asarray(params["knots_y"], dtype=np.float64)
     knots_q = np.asarray(params["knots_q"], dtype=np.float64)
     # ndtr is the bare standard-normal CDF kernel underlying norm.cdf -- bit-identical, ~2.4x faster (no rv_continuous wrapper).
@@ -599,20 +614,27 @@ def chain_bivariate_then_unary_fit(
 
 
 def _chain_fit_bivariate(
-    bivariate_fit: Callable[..., Dict[str, Any]], y: np.ndarray, base: np.ndarray, sample_weight: np.ndarray | None,
+    bivariate_fit: Callable[..., Dict[str, Any]],
+    y: np.ndarray,
+    base: np.ndarray,
+    sample_weight: np.ndarray | None,
 ) -> tuple[Dict[str, Any], np.ndarray | None]:
     """Fit a chain's bivariate half, forwarding ``sample_weight`` when its fit declares it; also return the positive-weight row mask the unary
     stages fit on (``None`` when unweighted). A bivariate that takes no weights is fitted unweighted, with a throttled warning."""
     if sample_weight is None:
         return bivariate_fit(y, base), None
     from ._call_gateway import callable_accepts
+
     w = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
     keep = np.isfinite(w) & (w > 0)
     if callable_accepts(bivariate_fit, "sample_weight"):
         return bivariate_fit(y, base, sample_weight=w), keep
     from mlframe.utils.log_throttle import log_throttle
+
     log_throttle(
-        logger, "chain_bivariate_ignores_sample_weight", logging.WARNING,
+        logger,
+        "chain_bivariate_ignores_sample_weight",
+        logging.WARNING,
         "chain transform: bivariate fit %s takes no sample_weight; its half of the chain is fitted unweighted.",
         getattr(bivariate_fit, "__name__", bivariate_fit),
     )
@@ -704,19 +726,38 @@ def chain_multi_stage_inverse(
     t = t_final
     # Unary stages: reverse order at inverse time.
     for (_fit, _forward, inv_fn), p in zip(
-        reversed(unary_stages), reversed(params["unary_stage_params"]),
+        reversed(unary_stages),
+        reversed(params["unary_stage_params"]),
     ):
         t = inv_fn(t, p)
     return bivariate_inverse(t, base, params["bivariate_params"])
 
 
 __all__ = [
-    "cbrt_y_fit", "cbrt_y_forward", "cbrt_y_inverse", "cbrt_y_domain",
-    "signed_power_y_fit", "signed_power_y_forward", "signed_power_y_inverse", "signed_power_y_domain",
-    "log_y_fit", "log_y_forward", "log_y_inverse", "log_y_domain",
-    "yeo_johnson_y_fit", "yeo_johnson_y_forward", "yeo_johnson_y_inverse", "yeo_johnson_y_domain",
-    "box_cox_y_fit", "box_cox_y_forward", "box_cox_y_inverse", "box_cox_y_domain",
-    "quantile_normal_y_fit", "quantile_normal_y_forward", "quantile_normal_y_inverse", "quantile_normal_y_domain",
+    "cbrt_y_fit",
+    "cbrt_y_forward",
+    "cbrt_y_inverse",
+    "cbrt_y_domain",
+    "signed_power_y_fit",
+    "signed_power_y_forward",
+    "signed_power_y_inverse",
+    "signed_power_y_domain",
+    "log_y_fit",
+    "log_y_forward",
+    "log_y_inverse",
+    "log_y_domain",
+    "yeo_johnson_y_fit",
+    "yeo_johnson_y_forward",
+    "yeo_johnson_y_inverse",
+    "yeo_johnson_y_domain",
+    "box_cox_y_fit",
+    "box_cox_y_forward",
+    "box_cox_y_inverse",
+    "box_cox_y_domain",
+    "quantile_normal_y_fit",
+    "quantile_normal_y_forward",
+    "quantile_normal_y_inverse",
+    "quantile_normal_y_domain",
     "chain_bivariate_then_unary_fit",
     "chain_bivariate_then_unary_forward",
     "chain_bivariate_then_unary_inverse",

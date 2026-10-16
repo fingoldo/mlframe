@@ -32,35 +32,11 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/core/helpers.py::ListAllSkLearnClassifiers": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/core/helpers.py::MakeSureBlasAndLaPackAreInstalled": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/core/helpers.py::show_sys_ram_usage": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/core/stats.py::get_dist_percentage_span_for_sd": {
    "count": 1,
    "note": ""
   },
-  "src/mlframe/data/datasets/generator.py::_probability_only": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/estimators/custom.py::box_cox_plus_c": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/estimators/custom.py::clip_to_quantiles_hard": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/estimators/custom.py::clip_to_quantiles_winsor_quantile": {
    "count": 1,
    "note": ""
   },
@@ -85,14 +61,6 @@
    "note": ""
   },
   "src/mlframe/estimators/custom.py::qubed": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/estimators/pipelines.py::agg_pipeline_metric": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/estimators/pipelines.py::compute_ml_metrics": {
    "count": 1,
    "note": ""
   },
@@ -192,15 +160,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_engineering/transformer/_kernels_cupy.py::vram_required_gb": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_engineering/transformer/_projection.py::_project_single_head_njit": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/transformer/_row_attention_ann.py::reset_openmp_smoke": {
    "count": 1,
    "note": ""
   },
@@ -212,19 +172,7 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_engineering/transformer/_utils.py::gpu_available_bytes": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_engineering/transformer/_utils.py::reset_gpu_probe": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/transformer/mdl_binning_pairwise.py::_entropy_binary": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/wavelet_dwt.py::set_wavedec_dispatch_threshold": {
    "count": 1,
    "note": ""
   },
@@ -265,10 +213,6 @@
    "note": ""
   },
   "src/mlframe/feature_selection/filters/_cat_mm_correction.py::_should_apply_mm_for_pair": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/_fe_batched_mi.py::_get_mi_mm_from_values_kernel": {
    "count": 1,
    "note": ""
   },
@@ -344,14 +288,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_hermite_fe_mi.py::_fe_gpu_fuse_mi_enabled": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/_hermite_fe_mi.py::_get_fused_mi_term": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_hinge_basis_fe.py::_segmented_sse": {
    "count": 1,
    "note": ""
@@ -364,14 +300,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_ksg.py::_digamma_vec": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/_ksg.py::_lnc_correction": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_mah.py::_greedy_merge_bins": {
    "count": 1,
    "note": ""
@@ -381,10 +309,6 @@
    "note": ""
   },
   "src/mlframe/feature_selection/filters/_mdlp_validated_split.py::mdlp_bin_edges_validated": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/_meta_fe_recommender.py::_flags_to_combo_key": {
    "count": 1,
    "note": ""
   },
@@ -409,10 +333,6 @@
    "note": ""
   },
   "src/mlframe/feature_selection/filters/_orthogonal_routing_fe.py::parse_routing_col_name": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/_pid_decomposition.py::_pointwise_log_ratio": {
    "count": 1,
    "note": ""
   },
@@ -488,10 +408,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/info_theory/_entropy_kernels.py::conditional_mi_redundancy_batched": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/permutation.py::parallel_mi_besag_clifford_with_null": {
    "count": 1,
    "note": ""
@@ -540,10 +456,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/wrappers/_univariate_ht.py::is_numba_active": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/inference/explainability.py::compute_shap_on_cv": {
    "count": 1,
    "note": ""
@@ -561,10 +473,6 @@
    "note": ""
   },
   "src/mlframe/metrics/_auc_per_group.py::fast_aucs_per_group": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/metrics/_core_auc_brier.py::_resample_desc_order_counting": {
    "count": 1,
    "note": ""
   },
@@ -680,10 +588,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/models/ensembling/selection.py::_default_metric_is_auc": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/models/optimization.py::optimize_finite_onedimensional_search_space": {
    "count": 1,
    "note": ""
@@ -701,14 +605,6 @@
    "note": ""
   },
   "src/mlframe/reporting/charts/error_analysis.py::clear_feature_matrix_cache": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/reporting/charts/ltr.py::_per_query_groups": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/reporting/renderers/_plotly_interactivity.py::_line_is_multiseries": {
    "count": 1,
    "note": ""
   },
@@ -768,10 +664,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/_model_factories.py::make_quantile_dmatrix": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/_regression_calibration.py::duan_log_smearing_factor": {
    "count": 1,
    "note": ""
@@ -793,10 +685,6 @@
    "note": ""
   },
   "src/mlframe/training/cb/_cb_pool_budget.py::cache_bytes": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/cb/_cb_pool_budget.py::forget_pool_bytes": {
    "count": 1,
    "note": ""
   },
@@ -868,10 +756,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/composite/transforms/unary.py::_yj_forward_scalar": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/composite/transforms/unary.py::_yj_inverse_scalar": {
    "count": 1,
    "note": ""
@@ -881,10 +765,6 @@
    "note": ""
   },
   "src/mlframe/training/core/_phase_composite_post.py::recover_composite_y_scale_metrics": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/training/core/_phase_finalize.py::_is_minimise_metric": {
    "count": 1,
    "note": ""
   },
@@ -1065,10 +945,6 @@
    "note": ""
   },
   "src/mlframe/votenrank/utils.py::agreement_rate": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/votenrank/utils.py::get_tracker_table": {
    "count": 1,
    "note": ""
   },

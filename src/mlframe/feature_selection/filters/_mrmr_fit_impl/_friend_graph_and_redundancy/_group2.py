@@ -55,6 +55,7 @@ def _friend_graph_and_redundancy_passes_group2(
     if _hinge_deferred_values and isinstance(X, pd.DataFrame):
         try:
             from ...mrmr import discretize_array
+
             _hinge_added_names = []
             _n_cols_before_hinge = len(cols)
             _new_hinge_codes = []
@@ -82,7 +83,9 @@ def _friend_graph_and_redundancy_passes_group2(
                     engineered_recipes[_hn] = _r
             if _new_hinge_codes:
                 data = np.append(
-                    data, np.hstack(_new_hinge_codes).astype(data.dtype), axis=1,
+                    data,
+                    np.hstack(_new_hinge_codes).astype(data.dtype),
+                    axis=1,
                 )
                 nbins = np.concatenate(
                     [
@@ -167,7 +170,10 @@ def _friend_graph_and_redundancy_passes_group2(
 
         _heldout_gate_ready = True
         _heldout_incr_over_selected = build_heldout_incr_probe(
-            y_gate=_y_for_hinge_gate, sel_value_cols=_sel_value_cols, random_seed=getattr(self, "random_seed", 0), cv_policy=get_cv_policy(self),
+            y_gate=_y_for_hinge_gate,
+            sel_value_cols=_sel_value_cols,
+            random_seed=getattr(self, "random_seed", 0),
+            cv_policy=get_cv_policy(self),
         )
 
         if _hinge_feats:
@@ -209,7 +215,8 @@ def _friend_graph_and_redundancy_passes_group2(
                         "MRMR hinge change-point protection: re-added %d held-out-"
                         "validated hinge leg(s) the MI screen dropped (MI-invariant; "
                         "value is downstream linear usability): %s",
-                        len(_readd_hinge), [cols[i] for i in _readd_hinge],
+                        len(_readd_hinge),
+                        [cols[i] for i in _readd_hinge],
                     )
 
     # ORTH-BASIS UNIVARIATE PROTECTION: re-add a single-source orthogonal-basis univariate column
@@ -228,7 +235,20 @@ def _friend_graph_and_redundancy_passes_group2(
     # the hinge gate): for the basis the curve IS the win, so adding ``src^2`` would self-reject the very
     # quadratic basis we want. Reuses ``_heldout_incr_over_selected`` with ``_src_vals=None``.
     _orth_feats = getattr(self, "hybrid_orth_features_", None)
-    selected_vars = _orth_feature_heldout_gate_pass(_orth_feats, selected_vars, _heldout_gate_ready, cols, data, target_indices, nbins, _hybrid_orth_pre_recipes, _eng_continuous_snapshot, X, _heldout_incr_over_selected, verbose)
+    selected_vars = _orth_feature_heldout_gate_pass(
+        _orth_feats,
+        selected_vars,
+        _heldout_gate_ready,
+        cols,
+        data,
+        target_indices,
+        nbins,
+        _hybrid_orth_pre_recipes,
+        _eng_continuous_snapshot,
+        X,
+        _heldout_incr_over_selected,
+        verbose,
+    )
 
     # RAW-FEATURE FLOOR-DROP PROTECTION (Fix-B). The Westfall-Young maxT relevance floor is computed
     # over the FULL candidate pool; when the all-FE-on config widens that pool to hundreds of (already FE-stage-
@@ -245,7 +265,9 @@ def _friend_graph_and_redundancy_passes_group2(
     # exist when hinge legs were generated; this protection must run regardless). Baseline = intercept + the
     # continuous values of the ALREADY-SELECTED columns (engineered from the snapshot, raw from X), so a raw
     # feature SUBSUMED by a selected composite adds ~0 and is NOT re-added (no raw-redundancy regression).
-    selected_vars = _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, _effective_min_relevance_gain, cached_MIs, verbose)
+    selected_vars = _composite_subsumption_readd_pass(
+        self, X, selected_vars, _y_np, data, cols, _eng_continuous_snapshot, _effective_min_relevance_gain, cached_MIs, verbose
+    )
 
     # CAT-FE FLOOR-DROP PROTECTION (Fix-C). The Westfall-Young maxT relevance floor (computed over
     # the FULL widened candidate pool when many FE families are on) routinely rises above the marginal binned-MI
@@ -265,13 +287,28 @@ def _friend_graph_and_redundancy_passes_group2(
     return selected_vars, cols, data, nbins
 
 
-def _orth_feature_heldout_gate_pass(_orth_feats, selected_vars, _heldout_gate_ready, cols, data, target_indices, nbins, _hybrid_orth_pre_recipes, _eng_continuous_snapshot, X, _heldout_incr_over_selected, verbose):
+def _orth_feature_heldout_gate_pass(
+    _orth_feats,
+    selected_vars,
+    _heldout_gate_ready,
+    cols,
+    data,
+    target_indices,
+    nbins,
+    _hybrid_orth_pre_recipes,
+    _eng_continuous_snapshot,
+    X,
+    _heldout_incr_over_selected,
+    verbose,
+):
     """Gate the orthogonal features on their held-out incremental gain over the selection."""
     if _orth_feats and len(selected_vars) and _heldout_gate_ready:
         _cols_index_o = {c: i for i, c in enumerate(cols)}
         _sv_set_o = set(selected_vars)
         _sel_names_o = {cols[i] for i in selected_vars if 0 <= i < len(cols)}
-        _ORTH_PROTECT_MIN_INCR_R2 = 0.01  # wider than hinge 0.003: a genuine single-var basis lifts held-out R^2 by >>0.01 (~0.7 for exp(-a**2)); keeps noise-fit basis out
+        _ORTH_PROTECT_MIN_INCR_R2 = (
+            0.01  # wider than hinge 0.003: a genuine single-var basis lifts held-out R^2 by >>0.01 (~0.7 for exp(-a**2)); keeps noise-fit basis out
+        )
         _orth_sig_cache: dict = {}  # per-source-name memo: the permutation-significance probe below is O(32 perms), reused across every basis sharing a source
 
         def _orth_source_is_signal(_src_name: str) -> bool:
@@ -300,13 +337,24 @@ def _orth_feature_heldout_gate_pass(_orth_feats, selected_vars, _heldout_gate_re
                     # regressed to 43-50s (30s budget) purely from this probe's 6.25x cost on fixtures that
                     # call it often. Reverted to the EMIT-BOTH default (32/0.05).
                     _r = _orth_mi_direct(
-                        data, x=(int(_src_idx),), y=target_indices,
-                        factors_nbins=nbins, npermutations=32, min_nonzero_confidence=0.0,
-                        return_null_mean=True, parallelism="none", prefer_gpu=False,
+                        data,
+                        x=(int(_src_idx),),
+                        y=target_indices,
+                        factors_nbins=nbins,
+                        npermutations=32,
+                        min_nonzero_confidence=0.0,
+                        return_null_mean=True,
+                        parallelism="none",
+                        prefer_gpu=False,
                     )
                     _sig = bool(float(_r[3]) < 0.05)  # p-value below alpha -> genuine marginal signal
                 except Exception as e:
-                    logger.debug("orth-basis source significance probe failed for %r (%s: %s) -- not silently dropping a possibly-genuine source", _src_name, type(e).__name__, e)
+                    logger.debug(
+                        "orth-basis source significance probe failed for %r (%s: %s) -- not silently dropping a possibly-genuine source",
+                        _src_name,
+                        type(e).__name__,
+                        e,
+                    )
             _orth_sig_cache[_src_name] = _sig
             return _sig
 
@@ -360,7 +408,8 @@ def _orth_feature_heldout_gate_pass(_orth_feats, selected_vars, _heldout_gate_re
                 logger.info(
                     "MRMR orth-basis univariate protection: re-added %d single-source basis column(s) the "
                     "MI screen DPI-dropped (value is downstream linear usability over the raw source): %s",
-                    len(_readd_orth), [cols[i] for i in _readd_orth],
+                    len(_readd_orth),
+                    [cols[i] for i in _readd_orth],
                 )
     return selected_vars
 
@@ -462,6 +511,7 @@ def _composite_subsumption_readd_pass(self, X, selected_vars, _y_np, data, cols,
                             "MRMR raw-feature floor-drop protection: re-added %d held-out-validated raw "
                             "feature(s) the maxT relevance floor dropped (genuine linear usability, not "
                             "high-card noise): %s",
-                            len(_readd_raw), [cols[i] for i in _readd_raw],
+                            len(_readd_raw),
+                            [cols[i] for i in _readd_raw],
                         )
     return selected_vars

@@ -36,7 +36,8 @@ import logging
 import os as _os
 import threading
 from collections import OrderedDict
-from typing import Any, Callable, Optional, Sequence
+from typing import Any, Callable, Optional
+from collections.abc import Sequence
 
 import numpy as _np
 
@@ -70,6 +71,7 @@ try:
         h *= _np.uint64(0xC4CEB9FE1A85EC53)
         h ^= h >> _np.uint64(33)
         return int(h)
+
 except Exception as e:  # best-effort: numba optional; the tobytes fallback below is the same content hash, only slower
     logger.debug("numba unavailable, falling back to tobytes-based content hash: %s", e)
     _njit_content_hash = None
@@ -151,6 +153,7 @@ def clear_hash_memo() -> None:
     """Drop the id()-keyed hash memo (call at FE-step teardown; mirrors the other resident caches)."""
     with _HASH_MEMO_LOCK:
         _HASH_MEMO.clear()
+
 
 # content signature (shape + dtype-str + content hash)  ->  device_array. OrderedDict gives O(1) LRU: hits
 # move-to-end (hot), overflow pops the front (coldest).

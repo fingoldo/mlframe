@@ -47,7 +47,9 @@ def run_final_subsumption_prune(self, X, selected_vars, classes_y, verbose):
         if not anchors:
             return False, selected_vars
         y_continuous = getattr(self, "_fe_prewarp_y_continuous_", None)
-        dropped = final_subsumption_prune(candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=int(getattr(self, "random_seed", 0) or 0))
+        dropped = final_subsumption_prune(
+            candidates, anchors, np.asarray(classes_y).ravel(), y_continuous=y_continuous, seed=int(getattr(self, "random_seed", 0) or 0)
+        )
         if not dropped:
             return False, selected_vars
         dropped_set = set(dropped)

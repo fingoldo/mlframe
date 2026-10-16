@@ -28,6 +28,7 @@ def _family_null_backend(n_rows: int, n_cols: int, work: int) -> str:
     fallback = "device" if work >= _FAMILY_DEVICE_MIN_WORK else "cpu"
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
         res = KernelTuningCache.load_or_create().get_or_tune(
             "family_null_backend",
             dims={"n_rows": int(n_rows), "n_cols": int(n_cols)},
@@ -41,8 +42,9 @@ def _family_null_backend(n_rows: int, n_cols: int, work: int) -> str:
             return res
         if res:
             return str(res.get("kernel_choice", fallback))
-    except Exception as exc:  # noqa: BLE001 - selection must never break a fit; the fallback is the measured crossover
+    except Exception as exc:
         import logging
+
         logging.getLogger("mlframe.feature_selection.filters.mrmr").debug("family null backend selection failed: %r", exc)
     return fallback
 
@@ -55,10 +57,11 @@ def _run_family_null_sweep():
     try:
         from pyutilz.dev.benchmarking import sweep_backend_grid
         from ._family_maxt_cuda import family_null_max_device
-    except Exception:  # noqa: BLE001 - benchmarking helper unavailable -> the fallback applies
+    except Exception:
         return []
 
     def _make_inputs(dims):
+        """Make inputs."""
         n = int(dims["n_rows"])
         K = int(dims["n_cols"])
         B = 99
@@ -69,12 +72,19 @@ def _run_family_null_sweep():
         perms = np.stack([y[rng.permutation(n)] for _ in range(B)]).astype(np.int64)
         return (cols, nx, perms, 4)
 
-    return list(sweep_backend_grid(
-        {"cpu": lambda c, nx, p, ny: family_null_max_njit(c, nx, p, ny), "device": lambda c, nx, p, ny: family_null_max_device(c, nx, p, ny)},
-        {"n_rows": [2000, 20000], "n_cols": [200, 2000]},
-        _make_inputs,
-        reference="cpu", repeats=2, equiv_rtol=1e-12, equiv_atol=1e-15, decision_key="kernel_choice",
-    ) or [])
+    return list(
+        sweep_backend_grid(
+            {"cpu": lambda c, nx, p, ny: family_null_max_njit(c, nx, p, ny), "device": lambda c, nx, p, ny: family_null_max_device(c, nx, p, ny)},
+            {"n_rows": [2000, 20000], "n_cols": [200, 2000]},
+            _make_inputs,
+            reference="cpu",
+            repeats=2,
+            equiv_rtol=1e-12,
+            equiv_atol=1e-15,
+            decision_key="kernel_choice",
+        )
+        or []
+    )
 
 
 @njit(cache=True)
@@ -212,7 +222,9 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
     # crossover on the dev GPU (GTX 1050 Ti: 1.26x at 6e9 updates, slower below) and belongs in the kernel-tuning cache; TODO(KTC).
     _work = int(n_perm) * int(cols.shape[0]) * int(y.shape[0])
-    use_device = device_supported(n_x, int(n_y)) and (bool(fe_gpu_strict_enabled()) or _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device")
+    use_device = device_supported(n_x, int(n_y)) and (
+        bool(fe_gpu_strict_enabled()) or _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
+    )
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perms = y[_permutation_block(rng, y, m)]
@@ -365,12 +377,16 @@ def _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha) -> "np.ndarray 
     # Bonferroni upper bound: columns are grouped by their degrees of freedom (a handful of distinct values), constant columns never exceed M > 0.
     p_bonf = np.zeros(n_batches, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for d in np.unique(df[df > 0]):
-        p_bonf += float(np.count_nonzero(df == d)) * np.asarray(_chi2_sf(g, float(d)), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        p_bonf += float(np.count_nonzero(df == d)) * np.asarray(
+            _chi2_sf(g, float(d)), dtype=np.float64
+        )  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     p_single = np.ones(n_batches, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     pos = nonempty & (best > 0.0) & (best_df > 0)
     for d in np.unique(best_df[pos]):
         sel = pos & (best_df == d)
-        p_single[sel] = np.asarray(_chi2_sf(g[sel], float(d)), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        p_single[sel] = np.asarray(
+            _chi2_sf(g[sel], float(d)), dtype=np.float64
+        )  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     status = np.zeros(n_batches, dtype=np.int8)
     status[pos & (p_bonf <= alpha * _ANALYTIC_PASS_MARGIN)] = 1
     status[~pos | (p_single > alpha * _ANALYTIC_FAIL_FACTOR)] = -1
@@ -409,7 +425,9 @@ def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed) -> l
     starts = np.asarray(starts)
     n_batches = len(starts) - 1
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    observed_max = np.array([float(observed[starts[j] : starts[j + 1]].max()) if starts[j + 1] > starts[j] else 0.0 for j in range(n_batches)], dtype=np.float64)
+    observed_max = np.array(
+        [float(observed[starts[j] : starts[j + 1]].max()) if starts[j + 1] > starts[j] else 0.0 for j in range(n_batches)], dtype=np.float64
+    )
     flags = np.zeros(n_batches, dtype=np.bool_)
     status = _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha)
     if status is None:

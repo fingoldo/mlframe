@@ -328,7 +328,7 @@ def recommend_fe_flags_by_rules(X: Any, y: Any = None) -> dict:
 def _flags_to_combo_key(flags: Mapping[str, bool]) -> tuple:
     """Stable hashable key for a flag-set: sorted (name, bool) tuple over the
     full master-flag universe (missing keys default False)."""
-    return tuple((f, bool(flags.get(f, False))) for f in ALL_FE_MASTER_FLAGS)
+    return tuple(sorted((f, bool(flags.get(f, False))) for f in ALL_FE_MASTER_FLAGS))
 
 
 class MetaFERecommender:

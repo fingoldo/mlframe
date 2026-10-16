@@ -10,6 +10,7 @@ collapses the target to a couple of buckets (MI destroyed), OR densifying a genu
 (float/complex) target with more than a handful of distinct values is quantile-binned FIRST (never
 int-truncated), then densified. Mirrors the temporal-agg family's continuous-y guard.
 """
+
 from __future__ import annotations
 
 from typing import cast
@@ -152,10 +153,13 @@ def _encode_y_uncached(y: np.ndarray) -> np.ndarray:
             # module docstring above names as signal-destroying for classification MI. It is kept so the fit still runs,
             # but it must not be silent. Throttled: this helper runs per pair x per modulus x per permutation in the scans.
             log_throttle(
-                logger, "encode_y_qcut_failed", logging.WARNING,
+                logger,
+                "encode_y_qcut_failed",
+                logging.WARNING,
                 "encode_y_for_classif_mi: pd.qcut binning of a continuous target failed (%s: %s); falling back to plain "
                 "densify, which leaves ~one class per distinct value and degrades classification MI.",
-                type(e).__name__, e,
+                type(e).__name__,
+                e,
             )
     _, inv = np.unique(arr, return_inverse=True)
     return cast("np.ndarray", inv.astype(np.int64, copy=False))

@@ -8,6 +8,7 @@ from mlframe.feature_selection.filters._residual_rescue_fe import residual_rescu
 
 
 def test_pool_value_of_an_engineered_column_is_its_replayed_continuous_values():
+    """The stored ten-level codes are dropped by the scorer as nominal; the replayed continuous values are scored and admitted."""
     rng = np.random.default_rng(0)
     n = 6000
     c, d = rng.uniform(0.5, 9, n), rng.normal(size=n)
@@ -25,10 +26,12 @@ def test_pool_value_of_an_engineered_column_is_its_replayed_continuous_values():
 
 
 def test_a_raw_column_and_a_failed_replay_fall_back_to_the_stored_column():
+    """A column without a recipe, and one whose replay raises, are read as stored."""
     X = pd.DataFrame({"a": np.arange(10.0), "e": np.arange(10.0) * 2})
     np.testing.assert_array_equal(_pool_values(X, "a", {}, lambda r, f: None), np.arange(10.0))
 
     def boom(recipe, frame):
+        """A recipe replay that fails."""
         raise ValueError("replay failed")
 
     np.testing.assert_array_equal(_pool_values(X, "e", {"e": object()}, boom), np.arange(10.0) * 2)

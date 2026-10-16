@@ -26,6 +26,7 @@ Optimization pattern (per README.md methodology):
 The plug-in MI fast path remains the default for MRMR; KSG estimators are
 opt-in via the future ``mi_estimator='mixed_ksg'`` knob on ``MRMR.__init__``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -101,6 +102,25 @@ def _digamma_vec(arr: np.ndarray) -> np.ndarray:
 # =============================================================================
 
 
+# ALTERNATE (opt-in): the array-digamma aggregation below. Off by default; the scalar aggregation is the reference, and the
+# parity test pins the two within 1e-9 relative. Speed is not better than the scalar loop (see the test module).
+KSG_DIGAMMA_VECTORISED: bool = False
+
+
+@njit(nogil=True, cache=True)
+def _mixed_ksg_aggregate_vec(k: int, n: int, n_x: np.ndarray, n_y: np.ndarray) -> float:
+    """Array-digamma form of :func:`_mixed_ksg_aggregate`: the same estimator, with the per-point sums taken over ``_digamma_vec``."""
+    psi_k = _digamma_scalar(float(k))
+    psi_n = _digamma_scalar(float(n))
+    a = _digamma_vec(n_x.astype(np.float64) + 1.0)
+    b = _digamma_vec(n_y.astype(np.float64) + 1.0)
+    s = (a.sum() + b.sum()) / float(n)
+    mi = psi_k + psi_n - s
+    if mi < 0.0:
+        mi = 0.0
+    return float(mi)
+
+
 @njit(nogil=True, cache=True)
 def _mixed_ksg_aggregate(k: int, n: int, n_x: np.ndarray, n_y: np.ndarray) -> float:
     """Aggregation step of mixed-KSG:
@@ -125,6 +145,7 @@ def _query_knn_chebyshev(arr_2d: np.ndarray, k: int) -> np.ndarray:
     Routes through ``sklearn.neighbors.KDTree``.
     """
     from sklearn.neighbors import KDTree
+
     tree = KDTree(arr_2d.astype(np.float64), metric="chebyshev")
     # +1 because the closest is the point itself.
     d, _ = tree.query(arr_2d, k=k + 1)
@@ -214,7 +235,7 @@ def mixed_ksg_mi(x: np.ndarray, y: np.ndarray, k: int = 5, use_gpu: bool = False
     eps = np.maximum(eps, 1e-12)
     n_x = _count_within_eps(x, eps)
     n_y = _count_within_eps(y, eps)
-    return float(_mixed_ksg_aggregate(int(k), int(n), n_x.astype(np.int64), n_y.astype(np.int64)))
+    return float((_mixed_ksg_aggregate_vec if KSG_DIGAMMA_VECTORISED else _mixed_ksg_aggregate)(int(k), int(n), n_x.astype(np.int64), n_y.astype(np.int64)))
 
 
 # =============================================================================
@@ -354,11 +375,16 @@ def _kraskov1_aggregate(k: int, n: int, n_x: np.ndarray, n_y: np.ndarray, d: int
     return float(psi_k - float(d - 1) / float(k) + float(d - 1) * psi_n - s)
 
 
-def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
-               alpha: float = 0.25, intens: float = 1e-10,
-               low_entropy_skip: bool = True,
-               min_y_unique_frac: float = 0.02,
-               seed: int = 0) -> float:
+def ksg_lnc_mi(
+    x: np.ndarray,
+    y: np.ndarray,
+    k: int = 5,
+    alpha: float = 0.25,
+    intens: float = 1e-10,
+    low_entropy_skip: bool = True,
+    min_y_unique_frac: float = 0.02,
+    seed: int = 0,
+) -> float:
     """KSG with Local Nonuniformity Correction (Gao et al. AISTATS 2015).
 
     Canonical port of ``NPEET_LNC/lnc.py`` (Gao 2015 reference implementation):
@@ -391,6 +417,7 @@ def ksg_lnc_mi(x: np.ndarray, y: np.ndarray, k: int = 5,
     AISTATS 2015. arXiv:1411.2003. Code: https://github.com/BiuBiuBiLL/NPEET_LNC
     """
     from sklearn.neighbors import KDTree
+
     rng = np.random.default_rng(int(seed))
     x = np.asarray(x, dtype=np.float64).ravel()
     y = np.asarray(y, dtype=np.float64).ravel()
@@ -473,6 +500,7 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
         return mixed_ksg_mi(x, y, k=k)
     import cupy as cp
     from sklearn.neighbors import KDTree
+
     rng = np.random.default_rng(int(seed))
     x_np = np.asarray(x, dtype=np.float64).ravel()
     y_np = np.asarray(y, dtype=np.float64).ravel()
@@ -503,7 +531,7 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
     n_y = cp.searchsorted(sy, y_gpu + eps_gpu - 1e-12, side="right") - cp.searchsorted(sy, y_gpu - eps_gpu + 1e-12, side="left") - 1
     n_x = cp.maximum(n_x, 0).astype(cp.int64).get()
     n_y = cp.maximum(n_y, 0).astype(cp.int64).get()
-    return float(_mixed_ksg_aggregate(int(k), int(n), n_x, n_y))
+    return float((_mixed_ksg_aggregate_vec if KSG_DIGAMMA_VECTORISED else _mixed_ksg_aggregate)(int(k), int(n), n_x, n_y))
 
 
 # =============================================================================
@@ -526,6 +554,7 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
     if estimator == "mixed_ksg" and prefer_gpu and n >= ksg_gpu_threshold() and not _KSG_GPU_FAILED:
         try:
             import cupy  # noqa: F401
+
             return mixed_ksg_mi_gpu(x, y, k=k)
         except ImportError:
             pass
@@ -543,6 +572,9 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
 
 
 __all__ = [
-    "mixed_ksg_mi", "ksg_lnc_mi", "mixed_ksg_mi_gpu",
-    "ksg_mi_dispatch", "reset_ksg_gpu_circuit_breaker",
+    "mixed_ksg_mi",
+    "ksg_lnc_mi",
+    "mixed_ksg_mi_gpu",
+    "ksg_mi_dispatch",
+    "reset_ksg_gpu_circuit_breaker",
 ]

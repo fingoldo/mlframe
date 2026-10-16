@@ -40,6 +40,7 @@ GATE: engages ONLY under ``fe_gpu_device_born_binagg_enabled`` (DEFAULT ON under
 cupy / non-strict it returns ``None`` and the caller takes the EXACT host ``local_mi_gate`` (byte-identical
 default path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 """
+
 from __future__ import annotations
 
 import logging
@@ -236,7 +237,10 @@ def _oof_gather_kernel(cp):
     if _OOF_GATHER_KERNEL is None:
         _OOF_GATHER_KERNEL = cp.ElementwiseKernel(
             # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
-            "int64 idx, raw float64 table, float64 fallback", "float64 out", "double v = table[idx]; out = isfinite(v) ? v : fallback;", "binagg_oof_gather"
+            "int64 idx, raw float64 table, float64 fallback",
+            "float64 out",
+            "double v = table[idx]; out = isfinite(v) ? v : fallback;",
+            "binagg_oof_gather",
         )
     return _OOF_GATHER_KERNEL
 
@@ -255,7 +259,8 @@ def _oof_column_gather(cp, per_fold_stats: list, row_index, fallback: float):
     """The OOF column in ONE pass: row ``i`` takes the stat of its own fold's train-fold cell table at its cell code, or ``fallback`` where that cell was empty.
 
     Equal to the per-fold loop (:func:`_oof_column_foldloop`: gather at every row's code, select this fold's test rows, empty cell -> fallback) value for value, because every row
-    belongs to exactly one fold, but it replaces ``n_folds`` rounds of gather + isfinite + two wheres over all rows by a single gather from the stacked ``(n_folds, n_cells)`` table."""
+    belongs to exactly one fold, but it replaces ``n_folds`` rounds of gather + isfinite + two wheres over all rows by a single gather from the stacked ``(n_folds, n_cells)`` table.
+    """
     table = cp.ascontiguousarray(cp.stack(per_fold_stats, axis=0))
     return _oof_gather_kernel(cp)(row_index, table.reshape(-1), float(fallback))
 
@@ -294,7 +299,13 @@ def _oof_column_foldloop(cp, per_fold_stats: list, fold_g, codes_g, n: int, fall
 
 
 def build_binagg_oof_matrix_gpu(
-    cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], fold_ids: np.ndarray, n_folds: int, column_major: bool = False, out_dtype: Any = None,
+    cp: Any,
+    X: pd.DataFrame,
+    col_specs: Sequence[dict],
+    fold_ids: np.ndarray,
+    n_folds: int,
+    column_major: bool = False,
+    out_dtype: Any = None,
 ) -> Any:
     """Build the OOF binned-aggregate candidate matrix ON the device, one column per ``col_specs`` entry, in
     the GIVEN order. Reproduces ``fit_binned_numeric_agg``'s OOF loop on device from resident operand columns.
@@ -459,10 +470,16 @@ def local_mi_gate_binagg_resident(
         r = recipes.get(c) if isinstance(recipes, dict) else None
         if not r or "group_col" not in r or "agg_col" not in r or "edges" not in r or "global" not in r:
             return None
-        col_specs.append({
-            "name": c, "group_col": r["group_col"], "agg_col": r["agg_col"],
-            "stat": r.get("stat"), "edges": r["edges"], "global": r["global"],
-        })
+        col_specs.append(
+            {
+                "name": c,
+                "group_col": r["group_col"],
+                "agg_col": r["agg_col"],
+                "stat": r.get("stat"),
+                "edges": r["edges"],
+                "global": r["global"],
+            }
+        )
 
     from ._unified_fe_gate import raw_mi_noise_floor, _coerce_y_classes
 
@@ -477,7 +494,9 @@ def local_mi_gate_binagg_resident(
         fold_ids = binagg_fold_ids(n, n_folds, random_state)
         from ._hermite_fe_mi import relaxed_candidate_dtype
 
-        mat_gpu = build_binagg_oof_matrix_gpu(cp, raw_X, col_specs, fold_ids, n_folds, column_major=True, out_dtype=relaxed_candidate_dtype(cp))  # (K, n): no transpose, no full-width block
+        mat_gpu = build_binagg_oof_matrix_gpu(
+            cp, raw_X, col_specs, fold_ids, n_folds, column_major=True, out_dtype=relaxed_candidate_dtype(cp)
+        )  # (K, n): no transpose, no full-width block
         if mat_gpu.shape[0] == 0:
             return []
         _yi = np.ascontiguousarray(np.asarray(y_bin)).astype(np.int64).ravel()
@@ -502,7 +521,14 @@ def local_mi_gate_binagg_resident(
                     np.nanmax(
                         np.asarray(
                             _plugin_mi_classif_batch_cuda_resident(
-                                mat_gpu, y_gpu[_perm], int(nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, keep_dtype=True, x_is_cm=True,
+                                mat_gpu,
+                                y_gpu[_perm],
+                                int(nbins),
+                                y_min=_ymin,
+                                n_classes=_ncls,
+                                relax_binning=True,
+                                keep_dtype=True,
+                                x_is_cm=True,
                             ),
                             dtype=np.float64,  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
                         )

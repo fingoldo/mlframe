@@ -9,6 +9,7 @@ from mlframe.feature_selection.filters._periodic_fe import hybrid_modular_fe
 
 
 def _frame(n=4000, seed=0):
+    """Frame."""
     rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"c{i}": rng.integers(0, 10_000, n).astype(np.float64) for i in range(6)})
     y = ((X["c2"] % 7) < 3).astype(np.int64).to_numpy().copy()
@@ -19,11 +20,14 @@ def _frame(n=4000, seed=0):
 
 @pytest.mark.parametrize("cols_per_chunk", [1, 2])
 def test_streamed_matches_one_pass(monkeypatch, cols_per_chunk):
+    """Streamed matches one pass."""
     X, y = _frame()
     full_aug, full_scores = hybrid_modular_fe(X, y, top_k=4)
     per_src = len(X) * 5 * 3 * 3 * 4
     real = budget._can_hoist_shared_buffer
-    monkeypatch.setattr(budget, "_can_hoist_shared_buffer", lambda nb, n_workers=1: (False, nb, 0) if nb > cols_per_chunk * per_src else real(nb, n_workers=n_workers))
+    monkeypatch.setattr(
+        budget, "_can_hoist_shared_buffer", lambda nb, n_workers=1: (False, nb, 0) if nb > cols_per_chunk * per_src else real(nb, n_workers=n_workers)
+    )
     st_aug, st_scores = hybrid_modular_fe(X, y, top_k=4)
     appended = [c for c in full_aug.columns if c not in X.columns]
     assert "c2__mod_7" in appended or "c2__modsin_7" in appended or "c2__modcos_7" in appended

@@ -1,4 +1,5 @@
 """Core entropy / mutual-information kernels: Shannon entropy, Miller-Madow bias correction, MI, Symmetric Uncertainty, and the conditional variants."""
+
 from __future__ import annotations
 
 from typing import Optional
@@ -9,6 +10,7 @@ from numba import njit
 from .._njit_key_helpers import arr2str, unpack_and_sort
 from ._class_encoding import merge_vars, joint_freqs_2var
 
+
 @njit(cache=True)
 def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     """Shannon entropy in nats. Bins below ``min_occupancy`` (or zero by default) are filtered out before the log to avoid ``0 * log(0)``."""
@@ -17,6 +19,7 @@ def entropy(freqs: np.ndarray, min_occupancy: float = 0) -> float:
     else:
         freqs = freqs[freqs > 0]
     return float(-(np.log(freqs) * freqs).sum())
+
 
 @njit(cache=True)
 def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32) -> np.ndarray:
@@ -73,6 +76,7 @@ def _merge_vars_freqs(factors_data, vars_indices, factors_nbins, dtype=np.int32)
             current_nclasses = expected_nclasses - nzeros
     return freqs / n_rows
 
+
 @njit(cache=True)
 def _entropy_xz_fused(factors_data, indices, factors_nbins, dtype=np.int32) -> float:
     """``H`` of the joint over ``indices`` (the sorted X u Z union), fused freqs-only. For the common
@@ -82,6 +86,7 @@ def _entropy_xz_fused(factors_data, indices, factors_nbins, dtype=np.int32) -> f
     if len(indices) == 2:
         return float(entropy(joint_freqs_2var(factors_data, indices[0], indices[1], factors_nbins[indices[0]], factors_nbins[indices[1]])))
     return float(entropy(_merge_vars_freqs(factors_data, indices, factors_nbins, dtype)))
+
 
 @njit(cache=True)
 def _entropy_x_onto_classes(factors_data, xi, final_classes, current_nclasses, nb_x) -> float:
@@ -104,6 +109,7 @@ def _entropy_x_onto_classes(factors_data, xi, final_classes, current_nclasses, n
         freqs[newclass] += 1
     nz = freqs[freqs > 0]
     return float(entropy(nz / n_rows))
+
 
 @njit(cache=True)
 def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float = 0) -> float:
@@ -136,6 +142,7 @@ def entropy_miller_madow(freqs: np.ndarray, n_samples: int, min_occupancy: float
         return float(h_plugin)
     return float(h_plugin + (k - 1) / (2.0 * n_samples))
 
+
 @njit(cache=True)
 def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int) -> float:
     """Miller-Madow bias-correct a PLUG-IN mutual-information estimate.
@@ -166,6 +173,7 @@ def mi_miller_madow_correct(mi_plugin: float, k_x: int, k_y: int, n_samples: int
         return mi_plugin
     return mi_plugin - (k_x - 1) * (k_y - 1) / (2.0 * n_samples)
 
+
 @njit(cache=True)
 def mi(
     factors_data: np.ndarray,
@@ -181,16 +189,24 @@ def mi(
     factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
 
     classes_x, freqs_x, _ = merge_vars(
-        factors_data=factors_data, vars_indices=x, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=x,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     entropy_x = entropy(freqs=freqs_x)
     if verbose:
         print(f"entropy_x={entropy_x}, nclasses_x={len(freqs_x)} ({classes_x.min()} to {classes_x.max()})")
 
     _, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=y, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=y,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     entropy_y = entropy(freqs=freqs_y)
     if verbose:
@@ -199,14 +215,19 @@ def mi(
     vars_xy = np.unique(np.concatenate((x, y)))
 
     classes_xy, freqs_xy, _ = merge_vars(
-        factors_data=factors_data, vars_indices=vars_xy, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=vars_xy,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     entropy_xy = entropy(freqs=freqs_xy)
     if verbose:
         print(f"entropy_xy={entropy_xy}, nclasses_x={len(freqs_xy)} ({classes_xy.min()} to {classes_xy.max()})")
 
     return float(entropy_x + entropy_y - entropy_xy)
+
 
 @njit(cache=True)
 def mi_miller_madow(
@@ -228,17 +249,29 @@ def mi_miller_madow(
     factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
 
     _, freqs_x, _ = merge_vars(
-        factors_data=factors_data, vars_indices=x, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=x,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     _, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=y, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=y,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     vars_xy = np.unique(np.concatenate((x, y)))
     _, freqs_xy, _ = merge_vars(
-        factors_data=factors_data, vars_indices=vars_xy, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=vars_xy,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     entropy_x = entropy(freqs=freqs_x)
     entropy_y = entropy(freqs=freqs_y)
@@ -248,6 +281,7 @@ def mi_miller_madow(
     k_y = len(freqs_y[freqs_y > 0])
     n_samples = factors_data.shape[0] if factors_data.ndim > 1 else len(factors_data)
     return float(mi_miller_madow_correct(mi_plugin, k_x, k_y, n_samples))
+
 
 @njit(cache=True)
 def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
@@ -282,6 +316,7 @@ def entropy_chao_shen(freqs: np.ndarray, n: int) -> float:
         h += term
     return float(h)
 
+
 @njit(cache=True)
 def mi_chao_shen(
     factors_data: np.ndarray,
@@ -301,17 +336,29 @@ def mi_chao_shen(
     factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
 
     _, freqs_x, _ = merge_vars(
-        factors_data=factors_data, vars_indices=x, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=x,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     _, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=y, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=y,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     vars_xy = np.unique(np.concatenate((x, y)))
     _, freqs_xy, _ = merge_vars(
-        factors_data=factors_data, vars_indices=vars_xy, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=vars_xy,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     n_samples = factors_data.shape[0] if factors_data.ndim > 1 else len(factors_data)
     h_x = entropy_chao_shen(freqs_x, n_samples)
@@ -319,6 +366,7 @@ def mi_chao_shen(
     h_xy = entropy_chao_shen(freqs_xy, n_samples)
     mi_cs = h_x + h_y - h_xy
     return float(mi_cs) if mi_cs > 0.0 else 0.0
+
 
 @njit(nogil=True, cache=True)
 def symmetric_uncertainty(
@@ -354,21 +402,33 @@ def symmetric_uncertainty(
     factors_nbins = np.asarray(factors_nbins, dtype=np.int64)
 
     _, freqs_x, _ = merge_vars(
-        factors_data=factors_data, vars_indices=x, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=x,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     entropy_x = entropy(freqs=freqs_x)
 
     _, freqs_y, _ = merge_vars(
-        factors_data=factors_data, vars_indices=y, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=y,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     entropy_y = entropy(freqs=freqs_y)
 
     vars_xy = np.unique(np.concatenate((x, y)))
     _, freqs_xy, _ = merge_vars(
-        factors_data=factors_data, vars_indices=vars_xy, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=verbose, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=vars_xy,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=verbose,
+        dtype=dtype,
     )
     entropy_xy = entropy(freqs=freqs_xy)
 
@@ -380,6 +440,7 @@ def symmetric_uncertainty(
     if mi_xy < 0.0:
         mi_xy = 0.0
     return float(2.0 * mi_xy / denom)
+
 
 @njit(nogil=True, cache=True)
 def conditional_symmetric_uncertainty(
@@ -417,29 +478,45 @@ def conditional_symmetric_uncertainty(
     # so on an independent-given-Z pair the bare ratio sits well above 0. Routing every entropy through
     # ``entropy_miller_madow`` debiases both sides consistently so SU(X;Y|Z) -> 0 there.
     _, freqs_z, _ = merge_vars(
-        factors_data=factors_data, vars_indices=z, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=z,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=False,
+        dtype=dtype,
     )
     h_z = entropy_miller_madow(freqs_z, n_samples)
 
     xz = np.unique(np.concatenate((x, z)))
     _, freqs_xz, _ = merge_vars(
-        factors_data=factors_data, vars_indices=xz, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=xz,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=False,
+        dtype=dtype,
     )
     h_xz = entropy_miller_madow(freqs_xz, n_samples)
 
     yz = np.unique(np.concatenate((y, z)))
     _, freqs_yz, _ = merge_vars(
-        factors_data=factors_data, vars_indices=yz, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=yz,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=False,
+        dtype=dtype,
     )
     h_yz = entropy_miller_madow(freqs_yz, n_samples)
 
     xyz = np.unique(np.concatenate((x, y, z)))
     _, freqs_xyz, _ = merge_vars(
-        factors_data=factors_data, vars_indices=xyz, var_is_nominal=None,
-        factors_nbins=factors_nbins, verbose=False, dtype=dtype,
+        factors_data=factors_data,
+        vars_indices=xyz,
+        var_is_nominal=None,
+        factors_nbins=factors_nbins,
+        verbose=False,
+        dtype=dtype,
     )
     h_xyz = entropy_miller_madow(freqs_xyz, n_samples)
 
@@ -455,6 +532,7 @@ def conditional_symmetric_uncertainty(
     # is a numerical artifact - a tiny-but-positive denom just above the 1e-12 guard divided into an
     # MM-correction-inflated numerator - which would spuriously dominate the redundancy ranking. Clamp it.
     return csu if csu <= 1.0 else 1.0
+
 
 @njit(cache=True)
 def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float:
@@ -475,6 +553,7 @@ def _cmi_miller_madow_bias(factors_data, x, y, z, factors_nbins, dtype) -> float
     k_yz = np.count_nonzero(fyz)
     k_xyz = np.count_nonzero(fxyz)
     return float((k_xyz + k_z - k_xz - k_yz) / (2.0 * n))
+
 
 @njit(cache=True)
 def conditional_mi(
@@ -513,8 +592,11 @@ def conditional_mi(
             entropy_z = entropy_cache.get(key_z, -1)
         if entropy_z < 0:
             _, freqs_z, _ = merge_vars(
-                factors_data=factors_data, vars_indices=z, var_is_nominal=None,
-                factors_nbins=factors_nbins, dtype=dtype,
+                factors_data=factors_data,
+                vars_indices=z,
+                var_is_nominal=None,
+                factors_nbins=factors_nbins,
+                dtype=dtype,
             )
             entropy_z = entropy(freqs=freqs_z)
             if entropy_cache is not None:
@@ -541,16 +623,22 @@ def conditional_mi(
                 entropy_yz = entropy_cache.get(key_yz, -1)
             if entropy_yz < 0:
                 classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-                    factors_data=factors_data, vars_indices=indices, var_is_nominal=None,
-                    factors_nbins=factors_nbins, dtype=dtype,
+                    factors_data=factors_data,
+                    vars_indices=indices,
+                    var_is_nominal=None,
+                    factors_nbins=factors_nbins,
+                    dtype=dtype,
                 )
                 entropy_yz = entropy(freqs=freqs_yz)
                 if entropy_cache is not None:
                     entropy_cache[key_yz] = entropy_yz
     else:
         classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-            factors_data=factors_data, vars_indices=unpack_and_sort(y, z),
-            var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
+            factors_data=factors_data,
+            vars_indices=unpack_and_sort(y, z),
+            var_is_nominal=None,
+            factors_nbins=factors_nbins,
+            dtype=dtype,
         )
         entropy_yz = entropy(freqs=freqs_yz)
 
@@ -564,8 +652,11 @@ def conditional_mi(
         if entropy_xyz < 0:
             if current_nclasses_yz == 1:
                 classes_yz, freqs_yz, current_nclasses_yz = merge_vars(
-                    factors_data=factors_data, vars_indices=unpack_and_sort(y, z),
-                    var_is_nominal=None, factors_nbins=factors_nbins, dtype=dtype,
+                    factors_data=factors_data,
+                    vars_indices=unpack_and_sort(y, z),
+                    var_is_nominal=None,
+                    factors_nbins=factors_nbins,
+                    dtype=dtype,
                 )
 
             if len(x) == 1:
@@ -594,41 +685,3 @@ def conditional_mi(
         if res < 0.0:
             res = 0.0
     return res
-
-def conditional_mi_redundancy_batched(
-    factors_data: np.ndarray,
-    cand_indices: np.ndarray,
-    y_index: int,
-    z_index: int,
-    factors_nbins: np.ndarray,
-    dtype: type = np.int32,
-    force: Optional[str] = None,
-) -> np.ndarray:
-    """Batched ``I(X_j; Y | Z)`` over all candidate columns for the greedy Fleuret redundancy round.
-
-    DISPATCH POINT for the MRMR redundancy loop's dominant cost: instead of calling the serial njit
-    ``conditional_mi`` once per candidate (``Z`` = the just-selected feature, ``Y`` = target), this
-    routes the whole candidate sweep through the batched CUDA kernel when ``(n, p)`` is large enough
-    to win (size/HW gate via ``kernel_tuning_cache``), and to the exact CPU ``conditional_mi`` loop
-    otherwise / when no GPU. Bit-parity (<1e-9) with the per-candidate CPU path - see
-    ``tests/feature_selection/test_cmi_cuda_kernel.py``.
-
-    NOTE on the integration site: the actual redundancy loop (``filters/evaluation.py``) runs inside
-    an ``@njit`` function with per-Z early-exit + entropy caching, so it cannot itself call cupy.
-    This module-level wrapper is the single Python-reachable dispatch hook; a Python-level caller
-    that materialises the candidate set per greedy round can swap its per-candidate ``conditional_mi``
-    loop for this one call. Lazy import keeps cupy off the njit import path.
-
-    Returns a ``(p,)`` float64 array of raw CMI (clamped at 0), aligned with ``cand_indices``.
-    """
-    from ._cmi_cuda import conditional_mi_batched_dispatch
-
-    return conditional_mi_batched_dispatch(
-        factors_data=factors_data,
-        cand_indices=cand_indices,
-        y_index=y_index,
-        z_index=z_index,
-        factors_nbins=factors_nbins,
-        dtype=dtype,
-        force=force,
-    )

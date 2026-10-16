@@ -702,7 +702,6 @@ def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target
     if getattr(self, "redundancy_policy", "emit_both") != "drop" and selected_vars:
         try:
             from mlframe.feature_selection.filters._confirm_predictor_engineered import _PARENT_TOKEN_SPLIT as _EB_TOK_SPLIT
-            from mlframe.feature_selection.filters.permutation import mi_direct as _eb_mi_direct
             _eb_raw_names = set(self.feature_names_in_)
             _eb_sel_set = set(int(v) for v in selected_vars)
             _eb_name_to_in = {nm: i for i, nm in enumerate(self.feature_names_in_)}

@@ -61,7 +61,7 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
     return _ev_buf, _ev_col
 
 
-def _emit_pair_features_step2_read_here_once(
+def _emit_pair_features_step2_read_here_once(  # noqa: C901 -- one step kept whole; the complexity ratchet tracks it
     _ev_configs,
     final_transformed_vals,
     _this_chunk_deferred,
@@ -229,7 +229,11 @@ def _emit_pair_features_step2_read_here_once(
                         _ev_use_dev = bool(_ev_resident_on())
                     except Exception as e:
                         log_throttle(
-                            logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e
+                            logger,
+                            "gpu_strict.resident_probe",
+                            logging.WARNING,
+                            "the resident-GPU eligibility probe failed (%s), using the non-resident path",
+                            e,
                         )
                         _ev_use_dev = False
                     if _ev_use_dev:

@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 # The interaction-order enumeration step lives in the sibling module (module size limit), re-exported here.
-from ._screen_predictors_steps import _screen_predictors_step2_interactions_order_subsets, _short_name  # noqa: E402,F401
+from ._screen_predictors_steps import _screen_predictors_step2_interactions_order_subsets, _short_name  # noqa: F401
 
 
 def _pool_warmup_noop(i):

@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Optional
+from typing import Any, Optional
 from collections.abc import Sequence
 
 import numpy as np
@@ -320,7 +320,8 @@ def hybrid_modular_fe(
         while chunk > 1 and not _can_hoist_shared_buffer(chunk * per_src_bytes, n_workers=1)[0]:
             chunk = max(1, chunk // 2)
     if 0 < chunk < len(src_cols):
-        return _hybrid_modular_fe_streamed(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
+        streamed: tuple[Any, Any] = _hybrid_modular_fe_streamed(X, y, src_cols, chunk, periods, top_k, n_boot, sample_fraction, seed, nbins, min_uplift_lcb)
+        return streamed
     eng = generate_modular_features(X, num_cols=cols, periods=periods)
 
     empty_cols = [

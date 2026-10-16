@@ -7,6 +7,7 @@ from mlframe.feature_selection.filters._family_maxt_gate import _family_codes, e
 
 
 def _frame(n=3000, k=40, seed=0):
+    """Frame."""
     rng = np.random.default_rng(seed)
     X = rng.standard_normal((n, k))
     y = (X[:, 0] + 0.5 * X[:, 1] + rng.standard_normal(n) > 0).astype(np.int64)
@@ -15,6 +16,7 @@ def _frame(n=3000, k=40, seed=0):
 
 
 def test_codes_are_int16_and_match_column_by_column():
+    """Codes are int16 and match column by column."""
     X, _ = _frame()
     cols, nx = _family_codes(X, 10)
     assert cols.dtype == np.int16 and cols.shape == (X.shape[1], X.shape[0])
@@ -24,6 +26,7 @@ def test_codes_are_int16_and_match_column_by_column():
 
 
 def test_early_stop_pass_equals_full_null():
+    """Early stop pass equals full null."""
     for seed in range(3):
         X, y = _frame(seed=seed)
         for n_perm in (99, 999):
@@ -59,6 +62,7 @@ def _reference_family_pass(batches, y_codes, alpha, n_perm, seed=0):
 
 
 def test_family_pass_batches_narrow_stack_equals_int64_reference():
+    """Family pass batches narrow stack equals int64 reference."""
     from mlframe.feature_selection.filters._family_maxt_gate import _stack_codes_transposed, family_pass_batches
 
     rng = np.random.default_rng(3)

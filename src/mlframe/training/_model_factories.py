@@ -139,13 +139,6 @@ def make_dmatrix(*args: Any, **kwargs: Any) -> Any:
     return _xgb.DMatrix(*args, **kwargs)
 
 
-def make_quantile_dmatrix(*args: Any, **kwargs: Any) -> Any:
-    """Construct an ``xgboost.QuantileDMatrix`` with mlframe build-event logging."""
-    apply_third_party_patches_once()
-    import xgboost as _xgb
-    return _xgb.QuantileDMatrix(*args, **kwargs)
-
-
 def make_lgb_dataset(*args: Any, **kwargs: Any) -> Any:
     """Construct a ``lightgbm.Dataset`` with mlframe build-event logging."""
     apply_third_party_patches_once()

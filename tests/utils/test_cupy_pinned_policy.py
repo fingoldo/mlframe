@@ -7,6 +7,7 @@ cp = pytest.importorskip("cupy")
 
 
 def _device_ok():
+    """Device ok."""
     try:
         return cp.cuda.runtime.getDeviceCount() > 0
     except Exception:
@@ -17,6 +18,7 @@ pytestmark = pytest.mark.skipif(not _device_ok(), reason="no CUDA device")
 
 
 def test_uploads_intact_below_and_above_cap():
+    """Uploads intact below and above cap."""
     from mlframe.utils.cupy_pinned import install_pinned_policy
 
     install_pinned_policy()
@@ -27,12 +29,16 @@ def test_uploads_intact_below_and_above_cap():
 
 
 def test_failed_pinned_alloc_falls_back(monkeypatch):
+    """Failed pinned alloc falls back."""
     from cupy_backends.cuda.api import runtime
 
     import mlframe.utils.cupy_pinned as mod
 
     class _Boom:
+        """Boom."""
+
         def malloc(self, nbytes):
+            """Malloc."""
             raise runtime.CUDARuntimeError(208)  # cudaErrorAlreadyMapped, as the Windows driver reports a failed cudaHostAlloc
 
     monkeypatch.setattr(mod, "_installed", False)

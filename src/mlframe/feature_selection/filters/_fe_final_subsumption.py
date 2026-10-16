@@ -11,7 +11,8 @@ compound present nothing is dropped.
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Sequence
+from typing import Optional
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 

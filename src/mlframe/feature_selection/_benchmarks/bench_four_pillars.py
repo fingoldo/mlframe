@@ -27,14 +27,15 @@ import time
 import warnings
 
 import numpy as np
-import pandas as pd
 
 
 def _tokens(name) -> set[str]:
+    """Tokens."""
     return set(re.split(r"[^A-Za-z0-9]+", str(name)))
 
 
 def _fit(X, y, **kw):
+    """Fit."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     with warnings.catch_warnings():
@@ -49,10 +50,12 @@ _F2_ID = re.compile(r"[a-zA-Z_]\w*")
 
 
 def _f2_cols(nm):
+    """F2 cols."""
     return set(_F2_ID.findall(nm)) & {"a", "b", "c", "d", "e"}
 
 
 def _f2_case(profile: str, default: bool):
+    """F2 case."""
     sys.path.insert(0, os.getcwd())
     from tests.feature_selection.mrmr.core.test_f2_single_compound_across_distributions import _make, _classify
 
@@ -61,12 +64,13 @@ def _f2_case(profile: str, default: bool):
     sel, dt = _fit(df, y, **kw)
     names = [str(s) for s in sel.get_feature_names_out()]
     full, frag_ab, frag_cd = _classify(names)
-    ok = (all("e" not in _f2_cols(nm) for nm in names) and len(full) == 1 and not frag_ab and not frag_cd and "c" in _f2_cols(full[0]))
+    ok = all("e" not in _f2_cols(nm) for nm in names) and len(full) == 1 and not frag_ab and not frag_cd and "c" in _f2_cols(full[0])
     return ok, dt, names
 
 
 # ----------------------------------------------------------------------------------------------- pure noise
 def _noise_case(kind: str, target: str, strategy):
+    """Noise case."""
     sys.path.insert(0, os.getcwd())
     from tests.feature_selection.biz_val.test_pure_noise_selects_nothing import _frame, DISTRIBUTIONS, N
 
@@ -81,6 +85,7 @@ def _noise_case(kind: str, target: str, strategy):
 
 # ----------------------------------------------------------------------------------------------- xor3 among noise
 def _xor3_case(y_kind: str, seed: int):
+    """Xor3 case."""
     sys.path.insert(0, os.getcwd())
     from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_xor3_noise import _make_frame, _support_problems
 
@@ -93,6 +98,7 @@ def _xor3_case(y_kind: str, seed: int):
 
 # ----------------------------------------------------------------------------------------------- conjunction with proxies
 def _conj_case(perm_seed):
+    """Conj case."""
     sys.path.insert(0, os.getcwd())
     from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_conjunction_decoys import _make_frame, _bad_names, _operands_named, OPERANDS
 
@@ -104,6 +110,7 @@ def _conj_case(perm_seed):
 
 
 def _cases(only: set[str], f2_default: bool):
+    """Cases."""
     if "f2" in only:
         for p in ("uniform", "scaled_1_5", "heavy_tailed", "mixed", "with_outliers"):
             yield f"f2[{p}]", (lambda p=p: _f2_case(p, False))
@@ -121,6 +128,7 @@ def _cases(only: set[str], f2_default: bool):
 
 
 def main(argv=None):
+    """Main."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", default="f2,noise,xor3,conj")
     ap.add_argument("--profile", default=None)
@@ -137,7 +145,7 @@ def main(argv=None):
         try:
             ok, dt, names = fn()
             err = None
-        except Exception as exc:  # noqa: BLE001 - a crashing case is a failing case; record it and continue
+        except Exception as exc:
             ok, dt, names, err = False, float("nan"), [], f"{type(exc).__name__}: {exc}"
         if pr:
             pr.disable()

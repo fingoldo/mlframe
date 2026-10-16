@@ -6,10 +6,12 @@ from mlframe.feature_selection.filters._mrmr_fit_impl._operand_information impor
 
 
 def _codes(rng, n, k):
+    """``n`` random integer codes with ``k`` levels."""
     return rng.integers(0, k, n).astype(np.int64)
 
 
 def test_xor_operand_is_redundant_given_the_composite():
+    """No operand of a 3-way XOR adds information next to the parity composite that carries the whole target."""
     rng = np.random.default_rng(0)
     n = 4000
     x1, x2, x3 = (rng.integers(0, 2, n) for _ in range(3))
@@ -21,6 +23,7 @@ def test_xor_operand_is_redundant_given_the_composite():
 
 
 def test_operand_with_signal_beyond_the_composite_is_kept():
+    """An operand the target also depends on directly, beyond the composite built from it, is kept."""
     rng = np.random.default_rng(1)
     n = 4000
     a, b = _codes(rng, n, 6), _codes(rng, n, 6)
@@ -31,6 +34,7 @@ def test_operand_with_signal_beyond_the_composite_is_kept():
 
 
 def test_pure_noise_operand_is_not_kept():
+    """A pure-noise column offered as an operand adds nothing next to the engineered feature."""
     rng = np.random.default_rng(2)
     n = 4000
     a, noise = _codes(rng, n, 6), _codes(rng, n, 6)
