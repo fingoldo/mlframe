@@ -36,3 +36,16 @@ def test_streamed_matches_one_pass(monkeypatch, cols_per_chunk):
     a = full_scores.set_index("engineered_col").sort_index()
     b = st_scores.set_index("engineered_col").sort_index()
     pd.testing.assert_frame_equal(a, b)
+
+
+def test_residue_that_equals_the_source_column_is_not_a_candidate():
+    """A column inside [0, period) has itself as residue, so its ``mod`` candidate (an exact copy of the raw column) is not emitted; ``sin`` / ``cos`` are."""
+    from mlframe.feature_selection.filters._periodic_fe import engineered_name_modular, generate_modular_features
+
+    rng = np.random.default_rng(0)
+    inside = rng.integers(0, 2, 300).astype(float)
+    wraps = rng.uniform(0, 50, 300)
+    eng = generate_modular_features(pd.DataFrame({"a": inside, "b": wraps}), periods=(7.0,))
+    assert engineered_name_modular("a", 7.0, "mod") not in eng.columns
+    assert engineered_name_modular("a", 7.0, "sin") in eng.columns and engineered_name_modular("a", 7.0, "cos") in eng.columns
+    assert engineered_name_modular("b", 7.0, "mod") in eng.columns

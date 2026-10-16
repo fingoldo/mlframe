@@ -252,7 +252,10 @@ def generate_modular_features(
             # Fused single pass: residue computed once, all three ops emitted (vs three apply_modular passes), written at the output width.
             mod_v, sin_v, cos_v = np.empty(n, dtype=out_dtype), np.empty(n, dtype=out_dtype), np.empty(n, dtype=out_dtype)
             _modular_all_ops_into(arr, p, mod_v, sin_v, cos_v)
-            out[engineered_name_modular(c, p, "mod")] = mod_v
+            # A column that already lies in [0, period) has its own value as residue: the ``mod`` candidate would be an exact copy of the raw column (a binary column and period 7
+            # gave ``A__mod_7`` == ``A``), which the selection could then carry beside, or instead of, the column itself.
+            if not np.array_equal(mod_v, arr.astype(out_dtype, copy=False)):
+                out[engineered_name_modular(c, p, "mod")] = mod_v
             out[engineered_name_modular(c, p, "sin")] = sin_v
             out[engineered_name_modular(c, p, "cos")] = cos_v
     return pd.DataFrame(out, index=X.index)
