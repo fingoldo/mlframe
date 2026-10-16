@@ -945,6 +945,8 @@ _SUPERSEDED = {
     "_skewness",  # standalone form of the fused z**3 moment the analyzer computes inline; parity pinned in tests/training/targets/test_moment_helpers_parity.py
     "_monotone_fraction",  # per-column reference for the vectorised monotone fraction in structural_affinity_scores; parity pinned in tests/training/composite/test_monotone_and_rolling_quantile_parity.py
     "_rolling_quantile_radius",  # scan-and-sort reference for _sorted_quantile_radius on the live sorted buffer; parity pinned in tests/training/composite/test_monotone_and_rolling_quantile_parity.py
+    "_mann_whitney_u_z",  # two-sort form of _mann_whitney_u_z_v2 (the production kernel); bit-identity pinned in tests/feature_selection/wrappers/test_wrappers_statistical_fixes.py::TestSingleSortKernelsBitIdentical
+    "_kruskal_wallis_h",  # two-sort form of _kruskal_wallis_h_v2 (the production kernel); bit-identity pinned in tests/feature_selection/wrappers/test_wrappers_statistical_fixes.py::TestSingleSortKernelsBitIdentical
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -1009,8 +1011,6 @@ _PLANNED: set[str] = {
     "_quantile_codes_1d_njit",  # library helper with no in-repo caller; owner decides to export or drop
     "plugin_mi_classif_batch_fast",  # library helper with no in-repo caller; owner decides to export or drop
     "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
-    "_kruskal_wallis_h",  # library helper with no in-repo caller; owner decides to export or drop
-    "_mann_whitney_u_z",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
     "_initialize_mutable_defaults",  # library helper with no in-repo caller; owner decides to export or drop
     "make_dmatrix",  # library helper with no in-repo caller; owner decides to export or drop
