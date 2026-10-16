@@ -125,7 +125,8 @@ def _permutation_block(rng: np.random.Generator, y: np.ndarray, m: int) -> np.nd
         _perm_block_cache.move_to_end(key)
         idx, state_after = hit
         rng.bit_generator.state = state_after
-        return idx
+        cached: np.ndarray = idx
+        return cached
     n = y.shape[0]
     idx_dtype = np.uint16 if n <= np.iinfo(np.uint16).max else np.int32
     idx = np.empty((m, n), dtype=idx_dtype)
