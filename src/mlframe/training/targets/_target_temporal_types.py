@@ -99,6 +99,7 @@ class TemporalAuditResult:
         subset". Common pattern:
 
             >>> import numpy as np, pandas as pd
+            >>> from mlframe.training.targets.target_temporal_audit import audit_target_over_time
             >>> rng = np.random.default_rng(0)
             >>> n = 4000
             >>> df = pd.DataFrame({

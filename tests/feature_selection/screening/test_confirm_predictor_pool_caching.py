@@ -117,13 +117,14 @@ class TestNameRankCache:
             ctx._name_rank_cache = None
             return orig_confirm_one_predictor(ctx, *a, **kw)
 
-        import mlframe.feature_selection.filters._screen_predictors as sp
+        import mlframe.feature_selection.filters._screen_predictors_steps as sp_steps
 
-        sp.confirm_one_predictor = uncached_confirm_one_predictor
+        # The step module binds the name at import, so that is where the call is looked up; patching _screen_predictors would change nothing.
+        sp_steps.confirm_one_predictor = uncached_confirm_one_predictor
         try:
             sel_uncached = MRMR(**_mrmr_kw()).fit(X, y)
         finally:
-            sp.confirm_one_predictor = orig_confirm_one_predictor
+            sp_steps.confirm_one_predictor = orig_confirm_one_predictor
         support_uncached = sorted(sel_uncached.feature_names_in_[sel_uncached.support_])
 
         assert support_cached == support_uncached, f"cached path selected {support_cached}, forced-uncached path selected {support_uncached}"
