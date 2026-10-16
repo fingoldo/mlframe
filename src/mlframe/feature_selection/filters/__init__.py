@@ -64,6 +64,7 @@ from ._monotonic_stability import monotonic_deviation_stability_filter
 from ._boruta import boruta_select
 from ._per_fold_majority_accept import per_fold_majority_accept, seed_averaged_fold_scores
 from ._ks_stability import ks_stability_filter
+from .estimators import ksg_mi_pair, ksg_mi_with_significance, ksg_mi_with_target, nsb_mi
 
 from ._target_mix_target import (
     add_back_mix_offset,
@@ -85,6 +86,10 @@ __all__ = [
     "per_fold_majority_accept",
     "seed_averaged_fold_scores",
     "ks_stability_filter",
+    "ksg_mi_pair",
+    "ksg_mi_with_significance",
+    "ksg_mi_with_target",
+    "nsb_mi",
     "generate_rankgauss_features",
     "apply_rankgauss",
     "engineered_name_rankgauss",

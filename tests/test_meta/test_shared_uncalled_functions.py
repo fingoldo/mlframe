@@ -724,6 +724,9 @@ _REEXPORTED_PUBLIC_API = {
     "concordance_index",  # exported by mlframe.training.composite (__all__)
     "check_and_rediscover",  # exported by mlframe.training.composite (__all__)
     "detect_cat_columns",  # exported by mlframe.training.composite (__all__)
+    "ksg_mi_pair",  # exported by mlframe.feature_selection.filters (__all__)
+    "ksg_mi_with_significance",  # exported by mlframe.feature_selection.filters (__all__)
+    "nsb_mi",  # exported by mlframe.feature_selection.filters (__all__)
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -1000,9 +1003,6 @@ _PLANNED: set[str] = {
     "compose_pair_fe",  # library helper with no in-repo caller; owner decides to export or drop
     "validate_pair_fe_cv",  # library helper with no in-repo caller; owner decides to export or drop
     "_quantile_codes_1d_njit",  # library helper with no in-repo caller; owner decides to export or drop
-    "ksg_mi_pair",  # library helper with no in-repo caller; owner decides to export or drop
-    "ksg_mi_with_significance",  # library helper with no in-repo caller; owner decides to export or drop
-    "nsb_mi",  # library helper with no in-repo caller; owner decides to export or drop
     "score_trivial_baselines",  # library helper with no in-repo caller; owner decides to export or drop
     "plugin_mi_classif_batch_fast",  # library helper with no in-repo caller; owner decides to export or drop
     "apply_bin_edges",  # library helper with no in-repo caller; owner decides to export or drop
