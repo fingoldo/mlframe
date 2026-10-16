@@ -980,10 +980,6 @@ _PLANNED: set[str] = {
     "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
     "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
     "compute_permutation_importances",  # user-facing permutation importance helper not yet exported, planned as public API
-    "_require_plotly",  # plotly import guard for the interactive paths, planned to be called by them
-    "_split_arrays",  # groups a value array by split label for error analysis, planned for the split charts
-    "_wrap_text",  # label wrapping for plotly charts, planned for the chart labels
-    "_get_cached_plot_idx",  # cached random subsample index for scatter plots, planned for the residual plots
     "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
     "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
     "_column_tie_fraction",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1045,6 +1041,10 @@ _OPTIN = {
     "precompute_all",  # pre-split warm-up entry point; calls the two stubs below
     "precompute_composite_target_specs",  # stub: raises NotImplementedError until the split-time implementation lands
     "precompute_dummy_baselines",  # stub: raises NotImplementedError until the split-time implementation lands
+    "_require_plotly",  # plotly import gate for the viz extra; metrics plotting moved to the reporting renderers, kept as the documented guard for direct metrics.core users
+    "_split_arrays",  # thin wrapper over group_values_by_label (which the charts call directly), kept as the error-analysis module's local entry point
+    "_wrap_text",  # thin plotly-flavoured wrapper over wrap_title_lines (the renderers call the measuring twin), kept for fixed-width <br> folding
+    "_get_cached_plot_idx",  # LRU-cached scatter subsample index; charts now use subsample_preserving_extremes, kept for fixed-seed uniform subsampling
 }
 
 
