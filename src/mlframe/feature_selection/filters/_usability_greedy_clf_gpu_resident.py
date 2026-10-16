@@ -166,7 +166,9 @@ def usability_greedy_clf_gpu_resident(
         folds_host = np.arange(n) % nf
         rng.shuffle(folds_host)
         folds_dev = cp.asarray(folds_host)
-        mi_max = max((c.mi for c in pool), default=1.0) or 1.0
+        mi_max = max((c.mi for c in pool), default=1.0)
+        if mi_max == 0:
+            mi_max = 1.0
         mi_host = np.asarray([float(c.mi) for c in pool], dtype=np.float64)
 
         tr_masks = [folds_dev != fo for fo in range(nf)]

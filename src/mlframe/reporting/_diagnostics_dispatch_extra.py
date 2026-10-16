@@ -192,7 +192,10 @@ def render_model_comparison_from_suite(
         m = min(len(yt), len(ys))
         if m == 0:
             continue
-        name = str(getattr(e, "model_name", None) or type(getattr(e, "model", None)).__name__ or f"model_{i}")
+        _mname = getattr(e, "model_name", None)
+        if not _mname:
+            _mname = type(getattr(e, "model", None)).__name__
+        name = str(_mname if _mname else f"model_{i}")
         if name in per_model:
             name = f"{name}_{i}"
         per_model[name] = {

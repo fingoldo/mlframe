@@ -85,7 +85,8 @@ def sibling_group_cold_start_fill(
         # and two groups sharing an order value produce a duplicate index where the distance weighting the
         # comment above justifies is undefined. Fall back to positional interpolation in those cases, with a
         # warning, rather than raising or silently weighting by something meaningless.
-        _numeric_order = np.issubdtype(np.asarray(order_values).dtype, np.number) or np.issubdtype(np.asarray(order_values).dtype, np.datetime64)
+        _order_dtype = np.asarray(order_values).dtype
+        _numeric_order = True if np.issubdtype(_order_dtype, np.number) else np.issubdtype(_order_dtype, np.datetime64)
         _unique_order = pd.Index(order_values).is_unique
         if _numeric_order and _unique_order:
             filled_per_group.index = order_values

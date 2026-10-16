@@ -117,7 +117,7 @@ def _host_key() -> str:
     except Exception as e:
         logger.debug("hw_fingerprint() failed, falling back to platform.node(): %s", e)
         import platform
-        return f"node_{platform.node() or 'unknown'}"
+        return f"node_{platform.node() if platform.node() else 'unknown'}"
 
 
 def default_store_dir() -> str:
@@ -514,7 +514,7 @@ class ParamOracle:
         self.epsilon = float(epsilon)
         self.min_observations = int(min_observations)
         self.host = _host_key()
-        self.rng = rng or random.Random()  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
+        self.rng = random.Random() if rng is None else rng  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
 
     # ----- param-space enumeration -----
 

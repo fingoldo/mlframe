@@ -637,7 +637,7 @@ def friend_graph_to_figurespec(graph: FriendGraph, *, title: str = "Feature frie
         node_x=node_x, node_y=node_y, node_size=node_size, node_color=node_color,
         node_label=node_label, node_hovertext=node_hovertext,
         edge_src=edge_src, edge_dst=edge_dst, edge_weight=edge_weight,
-        edge_directed=True, colormap=edge_cmap or FRIEND_GRAPH_EDGE_CMAP,
+        edge_directed=True, colormap=FRIEND_GRAPH_EDGE_CMAP if edge_cmap is None else edge_cmap,
         colorbar_label="Mutual information (nats)",
         node_legend=(
             ("unique", friend_graph_node_color("green")),

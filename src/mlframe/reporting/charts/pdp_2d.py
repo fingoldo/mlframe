@@ -142,8 +142,8 @@ def compose_pdp_2d_figure(
     res = compute_pdp_2d(model, X, (feat_x, feat_y), grid=grid, sample=sample_rows, seed=seed)
     i_x, i_y = res["feature_index"]
     gx, gy, surface = res["grid0"], res["grid1"], res["surface"]
-    lab_x = feat_x_name or _feat_label(feat_x, names, i_x)
-    lab_y = feat_y_name or _feat_label(feat_y, names, i_y)
+    lab_x = feat_x_name if feat_x_name else _feat_label(feat_x, names, i_x)
+    lab_y = feat_y_name if feat_y_name else _feat_label(feat_y, names, i_y)
     cbar_label = "predicted P(y=1)" if res["kind"] == "proba" else "predicted value"
 
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)

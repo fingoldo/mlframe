@@ -32,6 +32,17 @@ from ._ranker_suite_train_helpers import (  # noqa: F401  -- carved helpers
 )
 
 
+def _first_nonempty_target_bucket(target_by_type: dict) -> dict:
+    """First non-empty target bucket among LTR, regression, binary classification; ``{}`` when none."""
+    from mlframe.training.configs import TargetTypes
+
+    for _tt in (TargetTypes.LEARNING_TO_RANK, TargetTypes.REGRESSION, TargetTypes.BINARY_CLASSIFICATION):
+        _cand = target_by_type.get(_tt)
+        if _cand is not None and len(_cand) > 0:
+            return _cand
+    return {}
+
+
 def train_mlframe_ranker_suite(
     df: pd.DataFrame | pl.DataFrame,
     target_name: str,
@@ -118,7 +129,7 @@ def train_mlframe_ranker_suite(
     # import ...`` would create a hard cycle the meta-test flags.
     df_features: Any = None
     from .ranker_suite import _filter_models_for_ranking, _strategy_for_model
-    from mlframe.training.configs import TargetTypes, LearningToRankConfig
+    from mlframe.training.configs import LearningToRankConfig
     from mlframe.training.splitting import make_train_test_split
     from .ranking import (
         fit_ranker, predict_ranker_scores, ensemble_ranker_scores,
@@ -168,12 +179,7 @@ def train_mlframe_ranker_suite(
     # Pull the target -- LTR extractors put it under TargetTypes.LEARNING_TO_RANK
     # OR under REGRESSION (graded relevance often slots into the regression
     # bucket by default). Try both.
-    target_dict = (
-        target_by_type.get(TargetTypes.LEARNING_TO_RANK)
-        or target_by_type.get(TargetTypes.REGRESSION)
-        or target_by_type.get(TargetTypes.BINARY_CLASSIFICATION)
-        or {}
-    )
+    target_dict = _first_nonempty_target_bucket(target_by_type)
     if not target_dict:
         raise ValueError(
             "FTE produced no targets. Ensure build_targets registers at "
@@ -334,7 +340,7 @@ def train_mlframe_ranker_suite(
         from mlframe.training.configs import DummyBaselinesConfig
         from mlframe.training.baselines import compute_dummy_baselines
         from mlframe.training.phases import phase as _phase_ctx
-        _db_cfg = dummy_baselines_config or DummyBaselinesConfig()
+        _db_cfg = DummyBaselinesConfig() if dummy_baselines_config is None else dummy_baselines_config
         if _db_cfg.enabled and "learning_to_rank" in _db_cfg.apply_to_target_types:
             # Optional: pull per-row doc_ids for the popularity baseline
             # when the FTE has a ``doc_field`` set (extends the LTR

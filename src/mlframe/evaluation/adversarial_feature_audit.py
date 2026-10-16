@@ -136,7 +136,7 @@ def adversarial_validation_feature_audit(
 
         def _fit_auc(feature_cols: Sequence[str]) -> float:
             """Fit an LGBM classifier on ``feature_cols`` and return its pseudo-private AUC."""
-            model = lgb.LGBMClassifier(**(lgbm_params or {"n_estimators": 100, "verbosity": -1}), random_state=split_seed)
+            model = lgb.LGBMClassifier(**({"n_estimators": 100, "verbosity": -1} if lgbm_params is None else lgbm_params), random_state=split_seed)
             model.fit(X_train_df.iloc[idx_train][list(feature_cols)], y_train[idx_train])
             proba = np.asarray(model.predict_proba(X_train_df.iloc[idx_private][list(feature_cols)]))[:, 1]
             return float(fast_roc_auc(y_train[idx_private], proba))

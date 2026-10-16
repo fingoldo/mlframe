@@ -268,7 +268,7 @@ class NamedCalibrator:
 
     def full_name(self) -> str:
         """Build the ``lib.Name[param_str]`` display identifier used as the row key when comparing calibrators."""
-        base_name = self.name or self._extract_calibrator_class_name()
+        base_name = self.name if self.name else self._extract_calibrator_class_name()
         # Prepend lib only if not already in name (case-insensitive)
         if self.lib and self.lib.lower() not in base_name.lower():
             base_name = f"{self.lib}.{base_name}"

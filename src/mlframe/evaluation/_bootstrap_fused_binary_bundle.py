@@ -251,7 +251,7 @@ def bootstrap_auc_brier_ll_ece_batch(
 
     asc_order = np.argsort(p_pos)
     sorted_score = p_pos[asc_order]
-    tie_free = n < 2 or bool(np.all(sorted_score[1:] != sorted_score[:-1]))
+    tie_free = True if n < 2 else bool(np.all(sorted_score[1:] != sorted_score[:-1]))
 
     y_f64 = np.ascontiguousarray(y_true, dtype=np.float64)
     p_f64 = np.ascontiguousarray(p_pos, dtype=np.float64)

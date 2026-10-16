@@ -697,7 +697,8 @@ class RFECV(RFECVStateCompatMixin, TransformerMixin, BaseEstimator):
         path = self.checkpoint_path
         if not path:
             return
-        dir_name = os.path.dirname(os.path.abspath(path)) or "."
+        _abs_dir = os.path.dirname(os.path.abspath(path))
+        dir_name = _abs_dir if _abs_dir != "" else "."
         os.makedirs(dir_name, exist_ok=True)
         # Mirror the ``_fd_adopted`` flag
         # pattern used canonically across the project

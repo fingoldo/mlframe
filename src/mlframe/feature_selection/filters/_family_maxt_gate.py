@@ -234,7 +234,7 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     # crossover on the dev GPU (GTX 1050 Ti: 1.26x at 6e9 updates, slower below) and belongs in the kernel-tuning cache; TODO(KTC).
     _work = int(n_perm) * int(cols.shape[0]) * int(y.shape[0])
     use_device = device_supported(n_x, int(n_y)) and (
-        bool(fe_gpu_strict_enabled()) or _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
+        True if fe_gpu_strict_enabled() else _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
     )
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)

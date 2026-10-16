@@ -45,7 +45,9 @@ def _make_tuner(n: int, n_labels: int, n_rules: int) -> Callable[[], list[dict]]
 
         rng = np.random.default_rng(0)
         preds = rng.uniform(0, 1, size=(n, n_labels))
-        rules = [(i, i + 1) for i in range(0, min(n_rules * 2, n_labels - 1), 2)] or [(0, min(1, n_labels - 1))]
+        rules = [(i, i + 1) for i in range(0, min(n_rules * 2, n_labels - 1), 2)]
+        if not rules:
+            rules = [(0, min(1, n_labels - 1))]
         rules_arr = np.asarray(rules, dtype=np.int64)
 
         timings: dict[str, float] = {}

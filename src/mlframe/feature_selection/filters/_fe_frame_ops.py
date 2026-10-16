@@ -62,7 +62,7 @@ def fe_is_numeric_col(X: Any, c: str) -> bool:
         if c not in X.columns:
             return False
         dt = X.schema[c]
-        return bool(dt.is_numeric()) or dt == pl.Boolean
+        return True if dt.is_numeric() else dt == pl.Boolean
     raise TypeError(f"fe_is_numeric_col: unsupported frame type {type(X)!r}")
 
 

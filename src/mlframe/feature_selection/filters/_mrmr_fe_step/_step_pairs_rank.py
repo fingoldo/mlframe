@@ -800,7 +800,7 @@ def score_prospective_pairs(
                         # the escalation's held-out ALS pairness test (which separates a genuine
                         # multiplicative interaction from an additive cross-mix) re-decides it.
                         _route_to_rescue = (
-                            (_is_synergy_pair or bool(getattr(self, "fe_prevalence_rescue_all_pairs", False)))
+                            (True if _is_synergy_pair else bool(getattr(self, "fe_prevalence_rescue_all_pairs", False)))
                             and _passes_maxt
                             and bool(getattr(self, "fe_synergy_prevalence_rescue_enable", True))
                         )

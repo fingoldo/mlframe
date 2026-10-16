@@ -89,6 +89,13 @@ if TYPE_CHECKING:
 
 EXPANDING_STATS = ("mean", "std", "count", "min", "max")
 
+
+def _valid_agg_stats(stats) -> tuple:
+    """Rolling-window stats restricted to the supported set; an empty selection falls back to mean+count."""
+    valid = [s for s in stats if s in ("mean", "std", "count", "min", "max")]
+    return tuple(valid) if valid else ("mean", "count")
+
+
 def engineered_name_expanding(value_col: str, entity_col: str, stat: str) -> str:
     """Canonical feature name for an expanding-stat feature, e.g. ``texp_mean(amount|user_id)``."""
     return f"texp_{stat}({value_col}|{entity_col})"
@@ -753,7 +760,7 @@ def hybrid_temporal_agg_fe(
     if windows:
         enc_roll, rec_roll = generate_rolling_window_agg_features(
             X, entity_cols, value_cols, time_col, windows=windows,
-            stats=[s for s in stats if s in ("mean", "std", "count", "min", "max")] or ("mean", "count"),
+            stats=_valid_agg_stats(stats),
         )
         enc_parts.append(enc_roll)
         raw_recipes.update({k: ("roll", v) for k, v in rec_roll.items()})

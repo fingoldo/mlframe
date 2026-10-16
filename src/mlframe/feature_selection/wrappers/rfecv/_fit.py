@@ -90,7 +90,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
             return candidate_features
         try:
             _Xsub = X[candidate_features] if isinstance(X, pd.DataFrame) else X
-            _topk_arg = int(_topk) if _topk else min(500, len(candidate_features) // 2 or 1)
+            _topk_arg = int(_topk) if _topk else min(500, max(1, len(candidate_features) // 2))
             _mrmr = MRMR(
                 full_npermutations=3, cv=3,
                 run_additional_rfecv_minutes=False,

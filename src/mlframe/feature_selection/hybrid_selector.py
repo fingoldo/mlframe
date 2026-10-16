@@ -419,7 +419,8 @@ class HybridSelector:
                 top = [(a, b) for (a, b), _ in _pair_w_sorted if a in cols and b in cols]
                 # expand each co-occurrence pair to one candidate column per rich operator; each column carries its
                 # operand pair (so the synergy gate scores it independently) and its op (so _augment replays it).
-                ops = [o for o in self.tree_rich_ops if o in _TREE_OPS] or ["mul"]  # empty/all-invalid config -> the one safe default op, not a caller-supplied-empty trap
+                _valid_ops = [o for o in self.tree_rich_ops if o in _TREE_OPS]
+                ops = _valid_ops if _valid_ops else ["mul"]  # empty/all-invalid config -> the one safe default op, not a caller-supplied-empty trap
                 pairs, names = [], []
                 for i, (a, b) in enumerate(top):
                     for op in ops:
@@ -706,7 +707,8 @@ class HybridSelector:
         # So the members stay SEQUENTIAL: the wall is irreducible sub-selector compute (already optimized upstream),
         # not glue. The hybrid's OWN glue is ~0.05s (<0.15% of wall); see corr_clusters for the one glue micro-opt.
         member_sel = {}
-        member_sel["mrmr"] = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant] or list(relevant)  # MRMR selected nothing relevant (degenerate) -> the mrmr member votes for everything rather than abstaining, not a caller-supplied-empty trap
+        _mrmr_hits = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant]
+        member_sel["mrmr"] = _mrmr_hits if _mrmr_hits else list(relevant)  # MRMR selected nothing relevant (degenerate) -> the mrmr member votes for everything rather than abstaining, not a caller-supplied-empty trap
         if self.use_shap:
             try:
                 member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)

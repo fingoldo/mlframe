@@ -675,7 +675,9 @@ def _retain_usable_pure_cand_usable(usable, covered_pairs, existing_names, out, 
             continue  # only genuine single-PAIR forms
         if pair in covered_pairs:
             continue  # a pure form for this pair already survives
-        name = getattr(cand, "name", None) or getattr(recipe, "name", None)
+        name = getattr(cand, "name", None)
+        if not name:
+            name = getattr(recipe, "name", None)
         if name is None or name in existing_names:
             continue
         out.append((recipe, name))

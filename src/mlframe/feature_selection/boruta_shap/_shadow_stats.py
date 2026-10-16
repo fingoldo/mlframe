@@ -133,7 +133,9 @@ def create_shadow_features(self) -> None:
     """
     # Private rng (set in __init__) keeps shadow-feature permutations seeded
     # without mutating the global np.random stream that other suite stages rely on.
-    _rng = getattr(self, "_rng", None) or np.random.default_rng(getattr(self, "random_state", None))
+    _rng = getattr(self, "_rng", None)
+    if _rng is None:
+        _rng = np.random.default_rng(getattr(self, "random_state", None))
     # ``self.X_.apply(lambda col: _rng.permutation(col.values))`` permutes each column independently in
     # COLUMN ORDER, one ``_rng.permutation`` call per column. That per-column lambda wraps every result in a
     # pandas Series, which dominates this method (~13 ms/trial -> 2.4% of a SHAP fit). When every column shares

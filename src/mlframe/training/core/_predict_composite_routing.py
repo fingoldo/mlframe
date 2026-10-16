@@ -136,7 +136,11 @@ def original_target_of(metadata: Any, target_type: Any, target_name: Any) -> Any
     if name.startswith("_CT_ENSEMBLE__"):
         return name[len("_CT_ENSEMBLE__") :]
     specs = (metadata.get("composite_target_specs") or {}) if isinstance(metadata, dict) else {}
-    by_target = specs.get(str(target_type)) or specs.get(target_type) or {}
+    by_target = specs.get(str(target_type))
+    if by_target is None:
+        by_target = specs.get(target_type)
+    if by_target is None:
+        by_target = {}
     for orig, spec_list in by_target.items() if isinstance(by_target, dict) else ():
         if any(isinstance(s, dict) and s.get("name") == name for s in spec_list or ()):
             return orig

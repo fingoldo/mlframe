@@ -42,7 +42,8 @@ def _selector_name(selector: Any, idx: int) -> str:
         v = getattr(selector, attr, None)
         if isinstance(v, str) and v:
             return v
-    return type(selector).__name__ or f"selector_{idx}"
+    _cls_name = type(selector).__name__
+    return _cls_name if _cls_name else f"selector_{idx}"
 
 
 def _is_fitted(selector: Any) -> bool:
@@ -283,7 +284,7 @@ def compare_selectors(
     used_names: set[str] = set()
 
     for idx, (label, selector) in enumerate(items):
-        name = label or _selector_name(selector, idx)
+        name = label if label else _selector_name(selector, idx)
         base, k = name, 1
         while name in used_names:  # de-duplicate identical class names
             k += 1

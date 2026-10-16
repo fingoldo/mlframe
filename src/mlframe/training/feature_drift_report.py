@@ -608,7 +608,7 @@ def compute_categorical_drift_psi(
     ``drift_candidates`` is sorted descending by max(val_psi, test_psi); only features whose max exceeds ``moderate_threshold`` are listed.
     New-category cases (a value present in val/test but missing from train) are surfaced as a positive PSI contribution -- see ``_compute_categorical_psi`` docstring.
     """
-    cols = feature_names or _categorical_columns(train_df)
+    cols = _categorical_columns(train_df) if feature_names is None else feature_names
     per_feature: dict[str, dict[str, float]] = {}
     candidates: list[tuple[str, float]] = []
     too_sparse: list[tuple[str, int, float]] = []
@@ -736,7 +736,7 @@ def _compute_drift_invariant(
     candidate list, and the categorical PSI. Depends only on the frames + names +
     threshold; the caller layers the per-target FI-weighted aggregate on top.
     """
-    cols = feature_names or _numeric_columns(train_df)
+    cols = _numeric_columns(train_df) if feature_names is None else feature_names
     per_feature: dict[str, dict[str, float]] = {}
     candidates: list[tuple[str, float]] = []
     # bench-attempt-rejected 2026-05-23: tried vectorising as

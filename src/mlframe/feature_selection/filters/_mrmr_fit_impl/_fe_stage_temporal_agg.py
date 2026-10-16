@@ -68,7 +68,8 @@ def _fe_stage_temporal_agg(self, X, _y_np, verbose, _temporal_agg_pre_recipes, _
                 else:
                     _y_for_ta = _y_np
                     _y_for_ta = encode_y_for_classif_mi(_y_for_ta)
-                    _ta_stats = tuple(getattr(self, "fe_temporal_agg_stats", ()) or ("mean", "std", "count"))
+                    _ta_cfg_stats = getattr(self, "fe_temporal_agg_stats", None)
+                    _ta_stats = tuple(_ta_cfg_stats if _ta_cfg_stats else ("mean", "std", "count"))
                     _ta_windows = tuple(getattr(self, "fe_temporal_agg_windows", ()) or ())
                     _ta_lags = tuple(getattr(self, "fe_temporal_agg_lags", (1,)) or ())
                     _ta_top_k = int(getattr(self, "fe_temporal_agg_top_k", 10))

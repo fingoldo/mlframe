@@ -184,10 +184,8 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _will_use_include_numeric_nan_guard = bool(
         _cat_fe_cfg_probe is not None and getattr(_cat_fe_cfg_probe, "enable", True) and getattr(_cat_fe_cfg_probe, "include_numeric", False)
     )
-    _will_use_missingness_fe = (
-        bool(getattr(self, "fe_missingness_indicator_enable", False))
-        or bool(getattr(self, "fe_missingness_count_enable", False))
-        or bool(getattr(self, "fe_missingness_pattern_enable", False))
+    _will_use_missingness_fe = any(
+        bool(getattr(self, _flag, False)) for _flag in ("fe_missingness_indicator_enable", "fe_missingness_count_enable", "fe_missingness_pattern_enable")
     )
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._prelude import _record_fit_entry_nan_mask
 

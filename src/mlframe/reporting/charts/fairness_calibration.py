@@ -106,7 +106,7 @@ def compose_fairness_calibration_figure(
         return FigureSpec(
             suptitle="",
             panels=((AnnotationPanelSpec(text="calibration fairness unavailable: no finite (label, score) rows", title=title),),),
-            figsize=figsize or (8.0, 5.0),
+            figsize=(8.0, 5.0) if figsize is None else figsize,
         )
 
     codes, labels, _supports = _prepare_group_codes(grp, max_groups)
@@ -169,7 +169,7 @@ def compose_fairness_calibration_figure(
             panels = ((overlay,), (AnnotationPanelSpec(text=text, title="disparity"),))
         else:
             panels = ((AnnotationPanelSpec(text=text, title=title),),)
-        return FigureSpec(suptitle="", panels=panels, figsize=figsize or (8.0, 8.0))
+        return FigureSpec(suptitle="", panels=panels, figsize=(8.0, 8.0) if figsize is None else figsize)
 
     eces = np.asarray(bar_eces, dtype=np.float64)
     gap = float(eces.max() - eces.min())
@@ -208,7 +208,7 @@ def compose_fairness_calibration_figure(
     return FigureSpec(
         suptitle="",
         panels=((overlay,), (bar,)),
-        figsize=figsize or (8.0, 9.0),
+        figsize=(8.0, 9.0) if figsize is None else figsize,
         row_height_ratios=(3.0, 2.0),
         caption=(
             "Top: one reliability curve per subgroup against the perfect-calibration diagonal -- x is the predicted "

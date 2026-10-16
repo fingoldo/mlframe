@@ -33,7 +33,8 @@ def get_fourier_detect_max_n() -> int:
     cap = getattr(_state, "cap", None)
     if cap is not None:
         return int(cap)
-    raw = os.environ.get("MLFRAME_FOURIER_DETECT_MAX_N", str(_DEFAULT_MAX_N)) or "0"
+    raw = os.environ.get("MLFRAME_FOURIER_DETECT_MAX_N", str(_DEFAULT_MAX_N))
+    raw = raw if raw != "" else "0"
     return int(raw) if raw.strip().lstrip("-").isdigit() else 0
 
 

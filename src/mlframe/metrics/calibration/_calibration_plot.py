@@ -908,7 +908,7 @@ def _show_calibration_p_plot_outputs_base_path(plot_outputs, base_path, plot_fil
         if _fmt not in ("html", "png", "svg", "pdf", "json"):
             _fmt = "html"
         _outputs = parse_plot_output_dsl(f"plotly[{_fmt}]")
-        _base = _root or "calibration"
+        _base = _root if _root != "" else "calibration"
     return _base, _outputs
 
 

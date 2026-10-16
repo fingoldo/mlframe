@@ -658,7 +658,9 @@ def usability_greedy(
     n_folds = max(2, min(int(n_folds), st.n))
     folds = np.arange(st.n) % n_folds
     st.rng.shuffle(folds)
-    mi_max = max((c.mi for c in pool), default=1.0) or 1.0
+    mi_max = max((c.mi for c in pool), default=1.0)
+    if mi_max == 0:
+        mi_max = 1.0
 
     # INCREMENTAL CV (was a PERF TODO): the regression scorer no longer refits a
     # StandardScaler+LinearRegression for every (candidate, fold). ``StandardScaler -> LinearRegression

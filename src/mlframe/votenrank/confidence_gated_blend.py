@@ -192,7 +192,7 @@ def confidence_gated_blend(
     # or the other; an explicit argument beating ambient configuration is the conventional direction, and the
     # reverse would mean an operator's `MLFRAME_CONFIDENCE_BLEND_BACKEND` silently overrode a deliberate
     # in-code choice. What was wrong was only that the docstring claimed the opposite.
-    backend = force_backend or (env_backend if env_backend in ("numpy", "njit", "njit_parallel", "cupy") else None)
+    backend = force_backend if force_backend else (env_backend if env_backend in ("numpy", "njit", "njit_parallel", "cupy") else None)
     if backend is None:
         from mlframe.votenrank._confidence_gated_blend_ktc_dispatch import choose_confidence_blend_backend
 

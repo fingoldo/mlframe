@@ -199,7 +199,7 @@ def optimise_hermite_pair(
             ) from e
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-    bin_funcs = bin_funcs or _DEFAULT_BIN_FUNCS
+    bin_funcs = _DEFAULT_BIN_FUNCS if bin_funcs is None else bin_funcs
 
     if basis not in _POLY_BASES:
         raise ValueError(f"unknown basis {basis!r}; expected one of {list(_POLY_BASES)}")

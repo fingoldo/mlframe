@@ -14,6 +14,12 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
 
 
+def _n_rows_of(X) -> int:
+    """Row count of ``X``: its ``shape[0]`` when non-zero, else ``len(X)``."""
+    n_rows = int(getattr(X, "shape", (0,))[0])
+    return n_rows if n_rows else len(X)
+
+
 def _fe_tail_budget_spent(stage: str, verbose: int = 0) -> bool:
     """True when the FE wall-clock deadline has already passed, so this optional tail stage is skipped whole.
 
@@ -699,7 +705,7 @@ def _materialise_and_fina_step5_byte_reproduces_pre(self, engineered_recipes, st
                 nbins=int(self.quantization_nbins),
                 # guarded-hybrid K: explicit int honoured verbatim (default 5 -> byte-identical);
                 # only "auto" adapts, and only downward for tiny n (== 5 for n >= 500).
-                k=resolve_adaptive_vote_k(getattr(self, "fe_stability_vote_k", 5), int(getattr(X, "shape", (0,))[0]) or len(X)),
+                k=resolve_adaptive_vote_k(getattr(self, "fe_stability_vote_k", 5), _n_rows_of(X)),
                 quorum=float(getattr(self, "fe_stability_vote_quorum", 0.6)),
                 rng=np.random.default_rng(int(getattr(self, "random_seed", 0) or 0)),
                 verbose=int(verbose),

@@ -157,7 +157,7 @@ def diversity_ablation_report(
             with np.errstate(invalid="ignore"):
                 _raw_max = np.nanmax(np.abs(off_diag)) if not np.all(np.isnan(off_diag)) else np.nan
             max_corr = float(_raw_max)
-        is_low_correlation = np.isnan(max_corr) or max_corr < correlation_threshold
+        is_low_correlation = True if np.isnan(max_corr) else max_corr < correlation_threshold
 
         if is_lower_accuracy and is_low_correlation:
             without_pred = (total_sum - oof_preds[name]) / (n_models - 1)

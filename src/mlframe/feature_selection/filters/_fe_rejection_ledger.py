@@ -158,7 +158,8 @@ def record_fe_rejection(
         # after tens of thousands of ALREADY-expensive candidate evaluations, losing FE debugging
         # visibility for the rest of the fit even though each record is small (~200-400 bytes): raising
         # the cap 10x costs low-single-digit-MB extra, cheap on any real host.
-        effective_cap = int(getattr(mrmr_self, "fe_rejection_ledger_cap", None) or FE_REJECTION_LEDGER_CAP)
+        _cap_cfg = getattr(mrmr_self, "fe_rejection_ledger_cap", None)
+        effective_cap = int(FE_REJECTION_LEDGER_CAP if _cap_cfg is None else _cap_cfg)
         n = len(records)
         if n >= effective_cap:
             # Record the truncation EXACTLY once (no silent truncation), then stop appending.

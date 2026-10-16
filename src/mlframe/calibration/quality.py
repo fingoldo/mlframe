@@ -544,9 +544,10 @@ def plot_pit_diagram(
         base = os.path.splitext(plot_file)[0] if plot_file else "pit_diagram"
     elif plot_file:
         root, ext = os.path.splitext(plot_file)
-        fmt = ext.lstrip(".").lower() or "png"
+        _ext_fmt = ext.lstrip(".").lower()
+        fmt = _ext_fmt if _ext_fmt != "" else "png"
         outputs = parse_plot_output_dsl(f"matplotlib[{fmt}]")
-        base = root or "pit_diagram"
+        base = root if root != "" else "pit_diagram"
     else:
         # No on-disk target: render via matplotlib and show only when interactive (no-op on Agg).
         outputs = parse_plot_output_dsl("matplotlib[png]")

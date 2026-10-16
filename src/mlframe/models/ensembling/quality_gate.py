@@ -246,7 +246,9 @@ def compute_member_quality_gate(
     }
     if not kept:
         # The filter is too tight for this data: restore the members, never one excluded for being non-finite.
-        kept = [i for i in range(n) if np.isfinite(per_member_mae[i]) and np.isfinite(per_member_std[i])] or list(range(n))
+        kept = [i for i in range(n) if np.isfinite(per_member_mae[i]) and np.isfinite(per_member_std[i])]
+        if not kept:
+            kept = list(range(n))
         excluded = [row for row in excluded if row[0] not in set(kept)]
         info["filter_too_restrictive"] = True
     return kept, excluded, info

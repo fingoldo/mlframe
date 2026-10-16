@@ -63,7 +63,8 @@ def choose_fe_batch_backend(n_rows: int, n_cands: int) -> str:
     elif os.environ.get("MLFRAME_FE_GPU_STRICT", "").strip().lower() in ("1", "true", "on", "yes"):
         choice = "gpu"
     else:
-        choice = _ktc_backend_choice(n_rows, n_cands) or "cpu"
+        _ktc_choice = _ktc_backend_choice(n_rows, n_cands)
+        choice = _ktc_choice if _ktc_choice else "cpu"
     if choice == "gpu" and not _cuda_available():
         return "cpu"
     return choice
@@ -84,7 +85,7 @@ def fe_batch_mi(
     X = np.asarray(X_cands)
     n = X.shape[0] if X.ndim >= 1 else 0
     k = X.shape[1] if X.ndim == 2 else 1
-    chosen = (backend or choose_fe_batch_backend(n, k)).lower()
+    chosen = (backend if backend else choose_fe_batch_backend(n, k)).lower()
 
     if chosen == "gpu":
         try:

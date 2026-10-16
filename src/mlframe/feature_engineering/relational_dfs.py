@@ -253,7 +253,7 @@ def stack_relational_chain(
             foreign_key_col=inner.foreign_key_col,
             time_col=inner.time_col,
             value_cols=value_cols,
-            prefix=inner.prefix or f"l{len(hops) - depth + 1}",
+            prefix=inner.prefix if inner.prefix else f"l{len(hops) - depth + 1}",
         )
         rolled = compute_relational_features(parent_df=outer.df, parent_id_col=outer.id_col, cutoff_col=outer.time_col, child_specs=[spec])
         new_cols = [c for c in rolled.columns if c not in outer.df.columns]

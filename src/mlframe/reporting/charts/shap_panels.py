@@ -527,7 +527,7 @@ def _matplotlib_formats(plot_outputs: Optional[str]) -> List[str]:
             fl = str(f).lower()
             if fl not in fmts:
                 fmts.append(fl)
-    return fmts or ["png"]
+    return fmts if fmts else ["png"]
 
 
 def _close_figs(figs: List[Any]) -> None:
@@ -718,7 +718,9 @@ def shap_summary_and_dependence(
     else:
         bg = shap.sample(X_sample, min(kernel_background, len(idx)), random_state=seed)
         # A bound ``predict_proba`` is not proof of a classifier: mlframe's PartialFitESWrapper always defines the method and raises at CALL time when wrapping a regressor. Probe once on the tiny background sample and fall back to ``predict`` so KernelSHAP works for regression models instead of raising mid-explain.
-        predict = getattr(model, "predict_proba", None) or getattr(model, "predict")
+        predict = getattr(model, "predict_proba", None)
+        if predict is None:
+            predict = getattr(model, "predict")
         if predict is not getattr(model, "predict", None):
             try:
                 predict(bg[:1])

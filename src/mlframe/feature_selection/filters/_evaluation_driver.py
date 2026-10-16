@@ -326,7 +326,7 @@ def _hoist_round_shared_columns(
     _relax_sel_nbins: Optional[list] = None
     # The hoist serves every research knob that needs the round's target and selected set, not only RelaxMRMR: PID, the CMI permutation
     # stop and CPT each rebuilt them per candidate. RelaxMRMR additionally requires fleuret complex mode; the others do not.
-    _knobs_need_hoist = get_pid_synergy_bonus() > 0.0 or bool(get_cmi_perm_stop()[0]) or bool(get_cpt_test()[0])
+    _knobs_need_hoist = True if get_pid_synergy_bonus() > 0.0 else (True if get_cmi_perm_stop()[0] else bool(get_cpt_test()[0]))
     _relax_needs_hoist = get_relaxmrmr_alpha() > 0.0 and not use_simple_mode and str(mrmr_relevance_algo) == "fleuret"
     if selected_vars and (_relax_needs_hoist or _knobs_need_hoist):
         try:

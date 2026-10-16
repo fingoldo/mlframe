@@ -62,7 +62,7 @@ def leakage_safe_aggregate(
             "leakage_safe_aggregate: as_of must be a query DataFrame with an entity column and a per-row cutoff column "
             "(pre-filter history_df yourself and call groupby().agg() directly for a single global cutoff)"
         )
-    cutoff_col = query_entity_col or "as_of"
+    cutoff_col = query_entity_col if query_entity_col else "as_of"
     if cutoff_col not in as_of.columns:
         raise ValueError(f"leakage_safe_aggregate: as_of frame missing cutoff column {cutoff_col!r}")
     if entity_col not in as_of.columns:

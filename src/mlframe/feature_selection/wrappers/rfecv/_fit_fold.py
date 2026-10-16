@@ -77,6 +77,14 @@ def _warn_unmatched_prescreen_fold() -> None:
     )
 
 
+def _resolve_n_repeats(self) -> int:
+    """Permutation repeats for a fold: the wide-data guard's ``_effective_n_repeats`` when set, else ``n_repeats``; a missing or zero value means 5."""
+    n_rep = getattr(self, "_effective_n_repeats", None)
+    if n_rep is None:
+        n_rep = getattr(self, "n_repeats", 5)
+    return int(n_rep) if n_rep else 5
+
+
 @functools.lru_cache(maxsize=256)
 def _fit_accepts_sample_weight(fit_func) -> bool:
     """Whether an estimator's ``fit`` accepts ``sample_weight`` (explicit param or **kwargs).
@@ -357,7 +365,7 @@ def _eval_fold_body(
             cpi_max_depth=getattr(self, "cpi_max_depth", None),
             cpi_min_samples_leaf=int(getattr(self, "cpi_min_samples_leaf", 10)),
             # Prefer the wide-data-guard's effective n_repeats (set in RFECV.fit) over the user-facing self.n_repeats.
-            n_repeats=int(getattr(self, "_effective_n_repeats", None) or getattr(self, "n_repeats", 5) or 5),
+            n_repeats=_resolve_n_repeats(self),
             # W3: get_feature_importances' own default (random_state=0) was never overridden here, so
             # every permutation/CPI FI computation across every fold of every outer iteration drew
             # from the identical RNG seed - the fold-voting ensemble's cross-fold permutation-noise
