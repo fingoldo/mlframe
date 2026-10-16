@@ -348,10 +348,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_pid_decomposition.py::_pointwise_log_ratio": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_screen_predictors.py::_pool_warmup_noop": {
    "count": 1,
    "note": ""
