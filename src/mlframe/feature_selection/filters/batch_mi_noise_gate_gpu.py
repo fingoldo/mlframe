@@ -53,6 +53,7 @@ from .info_theory import batch_mi_with_noise_gate as _cpu_batch_mi_with_noise_ga
 # Compute kernels (GPU dep probes, cupy/cuda kernel factories + their compile helpers,
 # and the bit-exact CPU njit reducers) live in the sibling module; carved out to keep
 # this module under the 1k-LOC ceiling. Re-exported below so every import path resolves.
+from ._batch_mi_noise_gate_fused import fused_gate_mi
 from ._batch_mi_noise_gate_kernels import (
     _nb_cuda,
     cuda_available,
@@ -62,6 +63,8 @@ from ._batch_mi_noise_gate_kernels import (
     _mi_columns_from_counts_cpu,
     _fisher_yates_shuffle,
     _cuda_mi_from_counts_kernel_factory,
+    _cuda_su_from_counts_kernel_factory,
+    _reduce_counts_on_device,
     _gate_from_mi,
     _build_shuffle_matrix,
     _cuda_hist_kernel_factory,
@@ -358,6 +361,7 @@ def batch_mi_with_noise_gate_cupy(
 # Lazy-compiled numba.cuda kernel caches (the factories imported from the kernels
 # sibling build on first use; the public functions assign into these via ``global``).
 _CUDA_HIST_KERNEL: "object | None" = None
+_CUDA_SU_KERNEL: "object | None" = None
 _CUDA_HIST_KERNEL_BATCHED_SHARED: "object | None" = None
 _CUDA_HIST_KERNEL_BATCHED_SHARED_CM: "object | None" = None
 _CUDA_HIST_KERNEL_BATCHED: "object | None" = None
@@ -566,10 +570,16 @@ def batch_mi_with_noise_gate_cuda_resident(
     round-trip). It MUST hold the SAME integer codes as ``disc_2d`` (the producer keeps the exact bytes it
     D2H'd) -> counts, MI and the gate decision are BIT-IDENTICAL to the host-codes path. ``None`` (the
     default, and any narrow-dtype mismatch) keeps the H2D-from-host path unchanged."""
+    global _CUDA_SU_KERNEL
     if use_su:
-        return _batch_mi_noise_gate_su_delegate(
-            disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block
-        )
+        # Symmetric uncertainty runs from the same resident counts as MI, through its own reduction kernel; the host-entropy delegate stays the fallback
+        # when that kernel cannot be built.
+        if _CUDA_SU_KERNEL is None and cuda_available():
+            _CUDA_SU_KERNEL = _cuda_su_from_counts_kernel_factory()
+        if _CUDA_SU_KERNEL is None:
+            return _batch_mi_noise_gate_su_delegate(
+                disc_2d, factors_nbins, classes_y, classes_y_safe, freqs_y, npermutations, base_seed, min_nonzero_confidence, use_su, dtype, threads_per_block
+            )
     global _CUDA_HIST_KERNEL_BATCHED, _CUDA_HIST_KERNEL_BATCHED_SHARED, _CUDA_HIST_KERNEL_BATCHED_SHARED_CM, _CUDA_MI_KERNEL
     if not cuda_available():
         raise RuntimeError("numba.cuda is not available on this host")
@@ -655,6 +665,10 @@ def batch_mi_with_noise_gate_cuda_resident(
     d_off = _histgate_upload(offsets[:K], "histgate_off", np.int64)
     d_nb = _histgate_upload(nbins_arr, "histgate_nb", np.int32)
     d_freq = _histgate_upload(freqs_y, "histgate_freq", np.float64)
+    # Fused histogram + reduction: no (P, total_size) counts matrix (444 MB at 27744 candidates x 100 shuffles), one launch; falls through when it does not apply.
+    _fused_mi = fused_gate_mi(d_disc, nbins_arr, d_nb, d_y, d_freq, freqs_y, n, K, K_y, P, threads_per_block, use_su)
+    if _fused_mi is not None:
+        return _gate_from_mi(_fused_mi[0], _fused_mi[1:], nperm, min_nonzero_confidence) if nperm > 0 else _gate_from_mi(_fused_mi[0], [], 0, min_nonzero_confidence)
     d_counts = _nb_cuda.device_array(P * total_size, dtype=np.int64)
     d_ref = _nb_cuda.to_device(np.ones(K, dtype=np.float64))  # compute every (k,p); host applies the gate
     d_out = _nb_cuda.device_array((P, K), dtype=np.float64)
@@ -730,18 +744,7 @@ def batch_mi_with_noise_gate_cuda_resident(
             _CUDA_HIST_KERNEL_BATCHED[(K, P), threads_per_block](d_disc, d_off, d_y, d_counts, n, K_y, total_size)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
         _tot = K * P
         _blocks = (_tot + threads_per_block - 1) // threads_per_block
-        _CUDA_MI_KERNEL[_blocks, threads_per_block](  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax, not real indexing
-            d_counts,
-            d_off,
-            d_nb,
-            d_freq,
-            n,
-            K_y,
-            d_ref,
-            total_size,
-            P,
-            d_out,
-        )
+        _reduce_counts_on_device(_CUDA_MI_KERNEL, _CUDA_SU_KERNEL if use_su else None, _blocks, threads_per_block, d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out, freqs_y)
     out_mi = d_out.copy_to_host()  # (P, K) - the only sizeable D2H
     original_mi = out_mi[0]
     if nperm <= 0:

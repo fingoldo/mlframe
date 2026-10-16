@@ -20,7 +20,7 @@ import numpy as np
 from numba import cuda
 
 
-@cuda.jit
+@cuda.jit(cache=True)
 def _lcg_permuted_y_cuda_kernel(classes_y, base_seed, first_perm, count, out):
     """One thread per permutation row ``b``: copy ``classes_y`` and apply the shared LCG Fisher-Yates for ``first_perm + b``."""
     b = cuda.grid(1)

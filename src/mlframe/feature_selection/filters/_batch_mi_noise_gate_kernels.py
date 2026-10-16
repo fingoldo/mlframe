@@ -271,7 +271,7 @@ def _cuda_mi_from_counts_kernel_factory():
     if not cuda_available():
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel(
         counts_flat,  # (P*total_size,) int64 - per-(p) per-column joint histograms
         col_offsets,  # (K,) int64
@@ -317,6 +317,91 @@ def _cuda_mi_from_counts_kernel_factory():
         out_mi[p, k] = mi
 
     return _kernel
+
+
+def _cuda_su_from_counts_kernel_factory():
+    """numba.cuda kernel: symmetric uncertainty ``2 MI / (H(x) + H(y))`` of every (column k, y-vector p) from the integer joint histograms, on the device.
+
+    Same launch shape and arguments as :func:`_cuda_mi_from_counts_kernel_factory` plus ``h_y`` (the entropy of the target, one host float64 shared by every
+    permutation since a permutation keeps the class frequencies). MI accumulates in the order of ``_mi_from_counts_cpu`` and H(x) in its own pass over the
+    bins after it, exactly as the host reduction does, so the value matches ``_mi_from_counts_cpu(use_su=True)`` to fp round-off. ``denom <= 1e-12`` gives 0.
+    Until now an SU noise gate left the device after the histogram (a CPU entropy per permutation and a global-atomic histogram launch per permutation);
+    with this kernel it runs from the same resident counts as the MI gate."""
+    if not cuda_available():
+        return None
+
+    @_nb_cuda.jit(cache=True)
+    def _kernel_su(
+        counts_flat,  # (P*total_size,) int64
+        col_offsets,  # (K,) int64
+        nbins_col,  # (K,) int32
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        freqs_y,  # (K_y,) float64
+        n,
+        K_y,
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        ref_mi,  # (K,) float64
+        total_size,
+        P,
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+        out_mi,  # (P, K) float64
+        h_y,
+    ):
+        """numba.cuda kernel: one thread per (permutation, column) pair, symmetric uncertainty from the joint histogram."""
+        K = nbins_col.shape[0]
+        tid = _nb_cuda.blockIdx.x * _nb_cuda.blockDim.x + _nb_cuda.threadIdx.x
+        if tid >= K * P:
+            return
+        p = tid // K
+        k = tid - p * K
+        if p > 0 and ref_mi[k] <= 0.0:
+            out_mi[p, k] = 0.0
+            return
+        nb_k = nbins_col[k]
+        off = col_offsets[k] + p * total_size
+        inv_n = 1.0 / n
+        mi = 0.0
+        for i in range(nb_k):
+            base = off + i * K_y
+            fx = 0
+            for j in range(K_y):
+                fx += counts_flat[base + j]
+            if fx == 0:
+                continue
+            prob_x = fx / n
+            for j in range(K_y):
+                jc = counts_flat[base + j]
+                if jc != 0:
+                    jf = jc * inv_n
+                    mi += jf * math.log(jf / (prob_x * freqs_y[j]))
+        h_x = 0.0
+        for i in range(nb_k):
+            base = off + i * K_y
+            fx = 0
+            for j in range(K_y):
+                fx += counts_flat[base + j]
+            if fx != 0:
+                px = fx / n
+                h_x -= px * math.log(px)
+        denom = h_x + h_y
+        if denom <= 1e-12:
+            out_mi[p, k] = 0.0
+        else:
+            out_mi[p, k] = 2.0 * mi / denom
+
+    return _kernel_su
+
+
+def _reduce_counts_on_device(mi_kernel, su_kernel, blocks, threads, d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out, freqs_host):
+    """Launch the MI reduction over the resident joint counts, or the symmetric-uncertainty reduction when ``su_kernel`` is given (it also takes ``H(y)``, which is
+    the same for every permutation: a permutation keeps the class frequencies)."""
+    if su_kernel is None:
+        mi_kernel[blocks, threads](d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax
+        return
+    fy = np.asarray(freqs_host, dtype=np.float64)
+    fy = fy[fy > 0]
+    h_y = float(-(fy * np.log(fy)).sum())
+    su_kernel[blocks, threads](d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out, h_y)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax
 
 
 @njit(nogil=True, cache=True)
@@ -410,7 +495,7 @@ def _cuda_hist_kernel_factory():
     if not cuda_available():
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel(
         disc_2d,  # (n, K) int32
         col_offsets,  # (K,) int64 - start offset of column k in counts_flat
@@ -444,7 +529,7 @@ def _cuda_hist_kernel_batched_factory():
     if not cuda_available():
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel_b(disc_2d, col_offsets, y_all, counts_flat, n, K_y, total_size):
         """numba.cuda kernel: grid (K, P), accumulates the joint histogram of column k against permutation p's y-vector in one launch across all permutations."""
         # bench-attempt-rejected (2026-06-21): column-major (K,n) coalescing of this batched hist was
@@ -484,7 +569,7 @@ def _cuda_hist_kernel_batched_shared_factory():
 
     from numba import int32 as _i32
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel_bs(disc_2d, col_offsets, nbins_col, y_all, counts_flat, n, K_y, total_size):
         """numba.cuda kernel: privatized shared-memory batched joint-histogram, one block per (column, permutation) pair (see factory docstring)."""
         k = _nb_cuda.blockIdx.x
@@ -536,7 +621,7 @@ def _cuda_hist_kernel_batched_shared_cm_factory():
 
     from numba import int32 as _i32
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel_bs_cm(disc_cm, col_offsets, nbins_col, y_all, counts_flat, n, K_y, total_size):
         """numba.cuda kernel: column-major variant of ``_kernel_bs`` reading a (K, n) buffer for fully-coalesced loads (see factory docstring)."""
         k = _nb_cuda.blockIdx.x
@@ -568,6 +653,86 @@ def _cuda_hist_kernel_batched_shared_cm_factory():
             i += nthreads
 
     return _kernel_bs_cm
+
+
+FUSED_GATE_MAX_BINS = 64  # the fused kernel keeps one partial sum per bin in static shared memory
+
+
+def _cuda_fused_gate_kernel_factory():
+    """FUSED histogram + MI (or symmetric uncertainty) kernel: one block per (column, y-vector), column-major codes, no counts matrix.
+
+    The two-kernel gate wrote every (column, permutation) joint histogram to global memory (``counts_flat`` of ``P * total_size`` int64: 444 MB for 27744
+    candidates x 100 shuffles on a 4 GB card that already holds the resident operand caches, so it paged), then read it back once per entry to reduce it. Here the
+    block privatises its histogram in shared memory exactly as ``_kernel_bs_cm`` does, and the first ``nb_k`` threads reduce one bin row each (the row's
+    contribution to MI and, for SU, to H(x)) before thread 0 adds the rows in bin order. Only the ``(P, K)`` MI matrix is written; the integer counts are the same,
+    and the sums differ from the sequential reduction only in association (fp round-off), like every other device/host pair here.
+
+    ``use_su`` selects ``2 MI / (H(x) + h_y)`` (0 when the denominator is <= 1e-12). A column with ``ref_mi[k] <= 0`` is skipped for ``p > 0`` as in the
+    two-kernel gate. Requires ``nbins_col[k] <= FUSED_GATE_MAX_BINS`` and a block of at least that many threads."""
+    if not cuda_available():
+        return None
+
+    from numba import float64 as _f64
+    from numba import int32 as _i32
+
+    @_nb_cuda.jit(cache=True)
+    def _kernel_fused(disc_cm, nbins_col, y_all, freqs_y, n, K_y, ref_mi, out_mi, h_y, use_su):
+        """numba.cuda kernel: shared-memory joint histogram of column k against y-vector p, reduced to MI / SU in the same block."""
+        k = _nb_cuda.blockIdx.x
+        p = _nb_cuda.blockIdx.y
+        if k >= disc_cm.shape[0]:
+            return
+        if p > 0 and ref_mi[k] <= 0.0:
+            if _nb_cuda.threadIdx.x == 0:
+                out_mi[p, k] = 0.0
+            return
+        nb_k = nbins_col[k]
+        hsize = nb_k * K_y
+        sh = _nb_cuda.shared.array(0, _i32)
+        part_mi = _nb_cuda.shared.array(64, _f64)
+        part_hx = _nb_cuda.shared.array(64, _f64)
+        tid = _nb_cuda.threadIdx.x
+        nthreads = _nb_cuda.blockDim.x
+        i = tid
+        while i < hsize:
+            sh[i] = 0
+            i += nthreads
+        _nb_cuda.syncthreads()
+        for r in range(tid, n, nthreads):
+            _nb_cuda.atomic.add(sh, disc_cm[k, r] * K_y + y_all[p, r], 1)
+        _nb_cuda.syncthreads()
+        if tid < nb_k:
+            base = tid * K_y
+            fx = 0
+            for j in range(K_y):
+                fx += sh[base + j]
+            mi_r = 0.0
+            hx_r = 0.0
+            if fx != 0:
+                prob_x = fx / n
+                inv_n = 1.0 / n
+                for j in range(K_y):
+                    jc = sh[base + j]
+                    if jc != 0:
+                        jf = jc * inv_n
+                        mi_r += jf * math.log(jf / (prob_x * freqs_y[j]))
+                hx_r = -(prob_x * math.log(prob_x))
+            part_mi[tid] = mi_r
+            part_hx[tid] = hx_r
+        _nb_cuda.syncthreads()
+        if tid == 0:
+            mi = 0.0
+            hx = 0.0
+            for b in range(nb_k):
+                mi += part_mi[b]
+                hx += part_hx[b]
+            if use_su:
+                denom = hx + h_y
+                out_mi[p, k] = 0.0 if denom <= 1e-12 else 2.0 * mi / denom
+            else:
+                out_mi[p, k] = mi
+
+    return _kernel_fused
 
 
 _CUDA_SHARED_BYTES_PER_BLOCK: int = -1

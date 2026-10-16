@@ -405,7 +405,7 @@ def _cuda_pair_hist_kernel_factory():
     if not _CUDA_AVAIL:
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel(
         sub,  # (n, k) int32 - selected sub-frame
         pair_posa,  # (n_pairs,) int64 - column position in sub for endpoint a
@@ -439,7 +439,7 @@ def _cuda_node_hist_kernel_factory():
     if not _CUDA_AVAIL:
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel(
         codes,  # (n, k) int64 - per-column code (marginal: va; joint: code(va, y))
         col_off,  # (k,) int64 - start offset of column i in counts_flat

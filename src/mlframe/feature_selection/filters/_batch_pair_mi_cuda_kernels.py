@@ -147,7 +147,7 @@ def _cuda_kernel_factory():
     if not _CUDA_AVAIL:
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel(
         factors_data,  # (n_samples, n_features) int32
         pair_a,  # (n_pairs,) int64
@@ -239,7 +239,7 @@ def _cuda_hist_kernel_factory():
     if not _CUDA_AVAIL:
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _hist_kernel(
         factors_data,  # (chunk_rows, n_features) int32 - ONE row-chunk slice, not the whole array
         pair_a,  # (n_pairs,) int64
@@ -302,7 +302,7 @@ def _cuda_hist_kernel_shared_factory():
     if not _CUDA_AVAIL:
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _hist_kernel_shared(
         factors_data,  # (chunk_rows, n_features) int32 - ONE row-chunk slice, not the whole array
         pair_a,  # (n_pairs,) int64
@@ -447,7 +447,7 @@ def _zero_fill_kernel_factory():
     if not _CUDA_AVAIL:
         return None
 
-    @_nb_cuda.jit
+    @_nb_cuda.jit(cache=True)
     def _kernel(flat_arr, n):
         """Grid-stride zero-fill of ``flat_arr[:n]``."""
         idx = _nb_cuda.grid(1)

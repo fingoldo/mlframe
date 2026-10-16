@@ -22,7 +22,7 @@ def _make_family_mi_kernel(max_cells: int):
     """Build the family-MI kernel with a local joint table of ``max_cells`` cells (a compile-time size, so the table lives in registers/L1
     for small tables rather than the full worst-case budget)."""
 
-    @cuda.jit
+    @cuda.jit(cache=True)
     def _family_mi_kernel(cols_t, n_x, perms, n_y, out):
         """out[b, k] = plug-in MI of column k with permutation b; one thread per (b, k)."""
         tid = cuda.grid(1)
