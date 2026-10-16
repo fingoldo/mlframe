@@ -191,8 +191,8 @@ def _hinge_slope_change_plausible(
     # it from HERE, since the main scan already uses the FWL path exclusively. Replaced with the identical
     # FWL rank-1 update (``sse_h = sse_lin - (r_relu.r_y)^2 / (r_relu.r_relu)``): bit-identical math to the
     # full lstsq SSE (FP reduction order ~1e-12, the same tolerance already accepted for the main scan), no
-    # per-cut QR/lstsq at all. ``_segmented_sse`` itself is kept (still used by ``_heldout_hinge_r2_uplift``'s
-    # design-comparison closures and as a debugging/reference path) -- this only rewires ITS caller.
+    # per-cut QR/lstsq at all. ``_segmented_sse`` itself is kept as the full-lstsq reference this FWL update is pinned against
+    # (tests/feature_selection/filters/test_segmented_sse_fwl_parity.py) -- this only rewires ITS caller.
     for c in cuts:
         n_right = int(np.count_nonzero(x > c))
         if n_right < _HINGE_MIN_SEG_ROWS or (n - n_right) < _HINGE_MIN_SEG_ROWS:

@@ -868,6 +868,9 @@ _RETAINED_KERNELS = {
     "_pack_for_bitmap_numpy",  # numpy reference packer kept for the bit-identity bench and test
     "_fused_regression_welford_seq",  # sequential fused Welford regression kernel kept as the alternative to the parallel one
     "dtw_cupy_full",  # pre-CPX-P0-2 full-matrix DTW kept as an alternative backend; no switch reaches it
+    "_quantile_codes_1d_njit",  # fused 1-D quantile discretiser measured 0.58-0.74x of numpy nanpercentile+searchsorted on the dev card; kept for re-bench on other hardware
+    "_ent_from_counts",  # two-reduction entropy+occupancy over a count vector; the histogram pass now fuses the occupied-cell count in one launch, kept as the unfused form
+    "_nnz_from_counts",  # occupied-cell count reduction over a count vector; replaced by the fused histogram atomicAdd count, kept as the unfused form
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -947,6 +950,7 @@ _SUPERSEDED = {
     "_rolling_quantile_radius",  # scan-and-sort reference for _sorted_quantile_radius on the live sorted buffer; parity pinned in tests/training/composite/test_monotone_and_rolling_quantile_parity.py
     "_mann_whitney_u_z",  # two-sort form of _mann_whitney_u_z_v2 (the production kernel); bit-identity pinned in tests/feature_selection/wrappers/test_wrappers_statistical_fixes.py::TestSingleSortKernelsBitIdentical
     "_kruskal_wallis_h",  # two-sort form of _kruskal_wallis_h_v2 (the production kernel); bit-identity pinned in tests/feature_selection/wrappers/test_wrappers_statistical_fixes.py::TestSingleSortKernelsBitIdentical
+    "_segmented_sse",  # full-lstsq reference of the Frisch-Waugh rank-1 SSE used by the hinge precheck and scan; parity pinned in tests/feature_selection/filters/test_segmented_sse_fwl_parity.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -991,7 +995,6 @@ _PLANNED: set[str] = {
     "_per_cell_stats_gpu",  # library helper with no in-repo caller; owner decides to export or drop
     "_compute_pair_ii_mm",  # library helper with no in-repo caller; owner decides to export or drop
     "_should_apply_mm_for_pair",  # library helper with no in-repo caller; owner decides to export or drop
-    "fe_columns",  # library helper with no in-repo caller; owner decides to export or drop
     "pair_is_tail_concentrated",  # library helper with no in-repo caller; owner decides to export or drop
     "mi_direct_gpu_batched_streamed",  # library helper with no in-repo caller; owner decides to export or drop
     "_gpu_evaluate_basis_column",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1001,14 +1004,9 @@ _PLANNED: set[str] = {
     "gpu_resident_pair_recipes",  # library helper with no in-repo caller; owner decides to export or drop
     "grand_fused_pair_mi",  # library helper with no in-repo caller; owner decides to export or drop
     "rank_bin_codes_gpu_resident",  # library helper with no in-repo caller; owner decides to export or drop
-    "_segmented_sse",  # library helper with no in-repo caller; owner decides to export or drop
-    "suppress_numba_warnings",  # library helper with no in-repo caller; owner decides to export or drop
     "_greedy_merge_bins",  # library helper with no in-repo caller; owner decides to export or drop
     "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
-    "_ent_from_counts",  # library helper with no in-repo caller; owner decides to export or drop
-    "_nnz_from_counts",  # library helper with no in-repo caller; owner decides to export or drop
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
-    "_quantile_codes_1d_njit",  # library helper with no in-repo caller; owner decides to export or drop
     "plugin_mi_classif_batch_fast",  # library helper with no in-repo caller; owner decides to export or drop
     "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1019,7 +1017,6 @@ _PLANNED: set[str] = {
     "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
     "_registered_transform_names",  # library helper with no in-repo caller; owner decides to export or drop
     "_linear_residual_fit_closed",  # library helper with no in-repo caller; owner decides to export or drop
-    "unpack_ctx_configs_to_locals",  # library helper with no in-repo caller; owner decides to export or drop
     "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
     "compare_targets_performance",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1042,6 +1039,9 @@ _OPTIN = {
     "fe_gpu_resident_enabled",  # env switch for the GPU-resident FE prototype, measured a wall wash so it stays off unless MLFRAME_FE_GPU_RESIDENT is set
     "pool_table_use_resident",  # measured per-host engage rule for the resident pair-combo table; the table is wired only under the strict flag because the non-strict path is not byte-identical
     "_transform_via",  # single-frame pre_pipeline projection retained for external callers; OOF loops use _transform_pair_via
+    "fe_columns",  # frame-agnostic column lister; callers inside the package already know their framework and read .columns directly
+    "suppress_numba_warnings",  # scope-local numba warning context manager offered to numba-heavy entry points instead of a global filter
+    "unpack_ctx_configs_to_locals",  # lifts the suite's 25-attribute ctx unpack into a dict; the suite body keeps its explicit locals
 }
 
 
