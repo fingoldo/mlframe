@@ -53,7 +53,7 @@ def _extval_op_gpu(cp, op: int, a, b):
 
 
 def _candidate_matrix(cp, pa, param_b_list, ops, n, n_ops, resident_operand):
-    """The ``(n, n_ext * n_ops)`` float64 device matrix of ``op_o(pa, ext_e)`` (ext-outer / op-inner), or ``None`` when an external column has the wrong length.
+    """The ``(n, n_ext * n_ops)`` double-precision device matrix of ``op_o(pa, ext_e)`` (ext-outer / op-inner), or ``None`` when an external column has the wrong length.
 
     The fused kernel computes all cells in one launch (``MLFRAME_EXTVAL_FUSED=0`` selects the per-column cupy loop).
 
@@ -63,6 +63,7 @@ def _candidate_matrix(cp, pa, param_b_list, ops, n, n_ops, resident_operand):
     """
     bs = []
     for _pb in param_b_list:
+        # Intentional float64: external-factor values, byte-faithful to the host njit materialisation
         b = resident_operand(_pb, ("extval_ext",), dtype=np.float64).ravel()
         if b.shape[0] != n:
             return None
@@ -71,6 +72,7 @@ def _candidate_matrix(cp, pa, param_b_list, ops, n, n_ops, resident_operand):
         from ._gpu_resident_extval_fused import fused_extval_candidates
 
         return fused_extval_candidates(cp, pa, cp.stack(bs), cp.asarray(ops, dtype=cp.int32))
+    # Intentional float64: per-column loop kept as the reference, same values as the host materialisation
     out_dev = cp.empty((n, len(bs) * n_ops), dtype=cp.float64)
     for _e, b in enumerate(bs):
         _base = _e * n_ops

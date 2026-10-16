@@ -2,7 +2,7 @@
 
 ``_gpu_resident_extval.gpu_materialise_extval_codes_host`` used to issue one cupy expression (one to three kernels) plus one column-assignment
 kernel per (external factor, operand) pair: about 1.3 million launches in a 50k-row conjunction fit. This kernel computes every cell of the
-``(n, n_ext * n_ops)`` float64 matrix in a single launch, with the arithmetic of ``_extval_op_gpu`` (and of ``_materialise_extval_njit``) op for op.
+``(n, n_ext * n_ops)`` double-precision matrix in a single launch, with the arithmetic of ``_extval_op_gpu`` (and of ``_materialise_extval_njit``) op for op.
 """
 
 from __future__ import annotations
@@ -38,13 +38,14 @@ _kernel = None
 
 
 def fused_extval_candidates(cp, pa, ext_stack, ops):
-    """``(n, n_ext * n_ops)`` float64 device matrix of every ``op(pa, ext_e)``; ``ext_stack`` is ``(n_ext, n)`` float64, ``ops`` the int32 op codes."""
+    """``(n, n_ext * n_ops)`` double-precision device matrix of every ``op(pa, ext_e)``; ``ext_stack`` is ``(n_ext, n)`` double precision, ``ops`` the int32 op codes."""
     global _kernel
     if _kernel is None:
         _kernel = cp.RawKernel(_SOURCE, "extval_candidates")
     n = int(pa.shape[0])
     n_ext = int(ext_stack.shape[0])
     n_ops = int(ops.shape[0])
+    # Intentional float64: the candidate values match the host njit materialisation bit for bit
     out = cp.empty((n, n_ext * n_ops), dtype=cp.float64)
     total = n * n_ext * n_ops
     block = 256

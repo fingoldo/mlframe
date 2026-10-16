@@ -112,7 +112,7 @@
  "feature_selection/filters/_gpu_pairs.py": 3,
  "feature_selection/filters/_gpu_resident_basis.py": 33,
  "feature_selection/filters/_gpu_resident_discretize.py": 9,
- "feature_selection/filters/_gpu_resident_extval.py": 9,
+ "feature_selection/filters/_gpu_resident_extval.py": 7,
  "feature_selection/filters/_gpu_resident_fe.py": 14,
  "feature_selection/filters/_gpu_resident_histgate_ktc.py": 1,
  "feature_selection/filters/_gpu_resident_k_chunk_ktc.py": 5,

@@ -70,6 +70,8 @@ def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: flo
     """Per-permutation maximum MI over the family. ``cls_host`` is ``(B, n_y, words)`` uint64; ``py_const = n log n - sum_b xlogx(py_b)``."""
     cp = dev.cp
     kern = _get_kernel(cp)
+    # Intentional float64: label-entropy constant of the MI formula (exact permutation ties)
+    const64 = np.float64(py_const)
     B, n_y, _ = cls_host.shape
     cls_d = cp.asarray(cls_host)
     best = cp.zeros(B, dtype=cp.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
@@ -80,7 +82,7 @@ def null_max_bits_device(dev: DeviceBitsets, cls_host: np.ndarray, py_const: flo
         kern(
             ((total + _THREADS - 1) // _THREADS,),
             (_THREADS,),
-            (bits, dev.n_x[lo:hi], cls_d, dev.table, dev.c_a[lo:hi], dev.px[lo:hi], np.float64(py_const), np.int64(dev.n), np.int32(dev.cap), np.int32(dev.words), np.int32(n_y), np.int32(k), np.int32(B), out),
+            (bits, dev.n_x[lo:hi], cls_d, dev.table, dev.c_a[lo:hi], dev.px[lo:hi], const64, np.int64(dev.n), np.int32(dev.cap), np.int32(dev.words), np.int32(n_y), np.int32(k), np.int32(B), out),
         )
         best = cp.maximum(best, out.max(axis=1))
     host: np.ndarray = cp.asnumpy(best)

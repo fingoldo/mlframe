@@ -16,6 +16,7 @@ Usage::
 from __future__ import annotations
 
 import contextlib
+import logging
 import time
 from collections import defaultdict
 
@@ -121,8 +122,8 @@ def kernel_timer():
 
         _LaunchConfiguration.__call__ = numba_timed
         undo.append((_LaunchConfiguration, "__call__", orig_call))
-    except Exception:  # numba.cuda internals differ between versions: its launches are then simply not listed
-        pass
+    except Exception as exc:  # numba.cuda internals differ between versions: its launches are then simply not listed
+        logging.getLogger(__name__).debug("numba.cuda launches are not timed: %r", exc)
     try:
         yield timer
     finally:

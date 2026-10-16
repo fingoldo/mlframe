@@ -42,8 +42,11 @@ def fused_gate_mi(d_disc, nbins_arr, d_nb, d_y, d_freq, freqs_y, n, K, K_y, P, t
         if _FUSED_KERNEL is None:
             return None
         d_cm = transpose_codes_to_cm(cp.asarray(d_disc))
+        # Intentional float64: statistic vector (MI / SU values compared to the host gate's, exact permutation ties)
         d_out = _nb_cuda.device_array((P, K), dtype=np.float64)
+        # Intentional float64: reference vector of the shared reduction signature
         d_ref = _nb_cuda.to_device(np.ones(K, dtype=np.float64))
+        # Intentional float64: target entropy, the same value the host reduction uses
         fy = np.asarray(freqs_y, dtype=np.float64)
         fy = fy[fy > 0]
         h_y = float(-(fy * np.log(fy)).sum())

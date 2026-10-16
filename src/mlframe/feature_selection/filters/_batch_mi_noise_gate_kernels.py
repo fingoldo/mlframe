@@ -322,7 +322,7 @@ def _cuda_mi_from_counts_kernel_factory():
 def _cuda_su_from_counts_kernel_factory():
     """numba.cuda kernel: symmetric uncertainty ``2 MI / (H(x) + H(y))`` of every (column k, y-vector p) from the integer joint histograms, on the device.
 
-    Same launch shape and arguments as :func:`_cuda_mi_from_counts_kernel_factory` plus ``h_y`` (the entropy of the target, one host float64 shared by every
+    Same launch shape and arguments as :func:`_cuda_mi_from_counts_kernel_factory` plus ``h_y`` (the entropy of the target, one host double shared by every
     permutation since a permutation keeps the class frequencies). MI accumulates in the order of ``_mi_from_counts_cpu`` and H(x) in its own pass over the
     bins after it, exactly as the host reduction does, so the value matches ``_mi_from_counts_cpu(use_su=True)`` to fp round-off. ``denom <= 1e-12`` gives 0.
     Until now an SU noise gate left the device after the histogram (a CPU entropy per permutation and a global-atomic histogram launch per permutation);
@@ -398,6 +398,7 @@ def _reduce_counts_on_device(mi_kernel, su_kernel, blocks, threads, d_counts, d_
     if su_kernel is None:
         mi_kernel[blocks, threads](d_counts, d_off, d_nb, d_freq, n, K_y, d_ref, total_size, P, d_out)  # type: ignore[index]  # numba cuda kernel[grid, block] launch syntax
         return
+    # Intentional float64: target entropy, the same value the host reduction uses
     fy = np.asarray(freqs_host, dtype=np.float64)
     fy = fy[fy > 0]
     h_y = float(-(fy * np.log(fy)).sum())
@@ -672,6 +673,7 @@ def _cuda_fused_gate_kernel_factory():
     if not cuda_available():
         return None
 
+    # Intentional float64: shared-memory partial sums of the MI reduction (the host reduction accumulates in float64)
     from numba import float64 as _f64
     from numba import int32 as _i32
 

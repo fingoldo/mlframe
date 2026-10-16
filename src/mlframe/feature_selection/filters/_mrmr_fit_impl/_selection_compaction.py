@@ -111,6 +111,7 @@ def _synthesized_triplet(X, y_codes, operands):
     The triplet stage is seeded by univariate ranks, which never reach a conjunction whose operands carry no marginal signal; the compaction
     asks for exactly the one triplet its selected features already span.
     """
+    from .._fe_usability_signal import _crit_np_dtype
     from .._orthogonal_triplet_fe import hybrid_orth_mi_triplet_fe_with_recipes
     from .._orthogonal_triplet_fe import _quantile_codes
     from ..engineered_recipes.shared import apply_recipe
@@ -121,12 +122,13 @@ def _synthesized_triplet(X, y_codes, operands):
     if not built:
         return None
     rec = built[0]
-    values = np.asarray(apply_recipe(rec, X), dtype=np.float64).ravel()
+    values = np.asarray(apply_recipe(rec, X), dtype=_crit_np_dtype()).ravel()
     return str(rec.name), rec, _quantile_codes(values, 10).astype(np.int64)
 
 
 def run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engineered_recipes, verbose):
     """Apply :func:`choose_compaction` to the finished selection; returns ``(changed, selected_vars)``."""
+    self._selection_compaction_ = []
     try:
         from ._residual_rescue_stage import _raw_sources
 
@@ -166,7 +168,7 @@ def run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engi
             cand, replaced = choice
             sel_eng = [*(e for e in sel_eng if e not in replaced), cand]
             changed = True
-            self._selection_compaction_ = [*(getattr(self, "_selection_compaction_", None) or []), (cand, tuple(replaced))]
+            self._selection_compaction_ = [*self._selection_compaction_, (cand, tuple(replaced))]
             if verbose:
                 logger.info("MRMR selection compaction: %s replaces %s (at least the same bias-corrected joint information, fewer features).", cand, replaced)
         if not changed:
