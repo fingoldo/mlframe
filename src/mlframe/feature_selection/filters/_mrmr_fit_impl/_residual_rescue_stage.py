@@ -113,6 +113,20 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
     return recipes
 
 
+def _pool_values(X, column, engineered_recipes, apply_recipe) -> np.ndarray:
+    """Continuous values of a pool column. An engineered column of the fit frame holds the BIN CODES of its feature (ten levels), which the scorer treats as nominal and drops: a true term
+    stored as codes was invisible to the rescue while continuous junk was admitted. The column is replayed from its recipe, as the design's engineered columns are; a column with no recipe
+    (a raw) is read as it is, and a replay that fails falls back to the stored column."""
+    name = str(column)
+    recipe = engineered_recipes.get(name) if isinstance(engineered_recipes, dict) else None
+    if recipe is not None:
+        try:
+            return np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+        except Exception:
+            log_throttle(logger, "residual_rescue.pool_replay_failed", logging.WARNING, "MRMR residual rescue: replaying %r from its recipe failed; its stored column is scored instead.", name, exc_info=True)
+    return np.asarray(X[column].to_numpy(), dtype=np.float64)
+
+
 def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "list[str]":
     """Design columns that add nothing to the rest of the selection (``redundancy_policy='drop'`` only).
 
@@ -217,7 +231,7 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         # the rescue's linear gain for it is the same information the compound carries, not a new term.
         redundancy_dropped = set(getattr(self, "_raw_redundancy_dropped_", None) or set())
         pool = {
-            str(c): np.asarray(X[c].to_numpy(), dtype=np.float64)
+            str(c): _pool_values(X, c, engineered_recipes, apply_recipe)
             for c in X.columns
             if str(c) not in design
             and str(c) not in sel_names
