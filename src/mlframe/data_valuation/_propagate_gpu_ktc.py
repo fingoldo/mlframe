@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # sweep must not cost minutes per kernel on a laptop. Above 200k rows the host path (memory-bounded by batch_full) is the default.
 _PROPAGATE_SWEEP_N_FULL = [50_000, 200_000]
 _PROPAGATE_SWEEP_N_SUB = [2_000, 20_000]
-_PROPAGATE_SALT = 1
+_PROPAGATE_SALT = 2  # equivalence is now exact: zero host/resident mismatches measured on the whole sweep grid
 
 
 def propagate_use_resident(n_full: int, n_sub: int) -> bool:
@@ -106,10 +106,10 @@ def _propagate_resident(X_full, X_sub, values):
 
 def _run_propagate_sweep() -> list:
     """Time the host chunked-cdist path vs the GPU-resident path across the (n_full, n_sub) grid; faster
-    EQUIVALENT wins per region (bit-identical up to nearest-neighbor TIE-BREAK order -- a genuine tie
-    picks whichever candidate each backend's own argmin/argpartition happens to return first, an
-    unavoidable discretization artifact rather than a real divergence, so the sweep loosens tolerance
-    accordingly)."""
+    EQUIVALENT wins per region. The output is the subsample VALUE of each row's nearest neighbour, so it is either identical or a different
+    candidate: on the whole sweep grid the two backends pick the same neighbour for every row (0 mismatches over 50k and 200k rows), so the
+    check is exact. A genuine near-tie would flip one row to another candidate; that would drop the resident variant on that cell rather than
+    be waved through by a tolerance that can hide a wrong neighbour."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {"host": _propagate_host, "resident": _propagate_resident}
@@ -118,7 +118,7 @@ def _run_propagate_sweep() -> list:
         {"n_full": _PROPAGATE_SWEEP_N_FULL, "n_sub": _PROPAGATE_SWEEP_N_SUB},
         _make_propagate_inputs,
         reference="host",
-        repeats=3, equiv_rtol=1e-3, equiv_atol=1e-3,
+        repeats=3, equiv_rtol=0.0, equiv_atol=1e-12,
     ))
 
 

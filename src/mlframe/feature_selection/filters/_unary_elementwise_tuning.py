@@ -40,7 +40,7 @@ except ImportError:
 _UNARY_DEFAULT_MIN_CELLS = 500_000
 # Capped at 3.2M rows: the 12.8M cell repeated per variant and location costs tens of seconds on a laptop-class host.
 _UNARY_SWEEP_N = [50_000, 200_000, 800_000, 3_200_000]
-_UNARY_SALT = 3  # residency-aware sweep + cupy variant now includes output D2H
+_UNARY_SALT = 4  # tolerance tightened from 1e-4/1e-5 to the measured 1-ULP float32 divergence (6e-8 abs)
 
 
 def _is_device(x) -> bool:
@@ -77,7 +77,7 @@ def _make_unary_inputs(dims: dict):
 def _run_unary_sweep() -> list:
     """Full n_samples grid x residency sweep (numpy vs cupy, DRAM- and
     VRAM-resident) -> ``location_eq`` backend_choice regions. cupy is included
-    only when importable; float32 elementwise maps agree to a loosened tol."""
+    only when importable; float32 elementwise maps agree to 1 ULP (measured 6e-8 absolute, 1.2e-7 relative), so the tolerance is 1e-6."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     from mlframe.feature_selection.filters._gpu_strict_fe._audit import audit_exempt
@@ -94,8 +94,8 @@ def _run_unary_sweep() -> list:
             reference="numpy",
             residencies=("host", "device") if _HAS_CUPY else ("host",),
             repeats=5,
-            equiv_rtol=1e-4,
-            equiv_atol=1e-5,
+            equiv_rtol=1e-6,
+            equiv_atol=1e-6,
         ))
 
 

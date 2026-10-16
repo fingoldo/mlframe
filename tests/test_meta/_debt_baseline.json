@@ -1,5 +1,5 @@
 {
   "test_config_field_consumption::_USER_DEFERRED_DEAD": 8,
   "test_dead_helpers::_USER_DEFERRED_DEAD_HELPERS": 6,
-  "test_ktc_sweep_tolerances::_USER_DEFERRED_LOOSE_TOLERANCE": 6
+  "test_ktc_sweep_tolerances::_USER_DEFERRED_LOOSE_TOLERANCE": 1
 }

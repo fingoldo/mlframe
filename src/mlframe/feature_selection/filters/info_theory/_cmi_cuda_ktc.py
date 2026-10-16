@@ -29,7 +29,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 # kernel amortises its launch only once p is sizable, so p is a real axis (not just n).
 _CMI_SWEEP_N_SAMPLES = [50_000, 100_000, 300_000, 1_000_000]
 _CMI_SWEEP_P = [16, 64, 128, 256]
-_CMI_SALT = 1
+_CMI_SALT = 2  # equivalence tolerance tightened from 1e-5/1e-6 to the measured ~1e-13 FP-reorder divergence
 
 # Un-tuned default crossover (the historical hardcoded heuristic): CUDA from ~n*p >= 1e6 with p >= 64. Used
 # ONLY when the cache has no entry / cupy missing / lookup fails. KEPT as the safe bootstrap per the repo rule.
@@ -113,7 +113,7 @@ def _cmi_variant(factors, cand_indices, y_index, z_index, factors_nbins, *, back
 
 def _run_cmi_sweep() -> list:
     """Time CPU vs CUDA on the real conditional-MI dispatch across the n x p grid; faster EQUIVALENT wins per
-    region. The kernel reproduces the CPU value to ~1e-9 so the equivalence tol is loose accordingly."""
+    region. Measured CPU-vs-CUDA divergence is <=1e-13 absolute (<=2e-11 relative) over the n x p grid's small cells, so the equivalence tolerance is 1e-8 / 1e-11."""
     from pyutilz.dev.benchmarking import sweep_backend_grid
 
     variants = {
@@ -125,7 +125,7 @@ def _run_cmi_sweep() -> list:
         {"n_samples": _CMI_SWEEP_N_SAMPLES, "p": _CMI_SWEEP_P},
         _make_cmi_inputs,
         reference="cpu",
-        repeats=3, equiv_rtol=1e-5, equiv_atol=1e-6,
+        repeats=3, equiv_rtol=1e-8, equiv_atol=1e-11,
     ))
 
 

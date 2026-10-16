@@ -28,21 +28,11 @@ _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy", "profiling", "explor
 _MAX_TOLERANCE = 1e-6
 
 # "relpath::funcname" -> why a genuinely-different-algorithm comparison needs a loose tolerance.
-_PREEXISTING = (
-    "pre-existing sweep comparing a GPU kernel against a CPU reference with a genuinely different reduction "
-    "structure (not an FP-reorder twin). Tightening it would change which backend a host selects, so it needs "
-    "its own numerical validation first; deferred rather than retightened blind."
-)
 _USER_DEFERRED_LOOSE_TOLERANCE: dict[str, str] = {
     "feature_selection/filters/_resident_candidate_mi_ktc.py::_run_rescand_sweep": (
         "rank binning vs percentile-edge binning are DIFFERENT binning schemes that disagree at ties; the "
         "module documents this as the approved FE-PAIR selection-equivalence trade, not an FP-reorder twin."
     ),
-    "data_valuation/_propagate_gpu_ktc.py::_run_propagate_sweep": _PREEXISTING,
-    "feature_selection/filters/_cat_confirm_permutation_tuning.py::_run_perm_kernel_sweep": _PREEXISTING,
-    "feature_selection/filters/_unary_elementwise_tuning.py::_run_unary_sweep": _PREEXISTING,
-    "feature_selection/filters/batch_pair_mi_gpu.py::_run_batch_pair_mi_sweep": _PREEXISTING,
-    "feature_selection/filters/info_theory/_cmi_cuda_ktc.py::_run_cmi_sweep": _PREEXISTING,
 }
 
 
