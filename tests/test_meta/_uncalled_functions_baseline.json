@@ -740,10 +740,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/_model_factories.py::make_quantile_dmatrix": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/_regression_calibration.py::duan_log_smearing_factor": {
    "count": 1,
    "note": ""
