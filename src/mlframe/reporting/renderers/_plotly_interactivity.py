@@ -13,7 +13,12 @@ from typing import Any
 from ._shared_helpers import plotly_axis_suffix
 
 from mlframe.reporting.spec import (
-    BarPanelSpec, HeatmapPanelSpec, HistogramPanelSpec, LinePanelSpec, ScatterPanelSpec, ViolinPanelSpec,
+    BarPanelSpec,
+    HeatmapPanelSpec,
+    HistogramPanelSpec,
+    LinePanelSpec,
+    ScatterPanelSpec,
+    ViolinPanelSpec,
 )
 
 # Rarely-used buttons dropped from the modebar; zoom/pan/reset/download stay. lasso/select only make sense
@@ -43,11 +48,6 @@ def _trace_axis(tr) -> str:
 def _line_is_temporal(p: LinePanelSpec) -> bool:
     """Whether the line panel's x-axis is a time axis (a precondition for the opt-in rangeslider)."""
     return bool(getattr(p, "x_is_time", False))
-
-
-def _line_is_multiseries(p: LinePanelSpec) -> bool:
-    """Whether the line panel plots more than one y-series (affects hovertemplate/legend handling)."""
-    return isinstance(p.y, tuple) and len(p.y) > 1
 
 
 def _key_template(p: LinePanelSpec) -> str | None:

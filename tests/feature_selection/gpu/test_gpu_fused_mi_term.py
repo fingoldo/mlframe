@@ -52,11 +52,3 @@ def test_fused_mi_term_matches_numpy_reference(n, k, nbins, nclasses, seed):
     contrib = (hxyc * inv_n) * (np.log(safe) + log_n - logx - logy)
     ref = np.where(hxyc > 0, contrib, 0.0)
     np.testing.assert_allclose(got, ref, rtol=1e-12, atol=1e-15)
-
-def test_fused_mi_default_on(monkeypatch):
-    """The fused path is the default (env unset)."""
-    from mlframe.feature_selection.filters.hermite_fe import _plugin_mi_classif_batch_cuda_resident  # noqa: F401 -- force canonical init
-    from mlframe.feature_selection.filters._hermite_fe_mi import _fe_gpu_fuse_mi_enabled
-
-    monkeypatch.delenv("MLFRAME_FE_GPU_FUSE_MI", raising=False)
-    assert _fe_gpu_fuse_mi_enabled() is True

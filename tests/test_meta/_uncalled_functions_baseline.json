@@ -292,10 +292,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_hermite_fe_mi.py::_fe_gpu_fuse_mi_enabled": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_hinge_basis_fe.py::_segmented_sse": {
    "count": 1,
    "note": ""
@@ -413,10 +409,6 @@
    "note": ""
   },
   "src/mlframe/feature_selection/filters/info_theory/_cmi_cuda.py::reset_cmi_forder_cache": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_selection/filters/info_theory/_entropy_kernels.py::conditional_mi_redundancy_batched": {
    "count": 1,
    "note": ""
   },
@@ -617,10 +609,6 @@
    "note": ""
   },
   "src/mlframe/reporting/charts/error_analysis.py::clear_feature_matrix_cache": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/reporting/renderers/_plotly_interactivity.py::_line_is_multiseries": {
    "count": 1,
    "note": ""
   },
