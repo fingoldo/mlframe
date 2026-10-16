@@ -719,6 +719,11 @@ _REEXPORTED_PUBLIC_API = {
     "spearmanr_batched_dispatch",  # exported by mlframe.metrics (direct-use public surface)
     "set_spearmanr_dispatch_threshold",  # exported by mlframe.metrics (direct-use public surface)
     "bootstrap_auc_distribution_parallel",  # exported by mlframe.metrics (direct-use public surface)
+    "composite_value_report",  # exported by mlframe.training.composite (__all__)
+    "mondrian_ood_summary",  # exported by mlframe.training.composite (__all__)
+    "concordance_index",  # exported by mlframe.training.composite (__all__)
+    "check_and_rediscover",  # exported by mlframe.training.composite (__all__)
+    "detect_cat_columns",  # exported by mlframe.training.composite (__all__)
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -1012,7 +1017,6 @@ _PLANNED: set[str] = {
     "make_pool",  # library helper with no in-repo caller; owner decides to export or drop
     "recalibration_rmse_gain",  # library helper with no in-repo caller; owner decides to export or drop
     "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
-    "mondrian_ood_summary",  # library helper with no in-repo caller; owner decides to export or drop
     "_rolling_quantile_radius",  # library helper with no in-repo caller; owner decides to export or drop
     "calibration_adjusted_score",  # library helper with no in-repo caller; owner decides to export or drop
     "benjamini_hochberg_reject",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1020,11 +1024,7 @@ _PLANNED: set[str] = {
     "attach_grouped_causal_bases",  # library helper with no in-repo caller; owner decides to export or drop
     "screen_base_pool",  # library helper with no in-repo caller; owner decides to export or drop
     "_monotone_fraction",  # library helper with no in-repo caller; owner decides to export or drop
-    "detect_cat_columns",  # library helper with no in-repo caller; owner decides to export or drop
-    "check_and_rediscover",  # library helper with no in-repo caller; owner decides to export or drop
     "_registered_transform_names",  # library helper with no in-repo caller; owner decides to export or drop
-    "composite_value_report",  # library helper with no in-repo caller; owner decides to export or drop
-    "concordance_index",  # library helper with no in-repo caller; owner decides to export or drop
     "_linear_residual_fit_closed",  # library helper with no in-repo caller; owner decides to export or drop
     "unpack_ctx_configs_to_locals",  # library helper with no in-repo caller; owner decides to export or drop
     "recover_composite_y_scale_metrics",  # library helper with no in-repo caller; owner decides to export or drop

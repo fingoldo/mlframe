@@ -208,6 +208,11 @@ from .model_card import composite_model_card
 # Auto temporal base engineering, bagged (epistemic) composite, survival/AFT.
 from mlframe.training.composite.discovery.shared import engineer_temporal_bases
 from .bagging import BaggedCompositeEstimator
+from .report import composite_value_report
+from .conformal import mondrian_ood_summary
+from .survival import concordance_index
+from .monitoring_rediscovery import check_and_rediscover
+from .discovery.auto_detect import detect_cat_columns
 from .survival import CompositeSurvivalEstimator
 from .dual_direction import DualDirectionCompositeEstimator
 
@@ -363,6 +368,7 @@ __all__ = [
     "MissingAwareComposite", "CompositeFeatureGenerator", "stability_select_specs",
     "CompositeSimplexEstimator", "CompositeQRFEstimator", "aitchison_distance",
     "build_composite_value_report", "render_composite_value_report", "MoESelectionGate",
+    "composite_value_report", "mondrian_ood_summary", "concordance_index", "check_and_rediscover", "detect_cat_columns",
     "regime_headroom_map", "render_regime_headroom_map",
     "winkler_interval_score", "winkler_score_per_row", "winkler_score_per_group",
     "mean_coverage", "interval_quality_summary",
