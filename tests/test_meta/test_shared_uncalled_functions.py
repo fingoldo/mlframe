@@ -971,9 +971,7 @@ _PLANNED: set[str] = {
     "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
     "_transform_via",  # applies a fitted pre-pipeline or passes X through, planned for the ensemble predict path
     "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
-    "disable_native_es_for_slice_stable",  # strips native early stopping under slice-stable ES, planned for per-slice boosters
     "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
-    "wrap_with_lookahead",  # conditional Lookahead wrapper, planned for the neural optimiser setup
     "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
     "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
     "compute_permutation_importances",  # user-facing permutation importance helper not yet exported, planned as public API
@@ -1043,6 +1041,7 @@ _OPTIN = {
     "_wrap_text",  # thin plotly-flavoured wrapper over wrap_title_lines (the renderers call the measuring twin), kept for fixed-width <br> folding
     "_get_cached_plot_idx",  # LRU-cached scatter subsample index; charts now use subsample_preserving_extremes, kept for fixed-seed uniform subsampling
     "clear_pinned_d2h",  # releases page-locked host memory on request; the buffer is reused across fits for PCIe speed, so no automatic clear
+    "disable_native_es_for_slice_stable",  # configs-level twin of the per-model early_stopping_rounds strip done in _train_and_evaluate_val_df_none
 }
 
 

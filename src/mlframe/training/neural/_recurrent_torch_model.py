@@ -676,13 +676,13 @@ class RecurrentTorchModel(L.LightningModule):
         # F-62 (2026-05-31): optional Lookahead meta-optimizer wrap. Off by
         # default for the recurrent path; users can opt in via
         # RecurrentConfig.use_lookahead. Composes with F-44 fused AdamW.
-        if getattr(self.config, "use_lookahead", False):
-            from ._lookahead_optimizer import Lookahead
-            optimizer = Lookahead(
-                optimizer,
-                k=getattr(self.config, "lookahead_k", 5),
-                alpha=getattr(self.config, "lookahead_alpha", 0.5),
-            )
+        from ._lookahead_optimizer import wrap_with_lookahead
+        optimizer = wrap_with_lookahead(
+            optimizer,
+            bool(getattr(self.config, "use_lookahead", False)),
+            k=getattr(self.config, "lookahead_k", 5),
+            alpha=getattr(self.config, "lookahead_alpha", 0.5),
+        )
 
         if self.trainer and self.trainer.estimated_stepping_batches:
             scheduler = torch.optim.lr_scheduler.OneCycleLR(
