@@ -1047,6 +1047,9 @@ _SUPERSEDED = {
     # unhoisted per-pair reference of _maybe_rerank_with_mm; equality pinned in
     # tests/feature_selection/fe/categorical/test_cat_mm_rerank_vs_per_pair_reference.py
     "_compute_pair_ii_mm",
+    # per-column OLS form of the closed-form 1 - corr^2 the vectorised structural screen uses; equality pinned in
+    # tests/training/composite/discovery/test_residual_variance_ratio_closed_form.py
+    "_residual_variance_ratio",
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -1071,14 +1074,10 @@ _FRAMEWORK_HOOKS: set[str] = {
 
 #: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
 _PLANNED: set[str] = {
-    "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
-    "apply_gpu_binary_batched",  # batched GPU binary apply, planned for the resident FE path
-    "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
     "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
     "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
     "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
     "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
-    "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
     "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
     "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1120,6 +1119,15 @@ _OPTIN = {
     # tests/feature_selection/filters/test_pair_tail_concentration_predicates.py
     "pair_is_tail_concentrated",
     "_column_tie_fraction",  # gate predicate for tie-sensitive shadow kernels; the shipped permutation shadow is tie-agnostic so nothing gates on it yet
+    # batched GPU applier for GPU-compatible names; production builds candidates with the fused resident kernels, agreement with the CPU registry pinned in
+    # tests/feature_selection/gpu/test_apply_gpu_batched_vs_cpu_registry.py
+    "apply_gpu_unary_batched",
+    # batched GPU applier for GPU-compatible names; production builds candidates with the fused resident kernels, agreement with the CPU registry pinned in
+    # tests/feature_selection/gpu/test_apply_gpu_batched_vs_cpu_registry.py
+    "apply_gpu_binary_batched",
+    # multi-pair prange entry of the numba polynom optimiser; the dispatcher calls run_numba_kernel_search per pair, tests in
+    # test_numba_polynom_optimizer.py
+    "optimize_all_pairs_numba_kernel",
 }
 
 
