@@ -54,6 +54,8 @@ _PUBLIC_API = {
     "get_or_create_mlflow_run",
     "embed_website_to_mlflow",  # user-facing helpers of mlframe.integrations.mlflow, each pinned by tests/integrations/test_mlflow.py
     "reset_throttle_counts",  # documented in mlframe.utils.log_throttle.__all__; the test-isolation reset for every throttle key, used by 30+ tests
+    "clip_to_quantiles_hard",  # documented preset for choosing a target transform (1%/99% quantile clip)
+    "clip_to_quantiles_winsor_quantile",  # documented preset for choosing a target transform (soft winsorise)
 }
 
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library

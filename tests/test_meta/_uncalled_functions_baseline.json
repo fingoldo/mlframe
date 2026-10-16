@@ -40,14 +40,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/estimators/custom.py::clip_to_quantiles_hard": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/estimators/custom.py::clip_to_quantiles_winsor_quantile": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/estimators/custom.py::create_dummy_lagged_predictions": {
    "count": 1,
    "note": ""
@@ -165,10 +157,6 @@
    "note": ""
   },
   "src/mlframe/feature_engineering/transformer/_kernels_cupy.py::clear_pinned_buffers": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/feature_engineering/transformer/_kernels_cupy.py::vram_required_gb": {
    "count": 1,
    "note": ""
   },
