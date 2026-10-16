@@ -65,6 +65,8 @@ from ._boruta import boruta_select
 from ._per_fold_majority_accept import per_fold_majority_accept, seed_averaged_fold_scores
 from ._ks_stability import ks_stability_filter
 from .estimators import ksg_mi_pair, ksg_mi_with_significance, ksg_mi_with_target, nsb_mi
+from .supervised_binning import apply_bin_edges, optimal_bin_edges
+from .composition import compose_pair_fe, validate_pair_fe_cv
 
 from ._target_mix_target import (
     add_back_mix_offset,
@@ -90,6 +92,10 @@ __all__ = [
     "ksg_mi_with_significance",
     "ksg_mi_with_target",
     "nsb_mi",
+    "apply_bin_edges",
+    "optimal_bin_edges",
+    "compose_pair_fe",
+    "validate_pair_fe_cv",
     "generate_rankgauss_features",
     "apply_rankgauss",
     "engineered_name_rankgauss",

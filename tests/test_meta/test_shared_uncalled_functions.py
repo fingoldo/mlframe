@@ -727,6 +727,15 @@ _REEXPORTED_PUBLIC_API = {
     "ksg_mi_pair",  # exported by mlframe.feature_selection.filters (__all__)
     "ksg_mi_with_significance",  # exported by mlframe.feature_selection.filters (__all__)
     "nsb_mi",  # exported by mlframe.feature_selection.filters (__all__)
+    "optimal_bin_edges",  # exported by mlframe.feature_selection.filters (__all__)
+    "apply_bin_edges",  # exported by mlframe.feature_selection.filters (__all__)
+    "compose_pair_fe",  # exported by mlframe.feature_selection.filters (__all__)
+    "validate_pair_fe_cv",  # exported by mlframe.feature_selection.filters (__all__)
+    "numpy_rng_scope",  # exported by its package (__all__ / lazy export map)
+    "curated_fe_pipelines",  # exported by its package (__all__ / lazy export map)
+    "recommended_curated_fe_names",  # exported by its package (__all__ / lazy export map)
+    "wavedec_dispatch",  # exported by its package (__all__ / lazy export map)
+    "wavelet_denoise",  # exported by its package (__all__ / lazy export map)
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -967,12 +976,8 @@ _PLANNED: set[str] = {
     "_split_arrays",  # groups a value array by split label for error analysis, planned for the split charts
     "_wrap_text",  # label wrapping for plotly charts, planned for the chart labels
     "_get_cached_plot_idx",  # cached random subsample index for scatter plots, planned for the residual plots
-    "curated_fe_pipelines",  # library helper with no in-repo caller; owner decides to export or drop
-    "recommended_curated_fe_names",  # library helper with no in-repo caller; owner decides to export or drop
     "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
     "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
-    "wavedec_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
-    "wavelet_denoise",  # library helper with no in-repo caller; owner decides to export or drop
     "_column_tie_fraction",  # library helper with no in-repo caller; owner decides to export or drop
     "ensure_batch_mi_noise_gate_tuning",  # library helper with no in-repo caller; owner decides to export or drop
     "_global_stat",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1000,13 +1005,9 @@ _PLANNED: set[str] = {
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
     "select_usability_aware_features",  # library helper with no in-repo caller; owner decides to export or drop
     "pool_table_use_resident",  # library helper with no in-repo caller; owner decides to export or drop
-    "compose_pair_fe",  # library helper with no in-repo caller; owner decides to export or drop
-    "validate_pair_fe_cv",  # library helper with no in-repo caller; owner decides to export or drop
     "_quantile_codes_1d_njit",  # library helper with no in-repo caller; owner decides to export or drop
     "score_trivial_baselines",  # library helper with no in-repo caller; owner decides to export or drop
     "plugin_mi_classif_batch_fast",  # library helper with no in-repo caller; owner decides to export or drop
-    "apply_bin_edges",  # library helper with no in-repo caller; owner decides to export or drop
-    "optimal_bin_edges",  # library helper with no in-repo caller; owner decides to export or drop
     "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
     "_kruskal_wallis_h",  # library helper with no in-repo caller; owner decides to export or drop
     "_mann_whitney_u_z",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1035,7 +1036,6 @@ _PLANNED: set[str] = {
     "_excess_kurtosis",  # library helper with no in-repo caller; owner decides to export or drop
     "_skewness",  # library helper with no in-repo caller; owner decides to export or drop
     "compare_targets_performance",  # library helper with no in-repo caller; owner decides to export or drop
-    "numpy_rng_scope",  # library helper with no in-repo caller; owner decides to export or drop
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
