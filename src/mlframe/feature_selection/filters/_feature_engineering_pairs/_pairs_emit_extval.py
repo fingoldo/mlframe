@@ -288,6 +288,12 @@ def _emit_pair_features_step2_read_here_once(
                             # byte-identical column-prange twin here too (no joblib nest).
                             parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
                         )
+                if _family_exact and isinstance(_ev_disc, np.ndarray):
+                    # The family gate reads these codes on the host after the dispatch; an unfilled deferred GPU buffer would read as zeros (the
+                    # dispatch drops the deferred-fill record when it ends), so fill it before. A family past the budget is never read: skip the D2H.
+                    from mlframe.feature_selection.filters._gpu_resident_fe import ensure_host_codes_filled
+
+                    ensure_host_codes_filled(_ev_disc)
                 _ev_mi = _dispatch_batch_mi_with_noise_gate(
                     disc_2d=_ev_disc,
                     quantization_nbins=quantization_nbins,
