@@ -589,112 +589,130 @@ def _emit_pair_features_step2_read_here_once(
         # chunk/disc/MI buffers and is allocated per concurrent worker, so use the
         # SAME overhead+worker-aware envelope as the candidate buffer above.
         _ev_can_batch, _, _ = _can_hoist_shared_buffer(_ev_buf_bytes, n_workers=_n_workers)
+        # Chunk the external factors when the whole (n, factors x ops) float64 buffer does not fit the RAM budget: the per-candidate MI and
+        # codes are column-independent, so scoring the candidates chunk by chunk is identical to one batch, and far cheaper than the
+        # per-candidate loop below (54k single-column discretise + MI calls on a 50000-row, 3795-candidate fit).
+        _ev_chunk = len(_ev_param_bs)
+        while _ev_chunk > 1 and not _ev_can_batch:
+            _ev_chunk = max(1, _ev_chunk // 2)
+            _ev_can_batch, _, _ = _can_hoist_shared_buffer(len(X) * _ev_chunk * _ev_n_bin * 8, n_workers=_n_workers)
         if quantization_method == "quantile" and _ev_param_bs and _ev_can_batch:
-            _ev_bin_funcs = list(binary_transformations.values())
-            _ev_K = len(_ev_param_bs) * len(_ev_bin_funcs)
-            # float64 buffer: the per-candidate path discretises the RAW
-            # ``valid_bin_func(...)`` output (numpy bin_funcs return float64) with
-            # NO nan_to_num - ``discretize_array``/``discretize_2d_quantile_batch``
-            # both bin via ``np.nanpercentile`` (NaN-ignoring edges) + per-column
-            # ``searchsorted`` (NaN -> rightmost bin), identically. Writing into a
-            # float64 buffer (not float32) preserves the bin_func's native precision
-            # so the percentile edges match the 1-D path to the bit.
-            _ev_code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
-            _ev_col = _ev_K
-            _ev_disc = None
-            # DEVICE-BORN EXT-VAL CANDIDATES (Phase-1 residency, 2026-07-01). Build out[:, e*n_ops+o] =
-            # op(param_a, ext_e) RESIDENT in float64 + quantile-bin RESIDENT, so the (n, K) candidate
-            # matrix NEVER crosses H2D - only param_a + the external-factor columns upload (once, small),
-            # killing the ~46 MB gpu_discretize_codes_host bulk H2D at full n. Engaged only on the strict-
-            # resident path (no KTC crossover - residency contract, wall-loss accepted) AND when every op
-            # is registry-coded; any cupy fault returns None -> the exact host njit + upload path below.
-            # The device ops are the float64 numpy bin_func semantics op-for-op and NaN/inf are NOT
-            # scrubbed (routed to the rightmost bin by the same resident binner, as nanpercentile +
-            # searchsorted do on the host) -> codes selection-equivalent (see
-            # _gpu_resident_extval.gpu_materialise_extval_codes_host).
-            if _ev_op_codes is not None:
-                try:
-                    from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_on
+            _ev_all_param_bs = _ev_param_bs
+            _ev_chunk_codes: list = []
+            _ev_all_scored = True
+            for _ev_c0 in range(0, len(_ev_all_param_bs), _ev_chunk):
+                _ev_param_bs = _ev_all_param_bs[_ev_c0 : _ev_c0 + _ev_chunk]
+                _ev_bin_funcs = list(binary_transformations.values())
+                _ev_K = len(_ev_param_bs) * len(_ev_bin_funcs)
+                # float64 buffer: the per-candidate path discretises the RAW
+                # ``valid_bin_func(...)`` output (numpy bin_funcs return float64) with
+                # NO nan_to_num - ``discretize_array``/``discretize_2d_quantile_batch``
+                # both bin via ``np.nanpercentile`` (NaN-ignoring edges) + per-column
+                # ``searchsorted`` (NaN -> rightmost bin), identically. Writing into a
+                # float64 buffer (not float32) preserves the bin_func's native precision
+                # so the percentile edges match the 1-D path to the bit.
+                _ev_code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
+                _ev_col = _ev_K
+                _ev_disc = None
+                # DEVICE-BORN EXT-VAL CANDIDATES (Phase-1 residency, 2026-07-01). Build out[:, e*n_ops+o] =
+                # op(param_a, ext_e) RESIDENT in float64 + quantile-bin RESIDENT, so the (n, K) candidate
+                # matrix NEVER crosses H2D - only param_a + the external-factor columns upload (once, small),
+                # killing the ~46 MB gpu_discretize_codes_host bulk H2D at full n. Engaged only on the strict-
+                # resident path (no KTC crossover - residency contract, wall-loss accepted) AND when every op
+                # is registry-coded; any cupy fault returns None -> the exact host njit + upload path below.
+                # The device ops are the float64 numpy bin_func semantics op-for-op and NaN/inf are NOT
+                # scrubbed (routed to the rightmost bin by the same resident binner, as nanpercentile +
+                # searchsorted do on the host) -> codes selection-equivalent (see
+                # _gpu_resident_extval.gpu_materialise_extval_codes_host).
+                if _ev_op_codes is not None:
+                    try:
+                        from mlframe.feature_selection.filters._gpu_strict_fe import fe_gpu_strict_resident_enabled as _ev_resident_on
 
-                    _ev_use_dev = bool(_ev_resident_on())
-                except Exception as e:
-                    log_throttle(
-                        logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e
-                    )
-                    _ev_use_dev = False
-                if _ev_use_dev:
-                    from mlframe.feature_selection.filters._gpu_resident_extval import gpu_materialise_extval_codes_host
+                        _ev_use_dev = bool(_ev_resident_on())
+                    except Exception as e:
+                        log_throttle(
+                            logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e
+                        )
+                        _ev_use_dev = False
+                    if _ev_use_dev:
+                        from mlframe.feature_selection.filters._gpu_resident_extval import gpu_materialise_extval_codes_host
 
-                    _ev_disc = gpu_materialise_extval_codes_host(
-                        param_a,
-                        _ev_param_bs,
-                        _ev_op_codes,
-                        int(quantization_nbins),
-                        dtype=_ev_code_dtype,
-                        defer_host_fill=True,
-                        param_a_dev=_pa_dev,
-                    )
-            if _ev_disc is None:
-                # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
-                if param_a is None:
-                    param_a = _resolve_col(i)
-                _ev_buf, _ev_col = _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_K, len(X), _materialise_extval_njit)
-                # GPU BINNING: the ext-val survivor binning (full n) gets the same
-                # dedicated binning crossover - bit-identical to the CPU njit binning (maxdiff 0)
-                # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
-                try:
-                    from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
-
-                    if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
-                        from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
-
-                        # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
-                        # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
-                        # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
-                        # the resident gate is the consumer. Bit-identical (host buffer == device.get()).
-                        _ev_disc = gpu_discretize_codes_host(
-                            _ev_buf[:, :_ev_col],
+                        _ev_disc = gpu_materialise_extval_codes_host(
+                            param_a,
+                            _ev_param_bs,
+                            _ev_op_codes,
                             int(quantization_nbins),
                             dtype=_ev_code_dtype,
                             defer_host_fill=True,
+                            param_a_dev=_pa_dev,
                         )
-                except Exception as e:
-                    log_throttle(
-                        logger, "pairs_emit_resident_discretize", logging.WARNING, "resident discretization failed, falling back to the host path: %s", e
-                    )
-                    _ev_disc = None
                 if _ev_disc is None:
-                    _ev_disc = discretize_2d_quantile_batch(
-                        _ev_buf[:, :_ev_col],
-                        n_bins=quantization_nbins,
-                        dtype=_ev_code_dtype,
-                        # OPT-A extension: the marginal-uplift gate's
-                        # discretise ran the SERIAL searchsorted kernel on the main
-                        # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
-                        # the other cores sat idle. ``check_prospective_fe_pairs`` carries
-                        # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
-                        # dispatch, so the same OPT-A predicate that already gates the
-                        # main chunk's discretise (line ~907) safely selects the
-                        # byte-identical column-prange twin here too (no joblib nest).
-                        parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
-                    )
-            _ev_mi = _dispatch_batch_mi_with_noise_gate(
-                disc_2d=_ev_disc,
-                quantization_nbins=quantization_nbins,
-                classes_y=classes_y,
-                classes_y_safe=classes_y_safe,
-                freqs_y=freqs_y,
-                npermutations=fe_npermutations,
-                min_nonzero_confidence=fe_min_nonzero_confidence,
-                use_su=use_su_normalization(),
-                batch_mi_kernel=batch_mi_with_noise_gate,
-                env_gate=_fe_env_gate,
-            )
-            if _ev_mi is not None and len(_ev_mi) and _ev_disc is not None:
-                _host_codes = _ev_disc[:, : int(_ev_col)]
-                _pair_batches.append((config, _host_codes.get() if hasattr(_host_codes, "get") else np.asarray(_host_codes)))
-            if _ev_mi is not None and len(_ev_mi):
-                best_valid_mi = float(np.max(_ev_mi))
+                    # HOST PATH (unchanged): materialise the (n, K) float64 buffer then discretise.
+                    if param_a is None:
+                        param_a = _resolve_col(i)
+                    _ev_buf, _ev_col = _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_K, len(X), _materialise_extval_njit)
+                    # GPU BINNING: the ext-val survivor binning (full n) gets the same
+                    # dedicated binning crossover - bit-identical to the CPU njit binning (maxdiff 0)
+                    # and much faster at large n. Any GPU failure falls back to the CPU discretise below.
+                    try:
+                        from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _fe_gpu_binning_enabled
+
+                        if _fe_gpu_binning_enabled(_ev_buf.shape[0], _ev_col):
+                            from mlframe.feature_selection.filters._gpu_resident_fe import gpu_discretize_codes_host
+
+                            # defer_host_fill: the codes flow straight into _dispatch_batch_mi_with_noise_gate,
+                            # whose resident-CUDA gate consumes the DEVICE codes in place; the host buffer is
+                            # filled lazily only on a host-reading branch. Skips the (n, K) codes D2H whenever
+                            # the resident gate is the consumer. Bit-identical (host buffer == device.get()).
+                            _ev_disc = gpu_discretize_codes_host(
+                                _ev_buf[:, :_ev_col],
+                                int(quantization_nbins),
+                                dtype=_ev_code_dtype,
+                                defer_host_fill=True,
+                            )
+                    except Exception as e:
+                        log_throttle(
+                            logger, "pairs_emit_resident_discretize", logging.WARNING, "resident discretization failed, falling back to the host path: %s", e
+                        )
+                        _ev_disc = None
+                    if _ev_disc is None:
+                        _ev_disc = discretize_2d_quantile_batch(
+                            _ev_buf[:, :_ev_col],
+                            n_bins=quantization_nbins,
+                            dtype=_ev_code_dtype,
+                            # OPT-A extension: the marginal-uplift gate's
+                            # discretise ran the SERIAL searchsorted kernel on the main
+                            # thread (post-OPT-D the top sampler hotspot, ~21% of fit) while
+                            # the other cores sat idle. ``check_prospective_fe_pairs`` carries
+                            # ``serial_main_thread`` down from _mrmr_fe_step's ``len(X)<50000``
+                            # dispatch, so the same OPT-A predicate that already gates the
+                            # main chunk's discretise (line ~907) safely selects the
+                            # byte-identical column-prange twin here too (no joblib nest).
+                            parallel=_fe_use_parallel_kernels(_ev_col, serial_main_thread),
+                        )
+                _ev_mi = _dispatch_batch_mi_with_noise_gate(
+                    disc_2d=_ev_disc,
+                    quantization_nbins=quantization_nbins,
+                    classes_y=classes_y,
+                    classes_y_safe=classes_y_safe,
+                    freqs_y=freqs_y,
+                    npermutations=fe_npermutations,
+                    min_nonzero_confidence=fe_min_nonzero_confidence,
+                    use_su=use_su_normalization(),
+                    batch_mi_kernel=batch_mi_with_noise_gate,
+                    env_gate=_fe_env_gate,
+                )
+                if _ev_mi is None or not len(_ev_mi) or _ev_disc is None:
+                    _ev_all_scored = False
+                if _ev_mi is not None and len(_ev_mi) and _ev_disc is not None:
+                    _host_codes = _ev_disc[:, : int(_ev_col)]
+                    _ev_chunk_codes.append(_host_codes.get() if hasattr(_host_codes, "get") else np.asarray(_host_codes))
+                if _ev_mi is not None and len(_ev_mi):
+                    best_valid_mi = max(best_valid_mi, float(np.max(_ev_mi)))
+            _ev_param_bs = _ev_all_param_bs
+            # The family gate needs every candidate of the pair; a chunk without scores leaves the pair out of it, as the one-batch path did.
+            if _ev_chunk_codes and _ev_all_scored:
+                _pair_batches.append((config, _ev_chunk_codes[0] if len(_ev_chunk_codes) == 1 else np.hstack(_ev_chunk_codes)))
         else:
             if param_a is None:
                 param_a = _resolve_col(i)
