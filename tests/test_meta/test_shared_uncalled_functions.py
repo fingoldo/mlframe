@@ -899,6 +899,10 @@ _RETAINED_KERNELS = {
     # Besag-Clifford form of the null-accumulating kernel; mi_direct runs parallel_mi_prange_with_null, exercised in
     # tests/feature_selection/biz_val/test_biz_val_filters_permutation.py
     "parallel_mi_besag_clifford_with_null",
+    "_per_cell_raw_moments_njit",  # raw-power moment accumulator; the centered _per_cell_moments_stable replaced it for numerical stability
+    # device twin of per_cell_stats_bincount; the resident path calls the centered-moment helper directly, parity in test_binned_numeric_agg_resident.py
+    "_per_cell_stats_gpu",
+    "_gpu_evaluate_basis_column",  # per-column device port of the basis evaluation; the batched matrix builder is the production path
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -1008,6 +1012,10 @@ _SUPERSEDED = {
     # full-lstsq reference of the Frisch-Waugh rank-1 SSE used by the hinge precheck and scan; parity pinned in
     # tests/feature_selection/filters/test_segmented_sse_fwl_parity.py
     "_segmented_sse",
+    "grand_fused_pair_mi",  # unfused form of grand_fused_pair_mi_fused; equality pinned in tests/feature_selection/gpu/test_gpu_resident_fe.py
+    # per-stat form of _global_stats_all; equality pinned in
+    # tests/feature_selection/fe/test_binned_numeric_agg_fe.py::test_global_stats_all_matches_global_stat
+    "_global_stat",
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -1046,18 +1054,9 @@ _PLANNED: set[str] = {
     "weighted_std_1d",  # library helper with no in-repo caller; owner decides to export or drop
     "smote_synthesize_vectorized",  # library helper with no in-repo caller; owner decides to export or drop
     "_column_tie_fraction",  # library helper with no in-repo caller; owner decides to export or drop
-    "_global_stat",  # library helper with no in-repo caller; owner decides to export or drop
-    "_per_cell_raw_moments_njit",  # library helper with no in-repo caller; owner decides to export or drop
-    "_per_cell_stats_gpu",  # library helper with no in-repo caller; owner decides to export or drop
     "_compute_pair_ii_mm",  # library helper with no in-repo caller; owner decides to export or drop
     "_should_apply_mm_for_pair",  # library helper with no in-repo caller; owner decides to export or drop
     "pair_is_tail_concentrated",  # library helper with no in-repo caller; owner decides to export or drop
-    "mi_direct_gpu_batched_streamed",  # library helper with no in-repo caller; owner decides to export or drop
-    "_gpu_evaluate_basis_column",  # library helper with no in-repo caller; owner decides to export or drop
-    "clear_resident_codes_handoff",  # library helper with no in-repo caller; owner decides to export or drop
-    "gpu_resident_pair_recipes",  # library helper with no in-repo caller; owner decides to export or drop
-    "grand_fused_pair_mi",  # library helper with no in-repo caller; owner decides to export or drop
-    "rank_bin_codes_gpu_resident",  # library helper with no in-repo caller; owner decides to export or drop
     "_greedy_merge_bins",  # library helper with no in-repo caller; owner decides to export or drop
     "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1093,6 +1092,12 @@ _OPTIN = {
     "fe_columns",  # frame-agnostic column lister; callers inside the package already know their framework and read .columns directly
     "suppress_numba_warnings",  # scope-local numba warning context manager offered to numba-heavy entry points instead of a global filter
     "unpack_ctx_configs_to_locals",  # lifts the suite's 25-attribute ctx unpack into a dict; the suite body keeps its explicit locals
+    # GPU-scored pair recipes as replayable EngineeredRecipe objects; production FE emits recipes on its CPU path, pinned in test_gpu_resident_fe.py
+    "gpu_resident_pair_recipes",
+    # device rank-binning of a resident column, bit-identical on tie-free data; used by callers that already hold the column on the card
+    "rank_bin_codes_gpu_resident",
+    "clear_resident_codes_handoff",  # explicit release of the resident-codes handoff; the dispatch no longer clears it unconditionally
+    "mi_direct_gpu_batched_streamed",  # streamed twin of mi_direct_gpu_batched for factor matrices that do not fit resident; chosen per fit on large inputs
 }
 
 
