@@ -8,6 +8,10 @@ arithmetic is the same uint64 recurrence (wrap-around multiply, ``(state >> 33) 
 bench-attempt-rejected (2026-10-15): device generator vs host numba generator, 99 x 2000 int32 rows, GTX 1050 Ti: device 2.76 ms, host
 prange 0.55 ms. One block of 99 sequential Fisher-Yates threads does not beat the host kernel at this size, so the GPU paths keep
 ``host_permuted_y_batch``. Rows are bit-identical (0 mismatches over 72 cases); the kernel is kept as the parity reference.
+Breakdown (CUDA events, GTX 1050 Ti, 99 permutations): the kernel dominates. At n = 2000 it takes 2.2 ms against 0.11 ms for the input upload and
+0.27 ms for the 99-row readback; at n = 100000 it takes 81 ms against 12 ms for the readback. The bottleneck is the design, one block of 99
+threads each running a sequential n-step Fisher-Yates, not the transfers. A size gate is therefore not justified by this kernel; it would
+need a parallel shuffle, which changes the stream and so loses bit-identity with the host generator.
 """
 
 from __future__ import annotations

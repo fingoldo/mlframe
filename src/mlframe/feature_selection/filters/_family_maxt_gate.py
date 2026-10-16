@@ -15,7 +15,61 @@ from numba import njit, prange
 
 FAMILY_MAXT_PERMUTATIONS = 999
 FAMILY_EARLY_BLOCK = 256
+# Fallback crossover (B*K*n histogram updates) used when the per-host kernel-tuning cache has no entry. Measured on GTX 1050 Ti: the device
+# null is 1.26x the CPU kernel at 6e9 and slower below; the per-host sweep (``_family_null_backend``) replaces this constant.
 _FAMILY_DEVICE_MIN_WORK = 3_000_000_000
+
+
+def _family_null_backend(n_rows: int, n_cols: int, work: int) -> str:
+    """'device' or 'cpu' for one family null, from the per-host kernel-tuning cache (async sweep), falling back to the work crossover."""
+    fallback = "device" if work >= _FAMILY_DEVICE_MIN_WORK else "cpu"
+    try:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+        res = KernelTuningCache.load_or_create().get_or_tune(
+            "family_null_backend",
+            dims={"n_rows": int(n_rows), "n_cols": int(n_cols)},
+            tuner=_run_family_null_sweep,
+            axes=["n_rows", "n_cols"],
+            fallback={"kernel_choice": fallback},
+            code_version=_FAMILY_NULL_CODE_VERSION,
+            async_sweep=True,
+        )
+        if isinstance(res, str):
+            return res
+        if res:
+            return str(res.get("kernel_choice", fallback))
+    except Exception as exc:  # noqa: BLE001 - selection must never break a fit; the fallback is the measured crossover
+        import logging
+        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug("family null backend selection failed: %r", exc)
+    return fallback
+
+
+_FAMILY_NULL_CODE_VERSION = "family_null_backend-v1-2026-10-16"
+
+
+def _run_family_null_sweep():
+    """Per-host CPU-vs-device sweep of the family null over (n_rows, n_cols); returns [] when the helper is unavailable."""
+    try:
+        from pyutilz.dev.benchmarking import sweep_backend_grid
+        from ._family_maxt_cuda import family_null_max_device
+    except Exception:  # noqa: BLE001 - benchmarking helper unavailable -> the fallback applies
+        return []
+
+    def _make_inputs(dims):
+        n = int(dims["n_rows"]); K = int(dims["n_cols"]); B = 99
+        rng = np.random.default_rng(0)
+        cols = rng.integers(0, 8, (K, n)).astype(np.int64)
+        nx = np.full(K, 8, dtype=np.int64)
+        y = rng.integers(0, 4, n).astype(np.int64)
+        perms = np.stack([y[rng.permutation(n)] for _ in range(B)]).astype(np.int64)
+        return (cols, nx, perms, 4)
+
+    return list(sweep_backend_grid(
+        {"cpu": lambda c, nx, p, ny: family_null_max_njit(c, nx, p, ny), "device": lambda c, nx, p, ny: family_null_max_device(c, nx, p, ny)},
+        {"n_rows": [2000, 20000], "n_cols": [200, 2000]},
+        _make_inputs,
+        reference="cpu", repeats=2, equiv_rtol=1e-12, equiv_atol=1e-15, decision_key="kernel_choice",
+    ) or [])
 
 
 @njit(cache=True)
@@ -152,7 +206,7 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
     # crossover on the dev GPU (GTX 1050 Ti: 1.26x at 6e9 updates, slower below) and belongs in the kernel-tuning cache; TODO(KTC).
     _work = int(n_perm) * int(cols.shape[0]) * int(y.shape[0])
-    use_device = device_supported(n_x, int(n_y)) and (bool(fe_gpu_strict_enabled()) or _work >= _FAMILY_DEVICE_MIN_WORK)
+    use_device = device_supported(n_x, int(n_y)) and (bool(fe_gpu_strict_enabled()) or _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device")
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perms = y[_permutation_block(rng, y, m)]
