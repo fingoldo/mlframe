@@ -742,6 +742,8 @@ _REEXPORTED_PUBLIC_API = {
     "calibration_adjusted_score",  # exported lazily through mlframe.training
     "recalibration_rmse_gain",  # exported lazily through mlframe.training
     "rank_transforms_by_waic",  # exported lazily through mlframe.training
+    "score_trivial_baselines",  # exported through mlframe.feature_selection.filters
+    "select_usability_aware_features",  # exported through mlframe.feature_selection.filters
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -1009,10 +1011,8 @@ _PLANNED: set[str] = {
     "_ent_from_counts",  # library helper with no in-repo caller; owner decides to export or drop
     "_nnz_from_counts",  # library helper with no in-repo caller; owner decides to export or drop
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
-    "select_usability_aware_features",  # library helper with no in-repo caller; owner decides to export or drop
     "pool_table_use_resident",  # library helper with no in-repo caller; owner decides to export or drop
     "_quantile_codes_1d_njit",  # library helper with no in-repo caller; owner decides to export or drop
-    "score_trivial_baselines",  # library helper with no in-repo caller; owner decides to export or drop
     "plugin_mi_classif_batch_fast",  # library helper with no in-repo caller; owner decides to export or drop
     "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
     "_kruskal_wallis_h",  # library helper with no in-repo caller; owner decides to export or drop
