@@ -17,6 +17,7 @@ from numba import njit, prange
 
 FAMILY_MAXT_PERMUTATIONS = 999
 FAMILY_EARLY_BLOCK = 256
+FAMILY_PROBE_BLOCK = 32  # permutations drawn before deciding that a family far inside the null needs no more
 # Fallback crossover (B*K*n histogram updates) used when the per-host kernel-tuning cache has no entry. Measured on GTX 1050 Ti: the device
 # null is 1.26x the CPU kernel at 6e9 and slower below; the per-host sweep (``_family_null_backend``) replaces this constant.
 _FAMILY_DEVICE_MIN_WORK = 3_000_000_000
@@ -380,9 +381,13 @@ def _permutation_pass_flags(cols, n_x, y, n_y, observed_max, alpha, n_perm, seed
     """Exact family-wise permutation test for batches with the given observed maxima (the null spans every column of ``cols``)."""
     rng = np.random.default_rng(seed)
     B = int(n_perm)
-    first = family_null_max(cols, n_x, y, n_y, min(B, FAMILY_EARLY_BLOCK), rng)
-    if observed_max.size and float(observed_max.max()) <= float(np.median(first)):
+    # Probe: when every batch's best MI is at or below the median of the first few null maxima, at least half of the permutations reach it, so the
+    # exceedance rate is far above alpha and every batch fails. Half of FAMILY_PROBE_BLOCK draws at or above it is what a true rate under
+    # 5% produces with probability about 1e-11, so a small block decides the weak families at a fraction of a full block's cost.
+    probe = family_null_max(cols, n_x, y, n_y, min(B, FAMILY_PROBE_BLOCK), rng)
+    if observed_max.size and float(observed_max.max()) <= float(np.median(probe)):
         return np.zeros(observed_max.shape[0], dtype=np.bool_)
+    first = np.concatenate([probe, family_null_max(cols, n_x, y, n_y, max(min(B, FAMILY_EARLY_BLOCK) - probe.shape[0], 0), rng)])
     # Exact early stop per batch: the pass test is (1 + R) / (B + 1) <= alpha with R the count of null maxima at or above the batch's
     # observed maximum. R only grows, so a batch whose count already violates the bound fails for every B; the null still spans the whole
     # family, but the permutation loop ends as soon as no batch is alive.
@@ -423,9 +428,10 @@ def _stack_codes_transposed(mats, widths) -> np.ndarray:
     The family of one pair spans every configuration scored for it (hundreds of batches of ~1500 columns at 30000 rows); upcasting each batch to
     int64 and then stacking and transposing it held that family three times at eight bytes a code, which exhausted host memory on a wide frame.
     """
+    # bench-attempt-rejected (2026-10-16): one np.concatenate + transposed copy instead of this loop: 0.27 s vs 0.19 s for 1944 single-column int8 batches at 10000 rows.
+    n = int(mats[0].shape[0])
     top = max((int(m.max()) for m in mats if m.size), default=0)
     dt = np.int8 if top <= 127 else (np.int16 if top <= 32767 else np.int64)
-    n = int(mats[0].shape[0])
     cols = np.empty((int(sum(widths)), n), dtype=dt)
     at = 0
     for m, w in zip(mats, widths):
@@ -442,7 +448,7 @@ def family_pass_batches(batches, y_codes: np.ndarray, alpha: float = 0.01, n_per
     permutations. Returns one bool per batch at ``alpha``: batches far from the null are decided by the chi-square triage, the rest by the
     exact permutation test (see :func:`_family_flags`).
 
-    Early rejection: when every undecided batch's best observed MI is at or below the median of the first ``FAMILY_EARLY_BLOCK`` null
+    Early rejection: when every undecided batch's best observed MI is at or below the median of the first ``FAMILY_PROBE_BLOCK`` null
     maxima, the remaining permutations are skipped and those batches are rejected.
     """
     y = np.ascontiguousarray(np.asarray(y_codes, dtype=np.int64).ravel())

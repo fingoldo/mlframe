@@ -422,7 +422,9 @@ def _score_one_pair(
 
     # FAMILY-WISE GATE over every configuration scored for this pair: the winner is the maximum over all of them, so it must clear the family
     # maximum, not only its own null. A winner that fails the family gate rejects the pair (no engineered feature is emitted for it).
-    if apply_pair_family_gate_from_state(st, classes_y, quantization_nbins, pair_family_alpha):
+    # The gate can only switch the accept flags off, so a pair no earlier gate accepted skips it: its outcome is already "emit nothing".
+    _any_accept = st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept
+    if _any_accept and apply_pair_family_gate_from_state(st, classes_y, quantization_nbins, pair_family_alpha):
         st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = st._usability_accept = False
 
     if st._passes_joint_gate or st._prewarp_accept or st._marginal_uplift_accept or st._usability_accept:  # Best transformation is good enough
