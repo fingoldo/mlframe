@@ -941,6 +941,10 @@ _SUPERSEDED = {
     "_get_fused_mi_term",  # the cp.fuse per-cell term; the resident MI now runs the fused MI-from-codes RawKernel (0cb9186a0). Formula pinned to numpy in tests/feature_selection/gpu/test_gpu_fused_mi_term.py
     "grok_mutual_information_old",  # naive per-cell form of grok_mutual_information; parity pinned in tests/feature_selection/test_grok_mi_old_parity.py
     "_yj_inverse_scalar",  # scalar reference for _yj_inverse; parity pinned in tests/training/composite/transforms/test_yj_inverse_scalar_parity.py
+    "_excess_kurtosis",  # standalone form of the fused z**4 moment the analyzer computes inline; parity pinned in tests/training/targets/test_moment_helpers_parity.py
+    "_skewness",  # standalone form of the fused z**3 moment the analyzer computes inline; parity pinned in tests/training/targets/test_moment_helpers_parity.py
+    "_monotone_fraction",  # per-column reference for the vectorised monotone fraction in structural_affinity_scores; parity pinned in tests/training/composite/test_monotone_and_rolling_quantile_parity.py
+    "_rolling_quantile_radius",  # scan-and-sort reference for _sorted_quantile_radius on the live sorted buffer; parity pinned in tests/training/composite/test_monotone_and_rolling_quantile_parity.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -1013,15 +1017,11 @@ _PLANNED: set[str] = {
     "make_lgb_dataset",  # library helper with no in-repo caller; owner decides to export or drop
     "make_pool",  # library helper with no in-repo caller; owner decides to export or drop
     "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
-    "_rolling_quantile_radius",  # library helper with no in-repo caller; owner decides to export or drop
-    "_monotone_fraction",  # library helper with no in-repo caller; owner decides to export or drop
     "_registered_transform_names",  # library helper with no in-repo caller; owner decides to export or drop
     "_linear_residual_fit_closed",  # library helper with no in-repo caller; owner decides to export or drop
     "unpack_ctx_configs_to_locals",  # library helper with no in-repo caller; owner decides to export or drop
     "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
-    "_excess_kurtosis",  # library helper with no in-repo caller; owner decides to export or drop
-    "_skewness",  # library helper with no in-repo caller; owner decides to export or drop
     "compare_targets_performance",  # library helper with no in-repo caller; owner decides to export or drop
 }
 
