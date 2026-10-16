@@ -57,7 +57,8 @@ def stratified_cmi(x: np.ndarray, y: np.ndarray, s: np.ndarray, min_rows: int) -
     counts = np.zeros((int(s.max()) + 1, int(x.max()) + 1, int(y.max()) + 1), dtype=np.int64)
     for i in range(n):
         counts[s[i], x[i], y[i]] += 1
-    return _cmi_from_counts(counts, n, min_rows)
+    cmi: float = _cmi_from_counts(counts, n, min_rows)
+    return cmi
 
 
 @njit(cache=True, parallel=True)
