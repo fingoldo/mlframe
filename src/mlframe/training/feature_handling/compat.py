@@ -149,9 +149,11 @@ def validate_handler_for_model(
         )
 
     key = (model_kind, axis)
+    valid_models: List[str] = []
     with _MODEL_AXIS_SUPPORT_LOCK:
         valid_methods = _MODEL_AXIS_SUPPORT.get(key)
-        valid_models = sorted({k[0] for k in _MODEL_AXIS_SUPPORT}) if valid_methods is None else None
+        if valid_methods is None:
+            valid_models = sorted({k[0] for k in _MODEL_AXIS_SUPPORT})
     if valid_methods is None:
         raise ValueError(
             f"unknown model_kind {model_kind!r} for axis {axis.value!r}; "
