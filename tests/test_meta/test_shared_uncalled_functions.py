@@ -58,6 +58,7 @@ _PUBLIC_API = {
     "clip_to_quantiles_winsor_quantile",  # documented preset for choosing a target transform (soft winsorise)
     "set_wavedec_dispatch_threshold",  # documented tuning knob for the wavelet single/batched dispatch; a user sets it
     "reset_openmp_smoke",  # compatibility alias for the old hnswlib API; a no-op kept so old imports keep working
+    "operand_uplift_null_bar",  # exported through the module's __all__ (feature_engineering_pairs operand floor); public surface
 }
 
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
@@ -706,6 +707,8 @@ _RETAINED_KERNELS = {
     "_lnc_correction",  # deprecated first-pass LNC kept behind a flag for A/B parity; no switch currently reaches it
     "_get_mi_mm_from_values_kernel",  # superseded by the length-aware _nek kernel; kept as the original, nothing switches to it
     "_resample_desc_order_counting",  # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
+    "score_triplet_cross_basis_by_mi_uplift",  # alternative triplet scorer (MI uplift over the best source); the live path uses score_triplet_cross_basis_by_cmi and no switch reaches this one; exercised by tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
+    "_plugin_mi_from_counts",  # plug-in MI helper of the retained uplift scorer above; no live caller
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``

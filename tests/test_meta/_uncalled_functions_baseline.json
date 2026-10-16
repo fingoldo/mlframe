@@ -172,10 +172,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_engineering/transformer/_utils.py::gpu_available_bytes": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_engineering/transformer/_utils.py::reset_gpu_probe": {
    "count": 1,
    "note": ""
