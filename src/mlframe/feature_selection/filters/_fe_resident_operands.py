@@ -198,6 +198,9 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
     returned bytes are identical -> selection-IDENTICAL.
     """
     import cupy as cp
+    from mlframe.utils.cupy_pinned import install_pinned_policy
+
+    install_pinned_policy()
     import numpy as np
 
     host = np.asarray(arr)

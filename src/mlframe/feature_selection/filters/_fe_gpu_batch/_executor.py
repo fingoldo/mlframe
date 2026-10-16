@@ -46,8 +46,14 @@ def gpu_fe_batch_mi(
     """
     import cupy as cp
 
+    from mlframe.utils.cupy_pinned import install_pinned_policy
+
+    install_pinned_policy()
     _f32 = np.dtype(dtype) == np.float32  # f32: half the H2D + f32 radix-select (selection-equivalent, not 1e-9)
-    X = np.ascontiguousarray(X_cands, dtype=(np.float32 if _f32 else np.float64))
+    # No whole-matrix cast/copy: each VRAM chunk is cast on its own below. A full (n, K) float64 copy of a wide FE batch (50000 x 3795 is
+    # 1.5 GB) on top of the caller's matrix exhausted host RAM mid-fit, and the failed allocations then left the CUDA context erroring.
+    _cast = np.float32 if _f32 else np.float64
+    X = np.asarray(X_cands)
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     n, k = X.shape
@@ -78,7 +84,7 @@ def gpu_fe_batch_mi(
         chunk = _gpu_k_chunk(n, bytes_per_elem=(4 if _f32 else 8), max_cols=k)
         for s in range(0, k, chunk):
             sl = slice(s, min(s + chunk, k))
-            block = np.ascontiguousarray(X[:, sl])
+            block = np.ascontiguousarray(X[:, sl], dtype=_cast)
             Xg = cp.asarray(block)
             # FE scrub (inf/-inf/nan -> 0, the FE convention - NOT cupy's default inf->float-max). cupy's
             # nan_to_num always runs a full array scan (_check_nan_inf, ~12% of the GPU wall here), so callers
@@ -124,7 +130,8 @@ def multi_gpu_fe_batch_mi(
     from ._devices import enumerate_device_profiles
     from ._packer import pack_blocks_to_devices
 
-    X = np.ascontiguousarray(X_cands, dtype=np.float64)
+    # The per-device executor casts its own chunks; no float64 copy of the whole matrix here.
+    X = np.asarray(X_cands)
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     n, k = X.shape
@@ -157,7 +164,7 @@ def multi_gpu_fe_batch_mi(
         if not cols:
             return
         idx = np.asarray(cols, dtype=np.int64)
-        sub = np.ascontiguousarray(X[:, idx])
+        sub = X[:, idx]
         out[idx] = gpu_fe_batch_mi(sub, y_codes, nbins, device=profs[dev_slot].device, scrub=scrub, dtype=dtype)
 
     with ThreadPoolExecutor(max_workers=g) as pool:

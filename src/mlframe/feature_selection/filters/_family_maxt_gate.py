@@ -244,22 +244,37 @@ def family_maxt_threshold(X: np.ndarray, y_codes: np.ndarray, n_bins: int, n_per
     :func:`exact_pvalue_pass`. Shared by the engineered-candidate gate and the empty-support fallback.
     """
     n_y = int(y_codes.max()) + 1
-    codes = []
-    n_x = []
-    for j in range(X.shape[1]):
-        v = X[:, j]
+    cols, nx = _family_codes(X, n_bins)
+    observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
+    null_max = family_null_max(cols, nx, y_codes, n_y, n_perm, np.random.default_rng(seed))
+    return observed, null_max
+
+
+def _column_values(X, j: int) -> np.ndarray:
+    """Column ``j`` of a 2-D array or a DataFrame as float64 (one column at a time, never the whole matrix)."""
+    if hasattr(X, "iloc"):
+        return np.asarray(X.iloc[:, j].to_numpy(), dtype=np.float64)
+    return np.asarray(X[:, j], dtype=np.float64)
+
+
+def _family_codes(X, n_bins: int):
+    """Quantile codes of every candidate column as a (K, n) int16 matrix (codes are < n_bins) and the per-column code counts.
+
+    Filled column by column: no float64 copy of the whole candidate matrix and no int64 code matrix (at 50000 x 3795 those were 1.5 GB each).
+    """
+    n_rows, n_cols = X.shape
+    cols = np.empty((n_cols, n_rows), dtype=np.int16)
+    nx = np.empty(n_cols, dtype=np.int64)
+    for j in range(n_cols):
+        v = _column_values(X, j)
         bad = ~np.isfinite(v)
         if bad.any():
             v = v.copy()
             v[bad] = np.median(v[~bad]) if (~bad).any() else 0.0
         c, k = _quantile_codes(v, n_bins)
-        codes.append(c)
-        n_x.append(k)
-    cols = np.ascontiguousarray(np.stack(codes, axis=0), dtype=np.int64)
-    nx = np.asarray(n_x, dtype=np.int64)
-    observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
-    null_max = family_null_max(cols, nx, y_codes, n_y, n_perm, np.random.default_rng(seed))
-    return observed, null_max
+        cols[j] = c
+        nx[j] = k
+    return cols, nx
 
 
 def family_maxt_pass(candidates, y, n_bins: int = 10, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
@@ -268,14 +283,30 @@ def family_maxt_pass(candidates, y, n_bins: int = 10, alpha: float = 0.01, n_per
     ``candidates`` is a 2-D array-like (rows x candidates) or a DataFrame. Non-finite values are replaced by the column median before binning,
     so a constant or all-NaN candidate simply gets MI 0 and cannot pass.
     """
-    X = np.asarray(candidates, dtype=np.float64)
-    if X.ndim == 1:
-        X = X[:, None]
+    X = candidates if hasattr(candidates, "iloc") else np.asarray(candidates, dtype=np.float64)
+    if getattr(X, "ndim", 2) == 1:
+        X = np.asarray(X)[:, None]
     yv = np.asarray(y).ravel()
     _, y_codes = np.unique(yv, return_inverse=True)
-    y_codes = y_codes.astype(np.int64).ravel()
-    observed, null_max = family_maxt_threshold(X, y_codes, n_bins, n_perm, seed)
-    return exact_pvalue_pass(observed, null_max, alpha)
+    y_codes = np.ascontiguousarray(y_codes.astype(np.int64).ravel())
+    n_y = int(y_codes.max()) + 1
+    cols, nx = _family_codes(X, n_bins)
+    observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
+    # Exact early stop: candidate j passes iff (1 + R_j) / (B + 1) <= alpha, with R_j the null maxima at or above its observed MI. R_j only
+    # grows, so a candidate that already violates the bound fails for any B; permutations stop once no candidate can pass. Same decisions
+    # as the full null (the permutation stream is drawn in the same order).
+    B = int(n_perm)
+    rng = np.random.default_rng(seed)
+    R = np.zeros(observed.shape[0], dtype=np.int64)
+    alive = np.ones(observed.shape[0], dtype=np.bool_)
+    done = 0
+    while done < B and alive.any():
+        m = min(FAMILY_EARLY_BLOCK, B - done)
+        blk = family_null_max(cols, nx, y_codes, n_y, m, rng)
+        done += m
+        R += (blk[:, None] >= observed[None, :]).sum(axis=0)
+        alive &= (1.0 + R) / (B + 1.0) <= float(alpha)
+    return alive
 
 
 def family_pass_batches(batches, y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> list:
