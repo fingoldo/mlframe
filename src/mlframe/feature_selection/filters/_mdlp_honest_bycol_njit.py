@@ -13,8 +13,8 @@ import numpy as np
 from numba import njit, prange
 
 from ._mdlp_honest_njit import (
-    _codes_from_cuts,
     _mdlp_cuts_presorted,
+    _mdlp_dfs,
     _mi_codes,
     _n_unique_codes,
     _presort_columns,
@@ -33,6 +33,34 @@ def permuted_labels(y_raw: np.ndarray, y_codes: np.ndarray, perm_rows, count: in
         out[0][b] = y_raw[rp]
         out[1][b] = y_codes[rp]
     return out[0], out[1]
+
+
+@njit(cache=True)
+def _cuts_tie_free(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell):
+    """``_mdlp_cuts_presorted`` for a column without tied values: the sorted points are already the deduplicated (x, y) pairs, so nothing is copied, and
+    the cut buffer holds the most cuts a tree of ``max_depth`` can accept instead of one slot per row."""
+    out = np.empty(min(xs.shape[0], (1 << max_depth)) + 1, dtype=np.float64)  # Intentional float64: MDLP cut points at the production binning width
+    n_out = np.zeros(1, dtype=np.int64)
+    _mdlp_dfs(xs, ys, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell, out, n_out)
+    cuts = out[: n_out[0]].copy()
+    cuts.sort()
+    return cuts
+
+
+@njit(cache=True)
+def _codes_at_rows(col, rows, cuts, out):
+    """``out[t]`` = number of cuts <= ``col[rows[t]]`` (``searchsorted(side='right')``), filled in place."""
+    for t in range(rows.shape[0]):
+        v = col[rows[t]]
+        lo = 0
+        hi = cuts.shape[0]
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if cuts[mid] <= v:
+                lo = mid + 1
+            else:
+                hi = mid
+        out[t] = lo
 
 
 @njit(parallel=True, cache=True)
@@ -74,7 +102,8 @@ def honest_null_columns_bycol(
     for j in prange(k):
         ysrt = np.empty(n, dtype=np.int64)
         ys = np.empty(m, dtype=np.int64)
-        xs_fixed = np.empty(m, dtype=np.int64)
+        xs_buf = np.empty(m, dtype=np.int64)
+        tie_free = False
         xsrt = np.empty(n, dtype=raw_cont.dtype)
         col = np.empty(n, dtype=raw_cont.dtype)
         if is_cont[j]:
@@ -82,10 +111,15 @@ def honest_null_columns_bycol(
             for i in range(n):
                 xsrt[i] = raw_cont[order[sj, i], sj]
                 col[i] = raw_cont[i, sj]
+            tie_free = True
+            for i in range(1, n):
+                if xsrt[i] == xsrt[i - 1]:
+                    tie_free = False
+                    break
         else:
             fs = col_slot[j]
             for t in range(m):
-                xs_fixed[t] = fixed_codes[eval_rows[t], fs]
+                xs_buf[t] = fixed_codes[eval_rows[t], fs]
         for b in range(n_perm_rows):
             yr_b = y_raw_perm[b]
             yc_b = y_codes_perm[b]
@@ -106,27 +140,27 @@ def honest_null_columns_bycol(
                 sj = col_slot[j]
                 for i in range(n):
                     ysrt[i] = yr_b[order[sj, i]]
-                cuts = _mdlp_cuts_presorted(
-                    xsrt,
-                    ysrt,
-                    n_classes_total,
-                    min_split_size,
-                    max_depth,
-                    alpha,
-                    n_permutations,
-                    seed,
-                    analytic_min_n,
-                    analytic_min_cell,
-                )
+                if tie_free:
+                    cuts = _cuts_tie_free(xsrt, ysrt, n_classes_total, min_split_size, max_depth, alpha, n_permutations, seed, analytic_min_n, analytic_min_cell)
+                else:
+                    cuts = _mdlp_cuts_presorted(
+                        xsrt,
+                        ysrt,
+                        n_classes_total,
+                        min_split_size,
+                        max_depth,
+                        alpha,
+                        n_permutations,
+                        seed,
+                        analytic_min_n,
+                        analytic_min_cell,
+                    )
                 final = _supervised_edges(col, cuts, q_fallback[j, : q_fallback_len[j]], q_refine[j, : q_refine_len[j]])
-                xc = _codes_from_cuts(col, final)
                 n_x = final.shape[0] + 1
-                xs = np.empty(m, dtype=np.int64)
-                for t in range(m):
-                    xs[t] = xc[eval_rows[t]]
+                _codes_at_rows(col, eval_rows, final, xs_buf)
             else:
                 n_x = fixed_nbins[j]
-                xs = xs_fixed
+            xs = xs_buf
             mi = _mi_codes(xs, n_x, ys, ny)
             kx_eff = float(_n_unique_codes(xs))
             plain[b, j] = mi

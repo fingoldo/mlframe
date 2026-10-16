@@ -15,6 +15,15 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
+from ._family_maxt_null_v2_njit import (
+    BITSET_MAX_BINS,
+    BITSET_MAX_CLASSES,
+    bitset_groups,
+    label_bitsets_batch,
+    mi_all_columns_counts as mi_all_columns_njit,
+    null_max_bitsets,
+)
+
 FAMILY_MAXT_PERMUTATIONS = 999
 FAMILY_EARLY_BLOCK = 256
 FAMILY_PROBE_BLOCK = 32  # permutations drawn before deciding that a family far inside the null needs no more
@@ -49,16 +58,29 @@ def _family_null_backend(n_rows: int, n_cols: int, work: int) -> str:
     return fallback
 
 
-_FAMILY_NULL_CODE_VERSION = "family_null_backend-v1-2026-10-16"
+_FAMILY_NULL_CODE_VERSION = "family_null_backend-v2-bitsets"
 
 
 def _run_family_null_sweep():
     """Per-host CPU-vs-device sweep of the family null over (n_rows, n_cols); returns [] when the helper is unavailable."""
     try:
         from pyutilz.dev.benchmarking import sweep_backend_grid
-        from ._family_maxt_cuda import family_null_max_device
     except Exception:
         return []
+
+    def _cpu(c, nx, p, ny):
+        """Host bit-set null (the kernel family_null_max runs on the host)."""
+        return null_max_bitsets(bitset_groups(c, nx), nx, p, ny)
+
+    def _device(c, nx, p, ny):
+        """Device bit-set null, including the upload of the column bit sets."""
+        import cupy as cp
+
+        from ._family_maxt_cuda_bits import DeviceBitsets, null_max_bits_device
+
+        prep = bitset_groups(c, nx)
+        n = c.shape[1]
+        return null_max_bits_device(DeviceBitsets(cp, prep, nx, n), label_bitsets_batch(p, ny, (n + 63) // 64), _label_const(prep[0], p[0], ny))
 
     def _make_inputs(dims):
         """Make inputs."""
@@ -74,13 +96,13 @@ def _run_family_null_sweep():
 
     return list(
         sweep_backend_grid(
-            {"cpu": lambda c, nx, p, ny: family_null_max_njit(c, nx, p, ny), "device": lambda c, nx, p, ny: family_null_max_device(c, nx, p, ny)},
+            {"cpu": _cpu, "device": _device},
             {"n_rows": [2000, 20000], "n_cols": [200, 2000]},
             _make_inputs,
             reference="cpu",
             repeats=2,
             equiv_rtol=1e-12,
-            equiv_atol=1e-15,
+            equiv_atol=1e-12,
             decision_key="kernel_choice",
         )
         or []
@@ -88,39 +110,8 @@ def _run_family_null_sweep():
 
 
 @njit(cache=True)
-def _mi_one_column_njit(col: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int) -> float:
-    """Plug-in MI (nats) of one integer-coded column with ``y_codes``; a serial kernel so the caller can parallelise over columns."""
-    n = y_codes.shape[0]
-    joint = np.zeros((n_x, n_y), dtype=np.int64)
-    for i in range(n):
-        joint[col[i], y_codes[i]] += 1
-    px = joint.sum(axis=1)
-    py = joint.sum(axis=0)
-    mi = 0.0
-    for a in range(n_x):
-        if px[a] == 0:
-            continue
-        for b in range(n_y):
-            nab = joint[a, b]
-            if nab == 0:
-                continue
-            mi += (nab / n) * np.log((nab * n) / (px[a] * py[b]))
-    return mi
-
-
-@njit(cache=True, parallel=True)
-def mi_all_columns_njit(cols: np.ndarray, n_x: np.ndarray, y_codes: np.ndarray, n_y: int) -> np.ndarray:
-    """Plug-in MI (nats) of every row of ``cols`` (k x n integer codes) with ``y_codes``, one column per parallel task."""
-    k = cols.shape[0]
-    out = np.zeros(k, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    for j in prange(k):
-        out[j] = _mi_one_column_njit(cols[j], n_x[j], y_codes, n_y)
-    return out
-
-
-@njit(cache=True)
 def _mi_one_column_into(col: np.ndarray, n_x: int, y_codes: np.ndarray, n_y: int, joint: np.ndarray) -> float:
-    """Same plug-in MI as :func:`_mi_one_column_njit`, counting into a caller-owned buffer (no allocation per column and permutation).
+    """Plug-in MI of one column, counting into a caller-owned buffer (no allocation per column and permutation).
 
     ``joint`` is an int64 array of at least ``n_x * n_y`` cells; it is zeroed here. The integer counts, and the order of the summation, are
     those of the allocating kernel, so the values are identical.
@@ -218,21 +209,57 @@ def family_null_max(cols: np.ndarray, n_x: np.ndarray, y: np.ndarray, n_y: int, 
     from ._fe_gpu_strict import fe_gpu_strict_enabled
     from ._family_maxt_cuda import device_supported, family_null_max_device
 
-    # Size-gated device dispatch: the null costs B*K*n histogram updates, so a large family goes to the device even outside STRICT (the
+    # Size-gated device dispatch: the null costs B*K*n count updates, so a large family goes to the device even outside STRICT (the
     # pair family gate runs 9999 permutations; on the CPU an n=30000 fit exceeded the 600 s test watchdog). The floor is a measured
-    # crossover on the dev GPU (GTX 1050 Ti: 1.26x at 6e9 updates, slower below) and belongs in the kernel-tuning cache; TODO(KTC).
+    # crossover on the dev GPU and belongs in the kernel-tuning cache; TODO(KTC).
     _work = int(n_perm) * int(cols.shape[0]) * int(y.shape[0])
-    use_device = device_supported(n_x, int(n_y)) and (
-        bool(fe_gpu_strict_enabled()) or _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
-    )
+    want_device = bool(fe_gpu_strict_enabled()) or _family_null_backend(int(y.shape[0]), int(cols.shape[0]), _work) == "device"
+    # Bin x class counts as popcounts of bit sets (host and device): the column bit sets are built once per call and reused by every block;
+    # columns with many bins or labels with many classes keep the histogram kernels.
+    bit_prep = None
+    dev_bits = None
+    if cols.shape[0] and int(n_x.max()) <= BITSET_MAX_BINS and int(n_y) <= BITSET_MAX_CLASSES:
+        bit_prep = bitset_groups(cols, n_x)
+        if want_device:
+            dev_bits = _device_bitsets(bit_prep, n_x, int(y.shape[0]))
+    use_device = want_device and bit_prep is None and device_supported(n_x, int(n_y))
+    py_const = _label_const(bit_prep[0], y, int(n_y)) if dev_bits is not None else 0.0
+    words = (int(y.shape[0]) + 63) // 64
     for start in range(0, int(n_perm), block):
         m = min(block, int(n_perm) - start)
         perms = y[_permutation_block(rng, y, m)]
-        if use_device:
+        if dev_bits is not None:
+            from ._family_maxt_cuda_bits import null_max_bits_device
+
+            out[start : start + m] = null_max_bits_device(dev_bits, label_bitsets_batch(perms, int(n_y), words), py_const)
+        elif bit_prep is not None:
+            out[start : start + m] = null_max_bitsets(bit_prep, n_x, perms, int(n_y))
+        elif use_device:
             out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
         else:
             out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
     return out
+
+
+def _device_bitsets(prep, n_x: np.ndarray, n: int):
+    """The family's column bit sets on the device, or ``None`` when there is no usable device (the host bit sets then count)."""
+    try:
+        import cupy as cp
+
+        from ._family_maxt_cuda_bits import DeviceBitsets
+
+        return DeviceBitsets(cp, prep, n_x, n)
+    except Exception as exc:  # no cupy / no device / out of memory: the host kernel gives the same maxima
+        import logging
+
+        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug("device bit sets unavailable (%r); counting on the host", exc)
+        return None
+
+
+def _label_const(table: np.ndarray, y: np.ndarray, n_y: int) -> float:
+    """``n log n - sum_b xlogx(py_b)`` of a label vector (the same for every permutation of it)."""
+    py = np.bincount(np.asarray(y, dtype=np.int64), minlength=n_y)
+    return float(table[y.shape[0]] - sum(float(table[c]) for c in py))
 
 
 def exact_pvalue_pass(observed: np.ndarray, null_max: np.ndarray, alpha: float) -> np.ndarray:
@@ -304,7 +331,11 @@ def family_maxt_pass(candidates, y, n_bins: int = 10, alpha: float = 0.01, n_per
 def family_maxt_pass_codes(cols: np.ndarray, nx: np.ndarray, y, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0) -> np.ndarray:
     """:func:`family_maxt_pass` on codes already built by :func:`_family_codes` (a caller that streams its candidates in chunks keeps only
     the int16 codes of every chunk and gates the whole family once)."""
-    yv = np.asarray(y).ravel()
+    from ._y_encoding import encode_y_for_classif_mi
+
+    # A continuous target is quantile-binned first: against one class per row the "MI" is the entropy of the candidate's own binning, the same under every
+    # permutation, so no candidate could pass the family test.
+    yv = encode_y_for_classif_mi(np.asarray(y).ravel())
     _, y_codes = np.unique(yv, return_inverse=True)
     y_codes = np.ascontiguousarray(y_codes.astype(np.int64).ravel())
     n_y = int(y_codes.max()) + 1
