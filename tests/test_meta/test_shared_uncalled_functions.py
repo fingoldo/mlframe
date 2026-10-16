@@ -69,6 +69,9 @@ _PUBLIC_API = {
     "compute_permutation_importances",
     # public deep-import helper of mlframe.feature_selection.optbinning (optional optbinning dependency), covered by test_optbinning.py
     "get_binningprocess_featureselectors",
+    # public DTW backend chooser; mlframe.signal re-exports only stdlib signal (name-shadow guard), so the surface is mlframe.signal.dtw, covered by
+    # tests/signal_tests/test_dtw.py
+    "dtw_dispatch",
 }
 
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
@@ -923,6 +926,8 @@ _RETAINED_KERNELS = {
     # bench-only vectorised twin of smote_synthesize_rowloop, bit-identical (test_aggregation_and_smote_reference_kernels.py); transformers call the
     # *_minority_* variants
     "smote_synthesize_vectorized",
+    # gate for skipping the joint cat prep on linear-only runs; measured a net regression (25.05s to 32.48s), kept for future targeted opts
+    "_models_need_pandas_cat_prep",
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -1077,9 +1082,6 @@ _PLANNED: set[str] = {
     "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
     "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
     "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
-    "mdlp_bin_edges_validated",  # library helper with no in-repo caller; owner decides to export or drop
-    "dtw_dispatch",  # library helper with no in-repo caller; owner decides to export or drop
-    "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
 }
 
@@ -1128,6 +1130,7 @@ _OPTIN = {
     # multi-pair prange entry of the numba polynom optimiser; the dispatcher calls run_numba_kernel_search per pair, tests in
     # test_numba_polynom_optimizer.py
     "optimize_all_pairs_numba_kernel",
+    "mdlp_bin_edges_validated",  # significance-gated MDLP research prototype, opt-in by direct call; tested in test_mdlp_nan_handling.py
 }
 
 
