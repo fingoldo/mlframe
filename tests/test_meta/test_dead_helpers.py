@@ -81,73 +81,19 @@ _PUBLIC_API_WHITELIST: set[str] = {
 # over time. Lineno is stripped before the comparison so re-numbering due
 # to nearby edits doesn't break the whitelist.
 _USER_DEFERRED_DEAD_HELPERS: set[str] = {
-    "feature_selection/filters.py::init_kernels",
-    "feature_selection/filters.py::find_impactful_features",
-    "feature_selection/filters.py::create_redundant_continuous_factor",
-    "feature_selection/filters.py::discretize_sklearn",
-    "feature_selection/mi.py::grok_mutual_information_old",
-    "feature_selection/optbinning.py::get_binningprocess_featureselectors",
-    "training/phases.py::record_phase",
-    "training/phases.py::phase_snapshot",
-    # Surfaced 2026-04-28 after the corpus heuristic switched to the
-    # shared ``pyutilz.dev.meta_test_utils.consumer_corpus`` (which
-    # correctly excludes ``tests/``). These two are called only from
-    # ``tests/training/test_per_class_isotonic.py`` — either move them
-    # into the test module as fixtures, or document as public API.
-    "training/metrics_registry.py::unregister_metric",
-    "training/metrics_registry.py::list_registered",
-    # Surfaced 2026-05-10 by the filters/* package refactor's full-suite
-    # gate. Both are pre-existing (unrelated to filters.py) — refactor PR
-    # surfaces them but does not own them. Owners should either move into
-    # test fixtures or document as public.
-    "training/composite.py::report_to_markdown",
-    "training/phases.py::phase_ram_snapshot",
-    # 2026-05-15 — surfaced after the src/ migration normalised the corpus
-    # search root (rglob now finds these in src/mlframe/* instead of root).
-    # Same pattern as the older entries: orphaned helpers slated for either
-    # public-API promotion or deletion.
-    "feature_selection/boruta_shap.py::load_data",
-    "feature_selection/importance.py::compute_permutation_importances",
-    "feature_selection/importance.py::explain_top_feature_importances",
-    "feature_selection/filters/composition.py::compose_pair_fe",
-    "feature_selection/filters/estimators.py::ksg_mi_pair",
+    # GPU appliers for the GPU-compatible transform names; agreement with the CPU registry is pinned in
+    # tests/feature_selection/gpu/test_apply_gpu_batched_vs_cpu_registry.py. Production builds candidates with the fused resident kernels.
     "feature_selection/filters/feature_engineering.py::apply_gpu_unary_batched",
     "feature_selection/filters/feature_engineering.py::apply_gpu_binary_batched",
-    "feature_selection/filters/hermite_fe.py::optimise_pair_multimode",
-    "feature_selection/filters/screen.py::ScreenState",
-    "feature_selection/filters/supervised_binning.py::apply_bin_edges",
-    "training/baselines/dummy.py::plot_best_dummy_baseline_overlay",
-    # 2026-05-21 — surfaced after the recent refactors split helpers
-    # into new sibling modules. Pending owner decision (delete vs.
-    # public-API re-export).
-    "feature_selection/filters/hermite_fe.py::plugin_mi_classif_batch_dispatch",
-    "training/extractors.py::FeaturesAndTargetsExtractorProtocol",
-    "training/metrics_registry.py::get_metric_direction",
-    "training/neural/base.py::suppress_lightning_workers_warning",
-    # Placeholder translator paired with the populated sklearn-MLP one;
-    # stays inert until ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT is filled
-    # in (requires a sequence-DGP sweep that the MLP sweep does not
-    # transfer to). Documented in its own docstring.
-    "training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",
-    # 2026-05-30 -- Wave 8 (JMIM / BUR) intermediate dispatcher. Currently
-    # only consumed by the JMIM aggregator switching in evaluate_gain via
-    # thread-local; the helper exists for future SU-aware site callers that
-    # cannot read the thread-local in the @njit kernel hot path. Surface as
-    # public API once at least one external caller materialises.
-    "feature_selection/filters/info_theory.py::mi_or_su",
-    # 2026-06-05 -- empirical-null permutation kernels added alongside the
-    # ``mi_direct(return_null_mean=True)`` path. The prange twin
-    # (``parallel_mi_prange_with_null``) is the one ``mi_direct`` currently
-    # dispatches; these two are the joblib-outer and Besag-Clifford twins kept
-    # for parity so a future ``return_null_mean`` wiring of the ``outer`` / ``bc``
-    # parallelism modes reuses the same accumulate-sum-of-perm-MI contract rather
-    # than re-deriving it. Surface as consumed once those modes route null means.
+    # Joblib-outer and Besag-Clifford twins of the empirical-null permutation kernel. The prange twin (``parallel_mi_prange_with_null``) is the
+    # one ``mi_direct`` dispatches; these stay for parity and are exercised by tests/feature_selection/biz_val/test_biz_val_filters_permutation.py.
     "feature_selection/filters/permutation.py::parallel_mi_with_null",
     "feature_selection/filters/permutation.py::parallel_mi_besag_clifford_with_null",
-    # Bench-populate helper for the polyeval CPU-backend ParamOracle: callable on
-    # demand to seed the oracle with measured njit-vs-njit_par crossovers; no
-    # production caller by design (the oracle is consulted, not benched, in prod).
-    "feature_selection/filters/hermite_fe.py::benchmark_polyeval_cpu_backends",
+    # Naive per-cell reference of grok_mutual_information; parity pinned in tests/feature_selection/test_grok_mi_old_parity.py.
+    "feature_selection/mi.py::grok_mutual_information_old",
+    # Placeholder translator paired with the populated sklearn-MLP one; inert until ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT is filled in
+    # (requires a sequence-DGP sweep that the MLP sweep does not transfer to). Documented in its own docstring.
+    "training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",
 }
 
 

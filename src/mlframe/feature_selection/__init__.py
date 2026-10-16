@@ -111,4 +111,20 @@ __all__ = [
     "varying_size_top_k_subsets",
     # multi-panel (heterogeneous estimator family) relevance vote, optional CV-skill weighting
     "heterogeneous_relevance_vote",
+    # sklearn permutation importance as a sorted polars frame; lazy because its module pulls matplotlib
+    "compute_permutation_importances",
 ]
+
+_LAZY_EXPORTS = {"compute_permutation_importances": "mlframe.feature_selection.importance"}
+
+
+def __getattr__(name: str):
+    """Resolve the lazily exported names on first access so importing the package never pulls matplotlib."""
+    module_path = _LAZY_EXPORTS.get(name)
+    if module_path is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    value = getattr(importlib.import_module(module_path), name)
+    globals()[name] = value
+    return value
