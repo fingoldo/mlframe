@@ -680,6 +680,8 @@ _OFFLINE_GENERATORS = {
     "show_sys_ram_usage",  # interactive RAM diagnostic, run by hand
     "_probability_only",  # difficulty-sweep exploration helper for the synthetic generator, run by hand
     "get_tracker_table",  # loads experiment-impact-tracker cost data for offline analysis
+    "agg_pipeline_metric",  # hand-run analysis of CV results across pipelines
+    "compute_ml_metrics",  # hand-run scoring helper for CV folds, outside the shipped pipeline
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and

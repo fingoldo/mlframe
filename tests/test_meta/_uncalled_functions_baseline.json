@@ -72,14 +72,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/estimators/pipelines.py::agg_pipeline_metric": {
-   "count": 1,
-   "note": ""
-  },
-  "src/mlframe/estimators/pipelines.py::compute_ml_metrics": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/estimators/pipelines.py::replay_cv_results": {
    "count": 1,
    "note": ""
