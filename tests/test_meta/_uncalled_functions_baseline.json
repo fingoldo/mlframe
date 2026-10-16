@@ -720,10 +720,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/cb/_cb_pool_budget.py::forget_pool_bytes": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/composite/cache_store.py::_discovery_cache_bytes_total": {
    "count": 1,
    "note": ""

@@ -780,6 +780,11 @@ _OPT_IN_SLOW: set[str] = {
     "proposal_generator",  # cheap-proxy candidate seeds for an external honest search; opt-in via the function call
 }
 
+#: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.
+_PLUGIN_HOOKS = {
+    "forget_pool_bytes",  # downstream evictor calls it after evicting outside evict_for_budget
+}
+
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
 _OPTIN = {
     "mi_classif_streamed",  # streamed GPU MI for columns that do not fit resident; chosen per fit on large inputs
@@ -815,6 +820,7 @@ def test_no_new_function_without_a_caller(request):
         | _SCANNER_LAG
         | _NAME_DISPATCHED
         | _SUPERSEDED
+        | _PLUGIN_HOOKS
         | _OPT_IN_SLOW
         | _OPTIN,
     )
