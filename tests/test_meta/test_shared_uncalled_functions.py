@@ -968,7 +968,6 @@ _PLANNED: set[str] = {
     "parallel_mi_besag_clifford_with_null",  # null-mean-accumulating Besag-Clifford twin, planned for the null-calibrated screen
     "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
     "apply_gpu_binary_batched",  # batched GPU binary apply, planned for the resident FE path
-    "sanitize_name_list",  # remaps cat_features names through the sanitiser, planned for the training input path
     "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
     "_transform_via",  # applies a fitted pre-pipeline or passes X through, planned for the ensemble predict path
     "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
