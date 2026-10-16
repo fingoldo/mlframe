@@ -744,6 +744,9 @@ _REEXPORTED_PUBLIC_API = {
     "rank_transforms_by_waic",  # exported lazily through mlframe.training
     "score_trivial_baselines",  # exported through mlframe.feature_selection.filters
     "select_usability_aware_features",  # exported through mlframe.feature_selection.filters
+    "recover_composite_y_scale_metrics",  # exported lazily through mlframe.training
+    "screen_base_pool",  # exported lazily through mlframe.training
+    "attach_grouped_causal_bases",  # exported lazily through mlframe.training
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -968,7 +971,6 @@ _PLANNED: set[str] = {
     "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
     "apply_gpu_binary_batched",  # batched GPU binary apply, planned for the resident FE path
     "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
-    "_transform_via",  # applies a fitted pre-pipeline or passes X through, planned for the ensemble predict path
     "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
     "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
     "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
@@ -1012,13 +1014,10 @@ _PLANNED: set[str] = {
     "make_pool",  # library helper with no in-repo caller; owner decides to export or drop
     "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
     "_rolling_quantile_radius",  # library helper with no in-repo caller; owner decides to export or drop
-    "attach_grouped_causal_bases",  # library helper with no in-repo caller; owner decides to export or drop
-    "screen_base_pool",  # library helper with no in-repo caller; owner decides to export or drop
     "_monotone_fraction",  # library helper with no in-repo caller; owner decides to export or drop
     "_registered_transform_names",  # library helper with no in-repo caller; owner decides to export or drop
     "_linear_residual_fit_closed",  # library helper with no in-repo caller; owner decides to export or drop
     "unpack_ctx_configs_to_locals",  # library helper with no in-repo caller; owner decides to export or drop
-    "recover_composite_y_scale_metrics",  # library helper with no in-repo caller; owner decides to export or drop
     "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
     "_excess_kurtosis",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1042,6 +1041,7 @@ _OPTIN = {
     "fill_grid_1d",  # grid sizing for grid-stride kernels; the existing launches are one-element-per-thread, where ceil(n/block) is already exact
     "fe_gpu_resident_enabled",  # env switch for the GPU-resident FE prototype, measured a wall wash so it stays off unless MLFRAME_FE_GPU_RESIDENT is set
     "pool_table_use_resident",  # measured per-host engage rule for the resident pair-combo table; the table is wired only under the strict flag because the non-strict path is not byte-identical
+    "_transform_via",  # single-frame pre_pipeline projection retained for external callers; OOF loops use _transform_pair_via
 }
 
 
