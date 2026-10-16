@@ -848,6 +848,9 @@ _OFFLINE_GENERATORS = {
 #: fallback): the typed-list DWT pair, the DFS MDLP twin of the BFS default, the CUDA DTW diagonal step, the numba column-
 #: stats kernel the benchmark compares against.
 _RETAINED_KERNELS = {
+    # per-column numpy quantile coder, superseded by the parallel block coder quantile_codes_block (same codes); kept as the reference, parity pinned in
+    # tests/feature_selection/filters/test_family_codes_njit_equivalence.py
+    "_quantile_codes",
     # permutation-parallel honest null kernel, superseded by the column-parallel honest_null_columns_bycol (2.5x, bit-identical); kept as the reference twin
     # (keep-all-kernels rule), parity pinned in tests/feature_selection/discretization/test_mdlp_honest_bycol_equivalence.py
     "honest_null_columns",

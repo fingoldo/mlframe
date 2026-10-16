@@ -59,6 +59,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from mlframe.utils.log_throttle import log_throttle
 
 from ._numeric_decompose_fe import _numeric_cols, score_decompose_by_bootstrap_mi as score_modular_by_bootstrap_mi
+from ._orthogonal_bootstrap_mi_fe import baseline_lcb_by_bootstrap_mi
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -405,14 +406,13 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
 
     A candidate is kept only if it clears the bootstrap gate AND the family test, and the family test needs only the candidate's own quantile codes. Running it first leaves the bootstrap
     (10 resamples x raw + candidate MI over every column, about a quarter of a 253-column fit) to the few candidates that pass it; on a frame without a periodic column that is none.
-    The noise floor of the bootstrap gate is anchored on the raw baseline MI of every source column, so each source is scored once against a stand-in candidate (its first-period residue),
-    which gives the same baseline per source as scoring all its candidates did. Survivors are regenerated and scored with the same seeded resamples, so a survivor's scores equal the
+    The noise floor of the bootstrap gate is anchored on the raw baseline MI of every source column, which depends on the column and the seeded resamples only
+    (``baseline_lcb_by_bootstrap_mi``), so it is computed without scoring any candidate. Survivors are regenerated and scored with the same seeded resamples, so a survivor's scores equal the
     score-first pipeline's up to the all-distinct tie guard of the resample gather, which looks at the matrix being scored.
     """
     from ._family_maxt_gate import _family_codes, family_maxt_pass_codes
 
-    first_period = next((float(p) for p in periods if float(p) > 0.0), None)
-    if first_period is None:
+    if not any(float(p) > 0.0 for p in periods):
         return X.copy(deep=False), pd.DataFrame()
     codes, nxs, names, base_parts = [], [], [], []
     for c0 in range(0, len(src_cols), chunk):
@@ -424,10 +424,8 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
         codes.append(cc)
         nxs.append(nx)
         names.extend(str(c) for c in eng.columns)
-        stand = [engineered_name_modular(c, first_period, "mod") for c in cs]
-        base_parts.append(score_modular_by_bootstrap_mi(X[cs], eng[[c for c in stand if c in eng.columns]], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins))
+        base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[cs], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}))
         del eng
-    base_parts = [b for b in base_parts if not b.empty]
     if not names or not base_parts:
         return X.copy(deep=False), pd.DataFrame()
     base = pd.concat(base_parts, ignore_index=True)

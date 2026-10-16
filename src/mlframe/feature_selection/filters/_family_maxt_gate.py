@@ -16,6 +16,7 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import njit, prange
 
+from ._family_codes_njit import quantile_codes_block
 from ._family_maxt_null_v2_njit import (
     BITSET_MAX_BINS,
     BITSET_MAX_CLASSES,
@@ -314,15 +315,18 @@ def _family_codes(X, n_bins: int):
     n_rows, n_cols = X.shape
     cols = np.empty((n_cols, n_rows), dtype=np.int16)
     nx = np.empty(n_cols, dtype=np.int64)
-    for j in range(n_cols):
-        v = _column_values(X, j)
-        bad = ~np.isfinite(v)
-        if bad.any():
-            v = v.copy()
-            v[bad] = np.median(v[~bad]) if (~bad).any() else 0.0
-        c, k = _quantile_codes(v, n_bins)
-        cols[j] = c
-        nx[j] = k
+    block = max(1, min(n_cols, (128 << 20) // (4 * max(n_rows, 1))))  # a block of float columns of at most 128 MB, coded in parallel
+    for j0 in range(0, n_cols, block):
+        j1 = min(j0 + block, n_cols)
+        v = np.empty((j1 - j0, n_rows), dtype=_crit_np_dtype())
+        for j in range(j0, j1):
+            col = _column_values(X, j)
+            bad = ~np.isfinite(col)
+            if bad.any():
+                col = col.copy()
+                col[bad] = np.median(col[~bad]) if (~bad).any() else 0.0
+            v[j - j0] = col
+        quantile_codes_block(v, int(n_bins), cols[j0:j1], nx[j0:j1])
     return cols, nx
 
 

@@ -66,6 +66,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "baseline_lcb_by_bootstrap_mi",
     "score_features_by_bootstrap_mi",
     "hybrid_orth_mi_bootstrap_fe",
     "hybrid_orth_mi_bootstrap_fe_with_recipes",
@@ -95,6 +96,48 @@ def _all_columns_distinct(arr: np.ndarray) -> bool:
         if np.unique(arr[:, j]).size < n:
             return False
     return True
+
+def _bootstrap_rows(rng: np.random.Generator, y_arr: np.ndarray, n: int, sample_n: int) -> np.ndarray:
+    """Row indices of one bootstrap replicate: ``sample_n`` rows drawn with replacement.
+
+    Guard against degenerate single-class bootstraps (rare-imbalance frames): resample up to 5 times to find a multi-class slice; fall back to the full sample for that
+    replicate if every retry collapses to a single class (the bootstrap then contributes the point estimate, which is the most defensible fallback).
+    """
+    idx = rng.integers(0, n, size=sample_n)
+    for _retry in range(5):
+        if np.unique(y_arr[idx]).size >= 2:
+            break
+        idx = rng.integers(0, n, size=sample_n)
+    if np.unique(y_arr[idx]).size < 2:
+        idx = np.arange(n)
+    return idx
+
+
+def baseline_lcb_by_bootstrap_mi(raw_X: pd.DataFrame, y: np.ndarray, *, n_boot: int = 10, sample_fraction: float = 0.8, seed: int = 0, nbins: int = 10) -> np.ndarray:
+    """``baseline_mi_lcb`` of every column of ``raw_X``, exactly as :func:`score_features_by_bootstrap_mi` reports it for the engineered columns built from that column.
+
+    The baseline of a source column depends only on the column, the seeded resamples and ``y``, not on any engineered column, so a caller that needs only the noise floor of the raw
+    baseline distribution (the modular and decomposition gates) does not have to score a candidate per source to get it.
+    """
+    y_arr = coerce_y_classif(y)
+    n = len(raw_X)
+    from ._fe_usability_signal import _crit_np_dtype
+
+    raw_arr = raw_X.to_numpy(dtype=_crit_np_dtype())
+    raw_sort_safe = _all_columns_distinct(raw_arr)
+    n_boot_eff = max(1, int(n_boot))
+    sample_n = max(2, round(float(sample_fraction) * n))
+    rng = np.random.default_rng(int(seed))
+    reps = []
+    for _ in range(n_boot_eff):
+        idx = _bootstrap_rows(rng, y_arr, n, sample_n)
+        idx_raw = np.sort(idx) if raw_sort_safe else idx
+        reps.append(np.asarray(_mi_classif_batch(raw_arr[idx_raw, :], y_arr[idx_raw], nbins=nbins), dtype=np.float64))  # Intentional float64: statistic vector (MI / null max / p-value inputs)
+    mat = np.vstack(reps)
+    ddof = 1 if n_boot_eff >= 2 else 0
+    std = mat.std(axis=0, ddof=ddof) if n_boot_eff >= 2 else np.zeros(mat.shape[1])
+    return np.asarray(mat.mean(axis=0) - _LCB_Z * std)
+
 
 def score_features_by_bootstrap_mi(
     raw_X: pd.DataFrame,
@@ -209,18 +252,7 @@ def score_features_by_bootstrap_mi(
     uplift_replicates: list[np.ndarray] = []
 
     for _ in range(n_boot_eff):
-        idx = rng.integers(0, n, size=sample_n)
-        # Guard against degenerate single-class bootstraps (rare-imbalance
-        # frames). Resample up to 5 times to find a multi-class slice;
-        # fall back to full-sample MI for that replicate if every retry
-        # collapses to a single class (the bootstrap then contributes
-        # the point estimate, which is the most defensible fallback).
-        for _retry in range(5):
-            if np.unique(y_arr[idx]).size >= 2:
-                break
-            idx = rng.integers(0, n, size=sample_n)
-        if np.unique(y_arr[idx]).size < 2:
-            idx = np.arange(n)
+        idx = _bootstrap_rows(rng, y_arr, n, sample_n)
         # Sort the resample indices ONLY for matrices whose columns are all
         # distinct (continuous), where the gather is bit-identical (see the
         # raw_sort_safe / eng_sort_safe precompute). The two MI calls are
