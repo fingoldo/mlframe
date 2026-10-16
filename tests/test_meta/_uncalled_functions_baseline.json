@@ -348,10 +348,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/feature_selection/filters/_ksg.py::_digamma_vec": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/feature_selection/filters/_mah.py::_greedy_merge_bins": {
    "count": 1,
    "note": ""
