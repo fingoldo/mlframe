@@ -238,6 +238,7 @@ def _oof_gather_kernel(cp):
         _OOF_GATHER_KERNEL = cp.ElementwiseKernel(
             # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
             "int64 idx, raw float64 table, float64 fallback",
+            # Intentional float64: the gathered OOF column keeps the table's width (see above)
             "float64 out",
             "double v = table[idx]; out = isfinite(v) ? v : fallback;",
             "binagg_oof_gather",

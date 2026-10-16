@@ -17,7 +17,7 @@ def test_pool_value_of_an_engineered_column_is_its_replayed_continuous_values():
     X = pd.DataFrame({"c": c, "d": d, "mul(log(c),sin(d))": codes})
 
     got = _pool_values(X, "mul(log(c),sin(d))", {"mul(log(c),sin(d))": object()}, lambda recipe, frame: np.log(frame["c"].to_numpy()) * np.sin(frame["d"].to_numpy()))
-    np.testing.assert_allclose(got, term)
+    np.testing.assert_allclose(got, term, rtol=1e-5, atol=1e-6)  # stored at the fit's float width
     assert np.unique(got).size > 1000  # not a ten-level column
 
     y = 3.0 * term + 0.3 * rng.normal(size=n)

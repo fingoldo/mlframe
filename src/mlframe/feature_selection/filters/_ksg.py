@@ -91,7 +91,7 @@ def _digamma_scalar(x: float) -> float:
 @njit(nogil=True, cache=True, parallel=False)
 def _digamma_vec(arr: np.ndarray) -> np.ndarray:
     """Element-wise digamma via ``_digamma_scalar``."""
-    out = np.empty(arr.shape[0], dtype=np.float64)
+    out = np.empty(arr.shape[0], dtype=np.float64)  # Intentional float64: digamma values are summed into the MI estimate
     for i in range(arr.shape[0]):
         out[i] = _digamma_scalar(float(arr[i]))
     return out
@@ -112,6 +112,7 @@ def _mixed_ksg_aggregate_vec(k: int, n: int, n_x: np.ndarray, n_y: np.ndarray) -
     """Array-digamma form of :func:`_mixed_ksg_aggregate`: the same estimator, with the per-point sums taken over ``_digamma_vec``."""
     psi_k = _digamma_scalar(float(k))
     psi_n = _digamma_scalar(float(n))
+    # Intentional float64: neighbour counts are the arguments of digamma, which the KSG estimate sums and subtracts
     a = _digamma_vec(n_x.astype(np.float64) + 1.0)
     b = _digamma_vec(n_y.astype(np.float64) + 1.0)
     s = (a.sum() + b.sum()) / float(n)

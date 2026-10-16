@@ -17,6 +17,7 @@ import re
 
 import numpy as np
 
+from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -121,10 +122,10 @@ def _pool_values(X, column, engineered_recipes, apply_recipe) -> np.ndarray:
     recipe = engineered_recipes.get(name) if isinstance(engineered_recipes, dict) else None
     if recipe is not None:
         try:
-            return np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=np.float64).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
+            return np.nan_to_num(np.asarray(apply_recipe(recipe, X), dtype=_crit_np_dtype()).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
         except Exception:
             log_throttle(logger, "residual_rescue.pool_replay_failed", logging.WARNING, "MRMR residual rescue: replaying %r from its recipe failed; its stored column is scored instead.", name, exc_info=True)
-    return np.asarray(X[column].to_numpy(), dtype=np.float64)
+    return np.asarray(X[column].to_numpy(), dtype=_crit_np_dtype())
 
 
 def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "list[str]":
