@@ -214,7 +214,7 @@ jobs:
           retention-days: 14
 
       - name: Upload coverage to Codecov (numba-disabled flag)
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@641677acf514f095914711fc5d5c258c3ca38ada  # v1.22.12  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@531a0e51b2343f7b6127a2b1a37aaeceae34618f  # v1.22.12  # pragma: allowlist secret
         # (success() || failure()): a failure in one shard must not hide the other shards'
         # coverage from Codecov -- mirrors ci.yml's identical fix for the same reason.
         if: success() || failure()
