@@ -759,6 +759,7 @@ _SUPERSEDED = {
     "_pair_combo_mi_cupy_loop",  # per-combo cupy twin of _pair_combo_mi_cupy; parity pinned in tests/feature_selection/gpu/test_usability_pool_cupy_batched_twin.py
     "_propose_fourier",  # predecessor of _propose_fourier_both_warps; parity pinned in tests/feature_selection/fe/adaptive/test_propose_fourier_parity.py
     "mi_classif_streamed_fill",  # zero-copy twin of mi_classif_streamed (the production path); kept as its reference, parity pinned in tests/feature_selection/filters/test_streamed_gpu_mi.py::test_streamed_fill_matches_copy_path
+    "_yj_forward_scalar",  # scalar reference for _yj_forward (numpy and numba paths); parity pinned in tests/training/composite/transforms/test_yj_forward_scalar_parity.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.

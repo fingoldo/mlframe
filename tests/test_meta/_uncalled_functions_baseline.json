@@ -844,10 +844,6 @@
    "count": 1,
    "note": ""
   },
-  "src/mlframe/training/composite/transforms/unary.py::_yj_forward_scalar": {
-   "count": 1,
-   "note": ""
-  },
   "src/mlframe/training/composite/transforms/unary.py::_yj_inverse_scalar": {
    "count": 1,
    "note": ""
