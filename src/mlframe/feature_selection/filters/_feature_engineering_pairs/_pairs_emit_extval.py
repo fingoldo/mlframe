@@ -212,7 +212,7 @@ def _emit_pair_features_step2_read_here_once(  # noqa: C901 -- one step kept who
                 _ev_code_dtype = _narrow_code_dtype(quantization_nbins, quantization_dtype)  # OPT-B narrow codes
                 _ev_col = _ev_K
                 _ev_disc = None
-                # DEVICE-BORN EXT-VAL CANDIDATES (Phase-1 residency, 2026-07-01). Build out[:, e*n_ops+o] =
+                # DEVICE-BORN EXT-VAL CANDIDATES (Phase-1 residency). Build out[:, e*n_ops+o] =
                 # op(param_a, ext_e) RESIDENT in float64 + quantile-bin RESIDENT, so the (n, K) candidate
                 # matrix NEVER crosses H2D - only param_a + the external-factor columns upload (once, small),
                 # killing the ~46 MB gpu_discretize_codes_host bulk H2D at full n. Engaged only on the strict-

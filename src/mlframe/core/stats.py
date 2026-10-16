@@ -60,7 +60,7 @@ def get_tukey_fences_multiplier_for_quantile(
     >>> float(round(get_tukey_fences_multiplier_for_quantile(quantile=0.1, sd_sigma=2.7), 10))
     0.5534105972
     """
-    # Wave 31 (2026-05-20): replaced bare ``assert`` with explicit ValueError.
+    # replaced bare ``assert`` with explicit ValueError.
     # The assert was stripped under ``python -O`` (production-perf deploys),
     # letting quantile=0 / 1.0 slip into dist.ppf which returns +/-inf and
     # silently propagated NaN downstream.

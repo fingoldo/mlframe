@@ -82,7 +82,7 @@ import os as _os
 
 _logger = _logging.getLogger(__name__)
 
-# Audit 2026-05-17 (Wave 1.5): the loky physical-core count override
+# the loky physical-core count override
 # was originally applied at import time as a global side effect, which
 # affected any joblib consumer in the same Python process even when the
 # user only imported mlframe for a single helper. We now expose it as an
@@ -158,12 +158,12 @@ _LAZY_IMPORTS = {
     "TrainingConfig": (".configs", "TrainingConfig"),
     "config_from_dict": (".configs", "config_from_dict"),
     "TargetTypes": (".configs", "TargetTypes"),
-    # 2026-04-24: multi-output configs (multiclass / multilabel dispatch)
+    # multi-output configs (multiclass / multilabel dispatch)
     "MultilabelDispatchConfig": (".configs", "MultilabelDispatchConfig"),
     "EnsemblingConfig": (".configs", "EnsemblingConfig"),
-    # 2026-05-04: learning-to-rank dispatch
+    # learning-to-rank dispatch
     "LearningToRankConfig": (".configs", "LearningToRankConfig"),
-    # 2026-05-08: quantile-regression dispatch
+    # quantile-regression dispatch
     "QuantileRegressionConfig": (".configs", "QuantileRegressionConfig"),
     "train_mlframe_ranker_suite": (".ranking", "train_mlframe_ranker_suite"),
     "fit_ranker": (".ranking", "fit_ranker"),

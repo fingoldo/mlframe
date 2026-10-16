@@ -110,7 +110,7 @@ def make_train_test_split(
     # Derive a 32-bit int seed for sklearn splitters that need an integer seed.
     sklearn_seed = int(rng.integers(0, 2**32 - 1)) if random_seed is not None else None
 
-    # Input validation (2026-04-19 proactive probe pass).
+    # Input validation (proactive probe pass).
     # Previously negative ``val_size``/``test_size`` silently produced
     # empty splits; ``trainset_aging_limit=0`` silently no-op'd despite
     # the non-zero-only validator below contradicting that behaviour.
@@ -127,7 +127,7 @@ def make_train_test_split(
     if val_placement not in ("forward", "backward"):
         raise ValueError(f"val_placement must be 'forward' or 'backward', got {val_placement!r}")
 
-    # 2026-04-27 Session 7 batch 7: normalise ``timestamps`` to pd.Series
+    # Session 7 batch 7: normalise ``timestamps`` to pd.Series
     # at function entry. Several downstream branches use ``timestamps.iloc``
     # / ``.dt`` accessors that only work on pandas Series. Callers may
     # pass either a Series (FTE.transform on pandas df) or a numpy
@@ -137,7 +137,7 @@ def make_train_test_split(
     if timestamps is not None and not isinstance(timestamps, pd.Series):
         timestamps = pd.Series(timestamps)
 
-    # 2026-05-18 explicit log: surface group-aware splitting status so the
+    # explicit log: surface group-aware splitting status so the
     # operator sees at a glance whether GroupShuffleSplit is in effect.
     # Pre-fix this was implicit ("if groups is not None: ..."). Users with
     # ``SimpleFeaturesAndTargetsExtractor(group_field=...)`` could not tell
@@ -201,7 +201,7 @@ def _make_train_test_sp_wholeday_splitting_timestamps_none(wholeday_splitting, t
     if wholeday_splitting and timestamps is not None:
         # `.dt.floor('D')` is vectorized over datetime64 and stays in datetime dtype
         # (unlike `.dt.date` which yields a Python-object Series -- much slower for isin).
-        # 2026-04-27: ``pd.to_datetime`` on a numpy datetime64 ndarray returns a
+        # ``pd.to_datetime`` on a numpy datetime64 ndarray returns a
         # ``DatetimeIndex`` (no ``.dt`` accessor); on a pandas Series it returns
         # a Series (has ``.dt``). FTE.transform may pass either shape -- wrap
         # in pd.Series first so ``.dt.floor`` works uniformly.
@@ -287,7 +287,7 @@ def _make_train_test_sp_wholeday_splitting_timestamps_none(wholeday_splitting, t
         codes, uniq_index = pd.factorize(dates, sort=False)
         # uniq_index is a pandas Index of unique dates in first-occurrence
         # order; build a O(1) lookup from datetime -> position via a dict.
-        # 2026-05-21: normalise keys + lookups to int64 nanoseconds so the
+        # normalise keys + lookups to int64 nanoseconds so the
         # ``dict.get(d)`` calls below work regardless of whether ``train_dates``
         # is a numpy datetime64 array (default on most pandas versions) or a
         # pandas DatetimeIndex of Timestamps (pandas 3.0 path). The previous

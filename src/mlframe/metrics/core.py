@@ -105,7 +105,7 @@ from ._multilabel_metrics import (  # noqa: F401
 TITLE_METRIC_TOKENS: frozenset = frozenset({
     "ICE", "BR", "BR_DECOMP", "ECE", "CMAEW",
     "COV", "LL", "ROC_AUC", "PR_AUC", "DENS",
-    # 2026-05-28 audit batch additions. Each has a render_* branch
+    # audit batch additions. Each has a render_* branch
     # in ``_calibration_plot.render_title_metric_token``. Adding new
     # tokens here REQUIRES adding to the renderer; ReportingConfig
     # validates against this set at config construction time.
@@ -231,7 +231,7 @@ from ._core_numba_warmup import (  # noqa: F401
     _prewarm_numba_cache_body,
 )
 
-# Additional classification metrics (binary + multiclass) - 2026-05-28
+# Additional classification metrics (binary + multiclass).
 # audit batch. Re-exported here so historical
 # ``from mlframe.metrics.core import ks_statistic`` style imports resolve
 # at module scope.
@@ -258,7 +258,7 @@ from mlframe.metrics.classification.shared import (  # noqa: F401
     accuracy_ratio,
 )
 
-# Additional regression metrics (RMSLE / MAPE-mean / SMAPE / ...) - 2026-05-28.
+# Additional regression metrics (RMSLE / MAPE-mean / SMAPE / ...).
 from .regression import (  # noqa: F401
     fast_rmsle,
     fast_mape_mean,
@@ -284,7 +284,7 @@ from .regression import (  # noqa: F401
 )
 
 # Additional multilabel metrics (LRAP / coverage / ranking-loss / one-error
-# / macro+micro+weighted F1) - 2026-05-28.
+# / macro+micro+weighted F1).
 from ._multilabel_extras import (  # noqa: F401
     label_ranking_average_precision,
     coverage_error,
@@ -294,13 +294,13 @@ from ._multilabel_extras import (  # noqa: F401
     multilabel_f1_micro,
     multilabel_f1_weighted,
     fast_multilabel_classification_metrics_block,
-    # 2026-05-28 follow-up: per-label AUC + macro/weighted
+    # follow-up: per-label AUC + macro/weighted
     multilabel_auc_per_label,
     multilabel_auc_macro,
     multilabel_auc_weighted,
 )
 
-# Additional ranking (LTR) metrics (DCG / ERR / Hit@k / Precision@k) - 2026-05-28.
+# Additional ranking (LTR) metrics (DCG / ERR / Hit@k / Precision@k).
 from ._ranking_extras import (  # noqa: F401
     dcg_at_k,
     expected_reciprocal_rank,
@@ -308,7 +308,7 @@ from ._ranking_extras import (  # noqa: F401
     precision_at_k,
 )
 
-# Distributional / drift metrics (PSI / KL / JS / Wasserstein / KS) - 2026-05-28.
+# Distributional / drift metrics (PSI / KL / JS / Wasserstein / KS).
 from ._drift import (  # noqa: F401
     population_stability_index,
     kl_divergence,

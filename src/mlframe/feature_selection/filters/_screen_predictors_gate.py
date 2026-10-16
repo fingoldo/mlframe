@@ -119,7 +119,7 @@ def compute_selection_gate(
     stores alongside the accepted predictor for future relative-floor comparisons.
     """
     _abs_floor = min_relevance_gain if interactions_order == 1 else min_relevance_gain ** (1 / (interactions_order + 1))
-    # 2026-05-30 Miller-Madow: subtract finite-sample bias from gain at gate. For
+    # Miller-Madow: subtract finite-sample bias from gain at gate. For
     # joint candidates (k-way interactions) use product-of-bin-counts as effective
     # cardinality. Bias = (nbins_x_eff - 1) * (nbins_y - 1) / (2*n). The same
     # correction is applied to the first-selected feature's stored gain so the
@@ -146,7 +146,7 @@ def compute_selection_gate(
         except (TypeError, ValueError):
             # best_candidate isn't iterable / contains non-int; skip MM gate
             pass
-    # 2026-05-30 diminishing-returns floor: from the SECOND selected feature onward,
+    # diminishing-returns floor: from the SECOND selected feature onward,
     # require corrected best_gain >= MAX(corrected gain over already-selected) *
     # min_relevance_gain_relative_to_first. Using MAX (not just first) is critical when
     # the first-picked feature has a cardinality-inflated raw MI that the Miller-Madow
@@ -177,7 +177,7 @@ def compute_selection_gate(
                 _max_corrected_gain = _g_corr
         if _max_corrected_gain > 0.0:
             _rel_floor = _max_corrected_gain * float(min_relevance_gain_relative_to_first)
-    # 2026-06-03 maxT permutation-null floor (order-1 single candidates
+    # maxT permutation-null floor (order-1 single candidates
     # only). CRITICAL: compare the candidate's corrected MARGINAL MI -
     # the exact statistic the null is built on - NOT the Fleuret
     # conditional gain ``_best_gain_for_gate``. Once the genuine signals

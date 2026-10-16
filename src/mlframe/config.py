@@ -12,11 +12,11 @@ NGBOOST_MODEL_TYPES = ("NGBClassifier", "NGBRegressor")
 XGBOOST_MODEL_TYPES = (
     "XGBClassifier",
     "XGBRegressor",
-    # 2026-04-24 DMatrix-reuse shims (mlframe.xgb_dmatrix_reuse_shim).
+    # DMatrix-reuse shims (mlframe.xgb_dmatrix_reuse_shim).
     # Subclass XGBClassifier / XGBRegressor; without listing them here
     # every ``model_type_name in XGBOOST_MODEL_TYPES`` check downstream
     # silently skips XGB-specific handling for the shim variants
-    # (fuzz c0102 / 2026-04-27 - the XGB cat-with-float-dtype recast guard
+    # (fuzz c0102 / - the XGB cat-with-float-dtype recast guard
     # never fired because the type-name check rejected the shim).
     "XGBClassifierWithDMatrixReuse",
     "XGBRegressorWithDMatrixReuse",

@@ -136,7 +136,7 @@ def build_raw_redundancy_anchors(
     st._eng_signal_parents = {}
     _build_raw_redundan_ei_eng_idx(st.eng_idx, st._eng_base_sets, cols, raw_name_set, _raw_is_signal_bearing, st._eng_signal_parents)
 
-    # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1, 2026-06-12); see the parent module docstring.
+    # NESTED-OPERAND CLEAN-SUBEXPRESSION ANCHOR (BUG1); see the parent module docstring.
     st._recipes = recipes or {}
     st._clean_subexpr_bin = {}
     st._clean_subexpr_bin_dev = {}

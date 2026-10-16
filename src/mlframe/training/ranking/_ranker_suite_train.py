@@ -155,7 +155,7 @@ def train_mlframe_ranker_suite(
         df_features = transformed[0]
         target_by_type = transformed[1]
         group_ids = transformed[3] if len(transformed) > 3 else None
-        # Wave 63 (2026-05-20): drop the unused timestamps capture. The
+        # drop the unused timestamps capture. The
         # timeseries-aware ranker path doesn't consume this slot today; if/when
         # it lands, this assignment can be re-added. Removing the F841-bait
         # keeps the static-analysis surface clean.
@@ -374,7 +374,7 @@ def train_mlframe_ranker_suite(
         # at lr=0.1 blows up the weights within the first few steps,
         # the post-Linear pre-activations saturate negative, every
         # ReLU dies, and the final Linear collapses to outputting its
-        # bias for every input (observed 2026-05-21:
+        # bias for every input (observed:
         # std(val_scores)=4.77e-07, identical -4.430379 per row). The
         # zero-variance gate in the rank-fusion ensemble then drops
         # MLP entirely. Skip the suite-level lr forward for MLP and

@@ -156,7 +156,7 @@ def _generate_mlp_affine_composition_extrapolation_motivated(output_activation, 
                 # in place; a direct caller that bypasses that path is
                 # a programmer error worth surfacing immediately. Test
                 # ``test_tanh_train_range_requires_scale_and_center`` pins
-                # this contract; an earlier (2026-06-01) soft fallback
+                # this contract; an earlier soft fallback
                 # silently demoted misconfigured calls and broke that
                 # test. The actual orchestration bug it was meant to mask
                 # turned out to live on the S: recovered tree only.

@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 _xxh3_64: Optional[Callable] = resolve_xxh3_64(logger, "_cached_card falls back to tobytes()+hash() for its cache key")
 
-# GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
+# GPU quantile-bin crossover (synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
 # 1050 Ti, nbins=10): a single host column round-tripped to the device for equi-frequency binning (H2D +
 # cp.percentile sort + cp.searchsorted + code D2H) only beats the host introselect-partition np.quantile path
 # well above the launch/transfer floor - n=20k CPU 0.92ms vs GPU 1.67ms; n=35k near-tie 1.53 vs 1.71ms; n=100k
@@ -826,7 +826,7 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
         else:
             # FALLBACK ONLY (GPU-off / batched call faulted): the y/z-invariant CMI block
             # (H(Y,Z)/H(Z) + their renumberings) is only needed by this per-candidate loop, not the batched
-            # path above - computed here, lazily, instead of eagerly every round (2026-07-17: it used to run
+            # path above - computed here, lazily, instead of eagerly every round (: it used to run
             # unconditionally even when the batched path succeeded and its output went unused, and it forced
             # ``z_joint`` to be a HOST array every round). ``_host_z()`` materializes the host mirror of
             # ``z_joint_dev`` on first use in this fallback only.

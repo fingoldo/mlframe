@@ -36,7 +36,7 @@ _ranknet_pair_cache_lock = threading.Lock()
 # negatives), built in O(N + n_pairs) vs torch.where's O(N^2) (N, N) bool
 # mask materialisation. Below ~N=200 the torch.where path is faster on CPU
 # (single fused kernel beats nonzero+repeat_interleave+repeat); above it the
-# binary path scales much better. Bench 2026-05-28 (modern torch, CPU):
+# binary path scales much better. Bench (modern torch, CPU):
 #   N=200 ~1.4x, N=500 4.5x, N=1000 9.8x, N=2000 14.2x at 10%-positive rel.
 # The MIN_N gate also keeps the install_pair_index_cache fast path
 # (typical fuzz N=10-15) unaffected.
@@ -123,7 +123,7 @@ def ranknet_pairwise_loss(scores: torch.Tensor, relevance: torch.Tensor) -> torc
     # which allocated a full (N, N) float32 tensor per call (~64KB at N=128,
     # called 90k times per train epoch on a typical LTR fuzz combo - 5.8GB
     # of throwaway tensor allocs amortised across the training loop, profile
-    # 2026-05-20 attributed 64s self-time to ranknet_pairwise_loss). The
+    # attributed 64s self-time to ranknet_pairwise_loss). The
     # indexed form below allocates only a 1-D (n_pairs,) score_diff tensor
     # (~n_pairs * 4 bytes), strictly subset of the matrix that was being
     # indexed out anyway. Same gradient (verified analytically: the matrix

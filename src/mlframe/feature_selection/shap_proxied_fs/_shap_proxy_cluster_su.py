@@ -153,7 +153,7 @@ def _should_route_su_gpu(
     elif not su_gpu_pays_off(n_features, n_samples):
         return False
     onehot_bytes = int(n_features) * int(max_n_bins) * int(n_samples) * 4
-    # 2026-06-03 (audit shap-proxy-clustering-3): the gate previously sized ONLY
+    # the gate previously sized ONLY
     # the float32 one-hot and ignored the DOMINANT inner working set - the
     # einsum joint tensor (chunk, f, mb, mb) plus its float64 siblings (joint_p,
     # px_outer, safe_outer, ratio, log_ratio). With the old hardcoded chunk=4096
@@ -216,7 +216,7 @@ def _pairwise_su_edges_gpu(
 
     flags = cp.zeros((n_features, n_features), dtype=cp.uint8)
 
-    # 2026-06-03 (audit shap-proxy-clustering-3): auto-shrink the i-chunk so the
+    # auto-shrink the i-chunk so the
     # inner (chunk, f, mb, mb) working set fits in free GPU memory. Budget
     # ~10 * f * mb^2 * 8 bytes per i-row (float32 joint_counts + the float64
     # joint_p/px_outer/safe_outer/ratio/log_ratio siblings). The prior hardcoded
@@ -236,7 +236,7 @@ def _pairwise_su_edges_gpu(
         i_end = min(i_start + pair_chunk_size, n_features)
 
         # joint[i_local, j, a, b] = sum_s onehot[i_global, a, s] * onehot[j, b, s]
-        # 2026-06-03 (audit shap-proxy-clustering-3): einsum in float32. The joint
+        # einsum in float32. The joint
         # COUNTS are integer sums of 0/1 products over <= n_samples (<< 2^24),
         # exactly representable in float32, so we avoid the prior full float64
         # copy of the one-hot (onehot.astype(cp.float64) was an unbudgeted

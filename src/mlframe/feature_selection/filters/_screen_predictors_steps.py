@@ -157,7 +157,7 @@ def _screen_predictors_step2_interactions_order_subsets(
                         selected_vars.append(var)
                         if interactions_order > 1:
                             selected_interactions_vars.append(var)
-                        # 2026-05-30 Wave 9 — Dynamic Cluster Discovery hook.
+                        # Dynamic Cluster Discovery hook.
                         # After each accepted predictor, prune the Pool by
                         # SU(c, var) > tau_cluster. Mutates ``pool_pruned_mask``
                         # in-place (Critic1/B-1: NO mutation of candidates

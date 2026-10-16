@@ -699,7 +699,7 @@ def ranked_probability_score(
 # ============================================================================
 #
 # Bench (mlframe.metrics._benchmarks.bench_extended_metric_blocks) -
-# measured on Win11 / numba 0.58 / 16-thread Ryzen 2026-05-28:
+# measured on Win11 / numba 0.58 / 16-thread Ryzen:
 #
 #   Binary confusion block (11 metrics: accuracy, balanced_accuracy, MCC,
 #   Cohen-kappa, F1, F0.5, F2, precision, recall, specificity, NPV, FPR/FNR,

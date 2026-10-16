@@ -100,7 +100,7 @@ def _fe_stage_cascade_early_a(
     unlike the two dicts above, these three ARE reassigned (not just mutated) within this function,
     so they must be threaded back out explicitly.
     """
-    # 2026-05-31 Layer 23 — hybrid orthogonal-polynomial + MI-greedy FE.
+    # Layer 23 — hybrid orthogonal-polynomial + MI-greedy FE.
     # When ``fe_hybrid_orth_enable=True``, generate basis_n(z) columns for each
     # numeric input column and MI-rank against y; append the top-K winners
     # before screening. The hybrid pipeline lives in ``_orthogonal_univariate_fe``
@@ -167,7 +167,7 @@ def _fe_stage_cascade_early_a(
     # candidate members to this set so a cross is never built on an engineered
     # column (which cannot be replayed at transform time -> KeyError).
     _raw_input_cols_pre_fe = list(X.columns) if hasattr(X, "columns") else []
-    # 2026-06-02 UNIVARIATE-BASIS FE — DEFAULT ON (closes the univariate-
+    # UNIVARIATE-BASIS FE — DEFAULT ON (closes the univariate-
     # nonlinearity gap). The pair-FE path (always on) recovers pair interactions
     # (a*b, a/b, |a-b|) but CANNOT express a single-variable nonlinearity (no
     # pairing makes a clean a**2 / a**3 / |a| out of one column); on a symmetric
@@ -221,7 +221,7 @@ def _fe_stage_cascade_early_a(
             if getattr(self, "factors_names_to_use", None):
                 _h_cols = [c for c in self.factors_names_to_use if c in X.columns]
             _X_before_hybrid_cols = list(X.columns)
-            # 2026-06-01 Layer 85 — default-scorer routing for the L21
+            # Layer 85 — default-scorer routing for the L21
             # univariate basis-selection stage. Non-"plug_in" values
             # route the univariate dispatch through one of the alternate
             # scorers (CMIM, JMIM, KSG, copula, dCor, HSIC, TC, lasso,
@@ -294,7 +294,7 @@ def _fe_stage_cascade_early_a(
                 type(_h_exc).__name__,
                 _h_exc,
             )
-        # 2026-05-31 Layer 32 — extra-basis (B-spline / Fourier) FE stage.
+        # Layer 32 — extra-basis (B-spline / Fourier) FE stage.
         # Runs only when the master hybrid switch is on AND the user
         # opted in via a non-empty ``fe_hybrid_orth_extra_bases`` tuple.
         # Complementary to the polynomial path: spline catches threshold
@@ -323,7 +323,7 @@ def _fe_stage_cascade_early_a(
         if _univ_fourier_on and _univ_basis_on and _extra_basis_scorer_ok and "fourier" not in _eff_extra_bases:
             _eff_extra_bases = (*_eff_extra_bases, "fourier")
         X_acc = _fe_merge_new_columns(X_acc, _stage_extra_orthogonal_bases(self, _eff_extra_bases, X, _y_for_extra, _top_k_for_extra, _hybrid_orth_pre_recipes, verbose), X)
-    # 2026-06-09 — HINGE / piecewise-linear change-point basis stage.
+    # — HINGE / piecewise-linear change-point basis stage.
     # Independent opt-in via ``fe_hinge_enable`` (does NOT require
     # ``fe_hybrid_orth_enable``): captures a SLOPE CHANGE at a data-dependent
     # threshold ``y = a*x + b*max(x-tau,0)`` (pricing tiers / dose-response /
@@ -414,7 +414,7 @@ def _fe_stage_cascade_early_a(
                 type(_h_exc).__name__,
                 _h_exc,
             )
-    # 2026-05-31 Layer 56 — TRI-PRODUCT cross-basis FE stage.
+    # Layer 56 — TRI-PRODUCT cross-basis FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable): captures
     # genuine 3-way interactions like 3-way XOR and price*quantity*count
     # that the pair stage cannot. O(seed_k^3 * deg^3) candidate count is
@@ -436,18 +436,18 @@ def _fe_stage_cascade_early_a(
         _gbm_seeded_triplet_names=_gbm_seeded_triplet_names,
         _fe_family_on=_fe_family_on,
     ), X)
-    # 2026-05-21 revert of Wave 29 P1 polars->pandas coercion. That
+    # Reverted polars->pandas coercion. That
     # coercion was added on the premise that downstream ``X[target_name]
     # = y`` mutation assumed pandas and would raise on polars; but the
     # ``_is_polars_input`` branch immediately below ALREADY
-    # handles polars via ``X.with_columns(target_series)``. The Wave 29
+    # handles polars via ``X.with_columns(target_series)``. The earlier
     # coercion was a false-positive fix that killed the zero-copy
     # polars promise (test_mrmr_fe_zero_copy_polars regressed -
     # ``pl.DataFrame.to_pandas()`` was called 1x per fit on 100+ GB
     # production frames). Leaving polars frames untouched so the
     # native branch fires.
 
-    # 2026-05-31 Layer 26 — generic MI-greedy FE constructor (sibling to the
+    # Layer 26 — generic MI-greedy FE constructor (sibling to the
     # hybrid orthogonal-polynomial stage above). Same wiring pattern: opt-in
     # via ``fe_mi_greedy_enable=True``, default OFF preserves byte-identical
     # behaviour. The seed pool is the RAW columns of X (NOT the post-hybrid
@@ -459,7 +459,7 @@ def _fe_stage_cascade_early_a(
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         X_acc = _stage_mi_greedy(self, X_acc, X, _y_np, _mi_greedy_pre_recipes, verbose)
 
-    # 2026-05-31 Layer 60 — CMI-greedy FE constructor (sibling to Layer 26).
+    # Layer 60 — CMI-greedy FE constructor (sibling to Layer 26).
     # Ranks the same candidate library by ``CMI(candidate; y | support)``
     # instead of marginal ``MI(candidate; y)`` so duplicate-signal transforms
     # (``log_abs(x)`` + ``square(x)`` both monotone in |x|) cannot all be

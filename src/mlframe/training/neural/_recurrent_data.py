@@ -64,7 +64,7 @@ class RecurrentDataset(Dataset):
         weights_np = _ensure_numpy(sample_weights)
         self.sample_weights = torch.as_tensor(weights_np, dtype=torch.float32) if weights_np is not None else None
 
-        # F-51 (2026-05-31): promote the fixed-size tensor attrs to shared
+        # F-51: promote the fixed-size tensor attrs to shared
         # memory so DataLoader child workers (num_workers > 0) attach to a
         # single backing buffer instead of pickling a fresh copy each.
         # Mirrors MLP TorchDataset's design (data.py:45 docstring, Yuxin Wu
@@ -91,7 +91,7 @@ class RecurrentDataset(Dataset):
         item: dict[str, torch.Tensor] = {"labels": self.labels[idx]}
 
         if self._has_sequences and self.sequences is not None:
-            # F-H fix (2026-05-31, audit follow-up): torch.as_tensor on a
+            # F-H fix (audit follow-up): torch.as_tensor on a
             # contiguous float32 numpy array does a ZERO-COPY view that
             # shares storage with self.sequences[idx]. If ANY downstream
             # subclass introduces an in-place op on the per-sample tensor
@@ -236,7 +236,7 @@ class RecurrentDataModule(LightningDataModule):
         # DataLoader requirement). Stored as-is; per-loader emission guards
         # below pass it only when num_workers > 0.
         self.prefetch_factor = prefetch_factor
-        # F-47 (2026-05-31): pin_memory should track the trainer accelerator,
+        # F-47: pin_memory should track the trainer accelerator,
         # not the host's CUDA availability. Pinning when the trainer runs on
         # CPU (e.g. user explicitly set accelerator="cpu" on a CUDA box for
         # debugging or smoke tests) wastes RAM and triggers a useless host-
@@ -340,7 +340,7 @@ class RecurrentDataModule(LightningDataModule):
             is_regression=self.is_regression,
         )
 
-        # F-46 (2026-05-31): mirror train_dataloader persistent_workers.
+        # F-46: mirror train_dataloader persistent_workers.
         # EarlyStopping triggers val every epoch; without persistence we
         # re-spawn workers each call (~150-300ms on Windows).
         return DataLoader(

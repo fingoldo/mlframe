@@ -184,7 +184,7 @@ class RecurrentClassifierWrapper(ClassifierMixin, _RecurrentWrapperBase):
                     weights_only=False,
                 )
             except Exception:
-                # Wave 41 (2026-05-20): checkpoint-fallback to final-epoch model is a
+                # checkpoint-fallback to final-epoch model is a
                 # quality regression source; preserve traceback for triage.
                 logger.warning("Failed to load checkpoint, using final model", exc_info=True)
 
@@ -208,7 +208,7 @@ class RecurrentClassifierWrapper(ClassifierMixin, _RecurrentWrapperBase):
             (n_samples, num_classes) array of probabilities
         """
         if self.model is None:
-            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            # NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("Model not trained. Call fit() first.")
 
@@ -400,7 +400,7 @@ class RecurrentRegressorWrapper(RegressorMixin, _RecurrentWrapperBase):
                     weights_only=False,
                 )
             except Exception:
-                # Wave 41 (2026-05-20): checkpoint-fallback to final-epoch model is a
+                # checkpoint-fallback to final-epoch model is a
                 # quality regression source; preserve traceback for triage.
                 logger.warning("Failed to load checkpoint, using final model", exc_info=True)
 
@@ -424,7 +424,7 @@ class RecurrentRegressorWrapper(RegressorMixin, _RecurrentWrapperBase):
             (n_samples,) array of predictions
         """
         if self.model is None:
-            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            # NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError
             raise NotFittedError("Model not trained. Call fit() first.")
 

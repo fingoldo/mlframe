@@ -290,7 +290,7 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
         self.corr_threshold = corr_threshold
         self.corr_method = corr_method
         self.expand = expand
-        # 2026-06-03 (audit integration-defaults-3): SAFETY/USEFULNESS guard for
+        # SAFETY/USEFULNESS guard for
         # default-ON use. The cluster-medoid reduction is a measured win
         # (~1.4-1.9x, no OOS loss) ONLY when genuine correlated redundancy
         # exists; on near-uncorrelated data it would reduce nothing yet still run
@@ -471,7 +471,7 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
 
         # Map the inner selector's kept medoids back to clusters via the
         # convention-agnostic helper (support_ index/mask, get_support(), or
-        # BorutaShap's ``accepted`` names). 2026-06-03 (audit integration-
+        # BorutaShap's ``accepted`` names). (audit integration-
         # defaults-3): lets CorrelatedFeaturesSelector wrap ANY wrapper selector
         # (RFECV / BorutaShap) - a MEASURED ~1.4-3x wall-clock win with no OOS
         # loss - by running the wrapper on the cluster medoids instead of every

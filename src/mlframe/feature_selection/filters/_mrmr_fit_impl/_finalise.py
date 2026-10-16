@@ -160,7 +160,7 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
     # engineered survivor captures still passes and is rescued. Structure-independent:
     # correct at every n, no tuning constant beyond the existing ``_redundancy_frac``.
     _name_to_cols_idx_eng = {c: i for i, c in enumerate(cols)}
-    # SEED ONLY ON SURVIVING ENGINEERED FEATURES (2026-06-16, s319 under-selection).
+    # SEED ONLY ON SURVIVING ENGINEERED FEATURES (s319 under-selection).
     # Condition the dedup on the engineered features that ACTUALLY REACH THE OUTPUT
     # - i.e. the replayable ``self._engineered_recipes_`` counted in ``n_engineered_out``
     # - NOT ``self._engineered_features_``, which still carries composites that were

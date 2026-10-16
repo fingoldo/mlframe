@@ -102,7 +102,7 @@ def _friend_graph_and_redundancy_passes_group1(
         _removed_set = set(_ca_removed)
         selected_vars = [v for v in selected_vars if cols[v] not in _removed_set]
 
-    # STANDALONE CROSS-GROUP GATE PRUNE (2026-06-15; un-gated to BOTH paths 2026-06-22). The conditional-gate
+    # STANDALONE CROSS-GROUP GATE PRUNE (; un-gated to BOTH paths). The conditional-gate
     # pre-pass appends gate_mask columns into the screening pool and the greedy can select a STANDALONE one;
     # the FE-step cross-group prune cannot reach it (it filters prospective_additions, not selected_vars).
     # Drop a selected standalone gate column iff its gate pair is CROSS-GROUP (no single clean ENGINEERED
@@ -162,7 +162,7 @@ def _friend_graph_and_redundancy_passes_group1(
     # ~0 (verified: on 3-way XOR among 5 noise vars ONLY {x0,x1,x2} fires), so noise is never seeded.
     # Off when interactions_max_order<2 (the default) -> byte-identical there. Bounded combo
     # enumeration (candidate + order caps) so wide-p fits stay tractable.
-    # NOTE (2026-07-21, test_3way_screening tracked-red follow-up): candidate columns MUST be
+    # NOTE (test_3way_screening tracked-red follow-up): candidate columns MUST be
     # re-quantile-binned here, NOT sourced from ``data`` (the fit's MDLP-binned matrix).
     # MDLP is supervised on each column's OWN marginal relevance to y, and a pure-synergy operand
     # has ~0 marginal MI BY CONSTRUCTION - MDLP collapses it to 1-2 bins (measured: x0 of a 3-way

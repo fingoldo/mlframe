@@ -161,7 +161,7 @@ def _fe_stage_cascade_mid_a(
     # unconditional budget rule as every other family (see _fe_family_on), which subsumes that floor: with
     # FE enabled the normal pipeline competes the composites down, and with FE off they simply never build.
     _discrete_fe_master = _fe_family_on("fe_discrete_structural_operators_enable", True) and _fe_budget_ok()
-    # OPERATOR SKIP-GATE (2026-06-18, perf). The four discrete-structural operators (pairwise-modular /
+    # OPERATOR SKIP-GATE (perf). The four discrete-structural operators (pairwise-modular /
     # row-argmax / conditional-gate / binned-agg) hunt for NONLINEAR/regime structure via MI-kernel scans
     # over many candidate combos - ~58% of an additive-regression fit (cProfile: cheap_conditional_gate_scan
     # 7.2s + binned_numeric_agg 4s of a 19s fit). On an additive-LINEAR regression target there is no such

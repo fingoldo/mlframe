@@ -125,7 +125,7 @@ def plugin_mi_classif_fast(x: np.ndarray, y: np.ndarray, n_bins: int = 20) -> fl
     )
 
 
-# --- Fused per-cell MI-contribution kernel (2026-06-23, GPU-saturation Task #2) -----------------------
+# --- Fused per-cell MI-contribution kernel (GPU-saturation Task #2) -----------------------
 # The plug-in MI reduction below built the per-cell nat contribution as a chain of ~8 SEPARATE cupy
 # elementwise launches over the (k, n_bins, n_classes) joint histogram (mask, 3x where, 3x log, the
 # fused-by-hand mul/add/sub, then where(mask,...,0)). nsys on the F2-100k GPU fit attributed a large
@@ -254,7 +254,7 @@ def _plugin_mi_classif_batch_cuda_resident(
         return np.zeros(k, dtype=np.float64)
     if not (keep_dtype and X_gpu.dtype == cp.float32) and X_gpu.dtype != cp.float64:
         X_gpu = X_gpu.astype(cp.float64)
-    # relax_binning (2026-07-02, nvprof-driven): the radix-select quantile discretiser is the #1 GPU kernel on
+    # relax_binning (nvprof-driven): the radix-select quantile discretiser is the #1 GPU kernel on
     # the F2 STRICT profile (radix_select_interp_f64_v2, ~21%); a clean CUDA-event A/B shows the f32 radix reads
     # half the bytes and runs 1.3-1.8x on the real F2 candidate shapes (max|val| ~7.5e5, no f32 overflow) with
     # 0.29% boundary-row code drift - SELECTION-EQUIVALENT, the same contract keep_dtype's f32 FE-batch path

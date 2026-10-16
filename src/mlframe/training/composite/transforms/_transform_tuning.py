@@ -42,7 +42,7 @@ _QUANTILE_RESIDUAL_DEFAULT_MIN_BIN_N: int = 50
 _MONOTONIC_RESIDUAL_DEFAULT_N_KNOTS: int = 12
 _MONOTONIC_RESIDUAL_DEFAULT_MIN_KNOT_N: int = 30
 
-# Pack D 2026-05-18: degeneracy threshold for the fitted PCHIP g(base).
+# Pack D: degeneracy threshold for the fitted PCHIP g(base).
 # When ``(knots_y.max() - knots_y.min()) / std(y_train) < this``, the
 # spline is essentially a constant -- the transform T = y - g(base)
 # collapses to ``T = y - const`` (identity up to a global shift) and

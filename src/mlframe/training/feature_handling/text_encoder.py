@@ -196,7 +196,7 @@ class TextColumnEncoder:
         a sparse CSR matrix.
         """
         if not self._fitted:
-            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            # NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError
 
             raise NotFittedError(f"TextColumnEncoder({self.column!r}) not fitted. " f"Call .fit(train_df) first.")

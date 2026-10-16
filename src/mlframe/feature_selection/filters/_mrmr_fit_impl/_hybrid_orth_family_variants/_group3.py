@@ -98,7 +98,7 @@ def _hybrid_orth_family_variants_group3(
                 type(_copula_exc).__name__,
                 _copula_exc,
             )
-    # 2026-06-01 Layer 67 — DISTANCE-CORRELATION ranking for the hybrid
+    # Layer 67 — DISTANCE-CORRELATION ranking for the hybrid
     # orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Szekely-Rizzo dCor is the only non-MI
     # dependence measure in the layer family - ``dCor == 0`` iff X and Y
@@ -181,7 +181,7 @@ def _hybrid_orth_family_variants_group3(
                 type(_dcor_exc).__name__,
                 _dcor_exc,
             )
-    # 2026-06-01 Layer 71 — HSIC ranking for hybrid orth-poly FE
+    # Layer 71 — HSIC ranking for hybrid orth-poly FE
     # (independent opt-in; does NOT require fe_hybrid_orth_enable).
     # Kernel-based dependence measure with the universal HSIC == 0 iff
     # independent guarantee under a characteristic kernel (Gaussian RBF
@@ -270,7 +270,7 @@ def _hybrid_orth_family_variants_group3(
                 type(_hsic_exc).__name__,
                 _hsic_exc,
             )
-    # 2026-06-01 Layer 72 — JMIM (Bennasar 2015) redundancy-aware ranking
+    # Layer 72 — JMIM (Bennasar 2015) redundancy-aware ranking
     # for hybrid orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Each engineered candidate is scored by
     # ``min over X_j in S of I((X_cand, X_j); Y)`` where S is the raw
@@ -347,7 +347,7 @@ def _hybrid_orth_family_variants_group3(
                 type(_jmim_exc).__name__,
                 _jmim_exc,
             )
-    # 2026-06-01 Layer 73 — Total Correlation (Watanabe 1960) multivariate-
+    # Layer 73 — Total Correlation (Watanabe 1960) multivariate-
     # redundancy ranking for hybrid orth-poly FE (independent opt-in; does
     # NOT require fe_hybrid_orth_enable). Each engineered candidate is
     # scored by the FULL-ORDER joint shared information delta against the
@@ -355,7 +355,7 @@ def _hybrid_orth_family_variants_group3(
     # Layers 65 / 66 / 67 / 71 / 72. Engineered VALUES bit-equal to Layer
     # 21 -> recipes reuse the ``orth_univariate`` kind.
     X = _stage_tc(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # 2026-06-01 Layer 74 — CMIM (Conditional Mutual Information
+    # Layer 74 — CMIM (Conditional Mutual Information
     # Maximisation, Fleuret 2004) redundancy-aware ranking for hybrid
     # orth-poly FE (independent opt-in; does NOT require
     # fe_hybrid_orth_enable). Each engineered candidate is scored by the

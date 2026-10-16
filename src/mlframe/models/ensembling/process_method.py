@@ -122,7 +122,7 @@ def _process_single_ensemble_method(
     from mlframe.training import train_and_evaluate_model  # joblib-import-race-ok
     from mlframe.training.shared import build_configs_from_params as _build_configs_from_params  # joblib-import-race-ok
 
-    # 2026-05-13 (bug fix): val_preds / test_preds may be ``None`` when the
+    # val_preds / test_preds may be ``None`` when the
     # corresponding split metric computation was disabled at suite level
     # (``ReportingConfig.compute_valset_metrics=False`` /
     # ``compute_testset_metrics=False``). Pre-fix the bare
@@ -187,7 +187,7 @@ def _process_single_ensemble_method(
             precomputed_weights=_slice_weights(_val_mask),
         )
 
-    # 2026-05-13: same ``None``-guard for test_preds / test_probs.
+    # same ``None``-guard for test_preds / test_probs.
     if not is_regression:
         _test_probs_list = _select_split_probs(level_models_and_predictions, "test", _use_cal)
         _test_mask = [p is not None for p in _test_probs_list]
@@ -296,7 +296,6 @@ def _process_single_ensemble_method(
     kwargs_copy.pop("trainset_features_stats", None)
     kwargs_copy.pop("train_od_idx", None)
     kwargs_copy.pop("val_od_idx", None)
-    # 2026-04-23 (coverage-gap test_ensembles_enabled_produces_ensemble_log):
     # ``common_params`` frequently carries ``drop_columns`` when the user
     # passes ``init_common_params={"drop_columns": [...]}``. The literal
     # ``drop_columns=[]`` below then collides with the ``**kwargs_copy``
@@ -306,7 +305,7 @@ def _process_single_ensemble_method(
     # ``drop_columns=[]`` to avoid dropping anything its sub-models
     # already trained on (columns already stripped upstream).
     kwargs_copy.pop("drop_columns", None)
-    # 2026-04-24 (fuzz extension): init_common_params is a prod
+    # init_common_params is a prod
     # convention for passing PIPELINE COMPONENTS (not training
     # hyperparams), e.g.:
     #     init_common_params = {
@@ -326,7 +325,7 @@ def _process_single_ensemble_method(
     for _pipeline_kwarg in ("category_encoder", "scaler", "imputer"):
         kwargs_copy.pop(_pipeline_kwarg, None)
 
-    # 2026-04-27 typed-config refactor: ``compute_{trainset,valset,testset}_-
+    # typed-config refactor: ``compute_{trainset,valset,testset}_-
     # metrics`` were lifted from trainer-internal to ``ReportingConfig``.
     # core.py now seeds ``common_params_dict`` from ``reporting_config.model_dump()``,
     # which makes those fields part of ``kwargs_copy``. Preserve the caller's
@@ -411,7 +410,7 @@ def _process_single_ensemble_method(
         # COV=10%]" is computed on just 10 % of VAL rows -- previously the
         # 99.77 % accuracy number in the Conf Ensemble block was easy to
         # misread as a headline, because coverage only appeared inside the
-        # calibration subsection as ``COV=XX%`` (2026-04-23 review finding).
+        # calibration subsection as ``COV=XX%`` (review finding).
         # Prefer VAL coverage as the headline (early-stopping + calibration
         # both key on VAL); fall back to TEST coverage then TRAIN.
         # Evaluate (label, full_preds, conf_idx, target_for_label) for each split
@@ -434,7 +433,7 @@ def _process_single_ensemble_method(
         _degenerate_marker = _flag_degenerate_confident_subset(flag_degenerate_conf_subset, is_regression, _conf_target, degenerate_class_ratio, _degenerate_marker)
 
         # Trailing space so the downstream concat ``f"...{ensemble_name}{_cov_tag}"``
-        # doesn't slam the next token onto the closing bracket -- the 2026-04-24
+        # doesn't slam the next token onto the closing bracket -- the
         # prod log showed ``[VAL COV=10%]notext prod_jobsdetails ...`` (no space
         # before "notext"). Empty tag stays empty (no double-space when off).
         # One coverage number goes into a name that then labels every split's line, so a bare "[COV=10%]" on a

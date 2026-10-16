@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 
-# Wave 87 (2026-05-21): module-level filter removed; gated under __main__ below.
+# module-level filter removed; gated under __main__ below.
 
 
 # ---------------------------------------------------------------------------

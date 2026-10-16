@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover
 # * Chebyshev (T_n) : T_0=1,  T_1=x,  T_n = 2*x*T_{n-1} - T_{n-2}
 # * Laguerre  (L_n) : L_0=1,  L_1=1-x, L_n = ((2n-1-x)*L_{n-1} - (n-1)*L_{n-2}) / n
 #
-# Single-thread perf note (2026-06-24, bench_polyeval_single_thread_register.py):
+# Single-thread perf note (bench_polyeval_single_thread_register.py):
 # These keep the per-degree array form (each fixed-coefficient inner i-loop SIMD-vectorizes), with
 # the prologue FUSED: no x.copy() (P_1 == x is read-only here) and the out[i]=c[0] + out[i]+=c[1]*x[i]
 # passes collapsed into one. Bit-identical, 1.13-1.39x over the prior form across n=500..50k.
@@ -288,7 +288,7 @@ def _lagval_njit_parallel(x: np.ndarray, c: np.ndarray) -> np.ndarray:
     return out
 
 
-# 2026-05-18 Basis-matrix builders for GEMV-style polynomial evaluation.
+# Basis-matrix builders for GEMV-style polynomial evaluation.
 #
 # Per-iteration Horner (above) recomputes the polynomial basis ``T_k(x[i])``
 # from scratch for every (coef_a, coef_b) trial inside CMA-ES. That's

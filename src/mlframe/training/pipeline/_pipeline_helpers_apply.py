@@ -567,7 +567,7 @@ def _apply_pre_pipeline_restore_cached(cache_hit, pre_pipeline, verbose, t0_pre)
     # stopped being marked identity-equivalent).
     if fitted_cached is not None:
         try:
-            # Audit D P1-8 (2026-05-18): a shallow ``__dict__.update`` shares mutable
+            # Audit D P1-8: a shallow ``__dict__.update`` shares mutable
             # state between the cached pipeline and pre_pipeline -- any per-call mutation
             # (e.g. ``set_params`` on a wrapper, or a transformer that lazily mutates
             # ``self.fitted_state_``) silently corrupts the cached copy because both

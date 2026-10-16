@@ -103,7 +103,7 @@ def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> dict[str, A
     n = int(arr.shape[0])
     # Single sort-based pass via np.unique(return_counts) instead of one ``(arr == c).sum()`` full scan per class.
     # Bit-identical (exact integer counts); the per-class dict is rebuilt in the caller's ``classes`` order/dtype.
-    # Bench n=10M: 1.18x @K=5, 4.92x @K=20, 10.6x @K=100 (2026-06-15).
+    # Bench n=10M: 1.18x @K=5, 4.92x @K=20, 10.6x @K=100.
     if n:
         uvals, ucounts = np.unique(arr, return_counts=True)
         count_lookup = dict(zip(uvals.tolist(), ucounts.tolist()))

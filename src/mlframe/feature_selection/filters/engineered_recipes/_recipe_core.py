@@ -103,11 +103,11 @@ class EngineeredRecipe:
     """
 
     name: str
-    # T1#3 2026-05-18 #1 Hermite recipe: ``"hermite_pair"`` kind carries
+    # T1#3 #1 Hermite recipe: ``"hermite_pair"`` kind carries
     # ``coef_a``, ``coef_b``, ``basis``, ``bin_func_name``, ``preprocess_a``,
     # ``preprocess_b``, ``degree_a``, ``degree_b`` in ``extra``. The
     # 88-min Optuna best_res is now reproducible at predict-time.
-    # Layer 23 2026-05-31: ``orth_univariate`` carries (src_names=(c,),
+    # Layer 23: ``orth_univariate`` carries (src_names=(c,),
     # extra={basis, degree}); ``orth_pair_cross`` carries
     # (src_names=(c_i, c_j), extra={basis_i, basis_j, deg_a, deg_b}). Replay
     # is closed-form from the source column(s) alone - no y reference is
@@ -227,7 +227,7 @@ class EngineeredRecipe:
 
     def __hash__(self) -> int:
         # Name-based hash (names are unique per fit), since ``extra: dict`` is mutable and would normally disable __hash__.
-        # Wave 73 hardening: __eq__ (above) walks the ``extra`` dict
+        # Hardening: __eq__ (above) walks the ``extra`` dict
         # content (incl. ndarrays via np.array_equal). Hash key (kind, name) is
         # NARROWER than equality, so two recipes with same (kind, name) but
         # different ``extra`` collide on the same hash bucket but DON'T compare

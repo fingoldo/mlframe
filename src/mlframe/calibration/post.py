@@ -720,7 +720,7 @@ def _values_overlap_fraction(a: np.ndarray, b: np.ndarray, max_rows: int = 2_000
     return float(hits / shorter.shape[0])
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): train_postcalibrators carved out into
+# train_postcalibrators carved out into
 # _post_train_calibrators.py to clear the repo's enforced hard 1000-LOC CI gate (this file was 1005
 # lines). Re-exported here so every existing import keeps working unchanged.
 from ._post_train_calibrators import train_postcalibrators  # noqa: F401

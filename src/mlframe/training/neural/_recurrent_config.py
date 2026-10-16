@@ -108,7 +108,7 @@ class RecurrentConfig:
 
     # Hardware
     accelerator: str = "auto"
-    # F-71 (2026-05-31): num_workers default is now OS-aware via
+    # F-71: num_workers default is now OS-aware via
     # _default_num_workers() -- 2 on Linux/macOS (fork is cheap), 0 on
     # Windows (spawn semantics costs ~150-300 ms per worker per epoch).
     # Combined with F-46 persistent_workers, F-51 share_memory_, and F-52
@@ -149,21 +149,21 @@ class RecurrentConfig:
     #     compatibility; new users should not pick this.
     sequence_preprocessing: str = "none"
 
-    # F-62 (2026-05-31): Lookahead meta-optimizer (Zhang 2019). Off by
+    # F-62: Lookahead meta-optimizer (Zhang 2019). Off by
     # default. When True, wraps the AdamW optimizer; +0.4-0.6% on tabular
     # MLP per RealMLP-TD 2024 ablations.
     use_lookahead: bool = False
     lookahead_k: int = 5
     lookahead_alpha: float = 0.5
 
-    # F-69 (2026-05-31): Mixup augmentation. Off by default. When True,
+    # F-69: Mixup augmentation. Off by default. When True,
     # training_step mixes aux_features + labels by a Beta(alpha, alpha)
     # interpolation; pure SEQUENCE_ONLY mode (no aux_features) is a no-op.
     # Sequence-aware mixup (mixing padded sequences) is deferred to F-70.
     use_mixup: bool = False
     mixup_alpha: float = 0.2
 
-    # F-68 (2026-05-31): exponential moving average of weights via
+    # F-68: exponential moving average of weights via
     # Lightning's WeightAveraging callback. Mirrors MLP's F-28; off by
     # default. When True, Lightning auto-swaps the EMA weights into the
     # live model on on_train_end -- predict() then uses the EMA copy

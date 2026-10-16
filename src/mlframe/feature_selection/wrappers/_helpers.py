@@ -470,7 +470,7 @@ _suggest_scipy_global = _suggest_scipy_local
 
 # ----------------------------------------------------------------------
 # Sibling-module re-exports. Knockoff helpers live in _knockoffs.py
-# (carved out in Wave 5 to keep this file under 1k LOC). Legacy callers
+# (carved out to keep this file under 1k LOC). Legacy callers
 # importing make_gaussian_knockoffs / select_features_fdr /
 # knockoff_importance from this module keep working.
 # ----------------------------------------------------------------------

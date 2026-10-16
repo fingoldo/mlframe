@@ -115,7 +115,7 @@ class TargetTypes(StrEnum):
     MULTILABEL_CLASSIFICATION = "multilabel_classification"
     LEARNING_TO_RANK = "learning_to_rank"
     QUANTILE_REGRESSION = "quantile_regression"
-    # F-24 (2026-05-31): K independent continuous targets sharing a trunk.
+    # F-24: K independent continuous targets sharing a trunk.
     # Target shape ``(N, K)`` float. Output shape ``(N, K)``: column k is the
     # point prediction for target k. MLP / sklearn / Ridge / RandomForest /
     # CatBoost (loss_function="MultiRMSE") have native support; LightGBM

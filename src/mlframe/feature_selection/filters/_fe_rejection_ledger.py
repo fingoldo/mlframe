@@ -154,7 +154,7 @@ def record_fe_rejection(
             records = []
             mrmr_self._fe_rejection_records_ = records
         # Configurable per-instance (``fe_rejection_ledger_cap``, default None -> module default). At
-        # very wide p (2026-07-09, hundreds-of-thousands-of-columns use case) a fixed 50k cap is reached
+        # very wide p (hundreds-of-thousands-of-columns use case) a fixed 50k cap is reached
         # after tens of thousands of ALREADY-expensive candidate evaluations, losing FE debugging
         # visibility for the rest of the fit even though each record is small (~200-400 bytes): raising
         # the cap 10x costs low-single-digit-MB extra, cheap on any real host.

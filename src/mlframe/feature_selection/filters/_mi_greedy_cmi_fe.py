@@ -67,7 +67,7 @@ except ImportError:  # pragma: no cover - numba is a hard dep in practice
 from mlframe.utils.log_throttle import log_throttle
 from types import SimpleNamespace as _SimpleNamespace
 
-# GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
+# GPU quantile-bin crossover (synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
 # 1050 Ti, nbins=10): a single host column round-tripped to the device for equi-frequency binning (H2D +
 # cp.percentile sort + cp.searchsorted + code D2H) only beats the host introselect-partition np.quantile path
 # well above the launch/transfer floor - n=20k CPU 0.92ms vs GPU 1.67ms; n=35k near-tie 1.53 vs 1.71ms; n=100k
@@ -95,7 +95,7 @@ __all__ = [
 # Parallel-memset crossover for the dense ``seen`` buffer in ``_combine_factorize_njit``. The first-seen
 # factorize WALK is irreducibly sequential (each id depends on the running ``seen``/``nc`` state), but its
 # ``np.full(kmax+1, -1)`` initialisation is an independent fill that prange-splits across threads. The fill
-# is only worth the thread spin-up once it is large: synchronized micro-bench (2026-06-29, 4 threads, GTX
+# is only worth the thread spin-up once it is large: synchronized micro-bench (4 threads, GTX
 # box, n=1M) put the crossover near kmax~500k - below it parallel loses (kmax~40k 0.99x, ~200k 0.92x),
 # above it wins and scales (500k 1.08x, 1M 1.06x, 2M 1.09x, 4M 1.12x, 16M 1.24x). At the cap (16M int64 =
 # 128 MB) the fill alone is ~28ms of the ~55ms call, so parallelising it is the single largest safe win on
@@ -272,7 +272,7 @@ def _cmi_from_binned(
     cmi = max(0.0, cmi_plugin - cmi_bias)
     return (cmi, (int(k_z), int(k_xz), int(k_yz), int(k_xyz))) if return_cards else cmi
 
-# Fused entropy + occupied-cell reduction over a bincount histogram (launch-reduction, 2026-06-25). The
+# Fused entropy + occupied-cell reduction over a bincount histogram (launch-reduction). The
 # entropy tail ``c[c>0]; p=c*inv_n; -(p*log p).sum()`` plus the ``c.shape[0]`` count expanded to a
 # boolean-mask getitem + astype + multiply + log + sum (~5 cuLaunchKernel). Two cupy ReductionKernels
 # (each ONE launch, same cuLaunchKernel driver API -> genuine count reduction) fold it: ENT_RK maps each
@@ -281,7 +281,7 @@ def _cmi_from_binned(
 _ENT_RK = None
 _NNZ_RK = None
 
-# FUSED entropy + occupied-cell in ONE RawKernel (launch-reduction, 2026-06-25). _ent_from_counts ran TWO
+# FUSED entropy + occupied-cell in ONE RawKernel (launch-reduction). _ent_from_counts ran TWO
 # cupy ReductionKernels (ENT_RK for sum xlog x, NNZ_RK for occupied cells) - two cuLaunchKernel per call,
 # and after the per-candidate CMI scoring it was the measured #1 launch source (477). One grid-stride kernel
 # now reduces both: each thread accumulates (sum xlogx, nnz) over its strided cells, a block reduction in

@@ -204,15 +204,15 @@ def mi_direct_gpu_batched_pairs(
     # Kernel-variant dispatch: shared-mem multi-pair kernel wins for small
     # per-pair joint_size_y. Pre-fix the 4096-cell cap was a hardcoded
     # cc 6.x 16 KB assumption; cc 7+ opt-in shared memory reaches 96-227 KB.
-    # Wave 23 P1 fix: probe live device's shared-mem budget
+    # probe live device's shared-mem budget
     # via pyutilz.system.gpu_dispatch.get_shared_mem_budget_per_block
     # (the helper that batch_pair_mi_gpu._derive_max_joint_bins already
     # uses); fall back to 4096 only when the probe is unavailable.
     #
-    # BUG (found 2026-07-16, fixed here): the probe call below was ``_shared_budget()`` with NO
+    # BUG (found, fixed here): the probe call below was ``_shared_budget`` with NO
     # arguments, but ``get_shared_mem_budget_per_block`` requires ``(cc_major, cc_minor,
     # allow_opt_in=False)`` - every call raised TypeError, silently caught by the bare except, so this
-    # "fix" never actually engaged on ANY host; every dispatch fell back to the pre-2026-05-20 4096-cell
+    # "fix" never actually engaged on ANY host; every dispatch fell back to the previous 4096-cell
     # default regardless of hardware. Also switched to ``allow_opt_in=True`` (the comment above already
     # says cc7+ opt-in reaches 96-227 KB, matching this kernel's own opt-in ``max_dynamic_shared_size_bytes``
     # wiring below - see ``_batch_pair_mi_cuda_shared_fused.py`` for the sibling fix and the verified-live
@@ -231,7 +231,7 @@ def mi_direct_gpu_batched_pairs(
         _SHARED_MULTI_PAIR_MAX = max(4096, _budget_bytes // 4 // 8)
     except Exception as e:
         logger.warning("shared-mem budget probe failed, falling back to pre-2026-05-20 default: %s", e)
-        # No probe available -> fall back to the pre-2026-05-20 default.
+        # No probe available -> fall back to the previous default.
         _budget_bytes = 0
         _SHARED_MULTI_PAIR_MAX = 4096
     use_shared_multi_pair = max_joint_size_y > 0 and max_joint_size_y <= _SHARED_MULTI_PAIR_MAX

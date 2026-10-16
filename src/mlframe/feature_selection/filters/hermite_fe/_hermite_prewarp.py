@@ -232,7 +232,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
                 logger.debug("cusolver/cublas error-type import probe failed: %s", e)
             _dev_errs = [e for e in _dev_errs if isinstance(e, type) and issubclass(e, BaseException)]
             try:
-                # DEVICE-BORN design (2026-06-30, H2D collapse): when the caller supplies the small
+                # DEVICE-BORN design (H2D collapse): when the caller supplies the small
                 # standardised columns + basis, build B_a/B_b ON DEVICE from z so the (n x degree+1)
                 # designs never cross the H2D path (collapses the ~374MB design upload at 300k). The
                 # device basis recurrence mirrors build_basis_matrix EXACTLY (~1e-13 design, ~1e-12
@@ -265,7 +265,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     # policy forbids shipping a regression for the common heavy-tail product case,
     # this path stays byte-identical OLS. The robust solver (_huber_irls_lstsq) is
     # still live for the 1-D prewarp; only the ALS substitution is rejected.
-    # NORMAL-EQUATIONS solve (perf, 2026-06-21). Each ALS half-step is a tall-skinny
+    # NORMAL-EQUATIONS solve (perf). Each ALS half-step is a tall-skinny
     # ``lstsq(B * w[:,None], yc)`` with only ``degree+1`` (~3-5) columns; numpy's lstsq
     # routes to a full SVD whose fixed cost dominates this many-call warm start. The
     # least-norm solution of a FULL-COLUMN-RANK system equals the normal-equations solve
@@ -274,7 +274,7 @@ def warm_start_als_seed(B_a: np.ndarray, B_b: np.ndarray, y: np.ndarray,
     # by ``g_norm``/``f_norm`` stay well-conditioned, so AᵀA is far from singular). The
     # tiny solve falls back to the exact SVD lstsq on a rank-deficient ``LinAlgError`` so a
     # degenerate operand basis is still handled bit-for-bit as before. bench: bench_als.py.
-    # GPU-RESIDENCY bench-note (iter17, 2026-06-23): warm_start_als_seed + its _als_solve stay CPU.
+    # GPU-RESIDENCY bench-note (iter17): warm_start_als_seed + its _als_solve stay CPU.
     # F2 100k cProfile: warm_start_als_seed 0.497s tottime / 0.957s cum over 89 calls; _als_solve 0.325s
     # over 623 calls - ~1.5-3% of the 31.6s WALL. NOT resident-routable on this HW: each seed is a strictly
     # SEQUENTIAL rank-1 ALS sweep (1 init + iters*2 = 7 dependent solves; g depends on cb, f on ca, next cb on f),
@@ -461,7 +461,7 @@ def fit_pair_prewarp_als(
         # NOT robustify (bench-attempt-rejected, see warm_start_als_seed) so this
         # stays byte-identical to legacy OLS-ALS. No ``robust_fit`` provenance is set
         # on the returned specs: the ALS coefficients are plain least-squares.
-        # DEVICE-BORN design (2026-06-30, H2D collapse): za/zb are already the
+        # DEVICE-BORN design (H2D collapse): za/zb are already the
         # standardised columns built ONCE above; pass them + basis so the resident
         # GPU branch rebuilds Ba/Bb on device (the ~374MB matrix upload collapses to
         # the two tiny (n,) columns). The CPU path uses the host Ba/Bb built above.

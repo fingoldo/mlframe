@@ -79,7 +79,7 @@ logger = logging.getLogger(__name__)
 # (measured: rung-on drops mul(log(c),sin(d)) at n=4000 AND n=25000 on the canonical fixture).
 # Per the project rule that accuracy must never regress for a speed lever, the DEFAULT is now
 # no-drop (keep_frac=1.0 -> the screen is a structural no-op, byte-identical to the flat sweep).
-# The aggressive fractions below are still measurement-backed (Intel host, 2026-06-10; n=5000,
+# The aggressive fractions below are still measurement-backed (Intel host,; n=5000,
 # p=40, 5 seeds: ~2x at 0.5, 3-11x at 0.25) but are now OPT-IN - a caller takes the speedup by
 # setting ``fe_rung_keep_frac`` (or MLFRAME_FE_RUNG_KEEP_FRAC, or an offline kernel_tuning_cache
 # entry) explicitly, accepting the weak-interaction tradeoff on their data. The joint-synergy

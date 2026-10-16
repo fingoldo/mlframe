@@ -459,7 +459,7 @@ def _backtrace_path(
 import os as _os
 
 # Source-code default crossover: below this product n*m the CPU
-# dtaidistance C kernel beats GPU. Calibrated 2026-05-24 on
+# dtaidistance C kernel beats GPU. Calibrated on
 # GTX 1050 Ti (Pascal CC 6.1, 4 GB VRAM); cell counts (warping path
 # included for both backends):
 #   10K   (n=100,  m=100)  -> GPU wins 13.8x (cupy 4.6 ms vs CPU 63 ms)

@@ -76,7 +76,7 @@ def score_ensemble(
     # Outlier-member-filter thresholds. The historical absolute defaults
     # (``max_mae=0.05``, ``max_std=0.06``) excluded all 6 members of a
     # uniform tree-model suite (CB / XGB / LGB x 2 weight schemas) on
-    # the 2026-04-24 prod log -- turning the filter into a no-op + 36
+    # the prod log -- turning the filter into a no-op + 36
     # noisy WARN lines per ensemble. Defaults flipped to relative
     # (``2.5xmedian``); pass non-zero ``max_mae`` / ``max_std`` to keep
     # the legacy behaviour.
@@ -123,7 +123,7 @@ def score_ensemble(
     require_oof_for_gate: bool = True,
     # COARSE-GATE-FALLBACK: when require_oof_for_gate=True AND OOF is unavailable, the strict gate
     # skips entirely. That's the right call for FINE thresholds (2.5x median), but it lets
-    # CATASTROPHIC outliers survive: 2026-05-21 prod log had an MLP with R^2=-4.75 sitting in the
+    # CATASTROPHIC outliers survive: prod log had an MLP with R^2=-4.75 sitting in the
     # ensemble alongside three R^2~0.99 members because no member stamped OOF. This fallback runs
     # a SECOND gate at a much higher relative threshold (5x median by default) against the
     # val/test/train fallback chain -- enough to drop the catastrophic disasters while leaving
@@ -175,7 +175,7 @@ def score_ensemble(
     # W16D / A3#3: when True, the simple-ensembling blends (arithm / harm / quad / qube / geo / median) consume
     # AP12-calibrated probs stamped by ``post_calibrate_model`` (``member.calibrated_val_probs`` /
     # ``calibrated_test_probs``) when available, falling back transparently to raw probs on members without the
-    # stamp. RRF is rank-based and is bypassed (scale-invariant). Default True per user directive 2026-05-25.
+    # stamp. RRF is rank-based and is bypassed (scale-invariant). Default True per user directive.
     # Set False to restore the legacy raw-probs blend behaviour.
     use_ap12_calibrated_probs: bool = True,
     **kwargs,
@@ -262,7 +262,7 @@ def score_ensemble(
         verbose=verbose,
     )
 
-    # 2026-05-11 (user request): TWO tag lists:
+    # TWO tag lists:
     # 1. ``_ensemble_member_tags`` -- full (shim-stripped) class / model names for the per-member quality-gate log line (operators want to see which exact model class was excluded).
     # 2. ``_ensemble_short_tags`` -- collapsed short tags (``cb`` / ``xgb`` / ``lgb`` / ``hgb`` / non-tree class name) for the rebuilt ensemble label after the gate. Without the short-collapse, the rebuilt label reads ``[CatBoostRegressor+XGBRegressor+LGBMRegressor]`` (38 chars) instead of ``[cb+xgb+lgb]`` (12 chars) -- bloated chart titles + breaks the original short-label contract from core.py.
     _ensemble_member_tags, _ensemble_short_tags = build_member_tag_lists(level_models_and_predictions)

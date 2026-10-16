@@ -165,7 +165,7 @@ class BaselineReport(NamedTuple):
             if trivial_name is not None and trivial_name != self.strongest:
                 trivial_val = self.table.loc[trivial_name].get(self.primary_metric, float("nan"))
                 if np.isfinite(primary_val) and np.isfinite(trivial_val) and trivial_val != 0:
-                    # Wave 20 fix: registry dispatcher. The previous tuple
+                    # registry dispatcher. The previous tuple
                     # whitelist missed val_F1, val_accuracy, val_R2, val_AP,
                     # val_precision, val_recall and reported inverted lift_pct
                     # in the operator-facing summary (P1: model still trained

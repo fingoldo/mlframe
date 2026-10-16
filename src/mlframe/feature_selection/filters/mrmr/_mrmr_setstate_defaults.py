@@ -353,12 +353,12 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_univariate_fourier_chirp": True,
     "fe_univariate_fourier_chirp_min_val_corr": 0.15,
     "_adaptive_fourier_features_": [],
-    # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09,
+    # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (
     # + #4). bench-rejected as default (admits cross-mix noise on
     # weak F2); kept OPT-IN. Pre-MM pickles default to OFF for re-fits.
     "fe_mm_debias_prevalence": False,
     # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (#6) + ORDER-3 maxT floor (#7),
-    # 2026-06-09. Seeder is OPT-IN; the order-3 floor mirrors the order-2 knobs.
+    # . Seeder is OPT-IN; the order-3 floor mirrors the order-2 knobs.
     # Pre-seeder pickles default to the same safe values for re-fits.
     # PREVALENCE-FAILED SYNERGY RESCUE. Live default ON; pre-fix
     # pickles default ON too (the rescue only adds a leak-safe second-chance path
@@ -388,7 +388,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_gbm_seeder_self_gate_margin": 0.0,
     "fe_gbm_seeder_self_gate_reps": 5,
     "fe_gbm_seeder_self_gate_min_z": 2.0,
-    # GRADIENT-INTERACTION (MIXED SECOND PARTIALS) SEEDER (#21), 2026-06-10. OPT-IN;
+    # GRADIENT-INTERACTION (MIXED SECOND PARTIALS) SEEDER (#21),. OPT-IN;
     # pre-feature pickles default to OFF for re-fits (byte-identical legacy path).
     "fe_gradient_interaction_enable": False,
     "fe_triple_maxt_null_permutations": 25,

@@ -97,7 +97,7 @@ def apply_synergy_bootstrap(
         # the bootstrap exists). Instead rank by an interaction-propensity score |corr(x^2,y)|+|corr(x,y^2)|
         # (higher moments leak even when the linear marginal is flat) and keep the top ``synergy_cap`` so the
         # exhaustive O(cap^2) sweep runs on the columns most likely to carry interaction signal. Bench
-        # (2026-06-18, test_fe_interaction_prerank): recovers the planted operands into the top-250 at recall
+        # (test_fe_interaction_prerank): recovers the planted operands into the top-250 at recall
         # ~0.88 (L=0.1) vs marginal-MI 0.68 / random 0.12, at O(p*n) ~5s for p=10k. IRREDUCIBLE: a perfectly
         # balanced zero-higher-moment interaction (L=0) is invisible to any O(p) score and still needs the full
         # exhaustive sweep - the pre-rank does not claim it. Default ON (fe_synergy_prerank); set False to
@@ -400,7 +400,7 @@ def compute_pair_maxt_floor(
     _pair_maxt_floor: float | None = 0.0
     # Reset per call: a stale True from an earlier FE step would otherwise mark this step's floor as failed.
     self._pair_maxt_floor_failed_ = False
-    # MM-DEBIAS (2026-06-09, IRON RULE): per-pair Miller-Madow joint-MI bias
+    # MM-DEBIAS (IRON RULE): per-pair Miller-Madow joint-MI bias
     # (sorted-index tuple -> bias). Subtracted from BOTH the floor's per-shuffle joint MIs
     # (inside the null kernel) AND the observed ``pair_mi`` at the gate-floor comparison,
     # so debiasing the prevalence ratio does NOT weaken this outer best-of-pool guard.

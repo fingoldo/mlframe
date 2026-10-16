@@ -230,7 +230,7 @@ def compute_pairs_mis(
                     npermutations=fe_npermutations,
                 )
 
-                # T3#24 2026-05-18 Pack #5 pair-MI cache: ALWAYS cache the computed pair MI, not only when it passes ``fe_min_pair_mi_prevalence``.
+                # T3#24 Pack #5 pair-MI cache: ALWAYS cache the computed pair MI, not only when it passes ``fe_min_pair_mi_prevalence``.
                 # Pre-fix this branch dropped sub-threshold MIs on the floor; adaptive retry with relaxed prevalence (Pack #5) then re-computed them.
                 # The downstream consumer in MRMR.fit applies the prevalence gate on the cached value, so caching unconditionally preserves filtering behaviour.
                 cached_MIs[raw_vars_pair] = mi
@@ -546,7 +546,7 @@ def _build_unary_transformations(preset: str):
         unary_transformations.update(
             {
                 # math an
-                # GPU-DISABLED(restore): cross-row np.gradient has no row-blocked GPU form (2026-06-21,
+                # GPU-DISABLED(restore): cross-row np.gradient has no row-blocked GPU form (
                 # full-GPU residency build). Uncomment with the matching _gpu_resident_fe._FULL_UNARY entries.
                 # "grad1": np.gradient,
                 # "grad2": lambda x: np.gradient(x, edge_order=2),
@@ -569,7 +569,7 @@ def _build_unary_transformations(preset: str):
                 # special
                 #'psi':sp.psi, polygamma(0,x) is same as psi
                 "erf": sp.erf,
-                # GPU-DISABLED(restore): no cupyx.scipy.special.dawsn (2026-06-21, full-GPU residency build).
+                # GPU-DISABLED(restore): no cupyx.scipy.special.dawsn (full-GPU residency build).
                 # "dawsn": sp.dawsn,
                 "gammaln": sp.gammaln,
                 #'spherical_jn':sp.spherical_jn
@@ -614,7 +614,7 @@ def _safe_div(x, y):
     ``nan_to_num`` scrub would otherwise map through +-inf)."""
     # NOTE: this is njit-compiled via the binary-op registry, so it must stay numba-nopython
     # compatible. A ``np.array(y, dtype=...)`` + ``np.putmask`` rewrite (bench-attempt-rejected
-    # 2026-06-17) was ~22% faster in PURE PYTHON but (a) numba rejects ``np.array`` on a READONLY
+    # ) was ~22% faster in PURE PYTHON but (a) numba rejects ``np.array`` on a READONLY
     # input array and does not support ``np.putmask``, breaking compilation -> ``div`` silently
     # unavailable in the FE sweep, and (b) the Python-level allocation saving is irrelevant once
     # njit-compiled. ``np.asarray`` + ``np.where`` compile cleanly; keep them.
@@ -680,7 +680,7 @@ def _build_binary_transformations(preset: str):
                 # All kinds of averages
                 "hypot": np.hypot,
                 "logaddexp": np.logaddexp,
-                # GPU-DISABLED(restore): no cupyx agm (2026-06-21, full-GPU residency build).
+                # GPU-DISABLED(restore): no cupyx agm (full-GPU residency build).
                 # "agm": sp.agm,  # Compute the arithmetic-geometric mean of a and b.
                 # Rational routines
                 #'lcm':np.lcm, # requires int arguments #  ufunc 'lcm' did not contain a loop with signature matching types (<class 'numpy.dtype[float32]'>, <class 'numpy.dtype[float32]'>) -> None
@@ -690,7 +690,7 @@ def _build_binary_transformations(preset: str):
                 "pow": np.power,  # non-symmetrical! may required dtype=complex for arbitrary numbers
                 # Logarithms
                 # GPU-DISABLED(restore): np.emath.logn (complex base) - real GPU form is
-                # log(y-ymin+0.1)/log(x-xmin+0.1) (2026-06-21, full-GPU residency build).
+                # log(y-ymin+0.1)/log(x-xmin+0.1) (full-GPU residency build).
                 # "logn": lambda x, y: np.emath.logn(x - np.min(x) + 0.1, y - np.min(y) + 0.1),  # non-symmetrical!
                 # DSP
                 # 'convolve':np.convolve, # symmetrical wrt args. scipy.signal.fftconvolve should be faster? SLOW?

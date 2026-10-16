@@ -143,7 +143,7 @@ def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None,
             except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional, not a hoisting candidate
                 nfailed += 1
                 if nfailed > 5:
-                    # Wave 41 (2026-05-20): preserve traceback before final-give-up return;
+                    # preserve traceback before final-give-up return;
                     # caller sees only (None, False) otherwise.
                     log_throttle(logger, "mlflow_start_run_failed_after_retries", logging.ERROR, "mlflow.start_run failed after %d retries", nfailed, exc_info=True)
                     return None, False

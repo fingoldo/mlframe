@@ -333,7 +333,7 @@ class ModelHyperparamsConfig(BaseConfig):
     early_stopping_rounds: Optional[int] = Field(default=100, ge=1)
     catboost_custom_classif_metrics: Optional[List[str]] = None
 
-    # 2026-05-26: promoted from ``_known_extras`` passthrough to a
+    # promoted from ``_known_extras`` passthrough to a
     # first-class field so users see it in IDE auto-complete + docs.
     # Default "RMSE" matches the competition-canonical metric printed
     # in chart titles ("MAE=... RMSE=... R2=..."). Applied uniformly

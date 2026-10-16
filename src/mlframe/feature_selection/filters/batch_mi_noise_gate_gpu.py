@@ -136,7 +136,7 @@ def batch_mi_with_noise_gate_cupy_v1(
     offsets = np.zeros(K + 1, dtype=np.int64)
     offsets[1:] = np.cumsum(per_col_size)
     total_size = int(offsets[K])
-    # PER-CELL INDEX dtype (2026-06-20, parallel to the resident kernel): v1 scores ONE y at a time, so
+    # PER-CELL INDEX dtype (parallel to the resident kernel): v1 scores ONE y at a time, so
     # d_base / d_idx are bounded by ``total_size - 1`` - int32 HALVES these (n, K) buffers vs int64 when
     # that fits (gated -> bit-identical, the bincount indices are the same values). Kept for re-bench
     # parity with the resident kernel.
@@ -590,7 +590,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     if K == 0 or n == 0:
         return fe_mi
 
-    # OOB SCREEN (FIX2, 2026-06-28): the batched-hist kernels use raw codes DIRECTLY as a flat shared-mem
+    # OOB SCREEN (FIX2): the batched-hist kernels use raw codes DIRECTLY as a flat shared-mem
     # / counts offset (``cx * K_y + cy`` - _batch_mi_noise_gate_kernels.py:428/482) sized from
     # nbins_col[k] and K_y. A -1 sentinel or a code >= its cardinality indexes outside the histogram ->
     # cudaErrorIllegalAddress (a hard GPU crash). Screen the HOST codes here (cheap min/max) so an
@@ -671,7 +671,7 @@ def batch_mi_with_noise_gate_cuda_resident(
     # decomposition: per-row shared atomics ~3% of the kernel, ~12 GB/s << ~96 GB/s read peak), throttled
     # by the stride-K ``disc_2d[r, k]`` read (~1/8 coalesced). Reading the SAME values from a (K, n) C-order
     # buffer is fully coalesced -> 12.55x kernel-only (147 GB/s), 5.59x NET with a fresh transpose folded in
-    # at n=100k/K=583/P=26 (this corrects the 2026-06-21 "shared-atomic-bound" rejection). The transpose is
+    # at n=100k/K=583/P=26 (this corrects the "shared-atomic-bound" rejection). The transpose is
     # paid ONCE (all P y-vectors share the one (K, n) disc). Counts are layout-invariant -> BIT-IDENTICAL
     # (verified maxdiff 0). Gated ON; ``MLFRAME_FE_GPU_HISTGATE_CM=0`` forces the row-major kernel; any
     # transpose/compile failure falls back to it too, so CPU / no-CUDA is byte-unchanged.

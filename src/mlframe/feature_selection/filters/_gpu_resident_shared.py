@@ -340,7 +340,7 @@ def _gpu_k_chunk(
     fraction is per-host KTC-tuned; an explicit ``vram_fraction`` (sweep probe) overrides; clamp to (0, 0.9]
     so a stale cache entry never zeros the budget nor exceeds 90% of free VRAM."""
     if free_bytes is None:
-        # DEVICE-free ALONE is wrong when cupy's mempool holds the card (2026-07-02, gap-analysis root cause):
+        # DEVICE-free ALONE is wrong when cupy's mempool holds the card (gap-analysis root cause):
         # cudaMemGetInfo reports ~0 device-free once the resident FE caches + operand tables have grown the
         # pool to fill VRAM, yet the pool holds hundreds of MB of REUSABLE free blocks that this batch's
         # (n, k_chunk) working set can allocate WITHOUT an OS request. Sizing on device-free alone collapsed

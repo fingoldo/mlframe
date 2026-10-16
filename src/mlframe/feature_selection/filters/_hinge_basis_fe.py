@@ -98,7 +98,7 @@ _HINGE_MIN_HELDOUT_R2_UPLIFT: float = 0.02
 # breakpoint reliably (mirrors the adaptive-Fourier >=800 philosophy, but a
 # hinge needs far fewer rows than a multi-tone periodogram, so 200 suffices).
 _HINGE_MIN_ROWS: int = 200
-# COST PRE-CHECK (default-on dispatch, 2026-06-09): the full per-column scan is
+# COST PRE-CHECK (default-on dispatch): the full per-column scan is
 # ``_HINGE_N_CANDIDATES`` (=24) lstsq solves - the stage hotspot (~2.2 ms/col).
 # Default-ON over WIDE data (p=50+) would multiply that across every column even
 # though almost all carry NO slope change. Before the full scan we run a CHEAP
@@ -181,7 +181,7 @@ def _hinge_slope_change_plausible(
         logger.debug("hinge candidate cut-quantile computation failed, no hinge candidate produced: %s", e)
         return False
     best_drop = 0.0
-    # PERF FIX (2026-08-03, incidental to a profiling cycle): this loop used to call ``_segmented_sse`` (a
+    # PERF FIX (incidental to a profiling cycle): this loop used to call ``_segmented_sse`` (a
     # fresh ``np.linalg.lstsq`` per cut) even though the precheck ALREADY has the QR factorization (``Q``,
     # ``r_y``) of the fixed design ``B=[1,x]`` from ``_linear_qr_fit`` right above -- exactly the projection
     # basis ``_detect_hinge_breakpoints``'s round-0 FWL scan uses to score each cut in one rank-1 update
@@ -391,7 +391,7 @@ def _detect_hinge_breakpoints(
     n = x.size
     if n != y.size or n < _HINGE_MIN_ROWS:
         return []
-    # DEVICE-RESIDENT detector (kernel-residency, 2026-07-02): under the STRICT-resident path the whole
+    # DEVICE-RESIDENT detector (kernel-residency): under the STRICT-resident path the whole
     # detection - pre-check, the per-round QR + batched FWL cut scan, the held-out tau-validation - runs on
     # the GPU (see _hinge_detect_gpu_resident); only the found taus return. Identical math + guards; device FP
     # differs ~1e-12, far below the tau-selection scale -> selection-equivalent (F2 + hinge suite verified).
@@ -479,7 +479,7 @@ def _detect_hinge_breakpoints(
     return found
 
 
-# Batch-vs-per-column crossover for the hinge breakpoint detector (2026-07-16, cProfile-driven; measured
+# Batch-vs-per-column crossover for the hinge breakpoint detector (cProfile-driven; measured
 # A/B in bench_hinge_batch_vs_percolumn.py, wellbore-100k-like shape n=99401): K=1 batch=167.8ms
 # per-col=57.3ms (0.34x, batch LOSES - fixed setup cost with nothing to amortise), K=2 1.05x,
 # K=4 2.88x, K=8 1.76x, K=16 1.63x, K=32 1.57x, K=64 1.64x, K=216 1.87x (all K>=2 batch WINS). Threshold

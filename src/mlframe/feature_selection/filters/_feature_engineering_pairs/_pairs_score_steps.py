@@ -91,7 +91,7 @@ def _score_one_pair_step1_reads_buffer_have(
         _my_chunk = _pair_to_chunk.get(raw_vars_pair)
         if _my_chunk is not None:
             if _my_chunk != chunk_state["loaded_idx"]:
-                # CHUNK PIPELINE (2026-07-02, max-GPU phase): under the strict-resident gate the driver put a
+                # CHUNK PIPELINE (max-GPU phase): under the strict-resident gate the driver put a
                 # single-worker executor + a SECOND chunk buffer in ``chunk_state`` - chunk c+1's whole
                 # produce (materialise+bin+MI, GIL-releasing GPU/njit work) runs on the worker thread into the
                 # alternate buffer WHILE the main thread replays chunk c's pairs, so the GPU no longer idles
@@ -618,7 +618,7 @@ def _score_one_pair_step3_step2_transformations_pair_st(
                 else:
                     np.nan_to_num(_col_view, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
-                    # Wave 27 P1: ``times_spent`` is shared across mrmr.py's
+                    # ``times_spent`` is shared across mrmr.py's
                     # parallel threading dispatch. Accumulate this pair's
                     # per-bin_func timings in a thread-LOCAL dict and merge them
                     # under ``_TIMES_SPENT_LOCK`` once per pair (below); the old
@@ -876,7 +876,7 @@ def _score_one_pair_step4_iteration_serialization_point(
     # Standard acceptance: the best engineered MI clears the configured
     # fraction of the 2-D pair-joint MI.
     #
-    # MILLER-MADOW DEBIAS (2026-06-09, + #4). The RAW ratio
+    # MILLER-MADOW DEBIAS (+ #4). The RAW ratio
     # ``best_mi / pair_mi`` compares a 1-D engineered MI (over ~``quantization_nbins``
     # bins) against a 2-D joint MI (over ~``nbins^2`` bins). Both are plug-in MIs whose
     # positive bias is ``(k_x-1)(k_y-1)/2n``; the JOINT denominator's term is ~``nbins``x

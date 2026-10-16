@@ -245,7 +245,7 @@ def _permutation_feature_importances(
     model actually optimized. The classification branch's ``accuracy_ratio`` has no weighted variant
     anywhere in this codebase, so it stays unweighted regardless (honestly, not silently).
     """
-    # 2026-05-27: ensemble aggregator entries (EnsARITHM/HARM/MEDIAN/...)
+    # ensemble aggregator entries (EnsARITHM/HARM/MEDIAN/...)
     # arrive here with ``model=None`` because the per-member voting
     # logic doesn't expose a sklearn-style ``predict`` boundary. sklearn
     # permutation_importance then raises "estimator parameter must be an
@@ -340,7 +340,7 @@ def _permutation_feature_importances(
             logger.debug("permutation FI: accuracy_ratio scoring failed; scoring as -inf: %r", exc, exc_info=True)
             return -np.inf
     # Threading backend (NOT loky / multiprocessing):
-    # ``profiling/bench_permutation_fi_nn.py`` (2026-05-26) measured a
+    # ``profiling/bench_permutation_fi_nn.py`` measured a
     # ~1.4x median speedup across 6 NN-FI scenarios when
     # ``permutation_importance`` runs inside ``joblib.parallel_backend
     # ('threading')`` vs n_jobs=1. The same sweep showed loky/process
@@ -510,7 +510,7 @@ _CAPTUM_IG_N_SAMPLES: int = 500
 _CAPTUM_IG_N_STEPS: int = 20
 
 # CUDA-batched permutation thresholds. Bench (profiling/bench_permutation_fi_nn.py,
-# GTX 1050 Ti, 2026-05-26):
+# GTX 1050 Ti):
 #   5k x 200 features, n_repeats=10: A=11.43s, D=7.81s (1.46x),
 #                                    F=2.91s (3.93x faster than A)
 #   1k x 200 features, n_repeats=10: A=3.23s,  F=1.44s (2.25x)
@@ -788,11 +788,11 @@ def _importances_from_inner_estimator(inner, X, y, sample_weight, feature_import
         # Without this branch every multilabel CB / XGB / LGB combo falls
         # through to permutation_importance per (model, split) and pays many
         # seconds where the child's native FI would aggregate in
-        # milliseconds. c0008 profile (2026-05-28, multilabel cb+hgb @200k):
+        # milliseconds. c0008 profile (multilabel cb+hgb @200k):
         # 35.8 s cumtime / 26 calls of ``_permutation_feature_importances``;
         # CB-multilabel branches would have aggregated natively.
         #
-        # iter577 (2026-05-30): two follow-up upgrades over the
+        # iter577: two follow-up upgrades over the
         # iter562 b21eaf3c version of this branch.
         #
         # (A) ROBUST AGGREGATOR. The original ``np.mean`` over signed

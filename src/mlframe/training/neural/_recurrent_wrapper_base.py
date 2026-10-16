@@ -443,7 +443,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             )
             callbacks.append(checkpoint_callback)
 
-        # F-68 (2026-05-31): exponential moving average of weights. Mirrors
+        # F-68: exponential moving average of weights. Mirrors
         # MLP's F-28. Off by default; enable via RecurrentConfig.use_ema.
         # When on, Lightning's WeightAveraging callback maintains an EMA
         # copy alongside the live model + swaps it in on on_train_end so

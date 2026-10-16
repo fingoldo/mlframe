@@ -102,7 +102,7 @@ ENSEMBLE_AGGREGATORS = (
     "mean_rank", "borda_count", "reciprocal_rank", "mutual_top_k",
 )
 
-# 2026-06-01 Layer 82: MUTUAL-RANK fusion aggregators. The "mutual_top_k"
+# Layer 82: MUTUAL-RANK fusion aggregators. The "mutual_top_k"
 # strategy keeps a candidate ONLY if it lies in the top-K of EVERY
 # participating scorer (strict conjunction). Complements the existing
 # mean/Borda/RR aggregators which are all UNION-flavoured (one strong scorer

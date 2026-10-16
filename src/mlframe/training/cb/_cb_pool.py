@@ -231,7 +231,7 @@ def _polars_nullable_categorical_cols(df: Any, cat_features: list[str] | None = 
 
         schema = df.schema
 
-        # 2026-04-23: extended to include pl.Utf8 / pl.String. Raw Utf8
+        # extended to include pl.Utf8 / pl.String. Raw Utf8
         # cat_features with nulls trigger the same CB 'Invalid type for
         # cat_feature ... NaN' error on the Polars fastpath -- the
         # fill_null('__MISSING__') pre-fit pass must cover them too.
@@ -591,7 +591,7 @@ def _predict_with_fallback(
 # explicitly cleared at suite entry in core.py). Deliberate plain dict
 # (not WeakValueDictionary) so transient GC between weight iterations
 # doesn't flush the Pool we're about to reuse.
-# 2026-05-13 refactor: _CB_VAL_POOL_CACHE lives in _predict_guards.py
+# refactor: _CB_VAL_POOL_CACHE lives in _predict_guards.py
 # (shared between fit-time populate in _maybe_get_or_build_cb_pool and
 # predict-time lookup in _predict_with_fallback).
 from .._predict_guards import _CB_VAL_POOL_CACHE
@@ -615,7 +615,7 @@ _CB_POOL_CACHE: dict[tuple, Any] = {}
 _CB_POOL_CACHE_MAX_ENTRIES = 16  # hard cap per cache; ring-buffer eviction oldest-first
 
 
-# 2026-04-29: cache the GPU probe result. ``get_gpuinfo_gpu_info`` shells
+# cache the GPU probe result. ``get_gpuinfo_gpu_info`` shells
 # out to ``nvidia-smi`` via GPUtil, which costs ~0.5s on Windows per call.
 # ``configure_training_params`` invokes the probe once per
 # ``train_mlframe_models_suite`` call, so a long-lived process running

@@ -159,7 +159,7 @@ def _build_triton_ns_fn() -> Optional[Callable]:
         Returns A: (M, M) same dtype, symmetric.
         """
         M, N = X.shape
-        # F-60 (2026-05-31): zero-init A, NOT torch.empty. The upper-tri
+        # F-60: zero-init A, NOT torch.empty. The upper-tri
         # kernel SKIPS strict-lower-triangle tiles (line 96-97 early return)
         # AND masks out off-tile positions inside the kernel, so the LOWER
         # half + masked positions of A are NEVER written. ``torch.triu(A) +

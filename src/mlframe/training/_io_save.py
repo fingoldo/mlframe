@@ -232,7 +232,7 @@ def save_mlframe_model(
     # duration of dump, then restore. This keeps the caller's compile state intact
     # after save returns and avoids invasive changes to the model class hierarchy.
     #
-    # 2026-05-21: also strips the Lightning bloat attrs. LightningModule._trainer
+    # also strips the Lightning bloat attrs. LightningModule._trainer
     # and PytorchLightningEstimator.prediction_datamodule both hold DataLoader
     # references that carry the whole training dataset. On 4M-row regression
     # this inflated MLP dumps to 311 MB for a network with 14k parameters.
@@ -327,7 +327,7 @@ def save_mlframe_model(
 
     try:
         # Atomic write prevents corruption when two train runs save to
-        # the same file concurrently (2026-04-19 probe finding).
+        # the same file concurrently (probe finding).
         #
         # Serialize to bytes BEFORE writing to disk so a pickle-vs-dill
         # fallback decision is made cleanly: dumping straight to the
@@ -367,14 +367,14 @@ def save_mlframe_model(
             # invariant established for the same-FS atomic rename.
             #
             # BufferedWriter wrapping (64KB/256KB/1MB/4MB) was benchmarked
-            # 2026-04-14 on a fitted RandomForest + 1M-element ndarray payload --
+            # on a fitted RandomForest + 1M-element ndarray payload --
             # all sizes landed within +/-5% of the direct write (high variance).
             # Direct write retained.
             with compressor.stream_writer(f, closefd=False) as zf:
                 zf.write(_payload_bytes)
 
         atomic_write_bytes(file, _writer, fsync=durable)
-        # Wave 19 P0 #1: write a sidecar .meta.json next to the .dump bundle
+        # write a sidecar .meta.json next to the .dump bundle
         # so the load side can refuse / WARN on version skew. Sidecar approach
         # (vs payload-wrapping) is non-invasive: old loaders simply ignore the
         # extra file; new loaders read it before unpickling.

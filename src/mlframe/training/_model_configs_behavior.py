@@ -151,7 +151,7 @@ class TrainingBehaviorConfig(BaseConfig):
     # Default ON: when a binary model's threshold was tuned, log a second classification report per split at that threshold next to the 0.5 one printed at train time (val is labelled optimistic, test honest). Reporting only; set False to keep the 0.5 block alone.
     report_at_tuned_threshold: bool = True
 
-    # Default ON (2026-07-12): run ``mlframe.calibration.threshold_optimizer.optimize_decision_threshold`` on the
+    # Default ON: run ``mlframe.calibration.threshold_optimizer.optimize_decision_threshold`` on the
     # binary classification calib slice (fit on calib probs/target, disjoint from test) after finalize, storing
     # ``best_threshold`` (+ optional per-group thresholds / cv stability report, per ``threshold_optimizer_kwargs``)
     # into ``metadata["decision_threshold"]``. Distinct from ``tune_decision_threshold`` above (which only tunes a
@@ -162,7 +162,7 @@ class TrainingBehaviorConfig(BaseConfig):
     # Arguments of ``optimize_decision_threshold`` (``metric_fn``, ``groups``, ``min_group_size``, ``cv``, ...): a ``ThresholdOptimizerConfig`` or a dict of its fields; an unknown name raises here.
     threshold_optimizer_kwargs: Optional[ThresholdOptimizerConfig] = None
 
-    # Default ON (2026-07-12): after ``calibrate_namespace_model`` fits a binary isotonic post-hoc calibrator on
+    # Default ON: after ``calibrate_namespace_model`` fits a binary isotonic post-hoc calibrator on
     # the calib slice, run ``mlframe.calibration.isotonic_risk.isotonic_overfit_risk`` on the same (calib_p,
     # calib_y) and stamp the report into ``metadata["isotonic_risk_report"]`` (per model). Flags isotonic fits
     # that are tracking per-point noise (too many step segments relative to sample size) rather than a genuine
@@ -305,15 +305,15 @@ class TrainingBehaviorConfig(BaseConfig):
     # Pre-pipeline LRU bound. Default 4 covers the common Linear+MLP+RFECV+catboost suite without thrashing; long-running services with bigger model rosters can bump this without monkey-patching the module global.
     pre_pipeline_cache_max: int = 4
 
-    # Fix 8 (2026-04-21): append a per-model input-schema fingerprint
+    # Fix 8: append a per-model input-schema fingerprint
     # (``__sch_<10 hex>``) to model filenames so two runs with different
     # feature-type configs (text vs cat promotion, encoding, alignment)
     # don't silently overwrite each other. Default True. Set False to
-    # restore the pre-2026-04-21 naming scheme (``{model}_{weight}.dump``);
+    # restore the previous naming scheme (``{model}_{weight}.dump``);
     # load-time schema verification is also skipped for those artefacts.
     model_file_hash_suffix: bool = True
 
-    # 2026-04-26 Session 7: temporal target audit. When set, per-target
+    # Session 7: temporal target audit. When set, per-target
     # the suite computes a time-series view of the target (P(y=1) for
     # binary, mean(y) for regression) at the configured granularity,
     # detects change points / regime shifts, and warns when the rate
@@ -480,7 +480,7 @@ class TrainingBehaviorConfig(BaseConfig):
     mlp_drop_per_group_constants_pattern: str = r"^group_.*_(mean|std|min|max)$"
 
     # L2 weight-decay auto-bump for MLP on extreme-AR + group-aware
-    # regimes (Fix 3, 2026-05-26). When the trigger fires
+    # regimes (Fix 3). When the trigger fires
     # (lag1_corr_per_group >= mlp_extreme_ar_threshold AND the active
     # split sets ``prefer_group_aware=True``), multiply the MLP
     # optimizer's ``weight_decay`` by this factor. AdamW is forced ON
@@ -531,7 +531,7 @@ class MultilabelDispatchConfig(InertFieldsWarningMixin, BaseConfig):
     per_label_thresholds: Optional[List[float]] = None  # decision-rule thresholds
     wrapper_n_jobs: Union[int, str] = "auto"  # MultiOutputClassifier n_jobs
     allow_uncalibrated_multi: bool = False  # downgrade post-hoc calib skip from raise to warn
-    # 2026-04-24 Session-2: opt-in for native XGB multilabel (multi_strategy=
+    # Session-2: opt-in for native XGB multilabel (multi_strategy=
     # 'multi_output_tree' + objective='binary:logistic'). XGB 3.x ships this
     # as experimental -- vector-output trees share structure across labels
     # (smaller model, integrated GPU/SHAP, faster inference). Marked WIP

@@ -63,7 +63,7 @@ def _train_mlframe_rank_without_relevance_column_leaked(df_features, cols_to_dro
         # datetime columns + auto-cast object columns to pd.Categorical.
         # (Standard suite does this via the polars-alignment step; LTR
         # fork takes the simple route here.)
-        # Audit D P1-4 (2026-05-18): pre-fix did ``df_X = df_X.drop`` and ``df_X[col] = ...`` per
+        # Audit D P1-4: pre-fix did ``df_X = df_X.drop`` and ``df_X[col] = ...`` per
         # column, which triggers a full DataFrame copy on every assignment under pandas'
         # BlockManager -- O(n_cols^2) memory churn on 100+ column frames. Now we accumulate
         # drops + replacements in a single sweep, then commit them in two batch operations.
@@ -437,7 +437,7 @@ def _train_mlframe_rank_save_dir(save_dir, model_name, flavor_order, models_dict
         os.makedirs(save_dir, exist_ok=True)
         import joblib
         from mlframe.training.io import atomic_write_bytes
-        # Wave 46 (2026-05-20): raw caller-supplied model_name plumbed into a path
+        # raw caller-supplied model_name plumbed into a path
         # basename is a traversal vector (e.g. model_name="../../evil" produces
         # "save_dir/../../evil_cb.joblib" which os.path.join leaves traversable).
         from pyutilz.strings import slugify as _slugify
@@ -446,7 +446,7 @@ def _train_mlframe_rank_save_dir(save_dir, model_name, flavor_order, models_dict
             artefact_path = os.path.join(save_dir, f"{_safe_model_name}_{flavor}.joblib")
             _model_obj = models_dict[flavor]["model"]
             atomic_write_bytes(artefact_path, functools.partial(joblib.dump, _model_obj))
-            # Wave 19 P0 #3: write the .meta.json sidecar that records the
+            # write the .meta.json sidecar that records the
             # booster + mlframe library versions at save time. Without this,
             # the agent's analysis: "CB/LGB/XGB minor upgrades silently
             # mis-restore booster internals" -- load-side has no way to

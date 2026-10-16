@@ -151,7 +151,7 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
             # range +/- 3 sigma) doesn't depend on a transformer being configured.
             pred_trans = super().predict(X, **predict_params)
             return self._apply_predict_clip(pred_trans)
-        # iter191 (2026-05-23): inline the parent TransformedTargetRegressor.predict
+        # iter191: inline the parent TransformedTargetRegressor.predict
         # path so we predict ONCE (not twice). The previous form called
         # self.regressor_.predict(X) for the sensor probe then super().predict(X)
         # for the actual return -- both invoke the inner regressor on the full X,

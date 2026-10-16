@@ -27,7 +27,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-# Wave 93 (2026-05-21): Pipeline structural-identity + content cache moved
+# Pipeline structural-identity + content cache moved
 # to sibling file _pipeline_cache.py to drop _pipeline_helpers.py below
 # the 1k-line monolith threshold. Re-exported here so existing callers
 # (`from ._pipeline_helpers import _content_fingerprint_for_cache`, etc.)
@@ -296,7 +296,7 @@ from ._pipeline_fit_state import (  # noqa: F401 - moved to the leaf module; re-
     _step_is_fitted,
 )
 
-# Wave 93 (2026-05-21): _pipeline_signature_for_cache /
+# _pipeline_signature_for_cache /
 # _pre_pipeline_cache_key / _get / _set / _clear moved to sibling file
 # _pipeline_cache.py and re-exported from this module's top-level imports.
 

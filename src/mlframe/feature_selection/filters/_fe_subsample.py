@@ -40,7 +40,7 @@ _FE_STRATIFY_REG_BINS: int = 10
 
 
 # ---------------------------------------------------------------------------------------------------
-# NUMBA KERNELS (R2, 2026-06-18). Deterministic per-call inline-LCG RNG (thread-safe: no process-global
+# NUMBA KERNELS (R2). Deterministic per-call inline-LCG RNG (thread-safe: no process-global
 # np.random state, so concurrent joblib-threading callers cannot clobber each other's stream). Exact
 # bit-match to the numpy version is NOT required (the
 # default flips to ON anyway) - the kernels only guarantee DETERMINISM (same seed+inputs -> same

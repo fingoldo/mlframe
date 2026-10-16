@@ -33,7 +33,7 @@ def set_su_normalization(active: bool) -> None:
     """Flip SU normalization on/off for the calling thread; set by ``MRMR.fit`` when ``mi_normalization='su'``."""
     _SU_STATE.active = bool(active)
 
-# 2026-05-30 Wave 8 — JMIM / BUR thread-local toggles. Set by MRMR.fit when
+# JMIM / BUR thread-local toggles. Set by MRMR.fit when
 # ``redundancy_aggregator='jmim'`` or ``bur_lambda > 0``; read at the
 # evaluation hot-path. Same pattern as SU above. Independent of SU so the
 # three can compose freely.

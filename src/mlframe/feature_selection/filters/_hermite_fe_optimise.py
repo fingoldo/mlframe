@@ -82,12 +82,12 @@ def _eval_coef_pair(coef_a, coef_b, *, z_a, z_b, eval_func, bf_callables,
         l2_penalty_saturation = _L2_PENALTY_SATURATION_DEFAULT
     if direction_only:
         coef_a, coef_b = _l2_normalize_pair(coef_a, coef_b, target_norm=1.0)
-    # 2026-05-18 BASIS-MATRIX FASTPATH (kept but disabled by default):
+    # BASIS-MATRIX FASTPATH (kept but disabled by default):
     # ``B_a`` / ``B_b`` are optional precomputed basis matrices that allow
     # ``h = B @ c`` (BLAS GEMV) instead of Horner. Numerical
     # identity to Horner verified to 1e-16 across all four orthogonal
     # bases. HOWEVER, measured at n=1M / subsample=200k production budget
-    # (cProfile 2026-05-18): GEMV on the 1500-sample multi-fidelity
+    # (cProfile): GEMV on the 1500-sample multi-fidelity
     # inner search shows ZERO measurable speedup vs the existing
     # @njit(parallel=True) Horner kernel - the JIT'd recurrence with
     # prange is already cache-friendly enough that BLAS dgemv has no
@@ -731,7 +731,7 @@ def _run_cma_search(*, ca_size, cb_size, coef_range, n_trials, seed,
     inject_arrays = [np.asarray(s, dtype=np.float64) for s in (warm_start_seeds or [])]
 
     first_gen = True
-    # 2026-05-20 NEW-D: plateau early-stop state. Tracks how many
+    # NEW-D: plateau early-stop state. Tracks how many
     # consecutive CMA generations passed without improving best_score.
     _plateau_gens = 0
     _last_gen_best_score = best_score

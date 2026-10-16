@@ -326,7 +326,7 @@ def retain_usable_pure_forms(
         # majority class. ``_abscorr(resid, _rel_y)`` then measures whether the form's joint nonlinearity is
         # RELEVANT to class membership.
         _rel_y = _retain_usable_pure_relevant_class_membership(is_clf, _yv)
-        # NONLINEAR-RESIDUAL-VS-Y GATE. The CV-MAE greedy alone over-fires (adversarial-found 2026-06-17):
+        # NONLINEAR-RESIDUAL-VS-Y GATE. The CV-MAE greedy alone over-fires (adversarial-found):
         # it admits a linear SUM like add(x1,x2) - a linear model ALREADY builds it from the raw operands -
         # and CROSS-PAIR / noise-operand forms that lower MAE on a fold by chance. The retention's whole
         # point is the NONLINEAR interaction a linear model cannot build from the raws (a**2/b,

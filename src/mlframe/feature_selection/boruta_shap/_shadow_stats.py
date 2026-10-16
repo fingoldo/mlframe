@@ -33,7 +33,7 @@ def calculate_hits(self) -> np.ndarray:
 
     """
 
-    # Wave 21 P0: use nanpercentile so a NaN in shadow_feature_import
+    # use nanpercentile so a NaN in shadow_feature_import
     # (some boosters emit NaN for never-split features) doesn't poison
     # the threshold. Pre-fix any single NaN made shadow_threshold == NaN,
     # then ``X_feature_import > NaN`` returned all-False, silently

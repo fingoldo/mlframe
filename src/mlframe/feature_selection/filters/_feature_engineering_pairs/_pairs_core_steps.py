@@ -245,7 +245,7 @@ def _check_prospective_fe_step3_gpu_clock_variance(_operand_marginal_mi_cache, v
                 )
                 _mi_val = float(_m)
             except Exception as _mm_exc:
-                # FAIL-CLOSED (audit A3, 2026-06-13): the previous ``0.0`` was FAIL-OPEN - it fed
+                # FAIL-CLOSED (audit A3): the previous ``0.0`` was FAIL-OPEN - it fed
                 # the marginal-uplift gate's ``max(operand marginals)``, so a FAILED marginal on the
                 # operand that actually has the LARGER marginal would shrink that max and LOOSEN the
                 # admission bar (``best_nonprewarp_mi >= max_marginal * _FE_MARGINAL_UPLIFT_MIN_RATIO``),

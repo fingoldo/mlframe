@@ -357,7 +357,7 @@ class _DMatrixReuseMixin:
     #
     # ``QuantileDMatrix`` holds ctypes pointers to C++ memory —
     # joblib/pickle refuses it with "ctypes objects containing pointers
-    # cannot be pickled". The 2026-04-24 prod log captured the regression:
+    # cannot be pickled". The prod log captured the regression:
     # mlframe.training.io failed to save both xgb_uniform and xgb_recency
     # dumps → next-run cached-model-load fell back to full retrain.
     #
@@ -381,7 +381,7 @@ class _DMatrixReuseMixin:
         # stale-key-looking-valid trap on load).
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             state[_attr] = None
-        # Wave 19 P1: stamp the xgboost version at save time so the load
+        # stamp the xgboost version at save time so the load
         # side can detect skew (booster JSON in the unmodified __dict__
         # is library-version-sensitive across minor versions).
         try:
@@ -402,7 +402,7 @@ class _DMatrixReuseMixin:
         for _attr in self._CACHE_POINTER_ATTRS + self._CACHE_KEY_ATTRS:
             if not hasattr(self, _attr):
                 setattr(self, _attr, None)
-        # Wave 19 P1: compare saved xgboost version with the live one.
+        # compare saved xgboost version with the live one.
         _saved_ver = getattr(self, "_saved_xgb_version", None)
         if _saved_ver is not None and _saved_ver != "unknown":
             try:
@@ -620,7 +620,7 @@ class _DMatrixReuseMixin:
         # missing handling, etc) and returns the C++-level booster param
         # dict. ``n_estimators`` becomes ``num_boost_round`` for native API.
         params: dict = self.get_xgb_params()  # type: ignore[attr-defined]  # provided by the XGBModel sklearn base this mixin is combined with
-        # Wave 14 P1 (re-opened 2026-05-20): pre-fix `or 100` silently
+        # Pre-fix `or 100` silently
         # rewrote n_estimators=0 (legitimate xgboost intent: "construct
         # an untrained booster; predict returns base score") to 100.
         # The shim ran 100 boost rounds when the user wanted 0.

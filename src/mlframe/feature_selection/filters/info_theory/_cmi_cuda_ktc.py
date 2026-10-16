@@ -54,7 +54,7 @@ def cmi_use_cuda(n: int, p: int) -> bool | None:
         return False
     try:
         from mlframe.feature_selection.filters._fe_gpu_strict import fe_gpu_strict_enabled
-        # Pass THIS call's own (n, p) - 2026-07-11 fix. Calling with no args made the per-call work floor a
+        # Pass THIS call's own (n, p) - fix. Calling with no args made the per-call work floor a
         # no-op here (fe_gpu_strict_enabled's floor is a no-op whenever n/p are omitted), silently defeating
         # the caller's own p<64 decline at _cmi_cuda.py's _should_use_cuda: a small-p late-round call that
         # correctly declined STRICT there still fell through to THIS function and got re-approved for CUDA

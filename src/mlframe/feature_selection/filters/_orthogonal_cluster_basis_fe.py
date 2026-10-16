@@ -287,7 +287,7 @@ def compute_cluster_aggregate(
     )
     method = "pca_pc1" if aggregator == "pc1" else aggregator
     if stats is not None:
-        # 2026-06-03 (audit cluster-aggregate-6/7): REPLAY. Standardize the test
+        # REPLAY. Standardize the test
         # members with the STORED fit-time per-member mean/std/signs (fill NaNs
         # with the stored mean - which equals the fit-time fill), then apply the
         # STORED combiner weights (or the stateless non-linear row-reducer). No
@@ -312,10 +312,10 @@ def compute_cluster_aggregate(
         out: np.ndarray = _apply_nl(Z, method) if w is None else (Z @ np.asarray(w, dtype=np.float64))
         out = np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
         return (out, stats) if return_stats else out
-    # FIT path. 2026-06-03 (audit gap-03): use the canonical SIGN-ALIGNED
+    # FIT path. (audit gap-03): use the canonical SIGN-ALIGNED
     # standardization + weight derivation shared with filters._cluster_aggregate
     # (anticorrelated reflections add constructively; PC1 sign via svd_flip).
-    # 2026-06-03 (audit cluster-aggregate-6/7): capture the fit-time member
+    # capture the fit-time member
     # mean/std/signs + combiner weights so the recipe can persist them and replay
     # APPLIES them on test data instead of refitting (byte parity under drift).
     # NaN-safe per-column fill before sign-aligned standardisation; note the
@@ -451,7 +451,7 @@ def generate_cluster_basis_features(
     cand_meta: list[dict] = []
     for anchor, members in cleaned.items():
         try:
-            # 2026-06-03 (audit cluster-aggregate-6/7): capture fit-time member
+            # capture fit-time member
             # mean/std/signs + combiner weights so the recipe can replay without
             # refitting on test data.
             agg, agg_stats = compute_cluster_aggregate(
@@ -582,7 +582,7 @@ def generate_cluster_basis_features(
             "engineered_mi": float(info["engineered_mi"]),
             "baseline_mi": float(info["baseline_mi"]),
             "uplift": float(info["uplift"]),
-            # 2026-06-03 (audit cluster-aggregate-6/7): fit-time stats for
+            # fit-time stats for
             # refit-free replay (persisted into the recipe extra).
             "agg_stats": info.get("agg_stats"),
             "basis_params": info.get("basis_params"),
@@ -662,7 +662,7 @@ def hybrid_orth_mi_cluster_basis_fe(
             "baseline_mi": info["baseline_mi"],
             "engineered_mi": info["engineered_mi"],
             "uplift": info["uplift"],
-            # 2026-06-03 (audit cluster-aggregate-6/7): carry fit-time stats
+            # carry fit-time stats
             # through to the recipe builder for refit-free replay.
             "agg_stats": info.get("agg_stats"),
             "basis_params": info.get("basis_params"),
@@ -775,7 +775,7 @@ def _apply_orth_cluster_basis(recipe, X) -> np.ndarray:
     # Build a DataFrame-like dict with stable column order matching
     # recipe.src_names for byte-exact reproducibility.
     frame = pd.DataFrame(member_cols)
-    # 2026-06-03 (audit cluster-aggregate-6/7): replay with the STORED fit-time
+    # replay with the STORED fit-time
     # aggregate stats + basis preprocess params so the aggregate z-score / PC1
     # loading and the basis preprocess are APPLIED, not refit on the (possibly
     # drifted) test distribution -> a given input row maps to the same value as

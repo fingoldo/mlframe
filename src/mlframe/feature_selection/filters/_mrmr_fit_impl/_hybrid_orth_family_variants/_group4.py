@@ -92,7 +92,7 @@ def _hybrid_orth_family_variants_group4(
                 type(_cmim_exc).__name__,
                 _cmim_exc,
             )
-    # 2026-06-01 Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
+    # Layer 68 — PER-COLUMN SCORER AUTO-SELECTION across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
     # require fe_hybrid_orth_enable). For each engineered column the
     # bootstrap-LCB criterion picks the best scorer in
@@ -173,7 +173,7 @@ def _hybrid_orth_family_variants_group4(
                 type(_auto_exc).__name__,
                 _auto_exc,
             )
-    # 2026-06-01 Layer 69 — ENSEMBLE-OF-SCORERS rank-fusion across the
+    # Layer 69 — ENSEMBLE-OF-SCORERS rank-fusion across the
     # Layer 21 / 65 / 66 / 67 scorer family (independent opt-in; does NOT
     # require fe_hybrid_orth_enable). Each requested scorer ranks every
     # engineered column independently; the per-scorer ranks are fused via
@@ -262,7 +262,7 @@ def _hybrid_orth_family_variants_group4(
                 type(_ens_exc).__name__,
                 _ens_exc,
             )
-    # 2026-06-01 Layer 76 — META-SCORER auto-selection that LEARNS from
+    # Layer 76 — META-SCORER auto-selection that LEARNS from
     # cheap signal characteristics ("data fingerprints") and dispatches
     # to the predicted-best scorer of the Layer 21 / 65 / 66 / 67 / 71 /
     # 72 / 74 family (sibling module ``_orthogonal_meta_scorer_fe``).

@@ -136,7 +136,7 @@ def _per_cell_moments_stable_masked_scatter_gpu(cp, codes_g, v_safe, w, n_cells:
     return cnt, mean, cm2, cm3, cm4
 
 
-# cupy.fuse kernel cache (2026-07-02, cProfile-driven): _stats_from_moments_gpu was the #1 host hotspot
+# cupy.fuse kernel cache (cProfile-driven): _stats_from_moments_gpu was the #1 host hotspot
 # (0.588s tottime / 100 calls) - its cost is HOST issue-time for the ~10-20 small cupy elementwise launches
 # it fired per call (mean, safe/m2/std, the per-stat m3/m4 chains + two cp.where guards each). Each stat's
 # per-cell formula is a pure elementwise chain over the (n_cells,) moment arrays, so cupy.fuse collapses the
@@ -385,7 +385,7 @@ def build_binagg_oof_matrix_gpu(
 
         # OOF: init the whole column to the global fallback, then overwrite each fold's TEST rows with the
         # train-fold per-cell stat (global where the cell was empty in train). Structurally identical to host.
-        # LAUNCH-BATCHED (2026-07-02, NVTX-driven): the fold caches are keyed so the expensive device work runs
+        # LAUNCH-BATCHED (NVTX-driven): the fold caches are keyed so the expensive device work runs
         # ONCE per reuse unit - raw MOMENTS *and all of the pair's stats* per (pair, fold), derived in a SINGLE
         # _stats_from_moments_gpu pass shared by ALL of the pair's stat columns (was per (fold, stat): the same 5
         # bincounts re-ran for each of the pair's 4 stat columns = 4x the launches, and each per-stat call

@@ -854,7 +854,7 @@ def bocpd_features(
     }
 
 
-# X_EFFICIENCY_ARCHITECTURE-1 fix (mrmr_audit_2026-07-22): online_bayesian_linear_regression carved
+# online_bayesian_linear_regression carved
 # out into _bayesian_oblr.py to clear the repo's enforced hard 1000-LOC CI gate (this file was 1001
 # lines). Re-exported here so every existing import keeps working unchanged.
 from ._bayesian_oblr import online_bayesian_linear_regression

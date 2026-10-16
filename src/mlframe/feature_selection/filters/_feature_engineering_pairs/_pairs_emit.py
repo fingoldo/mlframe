@@ -719,7 +719,7 @@ def _emit_pair_features_step3_pair_features(
         # Pack each (config, j) into a compact column index
         # ``idx = 0..len(this_pair_features)-1`` instead.
         #
-        # 2026-06-01 (ROOT CAUSE 5 fix): materialise the survivor
+        # materialise the survivor
         # columns whenever FE runs (``fe_max_steps >= 1``), not only on
         # multi-step (``> 1``). Previously, with the default
         # ``fe_max_steps=1`` the recommended features were LOGGED but

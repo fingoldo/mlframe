@@ -151,7 +151,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         self.training_step_outputs: list = []
         self.validation_step_outputs: list = []
 
-        # F-38 (2026-05-31): CUDA-graph predict cache. Shape-keyed map of
+        # F-38: CUDA-graph predict cache. Shape-keyed map of
         # (input_shape, dtype, device) -> (static_input_buffer, graphed_fn).
         # Lazily populated on the first predict_step call when the env-gate
         # MLFRAME_CUDA_GRAPH_PREDICT=1 is set + CUDA is the active device.
@@ -162,7 +162,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         # automatically falls back to eager forward via dict-miss.
         self._cuda_graph_predict_cache: dict = {}
 
-        # F-39 (2026-05-31): torch.compile(reduce-overhead) predict cache.
+        # F-39: torch.compile(reduce-overhead) predict cache.
         # Per Agent A research, ``mode="reduce-overhead"`` enables CUDA
         # graph trees + Inductor fusion automatically, strictly more
         # powerful than the F-38 manual CUDA-graph path (Inductor fuses
@@ -233,7 +233,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         """Training step."""
         features, labels, sample_weight = self._unpack_batch(batch)
 
-        # F-68 (2026-05-31): Mixup augmentation. When enabled, mix features
+        # F-68: Mixup augmentation. When enabled, mix features
         # and targets BEFORE the forward pass; loss is computed against
         # the interpolated targets (regression / multilabel) or as a
         # convex combination of two single-target losses (classification).
@@ -293,7 +293,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             loss = self._compute_weighted_loss(raw_predictions_for_loss, labels, sample_weight)
 
         if self.hparams.l1_alpha > 0:
-            # F-07 (2026-05-30): exclude normalisation-layer parameters from
+            # F-07: exclude normalisation-layer parameters from
             # the L1 sum. ``self.network.parameters()`` includes BN / LN /
             # GN gamma + beta; penalising those drives gamma toward zero
             # and effectively kills the normalisation layer (gamma=0 means
@@ -406,7 +406,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         """Configure optimizer and optional learning rate scheduler."""
         optimizer_kwargs = {"lr": self.hparams.learning_rate, **self.hparams.optimizer_kwargs}
 
-        # F-26 (2026-05-31): tabular-MLP-tuned AdamW defaults.
+        # F-26: tabular-MLP-tuned AdamW defaults.
         #   * betas=(0.9, 0.95) -- the PyTorch default beta_2=0.999 is an
         #     LLM-era convention; on high-variance tabular gradients
         #     RealMLP-TD (Holzmuller et al., NeurIPS 2024) measures
@@ -444,7 +444,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
 
         optimizer = self.optimizer(self.parameters(), **optimizer_kwargs)
 
-        # F-62 (2026-05-31): Lookahead meta-optimizer wrap. Zhang 2019
+        # F-62: Lookahead meta-optimizer wrap. Zhang 2019
         # arxiv.org/abs/1907.08610 -- +0.4-0.6% on tabular MLP per
         # RealMLP-TD 2024 ablations. Wraps the base optimizer; the
         # scheduler attaches to the Lookahead wrapper which forwards
@@ -465,7 +465,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
                 self.hparams.lookahead_alpha,
             )
 
-        # F-63 (2026-05-31): Sharpness-Aware Minimization (Foret 2020
+        # F-63: Sharpness-Aware Minimization (Foret 2020
         # arxiv 2010.01412). 2x training cost per step (extra forward +
         # backward at the ascent-perturbed weights); +0.3-0.7% on tabular
         # MLP per Yandex 2025 ablations, +0.8-1.5% on ImageNet. Composes
@@ -533,7 +533,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
 
     def on_train_end(self) -> None:
         """Load best model weights after training completes."""
-        # F-B fix (2026-05-31, audit follow-up): if the optimizer is a
+        # F-B fix (audit follow-up): if the optimizer is a
         # Lookahead wrapper (F-62), commit slow weights to fast BEFORE
         # any checkpoint reload. Lookahead's per-cycle sync leaves
         # fast = slow only on k-th steps; if training stopped on a

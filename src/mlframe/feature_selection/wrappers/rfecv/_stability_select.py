@@ -512,7 +512,7 @@ def select_optimal_nfeatures_(
             mean_arr = np.array(cv_mean_perf)
         std_arr = np.array(cv_std_perf)
         nz_idx = np.where(nonzero_mask)[0]
-        # Wave 21 P0: mask out NaN candidates before argmax. cv_mean_perf
+        # mask out NaN candidates before argmax. cv_mean_perf
         # can hold NaN when every fold for that N was degenerate
         # (_helpers.py:337). Pre-fix np.argmax picks the NaN slot ->
         # ``best_mean_idx`` refers to a never-evaluated N and the caller

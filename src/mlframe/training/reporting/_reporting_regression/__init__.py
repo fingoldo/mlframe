@@ -85,7 +85,7 @@ def report_regression_model_perf(
     # this affects. When set, the fast fused-block path is skipped (the fused kernel has no
     # weighted variant) in favour of the individual weighted fast_* calls.
     sample_weight: np.ndarray | None = None,
-    # 2026-05-23 audit-followup #2: train-y envelope for the collapse sensor.
+    # audit-followup #2: train-y envelope for the collapse sensor.
     # When supplied, the sensor's linear-extrapolation branch additionally
     # checks pred range against the TRAIN-y range, not just the in-batch
     # target range. Catches OOD-extrapolation that lands within the
@@ -94,7 +94,7 @@ def report_regression_model_perf(
     y_train_min: float | None = None,
     y_train_max: float | None = None,
     y_train_std: float | None = None,
-    # 2026-05-28 audit batch: precomputed MASE naive-MAE scale + the
+    # audit batch: precomputed MASE naive-MAE scale + the
     # seasonality used to compute it. When both are set, the report
     # stamps a MASE value into the metrics dict. ``naive_mae`` MUST be
     # computed on the train-fold ONLY via the same seasonality, e.g.
@@ -190,7 +190,7 @@ def report_regression_model_perf(
         st.preds_arr = _point
         preds = _point
 
-    # F-34 (2026-05-31): MULTI_TARGET_REGRESSION gate. This reporter
+    # F-34: MULTI_TARGET_REGRESSION gate. This reporter
     # assumes 1-D targets + 1-D preds for the scatter/histogram chart,
     # the residual audit (skew/kurtosis), the prediction-envelope clip,
     # and the MASE / fairness subgroup paths. (N, K) targets/preds get
@@ -259,7 +259,7 @@ def report_regression_model_perf(
             "instead.",
             st.targets_arr.shape,
         )
-    # 2026-05-22: fused single-pass kernel for the 1-D regression-reporting case.
+    # fused single-pass kernel for the 1-D regression-reporting case.
     # On 1-D inputs the 4 separate ``fast_*`` calls each re-touched (y_true, y_pred)
     # from RAM (4-5 passes total); the fused 2-pass kernel produces numerically
     # equivalent results (<1e-12 abs diff vs sklearn baseline) at 2.3-3.4x the speed
@@ -286,7 +286,7 @@ def report_regression_model_perf(
         y_train_std=y_train_std,
     )
 
-    # 2026-05-28 audit: additional metrics that don't factor into the
+    # audit: additional metrics that don't factor into the
     # fused block (sort-based / log-based / parameterised). Each is gated
     # by a narrow try-block so a degenerate input does not poison the
     # whole report. RMSLE warns + returns NaN on negative inputs (the
@@ -309,7 +309,7 @@ def report_regression_model_perf(
         MaxError=MaxError,
         R2=R2,
         RMSE=RMSE,
-        # 2026-05-28 audit: 8 extras lifted from the fused extended block.
+        # audit: 8 extras lifted from the fused extended block.
         # NSE numerically equals R2 (sklearn convention) but stamped
         # separately because hydrology / climate code expects the name.
         MBE=_ext_MBE,
@@ -384,7 +384,7 @@ def report_regression_model_perf(
         # caller emitting the MTRESID tag with a non-canonical target
         # column (custom user composite) still hits the skip path.
         # Override via env MLFRAME_KEEP_T_SCALE_COMPOSITE_REPORTS=1.
-        # 2026-05-27 (user bug report): the prior detector
+        # the prior detector
         # ``_has_mtresid_token OR is_composite_target_name(token)`` was
         # over-broad. ``is_composite_target_name`` matches the COMPOSITE
         # TARGET NAME (e.g. ``TVT-spline-TVT_prev``) which appears in
@@ -399,7 +399,7 @@ def report_regression_model_perf(
         # marker (y-scale charts have it too).
         _model_name_str = str(model_name)
         _is_t_scale_composite_chart = "MTRESID" in _model_name_str
-        # 2026-05-27 user pushback: a T-scale chart is useless to the
+        # user pushback: a T-scale chart is useless to the
         # operator -- they need a y-scale chart for THIS model that's
         # comparable to raw-target charts. The y-scale chart for
         # composite models is emitted by ``_phase_composite_wrapping``
@@ -420,7 +420,7 @@ def report_regression_model_perf(
         header_str = report_title + " " + model_name + f" [{nfeatures}{get_human_readable_set_size(len(targets))} rows]" + _scale_tag
         from ..._format import format_metric as _fmt
 
-        # 2026-05-28 audit batch: token-based regression title.
+        # audit batch: token-based regression title.
         # The legacy hardcoded "MAE/RMSE/MaxError/R2" string is now a
         # special case of the token loop. The renderable token set is
         # DEFAULT_REGRESSION_TITLE_TOKENS (defined below); callers can
@@ -816,7 +816,7 @@ def _report_regression__carry_per_output_aggregated(
             idx = idx[np.argsort(_preds_arr[idx])]
 
             # Two-panel figure: scatter | residuals histogram.
-            # 2026-05-22: removed the "Residuals vs predicted"
+            # removed the "Residuals vs predicted"
             # panel; its heteroscedasticity diagnostic (spearman
             # of |resid|, y_hat) now lands inside the scatter
             # title. The remaining two panels each get ~50% wider
@@ -924,14 +924,14 @@ def _report_regression__print_report(print_report, model_name, report_title, MAE
         from mlframe.training._format import format_metric as _fmt
 
         # Annotate composite-target reports as T-scale. Composite targets carry ``MTRESID=`` in the model_name (stamped by ``select_target``); this indicates the printed metrics live on the RESIDUAL scale, not the raw y-scale. The wrap pass separately emits y-scale numbers via ``[CompositeTargetEstimator] ... y-scale metrics:`` so the operator can compare apples-to-apples with raw-target reports.
-        # 2026-05-27 (user bug report): same fix as the chart-skip gate
+        # same fix as the chart-skip gate
         # above -- only ``MTRESID`` token marks a T-scale chart. The
         # composite-target-NAME token is present on y-scale charts too;
         # the prior ``is_composite_target_name`` predicate was wrong
         # here and skipped legitimate y-scale prediction-quality
         # reports.
         _is_t_scale_composite = "MTRESID" in model_name
-        # 2026-05-28: a composite target's MAE/RMSE/R2 are in the
+        # a composite target's MAE/RMSE/R2 are in the
         # residual/composite scale, NOT the original-target scale, so they are
         # NOT comparable to the raw-target leaderboard. The user requires that
         # NO composite-scale number ever reaches the log/chart -- only the
@@ -1008,7 +1008,7 @@ def _report_regression_point_metrics(st, sample_weight):
     Returns (MAE, RMSE, MaxError, R2, MBE, MAPE_mean, SMAPE, wMAPE, CV_RMSE, NSE, Pearson, ExplainedVariance).
     """
     if st.targets_arr.ndim == 1 and st.preds_arr.ndim == 1 and sample_weight is None:
-        # 2026-05-28 audit batch: switched from fast_regression_metrics_block
+        # audit batch: switched from fast_regression_metrics_block
         # (4 metrics: MAE/RMSE/MaxError/R2) to the EXTENDED block that lands
         # 12 metrics in the SAME 2 numba passes. 5.8-10.5x faster than the
         # equivalent 12 separate calls; see comment block in

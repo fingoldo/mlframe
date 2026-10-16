@@ -30,7 +30,7 @@ external callers (LRU byte-cap gate, orth-FE scorer dispatch) rely on.
 """
 
 
-# 2026-06-01 Layer 85 — default-scorer dispatcher for the Layer 21 hybrid
+# Layer 85 — default-scorer dispatcher for the Layer 21 hybrid
 # orth-poly univariate basis-selection stage. Imports the alternate scorer
 # module lazily so callers paying for "plug_in" (the default) do not pay
 # the import cost. Every alternate scorer's ``*_with_recipes`` returns the
@@ -131,7 +131,7 @@ def _dispatch_default_scorer(
         )
         return _fn(X, y, cols=cols, degrees=degrees, basis=basis, top_k=top_k)
     if scorer == "auto_oracle":
-        # 2026-06-01 Layer 100 — UNIFIED scorer-selection. The
+        # Layer 100 — UNIFIED scorer-selection. The
         # OracleScorerSelector resolves a concrete scorer for this
         # dataset's fingerprint (learned-best when the oracle has confident
         # history, else the L76 cold-start cascade), then we delegate to

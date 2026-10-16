@@ -39,7 +39,7 @@ class AttentionPooling(nn.Module):
         _batch_size, max_len, _hidden_size = rnn_output.size()
         device = rnn_output.device
 
-        # F-50 (2026-05-31): investigated rewrite via F.scaled_dot_product_attention.
+        # F-50: investigated rewrite via F.scaled_dot_product_attention.
         # Win would be 1.3-2x on Ampere+ Flash, but ONLY when seq_len > 128.
         # Tabular sequences here are typically short (<=64), and SDPA requires
         # explicit scale=1.0 override (default 1/sqrt(d) changes the softmax
@@ -51,7 +51,7 @@ class AttentionPooling(nn.Module):
         mask = torch.arange(max_len, device=device).unsqueeze(0) >= lengths.unsqueeze(1)
         scores = scores.masked_fill(mask, float("-inf"))
 
-        # F-E (2026-05-31, audit follow-up): if EVERY position in a row is
+        # F-E (audit follow-up): if EVERY position in a row is
         # masked (lengths[b] == 0), softmax(-inf, -inf, ..., -inf) is NaN
         # everywhere; bmm propagates NaN into the context vector and
         # silently poisons the MLPHead with NaN. Detect such rows, give
@@ -148,7 +148,7 @@ class TransformerSequenceEncoder(nn.Module):
             batch_first=True,
             activation="gelu",
         )
-        # F-48 (2026-05-31): enable_nested_tensor=True lets PyTorch 2.x
+        # F-48: enable_nested_tensor=True lets PyTorch 2.x
         # strip padded positions BEFORE the attention call and feed a
         # NestedTensor to the SDPA Flash backend. 1.5-3x on batches with
         # high padding variance. Safe with our boolean src_key_padding_mask.

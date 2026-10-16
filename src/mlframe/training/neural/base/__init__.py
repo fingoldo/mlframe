@@ -37,7 +37,7 @@ from typing import Dict, Optional
 # third-party
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 
-# iter189 (2026-05-23): Lightning's _load_external_callbacks scans every
+# iter189: Lightning's _load_external_callbacks scans every
 # installed Python distribution via importlib.metadata.entry_points on EACH
 # Trainer.fit() / Trainer.predict() invocation -- ~180ms / call on a Windows
 # box with a typical anaconda site-packages (5346 dist-info METADATA reads).
@@ -50,7 +50,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
 # a Lightning internal-API rename surfaces as a slow-but-correct fallback,
 # not an ImportError that crashes mlframe import.
 #
-# iter259 (2026-05-23) follow-up: patching only ``_lf_registry`` misses the
+# iter259 follow-up: patching only ``_lf_registry`` misses the
 # real callers. ``callback_connector.py`` and ``fabric.py`` do
 # ``from lightning.fabric.utilities.registry import _load_external_callbacks``
 # at import time, which binds the ORIGINAL function into the caller's module
@@ -214,7 +214,7 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         use_learnable_cat_embeddings: bool = True,
         categorical_embed_dim: Optional[int] = None,
     ):
-        # ``random_state``: sklearn-canonical seed parameter (F-06, 2026-05-30).
+        # ``random_state``: sklearn-canonical seed parameter (F-06).
         # When set to an integer, ``_fit_common`` seeds torch / numpy / Python
         # random + the Lightning DataLoader worker seed at fit() entry, so two
         # ``fit()`` calls on the same data with the same ``random_state``
@@ -231,7 +231,7 @@ class PytorchLightningEstimator(_FitMixin, _PredictMixin, BaseEstimator):
         # Don't modify swa_params here (e.g., `swa_params or {}`) because sklearn's clone() requires constructor parameters not be
         # modified. Handle None later.
         store_params_in_object(obj=self, params=get_parent_func_args(), postfix="")
-        # Runtime (non-param) attribute, mirrored in __getstate__/__setstate__. F-67 prediction-trainer caching was reverted 2026-06-02 (Lightning Trainer reuse broke multi-predict fits), so this stays empty -- predict() builds a fresh Trainer per call -- but the attribute must exist so introspection and the pickle-state symmetry don't hit AttributeError on a freshly-constructed (never-pickled) estimator.
+        # Runtime (non-param) attribute, mirrored in __getstate__/__setstate__. F-67 prediction-trainer caching was reverted (Lightning Trainer reuse broke multi-predict fits), so this stays empty -- predict builds a fresh Trainer per call -- but the attribute must exist so introspection and the pickle-state symmetry don't hit AttributeError on a freshly-constructed (never-pickled) estimator.
         self._prediction_trainer_cache = {}
 
     # sklearn protocol methods carved to ``_base_sklearn_params`` (monolith

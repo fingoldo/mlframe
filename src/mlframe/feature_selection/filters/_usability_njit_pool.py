@@ -409,7 +409,7 @@ def _pair_combo_mi_njit_parallel(x1, x2, y_codes, h_y, k_y, qs, ua_arr, ub_arr, 
     return out
 
 
-# UNARY-TABLE kernels (2026-06-21, ``feedback_keep_all_kernel_versions``). The per-combo loop above
+# UNARY-TABLE kernels (``feedback_keep_all_kernel_versions``). The per-combo loop above
 # recomputes ``_apply_unary(x1[i], ua)`` and ``_apply_unary(x2[i], ub)`` for EVERY combo - so each
 # distinct unary (sin/exp/log/cbrt/... - the transcendental ones are NOT free) is re-evaluated once per
 # binary that pairs with it (|binary| times, 6x in the minimal preset). Precomputing the ``nu_tab``

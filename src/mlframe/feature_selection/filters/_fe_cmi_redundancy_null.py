@@ -271,7 +271,7 @@ class _StratifiedSupport:
         # so the H(Y,Z) / H(Z) block of the conditional CMI is invariant - hoist it
         # out of the loop and recompute only the x-dependent xz / xyz terms per perm.
         self.y_i, self.z_i, self.h_yz, self.h_z, self.k_yz, self.k_z, self.n_f = precompute_cmi_yz_terms(inp.y, z)
-        # VECTORISED within-stratum permutation (perf, 2026-06-19). The previous per-stratum Python loop
+        # VECTORISED within-stratum permutation (perf). The previous per-stratum Python loop
         # ``for g in groups: x_perm[g] = x[g[rng.permutation(g.size)]]`` issued ONE rng.permutation PER
         # stratum PER perm; at n=100k with a high-cardinality conditioning support that is hundreds of
         # thousands of calls - measured 697k calls / 14.4s, the single largest steady-state FE hotspot.
@@ -286,7 +286,7 @@ class _StratifiedSupport:
         # (the batched-device build and the per-perm CPU loop); the DEFAULT-ON GPU-resident branch does the reorder
         # on device from the resident ``cand_dev``. Defer it (via ``host_x()``) so the resident path never D2Hs the
         # candidate just to build a host reorder it will not use.
-        # SINGLE-KEY argsort within-stratum shuffle (perf, 2026-06-21). The per-perm
+        # SINGLE-KEY argsort within-stratum shuffle (perf). The per-perm
         # ``np.lexsort((keys, sorted_z))`` runs TWO stable radix passes (one per key) over all n
         # rows every permutation - and at a high-cardinality conditioning support (thousands of
         # strata) it was the DOMINANT cost of the conditional null, above the CMI eval itself
@@ -401,7 +401,7 @@ def _conditional_cpu_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int,
     # faster: an isolated microbench showed the argsort work itself costs the same either way (numpy's
     # axis=0 sort iterates columns internally, no real vectorisation win for argsort specifically), while
     # building the (n, n_perm) key matrix adds real allocation/broadcast overhead the streaming per-perm
-    # version doesn't pay. Confirms this exact function's OWN 2026-07-05 note: the argsort/CMI eval is
+    # version doesn't pay. Confirms this exact function's OWN note: the argsort/CMI eval is
     # genuine O(n log n) work, not alloc/dispatch overhead - there is no batching shortcut available on
     # the CPU path (unlike GPU, where the batching win comes from eliminating N kernel-launch overheads,
     # not from vectorising the sort itself). RE-MEASURED (bench_argsort_batch.py, paired/interleaved
@@ -492,7 +492,7 @@ def _conditional_perm_null(
     if (z_support is None or z_support.size == 0) and z_support_dev is None:
         return _marginal_perm_null(inp, n_permutations, quantile, seed, salt)
 
-    # BUG FOUND AND FIXED (2026-07-20, wellbore-100k additive-fusion crash): when n_permutations<=1
+    # BUG FOUND AND FIXED (wellbore-100k additive-fusion crash): when n_permutations<=1
     # or _cmi_gpu_enabled(...) is False, the ``z_support_dev is not None and ... n_permutations>1``
     # GPU-path block above (which is the only place that materializes ``z_support`` from a
     # device-only ``z_support_dev``) is skipped entirely, and the marginal-null branch right above

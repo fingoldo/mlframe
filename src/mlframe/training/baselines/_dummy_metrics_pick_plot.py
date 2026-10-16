@@ -289,7 +289,7 @@ def _pick_strongest(
     else:
         return None, None
 
-    # Wave 20 fix: delegate metric direction to the central registry
+    # delegate metric direction to the central registry
     # dispatcher instead of an ad-hoc whitelist that missed common
     # higher-is-better classification metrics (val_AUC, val_F1,
     # val_accuracy, val_R2, val_AP, val_precision, val_recall) -- those

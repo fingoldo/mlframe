@@ -229,7 +229,7 @@ Adjust if production data calibrates differently.
 """
 
 
-# Back-compat alias for callers that consumed the pre-2026-05-22 flat constant.
+# Back-compat alias for callers that consumed the previous flat constant.
 WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLD: float = WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS["regression"] or 0.0
 """Deprecated -- use ``WEIGHTED_DRIFT_NEURAL_OVERRIDE_THRESHOLDS[target_type_group]``
 which is per-target-type. Kept for back-compat with callers that
@@ -962,7 +962,7 @@ def compute_feature_distribution_drift(
         _detail = ", ".join(f"{c}(|z|={z:.2f})" for c, z in _shown)
         if len(candidates) > max_features_in_log:
             _detail += f", +{len(candidates) - max_features_in_log} more"
-        # 2026-05-22: WARN only when (a) extreme drift (>=10x threshold) OR
+        # WARN only when (a) extreme drift (>=10x threshold) OR
         # (b) FI-weighted score >= 1.0 (important features are drifting). The
         # plain "drift > 3 sigma" case is INFO-only because it's not a
         # grounded harm signal -- per-model FS may drop the feature, or it

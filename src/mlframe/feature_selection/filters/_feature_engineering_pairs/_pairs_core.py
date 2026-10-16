@@ -311,7 +311,7 @@ def check_prospective_fe_pairs(
     # so the pair-search, the polynom path and the sufficient-summary maxT floor all score the SAME rows
     # (one draw per fit, not N independent re-draws). ``None`` keeps the legacy per-call draw below.
     shared_subsample_idx: np.ndarray | None = None,
-    # STRATIFIED SUBSAMPLE (R1, 2026-06-18). When True the MI-sweep row subsample below draws a
+    # STRATIFIED SUBSAMPLE (R1). When True the MI-sweep row subsample below draws a
     # TARGET-STRATIFIED set of rows (per-class proportional for classification - guaranteeing the
     # rare class survives; y-quantile-bin proportional for regression - preserving the tails)
     # instead of the plain uniform ``rng.choice``. False (default) keeps the byte-identical legacy
@@ -338,7 +338,7 @@ def check_prospective_fe_pairs(
     # PREWARP ALS RECONSTRUCTION TARGET. The rank-1 ALS warp fit /
     # held-out validation / winning-spec reconstruction is a least-squares solve
     # of ``y ~ f(a)*g(b)``; its fidelity depends on the RESOLUTION of the target it
-    # reconstructs. The 2026-06-10 target-rebin guard coarsens ``classes_y`` to the
+    # reconstructs. The target-rebin guard coarsens ``classes_y`` to the
     # 10-bin equal-frequency screening codes (correctly - the MI screen/gates need
     # the faithful coarse codes), but feeding those binned codes to the ALS dropped
     # the F-POLY non-monotone product reconstruction |corr| 0.97 -> 0.88. When the
@@ -454,7 +454,7 @@ def check_prospective_fe_pairs(
     # SIZE the candidate buffers (chunk width + shared-buffer fit check) - never changes which
     # candidates are produced or their MI, so selection stays byte-identical.
     concurrent_workers: int = 1,
-    # MILLER-MADOW DEBIAS of the joint-prevalence RATIO gate (2026-06-09, + #4).
+    # MILLER-MADOW DEBIAS of the joint-prevalence RATIO gate (+ #4).
     # The gate ``best_mi / pair_mi > fe_min_engineered_mi_prevalence`` compares a 1-D
     # engineered MI (over ~``quantization_nbins`` bins) against a 2-D joint MI (over
     # ~``nbins^2`` bins). Both are RAW plug-in MIs whose positive finite-sample bias is
@@ -469,7 +469,7 @@ def check_prospective_fe_pairs(
     # seeds, genuine_ab 10/10 -> 8/10). Default False (opt-in); see the full numbers + rationale
     # on ``MRMR.fe_mm_debias_prevalence``. False == legacy raw-plug-in ratio (byte-reproduction).
     fe_mm_debias_prevalence: bool = False,
-    # REJECTION-LEDGER out-param (additive, 2026-06-11). When a list is passed, every pair
+    # REJECTION-LEDGER out-param (additive). When a list is passed, every pair
     # the per-pair acceptance gate REJECTS (joint-prevalence floor AND the marginal-uplift /
     # joint-recovery fallback both declined) appends one record dict carrying the operands,
     # the winning binary operator, the observed best_mi/pair_mi ratio, the prevalence
@@ -523,7 +523,7 @@ def check_prospective_fe_pairs(
 
     X = _check_prospective__behaviour_change_wrapped_experimental(X)
     st.res = {}
-    # REJECTION-LEDGER local accumulator (additive, 2026-06-11): per-pair acceptance-gate
+    # REJECTION-LEDGER local accumulator (additive): per-pair acceptance-gate
     # drops collect here, then are exported via BOTH the ``rejection_ledger_out`` side channel
     # (serial / threading path) AND the reserved ``res`` key (survives the loky-parallel path,
     # where the caller's list cannot be mutated cross-process). Records carry only values the
@@ -569,7 +569,7 @@ def check_prospective_fe_pairs(
         X,
     )
 
-    # EXTERNAL-VALIDATION raw-column EXTRACTION MEMO (2026-06-07, LEVER 1).
+    # EXTERNAL-VALIDATION raw-column EXTRACTION MEMO (LEVER 1).
     # The lazy external-validation tie-break (below) extracts the RAW values of
     # every external factor via ``X.iloc[:, original_cols[ext]].values`` (or the
     # polars ``.to_numpy()``) once per tied-leader config. The external-factor set
@@ -819,7 +819,7 @@ def check_prospective_fe_pairs(
         fe_npermutations,
     )
 
-    # MM-DEBIAS (2026-06-09, + #4): per-operand DISCRETISED codes for the
+    # MM-DEBIAS (+ #4): per-operand DISCRETISED codes for the
     # occupied-joint-K of a raw pair. Memoised + bit-identical to the discretise the
     # gate's ``pair_mi`` was computed over (same ``quantization_nbins`` / method /
     # ``transformed_vars`` identity column ``_operand_marginal_mi`` uses). Returns the
@@ -895,7 +895,7 @@ def check_prospective_fe_pairs(
             st._fe_chunks, st._chunk_buf_width, X, st._pair_to_chunk, verbose, prospective_pairs, st._chunk_buffer, st._chunk_global_batch
         )
 
-    # CHUNK PIPELINE (2026-07-02, max-GPU phase): overlap chunk k+1's GPU produce with chunk k's host
+    # CHUNK PIPELINE (max-GPU phase): overlap chunk k+1's GPU produce with chunk k's host
     # consume. A single-worker executor + a SECOND chunk buffer ride in ``chunk_state``; the lazy-load seam
     # in ``_score_one_pair`` awaits the prefetched future, then submits the next chunk into the alternate
     # buffer before replaying this chunk's pairs (depth-1 double buffer - the reused slot's pairs were fully

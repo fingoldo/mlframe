@@ -134,7 +134,7 @@ def _encode_pair(
     # Vectorised factorisation: encode each parent's string stream to ints,
     # fold the pair into a single combined key, then np.unique(return_inverse)
     # assigns dense codes in one C pass (the per-row Python loop was the
-    # materialisation hotspot at scale - cProfile 2026-06-01). Codes are
+    # materialisation hotspot at scale - cProfile). Codes are
     # assigned in SORTED-pair order (np.unique sorts) rather than first-seen;
     # the absolute code values are arbitrary anyway (consumed as a categorical
     # / target-encoded), and replay maps via the stored value-pair lookup, so
@@ -276,7 +276,7 @@ def score_cat_pairs_by_interaction_information(
     # estimator calls plus all redundant factorisation. CRITICAL: this is a
     # pure caching win - NO pair is pruned by marginal MI (pure XOR has both
     # marginals ~0 yet large II; a marginal-floor filter would silently drop
-    # the one synergy we exist to find). bench (p=30, n=5000, 2026-06-01):
+    # the one synergy we exist to find). bench (p=30, n=5000):
     # naive per-pair recompute ~3036 ms -> cached ~240 ms = 12.6x.
     code_cache: dict[str, np.ndarray] = {}
     radix_cache: dict[str, int] = {}
@@ -575,7 +575,7 @@ def apply_cat_pair_cross(
     # ``.tolist()`` boxes each object array to Python objects in ONE C pass, so the
     # loop yields pre-boxed objects instead of paying a per-row numpy __getitem__
     # boxing on ``cats_i[r]`` / ``cats_j[r]``. Bit-identical (same values, order,
-    # dict.get). bench (bench_cat_pair_cross_replay_dedup, 2026-06-23): ~1.17-1.22x
+    # dict.get). bench (bench_cat_pair_cross_replay_dedup): ~1.17-1.22x
     # across n=5k..1M, ki/kj=15/50.
     return np.array(
         [_value_for_pair(si, sj) for si, sj in zip(cats_i.tolist(), cats_j.tolist())],

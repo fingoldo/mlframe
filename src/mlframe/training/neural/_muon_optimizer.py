@@ -183,7 +183,7 @@ class MuonAdamWHybrid(Optimizer):
         weight_decay: float = 1e-2,
         momentum: float = 0.95,
         nesterov: bool = True,
-        ns_steps: int = 4,  # F-41 2026-05-31: 5 -> 4 default per Muon docstring
+        ns_steps: int = 4,  # F-41: 5 -> 4 default per Muon docstring
     ) -> None:
         # Resolve params to a concrete list so we can iterate twice
         # (split + Optimizer.__init__ both consume the iterable).

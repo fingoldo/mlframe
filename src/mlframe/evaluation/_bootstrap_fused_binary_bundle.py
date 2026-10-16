@@ -332,7 +332,7 @@ def bootstrap_auc_brier_ll_ece_batch(
                 jackknife = _jackknife_mean_metric(y_true, per_row, requires_both_classes=True)
             elif name == "ece":
                 # _jackknife_ece is the SAME O(n) closed-form honest_diagnostics._bootstrap_block's
-                # bootstrap_metrics fallback path already wires into jackknife_fns["ece"] (2026-07-31,
+                # bootstrap_metrics fallback path already wires into jackknife_fns["ece"] (
                 # ~800x vs the generic gather jackknife) -- this bundle used to duplicate the OLD, pre-fix
                 # bootstrap_metrics behaviour (a bare _jackknife_metric gather call) instead of the closed
                 # form, caught live via a 2M-row cProfile: _jackknife_metric cost 24.0s/12 calls here, now

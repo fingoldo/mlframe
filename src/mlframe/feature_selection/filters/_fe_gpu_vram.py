@@ -150,7 +150,7 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
         return False
     # ``memGetInfo``'s free counts blocks RETAINED by our own cupy pool as used - after a few FE stages the
     # pool can hold most of the card in internally-FREE blocks (instantly reusable by the next cupy alloc,
-    # invisible to memGetInfo). Observed live (2026-07-14 wellbore 100k): free=0.52GB of 4GB with the pool
+    # invisible to memGetInfo). Observed live (wellbore 100k): free=0.52GB of 4GB with the pool
     # holding the rest, causing a 0.16GB batch_pair_mi upload to be REJECTED and the whole batched pair-MI
     # to fall off the full-resident path. Before declining, release the pool's free blocks back to the
     # device (a no-op for blocks actually in use) and re-probe - the check is then exact, with no

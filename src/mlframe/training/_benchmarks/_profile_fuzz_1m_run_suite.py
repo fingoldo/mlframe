@@ -105,7 +105,7 @@ def _run_suite_profiled(
         ["uniform_only", "recency_only", "both"],
         p=[0.60, 0.20, 0.20],
     ))
-    # 2026-05-18 -- iter-23.5 fuzz axes (Packs J + K composite discovery)
+    # iter-23.5 fuzz axes (Packs J + K composite discovery)
     # and iter-32.5 fuzz axes (MRMR FE-search knobs) extended to the
     # 1M-row harness too. Without these the production-scale profile
     # ran the COMPOSITE_DISCOVERY=False / fe_npermutations=0 /
@@ -251,7 +251,7 @@ def _run_suite_profiled(
         # MRMR at 1M is expensive; the kwargs below mirror the fast
         # settings used by test_fuzz_3way_suite (verbose=0, hard 1-min
         # cap, simple_mode, low quantization).
-        # 2026-05-18 -- iter-32.5 fuzz axes propagated. cat_fe_config
+        # iter-32.5 fuzz axes propagated. cat_fe_config
         # respects the include_numeric flag; the FE knobs respect the
         # per-iter ntop / npermutations / unary / binary / smart_polynom
         # axes drawn above. When ntop=0 the FE-pollination step is
@@ -329,7 +329,7 @@ def _run_suite_profiled(
                 models_dir=("models" if save_charts else ""),
                 save_charts=save_charts,
             ),
-            # 2026-05-18 -- iter-23.5 composite-discovery axis wired.
+            # iter-23.5 composite-discovery axis wired.
             # When the per-iter random draw picked discovery_enabled=True,
             # CompositeTargetDiscoveryConfig fires with the transform
             # palette from the iter-32.5 mode selector. Otherwise the
@@ -801,11 +801,11 @@ def _run_suite_profiled_per_model_dump_files(trained_models, _save_root, save_n_
             for _idx, _entry in enumerate(_entries):
                 _path = _dir / f"{_idx}.dump"
                 try:
-                    # durable default is False (2026-05-20); harness keeps the
+                    # durable default is False; harness keeps the
                     # explicit pass for clarity (bench writes to a tempdir that
                     # gets removed afterwards -- never needed durability).
                     #
-                    # 2026-05-20: ONLY increment save_n_models when the call
+                    # ONLY increment save_n_models when the call
                     # returns truthy AND the file actually landed on disk.
                     # save_mlframe_model returns False (logs error) on internal
                     # failures like zstd Allocation error / dill TypeError; the

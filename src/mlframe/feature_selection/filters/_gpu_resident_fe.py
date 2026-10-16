@@ -76,11 +76,11 @@ def _guarded_span(pp) -> float:
 
 logger = logging.getLogger(__name__)
 
-# REVIEW ROADMAP (2026-06-19 multi-agent critique; items dispositioned FUTURE - captured so they are
+# REVIEW ROADMAP (multi-agent critique; items dispositioned FUTURE - captured so they are
 # not re-derived). PERF (ranked payoff/effort, all must stay bit-exact -> validate maxdiff 0 + argmax on
 # HEAVY-TAILED a**2/b candidates, not just uniform): (1) f32 sort keys for binning (~1.5-1.8x on the 69%
 # sort; exact only with row-index tie-break, else gate to prescreen); (2) radix-rank RawKernel replacing
-# cp.argsort + the uncoalesced scatter (exact, removes the (n,K) int64 sort_idx); (3 + 5) DONE 2026-06-20:
+# cp.argsort + the uncoalesced scatter (exact, removes the (n,K) int64 sort_idx); (3 + 5) DONE:
 # fused SHARED-MEM atomic histogram + grand fusion - ``fused_gen_bin_hist`` (one block per candidate)
 # re-generates each candidate value, bins it against the EXACT cp.percentile edges, and accumulates the
 # (P1, nbins, K_y) joint histogram in shared-mem atomics in ONE kernel per chunk, so the (n,K) float
@@ -90,7 +90,7 @@ logger = logging.getLogger(__name__)
 # mem, 300k 2.15x +2.75x, 1M 3.39x +2.26x. ``grand_fused_pair_mi_fused`` (default ON via
 # MLFRAME_FE_GPU_GRAND_FUSION); the non-fused body is the exact fallback when the shared hist overflows
 # the per-block limit.
-#   PROTOTYPE-ONLY (2026-06-20, measured): grand-fusion CANNOT be wired into the PRODUCTION canonical fit.
+# PROTOTYPE-ONLY (measured): grand-fusion CANNOT be wired into the PRODUCTION canonical fit.
 #   Production candidate-MI runs through _pairs_chunks._compute_one_fe_chunk -> gpu_materialise_discretize_
 #   codes_host -> _dispatch_batch_mi_with_noise_gate (NOT gpu_pairs_fe_mi, which returns None on the
 #   canonical fixture). That path REQUIRES the (n,K) float candidate matrix on host - the downstream
@@ -166,7 +166,7 @@ from ._gpu_resident_shared import (  # noqa: F401 - moved to the leaf module; re
     fe_gpu_grand_fusion_enabled,
 )
 
-# RESIDENCY REPLATFORM MAP (2026-06-21, measured - the production chunk path, NOT this prototype).
+# RESIDENCY REPLATFORM MAP (measured - the production chunk path, NOT this prototype).
 # Goal: kill the FE chunk's bulk float-buffer D2H. ``gpu_materialise_discretize_codes_host`` D2Hs the
 # full (n,K) float candidate buffer via ``out_cand`` - measured 6.7 GB total across the canonical
 # n=100k fit (15 calls), a large slice of the ~10.5s ``cupy.get`` wall. The codes (for MI) are produced
@@ -242,7 +242,7 @@ def fe_gpu_routing_enabled() -> bool:
     return _env_gpu_default_on("MLFRAME_FE_GPU_ROUTING")
 
 
-# RESIDENT-CODES HANDOFF (2026-06-21, gated). The FE chunk path calls ``gpu_materialise_discretize_codes_
+# RESIDENT-CODES HANDOFF (gated). The FE chunk path calls ``gpu_materialise_discretize_codes_
 # host`` (producer) and ``_dispatch_batch_mi_with_noise_gate`` (consumer) as SEPARATE steps - the producer
 # returns the host int codes (``disc_2d``) which the consumer's resident-CUDA gate re-uploads. To pass the
 # ON-DEVICE codes straight through WITHOUT threading a new argument through the chunk path (which is owned
@@ -461,7 +461,7 @@ def _gpu_apply_prewarp(cp, x, spec):
             ang = 2.0 * np.pi * float(f) * axis
             out = out + float(coef[2 * i]) * cp.sin(ang) + float(coef[2 * i + 1]) * cp.cos(ang)
         return out
-    clen = _grb._PREWARP_CLENSHAW_GPU.get(basis)  # dict carved to _gpu_resident_basis (Tier E 2026-06-22); _grb bound at module bottom, resolved at call time
+    clen = _grb._PREWARP_CLENSHAW_GPU.get(basis)  # dict carved to _gpu_resident_basis (Tier E); _grb bound at module bottom, resolved at call time
     if clen is None:
         raise ValueError(f"prewarp basis {basis!r} not GPU-ported")
     pp = dict(spec["preprocess"])
@@ -539,7 +539,7 @@ def _gpu_apply_prewarp(cp, x, spec):
 # Each thread owns one (row, candidate) cell: gather its two operand columns by op-code index, apply the
 # binary op (safe-div mirrors the CPU y==0 -> eps branch), scrub non-finite to 0, write row-major (n,K).
 
-# COLUMN-MAJOR twin of fused_gen (ARCHITECTURAL FUSE, 2026-07-03, nsys-driven): writes the SAME per-cell
+# COLUMN-MAJOR twin of fused_gen (ARCHITECTURAL FUSE,, nsys-driven): writes the SAME per-cell
 # value ``v`` for candidate ``c`` at row ``i`` into a (K, n) C-order buffer (``out[c*n + i]``) instead of the
 # (n, K) row-major slot (``out[i*K + c]``). The caller allocates ``out`` as (K, n), so a downstream that
 # previously produced a column-major view of the (n,K) matrix (``_transpose_to_cm`` for the coalesced radix
@@ -552,7 +552,7 @@ def _gpu_apply_prewarp(cp, x, spec):
 # float64). Same operator switch, same safe division and the same non-finite scrub; a value that overflows float32 is scrubbed to 0, as the float32 feature scrub does everywhere else.
 
 
-# GRAND-FUSION kernel (roadmap #5 + #3, 2026-06-20). One launch computes the joint histograms for ALL
+# GRAND-FUSION kernel (roadmap #5 + #3). One launch computes the joint histograms for ALL
 # candidate columns against the original-y AND every shuffled-y, WITHOUT ever materialising the (n,K)
 # float candidate matrix, the (n,K) int codes, the (n,K) ``d_base`` index, or the (rows*n*K) flat index
 # the cupy noise-gate builds. Each thread owns one (row, candidate) cell: it RE-generates the candidate
@@ -626,7 +626,7 @@ def gpu_resident_pair_candidate_mi(a: np.ndarray, b: np.ndarray, y_codes: np.nda
     ub_cm = _unary_stack_cm(cp, b_gpu)
     y_gpu = cp.asarray(y_i64)  # upload y ONCE, reused across chunks (the host wrapper re-H2D'd it per chunk)
     # y's min/max are a fit-constant -> compute ONCE here (one cp.min/max + one scalar D2H) and pass into the
-    # resident MI for every chunk, instead of the resident MI recomputing them per chunk (nsys 2026-06-22:
+    # resident MI for every chunk, instead of the resident MI recomputing them per chunk (nsys:
     # that per-chunk recompute was the #1 source of the cp.max reductions + tiny D2H syncs). Bit-identical.
     _ymm = cp.asnumpy(cp.stack((cp.min(y_gpu), cp.max(y_gpu))))
     _ymin = int(_ymm[0])

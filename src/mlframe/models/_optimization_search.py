@@ -128,11 +128,11 @@ class MBHOptimizer:
         suggestions_cache_max_age_sec: int = 60 * 60,  # wait 1 hr before allowing repeated suggestions
         greedy_prob: float = 0.03,
         random_state: Union[int, np.random.Generator, None] = None,
-        # S1 (Wave 2, 2026-05-28): collapse duplicate-x rows by max-y / min-y per direction before fitting the surrogate.
+        # S1: collapse duplicate-x rows by max-y / min-y per direction before fitting the surrogate.
         # RFECV submits the same x (= N) multiple times under different feature subsets; without dedup CB sees conflicting
-        # targets and biases toward most-recent. Default True (NEW). Set False to restore pre-2026-05-28 behaviour.
+        # targets and biases toward most-recent. Default True (NEW). Set False to restore previous behaviour.
         dedup_known_evaluations: bool = True,
-        # S7 (Wave 2, 2026-05-28): tolerance-based convergence in addition to n_noimproving_iters.
+        # S7: tolerance-based convergence in addition to n_noimproving_iters.
         # When set, break when max(last tol_window scores) - min(...) < tol * abs(best_evaluation). RFECV reads these to
         # build a richer convergence condition on top of max_noimproving_iters. Default None = legacy (counter-only).
         convergence_tol: Optional[float] = None,
@@ -195,7 +195,7 @@ class MBHOptimizer:
                 if x not in known_candidates and x not in pre_seeded_candidates:
                     pre_seeded_candidates.append(x)
 
-        # Wave 31 (2026-05-20): assert -> ValueError. Pre-fix the empty
+        # assert -> ValueError. Pre-fix the empty
         # list slipped past under -O and reached the surrogate-model fit
         # with no inputs -> opaque downstream crash.
         if len(pre_seeded_candidates) == 0:
@@ -331,7 +331,7 @@ class MBHOptimizer:
         sampled_inputs = set(sampled_inputs) - set(seeded_inputs)
 
         # sometimes it's required to process samples in certain order (like in FE/RFECV tasks, it's better to start with higher number of features, to have more accurate e
-        # Wave 61 (2026-05-20): user-seeded inputs may be heterogeneous;
+        # user-seeded inputs may be heterogeneous;
         # str-key fallback so mixed-type sets don't TypeError on sort.
         def _sort_key(v):
             """Sort key that tolerates mixed-type values: ``None`` last, everything else by its string form."""
@@ -451,7 +451,7 @@ class MBHOptimizer:
                         return NOT_READY
 
                     if not hasattr(self.model, "partial_fit"):
-                        # S1 (Wave 2, 2026-05-28): dedup (x, y) by max(y) within each x.
+                        # S1: dedup (x, y) by max(y) within each x.
                         # RFECV legitimately submits multiple scores at the SAME x (= same N)
                         # when MBH re-explores a count with a different feature subset
                         # (the FI voting layer can produce a different ranking each iter).

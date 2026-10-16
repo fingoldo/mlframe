@@ -106,7 +106,7 @@ _GATE_MED_UNARY = "gate_med"
 _GATE_MED_SPECS_RESULT_KEY = ("__gate_med_specs__", -1, -1)
 
 # Reserved (never-colliding, length-3) key under which ``check_prospective_fe_pairs``
-# returns the PER-GATE REJECTION LEDGER records (additive, 2026-06-11). A list of small
+# returns the PER-GATE REJECTION LEDGER records (additive). A list of small
 # dicts, one per pair the per-pair acceptance gate dropped. Survives the loky-parallel
 # path (per-chunk lists merged by the caller). Distinct from the prewarp / gate-med keys.
 _FE_REJECTION_RESULT_KEY = ("__fe_rejection_records__", -1, -1)
@@ -295,7 +295,7 @@ def _select_single_best(
     # EXACT-MI leg is decisive ONLY among band-tied forms whose usability ALSO ties - it
     # restores the baseline strict-MI winner for that sub-class, so the band can NEVER flip a winner unless
     # usability STRICTLY improves. It is SNAPPED to a hardware-independent grid (``quantize_mi_tiebreak``,
-    # 2026-06-26) so the separate CPU and GPU scoring backends - whose MI can differ by fp reduction order
+    # ) so the separate CPU and GPU scoring backends - whose MI can differ by fp reduction order
     # (~1e-12) - resolve this leg IDENTICALLY: sub-grid jitter falls through to the deterministic name key
     # below, genuine within-band gaps (>> the grid, e.g. the F2 mixed 1.3e-3) still order correctly. This is
     # critical for sign-variant forms: ``div(x,neg(b))`` and

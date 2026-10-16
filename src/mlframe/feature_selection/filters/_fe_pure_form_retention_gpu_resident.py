@@ -186,7 +186,7 @@ def adds_nonlinear_value_batch_gpu_resident(
         ss_yrel = float(cp.dot(yc_rel, yc_rel))  # scalar; bounded
         y_std = float(ydev.std())
 
-        # BATCHED-READ gate (2026-07-02, residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
+        # BATCHED-READ gate (residency): the per-candidate OLS keeps the EXACT per-candidate lstsq
         # (SVD, same solver + values as before - cusolver runs fully on device, no host read), but each
         # candidate's four gate scalars (f_std, std(resid), centered-resid SS, resid.y_rel dot) are written into
         # resident (P,) vectors and read back in ONE batched D2H at the end, instead of two scalar syncs per

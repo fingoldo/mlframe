@@ -212,7 +212,7 @@ def compute_cb_text_processing(n_train_rows: int) -> Optional[dict]:
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
-# Wave 95 (2026-05-21): get_trainset_features_stats / _polars + the
+# get_trainset_features_stats / _polars + the
 # precompute bundle (TrainMlframeSuitePrecomputed, precompute_*) moved
 # to sibling file _precompute.py to drop helpers.py below the 1k-line
 # monolith threshold. Re-exported below so existing callers keep working.

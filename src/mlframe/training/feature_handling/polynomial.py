@@ -185,7 +185,7 @@ class PolynomialFeatureExpander:
         """Apply the fitted expansion to ``X``, or return it unchanged (cast to float32) when ``fit`` skipped
         the expansion entirely because even degree=1 exceeded ``max_features_out``."""
         if not self._fitted:
-            # Wave 37 P1 fix (2026-05-20): sklearn convention is
+            # sklearn convention is
             # NotFittedError. Pipeline / cross-val machinery catches
             # NotFittedError, not RuntimeError; pre-fix unfitted-state
             # failures leaked past expected handlers.

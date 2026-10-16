@@ -322,7 +322,7 @@ def _full_x_content_hash(arr) -> str:
     if cached is not None:
         return cached
     try:
-        # iter299 (2026-05-26): polars-native hash path. The legacy
+        # iter299: polars-native hash path. The legacy
         # ``arr.to_numpy().tobytes() -> blake2b`` chain materialises the
         # full numpy buffer (~40 MB on a 200k x 25 float64 frame) just to
         # hash it; polars exposes a row-wise hash kernel
@@ -366,7 +366,7 @@ def _full_x_content_hash(arr) -> str:
                 return ""
             col_names = str(arr.name) if getattr(arr, "name", None) else ""
         elif isinstance(arr, pd.DataFrame):
-            # iter359 (2026-05-26): mirror the polars hash_rows fastpath for
+            # iter359: mirror the polars hash_rows fastpath for
             # pandas frames. ``pl.from_pandas`` does a zero-copy buffer share
             # for primitive-dtype columns (and a column-by-column conversion
             # otherwise) -- much cheaper than ``arr.to_numpy()`` which forces
@@ -386,7 +386,7 @@ def _full_x_content_hash(arr) -> str:
                 # fastpath entirely when the frame has no columns (happens on
                 # all-constant-features datasets after the constant-column
                 # filter drops everything; observed via
-                # test_with_all_constant_features 2026-05-27).
+                # test_with_all_constant_features).
                 try:
                     pl_df = pl.from_pandas(arr)
                     row_hashes = pl_df.hash_rows()

@@ -134,7 +134,7 @@ def _per_member_mae_std(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
     # Both 2-D and 3-D dispatch to numba now. The 3-D njit branch was fixed to
     # the per-COLUMN std (matching numpy's per-class-then-mean-across-C path)
     # instead of the old pooled N*C std -- so it is bit-identical (max abs diff
-    # 0.0, verified 2026-06-05) and 12-22x faster, even larger than the 2-D win.
+    # 0.0, verified) and 12-22x faster, even larger than the 2-D win.
     # ``ndim`` is threaded into the cache key so 2-D and 3-D CAN tune separately,
     # but the current sweep varies only elements_per_member, so both share that
     # crossover. HW-calibrated via _per_member_use_numba (env ->

@@ -437,7 +437,7 @@ def apply_quality_gate_kn(
         # name with each surviving member's correlation stats once earlier members had been dropped.
         _ensemble_member_tags = [_ensemble_member_tags[i] for i in _kept_idx]
         _ensemble_short_tags = [_ensemble_short_tags[i] for i in _kept_idx]
-        # 2026-05-11: refresh ``ensemble_name`` to reflect the kept
+        # refresh ``ensemble_name`` to reflect the kept
         # members so downstream model_name_prefix / report titles
         # show [cb+xgb+lgb] (gate-survivors) instead of the original
         # [cb+xgb+lgb+linear] which advertises members that didn't
@@ -446,7 +446,7 @@ def apply_quality_gate_kn(
         # from the surviving tag list using the same caller-side
         # format ([cb+xgb+lgb] for <=4, [N=K] otherwise).
         try:
-            # F2 fix (2026-05-11): use the SHORT tag list (cb / xgb / lgb / ...) for the rebuilt ensemble label rather than the full class names; matches the original short-label contract from core.py:5483 and keeps chart titles compact.
+            # F2 fix: use the SHORT tag list (cb / xgb / lgb / ...) for the rebuilt ensemble label rather than the full class names; matches the original short-label contract from core.py:5483 and keeps chart titles compact.
             # _ensemble_short_tags is already sliced to the kept members above -- use it directly.
             _kept_tags = list(_ensemble_short_tags)
             _re_label = "[" + "+".join(_kept_tags) + "]" if len(_kept_tags) <= 4 else f"[N={len(_kept_tags)}]"

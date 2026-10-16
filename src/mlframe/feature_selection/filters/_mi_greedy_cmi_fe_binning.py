@@ -26,7 +26,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
-# GPU quantile-bin crossover (2026-06-28, synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
+# GPU quantile-bin crossover (synchronized micro-bench of _quantile_bin_gpu incl. code D2H, GTX
 # 1050 Ti, nbins=10): a single host column round-tripped to the device for equi-frequency binning (H2D +
 # cp.percentile sort + cp.searchsorted + code D2H) only beats the host introselect-partition np.quantile path
 # well above the launch/transfer floor - n=20k CPU 0.92ms vs GPU 1.67ms; n=35k near-tie 1.53 vs 1.71ms; n=100k
@@ -211,7 +211,7 @@ def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np
     if np.isfinite(a).all():
         # GPU path (STRICT-resident): the n-sized equi-frequency binning of the gate-redundancy /
         # subsumption / additive-fusion continuous columns is 6x on-device at n=300k (synchronized bench).
-        # NO size gate under STRICT (2026-07-02, user contract): strict mode is 100% GPU residency of data
+        # NO size gate under STRICT (user contract): strict mode is 100% GPU residency of data
         # and kernels - a size crossover is exactly the KTC-style host dispatch strict forbids, so EVERY
         # finite column bins on the device (the small-column device round-trip overhead is the accepted
         # residency price; the _GPU_QBIN_MIN_ROWS crossover note below documents its wall cost). The no-CUDA

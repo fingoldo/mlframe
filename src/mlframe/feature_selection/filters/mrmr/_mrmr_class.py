@@ -405,7 +405,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # -0.052; clf n=100k exact tie), so the win is regime-specific, not a blanket flip. This knob gates the campaign-winner
         # config (nbins_strategy=None, quantization_nbins=20) ON exactly where it wins: detected regression AND n_rows >= the
         # threshold below, ONLY when the user left both quantization params at their constructor defaults (explicit user values
-        # are never overridden). Set to False to keep MDLP everywhere (pre-2026-06-18 behaviour); set the threshold to retune.
+        # are never overridden). Set to False to keep MDLP everywhere (previous behaviour); set the threshold to retune.
         adaptive_nbins_large_n_reg: bool = True,
         adaptive_nbins_large_n_reg_threshold: int = 50_000,
         adaptive_nbins_large_n_reg_nbins: int = 20,
@@ -458,7 +458,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # (zip codes / hash IDs / 50-bin continuous) get inflated relevance.
         # Symmetric Uncertainty SU(X,Y) := 2*I/(H(X)+H(Y)) normalises to [0,1]
         # and removes the bias (Witten-Frank-Hall 2011).
-        #   'none' (default): legacy raw MI scoring (bit-for-bit identical to pre-2026-05-28).
+        # 'none' (default): legacy raw MI scoring (bit-for-bit identical to previous).
         #   'su'            : Symmetric Uncertainty on both unconditional + conditional steps.
         # Default 'none' preserves the regression sentry; flip to 'su' for mixed
         # cat-cardinality data (different binning per feature / target-encoded
@@ -469,7 +469,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # them as an honest category. "ffill_bfill": legacy forward/backward
         # fill (preserves temporal smoothness for time-series). "fillna_zero":
         # legacy pandas behaviour - mixes NaN into bin-0 with true-zero values,
-        # which biases MI; only kept for reproducibility of pre-2026-05-15 runs.
+        # which biases MI; only kept for reproducibility of previous runs.
         nan_strategy: str = "separate_bin",
         # factors
         factors_names_to_use: Sequence[str] | None = None,
@@ -570,7 +570,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         interactions_order_reversed: bool = False,
         max_veteranes_interactions_order: int = 1,
         only_unknown_interactions: bool = False,
-        # FAST-SEARCH MASTER TOGGLE (2026-06-14, default ON). Trades the EXHAUSTIVE FE search tail
+        # FAST-SEARCH MASTER TOGGLE (default ON). Trades the EXHAUSTIVE FE search tail
         # for a substantially faster fit that still recovers the signal. When True AND the user has
         # NOT explicitly overridden a sub-knob (the value still equals its package default), fit()
         # temporarily applies a fast profile and restores every knob in ``finally`` (so clone /
@@ -685,10 +685,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Number of held-out folds for the stability vote (>= 2; below 2 the vote is a
         # structural no-op). 5 mirrors the backlog spec - enough folds that a genuine
         # recipe clears the quorum comfortably while a single-fold-quirk winner fails.
-        # Accepts ``"auto"`` (hardcoded-threshold bench follow-up, 2026-06-13): a GUARDED
+        # Accepts ``"auto"`` (hardcoded-threshold bench follow-up): a GUARDED
         # n-floored K that equals 5 for n >= 500 and only drops to 2-4 for genuinely tiny n
         # that cannot keep ~100 rows/fold across 5 folds. An explicit int (incl. the default
-        # 5) is honoured verbatim - byte-identical to the pre-2026-06-13 behaviour. The bench
+        # 5) is honoured verbatim - byte-identical to the previous behaviour. The bench
         # showed LOWERING K degrades the vote (k=3 lost the F2 feature), so "auto" never raises
         # the noise by going below 5 on data that can sustain it.
         fe_stability_vote_k: "int | str" = 5,
@@ -750,7 +750,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_sufficient_summary_maxt_permutations: int = 25,
         fe_sufficient_summary_maxt_quantile: float = 0.95,
         fe_sufficient_summary_ridge_alpha: float = 1e-3,
-        # AUTO-ESCALATION to the richer SHIPPED bases (2026-06-10, backlog idea B) -
+        # AUTO-ESCALATION to the richer SHIPPED bases (backlog idea B).
         # DEFAULT-ON. When a prospective pair PASSED the pair-MI prescreen (joint-MI
         # ratio gate + order-2 maxT floor) but the unary/binary operator search admitted
         # NOTHING for it, the legacy behaviour was only the "FE produced 0 engineered
@@ -830,7 +830,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_escalation_underdelivery_enable: Optional[bool] = None,
         fe_escalation_underdelivery_excess_frac: float = 0.05,
         fe_escalation_underdelivery_self_ratio: float = 3.0,
-        # PREVALENCE-FAILED SYNERGY RESCUE (2026-06-12, F2 a**2/b miss, default-ON). A
+        # PREVALENCE-FAILED SYNERGY RESCUE (F2 a**2/b miss, default-ON). A
         # synergy pair (>=1 bootstrap-added unselected operand) whose JOINT MI cleared the
         # order-2 maxT permutation floor but missed the stricter ``fe_synergy_min_prevalence``
         # RAW-MI ratio bar is handed to the auto-escalation as a failed pair. The raw-MI
@@ -848,7 +848,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # pure-chance noise pair never reaches escalation); a false rescue only PROPOSES.
         # Set False to restore the pre-fix behaviour (synergy prevalence is a hard drop).
         fe_synergy_prevalence_rescue_enable: bool = True,
-        # ESCALATION FEATURES ARE TERMINAL in the composite feed-forward (2026-06-12, F2
+        # ESCALATION FEATURES ARE TERMINAL in the composite feed-forward (F2
         # rescue). An ``esc_*`` orth-poly / adaptive-Fourier escalation feature already
         # captures a genuine richer-basis interaction; feeding it back as an operand for a
         # FURTHER pair composite fuses two independent additive target terms into one ratio
@@ -865,7 +865,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Value 3 left the gate with a minimum p of 0.25, so the 0.99 confidence
         # floor gave no per-candidate control and pure noise produced engineered
         # false positives. 99 gives a minimum p of 0.01, the same floor as
-        # ``full_npermutations``. Cost is paid per FE candidate; measured on the pure-noise suite (2026-10-14).
+        # ``full_npermutations``. Cost is paid per FE candidate; measured on the pure-noise suite.
         fe_npermutations: int = 99,
         fe_ntop_features: int = 0,
         # ENGINEERED-OPERAND FEED-FORWARD CAP. At FE step k>1 the
@@ -879,7 +879,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``support_`` as selected features, they just don't seed further composites.
         # 8 covers the realistic "a handful of strong engineered factors recombine"
         # case while keeping the extra pair count small. 0 disables the feed-forward
-        # (raw-only operands, the pre-2026-06-08 behaviour); a negative value means
+        # (raw-only operands, the previous behaviour); a negative value means
         # "no cap" (feed back every selected engineered operand).
         fe_max_engineered_operands: int = 8,
         fe_unary_preset: str = "medium",
@@ -913,7 +913,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # matters for the n_pairs<8 / batch-precompute-failure fallback.
         fe_min_pair_mi: float = 0.001,
         # mi of entire pair must be at least that higher than the mi of its individual factors, to consider the pair at all.
-        # Accepts ``"auto"`` (hardcoded-threshold conversion, 2026-06-13): a GUARDED data-derived mode
+        # Accepts ``"auto"`` (hardcoded-threshold conversion): a GUARDED data-derived mode
         # that keeps the 1.05 ratio bar but applies it to the MILLER-MADOW-DEBIASED pair MI (the
         # analytic finite-sample joint-MI bias subtracted), so the gate can only TIGHTEN - it drops
         # the best-of-pool finite-sample-noise pairs a fixed 1.05 admits (bench: bilinear archetype
@@ -928,7 +928,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # mul(log(c),sin(d)) [rat~1.01] cleared 0.90 but not 0.98, so the default fit
         # found ZERO engineered cols. 0.90 keeps genuine 1-D summaries of real 2-D
         # interactions while still rejecting noise (which lands well below the pair MI).
-        # 2026-06-08 regression fix: restored to 0.90 (the documented value above). A
+        # regression fix: restored to 0.90 (the documented value above). A
         # campaign tightening to 0.97 (commit 855c2568, to cut optimisation-inflated
         # noise-FE) rejected GENUINE engineered features on weaker-signal canonical targets
         # (e.g. ``y=0.2*a**2/b + log(c*2)*sin(d/3)`` produced 0 engineered, with the runtime
@@ -939,7 +939,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # joint-prevalence floor no longer has to carry that load and can return to the value
         # that admits genuine 1-D summaries of real 2-D interactions.
         fe_min_engineered_mi_prevalence: float = 0.90,  # mi of transformed pair must be at least that higher than the mi of the entire pair
-        # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (2026-06-09, + #4).
+        # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (+ #4).
         # The gate ``best_mi / pair_mi > fe_min_engineered_mi_prevalence`` compares a 1-D
         # engineered MI (over ~``quantization_nbins`` bins) against a 2-D joint MI (over
         # ~``nbins^2`` bins). Both are RAW plug-in MIs whose positive finite-sample bias is
@@ -969,7 +969,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # order-2 biz tests, noise 100% at/below the MM floor) - the reject is the RATIO gate
         # relaxation, not the floor. True enables the full mechanism for re-bench on other data.
         fe_mm_debias_prevalence: bool = False,
-        # ENGINEERED-FEATURE ACCEPTANCE STRATEGY (strategy S5, 2026-06-08).
+        # ENGINEERED-FEATURE ACCEPTANCE STRATEGY (strategy S5).
         # ``"conditional_mi"`` (default): the PRINCIPLED, constant-free gate. After the
         # per-pair search has chosen one best engineered column per pair, a greedy CMI-MRMR
         # runs over the surviving pool - a candidate is admitted iff its CONDITIONAL MI with
@@ -1075,7 +1075,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # UNIFIED_FE_SUBSAMPLE_N in feature_engineering.py). 10_000 is the
         # marginal floor; do NOT set below 25_000.
         fe_check_pairs_subsample_n: int = UNIFIED_FE_SUBSAMPLE_N,
-        # STRATIFIED FE SUBSAMPLE (R1, 2026-06-18). The FE MI-sweep / pure-form-retention /
+        # STRATIFIED FE SUBSAMPLE (R1). The FE MI-sweep / pure-form-retention /
         # polynom-pair subsamplers above draw rows with a PLAIN uniform ``rng.choice`` - no
         # class balance for classification, no y-quantile coverage for regression. On a small
         # rare-class fraction (uniform can drop ALL rows of a 1% class) or a heavy-tailed
@@ -1265,7 +1265,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``None`` = default CatFEConfig() with ``enable=True`` and conservative production settings (cat-FE
         # shows measurable wins; XOR biz_value test, 0 regressions). Restore legacy via CatFEConfig(enable=False).
         cat_fe_config: Any = None,
-        # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly pre-2026-05-15. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
+        # Bound on the process-wide _FIT_CACHE. Strong refs hold every fitted MRMR; long-lived workers (web services, JupyterHub kernels) leaked memory unboundedly previous. Default 4 covers a typical model suite (RFECV+MRMR x catboost+linear+mlp) without thrashing.
         fit_cache_max: int = 4,
         # Byte-size cap on top of fit_cache_max (a 1k-feature suite carrying 4 cached MRMR instances can
         # exceed 1 GB of process RSS). ``None`` (default) falls back to the ``MLFRAME_MRMR_FIT_CACHE_MAX_MB``
@@ -1592,11 +1592,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # pre-FE cost on a wide-p fit (~34% of the pre-categorize wall at p=420 - the SAME p=423 scale the
         # MRMR audit's motivating production fit ran at) - the held-out frequency sweep is roughly linear
         # in column count regardless of row count, unlike most of this pipeline which is already
-        # row-subsampled. Default 100 (2026-07-10, corrective-mechanism-on-by-default): bounds cost on
+        # row-subsampled. Default 100 (corrective-mechanism-on-by-default): bounds cost on
         # wide-p fits while preserving full legacy behaviour (no cap in practice) below it, since the vast
         # majority of tabular problems sit under 100 raw columns; the biz_val tests for this cap use p<=8 so
         # are unaffected. Columns beyond the cap still get the cheap fixed-grid Fourier basis, only the
-        # expensive adaptive/chirp detection is capped. ``None`` restores the pre-2026-07-10 unlimited behaviour.
+        # expensive adaptive/chirp detection is capped. ``None`` restores the previous unlimited behaviour.
         fe_univariate_fourier_adaptive_max_cols: Optional[int] = 100,
         # HINGE / piecewise-linear change-point basis.
         # DEFAULT ON. Captures a SLOPE CHANGE at a data-dependent
@@ -1679,7 +1679,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``fe_synergy_screen_max_features``, choose WHICH ``cap`` columns enter the O(p^2) synergy sweep by an
         # interaction-propensity score |corr(x^2,y)|+|corr(x,y^2)| instead of skipping the bootstrap. Marginal MI
         # is the wrong ranking (a pure-interaction operand has ~0 marginal MI by construction); higher moments
-        # leak even when the linear marginal is flat. Bench (test_fe_interaction_prerank, 2026-06-18): recovers
+        # leak even when the linear marginal is flat. Bench (test_fe_interaction_prerank): recovers
         # planted zero-marginal operands into the top-250 at recall ~0.88 (realistic leakage L=0.1) vs marginal-MI
         # 0.68 / random 0.12, at O(p*n) ~5s for p=10k. NO-OP below the cap (the bootstrap already adds every
         # column). IRREDUCIBLE: a perfectly-balanced zero-higher-moment interaction (L=0) is invisible to any O(p)
@@ -1748,7 +1748,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # MI collapses to 12-36% on a held-out slice vs genuine's 90-104% - but
         # needs train-based FE selection (deep rewrite) for marginal gain over this
         # tighter-prevalence cut, so it is deferred.
-        # Accepts ``"auto"`` (hardcoded-threshold conversion #3, 2026-06-13): keeps the 1.5 synergy bar
+        # Accepts ``"auto"`` (hardcoded-threshold conversion #3): keeps the 1.5 synergy bar
         # but applies it to the MILLER-MADOW-DEBIASED joint MI (the same guarded mechanism as
         # ``fe_min_pair_mi_prevalence="auto"``), so a synergy pair is admitted only when its DEBIASED
         # joint MI clears 1.5x the marginal sum - tightening against finite-sample-bias noise a fixed
@@ -1976,7 +1976,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # permuted-y check, a GAM additive-residual baseline (additive targets emit 0), and a
         # permutation null on the max mixed-partial energy.
         #
-        # OPT-IN default (``fe_gradient_interaction_enable=False``). bench-reject (2026-06-10,
+        # OPT-IN default (``fe_gradient_interaction_enable=False``). bench-reject (
         # ``_gradient_interaction_seeder.py``): on the prescribed cheap-validation fixture
         # ``y=sin(x5)*x31+noise`` (n=2000, p=60) the gradient detector ranks the (5,31) saddle #1
         # and proposes exactly that pair, BUT the #6 GBM split-co-occurrence seeder ALSO ranks
@@ -2033,7 +2033,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # candidates regardless of p), and the replay P0 (per-leg preprocess refit) is now fixed. Bench:
         # on a genuine 3-way a*b*c target the linear downstream goes 0.094 -> 0.049 (the floor) because
         # it finally gets the a*b*c feature, with NO harm on an additive target and ~negligible fit cost.
-        # Set False to restore the pre-2026-06-13 behaviour (no triplet-cross candidates).
+        # Set False to restore the previous behaviour (no triplet-cross candidates).
         fe_hybrid_orth_triplet_enable: bool = True,
         fe_hybrid_orth_triplet_max_degree: int = 1,
         fe_hybrid_orth_triplet_seed_k: int = 4,
@@ -2051,7 +2051,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # ``orth_quadruplet_cross``; replay reads X only, no y.
         # DEFAULT ON: bounded by seed_k (C(seed_k,4) quadruplets - 1 at seed_k=4), replay
         # P0 fixed, captures genuine 4-way interactions a linear model cannot otherwise form. Set False
-        # to restore the pre-2026-06-13 behaviour.
+        # to restore the previous behaviour.
         fe_hybrid_orth_quadruplet_enable: bool = True,
         fe_hybrid_orth_quadruplet_max_degree: int = 1,
         fe_hybrid_orth_quadruplet_seed_k: int = 4,
@@ -3046,9 +3046,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # p=423 scale the MRMR audit's motivating production fit ran at), roughly linear in column count.
         # Unlike the Fourier adaptive cap, there is no cheap fallback here - columns beyond the cap get NO
         # wavelet legs at all, so this default is deliberately more generous than the Fourier cap's floor
-        # would suggest. Default 100 (2026-07-10, corrective-mechanism-on-by-default): bounds cost on
+        # would suggest. Default 100 (corrective-mechanism-on-by-default): bounds cost on
         # wide-p fits while preserving full legacy behaviour below it; the biz_val tests for this cap use
-        # p<=8 so are unaffected. ``None`` restores the pre-2026-07-10 unlimited behaviour.
+        # p<=8 so are unaffected. ``None`` restores the previous unlimited behaviour.
         fe_wavelet_max_cols: Optional[int] = 100,
         fe_wavelet_cols: tuple = (),
         fe_wavelet_max_scale: int = 3,
@@ -3170,7 +3170,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Multi-output (2D y: multilabel / multi-target regression). MRMR's greedy partial-gain machinery merges the target columns into one
         # joint target, and that merged target makes the lazy confirmation step drop the 2nd genuine feature even when the per-column MI is high.
         # 'union' (default): fit one single-target selector per output column (the 1D path, which is correct) and UNION the selected raw columns.
-        # 'intersect': keep only columns selected for EVERY output column. None / 'joint': legacy merged-target behaviour (byte-identical to pre-2026-06-20).
+        # 'intersect': keep only columns selected for EVERY output column. None / 'joint': legacy merged-target behaviour (byte-identical to previous).
         multioutput_strategy: Optional[str] = "union",
         # Nested config-dataclass alternative to the individual flat kwargs above. Purely ADDITIVE: every flat kwarg above keeps working
         # unchanged forever (this migration's blast radius - ~50+ existing call sites - rules out a

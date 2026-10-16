@@ -38,7 +38,7 @@ def _fe_stage_cascade_early_b(
     caller-owned and mutated in place (never reassigned here -- confirmed via a systematic
     reassignment-vs-mutation check), so no return is needed for them.
     """
-    # 2026-05-31 Layer 33 — K-fold target encoding for raw categorical
+    # Layer 33 — K-fold target encoding for raw categorical
     # columns. Runs after hybrid + MI-greedy because TE is the standard
     # prod pattern for cardinality > 5 categoricals that the other two
     # stages do not touch. Recipes (kind ``kfold_target_encoded``) carry
@@ -139,7 +139,7 @@ def _fe_stage_cascade_early_b(
     # routes recipes through hybrid_orth_features_ so a selected binagg column lands in _engineered_recipes_.
     X_acc = _fe_merge_new_columns(X_acc, _stage_binned_numeric_agg(self, _fe_family_on, X, y, _binned_agg_pre_recipes, verbose), X)
 
-    # 2026-05-31 Layer 34 — COUNT + FREQUENCY ENCODING + CAT x NUM
+    # Layer 34 — COUNT + FREQUENCY ENCODING + CAT x NUM
     # INTERACTION (target-mean residual). Three independent master switches;
     # each appends its own engineered columns AND emits one recipe per col.
     # Recipes route through ``hybrid_orth_features_`` so the end-of-fit
@@ -227,7 +227,7 @@ def _fe_stage_cascade_early_b(
             # ----- Cat x Num interaction (OOF residual) ------------------
             X_acc = _fe_merge_new_columns(X_acc, _stage_cat_num_interaction(self, _fe_family_on, X, _y_np, _l34_reject_sink, _cat_num_pre_recipes, verbose), X)
 
-    # 2026-05-31 Layer 37 — MISSINGNESS-AWARE FE. Three independent master
+    # Layer 37 — MISSINGNESS-AWARE FE. Three independent master
     # switches (indicator / count / pattern); each appends its own engineered
     # columns AND emits one recipe per column. Recipes route through
     # ``hybrid_orth_features_`` so the end-of-fit remap (Layer 23 pattern)
@@ -243,7 +243,7 @@ def _fe_stage_cascade_early_b(
     # exactly the "disable the FE search but keep this one explicit static feature" contract callers rely on.
     X_acc = _fe_merge_new_columns(X_acc, _stage_missingness_family(self, X, _fit_entry_nan_mask, _y_np, _raw_input_cols_pre_fe, _miss_ind_pre_recipes, verbose, _miss_cnt_pre_recipes, _miss_pat_pre_recipes), X)
 
-    # 2026-05-31 Layer 38 — CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF.
+    # Layer 38 — CROSS-FEATURE RATIO + GROUPED-DELTA + LAGGED-DIFF.
     # Four independent master switches (ratio / log_ratio / grouped_delta /
     # lagged_diff); each appends its engineered columns AND emits one recipe
     # per column. Routing piggybacks on hybrid_orth_features_ (same Layer 23
@@ -268,13 +268,13 @@ def _fe_stage_cascade_early_b(
     # The FE pair step re-classifies these from synergy-bootstrap to REGULARLY-selected operands so
     # the elementary pair over a gate's raw sources competes on the LENIENT prevalence bar instead of
     # being demoted to the stricter synergy bar (a high-MI gate built FROM a raw col evicts that col
-    # from selected_vars, so its clean elementary pair would otherwise be suppressed). 2026-06-13.
+    # from selected_vars, so its clean elementary pair would otherwise be suppressed).
     self._gate_raw_operands_ = set()
     # Per-gate-column -> set of its RAW source variables (recipe ``src_names``). The FE step uses this to
     # resolve the raw-variable coverage of a gate-operand COMPOSITE (whose gate operand buries its raw
     # vars inside the column name) so it can drop a composite whose entire raw coverage is already provided
     # by clean non-gate engineered survivors (CASE1) while keeping one that adds genuinely new (c,d)
-    # coverage no clean form expresses (CASE2). Empty when no gate fired. 2026-06-13.
+    # coverage no clean form expresses (CASE2). Empty when no gate fired.
     self._gate_col_src_vars_ = {}
     self.group_distance_features_ = []
     return _fe_merge_new_columns(X_acc, _stage_pairwise_ratio_family(self, _fe_family_on, X, _y_np, _ratio_pre_recipes, verbose, _log_ratio_pre_recipes, _grouped_delta_pre_recipes, _lagged_diff_pre_recipes), X)

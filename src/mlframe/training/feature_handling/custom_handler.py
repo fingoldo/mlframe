@@ -129,7 +129,7 @@ class CustomHandler:
     def transform(self, df: Any) -> Any:
         """Apply the fitted transformer to the extracted column; raises ``NotFittedError`` if ``fit`` hasn't run."""
         if not self._fitted:
-            # Wave 37 P1 fix (2026-05-20): NotFittedError per sklearn.
+            # NotFittedError per sklearn.
             from sklearn.exceptions import NotFittedError
 
             raise NotFittedError(f"CustomHandler({self.column!r}) not fitted -- call .fit(train_df) first")

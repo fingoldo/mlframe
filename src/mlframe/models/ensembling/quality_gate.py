@@ -201,7 +201,7 @@ def compute_member_quality_gate(
                         [float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])]
                     )
 
-    # Wave 21 P1: nanmedian so a NaN-bearing per-member statistic doesn't
+    # nanmedian so a NaN-bearing per-member statistic doesn't
     # silently make the threshold NaN -- pre-fix that NaN threshold then
     # made `tot_mae > rel_mae_threshold` return False for every member,
     # silently keeping members the gate was supposed to drop.

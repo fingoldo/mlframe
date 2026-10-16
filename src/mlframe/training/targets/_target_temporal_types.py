@@ -173,7 +173,7 @@ class TemporalAuditResult:
         gran_seconds = _GRANULARITY_SECONDS.get(self.granularity, 30.44 * 86_400.0)
         gran_delta = pd.Timedelta(seconds=gran_seconds)
 
-        # Wave 34 P1 fix (2026-05-20): pre-fix the ``ts`` Series and the
+        # pre-fix the ``ts`` Series and the
         # ``start_ts/end_ts`` Timestamps could have mismatched tz state.
         # If ``bin_start`` was built from a tz-aware polars Datetime
         # (``Datetime(time_zone="UTC")``), the kept[..].bin_start values

@@ -244,14 +244,14 @@ def mdlp_bin_edges(
 
     splits: list[float] = []
     if fast_mode:
-        # Explicit speed opt-out: the pre-2026-07-19 classic Fayyad-Irani accept test
+        # Explicit speed opt-out: the previous classic Fayyad-Irani accept test
         # (in-sample MDL threshold + the depth-cap guardrail above), unchanged.
         if backend == "njit":
             _mdlp_recurse_njit(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
         else:
             _mdlp_recurse(x_sorted, y_sorted, splits, depth=0, min_split_size=int(min_split_size), max_depth=int(max_depth))
     else:
-        # DEFAULT (2026-07-19, user decision - accuracy over speed per project convention):
+        # DEFAULT (user decision - accuracy over speed per project convention):
         # significance-gated splitting (``_mdlp_validated_split.py``). Lazy import to avoid a
         # module-load-order circular import (that module imports ``_mdlp_best_split_njit`` /
         # ``_entropy_from_counts_njit`` from HERE at ITS top level; by the time this function
@@ -266,7 +266,7 @@ def mdlp_bin_edges(
         x_dedup, y_dedup = _dedupe_xy(x_sorted, y_sorted)
         # Level-order (BFS) recursion, batching every tree level's permutation-null significance
         # tests into one chunk-parallel njit call instead of one Python dispatch per node -- this
-        # call site was found still on the pre-2026-07-31 DFS recursion via a fresh 2M-row cProfile
+        # call site was found still on the previous DFS recursion via a fresh 2M-row cProfile
         # (21.3s tottime / 1212 calls) despite the BFS rewrite already shipping for the OTHER MDLP
         # entry point (``mdlp_bin_edges_validated``) -- an unwired-elsewhere primitive, now fixed.
         splits = _mdlp_recurse_validated_bfs(

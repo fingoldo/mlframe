@@ -106,7 +106,7 @@ def compute_fdr_gain_floor(
     cardinality_bias_correction: bool,
     random_seed: int | None,
     verbose: int,
-    # 2026-07-09 fix: optional cross-round cache, keyed on the candidate-pool identity + all inputs
+    # fix: optional cross-round cache, keyed on the candidate-pool identity + all inputs
     # that affect the result. ``pooled_permutation_null_gain_floor`` recomputes a full (n_permutations
     # x n_candidates x n_rows) histogram+MI pass on EVERY call; when the SAME raw-column pool recurs
     # across screen_predictors rounds (the common case - data only grows via appended engineered
@@ -137,7 +137,7 @@ def compute_fdr_gain_floor(
     _y_idx_fdr = _single_int(y)
     _wide_pool = len(_fdr_pool) >= int(screen_fdr_min_features)
     # Family-wise over every narrow pool of two or more candidates: a narrow pool with a binary or low-cardinality target lets the best
-    # of its columns clear the per-column gain floors by chance (pure-noise suite, 2026-10-14).
+    # of its columns clear the per-column gain floors by chance (pure-noise suite).
     _narrow_oversplit = not _wide_pool and len(_fdr_pool) >= 2
     if not (_wide_pool or _narrow_oversplit):
         return 0.0

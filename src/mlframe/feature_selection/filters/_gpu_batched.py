@@ -191,7 +191,7 @@ def mi_direct_gpu_batched(
     outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]
     outer_safe = cp.where(outer_marginals[None, :, :] > 0, outer_marginals[None, :, :], 1.0)
 
-    # GATE REFERENCE (FP-consistency, 2026-06-22): the gate counts #{perm_mi >= observed_mi}; mi_batch is
+    # GATE REFERENCE (FP-consistency): the gate counts #{perm_mi >= observed_mi}; mi_batch is
     # GPU-reduced, so recompute the observed MI through the SAME kernel+reduction on the UNPERMUTED y (a
     # ~1e-15 order delta vs the CPU-njit original_mi flips a count). CPU original_mi stays the RETURNED value.
     _id_counts = cp.zeros((1, nbins_x * nbins_y), dtype=cp.int32)
@@ -373,7 +373,7 @@ def mi_direct_gpu_batched_streamed(
     freqs_y_gpu = resident_operand(freqs_y, "mi_batched_freqs_y", dtype=np.float64)
 
     joint_size = nbins_x * nbins_y
-    # Wave 23 #1 fix: mirror the sibling lookup at L466-475
+    # mirror the sibling lookup at L466-475
     # so this streamed variant adapts to live HW. Pre-fix it open-coded
     # the same hand-tuned defaults from before kernel_tuning_cache landed
     # and silently fell behind on non-dev hardware.
@@ -398,7 +398,7 @@ def mi_direct_gpu_batched_streamed(
     # iter could read garbage. Force a sync before launching child streams.
     cp.cuda.Stream.null.synchronize()
 
-    # FP-consistency gate reference (mirrors the non-streamed twin, 2026-06-22): reduce the OBSERVED MI via
+    # FP-consistency gate reference (mirrors the non-streamed twin): reduce the OBSERVED MI via
     # the same kernel+reduction on the unpermuted y (default stream, before child streams) so the >= gate
     # compares like-with-like. CPU original_mi stays the RETURNED value.
     outer_marginals = freqs_x_gpu[:, None] * freqs_y_gpu[None, :]

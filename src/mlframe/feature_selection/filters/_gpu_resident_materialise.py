@@ -113,7 +113,7 @@ def _get_fe_materialise_kernel():
     return _FE_MATERIALISE_KERNEL
 
 
-# COALESCED COLUMN-MAJOR fe_materialise (2026-06-23, coalescing audit - the SAME stride-uncoalesced-read
+# COALESCED COLUMN-MAJOR fe_materialise (coalescing audit - the SAME stride-uncoalesced-read
 # lever that won 5.59x on the noise-gate hist kernel, applied to the materialise). CUDA-event decomposition
 # at the production block shape (n=100k, K=1200, n_operands=64, GTX 1050 Ti) showed the row-major kernel
 # above runs at only ~20 GB/s vs the card's ~94 GB/s coalesced floor (write-only baseline 5.1ms @ 94 GB/s
@@ -282,7 +282,7 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
     return (out, None) if return_cm else out
 
 
-# PINNED D2H STAGING for the out_cand float buffer (2026-06-21, nvprof+paired-microbench driven).
+# PINNED D2H STAGING for the out_cand float buffer (nvprof+paired-microbench driven).
 # The downstream survivor/usability reads need the (n,K) float candidate matrix on host, so out_cand is
 # unavoidable - but ``cp.asnumpy(cand)`` copies into the caller's PAGEABLE buffer, which makes cupy stage
 # the D2H through an internal pinned bounce buffer at PAGEABLE PCIe bandwidth (the #1 production wall:
@@ -349,7 +349,7 @@ def _pinned_view(n_bytes: int, shape, dtype, slot: int = 0):
 # resolve to the SAME live object). Bounded FIFO so distinct operand tables across a long fit don't grow it.
 _OPERAND_TABLE_CACHE: "OrderedDict[int, tuple]" = OrderedDict()  # id(host) -> (weakref(host), gpu)
 _OPERAND_TABLE_CACHE_MAX = 8
-# The 2026-07-02 chunk-pipeline feature runs chunk k+1's
+# The chunk-pipeline feature runs chunk k+1's
 # production (in a ThreadPoolExecutor(max_workers=1)) concurrently with the main thread consuming chunk k,
 # and both threads can reach into this cache (and _PREBUILT_OPERAND_TABLE below) for the SAME
 # transformed_vars object with no lock - under the GIL this cannot corrupt memory, but a cupy call that
@@ -359,7 +359,7 @@ _OPERAND_TABLE_CACHE_MAX = 8
 _OPERAND_TABLE_CACHE_LOCK = threading.Lock()
 
 
-# GPU-RESIDENT OPERAND TABLE (2026-06-21, phase 1 of the 100%-GPU-resident MRMR FE rewrite, gated).
+# GPU-RESIDENT OPERAND TABLE (phase 1 of the 100%-GPU-resident MRMR FE rewrite, gated).
 # The operand table ``transformed_vars`` (n, n_operands) float32 is built on the CPU in
 # ``check_prospective_fe_pairs`` (one column per (var, unary)), then ``_resident_operand_table`` H2Ds it to
 # the device ONCE per step. Phase 1 removes even that single H2D by building the device mirror's columns ON
@@ -505,7 +505,7 @@ def _resident_operand_table(cp, transformed_vars):
     return g
 
 
-# BATCHED plain-unary op-code kernel (launch-reduction, 2026-06-25). build_resident_operand_table applied
+# BATCHED plain-unary op-code kernel (launch-reduction). build_resident_operand_table applied
 # each GPU-built operand column with a separate _unary_apply (a cupy elementwise op) + .astype(f32) + strided
 # slice-assign (~3 cuLaunchKernel/col) - the measured #2 launch source (282). For the columns that share one
 # float64 raw-operand group and use a pure-elementwise unary, ONE kernel now applies the per-column op code
@@ -631,7 +631,7 @@ def build_resident_operand_table(transformed_vars: np.ndarray, col_specs: Sequen
     # one column at a time. Columns with no spec (the unused tail, if any) are zero-filled - they are never
     # read by the materialise (operand indices are always < the used width), so their content is irrelevant.
     g = cp.zeros((n, n_operands), dtype=cp.float32)
-    # ONE-TRANSFER (phase R0, 2026-06-21): batch the DISTINCT raw operands referenced by the GPU-buildable
+    # ONE-TRANSFER (phase R0): batch the DISTINCT raw operands referenced by the GPU-buildable
     # specs into per-dtype host matrices and upload each in ONE H2D, instead of one cp.asarray per distinct
     # raw. Each raw keeps its NATIVE float dtype (we group BY dtype) so the unary still applies in the exact
     # dtype the CPU ``tr_func`` saw -> the GPU column matches the host column to fp round-off (the invariant
@@ -845,7 +845,7 @@ def gpu_materialise_discretize_codes_host(
     # safe margin over the honest ~4 on the 4GB card; still 0.25*free VRAM-governed; per-column-independent
     # so codes are bit-identical regardless of chunk boundary.
     k_chunk = _gpu_k_chunk(n, bytes_per_elem=4, working_multiple=6, max_cols=K)
-    # ASYNC DOUBLE-BUFFERED float D2H (2026-07-02, max-GPU phase): the float-candidate readback used a
+    # ASYNC DOUBLE-BUFFERED float D2H (max-GPU phase): the float-candidate readback used a
     # SYNCHRONOUS cand.get(out=pinned) - the host blocked until materialise AND the copy finished, THEN ran
     # the 8-25 MB host memcpy, THEN launched the block's binning kernels; every block serialised
     # [materialise -> D2H -> memcpy -> bin]. Now the copy is enqueued on a dedicated non-blocking COPY STREAM

@@ -48,7 +48,7 @@ class NeuralNetStrategy(ModelPipelineStrategy):
     supports_native_multiclass = True
     supports_native_multilabel = True
     supports_native_ranking = True
-    # F-34 (2026-05-31): PytorchLightningRegressor auto-detects (N, K>=2)
+    # F-34: PytorchLightningRegressor auto-detects (N, K>=2)
     # float y at fit-time and routes ``num_classes = K`` through
     # generate_mlp -> K output heads sharing the trunk + MSE between
     # (N, K) preds and (N, K) labels (F-24 commit 2d300944).
@@ -156,7 +156,7 @@ class LinearModelStrategy(ModelPipelineStrategy):
     # sklearn LogisticRegression supports multiclass natively (auto since
     # 1.5; ``multi_class`` kwarg removed in 1.8).
     supports_native_multiclass = True
-    # F-34 (2026-05-31): sklearn linear regressors (LinearRegression,
+    # F-34: sklearn linear regressors (LinearRegression,
     # Ridge, Lasso, ElasticNet) handle (N, K) y natively — the closed-form
     # solution is a single matrix Y = X B + e with B of shape (D, K).
     # MultiTaskLasso / MultiTaskElasticNet add joint L1 across targets;

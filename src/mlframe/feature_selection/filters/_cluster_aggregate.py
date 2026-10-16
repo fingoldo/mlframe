@@ -608,7 +608,7 @@ def run_cluster_aggregate_step(
         assert best is not None, "_cluster_aggregate: methods must be a non-empty sequence (unreachable given the earlier coercion)"
         agg_mi, recipe, binned, method = best
         # Gate: the denoised aggregate must STRICTLY out-score the best single member (denoising claim).
-        # 2026-06-03 (audit cluster-aggregate-9): reject on a TIE (``<=``), not
+        # reject on a TIE (``<=``), not
         # only on a strict loss (``<``). The docstring/contract says "strictly
         # out-scoring"; with the prior ``<`` an aggregate that merely matches the
         # best member's MI (mi_prevalence=1.0) was accepted, which in

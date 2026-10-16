@@ -20,7 +20,7 @@ from sklearn.model_selection import BaseCrossValidator
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
-# Process-lifetime caches keyed by class object (perf audit findings #4/#7/#8, 2026-07-17).
+# Process-lifetime caches keyed by class object (perf audit findings #4/#7/#8).
 # All three values below are HOST/CLASS-constant - the ctor signature never changes at
 # runtime, and a fresh instance's resolved defaults (n_jobs=-1 -> cpu_count, etc.) and the
 # kernel_tuning_cache lookups only depend on the installed package + host hardware, not on

@@ -183,7 +183,7 @@ def _summarise_target_reports(dummy_baselines_metadata, n_total, composite_to_ra
                     model_val, best_model_name = _ens_val, str(_ens_m.get("model_name", "CT_ENSEMBLE"))
                     _val_selected = bool(_ens_m.get("val_selection_biased")) and str(primary_metric).startswith("val_")
 
-            # Wave 20 fix: registry dispatcher. The previous substring
+            # registry dispatcher. The previous substring
             # whitelist missed val_MAPE (MAPE not in 'MAE' substring),
             # val_MSE (not in 'RMSE'), val_ICE, val_brier, val_KL,
             # val_perplexity -- all lower-is-better metrics whose lift

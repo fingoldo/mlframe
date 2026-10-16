@@ -247,7 +247,7 @@ def detect_synergy_combos(
     # whose mixed-radix cell count blows past this bound (high-card columns) - such a combo's joint MI
     # would be unreliable anyway (too few samples/cell). Bounds memory + keeps the kernel allocation small.
     _MAX_CELLS = 1 << 20
-    # OCCUPANCY FLOOR (2026-06-17, adversarial-found). The Miller-Madow occupancy debit does NOT keep a
+    # OCCUPANCY FLOOR (adversarial-found). The Miller-Madow occupancy debit does NOT keep a
     # NOISE combo's joint MI near zero once rows-per-cell gets small: a pure-noise grid's finite-sample
     # joint MI scales with cardinality (measured n=3000: k=10->0.034, k=20->0.14, k=30->0.29, k=50->0.48
     # nats), so two independent high-cardinality columns clear the ``min_joint_mi`` floor AND the

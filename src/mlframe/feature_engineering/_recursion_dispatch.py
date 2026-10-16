@@ -27,7 +27,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Measurement-backed fallback crossovers (Intel host, 2026-05-27). The
+# Measurement-backed fallback crossovers (Intel host). The
 # right crossover is PER KERNEL because per-group work differs by orders
 # of magnitude:
 #   * fe_bocpd: heavy per-row recursion (growing run-length posterior).

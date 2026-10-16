@@ -103,7 +103,7 @@ class TorchDataset(Dataset):
         batch_size: int = 0,
         share_memory: bool = True,
     ):
-        # Wave 56 (2026-05-20): forward to torch Dataset base for forward-compat
+        # forward to torch Dataset base for forward-compat
         # (currently a no-op; reserves the hook for future torch state).
         super().__init__()
         self.features_dtype = features_dtype
@@ -559,7 +559,7 @@ class TorchDataModule(LightningDataModule):
         _env_pin = pin_memory_env_override()
         dl_params.setdefault("pin_memory", on_gpu if _env_pin is None else _env_pin)
 
-        # F-71b (2026-05-31): OS-aware num_workers default for MLP, mirrors
+        # F-71b: OS-aware num_workers default for MLP, mirrors
         # F-71's RecurrentConfig.num_workers logic. Windows spawn semantics
         # cost ~150-300 ms per worker per epoch, so stay at 0. Linux + macOS
         # fork is cheap; default to 2. With TorchDataset's share_memory_()

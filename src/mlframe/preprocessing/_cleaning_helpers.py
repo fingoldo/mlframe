@@ -143,7 +143,7 @@ def _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_
     if calculated_quantiles is None:
         if use_quantile > 0.5:
             use_quantile = 1 - use_quantile
-        # Wave 31 (2026-05-20): assert -> ValueError.
+        # assert -> ValueError.
         if not (0 < use_quantile < 1.0):
             raise ValueError(f"use_quantile must be in (0, 1); got {use_quantile!r}.")
 
@@ -153,7 +153,7 @@ def _resolve_quantile_cutoffs(calculated_quantiles, use_quantile, values, tukey_
             quantile=use_quantile,
         )  # !TODO add sigma, dist+kwargs fields
     else:
-        # Wave 31 (2026-05-20): assert -> ValueError.
+        # assert -> ValueError.
         if tukey_fences_multiplier is None:
             raise ValueError("When calculated_quantiles is provided, " "tukey_fences_multiplier MUST also be supplied.")
     return calculated_quantiles, tukey_fences_multiplier, use_quantiles
@@ -314,7 +314,7 @@ def _analyse_and_clean__m_step2_col_iterable_columns(iterable_columns, df, st, v
                             repl_instructions = {}
                             for next_var in to_be_merged.index:
                                 if next_var in features_transforms[col]:
-                                    # Wave 63 (2026-05-20): collision-detection warning verified
+                                    # collision-detection warning verified
                                     # in production logs; keep as honest WARN, drop the "remove
                                     # once checked" TODO.
                                     log_throttle(

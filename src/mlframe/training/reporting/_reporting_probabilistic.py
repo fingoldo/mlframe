@@ -39,7 +39,7 @@ from mlframe.metrics.core import fast_calibration_report
 
 from ..phases import phase
 
-# Wave 97 (2026-05-21): _canonical_multilabel_y / _maybe_display + the
+# _canonical_multilabel_y / _maybe_display + the
 # DEFAULT_* constants all live in ``_reporting``; that module imports us
 # from its bottom (after the helpers + constants are bound at module top),
 # so by the time Python resolves these names ``_reporting`` is partially
@@ -323,7 +323,7 @@ def report_probabilistic_model_perf(
         robust_integral_errors,
     )
 
-    # 2026-05-28 audit batch: post-loop macro / weighted aggregation across
+    # audit batch: post-loop macro / weighted aggregation across
     # classes. The per-class loop above stamped each class's KS / MCC / F1 /
     # BSS / HL / AccuracyRatio / ROC_AUC / log_loss / ... but provided no
     # single scalar to compare two multiclass models. We compute:
@@ -623,7 +623,7 @@ def _report_probabilistic_step1_produced_single_most(
             if custom_rice_metric and custom_rice_metric != custom_ice_metric:
                 class_metrics["class_robust_integral_error"] = class_robust_integral_error
 
-            # 2026-05-28 audit: extend per-class metrics with the
+            # audit: extend per-class metrics with the
             # confusion-derived and probability-derived blocks. Both
             # are fused single-pass kernels so the cost is dominated by
             # ONE walk over (y_true, y_pred) and ONE over (y_true, y_score).

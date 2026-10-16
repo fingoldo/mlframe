@@ -124,7 +124,7 @@ def _hybrid_orth_family_variants_group1(
                 type(_t_exc).__name__,
                 _t_exc,
             )
-    # 2026-06-01 Layer 77 — QUADRUPLET (4-way) cross-basis FE stage.
+    # Layer 77 — QUADRUPLET (4-way) cross-basis FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable): captures
     # genuine 4-way interactions like 4-way XOR (every triplet marginal MI
     # is zero by symmetry, only the He_1^4 cell carries signal) and
@@ -132,14 +132,14 @@ def _hybrid_orth_family_variants_group1(
     # count is bounded by seed_k=4 default. Recipes
     # (``orth_quadruplet_cross``) replay from X only, no y.
     X = _stage_quadruplet(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # 2026-06-01 Layer 78 — ADAPTIVE-ARITY cross-basis FE stage.
+    # Layer 78 — ADAPTIVE-ARITY cross-basis FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
     # active, the stage enumerates arity 2..max_arity per seed tuple and
     # keeps ONLY the winning arity per maximal signal set (a higher arity
     # is emitted iff its MI strictly beats every lower-arity prefix).
     # Recipes route to the per-arity Layer 22 / 56 / 77 builders.
     X = _stage_adaptive_arity(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # 2026-05-31 Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
+    # Layer 57 — ADAPTIVE PER-COLUMN DEGREE FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
     # active, for each source column we evaluate every degree in
     # ``fe_hybrid_orth_adaptive_degree_range`` and emit ONLY the argmax-MI
@@ -208,14 +208,14 @@ def _hybrid_orth_family_variants_group1(
                 type(_ad_exc).__name__,
                 _ad_exc,
             )
-    # 2026-05-31 Layer 58 — CONDITIONAL BASIS ROUTING FE stage.
+    # Layer 58 — CONDITIONAL BASIS ROUTING FE stage.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
     # active, we try every (pre_transform, basis, degree) cell per source
     # column and keep the MI-uplift winner; global top-K appended. Recipe
     # kind reuses ``orth_univariate`` (extra carries ``pre_transform``);
     # replay reads X only, no y.
     X = _stage_conditional_routing(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
-    # 2026-05-31 Layer 59 — DIFF-BASIS FE for highly-correlated source pairs.
+    # Layer 59 — DIFF-BASIS FE for highly-correlated source pairs.
     # Independent opt-in (does NOT require fe_hybrid_orth_enable). When
     # active, the auto-pair detector flags every pair with |Pearson corr| >=
     # threshold, computes the residual diff, and evaluates a basis expansion

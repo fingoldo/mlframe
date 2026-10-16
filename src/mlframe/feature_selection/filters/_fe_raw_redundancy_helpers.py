@@ -52,7 +52,7 @@ except (ValueError, TypeError):
 # exclusion is byte-identical to the prior behaviour when no such child exists.
 _PSEUDO_CHILD_PREFIXES = ("gate_", "binagg_", "argmax__")
 
-# SELF-RETENTION fraction (keep leg A, 2026-06-10). The raw must retain >= this
+# SELF-RETENTION fraction (keep leg A). The raw must retain >= this
 # fraction of its OWN marginal debiased excess as CONDITIONAL excess (given the
 # combination child) to count as a significant independent residual. A genuine
 # private LINEAR term keeps ~6-11% of its marginal given the interaction product;

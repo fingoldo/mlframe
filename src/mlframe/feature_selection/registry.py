@@ -151,7 +151,7 @@ def _instantiate_boruta_shap(**kwargs):
     """Registry factory for BorutaShap: builds the base selector then optionally wraps it in a cluster-medoid CorrelatedFeaturesSelector pre-reduction (default ON here)."""
     # Lazy import: BorutaShap pulls in shap + matplotlib + seaborn (~2s).
     from mlframe.feature_selection.boruta_shap import BorutaShap
-    # 2026-06-03 (audit integration-defaults-3): cluster-medoid pre-reduction
+    # cluster-medoid pre-reduction
     # default-ON for BorutaShap too. Validated SAFE - bench_boruta_shap_medoid
     # (synthetic varied-redundancy + real breast_cancer) gives OOS AUC delta in
     # [+0.0000, +0.0005] (never hurts; the shadow-importance null behaves -
@@ -178,7 +178,7 @@ def _instantiate_boruta_shap(**kwargs):
 def _instantiate_shap_proxied_fs(**kwargs):
     """Registry factory for ShapProxiedFS. NOT wrapped in the cluster-medoid reduction - the selector already clusters internally."""
     # Lazy import: ShapProxiedFS pulls in shap + a tree booster on first fit.
-    # 2026-06-03 (audit integration-defaults-3): ShapProxiedFS is intentionally
+    # ShapProxiedFS is intentionally
     # NOT wrapped in the cluster-medoid reduction - it ALREADY clusters
     # internally (cluster_correlated_features_su -> build_unit_matrix collapses
     # each correlated cluster to one denoised "unit" before the SHAP-proxy

@@ -494,7 +494,7 @@ def _select_scalable_numeric_columns(
     scalable: List[str] = []
     skipped_reasons: dict = {}
 
-    # Wave 55 (2026-05-20): validate method at entry rather than silently producing
+    # validate method at entry rather than silently producing
     # zero stats for an unknown method (previously each per-col elif chain skipped
     # the zero-spread check entirely, and the bogus method propagated to
     # polars_ds.scale where it crashed with a cryptic message).
@@ -634,7 +634,7 @@ def create_polarsds_pipeline(
     try:
         from polars_ds.pipeline import Pipeline as PdsPipeline, Blueprint as PdsBlueprint
     except ImportError:
-        # Wave 41 (2026-05-20): narrowed broad Exception -> ImportError; preserve traceback.
+        # narrowed broad Exception -> ImportError; preserve traceback.
         logger.warning("Could not import polars-ds", exc_info=True)
         return None
 
@@ -801,7 +801,7 @@ def _add_imputer_step(config, train_df, bp, verbose):
             # all the way to strict NaN-intolerant models (PytorchLightningEstimator's own guard
             # correctly refuses NaN input rather than silently producing all-NaN predictions -- fuzz
             # surfaced this on models=[linear,mlp] + recurrent_model=lstm + remove_constant_columns=False,
-            # 2026-07-06). Fill with 0.0, mirroring the ``SimpleImputer(keep_empty_features=True)``
+            # ). Fill with 0.0, mirroring the ``SimpleImputer(keep_empty_features=True)``
             # convention already used for the sklearn imputer path (``_setup_helpers.py`` /
             # ``_predict_guards.py``): the column stays FINITE (uninformative, not missing) regardless
             # of whether the constant-column dropper is enabled.

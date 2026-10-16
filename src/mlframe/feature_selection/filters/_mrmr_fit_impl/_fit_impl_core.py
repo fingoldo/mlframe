@@ -382,7 +382,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     X = _fe_stage_temporal_agg(self, X, _y_np, verbose, recipes.temporal_agg, _fe_family_on=_fe_family_on)
 
-    # ACCURACY GATE (2026-06-04, default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source - or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) - is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
+    # ACCURACY GATE (default ON via ``fe_accuracy_gate``). The MI-uplift gates inside the FE generators are fooled by plug-in MI's bias inflation: a Fourier / chirp / Hermite transform of a strong RAW signal earns an inflated MI estimate and out-ranks (then evicts) the raw column even when it adds NO real predictive value. The adaptive-Fourier PROTECTION block at support-finalisation then force-readds those hijackers past the MRMR screen, so they survive into support_ AND leak into ``hybrid_orth_features_`` / ``_adaptive_fourier_features_`` even when a genuine raw signal (or its is_missing__ MNAR indicator) carries the information. This gate runs a held-out multivariate linear-probe uplift check per engineered column against its raw source: a column that adds no held-out uplift over its source - or whose source is >2%-missing (MNAR fail-closed, the signal lives in the NaN pattern the probe cannot see) - is dropped here so it can neither evict the raw signal nor leak into the roster. Only orth_* engineered columns with a single resolvable raw source are gated; the is_missing__ / missingness_* indicators are exempt by construction (their recipes live in ``_miss_*_pre_recipes``, never ``_hybrid_orth_pre_recipes``, so they are never routed here). y is read only at fit; transform replays the survivors without y. Best-effort: any failure falls back to keeping the column.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._engineered_gates import _gate_engineered_accuracy
 
     X = _gate_engineered_accuracy(self, X, recipes, _y_np, verbose, groups=groups)
@@ -439,7 +439,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     _mi_greedy_names_set = set(self.mi_greedy_features_ or [])
     _engineered_names_set = _hybrid_names_set | _mi_greedy_names_set
     _all_cols = X.columns.tolist() if hasattr(X.columns, "tolist") else list(X.columns)
-    # Defense in depth (Layer 64 finding 2026-05-31): if any FE stage
+    # Defense in depth (Layer 64 finding): if any FE stage
     # accidentally appended a column under a name already present in
     # X (e.g. two recipe families converging on the same canonical
     # ``square(x1)`` label, or a stage re-emitting an input column it
@@ -522,7 +522,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # bin count is unsupervised again and the guard applies to all of them, as before.
     _numeric_names = numeric_column_names(_x_for_cat) if _nbins_strategy else set()
 
-    # 2026-07-11 perf: speculatively pre-warm the polynom-pair-FE loky pool here, AFTER categorization (not
+    # perf: speculatively pre-warm the polynom-pair-FE loky pool here, AFTER categorization (not
     # before it). ``run_polynom_pair_fe`` is otherwise the pool's first user in a typical fit (the sibling CPU
     # pair-MI-sweep pool in ``_step_pairmi.py`` only engages when the GPU MI path fails), so production pays a
     # full cold-start (16 fresh worker processes each re-importing mlframe/numba/cupy, measured 28.1s cold vs
@@ -548,7 +548,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     target_indices = np.array([_name_to_idx[col] for col in target_names], dtype=np.int64)
 
     # TARGET REBIN GUARD. The adaptive per-column ``nbins_strategy``
-    # (default ``"mdlp"`` since Wave 7) is meant for FEATURE columns; applied to the
+    # (default ``"mdlp"``) is meant for FEATURE columns; applied to the
     # injected TARGET column it is SELF-REFERENTIAL (MDLP bins y supervised on y) and
     # on a heavy-tailed continuous y it produces a DEGENERATE encoding - measured on
     # the F2 fixture (y = 0.2*a**2/b + f/5 + log(2c)*sin(d/3), n=20000): 37 bins with
@@ -591,7 +591,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # engineered_recipes (name -> EngineeredRecipe) is initialised unconditionally; the splitter at the bottom
     # of fit() looks it up regardless of fe_max_steps. Stays empty when FE is disabled.
     engineered_recipes: dict = {}
-    # PER-GATE FE REJECTION LEDGER (additive, 2026-06-11): the per-fit raw-record list is reset
+    # PER-GATE FE REJECTION LEDGER (additive): the per-fit raw-record list is reset
     # near fit-start (above, before any FE stage records) so it accumulates the gate drops of
     # EVERY FE stage this fit - the recipe-FE families + cluster-basis (which record before this
     # point) AND the pair-search ``_run_fe_step`` loop below. fe_rejection_ledger_ is built from
@@ -666,7 +666,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     # rescoring every raw column's relevance/entropy/conditional-MI even though those values cannot
     # change round-to-round (the data they're computed from is stable; only new columns get appended).
     _persisted_screen_caches = None
-    # Cross-round cache for the maxT permutation-null gain floor (2026-07-09 fix; see
+    # Cross-round cache for the maxT permutation-null gain floor (fix; see
     # compute_fdr_gain_floor's ``maxt_floor_cache`` docstring) - a plain dict, mutated in place by
     # every screen_predictors() call this fit, so a raw-pool floor computed in round 1 is not
     # recomputed identically in round 2/3.
@@ -734,7 +734,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             min_nonzero_confidence=self.min_nonzero_confidence,
             full_npermutations=self.full_npermutations,
             baseline_npermutations=self.baseline_npermutations,
-            # 2026-06-02 RC2 — sample-size-aware Fleuret confirmation threshold.
+            # RC2 — sample-size-aware Fleuret confirmation threshold.
             fe_confirm_undersample_rows_per_cell=float(getattr(self, "fe_confirm_undersample_rows_per_cell", 5.0) or 0.0),
             # stopping conditions
             min_relevance_gain=_effective_min_relevance_gain,
@@ -759,17 +759,17 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
             # engineered_lineage from cat-FE step (None when cat-FE didn't run); screen uses it to skip
             # redundant (orig_parent, engineered_col) k-way candidates.
             engineered_lineage=_cat_fe_lineage(self),
-            # 2026-05-30 Wave 9 — DCD config forward. Built only when
+            # DCD config forward. Built only when
             # ``dcd_enable=True`` (per Critic1/F: passed as kwargs, NOT
             # via thread-local, for joblib parallel-backend safety).
             dcd_config=_dcd_config(self, X),
-            # 2026-05-31 Layer 43 (PART A) — thread the local
+            # Layer 43 (PART A) — thread the local
             # engineered_recipes dict into screen so DCD's commit_swap can
             # register the PC1 aggregate as a replayable EngineeredRecipe.
             # Pre-fix the dict was inaccessible from screen and the swap
             # silently dropped the aggregate from ``_engineered_recipes_``.
             engineered_recipes=engineered_recipes,
-            # 2026-06-02 — directed-FE tie-break: pass the snapshot of the
+            # — directed-FE tie-break: pass the snapshot of the
             # ORIGINAL user input columns (taken before any FE stage appended
             # engineered intermediates). screen_predictors uses it to mark
             # any candidate whose name is not in this set as engineered and,
@@ -791,7 +791,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
         if _dcd_state is not None:
             _persisted_dcd_state = _dcd_state
         _persisted_screen_caches = (entropy_cache, cached_MIs, cached_confident_MIs, cached_cond_MIs)
-        # 2026-05-30 Wave 9 — stash DCD summary on the estimator for the
+        # stash DCD summary on the estimator for the
         # public ``dcd_`` attribute (None when DCD was disabled).
         from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._screen_round import _attach_dcd_results
 
@@ -907,7 +907,7 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     _eng_continuous_snapshot = _take_engineered_continuous_store(self)
 
-    # Surfaced at verbose>=1 (2026-07-09; was gated behind verbose>2, an unrealistically high bar that
+    # Surfaced at verbose>=1 (; was gated behind verbose>2, an unrealistically high bar that
     # left this cumulative-per-operator timing breakdown effectively invisible to normal production runs).
     if verbose and times_spent:
         logger.debug("MRMR FE time spent by binary func (cumulative across all rounds): %s", sort_dict_by_value(times_spent))

@@ -27,7 +27,7 @@ from .info_theory import (
     # JMIM aggregator + BUR weight thread-local toggles
     # used in evaluate_gain / evaluate_candidate.
     use_jmim_aggregator, get_bur_lambda,
-    # 2026-05-30 Wave 9.1 iter 5: setters for re-publishing the toggles into
+    # setters for re-publishing the toggles into
     # joblib worker threads.
     get_relaxmrmr_alpha, get_pid_synergy_bonus, get_cmi_perm_stop, get_cpt_test,
 )

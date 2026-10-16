@@ -159,7 +159,7 @@ def get_metric_direction(
 
 
 # Built-in known directions for common metric NAMES (independent of target
-# type). Wave 20 fix: 6 production sites previously rolled their own
+# type). 6 production sites previously rolled their own
 # ad-hoc substring / whitelist tables that DISAGREED with each other
 # (e.g. dummy_baselines.py:606 included AUC; dummy_baselines.py:1807
 # excluded it). This single table replaces all of them.
@@ -205,7 +205,7 @@ _KNOWN_METRIC_DIRECTIONS_HIGHER: frozenset[str] = frozenset({
     "r2", "r2_score", "explained_variance", "explainedvariance",
     "nse", "nash_sutcliffe", "pearson", "spearman", "kendall_tau",
     "concordance_index", "c_index",
-    # Tier 2 (2026-05-28): Accuracy Ratio = 2*AUC-1
+    # Tier 2: Accuracy Ratio = 2*AUC-1
     "accuracy_ratio", "ar", "cap_ar",
 })
 
@@ -214,7 +214,7 @@ _KNOWN_METRIC_DIRECTIONS_LOWER: frozenset[str] = frozenset({
     "rmse", "mae", "mse", "mape", "mape_mean", "smape", "mdape", "wmape",
     "huber_loss", "median_absolute_error", "max_error",
     "rmsle", "mase", "cv_rmse", "rmspe", "logcosh", "logcosh_loss",
-    # Tier 2 GLM deviances (2026-05-28) - all lower-is-better losses
+    # Tier 2 GLM deviances - all lower-is-better losses
     "poisson_deviance", "gamma_deviance", "tweedie_deviance",
     # Tier 2 calibration / probabilistic forecasting
     "hosmer_lemeshow", "hosmer_lemeshow_chi2", "hl_chi2",
@@ -556,7 +556,7 @@ def _register_builtin_multilabel_extras():
         description="Per-label F1 weighted by positive-support per label.",
     )
 
-    # 2026-05-28 follow-up: per-label AUC aggregations.
+    # follow-up: per-label AUC aggregations.
     from mlframe.metrics.core import (
         multilabel_auc_macro,
         multilabel_auc_weighted,

@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 # correlation is stable to ~3 decimal places at 100k rows -- well
 # below the |corr| >= 0.95 redundancy threshold's sensitivity. The
 # pre-fix 4.1M-row path materialised a 6.4 GB float64 matrix + ran a
-# 195-iter Python NaN-fill loop (132s wall on prod 2026-05-26).
+# 195-iter Python NaN-fill loop (132s wall on prod).
 # 100k rows + float32 + vectorised fill drops this to ~3s.
 _REDUNDANT_SAMPLE_MAX_ROWS: int = 100_000
 
@@ -110,7 +110,7 @@ def _normalise_X(
     if isinstance(X, pd.DataFrame):
         df = X
     else:
-        # Polars-family input handling (2026-05-21 P0 #3 + follow-up). Three
+        # Polars-family input handling (P0 #3 + follow-up). Three
         # shapes need explicit dispatch; the first version of this branch
         # only handled DataFrame and the other two fell through to the
         # numpy path with the same misclassification bug the original fix
@@ -127,7 +127,7 @@ def _normalise_X(
         df = None
         if _is_polars:
             _typename = type(X).__name__
-            # iter291 (2026-05-26): use mlframe's optimised pl->pd helper
+            # iter291: use mlframe's optimised pl->pd helper
             # for DataFrame conversion. The helper hits the pyarrow split-
             # blocks fastpath (no consolidation copy of every numeric
             # buffer) and the dict->int32 cast on Categorical columns, so
@@ -506,7 +506,7 @@ def _redundant_numeric_pairs(candidate_numeric, redundancy_max_numeric_features,
         # estimation is stable at ~100k rows -- the difference between
         # 100k and 4M is < 0.001 absolute correlation. Caps the
         # to_numpy() materialise + corrcoef BLAS at small constant cost.
-        # 2026-05-26 prod 4.1M x 195 was 132s under the prior full-frame
+        # prod 4.1M x 195 was 132s under the prior full-frame
         # path; sampling to 100k drops to ~3s.
         n_full = len(df)
         if n_full > _REDUNDANT_SAMPLE_MAX_ROWS:
@@ -538,7 +538,7 @@ def _redundant_numeric_pairs(candidate_numeric, redundancy_max_numeric_features,
             # surprising correlations directly in the run log without
             # digging into metadata. Pairs are already sorted by
             # descending |corr| in _pairwise_redundant_features.
-            # 2026-05-26 user request: high pair count (203) is a
+            # user request: high pair count (203) is a
             # diagnostic, not a perf problem; surfacing the strongest
             # pairs makes it actionable (e.g. flag a same-signal-
             # twice mistake in feature engineering).

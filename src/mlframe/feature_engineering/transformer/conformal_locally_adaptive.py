@@ -60,7 +60,7 @@ def compute_conformal_locally_adaptive_features(
         else:
             Xt_s, Xq_s = Xt, Xq
         n = Xt_s.shape[0]
-        # Wave 39 (2026-05-20): tiny-train regime (n<4) empties h1 (n//2==0) or h2,
+        # tiny-train regime (n<4) empties h1 (n//2==0) or h2,
         # then lgb.fit on empty raises opaquely and downstream sigma/quantile produce garbage.
         # Return a zero-feature block matching the expected (Xq_s.shape[0], 5) shape.
         if n < 4:

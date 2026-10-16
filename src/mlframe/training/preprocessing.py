@@ -336,7 +336,7 @@ def preprocess_dataframe(
     # types, baseline diagnostics, LGB/XGB cat conversion, pre-screen)
     # then silently skip those columns and the model fits crash with
     # ``pandas dtypes must be int, float or bool, got cat_a: str``
-    # (observed 2026-05-20 on S: in test_each_ensemble_method_writes_its_own_perfplot).
+    # (observed on S: in test_each_ensemble_method_writes_its_own_perfplot).
     # Treat StringDtype as legacy object; the explicit cat-handling path
     # converts to ``category`` downstream when appropriate.
     if isinstance(df, pd.DataFrame):
@@ -363,7 +363,7 @@ def preprocess_dataframe(
                     len(_string_cols), _string_cols,
                 )
 
-    # iter291 (2026-05-26): batched-scan fastpath for polars frames.
+    # iter291: batched-scan fastpath for polars frames.
     # ``remove_constant_columns`` + ``process_infinities`` legacy chain
     # walks the frame THREE times (constant-numeric, constant-nonnumeric,
     # infinite-count) via three sequential ``df.select(...)`` calls. On
@@ -415,7 +415,7 @@ def preprocess_dataframe(
         # gates on fillna_value is None.
     else:
         # Legacy 3-pass path (pandas, or batched fastpath disabled).
-        # Remove constant columns (2026-04-21: gated on config flag; default True).
+        # Remove constant columns (: gated on config flag; default True).
         if _do_remove_const:
             df = remove_constant_columns(df, verbose=verbose)
 

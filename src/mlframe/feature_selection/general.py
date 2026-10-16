@@ -317,10 +317,10 @@ def _aggregate_permuted_mis_per_target(target_indices, target_columns, all_permu
         observed_mi = np.where(np.isfinite(raw_mi_row), raw_mi_row, -np.inf)
 
         if permuted_max_mi_quantile is None or permuted_max_mi_quantile <= 0:  # a 0-quantile (the minimum) is not a noise floor: nanmax, as for None
-            # Wave 21 P1: nanmax so NaN-MI permutations don't poison the max.
+            # nanmax so NaN-MI permutations don't poison the max.
             baseline_mi = np.nanmax(all_permuted_mis[target_name]) * min_mi_prevalence
         else:
-            # Wave 21 P1: nanquantile so degenerate target/feature pairs
+            # nanquantile so degenerate target/feature pairs
             # (which the MI estimator emits NaN for) don't make baseline_mi
             # NaN -> downstream `passed_permutation` comparison would
             # evaluate inconsistently (NaN <= x is always False).

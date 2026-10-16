@@ -135,7 +135,7 @@ def _showcase_target_distributions(target_by_type, in_jupyter, random_seed, max_
                 _hist_shown = _show_plots_unless_agg()
                 _close_unless_interactive(_hist_fig, was_shown=_hist_shown)
 
-                # Wave 55 (2026-05-20): unknown target type (LazyFrame / torch tensor / list)
+                # unknown target type (LazyFrame / torch tensor / list)
                 # left desc_data undefined, causing NameError on the display below. Skip
                 # gracefully instead -- this is a display-only diagnostic path.
                 desc_data = None

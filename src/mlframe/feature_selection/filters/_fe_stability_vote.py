@@ -164,7 +164,7 @@ def confirm_recipes_cross_fold(
     quorum: float = 0.6,
     rng: Optional[np.random.Generator] = None,
     verbose: int = 0,
-    # REJECTION-LEDGER out-param (additive, 2026-06-11): when a dict is passed, the voter
+    # REJECTION-LEDGER out-param (additive): when a dict is passed, the voter
     # records ``{eng_name -> {"passes", "evaluated", "need_eff", "src_names"}}`` for every
     # FAILED recipe so the caller can append a per-gate rejection record with the real margin
     # (passes vs the quorum bar) WITHOUT recomputing the vote. Pure-record; never changes which
