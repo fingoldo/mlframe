@@ -59,6 +59,9 @@ _PUBLIC_API = {
     "set_wavedec_dispatch_threshold",  # documented tuning knob for the wavelet single/batched dispatch; a user sets it
     "reset_openmp_smoke",  # compatibility alias for the old hnswlib API; a no-op kept so old imports keep working
     "operand_uplift_null_bar",  # exported through the module's __all__ (feature_engineering_pairs operand floor); public surface
+    "set_dtw_dispatch_threshold",  # documented tuning knob for the DTW GPU/CPU crossover; a user sets it
+    "get_metric_direction",  # public accessor for a metric's registered direction
+    "list_registered",  # public introspection of the metric registry
 }
 
 #: Re-exported from a package ``__init__`` (``from x import f`` or ``__all__``): the package's public surface for library
@@ -670,6 +673,18 @@ _TEST_UTILITIES = {
     "reset_cluster_su_gpu_probe",
     "reset_gpu_model_available_cache",
     "is_numba_active",  # fast-path probe that tests assert on; not a production call site
+    "clear_mah_y_binning_cache",  # test-isolation reset of the MAH binning cache
+    "clear_feature_matrix_cache",  # test-isolation reset of the error-analysis feature-matrix cache
+    "clear_shared_error_prep",  # test-isolation reset of the shared error-prep cache
+    "_clear_gate_cache",  # test-isolation reset of the ensemble gate cache
+    "reset_gpu_argsort_probe",  # test-isolation reset of the GPU argsort probe
+    "reset_fe_family_wall",  # test-isolation reset of the FE family wall-clock accumulator
+    "_reset_fe_gpu_pool_limit_flag",  # test-isolation reset of the GPU pool-limit flag
+    "_reset_for_tests",  # test-isolation reset of the kernel-tuning state
+    "_xgb_cache_clear",  # test-isolation reset of the xgboost shim cache
+    "_lib_versions_cache_clear",  # test-isolation reset of the library-version cache
+    "cache_bytes",  # recorded-size readout for tests and diagnostics of the CatBoost pool budget
+    "is_triton_available",  # Triton availability probe for callers and tests
 }
 
 _OFFLINE_GENERATORS = {
@@ -687,6 +702,29 @@ _OFFLINE_GENERATORS = {
     "get_tracker_table",  # loads experiment-impact-tracker cost data for offline analysis
     "agg_pipeline_metric",  # hand-run analysis of CV results across pipelines
     "compute_ml_metrics",  # hand-run scoring helper for CV folds, outside the shipped pipeline
+    "create_dummy_lagged_predictions",  # synthetic data generator for hand-run demos
+    "visualize_prediction_vs_truth",  # hand-run plotting helper for pipeline results
+    "plot_beautified_lift",  # hand-run plotting helper for lift curves
+    "plot_roc_curve",  # hand-run plotting helper for ROC curves
+    "analyze_xgboost_model",  # hand-run diagnostic on a fitted xgboost model
+    "explain_top_feature_importances",  # hand-run explanation helper for importances
+    "rank_features_by_split_gain",  # hand-run ranking helper for split gains in a report
+    "crows_pipeline",  # fairness experiment pipeline for the votenrank study, run by hand
+    "stereo_pipeline",  # fairness experiment pipeline for the votenrank study, run by hand
+    "winobias_pipeline",  # fairness experiment pipeline for the votenrank study, run by hand
+    "naive_gpt2_score",  # fairness baseline score for the votenrank study, run by hand
+    "naive_t5_score",  # fairness baseline score for the votenrank study, run by hand
+    "naive_masking_score",  # fairness baseline score for the votenrank study, run by hand
+    "count_and_plot",  # stability experiment plotting helper, run by hand
+    "create_exp_pic",  # stability experiment plotting helper, run by hand
+    "evaluate_grouped",  # hand-run demo that reports per-group accuracy for a sample model
+    "load_data",  # example-dataset loader for trying the package out by hand
+    "get_fe_family_max_concurrency",  # diagnostic reader of the peak FE family concurrency, read by hand
+    "phase_ram_snapshot",  # per-phase RAM delta readout for training diagnostics
+    "record_phase",  # manual timing backfill for training diagnostics
+    "agreement_rate",  # votenrank study metric, run by hand
+    "best_unary_transform",  # baseline comparator for the FE benchmarks, run by hand
+    "score_triplet_baselines",  # baseline comparator for the triplet FE benchmarks, run by hand
 }
 
 #: Kernel versions kept deliberately when a faster one replaced them (the repository keeps every version for A/B and
@@ -709,6 +747,15 @@ _RETAINED_KERNELS = {
     "_resample_desc_order_counting",  # retained building block: the resampler now uses _fused_resample_auc, and this counting sort stays as the documented fallback primitive
     "score_triplet_cross_basis_by_mi_uplift",  # alternative triplet scorer (MI uplift over the best source); the live path uses score_triplet_cross_basis_by_cmi and no switch reaches this one; exercised by tests/feature_selection/mrmr/biz_val/test_biz_value_mrmr_scorers/test_triplet_cross_basis.py
     "_plugin_mi_from_counts",  # plug-in MI helper of the retained uplift scorer above; no live caller
+    "_discrete_score_numpy_loop",  # original per-class reference for the discrete path, kept as the fallback; no switch reaches it
+    "_ks_statistic_numpy",  # reference KS kept callable as the fallback; no switch reaches it
+    "_project_single_head_njit",  # parallel single-head projection kept for the no-BLAS fallback and parity; no switch reaches it
+    "arrayCountingArgSortThreaded",  # parallel counterpart of the counting argsort; the production path uses the serial form and no switch reaches this one
+    "arrayCountingArgSortAndUniqueValuesThreaded",  # parallel counterpart of the counting argsort with unique values; no switch reaches it
+    "arrayMinMaxParallel",  # parallel counterpart of the min/max scan; no switch reaches it
+    "naive_mean_var_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
+    "naive_moments_two_pass_seq",  # naive A/B variant kept for the numerical-stability bench; the bench chose the default path and no switch reaches this one
+    "_fused_regression_welford_par",  # parallel fused Welford regression kernel kept as an alternative; no switch reaches it
 }
 
 #: Called, but the pinned py-ci-shared (v1.17.0) cannot see it: a lazy import with an ``except ImportError: f = None``
@@ -780,6 +827,8 @@ _SUPERSEDED = {
     "_per_query_groups",  # index-array form of the live group slices in metrics.ranking._iter_group_slices; parity pinned in tests/reporting/test_per_query_groups_parity.py
     "_pointwise_log_ratio",  # the log term the I_ccs kernel computes inline; the helper re-sum matches it, pinned in tests/feature_selection/filters/test_pointwise_log_ratio_parity.py
     "_get_fused_mi_term",  # the cp.fuse per-cell term; the resident MI now runs the fused MI-from-codes RawKernel (0cb9186a0). Formula pinned to numpy in tests/feature_selection/gpu/test_gpu_fused_mi_term.py
+    "grok_mutual_information_old",  # naive per-cell form of grok_mutual_information; parity pinned in tests/feature_selection/test_grok_mi_old_parity.py
+    "_yj_inverse_scalar",  # scalar reference for _yj_inverse; parity pinned in tests/training/composite/transforms/test_yj_inverse_scalar_parity.py
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.
@@ -792,6 +841,40 @@ _OPT_IN_SLOW: set[str] = {
 #: PLUGIN_HOOK: an extension point a downstream package calls by name; no in-repo caller by design.
 _PLUGIN_HOOKS = {
     "forget_pool_bytes",  # downstream evictor calls it after evicting outside evict_for_budget
+}
+
+#: PLANNED: a documented feature whose caller is not written yet; each entry names the feature and the owner decides wire or drop.
+_PLANNED: set[str] = {
+    "npnbArrayMinMax",  # fast finite-input min/max utility not yet called; the planned array-stats path uses it
+    "topk_by_partition",  # top-k helper not yet called; the planned ranking path uses it
+    "_suppress_numeric_warnings",  # worker-thread warning filter for the numeric module, planned for its callers
+    "compute_mutual_info_regression",  # KNN regression MI planned for the regression feature-selection path
+    "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
+    "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
+    "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
+    "fill_grid_1d",  # GPU launch-geometry helper for flat kernels, planned to replace hand-written grid sizes
+    "clear_pinned_d2h",  # releases the thread-local pinned D2H staging buffer; location at fit completion undecided
+    "validate_artifact_dict",  # sanity check for received artifact dicts, planned guard on the artifact load path
+    "parse_routing_col_name",  # inverse of _routing_col_name, planned for recipe replay
+    "parallel_mi_with_null",  # null-mean-accumulating MI twin, planned for the null-calibrated screen
+    "parallel_mi_besag_clifford_with_null",  # null-mean-accumulating Besag-Clifford twin, planned for the null-calibrated screen
+    "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
+    "apply_gpu_binary_batched",  # batched GPU binary apply, planned for the resident FE path
+    "sanitize_name_list",  # remaps cat_features names through the sanitiser, planned for the training input path
+    "_residual_variance_ratio",  # OLS residual-variance criterion described in the structural hints, planned for the hint decision
+    "_transform_via",  # applies a fitted pre-pipeline or passes X through, planned for the ensemble predict path
+    "carve_calib_conformal",  # dispatches the structure-appropriate conformal calibration carver, planned for the conformal split
+    "disable_native_es_for_slice_stable",  # strips native early stopping under slice-stable ES, planned for per-slice boosters
+    "translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",  # translates sklearn MLP overrides to the recurrent config, planned for the recurrent trainer
+    "wrap_with_lookahead",  # conditional Lookahead wrapper, planned for the neural optimiser setup
+    "_group_features_mi_njit",  # fused per-group MI in one njit dispatch, planned for the ranking feature selection
+    "bootstrap_auc_distribution_parallel",  # parallel full bootstrap AUC distribution, planned for the AUC uncertainty report
+    "rerank_candidates",  # re-ranks SHAP-proxy candidates by the corrector's predicted loss, planned for the corrector step
+    "compute_permutation_importances",  # user-facing permutation importance helper not yet exported, planned as public API
+    "_require_plotly",  # plotly import guard for the interactive paths, planned to be called by them
+    "_split_arrays",  # groups a value array by split label for error analysis, planned for the split charts
+    "_wrap_text",  # label wrapping for plotly charts, planned for the chart labels
+    "_get_cached_plot_idx",  # cached random subsample index for scatter plots, planned for the residual plots
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
@@ -830,6 +913,7 @@ def test_no_new_function_without_a_caller(request):
         | _NAME_DISPATCHED
         | _SUPERSEDED
         | _PLUGIN_HOOKS
+        | _PLANNED
         | _OPT_IN_SLOW
         | _OPTIN,
     )
