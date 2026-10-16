@@ -42,7 +42,7 @@ def corrected_joint_mi(columns: "list[np.ndarray]", y_codes: np.ndarray) -> "tup
 
 def _equivalence_tolerance(extra_cells: int, n_y: int, n: int) -> float:
     """One standard error, in nats, of the difference between the corrected scores of two sets that carry the same information."""
-    return float(np.sqrt(2.0 * max(extra_cells, 0) * max(n_y - 1, 1)) / (2.0 * n))
+    return float(np.sqrt(2.0 * max(extra_cells, 0) * max(n_y - 1, 1)) / (2.0 * n)) + 1e-12  # the floor absorbs summation-order rounding of equal partitions
 
 
 def choose_compaction(columns, selected, engineered_selected, sources, pool, y_codes, consumers=None):
@@ -79,6 +79,30 @@ def choose_compaction(columns, selected, engineered_selected, sources, pool, y_c
         if best is None or key < best[0]:
             best = (key, cand, covered)
     return None if best is None else (best[1], best[2])
+
+
+_CELL_MAX_LEVELS = 8  # operands with at most this many distinct values are crossed as a joint cell table instead of a polynomial triplet
+
+
+def _synthesized_cell_triple(X, operands):
+    """``(name, recipe, codes)`` of the joint cell code of three few-level raw ``operands``, or ``None`` when an operand has too many levels.
+
+    The cell table keeps every combination apart, so it holds whatever any function of the three operands (a conjunction included) can carry; the
+    polynomial triplet of binary legs collapses to a parity and does not.
+    """
+    from .._cat_triple_fe import _encode_triple
+    from .._target_encoding_fe import _column_to_str
+    from ..engineered_recipes import build_cat_triple_cross_recipe
+    from ..engineered_recipes.shared import apply_recipe
+
+    triple = tuple(sorted(operands))
+    if any(X[c].nunique(dropna=False) > _CELL_MAX_LEVELS for c in triple):
+        return None
+    cats = [np.asarray(_column_to_str(X[c])) for c in triple]
+    _, mapping = _encode_triple(cats[0], cats[1], cats[2])
+    name = "cell3(" + ",".join(triple) + ")"
+    rec = build_cat_triple_cross_recipe(name=name, cat_a=triple[0], cat_b=triple[1], cat_c=triple[2], mapping=mapping)
+    return name, rec, np.asarray(apply_recipe(rec, X)).astype(np.int64)
 
 
 def _synthesized_triplet(X, y_codes, operands):
@@ -124,7 +148,7 @@ def run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engi
         engineered_recipes = dict(engineered_recipes)
         spanned = frozenset().union(*(sources[nm] for nm in sel_eng)) if sel_eng else frozenset()
         if len(spanned) == 3 and not any(sources[nm] >= spanned for nm in pool):
-            made = _synthesized_triplet(X, np.asarray(classes_y).ravel(), spanned)
+            made = _synthesized_cell_triple(X[sorted(spanned)], spanned) or _synthesized_triplet(X, np.asarray(classes_y).ravel(), spanned)
             if made is not None:
                 name, rec, codes = made
                 pool.append(name)

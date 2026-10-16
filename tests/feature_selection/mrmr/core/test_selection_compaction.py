@@ -61,3 +61,19 @@ def test_synthesized_triplet_is_built_from_the_three_operands_only():
     y = (X["A"] * X["B"] * X["C"] > 0).astype(np.int64).to_numpy()
     name, rec, codes = _synthesized_triplet(X, y, frozenset("ABC"))
     assert set(rec.src_names) == set("ABC") and name.startswith("A*B*C") and codes.shape == (n,)
+
+
+def test_cell_triple_candidate_holds_the_conjunction_and_replays():
+    """Binary operands are crossed as a joint cell table whose replay equals its fit-time codes and whose corrected information is that of the AND."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._mrmr_fit_impl._selection_compaction import _synthesized_cell_triple
+    from mlframe.feature_selection.filters.engineered_recipes.shared import apply_recipe
+
+    cols, _, y = _conjunction()
+    X = pd.DataFrame({"A": cols["A"].astype(float), "B": (cols["f_ab"] % 2).astype(float), "C": (cols["f_ac"] % 2).astype(float)})
+    _, rec, codes = _synthesized_cell_triple(X, frozenset("ABC"))
+    assert np.array_equal(np.asarray(apply_recipe(rec, X)).astype(np.int64), codes)
+    small = corrected_joint_mi([cols["A"], codes], y)[0]
+    assert small >= corrected_joint_mi([cols["A"], cols["f_ab"], cols["f_ac"]], y)[0] - 1e-3
+    assert _synthesized_cell_triple(X.assign(B=np.arange(len(X)) % 20), frozenset("ABC")) is None
