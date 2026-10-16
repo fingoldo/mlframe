@@ -736,6 +736,12 @@ _REEXPORTED_PUBLIC_API = {
     "recommended_curated_fe_names",  # exported by its package (__all__ / lazy export map)
     "wavedec_dispatch",  # exported by its package (__all__ / lazy export map)
     "wavelet_denoise",  # exported by its package (__all__ / lazy export map)
+    "benjamini_hochberg_reject",  # exported lazily through mlframe.training
+    "list_registered_specs",  # exported lazily through mlframe.training
+    "unregister_metric",  # exported lazily through mlframe.training
+    "calibration_adjusted_score",  # exported lazily through mlframe.training
+    "recalibration_rmse_gain",  # exported lazily through mlframe.training
+    "rank_transforms_by_waic",  # exported lazily through mlframe.training
 }
 
 #: Offline synthetic-data generators (calibration probability samplers): called by benchmarks and tests to build
@@ -1016,12 +1022,8 @@ _PLANNED: set[str] = {
     "make_dmatrix",  # library helper with no in-repo caller; owner decides to export or drop
     "make_lgb_dataset",  # library helper with no in-repo caller; owner decides to export or drop
     "make_pool",  # library helper with no in-repo caller; owner decides to export or drop
-    "recalibration_rmse_gain",  # library helper with no in-repo caller; owner decides to export or drop
     "_discovery_cache_bytes_total",  # library helper with no in-repo caller; owner decides to export or drop
     "_rolling_quantile_radius",  # library helper with no in-repo caller; owner decides to export or drop
-    "calibration_adjusted_score",  # library helper with no in-repo caller; owner decides to export or drop
-    "benjamini_hochberg_reject",  # library helper with no in-repo caller; owner decides to export or drop
-    "rank_transforms_by_waic",  # library helper with no in-repo caller; owner decides to export or drop
     "attach_grouped_causal_bases",  # library helper with no in-repo caller; owner decides to export or drop
     "screen_base_pool",  # library helper with no in-repo caller; owner decides to export or drop
     "_monotone_fraction",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1031,8 +1033,6 @@ _PLANNED: set[str] = {
     "recover_composite_y_scale_metrics",  # library helper with no in-repo caller; owner decides to export or drop
     "_models_need_pandas_cat_prep",  # library helper with no in-repo caller; owner decides to export or drop
     "_run_one_weight_iteration",  # library helper with no in-repo caller; owner decides to export or drop
-    "list_registered_specs",  # library helper with no in-repo caller; owner decides to export or drop
-    "unregister_metric",  # library helper with no in-repo caller; owner decides to export or drop
     "_excess_kurtosis",  # library helper with no in-repo caller; owner decides to export or drop
     "_skewness",  # library helper with no in-repo caller; owner decides to export or drop
     "compare_targets_performance",  # library helper with no in-repo caller; owner decides to export or drop

@@ -123,6 +123,12 @@ def apply_loky_cpu_count_override() -> None:
 # fast-import / optional-dep isolation; no longer guarding a training_old cycle).
 
 _LAZY_IMPORTS = {
+    "benjamini_hochberg_reject": (".composite.discovery._eval_stats", "benjamini_hochberg_reject"),
+    "list_registered_specs": (".metrics_registry", "list_registered_specs"),
+    "unregister_metric": (".metrics_registry", "unregister_metric"),
+    "calibration_adjusted_score": (".composite.discovery._calibration_gate", "calibration_adjusted_score"),
+    "recalibration_rmse_gain": ("._regression_calibration", "recalibration_rmse_gain"),
+    "rank_transforms_by_waic": (".composite.discovery._eval_waic", "rank_transforms_by_waic"),
     # Core functions
     "train_mlframe_models_suite": (".core", "train_mlframe_models_suite"),
     "train_automl_models_suite": (".automl", "train_automl_models_suite"),
@@ -461,6 +467,12 @@ __all__ += [
     "cv_stability_check",
     "easy_ensemble_fit_predict",
     "DirectHorizonBucketForecaster",
+    "benjamini_hochberg_reject",
+    "list_registered_specs",
+    "unregister_metric",
+    "calibration_adjusted_score",
+    "recalibration_rmse_gain",
+    "rank_transforms_by_waic",
 ]
 
 
