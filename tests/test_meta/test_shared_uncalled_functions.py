@@ -963,7 +963,6 @@ _PLANNED: set[str] = {
     "batch_weighted_mean",  # batch wrapper over weighted_mean_1d, planned for batched neighbour aggregation
     "batch_weighted_std",  # batch wrapper over weighted_std_1d, planned for batched neighbour aggregation
     "batch_weighted_vector_mean",  # batch per-query vector mean, planned for batched neighbour aggregation
-    "fill_grid_1d",  # GPU launch-geometry helper for flat kernels, planned to replace hand-written grid sizes
     "parallel_mi_with_null",  # null-mean-accumulating MI twin, planned for the null-calibrated screen
     "parallel_mi_besag_clifford_with_null",  # null-mean-accumulating Besag-Clifford twin, planned for the null-calibrated screen
     "apply_gpu_unary_batched",  # batched GPU unary apply, planned for the resident FE path
@@ -989,7 +988,6 @@ _PLANNED: set[str] = {
     "mi_direct_gpu_batched_streamed",  # library helper with no in-repo caller; owner decides to export or drop
     "_gpu_evaluate_basis_column",  # library helper with no in-repo caller; owner decides to export or drop
     "clear_resident_codes_handoff",  # library helper with no in-repo caller; owner decides to export or drop
-    "fe_gpu_resident_enabled",  # library helper with no in-repo caller; owner decides to export or drop
     "ensure_fe_gpu_binning_tuning",  # library helper with no in-repo caller; owner decides to export or drop
     "ensure_fe_gpu_pairs_mi_tuning",  # library helper with no in-repo caller; owner decides to export or drop
     "gpu_resident_pair_recipes",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1002,7 +1000,6 @@ _PLANNED: set[str] = {
     "_ent_from_counts",  # library helper with no in-repo caller; owner decides to export or drop
     "_nnz_from_counts",  # library helper with no in-repo caller; owner decides to export or drop
     "optimize_all_pairs_numba_kernel",  # library helper with no in-repo caller; owner decides to export or drop
-    "pool_table_use_resident",  # library helper with no in-repo caller; owner decides to export or drop
     "_quantile_codes_1d_njit",  # library helper with no in-repo caller; owner decides to export or drop
     "plugin_mi_classif_batch_fast",  # library helper with no in-repo caller; owner decides to export or drop
     "get_binningprocess_featureselectors",  # library helper with no in-repo caller; owner decides to export or drop
@@ -1042,6 +1039,9 @@ _OPTIN = {
     "_get_cached_plot_idx",  # LRU-cached scatter subsample index; charts now use subsample_preserving_extremes, kept for fixed-seed uniform subsampling
     "clear_pinned_d2h",  # releases page-locked host memory on request; the buffer is reused across fits for PCIe speed, so no automatic clear
     "disable_native_es_for_slice_stable",  # configs-level twin of the per-model early_stopping_rounds strip done in _train_and_evaluate_val_df_none
+    "fill_grid_1d",  # grid sizing for grid-stride kernels; the existing launches are one-element-per-thread, where ceil(n/block) is already exact
+    "fe_gpu_resident_enabled",  # env switch for the GPU-resident FE prototype, measured a wall wash so it stays off unless MLFRAME_FE_GPU_RESIDENT is set
+    "pool_table_use_resident",  # measured per-host engage rule for the resident pair-combo table; the table is wired only under the strict flag because the non-strict path is not byte-identical
 }
 
 
